@@ -73,11 +73,10 @@ pub(super) fn wrap(
 pub(super) enum Routed {
     /// An ordinary usage event → `deck://usage/report`.
     Usage(Report),
-    /// An interrupt marker → `deck://agent/status`, reshaped to the status
-    /// payload (`kind`/`reason` + provenance) the plugin normalizers read.
+    /// A carried status record → `deck://agent/status`, reshaped to the
+    /// status payload the plugin normalizers read. A replay of the existing
+    /// file rides as a `reconcile`, which may only end a turn.
     Status(Report),
-    /// A replayed interrupt: an old abort must never fire as if fresh.
-    Drop,
 }
 
 /// Route one wrapped report. An interrupt marker is a STATUS edge, not
@@ -105,13 +104,16 @@ pub(super) fn route(report: Report) -> Routed {
     if report.payload[EVENT_KEY]["lane"] == "usage" {
         return Routed::Usage(report);
     }
-    // A status edge from a replay is a turn that ended before this deck was
-    // looking, and acting on it would end the turn running now.
-    let context_only =
-        report.payload[CATCH_UP_KEY] == true && report.payload[EVENT_KEY]["replayContext"] == true;
-    if report.payload[CATCH_UP_KEY] == true && !context_only {
-        return Routed::Drop;
-    }
+    // A status record from a replay — the file as it was when the tail
+    // armed, or re-read whole after a rotation — describes turns that may
+    // have ended before this deck was looking. Live, it could end the turn
+    // running now or start one long over; so it is marked: decoder
+    // metadata as context only, a turn boundary as a RECONCILE, which the
+    // tracker may use only to end a turn it still shows running, and only
+    // when nothing started after that ending.
+    let catch_up = report.payload[CATCH_UP_KEY] == true;
+    let context_only = catch_up && report.payload[EVENT_KEY]["replayContext"] == true;
+    let reconcile = catch_up && !context_only;
     let mut body = if is_batch {
         json!({ "agent": report.payload["agent"], "kind": BATCH,
             "records": report.payload[EVENT_KEY]["records"] })
@@ -126,6 +128,9 @@ pub(super) fn route(report: Report) -> Routed {
     }
     if context_only {
         body["contextOnly"] = json!(true);
+    }
+    if reconcile {
+        body["reconcile"] = json!(true);
     }
     Routed::Status(Report {
         pane_id: report.pane_id,
@@ -191,10 +196,11 @@ mod tests {
     }
 
     #[test]
-    fn a_replayed_interrupt_is_dropped_whole() {
-        // A record read out of the EXISTING file describes a turn that ended
-        // before this deck was looking. Acted on, it would end the turn
-        // running right now — so it never reaches the channel at all.
+    fn a_replayed_status_record_rides_as_a_reconcile() {
+        // A record read out of the EXISTING file describes a turn that may
+        // have ended before this deck was looking. It reaches the channel
+        // marked, so the tracker can only use it to end a turn still shown
+        // running — never as if it had just happened.
         let replay = wrap(
             "pane-1",
             "tok",
@@ -205,7 +211,12 @@ mod tests {
             })),
             true,
         );
-        assert_eq!(route(replay), Routed::Drop);
+        let Routed::Status(report) = route(replay) else {
+            panic!("a replayed status record is a reconcile, not lost")
+        };
+        assert_eq!(report.payload["reconcile"], true);
+        assert!(report.payload.get("contextOnly").is_none());
+        assert_eq!(report.payload["record"]["interruptedMessageId"], "msg-1");
     }
 
     #[test]

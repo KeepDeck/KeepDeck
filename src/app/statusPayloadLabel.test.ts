@@ -13,6 +13,8 @@ describe("statusPayloadLabel", () => {
     expect(statusPayloadLabel({ agent: "a", kind: "store.batch", records: [secret, secret, secret] })).toBe("store.batch(3)");
     expect(statusPayloadLabel({ agent: "a", kind: "store.batch", records: [secret], catchUp: true })).toBe("store.batch(1, catch-up)");
     expect(statusPayloadLabel({ agent: "a", kind: "store.record", record: secret, catchUp: true })).toBe("store.record(catch-up)");
+    expect(statusPayloadLabel({ agent: "a", kind: "store.batch", records: [secret, secret], reconcile: true })).toBe("store.batch(2, reconcile)");
+    expect(statusPayloadLabel({ agent: "a", kind: "store.record", record: secret, contextOnly: true })).toBe("store.record(context)");
   });
 
   it("refuses a name that could forge or bury a log line", () => {

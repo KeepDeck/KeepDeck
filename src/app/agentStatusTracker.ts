@@ -199,6 +199,10 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     const agent = payload.agent;
     const normalize = normalizers.get(agent);
     if (!normalize) return ignored;
+    // A reconcile (the tail's replay of a file's latest turn boundaries) is
+    // not acted on yet: the host used to drop it, and the rule that lets it
+    // end a running turn lands separately.
+    if (payload.reconcile === true) return ignored;
     // One root-file drain is ordered and atomic; only the plugin reads its
     // records. In particular, no subscriber sees the abort between turns.
     const payloads = payload.kind === "store.batch"

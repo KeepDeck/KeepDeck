@@ -48,7 +48,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
-use dialects::{last_of_each, sibling_paths, TailWatch, TailedEvent};
+use dialects::{last_of_each, last_status_of_each, sibling_paths, TailWatch, TailedEvent};
 use reader::{drain_file, TailCursor};
 use route::{batch_status, route, wrap, Routed};
 use totals::Folds;
@@ -168,9 +168,8 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
 /// the status lane through a second, unrouted path.
 fn deliver_routed(app: &AppHandle, report: Report) {
     match route(report) {
-        Routed::Drop => {}
         Routed::Status(status) => {
-            log::debug!("usage tail: pane={} interrupt marker", status.pane_id);
+            log::debug!("usage tail: pane={} status record", status.pane_id);
             let _ = app.emit(AGENT_STATUS_EVENT, &status);
         }
         Routed::Usage(report) => {
@@ -206,6 +205,14 @@ fn spawn_tailer(
                 let Ok(mut s) = state.lock() else { break };
                 let agent = s.agent.clone();
                 let (events, replay) = drain_all(&mut s);
+                // A rotated root file was re-read whole: its status records
+                // are a replay, and leave as ONE reconcile of the last of
+                // each — the same summary an arm sends.
+                let replayed_status = if replay.root {
+                    last_status_of_each(&events, &s.watches)
+                } else {
+                    Vec::new()
+                };
                 let mut status = Vec::new();
                 for event in events {
                     // A subagent transcript's turn edges are the subagent's
@@ -223,6 +230,10 @@ fn spawn_tailer(
                     // fresh root Esc its delivery.
                     let catch_up = if event.root { replay.root } else { replay.any };
                     let is_status = event.payload["lane"] == "status";
+                    let replay_context = event.payload["replayContext"] == true;
+                    if is_status && catch_up && !replay_context {
+                        continue; // carried by the reconcile below
+                    }
                     let report = wrap(&s.pane_id, &s.token, &agent, event, catch_up);
                     if is_status && !catch_up {
                         status.push(report);
@@ -231,6 +242,13 @@ fn spawn_tailer(
                     }
                 }
                 if let Some(report) = batch_status(status) {
+                    deliver(report);
+                }
+                let reconcile: Vec<Report> = replayed_status
+                    .into_iter()
+                    .map(|event| wrap(&s.pane_id, &s.token, &agent, event, true))
+                    .collect();
+                if let Some(report) = batch_status(reconcile) {
                     deliver(report);
                 }
             }
@@ -295,31 +313,42 @@ pub fn usage_watch_session_file(
     let watcher = spawn_tailer(state.clone(), POLL_INTERVAL, move |payload| {
         deliver_routed(&emitter, payload);
     })?;
-    let (caught_up, position) = {
+    let (caught_up, reconciled, position) = {
         let mut s = state.lock().expect("tail state poisoned");
         // The drain folds the WHOLE file in order as it reads it, so the
         // last record each watch carried already holds the session total of
         // everything before it — which is exactly what survives the collapse.
         let (drained, _) = drain_all(&mut s);
+        let reconcile: Vec<Report> = last_status_of_each(&drained, &s.watches)
+            .into_iter()
+            .map(|event| wrap(&s.pane_id, &s.token, &agent, event, true))
+            .collect();
+        let reconciled = reconcile.len();
         let events = last_of_each(drained, &s.watches);
         let count = events.len();
         for event in events {
             let report = wrap(&s.pane_id, &s.token, &agent, event, true);
-            // Through the SAME router as the live path: catch-up safety
-            // rests on the collapse and router dropping old activity.
-            // Opted-in decoder metadata is marked context-only instead.
+            // Through the SAME router as the live path. Opted-in decoder
+            // metadata is marked context-only there.
+            deliver_routed(&app, report);
+        }
+        // The file's latest turn boundaries, as one reconcile: a turn that
+        // ended before this tail armed — while the pane's hook had already
+        // said "working" — must still be able to end. The tracker uses a
+        // reconcile only to END a turn it shows running, never to start one.
+        if let Some(report) = batch_status(reconcile) {
             deliver_routed(&app, report);
         }
         // Where the follower now stands, against how long the file is: a
         // tail that later "stops" can be told apart from one that never
         // got past its start.
         let size = std::fs::metadata(&s.path).map(|m| m.len()).ok();
-        (count, (s.root.offset, size))
+        (count, reconciled, (s.root.offset, size))
     };
     // One line per arm — the difference between "tail broken" and "tail
     // never armed" cost a blind debugging session once.
     log::info!(
-        "usage tail: pane={pane_id} agent={agent} file={:?} at={}/{} catch-up={caught_up}",
+        "usage tail: pane={pane_id} agent={agent} file={:?} at={}/{} catch-up={caught_up} reconcile={reconciled}",
         PathBuf::from(&path).file_name().unwrap_or_default(),
         position.0,
         position.1.map_or_else(|| "?".to_string(), |size| size.to_string()),
@@ -993,16 +1022,61 @@ mod tests {
         );
         assert_eq!(report.pane_id, "pane-1");
         assert_eq!(report.token, "tok");
-        // Rotation replays history but must never publish that as live status.
+        // Rotation replays history: never as live status — as a reconcile.
         let guard = state.lock().unwrap();
         fs::write(&path, "{\"type\":\"status\",\"edge\":\"old\"}\n").unwrap();
         drop(guard);
-        assert_eq!(
-            rx.recv_timeout(Duration::from_secs(10)).unwrap(),
-            Routed::Drop
-        );
+        let Routed::Status(replayed) = rx.recv_timeout(Duration::from_secs(10)).unwrap() else {
+            panic!("a rotated file's status is a reconcile")
+        };
+        assert_eq!(replayed.payload["reconcile"], true);
+        assert_eq!(replayed.payload["record"], serde_json::json!({ "type": "status", "edge": "old" }));
         assert!(rx.try_recv().is_err(), "no off-root status may escape");
         drop(watcher);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // task-462: a turn that ended before the tail armed — its hook had
+    // already said "working" — reaches the channel as ONE reconcile carrying
+    // the file's latest boundaries in file order, where it used to be lost.
+    #[test]
+    fn an_arm_after_a_finished_turn_carries_its_ending_as_one_reconcile() {
+        let dir = temp_dir();
+        let path = dir.join("session.jsonl");
+        let mut state = tail(path.clone());
+        state.watches = serde_json::from_value(serde_json::json!([
+            { "match": [{ "key": "type", "equals": "prompt" }], "keep": ["type", "at"], "lane": "status" },
+            { "match": [{ "key": "type", "equals": "ended" }], "keep": ["type", "at"], "lane": "status" },
+            { "match": [{ "key": "type", "equals": "usage" }], "keep": ["type"], "lane": "usage" }
+        ]))
+        .unwrap();
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"prompt\",\"at\":1}\n",
+                "{\"type\":\"ended\",\"at\":2}\n",
+                "{\"type\":\"prompt\",\"at\":3,\"text\":\"SECRET\"}\n",
+                "{\"type\":\"usage\"}\n",
+                "{\"type\":\"ended\",\"at\":4}\n"
+            ),
+        )
+        .unwrap();
+        // The arm's own steps, minus the AppHandle.
+        let (drained, _) = drain_all(&mut state);
+        let reconcile: Vec<Report> = last_status_of_each(&drained, &state.watches)
+            .into_iter()
+            .map(|event| report(&state, event, true))
+            .collect();
+        let Some(Routed::Status(sent)) = batch_status(reconcile).map(route) else {
+            panic!("the finished turn's boundaries reach the status channel")
+        };
+        assert_eq!(sent.payload["reconcile"], true);
+        assert_eq!(sent.payload["kind"], "store.batch");
+        assert_eq!(
+            sent.payload["records"],
+            serde_json::json!([{ "type": "prompt", "at": 3 }, { "type": "ended", "at": 4 }])
+        );
+        assert!(!sent.payload.to_string().contains("SECRET"));
         fs::remove_dir_all(&dir).ok();
     }
 

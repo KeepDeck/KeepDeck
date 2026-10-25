@@ -69,9 +69,10 @@ fn a_cold_file_restores_only_latest_context_and_never_its_old_ending() {
     let old_end = watched_events(br#"{"type":"end"}"#, &watches, &mut Folds::default())
         .pop()
         .unwrap();
-    assert_eq!(
-        route(wrap("pane", "token", "agent", old_end, true)),
-        Routed::Drop
-    );
+    let Routed::Status(old) = route(wrap("pane", "token", "agent", old_end, true)) else {
+        panic!("an old ending rides as a reconcile")
+    };
+    assert_eq!(old.payload["reconcile"], true);
+    assert!(old.payload.get("contextOnly").is_none());
     fs::remove_dir_all(dir).unwrap();
 }
