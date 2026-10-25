@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { updateSettings } from "../../app/settingsManager";
-import { useSettings } from "../../app/useSettings";
+import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import {
   DEFAULT_SETTINGS,
   SCROLLBACK_MAX,
@@ -16,6 +15,7 @@ import {
  */
 export function TerminalSection() {
   const scrollback = useSettings()?.scrollback ?? DEFAULT_SETTINGS.scrollback;
+  const updateSettings = useSettingsWrite();
   const [draft, setDraft] = useState(String(scrollback));
 
   const commit = () => {

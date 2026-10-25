@@ -1,9 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  removeStoredRole,
-  saveStoredRole,
-} from "../../app/roleCatalogManager";
-import { useRoleCatalog } from "../../app/useRoleCatalog";
+import { useRoleCatalog, useRoleCatalogWrite } from "../../app/useRoleCatalog";
 import {
   builtInRoles,
   leadRole,
@@ -63,6 +59,7 @@ const FRESH: RoleDraft = {
  */
 export function TeamRolesSection() {
   const catalog = useRoleCatalog();
+  const roleWrite = useRoleCatalogWrite();
   const [selected, setSelected] = useState<Selection | null>(null);
   const [draft, setDraft] = useState<RoleDraft | null>(null);
   /** Whether the person has TYPED into the draft — the line between a seed
@@ -142,7 +139,7 @@ export function TeamRolesSection() {
     }
     setBusy(true);
     try {
-      await saveStoredRole(id, record);
+      await roleWrite.save(id, record);
       close();
     } catch (e) {
       setProblem(errorMessage(e));
@@ -157,7 +154,7 @@ export function TeamRolesSection() {
     if (busy) return;
     setBusy(true);
     try {
-      await removeStoredRole(id);
+      await roleWrite.remove(id);
       // Close only the editor this deletion is ABOUT: an orphan's Delete
       // beside an open, unrelated draft must not discard that draft.
       if (selected?.kind === "edit" && selected.id === id) close();

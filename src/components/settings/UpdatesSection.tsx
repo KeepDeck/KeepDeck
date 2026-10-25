@@ -1,16 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  cancelUpdateDownload,
-  checkForUpdatesNow,
-  dismissUpdate,
-  downloadUpdate,
-  isFoundUpdate,
-  restartToUpdate,
-  type UpdateState,
-} from "../../app/updateManager";
 import { downloadPercent } from "@keepdeck/plugin-api";
-import { useUpdate } from "../../app/useUpdate";
-import { readAppInfo } from "../../app/appInfo";
+import { isFoundUpdate, useUpdate, useUpdateActions, type UpdateActions, type UpdateState } from "../../app/useUpdate";
 import { UpdateChangelog } from "./UpdateChangelog";
 
 /** The status line for each update phase — one honest sentence, no spinners. */
@@ -46,7 +36,7 @@ function describeState(state: UpdateState): string {
 
 /** The action buttons for each phase. Every transition is an explicit click:
  * check finds, Download fetches, Restart installs — and Dismiss backs out. */
-function actions(state: UpdateState) {
+function actions(state: UpdateState, update: UpdateActions) {
   switch (state.phase) {
     case "available":
       return [
@@ -55,14 +45,14 @@ function actions(state: UpdateState) {
           label: "Download update",
           active: true,
           disabled: false,
-          onClick: () => void downloadUpdate(),
+          onClick: () => void update.download(),
         },
         {
           key: "dismiss",
           label: "Dismiss",
           active: false,
           disabled: false,
-          onClick: () => void dismissUpdate(),
+          onClick: () => void update.dismiss(),
         },
       ];
     case "downloading":
@@ -72,7 +62,7 @@ function actions(state: UpdateState) {
           label: "Cancel",
           active: false,
           disabled: false,
-          onClick: () => cancelUpdateDownload(),
+          onClick: () => update.cancel(),
         },
       ];
     case "ready":
@@ -89,14 +79,14 @@ function actions(state: UpdateState) {
                 : "Restart to update",
           active: true,
           disabled: state.phase === "installing" || state.phase === "discarding",
-          onClick: () => void restartToUpdate(),
+          onClick: () => void update.restart(),
         },
         {
           key: "dismiss",
           label: "Dismiss",
           active: false,
           disabled: state.phase === "installing" || state.phase === "discarding",
-          onClick: () => void dismissUpdate(),
+          onClick: () => void update.dismiss(),
         },
       ];
     default:
@@ -106,7 +96,7 @@ function actions(state: UpdateState) {
           label: "Check for updates",
           active: false,
           disabled: state.phase !== "idle",
-          onClick: () => checkForUpdatesNow(),
+          onClick: () => void update.check(),
         },
       ];
   }
@@ -119,13 +109,14 @@ function actions(state: UpdateState) {
  */
 export function UpdatesSection() {
   const update = useUpdate();
+  const updateActions = useUpdateActions();
   const [version, setVersion] = useState<string | null>(null);
 
   // One read per process, shared with the bar and the update manager; the
   // version cannot change without a restart, so the shell is asked once.
   useEffect(() => {
     let mounted = true;
-    readAppInfo()
+    updateActions.appInfo()
       .then((info) => {
         if (mounted) setVersion(info.version);
       })
@@ -135,7 +126,7 @@ export function UpdatesSection() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [updateActions]);
 
   return (
     <>
@@ -146,7 +137,7 @@ export function UpdatesSection() {
 
       <span className="form__label">Updates</span>
       <div className="form__types">
-        {actions(update).map((a) => (
+        {actions(update, updateActions).map((a) => (
           <button
             key={a.key}
             type="button"

@@ -1,8 +1,7 @@
 import { useSyncExternalStore } from "react";
-import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { offBlockedBy, tasksEnableStatus } from "../../app/tasks/enableStatus";
-import { useSettings } from "../../app/useSettings";
+import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { offWaitingHint, showTasksSocketHint } from "../../presentation/tasks";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
@@ -23,6 +22,7 @@ import { ON_OFF } from "../../presentation/choices";
  */
 export function TasksRows() {
   const settings = useSettings();
+  const updateSettings = useSettingsWrite();
   const tasks = settings?.tasks ?? DEFAULT_SETTINGS.tasks;
   const served = useMcpStatus().socket !== null;
   // An Off the backend refused — a board it would have closed over

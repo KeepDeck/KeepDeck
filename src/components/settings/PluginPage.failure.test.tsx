@@ -16,7 +16,7 @@ vi.mock("../../app/runtimeContext", async () =>
       restartPlugin: async () => {},
     },
   }));
-vi.mock("../../app/useSettings", () => ({ useSettings: () => null }));
+vi.mock("../../app/useSettings", () => ({ useSettings: () => null, useSettingsWrite: () => () => {} }));
 
 const FAILED_PLUGIN: InstalledPlugin = {
   manifest: {

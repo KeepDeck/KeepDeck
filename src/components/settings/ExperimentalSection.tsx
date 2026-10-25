@@ -1,5 +1,4 @@
-import { updateSettings } from "../../app/settingsManager";
-import { useSettings } from "../../app/useSettings";
+import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 import { ON_OFF } from "../../presentation/choices";
@@ -17,6 +16,7 @@ import { ON_OFF } from "../../presentation/choices";
  */
 export function ExperimentalSection() {
   const settings = useSettings();
+  const updateSettings = useSettingsWrite();
   const remoteAgents =
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
 

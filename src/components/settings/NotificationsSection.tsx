@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { updateSettings } from "../../app/settingsManager";
-import { useSettings } from "../../app/useSettings";
+import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import {
   DEFAULT_SETTINGS,
   NOTIFICATION_MODES,
@@ -37,6 +36,7 @@ const MODE_OPTIONS: Record<NotificationsMode, { label: string; hint: string }> =
  */
 export function NotificationsSection() {
   const settings = useSettings();
+  const updateSettings = useSettingsWrite();
   const prefs = settings?.notifications ?? DEFAULT_SETTINGS.notifications;
   // Three states: unknown (probing), granted, not granted. The mount probe is
   // a pure READ — every settings section stays mounted whenever the dialog

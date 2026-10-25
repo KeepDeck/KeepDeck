@@ -6,8 +6,7 @@ import type {
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { Button } from "../../ui/Button";
 import { useRuntimePart } from "../../app/runtimeContext";
-import { updateSettings } from "../../app/settingsManager";
-import { useSettings } from "../../app/useSettings";
+import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import type { AgentFeature } from "../../domain/agents";
 import { DEFAULT_SETTINGS, withPluginMuted } from "../../domain/settings";
 import type { Contribution, InstalledPlugin } from "../../plugins";
@@ -36,6 +35,7 @@ export function PluginPage({
   const external = externalPluginInfo(plugin.manifest.id);
   const notificationPrefs =
     useSettings()?.notifications ?? DEFAULT_SETTINGS.notifications;
+  const updateSettings = useSettingsWrite();
   const canNotify = plugin.manifest.capabilities.some(
     (cap) => cap.kind === "notifications",
   );

@@ -14,7 +14,7 @@ import {
   accountWindowForecasts,
   panelWindowCaption,
 } from "../../domain/usage/windowForecast";
-import { updateSettings } from "../../app/settingsManager";
+import { useSettingsWrite } from "../../app/useSettings";
 import { UsageWindowBar } from "./UsageWindowBar";
 import { WindowBurn } from "./WindowBurn";
 import { WindowValue } from "./WindowValue";
@@ -52,6 +52,7 @@ export function UsagePanel({
    *  the first frame, before the measurement has been taken. */
   style?: CSSProperties;
 }) {
+  const updateSettings = useSettingsWrite();
   return (
     <div
       className="usage-panel"
