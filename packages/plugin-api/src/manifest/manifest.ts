@@ -299,14 +299,16 @@ export function readManifest(value: unknown): ManifestResult {
     errors.push(`contributes.agents: requires category "cli"`);
   }
 
-  if (errors.length > 0) return { ok: false, errors };
+  // A missing id or floor has its error above; the checks name them again
+  // only so the manifest below is built from the values themselves.
+  if (errors.length > 0 || id === null || minApiVersion === null) return { ok: false, errors };
   return {
     ok: true,
     manifest: {
-      id: id!,
+      id,
       name,
       version,
-      minApiVersion: minApiVersion!,
+      minApiVersion,
       category,
       ...(typeof value.description === "string" && value.description.trim()
         ? { description: value.description.trim() }

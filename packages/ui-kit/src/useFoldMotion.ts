@@ -127,9 +127,10 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
     if (next === null || started.current.has(next)) return false;
     started.current.add(next);
     const playing = motion.current;
-    const merged = mergeFolds(playing?.parts ?? [], next.segments);
+    const playingParts = playing?.parts ?? [];
+    const merged = mergeFolds(playingParts, next.segments);
     const parts: Part[] = [
-      ...merged.kept.map((index) => playing!.parts[index]),
+      ...merged.kept.map((index) => playingParts[index]),
       ...merged.added.map((part) => ({ ...part, startedAt: null, residual: part.from })),
     ];
     const ghosts = new Map(playing?.ghosts ?? []);

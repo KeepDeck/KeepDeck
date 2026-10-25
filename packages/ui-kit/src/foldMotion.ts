@@ -66,17 +66,16 @@ export interface FoldSegment {
 export function segmentsOf(before: Layout, after: Layout): FoldSegment[] | null {
   const kept = new Set(after.rows.map((row) => row.key));
   const had = new Set(before.rows.map((row) => row.key));
-  const oldEnd = new Map(before.rows.map((row) => [row.key, row.end]));
-  const oldStart = new Map(before.rows.map((row) => [row.key, row.start]));
   const segments: FoldSegment[] = [];
   const b = before.rows;
   const a = after.rows;
   let i = 0;
   let j = 0;
-  let pivot: string | null = null;
+  // The row that stayed just above the run, as it stood before.
+  let pivotRow: LaidRow | null = null;
   while (i < b.length || j < a.length) {
     if (i < b.length && j < a.length && b[i].key === a[j].key) {
-      pivot = b[i].key;
+      pivotRow = b[i];
       i++;
       j++;
       continue;
@@ -89,13 +88,14 @@ export function segmentsOf(before: Layout, after: Layout): FoldSegment[] | null 
       j++;
     }
     // Past the run, both lists must stand on the same row again.
-    const boundary = i < b.length ? b[i].key : null;
+    const boundaryRow = i < b.length ? b[i] : null;
+    const boundary = boundaryRow === null ? null : boundaryRow.key;
     const resumes = j < a.length ? a[j].key : null;
     if ((leaving.length === 0 && !entered) || boundary !== resumes) return null;
-    const runStart = pivot === null ? 0 : oldEnd.get(pivot)!;
-    const runEnd = boundary === null ? before.total : oldStart.get(boundary)!;
+    const runStart = pivotRow === null ? 0 : pivotRow.end;
+    const runEnd = boundaryRow === null ? before.total : boundaryRow.start;
     segments.push({
-      pivot,
+      pivot: pivotRow === null ? null : pivotRow.key,
       boundary,
       oldSize: runEnd - runStart,
       ghosts: leaving.map((row) => ({ key: row.key, local: row.start - runStart, size: row.end - row.start })),
@@ -222,7 +222,8 @@ export function foldFrame(
   const pivotIndex = new Map(layout.rows.map((row, index) => [row.key, index]));
   for (const [at, run] of runs.entries()) {
     const box = boxes[at];
-    const owner = segments[run.index].pivot === null ? -1 : (pivotIndex.get(segments[run.index].pivot!) ?? -1);
+    const { pivot } = segments[run.index];
+    const owner = pivot === null ? -1 : (pivotIndex.get(pivot) ?? -1);
     for (const ghost of run.ghosts) {
       if (ghost.local >= box.height || !meets(box.top + ghost.local, box.top + ghost.local + ghost.size)) continue;
       ghosts.push({ segment: run.index, key: ghost.key, top: ghost.local });
