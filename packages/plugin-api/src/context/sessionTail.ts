@@ -170,6 +170,12 @@ export interface TailWatch {
    * it does not. A store's records answer two different questions: what the
    * turn is doing, and what it cost. Nothing about a record's SHAPE says
    * which, so the dialect that named it says.
+   *
+   * A `status` record the host reads out of the file as it already was —
+   * when it arms, or re-reads a rotated file — reaches the dialect as a
+   * RECONCILE: the last record of each status watch, in file order, which
+   * may only END a turn the deck still shows running, and never start one.
+   * So a turn that ended before the tail armed still ends.
    */
   readonly lane: TailLane;
   /** Replay only the latest record of this watch to seed decoder context.

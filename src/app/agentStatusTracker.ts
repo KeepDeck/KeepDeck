@@ -4,6 +4,7 @@ import {
   activityWord,
   answerResolves,
   endingVerdict,
+  reconcileVerdict,
   reduceStatus,
   type PaneActivity,
   type PaneStatus,
@@ -19,6 +20,12 @@ function clock(at: number): string {
   const two = (n: number) => String(n).padStart(2, "0");
   return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 }
+
+/** Why a reconcile ended nothing, in a log line's words. */
+const RECONCILE_SKIP_WORDS = {
+  "pane-not-running": "the pane shows no running turn",
+  "started-after": "a turn started after the store's last ending",
+} as const;
 
 /** Why an ending changed nothing, in a log line's words. */
 const REFUSAL_WORDS = {
@@ -192,6 +199,33 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     );
   }
 
+  /**
+   * A reconcile — the tail's replay of a store's latest turn boundaries —
+   * may only END the turn the pane shows running (`reconcileVerdict`). Its
+   * decoding is read against the current checkpoint and then let go: a
+   * replay of the file's last records is no reading to resume from. Nor
+   * does it open a new epoch: it starts nothing.
+   */
+  function reconcile(
+    paneId: string,
+    previous: PaneStatus | null,
+    events: readonly AgentStatusEvent[],
+    cause: string,
+  ) {
+    const verdict = reconcileVerdict(previous, events);
+    if (verdict?.kind === "skip") {
+      log.info("web:status", `${paneId}: ${cause} ends nothing — ${RECONCILE_SKIP_WORDS[verdict.reason]}`);
+    }
+    const ending = verdict?.kind === "end" ? verdict.edge : null;
+    const preview = ending ? reduceStatus(previous, ending) : previous;
+    return {
+      activity: preview?.activity ?? null,
+      finish() {
+        if (ending) apply(paneId, [ending], cause);
+      },
+    };
+  }
+
   function prepare(paneId: string, payload: unknown, at = Date.now()) {
     const previous = statuses.get(paneId) ?? null;
     const ignored = { activity: previous?.activity ?? null, finish() {} };
@@ -199,10 +233,6 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     const agent = payload.agent;
     const normalize = normalizers.get(agent);
     if (!normalize) return ignored;
-    // A reconcile (the tail's replay of a file's latest turn boundaries) is
-    // not acted on yet: the host used to drop it, and the rule that lets it
-    // end a running turn lands separately.
-    if (payload.reconcile === true) return ignored;
     // One root-file drain is ordered and atomic; only the plugin reads its
     // records. In particular, no subscriber sees the abort between turns.
     const payloads = payload.kind === "store.batch"
@@ -217,6 +247,9 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     const normalizeAll = (reply?: string) => normalizeStatusBatch(
       normalize, payloads, at, stateNow(), reply, payload.contextOnly === true,
     );
+    if (payload.reconcile === true) {
+      return reconcile(paneId, previous, normalizeAll().events, statusPayloadLabel(payload));
+    }
     const initial = normalizeAll();
     const edges = initial.events;
     if (edges.length === 0 && initial.state === stateNow()) return ignored;

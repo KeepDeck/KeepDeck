@@ -69,3 +69,58 @@ describe("the tracker's account of a pane's status", () => {
     expect(lines).toEqual([]);
   });
 });
+
+describe("a reconcile — the tail's replay of a store's latest turn boundaries", () => {
+  beforeEach(() => {
+    lines.length = 0;
+  });
+
+  const batch = (...edges: AgentStatusEvent[]) => ({
+    agent: "x", kind: "store.batch", reconcile: true, records: edges.map((edge) => ({ edge })),
+  });
+  /** The batch's records reach the normalizer one by one, as carried records. */
+  const fromRecords: StatusNormalizer = (payload, at, context) =>
+    isJsonRecord(payload) && !isJsonRecord(payload.edge) && isJsonRecord(payload.record)
+      ? edgeOf(payload.record, at, context)
+      : edgeOf(payload, at, context);
+  const lastLine = () => lines[lines.length - 1];
+
+  it("ends the turn a hook started, when the store already recorded its end", () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("x", fromRecords);
+    tracker.report("pane-1", hook("UserPromptSubmit", { kind: "turn-start", at: 1_000 }));
+    tracker.report("pane-1", batch({ kind: "turn-start", at: 1_001 }, { kind: "turn-end", at: 1_500 }));
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({ state: "done", at: 1_500, interrupted: false });
+    expect(lastLine()).toMatch(/working → done by turn-end@\S+ \(store\.batch\(2, reconcile\)\)$/);
+  });
+
+  it("never ends the turn running now with an older one's end", () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("x", fromRecords);
+    tracker.report("pane-1", hook("UserPromptSubmit", { kind: "turn-start", at: 2_000 }));
+    tracker.report("pane-1", batch({ kind: "turn-end", at: 1_500 }));
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({ state: "working", since: 2_000 });
+    expect(lastLine()).toMatch(/refused — older than the running phase/);
+  });
+
+  it("never starts a turn, and leaves a finished pane alone", () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("x", fromRecords);
+    tracker.report("pane-1", batch({ kind: "turn-start", at: 3_000 }));
+    expect(tracker.getSnapshot().panes.get("pane-1")).toBeUndefined();
+    tracker.report("pane-1", hook("UserPromptSubmit", { kind: "turn-start", at: 1_000 }));
+    tracker.report("pane-1", record({ kind: "turn-end", at: 1_200 }, "x"));
+    tracker.report("pane-1", batch({ kind: "turn-end", at: 1_300 }));
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({ state: "done", at: 1_200, interrupted: false });
+    expect(lastLine()).toMatch(/store\.batch\(1, reconcile\) ends nothing — the pane shows no running turn$/);
+  });
+
+  it("ends nothing when the store records a turn started after its last ending", () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("x", fromRecords);
+    tracker.report("pane-1", hook("UserPromptSubmit", { kind: "turn-start", at: 1_000 }));
+    tracker.report("pane-1", batch({ kind: "turn-end", at: 900 }, { kind: "turn-start", at: 1_001 }));
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({ state: "working", since: 1_000 });
+    expect(lastLine()).toMatch(/ends nothing — a turn started after the store's last ending$/);
+  });
+});

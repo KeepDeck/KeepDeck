@@ -518,3 +518,59 @@ export function activityWord(activity: PaneActivity | undefined): string {
   if (activity.state === "done") return activity.interrupted ? "done (interrupted)" : "done";
   return activity.state;
 }
+
+/**
+ * What a RECONCILE may do to a pane: the tail's replay of a store's latest
+ * turn boundaries, sent when it armed (or re-read a rotated file) — the
+ * only word left about a turn that ended before the deck was looking.
+ *
+ * It may END the turn the pane shows running, and nothing else:
+ *
+ * - only a pane that is `working` or `waiting` — a finished or silent pane
+ *   is left alone (no "interrupted" badge on a session resumed from
+ *   yesterday, no "working" for a turn long over);
+ * - only the LAST ending of the batch, and only when nothing started after
+ *   it (a turn start, an observed turn, an agent turn) — otherwise the
+ *   latest turn the store records is still running;
+ * - never a start, of any kind: a replay can end a turn, never begin one.
+ *
+ * The ending it picks still goes through the fold, whose staleness rule
+ * refuses one older than the running phase — so a previous turn's end can
+ * never close the turn running now.
+ *
+ * KNOWN EDGE, kept on purpose: a phase begun by a hook is stamped when the
+ * deck RECEIVED it, while a store's ending carries the time the CLI wrote
+ * it. A turn that ends within the hook's own delivery latency (a prompt
+ * refused in milliseconds) therefore has an ending older than its phase,
+ * and the fold refuses it. Matching the store's own prompt to the phase
+ * would cover it; it is not done until a log shows it happening.
+ */
+export type ReconcileVerdict =
+  | { kind: "end"; edge: AgentStatusEvent }
+  | { kind: "skip"; reason: "pane-not-running" | "started-after" }
+  | null;
+
+export function reconcileVerdict(
+  current: PaneStatus | null,
+  events: readonly AgentStatusEvent[],
+): ReconcileVerdict {
+  let ending: AgentStatusEvent | null = null;
+  let startedAfter = false;
+  for (const event of events) {
+    if (isEnding(event)) {
+      ending = event;
+      startedAfter = false;
+    } else if (
+      event.kind === "turn-start" ||
+      event.kind === "turn-observed" ||
+      event.kind === "agent-turn-start"
+    ) {
+      if (ending !== null) startedAfter = true;
+    }
+  }
+  if (ending === null) return null;
+  const state = current?.activity.state;
+  if (state !== "working" && state !== "waiting") return { kind: "skip", reason: "pane-not-running" };
+  if (startedAfter) return { kind: "skip", reason: "started-after" };
+  return { kind: "end", edge: ending };
+}
