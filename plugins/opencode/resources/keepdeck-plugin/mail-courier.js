@@ -218,7 +218,7 @@ export async function startCourier(input = {}) {
   const policy = createCourierPolicy({
     pane,
     screen: () => follower().screen(),
-    ask,
+    ask: (target) => ask(target).then((answer) => answer ?? undefined),
     deliverToPane: deliver,
     adapter: {
       selectionOf: (sessionID) => promptSelection(client, sessionID),
