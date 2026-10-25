@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * What the pane's TUI is showing, shared between the TUI half and the server
  * half of KeepDeck's opencode plugin, on either generation (task-435,
@@ -38,7 +39,15 @@ export const STALE_MS = 3_000;
  * existed. Waiting forever would be worse than the bug it fixes. */
 export const DEAD_MS = 30_000;
 
-/** Write the route for this process, atomically: a reader never sees half. */
+/** @typedef {Record<string, unknown>} Route */
+/** @typedef {{ kind: "unknown" | "stale" | "home" | "other", sessionID?: undefined } | { kind: "session", sessionID: string }} ForegroundState */
+
+/** Write the route for this process, atomically: a reader never sees half.
+ * @param {string} dir
+ * @param {Route} route
+ * @param {number} [now]
+ * @param {number} [pid]
+ */
 export function writeForeground(dir, route, now = Date.now(), pid = process.pid) {
   const path = join(dir, FOREGROUND_FILE);
   const tmp = `${path}.${pid}.tmp`;
@@ -57,6 +66,10 @@ export function writeForeground(dir, route, now = Date.now(), pid = process.pid)
  * - `stale` — the observer stopped answering a moment ago: hold.
  * - `home`, `other` — no session is on screen.
  * - `session` with `sessionID`.
+ * @param {string} dir
+ * @param {number} [now]
+ * @param {number} [owner]
+ * @returns {ForegroundState}
  */
 export function readForeground(dir, now = Date.now(), owner = process.pid) {
   let record;
@@ -76,6 +89,7 @@ export function readForeground(dir, now = Date.now(), owner = process.pid) {
   return { kind: "other" };
 }
 
+/** @param {Route | undefined} a @param {Route | undefined} b */
 const same = (a, b) => a?.route === b?.route && a?.sessionID === b?.sessionID;
 
 /**
@@ -88,9 +102,14 @@ const same = (a, b) => a?.route === b?.route && a?.sessionID === b?.sessionID;
  * unchanged one is rewritten once a heartbeat. A read that throws skips the
  * poll, and a write that fails is dropped: a pane whose route cannot be
  * written behaves as before.
+ * @param {() => unknown} read
+ * @param {string} dir
+ * @param {() => number} [now]
  */
 export function observeRoute(read, dir, now = () => Date.now()) {
+  /** @type {Route | undefined} */
   let seen; // the last route read
+  /** @type {Route | undefined} */
   let held; // the route last written
   let writtenAt = 0;
   const poll = () => {
@@ -100,11 +119,14 @@ export function observeRoute(read, dir, now = () => Date.now()) {
     } catch {
       return;
     }
-    const steady = same(route, seen);
-    seen = route;
-    const changed = steady && !same(route, held);
+    if (!route || typeof route !== "object") return;
+    const current = /** @type {Route} */ (route);
+    const steady = same(current, seen);
+    seen = current;
+    const changed = steady && !same(current, held);
     if (!changed && (held === undefined || now() - writtenAt < HEARTBEAT_MS)) return;
-    if (changed) held = route;
+    if (changed) held = current;
+    if (!held) return;
     try {
       writtenAt = now();
       writeForeground(dir, held, writtenAt);
@@ -117,6 +139,7 @@ export function observeRoute(read, dir, now = () => Date.now()) {
   return () => clearInterval(timer);
 }
 
+/** @param {ForegroundState} state */
 const keyOf = (state) => `${state.kind}\0${state.sessionID ?? ""}`;
 
 /**
@@ -133,8 +156,12 @@ const keyOf = (state) => `${state.kind}\0${state.sessionID ?? ""}`;
  *
  * Returns the stop: opencode 2.x reloads a plugin in place, and a watch left
  * running would follow the screen twice.
+ * @param {string} dir
+ * @param {(state: ForegroundState) => void} onChange
+ * @param {number} [owner]
  */
 export function watchForeground(dir, onChange, owner = process.pid) {
+  /** @type {string | undefined} */
   let last;
   const look = () => {
     const state = readForeground(dir, Date.now(), owner);
@@ -146,6 +173,7 @@ export function watchForeground(dir, onChange, owner = process.pid) {
   look();
   const timer = setInterval(look, HEARTBEAT_MS);
   timer.unref?.();
+  /** @type {import("node:fs").FSWatcher | undefined} */
   let watcher;
   try {
     watcher = watch(dir, look);

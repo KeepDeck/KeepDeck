@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * A request to show a session, from the server half of KeepDeck's opencode
  * 2.x plugin to its TUI half (task-436).
@@ -22,7 +23,11 @@ export const SHOW_FILE = "show.json";
  * the session to come on screen. */
 export const SHOW_FRESH_MS = 3_000;
 
-/** Ask the TUI half to show `sessionID`. */
+/** Ask the TUI half to show `sessionID`.
+ * @param {string} dir
+ * @param {string} sessionID
+ * @param {number} [now]
+ */
 export function requestShow(dir, sessionID, now = Date.now()) {
   const path = join(dir, SHOW_FILE);
   const tmp = `${path}.${process.pid}.tmp`;
@@ -31,14 +36,17 @@ export function requestShow(dir, sessionID, now = Date.now()) {
 }
 
 /** The session asked to be shown, taken off disk — or null when there is no
- * fresh, well-formed request. A stale or broken one is removed all the same. */
+ * fresh, well-formed request. A stale or broken one is removed all the same.
+ * @param {string} dir
+ * @param {number} [now]
+ */
 export function takeShowRequest(dir, now = Date.now()) {
   const path = join(dir, SHOW_FILE);
   let record;
   try {
     record = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    if (error?.code === "ENOENT") return null;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     record = null;
   }
   try {

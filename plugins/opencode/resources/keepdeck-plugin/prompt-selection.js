@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * The agent, model and variant a delivery into an opencode 1.x session must
  * carry, so that a teammate's message runs the way the user's own last prompt
@@ -34,21 +35,29 @@ export const MAIL_FRAME = "<teammate-message>";
  * an unbounded read carries every tool output it ever produced. */
 const WINDOWS = [20, 200];
 
+/** @typedef {{ type?: string, synthetic?: boolean, text?: string }} PromptPart */
+/** @typedef {{ role?: string, agent?: string, model?: { providerID?: string, modelID?: string, variant?: string } }} MessageInfo */
+/** @typedef {{ info?: MessageInfo, parts?: PromptPart[] }} MessageRow */
+
+/** @param {PromptPart | undefined} part */
 const isUsersText = (part) =>
   part?.type === "text" &&
   !part.synthetic &&
   typeof part.text === "string" &&
   !part.text.startsWith(MAIL_FRAME);
 
+/** @param {MessageRow | undefined} row */
 const isUsersMessage = (row) =>
   row?.info?.role === "user" && Array.isArray(row.parts) && row.parts.some(isUsersText);
 
-/** The selection fields a prompt body takes, from a user message's info. */
+/** The selection fields a prompt body takes, from a user message's info.
+ * @param {MessageInfo | undefined} info
+ */
 const selectionOf = (info) => {
   const model = info?.model;
   if (!model?.providerID || !model?.modelID) return {};
   return {
-    ...(typeof info.agent === "string" && info.agent ? { agent: info.agent } : {}),
+    ...(typeof info?.agent === "string" && info.agent ? { agent: info.agent } : {}),
     model: { providerID: model.providerID, modelID: model.modelID },
     ...(typeof model.variant === "string" && model.variant ? { variant: model.variant } : {}),
   };
@@ -58,6 +67,8 @@ const selectionOf = (info) => {
  * The selection to repeat in a delivery into `sessionID`, or `{}` — today's
  * behaviour — when the user has sent nothing there or the session cannot be
  * read. Read it BEFORE injecting anything: after, the newest message is ours.
+ * @param {{ session?: { messages?: (query: { path: { id: string }, query: { limit: number } }) => Promise<{ data?: MessageRow[], error?: unknown }> } } | undefined} client
+ * @param {string} sessionID
  */
 export async function promptSelection(client, sessionID) {
   if (!client?.session?.messages) return {};

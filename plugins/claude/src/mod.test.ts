@@ -11,7 +11,7 @@ const BRIDGE = JSON.stringify({
   url: "http://127.0.0.1:9/envelope",
 });
 
-type Handler = ($: unknown, e: unknown, next: (e: unknown) => unknown) => unknown;
+type Handler = Parameters<Parameters<typeof register>[0]>[1];
 
 /** The Mod registered against a fake claude: its handlers by event, and a
  * `$` whose env, process and HTTP the test controls. */
@@ -71,7 +71,7 @@ function loaded({
   const fire = async (name: string, e: unknown, result: unknown = e) => {
     const handler = handlers.get(name);
     if (!handler) throw new Error(`no handler for ${name}`);
-    const out = await handler($, e, async () => result);
+    const out = await handler($, e as Parameters<Handler>[1], async () => result);
     // Let the wire's queue post what was published.
     for (let i = 0; i < 10; i++) await Promise.resolve();
     return out;

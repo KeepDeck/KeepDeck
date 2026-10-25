@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck's opencode plugin — the one entry opencode loads.
  *
@@ -36,11 +37,19 @@ import { startReporter } from "./session-reporter.js";
  * must not hold the other's back. A handler that throws or rejects is
  * silenced alone.
  */
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+const isRecord = (value) => typeof value === "object" && value !== null;
+/** @param {unknown} value @returns {value is (...args: unknown[]) => unknown} */
+const isHandler = (value) => typeof value === "function";
+
+/** @param {unknown[]} maps */
 export function composeHooks(maps) {
-  const names = new Set(maps.flatMap((map) => Object.keys(map)));
+  const hookMaps = maps.filter(isRecord);
+  const names = new Set(hookMaps.flatMap((map) => Object.keys(map)));
   return Object.fromEntries(
     [...names].map((name) => {
-      const handlers = maps.map((map) => map[name]).filter((fn) => typeof fn === "function");
+      const handlers = hookMaps.map((map) => map[name]).filter(isHandler);
+      /** @param {unknown[]} args */
       const hook = (...args) =>
         Promise.all(
           handlers.map((handler) => {
@@ -59,6 +68,7 @@ export function composeHooks(maps) {
 export default {
   id: "keepdeck",
   /** opencode 1.x. */
+  /** @param {unknown} input */
   server: async (input) => {
     const hooks = composeHooks(await startComponents([startReporter, startCourier], input));
     // Both components have joined the follower by now (follower.js).
@@ -66,5 +76,6 @@ export default {
     return hooks;
   },
   /** opencode 2.x (opencode-v2.js). */
+  /** @param {unknown} context */
   setup: (context) => setupV2(context),
 };

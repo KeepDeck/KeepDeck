@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * What a pane's report says, whichever opencode generation it comes from —
  * shared by session-reporter.js (1.x) and session-reporter-v2.js (2.x), which
@@ -24,7 +25,11 @@ export const tokenCounts = (tokens) => ({
 
 /** The pane's conversation, as `session.bound` states it. A later one is the
  * pane's conversation continuing under a new id: `/new`, or — `switched` — a
- * session the user opened in the TUI (follower.js). */
+ * session the user opened in the TUI (follower.js).
+ * @param {string} sessionId
+ * @param {boolean} continuing
+ * @param {boolean} [switched]
+ */
 export const boundReport = (sessionId, continuing, switched = false) => ({
   sessionId,
   source: !continuing ? "startup" : switched ? "resume" : "new",
@@ -69,13 +74,18 @@ const tokenCountsOnly = (counts) => ({
  * @param {() => Promise<Array<{ providerID: string, modelID: string, window: number | undefined }>>} load
  */
 export function createWindowCache(load) {
+  /** @type {Map<string, number> | undefined} */
   let windows;
+  /** @type {Promise<void> | undefined} */
   let loading;
+  /** @param {string} providerID @param {string} modelID */
   const key = (providerID, modelID) => `${providerID}\0${modelID}`;
+  /** @param {string | undefined} providerID @param {string | undefined} modelID */
   return async (providerID, modelID) => {
     if (!providerID || !modelID) return undefined;
     if (!windows) {
       loading ??= (async () => {
+        /** @type {Map<string, number>} */
         const resolved = new Map();
         for (const entry of await load()) {
           if (typeof entry?.window === "number") {
@@ -91,6 +101,6 @@ export function createWindowCache(load) {
         return undefined;
       }
     }
-    return windows.get(key(providerID, modelID));
+    return windows?.get(key(providerID, modelID));
   };
 }

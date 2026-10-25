@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck's claude Mod — loaded per spawn with `--plugin-dir`, never
  * installed, inert outside a KeepDeck pane.
@@ -24,10 +25,16 @@
  */
 import { createWire, parseBridge } from "./keepdeck-wire.js";
 
+/** @typedef {{ process: { run: (argv: string[], options?: { timeoutMs: number }) => Promise<{ stdout: string, exitCode: number }> }, http: { fetch: (url: string, init: { method: string, headers: Record<string, string>, body: string }) => Promise<{ status: number, text: string }> }, fs: { exists: (path: string) => Promise<boolean> }, prompt: { submit: (input: { text: string }) => Promise<unknown> }, env: { get: (name: string) => Promise<string | undefined> }, clock: { every: (ms: number, tick: () => Promise<void>) => unknown } }} ModContext */
+/** @typedef {{ reason?: string, agentId?: string, door?: string, origin?: { kind?: string }, message?: { type?: string, isMeta?: boolean } }} ModEvent */
+/** @typedef {{ publish: (envelope: unknown) => Promise<{ accepted: boolean }>, makeEnvelope: (type: string, payload: Record<string, unknown>) => unknown }} Wire */
+
 /** Which process is reporting: the process GROUP of this claude, measured the
  * way the hook reporters measure it (resources/reporters/lib/
  * reporter-identity.sh) — a child's parent is the CLI itself. The deck pins a
- * pane to that process; a hello it cannot place is refused. */
+ * pane to that process; a hello it cannot place is refused.
+ * @param {ModContext} $
+ */
 async function processGroup($) {
   try {
     const run = await $.process.run(["/bin/sh", "-c", "ps -o pgid= -p $PPID"], {
@@ -40,8 +47,11 @@ async function processGroup($) {
   }
 }
 
-/** The wire's POST, over the Mod's own HTTP. */
+/** The wire's POST, over the Mod's own HTTP.
+ * @param {ModContext} $
+ */
 function poster($) {
+  /** @param {string} url @param {string} body */
   return async (url, body) => {
     const response = await $.http.fetch(url, {
       method: "POST",
@@ -53,15 +63,21 @@ function poster($) {
 }
 
 /** A prompt the user typed or queued, taken into the main conversation —
- * observed after claude wrote it, which is when it is a fact. */
+ * observed after claude wrote it, which is when it is a fact.
+ * @param {ModEvent} input
+ * @param {unknown} result
+ */
 function acceptedPrompt(input, result) {
+  const submitted = result && typeof result === "object" ? result : null;
+  const message = submitted && "message" in submitted && submitted.message && typeof submitted.message === "object"
+    ? submitted.message : null;
   return (
     input.door === "prompt" &&
     input.origin?.kind === "composer" &&
     input.agentId === undefined &&
-    result?.deny === undefined &&
-    result?.message?.type === "user" &&
-    result.message.isMeta !== true
+    (!submitted || !("deny" in submitted) || submitted.deny === undefined) &&
+    message !== null && "type" in message && message.type === "user" &&
+    (!("isMeta" in message) || message.isMeta !== true)
   );
 }
 
@@ -82,7 +98,10 @@ const DOORBELL_POLL_MS = 100;
 /** Take the doorbell down, or answer false when there was none to take.
  * A RENAME, not a delete: `rm -f` succeeds on a missing file, so two pollers
  * (a reloaded module beside its predecessor) would both think they took one
- * ring and start two turns. A rename succeeds for exactly one of them. */
+ * ring and start two turns. A rename succeeds for exactly one of them.
+ * @param {ModContext} $
+ * @param {string} path
+ */
 async function takeDoorbell($, path) {
   const run = await $.process.run(
     ["/bin/sh", "-c", 'mv -- "$1" "$1.taken.$$" && rm -f -- "$1.taken.$$"', "sh", path],
@@ -94,7 +113,10 @@ async function takeDoorbell($, path) {
 /** Answer the deck's doorbell (`<pane dir>/mail.wake`, see
  * src-tauri/src/bridge/nudge.rs): take it down, then start a turn. Taking it
  * down IS reading it — the file carries nothing. One ring at a time, and one
- * turn per ring however many pollers look. */
+ * turn per ring however many pollers look.
+ * @param {ModContext} $
+ * @param {string} dir
+ */
 function watchDoorbell($, dir) {
   const path = `${dir}/mail.wake`;
   let answering = false;
@@ -117,12 +139,16 @@ function watchDoorbell($, dir) {
 
 /** What a Mod the deck refused holds instead of a wire: still "started", so
  * a second session.start does not try again, and nothing to say. */
-const REFUSED = { publish() {}, makeEnvelope() {} };
+/** @type {Wire} */
+const REFUSED = { publish: async () => ({ accepted: false }), makeEnvelope: () => undefined };
 
+/** @param {(name: string, handler: ($: ModContext, e: ModEvent, next: (event: ModEvent) => unknown) => unknown) => unknown} on */
 export function register(on) {
   /** Set once the pane's bridge is known; null outside KeepDeck. */
+  /** @type {Wire | null} */
   let wire = null;
 
+  /** @param {string} name */
   const state = (name) =>
     wire?.publish(wire.makeEnvelope("agent.status", { event: { hook_event_name: name } }));
 
@@ -151,12 +177,12 @@ export function register(on) {
     return next(e);
   });
 
-  on("turn.complete", async ($, e, next) => {
+  on("turn.complete", async (_$, e, next) => {
     if (e.reason === "aborted" && e.agentId === undefined) state("KeepDeckInterrupt");
     return next(e);
   });
 
-  on("session.append", async ($, e, next) => {
+  on("session.append", async (_$, e, next) => {
     const result = await next(e);
     if (acceptedPrompt(e, result)) state("KeepDeckPromptAccepted");
     return result;

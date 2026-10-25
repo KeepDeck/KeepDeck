@@ -111,7 +111,7 @@ async function run(
 }
 
 /** The one envelope posted, parsed. */
-const posted = (nth = 0) => deck.envelopes[nth] as Record<string, any>;
+const posted = (nth = 0) => deck.envelopes[nth];
 
 describe("kd-usage-statusline.sh", () => {
   it("publishes the stdin verbatim as a usage.report envelope", async () => {

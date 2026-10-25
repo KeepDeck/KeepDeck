@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
 import { HEARTBEAT_MS } from "../resources/keepdeck-plugin/foreground.js";
+import { requireHooks, type Armed } from "./resourceTestSupport";
 
 /**
  * Leaving a conversation, and mail on the home screen (opencode 1.x,
@@ -21,8 +22,10 @@ import { HEARTBEAT_MS } from "../resources/keepdeck-plugin/foreground.js";
 // passed alone.
 vi.setConfig({ testTimeout: 40_000 });
 
-let startReporter: (input?: any) => Promise<any>;
-let startCourier: (input?: any) => Promise<any>;
+type ReporterResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/session-reporter.js").startReporter>>;
+type CourierResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier>>;
+let startReporter: (input?: unknown) => Promise<Armed<ReporterResult, "event">>;
+let startCourier: (input?: unknown) => Promise<Armed<CourierResult, "event" | "tool.execute.after">>;
 let follower: () => { start(dir?: string): void };
 let writeForeground: (dir: string, route: Record<string, unknown>) => void;
 let paneSession: () => { root: string | undefined; left: string | undefined };
@@ -53,16 +56,16 @@ describe("leaving a conversation, and mail on the home screen", () => {
   /** What the stand-in deck hands out to the next mail asks. */
   let pending: unknown[];
   let parents: Record<string, string | undefined>;
-  let calls: { abort: string[]; create: number; select: string[]; prompts: { id: string; body: any }[] };
+  let calls: { abort: string[]; create: number; select: string[]; prompts: { id: string; body: unknown }[] };
   /** What the TUI does when told to show a session; null = it does not. */
   let onSelect: ((id: string) => void) | null;
   /** Fired between `session.create` being called and returning — the user
    * sending their own first prompt at that moment. */
   let duringCreate: (() => Promise<void>) | null;
-  let reporter: any;
-  let courier: any;
+  let reporter: Armed<ReporterResult, "event">;
+  let courier: Armed<CourierResult, "event" | "tool.execute.after">;
 
-  const both = async (event: unknown) => {
+  const both = async (event: Parameters<typeof reporter.event>[0]) => {
     await reporter.event(event);
     await courier.event(event);
   };
@@ -95,7 +98,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
         if (duringCreate) await duringCreate();
         return { data: { id: "ses_c" } };
       },
-      promptAsync: async ({ path, body }: { path: { id: string }; body: any }) => {
+      promptAsync: async ({ path, body }: { path: { id: string }; body: unknown }) => {
         calls.prompts.push({ id: path.id, body });
         return { data: {} };
       },
@@ -112,8 +115,10 @@ describe("leaving a conversation, and mail on the home screen", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    ({ startReporter } = await import("../resources/keepdeck-plugin/session-reporter.js"));
-    ({ startCourier } = await import("../resources/keepdeck-plugin/mail-courier.js"));
+    const reporterResource = await import("../resources/keepdeck-plugin/session-reporter.js");
+    const courierResource = await import("../resources/keepdeck-plugin/mail-courier.js");
+    startReporter = async (input) => requireHooks(await reporterResource.startReporter(input), ["event"]);
+    startCourier = async (input) => requireHooks(await courierResource.startCourier(input), ["event", "tool.execute.after"]);
     ({ follower } = await import("../resources/keepdeck-plugin/follower.js"));
     ({ writeForeground } = await import("../resources/keepdeck-plugin/foreground.js"));
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
@@ -159,7 +164,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
   let arrived: Record<string, number>;
 
   const kinds = () =>
-    deck.envelopes.map((e: any) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
+    deck.envelopes.map((e) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
 
   /** The pane working in `ses_a`, shown on screen. */
   const inA = async () => {

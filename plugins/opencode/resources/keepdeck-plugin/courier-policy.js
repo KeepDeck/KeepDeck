@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * WHERE the courier's mail may go — for either opencode generation's courier.
  *
@@ -23,16 +24,25 @@ import { drained } from "./keepdeck-bridge.js";
 /** How long a session made for the mail may take to come on screen. */
 const SHOW_WAIT_MS = 3_000;
 
+/** @typedef {{ root: string | undefined, left: string | undefined, bound: boolean, rootOf: (id: string) => string, classify: (id: string) => Promise<string> }} PaneView */
+/** @typedef {{ kind: string, sessionID?: string }} Screen */
+
 /**
  * Whether the pane's conversation is what the TUI shows. Unknown — no
  * trusted observer for the TUI this process serves — means as before there
  * was one. A subagent's
  * view is its conversation's; one not yet known to be is held, not guessed.
+ * @param {Screen} screen
+ * @param {PaneView} pane
  */
 export const visibleOn = (screen, pane) =>
   screen.kind === "unknown" ||
-  (screen.kind === "session" && pane.bound && pane.rootOf(screen.sessionID) === pane.root);
+  (screen.kind === "session" && !!screen.sessionID && pane.bound && pane.rootOf(screen.sessionID) === pane.root);
 
+/**
+ * @template Selection, Answer
+ * @param {{ pane: PaneView, screen: () => Screen, ask: (classification: string) => Promise<Answer | undefined>, adapter: { selectionOf: (id: string) => Promise<Selection>, createSession: (selection: Selection) => Promise<string | null>, show: (id: string) => Promise<unknown>, deliver: (answer: Answer, id: string, selection: Selection) => Promise<unknown> }, deliverToPane: () => Promise<unknown> }} options
+ */
 export function createCourierPolicy({ pane, screen, ask, adapter, deliverToPane }) {
   /** After a session the TUI did not show, nothing is tried again until the
    * screen changes: the deck re-rings every 45 s, and each ring would make
@@ -40,10 +50,12 @@ export function createCourierPolicy({ pane, screen, ask, adapter, deliverToPane 
   let homeFailed = false;
   /** The user started a conversation of their own while `viaHome` ran. */
   let theirs = false;
+  /** @type {Set<string>} */
   const ours = new Set();
   /** Root sessions that appeared while `createSession` was in flight —
    * opencode announces the new session BEFORE the call returns (measured
    * live on 1.x, task-444), so which of them is ours is known only after. */
+  /** @type {string[] | null} */
   let creating = null;
 
   /**
@@ -58,10 +70,11 @@ export function createCourierPolicy({ pane, screen, ask, adapter, deliverToPane 
    * screen; this one stops (`theirs`).
    */
   const viaHome = async () => {
-    if (homeFailed) return;
+    if (homeFailed || !pane.left) return;
     const chosen = await adapter.selectionOf(pane.left);
     theirs = false;
     creating = [];
+    /** @type {string | null} */
     let id = null;
     try {
       id = await adapter.createSession(chosen);
@@ -114,6 +127,7 @@ export function createCourierPolicy({ pane, screen, ask, adapter, deliverToPane 
      * session behind. Before any leaving the home screen is opencode's own
      * start, or the native fork's, and the pane is reached as it always was.
      */
+    /** @param {{ rung?: boolean }} [options] */
     async collect({ rung = false } = {}) {
       const now = screen();
       if (now.kind !== "home") homeFailed = false;
@@ -126,6 +140,7 @@ export function createCourierPolicy({ pane, screen, ask, adapter, deliverToPane 
     /** A root session appeared — told at once, not in turn: one the user
      * started while `viaHome` is under way must stop it before it shows its
      * own. */
+    /** @param {string} sessionID */
     rootAppeared(sessionID) {
       if (ours.has(sessionID)) return;
       if (creating) creating.push(sessionID);
@@ -134,6 +149,7 @@ export function createCourierPolicy({ pane, screen, ask, adapter, deliverToPane 
 
     /** Whether `viaHome` made `sessionID` — its own to deliver into, once it
      * is shown, and it may never be. */
+    /** @param {string} sessionID */
     ours: (sessionID) => ours.has(sessionID),
   };
 }

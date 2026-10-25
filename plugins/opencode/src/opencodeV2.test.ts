@@ -32,7 +32,7 @@ function createBus() {
   };
 }
 
-type Hook = (event: any) => Promise<void> | void;
+type Hook = (event: unknown) => Promise<void> | void;
 
 /** The 2.x domains the plugin touches, recording what it does with them. */
 function createContext(parents: Record<string, string | undefined> = {}) {
@@ -118,7 +118,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   let ambientSkipsApprovals: string | undefined;
 
   /** Through the deck's own admission, on opencode's own attribution. */
-  const answerAsk = (envelope: any) => {
+  const answerAsk: NonNullable<Parameters<typeof startDeck>[0]> = (envelope) => {
     const type = envelope?.payload?.event?.type;
     if (type !== "mail.ask" && type !== "mail.ask.tool") return { status: 204 };
     asked.push(envelope.payload.event);
@@ -166,15 +166,15 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   });
 
   /** What the plugin posted, once everything pushed so far was handled. */
-  const reported = async (): Promise<any[]> => {
+  const reported = async () => {
     for (let round = 0; round < 6; round++) await tick();
     await drained();
     await deck.idle();
-    return deck.envelopes.filter((envelope: any) => envelope?.payload?.event?.type?.startsWith?.("mail.") !== true);
+    return deck.envelopes.filter((envelope) => envelope?.payload?.event?.type?.startsWith?.("mail.") !== true);
   };
-  const ofType = (all: any[], type: string) => all.filter((envelope) => envelope.type === type);
-  const lastOf = (all: any[]) => all[all.length - 1];
-  const binding = (envelope: any) => ({
+  const ofType = (all: typeof deck.envelopes, type: string) => all.filter((envelope) => envelope.type === type);
+  const lastOf = (all: typeof deck.envelopes) => all[all.length - 1];
+  const binding = (envelope: (typeof deck.envelopes)[number]) => ({
     sessionId: envelope.payload.sessionId,
     source: envelope.payload.source,
   });
@@ -499,7 +499,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
     const until = async (done: () => boolean, rounds = 400) => {
       for (let round = 0; round < rounds && !done(); round++) await tick();
     };
-    const posted = () => deck.envelopes.map((e: any) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
+    const posted = () => deck.envelopes.map((e) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
     const asks = () => asked.filter((a) => a.type === "mail.ask").length;
 
     /** The pane bound to `ses_a`, shown on screen. */
@@ -618,7 +618,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       // Shown and bound before the mail was asked for.
       const order = posted();
       expect(order.indexOf("session.bound")).toBeGreaterThanOrEqual(0);
-      const askAt = deck.envelopes.findIndex((e: any) => e?.payload?.event?.type === "mail.ask");
+      const askAt = deck.envelopes.findIndex((e) => e?.payload?.event?.type === "mail.ask");
       expect(askAt).toBeGreaterThan(order.indexOf("session.bound"));
     });
 

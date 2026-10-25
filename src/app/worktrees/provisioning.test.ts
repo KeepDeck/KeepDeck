@@ -81,11 +81,11 @@ describe("provision", () => {
       abandoned: stays,
     });
 
-    expect(worktree.createWorktree.mock.calls.map((c: any[]) => c[0].base)).toEqual([
+    expect(worktree.createWorktree.mock.calls.map((c) => c[0].base)).toEqual([
       "develop", // its intent's own fork point
       "abc123", // the batch default
     ]);
-    expect(worktree.createWorktree.mock.calls.map((c: any[]) => c[0].baseBranch)).toEqual([
+    expect(worktree.createWorktree.mock.calls.map((c) => c[0].baseBranch)).toEqual([
       undefined, // backend derives identity from the picked branch itself
       "main", // paired with the separately pinned batch commit
     ]);
@@ -183,7 +183,7 @@ describe("provision", () => {
     await manager.provision(cards().slice(0, 1), "ws", cb); // create + fail
     await manager.provision(cards().slice(0, 1), "renamed", cb); // Retry, renamed between
 
-    expect(worktree.createWorktree.mock.calls.map((c: any[]) => c[0].workspace)).toEqual([
+    expect(worktree.createWorktree.mock.calls.map((c) => c[0].workspace)).toEqual([
       "ws",
       "renamed",
     ]);

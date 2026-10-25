@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * opencode's adapter onto the wire both components of KeepDeck's opencode
  * plugin speak to the deck (keepdeck-wire.js, shared with every in-process reporter).
@@ -31,6 +32,10 @@ import { request as httpRequest } from "node:http";
 // environment, Node's HTTP, this process's pid.
 import { createWire, parseBridge, SEND_TIMEOUT_MS } from "./keepdeck-wire.js";
 
+/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ type: string, payload: Record<string, unknown> }} Envelope */
+/** @typedef {{ bridge: Bridge, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope, send: (envelope: Envelope) => Promise<{ answer: string | null, accepted: boolean }>, publish: (envelope: Envelope) => Promise<unknown>, drained: () => Promise<void> }} Wire */
+
 /**
  * Which process is reporting, on every lane either plugin publishes.
  *
@@ -55,7 +60,9 @@ export function readBridge() {
  * not each component's. That holds only while they are ONE plugin: opencode
  * 2.x gives each plugin entry its own copy of a sibling module (see index.js).
  */
+/** @type {Wire | null} */
 let wire = null;
+/** @param {Bridge} bridge */
 function wireFor(bridge) {
   if (wire === null || wire.bridge.url !== bridge.url || wire.bridge.token !== bridge.token) {
     wire = createWire({ bridge, agent: "opencode", reporter: REPORTER, post });
@@ -63,18 +70,28 @@ function wireFor(bridge) {
   return wire;
 }
 
-/** One envelope, addressed to this pane's deck. */
+/** One envelope, addressed to this pane's deck.
+ * @param {Bridge} bridge
+ * @param {string} type
+ * @param {Record<string, unknown>} payload
+ */
 export function makeEnvelope(bridge, type, payload) {
   return wireFor(bridge).makeEnvelope(type, payload);
 }
 
 /** Hand one envelope to the deck and wait for what it answers — for a caller
- * that ASKS. A caller that only states a fact wants `publish`. */
+ * that ASKS. A caller that only states a fact wants `publish`.
+ * @param {Bridge} bridge
+ * @param {Envelope} envelope
+ */
 export function sendEnvelope(bridge, envelope) {
   return wireFor(bridge).send(envelope);
 }
 
-/** State one fact, in its turn (see the wire's `publish`). */
+/** State one fact, in its turn (see the wire's `publish`).
+ * @param {Bridge} bridge
+ * @param {Envelope} envelope
+ */
 export function publish(bridge, envelope) {
   wireFor(bridge).publish(envelope);
 }
@@ -86,10 +103,15 @@ export function drained() {
 }
 
 /** One POST, resolving to `{ status, body }` — `status` is 0 when nothing
- * answered at all, which means this report is lost. */
+ * answered at all, which means this report is lost.
+ * @param {string} url
+ * @param {string} body
+ * @returns {Promise<{ status: number, body: string }>}
+ */
 function post(url, body) {
   return new Promise((resolve) => {
     let settled = false;
+    /** @param {{ status: number, body: string }} value */
     const done = (value) => {
       if (settled) return;
       settled = true;

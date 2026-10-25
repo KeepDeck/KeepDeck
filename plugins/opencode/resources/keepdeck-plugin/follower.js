@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * The pane follows the TUI, on either opencode generation (task-435, task-436):
  * when the user opens another session — `/sessions`, a tab, or opencode's own
@@ -31,6 +32,7 @@ import { drained, readBridge } from "./keepdeck-bridge.js";
 import { readForeground, watchForeground } from "./foreground.js";
 import { paneSession } from "./pane-session.js";
 
+/** @type {ReturnType<typeof create> | undefined} */
 let shared;
 
 /** The process's follower. */
@@ -41,22 +43,27 @@ export function follower() {
 
 function create() {
   /** The reporter's move: one job in its queue, resolved once done. */
+  /** @type {((root: string) => Promise<unknown>) | undefined} */
   let move;
   /** The reporter's leaving: what leaving costs the session left, and the
    * pane letting go of it (leaving.js). Resolves once done. */
+  /** @type {((sessionID: string, options?: { replaced?: boolean }) => Promise<unknown>) | undefined} */
   let leave;
   /** The last screen this process showed that was a session or the home
    * screen — what a home screen is a move FROM. */
+  /** @type {"session" | "home" | undefined} */
   let lastScreen;
   /** Told after a move has reached the deck. ONE of each, like the move and
    * the leaving: opencode can run a plugin's `server` twice in one process
    * (with `--port`, measured), and two couriers answering one move would ask
    * twice. The latest to join is the one told. */
+  /** @type {(() => void) | undefined} */
   let settled;
   let chain = Promise.resolve();
   let started = false;
   /** The TUI this process serves: its pid, and the bridge dir it writes to. */
   let owner = process.pid;
+  /** @type {string | undefined} */
   let watched;
 
   const tell = async () => {
@@ -64,6 +71,7 @@ function create() {
     settled?.();
   };
 
+  /** @param {import("./foreground.js").ForegroundState} state */
   const follow = async (state) => {
     if (state.kind !== "session" && state.kind !== "home") return;
     const from = lastScreen;
@@ -71,16 +79,17 @@ function create() {
     const pane = paneSession();
     if (state.kind === "home") {
       if (from !== "session" || !pane.bound) return;
-      if (leave) await leave(pane.root);
+      if (leave && pane.root) await leave(pane.root);
       await tell();
       return;
     }
+    if (!state.sessionID) return;
     const kind = await pane.classify(state.sessionID);
     if (kind === "unknown") return;
     const root = kind === "child" ? pane.rootOf(state.sessionID) : state.sessionID;
     if (root === pane.root) return;
     // Another conversation: the one on screen until now is left behind.
-    if (leave && pane.bound) await leave(pane.root, { replaced: true });
+    if (leave && pane.root) await leave(pane.root, { replaced: true });
     if (move) await move(root);
     else pane.newGeneration(root);
     await tell();
@@ -88,15 +97,18 @@ function create() {
 
   return {
     /** The reporter's half: move the pane to `root`, as one job. */
+    /** @param {(root: string) => Promise<unknown>} handler */
     onMove(handler) {
       move = handler;
     },
     /** The reporter's half: the user left `sessionID` — for another
      * conversation (`replaced`), or for none. */
+    /** @param {(sessionID: string, options?: { replaced?: boolean }) => Promise<unknown>} handler */
     onLeave(handler) {
       leave = handler;
     },
     /** The courier's half: the pane moved or was left, and the deck knows. */
+    /** @param {() => void} listener */
     onSettled(listener) {
       settled = listener;
     },
@@ -109,6 +121,7 @@ function create() {
     /** Watch the route of the TUI `tui` (its pid) — once, after both
      * components joined. Changes are followed one at a time, in the order
      * they happened. Returns the stop. */
+    /** @param {string | undefined} [dir] @param {number} [tui] */
     start(dir = readBridge()?.dir, tui = process.pid) {
       if (started || !dir) return () => {};
       started = true;

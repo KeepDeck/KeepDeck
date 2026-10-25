@@ -11,12 +11,15 @@ import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
+import { requireHooks, type Armed } from "./resourceTestSupport";
 // The courier is resource JS — shipped to, and loaded by, the user's
 // opencode process, never bundled into the plugin. The pane's session it
 // shares is ONE object per module instance — which is the point of it — so
 // each test loads the courier fresh, as a new pane's process would (see
 // `beforeEach`).
-let courierPlugin: (input?: any) => Promise<any>;
+type CourierResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier>>;
+let rawCourierPlugin: typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier;
+let courierPlugin: (input?: unknown) => Promise<Armed<CourierResult, "event" | "chat.message" | "tool.execute.after">>;
 import { startDeck } from "../../../scripts/reporterHarness";
 
 /**
@@ -126,7 +129,7 @@ describe("opencode mail courier", () => {
         payload,
       )
     );
-  const answerAsk = (envelope: any) => {
+  const answerAsk: NonNullable<Parameters<typeof startDeck>[0]> = (envelope) => {
     const type = envelope?.payload?.event?.type;
     if (type !== "mail.ask" && type !== "mail.ask.tool") return { status: 204 };
     asked.push(envelope);
@@ -145,7 +148,9 @@ describe("opencode mail courier", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    ({ startCourier: courierPlugin } = await import("../resources/keepdeck-plugin/mail-courier.js"));
+    const resource = await import("../resources/keepdeck-plugin/mail-courier.js");
+    rawCourierPlugin = resource.startCourier;
+    courierPlugin = async (input) => requireHooks(await resource.startCourier(input), ["event", "chat.message", "tool.execute.after"]);
     dir = mkdtempSync(join(tmpdir(), "kd-courier-"));
     deck = await startDeck(answerAsk);
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
@@ -636,7 +641,7 @@ describe("opencode mail courier", () => {
     // A user's own opencode, or a KeepDeck too old to set the variable. It
     // must not ask, must not watch, and must not touch their session.
     delete process.env.KEEPDECK_BRIDGE;
-    expect(await start()).toEqual({});
+    expect(await rawCourierPlugin({ client })).toEqual({});
     expect(readdirSync(dir)).toEqual([]);
   });
 });

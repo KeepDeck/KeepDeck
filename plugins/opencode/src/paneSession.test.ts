@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /** The pane's session, from a module loaded fresh for each test: it is ONE
  * object per module instance, and each test is a new process. Reached as a
  * 1.x pane reaches it — through the 1.x client's parent lookup. */
-let paneSession: (client?: unknown) => any;
+let paneSession: (client?: unknown) => ReturnType<typeof import("../resources/keepdeck-plugin/pane-session.js").paneSession>;
 
 /** A client that answers `session.get` from a parent table. */
 const clientWith = (parents: Record<string, string | undefined>) => ({

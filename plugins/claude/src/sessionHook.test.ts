@@ -142,7 +142,7 @@ describe("kd-session-hook.sh", () => {
     await run(JSON.stringify({ session_id: "sid-1" }));
     await run(JSON.stringify({ session_id: "sid-2" }));
     const reporters = deck.envelopes.map(
-      (posted: Record<string, any>) => posted.payload.reporter,
+      (posted) => posted.payload.reporter,
     );
     expect(reporters).toEqual([group, group]);
   });

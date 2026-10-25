@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * The user left the pane's conversation (follower.js) — what the pane does
  * about it, for either opencode generation's reporter.
@@ -31,9 +32,15 @@
 /** How long to wait for an interruption's ending before letting go. */
 const LET_GO_MS = 3_000;
 
+/** @typedef {{ root: string | undefined, detach: () => boolean }} PaneSession */
+/** @typedef {{ sessionID: string, done: () => void, timer: NodeJS.Timeout | undefined }} LeavingState */
+
+/** @param {{ pane: PaneSession, publish: (type: string, payload: Record<string, unknown>) => unknown, enqueue: (job: () => Promise<void>) => Promise<unknown>, interrupt?: (sessionID: string) => Promise<unknown>, onLetGo?: () => void }} options */
 export function createLeaving({ pane, publish, enqueue, interrupt, onLetGo }) {
+  /** @type {LeavingState | undefined} */
   let leaving;
 
+  /** @param {string} sessionID */
   const letGo = (sessionID) => {
     if (leaving?.sessionID !== sessionID) return;
     const { done, timer } = leaving;
@@ -48,7 +55,9 @@ export function createLeaving({ pane, publish, enqueue, interrupt, onLetGo }) {
     done();
   };
 
+  /** @param {string} sessionID */
   const stop = async (sessionID) => {
+    if (!interrupt) return;
     try {
       await interrupt(sessionID);
     } catch {
@@ -59,6 +68,7 @@ export function createLeaving({ pane, publish, enqueue, interrupt, onLetGo }) {
   return {
     /** The user left `sessionID` — for another conversation (`replaced`),
      * or for none. Resolves once the pane let go of it. */
+    /** @param {string} sessionID @param {{ replaced?: boolean }} [options] */
     async leave(sessionID, { replaced = false } = {}) {
       if (replaced) {
         if (interrupt) await stop(sessionID);
@@ -66,6 +76,7 @@ export function createLeaving({ pane, publish, enqueue, interrupt, onLetGo }) {
       }
       // Armed BEFORE the interruption: its ending may be handled before the
       // call even returns.
+      /** @type {Promise<void>} */
       const gone = new Promise((done) => {
         if (leaving) letGo(leaving.sessionID);
         const timer = interrupt
@@ -80,6 +91,7 @@ export function createLeaving({ pane, publish, enqueue, interrupt, onLetGo }) {
     },
     /** `sessionID`'s ending reached the deck as the pane's: if it is the one
      * being left, the pane lets go of it now. */
+    /** @param {string} sessionID */
     ended(sessionID) {
       if (leaving?.sessionID === sessionID) letGo(sessionID);
     },

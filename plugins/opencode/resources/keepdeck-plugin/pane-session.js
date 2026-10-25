@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * What both components of KeepDeck's opencode plugin have to agree about: which session
  * in this process is the pane's conversation.
@@ -39,7 +40,11 @@
  */
 
 /** The one instance, and how it asks the server about a session. */
+/** @typedef {(sessionID: string) => Promise<{ parentID?: string } | null>} Lookup */
+/** @typedef {"root" | "child" | "unknown"} Classification */
+/** @type {ReturnType<typeof create> | undefined} */
 let shared;
+/** @type {Lookup | undefined} */
 let sharedLookup;
 
 /**
@@ -56,6 +61,7 @@ let sharedLookup;
  * over. Every request below reads it through the holder for that reason; a
  * closure over the first one would leave this permanently unable to ask
  * anything, with an index answering "unknown" forever and nothing to say why.
+ * @param {Lookup | undefined} [lookup]
  */
 export function paneSession(lookup) {
   if (lookup && !sharedLookup) sharedLookup = lookup;
@@ -67,21 +73,26 @@ function create() {
   /** child session id → its IMMEDIATE parent. One hop each, exactly as the
    * server reports it; `rootOf` walks the links rather than pre-compressing
    * them, so a hop learned later fixes every descendant at once. */
+  /** @type {Map<string, string>} */
   const parents = new Map();
   /** Sessions confirmed to have no parent. Kept apart from `parents` because
    * "is a root" and "we have not asked" must not look alike: an answer we
    * could not get has to be asked again, and one we got must not be. */
+  /** @type {Set<string>} */
   const roots = new Set();
   /** The pane's conversation, once one is known. */
+  /** @type {string | undefined} */
   let root;
   /** The conversation the user LEFT for none at all (`/new`, task-435): no
    * longer the pane's, and nothing it or its subagents still say may make it
    * the pane's again — with no root, the first-evidence rules below would
    * otherwise bind the pane straight back to it. */
+  /** @type {string | undefined} */
   let left;
 
   /** Record one hop the caller already knows — a `session.created` carrying
    * `parentID` is the server's own word, and needs no round trip. */
+  /** @param {string} childID @param {string | undefined} parentID */
   const note = (childID, parentID) => {
     if (childID && parentID) parents.set(childID, parentID);
   };
@@ -89,12 +100,13 @@ function create() {
   /** Walk to the end of the chain. An id with no recorded parent is as far
    * as this index can see; whether that is a root or merely unasked is the
    * caller's question, answered by `classify`. */
+  /** @param {string} sessionID */
   const rootOf = (sessionID) => {
     let at = sessionID;
     // Bounded by the map: every step consumes one recorded link, and a link
     // is only ever written for a child, so a cycle cannot outlive the count.
     for (let hops = parents.size; hops > 0 && parents.has(at); hops -= 1) {
-      at = parents.get(at);
+      at = parents.get(at) ?? at;
     }
     return at;
   };
@@ -102,12 +114,16 @@ function create() {
   /** Every hop from `sessionID` up to its root, as `[child, parent]` pairs.
    * What a new generation is about to destroy, so a caller that still needs
    * the chain can put it back. */
+  /** @param {string} sessionID */
   const chain = (sessionID) => {
+    /** @type {Array<[string, string]>} */
     const hops = [];
     let at = sessionID;
     for (let left = parents.size; left > 0 && parents.has(at); left -= 1) {
-      hops.push([at, parents.get(at)]);
-      at = parents.get(at);
+      const parent = parents.get(at);
+      if (!parent) break;
+      hops.push([at, parent]);
+      at = parent;
     }
     return hops;
   };
@@ -122,10 +138,13 @@ function create() {
    * In flight per id, so two events racing on the same session make one
    * request and get the same answer.
    */
+  /** @type {Map<string, Promise<Classification>>} */
   const pending = new Map();
+  /** @param {string} sessionID @returns {Promise<Classification>} */
   const ask = (sessionID) => {
     const already = pending.get(sessionID);
     if (already) return already;
+    /** @type {Promise<Classification>} */
     const work = (async () => {
       if (!sharedLookup) return "unknown";
       let found;
@@ -156,6 +175,7 @@ function create() {
    * nowhere so the next caller asks again. Both callers treat `"unknown"` as
    * a root — a pane bound to nothing is never reachable again — but they do
    * so out loud rather than by having it look like one. */
+  /** @param {string} sessionID @returns {Promise<Classification>} */
   const classify = async (sessionID) => {
     if (!sessionID) return "unknown";
     if (roots.has(sessionID)) return "root";
@@ -208,6 +228,7 @@ function create() {
      * takes an extra hop — would otherwise land last and rebind the pane to
      * somebody else's conversation for the life of the process. That happened.
      */
+    /** @param {string} sessionID @param {Array<[string, string]>} [keep] */
     bindFromChain(sessionID, keep = []) {
       if (root !== undefined || !sessionID || sessionID === left) return false;
       root = sessionID;
@@ -222,6 +243,7 @@ function create() {
      * it is already the current root, because both components see the event that
      * causes it and either may say so.
      */
+    /** @param {string} sessionID */
     newGeneration(sessionID) {
       if (!sessionID || root === sessionID) return false;
       parents.clear();
@@ -251,6 +273,7 @@ function create() {
      * is not the pane's turn boundary — and any non-child session before a
      * root is known.
      */
+    /** @param {string} sessionID */
     concernsPane(sessionID) {
       if (!sessionID || rootOf(sessionID) !== sessionID) return false;
       if (sessionID === left) return false;
