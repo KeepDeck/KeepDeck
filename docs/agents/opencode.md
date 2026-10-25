@@ -14,7 +14,7 @@ nothing is installed on the user's side.
 
 - `index.js` is the entry. Its default export is `{ id, server, setup }`.
   OpenCode 1.x calls `server`, which starts both components below and
-  merges their hooks. OpenCode 2.x calls `setup`, which does nothing yet.
+  merges their hooks. OpenCode 2.x calls `setup` (`opencode-v2.js`).
   A component that fails to start, or a handler that throws, takes nothing
   else down.
 - The two components are one entry, not two plugins, because they share
@@ -163,6 +163,28 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
   - mail through `session.synthetic` (the brief, no turn), `session.prompt`,
     `session.hook("prompt")` (riding along) and `tool.hook("execute.after")`
     (mid-turn). A pane with no conversation yet waits for its first turn.
+- **Which session is on screen (task-436).** The 1.x rules, on 2.x's two
+  processes. Measured on 2.1.2, 2026-10-24: the TUI spawns `opencode serve`
+  as its child, so the server plugin's `process.ppid` is the TUI; `/new` is
+  a new HOME TAB, and the session tab left behind runs its turn to the end.
+  - `tui.js` is the 2.x TUI plugin (`{id, setup}`). 2.x loads a plugin
+    directory's `tui` entry by itself, so the launch is unchanged; 1.x never
+    loads it. It polls `ui.router.current()` (no change subscription) into
+    the same `foreground.json`, and its `setup` returns the cleanup 2.x
+    calls on reload.
+  - `opencode-v2.js` starts the follower with the parent's pid, and returns
+    a cleanup that stops the bus, the doorbell and the screen watch.
+  - Leaving stops nothing on 2.x (user decision): `leaving.js` gets no
+    `interrupt`, so on the home screen the pane lets go at once
+    (`session.unbound`) and the tab runs on. Another session on screen moves
+    the pane there (`session.bound`, source `resume`).
+  - While the screen is known it alone decides: an unbound pane neither
+    binds to nor forwards the events of a background tab.
+  - Mail follows `courier-policy.js`, as on 1.x: only into the session on
+    screen, and after `/new` a ring makes a session in the left one's agent
+    and model. The 2.x server plugin cannot navigate, so the courier writes
+    `show.json` (`show-request.js`) and `tui.js` shows it, only while the
+    home screen is up.
 - **Config dir.** `OPENCODE_CONFIG_DIR` REPLACES the user's global config
   on 2.x instead of adding to it (live), so KeepDeck does not set it there.
   Skills go through the `skills` config key, and 2.x lists them under its
@@ -212,7 +234,7 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
   `opencode serve` and never sees `-s`. The plugin binds the pane to it
   before anything starts (`opencode-v2.js`), so mail reaches a resumed pane
   at once instead of waiting for its first event. A fresh pane is not given
-  an id yet: an early brief needs the plugin to create the session, and
-  mail into a session not on screen waits for task-436.
+  an id yet: an early brief needs the plugin to create the session, and a
+  later `/new` and prompt reuses a minted id (measured, task-436).
 - **Mail.** A session inbox over HTTP with `steer` and `queue` modes would
   let mail land mid-turn without touching the input box.

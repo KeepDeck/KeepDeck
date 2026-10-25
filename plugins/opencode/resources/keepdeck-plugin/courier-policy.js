@@ -11,7 +11,7 @@
  * What a generation does differently is HOW, handed in as `adapter`:
  *
  *   selectionOf(sessionID)         the agent and model a session's prompts run as
- *   createSession()                a new root session: its id, or null
+ *   createSession(selection)       a new root session, run as `selection`: its id, or null
  *   show(sessionID)                ask the TUI to show it
  *   deliver(answer, id, selection) put an answer into a session
  *
@@ -64,7 +64,7 @@ export function createCourierPolicy({ pane, screen, ask, adapter, deliverToPane 
     creating = [];
     let id = null;
     try {
-      id = await adapter.createSession();
+      id = await adapter.createSession(chosen);
     } finally {
       const appeared = creating;
       creating = null;

@@ -6,7 +6,10 @@
  * session-event.ts at v2.1.2):
  *  - BINDING: the pane's conversation, as `session.bound`. A root
  *    `session.created` names it; a resumed pane fires none, so its first
- *    session event does, through the pane session's ancestry.
+ *    session event does, through the pane session's ancestry. The session
+ *    the user opens in the TUI moves it there (follower.js); leaving for
+ *    the home screen lets it go (leaving.js) — and stops nothing, since 2.x
+ *    runs a tab left behind to completion (user decision, task-436).
  *  - STATUS: the turn events, forwarded whole as `agent.status` — what they
  *    MEAN is read in plugins/opencode/src/status.ts, never here. 2.x calls the
  *    payload `data`; it travels as `properties`, the shape 1.x gave it.
@@ -18,7 +21,9 @@
  *
  * Best-effort throughout: nothing here may break the user's session.
  */
+import { follower } from "./follower.js";
 import { makeEnvelope, publish as publishEnvelope } from "./keepdeck-bridge.js";
+import { createLeaving } from "./leaving.js";
 import {
   boundReport,
   createWindowCache,
@@ -42,28 +47,39 @@ export async function startReporterV2({ context, bridge, pane }) {
   /** The model the root's latest step ran on: `{ id, providerID }`. */
   let model;
   let sequence = 0;
-  /** The conversation this reporter last bound and set up for. */
+  /** The conversation this reporter is bound to and set up for. */
   let servedRoot;
+  /** Whether it has bound any: every later one is the pane's conversation
+   * continuing, never a second startup. */
+  let servedAny = false;
 
-  /** A conversation this reporter has not served yet: bind it, and start its
+  /** A conversation this reporter is not serving: bind it, and start its
    * spend from nothing. `/new` is the pane's conversation continuing under a
-   * new id, so a second one is reported as continuing. */
-  const serve = () => {
+   * new id; `switched`, the user opened it in the TUI. */
+  const serve = (switched = false) => {
     if (pane.root === undefined || pane.root === servedRoot) return;
-    const continuing = servedRoot !== undefined;
+    const continuing = servedAny;
     servedRoot = pane.root;
+    servedAny = true;
     totals.clear();
     lastStep = undefined;
     model = undefined;
     sequence = 0;
-    publish("session.bound", boundReport(servedRoot, continuing));
+    publish("session.bound", boundReport(servedRoot, continuing, switched));
   };
 
+  /** Whether the TUI reports its screen — then the screen, not the bus,
+   * says which conversation an unbound pane has (follower.js): 2.x runs the
+   * tabs left behind, and on the home screen after `/new` the pane has none,
+   * whichever background tab speaks. */
+  const screenDecides = () => follower().screen().kind !== "unknown";
+
   /** Bind through the evidence of any session this pane's process names —
-   * the way a resumed pane, which fires no root `session.created`, is found. */
+   * the way a resumed pane, which fires no root `session.created`, is found.
+   * Only while nobody reports the screen. */
   const bindThrough = async (sessionID) => {
     if (!sessionID) return;
-    if (!pane.bound) {
+    if (!pane.bound && !screenDecides()) {
       await pane.classify(sessionID);
       pane.bindFromChain(pane.rootOf(sessionID), pane.chain(sessionID));
     }
@@ -72,7 +88,9 @@ export async function startReporterV2({ context, bridge, pane }) {
 
   /** Whose turn event this is — the only question answered on this side. */
   const belongsHere = (type, data) => {
-    if (type.startsWith("session.execution.")) return pane.concernsPane(data.sessionID);
+    if (type.startsWith("session.execution.")) {
+      return pane.concernsPane(data.sessionID) && (pane.bound || !screenDecides());
+    }
     if (type === "permission.asked" || type === "permission.replied") return !SKIPS_APPROVALS;
     // A form parks the terminal whichever session put it up (see the 1.x
     // reporter's questions): the pane is waiting either way.
@@ -164,9 +182,36 @@ export async function startReporterV2({ context, bridge, pane }) {
   // opencode does not wait on a subscriber: one queue keeps two events'
   // async work from interleaving, and an older report from landing last.
   let queue = Promise.resolve();
+  const enqueue = (job) => {
+    queue = queue.then(job).catch(() => {});
+    return queue;
+  };
+
+  // The user went home (`/new`): the pane lets go of the conversation at
+  // once — no interrupt, the tab runs on. Coming back to it later binds it
+  // afresh, so it is no longer the one served.
+  const leaving = createLeaving({
+    pane,
+    publish,
+    enqueue,
+    onLetGo: () => {
+      servedRoot = undefined;
+    },
+  });
+  follower().onLeave(leaving.leave);
+
+  // The user opened another session in the TUI: the binding first, as one
+  // job in this queue, so the deck hears of it before any of its events.
+  follower().onMove((sessionID) =>
+    enqueue(async () => {
+      pane.newGeneration(sessionID);
+      serve(true);
+    }),
+  );
+
   return {
     onEvent: (event) => {
-      queue = queue.then(() => handle(event)).catch(() => {});
+      void enqueue(() => handle(event));
     },
   };
 }
