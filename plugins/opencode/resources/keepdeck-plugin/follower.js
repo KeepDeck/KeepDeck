@@ -1,7 +1,7 @@
 /**
- * The pane follows the TUI (opencode 1.x, task-435): when the user opens
- * another session — `/sessions`, or opencode's own navigation — that session
- * becomes the pane's conversation.
+ * The pane follows the TUI, on either opencode generation (task-435, task-436):
+ * when the user opens another session — `/sessions`, a tab, or opencode's own
+ * navigation — that session becomes the pane's conversation.
  *
  * ONE FOLLOWER PER PROCESS, like the pane session it moves: both components
  * join it, and it alone decides that the pane moves. The courier never moves
@@ -19,17 +19,16 @@
  * session the client cannot classify does not move the pane — following a
  * leaf would bind the pane to somebody else's turn.
  *
- * LEAVING A SESSION STOPS IT (user decision, task-435): the conversation the
- * user left — for another one, or for the home screen (`/new`) — is no
- * longer the pane's, and its running turn is aborted, subagents included.
- * Parallel work is another pane, not a session left running out of sight.
+ * LEAVING is told to the reporter, which decides what it costs the session
+ * left (leaving.js): on 1.x it is aborted (user decision, task-435), on 2.x
+ * — a tab per session — it runs on (task-436).
  * Only a real leaving counts: a move to the home screen FROM a session this
  * process showed. opencode starts on the home screen and opens `-s` a beat
  * later, and the native `--fork` fallback stays there until the fork exists
  * (measured, task-443) — neither is the user going anywhere.
  */
 import { drained, readBridge } from "./keepdeck-bridge.js";
-import { watchForeground } from "./foreground.js";
+import { readForeground, watchForeground } from "./foreground.js";
 import { paneSession } from "./pane-session.js";
 
 let shared;
@@ -43,8 +42,8 @@ export function follower() {
 function create() {
   /** The reporter's move: one job in its queue, resolved once done. */
   let move;
-  /** The reporter's leaving: abort the session left, and let the pane go of
-   * it once its ending reached the deck. */
+  /** The reporter's leaving: what leaving costs the session left, and the
+   * pane letting go of it (leaving.js). Resolves once done. */
   let leave;
   /** The last screen this process showed that was a session or the home
    * screen — what a home screen is a move FROM. */
@@ -56,6 +55,9 @@ function create() {
   let settled;
   let chain = Promise.resolve();
   let started = false;
+  /** The TUI this process serves: its pid, and the bridge dir it writes to. */
+  let owner = process.pid;
+  let watched;
 
   const tell = async () => {
     await drained();
@@ -98,14 +100,27 @@ function create() {
     onSettled(listener) {
       settled = listener;
     },
-    /** Watch the TUI's route — once, after both components joined. Changes
-     * are followed one at a time, in the order they happened. */
-    start(dir = readBridge()?.dir) {
-      if (started || !dir) return;
+    /** What the TUI shows now, read as the follower reads it — the courier
+     * asks here rather than naming the TUI's pid itself. */
+    screen() {
+      const dir = watched ?? readBridge()?.dir;
+      return dir ? readForeground(dir, Date.now(), owner) : { kind: "unknown" };
+    },
+    /** Watch the route of the TUI `tui` (its pid) — once, after both
+     * components joined. Changes are followed one at a time, in the order
+     * they happened. Returns the stop. */
+    start(dir = readBridge()?.dir, tui = process.pid) {
+      if (started || !dir) return () => {};
       started = true;
-      watchForeground(dir, (state) => {
-        chain = chain.then(() => follow(state)).catch(() => {});
-      });
+      watched = dir;
+      owner = tui;
+      return watchForeground(
+        dir,
+        (state) => {
+          chain = chain.then(() => follow(state)).catch(() => {});
+        },
+        owner,
+      );
     },
   };
 }

@@ -36,6 +36,8 @@ import { join } from "node:path";
 export interface DeckAnswer {
   status: number;
   body?: string;
+  /** Hold THIS response open this long, instead of the deck's `holdMs`. */
+  holdMs?: number;
 }
 
 export async function startDeck(
@@ -84,7 +86,7 @@ export async function startDeck(
         response.writeHead(reply.status, headers);
         response.end(reply.body ?? "");
         inFlight -= 1;
-      }, holdMs);
+      }, reply.holdMs ?? holdMs);
     });
   });
   await new Promise<void>((resolve) => {

@@ -9,7 +9,7 @@
 import { existsSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
 
-/** Call `onRing` once per ring, taking each down. */
+/** Call `onRing` once per ring, taking each down. Returns the stop. */
 export function watchDoorbell(dir, onRing) {
   // `dir` is this pane's OWN inbox, so the doorbell needs no name of its own
   // — there is only ever one pane's worth of traffic in here.
@@ -23,15 +23,18 @@ export function watchDoorbell(dir, onRing) {
     }
     onRing();
   };
+  let watcher;
   try {
     // A ring that landed before this process was watching — a pane still
     // booting when the deck rang — is still on disk. Nobody re-sends it.
     take();
     // Unref'd: a watcher is background work, and it has no business being
     // the last thing keeping an exiting process alive.
-    watch(dir, () => take()).unref?.();
+    watcher = watch(dir, () => take());
+    watcher.unref?.();
   } catch {
     // No watcher: the pane still gets its mail at every turn boundary and
     // every prompt the user sends. Only the idle case is lost.
   }
+  return () => watcher?.close();
 }

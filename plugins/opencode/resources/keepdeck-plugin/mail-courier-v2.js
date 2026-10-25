@@ -15,9 +15,17 @@
  *
  * A pane with no conversation yet has no session to write into, and 2.x has
  * no prompt box a plugin can type in — its mail waits for the first turn.
+ *
+ * WHERE mail may go is shared with 1.x (courier-policy.js): only into the
+ * conversation the TUI shows, and on the home screen after `/new`, into a
+ * session made for it and shown first — through the TUI half, which alone
+ * can navigate on 2.x (show-request.js, tui.js).
  */
+import { createCourierPolicy } from "./courier-policy.js";
 import { watchDoorbell } from "./doorbell.js";
+import { follower } from "./follower.js";
 import { answerText, askMail } from "./mail-ask.js";
+import { requestShow } from "./show-request.js";
 
 /** What marks a prompt this courier sent, for the prompt hook to pass by. */
 const MAIL_METADATA = { keepdeck: "mail" };
@@ -60,7 +68,7 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
    * that no hook waits on. */
   let deliveries = Promise.resolve();
 
-  /** Ask, then deliver — only into a conversation the pane has, or the one
+  /** Ask, then deliver — into the conversation the pane has, or the one
    * that has just begun (`into`). */
   const collect = async (into) => {
     const root = into ?? (pane.bound ? pane.root : null);
@@ -83,25 +91,67 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
     await deliveries;
   };
 
+  /** Where mail may go (courier-policy.js); what is 2.x here is how. */
+  const policy = createCourierPolicy({
+    pane,
+    screen: () => follower().screen(),
+    // In turn with the prompt hook's asks, as every ask here is.
+    ask: (target) => inTurn(() => ask(target)),
+    deliverToPane: () => collect(),
+    adapter: {
+      selectionOf: async (sessionID) => {
+        if (!sessionID) return undefined;
+        const found = await context.session.get({ sessionID });
+        return { agent: found?.agent, model: found?.model };
+      },
+      createSession: async (selection) => {
+        const made = await context.session.create({
+          ...(selection?.agent ? { agent: selection.agent } : {}),
+          ...(selection?.model ? { model: selection.model } : {}),
+        });
+        return made?.id ?? null;
+      },
+      show: async (sessionID) => requestShow(bridge.dir, sessionID),
+      // Our own prompt is marked, so it does not wait on the asks chain.
+      deliver: (answer, sessionID) => deliver(answer, sessionID),
+    },
+  });
+
+  /** One collection at a time: the policy's home-screen delivery is not
+   * re-entrant, and a ring landing mid-collection follows it. */
+  let work = Promise.resolve();
+  const enqueue = (job) => {
+    work = work.then(job).catch(() => {});
+    return work;
+  };
+
   // The courier READS the pane's conversation and never moves it: the
   // reporter does, in the order of its own events. Moving it here, ahead of
   // the reporter's queue, made the reporter read its previous events against
   // the new conversation and drop the old one's ending, leaving the pane
   // "working" (review of task-375). A conversation that has just begun gets
-  // its brief by its own id.
+  // its brief by its own id — it is the user's, and on screen — unless the
+  // policy made it for mail, which is delivered once it is shown.
   const onEvent = (event) => {
     const type = event?.type;
     const data = event?.data ?? {};
     if (type === "session.created" && data.sessionID && !data.parentID) {
-      void collect(data.sessionID);
+      // Told at once, not in turn: one the user started while a session for
+      // mail is being made must stop that before it shows its own.
+      policy.rootAppeared(data.sessionID);
+      if (!policy.ours(data.sessionID)) void collect(data.sessionID);
       return;
     }
     if (TURN_ENDS.has(type) && data.sessionID && data.sessionID === pane.root) {
-      void collect();
+      void enqueue(() => policy.collect());
     }
   };
 
-  watchDoorbell(bridge.dir, () => void collect());
+  const stopDoorbell = watchDoorbell(bridge.dir, () => void enqueue(() => policy.collect({ rung: true })));
+
+  // The pane moved to the session the user opened, or was left, and the deck
+  // knows (follower.js): whatever waits belongs where the user is now.
+  follower().onSettled(() => void enqueue(() => policy.collect()));
 
   // The user is sending something: anything waiting rides in the same
   // message, and nobody pays for a turn. The prompt is opencode's to send
@@ -123,6 +173,9 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
   // after this hook (packages/core/src/tool.ts at v2.1.2).
   await context.tool.hook("execute.after", async (event) => {
     if (!event?.sessionID || event.sessionID !== pane.root) return;
+    // A turn running where the user is not looking — a tab left behind — is
+    // not reached.
+    if (!policy.visible()) return;
     if (event.status !== "completed" || !event.result) return;
     const answer = await inTurn(async () =>
       ask(await pane.classify(event.sessionID), "mail.ask.tool"),
@@ -135,7 +188,7 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
     };
   });
 
-  return { onEvent };
+  return { onEvent, stop: stopDoorbell };
 }
 
 /**

@@ -38,6 +38,7 @@ import {
   usageReport,
 } from "./pane-report.js";
 import { follower } from "./follower.js";
+import { createLeaving } from "./leaving.js";
 import { paneSession } from "./pane-session.js";
 
 export async function startReporter(input = {}) {
@@ -384,9 +385,7 @@ export async function startReporter(input = {}) {
       // The ending of a conversation the user left: told to the deck as the
       // pane's (or already told — an idle session's abort only repeats it),
       // and only now does the pane let it go.
-      if (event.type === "session.idle" && leaving?.sessionID === event.properties?.sessionID) {
-        letGo(leaving.sessionID);
-      }
+      if (event.type === "session.idle") leaving.ended(event.properties?.sessionID);
       return;
     }
 
@@ -514,55 +513,20 @@ export async function startReporter(input = {}) {
   };
 
   /**
-   * The user left the pane's conversation (follower.js). Its running turn is
-   * aborted — subagents and all; leaving is the user's word that it is not
-   * wanted (task-435). Aborted OUTSIDE this queue: the abort's own events
-   * queue here, and waiting on them from inside would wait forever.
-   *
-   * For another conversation, that is all — the move rebinds the pane. For
-   * none at all (`/new`), the pane lets go of it: once its ending — the
-   * abort's error and idle, which opencode publishes even for an idle
-   * session — has gone to the deck as the pane's, so the deck shows the turn
-   * ended rather than the pane frozen mid-work. Then `session.unbound`: the
-   * pane has no conversation until the next one binds, and a restore starts
-   * fresh (src/app/paneUnbinding.ts). If no ending comes, it lets go anyway.
+   * The user left the pane's conversation (follower.js): on 1.x its running
+   * turn is aborted — subagents and all — and, left for no conversation, the
+   * pane lets go of it once the abort's ending reached the deck (leaving.js).
    */
-  let leaving;
-  const letGo = (sessionID) => {
-    if (leaving?.sessionID !== sessionID) return;
-    const { done, timer } = leaving;
-    leaving = undefined;
-    clearTimeout(timer);
-    // Not if the pane moved on meanwhile: the next conversation is not the
-    // one left, and unbinding would forget it.
-    if (pane.root === sessionID && pane.detach()) {
+  const leaving = createLeaving({
+    pane,
+    publish,
+    enqueue,
+    interrupt: (sessionID) => client?.session?.abort?.({ path: { id: sessionID } }),
+    onLetGo: () => {
       lastTurnState = undefined;
-      publish("session.unbound", {});
-    }
-    done();
-  };
-  /** How long to wait for an abort's ending before letting go without it. */
-  const LET_GO_MS = 3_000;
-  const abort = async (sessionID) => {
-    try {
-      await client?.session?.abort?.({ path: { id: sessionID } });
-    } catch {
-      // Best-effort: the pane leaves it either way.
-    }
-  };
-  follower().onLeave(async (sessionID, { replaced = false } = {}) => {
-    if (replaced) return abort(sessionID);
-    // Armed BEFORE the abort: its ending may be handled before the abort call
-    // even returns.
-    const gone = new Promise((done) => {
-      if (leaving) letGo(leaving.sessionID);
-      const timer = setTimeout(() => enqueue(async () => letGo(sessionID)), LET_GO_MS);
-      timer.unref?.();
-      leaving = { sessionID, done, timer };
-    });
-    await abort(sessionID);
-    await gone;
+    },
   });
+  follower().onLeave(leaving.leave);
 
   /**
    * The user opened another session in the TUI (follower.js), and the pane

@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
+// @ts-expect-error untyped resource module
+import { HEARTBEAT_MS, writeForeground } from "../resources/keepdeck-plugin/foreground.js";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
 
@@ -39,20 +41,44 @@ function createContext(parents: Record<string, string | undefined> = {}) {
   const hooks: Record<string, Hook> = {};
   const prompts: { sessionID: string; text: string }[] = [];
   const synthetics: { sessionID: string; text: string; resume?: boolean }[] = [];
+  /** Both kinds of write into a session, in the order they were made. */
+  const writes: string[] = [];
+  const created: Record<string, unknown>[] = [];
+  const interrupted: string[] = [];
+  /** What a session the plugin creates does once it exists — as opencode
+   * does, announce it on the bus (overridable per test). */
+  const onCreate = { announce: true };
   const context = {
     event: { subscribe: () => bus.subscribe() },
     session: {
-      get: async ({ sessionID }: { sessionID: string }) => ({ id: sessionID, parentID: parents[sessionID] }),
+      get: async ({ sessionID }: { sessionID: string }) => ({
+        id: sessionID,
+        parentID: parents[sessionID],
+        agent: "build",
+        model: { providerID: "fixture", id: "probe" },
+      }),
+      create: async (input: Record<string, unknown>) => {
+        created.push(input);
+        const id = `ses_made${created.length}`;
+        if (onCreate.announce) bus.push("session.created", { sessionID: id });
+        return { id };
+      },
+      interrupt: async ({ sessionID }: { sessionID: string }) => {
+        interrupted.push(sessionID);
+        return true;
+      },
       // As opencode does: a prompt runs every plugin's prompt hook before it
       // is taken in — this courier's own included.
       prompt: async (input: { sessionID: string; text: string; metadata?: unknown }) => {
         const event = { sessionID: input.sessionID, prompt: { text: input.text }, metadata: input.metadata };
         await hooks["session.prompt"]?.(event);
         prompts.push({ sessionID: input.sessionID, text: event.prompt.text });
+        writes.push(`prompt ${input.sessionID}`);
         return {};
       },
       synthetic: async (input: { sessionID: string; text: string; resume?: boolean }) => {
         synthetics.push(input);
+        writes.push(`synthetic ${input.sessionID}`);
         return {};
       },
       hook: async (name: string, callback: Hook) => {
@@ -74,7 +100,7 @@ function createContext(parents: Record<string, string | undefined> = {}) {
       }),
     },
   };
-  return { context, bus, hooks, prompts, synthetics };
+  return { context, bus, hooks, prompts, synthetics, writes, created, interrupted, onCreate };
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -86,7 +112,9 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   let pending: unknown[];
   /** Every mail ask, as the deck received it. */
   let asked: { type: string; target: string }[];
-  let setup: (context: unknown) => Promise<void>;
+  let setup: (context: unknown) => Promise<(() => void) | undefined>;
+  /** What each setup handed back for opencode to clean up with. */
+  let cleanups: (() => void)[];
   let drained: () => Promise<void>;
   let ambientSkipsApprovals: string | undefined;
 
@@ -112,7 +140,13 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
     // Untyped resource JS — shipped to, and loaded by, the user's opencode
     // process; loaded fresh, as a new pane's process would.
     // @ts-expect-error untyped resource module
-    ({ setupV2: setup } = await import("../resources/keepdeck-plugin/opencode-v2.js"));
+    const { setupV2 } = await import("../resources/keepdeck-plugin/opencode-v2.js");
+    cleanups = [];
+    setup = async (context: unknown) => {
+      const cleanup = await setupV2(context);
+      if (typeof cleanup === "function") cleanups.push(cleanup);
+      return cleanup;
+    };
     // @ts-expect-error untyped resource module
     ({ drained } = await import("../resources/keepdeck-plugin/keepdeck-bridge.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-v2-"));
@@ -125,6 +159,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   });
 
   afterEach(async () => {
+    for (const cleanup of cleanups) cleanup();
     delete process.env.KEEPDECK_BRIDGE;
     delete process.env.KEEPDECK_OPENCODE_SESSION;
     if (ambientSkipsApprovals === undefined) delete process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
@@ -334,7 +369,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
   describe("mail", () => {
     it("puts the brief in a new conversation without a turn, and somebody's words with one", async () => {
-      const { context, bus, prompts, synthetics } = createContext();
+      const { context, bus, prompts, synthetics, writes } = createContext();
       await setup(context);
       pending.push({ v: 1, context: "you are impl-1", prompt: "ship it" });
       bus.push("session.created", { sessionID: "ses_a" });
@@ -342,6 +377,8 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
       expect(synthetics).toEqual([{ sessionID: "ses_a", text: "you are impl-1", resume: false }]);
       expect(prompts).toEqual([{ sessionID: "ses_a", text: "ship it" }]);
+      // The brief lands before the words that assume it.
+      expect(writes).toEqual(["synthetic ses_a", "prompt ses_a"]);
     });
 
     it("collects at a turn's end", async () => {
@@ -454,6 +491,167 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
       expect(prompts).toEqual([]);
       expect(pending).toHaveLength(1);
+    });
+  });
+
+  describe("following the TUI's screen (task-436)", () => {
+    /** The 2.x TUI half's record: written by the TUI process, the plugin's
+     * parent under `--standalone`. */
+    const screen = (route: Record<string, unknown>, pid = process.ppid) =>
+      writeForeground(dir, route, Date.now(), pid);
+    const until = async (done: () => boolean, rounds = 400) => {
+      for (let round = 0; round < rounds && !done(); round++) await tick();
+    };
+    const posted = () => deck.envelopes.map((e: any) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
+    const asks = () => asked.filter((a) => a.type === "mail.ask").length;
+
+    /** The pane bound to `ses_a`, shown on screen. */
+    const onA = async () => {
+      const ctx = createContext();
+      await setup(ctx.context);
+      ctx.bus.push("session.created", { sessionID: "ses_a" });
+      screen({ route: "session", sessionID: "ses_a" });
+      await reported();
+      // The follower has read the screen by its next heartbeat at the
+      // latest: under load the directory watcher can drop the write's event,
+      // and a home screen it never saw a session before is not a leaving.
+      await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_MS + 100));
+      deck.envelopes.length = 0;
+      asked.length = 0;
+      return ctx;
+    };
+
+    it("moves the pane to the session the user opens — the binding first, and stops nothing", async () => {
+      const { bus, interrupted } = await onA();
+      screen({ route: "session", sessionID: "ses_b" });
+      await until(() => posted().includes("session.bound"));
+      bus.push("session.execution.started", { sessionID: "ses_b" });
+      const all = await reported();
+
+      expect(ofType(all, "session.bound").map(binding)).toEqual([{ sessionId: "ses_b", source: "resume" }]);
+      // The new session's events are the pane's now, and come after its binding.
+      const order = posted();
+      expect(order.indexOf("session.execution.started")).toBeGreaterThan(order.indexOf("session.bound"));
+      // A tab left behind runs on (user decision): nothing was interrupted.
+      expect(interrupted).toEqual([]);
+    });
+
+    it("on /new lets the conversation go at once — the tab runs on, and no background tab takes the pane", async () => {
+      const { bus, interrupted } = await onA();
+      screen({ route: "home" });
+      await until(() => posted().includes("session.unbound"));
+      expect(posted()).toContain("session.unbound");
+      expect(interrupted).toEqual([]);
+
+      deck.envelopes.length = 0;
+      // The tab left behind finishes, and another background tab works: the
+      // home screen shows neither, so neither is the pane's.
+      bus.push("session.execution.succeeded", { sessionID: "ses_a" });
+      bus.push("session.execution.started", { sessionID: "ses_x" });
+      bus.push("session.usage.updated", { sessionID: "ses_x", tokens: { input: 5, output: 1 }, cost: 0.1 });
+      const all = await reported();
+      expect(ofType(all, "usage.report")).toEqual([]);
+      expect(ofType(all, "session.bound")).toEqual([]);
+      expect(posted()).not.toContain("session.execution.succeeded");
+      expect(posted()).not.toContain("session.execution.started");
+
+      // The user's first prompt from home makes the next conversation.
+      bus.push("session.created", { sessionID: "ses_c" });
+      expect(ofType(await reported(), "session.bound").map(binding)).toEqual([{ sessionId: "ses_c", source: "new" }]);
+    });
+
+    it("binds a conversation again when the user comes back to it after /new", async () => {
+      await onA();
+      screen({ route: "home" });
+      await until(() => posted().includes("session.unbound"));
+      deck.envelopes.length = 0;
+      screen({ route: "session", sessionID: "ses_a" });
+      await until(() => posted().includes("session.bound"));
+      expect(ofType(await reported(), "session.bound").map(binding)).toEqual([{ sessionId: "ses_a", source: "resume" }]);
+    });
+
+    it("reaches nobody where the user is not looking — not at a turn's end, not after a tool call", async () => {
+      const { bus, hooks, prompts } = await onA();
+      // A plugin's own page: no session on screen.
+      screen({ route: "other" });
+      await reported();
+      pending.push({ v: 1, prompt: "should wait" });
+      bus.push("session.execution.succeeded", { sessionID: "ses_a" });
+      const result = { content: "done" };
+      const call = { sessionID: "ses_a", status: "completed", result };
+      await hooks["tool.execute.after"]!(call);
+      await reported();
+      expect(asks()).toBe(0);
+      expect(prompts).toEqual([]);
+      expect(call.result).toBe(result);
+
+      // Back on it, the waiting mail goes at the next boundary.
+      screen({ route: "session", sessionID: "ses_a" });
+      await until(() => asks() > 0);
+      bus.push("session.execution.succeeded", { sessionID: "ses_a" });
+      await until(() => prompts.length > 0);
+      expect(prompts).toEqual([{ sessionID: "ses_a", text: "should wait" }]);
+    });
+
+    it("after /new, a ring makes a session in the left one's agent and model, has the TUI show it, then delivers", async () => {
+      const { created, prompts, synthetics } = await onA();
+      screen({ route: "home" });
+      await until(() => posted().includes("session.unbound"));
+      // The TUI half: shows what it is asked to while on the home screen.
+      const tui = setInterval(() => {
+        try {
+          const request = JSON.parse(readFileSync(join(dir, "show.json"), "utf8"));
+          rmSync(join(dir, "show.json"));
+          screen({ route: "session", sessionID: request.sessionID });
+        } catch {
+          // Nothing asked yet.
+        }
+      }, 20);
+      try {
+        pending.push({ v: 1, context: "brief", prompt: "after /new" });
+        writeFileSync(join(dir, "mail.wake"), "");
+        await until(() => prompts.length > 0, 800);
+      } finally {
+        clearInterval(tui);
+      }
+      expect(created).toEqual([{ agent: "build", model: { providerID: "fixture", id: "probe" } }]);
+      // Into the session made for it: the brief as context, the words as a turn.
+      expect(synthetics).toEqual([{ sessionID: "ses_made1", text: "brief", resume: false }]);
+      expect(prompts).toEqual([{ sessionID: "ses_made1", text: "after /new" }]);
+      // Shown and bound before the mail was asked for.
+      const order = posted();
+      expect(order.indexOf("session.bound")).toBeGreaterThanOrEqual(0);
+      const askAt = deck.envelopes.findIndex((e: any) => e?.payload?.event?.type === "mail.ask");
+      expect(askAt).toBeGreaterThan(order.indexOf("session.bound"));
+    });
+
+    it("trusts only its parent's record — its own pid's is not the TUI's", async () => {
+      await onA();
+      screen({ route: "session", sessionID: "ses_b" }, process.pid);
+      await reported();
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      expect(ofType(await reported(), "session.bound")).toEqual([]);
+    });
+
+    it("stops everything when opencode cleans the plugin up", async () => {
+      const { context, bus, prompts } = createContext();
+      const cleanup = await setup(context);
+      expect(typeof cleanup).toBe("function");
+      bus.push("session.created", { sessionID: "ses_a" });
+      await reported();
+      cleanup!();
+      deck.envelopes.length = 0;
+      bus.push("session.execution.started", { sessionID: "ses_a" });
+      // Nobody watches the screen: a ring would be delivered into the pane.
+      pending.push({ v: 1, prompt: "nobody home" });
+      writeFileSync(join(dir, "mail.wake"), "");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      // And a screen showing another session would move it.
+      screen({ route: "session", sessionID: "ses_b" });
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      await reported();
+      expect(deck.envelopes).toEqual([]);
+      expect(prompts).toEqual([]);
     });
   });
 

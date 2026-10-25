@@ -9,9 +9,12 @@
  * what the components share with 1.x — the pane's session, the wire, the mail
  * ask, the doorbell — they import as 1.x does.
  *
- * Every 2.x pane runs with `--standalone`, so this process serves one pane.
+ * Every 2.x pane runs with `--standalone`, so this process serves one pane:
+ * the TUI spawns it as `opencode serve`, and that TUI is its parent process
+ * — whose screen the follower reads (tui.js writes it; task-436).
  */
 import { startComponents } from "./components.js";
+import { follower } from "./follower.js";
 import { readBridge } from "./keepdeck-bridge.js";
 import { startCourierV2 } from "./mail-courier-v2.js";
 import { paneSession } from "./pane-session.js";
@@ -44,7 +47,11 @@ export const parentLookupV2 = (context) => async (sessionID) => {
 export const resumedSession = () => process.env.KEEPDECK_OPENCODE_SESSION || undefined;
 
 /**
- * Start both components on a 2.x host, and feed them the bus.
+ * Start both components on a 2.x host, feed them the bus, and follow the
+ * TUI's screen. Returns the cleanup opencode 2.x calls when it reloads or
+ * unloads the plugin: a reload starts everything afresh, and what the old
+ * one left running — the bus, the doorbell, the screen watch — would answer
+ * twice.
  *
  * Inert outside a KeepDeck pane. A component that fails to start, or whose
  * handler throws, takes nothing else down — the same isolation index.js gives
@@ -61,27 +68,61 @@ export async function setupV2(context) {
   // no lookup is needed — and none is made while opencode is still loading.
   const resumed = resumedSession();
   if (resumed) pane.bindFromChain(resumed);
-  const components = (
-    await startComponents([startReporterV2, startCourierV2], { context, bridge, pane, resumed })
-  ).filter((component) => typeof component.onEvent === "function");
-  // Not awaited: the bus runs for the life of the process, and `setup` must
-  // return for opencode to finish loading.
-  void feed(context, components);
-}
-
-/** Hand every bus event to every component, each through its own handler. */
-async function feed(context, components) {
-  try {
-    for await (const event of context.event.subscribe()) {
-      for (const component of components) {
-        try {
-          component.onEvent(event);
-        } catch {
-          // One component's mistake is not the other's.
-        }
+  const components = await startComponents([startReporterV2, startCourierV2], {
+    context,
+    bridge,
+    pane,
+    resumed,
+  });
+  // Both components have joined the follower by now (follower.js).
+  const stopFollowing = follower().start(bridge.dir, process.ppid);
+  const stopFeed = feed(
+    context,
+    components.filter((component) => typeof component.onEvent === "function"),
+  );
+  return () => {
+    stopFollowing();
+    stopFeed();
+    for (const component of components) {
+      try {
+        component.stop?.();
+      } catch {
+        // Stopping one is not stopping the other.
       }
     }
-  } catch {
-    // The bus closed — the process is going. Nothing to report it to.
-  }
+  };
+}
+
+/**
+ * Hand every bus event to every component, each through its own handler.
+ * Returns the stop. Not awaited: the bus runs for the life of the plugin, and
+ * `setup` must return for opencode to finish loading.
+ */
+function feed(context, components) {
+  let iterator;
+  // A generator mid-`next()` finishes that wait before it returns: what
+  // arrives meanwhile is not handed on.
+  let stopped = false;
+  void (async () => {
+    try {
+      iterator = context.event.subscribe()[Symbol.asyncIterator]();
+      for (;;) {
+        const { value: event, done } = await iterator.next();
+        if (done || stopped) return;
+        for (const component of components) {
+          try {
+            component.onEvent(event);
+          } catch {
+            // One component's mistake is not the other's.
+          }
+        }
+      }
+    } catch {
+      // The bus closed — the process is going. Nothing to report it to.
+    }
+  })();
+  return () => {
+    stopped = true;
+    void iterator?.return?.()?.catch?.(() => {});
+  };
 }

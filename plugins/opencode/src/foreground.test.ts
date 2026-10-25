@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error untyped resource module
 import * as foreground from "../resources/keepdeck-plugin/foreground.js";
 // @ts-expect-error untyped resource module
-import observer, { observeRoute, routeOf } from "../resources/keepdeck-plugin/route-observer.js";
+import observer, { routeOf } from "../resources/keepdeck-plugin/route-observer.js";
 
-const { DEAD_MS, FOREGROUND_FILE, STALE_MS, readForeground, writeForeground } = foreground;
+const { DEAD_MS, FOREGROUND_FILE, STALE_MS, observeRoute, readForeground, writeForeground } = foreground;
 
 let dir: string;
 beforeEach(() => {
@@ -40,6 +40,13 @@ describe("what the server half reads", () => {
     expect(readForeground(dir, NOW)).toEqual({ kind: "unknown" });
     writeFileSync(join(dir, FOREGROUND_FILE), "{ torn");
     expect(readForeground(dir, NOW)).toEqual({ kind: "unknown" });
+  });
+
+  it("trusts the TUI it names — on 2.x that is its parent process, not itself", () => {
+    const tui = process.pid + 1;
+    at(0, { route: "home" }, tui);
+    expect(readForeground(dir, NOW, tui)).toEqual({ kind: "home" });
+    expect(readForeground(dir, NOW, process.pid)).toEqual({ kind: "unknown" });
   });
 
   it("holds while the TUI stops answering, and gives up holding once the observer is gone", () => {
@@ -80,9 +87,8 @@ describe("the TUI half", () => {
   it("writes a route once it held for two polls, then keeps a heartbeat", () => {
     vi.useFakeTimers();
     let clock = 5_000;
-    let current: unknown = { name: "session", params: { sessionID: "ses_a" } };
-    const api = { route: { get current() { return current; } } };
-    const stop = observeRoute(api, dir, () => clock);
+    let current: Record<string, unknown> = { route: "session", sessionID: "ses_a" };
+    const stop = observeRoute(() => current, dir, () => clock);
     const read = () => readForeground(dir, clock);
     const tick = () => {
       clock += 250;
@@ -95,14 +101,14 @@ describe("the TUI half", () => {
     expect(read()).toEqual({ kind: "session", sessionID: "ses_a" });
 
     // Passed through for one poll: not somewhere the user went.
-    current = { name: "home" };
+    current = { route: "home" };
     tick();
-    current = { name: "session", params: { sessionID: "ses_a" } };
+    current = { route: "session", sessionID: "ses_a" };
     tick();
     expect(read()).toEqual({ kind: "session", sessionID: "ses_a" });
 
     // Stayed: written.
-    current = { name: "home" };
+    current = { route: "home" };
     tick();
     tick();
     expect(read()).toEqual({ kind: "home" });
@@ -110,7 +116,53 @@ describe("the TUI half", () => {
     // Unchanged for a while, still fresh.
     for (let i = 0; i < 20; i++) tick();
     expect(read()).toEqual({ kind: "home" });
+
     stop();
+  });
+
+  it("skips a poll whose read throws, and leaves the record as it was", () => {
+    vi.useFakeTimers();
+    let clock = 5_000;
+    let fail = false;
+    const stop = observeRoute(() => {
+      if (fail) throw new Error("the TUI is going");
+      return { route: "home" };
+    }, dir, () => clock);
+    const tick = () => {
+      clock += 250;
+      vi.advanceTimersByTime(250);
+    };
+    tick();
+    tick();
+    fail = true;
+    for (let i = 0; i < 14; i++) tick();
+    // No heartbeat while the read fails: the record ages toward stale.
+    expect(readForeground(dir, clock)).toEqual({ kind: "stale" });
+    stop();
+  });
+
+  it("in a KeepDeck pane, writes the route opencode shows, and stops on dispose", async () => {
+    vi.useFakeTimers();
+    const before = process.env.KEEPDECK_BRIDGE;
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir, pane: "pane-1", token: "t", url: "http://127.0.0.1:9/envelope" });
+    try {
+      let current: unknown = { name: "session", params: { sessionID: "ses_a" } };
+      let dispose: (() => void) | undefined;
+      await observer.tui({
+        route: { get current() { return current; } },
+        lifecycle: { onDispose: (stop: () => void) => { dispose = stop; } },
+      });
+      vi.advanceTimersByTime(500);
+      expect(readForeground(dir)).toEqual({ kind: "session", sessionID: "ses_a" });
+
+      dispose?.();
+      current = { name: "home" };
+      vi.advanceTimersByTime(500);
+      expect(readForeground(dir)).toEqual({ kind: "session", sessionID: "ses_a" });
+    } finally {
+      if (before === undefined) delete process.env.KEEPDECK_BRIDGE;
+      else process.env.KEEPDECK_BRIDGE = before;
+    }
   });
 
   it("stays inert outside a KeepDeck pane", async () => {
