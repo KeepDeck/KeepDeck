@@ -9,14 +9,7 @@
  * value. No production code reads anything from here.
  */
 
-function instanceOf<T>(
-  value: unknown,
-  ctor: abstract new (...args: never[]) => T,
-  what: string,
-): T {
-  if (!(value instanceof ctor)) throw new Error(`expected ${what} to be a ${ctor.name}`);
-  return value;
-}
+import { instanceOf } from "@keepdeck/plugin-api/testing";
 
 /** Pins one list's scroll container (and everything inside it) to a
  * viewport size. `list` is the container's class — a second virtualized
