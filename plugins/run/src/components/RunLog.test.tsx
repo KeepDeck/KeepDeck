@@ -62,6 +62,7 @@ vi.mock("@keepdeck/terminal-kit", async (importOriginal) => {
 });
 
 import { RunLog } from "./RunLog";
+import { present } from "@keepdeck/plugin-api/testing";
 
 function makeManager() {
   return managerOf({
@@ -126,7 +127,7 @@ describe("RunLog", () => {
     // the host has to ask for the exception by name or the run output stops
     // being copyable, with nothing else failing to say so.
     expect(
-      host.querySelector(".run__log")!.classList.contains("kd-selectable"),
+      present(host.querySelector(".run__log"), "the .run__log element").classList.contains("kd-selectable"),
     ).toBe(true);
   });
 
