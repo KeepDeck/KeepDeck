@@ -6,10 +6,10 @@ import { requestOpen, takeOpenRequest } from "../openRequests";
 import type {
   FsEntry,
   FsFile,
-  PluginContext,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
-import { setRuntime } from "../runtime";
+import { setRuntime, type FilesPorts } from "../runtime";
+import { inertPorts } from "../filesPorts.test-support";
 import { FilesTab } from "./FilesTab";
 import { FilesOverlay } from "./FilesOverlay";
 import {
@@ -88,14 +88,14 @@ function makeFs() {
   };
 }
 
-function makeCtx(fs: ReturnType<typeof makeFs>): PluginContext {
-  return {
+function makeCtx(fs: ReturnType<typeof makeFs>): FilesPorts {
+  return inertPorts({
     services: {
       fs: { readDir: fs.readDir, readFile: fs.readFile, watch: fs.watch },
       opener: fs.opener,
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  });
 }
 
 const treeNames = () =>

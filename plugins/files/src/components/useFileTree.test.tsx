@@ -2,8 +2,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FsEntry, PluginContext } from "@keepdeck/plugin-api";
+import type { FsEntry } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
+import { inertPorts } from "../filesPorts.test-support";
 import { useFileTree } from "./useFileTree";
 import type { TreeState } from "../domain/tree";
 
@@ -62,12 +63,15 @@ describe("useFileTree re-rooting", () => {
   beforeEach(() => {
     fs = deferredFs();
     warn.mockReset();
-    setRuntime({
-      services: {
-        fs: { readDir: fs.readDir, readFile: fs.readFile, watch: fs.watch },
-      },
-      log: { info: vi.fn(), warn, error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(
+      inertPorts({
+        services: {
+          fs: { readDir: fs.readDir, readFile: fs.readFile, watch: fs.watch },
+          opener: inertPorts().services.opener,
+        },
+        log: { info: vi.fn(), warn, error: vi.fn() },
+      }),
+    );
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);

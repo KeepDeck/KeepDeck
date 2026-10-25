@@ -2,8 +2,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FsFile, PluginContext } from "@keepdeck/plugin-api";
-import { setRuntime } from "../runtime";
+import type { FsFile } from "@keepdeck/plugin-api";
+import { setRuntime, type FilesPorts } from "../runtime";
+import { fsOf, inertPorts } from "../filesPorts.test-support";
 import { FileViewer } from "./FileViewer";
 
 const TS_TEXT = 'const s = "hi" // note\n\nexport default s\n';
@@ -17,18 +18,18 @@ const fsFile = (path: string, text: string): FsFile => ({
   readBytes: text.length,
 });
 
-function makeCtx(files: Record<string, FsFile>): PluginContext {
-  return {
+function makeCtx(files: Record<string, FsFile>): FilesPorts {
+  return inertPorts({
     services: {
-      fs: {
+      fs: fsOf({
         readDir: vi.fn(async () => []),
         readFile: vi.fn(async (path: string) => files[path]),
         watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: () => {} })),
-      },
+      }),
       opener: { openUrl: vi.fn(async () => {}), openPath: vi.fn(async () => {}) },
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  });
 }
 
 const rowTexts = () =>
