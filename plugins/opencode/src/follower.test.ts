@@ -14,8 +14,8 @@ import { startDeck } from "../../../scripts/reporterHarness";
  */
 let startReporter: (input?: any) => Promise<any>;
 let startCourier: (input?: any) => Promise<any>;
-let follower: () => { start(dir?: string): void };
-let writeForeground: (dir: string, route: Record<string, unknown>) => void;
+let follower: () => { start(dir?: string, tui?: number): void; screen(): unknown };
+let writeForeground: (dir: string, route: Record<string, unknown>, now?: number, pid?: number) => void;
 let paneSession: () => { root: string | undefined };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -85,14 +85,14 @@ describe("the pane follows the session on screen", () => {
   });
 
   /** Both components bound to `ses_a`, and the follower watching. */
-  const startOn = async (root: string) => {
+  const startOn = async (root: string, tui?: number) => {
     const c = client();
     const reporter = await startReporter({ client: c });
     const courier = await startCourier({ client: c });
     const created = { event: { type: "session.created", properties: { info: { id: root } } } };
     await reporter.event(created);
     await courier.event(created);
-    follower().start(dir);
+    follower().start(dir, tui);
     await until(() => deck.envelopes.some((e: any) => e.type === "session.bound"));
     deck.envelopes.length = 0;
   };
@@ -147,5 +147,20 @@ describe("the pane follows the session on screen", () => {
     await sleep(150);
     expect(paneSession().root).toBe("ses_a");
     expect(types()).not.toContain("session.bound");
+  });
+
+  it("follows the TUI it was started for, and reads the screen through that TUI alone", async () => {
+    // opencode 2.x: the TUI is the server plugin's PARENT process (task-436).
+    const tui = process.pid + 1;
+    await startOn("ses_a", tui);
+    writeForeground(dir, { route: "session", sessionID: "ses_c" }, Date.now(), process.pid);
+    await sleep(150);
+    expect(paneSession().root).toBe("ses_a");
+    expect(follower().screen()).toEqual({ kind: "unknown" });
+
+    writeForeground(dir, { route: "session", sessionID: "ses_b" }, Date.now(), tui);
+    await until(() => paneSession().root === "ses_b");
+    expect(paneSession().root).toBe("ses_b");
+    expect(follower().screen()).toEqual({ kind: "session", sessionID: "ses_b" });
   });
 });

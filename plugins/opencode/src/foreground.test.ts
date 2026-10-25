@@ -42,6 +42,13 @@ describe("what the server half reads", () => {
     expect(readForeground(dir, NOW)).toEqual({ kind: "unknown" });
   });
 
+  it("trusts the TUI it names — on 2.x that is its parent process, not itself", () => {
+    const tui = process.pid + 1;
+    at(0, { route: "home" }, tui);
+    expect(readForeground(dir, NOW, tui)).toEqual({ kind: "home" });
+    expect(readForeground(dir, NOW, process.pid)).toEqual({ kind: "unknown" });
+  });
+
   it("holds while the TUI stops answering, and gives up holding once the observer is gone", () => {
     at(STALE_MS, { route: "home" });
     expect(readForeground(dir, NOW).kind).toBe("home");

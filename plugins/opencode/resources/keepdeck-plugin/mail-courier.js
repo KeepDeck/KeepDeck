@@ -37,7 +37,6 @@ import { randomBytes } from "node:crypto";
 import { parentLookupV1 } from "./opencode-v1.js";
 import { paneSession } from "./pane-session.js";
 import { drained, readBridge } from "./keepdeck-bridge.js";
-import { readForeground } from "./foreground.js";
 import { watchDoorbell } from "./doorbell.js";
 import { follower } from "./follower.js";
 import { answerText, askMail } from "./mail-ask.js";
@@ -223,7 +222,7 @@ export async function startCourier(input = {}) {
    * reached as it always was.
    */
   const collect = async ({ rung = false } = {}) => {
-    const screen = readForeground(dir);
+    const screen = follower().screen();
     if (screen.kind !== "home") homeFailed = false;
     if (visible(screen)) return deliver();
     if (screen.kind !== "home") return;
@@ -272,14 +271,14 @@ export async function startCourier(input = {}) {
     }
     const id = made?.data?.id;
     if (!ok(made) || !id) return;
-    if (theirs || readForeground(dir).kind !== "home") return;
+    if (theirs || follower().screen().kind !== "home") return;
     await client.tui.publish({
       body: { type: "tui.session.select", properties: { sessionID: id } },
     });
     // Shown, and bound: the reporter takes the new session from its own
     // `session.created`.
     const shown = () => {
-      const screen = readForeground(dir);
+      const screen = follower().screen();
       return screen.kind === "session" && screen.sessionID === id && pane.root === id;
     };
     for (let waited = 0; !shown() && waited < SHOW_WAIT_MS; waited += 50) {
@@ -481,7 +480,7 @@ export async function startCourier(input = {}) {
     "tool.execute.after": async (info, output) => {
       if (!info?.sessionID || info.sessionID !== pane.root) return;
       // A turn running where the user is not looking is not reached.
-      if (!visible(readForeground(dir))) return;
+      if (!visible(follower().screen())) return;
       if (typeof output?.output !== "string") return;
       // Behind whatever is already collecting, as `chat.message` is.
       await work;

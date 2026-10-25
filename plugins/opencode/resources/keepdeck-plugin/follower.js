@@ -29,7 +29,7 @@
  * (measured, task-443) — neither is the user going anywhere.
  */
 import { drained, readBridge } from "./keepdeck-bridge.js";
-import { watchForeground } from "./foreground.js";
+import { readForeground, watchForeground } from "./foreground.js";
 import { paneSession } from "./pane-session.js";
 
 let shared;
@@ -56,6 +56,9 @@ function create() {
   let settled;
   let chain = Promise.resolve();
   let started = false;
+  /** The TUI this process serves: its pid, and the bridge dir it writes to. */
+  let owner = process.pid;
+  let watched;
 
   const tell = async () => {
     await drained();
@@ -98,14 +101,27 @@ function create() {
     onSettled(listener) {
       settled = listener;
     },
-    /** Watch the TUI's route — once, after both components joined. Changes
-     * are followed one at a time, in the order they happened. */
-    start(dir = readBridge()?.dir) {
+    /** What the TUI shows now, read as the follower reads it — the courier
+     * asks here rather than naming the TUI's pid itself. */
+    screen(now = Date.now()) {
+      const dir = watched ?? readBridge()?.dir;
+      return dir ? readForeground(dir, now, owner) : { kind: "unknown" };
+    },
+    /** Watch the route of the TUI `tui` (its pid) — once, after both
+     * components joined. Changes are followed one at a time, in the order
+     * they happened. */
+    start(dir = readBridge()?.dir, tui = process.pid) {
       if (started || !dir) return;
       started = true;
-      watchForeground(dir, (state) => {
-        chain = chain.then(() => follow(state)).catch(() => {});
-      });
+      watched = dir;
+      owner = tui;
+      watchForeground(
+        dir,
+        (state) => {
+          chain = chain.then(() => follow(state)).catch(() => {});
+        },
+        owner,
+      );
     },
   };
 }

@@ -11,6 +11,11 @@
  * Worker (cli/cmd/tui.ts:249-253) — so a file in the pane's bridge directory
  * is the channel, not a module variable.
  *
+ * opencode 2.x splits the two halves across PROCESSES instead: the TUI
+ * spawns `opencode serve` as its child, and the server plugin runs there
+ * (measured on 2.1.2, task-436). The same file is the channel; what differs
+ * is whose pid a trusted record carries — the reader names it (`owner`).
+ *
  * The record: `{ route: "home" | "session" | "other", sessionID?, pid, at }`.
  * Rewritten on every change and once a second as a heartbeat, atomically.
  */
@@ -38,23 +43,25 @@ export function writeForeground(dir, route, now = Date.now(), pid = process.pid)
 }
 
 /**
- * What the TUI is showing, as far as this process can trust it:
+ * What the TUI is showing, as far as this process can trust it. `owner` is
+ * the pid of the TUI process this one serves — its own on 1.x, its parent on
+ * 2.x:
  *
- * - `unknown` — no observer is running for this process (no file, another
+ * - `unknown` — no observer is running for that TUI (no file, another
  *   process's file, or one that stopped long ago): behave as before there
  *   was one.
  * - `stale` — the observer stopped answering a moment ago: hold.
  * - `home`, `other` — no session is on screen.
  * - `session` with `sessionID`.
  */
-export function readForeground(dir, now = Date.now(), pid = process.pid) {
+export function readForeground(dir, now = Date.now(), owner = process.pid) {
   let record;
   try {
     record = JSON.parse(readFileSync(join(dir, FOREGROUND_FILE), "utf8"));
   } catch {
     return { kind: "unknown" };
   }
-  if (record?.pid !== pid || typeof record.at !== "number") return { kind: "unknown" };
+  if (record?.pid !== owner || typeof record.at !== "number") return { kind: "unknown" };
   const age = now - record.at;
   if (age > DEAD_MS) return { kind: "unknown" };
   if (age > STALE_MS) return { kind: "stale" };
@@ -79,10 +86,10 @@ const keyOf = (state) => `${state.kind}\0${state.sessionID ?? ""}`;
  * is read once a heartbeat regardless: a TUI that stops writing produces no
  * event at all, yet it turns the route stale, then unknown.
  */
-export function watchForeground(dir, onChange) {
+export function watchForeground(dir, onChange, owner = process.pid) {
   let last;
   const look = () => {
-    const state = readForeground(dir);
+    const state = readForeground(dir, Date.now(), owner);
     const key = keyOf(state);
     if (key === last) return;
     last = key;
