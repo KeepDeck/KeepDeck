@@ -12,7 +12,7 @@ import {
   type SettingsKey,
 } from "./types";
 import { isJsonRecord } from "@keepdeck/plugin-api";
-import { isOneOf, keysOf } from "../json";
+import { isOneOf, keyList } from "../json";
 
 /**
  * How a STORED value becomes a setting, and what each setting falls back to.
@@ -242,16 +242,36 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   tasksBoard: { default: DEFAULT_TASKS_BOARD, read: readTasksBoard },
 };
 
+/** Every setting, in the saved key order — the compiler holds the list to
+ * the table, so a setting added there and not here does not build. */
+const SETTINGS_KEY_LIST = keyList<typeof SETTINGS_CODECS>()([
+  "defaultAgent",
+  "defaultYolo",
+  "scrollback",
+  "suspendedAgentPlacement",
+  "dockMode",
+  "plugins",
+  "notifications",
+  "usageDisplay",
+  "remoteAgents",
+  "parkAgentsOnLaunch",
+  "artifacts",
+  "artifactAutoOpen",
+  "tasks",
+  "tasksBoard",
+]);
+
 /** The table as entries, typed once so every consumer doesn't re-assert the
- * key type. Iteration order is the table's, which is the saved key order. */
+ * key type, in the saved key order. */
 export function settingsCodecs(): [SettingsKey, SettingCodec<unknown>][] {
-  return keysOf(SETTINGS_CODECS).map((key): [SettingsKey, SettingCodec<unknown>] => [key, SETTINGS_CODECS[key]]);
+  return SETTINGS_KEY_LIST.map((key): [SettingsKey, SettingCodec<unknown>] => [key, SETTINGS_CODECS[key]]);
 }
 
 /** Whether `key` is a setting this build knows — the one place that question is
- * answered, so a patch carrying a stray key cannot enter a document. */
+ * answered, so a patch carrying a stray key cannot enter a document. A list
+ * lookup, not `in`: `in` would also answer yes for "toString". */
 export function isSettingsKey(key: string): key is SettingsKey {
-  return key in SETTINGS_CODECS;
+  return SETTINGS_KEY_LIST.some((known) => known === key);
 }
 
 /** One key's default into `into` — generic over the key, so the value the

@@ -27,7 +27,7 @@ export function collectExtras(
 
 /** The keys of a table literal, typed as its keys — the contract's own
  * helper, the one every layer uses. */
-export { keysOf } from "@keepdeck/plugin-api";
+export { keyList } from "@keepdeck/plugin-api";
 
 /** Whether `value` is a JSON object whose every value is a string. */
 export function isStringRecord(value: unknown): value is Record<string, string> {

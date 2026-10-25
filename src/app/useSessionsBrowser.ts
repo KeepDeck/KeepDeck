@@ -148,7 +148,7 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
       const contribution = plugins.pluginRegistries.agents
         .list()
         .find((c) => c.entry.id === agent);
-      const history = contribution?.entry.history as AgentHistory | undefined;
+      const history = contribution?.entry.history;
       if (!history) return { entries: [] };
       return readTranscriptPage(history, ref, { offset, limit });
     },

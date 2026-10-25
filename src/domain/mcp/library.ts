@@ -1,5 +1,5 @@
 import { isJsonRecord } from "@keepdeck/plugin-api";
-import { isStringRecord, keysOf } from "../json";
+import { isStringRecord, keyList } from "../json";
 /**
  * The user's library of MCP servers ([mcp] — one definition, every CLI).
  *
@@ -194,7 +194,7 @@ const KNOWN_KEYS: Record<McpServerBody["transport"], readonly string[]> = {
 /** The stored shape in words, DERIVED from the keys the codec accepts — for
  * whoever has to explain it (a command's argument description). A prose copy
  * of the key lists would keep teaching the old shape the day one changed. */
-export const MCP_SPEC_SHAPE = keysOf(KNOWN_KEYS)
+export const MCP_SPEC_SHAPE = keyList<typeof KNOWN_KEYS>()(["stdio", "http"])
   .map(
     (transport) =>
       `{${KNOWN_KEYS[transport]

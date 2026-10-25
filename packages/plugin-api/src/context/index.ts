@@ -113,7 +113,7 @@ export {
   type SessionStore,
   type TranscriptPage,
 } from "./sessionHistory.ts";
-export { isJsonRecord, keysOf } from "../json.ts";
+export { isJsonRecord, keyList } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,

@@ -6,14 +6,15 @@ export function isJsonRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * The keys of a table written as a literal — a `satisfies Record<K, …>`
- * constant, say — typed as its keys. `Object.keys` answers `string[]`
- * because an object in general may carry more than its type names; a table
- * literal carries exactly what it declares, so its own keys are its
- * `keyof`. Not for anything read from outside.
+ * Every key of `T`, listed once by hand and proven complete by the compiler:
+ * `keyList<typeof TABLE>()(["a", "b"])` compiles only when the list names
+ * each key of the table and nothing else. `Object.keys` answers `string[]`,
+ * and a function that narrowed it would be trusting the table, not checking
+ * it; here nothing is trusted — a key added to the table and not to the list
+ * is a compile error.
  */
-export function keysOf<T extends object>(table: T): Extract<keyof T, string>[] {
-  return Object.keys(table).filter((key): key is Extract<keyof T, string> =>
-    Object.prototype.hasOwnProperty.call(table, key),
-  );
+export function keyList<T>() {
+  return <const K extends readonly Extract<keyof T, string>[]>(
+    keys: K & (Exclude<Extract<keyof T, string>, K[number]> extends never ? unknown : never),
+  ): readonly K[number][] => keys;
 }

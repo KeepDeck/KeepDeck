@@ -1,4 +1,4 @@
-import { keysOf } from "../../json";
+import { keyList } from "../../json";
 import type { AchievementMetric } from "./catalog";
 
 /**
@@ -80,7 +80,24 @@ const REFERENCE_PACE: Record<AchievementMetric, number | null> = {
  * again beside it. `achievementRarity` asks this question of every tier, so
  * it is a real answer this module gives, not a view of itself kept for a
  * test to read. */
-export const PACED_METRICS: readonly AchievementMetric[] = keysOf(REFERENCE_PACE).filter(
+export const PACED_METRICS: readonly AchievementMetric[] = keyList<typeof REFERENCE_PACE>()([
+  "tokens",
+  "outputTokens",
+  "cacheTokens",
+  "sessions",
+  "spendUsd",
+  "dayTokens",
+  "daySessions",
+  "dayProviders",
+  "sessionTokens",
+  "sessionTurns",
+  "sessionHours",
+  "sessionSpendUsd",
+  "streakDays",
+  "providers",
+  "models",
+  "workspaces",
+]).filter(
   (metric) => REFERENCE_PACE[metric] !== null,
 );
 

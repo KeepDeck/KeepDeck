@@ -1,5 +1,5 @@
 import { isJsonRecord } from "@keepdeck/plugin-api";
-import { keysOf } from "../json";
+import { keyList } from "../json";
 /**
  * Schema revisions and migrations for every durable JSON document — the one
  * file to touch when a document's shape changes.
@@ -429,7 +429,7 @@ function migrateDeckFromV11toV12(doc: RawDoc): RawDoc {
     workspaces: workspaces.map((ws) => {
       if (!isJsonRecord(ws) || typeof ws.id !== "string") return ws;
       const view: RawDoc = {};
-      for (const map of keysOf(V11_VIEW_MAPS)) {
+      for (const map of keyList<typeof V11_VIEW_MAPS>()(["focusByWs", "selectByWs", "teamOpenByWs"])) {
         const field = V11_VIEW_MAPS[map];
         const entries = maps[map];
         if (isJsonRecord(entries) && entries[ws.id] !== undefined) view[field] = entries[ws.id];
