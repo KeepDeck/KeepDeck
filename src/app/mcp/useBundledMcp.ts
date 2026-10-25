@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { BundledMcpDescription } from "./bundled";
-import { useAppRuntime } from "../runtimeContext";
+import { useRuntimePart } from "../runtimeContext";
 import { useMcpStatus } from "./useMcpStatus";
 
 /** The bundled tier as a surface lists it, re-read whenever the transport's
@@ -8,7 +8,7 @@ import { useMcpStatus } from "./useMcpStatus";
  * server fills in once the socket is confirmed). The set itself is fixed for
  * the service's life. */
 export function useBundledMcp(): BundledMcpDescription[] {
-  const { mcp } = useAppRuntime();
+  const mcp = useRuntimePart("mcp");
   const status = useMcpStatus();
   // Keyed on the status object: the service publishes a fresh one on every
   // settled transition, and the descriptions are a pure function of it.

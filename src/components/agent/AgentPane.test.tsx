@@ -52,7 +52,6 @@ import {
   type AgentStatusTracker,
 } from "../../app/agentStatusTracker";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
-import type { AppRuntime } from "../../app/runtime";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";
 
@@ -100,7 +99,7 @@ function PaneUnderTest(
   return createElement(
     AppRuntimeProvider,
     {
-      runtime: { statusTracker, usageManager: usage } as unknown as AppRuntime,
+      runtime: { statusTracker, usageManager: usage },
     },
     createElement(AgentPane, {
       ...props,

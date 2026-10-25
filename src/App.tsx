@@ -5,7 +5,7 @@ import { artifactsRegistryReads } from "./app/artifacts/registryRead";
 import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
 import { useAppController } from "./app/useAppController";
-import { useAppRuntime } from "./app/runtimeContext";
+import type { AppRuntime } from "./app/runtime";
 import { DeckBar } from "./components/deck/DeckBar";
 import { DeckStage } from "./components/DeckStage";
 import { DockPanel } from "./components/dock/DockPanel";
@@ -43,9 +43,9 @@ import "./styles/index.css";
  * the life of the process, so the dialog's list effect never sees a new one. */
 const registryReads = artifactsRegistryReads();
 
-function App() {
-  const controller = useAppController();
-  const { spawnPlugins, tasks } = useAppRuntime();
+function App({ runtime }: { runtime: AppRuntime }) {
+  const controller = useAppController(runtime);
+  const { spawnPlugins, tasks } = runtime;
   // The resume picker's advisory live-registry ask — handed to the dialog
   // READY-MADE (the same seam the session search uses; a view never
   // touches a plugin). Stable identity: the dialog re-asks per agent, not

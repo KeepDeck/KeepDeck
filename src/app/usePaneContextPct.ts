@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { contextPct } from "../domain/usage";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 import type { UsageManager } from "./usageManager";
 
 /** The usage store as this selector reads it: its snapshot, and when that
@@ -16,7 +16,7 @@ export type PaneUsageSource = Pick<UsageManager, "subscribe" | "getSnapshot">;
  * scoped to a single pane so each `AgentPane` can carry its own header meter.
  */
 export function usePaneContextPct(paneId: string): number | undefined {
-  return usePaneContextPctFrom(useAppRuntime().usageManager, paneId);
+  return usePaneContextPctFrom(useRuntimePart("usageManager"), paneId);
 }
 
 /** [`usePaneContextPct`] over a usage store the caller names — the hook

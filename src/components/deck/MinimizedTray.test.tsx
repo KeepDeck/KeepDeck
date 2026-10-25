@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAgentStatusTracker } from "../../app/agentStatusTracker";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
-import type { AppRuntime } from "../../app/runtime";
 import {
   MinimizedTray,
   type MinimizedTrayEntry,
@@ -17,7 +16,7 @@ import { inertBackground } from "../../ui/inertBackground";
  * here reports activity, so one instance across the file is inert. */
 const runtime = {
   statusTracker: createAgentStatusTracker(),
-} as unknown as AppRuntime;
+};
 const withRuntime = (el: ReactElement) => (
   <AppRuntimeProvider runtime={runtime}>{el}</AppRuntimeProvider>
 );

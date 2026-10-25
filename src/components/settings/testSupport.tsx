@@ -124,7 +124,8 @@ vi.mock("../../app/runtimeContext", async () => {
     });
   }
   return {
-    useAppRuntime: () => ({
+    useRuntimePart: (part: string) => {
+    const parts: Record<string, unknown> = {
       plugins: {
         pluginRegistries: registries,
         bootstrapPlugins: () => Promise.resolve(),
@@ -139,7 +140,9 @@ vi.mock("../../app/runtimeContext", async () => {
         rescanPlugins: async () => {},
         restartPlugin: async () => {},
       },
-    }),
+    };
+    return parts[part];
+  },
     AppRuntimeProvider: ({ children }: { children: unknown }) => children,
   };
 });

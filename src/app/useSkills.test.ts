@@ -44,7 +44,10 @@ const library = vi.hoisted(
 );
 const subscribers = vi.hoisted(() => new Set<() => void>());
 vi.mock("./runtimeContext", () => ({
-  useAppRuntime: () => ({ skills: library }),
+  useRuntimePart: (part: string) => {
+    const parts: Record<string, unknown> = { skills: library };
+    return parts[part];
+  },
 }));
 
 const STORED: LibrarySkill = {

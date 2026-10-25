@@ -125,7 +125,8 @@ const sessionIndex = vi.hoisted(() => {
 });
 
 vi.mock("../../app/runtimeContext", () => ({
-  useAppRuntime: () => ({
+  useRuntimePart: (part: string) => {
+    const parts: Record<string, unknown> = {
     plugins: {
       pluginRegistries: {
         agents: {
@@ -137,7 +138,9 @@ vi.mock("../../app/runtimeContext", () => ({
       },
     },
     sessionIndex: sessionIndex.sessionIndex,
-  }),
+  };
+    return parts[part];
+  },
 }));
 
 import {

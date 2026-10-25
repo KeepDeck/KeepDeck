@@ -44,7 +44,7 @@ initUpdateNotifications();
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <AppRuntimeProvider runtime={runtime}>
-      <App />
+      <App runtime={runtime} />
     </AppRuntimeProvider>
   </React.StrictMode>,
 );

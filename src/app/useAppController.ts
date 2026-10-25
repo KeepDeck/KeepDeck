@@ -8,7 +8,7 @@ import {
 import { useAgentDialog } from "./useAgentDialog";
 import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
-import { useAppRuntime } from "./runtimeContext";
+import type { AppRuntime } from "./runtime";
 import { askBackgroundCarriers } from "./liveSessions";
 import { useCloseFlow } from "./useCloseFlow";
 import { useContributions, useInstalledPlugins, unavailableAgentReasons } from "../plugins";
@@ -68,8 +68,7 @@ import { errorMessage } from "@keepdeck/plugin-api";
 const NO_FOLDED_EPICS: readonly string[] = [];
 
 /** Shell/application wiring kept separate from the rendered app tree. */
-export function useAppController() {
-  const runtime = useAppRuntime();
+export function useAppController(runtime: AppRuntime) {
   const { pluginRegistries, pluginHost } =
     runtime.plugins;
   const [info, setInfo] = useState<AppInfo | null>(null);

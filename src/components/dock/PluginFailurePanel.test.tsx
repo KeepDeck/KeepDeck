@@ -8,7 +8,10 @@ const managerMock = vi.hoisted(() => ({
   restartPlugin: vi.fn(async () => {}),
 }));
 vi.mock("../../app/runtimeContext", () => ({
-  useAppRuntime: () => ({ plugins: managerMock }),
+  useRuntimePart: (part: string) => {
+    const parts: Record<string, unknown> = { plugins: managerMock };
+    return parts[part];
+  },
 }));
 const clipboardMock = vi.hoisted(() => ({
   writeText: vi.fn(async (_text: string) => {}),

@@ -26,7 +26,7 @@ import type { SessionHandle } from "../../domain/journal";
 import { resumeBlock } from "../../domain/deck";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
-import { useAppRuntime } from "../../app/runtimeContext";
+import { useRuntimePart } from "../../app/runtimeContext";
 
 export function useSessionPicker(deps: {
   agentType: AgentType;
@@ -90,7 +90,7 @@ export function useSessionPicker(deps: {
   // when the scan runs is the sessionIndexManager's call (it waits for
   // plugin registration on its own). Fires on open and on every agent
   // switch; typing never rescans.
-  const { sessionIndex } = useAppRuntime();
+  const sessionIndex = useRuntimePart("sessionIndex");
   useEffect(() => {
     sessionIndex.ensureFresh(agentType);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -34,7 +34,7 @@ import {
   TERMINAL_THEME,
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
-import { useAppRuntime } from "../../app/runtimeContext";
+import { useRuntimePart } from "../../app/runtimeContext";
 import {
   usePaneInputFocus,
   type PaneKeyboard,
@@ -123,7 +123,8 @@ export function TerminalPane({
   startupSlow = false,
   onForkStalled,
 }: TerminalPaneProps) {
-  const { fileOpen, paneInputFocus } = useAppRuntime();
+  const fileOpen = useRuntimePart("fileOpen");
+  const paneInputFocus = useRuntimePart("paneInputFocus");
   // Scrollback comes straight from the settings store ([F6]) — no prop
   // threading through the grid. Loaded before panes can mount (App gates the
   // first paint on it); the fallback only covers isolated test mounts.

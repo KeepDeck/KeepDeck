@@ -69,7 +69,10 @@ const sessionIndexRef = vi.hoisted(
   }),
 );
 vi.mock("../../app/runtimeContext", () => ({
-  useAppRuntime: () => ({ sessionIndex: sessionIndexRef.current }),
+  useRuntimePart: (part: string) => {
+    const parts: Record<string, unknown> = { sessionIndex: sessionIndexRef.current };
+    return parts[part];
+  },
 }));
 
 // The dialog pulls the agent catalog via useAgents; pin one agent at the

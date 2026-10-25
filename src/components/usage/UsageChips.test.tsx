@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
-import type { AppRuntime } from "../../app/runtime";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
 import {
   createUsageManager,
@@ -124,10 +123,12 @@ describe("UsageChips", () => {
               // ONE snapshot object — useSyncExternalStore re-renders
               // forever on a fresh identity per read.
               windowReportJournal: {
+                start: () => {},
                 subscribe: () => () => {},
                 getSnapshot: () => EMPTY_REPORTS,
+                dispose: () => {},
               },
-            } as unknown as AppRuntime,
+            },
           },
           createElement(UsageChips, {
             agents,

@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useAppRuntime } from "../../app/runtimeContext";
+import { useRuntimePart } from "../../app/runtimeContext";
 import type { RecentProjects } from "../../domain/recentProject";
 import { recentProjects } from "../../ipc/history";
 import { log } from "../../ipc/log";
@@ -14,7 +14,7 @@ import { errorMessage } from "@keepdeck/plugin-api";
 const NONE: RecentProjects = { home: null, projects: [] };
 
 export function useRecentProjects(): RecentProjects {
-  const { sessionIndex } = useAppRuntime();
+  const sessionIndex = useRuntimePart("sessionIndex");
   useEffect(() => sessionIndex.ensureFresh(), [sessionIndex]);
   const { revision } = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
   const [projects, setProjects] = useState<RecentProjects>(NONE);

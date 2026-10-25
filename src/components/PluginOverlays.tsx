@@ -5,7 +5,7 @@ import {
 } from "../app/overlayVisibility";
 import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
 import { reportPluginCrash } from "../app/pluginHealth";
-import { useAppRuntime } from "../app/runtimeContext";
+import { useRuntimePart } from "../app/runtimeContext";
 import { log } from "../ipc/log";
 import { useContributions } from "../plugins";
 import { externalPluginUrl } from "../plugins/external/url";
@@ -24,7 +24,7 @@ import { errorMessage } from "@keepdeck/plugin-api";
  * (hidden, or it would swallow every click).
  */
 export function PluginOverlays() {
-  const { pluginRegistries } = useAppRuntime().plugins;
+  const { pluginRegistries } = useRuntimePart("plugins");
   const overlays = useContributions(pluginRegistries.overlays);
   const visibility = useSyncExternalStore(
     subscribeOverlayVisibility,

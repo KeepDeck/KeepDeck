@@ -6,7 +6,6 @@ import { AgentPaneHeader } from "../components/agent/AgentPaneHeader";
 import { MinimizedItem } from "../components/deck/MinimizedItem";
 import { AppRuntimeProvider } from "../app/runtimeContext";
 import { createAgentStatusTracker } from "../app/agentStatusTracker";
-import type { AppRuntime } from "../app/runtime";
 import { appCss, px, readStyles, ruleBody } from "./testSupport";
 import { paneHeaderView } from "../presentation/paneHeaderView";
 
@@ -100,7 +99,7 @@ function renderStandIn(): void {
         {
           runtime: {
             statusTracker: createAgentStatusTracker(),
-          } as unknown as AppRuntime,
+          },
         },
         createElement(MinimizedItem, {
           paneId: "pane-1",

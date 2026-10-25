@@ -12,7 +12,7 @@ import {
   useInstalledPlugins,
 } from "../plugins/react";
 import type { ContributionRegistries } from "../plugins/registries/contributions";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 
 /** The plugin side as the catalog reads it: the one bootstrap to join, the
  * installed plugins (for each agent's declared summary), and the agents
@@ -37,7 +37,7 @@ let lastStatus = new Map<string, BinStatus>();
  * may fail to spawn than to hide one that works.
  */
 export function useAgents(): { agents: AgentInfo[]; loading: boolean } {
-  return useAgentsFrom(useAppRuntime().plugins);
+  return useAgentsFrom(useRuntimePart("plugins"));
 }
 
 /** [`useAgents`] over a plugin side the caller names — the hook itself,

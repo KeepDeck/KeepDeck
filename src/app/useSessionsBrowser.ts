@@ -10,7 +10,7 @@ import {
   type SearchHit,
 } from "../ipc/history";
 import type { JoinEntry } from "../domain/journal";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
 import { usePagedSessionSearch } from "./usePagedSessionSearch";
 
@@ -131,7 +131,8 @@ export async function readTranscriptPage(
 
 /** The shared seam's single owner: mount ONCE in the controller. */
 export function useBrowserSharedSeam(): BrowserSharedSeam {
-  const { plugins, sessionIndex } = useAppRuntime();
+  const plugins = useRuntimePart("plugins");
+  const sessionIndex = useRuntimePart("sessionIndex");
   const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
   const enrichment = useJournalEnrichment(
     index.revision,

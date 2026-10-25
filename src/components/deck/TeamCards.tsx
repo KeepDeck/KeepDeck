@@ -15,7 +15,7 @@
  * board is a local store read where it is used, like the usage chips'.
  */
 import { useMemo } from "react";
-import { useAppRuntime } from "../../app/runtimeContext";
+import { useRuntimePart } from "../../app/runtimeContext";
 import { readyBoard } from "../../app/tasks/tasksService";
 import { useTasksBoardState } from "../tasks/useBoardState";
 import type { GitPosition, Workspace } from "../../domain/deck";
@@ -61,7 +61,7 @@ export function TeamCards({
   onDisband,
   onRetry,
 }: TeamCardsProps) {
-  const { tasks } = useAppRuntime();
+  const tasks = useRuntimePart("tasks");
   const boardState = useTasksBoardState(tasks, workspace.id);
   const board = readyBoard(boardState);
   const cards = useMemo(

@@ -8,7 +8,6 @@ import {
   type AgentStatusTracker,
 } from "../../app/agentStatusTracker";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
-import type { AppRuntime } from "../../app/runtime";
 import { teamBadgeTitle } from "../../ui/badges";
 import {
   MINIMIZED_TOOLTIP_DELAY_MS,
@@ -25,7 +24,7 @@ describe("MinimizedItem", () => {
       root.render(
         createElement(
           AppRuntimeProvider,
-          { runtime: { statusTracker } as unknown as AppRuntime },
+          { runtime: { statusTracker } },
           createElement(MinimizedItem, props),
         ),
       );

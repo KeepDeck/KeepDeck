@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { currentStreakDays } from "../domain/usage/streak";
 import { useWallClock } from "../ui/useWallClock";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 
 /**
  * The live streak, in days — the whole question behind the chip, in one
@@ -22,7 +22,7 @@ import { useAppRuntime } from "./runtimeContext";
  * still showing yesterday while the user works.
  */
 export function useStreakDays(): number {
-  const { activityWitness } = useAppRuntime();
+  const activityWitness = useRuntimePart("activityWitness");
   const witness = useSyncExternalStore(
     activityWitness.subscribe,
     activityWitness.getSnapshot,

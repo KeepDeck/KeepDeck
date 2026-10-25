@@ -7,7 +7,6 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createAgentStatusTracker } from "../app/agentStatusTracker";
 import { createUsageManager } from "../app/usageManager";
 import { AppRuntimeProvider } from "../app/runtimeContext";
-import type { AppRuntime } from "../app/runtime";
 
 /** The runtime slice the panes under DeckStage read (activity + ctx%). The
  * tracker is a mutable binding so the frames describe can report live
@@ -24,7 +23,7 @@ const withRuntime = (el: ReactElement) =>
         usageManager: createUsageManager(),
         // The team cards read the board's owner; off here, so no board.
         tasks: { current: () => null, subscribe: () => () => {} },
-      } as unknown as AppRuntime,
+      },
     },
     el,
   );
