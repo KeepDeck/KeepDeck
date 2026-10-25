@@ -1807,6 +1807,28 @@ describe("virtualized list — the window, not the pile", () => {
     expect(otherLoad).toHaveBeenCalledTimes(0);
   });
 
+  it("B2: a lane's hasMore flipping true re-checks paging with no new page or scroll", async () => {
+    // A scan can raise a lane's total while the cached hits and the range
+    // do not move. The flip is the only new fact, and it must reach the
+    // paging check: read hasMore through a ref alone and the new tail waits
+    // for a scroll that may never come.
+    const rows = manyHits(10, "g");
+    const loadMore = vi.fn();
+    const first = api(rows, {
+      other: laneOf(rows, { total: 100, hasMore: false, loadMore }),
+    });
+    await mountBrowser(first);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(loadMore).not.toHaveBeenCalled();
+
+    await mountBrowser({
+      ...first,
+      other: laneOf(rows, { total: 100, hasMore: true, loadMore }),
+    });
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(loadMore).toHaveBeenCalled();
+  });
+
   it("D: the focused row riding out of the window lands focus on the LIST CONTAINER, never on body", async () => {
     // The contract (the circle's ruling): overscan covers stepping;
     // this covers the fling past it. Focus on <body> would restart the

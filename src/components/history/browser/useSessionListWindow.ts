@@ -103,11 +103,14 @@ export function useSessionListWindow({
     }
   }, [lastVirtualIndex, workspaceRowCount, queue.length]);
   const landedPages = workspace.hits.length + other.hits.length;
+  // Both a landed page and a lane's `hasMore` are paging triggers: a scan
+  // can raise a lane's total, flipping `hasMore` false→true, while the
+  // cached hits and the range stay exactly as they were. Without the
+  // hasMore values here the new tail waits for a scroll that may never
+  // come. With both lanes empty there is nothing to page toward.
   useEffect(() => {
-    // A page landing moves the counts; with both lanes empty there is
-    // nothing to page toward.
-    if (landedPages > 0) checkPaging();
-  }, [checkPaging, landedPages]);
+    if (landedPages > 0 || workspace.hasMore || other.hasMore) checkPaging();
+  }, [checkPaging, landedPages, workspace.hasMore, other.hasMore]);
 
   // A focused row scrolled out keeps the keyboard's place on the list —
   // the app's one handoff, shared with every windowed list (ui-kit).
