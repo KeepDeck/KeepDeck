@@ -1,6 +1,10 @@
+import { readManifest } from "@keepdeck/plugin-api";
 import type {
+  CommandArgSpec,
   CommandInfo,
   CommandResult,
+  ForkPlanInput,
+  McpServerSpec,
   DownloadIntegrity,
   DownloadRequest,
   DownloadState,
@@ -23,7 +27,9 @@ import type {
   PluginNotifyInput,
   PluginManifest,
   PluginSpawnOptions,
+  ResumePlanInput,
   SettingsSectionContribution,
+  SpawnPlanInput,
   SpeechCaptureOptions,
   SpeechDevice,
   SpeechEngine,
@@ -188,11 +194,21 @@ export function decodeSessionEvent(value: unknown): WireSessionEvent {
   throw malformed("session event kind");
 }
 
-export function isPluginManifest(value: unknown): value is PluginManifest {
-  return isRecord(value) && isString(value.id) && isString(value.name) &&
-    isString(value.version) && isNumber(value.minApiVersion) &&
-    isString(value.category) && Array.isArray(value.capabilities) &&
-    isRecord(value.contributes);
+/**
+ * The manifest the host activates a guest with, proved by the reader that
+ * accepted it on the host — every capability and every contribution, by
+ * the same rules — so the realm holds the contract to the host's own
+ * standard rather than to a shallower copy of it. The refusal names what
+ * the reader refused. The manifest itself goes on exactly as it came.
+ */
+function assertManifest(value: unknown, what: string): asserts value is PluginManifest {
+  const read = readManifest(value);
+  if (!read.ok) throw malformed(what, read.errors.join("; "));
+}
+
+export function decodeManifest(value: unknown, what: string): PluginManifest {
+  assertManifest(value, what);
+  return value;
 }
 
 export function decodeGuestMessage(value: unknown): GuestToHostMessage {
@@ -218,7 +234,7 @@ export function decodeHostMessage(value: unknown): HostToGuestMessage {
   const v = record(value, "host message");
   switch (v.kind) {
     case "init":
-      return { kind: "init", manifest: decodeWith(v.manifest, isPluginManifest, "init manifest") };
+      return { kind: "init", manifest: decodeManifest(v.manifest, "init manifest") };
     case "result":
       if (!isNumber(v.id)) throw malformed("rpc result id");
       if (v.ok === true) return { kind: "result", id: v.id, ok: true, value: v.value };
@@ -459,21 +475,84 @@ export function isAgentRegistration(value: unknown): value is WireAgentRegistrat
 
 // ------------------------------------------------------------ inputs/results
 
-export function isSpawnPlanInput(value: unknown): value is import("@keepdeck/plugin-api").SpawnPlanInput {
-  if (!isRecord(value) || !isString(value.paneId) || !isString(value.cwd) || !isWorkspaceRef(value.workspace)) return false;
-  if (value.branch !== undefined && !isString(value.branch)) return false;
-  if (value.cliVersion !== undefined && !isString(value.cliVersion)) return false;
-  if (value.yolo !== undefined && !isBoolean(value.yolo)) return false;
-  return true;
+/** One injected MCP server, by its transport. */
+function assertMcpServer(value: unknown, what: string): asserts value is McpServerSpec {
+  const v = record(value, what);
+  str(v.name, `${what}.name`);
+  if (v.transport === "stdio") {
+    str(v.command, `${what}.command`);
+    strArray(v.args, `${what}.args`);
+    if (v.envPassthrough !== undefined) strArray(v.envPassthrough, `${what}.envPassthrough`);
+    return;
+  }
+  if (v.transport === "http") {
+    str(v.url, `${what}.url`);
+    if (v.headers !== undefined) {
+      const headers = record(v.headers, `${what}.headers`);
+      for (const [name, header] of Object.entries(headers)) str(header, `${what}.headers.${name}`);
+    }
+    optStr(v.bearerTokenEnv, `${what}.bearerTokenEnv`);
+    return;
+  }
+  throw malformed(`${what}.transport`, `expected "stdio" or "http"`);
 }
 
-export function isResumePlanInput(value: unknown): value is import("@keepdeck/plugin-api").ResumePlanInput {
-  return isSpawnPlanInput(value) && isRecord(value) && isString(value.sessionId);
+/**
+ * A spawn plan's input, every field the contract names — the staged skills
+ * directories, each injected MCP server, the remote target — checked, each
+ * refusal naming its path. The input goes on exactly as the host built it.
+ */
+function assertSpawnPlanInput(value: unknown, what: string): asserts value is SpawnPlanInput {
+  const v = record(value, what);
+  str(v.paneId, `${what}.paneId`);
+  str(v.cwd, `${what}.cwd`);
+  if (!isWorkspaceRef(v.workspace)) throw malformed(`${what}.workspace`, "expected a workspace ref");
+  optStr(v.branch, `${what}.branch`);
+  optStr(v.cliVersion, `${what}.cliVersion`);
+  if (v.yolo !== undefined) bool(v.yolo, `${what}.yolo`);
+  if (v.skills !== undefined) {
+    const skills = record(v.skills, `${what}.skills`);
+    for (const dir of ["claudePluginDir", "opencodeConfigDir", "skillsDir"] as const) {
+      str(skills[dir], `${what}.skills.${dir}`);
+    }
+  }
+  if (v.mcp !== undefined) {
+    const mcp = record(v.mcp, `${what}.mcp`);
+    if (!Array.isArray(mcp.servers)) throw malformed(`${what}.mcp.servers`, "expected an array");
+    for (const [index, server] of mcp.servers.entries()) assertMcpServer(server, `${what}.mcp.servers[${index}]`);
+  }
+  if (v.target !== undefined) {
+    const target = record(v.target, `${what}.target`);
+    if (target.kind !== "nativeServer") throw malformed(`${what}.target.kind`, `expected "nativeServer"`);
+    str(target.endpoint, `${what}.target.endpoint`);
+  }
 }
 
-export function isForkPlanInput(value: unknown): value is import("@keepdeck/plugin-api").ForkPlanInput {
-  return isResumePlanInput(value) && isRecord(value) && isString(value.sourceCwd) &&
-    (value.transcriptPath === undefined || isString(value.transcriptPath));
+function assertResumePlanInput(value: unknown, what: string): asserts value is ResumePlanInput {
+  assertSpawnPlanInput(value, what);
+  str(record(value, what).sessionId, `${what}.sessionId`);
+}
+
+function assertForkPlanInput(value: unknown, what: string): asserts value is ForkPlanInput {
+  assertResumePlanInput(value, what);
+  const v = record(value, what);
+  str(v.sourceCwd, `${what}.sourceCwd`);
+  optStr(v.transcriptPath, `${what}.transcriptPath`);
+}
+
+export function decodeSpawnPlanInput(value: unknown, what: string): SpawnPlanInput {
+  assertSpawnPlanInput(value, what);
+  return value;
+}
+
+export function decodeResumePlanInput(value: unknown, what: string): ResumePlanInput {
+  assertResumePlanInput(value, what);
+  return value;
+}
+
+export function decodeForkPlanInput(value: unknown, what: string): ForkPlanInput {
+  assertForkPlanInput(value, what);
+  return value;
 }
 
 export interface WirePage { offset: number; limit: number }
@@ -570,9 +649,35 @@ export function isCommandResult(value: unknown): value is CommandResult {
     value.error.code === "not-permitted" || value.error.code === "failed") && isString(value.error.message);
 }
 
-export function isCommandInfos(value: unknown): value is CommandInfo[] {
-  return Array.isArray(value) && value.every((info) => isRecord(info) && isString(info.id) &&
-    isString(info.title) && Array.isArray(info.args));
+const COMMAND_ARG_TYPES: readonly CommandArgSpec["type"][] = ["string", "boolean", "number"];
+
+/** One declared argument: a name, a primitive type, whether it is required,
+ * and its description. */
+function assertCommandArg(value: unknown, what: string): asserts value is CommandArgSpec {
+  const v = record(value, what);
+  str(v.name, `${what}.name`);
+  if (!COMMAND_ARG_TYPES.some((type) => type === v.type)) {
+    throw malformed(`${what}.type`, `expected one of ${COMMAND_ARG_TYPES.join(", ")}`);
+  }
+  if (v.required !== undefined) bool(v.required, `${what}.required`);
+  str(v.description, `${what}.description`);
+}
+
+function assertCommandInfos(value: unknown, what: string): asserts value is CommandInfo[] {
+  if (!Array.isArray(value)) throw malformed(what, "expected an array");
+  for (const [index, entry] of value.entries()) {
+    const info = record(entry, `${what}[${index}]`);
+    str(info.id, `${what}[${index}].id`);
+    str(info.title, `${what}[${index}].title`);
+    if (!Array.isArray(info.args)) throw malformed(`${what}[${index}].args`, "expected an array");
+    for (const [at, arg] of info.args.entries()) assertCommandArg(arg, `${what}[${index}].args[${at}]`);
+  }
+}
+
+/** The command list, each command's every declared argument checked. */
+export function decodeCommandInfos(value: unknown, what: string): CommandInfo[] {
+  assertCommandInfos(value, what);
+  return value;
 }
 
 export function isHostSettings(value: unknown): value is HostSettingsSnapshot {

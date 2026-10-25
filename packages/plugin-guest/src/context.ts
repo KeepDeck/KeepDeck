@@ -11,7 +11,7 @@ import {
   decodeOpenCall,
   decodeSessionEvent,
   decodeWith,
-  isCommandInfos,
+  decodeCommandInfos,
   isCommandResult,
   isDownloadState,
   isHostSettings,
@@ -19,9 +19,9 @@ import {
   isPage,
   isPaneEvent,
   isRecord,
-  isSpawnPlanInput,
-  isResumePlanInput,
-  isForkPlanInput,
+  decodeSpawnPlanInput,
+  decodeResumePlanInput,
+  decodeForkPlanInput,
   isSpeechLevel,
   isWorkspaceEvent,
   str,
@@ -295,7 +295,7 @@ export function buildGuestContext(
       list: () =>
         rpc
           .call("commands.list", [])
-          .then((value) => decodeWith(value, isCommandInfos, "command list")),
+          .then((value) => decodeCommandInfos(value, "command list")),
     },
     agents: contributions.agents,
 
@@ -426,19 +426,19 @@ export function buildGuestContext(
         case "spawn.plan": {
           const fn = hooks?.["spawn.plan"];
           if (!fn) throw missing();
-          await fn(decodeWith(input, isSpawnPlanInput, "spawn plan input"), output);
+          await fn(decodeSpawnPlanInput(input, "spawn plan input"), output);
           break;
         }
         case "resume.plan": {
           const fn = hooks?.["resume.plan"];
           if (!fn) throw missing();
-          await fn(decodeWith(input, isResumePlanInput, "resume plan input"), output);
+          await fn(decodeResumePlanInput(input, "resume plan input"), output);
           break;
         }
         case "fork.plan": {
           const fn = hooks?.["fork.plan"];
           if (!fn) throw missing();
-          await fn(decodeWith(input, isForkPlanInput, "fork plan input"), output);
+          await fn(decodeForkPlanInput(input, "fork plan input"), output);
           break;
         }
         default:
