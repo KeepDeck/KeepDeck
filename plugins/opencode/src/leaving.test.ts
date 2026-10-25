@@ -125,8 +125,14 @@ describe("leaving a conversation, and mail on the home screen", () => {
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-leave-"));
     pending = [];
+    holdBound = undefined;
+    arrived = {};
     deck = await startDeck((envelope) => {
       const type = envelope?.payload?.event?.type;
+      arrived[envelope?.type === "agent.status" ? type : envelope?.type] ??= Date.now();
+      if (envelope?.type === "session.bound" && envelope?.payload?.sessionId === holdBound) {
+        return { status: 204, holdMs: 300 };
+      }
       if (type !== "mail.ask" && type !== "mail.ask.tool") return { status: 204 };
       const answer = pending.shift();
       return answer ? { status: 200, body: JSON.stringify(answer) } : { status: 204 };
@@ -150,6 +156,11 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await deck.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  /** A binding whose post the deck holds open — the wire is busy with it. */
+  let holdBound: string | undefined;
+  /** When each kind of envelope first arrived. */
+  let arrived: Record<string, number>;
 
   const kinds = () =>
     deck.envelopes.map((e: any) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
@@ -202,6 +213,18 @@ describe("leaving a conversation, and mail on the home screen", () => {
     expect(order.indexOf("session.unbound")).toBeGreaterThan(order.indexOf("session.idle"));
     expect(paneSession().root).toBeUndefined();
     expect(paneSession().left).toBe("ses_a");
+  });
+
+  it("forgets what it said about the left conversation's turn — the next one's first ending still reaches the deck", async () => {
+    await inA();
+    await newSession();
+    deck.envelopes.length = 0;
+    // The abort's idle was the last turn fact said. The next conversation
+    // going idle is a fact about IT, not a repeat.
+    await both(created("ses_b"));
+    await both(idle("ses_b"));
+    await until(() => kinds().includes("session.idle"));
+    expect(kinds()).toContain("session.idle");
   });
 
   it("lets go at once on /new from an idle conversation — its abort's idle only repeats one", async () => {
@@ -294,6 +317,23 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await sleep(150);
     expect(calls.abort).toEqual([]);
     expect(paneSession().root).toBe("ses_a");
+  });
+
+  it("asks for the home screen's mail only once the new session's binding has gone out", async () => {
+    await inA();
+    await newSession();
+    arrived = {};
+    holdBound = "ses_c";
+    duringCreate = async () => {
+      await reporter.event(created("ses_c"));
+      void courier.event(created("ses_c"));
+    };
+    pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
+    await ringUntil(() => calls.create > 0);
+    await until(() => calls.prompts.length === 1);
+    // The ask is not on the wire's queue: without waiting for it to drain,
+    // it would reach the deck while the binding is still in flight.
+    expect(arrived["mail.ask"] - arrived["session.bound"]).toBeGreaterThanOrEqual(250);
   });
 
   it("on the home screen, mail gets a session of its own — shown first, asked for after", async () => {

@@ -141,6 +141,30 @@ describe("the TUI half", () => {
     stop();
   });
 
+  it("in a KeepDeck pane, writes the route opencode shows, and stops on dispose", async () => {
+    vi.useFakeTimers();
+    const before = process.env.KEEPDECK_BRIDGE;
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir, pane: "pane-1", token: "t", url: "http://127.0.0.1:9/envelope" });
+    try {
+      let current: unknown = { name: "session", params: { sessionID: "ses_a" } };
+      let dispose: (() => void) | undefined;
+      await observer.tui({
+        route: { get current() { return current; } },
+        lifecycle: { onDispose: (stop: () => void) => { dispose = stop; } },
+      });
+      vi.advanceTimersByTime(500);
+      expect(readForeground(dir)).toEqual({ kind: "session", sessionID: "ses_a" });
+
+      dispose?.();
+      current = { name: "home" };
+      vi.advanceTimersByTime(500);
+      expect(readForeground(dir)).toEqual({ kind: "session", sessionID: "ses_a" });
+    } finally {
+      if (before === undefined) delete process.env.KEEPDECK_BRIDGE;
+      else process.env.KEEPDECK_BRIDGE = before;
+    }
+  });
+
   it("stays inert outside a KeepDeck pane", async () => {
     const before = process.env.KEEPDECK_BRIDGE;
     delete process.env.KEEPDECK_BRIDGE;

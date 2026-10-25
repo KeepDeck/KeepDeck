@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 // Untyped resource JS — shipped to, and loaded by, the user's opencode.
 // @ts-expect-error untyped resource module
-import { LET_GO_MS, createLeaving } from "../resources/keepdeck-plugin/leaving.js";
+import { createLeaving } from "../resources/keepdeck-plugin/leaving.js";
 
 /**
  * What leaving a conversation does to the pane (leaving.js), on its own: the
@@ -9,6 +9,10 @@ import { LET_GO_MS, createLeaving } from "../resources/keepdeck-plugin/leaving.j
  * whether the pane waits for its ending before letting go. leaving.test.ts
  * runs the same over the real 1.x reporter, courier and follower.
  */
+/** How long an interrupted conversation's ending is waited for — the
+ * product's promise, stated here on its own. */
+const LET_GO = 3_000;
+
 const setup = (interrupt?: (id: string) => Promise<unknown>) => {
   const published: string[] = [];
   const letGo = vi.fn();
@@ -32,7 +36,7 @@ const setup = (interrupt?: (id: string) => Promise<unknown>) => {
     interrupt,
     onLetGo: letGo,
   });
-  return { leaving, pane, published, letGo };
+  return { leaving, pane, published, letGo, enqueue };
 };
 
 afterEach(() => {
@@ -88,7 +92,7 @@ describe("leaving a conversation", () => {
       throw new Error("gone");
     });
     const left = leaving.leave("ses_a");
-    await vi.advanceTimersByTimeAsync(LET_GO_MS - 1);
+    await vi.advanceTimersByTimeAsync(LET_GO - 1);
     expect(published).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
     await left;
@@ -104,5 +108,59 @@ describe("leaving a conversation", () => {
     expect(published).toEqual([]);
     expect(letGo).not.toHaveBeenCalled();
     expect(pane.root).toBe("ses_c");
+  });
+
+  it("lets go as one of the reporter's jobs — never ahead of one already queued", async () => {
+    const { leaving, published, enqueue } = setup();
+    let release!: () => void;
+    const order: string[] = [];
+    void enqueue(
+      () =>
+        new Promise<void>((resolve) => {
+          release = () => {
+            order.push("reporter job");
+            resolve();
+          };
+        }),
+    );
+    const left = leaving.leave("ses_a").then(() => order.push(published.join()));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(published).toEqual([]);
+    release();
+    await left;
+    expect(order).toEqual(["reporter job", "session.unbound"]);
+  });
+
+  it("catches an ending that arrives before the interrupt call even returns", async () => {
+    vi.useFakeTimers();
+    let leaving: any;
+    const on = setup(async (id) => {
+      leaving.ended(id);
+      return true;
+    });
+    leaving = on.leaving;
+    await on.leaving.leave("ses_a");
+    // Let go on the ending itself, not on the fallback: the clock never moved.
+    expect(on.published).toEqual(["session.unbound"]);
+  });
+
+  it("does not let a finished leaving's fallback cut a later one short", async () => {
+    vi.useFakeTimers();
+    const on = setup(async () => true);
+    const first = on.leaving.leave("ses_a");
+    on.leaving.ended("ses_a");
+    await first;
+    expect(on.published).toEqual(["session.unbound"]);
+
+    // Back in the same conversation a second later, and left again.
+    await vi.advanceTimersByTimeAsync(1_000);
+    on.pane.root = "ses_a";
+    const second = on.leaving.leave("ses_a");
+    // When the first leaving's fallback would have fired: still waiting.
+    await vi.advanceTimersByTimeAsync(LET_GO - 1_000);
+    expect(on.published).toEqual(["session.unbound"]);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await second;
+    expect(on.published).toEqual(["session.unbound", "session.unbound"]);
   });
 });

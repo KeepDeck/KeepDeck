@@ -106,6 +106,8 @@ describe("collecting", () => {
     await left.policy.collect();
     expect(left.adapter.createSession).not.toHaveBeenCalled();
     expect(left.ask).not.toHaveBeenCalled();
+    // Nor into the pane: the conversation it would land in was left.
+    expect(left.deliverToPane).not.toHaveBeenCalled();
   });
 });
 
@@ -177,11 +179,76 @@ describe("mail on the home screen after /new", () => {
     expect(on.ask).toHaveBeenCalledOnce();
   });
 
-  it("makes nothing more when the create fails", async () => {
+  it("makes nothing more when the create fails — and tries again on the next ring", async () => {
     const on = setup(paneOf(undefined, "ses_a"), { kind: "home" });
     on.adapter.createSession.mockResolvedValue(null);
     await on.policy.collect({ rung: true });
     expect(on.adapter.show).not.toHaveBeenCalled();
     expect(on.ask).not.toHaveBeenCalled();
+    // A failed create is not a session the TUI refused to show.
+    await on.policy.collect({ rung: true });
+    expect(on.adapter.createSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("after a create that threw, the next ring starts clean", async () => {
+    const pane = paneOf(undefined, "ses_a");
+    const on = setup(pane, { kind: "home" });
+    on.adapter.createSession.mockRejectedValueOnce(new Error("refused"));
+    await expect(on.policy.collect({ rung: true })).rejects.toThrow("refused");
+    on.adapter.show.mockImplementation(async (id: string) => {
+      on.show({ kind: "session", sessionID: id });
+      pane.root = id;
+    });
+    await on.policy.collect({ rung: true });
+    expect(on.ask).toHaveBeenCalledOnce();
+  });
+
+  describe("asks only for the session it made, once that one is on screen AND bound", () => {
+    const waitOut = async (run: Promise<unknown>) => {
+      await vi.advanceTimersByTimeAsync(3_100);
+      await run;
+    };
+
+    it("not when the TUI shows another session", async () => {
+      vi.useFakeTimers();
+      try {
+        const pane = paneOf(undefined, "ses_a");
+        const on = setup(pane, { kind: "home" });
+        on.adapter.show.mockImplementation(async (id: string) => {
+          on.show({ kind: "session", sessionID: "ses_other" });
+          pane.root = id;
+        });
+        await waitOut(on.policy.collect({ rung: true }));
+        expect(on.ask).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("not when it is shown but the pane never bound it", async () => {
+      vi.useFakeTimers();
+      try {
+        const on = setup(paneOf(undefined, "ses_a"), { kind: "home" });
+        on.adapter.show.mockImplementation(async (id: string) => {
+          on.show({ kind: "session", sessionID: id });
+        });
+        await waitOut(on.policy.collect({ rung: true }));
+        expect(on.ask).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("not when the user started their own conversation while it was coming on screen", async () => {
+      const pane = paneOf(undefined, "ses_a");
+      const on = setup(pane, { kind: "home" });
+      on.adapter.show.mockImplementation(async (id: string) => {
+        on.policy.rootAppeared("ses_theirs");
+        on.show({ kind: "session", sessionID: id });
+        pane.root = id;
+      });
+      await on.policy.collect({ rung: true });
+      expect(on.ask).not.toHaveBeenCalled();
+    });
   });
 });
