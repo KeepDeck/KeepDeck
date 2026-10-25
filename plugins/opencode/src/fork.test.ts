@@ -1,277 +1,251 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
-import { opencodeForkPlan, relocatingForkId, targetExists } from "./fork";
-import type { OpencodeExport } from "./rekey";
+import type { CommandRun } from "./exec";
+import {
+  fakeOpencode,
+  v1Session,
+  v2Session,
+  V1_ERROR,
+  type FakeOpencodeOptions,
+  type FakeRun,
+} from "./fakeOpencode.test-support";
+import { forkInto, type ForkRequest } from "./fork";
+import { recipeV1, recipeV2 } from "./forkRecipe";
 
+/**
+ * The fork's core over a fake opencode of each generation: the order of the
+ * steps, where each runs, and that every failure is a refusal in words —
+ * never a fork somewhere else.
+ */
 const SRC = "ses_0db9e24cbffej1WlbsRKynAHf3";
+const TARGET = "/repo/target";
+const SCRATCH = "/tmp/keepdeck-opencode/fork-pane-7.json";
 
-function exportDoc(): OpencodeExport {
-  return {
-    info: { id: SRC, directory: "/src/worktree", projectID: "proj-src", title: "investigation" },
-    messages: [
-      {
-        info: { id: "msg_aaaa0001rzij8gRRPwcFG1", sessionID: SRC, role: "user" },
-        parts: [
-          { id: "prt_aaaa0001rzij8gRRPwcFG1", messageID: "msg_aaaa0001rzij8gRRPwcFG1", sessionID: SRC, type: "text", text: "hi" },
-        ],
-      },
-    ],
-  };
-}
-
-type SpawnEvent = { type: "output"; bytes: Uint8Array } | { type: "exit"; code: number | null };
-
-/** Per-command overrides so a test can bend one leg (bad exit code, garbage
- * output, a hang) without replacing the whole spawn fake. */
-interface Behavior {
-  exportText?: (src: string) => string;
-  exportCode?: number | null;
-  importText?: (writtenId: string) => string;
-  importCode?: number | null;
-  exportHang?: boolean;
-  importHang?: boolean;
-}
-
-interface Fx {
-  ctx: PluginContext;
-  /** The LATEST content per path — what a later reader would find on disk. */
-  writes: Map<string, string>;
-  /** Every write in order: the scratch is written twice (content, then the
-   * clearing), and the difference is the point. */
-  writeLog: { path: string; text: string }[];
-  spawns: { args: string[]; cwd?: string }[];
-  warns: string[];
-  notifies: { title: string; severity?: string; tag?: string }[];
-  closes: number;
-}
-
-function fixture(opts?: { targetMissing?: boolean; behavior?: Behavior }): Fx {
-  const b = opts?.behavior ?? {};
-  const writes = new Map<string, string>();
-  const writeLog: { path: string; text: string }[] = [];
-  const spawns: { args: string[]; cwd?: string }[] = [];
-  const warns: string[] = [];
-  const notifies: { title: string; severity?: string; tag?: string }[] = [];
-  const state = { closes: 0 };
-  const enc = (s: string) => new TextEncoder().encode(s);
-  const ctx = {
-    log: { info() {}, warn: (m: string) => warns.push(m), error() {} },
-    notify: (n: { title: string; severity?: string; tag?: string }) => notifies.push(n),
-    services: {
-      fs: {
-        readDir: async (path: string) => {
-          if (opts?.targetMissing) throw new Error(`ENOENT: ${path}`);
-          return [];
-        },
-      },
-      fsWrite: {
-        writeFile: async (p: string, t: string) => {
-          writeLog.push({ path: p, text: t });
-          writes.set(p, t);
-        },
-      },
-      sessions: {
-        spawn: async (o: { args: string[]; cwd?: string }, onEvent: (e: SpawnEvent) => void) => {
-          spawns.push({ args: o.args, cwd: o.cwd });
-          const isExport = o.args[0] === "export";
-          if (!(isExport ? b.exportHang : b.importHang)) {
-            queueMicrotask(() => {
-              if (isExport) {
-                const text = b.exportText ? b.exportText(SRC) : `Exporting session: ${SRC}\r\n${JSON.stringify(exportDoc())}`;
-                onEvent({ type: "output", bytes: enc(text) });
-                // `=== undefined` (not `??`) so an EXPLICIT null code is emitted.
-                onEvent({ type: "exit", code: b.exportCode === undefined ? 0 : b.exportCode });
-              } else {
-                const id = JSON.parse(writes.get(o.args[1]) ?? "{}").info.id as string;
-                const text = b.importText ? b.importText(id) : `Imported session: ${id}\r\n`;
-                onEvent({ type: "output", bytes: enc(text) });
-                onEvent({ type: "exit", code: b.importCode === undefined ? 0 : b.importCode });
-              }
-            });
-          }
-          return {
-            id: "h",
-            write: async () => {},
-            resize: async () => {},
-            close: async () => void (state.closes += 1),
-          };
-        },
-      },
-    },
-  } as unknown as PluginContext;
-  return { ctx, writes, writeLog, spawns, warns, notifies, get closes() { return state.closes; } };
-}
-
-const forkInput = (cwd: string): ForkPlanInput => ({
+const request: ForkRequest = {
   paneId: "pane-7",
-  workspace: { id: "ws-1", instance: "wsi-1" } as ForkPlanInput["workspace"],
-  cwd,
+  cwd: TARGET,
   sessionId: SRC,
-  sourceCwd: "/src/worktree",
-});
+  missing: "opencode 1.19.3 has no session.",
+};
 
-describe("opencodeForkPlan", () => {
-  it("clones into the target and returns the new id; one pane-scoped temp file", async () => {
-    const fx = fixture();
-    const newId = await opencodeForkPlan(fx.ctx, forkInput("/new/target"));
-    expect(newId).not.toBe(SRC);
+const v1 = (options: Partial<FakeOpencodeOptions> = {}) =>
+  fakeOpencode({ generation: 1, sessions: { [SRC]: v1Session(SRC, "/repo/source") }, ...options });
+const v2 = (options: Partial<FakeOpencodeOptions> = {}) =>
+  fakeOpencode({ generation: 2, sessions: { [SRC]: v2Session(SRC, "/repo/source") }, ...options });
 
-    expect(fx.writes.size).toBe(1);
-    const { path, text } = fx.writeLog[0];
-    // Bounded name (per pane), not an unbounded uuid pile.
-    expect(path).toBe("/tmp/keepdeck-opencode/fork-pane-7.json");
-    const clone = JSON.parse(text) as OpencodeExport;
-    expect(clone.info.id).toBe(newId);
-    expect(clone.info.directory).toBe("/new/target");
-    expect(clone.messages[0].info.sessionID).toBe(newId);
-    expect(clone.messages[0].info.id).not.toBe("msg_aaaa0001rzij8gRRPwcFG1");
-  });
+/** The verb of a run: `export`/`import` on 1.x, `session export`/… on 2.x. */
+const verb = (run: FakeRun) => run.args.find((arg) => arg === "export" || arg === "import");
+/** A read-back is an export of the clone, not of the source. */
+const isReadBack = (run: FakeRun) => verb(run) === "export" && !run.args.includes(SRC);
 
-  it("runs BOTH export and import FROM the target dir (import binds the directory to its cwd)", async () => {
-    const fx = fixture();
-    await opencodeForkPlan(fx.ctx, forkInput("/new/target"));
-    const exportSpawn = fx.spawns.find((s) => s.args[0] === "export");
-    const importSpawn = fx.spawns.find((s) => s.args[0] === "import");
-    expect(exportSpawn?.cwd).toBe("/new/target"); // export uses the target cwd too
-    expect(importSpawn?.cwd).toBe("/new/target"); // this is what relocates the session
-    expect(importSpawn?.args[1]).toBe("/tmp/keepdeck-opencode/fork-pane-7.json");
-  });
+const ok = (text: string): CommandRun => ({ text, code: 0 });
 
-  it("does not leave the conversation in the scratch file — success or failure", async () => {
-    const scratch = "/tmp/keepdeck-opencode/fork-pane-7.json";
+describe("a 1.x fork", () => {
+  it("exports, imports and reads the clone back, all FROM the target, and answers the clone's id", async () => {
+    const fake = v1();
+    const id = await forkInto(fake.ports, recipeV1, request);
 
-    const ok = fixture();
-    await opencodeForkPlan(ok.ctx, forkInput("/new/target"));
-    // The import read the real export…
-    expect(ok.writeLog[0].text).toContain("msg_");
-    // …and nothing of it is left behind afterwards. /tmp outlives the fork and
-    // is only reaped by the OS.
-    expect(ok.writes.get(scratch)).toBe("{}");
-
-    const failed = fixture({ behavior: { importCode: 1 } });
-    await expect(opencodeForkPlan(failed.ctx, forkInput("/new/target"))).rejects.toThrow(
-      "import failed",
-    );
-    expect(failed.writes.get(scratch)).toBe("{}");
-  });
-
-  it("import with a null exit code: id echo decides (succeeds with it, fails without)", async () => {
-    const withId = fixture({ behavior: { importCode: null } }); // default echoes the id
-    await expect(opencodeForkPlan(withId.ctx, forkInput("/t"))).resolves.toMatch(/^ses_/);
-
-    const noId = fixture({ behavior: { importCode: null, importText: () => "no id here" } });
-    await expect(opencodeForkPlan(noId.ctx, forkInput("/t"))).rejects.toThrow("import failed");
-  });
-
-  it("extractJson survives a trailing brace-bearing line after the JSON", async () => {
-    const fx = fixture({
-      behavior: { exportText: (src) => `Exporting session: ${src}\r\n${JSON.stringify(exportDoc())}\r\nWARN: trailing note with a } brace` },
-    });
-    // A naive first-{ .. last-} slice would break here; the matching-brace scan holds.
-    await expect(opencodeForkPlan(fx.ctx, forkInput("/t"))).resolves.toMatch(/^ses_/);
-  });
-
-  it("throws when import exits non-zero (exit code is the authoritative signal)", async () => {
-    const fx = fixture({ behavior: { importCode: 1, importText: () => "error: bad file" } });
-    await expect(opencodeForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow("import failed (exit 1)");
-  });
-
-  it("throws when export exits non-zero, before parsing", async () => {
-    const fx = fixture({ behavior: { exportCode: 1, exportText: () => "session not found" } });
-    await expect(opencodeForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow("export exited 1");
-    expect(fx.writes.size).toBe(0);
-  });
-
-  it("throws on an export that exits 0 but has no JSON payload", async () => {
-    const fx = fixture({ behavior: { exportCode: 0, exportText: () => "nothing here" } });
-    await expect(opencodeForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow("no JSON payload");
-    expect(fx.writes.size).toBe(0);
-  });
-
-  it("rejects (does not hang) when a command never exits — timeout fires", async () => {
-    vi.useFakeTimers();
-    try {
-      const fx = fixture({ behavior: { exportHang: true } });
-      const p = opencodeForkPlan(fx.ctx, forkInput("/t"));
-      p.catch(() => {}); // pre-empt unhandled-rejection noise
-      await vi.advanceTimersByTimeAsync(60_000);
-      await expect(p).rejects.toThrow("timed out");
-      expect(fx.closes).toBe(1); // the orphaned PTY was killed, not leaked
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("an import timeout kills the process, then clears the scratch — in that order", async () => {
-    // The fixture declared importHang from day one and no test ever set it:
-    // the one path where the finally-clear could race a still-reading child
-    // had zero coverage.
-    vi.useFakeTimers();
-    try {
-      const fx = fixture({ behavior: { importHang: true } });
-      const p = opencodeForkPlan(fx.ctx, forkInput("/t"));
-      p.catch(() => {});
-      await vi.advanceTimersByTimeAsync(60_000);
-      await expect(p).rejects.toThrow("import timed out");
-      // The kill settled before the rejection — so before the caller's
-      // finally overwrote the file the child may have been reading. (Not a
-      // strict closes===1: fake-timer advancement can fire the export's
-      // 60s timer before its exit microtask drains — a schedule real timers
-      // cannot produce; the settled guard plus .catch make it a no-op kill.)
-      expect(fx.closes).toBeGreaterThanOrEqual(1);
-      expect(fx.writes.get("/tmp/keepdeck-opencode/fork-pane-7.json")).toBe("{}");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
-
-describe("relocatingForkId", () => {
-  it("returns the relocated session id when the target exists and the recipe succeeds — no warn, no notify", async () => {
-    const fx = fixture();
-    const id = await relocatingForkId(fx.ctx, forkInput("/new/target"));
-    expect(id).toMatch(/^ses_/);
     expect(id).not.toBe(SRC);
-    expect(fx.warns).toHaveLength(0);
-    expect(fx.notifies).toHaveLength(0);
+    expect(fake.runs).toEqual([
+      { args: ["export", SRC], cwd: TARGET },
+      // 1.x records the directory the import runs IN.
+      { args: ["import", SCRATCH], cwd: TARGET },
+      { args: ["export", id], cwd: TARGET },
+    ]);
   });
 
-  it("returns null (native fallback) for a not-yet-provisioned target — no spawn, and SILENT (benign)", async () => {
-    const fx = fixture({ targetMissing: true });
-    expect(await relocatingForkId(fx.ctx, forkInput("/future/worktree"))).toBeNull();
-    expect(fx.spawns).toHaveLength(0);
-    expect(fx.warns).toHaveLength(0); // expected path — no alarm
-    expect(fx.notifies).toHaveLength(0);
+  it("lands a clone whose answers name the clone's own turns — not the source's", async () => {
+    const fake = v1();
+    const id = await forkInto(fake.ports, recipeV1, request);
+    const landed = fake.sessions.get(id);
+    expect(landed).toMatchObject({ info: { id, directory: TARGET } });
+    const json = JSON.stringify(landed);
+    for (const message of v1Session(SRC, "").messages) expect(json).not.toContain(message.info.id);
+    // The source is as it was.
+    expect(fake.sessions.get(SRC)).toEqual(v1Session(SRC, "/repo/source"));
   });
 
-  it("returns null, WARNS and NOTIFIES when a GENUINE recipe failure happens — never propagates", async () => {
-    const fx = fixture({ behavior: { importCode: 1, importText: () => "boom" } });
-    expect(await relocatingForkId(fx.ctx, forkInput("/new/target"))).toBeNull();
-    expect(fx.warns).toHaveLength(1);
-    expect(fx.warns[0]).toContain("native --fork fallback");
-    // A real breakage is surfaced to the user, not just logged.
-    expect(fx.notifies).toHaveLength(1);
-    expect(fx.notifies[0].severity).toBe("warning");
-    // Title must NOT self-prefix "OpenCode" (the host prepends the plugin name);
-    // the per-pane tag replaces (not stacks) repeated failures on one pane.
-    expect(fx.notifies[0].title).toBe("Fork opened in the original directory");
-    expect(fx.notifies[0].tag).toBe("fork-relocate-pane-7");
+  it("removes the scratch — it held the whole conversation — on success and on failure", async () => {
+    const fine = v1();
+    await forkInto(fine.ports, recipeV1, request);
+    expect(fine.removed).toEqual([SCRATCH]);
+    expect(fine.files.size).toBe(0);
+
+    const broken = v1({ answer: (run) => (verb(run) === "import" ? { text: "boom\r\n", code: 1 } : undefined) });
+    await expect(forkInto(broken.ports, recipeV1, request)).rejects.toThrow("The copy failed");
+    expect(broken.removed).toEqual([SCRATCH]);
   });
 
-  it("survives a THROWING notify sink — still returns null, never propagates", async () => {
-    const fx = fixture({ behavior: { importCode: 1, importText: () => "boom" } });
-    (fx.ctx as unknown as { notify: () => void }).notify = () => {
-      throw new Error("notification center offline");
-    };
-    // The genuine-failure path calls ctx.notify; a throw there must not escape
-    // relocatingForkId's "never throws" contract.
-    await expect(relocatingForkId(fx.ctx, forkInput("/new/target"))).resolves.toBeNull();
+  it("refuses a session this opencode does not have, in the words it was given — and imports nothing", async () => {
+    const fake = fakeOpencode({ generation: 1 });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow(request.missing);
+    expect(fake.runs.map(verb)).toEqual(["export"]);
+  });
+
+  it("refuses a target that does not exist — it never forks elsewhere", async () => {
+    const fake = v1({ exists: () => false });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow(
+      `The fork target ${TARGET} does not exist.`,
+    );
+    expect(fake.runs).toEqual([]);
+  });
+
+  it("refuses an export that is not a 1.x session, before anything is written", async () => {
+    const fake = v1({ answer: (run) => (verb(run) === "export" ? ok("nothing here\r\n") : undefined) });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow("The copy failed");
+    expect(fake.files.size).toBe(0);
+    expect(fake.runs.map(verb)).toEqual(["export"]);
+  });
+
+  it("does not take the import's word for it: a claimed import whose clone is empty is refused", async () => {
+    // Measured on 1.19.3: an import that kept the source's message ids exits
+    // 0, says `Imported session: <new>`, and the clone has no messages.
+    const fake = v1({
+      answer: (run) =>
+        isReadBack(run)
+          ? ok(`Exporting session: x\r\n${JSON.stringify({ ...v1Session(run.args[1] ?? "", TARGET), messages: [] })}`)
+          : undefined,
+    });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow(/The copy failed: the clone lost message/);
+  });
+
+  it("refuses a clone that landed in another directory", async () => {
+    const fake = v1({
+      answer: (run) =>
+        isReadBack(run) ? ok(JSON.stringify(v1Session(run.args[1] ?? "", "/repo/source"))) : undefined,
+    });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow(
+      `the clone landed in /repo/source, not ${TARGET}`,
+    );
+  });
+
+  it("refuses a clone whose answer still names the source's turn", async () => {
+    const fake = v1({
+      answer: (run) => {
+        if (!isReadBack(run)) return undefined;
+        const landed = fake.sessions.get(run.args[1] ?? "");
+        const copy = JSON.parse(JSON.stringify(landed));
+        copy.messages[1].info.parentID = "msg_f2461db4d001rzij8gRRPwcFG1";
+        return ok(JSON.stringify(copy));
+      },
+    });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow("answers another turn");
+  });
+
+  it("accepts a clone that left out an answer that never finished", async () => {
+    // Export and import carry what was written whole; the unfinished tail is
+    // the one thing a clone may lack.
+    const source = v1Session(SRC, "/repo/source");
+    const unfinished = structuredClone(source.messages[1]);
+    unfinished.info.id = "msg_f2461db5b001uNFINISHEDtail0";
+    unfinished.info.time = { created: 1792899000400, completed: 0 };
+    unfinished.parts = [];
+    const withTail = { ...source, messages: [...source.messages, unfinished] };
+    const fake = fakeOpencode({
+      generation: 1,
+      sessions: { [SRC]: withTail },
+      answer: (run) => {
+        if (!isReadBack(run)) return undefined;
+        const landed = JSON.parse(JSON.stringify(fake.sessions.get(run.args[1] ?? "")));
+        landed.messages = landed.messages.slice(0, 2);
+        return ok(JSON.stringify(landed));
+      },
+    });
+    await expect(forkInto(fake.ports, recipeV1, request)).resolves.toMatch(/^ses_/);
+  });
+
+  it("reads back once more when the store was locked — and refuses when it stays locked", async () => {
+    // Measured on 1.19.3: an export right after the import answered
+    // `database is locked`, and a second one read the clone.
+    const locked = { text: `${V1_ERROR}Unexpected error\r\n\r\ndatabase is locked\r\n`, code: 1 };
+    let lockedOnce = false;
+    const once = v1({
+      answer: (run) => {
+        if (!isReadBack(run) || lockedOnce) return undefined;
+        lockedOnce = true;
+        return locked;
+      },
+    });
+    await expect(forkInto(once.ports, recipeV1, request)).resolves.toMatch(/^ses_/);
+    expect(once.runs.filter(isReadBack)).toHaveLength(2);
+
+    const always = v1({ answer: (run) => (isReadBack(run) ? locked : undefined) });
+    await expect(forkInto(always.ports, recipeV1, request)).rejects.toThrow("could not be read back");
+    expect(always.runs.filter(isReadBack)).toHaveLength(2);
+  });
+
+  it("refuses an import that did not name the clone", async () => {
+    const fake = v1({ answer: (run) => (verb(run) === "import" ? ok("done\r\n") : undefined) });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow("did not import");
   });
 });
 
-describe("targetExists", () => {
-  it("is true when the directory lists, false when it doesn't", async () => {
-    expect(await targetExists(fixture().ctx, "/exists")).toBe(true);
-    expect(await targetExists(fixture({ targetMissing: true }).ctx, "/gone")).toBe(false);
+describe("a 2.x fork", () => {
+  it("runs 2.x's session commands, with its own server, from the target — and believes the exact success line", async () => {
+    const fake = v2();
+    const id = await forkInto(fake.ports, recipeV2, { ...request, missing: "gone" });
+
+    expect(id).not.toBe(SRC);
+    expect(fake.runs).toEqual([
+      { args: ["session", "export", SRC, "--standalone"], cwd: TARGET },
+      {
+        args: ["session", "import", SCRATCH, "--directory", TARGET, "--standalone"],
+        cwd: TARGET,
+      },
+    ]);
+    expect(fake.sessions.get(id)).toMatchObject({ info: { id, location: { directory: TARGET } } });
+    expect(fake.removed).toEqual([SCRATCH]);
+  });
+
+  it("refuses a collision: 2.x exits 0 and says `Session already exists`", async () => {
+    const fake = v2({
+      answer: (run) => (verb(run) === "import" ? ok("Session already exists\r\n") : undefined),
+    });
+    await expect(forkInto(fake.ports, recipeV2, request)).rejects.toThrow("already exists");
+  });
+
+  it("refuses an import that exited 0 without its success line", async () => {
+    const fake = v2({ answer: (run) => (verb(run) === "import" ? ok("") : undefined) });
+    await expect(forkInto(fake.ports, recipeV2, request)).rejects.toThrow("did not import");
+  });
+
+  it("refuses a session 2.x does not have, and a 1.x document from its export", async () => {
+    const missing = fakeOpencode({ generation: 2 });
+    await expect(forkInto(missing.ports, recipeV2, request)).rejects.toThrow(request.missing);
+
+    const wrong = v2({
+      answer: (run) => (verb(run) === "export" ? ok(JSON.stringify(v1Session(SRC, "/x"))) : undefined),
+    });
+    await expect(forkInto(wrong.ports, recipeV2, request)).rejects.toThrow("not print a 2.x session");
+  });
+});
+
+describe("a command that never exits", () => {
+  it("is killed after the timeout, and the fork refused", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = v1({ hang: (run) => verb(run) === "export" });
+      const forking = forkInto(fake.ports, recipeV1, request);
+      forking.catch(() => {});
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(forking).rejects.toThrow(/The copy failed: opencode export .* timed out/);
+      expect(fake.kills.count).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an import that hangs is killed BEFORE the scratch it reads is removed", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = v1({ hang: (run) => verb(run) === "import" });
+      const forking = forkInto(fake.ports, recipeV1, request);
+      forking.catch(() => {});
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(forking).rejects.toThrow(/The copy failed: opencode import .* timed out/);
+      expect(fake.kills.count).toBeGreaterThanOrEqual(1);
+      expect(fake.removed).toEqual([SCRATCH]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
