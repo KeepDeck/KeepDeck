@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { McpStdioServerSpec } from "@keepdeck/plugin-api";
 import { mcpConfigFragment } from "./mcp";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const server = (name: string): McpStdioServerSpec => ({
   name,
@@ -28,7 +29,7 @@ describe("the opencode mcp config fragment", () => {
     const fragment = mcpConfigFragment({
       servers: [server("keepdeck"), server("mnemo")],
     });
-    expect(Object.keys(fragment!.mcp)).toEqual(["keepdeck", "mnemo"]);
+    expect(Object.keys(present(fragment, "the fragment").mcp)).toEqual(["keepdeck", "mnemo"]);
   });
 
   it("has no fragment at all when there is nothing to inject", () => {
@@ -40,7 +41,7 @@ describe("the opencode mcp config fragment", () => {
     const fragment = mcpConfigFragment({
       servers: [{ ...server("gh"), envPassthrough: ["GH_TOKEN"] }],
     });
-    expect(fragment!.mcp.gh).toEqual({
+    expect(present(fragment, "the fragment").mcp.gh).toEqual({
       type: "local",
       command: ["/bin/keepdeck", "--mcp-shim", "/home/mcp.sock"],
       enabled: true,
@@ -61,7 +62,7 @@ describe("the opencode mcp config fragment", () => {
         },
       ],
     });
-    expect(fragment!.mcp.github).toEqual({
+    expect(present(fragment, "the fragment").mcp.github).toEqual({
       type: "remote",
       url: "https://api.githubcopilot.com/mcp/",
       enabled: true,
@@ -75,7 +76,7 @@ describe("the opencode mcp config fragment", () => {
     const fragment = mcpConfigFragment({
       servers: [{ name: "plain", transport: "http", url: "https://mcp.example/" }],
     });
-    expect(fragment!.mcp.plain).toEqual({
+    expect(present(fragment, "the fragment").mcp.plain).toEqual({
       type: "remote",
       url: "https://mcp.example/",
       enabled: true,

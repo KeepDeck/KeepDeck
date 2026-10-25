@@ -1,5 +1,6 @@
 import { formatAge } from "../../domain/usage";
 import {
+  isTaskStatus,
   isUnkeptBriefEdit,
   TASK_CAPS,
   USER_ACTOR,
@@ -309,9 +310,10 @@ export const TASK_DETAIL_WORDS = {
 } as const;
 
 /** What a pick in the status picker asks for: a move, or nothing when the
- * person picked where the task already stands. */
+ * person picked where the task already stands — or picked something that
+ * is no status at all. */
 export function pickedStatus(current: TaskStatus, picked: string): TaskStatus | null {
-  return picked === current ? null : (picked as TaskStatus);
+  return picked === current || !isTaskStatus(picked) ? null : picked;
 }
 
 /** What a pick in the priority picker asks for: a priority, or nothing

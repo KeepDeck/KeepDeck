@@ -1,16 +1,16 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { initialDeckState } from "../domain/deck";
-import type { Deck } from "./useDeck";
+import type { DeckState, Workspace } from "../domain/deck";
+import { deckState } from "../domain/deck/reducer.testSupport";
 import {
   closedWorkspaces,
   createPluginDeckBridge,
   revealDockTabOn,
+  type PluginDeckSide,
 } from "./pluginDeckBridge";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions } from "./deckActions";
-import type { createPluginManager } from "./pluginManager";
 
 const ref = (id: string, instance = createWorkspaceInstance()) => ({
   id,
@@ -83,11 +83,12 @@ describe("revealDockTabOn", () => {
  * went to, with the whole suite green.
  */
 describe("plugin deck bridge pane-selected emission", () => {
-  const workspace = (id: string) => ({
+  const workspace = (id: string): Workspace => ({
     id,
     instance: createWorkspaceInstance(),
     name: id,
     cwd: `/${id}`,
+    worktreeBaseDir: null,
     panes: [],
     plugins: {},
   });
@@ -95,47 +96,30 @@ describe("plugin deck bridge pane-selected emission", () => {
   function harness() {
     const emitted: Array<{ workspace: { id: string }; paneId: string | null }> =
       [];
-    const plugins = {
+    const plugins: PluginDeckSide = {
       pluginDeckEvents: {
         emitWorkspaceClosed: vi.fn(),
         emitDeckChanged: vi.fn(),
-        emitPaneSelected: (e: {
-          workspace: { id: string };
-          paneId: string | null;
-        }) => emitted.push(e),
+        emitPaneSelected: (e) => {
+          emitted.push(e);
+        },
       },
       wireDeckAccess: vi.fn(),
       wireDeckUi: vi.fn(),
-    } as unknown as ReturnType<typeof createPluginManager>;
+    };
     const store = createDeckStore();
     const actions = createDeckActions(store);
     const bridge = createPluginDeckBridge(store, plugins);
-    const render = async (deck: Deck) => {
-      actions.hydrate({
-        ...initialDeckState,
-        workspaces: deck.workspaces,
-        activeId: deck.activeId,
-        viewByWs: Object.fromEntries(
-          deck.workspaces.map((workspace) => [
-            workspace.id,
-            deck.viewOf(workspace.id),
-          ]),
-        ),
-      });
+    const render = async (deck: DeckState) => {
+      actions.hydrate(deck);
       await Promise.resolve();
     };
     return { emitted, render, unmount: () => bridge.dispose() };
   }
 
-  const deckOf = (workspaces: ReturnType<typeof workspace>[], activeId: string) =>
-    ({
-      workspaces,
-      activeId,
-      viewOf: () => ({ select: null }),
-      setWorkspacePluginSlot: vi.fn(),
-      toggleDock: vi.fn(),
-      setDockTab: vi.fn(),
-    }) as unknown as Deck;
+  /** A deck with nothing selected in any workspace. */
+  const deckOf = (workspaces: Workspace[], activeId: string) =>
+    deckState({ workspaces, activeId });
 
   it("fires when the ACTIVE WORKSPACE changes, naming the new one", async () => {
     const a = workspace("ws-a");

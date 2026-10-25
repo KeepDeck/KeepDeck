@@ -4,10 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSkillsLibrary, type SkillsEditorState } from "./useSkills";
 import type { LibrarySkill, SkillsLibrary } from "./skillsLibrary";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * Driven over a FAKE library: what the hook owns is view state — loaded vs
@@ -47,9 +44,8 @@ const library = vi.hoisted(
     }) satisfies SkillsLibrary,
 );
 const subscribers = vi.hoisted(() => new Set<() => void>());
-vi.mock("./runtimeContext", () => ({
-  useAppRuntime: () => ({ skills: library }),
-}));
+vi.mock("./runtimeContext", async () =>
+  (await import("./runtimeContext.test-support")).runtimePartsModule({ skills: library }));
 
 const STORED: LibrarySkill = {
   scope: { kind: "global" },
@@ -71,7 +67,7 @@ describe("the skills library hook", () => {
     for (const fn of Object.values(library)) fn.mockClear();
     library.list.mockResolvedValue([]);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 
   afterEach(() => {

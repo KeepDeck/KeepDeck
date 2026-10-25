@@ -3,15 +3,9 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
-import {
-  attachPane,
-  isPaneLaunched,
-  resizePane,
-  writePane,
-} from "../../app/ptyManager";
+import { usePaneTerminal } from "../../app/usePaneTerminal";
 import { registerTerminalPaneKeys } from "./paneKeyBinding";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
-import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerTerminalPaneInput } from "./paneInputBinding";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
@@ -34,7 +28,7 @@ import {
   TERMINAL_THEME,
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
-import { useAppRuntime } from "../../app/runtimeContext";
+import { useRuntimePart } from "../../app/runtimeContext";
 import {
   usePaneInputFocus,
   type PaneKeyboard,
@@ -123,7 +117,11 @@ export function TerminalPane({
   startupSlow = false,
   onForkStalled,
 }: TerminalPaneProps) {
-  const { fileOpen, paneInputFocus } = useAppRuntime();
+  const fileOpen = useRuntimePart("fileOpen");
+  const terminal = usePaneTerminal();
+  const paneInputFocus = useRuntimePart("paneInputFocus");
+  const { readImageTempPath, readText, writeText } = useRuntimePart("clipboard");
+  const { openUrl } = useRuntimePart("shell");
   // Scrollback comes straight from the settings store ([F6]) — no prop
   // threading through the grid. Loaded before panes can mount (App gates the
   // first paint on it); the fallback only covers isolated test mounts.
@@ -155,7 +153,7 @@ export function TerminalPane({
   // spawn — not only while a worktree is being created. Seeded from the manager
   // so a re-attach to an already-launched session opens straight to the
   // terminal instead of flashing the overlay again.
-  const [launching, setLaunching] = useState(() => !isPaneLaunched(paneId));
+  const [launching, setLaunching] = useState(() => !terminal.isLaunched(paneId));
 
   // Held in a ref so the exit handler inside the (command/cwd)-scoped effect
   // always calls the latest callback without re-running the effect.
@@ -205,12 +203,12 @@ export function TerminalPane({
     let lastRows = term.rows;
 
     const input = term.onData((data) => {
-      writePane(paneId, data);
+      terminal.write(paneId, data);
     });
 
     // Report the keystroke, never the byte stream — see the binding for why
     // the difference is load-bearing and why it takes only `onKey`.
-    const unregisterKeys = registerTerminalPaneKeys(paneId, term);
+    const unregisterKeys = registerTerminalPaneKeys(terminal, paneId, term);
 
     // Own terminal copy. Canvas-rendered text isn't DOM-selectable and WKWebView
     // returns "" from getSelection() during a keydown, so the native Cmd+C copies
@@ -234,7 +232,7 @@ export function TerminalPane({
         return false; // owned — don't let WKWebView copy the (garbage) textarea
       }
       const { send, block } = keyAction(e);
-      if (send) writePane(paneId, send);
+      if (send) terminal.write(paneId, send);
       if (block) {
         e.preventDefault();
         return false; // handled — don't let xterm emit its default (CR)
@@ -297,9 +295,10 @@ export function TerminalPane({
     // hand ⌘V, applying xterm's bracketed framing. The glue is tested via
     // registerTerminalPaneInput (no mount needed).
     const unregister = registerTerminalPaneInput(
+      terminal,
       paneId,
       term,
-      (text) => writePane(paneId, text),
+      (text) => terminal.write(paneId, text),
     );
 
     // Auto-naming ([F11]): mirror the terminal title (OSC 0/1/2) up to the pane.
@@ -313,6 +312,7 @@ export function TerminalPane({
       {
         cwd: cwd ?? null,
         showHint,
+        openUrl,
       },
       fileOpen,
     );
@@ -325,8 +325,8 @@ export function TerminalPane({
     // A fresh spawn (mount, or a cwd/command change that re-ran this effect)
     // hasn't launched yet — re-arm the overlay; an already-live re-attach keeps
     // it down (the sink's onLaunched below fires again through the replay).
-    setLaunching(!isPaneLaunched(paneId));
-    const detach = attachPane(paneId, {
+    setLaunching(!terminal.isLaunched(paneId));
+    const detach = terminal.attach(paneId, {
       onOutput: (bytes) => term.write(bytes),
       onExit: (code, replayed) => {
         // The exit banner is written straight to xterm (not the ring buffer),
@@ -358,7 +358,7 @@ export function TerminalPane({
         // repaints). Resize unconditionally now to converge.
         lastCols = term.cols;
         lastRows = term.rows;
-        resizePane(paneId, term.cols, term.rows);
+        terminal.resize(paneId, term.cols, term.rows);
       },
     });
 
@@ -382,7 +382,7 @@ export function TerminalPane({
         if (term.cols !== lastCols || term.rows !== lastRows) {
           lastCols = term.cols;
           lastRows = term.rows;
-          resizePane(paneId, term.cols, term.rows);
+          terminal.resize(paneId, term.cols, term.rows);
         }
       },
       // The real browser schedulers — the pump itself is environment-free.
@@ -417,7 +417,7 @@ export function TerminalPane({
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [command, cwd, paneId, showHint, fileOpen]);
+  }, [command, cwd, paneId, showHint, fileOpen, terminal, readImageTempPath, readText, writeText, openUrl]);
 
   // Scrollback is a runtime xterm option — apply a settings change to the
   // live terminal ([F6]); shrinking trims the buffer, growing keeps it.

@@ -9,7 +9,7 @@ import {
   type EventAttribution,
   type MailChannel,
   type MailReplyRenderer,
-  type QuestionState,
+  questionStateOf,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
 import { kimiRecords } from "./tail";
@@ -132,7 +132,7 @@ const readKimiStatus = (
 export const normalizeKimiStatus: StatusNormalizer = (payload, at, context) => {
   const decoded = decodeStatusPayload(payload);
   const record = decoded?.source === "record" ? decoded.record : null;
-  const result = reduceQuestionStatus(context?.state as QuestionState | undefined,
+  const result = reduceQuestionStatus(questionStateOf(context?.state),
     readKimiStatus(payload, at), record ? kimiQuestionCall(record) : undefined);
   return { kind: "status-reduction", ...result };
 };

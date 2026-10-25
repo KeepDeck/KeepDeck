@@ -1,18 +1,29 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentUsage } from "@keepdeck/plugin-api";
+import {
+  jsonl,
+  type AgentUsage,
+  type CompanionCover,
+  type JsonlRequest,
+  type SessionTailDialect,
+  type TailWatch,
+  type TailTarget,
+} from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions, type DeckActions } from "./deckActions";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const ipc = vi.hoisted(() => ({
   watchSessionFile: vi.fn<
-    (paneId: string, path: string, token: string, format: string) => Promise<void>
+    (
+      paneId: string,
+      path: string,
+      token: string,
+      agent: string,
+      watches?: readonly TailWatch[],
+      siblings?: string | null,
+    ) => Promise<void>
   >(() => Promise.resolve()),
   unwatchSessionFile: vi.fn(() => Promise.resolve()),
   findCodexRollout: vi.fn<(sessionId: string) => Promise<string | null>>(() =>
@@ -41,18 +52,33 @@ vi.mock("./spawnSpecs", () => ({
 }));
 import { createUsageTailsLane } from "./usageChannelTails";
 import type { UsageLane } from "./usageChannelSource";
+import type { AcceptedBinding } from "./sessionBinding";
+
+/** A dialect as the tails lane uses one: what to carry and where the store
+ * is. It reads no record here. */
+const dialectOf = (
+  watches: readonly TailWatch[],
+  follow: (pane: TailTarget) => Promise<JsonlRequest | null>,
+): SessionTailDialect<JsonlRequest, unknown> => ({
+  format: jsonl((_record: unknown): _record is unknown => true),
+  watches,
+  follow,
+  read: () => null,
+  ignores: () => true,
+});
 import { createUsageManager } from "./usageManager";
 import { createPaneAttribution } from "./paneAttribution";
 import {
   createSessionBinding,
   type SessionBinding,
 } from "./sessionBinding";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const usageByAgent = new Map<string, AgentUsage>([
   [
     "codex",
     // Only `tail` is read here; the lane never normalizes in these tests.
-    { tail: { format: "codex", watches: [] } } as unknown as AgentUsage,
+    { normalize: () => null, tail: { watches: [] } },
   ],
 ]);
 
@@ -108,13 +134,10 @@ describe("usage tails — a suspended pane's watcher", () => {
       // rather than a command of the host's. The fake is that search, over
       // the same mocked lookup this file already had.
       tailOf: () =>
-        ({
-          watches: [],
-          follow: async ({ sessionId }: { sessionId: string | null }) => {
-            const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
-            return path ? { path } : null;
-          },
-        }) as never,
+        dialectOf([], async ({ sessionId }) => {
+          const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
+          return path ? { path } : null;
+        }),
       // The tails lane only arms watchers; events reach the store via the
       // reports lane, so a fresh, unobserved instance satisfies the context.
       companionOf: () => undefined,
@@ -206,32 +229,28 @@ describe("usage tails — a store search racing a binding", () => {
       secretOf: () => specs.token ?? undefined,
     });
 
-    let announce: ((bound: {
-      paneId: string;
-      transcriptPath: string | null;
-      token: string;
-    }) => void) | null = null;
+    let announce: ((bound: AcceptedBinding) => void) | null = null;
     let answerLookup: ((path: string | null) => void) | null = null;
 
     const lane = createUsageTailsLane({
       deck: store,
       attribution,
       bindings: {
-        subscribe: (listener: never) => {
+        subscribe: (listener) => {
           announce = listener;
           return () => {};
         },
-      } as never,
+      },
       // The search hangs until the test lets it answer — that gap is where
       // the binding lands.
       tailOf: () =>
-        ({
-          watches: [],
-          follow: () =>
+        dialectOf(
+          [],
+          () =>
             new Promise((resolve) => {
               answerLookup = (path) => resolve(path ? { path } : null);
             }),
-        }) as never,
+        ),
       companionOf: () => undefined,
       usage: createUsageManager(),
       declarations: {
@@ -254,8 +273,9 @@ describe("usage tails — a store search racing a binding", () => {
         () => new Promise<void>((resolve) => (finishArm = () => resolve())),
       );
       await act(async () => {
-        announce!({
+        present(announce, "the announce hook")({
           paneId: "pane-1",
+          sessionId: "ses-1",
           transcriptPath: "/x/rollout.jsonl",
           token: "token-1",
         });
@@ -265,9 +285,9 @@ describe("usage tails — a store search racing a binding", () => {
       ipc.unwatchSessionFile.mockClear();
 
       // The search admits it found nothing, THEN the arm completes.
-      await act(async () => answerLookup!(null));
+      await act(async () => present(answerLookup, "the lookup answer hook")(null));
       for (let i = 0; i < 4; i++) await act(async () => {});
-      await act(async () => finishArm!());
+      await act(async () => present(finishArm, "the arm finisher")());
       for (let i = 0; i < 4; i++) await act(async () => {});
 
       expect(ipc.unwatchSessionFile).not.toHaveBeenCalled();
@@ -278,31 +298,35 @@ describe("usage tails — a store search racing a binding", () => {
 });
 
 describe("usage tails — a pane whose process has a companion", () => {
-  const USAGE_WATCH = { lane: "usage", match: [{ key: "type", equals: "assistant" }] };
-  const STATUS_WATCH = { lane: "status", match: [{ key: "type", equals: "user" }] };
+  const USAGE_WATCH: TailWatch = {
+    lane: "usage",
+    match: [{ key: "type", equals: "assistant" }],
+    keep: [],
+  };
+  const STATUS_WATCH: TailWatch = { lane: "status", match: [{ key: "type", equals: "user" }], keep: [] };
   const claudeUsage = new Map<string, AgentUsage>([
-    ["claude", { tail: { watches: [USAGE_WATCH] } } as unknown as AgentUsage],
+    ["claude", { normalize: () => null, tail: { watches: [USAGE_WATCH] } }],
   ]);
 
-  function setup(covers: readonly string[] | null) {
+  function setup(covers: readonly CompanionCover[] | null) {
     const store = createDeckStore();
     deck = createDeckActions(store);
     const attribution = createPaneAttribution({
       workspaces: () => store.getSnapshot().workspaces,
       secretOf: () => "token-1",
     });
-    let announce!: (bound: { paneId: string; transcriptPath: string; token: string }) => void;
+    let announce!: (bound: AcceptedBinding) => void;
     const lane = createUsageTailsLane({
       deck: store,
       attribution,
       bindings: {
-        subscribe: (listener: never) => {
+        subscribe: (listener) => {
           announce = listener;
           return () => {};
         },
-      } as never,
-      tailOf: () => ({ watches: [STATUS_WATCH], follow: async () => null }) as never,
-      companionOf: () => (covers ? ({ covers } as never) : undefined),
+      },
+      tailOf: () => dialectOf([STATUS_WATCH], async () => null),
+      companionOf: () => (covers ? { covers } : undefined),
       usage: createUsageManager(),
       declarations: { current: () => claudeUsage, subscribe: () => () => {} },
     });
@@ -318,7 +342,7 @@ describe("usage tails — a pane whose process has a companion", () => {
     });
     const bind = async () => {
       await act(async () =>
-        announce({ paneId: "pane-1", transcriptPath: "/p/s.jsonl", token: "token-1" }),
+        announce({ paneId: "pane-1", sessionId: "ses-1", transcriptPath: "/p/s.jsonl", token: "token-1" }),
       );
       for (let i = 0; i < 4; i++) await act(async () => {});
     };
@@ -329,7 +353,7 @@ describe("usage tails — a pane whose process has a companion", () => {
   }
   /** The watches the last arm carried. */
   const lastWatches = () => {
-    const calls = ipc.watchSessionFile.mock.calls as unknown[][];
+    const calls = ipc.watchSessionFile.mock.calls;
     return calls[calls.length - 1]?.[4];
   };
 

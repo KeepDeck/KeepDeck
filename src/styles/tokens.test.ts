@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { TERMINAL_FONT_SIZE, TERMINAL_LOG_FONT_SIZE, TERMINAL_THEME } from "@keepdeck/terminal-kit";
 import * as chart from "../domain/usage/chartPalette";
 import { readStyles, ruleBody, STYLES_DIR, stripComments } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * tokens.css is the one home of the chrome's colours. These hold the promises
@@ -90,7 +91,7 @@ describe("the design tokens", () => {
     for (const [meter, fill] of Object.entries(fills)) {
       const token = /^var\((--kd-[a-z0-9-]+)\)$/.exec(fill)?.[1];
       expect(token, meter).toBeDefined();
-      expect(lightness(value(token!)), meter).toBeGreaterThan(lightness(track));
+      expect(lightness(value(present(token, "the custom property the fill names"))), meter).toBeGreaterThan(lightness(track));
     }
   });
 
@@ -158,7 +159,7 @@ describe("the design tokens", () => {
     // The foreground is the terminal's own ink — between --kd-text and
     // --kd-text-2, the brightness long output reads comfortably at — and
     // must stay between them.
-    const fg = lightness(TERMINAL_THEME.foreground!);
+    const fg = lightness(present(TERMINAL_THEME.foreground, "the terminal foreground"));
     expect(fg).toBeLessThan(lightness(declared(tokens, "--kd-text")));
     expect(fg).toBeGreaterThan(lightness(declared(tokens, "--kd-text-2")));
   });

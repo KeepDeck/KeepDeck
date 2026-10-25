@@ -82,10 +82,10 @@ type ReadStored =
  * SHAPE questions live here; the text questions are [`roleTextsProblem`]'s,
  * shared with the form. */
 function readStoredRole(raw: unknown): ReadStored {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+  if (!isJsonRecord(raw)) {
     return { ok: false, problem: "the record is not an object" };
   }
-  const record = raw as Record<string, unknown>;
+  const record = raw;
   if (record.repeatable !== undefined && typeof record.repeatable !== "boolean") {
     return { ok: false, problem: "repeatable must be true or false" };
   }

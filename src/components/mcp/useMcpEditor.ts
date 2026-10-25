@@ -62,12 +62,18 @@ export function useMcpEditor({ activeWs, onClose, canClose }: McpEditorDeps) {
     canClose,
   });
 
+  // On the FIELDS, not the object: `activeWs` is a fresh literal per App
+  // render. A narrowed identity carries the two fields the builder reads, so
+  // the groups rebuild exactly when one of them changes.
+  const wsId = activeWs?.id;
+  const wsName = activeWs?.name;
+  const activeIdentity = useMemo<GroupWorkspace | null>(
+    () => (wsId !== undefined && wsName !== undefined ? { id: wsId, name: wsName } : null),
+    [wsId, wsName],
+  );
   const groups = useMemo<McpNavGroup[]>(
-    () => buildMcpGroups(servers, activeWs, bundled),
-    // On the FIELDS, not the object: `activeWs` is a fresh literal per App
-    // render, and depending on its identity would rebuild the groups constantly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [servers, bundled, activeWs?.id, activeWs?.name],
+    () => buildMcpGroups(servers, activeIdentity, bundled),
+    [servers, bundled, activeIdentity],
   );
 
   const { rows: _rows, ...machine } = editor;

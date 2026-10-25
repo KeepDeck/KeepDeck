@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -292,6 +293,12 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       "session-reporter.js",
     ]) {
       expect(existsSync(join(opencodePlugin, file)), file).toBe(true);
+    }
+    const sourceOpencodePlugin = join(REPO_ROOT, "plugins", "opencode", "resources", "keepdeck-plugin");
+    const resourceFiles = readdirSync(sourceOpencodePlugin).sort();
+    expect(readdirSync(opencodePlugin).sort()).toEqual(resourceFiles);
+    for (const file of resourceFiles) {
+      expect(readFileSync(join(opencodePlugin, file))).toEqual(readFileSync(join(sourceOpencodePlugin, file)));
     }
     const entry = readFileSync(join(opencodePlugin, "index.js"), "utf8");
     expect(entry).toContain('from "./mail-courier.js"');

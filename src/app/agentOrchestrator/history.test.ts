@@ -27,6 +27,7 @@ import {
 import type {
   SessionHandle,
 } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** One empty workspace to continue a session into. */
 const emptyWorkspace = () =>
@@ -82,7 +83,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
     emptyWorkspace();
   });
@@ -275,7 +276,10 @@ describe("agent orchestrator —continuing a recorded session", () => {
     });
     await act(async () => agentRun.resumeSession("ws-1", handle(), { name: "api", role: "lead" }));
     const ws = deck.workspaces[0];
-    const resumed = ws.panes.find((pane) => pane.session?.id === "s-1")!;
+    const resumed = present(
+      ws.panes.find((pane) => pane.session?.id === "s-1"),
+      "the resumed s-1 pane",
+    );
     expect(resumed.team?.teamId).not.toBe("team-1");
     expect(paneExecutionCwd(ws, resumed)).toBe("/repo/wt");
     expect(paneBranch(ws, resumed)).toBe("kd/x/1");
@@ -298,7 +302,10 @@ describe("agent orchestrator —continuing a recorded session", () => {
     // "reviewer-1", not the "impl-1" the roster would suggest next: the
     // person's pick, not the default, is what lands.
     await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "reviewer-1" }));
-    const first = deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-1")!;
+    const first = present(
+      deck.workspaces[0].panes.find((pane) => pane.session?.id === "s-1"),
+      "the resumed s-1 pane",
+    );
     expect(first.team).toEqual({ teamId: "team-1", role: "reviewer-1" });
 
     // A singleton the team already holds is REFUSED, the same as at every
@@ -455,7 +462,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
     emptyWorkspace();
   });
@@ -467,10 +474,7 @@ describe("agent orchestrator —forking a recorded session", () => {
   const forked = () => handle({ agent: "claude", cwd: "/old/wt", yolo: false });
   /** The step registered for the pane, as the worktree runner would call it. */
   const registeredStep = () =>
-    steps.register.mock.calls[0][1] as (wt: {
-      cwd: string;
-      branch: string;
-    }) => Promise<void>;
+    steps.register.mock.calls[0][1];
 
   it("dir target: mints an UNBOUND pane in the chosen dir with the fork plan", async () => {
     await act(async () =>
@@ -581,7 +585,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     );
 
     const pane = deck.workspaces[0].panes[0];
-    const team = deck.workspaces[0].teams![0];
+    const team = present(deck.workspaces[0].teams, "the workspace teams")[0];
     // The card is the TEAM's — minted for the fork's directory — and the
     // pane wears it through its team.
     expect(paneProvisioning(deck.workspaces[0], pane)).toMatchObject({

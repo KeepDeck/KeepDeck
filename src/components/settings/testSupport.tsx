@@ -15,11 +15,6 @@ import { vi } from "vitest";
  * import of a mocked module would load the real one before these register.
  */
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // The dialog's sections talk to the real settings manager over a mocked IPC —
 // the tests cover the whole loop: control → store → re-render.
 const settingsIpc = vi.hoisted(() => ({
@@ -107,9 +102,11 @@ const { TEST_AGENTS, AGENTS_PLUGIN } = vi.hoisted(() => {
 });
 
 const runtime = vi.hoisted(() => ({
-  registries: null as unknown as ReturnType<
-    typeof import("../../plugins/registries/contributions").createContributionRegistries
-  >,
+  registries: undefined as
+    | ReturnType<
+        typeof import("../../plugins/registries/contributions").createContributionRegistries
+      >
+    | undefined,
 }));
 
 vi.mock("../../app/runtimeContext", async () => {
@@ -127,7 +124,20 @@ vi.mock("../../app/runtimeContext", async () => {
     });
   }
   return {
-    useAppRuntime: () => ({
+    ...(await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+      clipboard: {
+        writeText: async () => {},
+        readText: async () => "",
+        readImageTempPath: async () => null,
+      },
+      shell: {
+        openUrl: async () => {},
+        listApplications: async () => [],
+      },
+      notificationPermission: {
+        notificationPermissionGranted: async () => false,
+        ensureNotificationPermission: async () => false,
+      },
       plugins: {
         pluginRegistries: registries,
         bootstrapPlugins: () => Promise.resolve(),
@@ -151,10 +161,11 @@ import {
   initSettings,
   resetSettingsManager,
   updateSettings,
-} from "../../app/settingsManager";
+} from "../../app/testing";
 import type { Settings } from "../../domain/settings";
+import { present } from "@keepdeck/plugin-api/testing";
 
-export { getSettings, resetSettingsManager, updateSettings } from "../../app/settingsManager";
+export { getSettings, resetSettingsManager, updateSettings } from "../../app/testing";
 export { DEFAULT_SETTINGS, SCROLLBACK_MIN } from "../../domain/settings";
 export type { Settings } from "../../domain/settings";
 
@@ -173,13 +184,16 @@ export const agentsPlugin = AGENTS_PLUGIN;
  * import here is what makes the registries exist before a test seeds them. */
 export async function pluginRegistries() {
   await import("../../app/runtimeContext");
+  if (!runtime.registries) throw new Error("the runtime mock did not build the registries");
   return runtime.registries;
 }
 
-export const button = (text: string) =>
-  Array.from(document.querySelectorAll("button")).find(
-    (b) => b.textContent === text,
-  )!;
+/** The button labelled `text`, or undefined — the one matching rule, for
+ * the checks that a button is absent as well as for `button()`. */
+export const findButton = (text: string) =>
+  Array.from(document.querySelectorAll("button")).find((b) => b.textContent === text);
+
+export const button = (text: string) => present(findButton(text), `the "${text}" button`);
 
 export const scrollbackInput = () =>
   document.querySelector<HTMLInputElement>(
@@ -188,15 +202,15 @@ export const scrollbackInput = () =>
 
 /** The section panel an element lives in — visibility is per panel (`hidden`),
  * inactive sections stay mounted. */
-export const panelOf = (el: Element) => el.closest(".settings__section")!;
+export const panelOf = (el: Element) => present(el.closest(".settings__section"), "element \".settings__section\"");
 
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
 export function type(el: HTMLInputElement, text: string) {
-  const set = Object.getOwnPropertyDescriptor(
+  const set = present(present(Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
     "value",
-  )!.set!;
+  ), "input value property descriptor").set, "input value setter");
   act(() => {
     set.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -217,7 +231,7 @@ export function dialogHost(): Root {
   resetSettingsManager();
   plugins.set([AGENTS_PLUGIN]);
   document.body.innerHTML = "<div id='host'></div>";
-  return createRoot(document.getElementById("host")!);
+  return createRoot(present(document.getElementById("host"), "element \"host\""));
 }
 
 /** Render the dialog with `overrides` already stored — the seeding writes are

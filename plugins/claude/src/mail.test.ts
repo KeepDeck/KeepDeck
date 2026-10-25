@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CLAUDE_MAIL_CHANNELS, renderClaudeMail } from "./status";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The events armed to ask, from the declaration both the arming and the
  * deck read. */
@@ -21,7 +22,7 @@ describe("renderClaudeMail", () => {
   it("hands the words over at Stop AND keeps the turn alive", () => {
     // The whole reason this event is worth asking on: without it the turn
     // ends and the message costs a fresh wake to deliver.
-    const parsed = JSON.parse(render("Stop")!);
+    const parsed = JSON.parse(present(render("Stop"), "the rendered output"));
     expect(parsed.hookSpecificOutput.hookEventName).toBe("Stop");
     expect(parsed.hookSpecificOutput.additionalContext).toContain("which port?");
   });
@@ -32,14 +33,14 @@ describe("renderClaudeMail", () => {
     // pushed the message onto claude's error list, which raises "Stop hook
     // error occurred" on the first delivery of every turn. The envelope is
     // what separates the two, so the envelope is what is pinned.
-    expect(JSON.parse(render("Stop")!).decision).toBeUndefined();
+    expect(JSON.parse(present(render("Stop"), "the rendered output")).decision).toBeUndefined();
   });
 
   it("says whose words these are, and what that means", () => {
     // The thing a terminal paste can never promise. The tag names the
     // source; the sentence after it tells the model how much authority to
     // give it, which is the actual protection.
-    const { additionalContext } = JSON.parse(render("Stop")!).hookSpecificOutput;
+    const { additionalContext } = JSON.parse(present(render("Stop"), "the rendered output")).hookSpecificOutput;
     expect(additionalContext).toContain("<teammate-message>");
     expect(additionalContext).toContain("</teammate-message>");
     expect(additionalContext).toContain("Agent 1");
@@ -59,7 +60,7 @@ describe("renderClaudeMail", () => {
     // `Stop` "continues the conversation", a blocked `PostToolBatch` "stops
     // the agentic loop before the next model call". The block shipped here
     // once, and it ended the very turn the mail was sent to steer.
-    const parsed = JSON.parse(render("PostToolBatch")!);
+    const parsed = JSON.parse(present(render("PostToolBatch"), "the rendered output"));
     expect(parsed.hookSpecificOutput.hookEventName).toBe("PostToolBatch");
     expect(parsed.hookSpecificOutput.additionalContext).toContain("which port?");
     expect(parsed.decision).toBeUndefined();
@@ -76,7 +77,7 @@ describe("renderClaudeMail", () => {
     // `PostToolBatch` it stops the agentic loop, on `Stop` it files the
     // message as a hook error. Nothing here may use it.
     for (const event of ASKS_FOR_MAIL) {
-      const parsed = JSON.parse(render(event)!);
+      const parsed = JSON.parse(present(render(event), "the rendered output"));
       expect(parsed.hookSpecificOutput?.hookEventName, event).toBe(event);
       expect(parsed.hookSpecificOutput.additionalContext, event).toContain(
         "which port?",
@@ -86,7 +87,7 @@ describe("renderClaudeMail", () => {
   });
 
   it("appends to a turn the user just opened", () => {
-    const parsed = JSON.parse(render("UserPromptSubmit")!);
+    const parsed = JSON.parse(present(render("UserPromptSubmit"), "the rendered output"));
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
     expect(parsed.hookSpecificOutput.additionalContext).toContain("which port?");
   });
@@ -95,7 +96,7 @@ describe("renderClaudeMail", () => {
     const out = render("Stop", [
       { id: "mail-9", kind: "undelivered", body: "did not arrive", from: null },
     ]);
-    expect(JSON.parse(out!).hookSpecificOutput.additionalContext).toContain(
+    expect(JSON.parse(present(out, "the out")).hookSpecificOutput.additionalContext).toContain(
       "KeepDeck",
     );
   });
@@ -111,10 +112,10 @@ describe("renderClaudeMail", () => {
 
   it("carries several messages in one hand-over", () => {
     const { additionalContext } = JSON.parse(
-      render("Stop", [
+      present(render("Stop", [
         { id: "mail-1", kind: "task", body: "first", from: "Agent 1" },
         { id: "mail-2", kind: "note", body: "second", from: "Agent 3", replyTo: "mail-0" },
-      ])!,
+      ]), "the rendered output"),
     ).hookSpecificOutput;
     expect(additionalContext).toContain("first");
     expect(additionalContext).toContain("second");

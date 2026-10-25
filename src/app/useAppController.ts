@@ -8,7 +8,7 @@ import {
 import { useAgentDialog } from "./useAgentDialog";
 import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
-import { useAppRuntime } from "./runtimeContext";
+import type { AppRuntime } from "./runtime";
 import { askBackgroundCarriers } from "./liveSessions";
 import { useCloseFlow } from "./useCloseFlow";
 import { useContributions, useInstalledPlugins, unavailableAgentReasons } from "../plugins";
@@ -53,6 +53,7 @@ import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen } from "../presenta
 import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
 import { log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
+import { usePluginSurfaces } from "./usePluginSurfaces";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen, memberDoor } from "./doors";
 import { BAR_WORDS, type BarLevel } from "../presentation/barView";
 import type { WorkspaceCrumbView } from "../presentation/workspaceCrumbView";
@@ -68,8 +69,7 @@ import { errorMessage } from "@keepdeck/plugin-api";
 const NO_FOLDED_EPICS: readonly string[] = [];
 
 /** Shell/application wiring kept separate from the rendered app tree. */
-export function useAppController() {
-  const runtime = useAppRuntime();
+export function useAppController(runtime: AppRuntime) {
   const { pluginRegistries, pluginHost } =
     runtime.plugins;
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -135,7 +135,7 @@ export function useAppController() {
     onForkFailed: (message) => pushAlert("Could not fork the session", message),
     onCreateFailed: (message) => pushAlert("Could not add the agent", message),
     onTeamFailed: (message) => pushAlert("Could not start the team", message),
-  }, runView.blocked);
+  }, runView.blocked, runtime.agentDoors);
   const closeFlow = useCloseFlow(deck, {
     onError: (message) => pushAlert("Worktree error", message),
     onSuspendRefused: (message) =>
@@ -203,6 +203,7 @@ export function useAppController() {
   const pluginDockTabs = useContributions(pluginRegistries.dockTabs);
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
   const crashes = useSyncExternalStore(subscribePluginCrashes, pluginCrashes);
+  const pluginSurfaces = usePluginSurfaces();
   // A plugin's full-window peek, by the plugin's own word (`ui.setOverlayCovers`).
   const overlayCovers = useSyncExternalStore(subscribeOverlayCover, anyOverlayCovers);
   const focusDroppedPane = (paneId: string) =>
@@ -218,6 +219,8 @@ export function useAppController() {
   const selectedPaneId =
     (active && resolveSelectedPaneId(stagePanes(active, activeView), activeView)) ?? null;
   const dockTabs = buildDockTabs({
+    host: pluginSurfaces,
+    logger: runtime.logger,
     contributions: pluginDockTabs,
     crashes,
     workspace: active,
@@ -309,7 +312,7 @@ export function useAppController() {
   useActivityNotifications(deck.workspaces, agents);
   // One subscription for the whole strip; what the activity MEANS for a mark
   // is `stripView`'s.
-  const paneActivities = usePaneActivities();
+  const paneActivities = usePaneActivities(runtime.statusTracker);
   const needsYou = {
     rows: needsYouRows(deck.workspaces, paneActivities, agents),
     onOpen: (row: NeedsYouRow) =>

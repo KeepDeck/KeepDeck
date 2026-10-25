@@ -9,7 +9,7 @@ import type {
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { speechErrorKind } from "@keepdeck/plugin-api";
-import { speechCapture } from "@keepdeck/plugin-api/testing";
+import { present, speechCapture } from "@keepdeck/plugin-api/testing";
 // The host bridge lives in the app (`src/`), the guest in this package; a
 // round-trip test is the one place both ends meet, so it reaches across the
 // boundary by relative path rather than adding a workspace dependency edge.
@@ -32,6 +32,10 @@ afterEach(() => {
 });
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+const isString = (value: unknown): value is string => typeof value === "string";
+const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 const W1: WorkspaceRef = { id: "w1", instance: "instance-1" };
 const W2: WorkspaceRef = { id: "w2", instance: "instance-2" };
 async function flush(times = 4): Promise<void> {
@@ -113,14 +117,18 @@ describe("external plugin bridge", () => {
 
     const nested = { a: { b: [1, 2, { c: "d" }] }, e: true };
     await ctx.storage.global.set("k", nested);
-    expect(await ctx.storage.global.get("k")).toEqual(nested);
+    expect(await ctx.storage.global.get("k", isObject)).toEqual(nested);
     expect(host.globalStore.get("k")).toEqual(nested);
 
     const wsValue = { list: [3, 4] };
     await ctx.storage.workspace(W1).set("x", wsValue);
-    expect(await ctx.storage.workspace(W1).get("x")).toEqual(wsValue);
+    expect(await ctx.storage.workspace(W1).get("x", isObject)).toEqual(wsValue);
     // Namespaced by workspace: a different workspace does not see it.
-    expect(await ctx.storage.workspace(W2).get("x")).toBeUndefined();
+    expect(await ctx.storage.workspace(W2).get("x", isObject)).toBeUndefined();
+
+    // A stored value the caller's guard refuses reads as a missing one.
+    await ctx.storage.global.set("bad", 42);
+    expect(await ctx.storage.global.get("bad", isString)).toBeUndefined();
   });
 
   it("keeps a captured workspace handle bound to its exact lifetime", async () => {
@@ -137,12 +145,12 @@ describe("external plugin bridge", () => {
     callerOwned.instance = replacement.instance;
     await stale.set("late", true);
 
-    expect(await stale.get("value")).toBe("old lifetime");
-    expect(await stale.get("late")).toBe(true);
-    expect(await ctx.storage.workspace(replacement).get("value")).toBe(
+    expect(await stale.get("value", isString)).toBe("old lifetime");
+    expect(await stale.get("late", isBoolean)).toBe(true);
+    expect(await ctx.storage.workspace(replacement).get("value", isString)).toBe(
       "replacement",
     );
-    expect(await ctx.storage.workspace(replacement).get("late")).toBeUndefined();
+    expect(await ctx.storage.workspace(replacement).get("late", isBoolean)).toBeUndefined();
   });
 
   it("delivers a subscribed deck event and unsubscribes on the host when disposed", async () => {
@@ -379,7 +387,7 @@ describe("external plugin bridge", () => {
     await flush();
     expect(typeof fireHostChange).toBe("function");
 
-    fireHostChange!();
+    present(fireHostChange, "the host-change handler")();
     await flush();
     expect(changes).toBe(1);
 
@@ -388,7 +396,7 @@ describe("external plugin bridge", () => {
     expect(unwatched).toEqual(["/repo"]);
 
     // A host change after dispose is not delivered to the plugin.
-    fireHostChange!();
+    present(fireHostChange, "the host-change handler")();
     await flush();
     expect(changes).toBe(1);
   });
@@ -491,7 +499,7 @@ describe("external plugin bridge", () => {
     const { ctxReady } = wireCapturingCtx(host);
     const ctx = await ctxReady;
 
-    await expect(ctx.storage.global.get("k")).rejects.toThrow("boom");
+    await expect(ctx.storage.global.get("k", isObject)).rejects.toThrow("boom");
   });
 
   it("rejects in-flight guest calls when the bridge is disposed", async () => {

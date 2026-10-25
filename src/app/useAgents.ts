@@ -6,11 +6,22 @@ import type {
 import type { AgentInfo } from "../domain/agents";
 import { detectBins, type BinStatus } from "../ipc/agents";
 import type { InstalledPlugin } from "../plugins";
+import type { PluginHost } from "../plugins/host/host";
 import {
   useContributions,
   useInstalledPlugins,
 } from "../plugins/react";
-import { useAppRuntime } from "./runtimeContext";
+import type { ContributionRegistries } from "../plugins/registries/contributions";
+import { useRuntimePart } from "./runtimeContext";
+
+/** The plugin side as the catalog reads it: the one bootstrap to join, the
+ * installed plugins (for each agent's declared summary), and the agents
+ * registered. */
+export interface AgentCatalogSource {
+  bootstrapPlugins(): Promise<void>;
+  pluginHost: Pick<PluginHost, "subscribe" | "getInstalled">;
+  pluginRegistries: Pick<ContributionRegistries, "agents">;
+}
 
 // Last known per-bin install status. A remount seeds from it so consumers
 // never render a "nothing installed" flash while re-detection runs; detection
@@ -26,8 +37,15 @@ let lastStatus = new Map<string, BinStatus>();
  * may fail to spawn than to hide one that works.
  */
 export function useAgents(): { agents: AgentInfo[]; loading: boolean } {
-  const { bootstrapPlugins, pluginHost, pluginRegistries } =
-    useAppRuntime().plugins;
+  return useAgentsFrom(useRuntimePart("plugins"));
+}
+
+/** [`useAgents`] over a plugin side the caller names — the hook itself,
+ * with the runtime's plugins as the one production source. */
+export function useAgentsFrom(
+  plugins: AgentCatalogSource,
+): { agents: AgentInfo[]; loading: boolean } {
+  const { bootstrapPlugins, pluginHost, pluginRegistries } = plugins;
   const contributions = useContributions(pluginRegistries.agents);
   const installed = useInstalledPlugins(pluginHost);
   const [booted, setBooted] = useState(false);

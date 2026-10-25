@@ -1,4 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ArtifactMetaRow } from "../domain/artifacts/rowRef";
+import type { ArtifactVersionRow } from "../domain/artifacts/model";
+
+export type { ArtifactMetaRow, ArtifactVersionRow };
 
 /**
  * The artifacts feature's Rust surface — the enable pair (§B11: the
@@ -50,37 +54,10 @@ export interface PublishIpcResult {
   indexUrl: string | null;
 }
 
-/** One list row (mirrors Rust `ArtifactMeta`, camelCase on the wire).
- *
- * No `format`: the Rust struct carries none — the format is pinned in the
- * manifest and rides the READ, not the listing. Declared here it typed as
- * `"html"` a field that arrives `undefined`, which is the shape a
- * consumer cannot defend against. */
-export interface ArtifactMetaRow {
-  id: string;
-  title: string;
-  versionCount: number;
-  updatedAt: number;
-  /** Which incarnation of this id the row describes. Opaque, and NOT the
-   * artifact's token: deleting frees an id, so the next publish under it
-   * is a different artifact wearing the same name, and this is what
-   * tells them apart. Handed back on a delete that answers a question
-   * about this row. */
-  generation: string;
-}
-
 export async function artifactList(payload: {
   workspaceId: string;
 }): Promise<ArtifactMetaRow[]> {
   return await invoke("artifact_list", { payload });
-}
-
-/** One version as a surface shows it (mirrors Rust `VersionRow`). */
-export interface ArtifactVersionRow {
-  n: number;
-  at: number;
-  size: number;
-  message?: string;
 }
 
 /** One artifact's history, oldest first. Separate from the listing on

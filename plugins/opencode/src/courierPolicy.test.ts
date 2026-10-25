@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-// Untyped resource JS — shipped to, and loaded by, the user's opencode.
-// @ts-expect-error untyped resource module
+// Resource JS — shipped to, and loaded by, the user's opencode.
 import { createCourierPolicy, visibleOn } from "../resources/keepdeck-plugin/courier-policy.js";
 
 /**

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { lib, skill, skillsDialogHost } from "./skillsDialogTestSupport";
 import { button, buttonByTitle, confirmButton, input, row, textarea, type } from "../library/libraryTestDom";
 import { SkillsDialog } from "./SkillsDialog";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("SkillsDialog — editing", () => {
   const host = skillsDialogHost(SkillsDialog);
@@ -15,12 +16,12 @@ describe("SkillsDialog — editing", () => {
   it("discarding edits can land on the CREATE form, not only on close", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
     type(input("skill-description"), "edited");
 
-    act(() => buttonByTitle("New global skill")!.click());
+    act(() => present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").click());
     expect(document.body.textContent).toContain("unsaved changes");
-    act(() => button("Discard")!.click());
+    act(() => present(button("Discard"), "button \"Discard\"").click());
 
     // The create form opens CLEAN — nothing bleeds over from the discard.
     expect(document.body.textContent).toContain("New skill");
@@ -36,12 +37,12 @@ describe("SkillsDialog — editing", () => {
     // caret with no autoFocus to catch them.
     lib.skills = [];
     await host.mount();
-    act(() => buttonByTitle("New global skill")!.click());
+    act(() => present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").click());
     type(input("skill-name"), "deploy");
     type(input("skill-description"), "Ships it");
     const beforeSave = textarea("skill-body");
 
-    await act(async () => button("Create")!.click());
+    await act(async () => present(button("Create"), "button \"Create\"").click());
 
     expect(textarea("skill-body")).toBe(beforeSave);
   });
@@ -55,14 +56,14 @@ describe("SkillsDialog — editing", () => {
       () => new Promise<boolean>((resolve) => (finishSave = resolve)),
     );
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
     type(textarea("skill-body"), "edited");
 
-    act(() => button("Save")!.click());
+    act(() => present(button("Save"), "button \"Save\"").click());
 
-    expect(button("Delete")!.disabled).toBe(true);
+    expect(present(button("Delete"), "button \"Delete\"").disabled).toBe(true);
     await act(async () => finishSave(true));
-    expect(button("Delete")!.disabled).toBe(false);
+    expect(present(button("Delete"), "button \"Delete\"").disabled).toBe(false);
   });
 
   it("freezes the nav while a delete is in flight, so it cannot strand the editor", async () => {
@@ -78,27 +79,27 @@ describe("SkillsDialog — editing", () => {
     );
     await host.mount();
 
-    act(() => row("review")!.click());
-    act(() => button("Delete")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
+    act(() => present(button("Delete"), "button \"Delete\"").click());
     // The confirm's own Delete, not the editor's — both carry that label.
-    const confirmDelete = confirmButton("Delete")!;
+    const confirmDelete = present(confirmButton("Delete"), "confirmButton \"Delete\"");
     act(() => confirmDelete.click()); // the IPC is now in flight
 
-    expect(row("deploy")!.disabled).toBe(true);
-    expect(buttonByTitle("New global skill")!.disabled).toBe(true);
+    expect(present(row("deploy"), "row \"deploy\"").disabled).toBe(true);
+    expect(present(buttonByTitle("New global skill"), "buttonByTitle \"New global skill\"").disabled).toBe(true);
 
     await act(async () => finishRemove(true));
 
     // And once it lands the nav is live again. (Dropping the deleted row is the
     // hook's job and pinned in its own suite; this stub resolves without touching
     // the list, which is why `review` is still here.)
-    expect(row("deploy")!.disabled).toBe(false);
+    expect(present(row("deploy"), "row \"deploy\"").disabled).toBe(false);
   });
 
   it("refuses to save a skill deleted elsewhere, and drops a clean editor", async () => {
     lib.skills = [skill("review"), skill("other")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
     type(textarea("skill-body"), "unsaved work");
 
     // The other door removed it; the subscription's refresh is what the real hook
@@ -108,7 +109,7 @@ describe("SkillsDialog — editing", () => {
 
     expect(document.body.textContent).toContain("removed or renamed elsewhere");
     expect(textarea("skill-body").value).toBe("unsaved work");
-    expect(button("Save")!.disabled).toBe(true);
+    expect(present(button("Save"), "button \"Save\"").disabled).toBe(true);
   });
 
   it("does not judge a skill gone from a list whose last read failed", async () => {
@@ -117,7 +118,7 @@ describe("SkillsDialog — editing", () => {
     await host.mount();
     // A selection the list does not hold, over an untrustworthy list: absence proves
     // nothing, so no refusal and no message.
-    act(() => row("other")!.click());
+    act(() => present(row("other"), "row \"other\"").click());
 
     expect(document.body.textContent).not.toContain("removed or renamed elsewhere");
   });
@@ -125,9 +126,9 @@ describe("SkillsDialog — editing", () => {
   it("editing the name renames first, then saves under the new name", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
     type(input("skill-name"), "deep-review");
-    await act(async () => button("Save")!.click());
+    await act(async () => present(button("Save"), "button \"Save\"").click());
 
     expect(lib.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review");
     expect(lib.save).toHaveBeenCalledWith(
@@ -142,9 +143,9 @@ describe("SkillsDialog — editing", () => {
   it("⌘S yields while a confirm is up — saving under it would defeat it", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
     type(input("skill-description"), "edited");
-    act(() => button("Delete")!.click());
+    act(() => present(button("Delete"), "button \"Delete\"").click());
     expect(document.querySelector(".confirm")).not.toBeNull();
 
     await act(async () => {
@@ -160,8 +161,8 @@ describe("SkillsDialog — editing", () => {
     lib.skills = [skill("review")];
     await host.mount();
 
-    act(() => row("review")!.click());
-    act(() => button("Delete")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
+    act(() => present(button("Delete"), "button \"Delete\"").click());
     expect(document.querySelector(".confirm")).not.toBeNull();
 
     const covered = new KeyboardEvent("keydown", {
@@ -186,16 +187,16 @@ describe("SkillsDialog — editing", () => {
   it("renaming onto another skill in the scope is blocked; keeping your own name is not", async () => {
     lib.skills = [skill("review"), skill("deploy")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
 
     type(input("skill-name"), "deploy");
-    expect(button("Save")!.disabled).toBe(true);
+    expect(present(button("Save"), "button \"Save\"").disabled).toBe(true);
     expect(document.body.textContent).toContain("already exists");
 
     type(input("skill-name"), "review");
     type(input("skill-description"), "Edited description");
-    expect(button("Save")!.disabled).toBe(false);
-    await act(async () => button("Save")!.click());
+    expect(present(button("Save"), "button \"Save\"").disabled).toBe(false);
+    await act(async () => present(button("Save"), "button \"Save\"").click());
     // Same name — an ordinary save, no rename call.
     expect(lib.rename).not.toHaveBeenCalled();
   });
@@ -203,14 +204,14 @@ describe("SkillsDialog — editing", () => {
   it("a multi-line paste into the description folds to one line and saves so", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
 
     type(input("skill-description"), "reviews diffs\r\n  with subagents\n\nread-only");
     expect(input("skill-description").value).toBe(
       "reviews diffs with subagents read-only",
     );
 
-    await act(async () => button("Save")!.click());
+    await act(async () => present(button("Save"), "button \"Save\"").click());
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "reviews diffs with subagents read-only" }),
@@ -231,7 +232,7 @@ describe("SkillsDialog — editing", () => {
       () => new Promise<boolean>((resolve) => (release = resolve)),
     );
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
     type(input("skill-name"), "deep-review");
 
     const chord = () =>
@@ -252,12 +253,12 @@ describe("SkillsDialog — editing", () => {
   it("deleting asks first and routes through the library", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
-    act(() => button("Delete")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
+    act(() => present(button("Delete"), "button \"Delete\"").click());
 
     // In-app confirm, not a system dialog.
     expect(document.body.textContent).toContain('Delete "review"?');
-    const confirmDelete = confirmButton("Delete")!;
+    const confirmDelete = present(confirmButton("Delete"), "confirmButton \"Delete\"");
     await act(async () => confirmDelete.click());
     expect(lib.remove).toHaveBeenCalledWith({ kind: "global" }, "review");
   });
@@ -265,18 +266,18 @@ describe("SkillsDialog — editing", () => {
   it("guards unsaved edits behind a discard confirm on close", async () => {
     lib.skills = [skill("review")];
     await host.mount();
-    act(() => row("review")!.click());
+    act(() => present(row("review"), "row \"review\"").click());
     type(input("skill-description"), "edited");
 
-    act(() => buttonByTitle("Close skills")!.click());
+    act(() => present(buttonByTitle("Close skills"), "buttonByTitle \"Close skills\"").click());
     expect(host.closed()).toBe(0);
     expect(document.body.textContent).toContain("unsaved changes");
 
-    act(() => button("Keep editing")!.click());
+    act(() => present(button("Keep editing"), "button \"Keep editing\"").click());
     expect(host.closed()).toBe(0);
 
-    act(() => buttonByTitle("Close skills")!.click());
-    act(() => button("Discard")!.click());
+    act(() => present(buttonByTitle("Close skills"), "buttonByTitle \"Close skills\"").click());
+    act(() => present(button("Discard"), "button \"Discard\"").click());
     expect(host.closed()).toBe(1);
   });
 });

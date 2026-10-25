@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   PluginLogger,
-  PluginServices,
   PluginSessionEvent,
+  PluginSpawnOptions,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import { createRunManager, type RunManager } from "./manager";
+import { createRunManager, type RunManager, type RunManagerServices } from "./manager";
 
 /** One fake PTY per spawn: capture the event callback, expose a close spy that
  * emits the exit event like the real backend does. */
 const pty = (() => {
   const spawned: Array<{
-    opts: Record<string, unknown>;
+    opts: PluginSpawnOptions;
     emit: (e: PluginSessionEvent) => void;
     close: ReturnType<typeof vi.fn>;
     resize: ReturnType<typeof vi.fn>;
@@ -19,7 +19,7 @@ const pty = (() => {
   }> = [];
   const spawn = vi.fn(
     async (
-      opts: Record<string, unknown>,
+      opts: PluginSpawnOptions,
       onEvent: (e: PluginSessionEvent) => void,
     ) => {
       const record = {
@@ -43,14 +43,13 @@ const pty = (() => {
   return { spawned, spawn };
 })();
 
-const ports = { allocate: vi.fn() };
+const ports = { allocate: vi.fn<(key: string) => Promise<number>>() };
 const log: PluginLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
-const services = {
+const services: RunManagerServices = {
   sessions: { spawn: pty.spawn },
   ports,
-  opener: { openUrl: vi.fn(), openPath: vi.fn() },
-} as unknown as PluginServices;
+};
 
 let manager: RunManager;
 
@@ -123,7 +122,7 @@ describe("launchRun", () => {
     ports.allocate.mockRejectedValue(new Error("exhausted"));
     await manager.launchRun(WS1, TARGET, DEV);
 
-    const env = (pty.spawned[0].opts.env as [string, string][]).map(([k]) => k);
+    const env = (pty.spawned[0].opts.env ?? []).map(([k]) => k);
     expect(env).not.toContain("KEEPDECK_PORT");
     expect(manager.getSessions()[0].port).toBeUndefined();
   });
@@ -143,7 +142,7 @@ describe("launchRun", () => {
     await vi.waitFor(() => {
       expect(manager.getSessions()[1].status).toEqual({
         kind: "failed",
-        message: expect.stringContaining("no shell") as unknown as string,
+        message: expect.stringContaining("no shell"),
       });
     });
   });

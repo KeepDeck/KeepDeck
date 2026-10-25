@@ -7,11 +7,7 @@ import type { UpdateAction } from "../../app/updateAction";
 import { BAR_TIP_DELAY_MS } from "../../ui/TipButton";
 import { DeckBar, type DeckBarProps } from "./DeckBar";
 import type { BarLevel } from "../../presentation/barView";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The bar's two live children own their own data and are exercised by their
 // own tests; standing them up here would drag usage stores and a notification
@@ -96,8 +92,8 @@ describe("DeckBar", () => {
     // hands it the rows even with the notification list off.
     bellProps.mockClear();
     render();
-    const bell = host.querySelector("[data-bell]")!;
-    expect(bell.closest(".bar__group")).toBe(byLabel("Open skills")!.closest(".bar__group"));
+    const bell = present(host.querySelector("[data-bell]"), "the [data-bell] element");
+    expect(bell.closest(".bar__group")).toBe(present(byLabel("Open skills"), "the element labelled \"Open skills\"").closest(".bar__group"));
     expect(bell.previousElementSibling?.contains(byLabel("Open statistics"))).toBe(true);
     expect(bellProps).toHaveBeenLastCalledWith({
       needsYou: BASE.needsYou,
@@ -171,7 +167,7 @@ describe("DeckBar", () => {
         action: { kind: "openUpdatesSettings" },
       },
     });
-    const right = host.querySelector(".deck__bar-right")!;
+    const right = present(host.querySelector(".deck__bar-right"), "the .deck__bar-right element");
     const order = Array.from(right.querySelectorAll("button")).map(
       (button) => button.textContent,
     );
@@ -180,8 +176,8 @@ describe("DeckBar", () => {
     expect(order.indexOf("+ Member")).toBe(1);
     // Its own group, so Create neither gains nor loses a neighbour when the
     // update comes and goes.
-    expect(byText("Update available")!.closest(".bar__group")).not.toBe(
-      byText("+ Member")!.closest(".bar__group"),
+    expect(present(byText("Update available"), "the element with text \"Update available\"").closest(".bar__group")).not.toBe(
+      present(byText("+ Member"), "the element with text \"+ Member\"").closest(".bar__group"),
     );
   });
 
@@ -236,7 +232,7 @@ describe("DeckBar", () => {
 
   it("inside a team, says where you are and offers a member — one door per level, no menu", () => {
     render();
-    const left = host.querySelector(".deck__bar-left")!;
+    const left = present(host.querySelector(".deck__bar-left"), "the .deck__bar-left element");
     expect(left.querySelector(".deck__ws-name")?.textContent).toBe("Personal project");
     expect(left.querySelector(".deck__team-name")?.textContent).toBe("api");
     expect(left.querySelector(".deck__team-branch")?.textContent).toContain("kd/api");
@@ -269,9 +265,9 @@ describe("DeckBar", () => {
     vi.useFakeTimers();
     try {
       act(() => {
-        host
-          .querySelector(".deck__team-name")!
-          .closest(".kd-tip__anchor")!
+        present(present(host
+          .querySelector(".deck__team-name"), "the .deck__team-name element")
+          .closest(".kd-tip__anchor"), "the closest .kd-tip__anchor ancestor")
           .dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
       });
       act(() => void vi.advanceTimersByTime(BAR_TIP_DELAY_MS));
@@ -295,7 +291,7 @@ describe("DeckBar", () => {
       },
       onUpdateAction: (action) => acted.push(action),
     });
-    const button = byText("Update ready · Restart")!;
+    const button = present(byText("Update ready · Restart"), "the element with text \"Update ready · Restart\"");
     expect(button).toBeDefined();
     act(() => button.click());
     expect(acted).toEqual([{ kind: "restart" }]);
@@ -312,7 +308,7 @@ describe("DeckBar", () => {
       },
       onUpdateAction: (action) => acted.push(action),
     });
-    const button = byText("Downloading update…")!;
+    const button = present(byText("Downloading update…"), "the element with text \"Downloading update…\"");
     expect(button.disabled).toBe(true);
     act(() => button.click());
     expect(acted).toEqual([]);
@@ -329,8 +325,8 @@ describe("DeckBar", () => {
     vi.useFakeTimers();
     try {
       act(() => {
-        byText("+ Member")!
-          .closest(".kd-tip__anchor")!
+        present(present(byText("+ Member"), "the element with text \"+ Member\"")
+          .closest(".kd-tip__anchor"), "the closest .kd-tip__anchor ancestor")
           .dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
       });
       act(() => void vi.advanceTimersByTime(BAR_TIP_DELAY_MS));
@@ -398,17 +394,17 @@ describe("DeckBar", () => {
       },
     });
     const items = () => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")];
-    act(() => byLabel("Workspace Personal project actions")!.click());
+    act(() => present(byLabel("Workspace Personal project actions"), "the element labelled \"Workspace Personal project actions\"").click());
     expect(items().map((i) => i.textContent)).toEqual(["Rename", "Move up", "Move down", "Close workspace"]);
     act(() => items()[2].click());
-    act(() => byLabel("Workspace Personal project actions")!.click());
+    act(() => present(byLabel("Workspace Personal project actions"), "the element labelled \"Workspace Personal project actions\"").click());
     act(() => items()[3].click());
-    act(() => byLabel("Workspace Personal project actions")!.click());
+    act(() => present(byLabel("Workspace Personal project actions"), "the element labelled \"Workspace Personal project actions\"").click());
     act(() => items()[0].click());
-    const input = host.querySelector<HTMLInputElement>("input[aria-label='Workspace name']")!;
+    const input = present(host.querySelector<HTMLInputElement>("input[aria-label='Workspace name']"), "the input[aria-label='Workspace name'] element");
     expect(input.value).toBe("Personal project");
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, " Work ");
+      present(present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "the value setter").set, "the value setter").call(input, " Work ");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
@@ -421,7 +417,7 @@ describe("DeckBar", () => {
     const renameField = () => host.querySelector("input[aria-label='Workspace name']");
     const dblclick = () =>
       act(() => {
-        host.querySelector(".deck__ws-name")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+        present(host.querySelector(".deck__ws-name"), "the .deck__ws-name element").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
       });
     render({ level: { kind: "teams", onAddTeam: null }, workspace: { ...WORKSPACE, onUp: null } });
     dblclick();

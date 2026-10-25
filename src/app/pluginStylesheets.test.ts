@@ -10,9 +10,10 @@
 // @vitest-environment-options {"settings": {"disableCSSFileLoading": true, "handleDisabledFileLoadingAsSuccess": true}}
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensurePluginStylesheet } from "./pluginStylesheets";
+import { elementsOf } from "../testing/values.test-support";
 
 const links = () =>
-  [...document.head.querySelectorAll("link[data-kd-plugin-css]")] as HTMLLinkElement[];
+  elementsOf(document.head, "link[data-kd-plugin-css]", HTMLLinkElement);
 
 describe("ensurePluginStylesheet", () => {
   beforeEach(() => {

@@ -1,7 +1,7 @@
 import type { ArgSpec, CommandArgs, CommandRegistry, CommandSource } from "../../domain/commands";
 import { skillDraftOf } from "../../domain/skills";
 import type { SkillsLibrary } from "../skillsLibrary";
-import type { Deck } from "../useDeck";
+import type { CommandDeck } from ".";
 import { requiredStr, text } from "./args";
 import { SCOPE, libraryScopeOf } from "./scope";
 
@@ -23,7 +23,7 @@ import { SCOPE, libraryScopeOf } from "./scope";
  */
 
 export interface SkillsCommandDeps {
-  deck(): Deck;
+  deck(): CommandDeck;
   skills: SkillsLibrary;
 }
 

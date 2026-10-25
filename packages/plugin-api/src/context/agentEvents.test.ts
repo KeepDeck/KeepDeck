@@ -11,6 +11,7 @@ import {
 } from "./agentEvents";
 import { CARRIED_RECORD } from "./sessionTail";
 import type { MailReplyRenderer } from "./status";
+import { maybeRecord } from "../testing.ts";
 
 const render: MailReplyRenderer = () => "rendered";
 const channels: MailChannel[] = [
@@ -26,8 +27,8 @@ const hook = (event: string, extra: Record<string, unknown> = {}) => ({
 const agent = (actor: EventActor, status = true) => ({
   normalize: vi.fn(() => ({ kind: "turn-start" as const, at: 1 })),
   attribute: (payload: unknown): EventAttribution | null => {
-    const event = (payload as { event?: { hook_event_name?: string } }).event?.hook_event_name;
-    return { event: event ?? null, actor, status };
+    const event = maybeRecord(maybeRecord(payload)?.event)?.hook_event_name;
+    return { event: typeof event === "string" ? event : null, actor, status };
   },
   mail: { channels, render },
 });

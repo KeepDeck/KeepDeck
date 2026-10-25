@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isJsonRecord } from "./json";
+import { isJsonRecord, keyList } from "./json";
 
 describe("isJsonRecord", () => {
   it("accepts a plain object, empty or not", () => {
@@ -12,4 +12,13 @@ describe("isJsonRecord", () => {
       expect(isJsonRecord(value)).toBe(false);
     }
   });
+});
+
+describe("keyList", () => {
+  it("answers the listed keys, in the order written", () => {
+    const TABLE = { b: 1, a: 2 } satisfies Record<"a" | "b", number>;
+    const keys: readonly ("a" | "b")[] = keyList<typeof TABLE>()(["b", "a"]);
+    expect(keys).toEqual(["b", "a"]);
+  });
+
 });

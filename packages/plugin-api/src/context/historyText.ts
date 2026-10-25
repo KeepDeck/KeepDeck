@@ -3,6 +3,7 @@
  * how a conversation gets a human title is not — and two private copies of
  * the title heuristic had already drifted apart. */
 
+import { isJsonRecord } from "../json.ts";
 import type { AgentTranscriptEntry } from "./agents.ts";
 
 /** How much of a title the index keeps. */
@@ -33,11 +34,7 @@ export function trimmedText(value: unknown): string | undefined {
 export function textFromParts(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
-    .map((part) =>
-      typeof (part as { text?: unknown }).text === "string"
-        ? (part as { text: string }).text
-        : "",
-    )
+    .map((part) => (isJsonRecord(part) && typeof part.text === "string" ? part.text : ""))
     .filter(Boolean)
     .join("\n");
 }

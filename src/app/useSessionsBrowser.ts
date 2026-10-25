@@ -10,7 +10,7 @@ import {
   type SearchHit,
 } from "../ipc/history";
 import type { JoinEntry } from "../domain/journal";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
 import { usePagedSessionSearch } from "./usePagedSessionSearch";
 
@@ -118,8 +118,10 @@ export interface SessionsBrowserApi {
  * return the same entries for the same session, so a test comparing answers
  * cannot tell them apart — only WHICH METHOD RAN separates them.
  */
+export type TranscriptSource = Pick<AgentHistory, "transcript" | "transcriptPage">;
+
 export async function readTranscriptPage(
-  history: AgentHistory,
+  history: TranscriptSource,
   ref: string,
   page: { offset: number; limit: number },
 ): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }> {
@@ -129,7 +131,8 @@ export async function readTranscriptPage(
 
 /** The shared seam's single owner: mount ONCE in the controller. */
 export function useBrowserSharedSeam(): BrowserSharedSeam {
-  const { plugins, sessionIndex } = useAppRuntime();
+  const plugins = useRuntimePart("plugins");
+  const sessionIndex = useRuntimePart("sessionIndex");
   const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
   const enrichment = useJournalEnrichment(
     index.revision,
@@ -145,7 +148,7 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
       const contribution = plugins.pluginRegistries.agents
         .list()
         .find((c) => c.entry.id === agent);
-      const history = contribution?.entry.history as AgentHistory | undefined;
+      const history = contribution?.entry.history;
       if (!history) return { entries: [] };
       return readTranscriptPage(history, ref, { offset, limit });
     },
@@ -230,14 +233,28 @@ export function useSessionsBrowser(
   // stabilizing the set: that treats a different disease (spurious
   // rescopes) and would leave this one.
   const scopeRef = useRef(dirs);
+  // The reset's inputs, read through a ref: the effect is triggered by a
+  // SCOPE change, and reading the latest queries here keeps a scope change
+  // from also re-running on every keystroke.
+  const resetRef = useRef({
+    resetWorkspaceTo,
+    resetOtherTo,
+    workspaceQuery: workspace.query,
+    otherQuery: other.query,
+  });
+  resetRef.current = {
+    resetWorkspaceTo,
+    resetOtherTo,
+    workspaceQuery: workspace.query,
+    otherQuery: other.query,
+  };
   useEffect(() => {
     if (scopeRef.current === dirs) return;
     scopeRef.current = dirs;
-    resetWorkspaceTo(workspace.query);
-    resetOtherTo(other.query);
-    // The engine query states are read fresh inside; the callbacks only
-    // need to be the engines' own stable ones.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const { resetWorkspaceTo, resetOtherTo, workspaceQuery, otherQuery } = resetRef.current;
+    resetWorkspaceTo(workspaceQuery);
+    resetOtherTo(otherQuery);
+    // The trigger is the folder set; the queries are `resetRef.current`.
   }, [dirs]);
 
   const search = useCallback(

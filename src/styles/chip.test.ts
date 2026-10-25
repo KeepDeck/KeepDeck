@@ -5,10 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Chip } from "@keepdeck/ui-kit/Chip";
 import { BoltIcon } from "@keepdeck/ui-kit/icons";
 import { appCss } from "./testSupport";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 let root: Root;
 let host: HTMLElement;
@@ -19,7 +16,7 @@ beforeEach(() => {
   sheet.textContent = appCss;
   document.head.append(sheet);
   document.body.innerHTML = "<div id='host'></div>";
-  host = document.getElementById("host")!;
+  host = present(document.getElementById("host"), "the host element");
   root = createRoot(host);
 });
 
@@ -47,7 +44,7 @@ describe("icon-only chip", () => {
           createElement(Chip, { size, className: "probe", icon: createElement(BoltIcon) }),
         ),
       );
-      const badge = getComputedStyle(host.querySelector(".probe")!);
+      const badge = getComputedStyle(present(host.querySelector(".probe"), "the chip probe"));
       const label = size ?? "md";
       expect(badge.width, `${label} has no width`).toMatch(/^\d+px$/);
       expect(badge.height, `${label} is not square`).toBe(badge.width);

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
-import { fsStore } from "@keepdeck/plugin-api/testing";
-import { codexHistory } from "./history";
+import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
+import { present, fsStore } from "@keepdeck/plugin-api/testing";
+import { codexHistory, type HistoryPorts } from "./history";
 
 const META = JSON.stringify({
   type: "session_meta",
@@ -45,9 +45,9 @@ const LINES = [
 
 function ctx(
   files: Record<string, string>,
-  dirs: Record<string, unknown[]>,
+  dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
-) {
+): HistoryPorts {
   // A rollout is read a WINDOW at a time now, so the double has to serve
   // windows; `dirs` stays hand-built, because these tests are about what the
   // enumeration does with listings a real directory cannot pose.
@@ -61,11 +61,10 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: fs.readFile,
       },
       sessionStore: createSessionStore(fs),
     },
-  } as unknown as PluginContext;
+  };
 }
 
 describe("codex history", () => {
@@ -125,7 +124,7 @@ describe("codex history", () => {
         warn,
       ),
     );
-    const answer = await history.listing!();
+    const answer = await present(history.listing, "the session listing")();
     expect(answer.complete).toBe(false);
     expect(answer.stubs.map((s) => s.sessionId)).toEqual([
       "019f7af4-f57f-7dc3-ac52-6e1bb90dceec",
@@ -137,13 +136,13 @@ describe("codex history", () => {
   it("listing() on an unreadable root answers nothing-read and incomplete — never an empty store", async () => {
     const warn = vi.fn();
     const history = codexHistory(ctx({}, {}, warn));
-    expect(await history.listing!()).toEqual({ stubs: [], complete: false });
+    expect(await present(history.listing, "the session listing")()).toEqual({ stubs: [], complete: false });
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("listing() on a readable tree answers complete, with list()'s exact stubs", async () => {
     const name = "rollout-2026-07-19T16-27-47-019f7af4-f57f-7dc3-ac52-6e1bb90dceec.jsonl";
-    const dirs = {
+    const dirs: Record<string, FsEntry[]> = {
       "~/.codex/sessions": [{ name: "2026", path: "/s/2026", kind: "dir" }],
       "/s/2026": [{ name: "07", path: "/s/2026/07", kind: "dir" }],
       "/s/2026/07": [{ name: "19", path: "/s/2026/07/19", kind: "dir" }],
@@ -152,7 +151,7 @@ describe("codex history", () => {
       ],
     };
     const history = codexHistory(ctx({}, dirs));
-    const answer = await history.listing!();
+    const answer = await present(history.listing, "the session listing")();
     expect(answer.complete).toBe(true);
     expect(answer.stubs).toEqual(await history.list());
   });
@@ -192,7 +191,7 @@ describe("codex history", () => {
     const size = new TextEncoder().encode(big).length;
     const history = codexHistory(ctx({ "/r.jsonl": big }, {}));
 
-    const page = await history.transcriptPage!("/r.jsonl", {
+    const page = await present(history.transcriptPage, "the transcript page")("/r.jsonl", {
       offset: 4400,
       limit: 10,
     });
@@ -201,16 +200,30 @@ describe("codex history", () => {
     // which is also how the viewer's pagination learns it reached the end.
     expect(page.entries.length).toBeLessThan(10);
     expect(page.shortfall).toHaveLength(1);
-    const [mark] = page.shortfall!;
+    const [mark] = present(page.shortfall, "the shortfall of page");
     expect(mark).toMatchObject({ kind: "bytes", size });
-    expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
+    if (mark.kind !== "bytes") throw new Error("expected a byte shortfall");
+    expect(mark.readBytes).toBeLessThan(size);
+  });
+
+  it("counts a line that is no rollout record, as a shortfall, and reads the rest as before", async () => {
+    // A payload that is not an object is no record of this format either.
+    const odd = `"stray"\n${JSON.stringify({ type: "response_item", payload: "flat" })}\n`;
+    const clean = codexHistory(ctx({ "/r.jsonl": LINES }, {}));
+    const stray = codexHistory(ctx({ "/r.jsonl": odd + LINES }, {}));
+    const read = (history: typeof clean) =>
+      present(history.transcriptPage, "the transcript page")("/r.jsonl", { offset: 0, limit: 10 });
+    const [before, after] = [await read(clean), await read(stray)];
+    expect(before.entries.length).toBeGreaterThan(0);
+    expect(after.entries).toEqual(before.entries);
+    expect(after.shortfall).toEqual([{ kind: "parts", unreadableParts: 2 }]);
   });
 
   it("a page that read everything carries no shortfall at all", async () => {
     // Absence is the ONLY spelling of "nothing was missed"; an empty array
     // would be a second one, and two spellings of one truth drift apart.
     const history = codexHistory(ctx({ "/r.jsonl": LINES }, {}));
-    const page = await history.transcriptPage!("/r.jsonl", { offset: 0, limit: 10 });
+    const page = await present(history.transcriptPage, "the transcript page")("/r.jsonl", { offset: 0, limit: 10 });
     expect(page.shortfall).toBeUndefined();
   });
 

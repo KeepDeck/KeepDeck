@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
+import { workspace } from "../domain/deck/reducer.testSupport";
 import type { SessionBound } from "../ipc/sessions";
 
 const logged = vi.hoisted(() => ({ info: vi.fn() }));
@@ -15,12 +16,12 @@ import { bindingOrigin, createPaneAttribution } from "./paneAttribution";
  * is the mutable half: which generation is pinned to which process, and that
  * the two lifecycle calls open the door again in the right circumstances.
  */
-const workspaces = [
+const workspaces: Workspace[] = [
   {
-    id: "ws-1",
+    ...workspace("ws-1", []),
     panes: [{ id: "pane-1", agentType: "claude" }, { id: "pane-2" }],
   },
-] as unknown as Workspace[];
+];
 
 const attribution = () =>
   createPaneAttribution({

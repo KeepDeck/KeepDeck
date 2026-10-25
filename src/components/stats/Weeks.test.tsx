@@ -9,9 +9,8 @@ import {
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import { WEEK_MS } from "../../domain/usage/time";
 import { Weeks } from "./Weeks";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf, instanceOf } from "../../testing/values.test-support";
 
 const NOW = TEST_NOW; // Wednesday; the current week opened Mon Jul 20
 
@@ -67,7 +66,7 @@ describe("Weeks", () => {
     // Named and counted, not faded: translucency reads as disabled, and
     // this is the freshest row on the block.
     expect(current.textContent).toContain("This week");
-    expect(current.querySelector(".stats__week-progress")!.textContent).toBe(
+    expect(present(current.querySelector(".stats__week-progress"), "the .stats__week-progress element").textContent).toBe(
       "3 of 7 days",
     );
     expect(current.querySelector(".stats__week-rest")).not.toBeNull();
@@ -86,12 +85,12 @@ describe("Weeks", () => {
       event({ tokens: { input: 700 } }), // codex
       event({ agent: "claude", tokens: { input: 300 } }),
     ]);
-    const anchor = host.querySelector(".kd-tip__anchor")!;
+    const anchor = present(host.querySelector(".kd-tip__anchor"), "the .kd-tip__anchor element");
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
     act(() => {
       anchor.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     });
-    const tip = document.querySelector('[role="tooltip"]')!;
+    const tip = present(document.querySelector('[role="tooltip"]'), "the [role=\"tooltip\"] element");
     expect(tip.textContent).toContain("This week");
     expect(tip.textContent).toContain("codex · 700");
     expect(tip.textContent).toContain("claude · 300");
@@ -129,18 +128,18 @@ describe("Weeks", () => {
     const host = render(events);
     expect(host.querySelectorAll('[role="row"]')).toHaveLength(8);
     expect(host.textContent).toContain("1–8 of 12");
-    const newer = host.querySelector('[aria-label="Newer weeks"]')!;
-    const older = host.querySelector('[aria-label="Older weeks"]')!;
-    expect((newer as HTMLButtonElement).disabled).toBe(true);
+    const newer = present(host.querySelector('[aria-label="Newer weeks"]'), "the [aria-label=\"Newer weeks\"] element");
+    const older = present(host.querySelector('[aria-label="Older weeks"]'), "the [aria-label=\"Older weeks\"] element");
+    expect((instanceOf(newer, HTMLButtonElement, "newer")).disabled).toBe(true);
     click(older);
     expect(host.querySelectorAll('[role="row"]')).toHaveLength(4);
     expect(host.textContent).toContain("9–12 of 12");
     expect(
-      (host.querySelector('[aria-label="Older weeks"]') as HTMLButtonElement)
+      (elementOf(host, '[aria-label="Older weeks"]', HTMLButtonElement))
         .disabled,
     ).toBe(true);
     expect(
-      (host.querySelector('[aria-label="Newer weeks"]') as HTMLButtonElement)
+      (elementOf(host, '[aria-label="Newer weeks"]', HTMLButtonElement))
         .disabled,
     ).toBe(false);
   });
@@ -153,7 +152,7 @@ describe("Weeks", () => {
       }),
     );
     const host = render(twelve);
-    click(host.querySelector('[aria-label="Older weeks"]')!);
+    click(present(host.querySelector('[aria-label="Older weeks"]'), "the [aria-label=\"Older weeks\"] element"));
     expect(host.textContent).toContain("9–12 of 12");
     // The list shrinks under the stored page: show the LAST page, never
     // an empty one.
@@ -173,6 +172,6 @@ describe("Weeks", () => {
     // Rows: empty current, zero finished week, the used week.
     const rows = host.querySelectorAll('[role="row"]');
     expect(rows).toHaveLength(3);
-    expect(rows[1].querySelector(".stats__week-model")!.textContent).toBe("—");
+    expect(present(rows[1].querySelector(".stats__week-model"), "the .stats__week-model element").textContent).toBe("—");
   });
 });

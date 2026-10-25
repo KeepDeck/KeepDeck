@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { McpStatus } from "../../app/mcp";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { shellLine } from "../../domain/mcp";
-import { writeText } from "../../ipc/clipboard";
+import { useRuntimePart } from "../../app/runtimeContext";
 
 /**
  * The MCP server's row in General ([F6]): the copy-pasteable connect command,
@@ -17,6 +17,7 @@ import { writeText } from "../../ipc/clipboard";
  * rendering it as a shell line is the only part that is this component's.
  */
 export function McpServerRow() {
+  const { writeText } = useRuntimePart("clipboard");
   const status = useMcpStatus();
   // Keyed on the confirmed socket as well as the line: a line can only ever
   // be minted for a confirmed socket, and the row must not outlive that.

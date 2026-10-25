@@ -8,13 +8,8 @@ import {
   createAgentStatusTracker,
   type AgentStatusTracker,
 } from "./agentStatusTracker";
-import { AppRuntimeProvider } from "./runtimeContext";
-import type { AppRuntime } from "./runtime";
 import { usePaneActivities } from "./usePaneActivities";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { statusEdge } from "../testing/values.test-support";
 
 /**
  * The seam between the live tracker and whatever draws from it.
@@ -34,21 +29,12 @@ describe("usePaneActivities", () => {
   let renders = 0;
 
   function Probe() {
-    latest = usePaneActivities();
+    latest = usePaneActivities(statusTracker);
     renders += 1;
     return null;
   }
 
-  const render = () =>
-    act(() =>
-      root.render(
-        createElement(
-          AppRuntimeProvider,
-          { runtime: { statusTracker } as unknown as AppRuntime },
-          createElement(Probe),
-        ),
-      ),
-    );
+  const render = () => act(() => root.render(createElement(Probe)));
 
   const reportEdge = (paneId: string, edge: AgentStatusEvent) =>
     act(() => statusTracker.report(paneId, { agent: "claude", edge }));
@@ -58,7 +44,7 @@ describe("usePaneActivities", () => {
     statusTracker = createAgentStatusTracker();
     statusTracker.registerNormalizer(
       "claude",
-      (payload) => (payload as { edge?: AgentStatusEvent }).edge ?? null,
+      (payload) => statusEdge(payload),
     );
     host = document.createElement("div");
     document.body.appendChild(host);

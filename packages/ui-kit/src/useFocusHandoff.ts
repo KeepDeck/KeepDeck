@@ -27,11 +27,11 @@ export function useFocusHandoff(containerRef: RefObject<HTMLElement | null>): vo
     const container = containerRef.current;
     if (!container) return;
     const onFocusIn = (e: FocusEvent) => {
-      const target = e.target as HTMLElement | null;
+      const target = e.target instanceof HTMLElement ? e.target : null;
       focusedRef.current = target && target !== container ? target : null;
     };
     const onFocusOut = (e: FocusEvent) => {
-      const wentTo = e.relatedTarget as HTMLElement | null;
+      const wentTo = e.relatedTarget instanceof HTMLElement ? e.relatedTarget : null;
       if (wentTo && !container.contains(wentTo)) focusedRef.current = null;
     };
     container.addEventListener("focusin", onFocusIn);

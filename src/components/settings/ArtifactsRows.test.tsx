@@ -5,14 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { ArtifactsRows } from "./ArtifactsRows";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
-const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settings.current,
-  subscribeSettings: () => () => {},
-  updateSettings: settingsManager.updateSettings,
-}));
+const settingsWrite = vi.hoisted(() => ({ updateSettings: vi.fn() }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver(settings, settingsWrite.updateSettings),
+);
 // Only the confirmed socket matters here; the rest of the status belongs
 // to the MCP row beneath these.
 const mcpStatus = vi.hoisted(() => ({ socket: null as string | null }));
@@ -26,15 +25,12 @@ vi.mock("../../app/mcp/useMcpStatus", () => ({
   }),
 }));
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 describe("ArtifactsRows", () => {
   let host: HTMLElement;
   let root: Root;
 
   beforeEach(() => {
-    settingsManager.updateSettings.mockReset();
+    settingsWrite.updateSettings.mockReset();
     settings.current = { ...DEFAULT_SETTINGS };
     mcpStatus.socket = null;
     document.body.innerHTML = "";
@@ -65,12 +61,12 @@ describe("ArtifactsRows", () => {
   it("each toggle writes its own settings key", () => {
     settings.current = { ...DEFAULT_SETTINGS, artifacts: true };
     mount();
-    act(() => rowButtons("Fleet artifacts").get("Off")!.click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+    act(() => present(rowButtons("Fleet artifacts").get("Off"), "entry \"Off\" in rowButtons(\"Fleet artifacts\")").click());
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({
       artifacts: false,
     });
-    act(() => rowButtons("Auto-open artifacts").get("Off")!.click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+    act(() => present(rowButtons("Auto-open artifacts").get("Off"), "entry \"Off\" in rowButtons(\"Auto-open artifacts\")").click());
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({
       artifactAutoOpen: false,
     });
   });
@@ -78,13 +74,13 @@ describe("ArtifactsRows", () => {
   it("marks the stored value active per row, not shared across rows", () => {
     settings.current = { ...DEFAULT_SETTINGS, artifacts: true, artifactAutoOpen: false };
     mount();
-    expect(rowButtons("Fleet artifacts").get("On")!.className).toContain(
+    expect(present(rowButtons("Fleet artifacts").get("On"), "entry \"On\" in rowButtons(\"Fleet artifacts\")").className).toContain(
       "form__type--active",
     );
-    expect(rowButtons("Auto-open artifacts").get("Off")!.className).toContain(
+    expect(present(rowButtons("Auto-open artifacts").get("Off"), "entry \"Off\" in rowButtons(\"Auto-open artifacts\")").className).toContain(
       "form__type--active",
     );
-    expect(rowButtons("Auto-open artifacts").get("On")!.className).not.toContain(
+    expect(present(rowButtons("Auto-open artifacts").get("On"), "entry \"On\" in rowButtons(\"Auto-open artifacts\")").className).not.toContain(
       "form__type--active",
     );
   });

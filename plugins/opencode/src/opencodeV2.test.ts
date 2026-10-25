@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
-// @ts-expect-error untyped resource module
 import { HEARTBEAT_MS, writeForeground } from "../resources/keepdeck-plugin/foreground.js";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * KeepDeck's plugin on opencode 2.x, driven through a stand-in of the
@@ -33,7 +33,7 @@ function createBus() {
   };
 }
 
-type Hook = (event: any) => Promise<void> | void;
+type Hook = (event: unknown) => Promise<void> | void;
 
 /** The 2.x domains the plugin touches, recording what it does with them. */
 function createContext(parents: Record<string, string | undefined> = {}) {
@@ -119,7 +119,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   let ambientSkipsApprovals: string | undefined;
 
   /** Through the deck's own admission, on opencode's own attribution. */
-  const answerAsk = (envelope: any) => {
+  const answerAsk: NonNullable<Parameters<typeof startDeck>[0]> = (envelope) => {
     const type = envelope?.payload?.event?.type;
     if (type !== "mail.ask" && type !== "mail.ask.tool") return { status: 204 };
     asked.push(envelope.payload.event);
@@ -137,9 +137,8 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // Untyped resource JS — shipped to, and loaded by, the user's opencode
+    // Resource JS — shipped to, and loaded by, the user's opencode
     // process; loaded fresh, as a new pane's process would.
-    // @ts-expect-error untyped resource module
     const { setupV2 } = await import("../resources/keepdeck-plugin/opencode-v2.js");
     cleanups = [];
     setup = async (context: unknown) => {
@@ -147,7 +146,6 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       if (typeof cleanup === "function") cleanups.push(cleanup);
       return cleanup;
     };
-    // @ts-expect-error untyped resource module
     ({ drained } = await import("../resources/keepdeck-plugin/keepdeck-bridge.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-v2-"));
     pending = [];
@@ -169,15 +167,15 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   });
 
   /** What the plugin posted, once everything pushed so far was handled. */
-  const reported = async (): Promise<any[]> => {
+  const reported = async () => {
     for (let round = 0; round < 6; round++) await tick();
     await drained();
     await deck.idle();
-    return deck.envelopes.filter((envelope: any) => envelope?.payload?.event?.type?.startsWith?.("mail.") !== true);
+    return deck.envelopes.filter((envelope) => envelope?.payload?.event?.type?.startsWith?.("mail.") !== true);
   };
-  const ofType = (all: any[], type: string) => all.filter((envelope) => envelope.type === type);
-  const lastOf = (all: any[]) => all[all.length - 1];
-  const binding = (envelope: any) => ({
+  const ofType = (all: typeof deck.envelopes, type: string) => all.filter((envelope) => envelope.type === type);
+  const lastOf = (all: typeof deck.envelopes) => all[all.length - 1];
+  const binding = (envelope: (typeof deck.envelopes)[number]) => ({
     sessionId: envelope.payload.sessionId,
     source: envelope.payload.source,
   });
@@ -414,9 +412,9 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       await reported();
       pending.push({ v: 1, prompt: "from lead" }, { v: 1, prompt: "also waiting" });
       const other = { sessionID: "ses_kid", prompt: { text: "task" } };
-      await hooks["session.prompt"]!(other);
+      await present(hooks["session.prompt"], "the session.prompt hook")(other);
       const mine = { sessionID: "ses_a", prompt: { text: "hi" } };
-      await hooks["session.prompt"]!(mine);
+      await present(hooks["session.prompt"], "the session.prompt hook")(mine);
 
       expect(mine.prompt.text).toBe("hi\n\nfrom lead");
       expect(other.prompt.text).toBe("task");
@@ -435,7 +433,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
         status: "completed",
         result: { content: [{ type: "text", text: "3 files changed" }] },
       };
-      await hooks["tool.execute.after"]!(event);
+      await present(hooks["tool.execute.after"], "the tool.execute.after hook")(event);
 
       expect(event.result.content).toEqual([
         { type: "text", text: "3 files changed" },
@@ -454,7 +452,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
         status: "completed",
         result: { output: { files: 3 } },
       };
-      await hooks["tool.execute.after"]!(event);
+      await present(hooks["tool.execute.after"], "the tool.execute.after hook")(event);
 
       expect(event.result.content).toEqual([
         { type: "text", text: '{"files":3}' },
@@ -475,7 +473,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       for (let round = 0; round < 40 && prompts.length === 0; round++) await tick();
       // The user can still send; what is waiting rides along with it.
       const mine = { sessionID: "ses_a", prompt: { text: "hi" } };
-      await hooks["session.prompt"]!(mine);
+      await present(hooks["session.prompt"], "the session.prompt hook")(mine);
 
       // The courier's own prompt carried only its own words.
       expect(prompts).toEqual([{ sessionID: "ses_a", text: "rung" }]);
@@ -502,7 +500,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
     const until = async (done: () => boolean, rounds = 400) => {
       for (let round = 0; round < rounds && !done(); round++) await tick();
     };
-    const posted = () => deck.envelopes.map((e: any) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
+    const posted = () => deck.envelopes.map((e) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
     const asks = () => asked.filter((a) => a.type === "mail.ask").length;
 
     /** The pane bound to `ses_a`, shown on screen. */
@@ -579,7 +577,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       bus.push("session.execution.succeeded", { sessionID: "ses_a" });
       const result = { content: "done" };
       const call = { sessionID: "ses_a", status: "completed", result };
-      await hooks["tool.execute.after"]!(call);
+      await present(hooks["tool.execute.after"], "the tool.execute.after hook")(call);
       await reported();
       expect(asks()).toBe(0);
       expect(prompts).toEqual([]);
@@ -621,7 +619,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       // Shown and bound before the mail was asked for.
       const order = posted();
       expect(order.indexOf("session.bound")).toBeGreaterThanOrEqual(0);
-      const askAt = deck.envelopes.findIndex((e: any) => e?.payload?.event?.type === "mail.ask");
+      const askAt = deck.envelopes.findIndex((e) => e?.payload?.event?.type === "mail.ask");
       expect(askAt).toBeGreaterThan(order.indexOf("session.bound"));
     });
 
@@ -639,7 +637,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       expect(typeof cleanup).toBe("function");
       bus.push("session.created", { sessionID: "ses_a" });
       await reported();
-      cleanup!();
+      present(cleanup, "the cleanup")();
       deck.envelopes.length = 0;
       bus.push("session.execution.started", { sessionID: "ses_a" });
       // Nobody watches the screen: a ring would be delivered into the pane.

@@ -1,11 +1,11 @@
 import {
-  DEFAULT_SETTINGS,
   hydrateSettings,
   type Settings,
   type SettingsDocument,
   type SettingsKey,
   type SettingsProvenance,
 } from ".";
+import { settingsCodecs } from "./codecs";
 
 /**
  * Shared fixtures for the settings suites. Extracted rather than copied into
@@ -55,7 +55,7 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   tasksBoard: { list: { folded: ["done"] } },
 };
 
-export const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as SettingsKey[];
+export const SETTINGS_KEYS: readonly SettingsKey[] = settingsCodecs().map(([key]) => key);
 
 /**
  * A value no setting can make sense of, per key. The Record-shaped keys

@@ -46,7 +46,11 @@ export function validateSlug(input: string): Slug | null {
   // JS boundary — an untrusted payload field reaches it as `unknown`,
   // and the regex's implicit String() coercion must not launder it.
   if (typeof input !== "string") return null;
-  return SLUG_GRAMMAR.test(input) ? (input as Slug) : null;
+  return isSlug(input) ? input : null;
+}
+
+function isSlug(input: string): input is Slug {
+  return SLUG_GRAMMAR.test(input);
 }
 
 /** One version's manifest entry. `n` is the chain position (1-based);
@@ -58,6 +62,10 @@ export interface ArtifactVersionMeta {
   size: number;
   message?: string;
 }
+
+/** A version read from the registry has the same fields as its manifest
+ * entry; the read orders these oldest first. */
+export type ArtifactVersionRow = ArtifactVersionMeta;
 
 /** What `artifact.list` returns per artifact — counts, not arrays:
  * the list is a directory, not a document. */

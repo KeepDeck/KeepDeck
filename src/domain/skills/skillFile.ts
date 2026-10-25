@@ -28,6 +28,7 @@
 import {
   isAlias,
   isMap,
+  isNode,
   isScalar,
   parseDocument,
   visit,
@@ -308,7 +309,7 @@ function obstacleIn(doc: Document, text: string): string | null {
   const ours = new Set(
     doc.contents.items
       .filter((pair) => isScalar(pair.key) && OWNED.has(String(pair.key.value)))
-      .map((pair) => (pair.value as { anchor?: string } | null)?.anchor)
+      .map((pair) => (isNode(pair.value) ? pair.value.anchor : undefined))
       .filter((anchor): anchor is string => anchor !== undefined),
   );
   let shared: string | null = null;
@@ -363,7 +364,7 @@ function obstacleIn(doc: Document, text: string): string | null {
 function entryOf(pair: Pair, text: string, cursor: number): FrontmatterEntry | null {
   if (!isScalar(pair.key) || !pair.key.range) return null;
   const value = isScalar(pair.value) || pair.value === null ? pair.value : undefined;
-  const valueRange = (pair.value as { range?: [number, number, number] } | null)?.range;
+  const valueRange = isNode(pair.value) ? pair.value.range : undefined;
   // `range[2]` runs past a trailing comment; `range[1]` stops at the value. The
   // entry keeps the comment, the splice does not.
   const withComment = valueRange ? valueRange[2] : pair.key.range[2];

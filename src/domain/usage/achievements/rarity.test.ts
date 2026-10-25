@@ -83,7 +83,7 @@ describe("achievementRarity", () => {
     // reach — but `referenceDays` used to answer NaN here, and NaN loses
     // every band comparison, so the tier arrived dressed as LEGENDARY.
     expect(() =>
-      achievementRarity("agents" as Parameters<typeof achievementRarity>[0], 5),
+      Reflect.apply(achievementRarity, undefined, ["agents", 5]),
     ).toThrow(/agents/);
   });
 });

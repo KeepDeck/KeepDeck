@@ -7,20 +7,15 @@ import {
   createNotificationCenter,
   type NotificationCenter,
   type NotifyInput,
-} from "../../app/notificationCenter";
+} from "../../app/testing";
 import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { NotificationBell } from "./NotificationBell";
+import { present } from "@keepdeck/plugin-api/testing";
 
 vi.mock("../../ipc/notify", () => ({
   sendSystemNotification: vi.fn(),
   ensureNotificationPermission: vi.fn(() => Promise.resolve(true)),
 }));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => null, // defaults: enabled, system-and-app
-}));
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
 
 const paneSource = {
   type: "pane",
@@ -49,7 +44,7 @@ describe("NotificationBell", () => {
     onOpen.mockClear();
     onOpenRow.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     mount([]);
   });
 
@@ -58,7 +53,7 @@ describe("NotificationBell", () => {
   });
 
   const bellButton = () =>
-    document.querySelector<HTMLButtonElement>(".bell__button")!;
+    present(document.querySelector<HTMLButtonElement>(".bell__button"), "the .bell__button element");
 
   it("shows no badge when everything is read, counts unread otherwise", () => {
     expect(document.querySelector(".bell__badge")).toBeNull();
@@ -122,16 +117,16 @@ describe("NotificationBell", () => {
     act(() => bellButton().click());
     const items = [...document.querySelectorAll(".bell__item")];
     expect(document.querySelectorAll(".bell__leading")).toHaveLength(3);
-    const badge = items.find((item) => item.textContent?.includes("badge"))!;
+    const badge = present(items.find((item) => item.textContent?.includes("badge")), "the matching notification item");
     expect(badge.querySelector(".bell__icon")?.textContent).toBe("💎");
     expect(badge.querySelector(".bell__dot")).toBeNull();
-    const plain = items.find((item) => item.textContent?.includes("plain"))!;
+    const plain = present(items.find((item) => item.textContent?.includes("plain")), "the matching notification item");
     expect(plain.querySelector(".bell__icon")).toBeNull();
     expect(plain.querySelector(".bell__dot")).toBeNull();
     expect(plain.querySelector(".bell__leading")?.childElementCount).toBe(0);
-    const warning = items.find((item) =>
+    const warning = present(items.find((item) =>
       item.textContent?.includes("warning"),
-    )!;
+    ), "the matching notification item");
     expect(warning.querySelector(".bell__dot--warning")).not.toBeNull();
   });
 
@@ -154,9 +149,9 @@ describe("NotificationBell", () => {
       ].map((el) => el.textContent);
       expect(ages).toEqual(["12:00", "15.08"]);
       // The relative age rides along as the tooltip.
-      const older = [...document.querySelectorAll(".bell__item")].find(
+      const older = present([...document.querySelectorAll(".bell__item")].find(
         (item) => item.textContent?.includes("older"),
-      )!;
+      ), "the .bell__item elements");
       expect(older.querySelector(".bell__age")?.getAttribute("title")).toBe(
         "4d ago",
       );
@@ -171,7 +166,7 @@ describe("NotificationBell", () => {
     });
     act(() => bellButton().click());
     act(() => {
-      document.querySelector<HTMLButtonElement>(".bell__item")!.click();
+      present(document.querySelector<HTMLButtonElement>(".bell__item"), "the .bell__item element").click();
     });
     expect(onOpen).toHaveBeenCalledWith(
       expect.objectContaining({ title: "crash", source: paneSource }),
@@ -187,7 +182,7 @@ describe("NotificationBell", () => {
     });
     act(() => bellButton().click());
     act(() => {
-      document.querySelector<HTMLButtonElement>(".bell__mark-read")!.click();
+      present(document.querySelector<HTMLButtonElement>(".bell__mark-read"), "the .bell__mark-read element").click();
     });
     expect(document.querySelector(".bell__badge")).toBeNull();
     expect(document.querySelector(".bell__mark-read")).toBeNull();
@@ -203,7 +198,7 @@ describe("NotificationBell", () => {
     });
     act(() => bellButton().click());
     const clearButton =
-      document.querySelector<HTMLButtonElement>(".bell__clear-all")!;
+      present(document.querySelector<HTMLButtonElement>(".bell__clear-all"), "the .bell__clear-all element");
     clearButton.focus();
     expect(document.activeElement).toBe(clearButton);
     act(() => {
@@ -282,9 +277,9 @@ describe("NotificationBell", () => {
       expect(
         document.querySelector(".bell__section--needs")?.getAttribute("aria-label"),
       ).toBe("Needs you");
-      const item = document.querySelector<HTMLButtonElement>(
+      const item = present(document.querySelector<HTMLButtonElement>(
         ".bell__list--needs .bell__item",
-      )!;
+      ), "the .bell__list--needs .bell__item element");
       expect(item.textContent).toContain("agent p1");
       expect(item.textContent).toContain("Rate limited · ws-1 · team");
       act(() => item.click());

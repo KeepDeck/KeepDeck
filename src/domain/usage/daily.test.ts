@@ -4,6 +4,7 @@ import { bucketShares, usageAgents, usageTimeline } from "./daily";
 const HOUR = 60 * 60 * 1_000;
 const DAY = 24 * HOUR;
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = TEST_NOW;
 const TODAY = Date.parse("2026-07-22T00:00:00.000Z");
@@ -84,7 +85,7 @@ describe("usageTimeline", () => {
     // bucket is fully covered: 12:00 yesterday … 12:00 today inclusive.
     expect(timeline.buckets).toHaveLength(25);
     const at = (hoursAgo: number) =>
-      timeline.buckets.find((bucket) => bucket.start === NOW - hoursAgo * HOUR)!;
+      present(timeline.buckets.find((bucket) => bucket.start === NOW - hoursAgo * HOUR), `the bucket ${hoursAgo} hours ago`);
     // the 11:00 bucket
     expect(at(1).byAgent).toEqual({
       codex: { totalTokens: 100, tokens: { input: 100 } },

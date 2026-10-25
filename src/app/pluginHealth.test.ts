@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearPluginCrashes,
-  crashSurfaceLabel,
   pluginCrashes,
   reportPluginCrash,
   subscribePluginCrashes,
@@ -19,7 +18,6 @@ describe("pluginHealth", () => {
     expect(crash.pluginId).toBe("keepdeck.files");
     expect(crash.surfaceKind).toBe("overlay");
     expect(crash.surfaceId).toBe("viewer");
-    expect(crashSurfaceLabel(crash)).toBe('overlay "viewer"');
     expect(crash.detail).toContain("render died");
   });
 

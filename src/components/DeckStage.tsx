@@ -285,7 +285,8 @@ export function DeckStage({
           live.length === 0 ? 1 : focusedHere ? 1 : paneGrid(live.length).rows;
 
         const layoutFor = (pane: Pane): PaneLayout => {
-          if (!liveIndex.has(pane.id)) {
+          const at = liveIndex.get(pane.id);
+          if (at === undefined) {
             // Hidden from the grid, but still mounted. In addition to
             // explicit minimizes this includes suspended panes while the
             // global placement is Tray and its suspend transition put it in
@@ -305,9 +306,7 @@ export function DeckStage({
           const isFocused = pane.id === focusedHere;
           const hiddenByMaximize = focusedHere !== null && !isFocused;
           return {
-            // The pane is live here (the minimized branch returned above), so
-            // its live index always resolves.
-            colSpan: focusedHere ? 1 : paneColumnSpan(liveIndex.get(pane.id)!, live.length),
+            colSpan: focusedHere ? 1 : paneColumnSpan(at, live.length),
             visible: isActive && !hiddenByMaximize,
             focused: isFocused,
             hidden: hiddenByMaximize,
@@ -388,9 +387,11 @@ export function DeckStage({
           };
         };
         const paneById = new Map(ws.panes.map((pane) => [pane.id, pane]));
-        const trayEntries = shelf.entries.map((entry) =>
-          entryOf(paneById.get(entry.paneId)!, "Restore", restoreFor(entry)),
-        );
+        // The shelf was read off these panes, so every entry finds its own.
+        const trayEntries = shelf.entries.flatMap((entry) => {
+          const pane = paneById.get(entry.paneId);
+          return pane ? [entryOf(pane, "Restore", restoreFor(entry))] : [];
+        });
         const trayStateLabel = shelf.stateLabel;
 
         // Asked once for the deck, not once per pane: a role is only an

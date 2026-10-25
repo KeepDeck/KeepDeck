@@ -1,27 +1,38 @@
 import type {
   WatchHandle,
-  GitDiff,
   DownloadState,
-  FsEntry,
-  FsFile,
-  GitBranches,
-  GitChangedFile,
-  GitHistory,
-  GitStatus,
   PluginContext,
-  PluginExecOutcome,
   PluginFs,
   PluginSessionEvent,
   SpeechCapture,
   SpeechCaptureOptions,
   SpeechLevel,
-  SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore, errorMessage } from "@keepdeck/plugin-api";
 
 import { RemoteDownloadStream } from "./downloadStream";
 import { speechLevelChannel } from "./protocol";
-import type { GuestRpc } from "./rpc";
+import {
+  decodeWith,
+  isBoolean,
+  isExecOutcome,
+  isFsFile,
+  isFsEntries,
+  isGitBranches,
+  isGitChangedFiles,
+  isGitDiff,
+  isGitHistory,
+  isGitStatus,
+  isNumber,
+  isSessionSpawn,
+  isSpeechDevices,
+  isSpeechEngines,
+  isSpeechStart,
+  isSpeechTranscript,
+  isSqlAnswer,
+  isString,
+} from "./decode";
+import type { GuestCaller } from "./rpc";
 
 /**
  * The `services` half of the guest context: one proxy per member, each a thin
@@ -38,7 +49,7 @@ import type { GuestRpc } from "./rpc";
  * holds the teardown.
  */
 export interface GuestServiceDeps {
-  rpc: GuestRpc;
+  rpc: GuestCaller;
   noop: () => void;
   sessionListeners: Map<string, (event: PluginSessionEvent) => void>;
   /** Output can arrive before `spawn` resolves and installs the listener. */
@@ -69,16 +80,23 @@ export function createGuestServices({
    * below: the reader runs HERE, in the guest, over this proxy. */
   const fs: PluginFs = {
     readDir: (path) =>
-      rpc.call("services.fs.readDir", [path]) as Promise<FsEntry[]>,
+      rpc
+        .call("services.fs.readDir", [path])
+        .then((value) => decodeWith(value, isFsEntries, "fs entries")),
     readFile: (path, opts) =>
-      rpc.call("services.fs.readFile", [path, opts]) as Promise<FsFile>,
+      rpc
+        .call("services.fs.readFile", [path, opts])
+        .then((value) => decodeWith(value, isFsFile, "fs file")),
     watch: (path, onChange) => remoteWatch("fs", path, onChange),
   };
 
   return {
     sessions: {
       spawn: (opts, onEvent) =>
-        (rpc.call("services.sessions.spawn", [opts]) as Promise<{ id: string }>).then(
+        rpc
+          .call("services.sessions.spawn", [opts])
+          .then((value) => decodeWith(value, isSessionSpawn, "session spawn"))
+          .then(
           ({ id }) => {
             sessionListeners.set(id, onEvent);
             // Flush anything that arrived before this listener existed.
@@ -103,7 +121,9 @@ export function createGuestServices({
     },
     ports: {
       allocate: (key) =>
-        rpc.call("services.ports.allocate", [key]) as Promise<number>,
+        rpc
+          .call("services.ports.allocate", [key])
+          .then((value) => decodeWith(value, isNumber, "allocated port")),
     },
     opener: {
       openUrl: (url) => rpc.call("services.opener.openUrl", [url]).then(noop),
@@ -121,37 +141,43 @@ export function createGuestServices({
     sessionStore: createSessionStore(fs),
     fsWrite: {
       mkdir: (path) =>
-        rpc.call("services.fsWrite.mkdir", [path]) as Promise<void>,
+        rpc.call("services.fsWrite.mkdir", [path]).then(noop),
       copyFile: (src, dst, options) =>
-        rpc.call("services.fsWrite.copyFile", [src, dst, options]) as Promise<void>,
+        rpc.call("services.fsWrite.copyFile", [src, dst, options]).then(noop),
       remove: (path) =>
-        rpc.call("services.fsWrite.remove", [path]) as Promise<void>,
+        rpc.call("services.fsWrite.remove", [path]).then(noop),
       writeFile: (path, text) =>
-        rpc.call("services.fsWrite.writeFile", [path, text]) as Promise<void>,
+        rpc.call("services.fsWrite.writeFile", [path, text]).then(noop),
       appendLine: (path, line) =>
-        rpc.call("services.fsWrite.appendLine", [path, line]) as Promise<void>,
+        rpc.call("services.fsWrite.appendLine", [path, line]).then(noop),
     },
     sqlite: {
       query: (dbPath, sql, params) =>
-        rpc.call("services.sqlite.query", [
-          dbPath,
-          sql,
-          params,
-        ]) as Promise<SqlAnswer>,
+        rpc
+          .call("services.sqlite.query", [dbPath, sql, params])
+          .then((value) => decodeWith(value, isSqlAnswer, "sql answer")),
     },
     git: {
       status: (repo) =>
-        rpc.call("services.git.status", [repo]) as Promise<GitStatus>,
+        rpc
+          .call("services.git.status", [repo])
+          .then((value) => decodeWith(value, isGitStatus, "git status")),
       diffFile: (repo, file, opts) =>
-        rpc.call("services.git.diffFile", [repo, file, opts]) as Promise<GitDiff>,
+        rpc
+          .call("services.git.diffFile", [repo, file, opts])
+          .then((value) => decodeWith(value, isGitDiff, "git diff")),
       history: (repo, opts) =>
-        rpc.call("services.git.history", [repo, opts]) as Promise<GitHistory>,
+        rpc
+          .call("services.git.history", [repo, opts])
+          .then((value) => decodeWith(value, isGitHistory, "git history")),
       branches: (repo) =>
-        rpc.call("services.git.branches", [repo]) as Promise<GitBranches>,
+        rpc
+          .call("services.git.branches", [repo])
+          .then((value) => decodeWith(value, isGitBranches, "git branches")),
       changedFiles: (repo, from, to) =>
-        rpc.call("services.git.changedFiles", [repo, from, to]) as Promise<
-          GitChangedFile[]
-        >,
+        rpc
+          .call("services.git.changedFiles", [repo, from, to])
+          .then((value) => decodeWith(value, isGitChangedFiles, "git changed files")),
       watch: (repo, onChange) => remoteWatch("git", repo, onChange),
     },
     downloads: {
@@ -181,36 +207,46 @@ export function createGuestServices({
       },
       cancel: (id) => rpc.call("services.downloads.cancel", [id]).then(noop),
       exists: (target, integrity) =>
-        rpc.call("services.downloads.exists", [target, integrity]) as Promise<boolean>,
+        rpc
+          .call("services.downloads.exists", [target, integrity])
+          .then((value) => decodeWith(value, isBoolean, "download exists")),
       remove: (target) =>
         rpc.call("services.downloads.remove", [target]).then(noop),
     },
     clipboard: {
       writeText: (text) =>
-        rpc.call("services.clipboard.writeText", [text]) as Promise<void>,
+        rpc.call("services.clipboard.writeText", [text]).then(noop),
       readText: () =>
-        rpc.call("services.clipboard.readText", []) as Promise<string>,
+        rpc
+          .call("services.clipboard.readText", [])
+          .then((value) => decodeWith(value, isString, "clipboard text")),
     },
     exec: {
       runOnce: (request) =>
-        rpc.call("services.exec.runOnce", [request]) as Promise<PluginExecOutcome>,
+        rpc
+          .call("services.exec.runOnce", [request])
+          .then((value) => decodeWith(value, isExecOutcome, "exec outcome")),
     },
     speech: {
       engines: () =>
-        rpc.call("services.speech.engines", []) as ReturnType<
-          PluginContext["services"]["speech"]["engines"]
-        >,
+        rpc
+          .call("services.speech.engines", [])
+          .then((value) => decodeWith(value, isSpeechEngines, "speech engines")),
       devices: () =>
-        rpc.call("services.speech.devices", []) as ReturnType<
-          PluginContext["services"]["speech"]["devices"]
-        >,
+        rpc
+          .call("services.speech.devices", [])
+          .then((value) => decodeWith(value, isSpeechDevices, "speech devices")),
       async startCapture(onLevel, options) {
         const id = mintId();
         const channel = speechLevelChannel(id);
         if (onLevel) speechLevels.set(channel, (level) => onLevel(level.rms, level));
         let opened: { device: string; deviceMissing: boolean };
         try {
-          opened = (await rpc.call("services.speech.start", [id, options ?? {}])) as typeof opened;
+          opened = decodeWith(
+            await rpc.call("services.speech.start", [id, options ?? {}]),
+            isSpeechStart,
+            "speech start",
+          );
         } catch (error) {
           speechLevels.delete(channel);
           throw error;
@@ -226,9 +262,9 @@ export function createGuestServices({
           async stop(opts: SpeechCaptureOptions) {
             if (!active) throw new Error("speech capture is already closed");
             close();
-            return rpc.call("services.speech.stop", [id, opts]) as ReturnType<
-              SpeechCapture["stop"]
-            >;
+            return rpc
+              .call("services.speech.stop", [id, opts])
+              .then((value) => decodeWith(value, isSpeechTranscript, "speech transcript"));
           },
           async cancel() {
             if (!active) return;

@@ -3,8 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ProgressRing } from "./ProgressRing";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("ProgressRing", () => {
   let root: Root;
@@ -13,7 +12,7 @@ describe("ProgressRing", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  const ring = () => document.querySelector<HTMLElement>(".progress-ring")!;
+  const ring = () => present(document.querySelector<HTMLElement>(".progress-ring"), "the .progress-ring element");
 
   it("carries its value as the fill the stylesheet animates to", () => {
     act(() => root.render(createElement(ProgressRing, { value: 61 })));

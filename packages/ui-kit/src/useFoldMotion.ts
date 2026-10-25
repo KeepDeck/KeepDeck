@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import {
   easeFold,
@@ -104,9 +104,18 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
   const layoutNow = () => (now ??= readLayout());
   // The fold this change of the rows makes, if it is the person's: worked
   // out in render, purely — what it writes happens when it is put in
-  // flight, after the commit.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const made = useMemo(() => (eased && drawn.current !== null && !reducedMotion() ? proposalFrom(drawn.current, layoutNow()) : null), [items]);
+  // flight, after the commit. Kept per ROW ARRAY identity, not per render:
+  // a render that did not change the rows makes no second proposal (and
+  // must not, or the same fold would start twice).
+  const proposal = useRef<{ items: readonly T[]; value: Proposal<T> | null } | null>(null);
+  if (proposal.current?.items !== items) {
+    const value =
+      eased && drawn.current !== null && !reducedMotion()
+        ? proposalFrom(drawn.current, layoutNow())
+        : null;
+    proposal.current = { items, value };
+  }
+  const made = proposal.current?.value ?? null;
   const pending = useRef<Proposal<T> | null>(null);
   pending.current = made !== null && !started.current.has(made) ? made : null;
   /** Put this render's fold in flight — once. A fold still playing goes on
@@ -118,9 +127,10 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
     if (next === null || started.current.has(next)) return false;
     started.current.add(next);
     const playing = motion.current;
-    const merged = mergeFolds(playing?.parts ?? [], next.segments);
+    const playingParts = playing?.parts ?? [];
+    const merged = mergeFolds(playingParts, next.segments);
     const parts: Part[] = [
-      ...merged.kept.map((index) => playing!.parts[index]),
+      ...merged.kept.map((index) => playingParts[index]),
       ...merged.added.map((part) => ({ ...part, startedAt: null, residual: part.from })),
     ];
     const ghosts = new Map(playing?.ghosts ?? []);

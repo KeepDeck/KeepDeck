@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { appCss } from "./testSupport";
+import { instanceOf } from "../testing/values.test-support";
 
 /**
  * WebKit's own stylesheet — the one the app runs under — gives every
@@ -18,7 +19,7 @@ function mount(markup: string): HTMLElement {
     document.head.append(sheet);
   }
   document.body.innerHTML = markup;
-  return document.body.firstElementChild as HTMLElement;
+  return instanceOf(document.body.firstElementChild, HTMLElement, "first child");
 }
 
 afterEach(() => {

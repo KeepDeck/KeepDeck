@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck's plugin on opencode 2.x — the `setup(context)` half of index.js.
  *
@@ -15,16 +16,24 @@
  */
 import { startComponents } from "./components.js";
 import { follower } from "./follower.js";
+import { isRecord } from "./guards.js";
 import { readBridge } from "./keepdeck-bridge.js";
 import { startCourierV2 } from "./mail-courier-v2.js";
 import { paneSession } from "./pane-session.js";
 import { startReporterV2 } from "./session-reporter-v2.js";
 
-/** Whether `context` is a 2.x host's: the domains this plugin uses. */
+/** @typedef {{ content?: unknown, output?: unknown }} ToolResult */
+/** @typedef {{ sessionID?: string, parentID?: string, prompt?: { text?: string }, metadata?: Record<string, unknown>, status?: string, result?: ToolResult }} EventData */
+/** @typedef {{ event: { subscribe: () => AsyncIterable<unknown> }, model: { list: () => Promise<{ data?: Array<{ providerID: string, id: string, limit?: { context?: number } }> }> }, session: { get: (query: { sessionID: string }) => Promise<{ id?: string, parentID?: string, agent?: unknown, model?: unknown }>, create: (query: Record<string, unknown>) => Promise<{ id?: string } | undefined>, synthetic: (input: { sessionID: string, text: string, resume: boolean }) => Promise<unknown>, prompt: (input: { sessionID: string, text: string, metadata: Record<string, unknown> }) => Promise<unknown>, hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> }, tool: { hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> } }} V2Context */
+
+/** Whether `context` is a 2.x host's: the domains this plugin uses.
+ * @param {unknown} context
+ * @returns {context is V2Context}
+ */
 export function isV2Context(context) {
   return (
-    typeof context?.event?.subscribe === "function" &&
-    typeof context?.session?.get === "function"
+    isRecord(context) && isRecord(context.event) && typeof context.event.subscribe === "function" &&
+    isRecord(context.session) && typeof context.session.get === "function"
   );
 }
 
@@ -32,8 +41,9 @@ export function isV2Context(context) {
  * Ask a 2.x server whether a session has a parent: `{ parentID }`, or null
  * when it could not tell. The 2.x client throws on a failed call, which the
  * pane session treats as "could not tell" too.
+ * @param {V2Context} context
  */
-export const parentLookupV2 = (context) => async (sessionID) => {
+export const parentLookupV2 = (context) => async (/** @type {string} */ sessionID) => {
   const found = await context.session.get({ sessionID });
   if (!found?.id) return null;
   return { parentID: found.parentID };
@@ -56,6 +66,7 @@ export const resumedSession = () => process.env.KEEPDECK_OPENCODE_SESSION || und
  * Inert outside a KeepDeck pane. A component that fails to start, or whose
  * handler throws, takes nothing else down — the same isolation index.js gives
  * the 1.x components.
+ * @param {unknown} context
  */
 export async function setupV2(context) {
   if (!isV2Context(context)) return;
@@ -78,14 +89,15 @@ export async function setupV2(context) {
   const stopFollowing = follower().start(bridge.dir, process.ppid);
   const stopFeed = feed(
     context,
-    components.filter((component) => typeof component.onEvent === "function"),
+    components.filter(isRecord).filter((component) => typeof component.onEvent === "function"),
   );
   return () => {
     stopFollowing();
     stopFeed();
     for (const component of components) {
+      if (!isRecord(component) || typeof component.stop !== "function") continue;
       try {
-        component.stop?.();
+        component.stop();
       } catch {
         // Stopping one is not stopping the other.
       }
@@ -97,8 +109,11 @@ export async function setupV2(context) {
  * Hand every bus event to every component, each through its own handler.
  * Returns the stop. Not awaited: the bus runs for the life of the plugin, and
  * `setup` must return for opencode to finish loading.
+ * @param {V2Context} context
+ * @param {Array<Record<string, unknown>>} components
  */
 function feed(context, components) {
+  /** @type {AsyncIterator<unknown> | undefined} */
   let iterator;
   // A generator mid-`next()` finishes that wait before it returns: what
   // arrives meanwhile is not handed on.
@@ -110,6 +125,7 @@ function feed(context, components) {
         const { value: event, done } = await iterator.next();
         if (done || stopped) return;
         for (const component of components) {
+          if (typeof component.onEvent !== "function") continue;
           try {
             component.onEvent(event);
           } catch {

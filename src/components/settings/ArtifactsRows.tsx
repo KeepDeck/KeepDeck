@@ -1,6 +1,5 @@
-import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
-import { useSettings } from "../../app/useSettings";
+import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 import { ON_OFF } from "../../presentation/choices";
@@ -24,6 +23,7 @@ import { ON_OFF } from "../../presentation/choices";
  */
 export function ArtifactsRows() {
   const settings = useSettings();
+  const updateSettings = useSettingsWrite();
   const artifacts = settings?.artifacts ?? DEFAULT_SETTINGS.artifacts;
   const artifactAutoOpen =
     settings?.artifactAutoOpen ?? DEFAULT_SETTINGS.artifactAutoOpen;

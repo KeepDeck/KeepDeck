@@ -2,14 +2,17 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { initUpdates, resetUpdateManager } from "../../app/updateManager";
+import { initUpdates, resetUpdateManager } from "../../app/testing";
 import type { AvailableUpdate } from "../../ipc/updater";
 import { UpdatesSection } from "./UpdatesSection";
 
-vi.mock("../../ipc/app", () => ({
+const appIpc = vi.hoisted(() => ({
   fetchAppInfo: vi.fn(),
   openUrl: vi.fn(async () => {}),
 }));
+vi.mock("../../ipc/app", () => appIpc);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ shell: appIpc }));
 vi.mock("../../ipc/updater", () => ({
   checkForUpdate: vi.fn(),
   discardUpdate: vi.fn(async () => {}),
@@ -22,6 +25,7 @@ vi.mock("../../ipc/log", () => ({
 
 import { fetchAppInfo, openUrl } from "../../ipc/app";
 import { checkForUpdate, installUpdate } from "../../ipc/updater";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const mockInfo = vi.mocked(fetchAppInfo);
 const mockCheck = vi.mocked(checkForUpdate);
@@ -40,10 +44,6 @@ const downloads = {
   })),
   cancel: vi.fn(async () => {}),
 };
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
 
 let host: HTMLElement;
 let root: Root;
@@ -99,7 +99,7 @@ describe("UpdatesSection", () => {
     await initUpdates(downloads);
     await render();
 
-    expect(host.querySelector(".settings__value")!.textContent).toBe(
+    expect(present(host.querySelector(".settings__value"), "element \".settings__value\"").textContent).toBe(
       "KeepDeck 9.9.9",
     );
     expect(button("Check for updates").disabled).toBe(true);
@@ -177,7 +177,7 @@ describe("UpdatesSection", () => {
     // Markdown renders: bold becomes <strong>, a bullet list becomes <ul><li>.
     expect(host.querySelector(".settings__changelog-entry strong")).not.toBeNull();
     expect(host.querySelectorAll(".settings__changelog-entry li")).toHaveLength(2);
-    expect(host.querySelector(".settings__changelog .form__label")!.textContent).toBe(
+    expect(present(host.querySelector(".settings__changelog .form__label"), "element \".settings__changelog .form__label\"").textContent).toBe(
       "What's new",
     );
   });

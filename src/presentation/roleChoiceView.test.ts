@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { roleById } from "../domain/mail";
 import { NO_ROLE, ROLE_WORDS, roleChoiceView } from "./roleChoiceView";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const values = (held: string[], picked = NO_ROLE) =>
   roleChoiceView(held).optionsFor(picked).map((option) => option.value);
@@ -21,7 +22,7 @@ describe("roleChoiceView", () => {
 
   it("labels each role from the catalog and gives the address a pick takes past the roster", () => {
     const view = roleChoiceView(["lead", "impl-1"]);
-    expect(view.optionsFor("impl").find((option) => option.value === "impl")?.label).toBe(roleById("impl")!.label);
+    expect(view.optionsFor("impl").find((option) => option.value === "impl")?.label).toBe(present(roleById("impl"), "the impl role").label);
     expect(view.addressFor("impl")).toBe("impl-2");
     expect(view.addressFor("lead")).toBeNull();
   });

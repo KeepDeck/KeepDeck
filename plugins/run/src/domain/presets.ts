@@ -1,3 +1,5 @@
+import { isJsonRecord } from "@keepdeck/plugin-api";
+
 /**
  * Run presets — launch the app under development.
  *
@@ -22,6 +24,18 @@ export interface RunPreset {
   name: string;
   /** The shell command line, run via `$SHELL -c` in the chosen worktree. */
   command: string;
+}
+
+/** Whether a stored value is a preset list this revision can use. */
+export function isRunPresets(value: unknown): value is RunPreset[] {
+  return Array.isArray(value) && value.every(isRunPreset);
+}
+
+function isRunPreset(value: unknown): value is RunPreset {
+  return isJsonRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.command === "string";
 }
 
 /** Env every run command receives. `port` is the base of the target's 10-port
@@ -62,12 +76,13 @@ export function addPreset(
   return [...presets, preset];
 }
 
-/** Remove the preset with `id`; the SAME array when it isn't present. */
+/** Remove the preset with `id`; the SAME array when it isn't present — so
+ * it takes the array it may hand back, not a read-only view of one. */
 export function removePreset(
-  presets: readonly RunPreset[],
+  presets: RunPreset[],
   id: string,
 ): RunPreset[] {
-  if (!presets.some((p) => p.id === id)) return presets as RunPreset[];
+  if (!presets.some((p) => p.id === id)) return presets;
   return presets.filter((p) => p.id !== id);
 }
 
@@ -75,13 +90,13 @@ export function removePreset(
  * array when it isn't present or the command trims empty. Name falls back like
  * [`addPreset`]'s. */
 export function updatePreset(
-  presets: readonly RunPreset[],
+  presets: RunPreset[],
   id: string,
   name: string,
   command: string,
 ): RunPreset[] {
   const trimmed = command.trim();
-  if (!trimmed || !presets.some((p) => p.id === id)) return presets as RunPreset[];
+  if (!trimmed || !presets.some((p) => p.id === id)) return presets;
   return presets.map((p) =>
     p.id === id
       ? { id, name: name.trim() || truncate(trimmed, 32), command: trimmed }

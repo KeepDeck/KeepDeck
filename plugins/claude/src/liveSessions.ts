@@ -1,9 +1,10 @@
 import type {
   AgentLiveSession,
   AgentLiveSessions,
-  PluginContext,
   PluginSessionEvent,
+  PluginSessions,
 } from "@keepdeck/plugin-api";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * Which claude sessions are alive RIGHT NOW — held by an interactive run or
@@ -18,13 +19,6 @@ import type {
  * out-of-band), collects stdout, and exits.
  */
 
-interface RawLiveRow {
-  sessionId?: unknown;
-  kind?: unknown;
-  name?: unknown;
-  state?: unknown;
-}
-
 /** Parse the CLI's rows down to the contract's shape; `null` = the output
  * was not the documented JSON array (a version change, a stray banner). */
 export function parseLiveSessions(stdout: string): AgentLiveSession[] | null {
@@ -37,8 +31,8 @@ export function parseLiveSessions(stdout: string): AgentLiveSession[] | null {
   if (!Array.isArray(parsed)) return null;
   const rows: AgentLiveSession[] = [];
   for (const item of parsed) {
-    if (typeof item !== "object" || item === null) return null;
-    const row = item as RawLiveRow;
+    if (!isJsonRecord(item)) return null;
+    const row = item;
     // A row without a session id names no conversation we could refuse to
     // resume — skipped, not fatal, exactly like a store entry without a
     // transcript. But a row whose id/kind are off-TYPE breaks the whole
@@ -60,7 +54,12 @@ export function parseLiveSessions(stdout: string): AgentLiveSession[] | null {
  * anything approaching this size is a runaway process, not a listing. */
 const MAX_OUTPUT = 4 * 1024 * 1024;
 
-export function claudeLiveSessions(ctx: PluginContext): AgentLiveSessions {
+/** What asking the CLI needs from the host: one short-lived session. */
+export interface LiveSessionsPorts {
+  services: { sessions: PluginSessions };
+}
+
+export function claudeLiveSessions(ctx: LiveSessionsPorts): AgentLiveSessions {
   return {
     async list(): Promise<AgentLiveSession[]> {
       // A THROWING list() is a legitimate answer the caller reads as

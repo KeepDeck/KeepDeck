@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { easeFold, foldFrame, foldSpacer, mergeFolds, reachable, segmentsOf, walkAt, type Layout } from "./foldMotion";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** A layout of rows, each `h` tall unless given, laid end to end. */
 const laid = (rows: (string | [string, number])[], h = 10): Layout => {
@@ -39,7 +40,7 @@ describe("segmentsOf — where a fold changed the rows", () => {
   it("finds every place at once — collapse all — and runs at the very top or end", () => {
     const before = laid(["x", "A", "a1", "B", "b1", "b2"]);
     const after = laid(["A", "B"]);
-    expect(segmentsOf(before, after)!.map((s) => [s.pivot, s.boundary, s.oldSize])).toEqual([
+    expect(present(segmentsOf(before, after), "the fold segments").map((s) => [s.pivot, s.boundary, s.oldSize])).toEqual([
       [null, "A", 10],
       ["A", "B", 10],
       ["B", null, 20],
@@ -54,7 +55,7 @@ describe("segmentsOf — where a fold changed the rows", () => {
 describe("foldFrame — one frame of a fold", () => {
   const shut = laid(["A", "B", "C"]);
   const open = laid(["A", "a1", "a2", "B", "C"]);
-  const opening = segmentsOf(shut, open)!;
+  const opening = present(segmentsOf(shut, open), "the fold segments");
 
   it("opens under the heading: the box grows from nothing, what is below slides from where it stood", () => {
     const start = foldFrame(opening, open, all(opening, 1), VIEW);
@@ -86,7 +87,7 @@ describe("foldFrame — one frame of a fold", () => {
   });
 
   it("shuts into the heading: its rows stay as ghosts at their old offsets, the box rolling up over them", () => {
-    const shutting = segmentsOf(open, shut)!;
+    const shutting = present(segmentsOf(open, shut), "the fold segments");
     const half = foldFrame(shutting, shut, all(shutting, 0.5), VIEW);
     expect(half.boxes).toEqual([{ segment: 0, top: 10, height: 10 }]);
     expect(half.ghosts).toEqual([{ segment: 0, key: "a1", top: 0 }]);
@@ -102,8 +103,8 @@ describe("foldFrame — one frame of a fold", () => {
     // A opens 90 above B; B opens 60 under itself. B's final start is 120.
     const before = laid([["A", 30], ["B", 30], ["C", 30]]);
     const after = laid([["A", 30], ["a", 90], ["B", 30], ["b", 60], ["C", 30]]);
-    const motion = segmentsOf(before, after)!;
-    const top = (residual: number) => foldFrame(motion, after, all(motion, residual), VIEW).rows.find((r) => r.key === "B")!.top;
+    const motion = present(segmentsOf(before, after), "the fold segments");
+    const top = (residual: number) => present(foldFrame(motion, after, all(motion, residual), VIEW).rows.find((r) => r.key === "B"), "the matching item").top;
     expect([top(1), top(0.5), top(0)]).toEqual([30, 75, 120]);
     // B's box starts under B as it is DRAWN.
     expect(foldFrame(motion, after, all(motion, 0.5), VIEW).boxes[1].top).toBe(105);
@@ -112,11 +113,11 @@ describe("foldFrame — one frame of a fold", () => {
   it("draws a lower shut's ghosts inside its own box (reviewer-3: two shuts, 150 and 105)", () => {
     const before = laid([["A", 30], ["a", 90], ["B", 30], ["b", 60], ["C", 30]]);
     const after = laid([["A", 30], ["B", 30], ["C", 30]]);
-    const motion = segmentsOf(before, after)!;
+    const motion = present(segmentsOf(before, after), "the fold segments");
     const ghostAt = (residual: number) => {
       const frame = foldFrame(motion, after, all(motion, residual), VIEW);
-      const ghost = frame.ghosts.find((g) => g.key === "b")!;
-      return frame.boxes.find((b) => b.segment === ghost.segment)!.top + ghost.top;
+      const ghost = present(frame.ghosts.find((g) => g.key === "b"), "the matching item");
+      return present(frame.boxes.find((b) => b.segment === ghost.segment), "the matching item").top + ghost.top;
     };
     expect([ghostAt(1), ghostAt(0.5)]).toEqual([150, 105]);
   });
@@ -125,7 +126,7 @@ describe("foldFrame — one frame of a fold", () => {
     const keys = Array.from({ length: 100 }, (_, i) => `r${i}`);
     const after = laid(["A", ...keys, "B", ...Array.from({ length: 100 }, (_, i) => `s${i}`)]);
     const before = laid(["A", "B", ...Array.from({ length: 100 }, (_, i) => `s${i}`)]);
-    const motion = segmentsOf(before, after)!;
+    const motion = present(segmentsOf(before, after), "the fold segments");
     const view = { top: 0, height: 200, overscan: 0 };
     for (const residual of [1, 0.5, 0]) {
       const frame = foldFrame(motion, after, all(motion, residual), view);
@@ -137,7 +138,7 @@ describe("foldFrame — one frame of a fold", () => {
   });
 
   it("tells the pinned heading a ghost belongs to the group shutting", () => {
-    const shutting = segmentsOf(open, shut)!;
+    const shutting = present(segmentsOf(open, shut), "the fold segments");
     const frame = foldFrame(shutting, shut, all(shutting, 0.5), VIEW);
     expect(frame.occupancy.map((o) => [o.index, o.start])).toEqual([
       [0, 0],
@@ -148,7 +149,7 @@ describe("foldFrame — one frame of a fold", () => {
   });
 
   it("paints into the live layout: a row an agent adds mid-motion is simply there", () => {
-    const shutting = segmentsOf(open, shut)!;
+    const shutting = present(segmentsOf(open, shut), "the fold segments");
     const later = laid(["A", "B", "X", "C"]);
     expect(foldFrame(shutting, later, all(shutting, 0), VIEW).rows.map((r) => r.key)).toEqual(["A", "B", "X", "C"]);
     // A segment whose heading is gone is dropped, not painted wrong.
@@ -169,8 +170,8 @@ describe("the walk and the curve", () => {
 describe("mergeFolds — a fold made while another plays", () => {
   const open = laid(["A", "a1", "a2", "B", "C"]);
   const shut = laid(["A", "B", "C"]);
-  const opening = segmentsOf(shut, open)![0];
-  const shutting = segmentsOf(open, shut)![0];
+  const opening = present(segmentsOf(shut, open), "the fold segments")[0];
+  const shutting = present(segmentsOf(open, shut), "the fold segments")[0];
 
   it("turns the same group round from where it has got to — no snap shut or open first", () => {
     // Opening, 30% left to go: shutting it now starts 70% of the way.
@@ -183,7 +184,7 @@ describe("mergeFolds — a fold made while another plays", () => {
   });
 
   it("lets a fold elsewhere play on beside the new one", () => {
-    const other = segmentsOf(laid(["A", "B", "C"]), laid(["A", "B", "b1", "C"]))![0];
+    const other = present(segmentsOf(laid(["A", "B", "C"]), laid(["A", "B", "b1", "C"])), "the fold segments")[0];
     expect(mergeFolds([{ segment: opening, residual: 0.3 }], [other])).toEqual({ kept: [0], added: [{ segment: other, from: 1 }] });
   });
 });

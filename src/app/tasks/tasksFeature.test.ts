@@ -5,6 +5,8 @@ import { USER_ACTOR } from "../../domain/tasks";
 import { createTasksFeature } from "./tasksFeature";
 import { RETRY_WRITE_MS } from "./tasksService";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
+import { recordsOf, recordOf, stringOf } from "../../testing/values.test-support";
 
 /** A promise handed out to be settled by the test — a backend call that
  * takes as long as the test says. */
@@ -15,6 +17,9 @@ function gate(): { promise: Promise<void>; resolve: () => void } {
   });
   return { promise, resolve };
 }
+
+const savedTasks = (json: string) =>
+  recordsOf(recordOf(JSON.parse(json), "saved board").tasks, "board tasks");
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -163,7 +168,7 @@ describe("createTasksFeature", () => {
     const h = setup();
     await h.setTasks(true);
     await h.settleNext();
-    const service = h.feature.access.current()!;
+    const service = present(h.feature.access.current(), "the tasks service");
     await service.create("ws-1", { teamId: "team-1", title: "api's" }, USER_ACTOR);
     await service.create("ws-1", { teamId: "team-2", title: "web's" }, USER_ACTOR);
     await flush();
@@ -172,7 +177,7 @@ describe("createTasksFeature", () => {
       ws.map((w) =>
         w.id !== "ws-1"
           ? w
-          : { ...w, panes: w.panes.filter((p) => p.team?.teamId !== "team-2"), teams: w.teams!.filter((t) => t.id !== "team-2") },
+          : { ...w, panes: w.panes.filter((p) => p.team?.teamId !== "team-2"), teams: present(w.teams, "the workspace teams").filter((t) => t.id !== "team-2") },
       ),
     );
     await flush();
@@ -186,7 +191,7 @@ describe("createTasksFeature", () => {
     const h = setup();
     await h.setTasks(true);
     await h.settleNext();
-    const first = h.feature.access.current()!;
+    const first = present(h.feature.access.current(), "the tasks service");
     // Off: the owner goes at once; the store's disable is still out.
     await h.setTasks(false);
     expect(h.feature.access.current()).toBeNull();
@@ -201,7 +206,7 @@ describe("createTasksFeature", () => {
     const second = h.feature.access.current();
     expect(second).not.toBeNull();
     expect(second).not.toBe(first);
-    const state = await second!.ready("ws-1");
+    const state = await present(second, "the second service").ready("ws-1");
     expect(state.kind).toBe("ready");
   });
 
@@ -239,7 +244,7 @@ describe("createTasksFeature", () => {
     const h = setup();
     await h.setTasks(true);
     await h.settleNext();
-    const owner = h.feature.access.current()!;
+    const owner = present(h.feature.access.current(), "the tasks service");
     h.store.failNextWrite("disk full");
     const held = await owner.create("ws-1", { teamId: "team-1", title: "dirty" }, USER_ACTOR);
     expect(held.ok && held.saved).toBe(false);
@@ -273,7 +278,7 @@ describe("createTasksFeature", () => {
     const h = setup();
     await h.setTasks(true);
     await h.settleNext();
-    const service = h.feature.access.current()!;
+    const service = present(h.feature.access.current(), "the tasks service");
     h.setDiskFull(true);
     const created = await service.create("ws-1", { teamId: "team-1", title: "a" }, USER_ACTOR);
     expect(created.ok && created.saved).toBe(false);
@@ -294,7 +299,7 @@ describe("createTasksFeature", () => {
     await h.settleNext();
     const back = h.feature.access.current();
     expect(back).toBe(service);
-    const state = back!.peek("ws-1");
+    const state = present(back, "the reopened service").peek("ws-1");
     expect(state?.kind === "ready" && state.unsaved).toBe("disk full");
     expect(state?.kind === "ready" && state.board.tasks.map((t) => t.title)).toEqual(["a"]);
     expect(h.registry.has("task.create")).toBe(true);
@@ -305,7 +310,7 @@ describe("createTasksFeature", () => {
     await flush();
     await flush();
     expect(h.order).toEqual(["write", "disable"]);
-    expect((JSON.parse(h.store.files.get("ws-1")!) as { tasks: { title: string }[] }).tasks.map((t) => t.title)).toEqual(["a"]);
+    expect(savedTasks(present(h.store.files.get("ws-1"), "the saved ws-1 board file")).map((t) => stringOf(t.title, "task title"))).toEqual(["a"]);
     await h.settleNext();
     expect(h.status.last()).toEqual({ desired: false, ok: true, detail: null });
   });
@@ -323,7 +328,7 @@ describe("createTasksFeature", () => {
       h.setTasksSync(true);
       await tick();
       await settle(0);
-      const service = h.feature.access.current()!;
+      const service = present(h.feature.access.current(), "the tasks service");
       h.setDiskFull(true);
       await service.create("ws-1", { teamId: "team-1", title: "a" }, USER_ACTOR);
       h.setTasksSync(false);
@@ -342,7 +347,7 @@ describe("createTasksFeature", () => {
       expect(h.calls.map((c) => c.kind)).toEqual(["enable", "disable"]);
       await settle(1);
       expect(h.status.last()).toEqual({ desired: false, ok: true, detail: null });
-      expect((JSON.parse(h.store.files.get("ws-1")!) as { tasks: unknown[] }).tasks).toHaveLength(1);
+      expect(savedTasks(present(h.store.files.get("ws-1"), "the saved ws-1 board file"))).toHaveLength(1);
       h.feature.dispose();
     } finally {
       vi.useRealTimers();
@@ -353,7 +358,7 @@ describe("createTasksFeature", () => {
     const h = setup();
     await h.setTasks(true);
     await h.settleNext();
-    const service = h.feature.access.current()!;
+    const service = present(h.feature.access.current(), "the tasks service");
     await service.ready("ws-1");
     const release = h.store.holdNextWrite();
     const first = service.create("ws-1", { teamId: "team-1", title: "a" }, USER_ACTOR);
@@ -379,14 +384,14 @@ describe("createTasksFeature", () => {
 
     await h.setTasks(true);
     await h.settleNext();
-    expect(await h.feature.access.current()!.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [], relations: [] }, unsaved: null });
+    expect(await present(h.feature.access.current(), "the tasks service").ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [], relations: [] }, unsaved: null });
   });
 
   it("forgets a workspace through the owner — after the write on the wire, before nothing else; dispose takes the owner and the commands down", async () => {
     const h = setup();
     await h.setTasks(true);
     await h.settleNext();
-    const service = h.feature.access.current()!;
+    const service = present(h.feature.access.current(), "the tasks service");
     await service.ready("ws-1");
     const release = h.store.holdNextWrite();
     const first = service.create("ws-1", { teamId: "team-1", title: "a" }, USER_ACTOR);

@@ -1,7 +1,8 @@
 import Markdown, { type Components } from "react-markdown";
+import { useMemo } from "react";
 import remarkGfm from "remark-gfm";
 import type { ChangelogEntry } from "../../domain/changelog";
-import { openUrl } from "../../ipc/app";
+import { useRuntimePart } from "../../app/runtimeContext";
 
 /**
  * The accumulated release notes a user will move to by accepting this update —
@@ -24,6 +25,8 @@ export function UpdateChangelog({
 }: {
   entries: readonly ChangelogEntry[];
 }) {
+  const { openUrl } = useRuntimePart("shell");
+  const components = useMemo(() => markdownComponents(openUrl), [openUrl]);
   if (entries.length === 0) return null;
   return (
     <div className="settings__changelog">
@@ -37,7 +40,7 @@ export function UpdateChangelog({
                 <time className="settings__changelog-date">{entry.date}</time>
               ) : null}
             </header>
-            <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            <Markdown remarkPlugins={[remarkGfm]} components={components}>
               {entry.notes}
             </Markdown>
           </li>
@@ -47,7 +50,7 @@ export function UpdateChangelog({
   );
 }
 
-const markdownComponents: Components = {
+const markdownComponents = (openUrl: (url: string) => Promise<void>): Components => ({
   a({ href, children, node: _node, ...rest }) {
     const external = typeof href === "string" && /^https?:\/\//i.test(href);
     return (
@@ -65,4 +68,4 @@ const markdownComponents: Components = {
       </a>
     );
   },
-};
+});

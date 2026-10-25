@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { changedAfter, heldScroll, pickAnchor, type AnchorRow, type AnchorState } from "./rowAnchor";
 
 // The anchor's CHOICE, verified directly — numbers, not pixels. The
@@ -14,9 +14,7 @@ describe("rowAnchor — the anchor's choice", () => {
   it("uses the ref's null sentinel as the only unarmed state", () => {
     const armed: AnchorState = { key: "g-5", offset: 12 };
     expect(armed).toEqual({ key: "g-5", offset: 12 });
-    // @ts-expect-error An armed anchor always has a key; absence belongs to the ref.
-    const impossible: AnchorState = { key: null, offset: 123 };
-    expect(impossible).toBeDefined();
+    expectTypeOf<null>().not.toExtend<AnchorState["key"]>();
   });
 
   it("the anchor is the first FULLY visible row by KEY — never an overscan row above", () => {

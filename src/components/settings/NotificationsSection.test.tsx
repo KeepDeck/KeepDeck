@@ -5,28 +5,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { NotificationsSection } from "./NotificationsSection";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const notifyIpc = vi.hoisted(() => ({
   notificationPermissionGranted: vi.fn(() => Promise.resolve(false)),
   ensureNotificationPermission: vi.fn(() => Promise.resolve(true)),
 }));
-vi.mock("../../ipc/notify", () => notifyIpc);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ notificationPermission: notifyIpc }));
 
-const settings = vi.hoisted(() => ({
-  current: null as Settings | null,
-  listeners: new Set<() => void>(),
-}));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settings.current,
-  subscribeSettings: (cb: () => void) => {
-    settings.listeners.add(cb);
-    return () => settings.listeners.delete(cb);
-  },
-  updateSettings: vi.fn(),
-}));
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+const settings = vi.hoisted(() => ({ current: null as Settings | null }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver(settings, vi.fn()),
+);
 
 const flush = () => act(() => new Promise<void>((r) => setTimeout(r, 0)));
 
@@ -45,7 +36,7 @@ describe("NotificationsSection permission handling", () => {
     notifyIpc.ensureNotificationPermission.mockClear();
     settings.current = null;
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
 
   afterEach(() => {
@@ -82,9 +73,9 @@ describe("NotificationsSection permission handling", () => {
     withPrefs({});
     mount();
     await flush();
-    const allow = [...document.querySelectorAll("button")].find(
+    const allow = present([...document.querySelectorAll("button")].find(
       (b) => b.textContent === "Allow notifications",
-    )!;
+    ), "button \"Allow notifications\"");
     expect(allow).toBeDefined();
     act(() => allow.click());
     await flush();
@@ -98,9 +89,9 @@ describe("NotificationsSection permission handling", () => {
     withPrefs({});
     mount();
     await flush();
-    const allow = [...document.querySelectorAll("button")].find(
+    const allow = present([...document.querySelectorAll("button")].find(
       (b) => b.textContent === "Allow notifications",
-    )!;
+    ), "button \"Allow notifications\"");
     act(() => allow.click());
     await flush();
     expect(

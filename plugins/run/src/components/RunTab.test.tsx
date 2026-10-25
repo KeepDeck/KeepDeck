@@ -2,20 +2,17 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginContext, WorkspaceSnapshot } from "@keepdeck/plugin-api";
-import type { RunManager } from "../manager";
+import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
 import type { RunPreset, RunSession } from "../domain";
 import { setRuntime } from "../runtime";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { inertViewPorts, openerOf } from "../runPorts.test-support";
 
 // xterm can't mount under happy-dom; the log's contract is the manager's
 // attach/replay, covered in manager.test.ts and RunLog.test.tsx.
 vi.mock("./RunLog", () => ({ RunLog: () => null }));
 
 import { RunTab } from "./RunTab";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const workspace: WorkspaceSnapshot = {
   id: "ws-1",
@@ -60,6 +57,7 @@ function makeManager() {
     stopWorkspaceRuns: vi.fn(),
     stopAll: vi.fn(),
     attachRun: vi.fn(() => () => {}),
+    writeRun: vi.fn(),
     resizeRun: vi.fn(),
     getSessions: vi.fn((): RunSession[] => manager.sessions),
     subscribe: vi.fn(() => () => {}),
@@ -71,31 +69,28 @@ const kv = { get: vi.fn(), set: vi.fn(async () => {}), delete: vi.fn(async () =>
 // The plugin's effective settings values — per-test mutable (the Open in
 // describe swaps the app list).
 let settingsBag: Record<string, unknown> = {};
-const opener = {
+const openPathWith = vi.fn(async (_path: string, _application: string) => {});
+const opener = openerOf({
   openUrl: vi.fn(async () => {}),
   openPath: vi.fn(async () => {}),
-  openPathWith: vi.fn(async () => {}),
-};
-const ctx = {
-  storage: { workspace: vi.fn(() => kv), global: kv },
-  events: {
-    onDeckChanged: vi.fn(() => ({ dispose: vi.fn() })),
-    onWorkspaceClosed: vi.fn(() => ({ dispose: vi.fn() })),
-    onPaneSelected: vi.fn(() => ({ dispose: vi.fn() })),
-  },
+  openPathWith,
+});
+const ctx = inertViewPorts({
+  storage: { workspace: vi.fn(() => kv) },
+  events: { onDeckChanged: vi.fn(() => ({ dispose: vi.fn() })) },
   services: { opener },
   settings: {
     read: vi.fn(async () => settingsBag),
     onChange: vi.fn(() => ({ dispose: vi.fn() })),
   },
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-} as unknown as PluginContext;
+});
 
 function type(el: HTMLTextAreaElement | HTMLInputElement, text: string) {
-  const set = Object.getOwnPropertyDescriptor(
+  const set = present(present(Object.getOwnPropertyDescriptor(
     Object.getPrototypeOf(el),
     "value",
-  )!.set!;
+  ), "the value setter").set, "the set");
   act(() => {
     set.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -128,7 +123,7 @@ describe("RunTab — the merged Commands list", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     manager = makeManager();
-    setRuntime({ manager: manager as unknown as RunManager, ctx });
+    setRuntime({ manager, ctx });
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -145,7 +140,7 @@ describe("RunTab — the merged Commands list", () => {
     );
     expect(names).toEqual(["Dev", "Tests"]);
 
-    act(() => button("Run: Dev")!.click());
+    act(() => present(button("Run: Dev"), "the button with text \"Run: Dev\"").click());
     expect(manager.launchRun).toHaveBeenCalledWith(
       workspace,
       { worktree: "/wt/b", branch: "kd/b" },
@@ -161,10 +156,10 @@ describe("RunTab — the merged Commands list", () => {
     expect(document.querySelectorAll(".run__cmd").length).toBe(2);
     expect(document.body.textContent).toContain(":17040");
     // The stop sits BESIDE the status dot, at rest — not behind hover.
-    const live = document.querySelector(".run__g--live")!;
+    const live = present(document.querySelector(".run__g--live"), "the .run__g--live element");
     expect(live.querySelector(".run__dot--running")).not.toBeNull();
     expect(live.contains(button("Stop: Dev"))).toBe(true);
-    act(() => button("Stop: Dev")!.click());
+    act(() => present(button("Stop: Dev"), "the button with text \"Stop: Dev\"").click());
     expect(manager.stopRun).toHaveBeenCalledWith("s1");
     // No idle Run action — the command already runs here.
     expect(button("Run: Dev")).toBeNull();
@@ -186,21 +181,21 @@ describe("RunTab — the merged Commands list", () => {
     ];
     await mount(PRESETS); // current target = /wt/b
 
-    const child = document.querySelector(".run__cmd--child")!;
+    const child = present(document.querySelector(".run__cmd--child"), "the .run__cmd--child element");
     expect(child.textContent).toContain("kd/a");
     expect(child.textContent).toContain("exit 1");
     // The parent row still offers launching HERE.
     expect(button("Run: Dev")).not.toBeNull();
     // The child's glyph re-runs in ITS target — with the preset's CURRENT
     // command (the manager replaces the dead session for that target).
-    act(() => button("Run again: Dev (kd/a)")!.click());
+    act(() => present(button("Run again: Dev (kd/a)"), "the button with text \"Run again: Dev (kd/a)\"").click());
     expect(manager.launchRun).toHaveBeenCalledWith(
       workspace,
       { worktree: "/wt/a", branch: "kd/a" },
       { presetId: "run-1", command: "pnpm dev", name: "Dev" },
     );
     expect(manager.restartRun).not.toHaveBeenCalled();
-    act(() => button("Remove run Dev in kd/a")!.click());
+    act(() => present(button("Remove run Dev in kd/a"), "the button with text \"Remove run Dev in kd/a\"").click());
     expect(manager.removeRun).toHaveBeenCalledWith("s1");
   });
 
@@ -210,7 +205,7 @@ describe("RunTab — the merged Commands list", () => {
     ];
     await mount(PRESETS);
     expect(document.body.textContent).toContain("exit 1");
-    act(() => button("Run again: Dev")!.click());
+    act(() => present(button("Run again: Dev"), "the button with text \"Run again: Dev\"").click());
     // The edited preset command wins over the dead session's snapshot.
     expect(manager.launchRun).toHaveBeenCalledWith(
       workspace,
@@ -225,10 +220,10 @@ describe("RunTab — the merged Commands list", () => {
     await mount(PRESETS);
     expect(document.querySelector(".run__logbox")).not.toBeNull();
 
-    act(() => button("Hide the log")!.click());
+    act(() => present(button("Hide the log"), "the button with text \"Hide the log\"").click());
     expect(document.querySelector(".run__logbox")).toBeNull();
 
-    act(() => document.querySelector<HTMLElement>(".run__cmd")!.click());
+    act(() => present(document.querySelector<HTMLElement>(".run__cmd"), "the .run__cmd element").click());
     expect(document.querySelector(".run__logbox")).not.toBeNull();
   });
 
@@ -237,14 +232,14 @@ describe("RunTab — the merged Commands list", () => {
     await mount(PRESETS);
     expect(document.body.textContent).toContain("old dev");
     expect(button("Edit preset old dev")).toBeNull();
-    act(() => button("Remove run old dev")!.click());
+    act(() => present(button("Remove run old dev"), "the button with text \"Remove run old dev\"").click());
     expect(manager.removeRun).toHaveBeenCalledWith("s1");
   });
 
   it("the log caption names whose output is shown", async () => {
     manager.sessions = [running()];
     await mount(PRESETS);
-    const cap = document.querySelector(".run__logcap")!;
+    const cap = present(document.querySelector(".run__logcap"), "the .run__logcap element");
     expect(cap.textContent).toContain("Dev");
     expect(cap.textContent).toContain("kd/b");
     expect(cap.textContent).toContain(":17040");
@@ -253,8 +248,8 @@ describe("RunTab — the merged Commands list", () => {
   it("the log caption offers Stop while the session runs — and only then", async () => {
     manager.sessions = [running()];
     await mount(PRESETS);
-    const stop = button("Stop Dev")!;
-    expect(document.querySelector(".run__logcap")!.contains(stop)).toBe(true);
+    const stop = present(button("Stop Dev"), "the button with text \"Stop Dev\"");
+    expect(present(document.querySelector(".run__logcap"), "the .run__logcap element").contains(stop)).toBe(true);
     act(() => stop.click());
     expect(manager.stopRun).toHaveBeenCalledWith("s1");
 
@@ -269,7 +264,7 @@ describe("RunTab — the merged Commands list", () => {
     await mount(PRESETS);
 
     // Read-only until armed — no lit border, toggle not pressed.
-    const toggle = button("Enable input for Dev")!;
+    const toggle = present(button("Enable input for Dev"), "the button with text \"Enable input for Dev\"");
     expect(toggle).not.toBeNull();
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
     expect(document.querySelector(".run__logbox--interactive")).toBeNull();
@@ -279,7 +274,7 @@ describe("RunTab — the merged Commands list", () => {
     expect(button("Enable input for Dev")).toBeNull();
     expect(document.querySelector(".run__logbox--interactive")).not.toBeNull();
 
-    act(() => button("Disable input for Dev")!.click());
+    act(() => present(button("Disable input for Dev"), "the button with text \"Disable input for Dev\"").click());
     expect(button("Enable input for Dev")).not.toBeNull();
     expect(document.querySelector(".run__logbox--interactive")).toBeNull();
   });
@@ -296,13 +291,13 @@ describe("RunTab — the merged Commands list", () => {
   it("hiding the log disarms input — reopening the same run is read-only again", async () => {
     manager.sessions = [running()];
     await mount(PRESETS);
-    act(() => button("Enable input for Dev")!.click());
+    act(() => present(button("Enable input for Dev"), "the button with text \"Enable input for Dev\"").click());
     expect(document.querySelector(".run__logbox--interactive")).not.toBeNull();
 
-    act(() => button("Hide the log")!.click());
+    act(() => present(button("Hide the log"), "the button with text \"Hide the log\"").click());
     expect(document.querySelector(".run__logbox")).toBeNull();
 
-    act(() => document.querySelector<HTMLElement>(".run__cmd")!.click());
+    act(() => present(document.querySelector<HTMLElement>(".run__cmd"), "the .run__cmd element").click());
     expect(document.querySelector(".run__logbox")).not.toBeNull();
     expect(button("Enable input for Dev")).not.toBeNull();
     expect(document.querySelector(".run__logbox--interactive")).toBeNull();
@@ -312,20 +307,20 @@ describe("RunTab — the merged Commands list", () => {
     await mount(PRESETS);
     expect(document.querySelector(".run__form")).toBeNull();
 
-    act(() => button("Add command")!.click());
-    const form = document.querySelector(".run__form")!;
-    const list = document.querySelector(".run__cmds")!;
+    act(() => present(button("Add command"), "the button with text \"Add command\"").click());
+    const form = present(document.querySelector(".run__form"), "the .run__form element");
+    const list = present(document.querySelector(".run__cmds"), "the .run__cmds element");
     expect(
       form.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     type(
-      document.querySelector<HTMLTextAreaElement>(
+      present(document.querySelector<HTMLTextAreaElement>(
         'textarea[aria-label="Command to run"]',
-      )!,
+      ), "the textarea[aria-label=\"Command to run\"] element"),
       "pnpm worker",
     );
-    act(() => byText("Add")!.click());
+    act(() => present(byText("Add"), "the element with text \"Add\"").click());
     expect(kv.set).toHaveBeenCalledWith("presets", [
       ...PRESETS,
       { id: "run-3", name: "pnpm worker", command: "pnpm worker" },
@@ -336,19 +331,19 @@ describe("RunTab — the merged Commands list", () => {
 
   it("✎ opens the form loaded; Save rewrites in place; ✕ deletes the command", async () => {
     await mount(PRESETS);
-    act(() => button("Edit preset Dev")!.click());
-    const field = document.querySelector<HTMLTextAreaElement>(
+    act(() => present(button("Edit preset Dev"), "the button with text \"Edit preset Dev\"").click());
+    const field = present(document.querySelector<HTMLTextAreaElement>(
       'textarea[aria-label="Command to run"]',
-    )!;
+    ), "the textarea[aria-label=\"Command to run\"] element");
     expect(field.value).toBe("pnpm dev");
     type(field, "pnpm install\npnpm tauri dev");
-    act(() => byText("Save")!.click());
+    act(() => present(byText("Save"), "the element with text \"Save\"").click());
     expect(kv.set).toHaveBeenCalledWith("presets", [
       { id: "run-1", name: "Dev", command: "pnpm install\npnpm tauri dev" },
       PRESETS[1],
     ]);
 
-    act(() => button("Delete preset Tests")!.click());
+    act(() => present(button("Delete preset Tests"), "the button with text \"Delete preset Tests\"").click());
     // Dead sessions of the deleted command are swept — without this a
     // same-named orphan row made the delete look like it didn't work.
     expect(manager.removeDeadRunsFor).toHaveBeenCalledWith(workspace, "run-2");
@@ -372,7 +367,7 @@ describe("RunTab — target follows the highlighted pane", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     manager = makeManager();
-    setRuntime({ manager: manager as unknown as RunManager, ctx });
+    setRuntime({ manager, ctx });
     kv.get.mockResolvedValue([]);
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
@@ -384,9 +379,9 @@ describe("RunTab — target follows the highlighted pane", () => {
   });
 
   const target = () =>
-    document.querySelector<HTMLButtonElement>(
+    present(document.querySelector<HTMLButtonElement>(
       'button[aria-label="Run target directory"]',
-    )!;
+    ), "the button[aria-label=\"Run target directory\"] element");
 
   it("re-highlighting another worktree pane moves the target (the ▶ flow)", async () => {
     const render = async (selectedPaneId: string) => {
@@ -413,10 +408,10 @@ describe("RunTab — target follows the highlighted pane", () => {
     await render();
     act(() => target().click());
     act(() =>
-      Array.from(
+      present(Array.from(
         document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
       )
-        .find((o) => o.textContent === "Workspace folder")!
+        .find((o) => o.textContent === "Workspace folder"), "the matching item")
         .click(),
     );
     expect(target().textContent).toBe("Workspace folder");
@@ -433,16 +428,16 @@ describe("RunTab — target follows the highlighted pane", () => {
     });
     await act(async () => {});
 
-    const config = document.querySelector<HTMLElement>(".run__config")!;
+    const config = present(document.querySelector<HTMLElement>(".run__config"), "the .run__config element");
     expect(document.querySelector(".run__logbox")).not.toBeNull();
     act(() => target().click());
 
-    const listbox = document.querySelector<HTMLElement>('[role="listbox"]')!;
+    const listbox = present(document.querySelector<HTMLElement>('[role="listbox"]'), "the [role=\"listbox\"] element");
     expect(document.body.contains(listbox)).toBe(true);
     expect(config.contains(listbox)).toBe(false);
-    const workspaceOption = [...listbox.querySelectorAll<HTMLButtonElement>(
+    const workspaceOption = present([...listbox.querySelectorAll<HTMLButtonElement>(
       '[role="option"]',
-    )].find((option) => option.textContent === "Workspace folder")!;
+    )].find((option) => option.textContent === "Workspace folder"), "the matching item");
 
     act(() => {
       workspaceOption.dispatchEvent(
@@ -466,7 +461,7 @@ describe("RunTab — Open in", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     manager = makeManager();
-    setRuntime({ manager: manager as unknown as RunManager, ctx });
+    setRuntime({ manager, ctx });
     kv.get.mockResolvedValue([]);
     // The settings-sourced application list (Settings → Run).
     settingsBag = { openApps: ["Visual Studio Code", "IntelliJ IDEA"] };
@@ -490,9 +485,9 @@ describe("RunTab — Open in", () => {
   const row = () => document.querySelector<HTMLElement>(".run__open");
 
   it("logs an open the OS refuses, naming the app and the target", async () => {
-    opener.openPathWith.mockRejectedValueOnce({ code: 2 });
+    openPathWith.mockRejectedValueOnce({ code: 2 });
     await mount();
-    await act(async () => byText("Open")!.click());
+    await act(async () => present(byText("Open"), "the element with text \"Open\"").click());
     expect(ctx.log.warn).toHaveBeenCalledWith(
       'Open in Visual Studio Code failed for /wt/b: {"code":2}',
     );
@@ -500,8 +495,8 @@ describe("RunTab — Open in", () => {
 
   it("opens the CURRENT target in the list's first app when nothing is picked", async () => {
     await mount(); // pane-2 highlighted → target /wt/b
-    act(() => byText("Open")!.click());
-    expect(opener.openPathWith).toHaveBeenCalledWith(
+    act(() => present(byText("Open"), "the element with text \"Open\"").click());
+    expect(openPathWith).toHaveBeenCalledWith(
       "/wt/b",
       "Visual Studio Code",
     );
@@ -510,12 +505,12 @@ describe("RunTab — Open in", () => {
   it("a pick is written to the workspace slot and used on open", async () => {
     await mount();
     act(() =>
-      row()!.querySelector<HTMLButtonElement>(".dropdown__button")!.click(),
+      present(present(row(), "the row").querySelector<HTMLButtonElement>(".dropdown__button"), "the .dropdown__button element").click(),
     );
-    act(() => byText("IntelliJ IDEA")!.click());
+    act(() => present(byText("IntelliJ IDEA"), "the element with text \"IntelliJ IDEA\"").click());
     expect(kv.set).toHaveBeenCalledWith("openApp", "IntelliJ IDEA");
-    act(() => byText("Open")!.click());
-    expect(opener.openPathWith).toHaveBeenCalledWith("/wt/b", "IntelliJ IDEA");
+    act(() => present(byText("Open"), "the element with text \"Open\"").click());
+    expect(openPathWith).toHaveBeenCalledWith("/wt/b", "IntelliJ IDEA");
   });
 
   it("hydrates the stored pick from the workspace slot", async () => {
@@ -523,7 +518,7 @@ describe("RunTab — Open in", () => {
       key === "openApp" ? "IntelliJ IDEA" : [],
     );
     await mount();
-    expect(row()!.querySelector(".dropdown__label")!.textContent).toBe(
+    expect(present(present(row(), "the row").querySelector(".dropdown__label"), "the .dropdown__label element").textContent).toBe(
       "IntelliJ IDEA",
     );
   });
@@ -533,7 +528,7 @@ describe("RunTab — Open in", () => {
       key === "openApp" ? "Finder" : [],
     );
     await mount();
-    expect(row()!.querySelector(".dropdown__label")!.textContent).toBe(
+    expect(present(present(row(), "the row").querySelector(".dropdown__label"), "the .dropdown__label element").textContent).toBe(
       "Visual Studio Code",
     );
   });

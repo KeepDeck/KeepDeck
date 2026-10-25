@@ -1,4 +1,5 @@
 import {
+  isJsonRecord,
   fileStub,
   firstMeaningfulUserTurn,
   jsonl,
@@ -11,7 +12,9 @@ import {
   type AgentHistory,
   type AgentSessionStub,
   type AgentTranscriptEntry,
-  type PluginContext,
+  type PluginFs,
+  type PluginLogger,
+  type PluginSessionStore,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
 
@@ -49,15 +52,21 @@ function textOf(message: unknown): string {
   return textFromParts(content);
 }
 
-/** One line of claude's store, as this plugin reads it. An assertion about
- * the format made in ONE place: the host parses the JSON and validates
- * nothing, because it knows nothing about claude. */
+/** One line of claude's store, as this plugin reads it: a JSON object
+ * whose fields the dialect asks about one by one. The host parses the JSON
+ * and validates nothing, because it knows nothing about claude. */
 interface ClaudeRecord {
   type?: unknown;
   message?: unknown;
   isMeta?: unknown;
   cwd?: unknown;
   summary?: unknown;
+}
+
+/** Every field of a record is read as `unknown`, so any JSON object is one;
+ * a line that is JSON but no object is not. */
+function isClaudeRecord(value: unknown): value is ClaudeRecord {
+  return isJsonRecord(value);
 }
 
 /** What claude records in passing, on lines the walk goes through anyway —
@@ -98,7 +107,17 @@ const dialect: SessionDialect<ClaudeState, ClaudeRecord> = {
   end: () => [],
 };
 
-export function claudeHistory(ctx: PluginContext): AgentHistory {
+/** What the history reads through: the store's folders, the session reader
+ * over them, and the log. */
+export interface HistoryPorts {
+  log: PluginLogger;
+  services: {
+    fs: Pick<PluginFs, "readDir">;
+    sessionStore: PluginSessionStore;
+  };
+}
+
+export function claudeHistory(ctx: HistoryPorts): AgentHistory {
   const walk = (
     ref: string,
     extra: {
@@ -111,7 +130,7 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
   ) =>
     walkSession({
       store: ctx.services.sessionStore,
-      format: jsonl<ClaudeRecord>(),
+      format: jsonl(isClaudeRecord),
       request: { path: ref },
       dialect,
       ...extra,

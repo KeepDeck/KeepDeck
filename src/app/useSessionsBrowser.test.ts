@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { sharedOf } from "./browserShared.test-support";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IndexFolderScope, SearchHit, SearchPage } from "../ipc/history";
 
@@ -22,8 +23,9 @@ import {
   useSessionsBrowser,
   type BrowserSharedSeam,
   type SessionsBrowserApi,
+  type TranscriptSource,
 } from "./useSessionsBrowser";
-import type { AgentHistory } from "@keepdeck/plugin-api";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * Which contract the browser reaches for. Both paths answer with the same
@@ -41,7 +43,7 @@ describe("the browser prefers the honest twin", () => {
       entries,
       shortfall: [{ kind: "bytes" as const, size: 40, readBytes: 8 }],
     }));
-    const history = { transcript, transcriptPage } as unknown as AgentHistory;
+    const history: TranscriptSource = { transcript, transcriptPage };
 
     const got = await readTranscriptPage(history, "/store/s-1", page);
 
@@ -54,31 +56,13 @@ describe("the browser prefers the honest twin", () => {
 
   it("falls back to the legacy method when there is no twin", async () => {
     const transcript = vi.fn(async () => entries);
-    const history = { transcript } as unknown as AgentHistory;
+    const history: TranscriptSource = { transcript };
 
     const got = await readTranscriptPage(history, "/store/s-1", page);
 
     expect(transcript).toHaveBeenCalledWith("/store/s-1", page);
     expect(got).toEqual({ entries });
   });
-});
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
-/** The shared seam's stand-in: fixed revision/scanning, a keyed table the
- * tests may pre-fill, and recording declares. */
-const sharedOf = (over: Partial<BrowserSharedSeam> = {}): BrowserSharedSeam => ({
-  scanning: false,
-  revision: 1,
-  enrichment: {
-    entries: new Map(),
-    pending: false,
-    declare: vi.fn(),
-  },
-  ensureFresh: vi.fn(),
-  transcript: vi.fn(() => Promise.resolve({ entries: [] })),
-  ...over,
 });
 
 const mkHits = (from: number, count: number): SearchHit[] =>
@@ -123,7 +107,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
     );
     shared = sharedOf();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => act(() => root.unmount()));
 

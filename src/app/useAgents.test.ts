@@ -10,14 +10,12 @@ import type {
 import type { BinStatus } from "../ipc/agents";
 import type { InstalledPlugin } from "../plugins";
 import { createContributionRegistries } from "../plugins/registries/contributions";
-import type { AppRuntime } from "./runtime";
-import { AppRuntimeProvider } from "./runtimeContext";
-import { resetAgentsCache, useAgents } from "./useAgents";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import {
+  resetAgentsCache,
+  useAgentsFrom,
+  type AgentCatalogSource,
+} from "./useAgents";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const ipc = vi.hoisted(() => ({
   detectBins: vi.fn<(bins: string[]) => Promise<BinStatus[]>>(),
@@ -30,13 +28,11 @@ const pluginHost = {
   subscribe: () => () => {},
   getInstalled: () => installedPlugins,
 };
-const runtime = {
-  plugins: {
-    pluginHost,
-    pluginRegistries,
-    bootstrapPlugins: () => Promise.resolve(),
-  },
-} as unknown as AppRuntime;
+const plugins: AgentCatalogSource = {
+  pluginHost,
+  pluginRegistries,
+  bootstrapPlugins: () => Promise.resolve(),
+};
 
 const claude: AgentContribution = {
   id: "claude",
@@ -49,9 +45,9 @@ const claude: AgentContribution = {
   hooks: {},
 };
 
-let seen: ReturnType<typeof useAgents>;
+let seen: ReturnType<typeof useAgentsFrom>;
 function Probe() {
-  seen = useAgents();
+  seen = useAgentsFrom(plugins);
   return null;
 }
 
@@ -97,7 +93,7 @@ describe("useAgents", () => {
     resetAgentsCache();
     installedPlugins = [];
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 
   afterEach(() => {
@@ -108,9 +104,7 @@ describe("useAgents", () => {
 
   const mount = () =>
     act(async () =>
-      root.render(
-        createElement(AppRuntimeProvider, { runtime }, createElement(Probe)),
-      ),
+      root.render(createElement(Probe)),
     );
 
   it("assembles the catalog from agent contributions plus detection", async () => {
@@ -199,7 +193,7 @@ describe("useAgents", () => {
 
     // The remount's re-detect is still in flight — the cached status stands.
     ipc.detectBins.mockReturnValue(new Promise(() => {}));
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     await mount();
     expect(seen.agents[0]?.installed).toBe(false);
     expect(seen.agents[0]?.path).toBe("/usr/local/bin/claude");

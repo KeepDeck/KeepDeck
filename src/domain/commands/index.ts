@@ -1,4 +1,4 @@
-export type { ArgSpec, ArgType, CommandArgs } from "./args";
+export type { ArgSpec, ArgType, CommandArgs, RawArgs } from "./args";
 export { validateArgs } from "./args";
 export {
   isValidCommandId,

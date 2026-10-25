@@ -4,13 +4,31 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualList } from "./VirtualList";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf } from "./testDom.test-support";
 
 const ROW = 20;
 const items = Array.from({ length: 500 }, (_, i) => `row ${i}`);
+
+/** The browser's answer to a media query, which happy-dom never varies: a
+ * real EventTarget, so a preference that changes reaches the fold's listener
+ * as a browser's `change` would. */
+class FakeMediaQueryList extends EventTarget implements MediaQueryList {
+  onchange: MediaQueryList["onchange"] = null;
+  constructor(
+    readonly media: string,
+    public matches: boolean,
+  ) {
+    super();
+  }
+  addListener(): void {}
+  removeListener(): void {}
+  /** The person changed the preference: answer anew and say so. */
+  change(matches: boolean): void {
+    this.matches = matches;
+    this.dispatchEvent(new MediaQueryListEvent("change", { matches, media: this.media }));
+  }
+}
 
 describe("VirtualList", () => {
   let root: Root;
@@ -20,7 +38,7 @@ describe("VirtualList", () => {
   beforeEach(() => {
     installResizeObserver();
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -52,7 +70,7 @@ describe("VirtualList", () => {
     expect(rows.length).toBeGreaterThanOrEqual(10);
     expect(rows.length).toBeLessThan(40);
     expect(rows[0].textContent).toBe("row 0");
-    const spacer = host.querySelector(".list > div") as HTMLElement;
+    const spacer = elementOf(host, ".list > div", HTMLElement);
     expect(spacer.style.height).toBe(`${500 * ROW}px`);
   });
 
@@ -86,11 +104,11 @@ describe("VirtualList", () => {
         }),
       ),
     );
-    const spacer = host.querySelector(".list > ul.list__spacer") as HTMLElement;
+    const spacer = elementOf(host, ".list > ul.list__spacer", HTMLElement);
     expect(spacer).toBeTruthy();
     // Named where a reader meets the list — the ul, not the generic box.
     expect(spacer.getAttribute("aria-label")).toBe("Things");
-    expect(host.querySelector(".list")!.hasAttribute("aria-label")).toBe(false);
+    expect(present(host.querySelector(".list"), "the .list element").hasAttribute("aria-label")).toBe(false);
     expect(spacer.style.height).toBe(`${3 * ROW}px`);
     expect(host.querySelectorAll("ul.list__spacer > li.list__item > .row").length).toBe(3);
   });
@@ -109,7 +127,7 @@ describe("VirtualList", () => {
           }),
         ),
       );
-    const list = () => host.querySelector<HTMLElement>(".list")!;
+    const list = () => present(host.querySelector<HTMLElement>(".list"), "the .list element");
     // The scroll event a browser sends after a script scrolls — happy-dom
     // sends none, and the list learns where it stands from that event.
     const scrolled = () => act(() => void list().dispatchEvent(new Event("scroll")));
@@ -183,7 +201,7 @@ describe("VirtualList", () => {
           }),
         ),
       );
-    const list = () => host.querySelector<HTMLElement>(".list")!;
+    const list = () => present(host.querySelector<HTMLElement>(".list"), "the .list element");
     const scrollTo = (top: number) =>
       act(() => {
         list().scrollTop = top;
@@ -369,7 +387,7 @@ describe("VirtualList", () => {
           }),
         ),
       );
-    const list = () => host.querySelector<HTMLElement>(".list")!;
+    const list = () => present(host.querySelector<HTMLElement>(".list"), "the .list element");
     const scrollFar = async () => {
       await act(async () => {
         list().scrollTop = 400 * ROW;
@@ -382,7 +400,7 @@ describe("VirtualList", () => {
     it("lands focus on the list when the focused row unmounts, so the next Tab enters a mounted row", async () => {
       restore = pinListViewport("list", 200, 300, ROW);
       renderButtons();
-      const first = host.querySelector<HTMLButtonElement>(".row")!;
+      const first = present(host.querySelector<HTMLButtonElement>(".row"), "the .row element");
       act(() => first.focus());
       expect(document.activeElement).toBe(first);
       await scrollFar();
@@ -401,7 +419,7 @@ describe("VirtualList", () => {
       restore = pinListViewport("list", 200, 300, ROW);
       const outside = document.body.appendChild(document.createElement("button"));
       renderButtons();
-      act(() => host.querySelector<HTMLButtonElement>(".row")!.focus());
+      act(() => present(host.querySelector<HTMLButtonElement>(".row"), "the .row element").focus());
       act(() => outside.focus());
       await scrollFar();
       expect(document.activeElement).toBe(outside);
@@ -411,7 +429,7 @@ describe("VirtualList", () => {
       restore = pinListViewport("list", 200, 300, ROW);
       const outside = document.body.appendChild(document.createElement("button"));
       renderButtons();
-      act(() => host.querySelector<HTMLButtonElement>(".row")!.focus());
+      act(() => present(host.querySelector<HTMLButtonElement>(".row"), "the .row element").focus());
       // A departure whose focusout the list does not see (another browsing
       // context reports no target): the memory stays, and only the
       // browser's own answer — focus is not on <body> — keeps the list off.
@@ -437,7 +455,7 @@ describe("VirtualList's measured heights", () => {
   beforeEach(() => {
     installResizeObserver();
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
     restore = pinListViewport("list", 200, 300, MEASURED);
   });
@@ -459,13 +477,13 @@ describe("VirtualList's measured heights", () => {
         }),
       ),
     );
-  const list = () => host.querySelector<HTMLElement>(".list")!;
+  const list = () => present(host.querySelector<HTMLElement>(".list"), "the .list element");
   /** Each mounted row's top, by its text. */
   const tops = () =>
     new Map(
       [...host.querySelectorAll<HTMLElement>(".list > div > div")].map((item) => [
-        item.textContent!,
-        Number(/translateY\((-?[\d.]+)px\)/.exec(item.style.transform)![1]),
+        present(item.textContent, "the textContent of item"),
+        Number(present(/translateY\((-?[\d.]+)px\)/.exec(item.style.transform), "the regex match")[1]),
       ]),
     );
 
@@ -476,7 +494,7 @@ describe("VirtualList's measured heights", () => {
       list().dispatchEvent(new Event("scroll"));
     });
     const before = tops();
-    const anchor = before.get("row 10")! - list().scrollTop;
+    const anchor = present(before.get("row 10"), "the entry for \"row 10\"") - list().scrollTop;
 
     // A row lands at the top: the list holds row 10 where it was — and the
     // rows in view keep the heights they measured, rather than falling back
@@ -485,9 +503,9 @@ describe("VirtualList's measured heights", () => {
     await act(async () => {});
 
     const after = tops();
-    expect(after.get("row 10")! - list().scrollTop).toBe(anchor);
+    expect(present(after.get("row 10"), "the entry for \"row 10\"") - list().scrollTop).toBe(anchor);
     for (let i = 10; i < 15; i++) {
-      expect(after.get(`row ${i + 1}`)! - after.get(`row ${i}`)!).toBe(MEASURED);
+      expect(present(after.get(`row ${i + 1}`), "the entry for `row ${i + 1}`") - present(after.get(`row ${i}`), "the entry for `row ${i}`")).toBe(MEASURED);
     }
   });
 
@@ -498,13 +516,13 @@ describe("VirtualList's measured heights", () => {
     // earlier — or the row it holds lands a height difference per landed
     // row off its place.
     render(items);
-    const anchor = tops().get("row 0")! - list().scrollTop;
+    const anchor = present(tops().get("row 0"), "the entry for \"row 0\"") - list().scrollTop;
     const landed = Array.from({ length: 5 }, (_, i) => `new ${i}`);
 
     render([...landed, ...items]);
     await act(async () => {});
 
-    expect(tops().get("row 0")! - list().scrollTop).toBe(anchor);
+    expect(present(tops().get("row 0"), "the entry for \"row 0\"") - list().scrollTop).toBe(anchor);
   });
 
   /** A scroll, as a browser makes it: the offset moves and a scroll
@@ -538,11 +556,11 @@ describe("VirtualList's measured heights", () => {
     render(items);
     await scrollTo(ARMED_AT);
     await scrollTo(READ_AT);
-    const before = tops().get("row 11")! - list().scrollTop;
+    const before = present(tops().get("row 11"), "the entry for \"row 11\"") - list().scrollTop;
     render(["new 0", "new 1", ...items]);
     await act(async () => {});
     // Where the PERSON had it — not where it stood at the last arming.
-    expect(tops().get("row 11")! - list().scrollTop).toBe(before);
+    expect(present(tops().get("row 11"), "the entry for \"row 11\"") - list().scrollTop).toBe(before);
   });
 
   it("leaves the scroll alone when a page lands BELOW while the person is at the end", async () => {
@@ -612,12 +630,12 @@ describe("VirtualList's measured heights", () => {
     const withoutHeld = items.filter((item) => item !== "row 10");
     render(withoutHeld);
     await act(async () => {});
-    const anchor = tops().get("row 11")! - list().scrollTop;
+    const anchor = present(tops().get("row 11"), "the entry for \"row 11\"") - list().scrollTop;
 
     render(["new 0", "new 1", ...withoutHeld]);
     await act(async () => {});
 
-    expect(tops().get("row 11")! - list().scrollTop).toBe(anchor);
+    expect(present(tops().get("row 11"), "the entry for \"row 11\"") - list().scrollTop).toBe(anchor);
   });
 });
 
@@ -637,7 +655,7 @@ describe("VirtualList as a grouped list", () => {
   beforeEach(() => {
     installResizeObserver();
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
     restore = pinListViewport("list", 200, 300, H);
   });
@@ -670,13 +688,13 @@ describe("VirtualList as a grouped list", () => {
         }),
       ),
     );
-  const list = () => host.querySelector<HTMLElement>(".list")!;
+  const list = () => present(host.querySelector<HTMLElement>(".list"), "the .list element");
   const pinned = () => host.querySelector(".pinned")?.textContent ?? null;
   const top = (key: string) => {
-    const item = [...host.querySelectorAll<HTMLElement>(".list > div:not(:first-child) > div")].find(
+    const item = present([...host.querySelectorAll<HTMLElement>(".list > div:not(:first-child) > div")].find(
       (el) => el.textContent === key,
-    )!;
-    return Number(/translateY\((-?[\d.]+)px\)/.exec(item.style.transform)![1]) - list().scrollTop;
+    ), "the matching item");
+    return Number(present(/translateY\((-?[\d.]+)px\)/.exec(item.style.transform), "the regex match")[1]) - list().scrollTop;
   };
   const scrollTo = async (px: number) => {
     await act(async () => {
@@ -697,7 +715,7 @@ describe("VirtualList as a grouped list", () => {
 
   it("lets the next heading push the pinned one up, by the part it has run into", async () => {
     render(grouped(30));
-    const shift = () => host.querySelector<HTMLElement>(".pinned")!.style.transform;
+    const shift = () => present(host.querySelector<HTMLElement>(".pinned"), "the .pinned element").style.transform;
     // Group 2's heading starts at 22·H; the pinned heading is H tall.
     await scrollTo(22 * H - 2 * H);
     expect(pinned()).toBe("group 1");
@@ -786,9 +804,9 @@ describe("VirtualList as a grouped list", () => {
       render(grouped(30), open);
       // A box under the heading, at nothing yet: what is below has not moved.
       expect(box()).not.toBeNull();
-      expect(box()!.style.height).toBe("0px");
+      expect(present(box(), "the list box").style.height).toBe("0px");
       await frames(80);
-      const mid = Number.parseFloat(box()!.style.height);
+      const mid = Number.parseFloat(present(box(), "the list box").style.height);
       expect(mid).toBeGreaterThan(0);
       expect(mid).toBeLessThan(10 * H);
       await frames(200);
@@ -805,7 +823,7 @@ describe("VirtualList as a grouped list", () => {
       const ghosts = () => [...host.querySelectorAll<HTMLElement>("[aria-hidden='true'][inert]")].map((g) => g.textContent);
       expect(ghosts()).toContain("g9r0");
       await frames(80);
-      expect(Number.parseFloat(box()!.style.height)).toBeLessThan(10 * H);
+      expect(Number.parseFloat(present(box(), "the list box").style.height)).toBeLessThan(10 * H);
       await frames(200);
       expect(box()).toBeNull();
       expect(ghosts()).toEqual([]);
@@ -899,11 +917,11 @@ describe("VirtualList as a grouped list", () => {
       await scrollTo(95 * H);
       render(grouped(30), new Set<number>());
       await frames(48);
-      const opened = Number.parseFloat(box()!.style.height);
+      const opened = Number.parseFloat(present(box(), "the list box").style.height);
       expect(opened).toBeGreaterThan(0);
       // Shut again before it is open: the box goes on from that height.
       render(grouped(30, shut), new Set(shut));
-      expect(Number.parseFloat(box()!.style.height)).toBeCloseTo(opened);
+      expect(Number.parseFloat(present(box(), "the list box").style.height)).toBeCloseTo(opened);
       await frames(300);
       expect(box()).toBeNull();
     });
@@ -921,15 +939,13 @@ describe("VirtualList as a grouped list", () => {
     });
 
     it("lands a fold in flight the moment reduced motion is asked for", async () => {
-      const listeners: ((event: { matches: boolean }) => void)[] = [];
+      const answers: FakeMediaQueryList[] = [];
       const original = window.matchMedia;
-      window.matchMedia = ((query: string) =>
-        ({
-          matches: false,
-          media: query,
-          addEventListener: (_: string, fn: (event: { matches: boolean }) => void) => listeners.push(fn),
-          removeEventListener: () => {},
-        }) as unknown as MediaQueryList) as typeof window.matchMedia;
+      window.matchMedia = (query) => {
+        const answer = new FakeMediaQueryList(query, false);
+        answers.push(answer);
+        return answer;
+      };
       try {
         render(grouped(30, shut), shut);
         await scrollTo(95 * H);
@@ -937,7 +953,7 @@ describe("VirtualList as a grouped list", () => {
         await frames(16);
         expect(box()).not.toBeNull();
         await act(async () => {
-          for (const fn of listeners) fn({ matches: true });
+          for (const answer of answers) answer.change(true);
         });
         expect(box()).toBeNull();
       } finally {
@@ -949,12 +965,12 @@ describe("VirtualList as a grouped list", () => {
       render(grouped(30, shut), shut);
       await scrollTo(95 * H);
       render(grouped(30), new Set<number>());
-      expect(box()!.style.overflow).toBe("clip");
+      expect(present(box(), "the list box").style.overflow).toBe("clip");
     });
 
     it("lands at once under reduced motion", async () => {
       const original = window.matchMedia;
-      window.matchMedia = ((query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList) as typeof window.matchMedia;
+      window.matchMedia = (query) => new FakeMediaQueryList(query, query.includes("reduce"));
       try {
         render(grouped(30, shut), shut);
         await scrollTo(95 * H);

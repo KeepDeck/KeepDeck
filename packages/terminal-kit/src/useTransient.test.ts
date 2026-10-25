@@ -4,10 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useTransient } from "./useTransient";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const MS = 4000;
 
 // Captured from the probe render so tests can drive the hook from outside.

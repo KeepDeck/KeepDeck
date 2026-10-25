@@ -4,8 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHART_BAR_RADIUS } from "../../domain/usage/chartPalette";
 import { TEST_NOW, usageEvent } from "../../domain/usage/history/event.testSupport";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 // happy-dom lays nothing out, so the responsive box would measure 0×0 and
 // draw no chart: the box hands the chart a fixed size, as a laid-out one
@@ -36,7 +35,7 @@ describe("UsageChart", () => {
   let root: Root;
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
   });
   afterEach(() => act(() => root.unmount()));
 

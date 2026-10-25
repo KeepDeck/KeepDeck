@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { AgentDialogResult } from "../domain/agents";
 import {
   TEAM_FULL_MESSAGE,
@@ -12,19 +12,13 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { inspectRepo } from "../ipc/worktree";
 import { createAgentDoors } from "./agentDoors";
 import { useAgentDialog } from "./useAgentDialog";
-import { AppRuntimeProvider } from "./runtimeContext";
-import type { AppRuntime } from "./runtime";
 import type {
   CreatePaneOutcome,
   CreatePaneRequest,
   CreateTeamOutcome,
   CreateTeamRequest,
 } from "./agentOrchestrator";
-import type { Deck } from "./useDeck";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 // Per-path disk probes for suggestion filtering: paths in the map probe as a
 // non-empty non-worktree dir (blocked); anything else as missing (free).
@@ -91,22 +85,30 @@ const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(() =
   kind: "created",
   teamId: "team-1",
 }));
+/** A deck as this file needs one: the workspaces the hook reads, and the
+ * team entry the doors make after a "+ Team" — recorded, so a case can say
+ * whether it happened. */
+interface TestDeck {
+  workspaces: Workspace[];
+  openTeam: Mock<(wsId: string, teamId: string) => void>;
+}
+const deckOf = (...workspaces: Workspace[]): TestDeck => ({
+  workspaces,
+  openTeam: vi.fn(),
+});
 /** The deck the current Host was mounted with — what the doors owner reads
  * and enters teams through, exactly as the hook's own deck argument. */
-let currentDeck: Deck;
-const runtime = {
+let currentDeck: TestDeck;
+// The doors owner over the same doubles: what the hook asks when a dialog
+// is confirmed. Its own decisions are pinned in agentDoors.test; here the
+// subject is what the hook OFFERS it and how it shows the answer.
+const doors = createAgentDoors({
   orchestrator: { createPane, createTeam, resumeSession, forkSession },
-  // The doors owner over the same doubles: what the hook asks when a dialog
-  // is confirmed. Its own decisions are pinned in agentDoors.test; here the
-  // subject is what the hook OFFERS it and how it shows the answer.
-  agentDoors: createAgentDoors({
-    orchestrator: { createPane, createTeam, resumeSession, forkSession },
-    deck: {
-      workspaces: () => currentDeck.workspaces,
-      openTeam: (wsId, teamId) => currentDeck.openTeam(wsId, teamId),
-    },
-  }),
-} as unknown as AppRuntime;
+  deck: {
+    workspaces: () => currentDeck.workspaces,
+    openTeam: (wsId, teamId) => currentDeck.openTeam(wsId, teamId),
+  },
+});
 /** Where a failed continuation reports. A dialog that just closes on a failed
  * fork reads as success, so the wiring is worth asserting. */
 const notices = {
@@ -119,13 +121,11 @@ const notices = {
 const offered = (n = 0) => createPane.mock.calls[n][0];
 const mountHost = (
   root: Root,
-  Host: (props: { deck: Deck }) => null,
-  deck: Deck,
+  Host: (props: { deck: TestDeck }) => null,
+  deck: TestDeck,
 ) => {
   currentDeck = deck;
-  return root.render(
-    createElement(AppRuntimeProvider, { runtime }, createElement(Host, { deck })),
-  );
+  return root.render(createElement(Host, { deck }));
 };
 
 describe("useAgentDialog suggestions", () => {
@@ -133,11 +133,11 @@ describe("useAgentDialog suggestions", () => {
   let root: Root;
   let flow: ReturnType<typeof useAgentDialog>;
 
-  function Host({ deck }: { deck: Deck }) {
+  function Host({ deck }: { deck: TestDeck }) {
     // No settings store seeded here: the default-agent preference falls back
     // to "claude" — these tests cover suggestions, not the type picker.
     // No journal routing and no blocked panes: these tests cover suggestions.
-    flow = useAgentDialog(deck, [], notices, {});
+    flow = useAgentDialog(deck, [], notices, {}, doors);
     return null;
   }
 
@@ -158,7 +158,7 @@ describe("useAgentDialog suggestions", () => {
   afterEach(() => act(() => root.unmount()));
 
   const mount = async (ws: Workspace) => {
-    const deck = { workspaces: [ws], addAgentPane: vi.fn(), openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     return deck;
   };
@@ -253,7 +253,7 @@ describe("useAgentDialog suggestions", () => {
 
   it("a picked base branch rides the new team's provisioning intent", async () => {
     const ws = workspace({});
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws));
 
@@ -283,7 +283,7 @@ describe("useAgentDialog suggestions", () => {
 
   it("the YOLO choice lands on the pane — sparsely, only when armed", async () => {
     const ws = withTeam();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
 
     const confirmMain = async (yolo: boolean) => {
@@ -308,7 +308,7 @@ describe("useAgentDialog suggestions", () => {
 
   it("a remote result creates a bare pane carrying the endpoint, on the team it joins", async () => {
     const ws = withTeam();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
 
     await act(async () => flow.openFor(ws, MEMBER));
@@ -354,7 +354,7 @@ describe("useAgentDialog suggestions", () => {
       await Promise.resolve();
     });
     const replacement = workspace({ id: old.id });
-    const replacementDeck = { workspaces: [replacement] } as unknown as Deck;
+    const replacementDeck = deckOf(replacement);
     await act(async () =>
       mountHost(root, Host, replacementDeck),
     );
@@ -370,7 +370,7 @@ describe("useAgentDialog suggestions", () => {
     // The dialog has already closed by the time the answer comes back, so a
     // dropped refusal is an agent the user asked for that never appears.
     const ws = withTeam();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, MEMBER));
     createPane.mockReturnValueOnce({ kind: "full" });
@@ -390,12 +390,12 @@ describe("useAgentDialog suggestions", () => {
 
   it("does not confirm into a replacement with the same public id", async () => {
     const old = workspace({});
-    const oldDeck = { workspaces: [old] } as unknown as Deck;
+    const oldDeck = deckOf(old);
     await act(async () => mountHost(root, Host, oldDeck));
     await act(async () => flow.openFor(old));
 
     const replacement = workspace({ id: old.id });
-    const replacementDeck = { workspaces: [replacement] } as unknown as Deck;
+    const replacementDeck = deckOf(replacement);
     await act(async () =>
       mountHost(root, Host, replacementDeck),
     );
@@ -431,8 +431,8 @@ describe("useAgentDialog start-from routing", () => {
   /** The revive sweep's gone-directory verdicts, as the hook receives them. */
   let blockedPanes: Record<string, string> = {};
 
-  function Host({ deck }: { deck: Deck }) {
-    flow = useAgentDialog(deck, [], notices, blockedPanes);
+  function Host({ deck }: { deck: TestDeck }) {
+    flow = useAgentDialog(deck, [], notices, blockedPanes, doors);
     return null;
   }
 
@@ -454,7 +454,7 @@ describe("useAgentDialog start-from routing", () => {
   // from, and a member's resume runs where it was recorded while its fork
   // lands in the team's directory.
   const mountAndOpen = async (ws: Workspace) => {
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, MEMBER));
   };
@@ -656,8 +656,8 @@ describe("useAgentDialog targets", () => {
   let root: Root;
   let flow: ReturnType<typeof useAgentDialog>;
 
-  function Host({ deck }: { deck: Deck }) {
-    flow = useAgentDialog(deck, [], notices, {});
+  function Host({ deck }: { deck: TestDeck }) {
+    flow = useAgentDialog(deck, [], notices, {}, doors);
     return null;
   }
 
@@ -708,7 +708,7 @@ describe("useAgentDialog targets", () => {
         { id: "p2", agentType: "claude", session: { id: "s-8", boundAt: "t" } },
       ],
     });
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.forkPaneSession("ws-1", "p2"));
     expect(flow.dialog).toBeNull();
@@ -718,12 +718,12 @@ describe("useAgentDialog targets", () => {
       defaultAgentType: "codex",
       preset: { mode: "fork", handle: { agent: "codex", sessionId: "s-9", cwd: "/base/kd-KeepDeck-1" } },
     });
-    expect(flow.dialog!.roles.addressFor("lead")).toBeNull();
+    expect(present(flow.dialog, "the open dialog").roles.addressFor("lead")).toBeNull();
   });
 
   it("opens for a member with no location to ask about, and lands it on the team by id under the role picked", async () => {
     const ws = teamed();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, { kind: "member", teamId: "team-1" }));
     // No repo inspection, no suggestion: the member runs where the team runs
@@ -735,8 +735,8 @@ describe("useAgentDialog targets", () => {
       suggestedPath: "",
     });
     // The picker's data is built against the roster the team holds.
-    expect(flow.dialog!.roles.addressFor("lead")).toBeNull();
-    expect(flow.dialog!.roles.addressFor("impl")).toBe("impl-1");
+    expect(present(flow.dialog, "the open dialog").roles.addressFor("lead")).toBeNull();
+    expect(present(flow.dialog, "the open dialog").roles.addressFor("impl")).toBe("impl-1");
 
     await act(async () => flow.confirm({ ...fresh(), role: "impl-1" }));
     expect(offered()).toMatchObject({ team: "team-1", role: "impl-1" });
@@ -758,7 +758,7 @@ describe("useAgentDialog targets", () => {
         },
       ],
     });
-    const deck = { workspaces: [creating], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(creating);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(creating, { kind: "member", teamId: "team-9" }));
     expect(flow.dialog).toBeNull();
@@ -768,7 +768,7 @@ describe("useAgentDialog targets", () => {
 
   it("forks a member's session INTO the team's directory, and resumes where it was recorded", async () => {
     const ws = teamed();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, { kind: "member", teamId: "team-1" }));
     await act(async () =>
@@ -803,7 +803,7 @@ describe("useAgentDialog targets", () => {
 
   it("suggests the deck's next auto name for a new team, makes the team and nothing else, and enters it", async () => {
     const ws = teamed();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws));
     expect(flow.dialog).toMatchObject({
@@ -834,7 +834,7 @@ describe("useAgentDialog targets", () => {
 
   it("says so when the team is full, when the directory is another team's, and when the name is taken", async () => {
     const ws = teamed();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, { kind: "member", teamId: "team-1" }));
     createPane.mockReturnValueOnce({ kind: "full" });
@@ -857,7 +857,7 @@ describe("useAgentDialog targets", () => {
 
   it("asks instead of failing when the directory is another team's, and re-issues the create with the answer", async () => {
     const ws = teamed();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws));
     createTeam.mockReturnValueOnce({
@@ -876,7 +876,7 @@ describe("useAgentDialog targets", () => {
     expect(flow.dialog).toBeNull();
 
     createTeam.mockReturnValueOnce({ kind: "created", teamId: "team-2" });
-    await act(async () => flow.sharedAsk!.confirm());
+    await act(async () => present(flow.sharedAsk, "the shared-name ask").confirm());
     // The SAME create, now carrying the answer.
     expect(createTeam).toHaveBeenLastCalledWith(
       expect.objectContaining({ name: "docs", shared: true }),
@@ -887,7 +887,7 @@ describe("useAgentDialog targets", () => {
 
   it("drops the create when the question is cancelled", async () => {
     const ws = teamed();
-    const deck = { workspaces: [ws], openTeam: vi.fn() } as unknown as Deck;
+    const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws));
     createTeam.mockReturnValueOnce({
@@ -897,7 +897,7 @@ describe("useAgentDialog targets", () => {
     });
     await act(async () => flow.confirm({ ...fresh(), teamName: "docs" }));
     createTeam.mockClear();
-    await act(async () => flow.sharedAsk!.cancel());
+    await act(async () => present(flow.sharedAsk, "the shared-name ask").cancel());
     expect(flow.sharedAsk).toBeNull();
     expect(createTeam).not.toHaveBeenCalled();
     expect(deck.openTeam).not.toHaveBeenCalled();

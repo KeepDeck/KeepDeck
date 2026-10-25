@@ -3,10 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useSaveShortcut } from "./useSaveShortcut";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The chord's own suite. It had none: "physical key, not layout character" was
@@ -30,7 +27,7 @@ describe("useSaveShortcut", () => {
   beforeEach(async () => {
     saves = 0;
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     await act(async () => root.render(createElement(Surface)));
   });
 
@@ -76,6 +73,6 @@ describe("useSaveShortcut", () => {
     await press({ code: "KeyS", key: "s", metaKey: true });
     expect(saves).toBe(0);
     // Re-rendered so `afterEach`'s unmount has a root to work with.
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 });

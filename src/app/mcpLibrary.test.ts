@@ -12,6 +12,7 @@ import {
   type McpLibrary,
   type McpStorage,
 } from "./mcpLibrary";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const GLOBAL: McpScope = { kind: "global" };
 const WS: McpScope = { kind: "workspace", wsId: "ws-1" };
@@ -93,7 +94,7 @@ describe("authoring", () => {
   it("creates by composing the file and telling the storage it is NEW", async () => {
     const { library, storage } = libraryOver();
     await library.create(GLOBAL, { ...github("ghp"), name: "gh2" });
-    const [scope, name, content, expectNew] = storage.save.mock.calls[0]!;
+    const [scope, name, content, expectNew] = present(storage.save.mock.calls[0], "the first save call");
     expect(scope).toEqual(GLOBAL);
     expect(name).toBe("gh2");
     expect(JSON.parse(content)).toMatchObject({ transport: "stdio", command: "npx" });
@@ -197,13 +198,13 @@ describe("what a workspace gets", () => {
     const servers = await library.serversFor("ws-1");
     expect(servers.map((s) => s.spec.name)).toEqual(["github", "fs"]);
     // The workspace's `github` won: its token is the one in the environment.
-    expect(servers[0]!.env).toEqual([["GITHUB_PERSONAL_ACCESS_TOKEN", "ghp_ws"]]);
+    expect(present(servers[0], "the first server").env).toEqual([["GITHUB_PERSONAL_ACCESS_TOKEN", "ghp_ws"]]);
   });
 
   it("hands another workspace the global set alone", async () => {
     const { library } = libraryOver();
     const servers = await library.serversFor("ws-9");
-    expect(servers[0]!.env).toEqual([["GITHUB_PERSONAL_ACCESS_TOKEN", "ghp_global"]]);
+    expect(present(servers[0], "the first server").env).toEqual([["GITHUB_PERSONAL_ACCESS_TOKEN", "ghp_global"]]);
   });
 
   it("skips a file it cannot read, with a warning, and serves the rest", async () => {

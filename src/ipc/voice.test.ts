@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { speechErrorKind } from "@keepdeck/plugin-api";
+import { instanceOf, recordOf } from "../testing/values.test-support";
 
 /**
  * The error contract with `src-tauri/src/voice.rs`: a voice command rejects
@@ -20,7 +21,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 /** The level channel a start handed to native — what Rust sends on. */
 function levelChannel(): { onmessage: (value: unknown) => void } {
   const start = tauri.invoke.mock.calls.find(([command]) => command === "voice_capture_start");
-  return (start?.[1] as { onLevel: { onmessage: (value: unknown) => void } }).onLevel;
+  const onLevel = recordOf(recordOf(start?.[1], "voice start args").onLevel, "level channel");
+  if (typeof onLevel.onmessage !== "function") throw new Error("voice start carried no level channel");
+  const onmessage = onLevel.onmessage;
+  return {
+    onmessage: (value: unknown) => {
+      if (typeof onmessage === "function") onmessage(value);
+    },
+  };
 }
 
 const { speechError, voiceCaptureStart } = await import("./voice");
@@ -51,11 +59,11 @@ describe("voice commands", () => {
     await voiceCaptureStart("keepdeck.voice", () => {});
     await voiceCaptureStart("keepdeck.voice", () => {});
     const starts = tauri.invoke.mock.calls.filter(([command]) => command === "voice_capture_start");
-    const sessions = starts.map(([, args]) => (args as { session: unknown }).session);
+    const sessions = starts.map(([, args]) => recordOf(args, "voice args").session);
     expect(typeof sessions[0]).toBe("string");
     expect(sessions[0]).not.toBe("");
     expect(sessions[1]).toBe(sessions[0]);
-    const ids = starts.map(([, args]) => (args as { captureId: unknown }).captureId);
+    const ids = starts.map(([, args]) => recordOf(args, "voice args").captureId);
     expect(ids[1]).not.toBe(ids[0]);
   });
 
@@ -92,7 +100,7 @@ describe("voice commands", () => {
     tauri.invoke.mockRejectedValueOnce({ kind: "busy", message: "a capture is already running" });
     const rejected = await voiceCaptureStart("keepdeck.voice", () => {}).catch((e: unknown) => e);
     expect(speechErrorKind(rejected)).toBe("busy");
-    expect((rejected as Error).message).toBe("a capture is already running");
+    expect(instanceOf(rejected, Error, "rejection").message).toBe("a capture is already running");
   });
 
   it("a failed stop rejects with the native kind", async () => {

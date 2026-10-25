@@ -57,6 +57,7 @@ import {
 } from "../../domain/usage/history/event.testSupport";
 import { StatsDialog, UsageStats } from "./StatsDialog";
 import type { StatsTab } from "../../domain/usage/statsTabs";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The dialog's tab is controlled by the app-layer owner; tests host that
  * ownership in a tiny stateful wrapper. */
@@ -69,9 +70,6 @@ function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
   const [tab, setTab] = useState<StatsTab>("overview");
   return createElement(StatsDialog, { tab, onSelectTab: setTab, onClose });
 }
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
 
 const NOW = TEST_NOW;
 /** This file's personality over the shared builder: a costed codex session
@@ -114,7 +112,7 @@ describe("UsageStats", () => {
     usage.snapshot = { accounts: new Map(), panes: new Map() };
     windowReports.snapshot = { ready: true, byKey: new Map() };
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -124,9 +122,9 @@ describe("UsageStats", () => {
   });
 
   const clickTab = (label: string) => {
-    const tab = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+    const tab = present([...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
       (button) => button.textContent === label,
-    )!;
+    ), "the matching element");
     act(() => tab.click());
   };
 
@@ -141,13 +139,13 @@ describe("UsageStats", () => {
       await import("./UsageChart");
     });
 
-    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const dialog = present(document.body.querySelector('[role="dialog"]'), "the [role=\"dialog\"] element");
     expect(dialog.getAttribute("aria-label")).toBe("Statistics");
     expect(dialog.textContent).toContain("across every CLI and workspace");
     expect(dialog.closest(".modal-overlay")).not.toBeNull();
     expect(dialog.closest(".settings")).toBeNull();
 
-    act(() => dialog.querySelector<HTMLButtonElement>(".ui-close")!.click());
+    act(() => present(dialog.querySelector<HTMLButtonElement>(".ui-close"), "the .ui-close element").click());
     expect(close).toHaveBeenCalledOnce();
   });
 
@@ -202,9 +200,9 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(Host)));
     expect(host.textContent).toContain("gpt-5.6-terra"); // default 7d
 
-    const day = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    const day = present([...host.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "24h",
-    )!;
+    ), "the matching element");
     act(() => day.click());
     // The period went empty, but Overview STAYS: zeroed cards over an
     // intact Weeks history — an empty period must never hide the one
@@ -245,7 +243,7 @@ describe("UsageStats", () => {
     streak.days = 4;
     act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
 
-    const footer = document.body.querySelector(".stats-dialog__actions")!;
+    const footer = present(document.body.querySelector(".stats-dialog__actions"), "the .stats-dialog__actions element");
     expect(footer.querySelector(".stats__streak")).not.toBeNull();
     expect(
       document.body.querySelector(".stats-dialog__body .stats__streak"),
@@ -257,7 +255,7 @@ describe("UsageStats", () => {
       root.render(createElement(Host, { initialTab: "achievements" })),
     );
     expect(host.textContent).toContain("In progress");
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toBe(
+    expect(present(host.querySelector('[role="tab"][aria-selected="true"]'), "the [role=\"tab\"][aria-selected=\"true\"] element").textContent).toBe(
       "Achievements",
     );
   });
@@ -319,9 +317,9 @@ describe("UsageStats", () => {
     expect(host.textContent).toContain("No usage recorded");
     clickTab("Overview");
 
-    const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    const all = present([...host.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "All",
-    )!;
+    ), "the matching element");
     act(() => all.click());
     expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("1.6k");
   });
@@ -336,9 +334,9 @@ describe("UsageStats", () => {
     clickTab("Models");
     expect(host.textContent).toContain("No usage recorded");
 
-    const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    const all = present([...host.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "All",
-    )!;
+    ), "the matching element");
     act(() => all.click());
     expect(host.textContent).not.toContain("No usage recorded");
     expect(host.querySelector('[aria-label="Models"]')).not.toBeNull();

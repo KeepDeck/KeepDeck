@@ -145,7 +145,7 @@ export function createUsageTailsLane({
             // that left the deck while the walk was out is dropped from the
             // set by `reconcile`, and the answer then has nowhere to go.
             const stillWanted = searching.delete(paneId);
-            const path = (request as { path?: string } | null)?.path;
+            const path = request?.path;
             if (!path) {
               log.debug(
                 "web:usage",

@@ -203,10 +203,8 @@ function recordsEqual(a: SessionRecord, b: SessionRecord): boolean {
     a.title === b.title &&
     a.transcriptPath === b.transcriptPath &&
     a.boundAt === b.boundAt &&
-    (a.state === "live" ? a.paneId === (b as { paneId: string }).paneId : true) &&
-    (a.state === "closed"
-      ? a.endedAt === (b as { endedAt: string }).endedAt
-      : true)
+    (a.state === "live" ? b.state === "live" && a.paneId === b.paneId : true) &&
+    (a.state === "closed" ? b.state === "closed" && a.endedAt === b.endedAt : true)
   );
 }
 

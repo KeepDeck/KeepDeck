@@ -6,13 +6,10 @@ import { AgentPaneHeader } from "../components/agent/AgentPaneHeader";
 import { MinimizedItem } from "../components/deck/MinimizedItem";
 import { AppRuntimeProvider } from "../app/runtimeContext";
 import { createAgentStatusTracker } from "../app/agentStatusTracker";
-import type { AppRuntime } from "../app/runtime";
 import { appCss, px, readStyles, ruleBody } from "./testSupport";
 import { paneHeaderView } from "../presentation/paneHeaderView";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../testing/values.test-support";
 
 /**
  * The pane's own wrappers, hand-written: mounting the real `AgentPane` costs
@@ -52,7 +49,7 @@ beforeEach(() => {
   sheet.textContent = appCss;
   document.head.append(sheet);
   document.body.innerHTML = "<div id='host'></div>";
-  host = document.getElementById("host")!;
+  host = present(document.getElementById("host"), "the host element");
   root = createRoot(host);
 });
 
@@ -104,7 +101,7 @@ function renderStandIn(): void {
         {
           runtime: {
             statusTracker: createAgentStatusTracker(),
-          } as unknown as AppRuntime,
+          },
         },
         createElement(MinimizedItem, {
           paneId: "pane-1",
@@ -123,7 +120,7 @@ function renderStandIn(): void {
 const styleOf = (selector: string) => {
   const element = document.querySelector(selector);
   expect(element, `no element matched ${selector}`).not.toBeNull();
-  return getComputedStyle(element as HTMLElement);
+  return getComputedStyle(instanceOf(element, HTMLElement, "element"));
 };
 
 function mountBody(): void {

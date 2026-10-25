@@ -41,14 +41,25 @@ interface JsonlResume {
 const CURSOR_PREFIX = "j1";
 
 function encodeCursor(resume: JsonlResume): SessionCursor {
-  return `${CURSOR_PREFIX}:${resume.byte}:${resume.size}` as SessionCursor;
+  const cursor = `${CURSOR_PREFIX}:${resume.byte}:${resume.size}`;
+  if (!isJsonlCursor(cursor)) throw new Error(`jsonl: ${cursor} is not a cursor this reader can resume`);
+  return cursor;
+}
+
+/** Whether `text` is a jsonl cursor this reader can resume from. */
+function isJsonlCursor(text: string): text is SessionCursor {
+  return resumeOf(text) !== null;
 }
 
 /** `null` for anything this version cannot read — a cursor from a future
  * shape, or a forged one. The caller turns that into `changed`, which is
  * already the right instruction: start over. */
 function decodeCursor(cursor: SessionCursor): JsonlResume | null {
-  const parts = String(cursor).split(":");
+  return resumeOf(cursor);
+}
+
+function resumeOf(text: string): JsonlResume | null {
+  const parts = text.split(":");
   if (parts.length !== 3 || parts[0] !== CURSOR_PREFIX) return null;
   const byte = Number(parts[1]);
   const size = Number(parts[2]);
@@ -77,9 +88,10 @@ function utf8Length(text: string, end: number): number {
   return bytes;
 }
 
-export function createJsonlReader(
+export function createJsonlReader<Item>(
   fs: PluginFs,
-): SessionReader<JsonlRequest, unknown> {
+  accepts: (value: unknown) => value is Item,
+): SessionReader<JsonlRequest, Item> {
   return {
     async pull(request, budget, consume): Promise<ReadOutcome> {
       const resume =
@@ -97,6 +109,8 @@ export function createJsonlReader(
        * a valid place to resume, so this is what a cursor names. */
       let consumedEnd = start;
       let items = 0;
+      /** Lines that parsed but are no record of this format. */
+      let refused = 0;
       /** The tail of a window that ended mid-line, waiting for its rest. */
       let carry = "";
       let carryBytes = 0;
@@ -105,6 +119,7 @@ export function createJsonlReader(
       const outcome = (stopped: ReadOutcome["stopped"]): ReadOutcome => ({
         payloadBytes: at - start,
         items,
+        ...(refused > 0 ? { refused } : {}),
         stopped,
         sourceBytes,
         // A cursor only where there is something left to come back for.
@@ -168,8 +183,17 @@ export function createJsonlReader(
           if (line.trim() === "") continue;
           let record: unknown;
           try {
-            record = JSON.parse(line) as unknown;
+            record = JSON.parse(line);
           } catch {
+            continue;
+          }
+          // Whole, but not a record this format reads: counted, not handed
+          // over — the reading reports it (`refused`) rather than losing it.
+          if (!accepts(record)) {
+            refused += 1;
+            // Past it for good: a read resumed after this line must not
+            // count it a second time.
+            consumedEnd = bufferStart + utf8Length(buffer, chars);
             continue;
           }
 

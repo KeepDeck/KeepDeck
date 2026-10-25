@@ -7,9 +7,11 @@ import {
   type ExistingArtifact,
   type PublishDeps,
 } from "./publish";
+import { isArtifactFormat, validateSlug } from "./model";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const existing = (over: Partial<ExistingArtifact> = {}): ExistingArtifact => ({
-  slug: "auth-flow" as ExistingArtifact["slug"],
+  slug: present(validateSlug("auth-flow"), "auth-flow slug"),
   format: "html",
   versionCount: 3,
   ...over,
@@ -159,7 +161,7 @@ describe("the v1+v2 race mirror", () => {
     expect(first).toEqual({ kind: "create", slug: "race", format: "html" });
 
     // The racer's plan: the store now holds the artifact (v1).
-    const afterCreate: ExistingArtifact = { slug: "race" as ExistingArtifact["slug"], format: "html", versionCount: 1 };
+    const afterCreate: ExistingArtifact = { slug: present(validateSlug("race"), "race slug"), format: "html", versionCount: 1 };
     const second = planPublish(
       afterCreate,
       { slug: "race", title: "T", format: "html" },
@@ -189,8 +191,8 @@ describe("collision golden fixtures (shared with the Rust store)", () => {
   it.each(cases)("$name", (fixture) => {
     const existing: ExistingArtifact | null = fixture.existing
       ? {
-          slug: fixture.existing.slug as ExistingArtifact["slug"],
-          format: fixture.existing.format as ExistingArtifact["format"],
+          slug: present(validateSlug(fixture.existing.slug), "fixture slug"),
+          format: present(isArtifactFormat(fixture.existing.format) ? fixture.existing.format : null, "fixture format"),
           versionCount: fixture.existing.versionCount,
         }
       : null;
@@ -199,7 +201,7 @@ describe("collision golden fixtures (shared with the Rust store)", () => {
       {
         slug: fixture.request.slug ?? undefined,
         title: fixture.request.title,
-        format: fixture.request.format as ExistingArtifact["format"],
+        format: present(isArtifactFormat(fixture.request.format) ? fixture.request.format : null, "request format"),
       },
       names(...fixture.taken),
     );

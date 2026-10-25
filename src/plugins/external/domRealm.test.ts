@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { domRealm } from "./realmPlugin";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The production realm's iframe MUST carry both sandbox tokens: `allow-scripts`
  * to run the guest, and `allow-same-origin` so the document keeps its own
@@ -18,13 +19,12 @@ describe("domRealm", () => {
     // attributes are the subject here, and an unhandled rejection fails the
     // whole run's exit code.
     domRealm.openRealm("kdplugin://dev.x/__main__.html").catch(() => {});
-    const frame = document.body.querySelector("iframe");
-    expect(frame).not.toBeNull();
-    expect(frame!.hidden).toBe(true);
-    expect(frame!.sandbox.contains("allow-scripts")).toBe(true);
-    expect(frame!.sandbox.contains("allow-same-origin")).toBe(true);
+    const frame = present(document.body.querySelector("iframe"), "the realm iframe");
+    expect(frame.hidden).toBe(true);
+    expect(frame.sandbox.contains("allow-scripts")).toBe(true);
+    expect(frame.sandbox.contains("allow-same-origin")).toBe(true);
     // Nothing broader crept in — no top-navigation/forms/popups.
-    expect(frame!.sandbox.length).toBe(2);
+    expect(frame.sandbox.length).toBe(2);
   });
 
   /** The host-RPC port is a capability. It must be addressed to the realm's
@@ -32,7 +32,7 @@ describe("domRealm", () => {
    * `URL.origin` yields the string "null" for a non-special scheme. */
   it("hands the connect port to the realm's origin, not to any listener", async () => {
     const opened = domRealm.openRealm("kdplugin://dev.x/__main__.html");
-    const frame = document.body.querySelector("iframe")!;
+    const frame = present(document.body.querySelector("iframe"), "the realm iframe");
     const posted: unknown[][] = [];
     Object.defineProperty(frame, "contentWindow", {
       configurable: true,

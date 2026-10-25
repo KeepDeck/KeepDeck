@@ -6,6 +6,7 @@ import {
   settingsFloorBreach,
   SETTINGS_VERSION,
 } from "./migrations";
+import { listOf, recordOf, recordsOf, stringOf } from "../../testing/values.test-support";
 
 describe("migrateDeck — revision ladder + compatibility floor", () => {
   it("the deck + settings revisions are the expected values", () => {
@@ -142,7 +143,7 @@ describe("migrateDeck — v4 → v5: Workspace.run retirement", () => {
     });
     expect(out.kind).toBe("ok");
     if (out.kind !== "ok") return;
-    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    const ws = (recordsOf(out.doc.workspaces, "records"))[0];
     expect(ws.setup).toBe("pnpm i");
     expect(ws.plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
@@ -156,7 +157,7 @@ describe("migrateDeck — v4 → v5: Workspace.run retirement", () => {
       workspaces: [{ id: "ws-1", run: { setup: "pnpm i", presets: [] } }],
     });
     if (out.kind !== "ok") throw new Error("expected ok");
-    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    const ws = (recordsOf(out.doc.workspaces, "records"))[0];
     expect(ws.setup).toBe("pnpm i");
     expect(ws.plugins).toBeUndefined();
     expect(ws.run).toBeUndefined();
@@ -173,7 +174,7 @@ describe("migrateDeck — v4 → v5: Workspace.run retirement", () => {
       ],
     });
     if (out.kind !== "ok") throw new Error("expected ok");
-    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    const ws = (recordsOf(out.doc.workspaces, "records"))[0];
     expect(ws.setup).toBeUndefined();
     expect(ws.plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
@@ -205,7 +206,7 @@ describe("migrateDeck — v4 → v5: Workspace.run retirement", () => {
       ],
     });
     if (out.kind !== "ok") throw new Error("expected ok");
-    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    const ws = (recordsOf(out.doc.workspaces, "records"))[0];
     expect(ws.plugins).toEqual({
       other: { kept: true },
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
@@ -228,7 +229,7 @@ describe("migrateDeck — v4 → v5: Workspace.run retirement", () => {
     expect(out.kind).toBe("ok");
     if (out.kind !== "ok") return;
     expect(out.doc.version).toBe(DECK_STATE_VERSION);
-    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    const ws = (recordsOf(out.doc.workspaces, "records"))[0];
     expect(ws.setup).toBe("pnpm i");
     expect(ws.plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
@@ -244,8 +245,13 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
     const out = migrateDeck(v10(workspaces));
     if (out.kind !== "ok") throw new Error(out.kind);
     return {
-      workspaces: out.doc.workspaces as Raw[],
-      notices: (out.doc.migrationNotices as string[] | undefined) ?? [],
+      workspaces: recordsOf(out.doc.workspaces, "workspaces"),
+      notices:
+        out.doc.migrationNotices === undefined
+          ? []
+          : listOf(out.doc.migrationNotices, "migration notices").map((notice) =>
+              stringOf(notice, "migration notice"),
+            ),
     };
   };
   const ws = (id: string, panes: unknown[], over: Raw = {}): Raw => ({
@@ -256,8 +262,9 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
     panes,
     ...over,
   });
-  const teamsOf = (workspace: Raw) => workspace.teams as Raw[] | undefined;
-  const panesOf = (workspace: Raw) => workspace.panes as Raw[];
+  const teamsOf = (workspace: Raw) =>
+    workspace.teams === undefined ? undefined : recordsOf(workspace.teams, "teams");
+  const panesOf = (workspace: Raw) => recordsOf(workspace.panes, "panes");
 
   it("a named team whose members share one directory survives intact, on that directory", () => {
     // The live deck's own shape: four agents of one team in one worktree.
@@ -431,7 +438,13 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
       ws("ws-5", [{ id: "pane-1" }, { id: "pane-2" }, { id: "pane-3" }], { worktreeBaseDir: null }),
     ]);
     expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "Team 1", cwd: "/ws-5" }]);
-    expect(panesOf(workspaces[0]).map((pane) => (pane.team as Raw | undefined)?.role)).toEqual([
+    expect(
+      panesOf(workspaces[0]).map((pane) =>
+        pane.team === undefined
+          ? undefined
+          : stringOf(recordOf(pane.team, "pane team").role, "pane role"),
+      ),
+    ).toEqual([
       "lead",
       "impl-1",
       "impl-2",

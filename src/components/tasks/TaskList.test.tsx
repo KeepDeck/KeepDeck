@@ -6,8 +6,8 @@ import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtual
 import { board, relation, task } from "../../domain/tasks/testSupport";
 import { IDLE, NO_QUERY, listView } from "../../presentation/tasks";
 import { TaskList } from "./TaskList";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 let host: HTMLElement;
 let root: Root;
@@ -52,16 +52,16 @@ describe("TaskList", () => {
     const onLabel = vi.fn();
     const items = listView(tasks, board(tasks), 0, NO_QUERY, new Set(), null);
     act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, folds: null, onFoldEpic: vi.fn(), onArm: vi.fn(), onHover: vi.fn(), onDrop: vi.fn(), onSelect, onFold, onLabel })));
-    act(() => host.querySelector<HTMLButtonElement>(".tasks__row-open")!.click());
+    act(() => present(host.querySelector<HTMLButtonElement>(".tasks__row-open"), "element \".tasks__row-open\"").click());
     expect(onSelect).toHaveBeenCalledWith("task-2");
     // A label narrows the view; a blocker opens the task that holds it.
-    act(() => host.querySelector<HTMLButtonElement>(".tasks__row .kd-tag:not(.kd-tag--outline)")!.click());
+    act(() => present(host.querySelector<HTMLButtonElement>(".tasks__row .kd-tag:not(.kd-tag--outline)"), "element \".tasks__row .kd-tag:not(.kd-tag--outline)\"").click());
     expect(onLabel).toHaveBeenCalledWith("copy");
-    act(() => host.querySelector<HTMLButtonElement>(".tasks__row .tasks__tag--blocking")!.click());
+    act(() => present(host.querySelector<HTMLButtonElement>(".tasks__row .tasks__tag--blocking"), "element \".tasks__row .tasks__tag--blocking\"").click());
     expect(onSelect).toHaveBeenLastCalledWith("task-1");
-    const heading = [...host.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")].find(
+    const heading = present([...host.querySelectorAll<HTMLButtonElement>(".tasks__list-item .tasks__group")].find(
       (h) => h.textContent?.startsWith("To do"),
-    )!;
+    ), "task group containing \"To do\"");
     expect(heading.getAttribute("aria-expanded")).toBe("true");
     act(() => heading.click());
     expect(onFold).toHaveBeenCalledWith("todo");
@@ -74,7 +74,7 @@ describe("TaskList", () => {
     act(() => root.render(createElement(TaskList, { items, openId: null, drag: IDLE, hover: null, folds: null, onFoldEpic: vi.fn(), onArm: vi.fn(), onHover, onDrop, onSelect: vi.fn(), onFold: vi.fn(), onLabel: vi.fn() })));
     // At the top it lies right over the first heading, so a release there
     // reaches it, not the heading under it.
-    const pinned = host.querySelector<HTMLButtonElement>(".tasks__list-pinned .tasks__group")!;
+    const pinned = present(host.querySelector<HTMLButtonElement>(".tasks__list-pinned .tasks__group"), "element \".tasks__list-pinned .tasks__group\"");
     act(() => {
       pinned.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
       pinned.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
@@ -97,20 +97,20 @@ describe("TaskList", () => {
     expect(epic.querySelector(".tasks__epic-chip")?.textContent).toBe("EPIC");
     expect(epic.querySelector(".tasks__epic-progress")?.textContent).toBe("1/1");
     // Bar and count are one image, named once with the breakdown; the bar inside is a picture only.
-    const progress = epic.querySelector<HTMLElement>(".tasks__epic-progress")!;
+    const progress = present(epic.querySelector<HTMLElement>(".tasks__epic-progress"), "element \".tasks__epic-progress\"");
     expect([progress.getAttribute("role"), progress.getAttribute("aria-label")]).toEqual(["img", "1 of 1 tasks done"]);
     expect(progress.querySelectorAll("[aria-label]")).toHaveLength(0);
-    const bar = progress.querySelector<HTMLElement>(".status-bar")!;
+    const bar = present(progress.querySelector<HTMLElement>(".status-bar"), "element \".status-bar\"");
     expect(bar.className).toBe("status-bar tasks__epic-bar");
     expect(bar.getAttribute("aria-hidden")).toBe("true");
-    expect([...bar.children].map((part) => [part.className, (part as HTMLElement).style.flexBasis])).toEqual([["status-bar__part status-bar__part--done", "100%"]]);
+    expect([...bar.children].map((part) => [part.className, (instanceOf(part, HTMLElement, "part")).style.flexBasis])).toEqual([["status-bar__part status-bar__part--done", "100%"]]);
     expect(step.className).toContain("tasks__row--under-epic");
     // One gutter leads every row: the epic's holds its fold, its task's the guide (ending at the last).
     expect(step.firstElementChild?.className).toBe("tasks__row-lead tasks__row-lead--guide tasks__row-lead--end");
     expect(epic.firstElementChild?.className).toBe("tasks__row-lead tasks__row-fold tasks__row-control");
     expect(epic.querySelector(".tasks__row-lead--guide")).toBeNull();
     expect(step.querySelector(".tasks__epic-chip")).toBeNull();
-    const fold = epic.querySelector<HTMLButtonElement>(".tasks__row-fold")!;
+    const fold = present(epic.querySelector<HTMLButtonElement>(".tasks__row-fold"), "element \".tasks__row-fold\"");
     expect(fold.getAttribute("aria-expanded")).toBe("true");
     // The fold is a control of its own, never inside the row's.
     expect(fold.closest(".tasks__row-open")).toBeNull();

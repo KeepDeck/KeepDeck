@@ -7,6 +7,7 @@ import {
   type McpInjectionTarget,
   type McpServerSource,
 } from "./injection";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** A shipped server that answers for every pane, and shows what it was asked
  * with — the invocation names the client when there is one. */
@@ -138,7 +139,7 @@ describe("the MCP injection", () => {
     await access.deliver();
 
     expect(access).toMatchObject({ entries: [], throughArgv: false });
-    expect(JSON.parse(planted[0]!)).toEqual({ mcpServers: {} });
+    expect(JSON.parse(present(planted[0], "the first planted config"))).toEqual({ mcpServers: {} });
   });
 
   it("carries the library's environment — and only for the servers it accepted", async () => {
@@ -235,7 +236,7 @@ describe("the MCP injection", () => {
     await access.deliver();
 
     expect(plant).toHaveBeenCalledWith("ws-1", "/repo", expect.any(String));
-    expect(Object.keys(JSON.parse(planted[0]!.content).mcpServers)).toEqual([
+    expect(Object.keys(JSON.parse(present(planted[0], "the first planted config").content).mcpServers)).toEqual([
       "keepdeck",
       "github",
     ]);

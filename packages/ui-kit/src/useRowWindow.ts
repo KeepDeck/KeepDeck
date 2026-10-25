@@ -113,15 +113,13 @@ export function useRowWindow<Row>({
   });
   const measure = useCallback(
     (element: HTMLElement | null) => virtualizer.measureElement(element),
-    // The virtualizer instance is stable for the mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    // The instance is stable for the mount, so the callback is too.
+    [virtualizer],
   );
   const reveal = useCallback(
     (index: number) => virtualizer.scrollToIndex(index, { align: "auto" }),
-    // The virtualizer instance is stable for the mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    // The instance is stable for the mount, so the callback is too.
+    [virtualizer],
   );
   const revealEnd = () => {
     if (rows.length > 0) virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
@@ -140,7 +138,7 @@ export function useRowWindow<Row>({
       for (let index = 0; index < rows.length; index++) {
         const item = cache[index];
         // Keys are the consumer's strings (`keyOf`).
-        if (item) laid.push({ key: item.key as string, start: item.start, end: item.end });
+        if (item) laid.push({ key: String(item.key), start: item.start, end: item.end });
       }
       return { rows: laid, total: virtualizer.getTotalSize() };
     },

@@ -5,9 +5,8 @@ import type {
 } from "@keepdeck/plugin-api";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { Button } from "../../ui/Button";
-import { useAppRuntime } from "../../app/runtimeContext";
-import { updateSettings } from "../../app/settingsManager";
-import { useSettings } from "../../app/useSettings";
+import { useRuntimePart } from "../../app/runtimeContext";
+import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import type { AgentFeature } from "../../domain/agents";
 import { DEFAULT_SETTINGS, withPluginMuted } from "../../domain/settings";
 import type { Contribution, InstalledPlugin } from "../../plugins";
@@ -32,11 +31,11 @@ export function PluginPage({
   section: SettingsSectionContribution | null;
   featureCatalog: readonly AgentFeature[];
 }) {
-  const { externalPluginInfo, pluginHost, restartPlugin } =
-    useAppRuntime().plugins;
+  const { externalPluginInfo, pluginHost, restartPlugin } = useRuntimePart("plugins");
   const external = externalPluginInfo(plugin.manifest.id);
   const notificationPrefs =
     useSettings()?.notifications ?? DEFAULT_SETTINGS.notifications;
+  const updateSettings = useSettingsWrite();
   const canNotify = plugin.manifest.capabilities.some(
     (cap) => cap.kind === "notifications",
   );
@@ -166,7 +165,7 @@ const SPIN_MS = 700;
 /** The global "re-read the plugins folder" action — lives on the nav's
  * Plugins group header now that there is no all-plugins page. */
 export function RescanButton() {
-  const { rescanPlugins } = useAppRuntime().plugins;
+  const { rescanPlugins } = useRuntimePart("plugins");
   const [scanning, setScanning] = useState(false);
 
   const rescan = () => {

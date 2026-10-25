@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { buildAgentFeatureCatalog } from "../../app/agentFeatureCatalog";
-import { useAppRuntime } from "../../app/runtimeContext";
+import { buildAgentFeatureCatalog } from "../../presentation/agentFeatureCatalog";
+import { useRuntimePart } from "../../app/runtimeContext";
 import {
   useContributions,
   useInstalledPlugins,
@@ -37,7 +37,7 @@ export function SettingsDialog({
   canClose = true,
   initialSectionId,
 }: SettingsDialogProps) {
-  const { pluginHost, pluginRegistries } = useAppRuntime().plugins;
+  const { pluginHost, pluginRegistries } = useRuntimePart("plugins");
   useEscape(onClose, canClose);
   const installed = useInstalledPlugins(pluginHost);
   const contributed = useContributions(pluginRegistries.settingsSections);

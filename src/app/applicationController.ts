@@ -18,12 +18,21 @@ import {
   shouldRevealPluginDock,
   workspaceForNotification,
 } from "./notificationNavigation";
-import type { createAgentOrchestrator } from "./agentOrchestrator";
-import type { PaneInputFocusPort } from "./paneInputFocusPort";
-import type { PaneViewPort } from "./paneViewPort";
+import type { AgentOrchestrator } from "./agentOrchestrator";
+import type { PaneInputFocusPort } from "../presentation/paneInputFocusController";
+import type { PaneViewPort } from "../presentation/paneViewActions";
 
-type Plugins = ReturnType<typeof createPluginManager>;
-type Orchestrator = ReturnType<typeof createAgentOrchestrator>;
+/** The plugin side the controller drives: the one bootstrap at start, and
+ * a plugin's dock tab revealed for its notification. */
+export type ApplicationPlugins = Pick<
+  ReturnType<typeof createPluginManager>,
+  "bootstrapPlugins" | "revealPluginDockTab"
+>;
+/** The landings the controller and its commands go through. */
+export type ApplicationOrchestrator = Pick<
+  AgentOrchestrator,
+  "suspend" | "resume" | "createPane" | "createTeam" | "retryProvisioning" | "createWorkspace"
+>;
 
 export interface ApplicationUi {
   agents(): AgentInfo[];
@@ -68,8 +77,8 @@ const UI_UNAVAILABLE_MESSAGE = "The application UI is not available";
  */
 export interface ApplicationControllerDeps {
   deck: DeckStore;
-  plugins: Plugins;
-  orchestrator: Orchestrator;
+  plugins: ApplicationPlugins;
+  orchestrator: ApplicationOrchestrator;
   paneInputFocus: PaneInputFocusPort;
   paneView: PaneViewPort;
   skills: SkillsLibrary;

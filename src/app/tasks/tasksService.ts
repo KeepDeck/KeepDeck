@@ -41,6 +41,9 @@ import {
 import { log } from "../../ipc/log";
 import { mintTaskUid } from "../ids";
 import { errorMessage } from "@keepdeck/plugin-api";
+import type { BoardState, Recovery, RestoreChoice } from "../../presentation/tasks/boardReadModels";
+
+export type { BoardState, Recovery, RestoreChoice } from "../../presentation/tasks/boardReadModels";
 
 /** A board as the store hands it over: read and validated, absent, or
  * not readable — with the words saying why. */
@@ -72,18 +75,6 @@ export interface TasksStorePort {
   /** Put what the person chose in the unusable database's place. */
   restore(choice: RestoreChoice): Promise<void>;
 }
-
-/** A database the person recovers: damaged, or gone though earlier data
- * of it is still there — with the backups that pass the check, newest
- * first (ms since the epoch). */
-export interface Recovery {
-  kind: "damaged" | "missing";
-  backups: readonly number[];
-}
-
-/** What takes an unusable database's place: a backup, or — with none to
- * restore — an empty database. */
-export type RestoreChoice = { kind: "backup"; at: number } | { kind: "empty" };
 
 /** One search hit: the task, where it matched (null: its title or brief;
  * a number: that comment), and the match in context. */
@@ -121,19 +112,6 @@ export interface UnsavedBoard {
   workspaceId: string;
   error: string;
 }
-
-export type BoardState =
-  | { kind: "loading" }
-  | {
-      kind: "ready";
-      board: TaskBoard;
-      /** Why the board on disk lags the one here — the last write's
-       * failure, verbatim — or null while disk and memory agree. The
-       * board retries on its own; this is how a surface says so. */
-      unsaved: string | null;
-    }
-  /** The file did not decode; its words, verbatim. Read-only until fixed. */
-  | { kind: "unreadable"; error: string };
 
 /** The board a surface can read, or null while it loads, will not decode,
  * or no workspace is asked about. */

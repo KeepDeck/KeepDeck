@@ -7,16 +7,17 @@ import { rowKeyOf, rowOfHit, type UnifiedSessionRow } from "./sessionRow";
 const T0 = 1_000;
 const T = (ms: number) => new Date(ms).toISOString();
 
-const record = (over: Partial<SessionRecord>): SessionRecord =>
-  ({
+const record = (over: Partial<Extract<SessionRecord, { state: "closed" }>>): SessionRecord => {
+  const base: Extract<SessionRecord, { state: "closed" }> = {
     agent: "claude",
     sessionId: "s-1",
     cwd: "/repo",
     boundAt: T(T0),
     state: "closed",
     endedAt: T(T0),
-    ...over,
-  }) as SessionRecord;
+  };
+  return { ...base, ...over };
+};
 
 const NO_ENTRIES: ReadonlyMap<string, JoinEntry> = new Map();
 const LABEL = (id: string) => (id === "claude" ? "Claude Code" : undefined);
@@ -56,7 +57,7 @@ const compose = (over: Partial<Parameters<typeof composeSessionList>[0]> = {}) =
 describe("composeSessionList — T1: the journal-record query predicate", () => {
   // Truth table: each field alone matches; a fieldless record doesn't.
   it("each of the four fields matches alone; none matches garbage", () => {
-    const cases: Array<[Partial<SessionRecord>, string]> = [
+    const cases: Array<[Partial<Extract<SessionRecord, { state: "closed" }>>, string]> = [
       [{ title: "fix the auth bug" }, "auth"],
       [{ cwd: "/wt/kd-x-1" }, "kd-x"],
       [{ branch: "kd/ws/1" }, "ws/1"],
@@ -64,11 +65,11 @@ describe("composeSessionList — T1: the journal-record query predicate", () => 
     ];
     for (const [over, q] of cases) {
       const { workspaceLane: workspace } = compose({
-        records: [record({ ...over, sessionId: (over as { sessionId?: string }).sessionId ?? "s-1" })],
+        records: [record({ ...over, sessionId: over.sessionId ?? "s-1" })],
         query: q,
       });
       expect(workspace.rows.map((r) => r.sessionId)).toEqual([
-        (over as { sessionId?: string }).sessionId ?? "s-1",
+        over.sessionId ?? "s-1",
       ]);
     }
     // Nothing matches a query none of the fields carry.

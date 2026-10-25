@@ -1,16 +1,31 @@
-import { errorMessage, type AgentHistory, type AgentLiveSession, type AgentHooks, type CommandInfo, type CommandResult, type Disposable, type WatchHandle, type DownloadState, type FileOpenRequest, type PluginContext, type PluginManifest, type PluginSessionEvent, type SpeechLevel, type WorkspaceRef } from "@keepdeck/plugin-api";
+import { errorMessage, type AgentHistory, type AgentLiveSession, type AgentHooks, type Disposable, type WatchHandle, type FileOpenRequest, type PluginContext, type PluginManifest, type PluginSessionEvent, type SpeechLevel, type WorkspaceRef } from "@keepdeck/plugin-api";
 
 import { RemoteDownloadStream } from "./downloadStream";
 import { createGuestServices } from "./guestServices";
 import { createGuestContributions } from "./guestContributions";
-import type { GuestRpc } from "./rpc";
+import type { GuestCaller } from "./rpc";
 import {
-  type WireAgentHistoryCall,
-  type WireAgentLiveSessionsCall,
-  type WireHookCall,
-  type WireOpenCall,
-  type WireSessionEvent,
-} from "./protocol";
+  decodeAgentHistoryCall,
+  decodeHookCall,
+  decodeLiveSessionsCall,
+  decodeOpenCall,
+  decodeSessionEvent,
+  decodeWith,
+  decodeCommandInfos,
+  isCommandResult,
+  isDownloadState,
+  isHostSettings,
+  isNullableString,
+  isPage,
+  isPaneEvent,
+  isRecord,
+  decodeSpawnPlanInput,
+  decodeResumePlanInput,
+  decodeForkPlanInput,
+  isSpeechLevel,
+  isWorkspaceEvent,
+  str,
+} from "./decode";
 
 /** A guest context wired to a bridge, plus the sink the connection pumps
  * host-initiated `event` pushes into. */
@@ -47,10 +62,30 @@ export interface GuestContextBundle {
  * retire that `regId`.
  */
 export function buildGuestContext(
-  rpc: GuestRpc,
+  rpc: GuestCaller,
   manifest: PluginManifest,
 ): GuestContextBundle {
   const noop = (): void => {};
+
+  /** Read one stored value through the caller's guard. A value the guard
+   * refuses is treated exactly like a missing key; when a value WAS there,
+   * the plugin's log says why it was dropped. */
+  function stored<T>(
+    path: string,
+    args: unknown[],
+    key: string,
+    accepts: (value: unknown) => value is T,
+  ): Promise<T | undefined> {
+    return rpc.call(path, args).then((value) => {
+      if (accepts(value)) return value;
+      if (value !== undefined) {
+        void rpc
+          .call("log.warn", [`stored value "${key}" did not match its guard`])
+          .catch(noop);
+      }
+      return undefined;
+    });
+  }
 
   // ---- local fan-out registries, all keyed so dispatchEvent can find them ----
   // `channelListeners` holds the plain broadcast channels (deck events AND the
@@ -228,14 +263,16 @@ export function buildGuestContext(
         return registerRemote("settings.registerSection", section, noop);
       },
       read: () =>
-        rpc.call("settings.read", []) as Promise<Record<string, unknown>>,
+        rpc
+          .call("settings.read", [])
+          .then((value) => decodeWith(value, isRecord, "settings read")),
       write: (key, value) => rpc.call("settings.write", [key, value]).then(noop),
       // The settings-change feed is just another broadcast channel — ref-counted
       // and fanned out exactly like a deck event, over its own subscribe path.
       onChange: (cb) =>
         subscribeChannel(
           "settingsChanged",
-          (payload) => cb(payload as Record<string, unknown>),
+          (payload) => cb(decodeWith(payload, isRecord, "settings changed")),
           () => void rpc.call("settings.onChange", []).catch(noop),
           () => void rpc.call("settings.offChange", []).catch(noop),
         ),
@@ -252,14 +289,21 @@ export function buildGuestContext(
         );
       },
       execute: (id, args) =>
-        rpc.call("commands.execute", [id, args]) as Promise<CommandResult>,
-      list: () => rpc.call("commands.list", []) as Promise<CommandInfo[]>,
+        rpc
+          .call("commands.execute", [id, args])
+          .then((value) => decodeWith(value, isCommandResult, "command result")),
+      list: () =>
+        rpc
+          .call("commands.list", [])
+          .then((value) => decodeCommandInfos(value, "command list")),
     },
     agents: contributions.agents,
 
     resources: {
       path: (relative) =>
-        rpc.call("resources.path", [relative]) as Promise<string | null>,
+        rpc
+          .call("resources.path", [relative])
+          .then((value) => decodeWith(value, isNullableString, "resources.path")),
     },
     storage: {
       workspace: ({ id, instance }) => {
@@ -268,10 +312,11 @@ export function buildGuestContext(
         // object must not retarget an existing external handle.
         const workspace: WorkspaceRef = { id, instance };
         return {
-          get: <T>(key: string): Promise<T | undefined> =>
-            rpc.call("storage.workspace.get", [workspace, key]) as Promise<
-              T | undefined
-            >,
+          get: <T>(
+            key: string,
+            accepts: (value: unknown) => value is T,
+          ): Promise<T | undefined> =>
+            stored("storage.workspace.get", [workspace, key], key, accepts),
           set: (key, value) =>
             rpc
               .call("storage.workspace.set", [workspace, key, value])
@@ -281,8 +326,11 @@ export function buildGuestContext(
         };
       },
       global: {
-        get: <T>(key: string): Promise<T | undefined> =>
-          rpc.call("storage.global.get", [key]) as Promise<T | undefined>,
+        get: <T>(
+          key: string,
+          accepts: (value: unknown) => value is T,
+        ): Promise<T | undefined> =>
+          stored("storage.global.get", [key], key, accepts),
         set: (key, value) => rpc.call("storage.global.set", [key, value]).then(noop),
         delete: (key) => rpc.call("storage.global.delete", [key]).then(noop),
       },
@@ -292,15 +340,14 @@ export function buildGuestContext(
       onWorkspaceClosed: (cb) =>
         subscribeChannel(
           "workspaceClosed",
-          (payload) => cb(payload as { workspace: WorkspaceRef }),
+          (payload) => cb(decodeWith(payload, isWorkspaceEvent, "workspace closed event")),
           () => void rpc.call("events.subscribe", ["workspaceClosed"]).catch(noop),
           () => void rpc.call("events.unsubscribe", ["workspaceClosed"]).catch(noop),
         ),
       onPaneSelected: (cb) =>
         subscribeChannel(
           "paneSelected",
-          (payload) =>
-            cb(payload as { workspace: WorkspaceRef; paneId: string | null }),
+          (payload) => cb(decodeWith(payload, isPaneEvent, "pane selected event")),
           () => void rpc.call("events.subscribe", ["paneSelected"]).catch(noop),
           () => void rpc.call("events.unsubscribe", ["paneSelected"]).catch(noop),
         ),
@@ -326,7 +373,9 @@ export function buildGuestContext(
 
     host: {
       settings: () =>
-        rpc.call("host.settings", []) as ReturnType<PluginContext["host"]["settings"]>,
+        rpc
+          .call("host.settings", [])
+          .then((value) => decodeWith(value, isHostSettings, "host settings")),
     },
 
     log: {
@@ -367,18 +416,41 @@ export function buildGuestContext(
 
   /** Run one host-requested agent hook and post the mutated output back. */
   function runHook(callId: number, payload: unknown): Promise<void> {
-    const { agentId, hook, input, output } = payload as WireHookCall;
+    const { agentId, hook, input, output } = decodeHookCall(payload);
     return answer("agents.hookResult", callId, async () => {
-      const fn = agentHooks.get(agentId)?.[hook as keyof AgentHooks];
-      if (!fn) throw new Error(`no ${hook} hook for agent "${agentId}"`);
-      await fn(input as never, output as never);
+      const hooks = agentHooks.get(agentId);
+      const missing = () => new Error(`no ${hook} hook for agent "${agentId}"`);
+      // One case per hook: each takes its own input, and the input is wire
+      // data the host built for exactly that hook.
+      switch (hook) {
+        case "spawn.plan": {
+          const fn = hooks?.["spawn.plan"];
+          if (!fn) throw missing();
+          await fn(decodeSpawnPlanInput(input, "spawn plan input"), output);
+          break;
+        }
+        case "resume.plan": {
+          const fn = hooks?.["resume.plan"];
+          if (!fn) throw missing();
+          await fn(decodeResumePlanInput(input, "resume plan input"), output);
+          break;
+        }
+        case "fork.plan": {
+          const fn = hooks?.["fork.plan"];
+          if (!fn) throw missing();
+          await fn(decodeForkPlanInput(input, "fork plan input"), output);
+          break;
+        }
+        default:
+          throw missing();
+      }
       return { output };
     });
   }
 
   /** Run one host-requested read against an agent's history provider. */
   function runHistory(callId: number, payload: unknown): Promise<void> {
-    const { agentId, method, args } = payload as WireAgentHistoryCall;
+    const { agentId, method, args } = decodeAgentHistoryCall(payload);
     return answer("agents.historyResult", callId, async () => {
       const history = agentHistories.get(agentId);
       if (!history) throw new Error(`no history provider for agent "${agentId}"`);
@@ -396,15 +468,15 @@ export function buildGuestContext(
           value = await history.listing();
           break;
         case "describe":
-          value = await history.describe(args[0] as string);
+          value = await history.describe(str(args[0], "history describe ref"));
           break;
         case "content":
-          value = await history.content(args[0] as string);
+          value = await history.content(str(args[0], "history content ref"));
           break;
         case "transcript":
           value = await history.transcript(
-            args[0] as string,
-            args[1] as { offset: number; limit: number },
+            str(args[0], "history transcript ref"),
+            decodeWith(args[1], isPage, "history transcript page"),
           );
           break;
         case "transcriptPage":
@@ -418,8 +490,8 @@ export function buildGuestContext(
             );
           }
           value = await history.transcriptPage(
-            args[0] as string,
-            args[1] as { offset: number; limit: number },
+            str(args[0], "history transcriptPage ref"),
+            decodeWith(args[1], isPage, "history transcriptPage page"),
           );
           break;
         default:
@@ -431,7 +503,7 @@ export function buildGuestContext(
 
   /** Run one host-requested live-sessions query and post the answer back. */
   function runLiveSessions(callId: number, payload: unknown): Promise<void> {
-    const { agentId } = payload as WireAgentLiveSessionsCall;
+    const { agentId } = decodeLiveSessionsCall(payload);
     return answer("agents.liveResult", callId, async () => {
       const live = agentLive.get(agentId);
       if (!live) {
@@ -443,7 +515,7 @@ export function buildGuestContext(
 
   /** Run one host-requested file-open and post the boolean verdict back. */
   function runOpen(callId: number, payload: unknown): Promise<void> {
-    const { handlerId, request } = payload as WireOpenCall;
+    const { handlerId, request } = decodeOpenCall(payload);
     return answer("openers.openResult", callId, async () => {
       const open = openHandlers.get(handlerId);
       if (!open) throw new Error(`no file-open handler "${handlerId}"`);
@@ -494,8 +566,8 @@ export function buildGuestContext(
     if (channel.startsWith("download:")) {
       const id = channel.slice("download:".length);
       const stream = downloadStreams.get(id);
-      if (stream) {
-        const state = payload as DownloadState;
+      if (stream && isDownloadState(payload)) {
+        const state = payload;
         stream.push(state);
         if (
           state.phase === "completed" ||
@@ -508,7 +580,7 @@ export function buildGuestContext(
       return;
     }
     if (channel.startsWith("speech:")) {
-      speechLevels.get(channel)?.(payload as SpeechLevel);
+      if (isSpeechLevel(payload)) speechLevels.get(channel)?.(payload);
       return;
     }
     // Deck events and the settings-change feed alike land in `channelListeners`.
@@ -533,7 +605,7 @@ export function buildGuestContext(
 /** Turn a wire session event back into a `PluginSessionEvent`, rebuilding the
  * `Uint8Array` the plugin's `onEvent` expects from the `number[]` on the wire. */
 function rehydrateSessionEvent(payload: unknown): PluginSessionEvent {
-  const wire = payload as WireSessionEvent;
+  const wire = decodeSessionEvent(payload);
   return wire.type === "output"
     ? { type: "output", bytes: new Uint8Array(wire.bytes) }
     : { type: "exit", code: wire.code };

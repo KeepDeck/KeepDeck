@@ -6,6 +6,7 @@ import {
   type WrappedBufferLike,
 } from "./wrappedLines";
 import { detectLinks } from "./links";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * Fake buffer over `{ text, wrapped }` rows. Mirrors xterm's IBufferLine
@@ -62,7 +63,7 @@ describe("logicalLineAt", () => {
       { text: "error in " },
       { text: "/tmp/x.txt  ", wrapped: true },
     ]);
-    const logical = logicalLineAt(buf, 0)!;
+    const logical = present(logicalLineAt(buf, 0), "the logical line at that position");
     expect(logical.rows).toEqual(["error in ", "/tmp/x.txt"]);
     expect(detectLinks(logical.rows.join("")).map((l) => l.text)).toEqual([
       "/tmp/x.txt",
@@ -76,7 +77,7 @@ describe("logicalLineAt", () => {
         wrapped: true,
       })),
     );
-    const logical = logicalLineAt(buffer(rows), 0)!;
+    const logical = present(logicalLineAt(buffer(rows), 0), "the logical line at that position");
     expect(logical.rows.length).toBe(MAX_LOGICAL_ROWS);
   });
 
@@ -88,7 +89,7 @@ describe("logicalLineAt", () => {
       })),
     );
     const requested = MAX_LOGICAL_ROWS + 5;
-    const logical = logicalLineAt(buffer(rows), requested)!;
+    const logical = present(logicalLineAt(buffer(rows), requested), "the logical line at that position");
     expect(logical.startRow).toBeGreaterThan(0);
     expect(logical.startRow).toBeLessThanOrEqual(requested);
     expect(logical.startRow + logical.rows.length - 1).toBeGreaterThanOrEqual(
@@ -135,7 +136,7 @@ describe("link detection over a joined logical line", () => {
       { text: "see https://example.com/very/lo" },
       { text: "ng/path/index.html now", wrapped: true },
     ]);
-    const logical = logicalLineAt(buf, 1)!;
+    const logical = present(logicalLineAt(buf, 1), "the logical line at that position");
     const found = detectLinks(logical.rows.join(""));
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({
@@ -153,7 +154,7 @@ describe("link detection over a joined logical line", () => {
       { text: "at /Users/artem/Projects/Keep" },
       { text: "Deck/src/domain/links.ts:42 in", wrapped: true },
     ]);
-    const logical = logicalLineAt(buf, 0)!;
+    const logical = present(logicalLineAt(buf, 0), "the logical line at that position");
     expect(detectLinks(logical.rows.join("")).map((l) => l.text)).toEqual([
       "/Users/artem/Projects/KeepDeck/src/domain/links.ts:42",
     ]);
@@ -187,14 +188,14 @@ describe("logicalLineAt — application hard wrap", () => {
   });
 
   it("detects the whole path over the stitched line where per-row scans saw fragments", () => {
-    const logical = logicalLineAt(hardWrapped(), 2, cols)!;
+    const logical = present(logicalLineAt(hardWrapped(), 2, cols), "the logical line at that position");
     expect(detectLinks(logical.rows.join("")).map((l) => l.text)).toEqual([
       joined,
     ]);
   });
 
   it("maps the link range back across the stripped indents", () => {
-    const logical = logicalLineAt(hardWrapped(), 1, cols)!;
+    const logical = present(logicalLineAt(hardWrapped(), 1, cols), "the logical line at that position");
     const [link] = detectLinks(logical.rows.join(""));
     const range = mapRange(logical, link.start, link.end);
     // Starts on the leading "/" of the head row; the +2 columns undo the tail

@@ -6,25 +6,22 @@ import { requestOpen, takeOpenRequest } from "../openRequests";
 import type {
   FsEntry,
   FsFile,
-  PluginContext,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
-import { setRuntime } from "../runtime";
+import { setRuntime, type FilesPorts } from "../runtime";
+import { inertPorts } from "../filesPorts.test-support";
 import { FilesTab } from "./FilesTab";
 import { FilesOverlay } from "./FilesOverlay";
 import {
   installResizeObserver,
   pinListViewport,
 } from "@keepdeck/ui-kit/virtualGeometry.test-support";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The tree's windowed list, pinned (happy-dom lays nothing out): a
  * 220px box of 22px rows — ten rows in view. */
 const TREE_PX = 220;
 const TREE_ROW_PX = 22;
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
 
 const workspace: WorkspaceSnapshot = {
   id: "ws-1",
@@ -84,7 +81,7 @@ function makeFs() {
         watchers.set(path, set);
       }
       set.add(onChange);
-      return { ready: Promise.resolve(), dispose: () => void set!.delete(onChange) };
+      return { ready: Promise.resolve(), dispose: () => void present(set, "the set").delete(onChange) };
     }),
     /** Simulate an OS change event for a watched directory. */
     fireChange: (path: string) => watchers.get(path)?.forEach((cb) => cb()),
@@ -92,14 +89,14 @@ function makeFs() {
   };
 }
 
-function makeCtx(fs: ReturnType<typeof makeFs>): PluginContext {
-  return {
+function makeCtx(fs: ReturnType<typeof makeFs>): FilesPorts {
+  return inertPorts({
     services: {
       fs: { readDir: fs.readDir, readFile: fs.readFile, watch: fs.watch },
       opener: fs.opener,
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  });
 }
 
 const treeNames = () =>
@@ -122,8 +119,8 @@ const dblclick = (el: HTMLElement) =>
 /** Fire an arrow key on the focusable tree container. */
 const press = (key: string) =>
   act(() => {
-    document
-      .querySelector(".files__tree")!
+    present(document
+      .querySelector(".files__tree"), "the .files__tree element")
       .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
   });
 
@@ -177,7 +174,7 @@ describe("FilesTab", () => {
     await mount();
     expect(fs.readDir).not.toHaveBeenCalledWith("/repo/src");
 
-    await act(async () => rowByName("src")!.click());
+    await act(async () => present(rowByName("src"), "the row named \"src\"").click());
     await act(async () => {});
 
     expect(fs.readDir).toHaveBeenCalledWith("/repo/src");
@@ -203,7 +200,7 @@ describe("FilesTab", () => {
 
   it("a single click only selects a file — no peek, no read", async () => {
     await mount();
-    await act(async () => rowByName("readme.md")!.click());
+    await act(async () => present(rowByName("readme.md"), "the row named \"readme.md\"").click());
     await act(async () => {});
     expect(document.querySelector(".peek")).toBeNull();
     expect(fs.readFile).not.toHaveBeenCalled();
@@ -214,7 +211,7 @@ describe("FilesTab", () => {
   it("previews a file's text when it is opened", async () => {
     await mount();
 
-    await act(async () => dblclick(rowByName("readme.md")!));
+    await act(async () => dblclick(present(rowByName("readme.md"), "the row named \"readme.md\"")));
     await act(async () => {});
 
     expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
@@ -228,13 +225,13 @@ describe("FilesTab", () => {
     await mount();
     // The wrap control belongs to the raw line view — readme.md opens as a
     // rendered document now — so exercise it on a code file.
-    await act(async () => rowByName("src")!.click());
+    await act(async () => present(rowByName("src"), "the row named \"src\"").click());
     await act(async () => {});
-    await act(async () => dblclick(rowByName("main.ts")!));
+    await act(async () => dblclick(present(rowByName("main.ts"), "the row named \"main.ts\"")));
     await act(async () => {});
-    const wrapBtn = document.querySelector<HTMLButtonElement>(
+    const wrapBtn = present(document.querySelector<HTMLButtonElement>(
       'button[aria-label="Toggle line wrapping"]',
-    )!;
+    ), "the button[aria-label=\"Toggle line wrapping\"] element");
     expect(document.querySelector(".files__code--wrap")).toBeNull();
     await act(async () => wrapBtn.click());
     expect(document.querySelector(".files__code--wrap")).not.toBeNull();
@@ -242,26 +239,26 @@ describe("FilesTab", () => {
 
   it("closes the peek on a backdrop click", async () => {
     await mount();
-    await act(async () => dblclick(rowByName("readme.md")!));
+    await act(async () => dblclick(present(rowByName("readme.md"), "the row named \"readme.md\"")));
     await act(async () => {});
     expect(document.querySelector(".peek")).not.toBeNull();
     await act(async () =>
-      document.querySelector<HTMLElement>(".peek")!.click(),
+      present(document.querySelector<HTMLElement>(".peek"), "the .peek element").click(),
     );
     expect(document.querySelector(".peek")).toBeNull();
   });
 
   it("tags tree rows with their path for dragging into a pane", async () => {
     await mount();
-    expect(rowByName("readme.md")!.getAttribute("data-kd-drag-path")).toBe(
+    expect(present(rowByName("readme.md"), "the row named \"readme.md\"").getAttribute("data-kd-drag-path")).toBe(
       "/repo/readme.md",
     );
-    expect(rowByName("src")!.getAttribute("data-kd-drag-path")).toBe("/repo/src");
+    expect(present(rowByName("src"), "the row named \"src\"").getAttribute("data-kd-drag-path")).toBe("/repo/src");
   });
 
   it("opening a file does not read it as a directory", async () => {
     await mount();
-    await act(async () => dblclick(rowByName("readme.md")!));
+    await act(async () => dblclick(present(rowByName("readme.md"), "the row named \"readme.md\"")));
     await act(async () => {});
     // Opening a file drives readFile, never readDir on that path.
     expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
@@ -311,8 +308,8 @@ describe("FilesTab", () => {
 
     // Escape from the detail drills back out to the tree.
     await act(async () => {
-      document
-        .querySelector(".peek")!
+      present(document
+        .querySelector(".peek"), "the .peek element")
         .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(document.querySelector(".peek")).toBeNull();
@@ -374,7 +371,7 @@ describe("FilesTab", () => {
   });
   describe("a long folder", () => {
     const many = Array.from({ length: 200 }, (_, i) => file(`f${String(i).padStart(3, "0")}.ts`));
-    const list = () => document.querySelector<HTMLElement>(".files__scroll")!;
+    const list = () => present(document.querySelector<HTMLElement>(".files__scroll"), "the .files__scroll element");
 
     it("mounts only the rows in view", async () => {
       fs.dirs["/repo"] = many;

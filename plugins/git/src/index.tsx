@@ -2,7 +2,7 @@
 // dev; the lib build emits it as the bundle's index.css for the host to link.
 import "./styles.css";
 import type { KeepDeckPlugin } from "@keepdeck/plugin-api";
-import { setRuntime } from "./runtime";
+import { setRuntime, type GitPorts } from "./runtime";
 import { takePeekRequest } from "./peekRequests";
 import { GitTab } from "./components/GitTab";
 import { GitDiffOverlay } from "./components/GitDiffOverlay";
@@ -10,7 +10,7 @@ import { GitDiffOverlay } from "./components/GitDiffOverlay";
 /** The Git built-in plugin: one dock tab — a worktree's changes and its
  * history since the fork point, in two sections under a root picker — and
  * a resident overlay for the diffs, on the plugin API's git service. */
-const activate: KeepDeckPlugin["activate"] = (ctx) => {
+export function registerGit(ctx: GitPorts): void {
   setRuntime(ctx);
   ctx.ui.registerDockTab({ id: "git", label: "Git", Component: GitTab });
   // The diff is a RESIDENT overlay, not part of the tab: a full-window peek
@@ -18,7 +18,9 @@ const activate: KeepDeckPlugin["activate"] = (ctx) => {
   // hide it and closing the dock must not destroy it. Registered
   // unconditionally — it renders nothing until a diff is opened.
   ctx.ui.registerOverlay({ id: "diff", Component: GitDiffOverlay });
-};
+}
+
+const activate: KeepDeckPlugin["activate"] = (ctx) => registerGit(ctx);
 
 const deactivate = () => {
   // Drain the one-slot bus: a request parked in this lifetime must never

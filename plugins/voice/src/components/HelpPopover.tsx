@@ -89,8 +89,8 @@ export function HelpPopover({
     const onDown = (e: PointerEvent) => {
       const card = cardRef.current;
       if (!card) return;
-      if (card.contains(e.target as Node) || anchor.contains(e.target as Node))
-        return;
+      const target = e.target instanceof Node ? e.target : null;
+      if (card.contains(target) || anchor.contains(target)) return;
       onClose();
     };
     const onKey = (e: KeyboardEvent) => {

@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { McpStatus } from ".";
-import { useAppRuntime } from "../runtimeContext";
+import { useRuntimePart } from "../runtimeContext";
 
 /** The MCP transport's confirmed status (see [`McpStatus`]) — the bridge
  * every settings surface reads instead of re-deriving "the server is on"
@@ -12,7 +12,7 @@ import { useAppRuntime } from "../runtimeContext";
  * owner's — this only says when someone started looking.
  */
 export function useMcpStatus(): McpStatus {
-  const { mcp } = useAppRuntime();
+  const mcp = useRuntimePart("mcp");
   useEffect(() => {
     mcp.refresh();
   }, [mcp]);

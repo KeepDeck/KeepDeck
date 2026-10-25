@@ -11,6 +11,7 @@ import {
   teamNamesIn,
   type TeamDraft,
 } from "./teamPlan";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Membership spoken by name, the way the dialog says it; `workspace`
  * resolves it into the team the pane then holds by id. */
@@ -25,7 +26,7 @@ const workspace = (panes: Pane[]): Workspace =>
     cwd: "/repo",
     worktreeBaseDir: null,
     panes,
-  } as Workspace);
+  });
 
 // Teams as the deck holds them: an id, a name, a directory — and panes that
 // hold the id. A plan names a team by id and never finds one by name.
@@ -310,7 +311,7 @@ describe("teamBriefing — the board", () => {
 
   it("promises no delivery in the board's own sentence", () => {
     const lines = teamBriefing("api", "lead", roster, { board: true }).split("\n");
-    const board = lines.find((line) => line.startsWith("This team has a board"))!;
+    const board = present(lines.find((line) => line.startsWith("This team has a board")), "the board's sentence");
     for (const promise of ["will reach", "next turn", "wakes", "delivered"]) {
       expect(board).not.toContain(promise);
     }
@@ -342,22 +343,22 @@ describe("teamBriefing", () => {
     // symmetrical text, a lead said "in charge is not quite the word" — it
     // was repeating exactly what it had been given.
     const text = teamBriefing("api", "lead", ["lead", "impl-1"]);
-    for (const line of roleById("lead")!.charter) {
+    for (const line of present(roleById("lead"), "the lead role").charter) {
       expect(text).toContain(line);
     }
     // And NOT somebody else's charter — a member told every role's duties
     // has been told none of them.
-    expect(text).not.toContain(roleById("impl")!.charter[0]);
+    expect(text).not.toContain(present(roleById("impl"), "the impl role").charter[0]);
   });
 
   it("says what each OTHER member is for, beside its address", () => {
     // An address alone answers "where do I send this" and not "who should
     // get it", which is the question a member actually has.
     const text = teamBriefing("api", "impl-1", ["lead", "impl-1", "reviewer-1"]);
-    expect(text).toContain(`lead — ${roleById("lead")!.summary}`);
-    expect(text).toContain(`reviewer-1 — ${roleById("reviewer")!.summary}`);
+    expect(text).toContain(`lead — ${present(roleById("lead"), "the lead role").summary}`);
+    expect(text).toContain(`reviewer-1 — ${present(roleById("reviewer"), "the reviewer role").summary}`);
     // Its own line is not in the roster: it was already told who it is.
-    expect(text).not.toContain(`impl-1 — ${roleById("impl")!.summary}`);
+    expect(text).not.toContain(`impl-1 — ${present(roleById("impl"), "the impl role").summary}`);
   });
 
   it("ranks the user above the team, and the lead's task above a peer's word", () => {
@@ -400,7 +401,7 @@ describe("teamBriefing", () => {
     // One kind is left on the asking side, and its verb agrees — "question
     // expect something back" read as a typo in every flat briefing.
     expect(text).toContain("question expects something back");
-    for (const line of roleById("peer")!.charter) {
+    for (const line of present(roleById("peer"), "the peer role").charter) {
       expect(text).toContain(line);
     }
   });

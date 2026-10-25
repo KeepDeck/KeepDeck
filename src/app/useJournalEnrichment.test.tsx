@@ -16,9 +16,7 @@ vi.mock("../ipc/log", () => ({
 import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
 import { rowKeyOf } from "../domain/journal/sessionRow";
 import { joinJournalRow } from "../domain/journal";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** A keyed answer fixture: every answer carries the key it answers —
  * hit, absent, foreign alike. */
@@ -78,7 +76,7 @@ describe("useJournalEnrichment", () => {
     revision = 1;
     scanning = false;
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => act(() => root.unmount()));
 
@@ -547,7 +545,7 @@ describe("useJournalEnrichment", () => {
     rejecters.length = 0;
     revision = 1;
     document.body.innerHTML = "<div id='host2'></div>";
-    root = createRoot(document.getElementById("host2")!);
+    root = createRoot(present(document.getElementById("host2"), "the host2 element"));
     await mount();
     act(() => api.declare([KEYS.own, KEYS.unknown]));
     await act(async () => {});

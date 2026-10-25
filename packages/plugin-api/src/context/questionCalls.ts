@@ -1,3 +1,4 @@
+import { isJsonRecord } from "../json.ts";
 import type { AgentStatusEvent } from "./status.ts";
 
 /** Correlation only: each CLI decides which calls really block. Unrelated
@@ -8,6 +9,22 @@ export interface QuestionState {
   readonly calls: QuestionCalls;
   readonly at: number;
   readonly ended: boolean;
+}
+
+/** Whether `value` is a question state — what a normalizer gets back as its
+ * own `context.state`, which the host hands over as `unknown`. */
+export function isQuestionState(value: unknown): value is QuestionState {
+  return (
+    isJsonRecord(value) &&
+    value.calls instanceof Map &&
+    typeof value.at === "number" &&
+    typeof value.ended === "boolean"
+  );
+}
+
+/** `value` as a question state, or none when it is not one. */
+export function questionStateOf(value: unknown): QuestionState | undefined {
+  return isQuestionState(value) ? value : undefined;
 }
 
 /** Source-time watermark prevents a delayed call from a retired turn becoming

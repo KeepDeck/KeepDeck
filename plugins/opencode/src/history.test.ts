@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { CONTENT_CAP } from "@keepdeck/plugin-api";
 import { opencodeHistory, type HistoryPorts } from "./history";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** One query's answer the way the host gives it now: rows PLUS why the read
  * stopped. Fixtures stay bare arrays — the interesting case, an answer the
@@ -86,14 +87,14 @@ describe("opencode history", () => {
    */
   it("a listing cut by the budget is not complete — the host must not prune from it", async () => {
     const rows = [["ses_1", "1", "1", "0", "2"]];
-    const whole = await opencodeHistory(ctx([rows]).ctx).listing!();
+    const whole = await present(opencodeHistory(ctx([rows]).ctx).listing, "the session listing")();
     expect(whole).toEqual({
       stubs: [{ sessionId: "ses_1", ref: "ses_1", mtime: 1, size: 2 }],
       complete: true,
     });
 
     // Same rows, cut: the sessions past the cut are UNSEEN, not deleted.
-    const cut = await opencodeHistory(ctx([{ cut: rows }]).ctx).listing!();
+    const cut = await present(opencodeHistory(ctx([{ cut: rows }]).ctx).listing, "the session listing")();
     expect(cut.stubs).toEqual(whole.stubs);
     expect(cut.complete).toBe(false);
   });
@@ -103,14 +104,14 @@ describe("opencode history", () => {
     // the prune would wipe this agent's whole index.
     const { ctx: c, query, warn } = ctx([]);
     query.mockRejectedValueOnce(new Error("no such db"));
-    expect(await opencodeHistory(c).listing!()).toEqual({ stubs: [], complete: false });
+    expect(await present(opencodeHistory(c).listing, "the session listing")()).toEqual({ stubs: [], complete: false });
     expect(warn.mock.calls[0][0]).toContain("no such db");
   });
 
   it("a database with neither table set is refused, not read as empty", async () => {
     const { ctx: c, query } = ctx([]);
     query.mockResolvedValueOnce({ rows: [["project"]], stopped: "exhausted", payloadBytes: 0 });
-    expect(await opencodeHistory(c).listing!()).toEqual({ stubs: [], complete: false });
+    expect(await present(opencodeHistory(c).listing, "the session listing")()).toEqual({ stubs: [], complete: false });
   });
 
   /**
@@ -127,10 +128,10 @@ describe("opencode history", () => {
     const history = opencodeHistory(c);
     await history.content("ses_1");
     const forCorpus = asked();
-    await history.transcriptPage!("ses_1", { offset: 0, limit: 10 });
+    await present(history.transcriptPage, "the transcript page")("ses_1", { offset: 0, limit: 10 });
 
     expect(asked().slice(forCorpus.length)).toEqual(forCorpus);
-    const parts = forCorpus.find((sql) => sql.includes("FROM part"))!;
+    const parts = present(forCorpus.find((sql) => sql.includes("FROM part")), "the matching item");
     // Ordered, so the host's cut costs a session its TAIL and not an
     // arbitrary middle — and no row limit of the plugin's own.
     expect(parts).toContain("ORDER BY id");
@@ -142,7 +143,7 @@ describe("opencode history", () => {
     // arrived and never what did not — the rest was never read, which is the
     // entire point of the ceiling.
     const { ctx: c } = ctx([[["m1", "user"]], { cut: [["m1", "as much as fit", "1"]] }]);
-    const page = await opencodeHistory(c).transcriptPage!("ses_1", { offset: 0, limit: 10 });
+    const page = await present(opencodeHistory(c).transcriptPage, "the transcript page")("ses_1", { offset: 0, limit: 10 });
     expect(page.entries).toEqual([{ role: "user", text: "as much as fit" }]);
     expect(page.shortfall).toEqual([{ kind: "rows", returned: 1 }]);
   });
@@ -169,9 +170,9 @@ describe("opencode history", () => {
     // raises "malformed JSON" and kills the whole query, so a single damaged
     // line would make the session unreadable rather than skipped.
     const { ctx: c, asked } = ctx([[["m1", "user"]], [["m1", "hi", "1"]]]);
-    await opencodeHistory(c).transcriptPage!("ses_1", { offset: 0, limit: 10 });
+    await present(opencodeHistory(c).transcriptPage, "the transcript page")("ses_1", { offset: 0, limit: 10 });
 
-    const sql = asked().find((q) => q.includes("FROM message"))!;
+    const sql = present(asked().find((q) => q.includes("FROM message")), "the matching item");
     expect(sql).not.toMatch(/SELECT id, data/);
     expect(sql).toContain("json_extract(data, '$.role')");
     expect(sql).toContain("CASE WHEN json_valid(data)");
@@ -186,7 +187,7 @@ describe("opencode history", () => {
     const { ctx: c, asked } = ctx([]);
     await opencodeHistory(c).content("ses_1");
 
-    const sql = asked().find((q) => q.includes("FROM part"))!;
+    const sql = present(asked().find((q) => q.includes("FROM part")), "the matching item");
     expect(sql).toContain("json_extract(data, '$.type')");
     // Guarded in the FILTER and in the SELECT list: a torn row is let
     // through on purpose, and an unguarded extract would then kill the
@@ -208,7 +209,7 @@ describe("opencode history", () => {
         ["m1", "", ""],
       ],
     ]);
-    const page = await opencodeHistory(c).transcriptPage!("ses_1", { offset: 0, limit: 10 });
+    const page = await present(opencodeHistory(c).transcriptPage, "the transcript page")("ses_1", { offset: 0, limit: 10 });
     // A mark that cried here would teach the reader to ignore it.
     expect(page.entries).toEqual([{ role: "assistant", text: "done" }]);
     expect(page.shortfall).toBeUndefined();
@@ -216,13 +217,13 @@ describe("opencode history", () => {
 
   it("a clean page carries no shortfall — absence is not an empty one", async () => {
     const { ctx: c } = ctx([[["m1", "user"]], [["m1", "all of it", "1"]]]);
-    const page = await opencodeHistory(c).transcriptPage!("ses_1", { offset: 0, limit: 10 });
+    const page = await present(opencodeHistory(c).transcriptPage, "the transcript page")("ses_1", { offset: 0, limit: 10 });
     expect(page).toEqual({ entries: [{ role: "user", text: "all of it" }] });
   });
 
   it("the legacy method is the page unpacked — the two cannot disagree", async () => {
     const rows: (string | null)[][][] = [[["m1", "user"]], [["m1", "same either way", "1"]]];
-    const viaPage = await opencodeHistory(ctx(rows.map((r) => [...r])).ctx).transcriptPage!(
+    const viaPage = await present(opencodeHistory(ctx(rows.map((r) => [...r])).ctx).transcriptPage, "the transcript page")(
       "ses_1",
       { offset: 0, limit: 10 },
     );

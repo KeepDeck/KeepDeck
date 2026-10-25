@@ -130,21 +130,25 @@ describe("normalizeCodexRollout", () => {
   });
 
   it("keeps both windows when a plan has them", () => {
-    const both = structuredClone(TOKEN_COUNT);
-    both.payload.rate_limits = {
-      limit_id: "codex",
-      primary: { used_percent: 20, window_minutes: 300, resets_at: 1_784_000_000 },
-      secondary: { used_percent: 60, window_minutes: 10_080, resets_at: 1_784_834_810 },
-      plan_type: "pro",
-    } as never;
+    const both = {
+      ...TOKEN_COUNT,
+      payload: {
+        ...TOKEN_COUNT.payload,
+        rate_limits: {
+          limit_id: "codex",
+          primary: { used_percent: 20, window_minutes: 300, resets_at: 1_784_000_000 },
+          secondary: { used_percent: 60, window_minutes: 10_080, resets_at: 1_784_834_810 },
+          plan_type: "pro",
+        },
+      },
+    };
     expect(normalizeCodexRollout(tailed(both), AT)?.account).toMatchObject({
       windows: [{ windowMinutes: 300 }, { windowMinutes: 10_080 }],
     });
   });
 
   it("survives a null info (early/exec sessions) with limits intact", () => {
-    const early = structuredClone(TOKEN_COUNT);
-    early.payload.info = null as never;
+    const early = { ...TOKEN_COUNT, payload: { ...TOKEN_COUNT.payload, info: null } };
     const result = normalizeCodexRollout(tailed(early), AT);
     expect(result?.account).not.toBeNull();
     expect(result?.pane).toEqual({ agent: "codex", reportedAt: AT });

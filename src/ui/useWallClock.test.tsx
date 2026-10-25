@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useWallClock } from "./useWallClock";
+import { present } from "@keepdeck/plugin-api/testing";
 
 let root: Root | null = null;
 afterEach(() => {
@@ -25,7 +26,7 @@ describe("useWallClock", () => {
   it("holds a stable now between ticks and advances on the slow tick", () => {
     const out = { now: 0 };
     root = createRoot(document.createElement("div"));
-    act(() => root!.render(createElement(Probe, { out })));
+    act(() => present(root, "the mounted root").render(createElement(Probe, { out })));
     expect(out.now).toBe(1_000_000);
     act(() => {
       vi.advanceTimersByTime(31_000);
@@ -36,10 +37,10 @@ describe("useWallClock", () => {
   it("never trails the data it times: atLeast floors the returned now", () => {
     const out = { now: 0 };
     root = createRoot(document.createElement("div"));
-    act(() => root!.render(createElement(Probe, { out })));
+    act(() => present(root, "the mounted root").render(createElement(Probe, { out })));
     // A ledger append lands 5s after the last tick — the surface passes the
     // event's instant, and now may not read earlier than the data.
-    act(() => root!.render(createElement(Probe, { atLeast: 1_005_000, out })));
+    act(() => present(root, "the mounted root").render(createElement(Probe, { atLeast: 1_005_000, out })));
     expect(out.now).toBe(1_005_000);
     // The next tick overtakes the floor and wall time wins again.
     act(() => {
@@ -55,7 +56,7 @@ describe("useWallClock", () => {
     // would pin now decades ahead, hiding all real usage from every rolling
     // window and sizing the "All" timeline in tens of thousands of buckets.
     const FUTURE = Date.UTC(2100, 0, 1);
-    act(() => root!.render(createElement(Probe, { atLeast: FUTURE, out })));
+    act(() => present(root, "the mounted root").render(createElement(Probe, { atLeast: FUTURE, out })));
     expect(out.now).toBe(1_030_000); // one tick ahead, no further
   });
 });

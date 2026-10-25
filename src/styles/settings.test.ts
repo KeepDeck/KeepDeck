@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { appCss } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * happy-dom drops min()/calc() width and height declarations. Preserve those
@@ -65,8 +66,9 @@ function viewportBound(
     ),
   );
   expect(match, `invalid viewport bound: ${value}`).not.toBeNull();
-  const cap = Number(match![1]);
-  const gutter = Number(match![2]);
+  const bound = present(match, "a viewport bound of the form min(Npx, calc(100vX - Npx))");
+  const cap = Number(bound[1]);
+  const gutter = Number(bound[2]);
   expect(cap).toBeGreaterThan(0);
   expect(gutter).toBeGreaterThan(0);
   expect(gutter).toBeLessThan(viewport);

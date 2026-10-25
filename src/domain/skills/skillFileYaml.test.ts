@@ -8,6 +8,7 @@ import {
   renameSkillFile,
 } from "./skillFile";
 import { CARRIED, REFUSED } from "./skills.testSupport";
+import { recordOf } from "../../testing/values.test-support";
 
 /**
  * The codec against a REAL YAML reader, which is what every supported CLI reads
@@ -38,7 +39,7 @@ function asRead(file: string): Record<string, unknown> | "invalid" | "none" {
   try {
     const value: unknown = parse(text);
     return value !== null && typeof value === "object"
-      ? (value as Record<string, unknown>)
+      ? (recordOf(value, "record"))
       : {};
   } catch {
     return "invalid";
@@ -100,7 +101,7 @@ describe("what a YAML reader sees after we rewrite a stored skill", () => {
       if (renamed.kind === "unchanged") {
         // Only legitimate when the file states no name of its own — otherwise the
         // directory moves and the file keeps contradicting it.
-        expect(before === "none" ? undefined : (before as Record<string, unknown>).name)
+        expect(before === "none" ? undefined : (recordOf(before, "record")).name)
           .toBeUndefined();
         return;
       }

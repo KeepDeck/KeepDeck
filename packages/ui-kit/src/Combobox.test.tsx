@@ -3,10 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Combobox, fuzzyFilter } from "./Combobox";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("fuzzyFilter", () => {
   it("ranks prefix over substring over sparse subsequence", () => {
@@ -59,7 +56,7 @@ describe("Combobox", () => {
   const mount = (initial = "", variant?: "field" | "slot") =>
     act(() => root.render(createElement(Harness, { initial, variant })));
   const input = () =>
-    document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+    present(document.querySelector<HTMLInputElement>('[role="combobox"]'), "the [role=\"combobox\"] element");
   const menu = () => document.querySelector('[role="listbox"]');
   const optionLabels = () =>
     [...document.querySelectorAll('[role="option"]')].map((o) => o.textContent);
@@ -68,10 +65,10 @@ describe("Combobox", () => {
   const type = (text: string) =>
     act(() => {
       const el = input();
-      const set = Object.getOwnPropertyDescriptor(
+      const set = present(present(Object.getOwnPropertyDescriptor(
         Object.getPrototypeOf(el),
         "value",
-      )!.set!;
+      ), "the value setter").set, "the set");
       set.call(el, text);
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
@@ -104,7 +101,7 @@ describe("Combobox", () => {
 
     act(() => input().focus());
     expect(input().getAttribute("aria-expanded")).toBe("true");
-    expect(input().getAttribute("aria-controls")).toBe(menu()!.id);
+    expect(input().getAttribute("aria-controls")).toBe(present(menu(), "the menu").id);
 
     // Nothing matches -> no listbox is rendered, so the combobox must not
     // claim an expanded one or point at an element that isn't there.
@@ -127,7 +124,7 @@ describe("Combobox", () => {
     act(() => input().focus());
     type("rel");
     expect(optionLabels()).toEqual(["release-1.2"]);
-    const listbox = menu()!;
+    const listbox = present(menu(), "the menu");
     expect(document.body.contains(listbox)).toBe(true);
     expect(host.contains(listbox)).toBe(false);
     expect(
@@ -136,7 +133,7 @@ describe("Combobox", () => {
       ),
     ).toBe(true);
 
-    const option = document.querySelector<HTMLButtonElement>('[role="option"]')!;
+    const option = present(document.querySelector<HTMLButtonElement>('[role="option"]'), "the [role=\"option\"] element");
     // A portaled option remains part of the combobox interaction even though
     // it is outside the input wrapper in the DOM.
     act(() => {
@@ -232,9 +229,9 @@ describe("Combobox", () => {
         createElement(Combobox, { options: OPTIONS, value: "", onChange: () => {}, ariaLabel: "Add a label", variant: "slot" }),
       ),
     );
-    expect(document.querySelector(".combobox")!.className).toBe("combobox combobox--slot");
+    expect(present(document.querySelector(".combobox"), "the .combobox element").className).toBe("combobox combobox--slot");
     expect(document.querySelector(".combobox__toggle")).toBeNull();
-    act(() => document.querySelector<HTMLInputElement>(".combobox__input")!.focus());
+    act(() => present(document.querySelector<HTMLInputElement>(".combobox__input"), "the .combobox__input element").focus());
     expect(document.querySelector('[role="listbox"]')).not.toBeNull();
   });
 

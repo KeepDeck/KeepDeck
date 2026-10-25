@@ -3,9 +3,9 @@ import type {
   FileOpenHandler,
   FsEntry,
   OverlayContribution,
-  PluginContext,
 } from "@keepdeck/plugin-api";
-import plugin, { OPEN_LINKS_KEY } from "./index";
+import plugin, { OPEN_LINKS_KEY, registerFiles } from "./index";
+import { fsOf, inertPorts } from "./filesPorts.test-support";
 import {
   requestOpen,
   subscribeOpenRequests,
@@ -22,10 +22,11 @@ function makeCtx(values: Record<string, unknown> = {}) {
   }));
   const readDir = vi.fn(async (_path: string): Promise<FsEntry[]> => []);
   const disposable = () => ({ dispose: vi.fn() });
-  const ctx = {
+  const ctx = inertPorts({
     ui: {
       registerDockTab: vi.fn(disposable),
       registerOverlay,
+      setOverlayCovers: vi.fn(),
     },
     openers: {
       register: vi.fn((handler: FileOpenHandler) => {
@@ -46,9 +47,9 @@ function makeCtx(values: Record<string, unknown> = {}) {
         return { dispose: vi.fn() };
       }),
     },
-    services: { fs: { readDir } },
+    services: { fs: fsOf({ readDir }), opener: inertPorts().services.opener },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  });
   return {
     ctx,
     registered,
@@ -70,13 +71,13 @@ afterEach(() => {
 describe("Files plugin activation", () => {
   it("registers the peek opener by default — the toggle's default is on", async () => {
     const { ctx, registered } = makeCtx();
-    await plugin.activate(ctx);
+    await registerFiles(ctx);
     expect(registered.map((h) => h.id)).toEqual(["peek"]);
   });
 
   it("registers the viewer overlay UNCONDITIONALLY — the tree's own opens need it", async () => {
     const { ctx, registerOverlay } = makeCtx({ [OPEN_LINKS_KEY]: false });
-    await plugin.activate(ctx);
+    await registerFiles(ctx);
     expect(registerOverlay).toHaveBeenCalledTimes(1);
     expect(registerOverlay.mock.calls[0][0]).toMatchObject({ id: "viewer" });
   });
@@ -85,7 +86,7 @@ describe("Files plugin activation", () => {
     const { ctx, registered, fireSettings } = makeCtx({
       [OPEN_LINKS_KEY]: false,
     });
-    await plugin.activate(ctx);
+    await registerFiles(ctx);
     expect(registered).toEqual([]); // stored off → never registered
 
     fireSettings({ [OPEN_LINKS_KEY]: true });
@@ -110,7 +111,7 @@ describe("the peek opener", () => {
   ) {
     const made = makeCtx();
     made.readDir.mockImplementation(readDirImpl);
-    await plugin.activate(made.ctx);
+    await registerFiles(made.ctx);
     // The FilesOverlay stand-in: a handler only accepts while one listens.
     if (opts.consumer !== false) cleanups.push(subscribeOpenRequests(() => {}));
     return { open: made.registered[0].open, ...made };

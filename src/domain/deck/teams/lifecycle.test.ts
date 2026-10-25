@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { createWorkspaceInstance } from "../../workspaceInstance";
 import { MAX_PANES } from "../layout";
 import type { Pane } from "../panes/model";
@@ -24,6 +24,7 @@ import {
   teamOccupyingPath,
 } from "./lifecycle";
 import type { Team, TeamLocation } from "./model";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const pane = (id: string): Pane => ({ id, agentType: "claude" });
 
@@ -147,11 +148,8 @@ describe("TeamLocation", () => {
     // be attached to, and a remote endpoint is the pane's own affair.
     const ok: TeamLocation[] = [attached("/wt/1"), creating("/wt/2")];
     expect(ok).toHaveLength(2);
-    // @ts-expect-error — a team is never "main": the root is an attached directory
-    const main: TeamLocation = { kind: "main" };
-    // @ts-expect-error — a team has no remote endpoint of its own
-    const remote: TeamLocation = { kind: "remote", endpoint: "x" };
-    expect([main, remote]).toHaveLength(2);
+    expectTypeOf<"main">().not.toExtend<TeamLocation["kind"]>();
+    expectTypeOf<"remote">().not.toExtend<TeamLocation["kind"]>();
   });
 });
 
@@ -170,7 +168,7 @@ describe("createTeam", () => {
 
   it("can attach a team to the workspace root — it is a directory like any other", () => {
     const next = createTeam([workspace("ws-1", [])], "ws-1", spec({ location: attached("/ws-1") }));
-    expect(teamHeldPath(next[0].teams![0])).toBe("/ws-1");
+    expect(teamHeldPath(present(next[0].teams, "the created team's list")[0])).toBe("/ws-1");
   });
 
   it("refuses a name some team holds, a blank name, a used id and an unasked-for directory", () => {
@@ -373,24 +371,25 @@ describe("provisioning on the team", () => {
 
   it("records and clears the failure, keeping the intent for Retry", () => {
     const failed = setTeamProvisioningError(card(), "ws-1", "team-1", "boom");
-    const location = findTeam(failed[0], "team-1")!.location!;
+    const failedTeam = present(findTeam(failed[0], "team-1"), "the team-1 card");
+    const location = present(failedTeam.location, "the failed team's location");
     expect(location.kind === "provisioning" && location.error).toBe("boom");
     expect(setTeamProvisioningError(failed, "ws-1", "team-1", "boom")).toBe(failed);
     const retried = setTeamProvisioningError(failed, "ws-1", "team-1", null);
-    expect(findTeam(retried[0], "team-1")!.location).toEqual(creating("/wt/1"));
+    expect(present(findTeam(retried[0], "team-1"), "the retried team-1 card").location).toEqual(creating("/wt/1"));
   });
 
   it("answers the two questions a card holds — still out, or failed — and never both", () => {
     // The card's rim, the roster's status word, the retry door and the
     // retry tool all ask these here; a fold spelled at each of them is how
     // the next state a card can hold would move one and not the rest.
-    const out = findTeam(card()[0], "team-1")!.location;
+    const out = present(findTeam(card()[0], "team-1"), "the team-1 card").location;
     expect(createIsOut(out)).toBe(true);
     expect(createFailed(out)).toBe(false);
-    const failed = findTeam(
-      setTeamProvisioningError(card(), "ws-1", "team-1", "boom")[0],
-      "team-1",
-    )!.location;
+    const failed = present(
+      findTeam(setTeamProvisioningError(card(), "ws-1", "team-1", "boom")[0], "team-1"),
+      "the failed team-1 card",
+    ).location;
     expect(createIsOut(failed)).toBe(false);
     expect(createFailed(failed)).toBe(true);
     // A team that runs, or one with no directory yet, is neither.

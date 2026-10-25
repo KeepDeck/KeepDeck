@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { McpStdioServerSpec } from "@keepdeck/plugin-api";
 import { mcpArgs } from "./mcp";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const server = (name: string): McpStdioServerSpec => ({
   name,
@@ -13,7 +14,7 @@ describe("claude --mcp-config", () => {
   it("declares EVERY server inline, keyed by name", () => {
     const args = mcpArgs({ servers: [server("keepdeck"), server("mnemo")] });
     expect(args[0]).toBe("--mcp-config");
-    expect(JSON.parse(args[1]!)).toEqual({
+    expect(JSON.parse(present(args[1], "the second argument"))).toEqual({
       mcpServers: {
         keepdeck: {
           command: "/bin/keepdeck",
@@ -47,7 +48,7 @@ describe("claude --mcp-config", () => {
     const args = mcpArgs({
       servers: [{ ...server("gh"), envPassthrough: ["GH_TOKEN"] }],
     });
-    expect(JSON.parse(args[1]!).mcpServers.gh).toEqual({
+    expect(JSON.parse(present(args[1], "the second argument")).mcpServers.gh).toEqual({
       command: "/bin/keepdeck",
       args: ["--mcp-shim", "/home/mcp.sock"],
     });
@@ -67,7 +68,7 @@ describe("claude --mcp-config", () => {
         },
       ],
     });
-    expect(JSON.parse(args[1]!).mcpServers.github).toEqual({
+    expect(JSON.parse(present(args[1], "the second argument")).mcpServers.github).toEqual({
       type: "http",
       url: "https://api.githubcopilot.com/mcp/",
       headers: { "X-Org": "keepdeck", Authorization: "Bearer ${GH_TOKEN}" },
@@ -78,7 +79,7 @@ describe("claude --mcp-config", () => {
     const args = mcpArgs({
       servers: [{ name: "plain", transport: "http", url: "https://mcp.example/" }],
     });
-    expect(JSON.parse(args[1]!).mcpServers.plain).toEqual({
+    expect(JSON.parse(present(args[1], "the second argument")).mcpServers.plain).toEqual({
       type: "http",
       url: "https://mcp.example/",
     });

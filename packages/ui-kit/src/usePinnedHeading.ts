@@ -57,8 +57,8 @@ export function usePinnedHeading(
     const onScroll = () => place.current(false);
     list.addEventListener("scroll", onScroll, { passive: true });
     return () => list.removeEventListener("scroll", onScroll);
-    // The scroll element is stable for the mount (CONTRACT above).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // The ref OBJECT is the dependency; its element is stable for the mount
+    // (CONTRACT above), so this still subscribes once.
+  }, [scrollRef]);
   return { first, layerRef };
 }

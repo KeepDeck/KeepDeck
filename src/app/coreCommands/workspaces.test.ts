@@ -7,6 +7,7 @@ import {
   workspace,
 } from "./testSupport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { recordsOf } from "../../testing/values.test-support";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -77,17 +78,16 @@ describe("workspace commands", () => {
     const result = await registry.execute("workspace.list", {}, HOST);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const [row] = result.value as {
-      teams: unknown[];
-      panes: { id: string; team: unknown }[];
-    }[];
+    const [row] = recordsOf(result.value, "workspaces");
     expect(row.teams).toEqual([
       { id: "team-1", name: "api", status: "ready", cwd: "/wt/api", branch: "kd/api", members: ["p1", "p2"] },
       // A create that failed: no directory to name, the branch it was
       // heading for, Retry on offer.
       { id: "team-2", name: "web", status: "failed", cwd: null, branch: "kd/web", members: ["p3"] },
     ]);
-    expect(row.panes.map((pane) => pane.team)).toEqual([
+    expect(
+      recordsOf(row.panes, "panes").map((pane) => pane.team),
+    ).toEqual([
       { id: "team-1", name: "api", role: "lead" },
       { id: "team-1", name: "api", role: "impl-1" },
       { id: "team-2", name: "web", role: "lead" },
@@ -116,13 +116,12 @@ describe("workspace commands", () => {
     const result = await registry.execute("workspace.list", {}, HOST);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      const [row] = result.value as {
-        teams: { cwd: string | null; branch: string | null }[];
-        panes: Record<string, unknown>[];
-      }[];
-      expect(row.teams[0]).toMatchObject({ cwd: null, branch: "kd/web/1" });
-      expect(row.panes[0]).not.toHaveProperty("cwd");
-      expect(row.panes[0]).not.toHaveProperty("branch");
+      const [row] = recordsOf(result.value, "workspaces");
+      const teams = recordsOf(row.teams, "teams");
+      const panes = recordsOf(row.panes, "panes");
+      expect(teams[0]).toMatchObject({ cwd: null, branch: "kd/web/1" });
+      expect(panes[0]).not.toHaveProperty("cwd");
+      expect(panes[0]).not.toHaveProperty("branch");
     }
   });
 
@@ -147,7 +146,7 @@ describe("workspace commands", () => {
     const result = await registry.execute("workspace.list", {}, HOST);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      const panes = (result.value as { panes: { activity: unknown }[] }[])[0].panes;
+      const panes = recordsOf(recordsOf(result.value, "workspaces")[0].panes, "panes");
       expect(panes[0].activity).toEqual({ state: "working", since: 500 });
       expect(panes[1].activity).toEqual({
         state: "waiting",
@@ -168,7 +167,7 @@ describe("workspace commands", () => {
     const result = await registry.execute("workspace.list", {}, HOST);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      const panes = (result.value as { panes: { activity: unknown }[] }[])[0].panes;
+      const panes = recordsOf(recordsOf(result.value, "workspaces")[0].panes, "panes");
       expect(panes[0].activity).toBeNull();
     }
   });

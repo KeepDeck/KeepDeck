@@ -6,8 +6,7 @@ import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtual
 import type { AgentInfo } from "../../domain/agents";
 import { useWelcomeFlow } from "../../app/useWelcomeFlow";
 import { WelcomeStage } from "./WelcomeStage";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The session index's owner, as the runtime hands it out: a revision a test
 // moves, and the needs declared on it.
@@ -30,13 +29,14 @@ const index = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../../app/runtimeContext", () => ({ useAppRuntime: () => ({ sessionIndex: index.manager }) }));
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ sessionIndex: index.manager }));
 const projects = vi.hoisted(() => ({ current: [] as { root: string; sessions: number; lastAt: number }[] }));
 vi.mock("../../ipc/history", () => ({ recentProjects: () => Promise.resolve({ home: "/Users/me", projects: projects.current }) }));
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const agents = [{ id: "claude", label: "claude", installed: true }] as unknown as AgentInfo[];
+const agents: AgentInfo[] = [
+  { id: "claude", label: "claude", command: "claude", features: [], installed: true, path: "/bin/claude" },
+];
 
 describe("WelcomeStage", () => {
   let host: HTMLDivElement;
@@ -84,13 +84,13 @@ describe("WelcomeStage", () => {
 
   it("opens a folder, confirms it named after it, and creates it — Back returning to the choice", async () => {
     await mount();
-    await act(async () => host.querySelector<HTMLButtonElement>(".welcome__open")!.click());
+    await act(async () => present(host.querySelector<HTMLButtonElement>(".welcome__open"), "the .welcome__open element").click());
     const name = () => host.querySelector<HTMLInputElement>('input[aria-label="Workspace name"]');
     expect(name()?.value).toBe("fresh");
-    act(() => [...host.querySelectorAll("button")].find((b) => b.textContent === "Back")!.click());
+    act(() => present([...host.querySelectorAll("button")].find((b) => b.textContent === "Back"), "the button elements").click());
     expect(host.querySelector(".welcome")).not.toBeNull();
-    await act(async () => host.querySelector<HTMLButtonElement>(".welcome__open")!.click());
-    await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await act(async () => present(host.querySelector<HTMLButtonElement>(".welcome__open"), "the .welcome__open element").click());
+    await act(async () => present(host.querySelector("form"), "the form element").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(created).toEqual([{ name: "fresh", cwd: "/Users/me/fresh", worktreeBaseDir: null }]);
     // The next time there is no workspace, the welcome starts over — not on this confirm.
     expect(host.querySelector(".welcome")).not.toBeNull();
@@ -99,14 +99,14 @@ describe("WelcomeStage", () => {
   it("takes a recent project straight to confirming it", async () => {
     projects.current = [{ root: "/Users/me/KeepDeck", sessions: 3, lastAt: Date.now() }];
     await mount();
-    await act(async () => host.querySelector<HTMLButtonElement>(".welcome__project")!.click());
+    await act(async () => present(host.querySelector<HTMLButtonElement>(".welcome__project"), "the .welcome__project element").click());
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Workspace name"]')?.value).toBe("KeepDeck");
   });
 
   it("stays on the choice when the picker closes without a folder", async () => {
     picked = null;
     await mount();
-    await act(async () => host.querySelector<HTMLButtonElement>(".welcome__open")!.click());
+    await act(async () => present(host.querySelector<HTMLButtonElement>(".welcome__open"), "the .welcome__open element").click());
     expect(host.querySelector(".welcome")).not.toBeNull();
     expect(host.querySelector("form")).toBeNull();
   });

@@ -1,4 +1,5 @@
 import {
+  isJsonRecord,
   fileStub,
   firstMeaningfulUserTurn,
   jsonl,
@@ -10,11 +11,12 @@ import {
   type AgentHistory,
   type AgentSessionStub,
   type AgentTranscriptEntry,
-  type PluginContext,
+  type PluginLogger,
+  type PluginSessionStore,
   type ReadScope,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
-import { walkRollouts } from "./store";
+import { walkRollouts, type StorePorts } from "./store";
 
 /**
  * Discovery over codex's store ([F8] browser): date-partitioned rollouts at
@@ -24,9 +26,8 @@ import { walkRollouts } from "./store";
 // The store's shape lives in ./store, so the browser, the live tail and
 // anything else that has to find a rollout read one description of it.
 
-/** One line of a rollout, as this plugin reads it. An assertion about the
- * format made in ONE place: the host parses the JSON and validates nothing,
- * because it knows nothing about codex. */
+/** One line of a rollout, as this plugin reads it. The host parses the
+ * JSON and validates nothing, because it knows nothing about codex. */
 interface CodexRecord {
   type?: unknown;
   payload?: {
@@ -35,6 +36,11 @@ interface CodexRecord {
     content?: unknown;
     cwd?: unknown;
   };
+}
+
+/** A JSON object whose `payload`, when there is one, is an object too. */
+function isCodexRecord(value: unknown): value is CodexRecord {
+  return isJsonRecord(value) && (value.payload === undefined || isJsonRecord(value.payload));
 }
 
 /** What codex records in passing, on lines the walk goes through anyway. */
@@ -69,7 +75,14 @@ const dialect: SessionDialect<CodexState, CodexRecord> = {
 };
 
 
-export function codexHistory(ctx: PluginContext): AgentHistory {
+/** What the history reads through: the store's listings, the session
+ * reader over them, and the log. */
+export interface HistoryPorts {
+  log: PluginLogger;
+  services: StorePorts["services"] & { sessionStore: PluginSessionStore };
+}
+
+export function codexHistory(ctx: HistoryPorts): AgentHistory {
   /** One reading of ONE rollout. (`walk`/`walkPartial` below are a different
    * job entirely: they walk the store's DIRECTORIES.) */
   const readSession = (
@@ -85,7 +98,7 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
   ) =>
     walkSession({
       store: ctx.services.sessionStore,
-      format: jsonl<CodexRecord>(),
+      format: jsonl(isCodexRecord),
       request: { path: ref },
       dialect,
       ...extra,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { API_VERSION } from "../manifest/version.ts";
 import {
   MCP_HTTP_API,
@@ -46,7 +46,10 @@ describe("mapMcpServers", () => {
     // Unreachable through the type — that is the point of the `never`
     // branch — but a spec that arrived over a wire with a transport this
     // build does not know must be a loud refusal, not a silent skip.
-    const foreign = { name: "x", transport: "grpc" } as unknown as McpServerSpec;
+    // The type cannot name such a spec, so the test makes one the way it
+    // happens: a value held as a spec whose transport changed at run time.
+    const foreign: McpServerSpec = { name: "x", transport: "stdio", command: "x", args: [] };
+    Reflect.set(foreign, "transport", "grpc");
     expect(() =>
       mapMcpServers([foreign], { stdio: () => 0, http: () => 0 }),
     ).toThrow("unsupported MCP transport: grpc");
@@ -56,8 +59,7 @@ describe("mapMcpServers", () => {
     // The whole reason the fan-out exists: a dialect that forgets an arm is
     // stopped here, at build time, rather than emitting a config with the
     // server missing.
-    // @ts-expect-error — the http arm is required
-    mapMcpServers([], { stdio: () => 0 });
+    expectTypeOf<{ stdio: () => number }>().not.toExtend<Parameters<typeof mapMcpServers>[1]>();
   });
 });
 

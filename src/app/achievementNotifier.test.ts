@@ -10,6 +10,7 @@ import type { UsageHistorySnapshot } from "./usageHistoryManager";
 
 import type { UsageEventV2 } from "../domain/usage/history/event";
 import { usageEvent as event } from "../domain/usage/history/event.testSupport";
+import { listOf, numberOf, recordOf, stringOf } from "../testing/values.test-support";
 
 
 // 2M tokens + provider cost earns: First Million, Warm Afternoon,
@@ -63,6 +64,13 @@ function fakeDeps(over: Partial<AchievementNotifierDeps> = {}) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+const savedDoc = (json: string) => recordOf(JSON.parse(json), "saved achievements");
+const notifiedOf = (json: string) =>
+  listOf(savedDoc(json).notified, "notified awards").map((id) =>
+    stringOf(id, "award id"),
+  );
+const versionOf = (json: string) => numberOf(savedDoc(json).version, "saved version");
+
 describe("createAchievementNotifier", () => {
   it("congratulates retroactively on first run, one notification per award", async () => {
     const { deps, saved, notify, history } = fakeDeps();
@@ -72,7 +80,7 @@ describe("createAchievementNotifier", () => {
 
     expect(notify).toHaveBeenCalledTimes(5);
     const titles = notify.mock.calls.map(
-      (call) => (call[0] as { title: string }).title,
+      (call) => stringOf(recordOf(call[0], "notification").title, "notification title"),
     );
     expect(titles).toContain("Achievement unlocked: First Million");
     expect(titles).toContain("Achievement unlocked: First Tenner");
@@ -80,14 +88,12 @@ describe("createAchievementNotifier", () => {
       source: { type: "stats", tab: "achievements" },
     });
     for (const call of notify.mock.calls) {
-      expect((call[0] as { icon?: string }).icon).toBeTruthy();
+      expect(recordOf(call[0], "notification").icon).toBeTruthy();
     }
     await settle();
-    const persisted = JSON.parse(saved[saved.length - 1]) as {
-      notified: string[];
-    };
-    expect(persisted.notified).toContain("tokens-1000000");
-    expect(persisted.notified).toContain("spendUsd-10");
+    const persisted = notifiedOf(saved[saved.length - 1]);
+    expect(persisted).toContain("tokens-1000000");
+    expect(persisted).toContain("spendUsd-10");
     notifier.dispose();
   });
 
@@ -142,7 +148,7 @@ describe("createAchievementNotifier", () => {
     // in, carried across the rewrite. (That a write happens at all is the
     // version stamp, and belongs to its own case below.)
     for (const json of saved) {
-      const notified = JSON.parse(json).notified as string[];
+      const notified = notifiedOf(json);
       expect(notified).toContain("streakDays-1");
       expect(notified).toContain("spendUsd-10");
     }
@@ -164,7 +170,7 @@ describe("createAchievementNotifier", () => {
     // A lone session earns the two day-one tiers and nothing else.
     expect(notify).toHaveBeenCalledTimes(2);
     expect(
-      notify.mock.calls.map((call) => (call[0] as { title: string }).title),
+      notify.mock.calls.map((call) => stringOf(recordOf(call[0], "notification").title, "notification title")),
     ).toEqual([
       "Achievement unlocked: Hello, Agent",
       "Achievement unlocked: Day One",
@@ -181,7 +187,7 @@ describe("createAchievementNotifier", () => {
     history.set(ledger([first, ...more]));
     await settle();
     const titles = notify.mock.calls.map(
-      (call) => (call[0] as { title: string }).title,
+      (call) => stringOf(recordOf(call[0], "notification").title, "notification title"),
     );
     expect(titles).toContain("Achievement unlocked: First Steps");
     expect(titles.filter((t) => t.includes("Hello, Agent"))).toHaveLength(1);
@@ -209,7 +215,7 @@ describe("createAchievementNotifier", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
     const titles = () =>
-      notify.mock.calls.map((call) => (call[0] as { title: string }).title);
+      notify.mock.calls.map((call) => stringOf(recordOf(call[0], "notification").title, "notification title"));
     expect(titles()).not.toContain("Achievement unlocked: First Tenner");
 
     // Replace WHOLESALE with a longer array totaling only $2.50. A
@@ -244,7 +250,7 @@ describe("createAchievementNotifier", () => {
     history.set(ledger([event(), event()]));
     await settle();
     const titles = notify.mock.calls.map(
-      (call) => (call[0] as { title: string }).title,
+      (call) => stringOf(recordOf(call[0], "notification").title, "notification title"),
     );
     expect(titles.filter((t) => t.includes("Hello, Agent")).length).toBe(2);
     await settle();
@@ -258,10 +264,8 @@ describe("createAchievementNotifier", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
-    const persisted = JSON.parse(saved[saved.length - 1]) as {
-      notified: string[];
-    };
-    expect(persisted.notified).toEqual([...persisted.notified].sort());
+    const persisted = notifiedOf(saved[saved.length - 1]);
+    expect(persisted).toEqual([...persisted].sort());
     notifier.dispose();
   });
 
@@ -349,7 +353,7 @@ describe("naming an award", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
     const titles = notify.mock.calls.map(
-      (call) => (call[0] as { title: string }).title,
+      (call) => stringOf(recordOf(call[0], "notification").title, "notification title"),
     );
     expect(titles).toContain("Achievement unlocked: Token Tycoon");
     expect(titles).toContain("Achievement unlocked: Token Tycoon II");
@@ -391,10 +395,10 @@ describe("carrying a congratulated set across a recalibration", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
-    const persisted = JSON.parse(saved[saved.length - 1]) as { version: number };
+    const persisted = versionOf(saved[saved.length - 1]);
     // Re-reading what we just wrote must be a no-op — that is the whole
     // contract between persist() and decode().
-    expect(migrateFrom(persisted.version, ["spendUsd-10"])).toEqual(
+    expect(migrateFrom(persisted, ["spendUsd-10"])).toEqual(
       new Set(["spendUsd-10"]),
     );
     notifier.dispose();
@@ -413,8 +417,8 @@ describe("carrying a congratulated set across a recalibration", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
-    const persisted = JSON.parse(saved[saved.length - 1]) as { version: number };
-    expect(persisted.version).toBe(9);
+    const persisted = versionOf(saved[saved.length - 1]);
+    expect(persisted).toBe(9);
     notifier.dispose();
   });
 
@@ -430,7 +434,7 @@ describe("carrying a congratulated set across a recalibration", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
     const titles = notify.mock.calls.map(
-      (call) => (call[0] as { title: string }).title,
+      (call) => stringOf(recordOf(call[0], "notification").title, "notification title"),
     );
     // spendUsd-1 carried onto the tier that replaced it: not re-announced.
     expect(titles).not.toContain("Achievement unlocked: First Tenner");
@@ -484,7 +488,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     await settle();
     expect(
       crossing.notify.mock.calls.map(
-        (call) => (call[0] as { title: string }).title,
+        (call) => stringOf(recordOf(call[0], "notification").title, "notification title"),
       ),
     ).toContain("Achievement unlocked: Coffee Money");
     second.dispose();
@@ -536,7 +540,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     // empty `saved` would make the loop below prove nothing.
     expect(saved.length).toBeGreaterThan(0);
     for (const json of saved) {
-      const notified = JSON.parse(json).notified as string[];
+      const notified = notifiedOf(json);
       expect(notified).toContain("tokens-25000000");
       expect(notified).toContain("spendUsd-100");
     }
@@ -568,11 +572,9 @@ describe("reconciling a congratulated set against the ledger", () => {
     // There IS a write — the day-one tiers this ledger does earn — so the
     // assertions below are not passing on an empty `saved`.
     expect(saved.length).toBeGreaterThan(0);
-    const persisted = JSON.parse(saved[saved.length - 1]) as {
-      notified: string[];
-    };
-    expect(persisted.notified).toContain("streakDays-14");
-    expect(persisted.notified).toContain("spendUsd-500");
+    const persisted = notifiedOf(saved[saved.length - 1]);
+    expect(persisted).toContain("streakDays-14");
+    expect(persisted).toContain("spendUsd-500");
     notifier.dispose();
   });
 
@@ -653,11 +655,9 @@ describe("reconciling a congratulated set against the ledger", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
-    const persisted = JSON.parse(saved[saved.length - 1]) as {
-      notified: string[];
-    };
+    const persisted = notifiedOf(saved[saved.length - 1]);
     // spendUsd-10 rewrites to spendUsd-100, which $60 does not support.
-    expect(persisted.notified).not.toContain("spendUsd-100");
+    expect(persisted).not.toContain("spendUsd-100");
     notifier.dispose();
   });
 });

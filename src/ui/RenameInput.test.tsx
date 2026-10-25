@@ -4,8 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RenameInput } from "./RenameInput";
 import { useInlineRename } from "./useInlineRename";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 function Host({ multiline, commit }: { multiline?: boolean; commit: (key: string, name: string) => void }) {
   const rename = useInlineRename(commit);
@@ -18,7 +17,7 @@ describe("RenameInput", () => {
   let root: Root;
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -36,14 +35,14 @@ describe("RenameInput", () => {
     }
     const commit = vi.fn();
     act(() => root.render(createElement(Host, { commit })));
-    act(() => document.querySelector("button")!.click());
-    const line = document.querySelector<HTMLInputElement>("input.rename-input")!;
+    act(() => present(document.querySelector("button"), "the toggle button").click());
+    const line = present(document.querySelector<HTMLInputElement>("input.rename-input"), "the rename input");
     expect(document.activeElement).toBe(line);
     expect([line.selectionStart, line.selectionEnd]).toEqual([5, 5]);
 
     act(() => root.render(createElement(Host, { commit, multiline: true, key: "wrap" })));
-    act(() => document.querySelector("button")!.click());
-    const field = document.querySelector<HTMLTextAreaElement>("textarea.rename-input.rename-input--multiline")!;
+    act(() => present(document.querySelector("button"), "the toggle button").click());
+    const field = present(document.querySelector<HTMLTextAreaElement>("textarea.rename-input.rename-input--multiline"), "the multiline rename field");
     expect(field.value).toBe("Draft");
     // Focused, the caret at the end — where a rename goes on from.
     expect(document.activeElement).toBe(field);

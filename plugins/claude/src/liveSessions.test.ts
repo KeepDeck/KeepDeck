@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext, PluginSessionEvent } from "@keepdeck/plugin-api";
-import { claudeLiveSessions, parseLiveSessions } from "./liveSessions";
+import type { PluginSessionEvent, PluginSpawnOptions } from "@keepdeck/plugin-api";
+import {
+  claudeLiveSessions,
+  parseLiveSessions,
+  type LiveSessionsPorts,
+} from "./liveSessions";
 
 describe("parseLiveSessions", () => {
   it("keeps the documented rows and drops empty optional strings", () => {
@@ -39,28 +43,28 @@ describe("parseLiveSessions", () => {
 function sessionsCtx(
   script: (emit: (event: PluginSessionEvent) => void) => void,
 ) {
-  const spawned: { command: string; args: string[] }[] = [];
-  const ctx = {
+  const spawned: Pick<PluginSpawnOptions, "command" | "args">[] = [];
+  const ctx: LiveSessionsPorts = {
     services: {
       sessions: {
         spawn: vi.fn(
           async (
-            opts: { command: string; args: string[] },
+            opts: PluginSpawnOptions,
             cb: (event: PluginSessionEvent) => void,
           ) => {
             spawned.push({ command: opts.command, args: opts.args });
             queueMicrotask(() => script(cb));
             return {
               id: "s-1",
-              write: vi.fn(),
-              resize: vi.fn(),
+              write: vi.fn(async () => {}),
+              resize: vi.fn(async () => {}),
               close: vi.fn(async () => {}),
             };
           },
         ),
       },
     },
-  } as unknown as PluginContext;
+  };
   return { ctx, spawned };
 }
 

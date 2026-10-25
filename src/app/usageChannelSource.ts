@@ -1,4 +1,4 @@
-import type { AgentCompanion, AgentUsage, SessionTailDialect } from "@keepdeck/plugin-api";
+import type { AgentCompanion, AgentUsage, JsonlRequest, SessionTailDialect } from "@keepdeck/plugin-api";
 import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import type { SessionBinding } from "./sessionBinding";
@@ -20,8 +20,9 @@ export interface UsageLaneContext {
   attribution: PaneAttribution;
   /** The bindings the session lane ACCEPTED. Lanes that need to know a pane
    * bound take them from here rather than re-judging the raw event, because
-   * the verdict is stateful and must be reached once per report. */
-  bindings: SessionBinding;
+   * the verdict is stateful and must be reached once per report. Only their
+   * stream: the lanes never end the session lane. */
+  bindings: Pick<SessionBinding, "subscribe">;
   declarations: UsageDeclarations;
   /** The runtime's usage store — every lane writes through this value. */
   usage: UsageManager;
@@ -30,7 +31,7 @@ export interface UsageLaneContext {
    * follow, which the dialect may have to go and find, and WHAT to carry out
    * of it, which is handed to the follower verbatim and applied without
    * being read. Absent for an agent whose plugin has not declared one. */
-  tailOf(agentId: string): SessionTailDialect<never, never> | undefined;
+  tailOf(agentId: string): SessionTailDialect<JsonlRequest, unknown> | undefined;
   /** What the agent's in-process companion takes over once it says hello —
    * read at arm time, like `tailOf`. */
   companionOf(agentId: string): AgentCompanion | undefined;

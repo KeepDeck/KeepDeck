@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runReporter, startDeck } from "../../../scripts/reporterHarness";
+import { recordOf } from "@keepdeck/plugin-api/testing";
 
 const SCRIPT = fileURLToPath(
   new URL(
@@ -64,8 +65,8 @@ const bridge = () =>
 /** The posted payload minus the reporting process, whose value is a live
  * process group — asserted for shape here rather than in every case. */
 function publishedPayload(nth = 0): Record<string, unknown> {
-  const posted = deck.envelopes[nth] as Record<string, unknown>;
-  const { reporter, ...payload } = posted.payload as Record<string, unknown>;
+  const posted = recordOf(deck.envelopes[nth], "the posted envelope");
+  const { reporter, ...payload } = recordOf(posted.payload, "the envelope payload");
   expect(reporter, "the reporting process group").toMatch(/^\d+$/);
   return payload;
 }
@@ -94,7 +95,7 @@ describe("Kimi SessionStart reporter", () => {
     );
 
     expect(deck.envelopes).toHaveLength(1);
-    const parsed = deck.envelopes[0] as Record<string, unknown>;
+    const parsed = recordOf(deck.envelopes[0], "the posted envelope");
     expect({ ...parsed, payload: publishedPayload() }).toEqual({
       v: 2,
       type: "session.bound",

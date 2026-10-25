@@ -1,5 +1,5 @@
 import { log } from "../ipc/log";
-import type { DeckStore } from "./deckStore";
+import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { paneSessionState } from "./ptyManager";
@@ -50,7 +50,7 @@ export interface VerifiedPaneReports {
  * exists to prevent, and it needs no rebinding at all.
  */
 export function createVerifiedPaneReports(
-  deck: DeckStore,
+  deck: DeckWatch,
   attribution: PaneAttribution,
   options: VerifiedPaneReportsOptions,
 ): VerifiedPaneReports {

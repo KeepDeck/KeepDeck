@@ -1,10 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import { createSessionIndexManager } from "./sessionIndexManager";
+import type { IndexLookupAnswer, IndexLookupKey } from "../ipc/history";
 
-/** An opaque stand-in for a plugin history surface — the manager only
- * forwards it to scanAgentHistories (mocked), never calls it. */
-const history = (marker: string) => ({ marker }) as unknown as AgentHistory;
+/** A stand-in for an agent's plugin history surface — the manager only
+ * forwards it to scanAgentHistories (mocked), never calls it, so every
+ * method refuses. One per agent, the same object each time it is asked
+ * for, so a case can say WHICH surface reached the scan. */
+const histories = new Map<string, AgentHistory>();
+const history = (agent: string): AgentHistory => {
+  const known = histories.get(agent);
+  if (known) return known;
+  const notCalled = () => Promise.reject(new Error("not under test"));
+  const made: AgentHistory = {
+    list: notCalled,
+    describe: notCalled,
+    content: notCalled,
+    transcript: notCalled,
+  };
+  histories.set(agent, made);
+  return made;
+};
 
 /** A registry fake with a manual change signal: `set` swaps the
  * contributions and fires the subscribers, like the plugin registry does
@@ -44,10 +60,13 @@ type Report = {
 };
 
 const scans = vi.hoisted(() => ({
-  scanAgentHistories: vi.fn(
-    (..._args: unknown[]) =>
-      Promise.resolve({ dropped: [] } as Report),
-  ),
+  scanAgentHistories: vi.fn<
+    (
+      sources: Array<{ agentId: string; history: object }>,
+      ops?: unknown,
+      onProgress?: () => void,
+    ) => Promise<Report>
+  >(() => Promise.resolve({ dropped: [] })),
 }));
 vi.mock("./historyScan", () => scans);
 
@@ -67,9 +86,9 @@ function hangingScan() {
 function batchyScan() {
   let finish!: () => void;
   scans.scanAgentHistories.mockImplementationOnce(
-    (...args: unknown[]) =>
+    (...args) =>
       new Promise<Report>((resolve) => {
-        (args[2] as () => void)(); // a batch landed
+        args[2]?.(); // a batch landed
         finish = () => resolve({ dropped: [] });
       }),
   );
@@ -77,14 +96,11 @@ function batchyScan() {
 }
 
 const sourcesOf = (call: number) =>
-  scans.scanAgentHistories.mock.calls[call][0] as Array<{
-    agentId: string;
-    history: object;
-  }>;
+  scans.scanAgentHistories.mock.calls[call][0];
 
 beforeEach(() => {
   scans.scanAgentHistories.mockReset();
-  scans.scanAgentHistories.mockResolvedValue({ dropped: [] } as Report);
+  scans.scanAgentHistories.mockResolvedValue({ dropped: [] });
 });
 
 /** Let a settled scan's `.catch`/`.finally` chain (and the chained `run`
@@ -106,9 +122,8 @@ describe("sessionIndexManager scope", () => {
     const { registry } = fakeRegistry(CONTRIBUTIONS);
     const manager = createSessionIndexManager(registry);
     manager.ensureFresh("codex");
-    expect(sourcesOf(0)).toEqual([
-      { agentId: "codex", history: history("codex") },
-    ]);
+    expect(sourcesOf(0)).toEqual([{ agentId: "codex", history: history("codex") }]);
+    expect(sourcesOf(0)[0].history).toBe(history("codex"));
   });
 });
 
@@ -373,18 +388,17 @@ describe("sessionIndexManager locateTranscript", () => {
    * would have put into the index. */
   function withIndex(initial: Record<string, Answer> = {}) {
     const table: Record<string, Answer> = { ...initial };
-    const lookup = vi.fn(async (keys: Array<{ agent: string; sessionId: string }>) =>
-      keys.map((key) => ({
-        ...key,
-        ...(table[`${key.agent}:${key.sessionId}`] ?? { status: "absent" as const }),
-        reference: "ref",
-        title: null,
-        mtime: 0,
-      })),
+    const lookup = vi.fn(async (keys: IndexLookupKey[]): Promise<IndexLookupAnswer[]> =>
+      keys.map((key): IndexLookupAnswer => {
+        const known = table[`${key.agent}:${key.sessionId}`];
+        return known?.status === "hit"
+          ? { ...key, status: "hit", reference: "ref", title: null, mtime: 0, transcriptPath: known.transcriptPath }
+          : { ...key, status: "absent" };
+      }),
     );
     const { registry } = fakeRegistry(CONTRIBUTIONS);
     const manager = createSessionIndexManager(registry, {
-      lookup: lookup as never,
+      lookup,
     });
     return { manager, table, lookup };
   }

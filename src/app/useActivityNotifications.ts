@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import type { AgentInfo } from "../domain/agents";
 import type { Workspace } from "../domain/deck";
 import { initActivityNotifications } from "./notificationProducers";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 
 /**
  * Mount the activity → notification producer. One subscription per app; the
@@ -15,7 +15,7 @@ export function useActivityNotifications(
   workspaces: Workspace[],
   agents: AgentInfo[],
 ): void {
-  const { statusTracker } = useAppRuntime();
+  const statusTracker = useRuntimePart("statusTracker");
   const facts = useRef({ workspaces, agents });
   facts.current = { workspaces, agents };
   useEffect(

@@ -1,5 +1,6 @@
 import {
   fileStub,
+  isJsonRecord,
   jsonl,
   pageOfWalk,
   readStoreDir,
@@ -12,7 +13,9 @@ import {
   type AgentSessionStub,
   type AgentTranscriptEntry,
   type FsEntry,
-  type PluginContext,
+  type PluginFs,
+  type PluginLogger,
+  type PluginSessionStore,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
 
@@ -25,14 +28,26 @@ import {
  */
 const ROOT = "~/.kimi-code/sessions";
 
-/** One wire line, as this plugin reads it. An assertion about the format
- * made in ONE place: the host parses the JSON and validates nothing. */
+/** One wire line, as this plugin reads it. The host parses the JSON and
+ * validates nothing. */
 interface KimiRecord {
   type?: unknown;
   message?: { role?: unknown; content?: unknown };
   event?: { type?: unknown; part?: { type?: unknown; text?: unknown } };
   input?: unknown;
   origin?: { kind?: unknown };
+}
+
+/** A JSON object whose `message`, `event` (and its `part`) and `origin`,
+ * where present, are objects too. */
+function isKimiRecord(value: unknown): value is KimiRecord {
+  const objectOrAbsent = (field: unknown) => field === undefined || isJsonRecord(field);
+  return (
+    isJsonRecord(value) &&
+    objectOrAbsent(value.message) &&
+    objectOrAbsent(value.origin) &&
+    (value.event === undefined || (isJsonRecord(value.event) && objectOrAbsent(value.event.part)))
+  );
 }
 
 /** The assistant's text, still arriving.
@@ -123,14 +138,24 @@ const dialect: SessionDialect<KimiState, KimiRecord> = {
 
 const WIRE_SUFFIX = "/agents/main/wire.jsonl";
 
-export function kimiHistory(ctx: PluginContext): AgentHistory {
+/** What the history reads through: the store's folders and files, the
+ * session reader over them, and the log. */
+export interface HistoryPorts {
+  log: PluginLogger;
+  services: {
+    fs: Pick<PluginFs, "readDir" | "readFile">;
+    sessionStore: PluginSessionStore;
+  };
+}
+
+export function kimiHistory(ctx: HistoryPorts): AgentHistory {
   const readSession = (
     ref: string,
     extra: { keep?: { offset: number; limit: number } } = {},
   ) =>
     walkSession({
       store: ctx.services.sessionStore,
-      format: jsonl<KimiRecord>(),
+      format: jsonl(isKimiRecord),
       request: { path: ref },
       dialect,
       ...extra,
@@ -224,11 +249,11 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         .readFile(`${sessionDir}/state.json`)
         .catch(() => null);
       try {
-        const parsed = JSON.parse(state?.text ?? "") as {
-          cwd?: unknown;
-          workDir?: unknown;
-          title?: unknown;
-        };
+        const read: unknown = JSON.parse(state?.text ?? "");
+        // Not an object: the session's details are unknown, as for a file
+        // that does not parse.
+        if (!isJsonRecord(read)) return { cwd: "", transcriptPath: ref };
+        const parsed = read;
         // The working directory moved key: sessions written since kimi 0.38
         // carry `cwd`, older ones `workDir`. Reading only the old name left
         // every recent session unattached to its folder in the browser.

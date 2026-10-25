@@ -83,6 +83,10 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
   const [derivedBranch, setDerivedBranch] = useState(suggestedBranch);
   const derivedRef = useRef(suggestedBranch);
   const [probe, setProbe] = useState<PathProbe | null>(null);
+  // The injected reads are current through a ref: each effect is triggered
+  // by the path/repo it asks about, not by a fresh function identity.
+  const reads = useRef({ probePath, listBranches, branchForPath });
+  reads.current = { probePath, listBranches, branchForPath };
 
   // Live-probe the entered path (debounced) to drive the hint. A null probe
   // while a non-empty path is pending reads as "checking".
@@ -94,7 +98,7 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
     setProbe(null);
     let cancelled = false;
     const timer = setTimeout(() => {
-      probePath(path)
+      reads.current.probePath(path)
         .then((p) => {
           if (!cancelled) setProbe(p);
         })
@@ -107,7 +111,6 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
       cancelled = true;
       clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, repo]);
 
   // Load the base-branch options once per dialog: the workspace repo is fixed
@@ -115,7 +118,7 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
   useEffect(() => {
     if (!repo) return;
     let cancelled = false;
-    listBranches(repo.cwd)
+    reads.current.listBranches(repo.cwd)
       .then((list) => {
         if (!cancelled) setBranches(list);
       })
@@ -123,7 +126,6 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo]);
 
   // Follow the path with the branch (debounced like the probe): an untouched
@@ -133,7 +135,7 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
     if (!repo || !path.trim()) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      branchForPath(path)
+      reads.current.branchForPath(path)
         .then((b) => {
           if (cancelled || b === null) return;
           const previous = derivedRef.current;
@@ -147,7 +149,6 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
       cancelled = true;
       clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, repo]);
 
   const deckSays = repo && path.trim() ? directoryAt(path) : "free";

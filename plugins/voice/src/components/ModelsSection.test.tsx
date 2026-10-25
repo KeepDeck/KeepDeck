@@ -4,14 +4,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MODEL_KEY } from "../modelChoice";
 import { MODEL_CATALOG, type VoiceModelInfo } from "../modelCatalog";
-import { clearRuntime, setRuntime, type VoiceRuntime } from "../runtime";
+import {
+  createFakeHost,
+  fakeManifest,
+} from "../../../../packages/plugin-guest/src/fakeHost";
+import { createBindingsStore } from "../bindingsStore";
+import { createRecordingLatch } from "../recordingLatch";
+import { clearRuntime, setRuntime } from "../runtime";
+import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { ModelsSection } from "./ModelsSection";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 const installed = (id: string): VoiceModelInfo => ({
-  ...MODEL_CATALOG.find((model) => model.id === id)!,
+  ...present(MODEL_CATALOG.find((model) => model.id === id), "the matching item"),
   installed: true,
 });
 
@@ -19,7 +24,7 @@ describe("ModelsSection", () => {
   let stage: HTMLElement;
   let root: Root;
   const write = vi.fn();
-  const remove = vi.fn((_model: unknown) => Promise.resolve());
+  const remove = vi.fn((_model: VoiceModelInfo) => Promise.resolve());
 
   // Stable snapshots: useSyncExternalStore re-renders on every new object.
   const noDownloads = { active: {}, errors: {}, interrupted: {} };
@@ -29,25 +34,24 @@ describe("ModelsSection", () => {
     write.mockClear();
     remove.mockClear();
     const models = [installed("whisper-small"), installed("parakeet-tdt-0.6b-v3")];
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
     setRuntime({
-      ctx: { services: { downloads: { remove } }, log: { warn: vi.fn() } },
-      downloads: {
+      ctx: host.ctx,
+      controller: controllerOf(),
+      downloads: downloadsOf({
         snapshot: () => noDownloads,
-        subscribe: () => () => {},
-        start: vi.fn(),
+        start: vi.fn(async () => true),
         cancel: vi.fn(),
-        anyActive: () => false,
-      },
-      models: {
+      }),
+      models: modelsOf({
         snapshot: () => models,
-        subscribe: () => () => {},
-        error: () => null,
         removeErrors: () => noRemoveErrors,
         remove,
-        refresh: () => Promise.resolve(),
         current: () => Promise.resolve(models),
-      },
-    } as unknown as VoiceRuntime);
+      }),
+      bindings: createBindingsStore(host.ctx),
+      recordingLatch: createRecordingLatch(),
+    });
     stage = document.body.appendChild(document.createElement("div"));
     root = createRoot(stage);
     act(() =>
@@ -55,7 +59,7 @@ describe("ModelsSection", () => {
         createElement(ModelsSection, {
           values: { [MODEL_KEY]: "whisper-small" },
           write,
-        } as never),
+        }),
       ),
     );
   });
@@ -67,9 +71,9 @@ describe("ModelsSection", () => {
   });
 
   const card = (name: RegExp) =>
-    [...stage.querySelectorAll<HTMLElement>(".voice-models__card")].find((el) =>
+    present([...stage.querySelectorAll<HTMLElement>(".voice-models__card")].find((el) =>
       name.test(el.textContent ?? ""),
-    )!;
+    ), "the matching item");
   const click = (el: Element) =>
     act(() => {
       el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -81,17 +85,17 @@ describe("ModelsSection", () => {
   });
 
   it("still picks from the card's size — only its actions are contained", () => {
-    const size = [...card(/Parakeet/i).querySelectorAll(".voice-models__foot-right > span")].find(
+    const size = present([...card(/Parakeet/i).querySelectorAll(".voice-models__foot-right > span")].find(
       (span) => /MB$/.test(span.textContent ?? ""),
-    )!;
+    ), "the .voice-models__foot-right > span elements");
     click(size);
     expect(write).toHaveBeenCalledWith(MODEL_KEY, "parakeet-tdt-0.6b-v3");
   });
 
   it("deletes without also picking the model it is deleting", () => {
-    const deleteButton = [...card(/Parakeet/i).querySelectorAll("button")].find(
+    const deleteButton = present([...card(/Parakeet/i).querySelectorAll("button")].find(
       (button) => button.textContent === "Delete",
-    )!;
+    ), "the button elements");
     click(deleteButton);
     expect(remove).toHaveBeenCalledTimes(1);
     expect(remove.mock.calls[0][0]).toMatchObject({ id: "parakeet-tdt-0.6b-v3" });

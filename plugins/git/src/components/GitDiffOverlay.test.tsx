@@ -3,8 +3,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  GitChangedFile,
   GitStatus,
-  PluginContext,
   WorkspaceRef,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
@@ -12,15 +12,13 @@ import {
   installResizeObserver,
   pinListViewport,
 } from "@keepdeck/ui-kit/virtualGeometry.test-support";
-import { setRuntime } from "../runtime";
+import { setRuntime, type GitPorts } from "../runtime";
+import { inertPorts } from "../gitPorts.test-support";
 import { requestPeek, takePeekRequest } from "../peekRequests";
 import { GitDiffOverlay } from "./GitDiffOverlay";
 import { GitTab } from "./GitTab";
 import type { ChangeRow } from "../domain/status";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { elementOf, present } from "@keepdeck/plugin-api/testing";
 
 const workspace: WorkspaceSnapshot = {
   id: "ws-1",
@@ -58,14 +56,14 @@ const row = (path: string): ChangeRow => ({
 /** Deck events the resident overlay listens to, with a handle to fire them
  * the way the host bridge does. */
 const deckEvents = {
-  paneSelected: new Set<(e: { workspace: WorkspaceRef }) => void>(),
+  paneSelected: new Set<(e: { workspace: WorkspaceRef; paneId: string | null }) => void>(),
   workspaceClosed: new Set<(e: { workspace: WorkspaceRef }) => void>(),
   reset() {
     this.paneSelected.clear();
     this.workspaceClosed.clear();
   },
   fireActive(workspace: WorkspaceRef) {
-    for (const cb of [...this.paneSelected]) cb({ workspace });
+    for (const cb of [...this.paneSelected]) cb({ workspace, paneId: null });
   },
   fireClosed(workspace: WorkspaceRef) {
     for (const cb of [...this.workspaceClosed]) cb({ workspace });
@@ -75,9 +73,9 @@ const deckEvents = {
 const WS: WorkspaceRef = { id: "ws-1", instance: "instance-1" };
 const OTHER_WS: WorkspaceRef = { id: "ws-2", instance: "instance-2" };
 
-function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
+function makeCtx(over: Partial<GitStatus> | null = null): GitPorts {
   return {
-    ui: { setOverlayCovers: vi.fn() },
+    ui: { ...inertPorts().ui, setOverlayCovers: vi.fn() },
     // The tab remembers its open sections here; an empty slot is the default.
     storage: {
       workspace: () => ({
@@ -87,7 +85,7 @@ function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
       }),
     },
     events: {
-      onPaneSelected: (cb: (e: { workspace: WorkspaceRef }) => void) => {
+      onPaneSelected: (cb: (e: { workspace: WorkspaceRef; paneId: string | null }) => void) => {
         deckEvents.paneSelected.add(cb);
         return { dispose: () => deckEvents.paneSelected.delete(cb) };
       },
@@ -104,25 +102,24 @@ function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
           text: "@@ -1 +1 @@\n-hello\n+goodbye\n",
           truncated: false,
         })),
-        history: vi.fn(async () => ({ commits: [], base: null })),
+        history: vi.fn(async () => ({ forkSha: null, ahead: null, commits: [] })),
         branches: vi.fn(async () => ({ current: "main", branches: ["main"] })),
         changedFiles: vi.fn(async () => []),
-        watch: vi.fn(() => ({ dispose: vi.fn() })),
+        watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: vi.fn() })),
       },
       fs: {
-        readDir: vi.fn(async () => []),
         readFile: vi.fn(async () => ({
           path: "x",
           text: "",
           isBinary: false,
           size: 0,
           truncated: false,
+          readBytes: 0,
         })),
-        watch: vi.fn(() => ({ dispose: vi.fn() })),
       },
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  };
 }
 
 /** Two hosts, two roots — the shape the app mounts these in. The dock panel
@@ -212,7 +209,7 @@ describe("GitDiffOverlay", () => {
     const ctx = makeCtx();
     setRuntime(ctx);
     await mountOverlay();
-    const covers = ctx.ui.setOverlayCovers as ReturnType<typeof vi.fn>;
+    const covers = ctx.ui.setOverlayCovers;
     expect(covers).toHaveBeenLastCalledWith("diff", false);
 
     await act(async () => {
@@ -233,13 +230,13 @@ describe("GitDiffOverlay", () => {
     await mountOverlay();
     await mountTab();
 
-    const changeRow = [...tabHost.querySelectorAll("button.git__row")].find(
-      (el) => el.textContent?.includes("app.ts"),
+    const changeRow = present(
+      [...tabHost.querySelectorAll<HTMLButtonElement>("button.git__row")].find(
+        (el) => el.textContent?.includes("app.ts"),
+      ),
+      "the app.ts row",
     );
-    expect(changeRow).toBeTruthy();
-    await act(async () => {
-      (changeRow as HTMLButtonElement).click();
-    });
+    await act(async () => changeRow.click());
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
 
     // The dock closes: the host unmounts the panel, and with it the tab.
@@ -340,20 +337,21 @@ describe("GitDiffOverlay", () => {
   it("a second history scope never seeds from the first scope's files", async () => {
     // Two scopes of the SAME repo, so nothing remounts between them: the
     // rail's list is the only thing that must not carry over.
-    let releaseSecond: (files: { path: string; code: string }[]) => void =
-      () => {};
+    let releaseSecond: (files: GitChangedFile[]) => void = () => {};
     const calls: string[][] = [];
-    const changedFiles = vi.fn((_repo: string, from: string, to?: string) => {
-      calls.push([from, to ?? ""]);
-      if (calls.length === 1) {
-        return Promise.resolve([{ path: "first.ts", code: "M" }]);
-      }
-      return new Promise((resolve) => {
-        releaseSecond = resolve as typeof releaseSecond;
-      });
-    });
+    const changedFiles = vi.fn(
+      (_repo: string, from: string, to?: string): Promise<GitChangedFile[]> => {
+        calls.push([from, to ?? ""]);
+        if (calls.length === 1) {
+          return Promise.resolve([{ path: "first.ts", origPath: null, code: "M" }]);
+        }
+        return new Promise((resolve) => {
+          releaseSecond = resolve;
+        });
+      },
+    );
     const ctx = makeCtx();
-    (ctx.services.git as { changedFiles: unknown }).changedFiles = changedFiles;
+    ctx.services.git.changedFiles = changedFiles;
     setRuntime(ctx);
     await mountOverlay();
 
@@ -386,7 +384,7 @@ describe("GitDiffOverlay", () => {
     expect(overlayHost.textContent).not.toContain("first.ts");
 
     await act(async () => {
-      releaseSecond([{ path: "second.ts", code: "M" }]);
+      releaseSecond([{ path: "second.ts", origPath: null, code: "M" }]);
     });
     expect(overlayHost.querySelector(".git__row--on")?.textContent).toContain(
       "second.ts",
@@ -407,7 +405,7 @@ describe("GitDiffOverlay", () => {
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
 
     await act(async () => {
-      (overlayHost.querySelector(".peek") as HTMLElement).click();
+      elementOf(overlayHost, ".peek", HTMLElement).click();
     });
 
     expect(overlayHost.querySelector(".peek")).toBeNull();

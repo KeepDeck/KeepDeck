@@ -11,6 +11,7 @@ import {
   stripGroupView,
   teamsToggleView,
 } from "./stripExpand";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("which workspaces list their teams", () => {
   const at = (
@@ -122,7 +123,7 @@ describe("a workspace's teams toggle", () => {
   });
 
   it("is out of reach while the strip is shut — out of sight past its edge", () => {
-    expect(teamsToggleView({ name: "KeepDeck", teams }, false, false)!.reachable).toBe(false);
+    expect(present(teamsToggleView({ name: "KeepDeck", teams }, false, false), "the teams toggle").reachable).toBe(false);
   });
 });
 
@@ -207,6 +208,6 @@ describe("the commit's list motions", () => {
   it("keeps a fold off the scroll an opener is already carrying", () => {
     const scrolled = { scrollTop: 450, viewportHeight: 400, contentHeight: 1000 };
     const plans = planListMotions([opening("c", 380, 100)], [{ id: "a", height: 300 }], null, ["a", "c"], scrolled);
-    expect(plans.find((p) => p.id === "a")!.scrollTo).toBeNull();
+    expect(present(plans.find((p) => p.id === "a"), "plan a").scrollTo).toBeNull();
   });
 });

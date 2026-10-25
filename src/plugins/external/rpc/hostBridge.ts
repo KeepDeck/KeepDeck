@@ -1,7 +1,7 @@
 import { errorMessage, type PluginContext } from "@keepdeck/plugin-api";
 
 import { createHostDispatch } from "./hostDispatch";
-import type { GuestToHostMessage } from "./protocol";
+import { decodeGuestMessage } from "./decode";
 
 /**
  * The host end of the external tier's RPC bridge. Given a `MessagePort` to one
@@ -68,7 +68,13 @@ export function createHostBridge(
 
   port.onmessage = (event: MessageEvent) => {
     if (disposed) return;
-    const message = event.data as GuestToHostMessage;
+    let message;
+    try {
+      message = decodeGuestMessage(event.data);
+    } catch (error) {
+      ctx.log.warn(`external plugin bridge: ${errorMessage(error)}`);
+      return;
+    }
     switch (message.kind) {
       case "ready":
         // The guest is up; hand it the manifest it activates against — once.

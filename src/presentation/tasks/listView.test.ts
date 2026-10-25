@@ -24,6 +24,7 @@ import { taskRowView } from "./taskRowView";
 import { IDLE, armRow, moveRow, rowGrip, type DragState } from "./rowDrag";
 import { BOARD_ORDER, EPIC_FOLD_WORDS } from "./words";
 import type { TaskStatus } from "../../domain/tasks";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const tasks = [
   task({ id: "task-1", status: "todo", priority: "normal", created: 1 }),
@@ -62,7 +63,9 @@ describe("listView — the board's tasks as one list", () => {
     expect(keys(items)).toEqual(["head:blocked", "head:backlog", "head:todo", "head:in-progress", "head:review", "task-5", "head:done", "head:cancelled"]);
     expect(items[4]).toMatchObject({ kind: "head", label: "Review", count: 1, folded: false });
     expect(items[0]).toMatchObject({ kind: "head", count: 0 });
-    expect(listHeadingClassName(items[0] as never)).toContain("tasks__group--empty");
+    const empty = items[0];
+    if (empty?.kind !== "head") throw new Error("the list does not start with a heading");
+    expect(listHeadingClassName(empty)).toContain("tasks__group--empty");
   });
 
   it("folds a group to its heading alone — the heading stays, with the count of what it hides", () => {
@@ -149,7 +152,11 @@ describe("stepRow — J and K walk the tasks", () => {
 
 describe("the list in a drag", () => {
   const items = listView(tasks, b, 0, NO_QUERY, NONE, null);
-  const rowOf = (id: string) => items.find((i) => i.key === id) as Extract<ListItem, { kind: "row" }>;
+  const rowOf = (id: string) => {
+    const item = items.find((i) => i.key === id);
+    if (!item || item.kind !== "row") throw new Error(`expected row ${id}`);
+    return item;
+  };
   const dragging: DragState = { kind: "dragging", id: "task-1", x: 0, y: 0, grip: { width: 1, offsetX: 0, offsetY: 0 }, targets: new Set(["in-progress", "done"]) };
 
   it("knows each row's group — where a drop on it lands", () => {
@@ -172,13 +179,13 @@ describe("the list in a drag", () => {
 
   it("frames the group under the pointer whole: its heading opens the frame, its last row closes it", () => {
     const todo = listView(tasks, b, 0, NO_QUERY, NONE, null);
-    const edgeOf = (key: string) => todo.find((i) => i.key === key)!.edge;
+    const edgeOf = (key: string) => present(todo.find((i) => i.key === key), `the ${key} item`).edge;
     expect([edgeOf("head:todo"), edgeOf("task-2"), edgeOf("task-1")]).toEqual(["top", "middle", "bottom"]);
     // One row: it alone closes the frame.
     expect([edgeOf("head:done"), edgeOf("task-4")]).toEqual(["top", "bottom"]);
     // No rows shown — empty, or folded: the heading is the whole frame.
     expect(edgeOf("head:in-progress")).toBe("whole");
-    expect(listView(tasks, b, 0, NO_QUERY, new Set(["todo"] as const), null).find((i) => i.key === "head:todo")!.edge).toBe("whole");
+    expect(present(listView(tasks, b, 0, NO_QUERY, new Set(["todo"] as const), null).find((i) => i.key === "head:todo"), "the todo head item").edge).toBe("whole");
   });
 
   it("frames what the query leaves shown: its last shown row closes the frame, none shown is the heading alone", () => {
@@ -189,7 +196,7 @@ describe("the list in a drag", () => {
       task({ id: "task-4", status: "done" }),
     ];
     const items = listView(labelled, board(labelled), 0, { label: "ui" }, NONE, null);
-    const edgeOf = (key: string) => items.find((i) => i.key === key)!.edge;
+    const edgeOf = (key: string) => present(items.find((i) => i.key === key), `the ${key} item`).edge;
     const todoRows = items.filter((i) => i.kind === "row" && i.status === "todo");
     // Two shown of three: the second shown closes it, not the hidden third.
     expect(todoRows.map((r) => r.edge)).toEqual(["middle", "bottom"]);
@@ -205,7 +212,8 @@ describe("the list in a drag", () => {
     expect(listRowClassName(rowOf("task-1"), dragging, null)).toContain("tasks__row--dragging");
     expect(listRowClassName(rowOf("task-4"), dragging, "done")).toContain("tasks__drop--over");
     expect(listRowClassName(rowOf("task-4"), IDLE, null)).toBe(rowOf("task-4").className);
-    const done = items.find((i) => i.key === "head:done") as Extract<ListItem, { kind: "head" }>;
+    const done = items.find((i) => i.key === "head:done");
+    if (!done || done.kind !== "head") throw new Error("expected the done heading");
     expect(listHeadingDropClassName(done, dragging, null)).toBe("tasks__group tasks__group--done");
     expect(listHeadingDropClassName(done, dragging, "done")).toBe("tasks__group tasks__group--done tasks__drop--over tasks__drop-edge--top");
   });
@@ -245,7 +253,11 @@ describe("listView — an epic with its tasks under it (B1)", () => {
       "head:done",
       "head:cancelled",
     ]);
-    const row = (key: string) => items.find((i) => i.key === key) as Extract<ListItem, { kind: "row" }>;
+    const row = (key: string) => {
+      const item = items.find((i) => i.key === key);
+      if (!item || item.kind !== "row") throw new Error(`expected row ${key}`);
+      return item;
+    };
     // The gutter is the row's own: the epic's fold, its tasks' guide — stopping at the last — nothing for the rest.
     expect(["task-1", "task-5", "task-4", "task-2", "task-6"].map((k) => row(k).lead)).toEqual(["fold", "guide", "guide", "guide-end", "none"]);
     expect(["task-1", "task-4", "task-2", "task-6"].map((k) => row(k).leadClassName)).toEqual([

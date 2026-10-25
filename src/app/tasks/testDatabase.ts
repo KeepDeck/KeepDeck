@@ -13,10 +13,16 @@ import type { MigrationSource } from "../../ipc/generated/tasks/MigrationSource"
 import type { StoreError } from "../../ipc/generated/tasks/StoreError";
 import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
 import type { StoredBoard } from "../../ipc/generated/tasks/StoredBoard";
+import type { StoredTask } from "../../ipc/generated/tasks/StoredTask";
 import type { TaskDatabasePort } from "./dbBoardStore";
 
 export function isTestStoreError(value: unknown): value is StoreError {
-  return typeof value === "object" && value !== null && typeof (value as { code?: unknown }).code === "string";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "code" in value &&
+    typeof value.code === "string"
+  );
 }
 
 export function testDatabase(files: LegacyBoard[] = []) {
@@ -45,7 +51,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
   let loadHeld: Promise<void> | null = null;
   /** The next status is read now and answered on release. */
   let statusHeld: Promise<void> | null = null;
-  const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  const clone = <T>(value: T): T => structuredClone(value);
+  const positions = new Map<string, number | undefined>();
 
   const applyBoard = (change: ChangeSet["boards"][number]) => {
     let board = boards.find((b) => b.board === change.board);
@@ -61,16 +68,27 @@ export function testDatabase(files: LegacyBoard[] = []) {
     board.tasks = board.tasks.filter((t) => !change.removed.includes(t.uid));
     for (const w of change.tasks) {
       const old = board.tasks.find((t) => t.uid === w.uid);
-      const task = old ?? ({ uid: w.uid, key: w.key ?? "", oldKeys: [], labels: [], artifacts: [], comments: [], log: [], briefs: [] } as unknown as StoredBoard["tasks"][number]);
-      Object.assign(task, {
-        teamId: w.teamId, title: w.title, body: w.body, bodyV: w.bodyV, status: w.status, priority: w.priority,
+      const fields = {
+        teamId: w.teamId, title: w.title, body: w.body, bodyV: w.bodyV, kind: w.kind, status: w.status, priority: w.priority,
         assignee: w.assignee, author: w.author, created: w.created, updated: w.updated, rev,
-      });
+      };
+      // A new task is made in this change, and its comments and log land in
+      // it — the landings the store keeps beside each part, as the Rust
+      // store's own tests pin them.
+      const task: StoredTask = old ?? {
+        uid: w.uid, key: w.key ?? "", oldKeys: [], ...fields, labels: [], artifacts: [], comments: [], log: [], briefs: [],
+        createdRev: rev, commentRevs: [], logRevs: [],
+      };
+      Object.assign(task, fields);
+      positions.set(task.uid, w.boardPos);
       if (w.labels) task.labels = [...w.labels].sort();
       if (w.artifacts) task.artifacts = [...w.artifacts];
       for (const c of w.comments) {
         const stored = task.comments.find((x) => x.n === c.n);
-        if (!stored) task.comments.push(c);
+        if (!stored) {
+          task.comments.push(c);
+          task.commentRevs.push(rev);
+        }
         else if (JSON.stringify(stored) !== JSON.stringify(c)) {
           throw { code: "constraint", detail: `comment ${c.n} is stored with other content` } satisfies StoreError;
         }
@@ -79,12 +97,12 @@ export function testDatabase(files: LegacyBoard[] = []) {
         if (task.log.some((x) => x.seq === e.seq)) continue;
         if (e.seq !== task.log.length) throw { code: "constraint", detail: "log gap" } satisfies StoreError;
         task.log.push(e);
+        task.logRevs.push(rev);
       }
       for (const b of w.briefs) if (!task.briefs.some((x) => x.v === b.v)) task.briefs.push(b);
       if (!old) board.tasks.push(task);
-      (task as { boardPos?: number }).boardPos = w.boardPos;
     }
-    board.tasks.sort((a, b) => ((a as { boardPos?: number }).boardPos ?? 0) - ((b as { boardPos?: number }).boardPos ?? 0));
+    board.tasks.sort((a, b) => (positions.get(a.uid) ?? 0) - (positions.get(b.uid) ?? 0));
     const key = (r: { kind: string; from: string; to: string }) => `${r.kind}|${r.from}|${r.to}`;
     board.relations = board.relations.filter((r) => !change.relationsRemoved.some((k) => key(k) === key(r)));
     for (const r of change.relationsPut) {

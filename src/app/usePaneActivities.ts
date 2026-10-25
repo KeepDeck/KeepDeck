@@ -1,6 +1,9 @@
 import { useSyncExternalStore } from "react";
 import type { PaneActivity } from "../domain/status";
-import { useAppRuntime } from "./runtimeContext";
+import type { AgentStatusTracker } from "./agentStatusTracker";
+
+/** The tracker as this hook reads it: its snapshot, and when that changes. */
+export type PaneActivitySource = Pick<AgentStatusTracker, "subscribe" | "getSnapshot">;
 
 /**
  * Every pane's live activity, as ONE subscription for whatever surface asks
@@ -13,8 +16,9 @@ import { useAppRuntime } from "./runtimeContext";
  * workspace's row is decided in `presentation/stripView`: this hook carries
  * the facts and ranks nothing.
  */
-export function usePaneActivities(): ReadonlyMap<string, PaneActivity> {
-  const { statusTracker } = useAppRuntime();
+export function usePaneActivities(
+  statusTracker: PaneActivitySource,
+): ReadonlyMap<string, PaneActivity> {
   return useSyncExternalStore(statusTracker.subscribe, statusTracker.getSnapshot)
     .panes;
 }

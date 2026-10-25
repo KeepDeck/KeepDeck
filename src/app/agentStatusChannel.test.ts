@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentContribution, AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
-import type { ContributionRegistry } from "../plugins/registries/contributions";
+import type { AgentStatus, StatusNormalizer } from "@keepdeck/plugin-api";
 import {
   createAgentStatusTracker,
   type AgentStatusTracker,
@@ -9,16 +8,24 @@ import {
   createAgentStatusChannel,
   type PaneKeyPort,
   type SessionLivenessPort,
+  type StatusDeclarationsPort,
 } from "./agentStatusChannel";
-import type { DeckStore } from "./deckStore";
+import type { DeckWatch } from "./deckStore";
+import { deckStateOf } from "./deckStore.testSupport";
 import { createPaneAttribution } from "./paneAttribution";
+import type { PaneReportEvent } from "./verifiedPaneReports";
+import { present } from "@keepdeck/plugin-api/testing";
+import { statusEdge } from "../testing/values.test-support";
+import { maybeRecord } from "../testing/values.test-support";
 
 /** Every report is the main agent's and may move the pane: the channel
  * under test is the wiring, not the admission rule, which has its own tests. */
 const mainAgent = () => ({ event: null, actor: "main" as const, status: true });
 
 const ipc = vi.hoisted(() => ({
-  onAgentStatus: vi.fn(() => Promise.resolve(() => {})),
+  onAgentStatus: vi.fn<
+    (handler: (report: PaneReportEvent) => void) => Promise<() => void>
+  >(() => Promise.resolve(() => {})),
   peekPaneSpawnSpec: vi.fn(() => ({ token: "tok" })),
 }));
 vi.mock("../ipc/status", () => ({ onAgentStatus: ipc.onAgentStatus }));
@@ -28,7 +35,7 @@ vi.mock("./ptyManager", () => ({
 }));
 
 const edgeNormalizer = (payload: unknown) =>
-  (payload as { edge?: AgentStatusEvent }).edge ?? null;
+  statusEdge(payload);
 
 /** A deck store holding one workspace with the given pane ids. */
 /** These cases drive the tracker directly, never the bridge lane, so the
@@ -43,24 +50,20 @@ const attribution = createPaneAttribution({
 
 const deckWith = (...paneIds: string[]) => {
   const listeners = new Set<() => void>();
-  let ids = paneIds;
+  const stateOf = (ids: string[]) =>
+    deckStateOf(ids.map((id) => ({ id, agentType: "claude" })));
+  let state = stateOf(paneIds);
+  const store: DeckWatch = {
+    getSnapshot: () => state,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
   return {
-    store: {
-      getSnapshot: () => ({
-        workspaces: [
-          {
-            id: "ws-1",
-            panes: ids.map((id) => ({ id, agentType: "claude" })),
-          },
-        ],
-      }),
-      subscribe: (listener: () => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-    } as unknown as DeckStore,
+    store,
     setPanes(...next: string[]) {
-      ids = next;
+      state = stateOf(next);
       for (const listener of [...listeners]) listener();
     },
   };
@@ -69,17 +72,18 @@ const deckWith = (...paneIds: string[]) => {
 /** A contribution registry whose agent list can change under the channel. */
 const agentsWith = () => {
   const listeners = new Set<() => void>();
-  let entries: { entry: { id: string; status: { normalize: StatusNormalizer; attribute: typeof mainAgent } } }[] = [
+  let entries: { entry: { id: string; status: AgentStatus } }[] = [
     { entry: { id: "claude", status: { normalize: edgeNormalizer, attribute: mainAgent } } },
   ];
+  const registry: StatusDeclarationsPort = {
+    list: () => entries,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
   return {
-    registry: {
-      list: () => entries,
-      subscribe: (listener: () => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-    } as unknown as ContributionRegistry<AgentContribution>,
+    registry,
     replace(next: typeof entries) {
       entries = next;
       for (const listener of [...listeners]) listener();
@@ -127,7 +131,7 @@ describe("createAgentStatusChannel", () => {
   it("retires decoder metadata when a process dies before publishing any activity", () => {
     const agents = agentsWith();
     const normalize: StatusNormalizer = (payload, at, context) => {
-      if ((payload as { seed?: boolean }).seed) return { kind: "status-reduction", state: "old-mode", events: [] };
+      if (maybeRecord(payload)?.seed === true) return { kind: "status-reduction", state: "old-mode", events: [] };
       return { kind: "turn-start", at: context?.state === "old-mode" ? 999 : at };
     };
     agents.replace([{ entry: { id: "claude", status: { normalize, attribute: mainAgent } } }]);
@@ -230,7 +234,7 @@ describe("createAgentStatusChannel", () => {
           status: { normalize: () => ({ kind: "turn-end", at: 200 }), attribute: mainAgent },
         },
       },
-    ] as never);
+    ]);
     tracker.report("pane-1", { agent: "claude", edge: null });
     expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
       state: "done",
@@ -257,7 +261,7 @@ describe("createAgentStatusChannel", () => {
     // The plugin is DISABLED: claude leaves the contribution list whole.
     // Its process may live on, so no sweep would ever fire — the channel
     // must clear what the agent can no longer resolve.
-    agents.replace([] as never);
+    agents.replace([]);
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
   });
 
@@ -286,13 +290,13 @@ describe("createAgentStatusChannel", () => {
   });
 
   it("feeds VERIFIED bridge reports into the tracker through the shared guard", async () => {
-    let handler:
-      | ((report: { paneId: string; token: string; payload: unknown }) => void)
-      | null = null;
-    ipc.onAgentStatus.mockImplementationOnce(((h: never) => {
-      handler = h;
+    const captured: {
+      handler: ((report: { paneId: string; token: string; payload: unknown }) => void) | null;
+    } = { handler: null };
+    ipc.onAgentStatus.mockImplementationOnce((h) => {
+      captured.handler = h;
       return Promise.resolve(() => {});
-    }) as never);
+    });
     // The one case that reaches the lane, so it gets the real rule over its
     // own deck rather than the refuse-everything default above.
     const deck = deckWith("pane-1");
@@ -309,7 +313,7 @@ describe("createAgentStatusChannel", () => {
     );
     await Promise.resolve();
 
-    handler!({
+    present(captured.handler, "the report handler")({
       paneId: "pane-1",
       token: "tok",
       payload: { agent: "claude", edge: { kind: "turn-start", at: 100 } },
@@ -317,7 +321,7 @@ describe("createAgentStatusChannel", () => {
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(true);
 
     // A wrong token never reaches the store.
-    handler!({
+    present(captured.handler, "the report handler")({
       paneId: "pane-1",
       token: "forged",
       payload: { agent: "claude", edge: { kind: "turn-end", at: 200 } },
@@ -331,13 +335,13 @@ describe("createAgentStatusChannel", () => {
     // claude's and codex's `SessionStart(compact)` both reports the rebuild
     // and asks for mail. Whatever the rebuild re-states (the team briefing)
     // has to be queued by the time that ask takes the queue.
-    let handler:
-      | ((report: { paneId: string; token: string; payload: unknown }) => void)
-      | null = null;
-    ipc.onAgentStatus.mockImplementationOnce(((h: never) => {
-      handler = h;
+    const captured: {
+      handler: ((report: { paneId: string; token: string; payload: unknown }) => void) | null;
+    } = { handler: null };
+    ipc.onAgentStatus.mockImplementationOnce((h) => {
+      captured.handler = h;
       return Promise.resolve(() => {});
-    }) as never);
+    });
     const deck = deckWith("pane-1");
     const order: string[] = [];
     tracker.onContextRebuilt(() => order.push("rebuilt"));
@@ -357,7 +361,7 @@ describe("createAgentStatusChannel", () => {
     );
     await Promise.resolve();
 
-    handler!({
+    present(captured.handler, "the report handler")({
       paneId: "pane-1",
       token: "tok",
       payload: { agent: "claude", edge: { kind: "context-compacted", at: 100 } },

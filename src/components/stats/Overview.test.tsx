@@ -12,14 +12,12 @@ import {
   type UsageStatsPeriod,
 } from "../../domain/usage/history/query";
 import { Overview } from "./Overview";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The Overview body: headline numbers, the recap sentence, the coverage
  * disclaimer and the period-independent Weeks block. It takes the queried
  * stats as a prop, so the cases here state a ledger and let the domain
  * answer — no dialog, no tab, no mocked hooks. */
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
 
 const NOW = TEST_NOW;
 const DAY = 24 * 60 * 60 * 1_000;
@@ -40,7 +38,7 @@ describe("Overview", () => {
   beforeEach(() => {
     vi.setSystemTime(NOW);
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -86,7 +84,7 @@ describe("Overview", () => {
         tokens: { input: 800 },
       }),
     ]);
-    const recap = host.querySelector(".stats__recap")!;
+    const recap = present(host.querySelector(".stats__recap"), "the .stats__recap element");
     expect(recap.textContent).toContain("+100% vs prior 7d");
     expect(recap.textContent).toContain("busiest day");
   });
@@ -104,7 +102,7 @@ describe("Overview", () => {
     // The recap must still be THERE — it has a busiest day to report. An
     // assertion that passed on a missing element would also pass on a recap
     // that stopped rendering altogether.
-    const recap = host.querySelector(".stats__recap")!;
+    const recap = present(host.querySelector(".stats__recap"), "the .stats__recap element");
     expect(recap.textContent).toContain("busiest day");
     expect(recap.textContent).not.toContain("vs prior");
   });

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
+import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
 
 /**
  * The pane follows the TUI (task-435): the user opens another session, and
@@ -12,8 +13,10 @@ import { startDeck } from "../../../scripts/reporterHarness";
  * Run over the real reporter, courier and follower, against a stand-in deck,
  * with the route written the way the TUI half writes it.
  */
-let startReporter: (input?: any) => Promise<any>;
-let startCourier: (input?: any) => Promise<any>;
+type ReporterResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/session-reporter.js").startReporter>>;
+type CourierResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier>>;
+let startReporter: (input?: unknown) => Promise<Armed<ReporterResult, "event">>;
+let startCourier: (input?: unknown) => Promise<Armed<CourierResult, "event">>;
 let follower: () => { start(dir?: string, tui?: number): void; screen(): unknown };
 let writeForeground: (dir: string, route: Record<string, unknown>, now?: number, pid?: number) => void;
 let paneSession: () => { root: string | undefined };
@@ -62,15 +65,12 @@ describe("the pane follows the session on screen", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // @ts-expect-error untyped resource module
-    ({ startReporter } = await import("../resources/keepdeck-plugin/session-reporter.js"));
-    // @ts-expect-error untyped resource module
-    ({ startCourier } = await import("../resources/keepdeck-plugin/mail-courier.js"));
-    // @ts-expect-error untyped resource module
+    const reporter = await import("../resources/keepdeck-plugin/session-reporter.js");
+    const courier = await import("../resources/keepdeck-plugin/mail-courier.js");
+    startReporter = async (input) => requireHooks(await reporter.startReporter(input), ["event"]);
+    startCourier = async (input) => requireHooks(await courier.startCourier(input), ["event"]);
     ({ follower } = await import("../resources/keepdeck-plugin/follower.js"));
-    // @ts-expect-error untyped resource module
     ({ writeForeground } = await import("../resources/keepdeck-plugin/foreground.js"));
-    // @ts-expect-error untyped resource module
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-follow-"));
     deck = await startDeck();
@@ -93,11 +93,11 @@ describe("the pane follows the session on screen", () => {
     await reporter.event(created);
     await courier.event(created);
     follower().start(dir, tui);
-    await until(() => deck.envelopes.some((e: any) => e.type === "session.bound"));
+    await until(() => deck.envelopes.some((e) => e.type === "session.bound"));
     deck.envelopes.length = 0;
   };
 
-  const types = () => deck.envelopes.map((e: any) => e.type === "agent.status" ? e.payload?.event?.type : e.type);
+  const types = () => deck.envelopes.map((e) => e.type === "agent.status" ? e.payload?.event?.type : e.type);
 
   it("binds the session the user opened, publishes its spend, and only then asks for its mail", async () => {
     await startOn("ses_a");
@@ -105,7 +105,7 @@ describe("the pane follows the session on screen", () => {
     await until(() => types().includes("mail.ask"));
 
     expect(paneSession().root).toBe("ses_b");
-    const bound = deck.envelopes.find((e: any) => e.type === "session.bound");
+    const bound = deck.envelopes.find((e) => e.type === "session.bound");
     // A session the user went to is the pane's conversation continuing, not
     // a second startup.
     expect(bound.payload).toMatchObject({ sessionId: "ses_b", source: "resume" });
@@ -116,7 +116,7 @@ describe("the pane follows the session on screen", () => {
     expect(order.indexOf("session.bound")).toBe(0);
     expect(order.indexOf("usage.report")).toBeGreaterThan(0);
     expect(order.indexOf("mail.ask")).toBeGreaterThan(order.indexOf("usage.report"));
-    const usage = deck.envelopes.find((e: any) => e.type === "usage.report");
+    const usage = deck.envelopes.find((e) => e.type === "usage.report");
     expect(usage.payload).toMatchObject({ sessionId: "ses_b", costUsd: 0.25 });
     // One move, one collection: the follower tells the courier once.
     await sleep(100);

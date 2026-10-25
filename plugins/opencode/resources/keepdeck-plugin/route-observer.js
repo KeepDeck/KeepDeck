@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck's opencode 1.x TUI plugin: it tells the server half which session
  * the user is looking at (foreground.js says why the server cannot tell).
@@ -15,12 +16,16 @@
 import { readBridge } from "./keepdeck-bridge.js";
 import { observeRoute } from "./foreground.js";
 
-/** A 1.x route as the server half reads it. */
+/** A 1.x route as the server half reads it.
+ * @param {unknown} current
+ */
 export const routeOf = (current) => {
-  if (current?.name === "session" && typeof current.params?.sessionID === "string") {
-    return { route: "session", sessionID: current.params.sessionID };
+  if (!current || typeof current !== "object") return { route: "other" };
+  const route = /** @type {{ name?: string, params?: { sessionID?: string } }} */ (current);
+  if (route.name === "session" && typeof route.params?.sessionID === "string") {
+    return { route: "session", sessionID: route.params.sessionID };
   }
-  if (current?.name === "home") return { route: "home" };
+  if (route.name === "home") return { route: "home" };
   // A plugin's own screen, or anything newer than this file: no session is
   // on screen, and it is not the home screen either.
   return { route: "other" };
@@ -28,6 +33,7 @@ export const routeOf = (current) => {
 
 export default {
   id: "keepdeck-route",
+  /** @param {{ route: { current: unknown }, lifecycle?: { onDispose?: (stop: () => void) => void } }} api */
   tui: async (api) => {
     const bridge = readBridge();
     if (!bridge) return; // not a KeepDeck pane — stay inert

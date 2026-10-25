@@ -55,7 +55,7 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
     // navigating away mid-recording would otherwise leave PTT globally
     // suspended and the next keystroke hijacked.
     const onPointerDown = (e: PointerEvent): void => {
-      const target = e.target as Element | null;
+      const target = e.target instanceof Element ? e.target : null;
       if (!target?.closest(".voice-hotkeys")) setRecording(null);
     };
     window.addEventListener("keydown", onKey, true);

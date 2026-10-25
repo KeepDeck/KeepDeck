@@ -50,7 +50,7 @@ describe("domain/artifacts is CONSUMED by production", () => {
       imports: ["isArtifactFormat", "validateTitle"],
     },
     {
-      file: "../../components/artifacts/useArtifactsRegistry.ts",
+      file: "../../app/artifacts/useArtifactsRegistry.ts",
       imports: ["fateOf"],
     },
   ];

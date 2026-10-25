@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Asking the deck for this pane's mail — the half of the courier both
  * opencode generations share. How the answer is put into the session is each
@@ -5,6 +6,9 @@
  */
 import { randomUUID } from "node:crypto";
 import { makeEnvelope, sendEnvelope } from "./keepdeck-bridge.js";
+
+/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ v: number, context?: string, prompt?: string }} MailAnswer */
 
 /** The answer shape the courier understands. The deck stamps it; a shape
  * change bumps it, and an answer from a version this cannot read is dropped
@@ -26,6 +30,7 @@ export const REPLY_VERSION = 1;
  * learns from the send itself whether anyone was there, and puts the
  * messages back when nobody was.
  */
+/** @param {Bridge} bridge @returns {(target: string, type?: string) => Promise<MailAnswer | null>} */
 export const askMail = (bridge) => async (target, type = "mail.ask") => {
   const envelope = makeEnvelope(bridge, "agent.status", {
     reply: randomUUID(),
@@ -47,19 +52,33 @@ export const askMail = (bridge) => async (target, type = "mail.ask") => {
 };
 
 /** One reading of the deck's answer. An EMPTY one is a real answer and the
- * common one: nothing was waiting. */
+ * common one: nothing was waiting.
+ * @param {string} body
+ * @returns {MailAnswer | null}
+ */
 function readAnswer(body) {
   if (body === "") return null;
   try {
-    const answer = JSON.parse(body);
-    return answer?.v === REPLY_VERSION ? answer : null;
+    const parsed = JSON.parse(body);
+    if (typeof parsed !== "object" || parsed === null || parsed.v !== REPLY_VERSION) return null;
+    /** @type {MailAnswer} */
+    const answer = { v: REPLY_VERSION };
+    if (typeof parsed.context === "string") answer.context = parsed.context;
+    if (typeof parsed.prompt === "string") answer.prompt = parsed.prompt;
+    return answer;
   } catch {
     return null;
   }
 }
 
-/** The two halves of an answer as one block of text, brief first. */
-export const answerText = (answer) =>
-  [answer.context, answer.prompt]
-    .filter((half) => typeof half === "string" && half)
-    .join("\n\n");
+/** The two halves of an answer as one block of text, brief first.
+ * @param {{ context?: string, prompt?: string }} answer
+ * @returns {string}
+ */
+export const answerText = (answer) => {
+  /** @type {string[]} */
+  const halves = [];
+  if (typeof answer.context === "string" && answer.context) halves.push(answer.context);
+  if (typeof answer.prompt === "string" && answer.prompt) halves.push(answer.prompt);
+  return halves.join("\n\n");
+};

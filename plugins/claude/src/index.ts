@@ -20,8 +20,9 @@ import {
   mailAskArgs,
   shellQuote,
   type KeepDeckPlugin,
-  type PluginContext,
+  type PluginAgents,
   type PluginResources,
+  type PluginSettings,
   type SpawnPlanInput,
   type SpawnPlanOutput,
   type SpawnSkillsInput,
@@ -41,9 +42,9 @@ import {
   claudeUsageWatches,
   normalizeClaudeStatusline,
 } from "./usage";
-import { forkClaudeSession } from "./fork";
-import { claudeHistory } from "./history";
-import { claudeLiveSessions } from "./liveSessions";
+import { forkClaudeSession, type ClaudeForkStore } from "./fork";
+import { claudeHistory, type HistoryPorts } from "./history";
+import { claudeLiveSessions, type LiveSessionsPorts } from "./liveSessions";
 
 /**
  * How long claude may let one of our hooks run, in seconds.
@@ -249,7 +250,7 @@ const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
  * way — claude decides at startup.
  */
 async function stageLaunch(
-  ctx: Pick<PluginContext, "resources" | "settings">,
+  ctx: { resources: PluginResources; settings: Pick<PluginSettings, "read"> },
   input: Pick<SpawnPlanInput, "skills" | "mcp" | "yolo">,
   output: SpawnPlanOutput,
 ): Promise<void> {
@@ -264,59 +265,70 @@ async function stageLaunch(
   output.env.push(...artifactsEnv(await ctx.settings.read()));
 }
 
+/** What the plugin needs from the host — the parts of its context it uses. */
+export type ClaudePorts = HistoryPorts &
+  LiveSessionsPorts & {
+    agents: PluginAgents;
+    resources: PluginResources;
+    settings: Pick<PluginSettings, "registerSection" | "read">;
+    services: Pick<ClaudeForkStore, "fs" | "fsWrite">;
+  };
+
+export function registerClaude(ctx: ClaudePorts): void {
+  ctx.agents.register({
+    id: "claude",
+    label: "Claude Code",
+    icon,
+    detect: { bin: "claude" },
+    // StatusLine carries provider cost/limits; the transcript tail supplies
+    // deduplicated cumulative tokens.
+    usage: {
+      normalize: normalizeClaudeStatusline,
+      tail: {
+        watches: claudeUsageWatches,
+        siblings: claudeSubagentDirectory,
+      },
+    },
+    // The Mod states the transcript tail's status facts itself, from
+    // inside the process: once it says hello, that process's tail carries
+    // usage records only — one source per process.
+    companion: { covers: ["status-records"] },
+    status: {
+      normalize: normalizeClaudeStatus,
+      attribute: attributeClaudeEvent,
+      mail: { channels: CLAUDE_MAIL_CHANNELS, render: renderClaudeMail },
+      // Woken through the Mod when this pane's process has it — it starts
+      // the turn from inside — and through the terminal when it does not.
+      wake: "companion",
+      // What a transcript record means, for the one edge claude pushes no
+      // hook for. The host reads the `watch` to know which records to
+      // carry; `normalize` applies the `read` to what arrives.
+      tail: claudeTail,
+    },
+    history: claudeHistory(ctx),
+    liveSessions: claudeLiveSessions(ctx),
+    hooks: launchPlans({
+      stage: (input, output) => stageLaunch(ctx, input, output),
+      resume: (input) => ["--resume", input.sessionId],
+      fork: (input) =>
+        forkClaudeSession(
+          { fs: ctx.services.fs, fsWrite: ctx.services.fsWrite, newId: () => crypto.randomUUID() },
+          input,
+        ),
+    }),
+  });
+  // The switch for claude's OWN artifacts ([`ARTIFACTS_FIELD`]). The label
+  // never reaches the screen — the plugin's page is titled by the manifest
+  // name and renders the fields alone — so it repeats that title rather
+  // than inventing a name nobody would ever see it under.
+  ctx.settings.registerSection({
+    label: "Claude Code",
+    fields: [ARTIFACTS_FIELD],
+  });
+}
+
 const plugin: KeepDeckPlugin = {
-  activate(ctx) {
-    ctx.agents.register({
-      id: "claude",
-      label: "Claude Code",
-      icon,
-      detect: { bin: "claude" },
-      // StatusLine carries provider cost/limits; the transcript tail supplies
-      // deduplicated cumulative tokens.
-      usage: {
-        normalize: normalizeClaudeStatusline,
-        tail: {
-          watches: claudeUsageWatches,
-          siblings: claudeSubagentDirectory,
-        },
-      },
-      // The Mod states the transcript tail's status facts itself, from
-      // inside the process: once it says hello, that process's tail carries
-      // usage records only — one source per process.
-      companion: { covers: ["status-records"] },
-      status: {
-        normalize: normalizeClaudeStatus,
-        attribute: attributeClaudeEvent,
-        mail: { channels: CLAUDE_MAIL_CHANNELS, render: renderClaudeMail },
-        // Woken through the Mod when this pane's process has it — it starts
-        // the turn from inside — and through the terminal when it does not.
-        wake: "companion",
-        // What a transcript record means, for the one edge claude pushes no
-        // hook for. The host reads the `watch` to know which records to
-        // carry; `normalize` applies the `read` to what arrives.
-        tail: claudeTail as never,
-      },
-      history: claudeHistory(ctx),
-      liveSessions: claudeLiveSessions(ctx),
-      hooks: launchPlans({
-        stage: (input, output) => stageLaunch(ctx, input, output),
-        resume: (input) => ["--resume", input.sessionId],
-        fork: (input) =>
-          forkClaudeSession(
-            { fs: ctx.services.fs, fsWrite: ctx.services.fsWrite, newId: () => crypto.randomUUID() },
-            input,
-          ),
-      }),
-    });
-    // The switch for claude's OWN artifacts ([`ARTIFACTS_FIELD`]). The label
-    // never reaches the screen — the plugin's page is titled by the manifest
-    // name and renders the fields alone — so it repeats that title rather
-    // than inventing a name nobody would ever see it under.
-    ctx.settings.registerSection({
-      label: "Claude Code",
-      fields: [ARTIFACTS_FIELD],
-    });
-  },
+  activate: (ctx) => registerClaude(ctx),
 };
 
 export default plugin;

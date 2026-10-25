@@ -111,9 +111,12 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
   const occurredAt = clampOccurredAt(common.occurredAt, common.capturedAt);
   const sanitized = occurredAt !== common.occurredAt;
   common.occurredAt = occurredAt;
-  const tokens = readTokens(value.tokens as Record<string, unknown>);
-  const observation = value.observation as Record<string, unknown>;
-  const observedTokens = readTokens(observation.tokens as Record<string, unknown>);
+  // Their shape is readCommonEvent's to check; asked again here so the
+  // reads below stand on the values themselves.
+  const observation = value.observation;
+  if (!isJsonRecord(value.tokens) || !isJsonRecord(observation) || !isJsonRecord(observation.tokens)) return null;
+  const tokens = readTokens(value.tokens);
+  const observedTokens = readTokens(observation.tokens);
   if (!tokens || !observedTokens) return null;
   const observationCost = observation.costUsd;
   if (observationCost !== undefined && !finiteNonNegative(observationCost)) {
@@ -201,10 +204,9 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
  * it. */
 export function isFutureSchemaLine(line: string): boolean {
   try {
-    const value = JSON.parse(line) as { schemaVersion?: unknown } | null;
+    const value: unknown = JSON.parse(line);
     return (
-      typeof value === "object" &&
-      value !== null &&
+      isJsonRecord(value) &&
       typeof value.schemaVersion === "number" &&
       value.schemaVersion > USAGE_EVENT_SCHEMA_VERSION
     );
@@ -219,18 +221,27 @@ function readCommonEvent(
   UsageEventV2Base,
   "schemaVersion" | "tokens" | "observation"
 > | null {
-  for (const key of [
-    "eventId",
-    "agent",
-    "workspaceId",
-    "workspaceName",
-    "workspaceCwd",
-    "paneId",
-    "paneName",
-    "sessionId",
-    "rootSessionId",
-  ]) {
-    if (typeof value[key] !== "string" || value[key] === "") return null;
+  const eventId = nonEmptyString(value.eventId);
+  const agent = nonEmptyString(value.agent);
+  const workspaceId = nonEmptyString(value.workspaceId);
+  const workspaceName = nonEmptyString(value.workspaceName);
+  const workspaceCwd = nonEmptyString(value.workspaceCwd);
+  const paneId = nonEmptyString(value.paneId);
+  const paneName = nonEmptyString(value.paneName);
+  const sessionId = nonEmptyString(value.sessionId);
+  const rootSessionId = nonEmptyString(value.rootSessionId);
+  if (
+    eventId === null ||
+    agent === null ||
+    workspaceId === null ||
+    workspaceName === null ||
+    workspaceCwd === null ||
+    paneId === null ||
+    paneName === null ||
+    sessionId === null ||
+    rootSessionId === null
+  ) {
+    return null;
   }
   // capturedAt must be POSITIVE, not merely non-negative: the occurredAt
   // clamp heals TOWARD capturedAt, so an epoch capture would launder an
@@ -244,41 +255,39 @@ function readCommonEvent(
   }
   if (!isJsonRecord(value.tokens) || !isJsonRecord(value.observation)) return null;
   if (!isJsonRecord(value.observation.tokens)) return null;
-  if (value.worktree !== undefined) {
-    if (
-      !isJsonRecord(value.worktree) ||
-      typeof value.worktree.path !== "string" ||
-      typeof value.worktree.repo !== "string"
-    ) {
-      return null;
-    }
-    if (
-      value.worktree.branch !== undefined &&
-      typeof value.worktree.branch !== "string"
-    ) {
-      return null;
-    }
-  }
-  for (const key of ["model"]) {
-    if (value[key] !== undefined && typeof value[key] !== "string") return null;
-  }
+  const worktree = value.worktree;
+  if (worktree !== undefined && !isWorktree(worktree)) return null;
+  if (value.model !== undefined && typeof value.model !== "string") return null;
   return {
-    eventId: value.eventId as string,
+    eventId,
     occurredAt: value.occurredAt,
     capturedAt: value.capturedAt,
-    agent: value.agent as string,
+    agent,
     ...(typeof value.model === "string" ? { model: value.model } : {}),
-    workspaceId: value.workspaceId as string,
-    workspaceName: value.workspaceName as string,
-    workspaceCwd: value.workspaceCwd as string,
-    paneId: value.paneId as string,
-    paneName: value.paneName as string,
-    sessionId: value.sessionId as string,
-    rootSessionId: value.rootSessionId as string,
-    ...(value.worktree !== undefined
-      ? { worktree: value.worktree as UsageEventV2Base["worktree"] }
-      : {}),
+    workspaceId,
+    workspaceName,
+    workspaceCwd,
+    paneId,
+    paneName,
+    sessionId,
+    rootSessionId,
+    ...(worktree !== undefined ? { worktree } : {}),
   };
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/** The worktree an event was captured in: a path and a repo, and the
+ * branch when there was one. */
+function isWorktree(value: unknown): value is NonNullable<UsageEventV2Base["worktree"]> {
+  return (
+    isJsonRecord(value) &&
+    typeof value.path === "string" &&
+    typeof value.repo === "string" &&
+    (value.branch === undefined || typeof value.branch === "string")
+  );
 }
 
 export function usageSessionKey(

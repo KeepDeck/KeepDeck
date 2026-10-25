@@ -2,13 +2,12 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FsFile, PluginContext } from "@keepdeck/plugin-api";
-import { setRuntime } from "../runtime";
+import type { FsFile } from "@keepdeck/plugin-api";
+import { setRuntime, type FilesPorts } from "../runtime";
+import { fsOf, inertPorts } from "../filesPorts.test-support";
 import { FileViewer } from "./FileViewer";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
+import { recordOf } from "@keepdeck/plugin-api/testing";
 
 const TS_TEXT = 'const s = "hi" // note\n\nexport default s\n';
 
@@ -21,18 +20,18 @@ const fsFile = (path: string, text: string): FsFile => ({
   readBytes: text.length,
 });
 
-function makeCtx(files: Record<string, FsFile>): PluginContext {
-  return {
+function makeCtx(files: Record<string, FsFile>): FilesPorts {
+  return inertPorts({
     services: {
-      fs: {
+      fs: fsOf({
         readDir: vi.fn(async () => []),
         readFile: vi.fn(async (path: string) => files[path]),
         watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: () => {} })),
-      },
+      }),
       opener: { openUrl: vi.fn(async () => {}), openPath: vi.fn(async () => {}) },
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  });
 }
 
 const rowTexts = () =>
@@ -97,7 +96,7 @@ describe("FileViewer", { retry: 2 }, () => {
       expect(cell.classList.contains("kd-inert")).toBe(true);
     }
     // And it IS color: the keyword run differs from the string/comment runs.
-    const firstRow = document.querySelector(".files__coderow")!;
+    const firstRow = present(document.querySelector(".files__coderow"), "the .files__coderow element");
     const colors = new Set(
       [...firstRow.querySelectorAll<HTMLElement>("span[style]")].map(
         (span) => span.style.color,
@@ -147,7 +146,7 @@ describe("FileViewer", { retry: 2 }, () => {
       document.querySelector('button[aria-label="Toggle line wrapping"]'),
     ).toBeNull();
 
-    await act(async () => toggleButton()!.click());
+    await act(async () => present(toggleButton(), "the toggleButton").click());
 
     // Raw: the exact line view every other text file gets.
     expect(document.querySelector(".files__md")).toBeNull();
@@ -156,7 +155,7 @@ describe("FileViewer", { retry: 2 }, () => {
       document.querySelector('button[aria-label="Toggle line wrapping"]'),
     ).not.toBeNull();
 
-    await act(async () => toggleButton()!.click());
+    await act(async () => present(toggleButton(), "the toggleButton").click());
     expect(document.querySelector(".files__md h1")?.textContent).toBe("Title");
   });
 
@@ -180,7 +179,7 @@ describe("FileViewer", { retry: 2 }, () => {
 
     expect(document.querySelector(".files__md script")).toBeNull();
     expect(document.querySelector(".files__md img")).toBeNull();
-    expect((window as { pwned?: boolean }).pwned).toBeUndefined();
+    expect(recordOf(window, "window")).not.toHaveProperty("pwned");
   });
 
   it("routes external links to the opener and keeps relative ones inert", async () => {
@@ -197,9 +196,9 @@ describe("FileViewer", { retry: 2 }, () => {
     await act(async () => {});
 
     const links = [...document.querySelectorAll<HTMLAnchorElement>(".files__md a")];
-    const external = links.find((a) => a.textContent === "docs")!;
-    const relative = links.find((a) => a.textContent === "local")!;
-    const openUrl = ctx.services.opener.openUrl as ReturnType<typeof vi.fn>;
+    const external = present(links.find((a) => a.textContent === "docs"), "the matching item");
+    const relative = present(links.find((a) => a.textContent === "local"), "the matching item");
+    const openUrl = vi.mocked(ctx.services.opener.openUrl);
 
     await act(async () => external.click());
     expect(openUrl).toHaveBeenCalledWith("https://example.com/docs");
@@ -217,7 +216,7 @@ describe("FileViewer", { retry: 2 }, () => {
       "/repo/b.ts": fsFile("/repo/b.ts", TS_TEXT),
     };
     await mount("/repo/a.ts", files);
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const body = present(host.querySelector<HTMLElement>(".peek__body"), "the .peek__body element");
     body.scrollTop = 720;
     body.scrollLeft = 90;
 
@@ -231,12 +230,12 @@ describe("FileViewer", { retry: 2 }, () => {
   it("the Markdown source is its own thing to read, from its own top", async () => {
     const path = "/repo/README.md";
     await mount(path, { [path]: fsFile(path, "# Title\n\nsome prose\n") });
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const body = present(host.querySelector<HTMLElement>(".peek__body"), "the .peek__body element");
     body.scrollTop = 500;
 
     await act(async () =>
-      host
-        .querySelector<HTMLElement>('[aria-label="Toggle Markdown source view"]')!
+      present(host
+        .querySelector<HTMLElement>('[aria-label="Toggle Markdown source view"]'), "the [aria-label=\"Toggle Markdown source view\"] element")
         .click(),
     );
 
@@ -252,20 +251,20 @@ describe("FileViewer", { retry: 2 }, () => {
     const path = "/repo/wide.ts";
     const text = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
     await mount(path, { [path]: fsFile(path, text) });
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
-    const code = host.querySelector<HTMLElement>(".files__code")!;
+    const body = present(host.querySelector<HTMLElement>(".peek__body"), "the .peek__body element");
+    const code = present(host.querySelector<HTMLElement>(".files__code"), "the .files__code element");
 
     // happy-dom lays nothing out, so stand in for a layout: the viewport
     // starts at 100 and rows are 20 tall, which puts row 5 as the first one
     // still (partly) on screen.
-    vi.spyOn(body, "getBoundingClientRect").mockReturnValue({
-      top: 100,
-    } as DOMRect);
+    vi.spyOn(body, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 100, 0, 0),
+    );
     const rows = [...code.children];
     rows.forEach((row, i) =>
-      vi.spyOn(row, "getBoundingClientRect").mockReturnValue({
-        bottom: i * 20 + 20,
-      } as DOMRect),
+      vi.spyOn(row, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, 0, 0, i * 20 + 20),
+      ),
     );
     const held = rows.map((row) =>
       vi.spyOn(row, "scrollIntoView").mockImplementation(() => {}),
@@ -273,7 +272,7 @@ describe("FileViewer", { retry: 2 }, () => {
     body.scrollTop = 100;
 
     await act(async () =>
-      host.querySelector<HTMLElement>('[aria-label="Toggle line wrapping"]')!.click(),
+      present(host.querySelector<HTMLElement>('[aria-label="Toggle line wrapping"]'), "the [aria-label=\"Toggle line wrapping\"] element").click(),
     );
 
     // Exactly the line they were reading is put back at the top. Wrapping

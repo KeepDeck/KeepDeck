@@ -1,12 +1,6 @@
-import { useSyncExternalStore } from "react";
-import {
-  overlayVisibility,
-  subscribeOverlayVisibility,
-} from "../app/overlayVisibility";
 import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
-import { reportPluginCrash } from "../app/pluginHealth";
-import { useAppRuntime } from "../app/runtimeContext";
-import { log } from "../ipc/log";
+import { useOverlayVisibility, usePluginSurfaces } from "../app/usePluginSurfaces";
+import { useRuntimePart } from "../app/runtimeContext";
 import { useContributions } from "../plugins";
 import { externalPluginUrl } from "../plugins/external/url";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
@@ -24,12 +18,11 @@ import { errorMessage } from "@keepdeck/plugin-api";
  * (hidden, or it would swallow every click).
  */
 export function PluginOverlays() {
-  const { pluginRegistries } = useAppRuntime().plugins;
+  const { pluginRegistries } = useRuntimePart("plugins");
+  const logger = useRuntimePart("logger");
   const overlays = useContributions(pluginRegistries.overlays);
-  const visibility = useSyncExternalStore(
-    subscribeOverlayVisibility,
-    overlayVisibility,
-  );
+  const visibility = useOverlayVisibility();
+  const surfaces = usePluginSurfaces();
   return (
     <>
       {overlays.map((c) => {
@@ -44,14 +37,14 @@ export function PluginOverlays() {
             // slot's position — an overlay's failure has no place HERE.
             fallback={null}
             onError={(e) => {
-              log.error(
+              logger.error(
                 `web:plugin:${c.pluginId}`,
                 `overlay "${c.entry.id}" crashed: ${errorMessage(e)}`,
               );
               // An overlay is invisible — without this report the crash
               // would be too. It lights the plugin's dock tab badge and
               // failure panel.
-              reportPluginCrash(c.pluginId, "overlay", c.entry.id, e);
+              surfaces.reportCrash(c.pluginId, "overlay", c.entry.id, e);
             }}
           >
             {"Component" in c.entry ? (

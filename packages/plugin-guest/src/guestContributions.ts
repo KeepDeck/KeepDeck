@@ -7,7 +7,8 @@ import type {
   PluginContext,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import type { GuestRpc } from "./rpc";
+import type { GuestCaller } from "./rpc";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * The three surfaces a plugin REGISTERS through, guest-side. They look
@@ -30,7 +31,7 @@ import type { GuestRpc } from "./rpc";
  * implement gets the host asking for a call this side would have to refuse.
  */
 export interface GuestContributionDeps {
-  rpc: GuestRpc;
+  rpc: GuestCaller;
   noop: () => void;
   registerRemote: (
     path: string,
@@ -89,9 +90,11 @@ export function createGuestContributions({
       },
       registerPaneAction: (action) => {
         const key = actionKey("pane", action.id);
-        actionCallbacks.set(key, (target) =>
-          action.run(target as { workspace: WorkspaceRef; paneId: string }),
-        );
+        // The target crosses the realm boundary: a run is handed only a
+        // pane the host actually named.
+        actionCallbacks.set(key, (target) => {
+          if (isPaneActionTarget(target)) action.run(target);
+        });
         return registerRemote(
           "ui.registerPaneAction",
           { id: action.id, title: action.title },
@@ -195,4 +198,16 @@ export function createGuestContributions({
       },
     },
   };
+}
+
+/** Whether `value` is what a pane action runs on: a workspace ref and the
+ * pane's id. */
+export function isPaneActionTarget(value: unknown): value is { workspace: WorkspaceRef; paneId: string } {
+  return (
+    isJsonRecord(value) &&
+    typeof value.paneId === "string" &&
+    isJsonRecord(value.workspace) &&
+    typeof value.workspace.id === "string" &&
+    typeof value.workspace.instance === "string"
+  );
 }

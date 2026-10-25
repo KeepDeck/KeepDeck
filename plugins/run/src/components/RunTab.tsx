@@ -57,8 +57,9 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
     ...[
       ...new Map(
         workspace.panes
-          .filter((p) => p.cwd && p.cwd !== workspace.cwd)
-          .map((p) => [p.cwd!, p.branch ?? shortPath(p.cwd!)]),
+          .flatMap((p) =>
+            p.cwd && p.cwd !== workspace.cwd ? [[p.cwd, p.branch ?? shortPath(p.cwd)] as const] : [],
+          ),
       ).entries(),
     ].map(([value, label]) => ({ value, label })),
     { value: workspace.cwd, label: "Workspace folder" },
@@ -356,36 +357,35 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
 
         <ul className="run__cmds">
           {rows.map((row) => {
-            const rowName = row.preset?.name ?? row.session!.name;
+            const { preset, session } = row;
+            const rowName = row.preset ? row.preset.name : row.session.name;
             // Namespaced: preset ids (`run-N`) and session ids must never
             // produce the same key even if their numbers coincide.
-            const key = row.preset ? `p:${row.preset.id}` : `s:${row.session!.id}`;
+            const key = row.preset ? `p:${row.preset.id}` : `s:${row.session.id}`;
             return (
               <li key={key} className="run__item">
                 <div
-                  className={`run__cmd${row.session && shown?.id === row.session.id ? " run__cmd--active" : ""}`}
-                  onClick={
-                    row.session ? () => pick(row.session!.id) : undefined
-                  }
+                  className={`run__cmd${session && shown?.id === session.id ? " run__cmd--active" : ""}`}
+                  onClick={session ? () => pick(session.id) : undefined}
                 >
                   {glyph(
-                    row.session,
+                    session,
                     rowName,
-                    row.preset ? () => launchPreset(row.preset!) : undefined,
-                    row.preset ? () => launchPreset(row.preset!) : undefined,
+                    preset ? () => launchPreset(preset) : undefined,
+                    preset ? () => launchPreset(preset) : undefined,
                   )}
-                  <span className="run__cmd-name" title={row.preset?.command ?? row.session?.command}>
+                  <span className="run__cmd-name" title={preset?.command ?? session?.command}>
                     {rowName}
                   </span>
                   <span className="run__cmd-acts">
-                    {row.preset ? (
+                    {preset ? (
                       <>
                         <button
                           type="button"
                           className="run__act"
                           onClick={(e) => {
                             e.stopPropagation();
-                            startEditing(row.preset!.id);
+                            startEditing(preset.id);
                           }}
                           title={`Edit "${rowName}"`}
                           aria-label={`Edit preset ${rowName}`}
@@ -397,12 +397,12 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
                           className="run__act"
                           onClick={(e) => {
                             e.stopPropagation();
-                            savePresets(removePreset(presets, row.preset!.id));
+                            savePresets(removePreset(presets, preset.id));
                             // Dead sessions of a deleted command are swept — a
                             // same-named orphan row reading as "the delete
                             // didn't work" was exactly the reported bug; a
                             // RUNNING one stays visible until it stops.
-                            manager.removeDeadRunsFor(workspace, row.preset!.id);
+                            manager.removeDeadRunsFor(workspace, preset.id);
                           }}
                           title={`Delete "${rowName}"`}
                           aria-label={`Delete preset ${rowName}`}
@@ -418,7 +418,7 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
                         className="run__act"
                         onClick={(e) => {
                           e.stopPropagation();
-                          manager.removeRun(row.session!.id);
+                          manager.removeRun(session.id);
                         }}
                         title="Remove (kills the process if it still runs)"
                         aria-label={`Remove run ${rowName}`}
@@ -443,9 +443,9 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
                       s,
                       `${rowName} (${targetLabel(s)})`,
                       undefined,
-                      row.preset
+                      preset
                         ? () =>
-                            launchPreset(row.preset!, {
+                            launchPreset(preset, {
                               worktree: s.worktree,
                               ...(s.branch && { branch: s.branch }),
                             })

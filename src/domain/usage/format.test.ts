@@ -72,7 +72,8 @@ describe("tightestWindow", () => {
   it("keeps the shorter window on a tie, and has nothing to say without a report", () => {
     const tie = { ...WEEKLY, usedPct: 10 };
     expect(tightestWindow(account([FIVE_H, tie]), 0)).toBe(FIVE_H);
-    expect(tightestWindow({ kind: "unavailable" } as unknown as AccountUsage, 0)).toBeNull();
+    const unavailable: AccountUsage = { kind: "unavailable", reason: "api-key", reportedAt: 0 };
+    expect(tightestWindow(unavailable, 0)).toBeNull();
   });
 
   it("ranks only the live windows: one that has reset is history, not a limit", () => {

@@ -7,12 +7,9 @@ import {
   getSettings,
   initSettings,
   resetSettingsManager,
-} from "../../app/settingsManager";
+} from "../../app/testing";
 import { PluginSettingsSection } from "./PluginSettingsSection";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The section writes through the real settings manager over a mocked IPC —
 // the tests cover the whole loop: control → store → re-render.
@@ -29,6 +26,8 @@ const appIpc = vi.hoisted(() => ({
   listApplications: vi.fn<() => Promise<string[]>>(async () => []),
 }));
 vi.mock("../../ipc/app", () => appIpc);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ shell: appIpc }));
 
 const section: SettingsSectionContribution = {
   label: "Run",
@@ -54,20 +53,20 @@ describe("PluginSettingsSection — the stringList editor", () => {
       (n) => n.textContent,
     );
   const addInput = () =>
-    document.querySelector<HTMLInputElement>(
+    present(document.querySelector<HTMLInputElement>(
       'input[aria-label="Add Open in applications"]',
-    )!;
+    ), "element 'input[aria-label=\"Add Open in applications\"]'");
   const addButton = () =>
-    [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    present([...document.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent === "Add",
-    )!;
+    ), "button \"Add\"");
 
   const type = (text: string) => {
     const el = addInput();
-    const set = Object.getOwnPropertyDescriptor(
+    const set = present(present(Object.getOwnPropertyDescriptor(
       Object.getPrototypeOf(el),
       "value",
-    )!.set!;
+    ), "input value property descriptor").set, "input value setter");
     act(() => {
       set.call(el, text);
       el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -134,10 +133,10 @@ describe("PluginSettingsSection — the stringList editor", () => {
   it("removes an entry and stores the shrunk list — down to empty", async () => {
     await mount();
     act(() =>
-      document
+      present(document
         .querySelector<HTMLButtonElement>(
           'button[aria-label="Remove Visual Studio Code"]',
-        )!
+        ), "element 'button[aria-label=\"Remove Visual Studio Code\"]'")
         .click(),
     );
     expect(entries()).toEqual([]);
@@ -194,9 +193,9 @@ describe("PluginSettingsSection — the application-picker add flow", () => {
   });
 
   const combo = () =>
-    document.querySelector<HTMLInputElement>(
+    present(document.querySelector<HTMLInputElement>(
       'input[aria-label="Add Open in applications"]',
-    )!;
+    ), "element 'input[aria-label=\"Add Open in applications\"]'");
   const menuOptions = () =>
     [...document.querySelectorAll(".dropdown__option")].map(
       (n) => n.textContent,
@@ -219,8 +218,8 @@ describe("PluginSettingsSection — the application-picker add flow", () => {
     await mount();
     act(() => combo().focus());
     act(() =>
-      [...document.querySelectorAll<HTMLButtonElement>(".dropdown__option")]
-        .find((b) => b.textContent === "Android Studio")!
+      present([...document.querySelectorAll<HTMLButtonElement>(".dropdown__option")]
+        .find((b) => b.textContent === "Android Studio"), "dropdown option \"Android Studio\"")
         .click(),
     );
     expect(entries()).toEqual(["Visual Studio Code", "Android Studio"]);
@@ -317,14 +316,14 @@ describe("PluginSettingsSection — one resolution rule with the plugin", () => 
     };
     await mountWith(described, {});
 
-    const toggle = document.querySelector(".settings__toggle-text")!;
+    const toggle = present(document.querySelector(".settings__toggle-text"), "element \".settings__toggle-text\"");
     expect(toggle.querySelector("span")?.textContent).toBe("Publish");
     expect(toggle.querySelector(".settings__hint")?.textContent).toBe(
       "Applies to the next agent start.",
     );
     // Flipping it still writes the plugin's value through the store.
     act(() =>
-      document.querySelector<HTMLInputElement>('input[aria-label="Publish"]')!.click(),
+      present(document.querySelector<HTMLInputElement>('input[aria-label="Publish"]'), "element 'input[aria-label=\"Publish\"]'").click(),
     );
     expect(getSettings()?.plugins.values["keepdeck.sample"]?.publish).toBe(false);
   });

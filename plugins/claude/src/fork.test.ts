@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FsCopyOptions, FsEntry, ForkPlanInput } from "@keepdeck/plugin-api";
 import { claudeProjectFolder, forkClaudeSession, type ClaudeForkStore } from "./fork";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const C = "/Users/u/.claude";
 const SOURCE_DIR = `${C}/projects/-old-worktree`;
@@ -12,7 +13,7 @@ function fakeStore(files: string[], ids = ["F", "T"]) {
   let failOn: string | null = null;
   const queue = [...ids];
   const store: ClaudeForkStore = {
-    newId: () => queue.shift()!,
+    newId: () => present(queue.shift(), "the first item"),
     fs: {
       readDir: async (path: string) => {
         const children = new Map<string, FsEntry>();

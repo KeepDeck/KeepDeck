@@ -8,6 +8,7 @@ import {
   roleById,
   teamRoles,
 } from "./roles";
+import { present } from "@keepdeck/plugin-api/testing";
 
 afterEach(() => configureRoleCatalog(null));
 
@@ -40,7 +41,7 @@ describe("mergeRoleCatalog", () => {
         },
       }),
     );
-    const lead = roles.find((role) => role.id === "lead")!;
+    const lead = present(roles.find((role) => role.id === "lead"), "the lead role");
     expect(lead.label).toBe("Architect");
     expect(lead.charter).toEqual(["You run this team the architect's way."]);
     expect(lead.standing).toBe("leads");
@@ -55,7 +56,7 @@ describe("mergeRoleCatalog", () => {
     const { roles, problems } = mergeRoleCatalog(
       stored({ impl: { ...docs(), standing: "peer" } }),
     );
-    const impl = roles.find((role) => role.id === "impl")!;
+    const impl = present(roles.find((role) => role.id === "impl"), "the impl role");
     expect(impl.label).toBe("Docs");
     expect(impl.standing).toBe("reports");
     expect(problems).toHaveLength(1);
@@ -68,7 +69,7 @@ describe("mergeRoleCatalog", () => {
     const { roles, problems } = mergeRoleCatalog(
       stored({ lead: { ...docs(), label: "Captain", standing: "leads" } }),
     );
-    const lead = roles.find((role) => role.id === "lead")!;
+    const lead = present(roles.find((role) => role.id === "lead"), "the lead role");
     expect(lead.label).toBe("Captain");
     expect(lead.standing).toBe("leads");
     expect(problems).toHaveLength(1);
@@ -81,14 +82,14 @@ describe("mergeRoleCatalog", () => {
     const { roles, problems } = mergeRoleCatalog(
       stored({ lead: { standing: "leads" } }),
     );
-    expect(roles.find((role) => role.id === "lead")!.label).toBe("Lead");
+    expect(present(roles.find((role) => role.id === "lead"), "the lead role").label).toBe("Lead");
     expect(problems.some((entry) => entry.includes("standing"))).toBe(true);
     expect(problems.some((entry) => entry.includes("label"))).toBe(true);
   });
 
   it("adds a role of the user's own — a repeatable working role by default", () => {
     const { roles, problems } = mergeRoleCatalog(stored({ docs: docs() }));
-    const role = roles.find((candidate) => candidate.id === "docs")!;
+    const role = present(roles.find((candidate) => candidate.id === "docs"), "the docs role");
     expect(role.repeatable).toBe(true);
     expect(role.standing).toBe("reports");
     expect(problems).toEqual([]);

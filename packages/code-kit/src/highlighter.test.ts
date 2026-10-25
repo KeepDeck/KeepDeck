@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tokenizeLines } from "./highlighter";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * These run the REAL grammars through the real JS regex engine — the kit's
@@ -15,16 +16,16 @@ describe("tokenizeLines", { timeout: 60_000 }, () => {
     const lines = await tokenizeLines(text, "typescript");
     expect(lines).not.toBeNull();
     const raw = text.split("\n");
-    expect(lines!.length).toBe(raw.length);
+    expect(present(lines, "the highlighted lines").length).toBe(raw.length);
     for (let i = 0; i < raw.length; i++) {
-      expect(lines![i].map((run) => run.text).join("")).toBe(raw[i]);
+      expect(present(lines, "the highlighted lines")[i].map((run) => run.text).join("")).toBe(raw[i]);
     }
   });
 
   it("actually colors code (not one monochrome run per line)", async () => {
     const lines = await tokenizeLines('const s = "hi" // note', "typescript");
     expect(lines).not.toBeNull();
-    const colors = new Set(lines![0].map((run) => run.color));
+    const colors = new Set(present(lines, "the highlighted lines")[0].map((run) => run.color));
     // Keyword vs string vs comment must differ — that's the whole feature.
     expect(colors.size).toBeGreaterThan(1);
   });
@@ -34,9 +35,9 @@ describe("tokenizeLines", { timeout: 60_000 }, () => {
     const lines = await tokenizeLines(text, "typescript");
     expect(lines).not.toBeNull();
     const raw = text.split("\n");
-    expect(lines!.length).toBe(raw.length);
+    expect(present(lines, "the highlighted lines").length).toBe(raw.length);
     for (let i = 0; i < raw.length; i++) {
-      expect(lines![i].map((run) => run.text).join("")).toBe(raw[i]);
+      expect(present(lines, "the highlighted lines")[i].map((run) => run.text).join("")).toBe(raw[i]);
     }
   });
 
@@ -65,7 +66,7 @@ describe("tokenizeLines", { timeout: 60_000 }, () => {
     for (const sample of samples) {
       const lang = langFor(sample);
       expect(lang, sample).not.toBeNull();
-      expect(await tokenizeLines("x", lang!), `${sample} -> ${lang}`).not.toBeNull();
+      expect(await tokenizeLines("x", present(lang, "the highlighted language")), `${sample} -> ${lang}`).not.toBeNull();
     }
   });
 });

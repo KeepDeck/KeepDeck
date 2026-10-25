@@ -1,4 +1,5 @@
 import { isJsonRecord } from "@keepdeck/plugin-api";
+import { isStringRecord, keyList } from "../json";
 /**
  * The user's library of MCP servers ([mcp] — one definition, every CLI).
  *
@@ -178,10 +179,10 @@ function stringMap(
 ): { value: Record<string, string> } | { reason: string } {
   const value = raw[field];
   if (value === undefined) return { value: {} };
-  if (!isJsonRecord(value) || !Object.values(value).every((v) => typeof v === "string")) {
+  if (!isStringRecord(value)) {
     return { reason: `"${field}" must be an object of strings` };
   }
-  return { value: { ...value } as Record<string, string> };
+  return { value: { ...value } };
 }
 
 /** The keys a body may carry, per transport — anything else is refused. */
@@ -193,7 +194,7 @@ const KNOWN_KEYS: Record<McpServerBody["transport"], readonly string[]> = {
 /** The stored shape in words, DERIVED from the keys the codec accepts — for
  * whoever has to explain it (a command's argument description). A prose copy
  * of the key lists would keep teaching the old shape the day one changed. */
-export const MCP_SPEC_SHAPE = (Object.keys(KNOWN_KEYS) as McpServerBody["transport"][])
+export const MCP_SPEC_SHAPE = keyList<typeof KNOWN_KEYS>()(["stdio", "http"])
   .map(
     (transport) =>
       `{${KNOWN_KEYS[transport]

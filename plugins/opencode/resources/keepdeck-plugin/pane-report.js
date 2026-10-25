@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * What a pane's report says, whichever opencode generation it comes from —
  * shared by session-reporter.js (1.x) and session-reporter-v2.js (2.x), which
@@ -12,6 +13,8 @@ export const skipsApprovals = () => process.env.KEEPDECK_OPENCODE_SKIPS_APPROVAL
 
 /** opencode's token usage (`{input, output, reasoning, cache: {read, write}}`,
  * the same in both generations) as the five counts a report carries. */
+/** @typedef {{ input?: number, output?: number, reasoning?: number, cache?: { read?: number, write?: number } }} OpenCodeTokens */
+/** @param {OpenCodeTokens | undefined} tokens */
 export const tokenCounts = (tokens) => ({
   input: tokens?.input ?? 0,
   output: tokens?.output ?? 0,
@@ -22,7 +25,11 @@ export const tokenCounts = (tokens) => ({
 
 /** The pane's conversation, as `session.bound` states it. A later one is the
  * pane's conversation continuing under a new id: `/new`, or — `switched` — a
- * session the user opened in the TUI (follower.js). */
+ * session the user opened in the TUI (follower.js).
+ * @param {string} sessionId
+ * @param {boolean} continuing
+ * @param {boolean} [switched]
+ */
 export const boundReport = (sessionId, continuing, switched = false) => ({
   sessionId,
   source: !continuing ? "startup" : switched ? "resume" : "new",
@@ -31,6 +38,8 @@ export const boundReport = (sessionId, continuing, switched = false) => ({
 /**
  * One `usage.report`. `lastTurn` is what the context holds now — its total is
  * the context in use; `totals` and `costUsd` are the conversation's spend.
+ * @typedef {{ input: number, output: number, reasoning: number, cacheRead: number, cacheWrite: number }} TokenCounts
+ * @param {{ sessionId: string, model?: string, sequence: number, windowTokens?: number, lastTurn: TokenCounts, totals: TokenCounts, costUsd: number }} report
  */
 export const usageReport = ({ sessionId, model, sequence, windowTokens, lastTurn, totals, costUsd }) => {
   const turn = tokenCountsOnly(lastTurn);
@@ -47,6 +56,7 @@ export const usageReport = ({ sessionId, model, sequence, windowTokens, lastTurn
 };
 
 /** The five counts and nothing else a caller kept beside them. */
+/** @param {TokenCounts} counts */
 const tokenCountsOnly = (counts) => ({
   input: counts.input,
   output: counts.output,
@@ -61,15 +71,21 @@ const tokenCountsOnly = (counts) => ({
  * supplies its own. Keyed by provider AND model: model ids are not unique
  * across providers, and flattening them picks another provider's limit.
  * Single-flight; a failed load is forgotten so the next report retries.
+ * @param {() => Promise<Array<{ providerID: string, modelID: string, window: number | undefined }>>} load
  */
 export function createWindowCache(load) {
+  /** @type {Map<string, number> | undefined} */
   let windows;
+  /** @type {Promise<void> | undefined} */
   let loading;
+  /** @param {string} providerID @param {string} modelID */
   const key = (providerID, modelID) => `${providerID}\0${modelID}`;
+  /** @param {string | undefined} providerID @param {string | undefined} modelID */
   return async (providerID, modelID) => {
     if (!providerID || !modelID) return undefined;
     if (!windows) {
       loading ??= (async () => {
+        /** @type {Map<string, number>} */
         const resolved = new Map();
         for (const entry of await load()) {
           if (typeof entry?.window === "number") {
@@ -85,6 +101,6 @@ export function createWindowCache(load) {
         return undefined;
       }
     }
-    return windows.get(key(providerID, modelID));
+    return windows?.get(key(providerID, modelID));
   };
 }

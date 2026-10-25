@@ -21,6 +21,7 @@ import {
 } from "./testSupport";
 import type { DeckState } from "./testSupport";
 import { paneExecutionCwd } from "../../domain/deck";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("agent orchestrator —session policy", () => {
   let root: Root;
@@ -39,7 +40,7 @@ describe("agent orchestrator —session policy", () => {
     catalog.moveSuspendedToTray = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -191,7 +192,7 @@ describe("agent orchestrator —session policy", () => {
   it("nothing wakes before the catalog is ready", async () => {
     catalog.ready = false;
     act(() => root.unmount());
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
     act(() => deck.hydrate(restored({})));
     await settle();
@@ -441,7 +442,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 

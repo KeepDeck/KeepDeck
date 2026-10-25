@@ -59,7 +59,14 @@ export {
   frameTeammateMail,
   turnFailedEvent,
 } from "./status.ts";
-export { updateQuestionCalls, reduceQuestionStatus, type QuestionCalls, type QuestionState } from "./questionCalls.ts";
+export {
+  updateQuestionCalls,
+  reduceQuestionStatus,
+  isQuestionState,
+  questionStateOf,
+  type QuestionCalls,
+  type QuestionState,
+} from "./questionCalls.ts";
 export type {
   AccountUsage,
   AgentUsage,
@@ -106,7 +113,7 @@ export {
   type SessionStore,
   type TranscriptPage,
 } from "./sessionHistory.ts";
-export { isJsonRecord } from "../json.ts";
+export { isJsonRecord, keyList } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,

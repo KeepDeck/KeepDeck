@@ -12,24 +12,19 @@ vi.mock("../../app/useUsageHistorySnapshot", () => ({
   }),
 }));
 
-vi.mock("../../app/settingsManager", () => ({
-  updateSettings: vi.fn(),
-  getSettings: () => null,
-  subscribeSettings: () => () => {},
-  initSettings: async () => {},
-}));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver({ current: null }, vi.fn()),
+);
 
 import type { AgentInfo } from "../../domain/agents";
 import type { AccountUsage } from "../../domain/usage";
-import { accountWindowKeys } from "../../domain/usage/reportJournal";
+import { accountWindowKeys, type WindowReport } from "../../domain/usage/reportJournal";
 import { UsagePanel } from "./UsagePanel";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 const MIN = 60_000;
-const agent = { id: "claude", label: "Claude" } as AgentInfo;
+const agent: AgentInfo = { id: "claude", label: "Claude", command: "claude", features: [], installed: true, path: null };
 const window = { usedPct: 62, resetsAt: NOW + 155 * MIN, windowMinutes: 300 };
 const account: AccountUsage = {
   kind: "reported",
@@ -41,7 +36,7 @@ const account: AccountUsage = {
 let root: Root;
 afterEach(() => act(() => root.unmount()));
 
-function render(reportsByKey: ReadonlyMap<string, never[]> | Map<string, unknown>) {
+function render(reportsByKey: ReadonlyMap<string, readonly WindowReport[]>) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -53,7 +48,7 @@ function render(reportsByKey: ReadonlyMap<string, never[]> | Map<string, unknown
         accounts: new Map([["claude", account]]),
         display: "used" as const,
         now: NOW,
-        reportsByKey: reportsByKey as never,
+        reportsByKey,
         seriesColors: new Map<string, string>(),
         onOpenStats: vi.fn(),
         onClose: vi.fn(),
@@ -78,7 +73,7 @@ describe("UsagePanel", () => {
     };
     const keys = accountWindowKeys("claude", twin);
     // Only the SECOND window has a pace that loses the race.
-    const reports = [70, 75, 80, 84, 88].map((usedPct, index) => ({
+    const reports = [70, 75, 80, 84, 88].map((usedPct, index): WindowReport => ({
       agent: "claude",
       windowMinutes: null,
       usedPct,
@@ -97,7 +92,7 @@ describe("UsagePanel", () => {
           accounts: new Map([["claude", twinAccount]]),
           display: "used" as const,
           now: NOW,
-          reportsByKey: new Map([[keys.get(twin[1])!.key, reports]]) as never,
+          reportsByKey: new Map([[present(keys.get(twin[1]), "the key for twin[1]").key, reports]]),
           seriesColors: new Map<string, string>(),
           onOpenStats: vi.fn(),
           onClose: vi.fn(),
@@ -112,14 +107,14 @@ describe("UsagePanel", () => {
 
   it("swaps the reset caption for the run-out and draws the sparkline", () => {
     const keys = accountWindowKeys("claude", account.windows);
-    const reports = [50.4, 53.3, 56.2, 59.1, 62].map((usedPct, index) => ({
+    const reports = [50.4, 53.3, 56.2, 59.1, 62].map((usedPct, index): WindowReport => ({
       agent: "claude",
       windowMinutes: 300,
       usedPct,
       reportedAt: NOW - (4 - index) * 10 * MIN,
       resetsAt: window.resetsAt,
     }));
-    const host = render(new Map([[keys.get(window)!.key, reports]]));
+    const host = render(new Map([[present(keys.get(window), "the key for window").key, reports]]));
 
     // The next relevant event replaces the reset countdown, colored.
     expect(host.textContent).toContain("hits the limit in ~");

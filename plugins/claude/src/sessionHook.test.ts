@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runReporter, startDeck } from "../../../scripts/reporterHarness";
+import { recordOf } from "@keepdeck/plugin-api/testing";
 
 /**
  * The SessionStart reporter, EXECUTED on the payload shapes claude and codex
@@ -44,8 +45,8 @@ function envelope(): {
   reporter: unknown;
 } {
   expect(deck.envelopes).toHaveLength(1);
-  const posted = deck.envelopes[0] as Record<string, unknown>;
-  const { reporter, ...payload } = posted.payload as Record<string, unknown>;
+  const posted = recordOf(deck.envelopes[0], "the posted envelope");
+  const { reporter, ...payload } = recordOf(posted.payload, "the envelope payload");
   return { envelope: { ...posted, payload }, reporter };
 }
 
@@ -112,7 +113,7 @@ describe("kd-session-hook.sh", () => {
       writeFileSync(rollout, `{"type":"session_meta","payload":{"originator":"a b","source":"cli"}}\n`);
       await run(JSON.stringify({ session_id: "sid-3", transcript_path: rollout, source: "startup" }), ["codex"]);
       expect(envelope().envelope.payload).toMatchObject({ facts: { source: "cli" } });
-      expect((envelope().envelope.payload as { facts: object }).facts).not.toHaveProperty("originator");
+      expect(recordOf(recordOf(envelope().envelope.payload, "payload").facts, "facts")).not.toHaveProperty("originator");
 
       deck.envelopes.length = 0;
       await run(
@@ -142,7 +143,7 @@ describe("kd-session-hook.sh", () => {
     await run(JSON.stringify({ session_id: "sid-1" }));
     await run(JSON.stringify({ session_id: "sid-2" }));
     const reporters = deck.envelopes.map(
-      (posted: Record<string, any>) => posted.payload.reporter,
+      (posted) => posted.payload.reporter,
     );
     expect(reporters).toEqual([group, group]);
   });

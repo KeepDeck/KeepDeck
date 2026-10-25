@@ -1,6 +1,6 @@
 import { isJsonRecord, type PluginKV, type WorkspaceRef } from "@keepdeck/plugin-api";
 import type { Workspace } from "../domain/deck";
-import type { WorkspaceInstance } from "../domain/workspaceInstance";
+import { workspaceInstanceOf, type WorkspaceInstance } from "../domain/workspaceInstance";
 
 /**
  * The deck-backed workspace KV behind `ctx.storage.workspace(workspace)`. A
@@ -33,7 +33,7 @@ export function makeWorkspaceKv(
   // stale or invented ref stays inert and can never attach itself to a future
   // workspace that happens to reuse the same public id.
   const wsId = ref.id;
-  const workspaceInstance = ref.instance as WorkspaceInstance;
+  const workspaceInstance = workspaceInstanceOf(ref.instance);
   const workspace = (): Workspace | undefined =>
     access
       .workspaces()
@@ -46,8 +46,12 @@ export function makeWorkspaceKv(
     return isJsonRecord(value) ? value : {};
   };
   return {
-    async get<T>(key: string): Promise<T | undefined> {
-      return slot()[key] as T | undefined;
+    async get<T>(
+      key: string,
+      accepts: (value: unknown) => value is T,
+    ): Promise<T | undefined> {
+      const value = slot()[key];
+      return accepts(value) ? value : undefined;
     },
     async set(key: string, value: unknown): Promise<void> {
       if (!workspace()) return;
@@ -81,7 +85,10 @@ export function makeGlobalKvStub(
   warn: (message: string) => void,
 ): PluginKV {
   return {
-    async get<T>(): Promise<T | undefined> {
+    async get<T>(
+      _key: string,
+      _accepts: (value: unknown) => value is T,
+    ): Promise<T | undefined> {
       return undefined;
     },
     async set(key: string): Promise<void> {

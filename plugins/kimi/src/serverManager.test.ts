@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   PluginSessionEvent,
   PluginSessionHandle,
-  PluginSessions,
 } from "@keepdeck/plugin-api";
 import { createKimiServerManager } from "./serverManager";
 import {
@@ -11,6 +10,7 @@ import {
   extractServerAccess,
 } from "./serverStartup";
 import { setupServerWrapperScript } from "./serverWrapper";
+import { listOf, recordOf } from "@keepdeck/plugin-api/testing";
 
 const encoder = new TextEncoder();
 // `--port 0` makes Kimi bind an ephemeral port; the banner carries the real one.
@@ -31,9 +31,7 @@ function sessionHarness(output = ready) {
       return handle;
     },
   );
-  const manager = createKimiServerManager(
-    { spawn } as unknown as PluginSessions,
-  );
+  const manager = createKimiServerManager({ spawn });
   return { manager, spawn, handle, close };
 }
 
@@ -151,13 +149,10 @@ describe("Kimi server manager", () => {
       Array.from({ length: 10 }, () => READY_ORIGIN),
     );
     expect(spawn).toHaveBeenCalledOnce();
-    const spawnOptions = spawn.mock.calls[0][0] as {
-      command: string;
-      args: string[];
-    };
+    const spawnOptions = recordOf(spawn.mock.calls[0][0], "spawn options");
     expect(spawnOptions.command).toBe("/bin/sh");
-    expect(spawnOptions.args[0]).toBe("-c");
-    expect(spawnOptions.args[1]).toBe(setupServerWrapperScript());
+    expect(listOf(spawnOptions.args, "spawn args")[0]).toBe("-c");
+    expect(listOf(spawnOptions.args, "spawn args")[1]).toBe(setupServerWrapperScript());
     expect(maxActive).toBe(1);
     expect(order).toEqual([
       "first:start",
@@ -205,9 +200,7 @@ describe("Kimi server manager", () => {
           resolveSpawn = resolve;
         }),
     );
-    const manager = createKimiServerManager(
-      { spawn } as unknown as PluginSessions,
-    );
+    const manager = createKimiServerManager({ spawn });
     const operation = vi.fn(async () => {});
 
     const pending = manager.run(operation);
@@ -258,9 +251,7 @@ describe("Kimi server manager", () => {
         };
       },
     );
-    const manager = createKimiServerManager(
-      { spawn } as unknown as PluginSessions,
-    );
+    const manager = createKimiServerManager({ spawn });
 
     const failure = manager.run(async () => {});
     await expect(failure).rejects.toThrow(
@@ -282,9 +273,7 @@ describe("Kimi server manager", () => {
         };
       },
     );
-    const manager = createKimiServerManager(
-      { spawn } as unknown as PluginSessions,
-    );
+    const manager = createKimiServerManager({ spawn });
 
     const failure = manager.run(async () => {});
     await expect(failure).rejects.toThrow(
@@ -309,9 +298,7 @@ describe("Kimi server manager", () => {
         };
       },
     );
-    const manager = createKimiServerManager(
-      { spawn } as unknown as PluginSessions,
-    );
+    const manager = createKimiServerManager({ spawn });
 
     await expect(manager.run(async () => {})).rejects.toThrow(notice);
     expect(close).toHaveBeenCalledOnce();
@@ -329,9 +316,7 @@ describe("Kimi server manager", () => {
       };
       // Resolves a live handle but never reports an address and never exits.
       const spawn = vi.fn(async () => handle);
-      const manager = createKimiServerManager(
-        { spawn } as unknown as PluginSessions,
-      );
+      const manager = createKimiServerManager({ spawn });
 
       const failure = manager.run(async () => {});
       failure.catch(() => {});
@@ -362,9 +347,7 @@ describe("Kimi server manager", () => {
           };
         },
       );
-      const manager = createKimiServerManager(
-        { spawn } as unknown as PluginSessions,
-      );
+      const manager = createKimiServerManager({ spawn });
 
       const failure = manager.run(async () => {});
       failure.catch(() => {});

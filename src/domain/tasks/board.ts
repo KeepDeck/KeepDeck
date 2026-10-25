@@ -72,7 +72,15 @@ export type StatusCounts = Record<TaskStatus, number>;
 
 /** How many tasks stand in each status. */
 export function countByStatus(tasks: readonly Task[]): StatusCounts {
-  const counts = Object.fromEntries(TASK_STATUSES.map((status) => [status, 0])) as StatusCounts;
+  const counts: StatusCounts = {
+    backlog: 0,
+    todo: 0,
+    "in-progress": 0,
+    blocked: 0,
+    review: 0,
+    done: 0,
+    cancelled: 0,
+  };
   for (const task of tasks) counts[task.status] += 1;
   return counts;
 }

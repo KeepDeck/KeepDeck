@@ -1,7 +1,7 @@
 import { errorMessage, type KeepDeckPlugin, type PluginManifest } from "@keepdeck/plugin-api";
 import { buildGuestContext } from "./context";
 
-import type { HostToGuestMessage } from "./protocol";
+import { decodeHostMessage } from "./decode";
 import { GuestRpc } from "./rpc";
 
 /**
@@ -41,7 +41,15 @@ export function connectPluginGuest(port: MessagePort, plugin: KeepDeckPlugin): v
   }
 
   port.onmessage = (event: MessageEvent) => {
-    const message = event.data as HostToGuestMessage;
+    let message;
+    try {
+      message = decodeHostMessage(event.data);
+    } catch (error) {
+      // The decoder's error names the malformed message; a hostile or broken
+      // host must not leave an uncaught throw in the realm.
+      console.warn(errorMessage(error));
+      return;
+    }
     switch (message.kind) {
       case "result":
         rpc.settle(message);

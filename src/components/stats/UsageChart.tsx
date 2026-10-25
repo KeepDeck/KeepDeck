@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo } from "react";
 import { Bar, BarChart, BarStack, Legend, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { formatBucket, formatTokens, tokenSegments } from "../../domain/usage";
 import {
@@ -92,10 +92,9 @@ export function UsageChart({
             content={(props) => (
               <BucketTip
                 active={props.active === true}
-                bucket={
-                  (props.payload?.[0]?.payload as TimelineBucket | undefined) ??
-                  null
-                }
+                // The hovered bucket, found by the x value recharts reports —
+                // its own payload row is untyped.
+                bucket={timeline.buckets.find((bucket) => bucket.start === props.label) ?? null}
                 agents={timeline.agents}
                 colors={colors}
                 granularity={timeline.granularity}
@@ -171,7 +170,7 @@ function BucketTip({
           <span
             className="stats__chart-tip-row"
             key={share.agent}
-            style={{ "--series": color } as CSSProperties}
+            style={{ "--series": color }}
           >
             <span className="stats__chart-tip-name">
               {/* Identity is the square; the text stays ink, the rule the

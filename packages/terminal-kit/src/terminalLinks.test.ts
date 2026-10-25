@@ -1,7 +1,9 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { registerTerminalLinks } from "./terminalLinks";
+import type { ILink, ILinkProvider } from "@xterm/xterm";
+import { registerTerminalLinks, type LinkHost, type LinkTerminal } from "./terminalLinks";
 import type { PaneHint } from "./PaneHint";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The kit's linker is INVERTED: the open primitives are injected on the
 // target, not imported. A test hands in `vi.fn()`s directly — no ipc module to
@@ -16,18 +18,37 @@ const opener = {
 /** Rows of a fake xterm buffer; `wrapped` marks a continuation row. */
 type Row = { text: string; wrapped?: boolean };
 
-/** The slice of Terminal the linker touches: provider registry + buffer. */
-function stubTerm(rows: Row[], opts: { cols?: number } = {}) {
+/** The grid a stub measures by; without one the stub has no element (xterm
+ * not yet opened), so a ⌘-mousedown cannot resolve a cell. */
+type Grid = { cols: number; rows: number; viewportY?: number };
+
+/** The slice of Terminal the linker touches: provider registry + buffer.
+ *  With a grid, cells are 10px wide × 20px tall and the screen sits at the
+ *  viewport origin, so cellFromEvent resolves a cell. */
+function stubTerm(rows: Row[], opts: { cols?: number; grid?: Grid } = {}) {
   let provider: ILinkProvider | undefined;
   const dispose = vi.fn();
-  const term = {
-    cols: opts.cols,
+  const grid = opts.grid;
+  const screen = grid && {
+    getBoundingClientRect: () => ({
+      left: 0,
+      top: 0,
+      width: grid.cols * 10,
+      height: grid.rows * 20,
+    }),
+  };
+  const term: LinkTerminal = {
+    // A real terminal always has a width; a wide one leaves short rows unstitched.
+    cols: grid?.cols ?? opts.cols ?? 80,
+    rows: grid?.rows ?? 24,
+    element: screen && { querySelector: () => screen },
     registerLinkProvider(p: ILinkProvider) {
       provider = p;
       return { dispose };
     },
     buffer: {
       active: {
+        viewportY: grid?.viewportY ?? 0,
         getLine(y: number) {
           const row = rows[y];
           if (!row) return undefined;
@@ -41,61 +62,43 @@ function stubTerm(rows: Row[], opts: { cols?: number } = {}) {
     },
   };
   return {
-    term: term as unknown as Terminal,
-    provider: () => provider!,
+    term,
+    provider: () => present(provider, "the link provider"),
     dispose,
   };
 }
 
 /** The host anchors hint coordinates and carries the ⌘-mousedown listener. */
-const host = {
+const host: LinkHost = {
   getBoundingClientRect: () => ({ left: 10, top: 20 }),
   addEventListener: () => {},
   removeEventListener: () => {},
-} as unknown as HTMLElement;
+};
 
 /** A host that captures its listeners so a test can fire a ⌘-mousedown. */
 function captureHost() {
-  const handlers: Record<string, EventListener[]> = {};
-  const el = {
+  type Listener = (event: MouseEvent) => void;
+  const handlers: Record<string, Listener[]> = {};
+  const el: LinkHost = {
     getBoundingClientRect: () => ({ left: 0, top: 0 }),
-    addEventListener: (type: string, fn: EventListener) => {
+    addEventListener: (type, fn) => {
       (handlers[type] ??= []).push(fn);
     },
-    removeEventListener: (type: string, fn: EventListener) => {
+    removeEventListener: (type, fn) => {
       handlers[type] = (handlers[type] ?? []).filter((f) => f !== fn);
     },
   };
   return {
-    host: el as unknown as HTMLElement,
+    host: el,
     fire: (type: string, ev: Partial<MouseEvent>) =>
-      (handlers[type] ?? []).forEach((f) => f(ev as MouseEvent)),
+      (handlers[type] ?? []).forEach((f) => f(mouseEvent(ev))),
     count: (type: string) => (handlers[type] ?? []).length,
   };
 }
 
-/** A term stub with measurable grid geometry so cellFromEvent resolves a cell.
- *  Cells are 10px wide × 20px tall; the screen sits at the viewport origin. */
-function stubTermWithGrid(
-  rows: Row[],
-  grid: { cols: number; rows: number; viewportY?: number },
-) {
-  const base = stubTerm(rows, { cols: grid.cols });
-  const screen = {
-    getBoundingClientRect: () => ({
-      left: 0,
-      top: 0,
-      width: grid.cols * 10,
-      height: grid.rows * 20,
-    }),
-  };
-  Object.assign(base.term as object, {
-    rows: grid.rows,
-    element: { querySelector: () => screen },
-  });
-  (base.term as { buffer: { active: { viewportY: number } } }).buffer.active.viewportY =
-    grid.viewportY ?? 0;
-  return base;
+/** A term stub with measurable grid geometry so cellFromEvent resolves a cell. */
+function stubTermWithGrid(rows: Row[], grid: Grid) {
+  return stubTerm(rows, { grid });
 }
 
 /** A left-edge ⌘-mousedown over the cell whose 1-based column is `col`, row 1. */
@@ -115,8 +118,14 @@ function linksAt(provider: ILinkProvider, lineNumber: number) {
   return out;
 }
 
-const click = (over: Partial<MouseEvent> = {}) =>
-  ({ metaKey: false, clientX: 110, clientY: 220, ...over }) as MouseEvent;
+const mouseEvent = (over: Partial<MouseEvent> = {}): MouseEvent =>
+  Object.assign(new MouseEvent("mousedown"), {
+    metaKey: false,
+    clientX: 110,
+    clientY: 220,
+    ...over,
+  });
+const click = (over: Partial<MouseEvent> = {}) => mouseEvent(over);
 
 const flush = async () => {
   await Promise.resolve();
@@ -140,8 +149,8 @@ describe("registerTerminalLinks", () => {
 
     const links = linksAt(provider(), 1);
     expect(links).toHaveLength(1);
-    expect(links![0].text).toBe("http://localhost:5173/");
-    expect(links![0].range).toEqual({
+    expect(present(links, "the links")[0].text).toBe("http://localhost:5173/");
+    expect(present(links, "the links")[0].range).toEqual({
       start: { x: 10, y: 1 },
       end: { x: 31, y: 1 },
     });
@@ -164,8 +173,8 @@ describe("registerTerminalLinks", () => {
     for (const lineNumber of [1, 2]) {
       const links = linksAt(provider(), lineNumber);
       expect(links).toHaveLength(1);
-      expect(links![0].text).toBe("http://localhost:5173/");
-      expect(links![0].range).toEqual({
+      expect(present(links, "the links")[0].text).toBe("http://localhost:5173/");
+      expect(present(links, "the links")[0].range).toEqual({
         start: { x: 10, y: 1 },
         end: { x: 3, y: 2 },
       });
@@ -188,9 +197,9 @@ describe("registerTerminalLinks", () => {
     for (const lineNumber of [1, 2, 3]) {
       const links = linksAt(provider(), lineNumber);
       expect(links).toHaveLength(1);
-      expect(links![0].text).toBe("/aa/bb/cccdd/ee/ffgg.ts");
+      expect(present(links, "the links")[0].text).toBe("/aa/bb/cccdd/ee/ffgg.ts");
       // Range spans the head row's "/" to the tail row's ".ts", indent undone.
-      expect(links![0].range).toEqual({
+      expect(present(links, "the links")[0].range).toEqual({
         start: { x: 1, y: 1 },
         end: { x: 7, y: 3 },
       });
@@ -201,7 +210,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
     registerTerminalLinks(term, host, target(null));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: false }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: false }), "");
     expect(showHint).toHaveBeenCalledWith({
       text: "⌘-click to open",
       // Click point translated to host-local coordinates.
@@ -216,7 +225,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
     registerTerminalLinks(term, host, target(null));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     expect(opener.openUrl).toHaveBeenCalledWith("http://localhost:5173/");
     expect(showHint).not.toHaveBeenCalled();
   });
@@ -225,7 +234,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "error at src/main.ts:12" }]);
     registerTerminalLinks(term, host, target("/wt/b"));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     expect(opener.openPath).toHaveBeenCalledWith("/wt/b/src/main.ts");
   });
 
@@ -234,7 +243,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
     registerTerminalLinks(term, host, target(null));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     await flush();
     expect(showHint).toHaveBeenCalledWith({
       text: "Couldn't open http://localhost:5173/",
@@ -250,7 +259,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "see /wt/a/readme.md now" }]);
     registerTerminalLinks(term, host, target(null));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     await flush();
     expect(showHint).toHaveBeenCalledWith({
       text: "Opened externally",
@@ -260,7 +269,7 @@ describe("registerTerminalLinks", () => {
 
     showHint.mockClear();
     opener.openPath.mockResolvedValueOnce(undefined);
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     await flush();
     expect(showHint).not.toHaveBeenCalled();
   });
@@ -336,7 +345,7 @@ describe("registerTerminalLinks — arming-independent ⌘-click", () => {
     fire("mousedown", metaDownAtCol(15));
     expect(opener.openUrl).toHaveBeenCalledTimes(1);
     // xterm's mouseup would call the same link's activate — it must not re-open.
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     expect(opener.openUrl).toHaveBeenCalledTimes(1);
   });
 
@@ -348,7 +357,7 @@ describe("registerTerminalLinks — arming-independent ⌘-click", () => {
 
     fire("mousedown", metaDownAtCol(15));
     expect(opener.openUrl).not.toHaveBeenCalled(); // raw handler no-ops…
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     expect(opener.openUrl).toHaveBeenCalledWith("http://localhost:5173/"); // …provider still works
   });
 

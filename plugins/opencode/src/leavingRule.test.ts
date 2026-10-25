@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-// Untyped resource JS — shipped to, and loaded by, the user's opencode.
-// @ts-expect-error untyped resource module
+// Resource JS — shipped to, and loaded by, the user's opencode.
 import { createLeaving } from "../resources/keepdeck-plugin/leaving.js";
 
 /**
@@ -133,8 +132,9 @@ describe("leaving a conversation", () => {
 
   it("catches an ending that arrives before the interrupt call even returns", async () => {
     vi.useFakeTimers();
-    let leaving: any;
+    let leaving: ReturnType<typeof setup>["leaving"] | undefined;
     const on = setup(async (id) => {
+      if (!leaving) throw new Error("leaving was not initialized");
       leaving.ended(id);
       return true;
     });

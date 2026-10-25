@@ -1,17 +1,13 @@
 import type {
-  AgentContribution,
   AgentHistory,
   AgentHooks,
   Disposable,
-  DockTabContribution,
   PluginContext,
   SpeechCapture,
-  SettingsSectionContribution,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import {
   actionChannel,
-  DECK_EVENT_CHANNELS,
   historyChannel,
   hookChannel,
   livesessionsChannel,
@@ -39,6 +35,21 @@ import {
   sanitizeLiveSessions,
   sanitizePlanOutput,
 } from "./hostSanitize";
+import {
+  decodeWith,
+  isActionEntry,
+  isAgentRegistration,
+  isCommandArgs,
+  isDeckChannel,
+  isDockTab,
+  isNotifyInput,
+  isOpenerEntry,
+  isOverlayEntry,
+  isRecord,
+  isSettingsSection,
+  num,
+  str,
+} from "./decode";
 
 /**
  * The routing core of the host bridge: a flat `path → handler` table over the
@@ -70,6 +81,10 @@ export interface HostDispatch {
    * sessions, and its registered contributions. */
   dispose(): void;
 }
+
+/** The host forwards a stored value it cannot know; the guest's own guard is
+ * the one that proves the shape where it lands. */
+const acceptsAny = (_value: unknown): _value is unknown => true;
 
 export function createHostDispatch(
   ctx: PluginContext,
@@ -153,10 +168,7 @@ export function createHostDispatch(
 
   /** Guard a guest-supplied channel name before it reaches a subscription. */
   function asDeckChannel(channel: unknown): string {
-    if (
-      typeof channel !== "string" ||
-      !(DECK_EVENT_CHANNELS as readonly string[]).includes(channel)
-    ) {
+    if (!isDeckChannel(channel)) {
       throw new Error(`not a subscribable deck channel: ${String(channel)}`);
     }
     return channel;
@@ -167,15 +179,11 @@ export function createHostDispatch(
    * shape makes the API-21 incompatibility explicit instead of silently
    * binding an operation to the wrong lifetime. */
   function workspaceStorage(value: unknown) {
-    if (typeof value !== "object" || value === null)
+    if (!isRecord(value))
       throw new Error("workspace storage requires a workspace lifetime ref");
-    const { id, instance } = value as Record<string, unknown>;
-    if (
-      typeof id !== "string" ||
-      id === "" ||
-      typeof instance !== "string" ||
-      instance === ""
-    ) {
+    const id = str(value.id, "workspace storage id");
+    const instance = str(value.instance, "workspace storage instance");
+    if (id === "" || instance === "") {
       throw new Error("workspace storage requires non-empty id and instance");
     }
     return ctx.storage.workspace({ id, instance });
@@ -185,31 +193,33 @@ export function createHostDispatch(
     // ---- storage: every operation carries the exact serializable lifetime
     // ref captured by the guest handle, never merely a reusable public id. ----
     "storage.workspace.get": ([workspace, key]) =>
-      workspaceStorage(workspace).get(key as string),
+      workspaceStorage(workspace).get(
+        str(key, "storage key"),
+        acceptsAny,
+      ),
     "storage.workspace.set": ([workspace, key, value]) =>
-      workspaceStorage(workspace).set(key as string, value),
+      workspaceStorage(workspace).set(str(key, "storage key"), value),
     "storage.workspace.delete": ([workspace, key]) =>
-      workspaceStorage(workspace).delete(key as string),
-    "storage.global.get": ([key]) => ctx.storage.global.get(key as string),
+      workspaceStorage(workspace).delete(str(key, "storage key")),
+    "storage.global.get": ([key]) =>
+      ctx.storage.global.get(str(key, "storage key"), acceptsAny),
     "storage.global.set": ([key, value]) =>
-      ctx.storage.global.set(key as string, value),
+      ctx.storage.global.set(str(key, "storage key"), value),
     "storage.global.delete": ([key]) =>
-      ctx.storage.global.delete(key as string),
+      ctx.storage.global.delete(str(key, "storage key")),
 
     // ---- settings: read is a plain call; onChange is a subscription ----
     "resources.path": ([relative]) =>
-      ctx.resources.path(relative as string),
+      ctx.resources.path(str(relative, "resources.path")),
     "settings.read": () => ctx.settings.read(),
-    "settings.write": ([key, value]) => {
-      if (typeof key !== "string") throw new Error("settings.write needs a string key");
-      return ctx.settings.write(key, value);
-    },
+    "settings.write": ([key, value]) =>
+      ctx.settings.write(str(key, "settings.write key"), value),
     "settings.onChange": () => subscriptions.subscribe("settingsChanged"),
     "settings.offChange": () => subscriptions.unsubscribe("settingsChanged"),
     "settings.registerSection": ([regId, entry]) =>
       retain(
-        regId as number,
-        ctx.settings.registerSection(entry as SettingsSectionContribution),
+        num(regId, "settings.registerSection regId"),
+        ctx.settings.registerSection(decodeWith(entry, isSettingsSection, "settings section")),
       ),
 
     // ---- deck events: subscribe/unsubscribe by channel name ----
@@ -223,18 +233,18 @@ export function createHostDispatch(
     // host→realm call cycle the agent hooks use) ----
     "commands.execute": ([id, args]) =>
       ctx.commands.execute(
-        id as string,
-        args as Parameters<typeof ctx.commands.execute>[1],
+        str(id, "commands.execute id"),
+        decodeWith(args, isCommandArgs, "command args"),
       ),
     "commands.list": () => ctx.commands.list(),
 
     // ---- ui: register the ENTRY MINUS functions; synthesise the run push ----
     "ui.registerDockTab": ([regId, entry]) =>
-      retain(regId as number, ctx.ui.registerDockTab(entry as DockTabContribution)),
+      retain(num(regId, "ui.registerDockTab regId"), ctx.ui.registerDockTab(decodeWith(entry, isDockTab, "dock tab"))),
     "ui.registerTopBarAction": ([regId, entry]) => {
-      const { id, title } = entry as { id: string; title: string };
+      const { id, title } = decodeWith(entry, isActionEntry, "top bar action");
       retain(
-        regId as number,
+        num(regId, "ui.registerTopBarAction regId"),
         ctx.ui.registerTopBarAction({
           id,
           title,
@@ -243,9 +253,9 @@ export function createHostDispatch(
       );
     },
     "ui.registerPaneAction": ([regId, entry]) => {
-      const { id, title } = entry as { id: string; title: string };
+      const { id, title } = decodeWith(entry, isActionEntry, "pane action");
       retain(
-        regId as number,
+        num(regId, "ui.registerPaneAction regId"),
         ctx.ui.registerPaneAction({
           id,
           title,
@@ -257,26 +267,26 @@ export function createHostDispatch(
     // ALL validation (capability, sanitize, rate limit) — the raw wire value
     // passes through as-is, exactly the unknown the port is built to eat ----
     "notify": ([input]) =>
-      ctx.notify(input as Parameters<typeof ctx.notify>[0]),
+      ctx.notify(decodeWith(input, isNotifyInput, "notification")),
     "ui.registerOverlay": ([regId, entry]) => {
-      const { id, iframe } = entry as { id: string; iframe: unknown };
       // Only the iframe variant may arrive over the wire — a Component can't
       // exist here, and a hostile realm's junk must not either.
-      if (typeof iframe !== "string" || iframe.length === 0) {
+      const { id, iframe } = decodeWith(entry, isOverlayEntry, "overlay");
+      if (iframe.length === 0) {
         throw new Error("external overlays must carry an `iframe` document path");
       }
-      retain(regId as number, ctx.ui.registerOverlay({ id, iframe }));
+      retain(num(regId, "ui.registerOverlay regId"), ctx.ui.registerOverlay({ id, iframe }));
     },
     "ui.setOverlayVisible": ([id, visible]) =>
-      ctx.ui.setOverlayVisible(id as string, visible === true),
+      ctx.ui.setOverlayVisible(str(id, "ui.setOverlayVisible id"), visible === true),
     "ui.setOverlayCovers": ([id, covers]) =>
-      ctx.ui.setOverlayCovers(id as string, covers === true),
+      ctx.ui.setOverlayCovers(str(id, "ui.setOverlayCovers id"), covers === true),
 
     // ---- file-open handlers: identity as data; open() as a host→realm proxy ----
     "openers.register": ([regId, entry]) => {
-      const { id, label } = entry as { id: string; label: string };
+      const { id, label } = decodeWith(entry, isOpenerEntry, "opener registration");
       retain(
-        regId as number,
+        num(regId, "openers.register regId"),
         ctx.openers.register({
           id,
           label,
@@ -288,7 +298,7 @@ export function createHostDispatch(
       // A hostile realm's word only ever gets to be a BOOLEAN: anything but
       // literal true is a decline.
       opens.settle(
-        id as number,
+        num(id, "openers.openResult id"),
         asRealmResult(result, (v) => ({ ok: true, value: v.handled === true })),
       );
     },
@@ -306,13 +316,7 @@ export function createHostDispatch(
         hasTranscriptPage,
         hasLiveSessions,
         usage,
-      } = entry as Omit<AgentContribution, "hooks" | "history"> & {
-        hookNames?: string[];
-        hasHistory?: boolean;
-        hasListing?: boolean;
-        hasTranscriptPage?: boolean;
-        hasLiveSessions?: boolean;
-      };
+      } = decodeWith(entry, isAgentRegistration, "agent registration");
       // Usage contributions cannot cross this boundary yet: the store calls
       // `normalize` SYNCHRONOUSLY per report, and a cross-realm proxy is
       // necessarily async. Loud, not silent — a plugin author must learn
@@ -403,7 +407,7 @@ export function createHostDispatch(
             }
           : undefined;
       retain(
-        regId as number,
+        num(regId, "agents.register regId"),
         ctx.agents.register({
           id,
           label,
@@ -417,22 +421,22 @@ export function createHostDispatch(
     },
     "agents.hookResult": ([id, result]) =>
       hooks.settle(
-        id as number,
+        num(id, "agents.hookResult id"),
         asRealmResult(result, (v) => ({ ok: true, value: v.output })),
       ),
     "agents.historyResult": ([id, result]) =>
       history.settle(
-        id as number,
+        num(id, "agents.historyResult id"),
         asRealmResult(result, (v) => ({ ok: true, value: v.value })),
       ),
     "agents.liveResult": ([id, result]) =>
       live.settle(
-        id as number,
+        num(id, "agents.liveResult id"),
         asRealmResult(result, (v) => ({ ok: true, value: v.value })),
       ),
 
     // ---- the one teardown path shared by every registration kind ----
-    "registrations.dispose": ([regId]) => disposeRegistration(regId as number),
+    "registrations.dispose": ([regId]) => disposeRegistration(num(regId, "registrations.dispose regId")),
 
     // ---- services: a LIST, not logic — it lives in its own module ----
     ...createServiceHandlers({
@@ -449,9 +453,9 @@ export function createHostDispatch(
     "host.settings": () => ctx.host.settings(),
 
     // ---- log ----
-    "log.info": ([message]) => ctx.log.info(message as string),
-    "log.warn": ([message]) => ctx.log.warn(message as string),
-    "log.error": ([message]) => ctx.log.error(message as string),
+    "log.info": ([message]) => ctx.log.info(str(message, "log.info message")),
+    "log.warn": ([message]) => ctx.log.warn(str(message, "log.warn message")),
+    "log.error": ([message]) => ctx.log.error(str(message, "log.error message")),
   };
 
   return {

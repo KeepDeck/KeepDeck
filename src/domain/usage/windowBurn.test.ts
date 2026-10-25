@@ -4,6 +4,7 @@ import type { WindowReport } from "./reportJournal";
 import type { UsageWindow } from "./usage";
 import { windowBurn } from "./windowBurn";
 import { windowForecast } from "./windowForecast";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The burn plot's own suite. It used to live inside `windowForecast.test.ts`
  * because the module had no file of its own — so the geometry's tests moved
@@ -42,43 +43,42 @@ describe("windowBurn", () => {
   const ok = windowForecast(okReports, FIVE_H, NOW);
 
   it("fills the data axis and puts the out dot at the top-right corner", () => {
-    const geometry = windowBurn(doomedReports, FIVE_H, out, NOW, "limit")!;
+    const geometry = present(windowBurn(doomedReports, FIVE_H, out, NOW, "limit"), "the doomed window's geometry");
     // Data axis: first report at the left edge, projection end at the right.
     expect(geometry.observed[0].x).toBe(0);
     expect(geometry.out).toEqual({ x: 1, y: 1, level: "warn" });
     expect(geometry.endPct).toBeCloseTo(100, 5); // it reaches the ceiling
-    const [from, to] = geometry.projected!;
+    const [from, to] = present(geometry.projected, "the projected line");
     expect(from.y).toBeCloseTo(0.62, 2);
     expect(to.y).toBeCloseTo(1, 2);
   });
 
   it("caps a surviving pace at the reset: exits the right edge below the ceiling", () => {
-    const geometry = windowBurn(okReports, FIVE_H, ok, NOW, "limit")!;
+    const geometry = present(windowBurn(okReports, FIVE_H, ok, NOW, "limit"), "the surviving window's geometry");
     expect(geometry.out).toBeNull();
-    expect(geometry.projected![1].x).toBe(1);
-    expect(geometry.projected![1].y).toBeLessThan(1);
-    expect(geometry.endPct!).toBeGreaterThan(62);
-    expect(geometry.endPct!).toBeLessThan(100);
+    const projected = present(geometry.projected, "the projected line");
+    expect(projected[1].x).toBe(1);
+    expect(projected[1].y).toBeLessThan(1);
+    const endPct = present(geometry.endPct, "the projected end percentage");
+    expect(endPct).toBeGreaterThan(62);
+    expect(endPct).toBeLessThan(100);
   });
 
   it("charts a plan window on the same data axis — no reset anchor needed", () => {
     const plan: UsageWindow = { usedPct: 30, resetsAt: null, windowMinutes: null };
     const planReports = ramp(0.01, 5, 60, 30, null);
     const verdict = windowForecast(planReports, plan, NOW);
-    const geometry = windowBurn(planReports, plan, verdict, NOW, "limit")!;
+    const geometry = present(windowBurn(planReports, plan, verdict, NOW, "limit"), "the plan window's geometry");
     expect(geometry.out).not.toBeNull(); // no reset will ever save it
     const expired: UsageWindow = { ...FIVE_H, resetsAt: NOW - 1 };
     expect(windowBurn(doomedReports, expired, out, NOW, "limit")).toBeNull();
   });
 
   it("draws observed-only up to now when the forecast is unknown", () => {
-    const geometry = windowBurn(
-      ramp(0.29, 2, 1, 62),
-      FIVE_H,
-      { kind: "unknown" },
-      NOW,
-      "limit",
-    )!;
+    const geometry = present(
+      windowBurn(ramp(0.29, 2, 1, 62), FIVE_H, { kind: "unknown" }, NOW, "limit"),
+      "the unknown-forecast geometry",
+    );
     expect(geometry.projected).toBeNull();
     expect(geometry.out).toBeNull();
     expect(geometry.observed[0].x).toBe(0);
@@ -100,7 +100,7 @@ describe("the y scale is the surface's choice", () => {
     // ceiling label and the floor label to answer it. When the scale
     // followed the data instead, a window heading for 33% and one heading
     // for 100% climbed into the same corner at the same angle.
-    const card = windowBurn(quietReports, quietWindow, quiet, NOW, "limit")!;
+    const card = present(windowBurn(quietReports, quietWindow, quiet, NOW, "limit"), "the card geometry");
     expect(card.observed[0].y).toBeCloseTo(0.1, 3);
   });
 
@@ -109,7 +109,7 @@ describe("the y scale is the surface's choice", () => {
     // it asks "is this rising", and the percentage beside it carries the
     // level. On the limit scale this same window sat 1.6px above its own
     // axis line, inside the two strokes' combined width.
-    const compact = windowBurn(quietReports, quietWindow, quiet, NOW, "data")!;
+    const compact = present(windowBurn(quietReports, quietWindow, quiet, NOW, "data"), "the compact geometry");
     expect(compact.observed[0].y).toBeGreaterThan(0.5);
   });
 
@@ -118,7 +118,7 @@ describe("the y scale is the surface's choice", () => {
     // 100 is drawn against 100 on either scale.
     const doomedReports = ramp(0.29, 5, 10, 62);
     const doomed = windowForecast(doomedReports, FIVE_H, NOW);
-    const compact = windowBurn(doomedReports, FIVE_H, doomed, NOW, "data")!;
-    expect(compact.out!.y).toBe(1);
+    const compact = present(windowBurn(doomedReports, FIVE_H, doomed, NOW, "data"), "the compact geometry");
+    expect(present(compact.out, "the out dot").y).toBe(1);
   });
 });

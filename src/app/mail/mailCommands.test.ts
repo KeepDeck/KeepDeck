@@ -10,6 +10,19 @@ import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { PaneActivity } from "../../domain/status";
 import { registerMailCommands } from "./mailCommands";
 import { createMailManager } from "./mailManager";
+import { present } from "@keepdeck/plugin-api/testing";
+import { recordsOf, recordOf, stringOf } from "../../testing/values.test-support";
+
+const valueOf = (result: { value: unknown }) =>
+  recordOf(result.value, "command value");
+const messagesOf = (result: { value: unknown }) =>
+  recordsOf(recordOf(result.value, "mail read").messages, "messages");
+const senderOf = (message: unknown) =>
+  recordOf(recordOf(message, "message").from, "sender");
+const addressOf = (message: unknown) =>
+  stringOf(senderOf(message).address, "sender address");
+const idOf = (result: { value: unknown }) =>
+  stringOf(recordOf(result.value, "command value").id, "mail id");
 
 const READY: PaneActivity = { state: "done", at: 1, interrupted: false };
 
@@ -19,16 +32,15 @@ const pane = (id: string, team?: { teamId: string; role: string }): Pane => ({
   ...(team && { team }),
 });
 
-const workspace = (id: string, name: string, panes: Pane[], teams?: Team[]): Workspace =>
-  ({
-    id,
-    instance: createWorkspaceInstance(),
-    name,
-    cwd: "/repo",
-    worktreeBaseDir: null,
-    panes,
-    ...(teams && { teams }),
-  }) as Workspace;
+const workspace = (id: string, name: string, panes: Pane[], teams?: Team[]): Workspace => ({
+  id,
+  instance: createWorkspaceInstance(),
+  name,
+  cwd: "/repo",
+  worktreeBaseDir: null,
+  panes,
+  ...(teams && { teams }),
+});
 
 /** ws-1's teams, when a case asks for them: api (team-1) with pane-1 as
  * lead and pane-2 as impl-1, and web (team-2) with nobody on it yet. */
@@ -143,9 +155,9 @@ describe("mail.send", () => {
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      const value = result.value as { status: string; note: string };
-      expect(value.status).toBe("queued");
-      expect(value.note).toContain("do not re-send");
+      const value = valueOf(result);
+      expect(stringOf(value.status, "status")).toBe("queued");
+      expect(stringOf(value.note, "note")).toContain("do not re-send");
     }
   });
 
@@ -221,12 +233,10 @@ describe("mail.inbox", () => {
     const received = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(received.ok).toBe(true);
     if (received.ok) {
-      const { messages } = received.value as {
-        messages: { body: string; from: unknown }[];
-      };
+      const messages = messagesOf(received);
       expect(messages).toHaveLength(1);
-      expect(messages[0].body).toBe("which port?");
-      expect(messages[0].from).toEqual({
+      expect(stringOf(recordOf(messages[0], "message").body, "body")).toBe("which port?");
+      expect(senderOf(messages[0])).toEqual({
         kind: "pane",
         // On no team there is no role, so the title is the only address
         // there is — and it is the fallback rather than `paneId` because it
@@ -282,11 +292,9 @@ describe("mail.inbox", () => {
     );
     expect(read.ok).toBe(true);
     if (read.ok) {
-      const { messages } = read.value as {
-        messages: { from: { address: string; label: string } }[];
-      };
-      expect(messages[0].from.address).toBe("lead");
-      expect(messages[0].from.label).toBe("Team structure and the number of direct reports");
+      const messages = messagesOf(read);
+      expect(addressOf(messages[0])).toBe("lead");
+      expect(stringOf(senderOf(messages[0]).label, "sender label")).toBe("Team structure and the number of direct reports");
     }
   });
 
@@ -331,8 +339,8 @@ describe("mail.inbox", () => {
     const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(read.ok).toBe(true);
     if (read.ok) {
-      const { messages } = read.value as { messages: { from: unknown }[] };
-      expect(messages[0].from).toEqual({ kind: "host" });
+      const messages = messagesOf(read);
+      expect(recordOf(messages[0], "message").from).toEqual({ kind: "host" });
     }
   });
 
@@ -367,12 +375,12 @@ describe("mail between two teams of one workspace", () => {
     const read = await run(registry, "mail.inbox", {}, webLead);
     expect(read.ok).toBe(true);
     if (!read.ok) return;
-    const { messages } = read.value as { messages: { from: { address: string } }[] };
-    expect(messages[0].from.address).toBe("lead@team-1");
+    const messages = messagesOf(read);
+    expect(addressOf(messages[0])).toBe("lead@team-1");
     const reply = await run(
       registry,
       "mail.send",
-      { to: messages[0].from.address, kind: "answer", body: "8080" },
+      { to: addressOf(messages[0]), kind: "answer", body: "8080" },
       webLead,
     );
     expect(reply.ok).toBe(true);
@@ -386,8 +394,8 @@ describe("mail between two teams of one workspace", () => {
     const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(read.ok).toBe(true);
     if (!read.ok) return;
-    const { messages } = read.value as { messages: { from: { address: string } }[] };
-    expect(messages[0].from.address).toBe("lead");
+    const messages = messagesOf(read);
+    expect(addressOf(messages[0])).toBe("lead");
     // web has no impl-1, and api's is not web's to reach by a bare role.
     const crossed = await run(
       registry,
@@ -412,8 +420,8 @@ describe("mail between two teams of one workspace", () => {
     const read = await run(registry, "mail.inbox", {}, from("pane-4", "ws-1", "Agent 4"));
     expect(read.ok).toBe(true);
     if (!read.ok) return;
-    const { messages } = read.value as { messages: { from: { address: string } }[] };
-    expect(messages[0].from.address).toBe("lead@team-1");
+    const messages = messagesOf(read);
+    expect(addressOf(messages[0])).toBe("lead@team-1");
   });
 
   it("a reply copying the shown address reaches the sender even after its team was renamed", async () => {
@@ -421,10 +429,10 @@ describe("mail between two teams of one workspace", () => {
     await run(registry, "mail.send", { to: "lead@web", kind: "question", body: "which port?" }, from("pane-1", "ws-1", "Agent 1"));
     const read = await run(registry, "mail.inbox", {}, from("pane-3", "ws-1", "Agent 3"));
     if (!read.ok) throw new Error("inbox refused");
-    const { messages } = read.value as { messages: { from: { address: string } }[] };
+    const messages = messagesOf(read);
     // api is renamed between the question and the answer.
-    workspaces[0].teams = workspaces[0].teams!.map((t) => (t.id === "team-1" ? { ...t, name: "backend" } : t));
-    const reply = await run(registry, "mail.send", { to: messages[0].from.address, kind: "answer", body: "8080" }, from("pane-3", "ws-1", "Agent 3"));
+    workspaces[0].teams = present(workspaces[0].teams, "the workspace teams").map((t) => (t.id === "team-1" ? { ...t, name: "backend" } : t));
+    const reply = await run(registry, "mail.send", { to: addressOf(messages[0]), kind: "answer", body: "8080" }, from("pane-3", "ws-1", "Agent 3"));
     expect(reply.ok).toBe(true);
     expect(mail.takeAtTurnEnd("pane-1").map((m) => m.toPaneId)).toEqual(["pane-1"]);
   });
@@ -440,7 +448,7 @@ describe("mail between two teams of one workspace", () => {
     );
     expect(sent.ok).toBe(true);
     if (!sent.ok) return;
-    const { id } = sent.value as { id: string };
+    const id = idOf(sent);
     const cancelled = await run(registry, "mail.cancel", { id, to: "lead@web" }, apiLead);
     expect(cancelled.ok && cancelled.value).toMatchObject({ status: "cancelled" });
   });
@@ -633,7 +641,7 @@ describe("mail.cancel", () => {
       from("pane-1", "ws-1", "Agent 1"),
     );
     expect(result.ok).toBe(true);
-    return result.ok ? (result.value as { id: string }).id : "";
+    return result.ok ? idOf(result) : "";
   }
 
   it("takes back a message nobody has come for", async () => {
@@ -793,11 +801,11 @@ describe("mail between workspaces", () => {
     expect(sent.ok).toBe(true);
     const read = await run(registry, "mail.inbox", {}, mochaLead);
     if (!read.ok) throw new Error("inbox refused");
-    const { messages } = read.value as { messages: { kind: string; from: { address: string } }[] };
+    const messages = messagesOf(read);
     expect(messages[0]).toMatchObject({ kind: "task", from: { address: "lead@team-1" } });
     // ws-2 has its own team named "api": a reply to "lead@api" would have
     // reached pane-8. The id reaches the sender.
-    const reply = await run(registry, "mail.send", { to: messages[0].from.address, kind: "answer", body: "on it" }, mochaLead);
+    const reply = await run(registry, "mail.send", { to: addressOf(messages[0]), kind: "answer", body: "on it" }, mochaLead);
     expect(reply.ok).toBe(true);
     expect(mail.takeAtTurnEnd("pane-1").map((m) => m.kind)).toEqual(["answer"]);
     expect(mail.takeAtTurnEnd("pane-8")).toEqual([]);
@@ -822,7 +830,7 @@ describe("mail between workspaces", () => {
     const { registry } = projects();
     const sent = await run(registry, "mail.send", { to: "lead@team-x", kind: "note", body: "draft" }, keepdeckLead);
     if (!sent.ok) throw new Error("send refused");
-    const { id } = sent.value as { id: string };
+    const id = idOf(sent);
     const cancelled = await run(registry, "mail.cancel", { id, to: "lead@team-x" }, keepdeckLead);
     expect(cancelled.ok).toBe(true);
   });

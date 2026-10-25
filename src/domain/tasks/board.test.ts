@@ -13,6 +13,7 @@ import {
   progressOf,
 } from "./board";
 import { openBlockersOf, unblocks } from "./relations";
+import type { TaskStatus } from "./model";
 import { board, relation, task } from "./testSupport";
 
 describe("issuable", () => {
@@ -184,7 +185,8 @@ describe("openWorkUnder / admitsOpenWork — a closed epic holds no open work", 
   });
 
   it("lets open work stand under an open epic only", () => {
-    expect(["todo", "in-progress", "review", "done", "cancelled"].map((status) => admitsOpenWork(task({ id: "task-1", kind: "epic", status: status as never })))).toEqual([
+    const statuses: TaskStatus[] = ["todo", "in-progress", "review", "done", "cancelled"];
+    expect(statuses.map((status) => admitsOpenWork(task({ id: "task-1", kind: "epic", status })))).toEqual([
       true,
       true,
       true,

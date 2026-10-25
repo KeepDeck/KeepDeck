@@ -7,11 +7,14 @@ import {
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Notification } from "../domain/notifications";
 import { createDeckStore } from "./deckStore";
-import { createApplicationController } from "./applicationController";
-import type { createPluginManager } from "./pluginManager";
-import type { createAgentOrchestrator } from "./agentOrchestrator";
-import type { PaneInputFocusPort } from "./paneInputFocusPort";
-import type { PaneViewPort } from "./paneViewPort";
+import { createDeckActions } from "./deckActions";
+import {
+  createApplicationController,
+  type ApplicationOrchestrator,
+  type ApplicationPlugins,
+} from "./applicationController";
+import type { PaneInputFocusPort } from "../presentation/paneInputFocusController";
+import type { PaneViewPort } from "../presentation/paneViewActions";
 import { fakeMcpLibrary } from "./mcpLibrary.fake";
 import { fakeSkillsLibrary } from "./skillsLibrary.fake";
 import { createPaneViewActions } from "../presentation/paneViewActions";
@@ -27,15 +30,26 @@ const workspace = (): Workspace => ({
 
 function dependencies() {
   const plugins = {
-    bootstrapPlugins: vi.fn(async () => {}),
-    revealPluginDockTab: vi.fn(() => true),
-  } as unknown as ReturnType<typeof createPluginManager>;
+    bootstrapPlugins: vi.fn<ApplicationPlugins["bootstrapPlugins"]>(async () => {}),
+    revealPluginDockTab: vi.fn<ApplicationPlugins["revealPluginDockTab"]>(() => true),
+  } satisfies ApplicationPlugins;
   const orchestrator = {
-    suspend: vi.fn(async () => "suspended"),
-    resume: vi.fn(() => "resuming"),
-    createPane: vi.fn(() => ({ kind: "created" })),
-    createWorkspace: vi.fn(() => ({ ok: true })),
-  } as unknown as ReturnType<typeof createAgentOrchestrator>;
+    suspend: vi.fn<ApplicationOrchestrator["suspend"]>(async () => "suspended"),
+    resume: vi.fn<ApplicationOrchestrator["resume"]>(() => "resuming"),
+    createPane: vi.fn<ApplicationOrchestrator["createPane"]>(() => ({
+      kind: "created",
+      teamId: "team-1",
+    })),
+    createTeam: vi.fn<ApplicationOrchestrator["createTeam"]>(() => ({
+      kind: "created",
+      teamId: "team-1",
+    })),
+    retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(),
+    createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(() => ({
+      ok: true,
+      workspace: workspace(),
+    })),
+  } satisfies ApplicationOrchestrator;
   return { plugins, orchestrator };
 }
 
@@ -120,7 +134,7 @@ describe("application controller", () => {
     const registry = createCommandRegistry();
     const { plugins, orchestrator } = dependencies();
     const focus = paneInputFocus();
-    const paneView = createPaneViewActions(deck, focus);
+    const paneView = createPaneViewActions(deck, createDeckActions(deck), focus);
     const controller = createApplicationController({
       deck,
       plugins,
@@ -168,7 +182,7 @@ describe("application controller", () => {
     });
     const { plugins, orchestrator } = dependencies();
     const focus = paneInputFocus();
-    const paneView = createPaneViewActions(deck, focus);
+    const paneView = createPaneViewActions(deck, createDeckActions(deck), focus);
     const revealPane = vi.spyOn(paneView, "revealPane");
     const controller = createApplicationController({
       deck,
@@ -182,13 +196,17 @@ describe("application controller", () => {
     });
     const view = ui();
     controller.bindUi(view);
-    const notification = {
+    const notification: Notification = {
+      id: "n-1",
+      title: "A pane",
+      severity: "info",
+      at: 0,
       source: {
         type: "pane",
         workspace: { id: target.id, instance: target.instance },
         paneId: "pane-2",
       },
-    } as Notification;
+    };
 
     controller.openNotification(notification);
 
@@ -223,23 +241,31 @@ describe("application controller", () => {
     controller.bindUi(view);
 
     controller.openNotification({
+      id: "n-1",
+      title: "A task",
+      severity: "info",
+      at: 0,
       source: {
         type: "tasks",
         workspace: { id: target.id, instance: target.instance },
         taskId: "task-7",
       },
-    } as Notification);
+    });
     expect(deck.getSnapshot().activeId).toBe("ws-1");
     expect(view.openTasks).toHaveBeenCalledWith("task-7");
 
     // The same id, another lifetime: the workspace this spoke of is gone.
     controller.openNotification({
+      id: "n-2",
+      title: "A task",
+      severity: "info",
+      at: 0,
       source: {
         type: "tasks",
         workspace: { id: target.id, instance: createWorkspaceInstance() },
         taskId: "task-7",
       },
-    } as Notification);
+    });
     expect(view.openTasks).toHaveBeenCalledTimes(1);
   });
 

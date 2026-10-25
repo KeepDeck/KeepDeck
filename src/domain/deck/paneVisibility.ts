@@ -1,4 +1,5 @@
 import type { WorkspaceView } from "./workspaceView";
+import { keyList } from "../json";
 import { resolveFocus, type Pane } from "./panes";
 
 /** The view fields that determine whether a pane body participates in layout. */
@@ -24,7 +25,7 @@ export type HideReason = "minimized" | "suspendedTray";
  * the maximize only for a pane that is no longer minimized, so a reveal that
  * walks this order leaves no stale spotlight for its re-read to find. */
 const HIDE_REASONS = { minimized: true, suspendedTray: true } satisfies Record<HideReason, true>;
-const REASONS_IN_ORDER = Object.keys(HIDE_REASONS) as HideReason[];
+const REASONS_IN_ORDER: readonly HideReason[] = keyList<typeof HIDE_REASONS>()(["minimized", "suspendedTray"]);
 
 /** Every reason `paneId` is off the grid; empty when it is on it. The one
  * reading of the view's two lists: the layout keeps a pane with no reason,

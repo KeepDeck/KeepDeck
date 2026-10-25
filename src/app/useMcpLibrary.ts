@@ -5,7 +5,7 @@
  */
 import { sameMcpRef, type McpScope, type McpServerDraft } from "../domain/mcp";
 import type { McpLibraryRow } from "./mcpLibrary";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 import { useLibraryState, type LibraryState } from "./useLibraryState";
 
 /** The generic state under the servers vocabulary: the rows are `servers`. */
@@ -18,7 +18,7 @@ export interface McpEditorState
 
 export function useMcpLibrary(open: boolean): McpEditorState {
   const { rows, ...state } = useLibraryState<McpScope, McpLibraryRow, McpServerDraft>(
-    useAppRuntime().mcpLibrary,
+    useRuntimePart("mcpLibrary"),
     open,
     {
       sameRef: sameMcpRef,

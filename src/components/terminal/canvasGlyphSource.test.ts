@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/xterm";
 import { CanvasAddon } from "@xterm/addon-canvas";
+import { stubCanvasContext } from "../canvasContext.test-support";
 
 /** A 2D context that accepts every call: enough surface for xterm to lay out
  * cells, rasterize glyphs and paint rows, recording the images it draws. */
@@ -54,15 +55,12 @@ function recordingContext(canvas: unknown, drawn: unknown[]) {
 
 let drawn: unknown[];
 let createImageBitmap: ReturnType<typeof vi.fn>;
+let restoreCanvas: () => void;
 
 beforeEach(() => {
   vi.useFakeTimers();
   drawn = [];
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (
-    this: HTMLCanvasElement,
-  ) {
-    return recordingContext(this, drawn) as unknown as CanvasRenderingContext2D;
-  } as never);
+  restoreCanvas = stubCanvasContext((canvas) => recordingContext(canvas, drawn));
   // xterm measures its cell off an OffscreenCanvas; happy-dom's has no 2D
   // context, and a zero cell renders nothing.
   vi.stubGlobal(
@@ -78,6 +76,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreCanvas();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();

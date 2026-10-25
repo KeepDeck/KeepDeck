@@ -25,7 +25,7 @@ import {
   type ProblemWords,
 } from "./problemWords";
 import type { VoiceModelInfo } from "./modelCatalog";
-import { errorMessage } from "@keepdeck/plugin-api";
+import { errorMessage, isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * The voice controller — one push-to-talk state machine shared by the hotkey
@@ -72,6 +72,17 @@ interface WorkspaceRow {
   name: string;
   active: boolean;
   panes: { id: string; title: string }[];
+}
+
+function isWorkspaceRow(value: unknown): value is WorkspaceRow {
+  return (
+    isJsonRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.active === "boolean" &&
+    Array.isArray(value.panes) &&
+    value.panes.every((pane) => isJsonRecord(pane) && typeof pane.id === "string" && typeof pane.title === "string")
+  );
 }
 
 interface DictationTarget {
@@ -207,16 +218,18 @@ export function createVoiceController(
   async function workspaces(): Promise<WorkspaceRow[]> {
     const result = await ctx.commands.execute("workspace.list", {});
     if (!result.ok) throw new Error(result.error.message);
-    return result.value as WorkspaceRow[];
+    const rows = result.value;
+    if (!Array.isArray(rows) || !rows.every(isWorkspaceRow)) {
+      throw new Error("workspace.list answered in a shape voice does not read");
+    }
+    return rows;
   }
 
   /** Ask the application owner for an exact, already-resolved target. */
   async function dictationTarget(): Promise<DictationTarget | null> {
     const result = await ctx.commands.execute("pane.target", {});
-    if (!result.ok || typeof result.value !== "object" || result.value === null) {
-      return null;
-    }
-    const value = result.value as Record<string, unknown>;
+    if (!result.ok || !isJsonRecord(result.value)) return null;
+    const value = result.value;
     return typeof value.workspaceId === "string" && typeof value.paneId === "string"
       ? { workspaceId: value.workspaceId, paneId: value.paneId }
       : null;

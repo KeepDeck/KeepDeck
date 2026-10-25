@@ -6,9 +6,6 @@ import { createPaneInputFocusController } from "./paneInputFocusController";
 import type { PaneInputFocusSource } from "./paneInputFocusController";
 import { usePaneInputFocus } from "./usePaneInputFocus";
 
-(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
-  .IS_REACT_ACT_ENVIRONMENT = true;
-
 let root: Root | null = null;
 
 afterEach(() => {
@@ -38,8 +35,8 @@ function Probe(props: ProbeProps) {
 function noop() {}
 
 function render(props: ProbeProps) {
-  root ??= createRoot(document.createElement("div"));
-  act(() => root!.render(createElement(Probe, props)));
+  const mounted = (root ??= createRoot(document.createElement("div")));
+  act(() => mounted.render(createElement(Probe, props)));
 }
 
 describe("usePaneInputFocus", () => {

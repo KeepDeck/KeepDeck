@@ -13,13 +13,17 @@ export interface ArgSpec {
   description: string;
 }
 
-/** What a caller passes: primitives only, keys per the command's ArgSpecs. */
+/** What a command runs with: primitives only, keys per its ArgSpecs. */
 export type CommandArgs = Record<string, string | boolean | number>;
+
+/** What a caller passes before it is checked: whatever a transport decoded
+ * (MCP hands over JSON). The registry checks it against the specs. */
+export type RawArgs = Readonly<Record<string, unknown>>;
 
 /** Validate `args` against `specs`. Returns human-readable problems; empty
  * means valid. Unknown keys are errors, not ignored extras — a misspelled
  * optional argument that silently does nothing is worse than a rejection. */
-export function validateArgs(specs: ArgSpec[], args: CommandArgs): string[] {
+export function validateArgs(specs: ArgSpec[], args: RawArgs): string[] {
   const errors: string[] = [];
   const byName = new Map(specs.map((s) => [s.name, s]));
   for (const key of Object.keys(args)) {
@@ -35,4 +39,17 @@ export function validateArgs(specs: ArgSpec[], args: CommandArgs): string[] {
       errors.push(`argument "${spec.name}" must be a ${spec.type}`);
   }
   return errors;
+}
+
+/** `args` as a command runs with them, once `validateArgs` found nothing:
+ * the primitive values, copied — what the check proved, held in a type that
+ * says it. */
+export function checkedArgs(args: RawArgs): CommandArgs {
+  const checked: CommandArgs = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value === "string" || typeof value === "boolean" || typeof value === "number") {
+      checked[key] = value;
+    }
+  }
+  return checked;
 }

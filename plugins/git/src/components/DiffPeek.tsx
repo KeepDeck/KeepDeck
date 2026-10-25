@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { activeRuntime } from "../runtime";
@@ -107,11 +107,17 @@ export function DiffPeek({
   );
   const offsets = showsCode ? hunkOffsets(diff) : [];
 
+  // The fetch's inputs, read through a ref: `key` is their identity (repo,
+  // row and range folded into one string), and `version` deliberately
+  // refetches the SAME key. A new object for the same row must not refetch.
+  const fetchRef = useRef({ repo, row, range });
+  fetchRef.current = { repo, row, range };
   // A version bump refreshes the open diff IN PLACE; switching to another
   // file supersedes it, which the derivation above already handles — there is
   // nothing to clear here, and so no window in which the old hunks can show
   // under the new name.
   useEffect(() => {
+    const { repo, row, range } = fetchRef.current;
     // No file to diff yet — the rail seeds the first file of a History scope.
     if (!row) return;
     // Torn down: the host is unmounting this surface; nothing to read.
@@ -146,7 +152,8 @@ export function DiffPeek({
     // `version` rides alongside the key rather than inside it: it is the one
     // input that must refetch WITHOUT counting as a different diff. The owner
     // of the peek decides what it is — a commit's peek gets a frozen one, its
-    // range cannot move (see `readVersionFor`).
+    // range cannot move (see `readVersionFor`). The latest repo/row/range are
+    // read from `fetchRef`; their identity is `key`.
   }, [key, version]);
 
   const waiting = view.kind === "waiting";

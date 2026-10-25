@@ -8,8 +8,6 @@ import { createNotificationCenter, type NotificationCenter } from "../notificati
 import { setWindowFocusForTest } from "../windowFocus";
 import { useBoardSeen } from "./useBoardSeen";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 const ws1: NotificationWorkspace = { id: "ws-1", instance: createWorkspaceInstance() };
 const ws2: NotificationWorkspace = { id: "ws-2", instance: createWorkspaceInstance() };
 

@@ -2,10 +2,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubCanvasContext } from "../canvasContext.test-support";
 import { AchievementEmbers, reseed, seedField } from "./AchievementEmbers";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The card the stylesheet would give this field: a 158×93 padding box plus
  * 26px of halo on every side. The test DOM lays nothing out, so the one
@@ -18,20 +17,21 @@ const HALO = 26;
  * TypeError rather than as a silent no-op. */
 function fakeContext() {
   return {
-    drawImage: vi.fn(),
-    clearRect: vi.fn(),
-    fillRect: vi.fn(),
-    setTransform: vi.fn(),
+    drawImage: vi.fn<(image: unknown, x: number, y: number, w: number, h: number) => void>(),
+    clearRect: vi.fn<(x: number, y: number, w: number, h: number) => void>(),
+    fillRect: vi.fn<(x: number, y: number, w: number, h: number) => void>(),
+    setTransform: vi.fn<(a: number, b: number, c: number, d: number, e: number, f: number) => void>(),
     createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     fillStyle: "",
     globalAlpha: 1,
     globalCompositeOperation: "source-over",
-  } as unknown as CanvasRenderingContext2D;
+  };
 }
 
 let root: Root;
 let mounted = false;
-let context: CanvasRenderingContext2D;
+let context: ReturnType<typeof fakeContext>;
+let restoreCanvas: () => void;
 /** The observers this component installs, captured so a test can drive the
  * callback the browser would call. */
 let gates: ((entries: { isIntersecting: boolean }[]) => void)[] = [];
@@ -51,9 +51,7 @@ function stubMatchMedia(matches: boolean) {
 
 beforeEach(() => {
   context = fakeContext();
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-    () => context as never,
-  );
+  restoreCanvas = stubCanvasContext(() => context);
   vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockReturnValue({
     ...BOX,
     x: 0,
@@ -81,6 +79,7 @@ beforeEach(() => {
 afterEach(() => {
   if (mounted) act(() => root.unmount());
   mounted = false;
+  restoreCanvas();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -113,15 +112,15 @@ describe("AchievementEmbers", () => {
     // The layer class is what keeps the card's content rules off this
     // element. Without it the canvas joins the flow, grows the card, and
     // the card's height feeds straight back into the canvas's own size.
-    expect(canvas!.classList.contains("stats__achievement-layer")).toBe(true);
-    expect(canvas!.classList.contains("stats__achievement-embers")).toBe(true);
+    expect(present(canvas, "the canvas").classList.contains("stats__achievement-layer")).toBe(true);
+    expect(present(canvas, "the canvas").classList.contains("stats__achievement-embers")).toBe(true);
     // Decorative: it carries no meaning a reader would miss.
-    expect(canvas!.getAttribute("aria-hidden")).toBe("true");
+    expect(present(canvas, "the canvas").getAttribute("aria-hidden")).toBe("true");
   });
 
   it("sizes its bitmap from its own box, scaled for the display", () => {
     const host = render();
-    const canvas = host.querySelector("canvas")!;
+    const canvas = present(host.querySelector("canvas"), "the canvas element");
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     expect(canvas.width).toBe(BOX.width * ratio);
     expect(canvas.height).toBe(BOX.height * ratio);
@@ -133,8 +132,7 @@ describe("AchievementEmbers", () => {
     render();
     await frame();
 
-    const calls = (context.drawImage as unknown as ReturnType<typeof vi.fn>).mock
-      .calls as [unknown, number, number, number, number][];
+    const calls = context.drawImage.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     for (const [, x, y, w, h] of calls) {
       // The halo is the drift room. If it were ever too small for the
@@ -155,8 +153,7 @@ describe("AchievementEmbers", () => {
 
     // Spawn is the CARD, not the canvas: the glow is the badge radiating,
     // so a spark appearing out in the halo would read as debris.
-    const calls = (context.drawImage as unknown as ReturnType<typeof vi.fn>).mock
-      .calls as [unknown, number, number, number, number][];
+    const calls = context.drawImage.mock.calls;
     for (const [, x, y, w, h] of calls) {
       const centreX = x + w / 2;
       const centreY = y + h / 2;
@@ -196,7 +193,7 @@ describe("AchievementEmbers", () => {
     // changes; sampling it once left the canvas as the one thing still moving.
     media.matches = true;
     act(() => motionListeners.forEach((listener) => listener()));
-    (context.drawImage as unknown as ReturnType<typeof vi.fn>).mockClear();
+    context.drawImage.mockClear();
     await frame();
     await frame();
     expect(context.drawImage).not.toHaveBeenCalled();
@@ -205,9 +202,8 @@ describe("AchievementEmbers", () => {
   it("draws nothing on a canvas that has no 2d surface at all", async () => {
     // A DOM without canvas support answers null, and the badge must still
     // mount — the glow is decoration, not the badge.
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-      () => null as never,
-    );
+    restoreCanvas();
+    restoreCanvas = stubCanvasContext(() => null);
     const host = render();
     await frame();
     expect(host.querySelector("canvas")).not.toBeNull();
@@ -222,7 +218,7 @@ describe("AchievementEmbers", () => {
     expect(gates).toHaveLength(1);
 
     act(() => gates[0]([{ isIntersecting: false }]));
-    (context.drawImage as unknown as ReturnType<typeof vi.fn>).mockClear();
+    context.drawImage.mockClear();
     await frame();
     await frame();
     expect(context.drawImage).not.toHaveBeenCalled();

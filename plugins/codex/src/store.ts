@@ -8,7 +8,12 @@
  * shape is the agent's, and a host that knows it is a host that has to be
  * edited when the agent moves house.
  */
-import { readStoreDir, type FsEntry, type PluginContext } from "@keepdeck/plugin-api";
+import { readStoreDir, type FsEntry, type PluginFs } from "@keepdeck/plugin-api";
+
+/** What finding a rollout needs from the host: the store's listings. */
+export interface StorePorts {
+  services: { fs: Pick<PluginFs, "readDir"> };
+}
 
 /** codex's store root. Day-partitioned below this: `YYYY/MM/DD/`. */
 export const ROOT = "~/.codex/sessions";
@@ -29,7 +34,7 @@ export const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
  * each sub-partition, so a search ends as soon as it has its answer.
  */
 export async function walkRollouts(
-  ctx: PluginContext,
+  ctx: StorePorts,
   visit: {
     file(entry: FsEntry, sessionId: string): void;
     stop?(): boolean;
@@ -70,7 +75,7 @@ export async function walkRollouts(
  * yet worked has no file — and the caller simply asks again later.
  */
 export async function findRollout(
-  ctx: PluginContext,
+  ctx: StorePorts,
   sessionId: string,
 ): Promise<string | null> {
   let found: string | null = null;
@@ -97,7 +102,7 @@ export async function findRollout(
  * LIST rather than an answer, read in order until one says something.
  */
 export async function newestRollouts(
-  ctx: PluginContext,
+  ctx: StorePorts,
   limit: number,
 ): Promise<string[]> {
   const found: { path: string; mtime: number }[] = [];

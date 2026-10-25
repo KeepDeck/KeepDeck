@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import type { LibrarySkill } from "../../app/skillsLibrary";
 import type { SkillDraft } from "../../domain/skills";
 import {
@@ -232,12 +232,9 @@ describe("the description rule", () => {
 
 describe("the write machine cannot be handed the read-only tier", () => {
   it("COMPILER GUARD: a view selection is not a writable one", () => {
-    // The assertion is the directive, not the expect below: if this
-    // literal ever compiles, the type stopped excluding the bundled tier
-    // and the runtime guard that was deleted has to come back.
-    // @ts-expect-error — a view selection has no scope and may not be written.
-    const forbidden: WritableSelection = { mode: "view", name: "artifacts" };
-    expect(forbidden).toBeDefined();
+    // A bundled view has no write scope. The type must keep it out of the
+    // write machine even if the view selection grows other fields later.
+    expectTypeOf<"view">().not.toExtend<WritableSelection["mode"]>();
   });
 
   it("CONTROL: the same shape WITH a scope is writable, so the guard bites for the right reason", () => {

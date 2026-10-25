@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 import { createWorktree } from "./worktree";
+import { recordOf } from "../testing/values.test-support";
 
 beforeEach(() => {
   tauri.invoke.mockReset();
@@ -36,7 +37,7 @@ describe("createWorktree", () => {
     expect(tauri.invoke).toHaveBeenCalledTimes(1);
     const [command, args] = tauri.invoke.mock.calls[0];
     expect(command).toBe("worktree_create");
-    const spec = (args as { spec: Record<string, unknown> }).spec;
+    const spec = recordOf(recordOf(args, "invoke args").spec, "worktree spec");
     expect(spec.ownerId).toBe("team-1");
     expect(spec).not.toHaveProperty("agentId");
     expect(spec).toMatchObject({ repo: "/repo", path: "/wt/1", branch: "kd/ws/1" });

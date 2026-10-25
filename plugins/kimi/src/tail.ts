@@ -1,4 +1,5 @@
 import {
+  isJsonRecord,
   asNonEmptyString,
   jsonl,
   turnFailedEvent,
@@ -11,6 +12,11 @@ import {
 import { kimiQuestionWatches } from "./questions";
 
 type WireRecord = Readonly<Record<string, unknown>>;
+
+/** A wire line is any JSON object. */
+function isWireRecord(value: unknown): value is WireRecord {
+  return isJsonRecord(value);
+}
 
 /** Kimi 0.40.1's durable MAIN-agent lifecycle, not its ambiguous Stop hook.
  * Stop runs on children too, and is suppressed after a Stop continuation.
@@ -58,8 +64,10 @@ export const kimiRecords = {
 } satisfies Pick<SessionTailDialect<JsonlRequest, WireRecord>, "watches" | "read" | "ignores">;
 
 /** Reuse history's discovery for a resumed pane whose SessionStart was missed. */
-export const kimiTail = (history: AgentHistory): SessionTailDialect<JsonlRequest, WireRecord> => ({
-  format: jsonl<WireRecord>(),
+export const kimiTail = (
+  history: Pick<AgentHistory, "list" | "listing">,
+): SessionTailDialect<JsonlRequest, WireRecord> => ({
+  format: jsonl(isWireRecord),
   ...kimiRecords,
   async follow({ store, sessionId }) {
     if (store) return { path: store };

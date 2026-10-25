@@ -11,17 +11,29 @@ function luminance(hex: string): number {
 }
 
 describe("the terminal theme", () => {
-  const t = TERMINAL_THEME as Record<string, string>;
+  const t = TERMINAL_THEME;
+const at = (key: keyof typeof t): string => {
+  const value = t[key];
+  if (typeof value !== "string") throw new Error(`expected theme ${key} to be a string`);
+  return value;
+};
 
   it("keeps the ANSI greys in xterm's lightness order, so TUI chrome still reads", () => {
-    const order = [t.background, t.black, t.brightBlack, t.white, t.brightWhite].map(luminance);
+    const order = [at("background"), at("black"), at("brightBlack"), at("white"), at("brightWhite")].map(luminance);
     order.slice(1).forEach((l, i) => expect(l).toBeGreaterThan(order[i]));
   });
 
   it("brightens every bright colour above its base", () => {
-    for (const name of ["red", "green", "yellow", "blue", "magenta", "cyan"]) {
-      const bright = `bright${name[0].toUpperCase()}${name.slice(1)}`;
-      expect(luminance(t[bright])).toBeGreaterThan(luminance(t[name]));
+    const pairs = [
+      ["red", "brightRed"],
+      ["green", "brightGreen"],
+      ["yellow", "brightYellow"],
+      ["blue", "brightBlue"],
+      ["magenta", "brightMagenta"],
+      ["cyan", "brightCyan"],
+    ] as const;
+    for (const [base, bright] of pairs) {
+      expect(luminance(at(bright))).toBeGreaterThan(luminance(at(base)));
     }
   });
 });

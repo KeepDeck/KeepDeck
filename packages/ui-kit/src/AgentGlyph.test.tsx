@@ -3,10 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentGlyph, type AgentGlyphIcon } from "./AgentGlyph";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 const mark: AgentGlyphIcon = {
   viewBox: "0 0 24 24",
@@ -19,7 +16,7 @@ describe("AgentGlyph", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -32,17 +29,17 @@ describe("AgentGlyph", () => {
 
   it("draws the mark's path in its brand tint, hidden from a11y", () => {
     render(mark);
-    const svg = host.querySelector("svg")!;
+    const svg = present(host.querySelector("svg"), "the svg element");
     expect(svg.getAttribute("viewBox")).toBe("0 0 24 24");
     expect(svg.getAttribute("aria-hidden")).toBe("true");
-    const path = svg.querySelector("path")!;
+    const path = present(svg.querySelector("path"), "the path element");
     expect(path.getAttribute("d")).toBe("M0 0h24v24H0z");
     expect(path.getAttribute("fill")).toBe("#D97757");
   });
 
   it("a monochrome layer inherits the text color", () => {
     render({ viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z" }] });
-    expect(host.querySelector("path")!.getAttribute("fill")).toBe(
+    expect(present(host.querySelector("path"), "the path element").getAttribute("fill")).toBe(
       "currentColor",
     );
   });
@@ -52,7 +49,7 @@ describe("AgentGlyph", () => {
       viewBox: "0 0 24 24",
       paths: [{ d: "M0 0h24v24H0z", fillRule: "evenodd" }],
     });
-    expect(host.querySelector("path")!.getAttribute("fill-rule")).toBe(
+    expect(present(host.querySelector("path"), "the path element").getAttribute("fill-rule")).toBe(
       "evenodd",
     );
   });
@@ -73,7 +70,7 @@ describe("AgentGlyph", () => {
 
   it("no mark falls back to the neutral prompt, not empty space", () => {
     render(null);
-    const svg = host.querySelector("svg")!;
+    const svg = present(host.querySelector("svg"), "the svg element");
     expect(svg.getAttribute("stroke")).toBe("currentColor");
     expect(svg.querySelector("polyline")).not.toBeNull();
   });

@@ -1,3 +1,4 @@
+import { isJsonRecord } from "@keepdeck/plugin-api";
 import type { VoiceMode } from "./controller";
 
 /**
@@ -121,8 +122,8 @@ export function chordsEqual(a: Chord, b: Chord): boolean {
  * checks it first), leaving command dead until the file is corrected. */
 export function parseBindings(values: Record<string, unknown>): VoiceBindings {
   const raw = values[HOTKEYS_KEY];
-  if (!raw || typeof raw !== "object") return DEFAULT_BINDINGS;
-  const bag = raw as Record<string, unknown>;
+  if (!isJsonRecord(raw)) return DEFAULT_BINDINGS;
+  const bag = raw;
   return {
     command: parseChord(bag.command, DEFAULT_BINDINGS.command),
     dictation: parseChord(bag.dictation, DEFAULT_BINDINGS.dictation),
@@ -130,8 +131,8 @@ export function parseBindings(values: Record<string, unknown>): VoiceBindings {
 }
 
 function parseChord(raw: unknown, fallback: Chord): Chord {
-  if (!raw || typeof raw !== "object") return fallback;
-  const c = raw as Record<string, unknown>;
+  if (!isJsonRecord(raw)) return fallback;
+  const c = raw;
   if (typeof c.code !== "string" || c.code === "") return fallback;
   return {
     code: c.code,

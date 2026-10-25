@@ -16,10 +16,7 @@ import {
 } from "./useCloseFlow";
 import type { SuspendOutcome } from "./suspendOutcome";
 import type { CloseRequest } from "./agentOrchestrator";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The teardown, as this hook sees it: a request, recorded. What the close
  * then DOES — the token revocations, the reaping, the worktree removal and
@@ -127,7 +124,7 @@ function Probe() {
 
 /** The live ref of ws-1. */
 const ref = (): WorkspaceRef => {
-  const ws = deck.workspaces.find((candidate) => candidate.id === "ws-1")!;
+  const ws = present(deck.workspaces.find((candidate) => candidate.id === "ws-1"), "the ws-1 workspace");
   return { id: ws.id, instance: ws.instance };
 };
 
@@ -222,7 +219,7 @@ describe("useCloseFlow", () => {
     probes.probeWorktree.mockResolvedValue(probed(true));
     runtimeHeads = new Map();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -692,7 +689,7 @@ describe("closing a pane that is already stopped", () => {
     blockedPanes = {};
     runtimeHeads = new Map();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -770,7 +767,7 @@ describe("what the dialog promises is what confirming does", () => {
     blockedPanes = {};
     runtimeHeads = new Map();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 

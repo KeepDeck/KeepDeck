@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
+import type { ArtifactMetaRow } from "../../domain/artifacts/rowRef";
 import { rowMeta } from "./rowMeta";
 
 const NOW = 1_700_000_000_000;

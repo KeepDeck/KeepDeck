@@ -24,10 +24,9 @@ import {
   parseInstant,
   turnFailedEvent,
   type JsonlRequest,
-  type PluginContext,
   type SessionTailDialect,
 } from "@keepdeck/plugin-api";
-import { findRollout } from "./store";
+import { findRollout, type StorePorts } from "./store";
 import { codexQuestionWatches } from "./questions";
 
 /**
@@ -41,6 +40,11 @@ interface CarriedRollout {
   timestamp?: unknown;
   "payload.type"?: unknown;
   "payload.error"?: unknown;
+}
+
+/** Any JSON object: every carried key is read as `unknown`. */
+function isCarriedRollout(value: unknown): value is CarriedRollout {
+  return isJsonRecord(value);
 }
 
 /**
@@ -96,9 +100,9 @@ export const codexRecords = {
 >;
 
 export const codexTail = (
-  ctx: PluginContext,
+  ctx: StorePorts,
 ): SessionTailDialect<JsonlRequest, CarriedRollout> => ({
-  format: jsonl<CarriedRollout>(),
+  format: jsonl(isCarriedRollout),
   ...codexRecords,
 
   /**

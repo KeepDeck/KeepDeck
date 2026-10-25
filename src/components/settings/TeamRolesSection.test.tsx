@@ -3,11 +3,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // The section talks to the real catalog manager over a mocked disk — the
 // tests cover the whole loop: control → manager → domain → re-render.
 const rolesIpc = vi.hoisted(() => {
@@ -31,9 +26,11 @@ import {
   initRoleCatalog,
   resetRoleCatalogManager,
   saveStoredRole,
-} from "../../app/roleCatalogManager";
+} from "../../app/testing";
 import { roleById } from "../../domain/mail";
 import { TeamRolesSection } from "./TeamRolesSection";
+import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 let root: Root;
 
@@ -54,24 +51,27 @@ async function mount(): Promise<void> {
   resetRoleCatalogManager();
   await initRoleCatalog();
   document.body.innerHTML = "<div id='host'></div>";
-  root = createRoot(document.getElementById("host")!);
+  root = createRoot(present(document.getElementById("host"), "element \"host\""));
   await act(async () => root.render(createElement(TeamRolesSection)));
 }
 
 const button = (text: string) =>
-  Array.from(document.querySelectorAll("button")).find(
+  present(Array.from(document.querySelectorAll("button")).find(
     (candidate) => candidate.textContent === text,
-  )!;
+  ), "button matching text");
 
 const row = (contains: string) =>
-  Array.from(document.querySelectorAll<HTMLButtonElement>(".roles__row")).find(
-    (candidate) => candidate.textContent!.includes(contains),
-  )!;
+  present(Array.from(document.querySelectorAll<HTMLButtonElement>(".roles__row")).find(
+    (candidate) => present(candidate.textContent, "role row text").includes(contains),
+  ), "role row containing contains");
 
 const field = (label: string) =>
-  document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+  present(document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
     `[aria-label="${label}"]`,
-  )!;
+  ), "element `[aria-label=\"${label}\"]`");
+
+const inputField = (label: string) =>
+  instanceOf(field(label), HTMLInputElement, `input ${label}`);
 
 /** Type into a controlled React input/textarea: set via the native setter
  * (bypassing React's value tracker) and fire a bubbling `input` event. */
@@ -80,7 +80,7 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
     el instanceof HTMLTextAreaElement
       ? HTMLTextAreaElement.prototype
       : HTMLInputElement.prototype;
-  const set = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
+  const set = present(present(Object.getOwnPropertyDescriptor(proto, "value"), "field value property descriptor").set, "field value setter");
   act(() => {
     set.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -104,7 +104,7 @@ describe("TeamRolesSection", () => {
   it("edits a built-in's texts through its file, and reset deletes the file", async () => {
     await mount();
     await click(row("Lead"));
-    type(field("Role label") as HTMLInputElement, "Architect");
+    type(inputField("Role label"), "Architect");
     await click(button("Save"));
     // The record landed on disk and the catalog re-read it: the row now
     // carries the new label and the provenance note.
@@ -120,12 +120,12 @@ describe("TeamRolesSection", () => {
   it("refuses a creation the domain grammar refuses, and writes nothing", async () => {
     await mount();
     await click(button("+ Add role"));
-    type(field("Role id") as HTMLInputElement, "impl-2");
-    type(field("Role label") as HTMLInputElement, "Impostor");
-    type(field("Role summary") as HTMLInputElement, "pretends");
+    type(inputField("Role id"), "impl-2");
+    type(inputField("Role label"), "Impostor");
+    type(inputField("Role summary"), "pretends");
     type(field("Role charter"), "You pretend.");
     await click(button("Save"));
-    expect(document.querySelector('[role="alert"]')!.textContent).toContain(
+    expect(present(document.querySelector('[role="alert"]'), "element '[role=\"alert\"]'").textContent).toContain(
       "numbered",
     );
     expect(rolesIpc.saveRoleFile).not.toHaveBeenCalled();
@@ -134,7 +134,7 @@ describe("TeamRolesSection", () => {
   it("lets a late-landing catalog re-seed an untouched editor", async () => {
     await mount();
     await click(row("Lead"));
-    expect((field("Role label") as HTMLInputElement).value).toBe("Lead");
+    expect((inputField("Role label")).value).toBe("Lead");
     // The stored override lands AFTER the editor opened — a slow boot read
     // resolving, another surface saving. Untouched, the draft follows it:
     // saving the pre-load seed would overwrite texts the user never saw.
@@ -149,9 +149,9 @@ describe("TeamRolesSection", () => {
         charter: ["You DOCUMENT."],
       });
     });
-    expect((field("Role label") as HTMLInputElement).value).toBe("Captain");
+    expect((inputField("Role label")).value).toBe("Captain");
     // Typed-into, the draft is the user's and stays through the next change.
-    type(field("Role label") as HTMLInputElement, "Chief");
+    type(inputField("Role label"), "Chief");
     await act(async () => {
       await saveStoredRole("buddy", {
         label: "Buddy",
@@ -159,7 +159,7 @@ describe("TeamRolesSection", () => {
         charter: ["You HELP."],
       });
     });
-    expect((field("Role label") as HTMLInputElement).value).toBe("Chief");
+    expect((inputField("Role label")).value).toBe("Chief");
   });
 
   it("shows an orphan deletion's failure even with no editor open", async () => {
@@ -172,7 +172,7 @@ describe("TeamRolesSection", () => {
       throw new Error("disk said no");
     });
     await click(button("Delete"));
-    expect(document.querySelector('[role="alert"]')!.textContent).toContain(
+    expect(present(document.querySelector('[role="alert"]'), "element '[role=\"alert\"]'").textContent).toContain(
       "disk said no",
     );
   });
@@ -181,10 +181,10 @@ describe("TeamRolesSection", () => {
     rolesIpc.disk.set("broken", "{oops");
     await mount();
     await click(row("Peer"));
-    type(field("Role label") as HTMLInputElement, "Buddy");
+    type(inputField("Role label"), "Buddy");
     await click(button("Delete"));
     expect(rolesIpc.disk.has("broken")).toBe(false);
-    expect((field("Role label") as HTMLInputElement).value).toBe("Buddy");
+    expect((inputField("Role label")).value).toBe("Buddy");
   });
 
   it("freezes a custom role's standing and repeatability after creation", async () => {
@@ -199,7 +199,7 @@ describe("TeamRolesSection", () => {
     await click(row("Docs"));
     expect(button("A peer — flat teams only").disabled).toBe(true);
     expect(
-      document.querySelector<HTMLInputElement>(".roles__repeatable input")!
+      present(document.querySelector<HTMLInputElement>(".roles__repeatable input"), "element \".roles__repeatable input\"")
         .disabled,
     ).toBe(true);
   });
@@ -207,15 +207,15 @@ describe("TeamRolesSection", () => {
   it("creates a role of the user's own that the whole catalog then knows", async () => {
     await mount();
     await click(button("+ Add role"));
-    type(field("Role id") as HTMLInputElement, "docs");
-    type(field("Role label") as HTMLInputElement, "Docs");
-    type(field("Role summary") as HTMLInputElement, "writes it down");
+    type(inputField("Role id"), "docs");
+    type(inputField("Role label"), "Docs");
+    type(inputField("Role summary"), "writes it down");
     type(field("Role charter"), "You DOCUMENT.\nYou do not edit code.");
     await click(button("Save"));
     // Not just rendered — the DOMAIN sees it, which is what the dialog's
     // picker and the briefings read.
     expect(roleById("docs")).toBeDefined();
-    expect(roleById("docs")!.charter).toHaveLength(2);
+    expect(present(roleById("docs"), "roleById \"docs\"").charter).toHaveLength(2);
     expect(row("Docs").textContent).toContain("yours");
   });
 });

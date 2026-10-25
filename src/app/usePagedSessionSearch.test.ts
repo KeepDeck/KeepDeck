@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   FIRST_PAGE,
   NEXT_PAGE,
@@ -9,9 +9,7 @@ import {
   type Page,
   type PagedSearch,
 } from "./usePagedSessionSearch";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 interface Row {
   id: string;
@@ -20,16 +18,10 @@ const mkRows = (from: number, count: number): Row[] =>
   Array.from({ length: count }, (_, i) => ({ id: `r-${from + i}` }));
 
 let api: PagedSearch<Row>;
-let fetchPage: ReturnType<typeof vi.fn>;
+let fetchPage: Mock<(q: string, l: number, o: number) => Promise<Page<Row>>>;
 
 function Probe() {
-  api = usePagedSessionSearch<Row>(
-    fetchPage as unknown as (
-      q: string,
-      l: number,
-      o: number,
-    ) => Promise<Page<Row>>,
-  );
+  api = usePagedSessionSearch<Row>(fetchPage);
   return null;
 }
 
@@ -45,7 +37,7 @@ describe("usePagedSessionSearch", () => {
       () => new Promise<Page<Row>>((resolve) => resolvers.push(resolve)),
     );
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => {
     act(() => root.unmount());

@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandRegistry, CommandSource } from "../../domain/commands";
 import { handleMcpLine } from "../../domain/mcp";
 import type { LibrarySkill } from "../skillsLibrary";
+import { recordsOf, recordOf, stringOf } from "../../testing/values.test-support";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -45,13 +46,12 @@ async function projectSkillTools(
     () => ({ name: "KeepDeck", version: "test" }),
     JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
   );
-  const parsed = JSON.parse(reply ?? "{}") as {
-    result: { tools: { name: string; inputSchema: unknown }[] };
-  };
+  const parsed = recordOf(JSON.parse(reply ?? "{}"), "tools reply");
+  const tools = recordsOf(recordOf(parsed.result, "tools result").tools, "tools");
   return new Map(
-    parsed.result.tools
-      .filter((tool) => tool.name.startsWith("skills_"))
-      .map((tool) => [tool.name, tool.inputSchema]),
+    tools
+      .filter((tool) => stringOf(tool.name, "tool name").startsWith("skills_"))
+      .map((tool) => [stringOf(tool.name, "tool name"), tool.inputSchema]),
   );
 }
 

@@ -9,6 +9,7 @@ import {
   TEST_NOW,
   windowReport as report,
 } from "./reportJournal.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = TEST_NOW;
 const MIN = 60_000;
@@ -41,7 +42,7 @@ const accountsOf = (
   ]);
 
 const keyOf = (windows: UsageWindow[], agent = "claude") =>
-  accountWindowKeys(agent, windows).get(windows[0])!.key;
+  present(accountWindowKeys(agent, windows).get(windows[0]), "the first window's key").key;
 
 const seriesOf = (
   windows: UsageWindow[],
@@ -59,6 +60,7 @@ const CRITICAL = () => ramp(1, 88);
 const WARN = () => ramp(0.15, 88);
 const OK = () => ramp(0.05, 88);
 /** The record a FIVE_H alarm fires and holds with. */
+const FIVE_H_RESETS_AT = present(FIVE_H.resetsAt, "the five-hour window's reset time");
 const FIRED_88 = { resetsAt: FIVE_H.resetsAt, usedPct: 88 };
 
 describe("foldExhaustionAlerts", () => {
@@ -205,7 +207,7 @@ describe("foldExhaustionAlerts", () => {
     // jumps a full window, and the fresh instance burns hot too. (The
     // journal stays monotonic — new reports land AFTER the old ones, as
     // production guarantees.)
-    const resetAt = FIVE_H.resetsAt!;
+    const resetAt = FIVE_H_RESETS_AT;
     const later = resetAt + 15 * MIN;
     const nextResetsAt = resetAt + 300 * MIN;
     const nextWindow: UsageWindow = { ...FIVE_H, resetsAt: nextResetsAt };
@@ -384,7 +386,7 @@ describe("foldExhaustionAlerts", () => {
     // instance.
     const drifted: UsageWindow = {
       ...FIVE_H,
-      resetsAt: FIVE_H.resetsAt! + 30_000,
+      resetsAt: FIVE_H_RESETS_AT + 30_000,
     };
     const later = NOW + MIN;
     const series = [
@@ -414,7 +416,7 @@ describe("foldExhaustionAlerts", () => {
     // (codex's not-yet-started windows re-mint their reset on every poll).
     // The rows after the jump burn hot on their own, so a wrongly cut
     // segment would re-fire rather than merely go unknown.
-    const moved: UsageWindow = { ...FIVE_H, resetsAt: FIVE_H.resetsAt! + 90 * MIN };
+    const moved: UsageWindow = { ...FIVE_H, resetsAt: FIVE_H_RESETS_AT + 90 * MIN };
     const later = NOW + 6 * MIN;
     const held = foldExhaustionAlerts(
       fired.alerts,
@@ -487,7 +489,7 @@ describe("foldExhaustionAlerts", () => {
     );
     // The reset instant passes with no fresh report: the forecast hides
     // behind expiry (unknown); the alarm keeps its instance memory.
-    const later = FIVE_H.resetsAt! + MIN;
+    const later = FIVE_H_RESETS_AT + MIN;
     const expired = foldExhaustionAlerts(
       fired.alerts,
       accountsOf(windows),

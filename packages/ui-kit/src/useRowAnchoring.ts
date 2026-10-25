@@ -117,7 +117,7 @@ export function useRowAnchoring<Row>({
     return rowVirtualizer.measurementsCache[index]?.start ?? null;
   };
   const windowRowsOf = () =>
-    virtualItems.map((v) => ({ key: v.key as string, start: v.start }));
+    virtualItems.map((v) => ({ key: String(v.key), start: v.start }));
   // The full re-pick: the first fully visible row of this render's window.
   const armFirstVisible = (list: HTMLElement) => {
     const first = pickAnchor(windowRowsOf(), list.scrollTop);
@@ -136,8 +136,48 @@ export function useRowAnchoring<Row>({
   // offset. useLayoutEffect: the shift must land in the layout phase,
   // before the browser paints — a passive effect would flash the
   // un-shifted position first.
+  // The values every effect below reads, kept current each render. The
+  // dependency arrays are the TRIGGERS (a queue change, a scroll/range
+  // change, mount), not a list of values: re-running compensation on every
+  // scroll or arming on every measured row would be the stale-anchor
+  // regression the comments above record. Each effect therefore reads the
+  // latest render through this ref.
+  const latest = useRef({
+    listRef,
+    keyOf,
+    holdKey,
+    holdWalk,
+    onShift,
+    rowVirtualizer,
+    startOf,
+    windowRowsOf,
+    armFirstVisible,
+    indexOfAnchor,
+  });
+  latest.current = {
+    listRef,
+    keyOf,
+    holdKey,
+    holdWalk,
+    onShift,
+    rowVirtualizer,
+    startOf,
+    windowRowsOf,
+    armFirstVisible,
+    indexOfAnchor,
+  };
   const queueRef = useRef(queue);
   useLayoutEffect(() => {
+    const {
+      listRef,
+      keyOf,
+      holdKey,
+      holdWalk,
+      onShift,
+      startOf,
+      armFirstVisible,
+      indexOfAnchor,
+    } = latest.current;
     const list = listRef.current;
     if (!list) return;
     const prevQueue = queueRef.current;
@@ -193,7 +233,7 @@ export function useRowAnchoring<Row>({
     // and the next landing above found nothing to hold. A key still in
     // the queue but not yet measurable keeps its anchor (rowAnchor.ts).
     if (nextIndex < 0) armFirstVisible(list);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The trigger is the queue; the values are `latest.current` above.
   }, [queue]);
   // ARMING — on SCROLL POSITION, not the range's last index: a small
   // scroll may change the first fully visible row while the last
@@ -206,6 +246,7 @@ export function useRowAnchoring<Row>({
   // and drift. A full re-pick happens only when the anchor left the
   // window (real scroll) or none is armed.
   useLayoutEffect(() => {
+    const { listRef, windowRowsOf, armFirstVisible } = latest.current;
     const list = listRef.current;
     if (!list) return;
     const prev = anchorRef.current;
@@ -217,7 +258,8 @@ export function useRowAnchoring<Row>({
       }
     }
     armFirstVisible(list);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Triggered by the scroll position or the range's end; the values come
+    // from `latest.current` (see above).
   }, [listRef.current?.scrollTop, lastVirtualIndex]);
   // THE ANCHOR'S OFFSET, kept true on EVERY scroll — arming runs only on
   // re-renders, and a scroll within the window renders nothing, so between
@@ -240,6 +282,7 @@ export function useRowAnchoring<Row>({
     keyOfRef.current = keyOf;
   });
   useEffect(() => {
+    const { listRef, startOf, indexOfAnchor } = latest.current;
     const list = listRef.current;
     if (!list) {
       // The CONTRACT above, broken loudly: unheard, the anchor goes stale.
@@ -256,7 +299,7 @@ export function useRowAnchoring<Row>({
     };
     list.addEventListener("scroll", onScroll, { passive: true });
     return () => list.removeEventListener("scroll", onScroll);
-    // The list element and the virtualizer are stable for the mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The CONTRACT above: subscribe once. The listener reads the latest
+    // queue/key/measure functions through refs, never a mount-time closure.
   }, []);
 }

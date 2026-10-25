@@ -4,24 +4,20 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
-import type { AppRuntime } from "../../app/runtime";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
 import {
   createUsageManager,
   type UsageManager,
-} from "../../app/usageManager";
+} from "../../app/testing";
 import { UsageChips } from "./UsageChips";
+import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf, instanceOf } from "../../testing/values.test-support";
+import { usageResult } from "../../testing/values.test-support";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
-const settingsMock = vi.hoisted(() => ({
-  updateSettings: vi.fn(),
-  getSettings: () => null,
-  subscribeSettings: () => () => {},
-}));
-vi.mock("../../app/settingsManager", () => settingsMock);
+const settingsMock = vi.hoisted(() => ({ updateSettings: vi.fn() }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver({ current: null }, settingsMock.updateSettings),
+);
 
 const CLAUDE: AgentInfo = {
   id: "claude",
@@ -93,7 +89,8 @@ describe("UsageChips", () => {
     // The echo normalizer: payloads carry their normalized result, stamped
     // with the report time like a real parser would.
     usage.registerNormalizer("claude", (payload, at) => {
-      const { result } = payload as { result: NormalizedUsage };
+      const result = usageResult(payload);
+      if (!result) return null;
       return {
         account: result.account ? { ...result.account, reportedAt: at } : null,
         pane: result.pane,
@@ -103,7 +100,7 @@ describe("UsageChips", () => {
     openStats.mockReset();
     vi.setSystemTime(AT);
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -128,10 +125,12 @@ describe("UsageChips", () => {
               // ONE snapshot object — useSyncExternalStore re-renders
               // forever on a fresh identity per read.
               windowReportJournal: {
+                start: () => {},
                 subscribe: () => () => {},
                 getSnapshot: () => EMPTY_REPORTS,
+                dispose: () => {},
               },
-            } as unknown as AppRuntime,
+            },
           },
           createElement(UsageChips, {
             agents,
@@ -149,7 +148,7 @@ describe("UsageChips", () => {
 
   it("gives a live agent its chip immediately, waiting for data", () => {
     render(new Set(["claude"]));
-    const chip = host.querySelector(".usage-chip")!;
+    const chip = present(host.querySelector(".usage-chip"), "the .usage-chip element");
     expect(chip.textContent).toContain("···");
     expect(chip.getAttribute("title")).toContain("waiting");
   });
@@ -167,11 +166,11 @@ describe("UsageChips", () => {
   it("rings the tightest window, names both in the hover, calm below the thresholds", () => {
     usage.report("pane-1",limitsReport(42), AT);
     render();
-    const chip = host.querySelector<HTMLElement>(".usage-chip")!;
+    const chip = present(host.querySelector<HTMLElement>(".usage-chip"), "the .usage-chip element");
     // One number: the window closest to its limit (5h at 42%, week at 13%).
     expect(chip.textContent).toBe("42%");
     expect(chip.title).toBe("Claude Code · 5h 42% · wk 13%");
-    const ring = chip.querySelector<HTMLElement>(".progress-ring")!;
+    const ring = present(chip.querySelector<HTMLElement>(".progress-ring"), "the .progress-ring element");
     expect(ring.style.getPropertyValue("--progress-ring-fill")).toBe("42");
     expect(ring.className).toBe("progress-ring");
     expect(chip.querySelector(".usage-level--warn")).toBeNull();
@@ -184,7 +183,7 @@ describe("UsageChips", () => {
     usage.report("pane-1",limitsReport(91), AT);
     render();
     expect(host.querySelector(".usage-level--critical")).not.toBeNull();
-    expect(host.querySelector(".progress-ring")!.className).toBe("progress-ring progress-ring--critical");
+    expect(present(host.querySelector(".progress-ring"), "the .progress-ring element").className).toBe("progress-ring progress-ring--critical");
   });
 
   it("renders no chip for a paneless provider without a REPORTED account", () => {
@@ -200,9 +199,9 @@ describe("UsageChips", () => {
     usage.report("pane-1",paneReport(), AT);
     render();
     act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+      (elementOf(host, ".usage-chip", HTMLButtonElement)).click();
     });
-    const panel = host.querySelector("#usage-panel")!;
+    const panel = present(host.querySelector("#usage-panel"), "the #usage-panel element");
     expect(panel.textContent).not.toContain("Sessions");
     expect(panel.textContent).not.toContain("Opus");
     expect(panel.textContent).not.toContain("$4.13");
@@ -212,7 +211,7 @@ describe("UsageChips", () => {
     usage.report("pane-1",limitsReport(42), AT);
     vi.setSystemTime(AT + 31 * 60_000);
     render();
-    const chip = host.querySelector(".usage-chip")!;
+    const chip = present(host.querySelector(".usage-chip"), "the .usage-chip element");
     expect(chip.className).toContain("usage-chip--dim");
     expect(chip.querySelector(".usage-chip__stale")).not.toBeNull();
   });
@@ -241,9 +240,9 @@ describe("UsageChips", () => {
     );
     render();
     act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+      (elementOf(host, ".usage-chip", HTMLButtonElement)).click();
     });
-    const panel = host.querySelector("#usage-panel")!;
+    const panel = present(host.querySelector("#usage-panel"), "the #usage-panel element");
     expect(panel.textContent).toContain("plan allowance");
     expect(panel.textContent).toContain("reset unknown");
   });
@@ -251,15 +250,15 @@ describe("UsageChips", () => {
   it("opens the panel with countdowns and flips the display setting", () => {
     usage.report("pane-1",limitsReport(42), AT);
     render();
-    const chip = host.querySelector(".usage-chip")!;
+    const chip = present(host.querySelector(".usage-chip"), "the .usage-chip element");
     // Named only while the panel it names exists — closed, there is nothing
     // to point at.
     expect(chip.getAttribute("aria-controls")).toBeNull();
     act(() => {
-      (chip as HTMLButtonElement).click();
+      (instanceOf(chip, HTMLButtonElement, "chip")).click();
     });
     expect(chip.getAttribute("aria-controls")).toBe("usage-panel");
-    const panel = host.querySelector("#usage-panel")!;
+    const panel = present(host.querySelector("#usage-panel"), "the #usage-panel element");
     expect(panel.textContent).toContain("Claude Code");
     expect(panel.textContent).toContain("Updated now");
     // The panel spells the window out; the abbreviation stays on the chip.
@@ -268,7 +267,7 @@ describe("UsageChips", () => {
     expect(panel.querySelector(".usage-bar")).not.toBeNull();
 
     act(() => {
-      (panel.querySelector(".usage-panel__toggle") as HTMLButtonElement).click();
+      (elementOf(panel, ".usage-panel__toggle", HTMLButtonElement)).click();
     });
     expect(settingsMock.updateSettings).toHaveBeenCalledWith({
       usageDisplay: "left",
@@ -292,10 +291,10 @@ describe("UsageChips", () => {
     usage.report("pane-1",limitsReport(42), AT);
     render();
     act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+      (elementOf(host, ".usage-chip", HTMLButtonElement)).click();
     });
 
-    const open = host.querySelector<HTMLButtonElement>(".usage-panel__stats")!;
+    const open = present(host.querySelector<HTMLButtonElement>(".usage-panel__stats"), "the .usage-panel__stats element");
     expect(open.textContent).toContain("Open statistics");
     act(() => open.click());
 

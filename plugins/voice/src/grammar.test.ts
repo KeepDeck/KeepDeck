@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { commandVocabulary, DEFAULT_PACKS, normalize, parseCommand } from "./grammar";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("normalize", () => {
   it("strips STT dressing — case, punctuation, extra spaces", () => {
@@ -146,7 +147,7 @@ describe("grammar vocabulary", () => {
         // Whole words: "open" is in the vocabulary only as a word of one of
         // its entries, never as a substring of another word.
         const words = new Set(pack.vocabulary.flatMap((entry) => entry.split(" ")));
-        for (const verb of lead!.split("|")) {
+        for (const verb of present(lead, "the lead").split("|")) {
           expect(words.has(verb), `${pack.locale} vocabulary lacks "${verb}"`).toBe(true);
         }
       }

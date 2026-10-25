@@ -3,10 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SuggestedInput } from "./SuggestedInput";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Stateful host — the component is controlled, so tests exercise it the way
  * the dialog does: value round-trips through onChange. */
@@ -30,7 +27,7 @@ function Harness({
   });
 }
 
-const input = () => document.querySelector<HTMLInputElement>("input")!;
+const input = () => present(document.querySelector<HTMLInputElement>("input"), "the input");
 const clearBtn = () =>
   document.querySelector<HTMLButtonElement>(
     ".form__field-btn:not(.form__field-btn--reset)",
@@ -42,12 +39,13 @@ const hinted = () => input().classList.contains("form__input--hint");
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
 function type(text: string) {
-  const set = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )!.set!;
+  const { set } = present(
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"),
+    "the native value descriptor",
+  );
+  const setValue = present(set, "the native value setter");
   act(() => {
-    set.call(input(), text);
+    setValue.call(input(), text);
     input().dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
@@ -113,12 +111,12 @@ describe("SuggestedInput", () => {
     expect(clearBtn()).not.toBeNull();
     expect(resetBtn()).toBeNull();
 
-    act(() => clearBtn()!.click());
+    act(() => present(clearBtn(), "the clear button").click());
     expect(input().value).toBe("");
     expect(clearBtn()).toBeNull();
     expect(resetBtn()).not.toBeNull(); // undo lives where ✕ just was
 
-    act(() => resetBtn()!.click());
+    act(() => present(resetBtn(), "the reset button").click());
     expect(input().value).toBe("/wt/agent-1");
     expect(hinted()).toBe(true); // restored + unfocused = hint again
     expect(clearBtn()).not.toBeNull();
@@ -133,7 +131,7 @@ describe("SuggestedInput", () => {
     type("other");
     expect(resetBtn()).not.toBeNull();
 
-    act(() => resetBtn()!.click());
+    act(() => present(resetBtn(), "the reset button").click());
     expect(input().value).toBe("kd/agent-1");
     expect(resetBtn()).toBeNull();
   });
@@ -195,7 +193,7 @@ describe("SuggestedInput", () => {
     expect(hinted()).toBe(false);
     expect(clearBtn()).not.toBeNull(); // clear still works…
 
-    act(() => clearBtn()!.click());
+    act(() => present(clearBtn(), "the clear button").click());
     expect(resetBtn()).toBeNull(); // …but there's nothing to reset to
   });
 });

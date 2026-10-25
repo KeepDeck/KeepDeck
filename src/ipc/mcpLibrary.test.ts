@@ -23,6 +23,8 @@ import {
   renameMcpServer,
   saveMcpServer,
 } from "./mcpLibrary";
+import { present } from "@keepdeck/plugin-api/testing";
+import { recordOf } from "../testing/values.test-support";
 
 describe("the MCP library invoke-key contract", () => {
   beforeEach(() => {
@@ -93,10 +95,10 @@ describe("the MCP library invoke-key contract", () => {
       { kind: "workspace", wsId: "ws-7" },
     ] satisfies McpScope[]) {
       await saveMcpServer(scope, "x", "{}", false);
-      const sent = tauri.invoke.mock.lastCall?.[1] as { scope: "global" | "workspace"; wsId: string | null };
+      const sent = recordOf(tauri.invoke.mock.lastCall?.[1], "invoke args");
       tauri.invoke.mockResolvedValueOnce([{ ...sent, name: "x", content: "{}" }]);
       const [row] = await ipcMcpStorage.fetch();
-      expect(sameMcpScope(row!.scope, scope)).toBe(true);
+      expect(sameMcpScope(present(row, "the fetched server row").scope, scope)).toBe(true);
     }
   });
 

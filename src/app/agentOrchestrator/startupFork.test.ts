@@ -16,6 +16,7 @@ import {
   settle,
   steps,
 } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * A start that has gone quiet is counted, so its card can offer a way
@@ -38,7 +39,7 @@ describe("agent orchestrator —a pane whose start went quiet", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
     act(() =>
       deck.createWorkspace({

@@ -4,13 +4,15 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDirPresence } from "./useDirPresence";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const worktreeIpc = vi.hoisted(() => ({
   probeWorktree: vi.fn((_path: string) =>
     Promise.resolve({ exists: true, isWorktree: false, branch: null }),
   ),
 }));
-vi.mock("../../ipc/worktree", () => worktreeIpc);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ directoryProbe: worktreeIpc }));
 
 let presence: ReadonlyMap<string, boolean> = new Map();
 let rendered = 0;
@@ -32,7 +34,7 @@ describe("useDirPresence incremental probing", () => {
     rendered = 0;
     presence = new Map();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
   afterEach(() => act(() => root.unmount()));
 

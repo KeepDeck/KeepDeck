@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext, SpeechTranscript } from "@keepdeck/plugin-api";
+import type {
+  PluginContext,
+  SpeechCaptureOptions,
+  SpeechTranscript,
+} from "@keepdeck/plugin-api";
 import {
   createFakeHost,
   fakeManifest,
@@ -11,6 +15,7 @@ import { MIC_KEY } from "./microphone";
 import { commandVocabulary } from "./grammar";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const installedModels = async (): Promise<VoiceModelInfo[]> =>
   MODEL_CATALOG.map((model) => ({ ...model, installed: true }));
@@ -37,8 +42,10 @@ function hostWithSettings(settingsValues: Record<string, unknown>): FakeHost {
 function setup(transcript: SpeechTranscript, now: () => number = () => 42) {
   const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
   const cancelCapture = vi.fn(async () => {});
-  const stopCapture = vi.fn(async () => transcript);
-  let onLevel: ((rms: number) => void) | undefined;
+  const stopCapture = vi.fn(
+    async (_opts: SpeechCaptureOptions): Promise<SpeechTranscript> => transcript,
+  );
+  let onLevel: ((rms: number, level: import("@keepdeck/plugin-api").SpeechLevel) => void) | undefined;
   const ctx: PluginContext = {
     ...host.ctx,
     services: {
@@ -108,6 +115,16 @@ describe("createVoiceController", () => {
       ["heard", "Create a lead in keep deck with task fix the header."],
     ]);
     expect(controller.snapshot().phase).toBe("idle");
+  });
+
+  it("acts on no workspace list it cannot read, and says so", async () => {
+    const { host, controller } = setup(speechTranscript({ text: "Create a lead in keep deck with task fix the header." }));
+    host.commandResults.set("workspace.list", { ok: true, value: [{ id: "ws-1", name: "KeepDeck" }] });
+    await controller.start("command");
+    await controller.stop();
+
+    expect(host.executedCommands.map((c) => c.id)).not.toContain("agent.spawn");
+    expect(texts(controller)[0]).toEqual(["error", "workspace.list answered in a shape voice does not read"]);
   });
 
   it("reads the persisted model pick from the plugin's settings values", async () => {
@@ -442,7 +459,7 @@ describe("createVoiceController", () => {
     const { controller, stopCapture } = setup(speechTranscript({ text: "close" }));
     await controller.start("command");
     await controller.stop();
-    const prompt = (stopCapture.mock.calls[0] as unknown as [{ prompt: string }])[0].prompt;
+    const prompt = stopCapture.mock.calls[0][0].prompt;
     for (const word of commandVocabulary()) expect(prompt).toContain(word);
     expect(prompt).toContain("KeepDeck"); // and the deck's own names
   });
@@ -752,9 +769,9 @@ describe("createVoiceController", () => {
   it("ignores mic levels once the capture is no longer listening", async () => {
     const { controller, level } = setup(speechTranscript({ text: "close" }));
     await controller.start("command");
-    level()?.(0.3);
+    level()?.(0.3, { rms: 0.3, peak: 0.3, clipped: false, dcOffset: 0 });
     await controller.stop();
-    level()?.(0.9);
+    level()?.(0.9, { rms: 0.9, peak: 0.9, clipped: false, dcOffset: 0 });
     expect(controller.snapshot().level).toBe(0);
   });
 
@@ -807,7 +824,7 @@ describe("createVoiceController", () => {
   it("a new press starts with no reading — the last hold's is not shown as live", async () => {
     const { controller, level } = setup(speechTranscript({ text: "close" }));
     await controller.start("command");
-    (level() as (rms: number, r: object) => void)(0.2, { rms: 0.2, peak: 0.5, clipped: false, dcOffset: 0 });
+    present(level(), "the level callback")(0.2, { rms: 0.2, peak: 0.5, clipped: false, dcOffset: 0 });
     await controller.stop();
     await controller.start("command");
     expect(controller.snapshot().reading).toBeNull();
@@ -818,7 +835,7 @@ describe("createVoiceController", () => {
     const { controller, level } = setup(speechTranscript({ text: "close", dcOffset: 0.3 }));
     await controller.start("command");
     const reading = { rms: 0.2, peak: 0.6, clipped: false, dcOffset: 0.3 };
-    (level() as (rms: number, r: typeof reading) => void)(0.2, reading);
+    present(level(), "the level callback")(0.2, reading);
     expect(controller.snapshot().reading).toEqual(reading);
     expect(controller.snapshot().readingAt).toBe(42);
     expect(controller.snapshot().device).toBe("Test Microphone");
@@ -829,7 +846,7 @@ describe("createVoiceController", () => {
   it("feeds mic levels into the snapshot while listening", async () => {
     const { controller, level } = setup(speechTranscript({ text: "close" }));
     await controller.start("command");
-    level()?.(0.42);
+    level()?.(0.42, { rms: 0.42, peak: 0.42, clipped: false, dcOffset: 0 });
     expect(controller.snapshot().level).toBe(0.42);
   });
 });

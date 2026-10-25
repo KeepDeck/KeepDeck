@@ -9,6 +9,19 @@
  * value. No production code reads anything from here.
  */
 
+/** A local copy of plugin-api/testing's guard, on purpose: this module is
+ * also loaded into the built-bundle check's browser realm
+ * (scripts/check-plugin-bundles.test-support.mjs), which resolves only the
+ * app's import map — and test helpers are not in it. */
+function instanceOf<T>(
+  value: unknown,
+  ctor: abstract new (...args: never[]) => T,
+  what: string,
+): T {
+  if (!(value instanceof ctor)) throw new Error(`expected ${what} to be a ${ctor.name}`);
+  return value;
+}
+
 /** Pins one list's scroll container (and everything inside it) to a
  * viewport size. `list` is the container's class — a second virtualized
  * list arrived and the selector stopped being a property of this file.
@@ -36,7 +49,7 @@ export function pinListViewport(
     this: Element,
   ): DOMRect {
     const base = original.call(this);
-    const el = this as HTMLElement;
+    const el = instanceOf(this, HTMLElement, "virtual list element");
     if (inList(el)) {
       // Everything inside the list reports the CONTAINER's box as its
       // own: the virtualizer's viewport probe reads the container, and
@@ -90,7 +103,7 @@ export function pinListViewport(
   // The tallest child's height, not the first's: a zero-tall pinned layer
   // may stand before the spacer.
   const content = (el: Element) =>
-    Math.max(height, ...[...el.children].map((child) => Number.parseFloat((child as HTMLElement).style.height) || 0));
+    Math.max(height, ...[...el.children].map((child) => Number.parseFloat(instanceOf(child, HTMLElement, "list child").style.height) || 0));
   Object.defineProperty(HTMLElement.prototype, "clientHeight", {
     configurable: true,
     get(this: Element) {
@@ -107,12 +120,12 @@ export function pinListViewport(
     Element.prototype.getBoundingClientRect = original;
     for (const [name, descriptor] of Object.entries(offsets)) {
       if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
-      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+      else Reflect.deleteProperty(HTMLElement.prototype, name);
     }
     for (const [name, descriptor] of Object.entries(scrolls)) {
       const proto = name === "clientHeight" ? HTMLElement.prototype : Element.prototype;
       if (descriptor) Object.defineProperty(proto, name, descriptor);
-      else delete (proto as unknown as Record<string, unknown>)[name];
+      else Reflect.deleteProperty(proto, name);
     }
   };
 }
@@ -121,36 +134,23 @@ export function pinListViewport(
  * element's current rect once, then stays silent (tests drive changes
  * by re-render, not by resize). */
 export function installResizeObserver(): void {
-  const RO = class {
+  globalThis.ResizeObserver = class implements ResizeObserver {
     private cb: ResizeObserverCallback;
     constructor(cb: ResizeObserverCallback) {
       this.cb = cb;
     }
     observe(target: Element): void {
       const r = target.getBoundingClientRect();
-      this.cb(
-        [
-          {
-            target,
-            contentRect: r,
-            borderBoxSize: [
-              { inlineSize: r.width, blockSize: r.height },
-            ] as unknown as ResizeObserverEntry["borderBoxSize"],
-            contentBoxSize: [] as unknown as ResizeObserverEntry["contentBoxSize"],
-            devicePixelContentBoxSize: [] as unknown,
-            intersectionRect: r,
-            toJSON: () => ({}),
-          } as ResizeObserverEntry,
-        ],
-        this as unknown as ResizeObserver,
-      );
+      const entry: ResizeObserverEntry = {
+        target,
+        contentRect: r,
+        borderBoxSize: [{ inlineSize: r.width, blockSize: r.height }],
+        contentBoxSize: [],
+        devicePixelContentBoxSize: [],
+      };
+      this.cb([entry], this);
     }
     unobserve(): void {}
     disconnect(): void {}
-    takeRecords(): ResizeObserverEntry[] {
-      return [];
-    }
   };
-  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver =
-    RO;
 }

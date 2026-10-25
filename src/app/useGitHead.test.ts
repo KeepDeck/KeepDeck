@@ -11,10 +11,7 @@ import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { createDeckStore } from "./deckStore";
 import { useGitHead } from "./useGitHead";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 const ipc = vi.hoisted(() => ({
   onWorktreeHead: vi.fn(),
@@ -74,7 +71,7 @@ describe("useGitHead", () => {
     ipc.watchWorktree.mockReset().mockResolvedValue(undefined);
     ipc.unwatchWorktree.mockReset().mockResolvedValue(undefined);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
     await act(async () => {});
   });

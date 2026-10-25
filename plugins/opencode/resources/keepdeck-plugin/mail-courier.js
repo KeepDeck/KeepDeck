@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck mail courier — one of the two components of KeepDeck's opencode
  * plugin (index.js beside this file loads both).
@@ -43,11 +44,18 @@ import { follower } from "./follower.js";
 import { answerText, askMail } from "./mail-ask.js";
 import { promptSelection } from "./prompt-selection.js";
 
+/** @typedef {{ id?: string, type?: string, text?: string, synthetic?: boolean, sessionID?: string, messageID?: string }} Part */
+/** @typedef {{ type: string, properties?: { sessionID?: string, info?: { id?: string, parentID?: string }, status?: string | { type?: string } } }} CourierEvent */
+/** @typedef {{ context?: string, prompt?: string }} MailAnswer */
+/** @typedef {{ session: { promptAsync: (query: { path: { id: string }, body: Record<string, unknown> }) => Promise<{ error?: unknown }>, create: (query: { body: Record<string, unknown> }) => Promise<{ error?: unknown, data?: { id?: string } }>, get?: (query: { path: { id: string } }) => Promise<{ error?: unknown, data?: { id?: string, parentID?: string } }>, messages?: (query: { path: { id: string }, query: { limit: number } }) => Promise<{ data?: import("./prompt-selection.js").MessageRow[] }> }, tui?: { appendPrompt?: (query: { body: { text: string } }) => Promise<{ error?: unknown }>, submitPrompt?: () => Promise<{ error?: unknown }>, publish: (query: { body: { type: string, properties: { sessionID: string } } }) => Promise<unknown> } }} CourierClient */
+
+/** @param {unknown} [input] */
 export async function startCourier(input = {}) {
   const bridge = readBridge();
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
   const { dir } = bridge;
-  const client = input?.client;
+  const candidate = input && typeof input === "object" && "client" in input ? input.client : undefined;
+  const client = candidate && typeof candidate === "object" ? /** @type {CourierClient} */ (candidate) : undefined;
   // Without the client there is no way to put anything into the session, and
   // asking would take messages out of the deck's queue to drop them.
   if (!client?.session?.promptAsync) return {};
@@ -71,6 +79,7 @@ export async function startCourier(input = {}) {
   /** Ask the deck what is waiting (mail-ask.js). */
   const ask = askMail(bridge);
 
+  /** @param {string} text @param {boolean} synthetic */
   const textPart = (text, synthetic) => ({
     type: "text",
     text,
@@ -85,6 +94,7 @@ export async function startCourier(input = {}) {
    * sorts after every part already in `parts`, because opencode reads a
    * message's parts back ordered by id.
    */
+  /** @param {string} text @param {boolean} synthetic @param {{ id: string, sessionID: string }} message @param {Part[]} parts */
   const messagePart = (text, synthetic, message, parts) => ({
     id: partIDAfter(parts),
     sessionID: message.sessionID,
@@ -102,6 +112,7 @@ export async function startCourier(input = {}) {
    * made in its first version was silently dropped that way, because the
    * arguments were built in the wrong shape and nothing ever said so.
    */
+  /** @param {{ error?: unknown } | undefined} result */
   const ok = (result) => !result?.error;
 
   /**
@@ -119,6 +130,7 @@ export async function startCourier(input = {}) {
    *   in any sense that matters. It is NOT synthetic — the person watching
    *   this pane should see what arrived and why their agent just moved.
    */
+  /** @param {MailAnswer} answer @param {string} sessionID @param {Record<string, unknown>} [chosen] */
   const viaSession = async (answer, sessionID, chosen) => {
     // Both calls run as the user's own last prompt did — read before the
     // context lands, or the newest message would be ours (prompt-selection.js).
@@ -161,6 +173,7 @@ export async function startCourier(input = {}) {
    * the same fresh conversation, and dropping the brief to keep this tidy
    * would lose it for good: the deck has already handed it over.
    */
+  /** @param {MailAnswer} answer */
   const viaTui = async (answer) => {
     if (!client?.tui?.appendPrompt || !client?.tui?.submitPrompt) return false;
     const text = answerText(answer);
@@ -205,7 +218,7 @@ export async function startCourier(input = {}) {
   const policy = createCourierPolicy({
     pane,
     screen: () => follower().screen(),
-    ask,
+    ask: (target) => ask(target).then((answer) => answer ?? undefined),
     deliverToPane: deliver,
     adapter: {
       selectionOf: (sessionID) => promptSelection(client, sessionID),
@@ -213,14 +226,16 @@ export async function startCourier(input = {}) {
         const made = await client.session.create({ body: {} });
         return ok(made) && made?.data?.id ? made.data.id : null;
       },
-      show: (sessionID) =>
-        client.tui.publish({ body: { type: "tui.session.select", properties: { sessionID } } }),
+      show: async (sessionID) =>
+        client.tui?.publish({ body: { type: "tui.session.select", properties: { sessionID } } }),
       deliver: viaSession,
     },
   });
   /** One at a time. Two collections in flight would race for the same queue
    * and could inject a brief after the message that assumed it. */
+  /** @type {Promise<unknown>} */
   let work = Promise.resolve();
+  /** @param {() => Promise<unknown>} job */
   const enqueue = (job) => {
     work = work.then(job).catch(() => {});
     return work;
@@ -243,6 +258,7 @@ export async function startCourier(input = {}) {
    * check lives in the shared pane session, so the two components cannot answer
    * it differently — and now cannot hold different answers either.
    */
+  /** @param {string | undefined} sessionID */
   const adoptRoot = async (sessionID) => {
     if (!sessionID || pane.bound) return;
     // A child's own session is not the pane's, but its ROOT is — and the ask
@@ -268,6 +284,7 @@ export async function startCourier(input = {}) {
     );
   };
 
+  /** @param {CourierEvent} event */
   const onEvent = async (event) => {
     const props = event?.properties ?? {};
     switch (event?.type) {
@@ -341,6 +358,7 @@ export async function startCourier(input = {}) {
   return {
     // opencode does not await plugin event promises, so the queue is what
     // keeps two collections from overlapping.
+    /** @param {{ event: CourierEvent }} input */
     event: ({ event }) => {
       // Told at once, not in turn: a conversation the user started while
       // `viaHome` is under way must stop it before it shows its own.
@@ -354,8 +372,10 @@ export async function startCourier(input = {}) {
      * no extra turn, no wake — and it is why the hook is awaited: the parts
      * have to be there before the request is built.
      */
+    /** @param {Record<string, unknown> & { sessionID?: string }} info @param {{ message?: { id?: string, sessionID?: string }, parts?: Part[] }} output */
     "chat.message": async (info, output) => {
       const sessionID = info?.sessionID;
+      if (!sessionID) return;
       // First contact with a lazily-minted session: this fires for the very
       // message that creates it.
       await adoptRoot(sessionID);
@@ -369,6 +389,7 @@ export async function startCourier(input = {}) {
       await work;
       const message = output?.message;
       if (!message?.id || !message?.sessionID || !Array.isArray(output?.parts)) return;
+      const messageRef = { id: message.id, sessionID: message.sessionID };
       // Only once the parts can be placed is anything taken: the deck books a
       // message as delivered the moment it hands it over. The target is the
       // root's classification, as `collect` gives it — a root the client
@@ -376,10 +397,10 @@ export async function startCourier(input = {}) {
       const answer = await ask(await pane.classify(sessionID));
       if (!answer) return;
       if (typeof answer.context === "string" && answer.context) {
-        output.parts.push(messagePart(answer.context, true, message, output.parts));
+        output.parts.push(messagePart(answer.context, true, messageRef, output.parts));
       }
       if (typeof answer.prompt === "string" && answer.prompt) {
-        output.parts.push(messagePart(answer.prompt, false, message, output.parts));
+        output.parts.push(messagePart(answer.prompt, false, messageRef, output.parts));
       }
     },
     /**
@@ -394,6 +415,7 @@ export async function startCourier(input = {}) {
      * session, and mail landing there would be read by nobody the sender
      * meant.
      */
+    /** @param {Record<string, unknown> & { sessionID?: string }} info @param {{ output?: string }} output */
     "tool.execute.after": async (info, output) => {
       if (!info?.sessionID || info.sessionID !== pane.root) return;
       // A turn running where the user is not looking is not reached.
@@ -422,6 +444,7 @@ export async function startCourier(input = {}) {
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const PART_HEAD = /^prt_([0-9a-f]{12})/;
 const PART_HEAD_BITS = 0xffffffffffffn;
+/** @param {Part[]} parts @param {number} [now] */
 function partIDAfter(parts, now = Date.now()) {
   const floor = parts.reduce((highest, part) => {
     const head = PART_HEAD.exec(typeof part?.id === "string" ? part.id : "");

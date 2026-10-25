@@ -7,7 +7,7 @@
  */
 import { sameSkillRef, type SkillDraft, type SkillScope } from "../domain/skills";
 import type { LibrarySkill } from "./skillsLibrary";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 import { useLibraryState, type LibraryState } from "./useLibraryState";
 
 /** The generic state under the skills vocabulary: the rows are `skills`. */
@@ -19,7 +19,7 @@ export interface SkillsEditorState
 
 export function useSkillsLibrary(open: boolean): SkillsEditorState {
   const { rows, ...state } = useLibraryState<SkillScope, LibrarySkill, SkillDraft>(
-    useAppRuntime().skills,
+    useRuntimePart("skills"),
     open,
     {
       sameRef: sameSkillRef,

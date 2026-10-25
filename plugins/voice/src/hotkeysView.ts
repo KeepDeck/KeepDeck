@@ -9,6 +9,7 @@ import {
   type KeyLike,
   type VoiceBindings,
 } from "./binding";
+import { keyList } from "@keepdeck/plugin-api";
 
 /**
  * The hotkey editor's decisions: what a key press does while a row is
@@ -77,7 +78,7 @@ export function hotkeyRows(
   recording: Slot | null,
   rejection: string | null,
 ): HotkeyRow[] {
-  return (Object.keys(ROW_COPY) as Slot[]).map((slot) => {
+  return keyList<typeof ROW_COPY>()(["command", "dictation"]).map((slot) => {
     const isRecording = recording === slot;
     const issue = isRecording ? null : standingIssue(slot, bindings);
     return {

@@ -12,7 +12,7 @@ import {
   browserClock,
   prefersReducedMotion,
   type MotionHandle,
-} from "../../app/stripTeamsMotion";
+} from "../../ui/stripTeamsMotion";
 
 /** The id a workspace's team list carries — what the chevron controls and
  * what the motion finds. */
@@ -42,9 +42,15 @@ export function useStripTeams(
   const [state, dispatch] = useReducer(expandTeams, NOTHING_LISTED);
   const active = view.marks.find((mark) => mark.active);
 
+  // The view the first-open decision reads, through a ref: only opening or
+  // shutting the strip re-decides, while a mark's teams changing under an
+  // open strip must not yank a list the person moved elsewhere.
+  const viewRef = useRef({ active, view });
+  viewRef.current = { active, view };
   // Before paint: the strip's first open frame already holds its list,
   // so the edge and the list start together instead of a frame apart.
   useLayoutEffect(() => {
+    const { active, view } = viewRef.current;
     dispatch(
       open
         ? {
@@ -54,10 +60,6 @@ export function useStripTeams(
           }
         : { kind: "close" },
     );
-    // Only the strip opening or shutting re-decides: the active mark's
-    // teams changing under an open strip must not yank a list the person
-    // moved elsewhere.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Before paint, like open and close: the drag's first frame already
@@ -88,6 +90,7 @@ export function useStripTeams(
   // scroll) is stripExpand's; this reads the DOM it needs and starts the
   // motions it decided.
   useLayoutEffect(() => {
+    const { active, view } = viewRef.current;
     const list = listRef.current;
     const was = before.current;
     before.current = state;
@@ -110,10 +113,10 @@ export function useStripTeams(
       el.style.height = "auto";
       const full = el.scrollHeight;
       el.style.height = `${reached}px`;
-      return [{ id, reached, full }];
+      return [{ id, reached, full, el }];
     });
-    const opening = starts.map((start) => {
-      const head = elements.get(start.id)!.previousElementSibling ?? elements.get(start.id)!;
+    const opening = starts.map(({ el, ...start }) => {
+      const head = el.previousElementSibling ?? el;
       const row = head.getBoundingClientRect();
       return { ...start, row: { top: row.top - listBox.top, bottom: row.bottom - listBox.top } };
     });
@@ -136,7 +139,8 @@ export function useStripTeams(
     );
     const durationMs = prefersReducedMotion() ? 0 : STRIP_MOTION_MS;
     for (const plan of plans) {
-      const el = elements.get(plan.id)!;
+      const el = elements.get(plan.id);
+      if (!el) continue; // a plan is made only for a measured block
       const opens = plan.to > 0;
       stopMotion(plan.id);
       start(
@@ -154,21 +158,25 @@ export function useStripTeams(
         plan.scrollTo !== null,
       );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.expanded, state.leaving]);
+    // The reducer state is the change being animated; the list ref is stable.
+  }, [state, listRef]);
 
   // A person scrolling takes over: the motion lands at once rather than
   // keep writing a scroll under the wheel.
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
+    // The map itself lives for the hook's life; copy its reference for the
+    // cleanup so the teardown stops the motions that exist then, not a
+    // captured snapshot.
+    const running = motions.current;
     const takeOver = () => {
-      for (const handle of [...motions.current.values()]) handle.finish();
+      for (const handle of [...running.values()]) handle.finish();
     };
     list.addEventListener("wheel", takeOver, { passive: true });
     return () => {
       list.removeEventListener("wheel", takeOver);
-      for (const handle of motions.current.values()) handle.stop();
+      for (const handle of running.values()) handle.stop();
     };
   }, [listRef]);
 

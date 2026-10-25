@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildGuestContext } from "./context";
 import { fakeManifest } from "./fakeHost";
-import { GuestRpc } from "./rpc";
+import { GuestRpc, type GuestCaller } from "./rpc";
 import type { DownloadRequest } from "@keepdeck/plugin-api";
+import { listOf, present, recordOf, stringOf } from "@keepdeck/plugin-api/testing";
 
 /**
  * Direct tests of the guest context builder — the parts worth pinning without
@@ -12,11 +13,15 @@ import type { DownloadRequest } from "@keepdeck/plugin-api";
  * or a broken frame later).
  */
 
+const argsOf = (call: readonly unknown[]) => listOf(call[1], "rpc args");
+const firstArgOf = (args: unknown) => listOf(args, "rpc args")[0];
+const payloadOf = (call: readonly unknown[] | undefined, what: string) =>
+  recordOf(argsOf(present(call, what))[1], what);
+
 /** A GuestRpc over a port whose `postMessage` is a no-op — the synchronous
  * guard under test fires before anything would be sent. */
 function silentRpc(): GuestRpc {
-  const port = { postMessage() {}, onmessage: null } as unknown as MessagePort;
-  return new GuestRpc(port);
+  return new GuestRpc({ postMessage() {} });
 }
 
 describe("buildGuestContext dock tabs", () => {
@@ -49,13 +54,13 @@ describe("registration outcomes fail loud", () => {
     // The host answers ok:false (an undeclared contribution, a gate
     // violation) — activation must FAIL, not show active with the
     // contribution silently missing.
-    const rpc = {
+    const rpc: GuestCaller = {
       call: vi.fn((path: string) =>
         path === "agents.register"
           ? Promise.reject(new Error('agents "codex" not declared'))
           : Promise.resolve(undefined),
       ),
-    } as unknown as GuestRpc;
+    };
     const bundle = buildGuestContext(rpc, fakeManifest());
     bundle.ctx.agents.register({
       id: "codex",
@@ -67,9 +72,9 @@ describe("registration outcomes fail loud", () => {
   });
 
   it("accepted registrations settle clean", async () => {
-    const rpc = {
+    const rpc: GuestCaller = {
       call: vi.fn(() => Promise.resolve(undefined)),
-    } as unknown as GuestRpc;
+    };
     const bundle = buildGuestContext(rpc, fakeManifest());
     bundle.ctx.settings.registerSection({ label: "S", fields: [] });
     await expect(bundle.registrationsSettled()).resolves.toBeUndefined();
@@ -86,7 +91,7 @@ describe("registration outcomes fail loud", () => {
         ? Promise.reject(new Error("settings not declared"))
         : Promise.resolve(undefined),
     );
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     await bundle.registrationsSettled();
 
@@ -94,7 +99,7 @@ describe("registration outcomes fail loud", () => {
 
     const warned = () => call.mock.calls.find(([path]) => path === "log.warn");
     await vi.waitFor(() => expect(warned()).toBeDefined());
-    const [message] = warned()![1] as string[];
+    const message = stringOf(argsOf(present(warned(), "the warned"))[0], "warning");
     expect(message).toContain("settings not declared");
     // Retained, that refusal would resurface here — and, unhandled, would
     // reach the realm as an unhandled rejection.
@@ -105,7 +110,7 @@ describe("registration outcomes fail loud", () => {
 describe("agent registration payload", () => {
   it("carries the icon as data; hooks cross as names only", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const icon = {
       viewBox: "0 0 24 24",
@@ -123,7 +128,7 @@ describe("agent registration payload", () => {
       ([path]) => path === "agents.register",
     );
     expect(register).toBeDefined();
-    const [, payload] = register![1] as [number, Record<string, unknown>];
+    const payload = payloadOf(register, "the registered handler");
     expect(payload.icon).toEqual(icon);
     expect(payload.hookNames).toEqual(["spawn.plan"]);
     expect(payload).not.toHaveProperty("hooks");
@@ -131,7 +136,7 @@ describe("agent registration payload", () => {
 
   it("warns loudly when an agent declares usage — the tier cannot carry it", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     bundle.ctx.agents.register({
       id: "codex",
@@ -143,16 +148,16 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
     const warn = call.mock.calls.find(([path]) => path === "log.warn");
     expect(warn).toBeDefined();
-    expect(String((warn![1] as string[])[0])).toContain("usage contributions");
+    expect(stringOf(argsOf(present(warn, "the warning handler"))[0], "warning")).toContain("usage contributions");
     // And the declaration still never rides the wire (functions can't).
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = register![1] as [number, Record<string, unknown>];
+    const payload = payloadOf(register, "the registered handler");
     expect(payload).not.toHaveProperty("usage");
   });
 
   it("warns loudly when an agent declares status — the tier cannot carry it", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     bundle.ctx.agents.register({
       id: "codex",
@@ -164,16 +169,16 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
     const warn = call.mock.calls.find(([path]) => path === "log.warn");
     expect(warn).toBeDefined();
-    expect(String((warn![1] as string[])[0])).toContain("status contributions");
+    expect(stringOf(argsOf(present(warn, "the warning handler"))[0], "warning")).toContain("status contributions");
     // And the declaration still never rides the wire (functions can't).
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = register![1] as [number, Record<string, unknown>];
+    const payload = payloadOf(register, "the registered handler");
     expect(payload).not.toHaveProperty("status");
   });
 
   it("keeps history callbacks local and serves host history requests", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const describe = vi.fn(async (ref: string) => ({
       cwd: "/repo",
@@ -194,7 +199,7 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
 
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = register![1] as [number, Record<string, unknown>];
+    const payload = payloadOf(register, "the registered handler");
     expect(payload.hasHistory).toBe(true);
     expect(payload).not.toHaveProperty("history");
 
@@ -208,16 +213,16 @@ describe("agent registration payload", () => {
         call.mock.calls.find(
           ([path, args]) =>
             path === "agents.historyResult" &&
-            (args as unknown[])[0] === 17,
+            firstArgOf(args) === 17,
         ),
       ).toBeDefined(),
     );
     expect(describe).toHaveBeenCalledWith("session-ref");
     const result = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.historyResult" && (args as unknown[])[0] === 17,
+        path === "agents.historyResult" && firstArgOf(args) === 17,
     );
-    expect((result![1] as unknown[])[1]).toEqual({
+    expect(argsOf(present(result, "the result"))[1]).toEqual({
       ok: true,
       value: { cwd: "/repo", title: "session-ref" },
     });
@@ -228,7 +233,7 @@ describe("agent registration payload", () => {
     // proxy — a false declaration gets an old-guest realm asked for a
     // method it throws on, so the flag tracks the object, not optimism.
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const listing = vi.fn(async () => ({ stubs: [], complete: false }));
     bundle.ctx.agents.register({
@@ -260,7 +265,7 @@ describe("agent registration payload", () => {
 
     const payloads = call.mock.calls
       .filter(([path]) => path === "agents.register")
-      .map(([, payload]) => (payload as [number, Record<string, unknown>])[1]);
+      .map(([, args]) => recordOf(listOf(args, "rpc args")[1], "registered payload"));
     expect(payloads[0].hasListing).toBe(true);
     expect(payloads[1]).not.toHaveProperty("hasListing");
 
@@ -273,16 +278,16 @@ describe("agent registration payload", () => {
       expect(
         call.mock.calls.find(
           ([path, args]) =>
-            path === "agents.historyResult" && (args as unknown[])[0] === 17,
+            path === "agents.historyResult" && firstArgOf(args) === 17,
         ),
       ).toBeDefined(),
     );
     expect(listing).toHaveBeenCalledTimes(1);
     const answered = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.historyResult" && (args as unknown[])[0] === 17,
+        path === "agents.historyResult" && firstArgOf(args) === 17,
     );
-    expect((answered![1] as unknown[])[1]).toEqual({
+    expect(argsOf(present(answered, "the answer"))[1]).toEqual({
       ok: true,
       value: { stubs: [], complete: false },
     });
@@ -298,20 +303,20 @@ describe("agent registration payload", () => {
       expect(
         call.mock.calls.find(
           ([path, args]) =>
-            path === "agents.historyResult" && (args as unknown[])[0] === 18,
+            path === "agents.historyResult" && firstArgOf(args) === 18,
         ),
       ).toBeDefined(),
     );
     const refused = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.historyResult" && (args as unknown[])[0] === 18,
+        path === "agents.historyResult" && firstArgOf(args) === 18,
     );
-    expect(((refused![1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
+    expect(recordOf(argsOf(present(refused, "the refusal"))[1], "refusal").ok).toBe(false);
   });
 
   it("declares hasLiveSessions iff the agent contributes one, and serves the query on its own channel", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const list = vi.fn(async () => [
       { sessionId: "s-1", kind: "background", name: "Fix the build", state: "working" },
@@ -333,7 +338,7 @@ describe("agent registration payload", () => {
 
     const payloads = call.mock.calls
       .filter(([path]) => path === "agents.register")
-      .map(([, payload]) => (payload as [number, Record<string, unknown>])[1]);
+      .map(([, args]) => recordOf(listOf(args, "rpc args")[1], "registered payload"));
     expect(payloads[0].hasLiveSessions).toBe(true);
     expect(payloads[1]).not.toHaveProperty("hasLiveSessions");
 
@@ -342,16 +347,16 @@ describe("agent registration payload", () => {
       expect(
         call.mock.calls.find(
           ([path, args]) =>
-            path === "agents.liveResult" && (args as unknown[])[0] === 23,
+            path === "agents.liveResult" && firstArgOf(args) === 23,
         ),
       ).toBeDefined(),
     );
     expect(list).toHaveBeenCalledTimes(1);
     const answered = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.liveResult" && (args as unknown[])[0] === 23,
+        path === "agents.liveResult" && firstArgOf(args) === 23,
     );
-    expect((answered![1] as unknown[])[1]).toEqual({
+    expect(argsOf(present(answered, "the answer"))[1]).toEqual({
       ok: true,
       value: [
         { sessionId: "s-1", kind: "background", name: "Fix the build", state: "working" },
@@ -365,15 +370,15 @@ describe("agent registration payload", () => {
       expect(
         call.mock.calls.find(
           ([path, args]) =>
-            path === "agents.liveResult" && (args as unknown[])[0] === 24,
+            path === "agents.liveResult" && firstArgOf(args) === 24,
         ),
       ).toBeDefined(),
     );
     const refused = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.liveResult" && (args as unknown[])[0] === 24,
+        path === "agents.liveResult" && firstArgOf(args) === 24,
     );
-    expect(((refused![1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
+    expect(recordOf(argsOf(present(refused, "the refusal"))[1], "refusal").ok).toBe(false);
   });
 });
 
@@ -385,7 +390,7 @@ describe("remote download streams", () => {
   };
 
   it("rejects duplicate ids without replacing the first route", async () => {
-    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call: vi.fn(async () => undefined) };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const first = bundle.ctx.services.downloads.start(request);
     expect(() => bundle.ctx.services.downloads.start(request)).toThrow(
@@ -402,7 +407,7 @@ describe("remote download streams", () => {
   });
 
   it("conflates progress and return detaches only that reader", async () => {
-    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call: vi.fn(async () => undefined) };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const iterator = bundle.ctx.services.downloads
       .start(request)
@@ -431,7 +436,7 @@ describe("remote download streams", () => {
   });
 
   it("fans the current state out to independent readers", async () => {
-    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call: vi.fn(async () => undefined) };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const stream = bundle.ctx.services.downloads.start(request);
     const first = stream[Symbol.asyncIterator]();

@@ -6,17 +6,17 @@ import type {
   GitChangedFile,
   GitHistory,
   GitStatus,
-  PluginContext,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
 import {
   installResizeObserver,
   pinListViewport,
 } from "@keepdeck/ui-kit/virtualGeometry.test-support";
-import { setRuntime } from "../runtime";
+import { setRuntime, type GitPorts } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
 import { GitTab } from "./GitTab";
 import { GitDiffOverlay } from "./GitDiffOverlay";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * Shared rig for the Git plugin's component tests: a fake git service, a
@@ -27,10 +27,6 @@ import { GitDiffOverlay } from "./GitDiffOverlay";
  * Anything asserting on a peek is therefore exercising the real path: the tab
  * publishes a request, the resident overlay renders the diff.
  */
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
 
 export const workspace: WorkspaceSnapshot = {
   id: "ws-1",
@@ -103,7 +99,7 @@ export function makeGit() {
         watchers.set(repo, set);
       }
       set.add(onChange);
-      return { ready: Promise.resolve(), dispose: () => void set!.delete(onChange) };
+      return { ready: Promise.resolve(), dispose: () => void present(set, "the set").delete(onChange) };
     }),
     /** Simulate the backend's repo-changed event. */
     fireChange: (repo: string) => watchers.get(repo)?.forEach((cb) => cb()),
@@ -111,7 +107,7 @@ export function makeGit() {
   };
 }
 
-export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
+export function makeCtx(git: ReturnType<typeof makeGit>): GitPorts {
   return {
     // The tab remembers its open sections per workspace; an empty slot here
     // means the defaults, and writes are accepted and forgotten.
@@ -146,19 +142,18 @@ export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
         watch: git.watch,
       },
       fs: {
-        readDir: vi.fn(async () => []),
         readFile: vi.fn(async (path: string) => ({
           path,
           text: "brand new\n",
           isBinary: false,
           size: 10,
           truncated: false,
+          readBytes: 10,
         })),
-        watch: vi.fn(() => ({ dispose: vi.fn() })),
       },
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  };
 }
 
 export interface GitHarness {

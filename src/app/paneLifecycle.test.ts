@@ -1,17 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStatusTracker } from "./agentStatusTracker";
-import type { PaneAttribution } from "./paneAttribution";
-import type { UsageManager } from "./usageManager";
-import { createPaneLifecycle } from "./paneLifecycle";
+import {
+  createPaneLifecycle,
+  type LifecycleAttribution,
+  type LifecycleTracker,
+  type LifecycleUsage,
+} from "./paneLifecycle";
 
 const usage = {
-  clearPane: vi.fn(),
-  beginPaneSession: vi.fn(),
-} as unknown as UsageManager;
+  clearPane: vi.fn<LifecycleUsage["clearPane"]>(),
+  beginPaneSession: vi.fn<LifecycleUsage["beginPaneSession"]>(),
+} satisfies LifecycleUsage;
 
-const tracker = { clear: vi.fn() } as unknown as AgentStatusTracker;
+const tracker = { clear: vi.fn<LifecycleTracker["clear"]>() } satisfies LifecycleTracker;
 
-const attribution = { retire: vi.fn() } as unknown as PaneAttribution;
+const attribution = {
+  retire: vi.fn<LifecycleAttribution["retire"]>(),
+} satisfies LifecycleAttribution;
 
 describe("paneLifecycle", () => {
   beforeEach(() => vi.clearAllMocks());

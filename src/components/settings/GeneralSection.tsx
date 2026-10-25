@@ -1,6 +1,5 @@
 import { useAgents } from "../../app/useAgents";
-import { updateSettings } from "../../app/settingsManager";
-import { useSettings } from "../../app/useSettings";
+import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import { selectableAgents } from "../../domain/agents";
 import {
   SUSPENDED_AGENT_PLACEMENTS,
@@ -55,6 +54,7 @@ const DOCK_OPTIONS: Record<DockMode, { label: string; hint: string }> = {
  */
 export function GeneralSection() {
   const settings = useSettings();
+  const updateSettings = useSettingsWrite();
   const defaultAgent = settings?.defaultAgent;
   const defaultYolo = settings?.defaultYolo ?? DEFAULT_SETTINGS.defaultYolo;
   const suspendedAgentPlacement =

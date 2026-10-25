@@ -5,6 +5,7 @@ import type { MailSender } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createHookReplies } from "./hookReply";
 import { createMailManager, type MailManager } from "./mailManager";
+import { maybeRecord } from "../../testing/values.test-support";
 
 const A: MailSender = { paneId: "pane-1", workspaceId: "ws-1", label: "Agent 1" };
 const WORKING: PaneActivity = { state: "working", since: 1 };
@@ -42,7 +43,7 @@ const CHANNELS: MailChannel[] = [
 /** A claude-shaped attribution: `agent_id` marks a subagent, its absence the
  * main agent. The rule that follows from it is plugin-api's (admitMail). */
 const attribute = (payload: unknown): EventAttribution | null => {
-  const event = (payload as { event?: Record<string, unknown> }).event;
+  const event = maybeRecord(maybeRecord(payload)?.event);
   if (!event || typeof event.hook_event_name !== "string") return null;
   return {
     event: event.hook_event_name,

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import { createAgentStatusTracker } from "./agentStatusTracker";
+import { maybeRecord } from "../testing/values.test-support";
 
 const turnStart = (at: number): AgentStatusEvent => ({ kind: "turn-start", at });
 
@@ -57,7 +58,7 @@ describe("prepared status reports", () => {
 
 /** A normalizer reading `{ agent, event: { kind } }` fixtures literally. */
 const literal = (payload: unknown, at: number): AgentStatusEvent | null => {
-  const event = (payload as { event?: { kind?: string } }).event;
+  const event = maybeRecord(maybeRecord(payload)?.event);
   switch (event?.kind) {
     case "start":
       return turnStart(at);
@@ -80,7 +81,7 @@ const literal = (payload: unknown, at: number): AgentStatusEvent | null => {
 
 describe("agentStatusTracker — context rebuilds", () => {
   const rebuildNormalizer = (payload: unknown, at: number): AgentStatusEvent | null => {
-    const kind = (payload as { event?: { kind?: string } }).event?.kind;
+    const kind = maybeRecord(maybeRecord(payload)?.event)?.kind;
     if (kind === "start") return turnStart(at);
     if (kind === "compact") return { kind: "context-compacted", at };
     return null;

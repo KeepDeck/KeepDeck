@@ -59,7 +59,8 @@ export function useAwayClose(
   useEffect(() => {
     if (!open) return;
     const awayBy = (kind: AwayKind) => (event: Event) => {
-      if (isAway(kind, event.target as Node, rootRef.current, layerRef.current)) closeRef.current();
+      // Only a node can be away from the menu (a window-level focus is not one).
+      if (event.target instanceof Node && isAway(kind, event.target, rootRef.current, layerRef.current)) closeRef.current();
     };
     const pressed = awayBy("pointer");
     const focused = awayBy("focus");

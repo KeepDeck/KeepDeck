@@ -26,6 +26,7 @@ import { isStandingContext, senderName, type Mail } from "../../domain/mail";
 import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
 import type { PaneActivity } from "../../domain/status";
+import { statusPayloadLabel } from "../statusPayloadLabel";
 
 export interface HookReplyDeps {
   /** The live mail owner, or null while the feature is off. Looked up per
@@ -119,21 +120,11 @@ function answerMailAsk(
   activity?: PaneActivity | null,
 ): void | Promise<string | undefined> {
   const manager = deps.mail();
-  // Named by whichever field this reporter's CLI uses. The hook CLIs send
-  // `hook_event_name`; an in-process reporter has no hook and names its own
-  // question under `type`. Getting this wrong costs the only window there is
-  // onto the labelled channel — "asked on undefined" tells nobody anything.
-  //
-  // Trimmed to a plain short token before it goes in a log line. The name
-  // comes out of an envelope, so it is whatever the pane's process wrote —
-  // a newline in it forges a second log entry, and a long one buries the
-  // real lines. An event named unprintably is not worth a diagnosis.
-  const named = (value: unknown) =>
-    typeof value === "string" && /^[\w.-]{1,64}$/.test(value) ? value : null;
-  const asking =
-    (isJsonRecord(payload) && isJsonRecord(payload.event)
-      ? (named(payload.event.hook_event_name) ?? named(payload.event.type))
-      : null) ?? "an unreadable event";
+  // Named by whichever field this reporter's CLI uses (`statusPayloadLabel`):
+  // a hook by its event, a tail record by its transport. Getting this wrong
+  // costs the only window there is onto the labelled channel — "asked on
+  // undefined" tells nobody anything.
+  const asking = statusPayloadLabel(payload);
   // EVERY ask is logged, answered or not. This is the only window onto the
   // labelled channel: a briefing that never reaches an agent's context and a
   // hook that never asked look identical from outside, and the difference is

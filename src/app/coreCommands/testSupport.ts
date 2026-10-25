@@ -34,9 +34,8 @@ import type {
 import { teamCreateRefusal } from "../agentOrchestrator/creation";
 import { fakeMcpLibrary } from "../mcpLibrary.fake";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
-import { registerCoreCommands } from ".";
+import { registerCoreCommands, type CommandDeck } from ".";
 import type { SuspendOutcome } from "../suspendOutcome";
-import type { Deck } from "../useDeck";
 
 export const HOST = { kind: "host" } as const;
 
@@ -124,15 +123,15 @@ export const twoWorkspaces = (): Workspace[] => [
 ];
 
 /** A deck stub: the live workspaces array + recording actions. */
-function fakeDeck(workspaces: Workspace[]): Deck {
+function fakeDeck(workspaces: Workspace[]) {
   return {
     workspaces,
     activeId: workspaces[0]?.id ?? "",
-    viewOf: vi.fn(() => ({})),
-    selectWorkspace: vi.fn(),
-    selectPane: vi.fn(),
-    renameTeam: vi.fn(),
-  } as unknown as Deck;
+    viewOf: vi.fn<CommandDeck["viewOf"]>(() => ({})),
+    selectWorkspace: vi.fn<CommandDeck["selectWorkspace"]>(),
+    selectPane: vi.fn<CommandDeck["selectPane"]>(),
+    renameTeam: vi.fn<CommandDeck["renameTeam"]>(),
+  } satisfies CommandDeck;
 }
 
 export function setup(workspaces: Workspace[]) {

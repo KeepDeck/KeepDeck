@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mintAgentSeq, mintTeamId, mintWorkspaceSeq } from "./ids";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("id mints", () => {
   it("never hands the same agent seq out twice", () => {
@@ -42,8 +43,8 @@ describe("mintTeamId", () => {
   });
 
   it("draws again on a clash with an id the deck holds — never hands a taken one out", () => {
-    const draws = ["aaaaaaaa-0000-4000-8000-000000000000", "bbbbbbbb-0000-4000-8000-000000000000"];
-    vi.spyOn(crypto, "randomUUID").mockImplementation(() => draws.shift() as `${string}-${string}-${string}-${string}-${string}`);
+    const draws: `${string}-${string}-${string}-${string}-${string}`[] = ["aaaaaaaa-0000-4000-8000-000000000000", "bbbbbbbb-0000-4000-8000-000000000000"];
+    vi.spyOn(crypto, "randomUUID").mockImplementation(() => present(draws.shift(), "a generated UUID"));
     expect(mintTeamId(new Set(["team-aaaaaaaa"]))).toBe("team-bbbbbbbb");
   });
 });

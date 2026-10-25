@@ -101,7 +101,7 @@ export function Combobox({
   useEffect(() => {
     if (!open) return;
     const away = (event: Event) => {
-      const target = event.target as Node;
+      const target = event.target instanceof Node ? event.target : null;
       if (
         !rootRef.current?.contains(target) &&
         !menuRef.current?.contains(target)

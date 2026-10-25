@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DeckStore } from "./deckStore";
 import type { PaneReportEvent } from "./verifiedPaneReports";
 
 vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: () => ({ token: "tok" }) }));
@@ -7,15 +6,11 @@ vi.mock("./ptyManager", () => ({ paneSessionState: () => ({ kind: "live" }) }));
 vi.mock("../ipc/log", () => ({ log: { warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock("../ipc/companions", () => ({ onCompanionHello: vi.fn() }));
 
+import { deckStoreOf } from "./deckStore.testSupport";
 import { createPaneAttribution } from "./paneAttribution";
 import { listenPaneCompanions } from "./paneCompanions";
 
-const deck = {
-  getSnapshot: () => ({
-    workspaces: [{ id: "ws-1", panes: [{ id: "pane-1", agentType: "claude" }] }],
-  }),
-  subscribe: () => () => {},
-} as unknown as DeckStore;
+const deck = deckStoreOf([{ id: "pane-1", agentType: "claude" }]);
 
 describe("listenPaneCompanions", () => {
   async function lane() {

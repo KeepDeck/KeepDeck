@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type {
-  AgentContribution,
-  PluginContext,
-  SpawnPlanOutput,
-} from "@keepdeck/plugin-api";
-import plugin from "./index";
+import type { AgentContribution, SpawnPlanOutput } from "@keepdeck/plugin-api";
+import { registerCodex } from "./index";
 import { renderCodexMail, CODEX_MAIL_CHANNELS } from "./status";
 import { codexUsageWatches } from "./usage";
+import { present } from "@keepdeck/plugin-api/testing";
 
-/** Activate against a minimal fake ctx; returns the registered agent.
+/** Register against typed fake ports; returns the registered agent. A
+ * service a test does not fake rejects, the way a missing capability does.
  *
  * `scriptPath` stands for the resources DIRECTORY and every name resolves
  * inside it. It used to answer ONE path for every name, which made the two
@@ -18,13 +16,21 @@ import { codexUsageWatches } from "./usage";
  * install. */
 function activate(scriptPath: string | null): AgentContribution {
   let agent: AgentContribution | undefined;
-  plugin.activate({
+  const absent = (what: string) => async (): Promise<never> => {
+    throw new Error(`${what} is not available here`);
+  };
+  registerCodex({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     resources: {
       path: async (name: string) =>
         scriptPath === null ? null : scriptPath.replace(/[^/]+$/, name),
     },
-  } as unknown as PluginContext);
+    log: { info() {}, warn() {}, error() {} },
+    services: {
+      fs: { readDir: absent("fs") },
+      sessionStore: { read: absent("sessionStore") },
+    },
+  });
   if (!agent) throw new Error("plugin registered no agent");
   return agent;
 }
@@ -55,13 +61,13 @@ describe("codex plugin hooks", () => {
     };
 
     const spawn = output();
-    await activate("/kd/hook.sh").hooks["spawn.plan"]!({ ...input, mcp }, spawn);
+    await present(activate("/kd/hook.sh").hooks["spawn.plan"], "the spawn.plan hook")({ ...input, mcp }, spawn);
     // Bare, not quoted: codex reads the key literally and refuses a quoted
     // one outright — see mcp.test.ts.
     expect(spawn.args.join(" ")).toContain("mcp_servers.keepdeck=");
 
     const resume = output();
-    await activate("/kd/hook.sh").hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);
+    await present(activate("/kd/hook.sh").hooks["resume.plan"], "the resume.plan hook")({ ...input, mcp, sessionId: "s" }, resume);
     // Global overrides must stay AHEAD of the `resume` subcommand.
     const overrideAt = resume.args.findIndex((a) => a.startsWith("mcp_servers."));
     expect(overrideAt).toBeGreaterThan(-1);
@@ -70,7 +76,7 @@ describe("codex plugin hooks", () => {
     // A fork is a spawn like any other, and its own assertions slice the
     // argv's head and tail — so dropping mcpArgs there would pass them all.
     const fork = output();
-    await activate("/kd/hook.sh").hooks["fork.plan"]!(
+    await present(activate("/kd/hook.sh").hooks["fork.plan"], "the fork.plan hook")(
       { ...input, mcp, sessionId: "uuid-9", sourceCwd: "/old" },
       fork,
     );
@@ -79,14 +85,14 @@ describe("codex plugin hooks", () => {
     expect(forkOverrideAt).toBeLessThan(fork.args.indexOf("fork"));
 
     const bare = output();
-    await activate("/kd/hook.sh").hooks["spawn.plan"]!(input, bare);
+    await present(activate("/kd/hook.sh").hooks["spawn.plan"], "the spawn.plan hook")(input, bare);
     expect(bare.args.join(" ")).not.toContain("mcp_servers.");
   });
 
   it("arms the identity and status hooks via -c overrides, id NOT adopted", async () => {
     const agent = activate("/App/resources/kd-session-hook.sh");
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     // 7 rules (SessionStart + 6 status events) ×2 args, ONE combined state
     // table ×2, + 2 paste-burst override args.
@@ -131,7 +137,7 @@ describe("codex plugin hooks", () => {
       ["Interrupt", false],
       ["PostCompact", false],
     ] as const) {
-      const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
+      const rule = present(out.args.find((a) => a.startsWith(`hooks.${event}=`)), "the matching item");
       expect(rule.includes("codex --ask"), event).toBe(asks);
     }
     // Trust must be ONE table: codex takes the last `-c hooks.state=`
@@ -159,7 +165,7 @@ describe("codex plugin hooks", () => {
       ["Stop", false],
       ["Interrupt", false],
     ] as const) {
-      const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
+      const rule = present(out.args.find((a) => a.startsWith(`hooks.${event}=`)), "the matching item");
       expect(rule.includes("additionalContextLimit=0"), event).toBe(limited);
     }
     expect(out.args).toContain("disable_paste_burst=true");
@@ -169,11 +175,11 @@ describe("codex plugin hooks", () => {
     const agent = activate("/App/resources/kd-session-hook.sh");
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!(input, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, spawn);
     expect(spawn.args).toContain("disable_paste_burst=true");
 
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "uuid-9" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "uuid-9" }, resume);
     expect(resume.args).toContain("disable_paste_burst=true");
     // The override precedes the `resume` subcommand (it is a global `-c`).
     expect(resume.args.indexOf("disable_paste_burst=true")).toBeLessThan(
@@ -181,7 +187,7 @@ describe("codex plugin hooks", () => {
     );
 
     const fork = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, sessionId: "uuid-9", sourceCwd: "/x" },
       fork,
     );
@@ -194,7 +200,7 @@ describe("codex plugin hooks", () => {
   it("puts the global -c flags BEFORE the resume subcommand", async () => {
     const agent = activate("/App/resources/kd-session-hook.sh");
     const out = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "uuid-9" }, out);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "uuid-9" }, out);
 
     expect(out.args.slice(0, 1)).toEqual(["-c"]);
     expect(out.args.slice(-2)).toEqual(["resume", "uuid-9"]);
@@ -203,7 +209,7 @@ describe("codex plugin hooks", () => {
   it("fork.plan is args-only: global flags, then the fork subcommand", async () => {
     const agent = activate("/App/resources/kd-session-hook.sh");
     const out = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, sessionId: "uuid-9", sourceCwd: "/somewhere/else" },
       out,
     );
@@ -213,7 +219,7 @@ describe("codex plugin hooks", () => {
     expect(out.args.slice(-2)).toEqual(["fork", "uuid-9"]);
 
     const yolo = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, yolo: true, sessionId: "u", sourceCwd: "/x" },
       yolo,
     );
@@ -224,12 +230,12 @@ describe("codex plugin hooks", () => {
   it("drops the hook when the script is missing; the paste-burst override still applies", async () => {
     const agent = activate(null);
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
     expect(out.args).toEqual(["-c", "disable_paste_burst=true"]);
     expect(out.args.join(" ")).not.toContain("trusted_hash");
 
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "x" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "x" }, resume);
     expect(resume.args).toEqual([
       "-c",
       "disable_paste_burst=true",
@@ -242,7 +248,7 @@ describe("codex plugin hooks", () => {
     const agent = activate(null);
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, spawn);
     expect(spawn.args).toEqual([
       "-c",
       "disable_paste_burst=true",
@@ -250,7 +256,7 @@ describe("codex plugin hooks", () => {
     ]);
 
     const resume = output();
-    await agent.hooks["resume.plan"]!(
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
       { ...input, yolo: true, sessionId: "uuid-9" },
       resume,
     );
@@ -268,13 +274,13 @@ describe("codex plugin hooks", () => {
     const target = { kind: "nativeServer" as const, endpoint: "ws://vps:4500" };
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, target }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, target }, spawn);
     expect(spawn.args.slice(0, 2)).toEqual(["--remote", "ws://vps:4500"]);
     // globals (-c) still land after --remote, before any subcommand
     expect(spawn.args[2]).toBe("-c");
 
     const resume = output();
-    await agent.hooks["resume.plan"]!(
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
       { ...input, target, sessionId: "uuid-9" },
       resume,
     );
@@ -282,7 +288,7 @@ describe("codex plugin hooks", () => {
     expect(resume.args.slice(-2)).toEqual(["resume", "uuid-9"]);
 
     const fork = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, target, sessionId: "uuid-9", sourceCwd: "/x" },
       fork,
     );
@@ -293,7 +299,7 @@ describe("codex plugin hooks", () => {
   it("emits no --remote without a target (local pane unchanged)", async () => {
     const agent = activate(null);
     const spawn = output();
-    await agent.hooks["spawn.plan"]!(input, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, spawn);
     expect(spawn.args.some((a) => a === "--remote")).toBe(false);
   });
 
@@ -303,7 +309,7 @@ describe("codex plugin hooks", () => {
     const agent = activate(null);
     const target = { kind: "nativeServer" as const, endpoint: "ws://vps:4500" };
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, target, yolo: true }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, target, yolo: true }, spawn);
     expect(spawn.args).toEqual([
       "--remote",
       "ws://vps:4500",
@@ -315,7 +321,7 @@ describe("codex plugin hooks", () => {
     ]);
 
     const resume = output();
-    await agent.hooks["resume.plan"]!(
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
       { ...input, target, yolo: true, sessionId: "uuid-9" },
       resume,
     );

@@ -212,7 +212,7 @@ function MinimizedOverflow({
     // when the dialog goes.
     const onPointerDown = (event: PointerEvent) => {
       if (isBehindModalLayer(popoverRef.current)) return;
-      const target = event.target as Node;
+      const target = event.target instanceof Node ? event.target : null;
       if (
         anchor.contains(target) ||
         popoverRef.current?.contains(target)

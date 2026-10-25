@@ -2,13 +2,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
 import type { RunManager } from "../manager";
 import { setRuntime } from "../runtime";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { inertViewPorts, managerOf, openerOf } from "../runPorts.test-support";
 
 // xterm can't mount under happy-dom — stub the renderer surface. The log's
 // output contract is the manager's attach/replay, covered in manager.test.ts;
@@ -20,7 +16,7 @@ interface FakeTerm {
 }
 const xterm = vi.hoisted(() => ({ instances: [] as FakeTerm[] }));
 vi.mock("@xterm/xterm", () => ({
-  Terminal: class {
+  Terminal: class implements FakeTerm {
     cols = 80;
     rows = 24;
     options: Record<string, unknown>;
@@ -40,7 +36,7 @@ vi.mock("@xterm/xterm", () => ({
     }
     constructor(opts: Record<string, unknown>) {
       this.options = { ...opts };
-      xterm.instances.push(this as unknown as FakeTerm);
+      xterm.instances.push(this);
     }
   },
 }));
@@ -55,9 +51,11 @@ vi.mock("@xterm/addon-fit", () => ({
 // the linker, keeping PaneHintView/useTransient real.
 const linker = vi.hoisted(() => ({
   registerTerminalLinks: vi.fn(
-    (_term: object, _host: HTMLElement, _target: { cwd: string | null }) => ({
-      dispose: vi.fn(),
-    }),
+    (
+      _term: object,
+      _host: HTMLElement,
+      _target: { cwd: string | null },
+    ): { dispose: ReturnType<typeof vi.fn> } => ({ dispose: vi.fn() }),
   ),
 }));
 vi.mock("@keepdeck/terminal-kit", async (importOriginal) => {
@@ -66,19 +64,20 @@ vi.mock("@keepdeck/terminal-kit", async (importOriginal) => {
 });
 
 import { RunLog } from "./RunLog";
+import { present } from "@keepdeck/plugin-api/testing";
 
 function makeManager() {
-  return {
+  return managerOf({
     attachRun: vi.fn(() => vi.fn()),
     resizeRun: vi.fn(),
     writeRun: vi.fn(),
-  } as unknown as RunManager;
+  });
 }
 
-const ctx = {
+const ctx = inertViewPorts({
   host: { settings: vi.fn(async () => ({ terminalScrollback: 1000 })) },
-  services: { opener: { openUrl: vi.fn(), openPath: vi.fn() } },
-} as unknown as PluginContext;
+  services: { opener: openerOf({ openUrl: vi.fn(), openPath: vi.fn() }) },
+});
 
 describe("RunLog", () => {
   let host: HTMLDivElement;
@@ -104,7 +103,7 @@ describe("RunLog", () => {
   };
 
   beforeEach(() => {
-    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+    globalThis.ResizeObserver ??= class implements ResizeObserver {
       observe() {}
       unobserve() {}
       disconnect() {}
@@ -130,7 +129,7 @@ describe("RunLog", () => {
     // the host has to ask for the exception by name or the run output stops
     // being copyable, with nothing else failing to say so.
     expect(
-      host.querySelector(".run__log")!.classList.contains("kd-selectable"),
+      present(host.querySelector(".run__log"), "the .run__log element").classList.contains("kd-selectable"),
     ).toBe(true);
   });
 
@@ -145,9 +144,7 @@ describe("RunLog", () => {
 
   it("disposes the linker with the log", async () => {
     await mount("s1", "/wt/b");
-    const registration = linker.registerTerminalLinks.mock.results[0].value as {
-      dispose: ReturnType<typeof vi.fn>;
-    };
+    const registration = linker.registerTerminalLinks.mock.results[0].value;
 
     act(() => root.unmount());
     expect(registration.dispose).toHaveBeenCalled();

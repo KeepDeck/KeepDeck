@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { McpStdioServerSpec, SpawnMcpInput } from "@keepdeck/plugin-api";
 import { mcpArgs } from "./mcp";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const input = (...servers: SpawnMcpInput["servers"]): SpawnMcpInput => ({
   servers,
@@ -32,7 +33,7 @@ describe("codex MCP overrides", () => {
     // unquote it. On a live pane it answered `Invalid MCP server name
     // '"keepdeck"': must match pattern ^[a-zA-Z0-9_-]+$` and failed MCP
     // startup entirely — the pane lost every server, not just this one.
-    expect(mcpArgs(input(server("keepdeck")))[1]!.startsWith("mcp_servers.keepdeck=")).toBe(
+    expect(present(mcpArgs(input(server("keepdeck")))[1], "the second mcpArgs(input(server(\"keepdeck\")))").startsWith("mcp_servers.keepdeck=")).toBe(
       true,
     );
   });
@@ -86,7 +87,7 @@ describe("codex MCP overrides", () => {
       command: "/tmp/line\nbreak\rreturn",
       args: ["\u0000", "\u007f", "", "путь"],
     };
-    const override = mcpArgs(input(odd))[1]!;
+    const override = present(mcpArgs(input(odd))[1], "the second mcpArgs(input(odd))");
     expect(override).toContain('command="/tmp/line\\nbreak\\rreturn"');
     expect(override).toContain('args=["\\u0000","\\u007f","","путь"]');
   });

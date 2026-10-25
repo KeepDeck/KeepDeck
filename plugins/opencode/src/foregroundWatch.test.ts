@@ -22,7 +22,6 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-// @ts-expect-error untyped resource module
 import { HEARTBEAT_MS, STALE_MS, watchForeground, writeForeground } from "../resources/keepdeck-plugin/foreground.js";
 
 let dir: string;

@@ -16,9 +16,9 @@
 import {
   artifactList,
   artifactVersions,
-  type ArtifactMetaRow,
-  type ArtifactVersionRow,
 } from "../../ipc/artifacts";
+import type { ArtifactMetaRow } from "../../domain/artifacts/rowRef";
+import type { ArtifactVersionRow } from "../../domain/artifacts/model";
 
 /** The read model, re-exported from the port's home: the surface names the
  * rows it draws without naming the wire they came over. */

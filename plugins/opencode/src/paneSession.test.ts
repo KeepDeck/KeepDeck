@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /** The pane's session, from a module loaded fresh for each test: it is ONE
  * object per module instance, and each test is a new process. Reached as a
  * 1.x pane reaches it — through the 1.x client's parent lookup. */
-let paneSession: (client?: unknown) => any;
+let paneSession: (client?: unknown) => ReturnType<typeof import("../resources/keepdeck-plugin/pane-session.js").paneSession>;
 
 /** A client that answers `session.get` from a parent table. */
 const clientWith = (parents: Record<string, string | undefined>) => ({
@@ -17,11 +17,9 @@ const clientWith = (parents: Record<string, string | undefined>) => ({
 describe("the pane's session", () => {
   beforeEach(async () => {
     vi.resetModules();
-    // Untyped resource JS — shipped to, and loaded by, the user's opencode
+    // Resource JS — shipped to, and loaded by, the user's opencode
     // process, never bundled into the plugin.
-    // @ts-expect-error untyped resource module
     const shared = await import("../resources/keepdeck-plugin/pane-session.js");
-    // @ts-expect-error untyped resource module
     const { parentLookupV1 } = await import("../resources/keepdeck-plugin/opencode-v1.js");
     paneSession = (client) => shared.paneSession(parentLookupV1(client));
   });

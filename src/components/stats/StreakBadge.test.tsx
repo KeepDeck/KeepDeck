@@ -13,9 +13,7 @@ vi.mock("../../app/useStreakDays", () => ({
 }));
 
 import { StreakBadge } from "./StreakBadge";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("StreakBadge", () => {
   let root: Root;
@@ -23,7 +21,7 @@ describe("StreakBadge", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -38,14 +36,14 @@ describe("StreakBadge", () => {
   };
 
   it("says the count in words as well as digits", () => {
-    const chip = render(4)!;
+    const chip = present(render(4), "the rendered output");
     expect(chip.getAttribute("aria-label")).toBe("4-day streak");
     expect(chip.textContent).toContain("4");
     // Singular is its own case: "1 days" would be the kind of detail that
     // makes a chip look machine-written.
-    expect(render(1)!.getAttribute("aria-label")).toBe("1-day streak");
-    expect(render(1)!.textContent).toContain("day");
-    expect(render(1)!.textContent).not.toContain("days");
+    expect(present(render(1), "the rendered output").getAttribute("aria-label")).toBe("1-day streak");
+    expect(present(render(1), "the rendered output").textContent).toContain("day");
+    expect(present(render(1), "the rendered output").textContent).not.toContain("days");
   });
 
   it("climbs a heat tier at each threshold, and wears that tier's mark", () => {
@@ -58,20 +56,20 @@ describe("StreakBadge", () => {
 
     // Below three days there is no tier and no mark — a two-day run is not
     // yet a streak worth a flame.
-    const none = render(2)!;
+    const none = present(render(2), "the rendered output");
     expect(none.className).toContain("stats__streak--none");
     expect(marks(none)).toEqual({ coal: false, fire: false });
 
-    const ember = render(4)!;
+    const ember = present(render(4), "the rendered output");
     expect(ember.className).toContain("stats__streak--ember");
     expect(marks(ember)).toEqual({ coal: true, fire: false });
 
-    const flame = render(8)!;
+    const flame = present(render(8), "the rendered output");
     expect(flame.className).toContain("stats__streak--flame");
     expect(marks(flame)).toEqual({ coal: false, fire: true });
 
-    expect(render(31)!.className).toContain("stats__streak--blaze");
-    expect(render(101)!.className).toContain("stats__streak--inferno");
+    expect(present(render(31), "the rendered output").className).toContain("stats__streak--blaze");
+    expect(present(render(101), "the rendered output").className).toContain("stats__streak--inferno");
   });
 
   it("says nothing at all rather than announcing a zero", () => {

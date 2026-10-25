@@ -28,9 +28,16 @@ import type {
   WorkspaceCreationResult,
 } from "./testSupport";
 import type { TeamLocation, Workspace } from "../../domain/deck";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** What the app mints for a new team: `team-` and a random token. */
 const MINTED_TEAM_ID = /^team-[0-9a-f]{8}$/;
+
+const noPlugins: SpawnPluginAccess = {
+  agents: () => [],
+  installed: () => undefined,
+  cliVersion: async () => null,
+};
 
 describe("agent orchestrator —what resume answers", () => {
   let root: Root;
@@ -47,7 +54,7 @@ describe("agent orchestrator —what resume answers", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -111,7 +118,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -468,7 +475,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     const stale = instance();
     act(() => deck.hydrate(seed()));
     await buildResumeSpec(
-      {} as SpawnPluginAccess,
+      noPlugins,
       "claude",
       { paneId: "pane-9", workspace: { id: "ws-1", instance: stale }, cwd: "/repo" },
       ctx,
@@ -504,7 +511,7 @@ describe("agent orchestrator —a new workspace", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -634,7 +641,7 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -749,7 +756,7 @@ describe("agent orchestrator —a team born empty", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -1040,7 +1047,7 @@ describe("agent orchestrator —a role at the landing", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 

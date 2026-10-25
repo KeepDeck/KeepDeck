@@ -1,7 +1,7 @@
 import { isJsonRecord } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
 import { onCompanionHello } from "../ipc/companions";
-import type { DeckStore } from "./deckStore";
+import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import {
   createVerifiedPaneReports,
@@ -20,7 +20,7 @@ import {
  * place could only ever count for the wrong one.
  */
 export function listenPaneCompanions(
-  deck: DeckStore,
+  deck: DeckWatch,
   attribution: PaneAttribution,
   subscribe: (handler: (report: PaneReportEvent) => void) => Promise<() => void> =
     onCompanionHello,

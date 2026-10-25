@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { appCss } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("minimized overflow popover", () => {
   it("stretches every chip to the row, so the popover is not a ragged stack", () => {
@@ -18,7 +19,7 @@ describe("minimized overflow popover", () => {
       "<button class='minimized minimized--chip'></button>" +
       "</div>";
 
-    const chip = getComputedStyle(document.querySelector(".minimized--chip")!);
+    const chip = getComputedStyle(present(document.querySelector(".minimized--chip"), "the minimized chip"));
     expect(chip.width).toBe("100%");
 
     sheet.remove();

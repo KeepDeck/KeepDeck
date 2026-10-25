@@ -9,12 +9,10 @@ import {
 import { createBindingsStore } from "../bindingsStore";
 import { createRecordingLatch, type RecordingLatch } from "../recordingLatch";
 import { clearRuntime, setRuntime } from "../runtime";
+import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { HOTKEYS_KEY } from "../binding";
 import { HotkeysSection } from "./HotkeysSection";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { elementOf, elementsOf } from "@keepdeck/plugin-api/testing";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -65,9 +63,9 @@ describe("HotkeysSection", () => {
     });
     setRuntime({
       ctx: host.ctx,
-      controller: undefined as never,
-      downloads: undefined as never,
-      models: undefined as never,
+      controller: controllerOf(),
+      downloads: downloadsOf(),
+      models: modelsOf(),
       bindings: store,
       recordingLatch: latch,
     });
@@ -84,7 +82,7 @@ describe("HotkeysSection", () => {
     );
 
   const chordButtons = () =>
-    [...stage.querySelectorAll(".voice-hotkeys__chord")] as HTMLElement[];
+    elementsOf(stage, ".voice-hotkeys__chord", HTMLElement);
 
   it("shows the two default chords", () => {
     render();
@@ -165,7 +163,7 @@ describe("HotkeysSection", () => {
     pressKey({ code: "KeyJ", key: "j", ctrlKey: true, metaKey: true });
     expect(chordButtons()[0].textContent).toBe("⌃⌘J");
 
-    const reset = stage.querySelector(".voice-hotkeys__reset") as HTMLElement;
+    const reset = elementOf(stage, ".voice-hotkeys__reset", HTMLElement);
     click(reset);
     expect(chordButtons()[0].textContent).toBe("⌥Space");
   });

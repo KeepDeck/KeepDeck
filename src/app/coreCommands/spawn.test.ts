@@ -18,6 +18,7 @@ import {
 } from "../../domain/deck";
 import { deliverTask } from "./deliverTask";
 import { registerPaneInput } from "../paneInput";
+import { recordOf, stringOf } from "../../testing/values.test-support";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -36,13 +37,13 @@ describe("agent.spawn", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const value = result.value as { paneId: string; worktree: unknown };
+    const value = recordOf(result.value, "spawn result");
     expect(value.worktree).toBeNull();
     const ws = deck.workspaces[0];
     expect(ws.panes).toHaveLength(1);
     expect(ws.panes[0]).toMatchObject({ agentType: "codex", name: "helper" });
     expect(deck.selectWorkspace).toHaveBeenCalledWith("ws-1");
-    expect(deck.selectPane).toHaveBeenCalledWith("ws-1", value.paneId);
+    expect(deck.selectPane).toHaveBeenCalledWith("ws-1", stringOf(value.paneId, "pane id"));
   });
 
   it("provisions the first free worktree in a repo workspace with a base dir", async () => {
@@ -61,7 +62,7 @@ describe("agent.spawn", () => {
     expect(card?.intent.path.endsWith("kd-web-2")).toBe(true);
     // The answer names the worktree ahead — read off the pane as the deck
     // holds it, not off the literal the command built before landing it.
-    expect((result.value as { worktree: unknown }).worktree).toEqual({
+    expect(recordOf(result.value, "spawn result").worktree).toEqual({
       path: card?.intent.path,
       branch: "kd/web/2",
     });

@@ -8,11 +8,11 @@ import {
   SCROLLBACK_MIN,
   SUSPENDED_AGENT_PLACEMENTS,
   USAGE_DISPLAYS,
-  type NotificationsMode,
   type Settings,
   type SettingsKey,
 } from "./types";
 import { isJsonRecord } from "@keepdeck/plugin-api";
+import { isOneOf, keyList } from "../json";
 
 /**
  * How a STORED value becomes a setting, and what each setting falls back to.
@@ -84,7 +84,7 @@ export function clampScrollback(value: number): number {
 function readOneOf<T extends string>(
   allowed: readonly T[],
 ): (stored: unknown) => T | undefined {
-  return (stored) => (allowed.includes(stored as T) ? (stored as T) : undefined);
+  return (stored) => (isOneOf(allowed, stored) ? stored : undefined);
 }
 
 function readBoolean(stored: unknown): boolean | undefined {
@@ -164,8 +164,8 @@ function readNotifications(
   if (typeof value.enabled === "boolean") enabled = value.enabled;
   else if (value.enabled !== undefined) discard("notifications.enabled");
   let mode = DEFAULT_NOTIFICATIONS.mode;
-  if (NOTIFICATION_MODES.includes(value.mode as NotificationsMode)) {
-    mode = value.mode as NotificationsMode;
+  if (isOneOf(NOTIFICATION_MODES, value.mode)) {
+    mode = value.mode;
   } else if (value.mode !== undefined) discard("notifications.mode");
   const mutedPlugins: string[] = [];
   if (Array.isArray(value.mutedPlugins)) {
@@ -242,26 +242,58 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   tasksBoard: { default: DEFAULT_TASKS_BOARD, read: readTasksBoard },
 };
 
+/** Every setting, in the saved key order — the compiler holds the list to
+ * the table, so a setting added there and not here does not build. */
+const SETTINGS_KEY_LIST = keyList<typeof SETTINGS_CODECS>()([
+  "defaultAgent",
+  "defaultYolo",
+  "scrollback",
+  "suspendedAgentPlacement",
+  "dockMode",
+  "plugins",
+  "notifications",
+  "usageDisplay",
+  "remoteAgents",
+  "parkAgentsOnLaunch",
+  "artifacts",
+  "artifactAutoOpen",
+  "tasks",
+  "tasksBoard",
+]);
+
 /** The table as entries, typed once so every consumer doesn't re-assert the
- * key type. Iteration order is the table's, which is the saved key order. */
+ * key type, in the saved key order. */
 export function settingsCodecs(): [SettingsKey, SettingCodec<unknown>][] {
-  return Object.entries(SETTINGS_CODECS) as [
-    SettingsKey,
-    SettingCodec<unknown>,
-  ][];
+  return SETTINGS_KEY_LIST.map((key): [SettingsKey, SettingCodec<unknown>] => [key, SETTINGS_CODECS[key]]);
 }
 
 /** Whether `key` is a setting this build knows — the one place that question is
- * answered, so a patch carrying a stray key cannot enter a document. */
+ * answered, so a patch carrying a stray key cannot enter a document. A list
+ * lookup, not `in`: `in` would also answer yes for "toString". */
 export function isSettingsKey(key: string): key is SettingsKey {
-  return key in SETTINGS_CODECS;
+  return SETTINGS_KEY_LIST.some((known) => known === key);
 }
 
-/** Every setting at its default — DERIVED from the table, never hand-kept.
- * `Object.fromEntries` cannot carry the per-key types, so this is the one place
- * they are re-assembled into `Settings`; the table's totality is what makes the
- * assertion sound (a missing key fails to compile up there, so it cannot be
- * missing down here). */
-export const DEFAULT_SETTINGS: Settings = Object.fromEntries(
-  settingsCodecs().map(([key, codec]) => [key, codec.default]),
-) as unknown as Settings;
+/** One key's default into `into` — generic over the key, so the value the
+ * table holds is typed as that key's setting, not as `unknown`. */
+function putDefault<K extends SettingsKey>(into: Partial<Settings>, key: K): void {
+  into[key] = SETTINGS_CODECS[key].default;
+}
+
+/** Whether every key of the table has its value. The table's totality makes
+ * this always true (a missing key fails to compile up there); asking it is
+ * what lets the compiler see a whole `Settings` down here. */
+function isWhole(settings: Partial<Settings>): settings is Settings {
+  return settingsCodecs().every(([key]) => key in settings);
+}
+
+/** Every setting at its default — DERIVED from the table, never hand-kept, and
+ * in the table's key order. */
+function tableDefaults(): Settings {
+  const defaults: Partial<Settings> = {};
+  for (const [key] of settingsCodecs()) putDefault(defaults, key);
+  if (!isWhole(defaults)) throw new Error("a setting has no default");
+  return defaults;
+}
+
+export const DEFAULT_SETTINGS: Settings = tableDefaults();

@@ -1,41 +1,47 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  AgentContribution,
-  AgentUsage,
-  NormalizedUsage,
+import {
+  asFiniteNumber,
+  carriedUsageRecord,
+  isJsonRecord,
+  jsonl,
+  reportedLimits,
+  type AgentStatus,
+  type AgentUsage,
+  type NormalizedUsage,
+  type TailWatch,
+  type UsageNormalizer,
 } from "@keepdeck/plugin-api";
-import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
 import type { SessionBound } from "../ipc/sessions";
-import type { PaneIdle } from "../domain/deck";
-import type { ContributionRegistry } from "../plugins/registries/contributions";
+import type { DeckState, Pane } from "../domain/deck";
 import { createUsageManager, type UsageManager } from "./usageManager";
 import { createPaneAttribution } from "./paneAttribution";
 import {
   createSessionBinding,
   type SessionBinding,
 } from "./sessionBinding";
-import { createUsageChannel, type UsageChannel } from "./usageChannel";
+import {
+  createUsageChannel,
+  type UsageChannel,
+  type UsageDeclarationsPort,
+} from "./usageChannel";
 import type { DeckStore } from "./deckStore";
-import type { Deck } from "./useDeck";
+import { deckStateOf } from "./deckStore.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** What the codex fixture's dialect asks to have carried. Shared between the
  * declaration and the assertions so the two cannot drift: what the lane must
  * pass through is exactly what the plugin declared, never a shape this file
  * invented on the way. */
-const CODEX_WATCHES = [
+const CODEX_WATCHES: TailWatch[] = [
   {
     match: [{ key: "type", equals: "event_msg" }],
     keep: ["timestamp"],
     lane: "status",
   },
 ];
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
 
 const ipc = vi.hoisted(() => ({
   onUsageReport: vi.fn(),
@@ -52,7 +58,7 @@ const ipc = vi.hoisted(() => ({
   // The agents contribution list the channel reads its declarations from.
   contributions: [] as {
     pluginId: string;
-    entry: { id: string; usage?: AgentUsage; status?: unknown };
+    entry: { id: string; usage?: AgentUsage; status?: AgentStatus };
   }[],
 }));
 vi.mock("../ipc/usage", () => ({
@@ -80,29 +86,52 @@ const reported = (at: number): NormalizedUsage => ({
   pane: { agent: "any", reportedAt: at },
 });
 
-/** The channel only reads `deck.workspaces` — a shaped literal is enough. */
+/**
+ * A normalizer reading only what a usage watch CARRIED, through the
+ * contract's own `carriedUsageRecord` — the one reading a plugin's
+ * normalizer starts with. The record's fields are this fake's: `context`
+ * becomes the pane's, `limits` the account's. What these tests prove is the
+ * host's half: the envelope it hands over is the one the contract reads, and
+ * the times it stamps are the record's. How codex turns its own rollout into
+ * those numbers is codex's tests' business.
+ */
+const carriedNormalizer: UsageNormalizer = (payload, at) => {
+  const record = carriedUsageRecord(payload);
+  if (!record || !isJsonRecord(record.payload)) return null;
+  const { context, limits } = record.payload;
+  const usedPct = isJsonRecord(limits) ? asFiniteNumber(limits.usedPct) : undefined;
+  return {
+    account:
+      isJsonRecord(limits) && usedPct !== undefined
+        ? reportedLimits(
+            [
+              {
+                usedPct,
+                resetsAt: asFiniteNumber(limits.resetsAt) ?? null,
+                windowMinutes: asFiniteNumber(limits.windowMinutes) ?? null,
+              },
+            ],
+            at,
+          )
+        : null,
+    pane: isJsonRecord(context)
+      ? {
+          agent: "codex",
+          context: {
+            usedPct: asFiniteNumber(context.usedPct),
+            windowTokens: asFiniteNumber(context.windowTokens),
+          },
+          reportedAt: at,
+        }
+      : null,
+  };
+};
+
 /** A pane runs an agent, and a report is only believed from the agent its
  * pane runs — so an unnamed pane here is a claude pane, not an agentless
  * one, which no deck ever holds. */
-const deckWith = (
-  panes: {
-    id: string;
-    agentType?: string;
-    idle?: PaneIdle;
-    session?: { id: string };
-  }[],
-): Deck =>
-  ({
-    workspaces: [
-      {
-        id: "ws-1",
-        name: "ws",
-        cwd: "/repo",
-        worktreeBaseDir: null,
-        panes: panes.map((pane) => ({ agentType: "claude", ...pane })),
-      },
-    ],
-  }) as unknown as Deck;
+const deckWith = (panes: Pane[]): DeckState =>
+  deckStateOf(panes.map((pane) => ({ agentType: "claude", ...pane })));
 
 /** The wire type itself, not a hand-copy: a local one drifted the moment
  * `agent` became required and `reporter` was added, and a fixture that
@@ -113,21 +142,21 @@ describe("createUsageChannel", () => {
   let channel: UsageChannel | null;
   let bindings: SessionBinding | null;
   let usage: UsageManager;
-  let currentDeck: Deck;
+  let currentDeck: DeckState;
   let deckListeners: Set<() => void>;
   let deckStore: DeckStore;
   let emit: (report: UsageReportEvent) => void;
   let emitBound: (bound: Bound) => void;
 
-  const mount = async (deck: Deck) => {
+  const mount = async (deck: DeckState) => {
     currentDeck = deck;
     if (channel) {
       for (const listener of [...deckListeners]) listener();
     } else {
-      const agents = {
+      const agents: UsageDeclarationsPort = {
         list: () => ipc.contributions,
         subscribe: () => () => {},
-      } as unknown as ContributionRegistry<AgentContribution>;
+      };
       // The REAL binding lane over the SAME attribution, exactly as the
       // runtime composes them: the tails lane follows what this one accepted.
       // Building the channel over a private attribution instead would hide
@@ -159,7 +188,7 @@ describe("createUsageChannel", () => {
     currentDeck = deckWith([]);
     deckListeners = new Set();
     deckStore = {
-      getSnapshot: () => currentDeck as ReturnType<DeckStore["getSnapshot"]>,
+      getSnapshot: () => currentDeck,
       subscribe(listener) {
         deckListeners.add(listener);
         return () => deckListeners.delete(listener);
@@ -168,9 +197,7 @@ describe("createUsageChannel", () => {
       // sessions on the deck; the fixture deck is a fixed snapshot, so the
       // transition is accepted and dropped. What these tests read is the
       // usage store, never the deck.
-      dispatch: vi.fn(
-        () => currentDeck as ReturnType<DeckStore["getSnapshot"]>,
-      ),
+      dispatch: vi.fn(() => currentDeck),
     };
     ipc.contributions = [
       {
@@ -206,12 +233,18 @@ describe("createUsageChannel", () => {
           // survive — a pane can close while it is still walking.
           status: {
             normalize: () => null,
+            attribute: () => null,
+            // Only `watches` and `follow` are the host's to call; a dialect
+            // reads no record here.
             tail: {
+              format: jsonl((_record: unknown): _record is unknown => true),
               watches: CODEX_WATCHES,
-              follow: async ({ sessionId }: { sessionId: string | null }) => {
+              follow: async ({ sessionId }) => {
                 const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
                 return path ? { path } : null;
               },
+              read: () => null,
+              ignores: () => true,
             },
           },
         },
@@ -258,8 +291,12 @@ describe("createUsageChannel", () => {
     });
   });
 
-  it("carries Codex's baseline-adjusted context percentage into the pane store", async () => {
-    ipc.contributions[1]!.entry.usage!.normalize = normalizeCodexRollout;
+  it("carries a tailed record's context percentage into the pane store", async () => {
+    const carrying = present(
+      present(ipc.contributions[1], "the second contribution").entry.usage,
+      "the second contribution's usage config",
+    );
+    carrying.normalize = carriedNormalizer;
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
 
     await act(async () => {
@@ -272,13 +309,7 @@ describe("createUsageChannel", () => {
             type: "store.record",
             lane: "usage",
             record: {
-              payload: {
-                type: "token_count",
-                info: {
-                  last_token_usage: { total_tokens: 37_696 },
-                  model_context_window: 258_400,
-                },
-              },
+              payload: { context: { usedPct: 10, windowTokens: 258_400 } },
             },
           },
         },
@@ -403,7 +434,7 @@ describe("createUsageChannel", () => {
     ipc.findCodexRollout.mockResolvedValue("/x/sessions/rollout-019f.jsonl");
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
       ]),
     );
     await act(async () => {});
@@ -422,7 +453,7 @@ describe("createUsageChannel", () => {
     ipc.findCodexRollout.mockResolvedValue(null);
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
       ]),
     );
     await act(async () => {});
@@ -430,7 +461,7 @@ describe("createUsageChannel", () => {
     ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
         { id: "pane-x" },
       ]),
     );
@@ -455,7 +486,7 @@ describe("createUsageChannel", () => {
       ipc.findCodexRollout.mockResolvedValue(null);
       await mount(
         deckWith([
-          { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+          { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
         ]),
       );
       await act(async () => {});
@@ -490,7 +521,7 @@ describe("createUsageChannel", () => {
     ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
       ]),
     );
     await act(async () => {});
@@ -513,7 +544,7 @@ describe("createUsageChannel", () => {
     );
     await mount(
       deckWith([
-        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded", boundAt: "t" } },
       ]),
     );
     await act(async () => {});
@@ -588,8 +619,12 @@ describe("createUsageChannel", () => {
   });
 
   it("reads codex limits at boot through the shared app-server source", async () => {
-    const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
-    codex.entry.usage!.limits!.normalize = (_body, at) => ({
+    const codex = present(ipc.contributions.find((item) => item.entry.id === "codex"), "the Codex contribution");
+    const codexLimits = present(
+      present(codex.entry.usage, "the Codex usage config").limits,
+      "the Codex limits source",
+    );
+    codexLimits.normalize = (_body, at) => ({
       kind: "reported",
       windows: [],
       reportedAt: at,
@@ -611,8 +646,12 @@ describe("createUsageChannel", () => {
   });
 
   it("serializes reads and uses native post-initialization freshness", async () => {
-    const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
-    codex.entry.usage!.limits!.normalize = (_body, at) => ({
+    const codex = present(ipc.contributions.find((item) => item.entry.id === "codex"), "the Codex contribution");
+    const codexLimits = present(
+      present(codex.entry.usage, "the Codex usage config").limits,
+      "the Codex limits source",
+    );
+    codexLimits.normalize = (_body, at) => ({
       kind: "reported",
       windows: [],
       reportedAt: at,
@@ -687,12 +726,16 @@ describe("createUsageChannel", () => {
   });
 
   it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
-    // The REAL normalizer, over the shape the sweep actually hands back: a
-    // carried record, the same one a live tail delivers. The sweep reads a
-    // cold store with a watch of the host's own, and if that watch and the
-    // plugin's declaration ever disagree the account chip goes quietly blank
-    // at boot — which a stubbed normalizer could never show.
-    ipc.contributions[1]!.entry.usage!.normalize = normalizeCodexRollout;
+    // A normalizer reading through the contract, over the shape the sweep
+    // actually hands back: a carried record, the same one a live tail
+    // delivers. If the sweep's envelope and the one the contract reads ever
+    // disagree, the account chip goes quietly blank at boot — which a
+    // normalizer echoing anything it is handed could never show.
+    const carrying = present(
+      present(ipc.contributions[1], "the second contribution").entry.usage,
+      "the second contribution's usage config",
+    );
+    carrying.normalize = carriedNormalizer;
     ipc.readStoreCold.mockResolvedValue({
       records: [
         {
@@ -701,14 +744,7 @@ describe("createUsageChannel", () => {
             lane: "usage",
             record: {
               payload: {
-                type: "token_count",
-                rate_limits: {
-                  primary: {
-                    used_percent: 40,
-                    window_minutes: 10_080,
-                    resets_at: 1_784_834_810,
-                  },
-                },
+                limits: { usedPct: 40, windowMinutes: 10_080, resetsAt: 1_784_834_810_000 },
               },
             },
           },

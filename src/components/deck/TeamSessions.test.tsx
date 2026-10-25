@@ -10,9 +10,15 @@ import { TEAM_SESSIONS_WORDS } from "../../presentation/stageView";
 
 /** The browser under the list, as the list drives it: what it scopes and
  * what a row's Resume and Fork call. Its own suite covers the rows. */
-const browser = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
+interface BrowserProps {
+  onResume: (r: SessionHandle) => void;
+  onFork: (r: SessionHandle) => void;
+  dirs: Set<string>;
+  team: unknown;
+}
+const browser = vi.hoisted(() => ({ props: null as null | BrowserProps }));
 vi.mock("../history/SessionsBrowser", () => ({
-  WorkspaceSessionsBrowser: (props: Record<string, unknown>) => {
+  WorkspaceSessionsBrowser: (props: BrowserProps) => {
     browser.props = props;
     return null;
   },
@@ -23,9 +29,9 @@ const liveCatalog = vi.hoisted(() => ({ snapshot: {} as object }));
 vi.mock("../../app/useRoleCatalog", () => ({ useRoleCatalog: () => liveCatalog.snapshot }));
 
 import { TeamSessions } from "./TeamSessions";
+import { sharedOf } from "../../app/testing";
 import { configureRoleCatalog, teamRoles } from "../../domain/mail";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 const record = { agent: "claude", sessionId: "s-1", cwd: "/repo/wt" } as SessionHandle;
 
@@ -47,7 +53,7 @@ describe("TeamSessions — an empty team's sessions list", () => {
           },
           cwd: "/repo/wt",
           journal: {},
-          browserShared: {} as never,
+          browserShared: sharedOf(),
           agents: [],
           agentsReady: true,
           onContinue,
@@ -57,7 +63,7 @@ describe("TeamSessions — an empty team's sessions list", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     onContinue.mockClear();
     render();
   });
@@ -67,23 +73,23 @@ describe("TeamSessions — an empty team's sessions list", () => {
     configureRoleCatalog(null);
   });
 
-  const picker = () => document.querySelector<HTMLButtonElement>(".team-sessions__role .dropdown__button")!;
+  const picker = () => present(document.querySelector<HTMLButtonElement>(".team-sessions__role .dropdown__button"), "the .team-sessions__role .dropdown__button element");
   const options = () => {
     act(() => picker().click());
     const found = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')];
     return found;
   };
   const pick = (label: string) => {
-    const option = options().find((button) => button.textContent === label)!;
+    const option = present(options().find((button) => button.textContent === label), "the matching role option");
     act(() => option.click());
   };
-  const hint = () => document.querySelector(".team-sessions__hint")!;
-  const resume = (r: SessionHandle) => act(() => (browser.props!.onResume as (r: SessionHandle) => void)(r));
-  const fork = (r: SessionHandle) => act(() => (browser.props!.onFork as (r: SessionHandle) => void)(r));
+  const hint = () => present(document.querySelector(".team-sessions__hint"), "the .team-sessions__hint element");
+  const resume = (r: SessionHandle) => act(() => present(browser.props, "the browser props").onResume(r));
+  const fork = (r: SessionHandle) => act(() => present(browser.props, "the browser props").onFork(r));
 
   it("scopes the list to the team's directory and asks the rows about THIS team", () => {
-    expect([...(browser.props!.dirs as Set<string>)]).toEqual(["/repo/wt"]);
-    expect(browser.props!.team).toEqual({ cwd: "/repo/wt" });
+    expect([...present(browser.props, "the browser props").dirs]).toEqual(["/repo/wt"]);
+    expect(present(browser.props, "the browser props").team).toEqual({ cwd: "/repo/wt" });
     expect(document.body.textContent).toContain(TEAM_SESSIONS_WORDS.title);
   });
 
@@ -92,7 +98,7 @@ describe("TeamSessions — an empty team's sessions list", () => {
     // One row: before a pick, no line under the picker.
     expect(document.querySelector(".team-sessions__hint")).toBeNull();
     const labels = options().map((button) => button.textContent);
-    expect(labels).toEqual([ROLE_WORDS.prompt, roleById("lead")!.label, roleById("peer")!.label]);
+    expect(labels).toEqual([ROLE_WORDS.prompt, present(roleById("lead"), "the role \"lead\"").label, present(roleById("peer"), "the role \"peer\"").label]);
   });
 
   it("continues nothing until a role is picked — and says so where the role is", () => {
@@ -104,7 +110,7 @@ describe("TeamSessions — an empty team's sessions list", () => {
   });
 
   it("continues under the address the pick takes, resumed or forked", () => {
-    pick(roleById("peer")!.label);
+    pick(present(roleById("peer"), "the role \"peer\"").label);
     expect(hint().textContent).toContain("peer-1");
     resume(record);
     fork(record);
@@ -115,7 +121,7 @@ describe("TeamSessions — an empty team's sessions list", () => {
   });
 
   it("follows the live catalog: a picked role the catalog drops is no pick any more", () => {
-    const peerLabel = roleById("peer")!.label;
+    const peerLabel = present(roleById("peer"), "the role \"peer\"").label;
     pick(peerLabel);
     configureRoleCatalog(teamRoles().filter((role) => role.id !== "peer"));
     liveCatalog.snapshot = {};

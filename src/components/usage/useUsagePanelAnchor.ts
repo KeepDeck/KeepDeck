@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
   type RefObject,
 } from "react";
@@ -20,15 +21,15 @@ import { usagePanelLeft } from "../../domain/usage/panelPlacement";
  * frame: drawn first at the stylesheet's default position and then moved would
  * read as the panel jumping into place.
  *
- * MEASURED AFTER EVERY RENDER, which is the whole design. The panel is
- * anchored to a chip, not to a place, and the number of things that move a
- * chip is not a list anyone can finish: another agent's chip appearing to its
- * left, an account reporting a second window so the neighbour grows a column,
- * a report going stale and growing a warning mark, a countdown ticking from
- * "1h 0m" to "59m". Each was a separate near-miss, and each would have been a
- * separate patch. A render is what all of them look like from here, so a
- * render is the signal — and the state only changes when the number does, so
- * measuring again costs a layout read and stops.
+ * MEASURED AFTER EVERY RENDER THAT CAN MOVE IT, which is the whole design.
+ * The panel is anchored to a chip, not to a place, and the number of things
+ * that move a chip is not a list anyone can finish: another agent's chip
+ * appearing to its left, an account reporting a second window so the
+ * neighbour grows a column, a report going stale and growing a warning mark,
+ * a countdown ticking from "1h 0m" to "59m". Each was a separate near-miss,
+ * and each would have been a separate patch. A render is what all of them
+ * look like from here, so a render is the signal — the state it writes is
+ * also the trigger, and it only changes when the number does.
  *
  * The one change that moves the chip WITHOUT a render is the window resizing,
  * which is why that keeps a listener of its own.
@@ -67,15 +68,23 @@ export function useUsagePanelAnchor(
     setLeft((current) => (current === next ? current : next));
   }, [groupRef, openProvider]);
 
-  // Deliberately no dependency list — see above. Layout-phase so the panel is
-  // already placed on the frame it first appears in.
+  // `pass` changes on every render: any render can move a chip, which is the
+  // signal this design is built on. It is read below so the dependency is a
+  // real render signal, not an unused trick; setLeft bails when the number
+  // did not move.
+  const renderPass = useRef(0);
+  renderPass.current += 1;
+  const pass = renderPass.current;
+  // Layout-phase so the panel is already placed on the frame it first
+  // appears in.
   useLayoutEffect(() => {
+    if (pass < 0) return; // unreachable: names the per-render dependency
     if (openProvider === null) {
-      setLeft(null);
+      if (left !== null) setLeft(null);
       return;
     }
     place();
-  });
+  }, [openProvider, place, left, pass]);
 
   useEffect(() => {
     if (openProvider === null) return;

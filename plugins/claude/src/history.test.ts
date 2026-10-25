@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
-import { fsStore } from "@keepdeck/plugin-api/testing";
-import { claudeHistory } from "./history";
+import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
+import { present, fsStore } from "@keepdeck/plugin-api/testing";
+import { claudeHistory, type HistoryPorts } from "./history";
 
 const LINES = [
   JSON.stringify({
@@ -34,9 +34,9 @@ const LINES = [
 
 function ctx(
   files: Record<string, string>,
-  dirs: Record<string, unknown[]>,
+  dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
-) {
+): HistoryPorts {
   // A store is read a WINDOW at a time now, so the double has to serve
   // windows: one that ignored `offset` would hand back the same first slice
   // forever and every assertion below would be about a file that does not
@@ -52,11 +52,10 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: fs.readFile,
       },
       sessionStore: createSessionStore(fs),
     },
-  } as unknown as PluginContext;
+  };
 }
 
 describe("claude history", () => {
@@ -111,7 +110,7 @@ describe("claude history", () => {
         warn,
       ),
     );
-    expect(await history.listing!()).toEqual({
+    expect(await present(history.listing, "the session listing")()).toEqual({
       stubs: [
         { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
       ],
@@ -126,12 +125,12 @@ describe("claude history", () => {
     // host's prune would wipe the agent's whole index.
     const warn = vi.fn();
     const history = claudeHistory(ctx({}, {}, warn));
-    expect(await history.listing!()).toEqual({ stubs: [], complete: false });
+    expect(await present(history.listing, "the session listing")()).toEqual({ stubs: [], complete: false });
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("listing() on a readable store answers complete, with list()'s exact stubs", async () => {
-    const dirs = {
+    const dirs: Record<string, FsEntry[]> = {
       "~/.claude/projects": [
         { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
       ],
@@ -140,7 +139,7 @@ describe("claude history", () => {
       ],
     };
     const history = claudeHistory(ctx({}, dirs));
-    const answer = await history.listing!();
+    const answer = await present(history.listing, "the session listing")();
     expect(answer.complete).toBe(true);
     expect(answer.stubs).toEqual(await history.list());
   });
@@ -150,7 +149,7 @@ describe("claude history", () => {
     // the enumeration derives the id from the filename, so keeping the
     // row would index an address that never existed. Both roads drop it —
     // a partial walk must not let the garbage ride the older one.
-    const dirs = {
+    const dirs: Record<string, FsEntry[]> = {
       "~/.claude/projects": [
         { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
       ],
@@ -169,7 +168,7 @@ describe("claude history", () => {
     expect(await history.list()).toEqual([
       { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
     ]);
-    const answer = await history.listing!();
+    const answer = await present(history.listing, "the session listing")();
     expect(answer.stubs).toEqual([
       { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
     ]);
@@ -180,7 +179,7 @@ describe("claude history", () => {
     // The drop is BY NAME and the name grammar is claude's, not ours: any
     // .jsonl without the orphaned marker is a session row as far as the
     // enumeration is concerned, whatever its id looks like.
-    const dirs = {
+    const dirs: Record<string, FsEntry[]> = {
       "~/.claude/projects": [
         { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
       ],
@@ -254,7 +253,7 @@ describe("claude history", () => {
     const history = claudeHistory({
       log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
       services: { fs: withCount, sessionStore: createSessionStore(withCount) },
-    } as unknown as PluginContext);
+    });
 
     await history.describe("/f.jsonl");
     const forDescribe = reads.mock.calls.length;
@@ -343,7 +342,7 @@ describe("claude history", () => {
     const size = new TextEncoder().encode(big).length;
     const history = claudeHistory(ctx({ "/f.jsonl": big }, {}));
 
-    const page = await history.transcriptPage!("/f.jsonl", {
+    const page = await present(history.transcriptPage, "the transcript page")("/f.jsonl", {
       offset: 4400,
       limit: 10,
     });
@@ -352,21 +351,33 @@ describe("claude history", () => {
     // which is also how the viewer's pagination learns it has reached the end.
     expect(page.entries.length).toBeLessThan(10);
     expect(page.shortfall).toHaveLength(1);
-    const [mark] = page.shortfall!;
+    const [mark] = present(page.shortfall, "the shortfall of page");
     expect(mark.kind).toBe("bytes");
     // Both numbers from the reading itself: the file's own length, and how
     // much of it was actually passed through. Pinning the budget here would
     // put the host's number back in a plugin's test.
     expect(mark).toMatchObject({ size });
-    expect((mark as { readBytes: number }).readBytes).toBeGreaterThan(0);
-    expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
+    if (mark.kind !== "bytes") throw new Error("expected a byte shortfall");
+    expect(mark.readBytes).toBeGreaterThan(0);
+    expect(mark.readBytes).toBeLessThan(size);
+  });
+
+  it("counts a line that is JSON but no record, as a shortfall, and reads the rest as before", async () => {
+    const clean = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
+    const stray = claudeHistory(ctx({ "/f.jsonl": `"stray"\n[1]\n${LINES}` }, {}));
+    const read = (history: typeof clean) =>
+      present(history.transcriptPage, "the transcript page")("/f.jsonl", { offset: 0, limit: 10 });
+    const [before, after] = [await read(clean), await read(stray)];
+    expect(before.entries.length).toBeGreaterThan(0);
+    expect(after.entries).toEqual(before.entries);
+    expect(after.shortfall).toEqual([{ kind: "parts", unreadableParts: 2 }]);
   });
 
   it("a page that read everything carries no shortfall at all", async () => {
     // Absence is the ONLY spelling of "nothing was missed" — an empty array
     // would be a second one, and two spellings of one truth drift apart.
     const history = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
-    const page = await history.transcriptPage!("/f.jsonl", { offset: 0, limit: 10 });
+    const page = await present(history.transcriptPage, "the transcript page")("/f.jsonl", { offset: 0, limit: 10 });
     expect(page.shortfall).toBeUndefined();
   });
 

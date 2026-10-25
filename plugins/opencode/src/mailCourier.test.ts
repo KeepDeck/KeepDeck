@@ -11,13 +11,18 @@ import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
-// The courier is untyped resource JS — shipped to, and loaded by, the user's
+import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
+// The courier is resource JS — shipped to, and loaded by, the user's
 // opencode process, never bundled into the plugin. The pane's session it
 // shares is ONE object per module instance — which is the point of it — so
 // each test loads the courier fresh, as a new pane's process would (see
 // `beforeEach`).
-let courierPlugin: (input?: any) => Promise<any>;
+type CourierResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier>>;
+let rawCourierPlugin: typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier;
+let courierPlugin: (input?: unknown) => Promise<Armed<CourierResult, "event" | "chat.message" | "tool.execute.after">>;
 import { startDeck } from "../../../scripts/reporterHarness";
+import { present } from "@keepdeck/plugin-api/testing";
+import { recordOf, stringOf } from "@keepdeck/plugin-api/testing";
 
 /**
  * This suite runs the courier on its REAL clock.
@@ -52,9 +57,41 @@ const busy = (sessionID: string) => ({
   },
 });
 
+const bodyOf = (value: unknown): PromptBody => {
+  const record = recordOf(value, "prompt body");
+  const parts = Array.isArray(record.parts)
+    ? record.parts.map((part) => {
+        const item = recordOf(part, "prompt part");
+        return {
+          type: stringOf(item.type, "part type"),
+          text: stringOf(item.text, "part text"),
+          ...(typeof item.synthetic === "boolean" ? { synthetic: item.synthetic } : {}),
+        };
+      })
+    : undefined;
+  const model = record.model === undefined ? undefined : recordOf(record.model, "prompt model");
+  return {
+    ...(typeof record.noReply === "boolean" ? { noReply: record.noReply } : {}),
+    ...(parts ? { parts } : {}),
+    ...(typeof record.agent === "string" ? { agent: record.agent } : {}),
+    ...(model
+      ? {
+          model: {
+            providerID: stringOf(model.providerID, "model provider"),
+            modelID: stringOf(model.modelID, "model id"),
+          },
+        }
+      : {}),
+    ...(typeof record.variant === "string" ? { variant: record.variant } : {}),
+  };
+};
+
 interface PromptBody {
   noReply?: boolean;
   parts?: { type: string; text: string; synthetic?: boolean }[];
+  agent?: string;
+  model?: { providerID: string; modelID: string };
+  variant?: string;
 }
 interface PromptCall {
   sessionID?: string;
@@ -88,14 +125,27 @@ describe("opencode mail courier", () => {
   let dir: string;
   let prompts: PromptCall[];
   let submitted: string[];
-  let client: Record<string, unknown>;
+  let client: {
+    session: {
+      get: (call: Record<string, unknown>) => Promise<unknown>;
+      promptAsync: (call: Record<string, unknown>) => Promise<unknown>;
+      messages?: (call: Record<string, unknown>) => Promise<unknown>;
+    };
+    tui: {
+      appendPrompt: (call: Record<string, unknown>) => Promise<unknown>;
+      submitPrompt: () => Promise<unknown>;
+    };
+  };
   /** Answers the fake deck will hand out, in order. Anything asked past the
    * end gets "" — which is what the real deck answers most of the time. */
   /** sessionId → parent, as the client would answer. Absent = a root. */
   let parents: Record<string, string | undefined>;
   let pending: unknown[];
   /** Every question the courier asked, in order. */
-  let asked: { paneId: string; payload: Record<string, string> }[];
+  let asked: {
+    paneId: string;
+    payload: { reporter: string; event: { type: string; target?: string } };
+  }[];
 
   let deck: Awaited<ReturnType<typeof startDeck>>;
 
@@ -123,7 +173,7 @@ describe("opencode mail courier", () => {
         payload,
       )
     );
-  const answerAsk = (envelope: any) => {
+  const answerAsk: NonNullable<Parameters<typeof startDeck>[0]> = (envelope) => {
     const type = envelope?.payload?.event?.type;
     if (type !== "mail.ask" && type !== "mail.ask.tool") return { status: 204 };
     asked.push(envelope);
@@ -142,8 +192,9 @@ describe("opencode mail courier", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // @ts-expect-error untyped resource module
-    ({ startCourier: courierPlugin } = await import("../resources/keepdeck-plugin/mail-courier.js"));
+    const resource = await import("../resources/keepdeck-plugin/mail-courier.js");
+    rawCourierPlugin = resource.startCourier;
+    courierPlugin = async (input) => requireHooks(await resource.startCourier(input), ["event", "chat.message", "tool.execute.after"]);
     dir = mkdtempSync(join(tmpdir(), "kd-courier-"));
     deck = await startDeck(answerAsk);
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
@@ -164,14 +215,14 @@ describe("opencode mail courier", () => {
         // adopting it as the pane's own conversation.
         get: async (call: Record<string, unknown>) =>
           rejectsFlat(call, () => {
-            const id = (call.path as { id: string }).id;
+            const id = stringOf(recordOf(call.path, "call path").id, "session id");
             return { data: { id, parentID: parents[id] } };
           }),
         promptAsync: async (call: Record<string, unknown>) =>
           rejectsFlat(call, () => {
             prompts.push({
-              sessionID: (call.path as { id: string } | undefined)?.id,
-              body: call.body as PromptBody,
+              sessionID: call.path === undefined ? undefined : stringOf(recordOf(call.path, "call path").id, "session id"),
+              body: bodyOf(call.body),
             });
             return { data: {} };
           }),
@@ -179,7 +230,7 @@ describe("opencode mail courier", () => {
       tui: {
         appendPrompt: async (call: Record<string, unknown>) =>
           rejectsFlat(call, () => {
-            submitted.push((call.body as { text: string }).text);
+            submitted.push(stringOf(recordOf(call.body, "prompt body").text, "prompt text"));
             return { data: true };
           }),
         submitPrompt: async () => {
@@ -258,7 +309,7 @@ describe("opencode mail courier", () => {
     // drops the variant (1.19.3, measured) — the context call included, since
     // a noReply message sets the session's agent and model too.
     const reads: number[] = [];
-    (client.session as Record<string, unknown>).messages = async () => {
+    client.session.messages = async () => {
       reads.push(prompts.length);
       return {
         data: [
@@ -452,14 +503,14 @@ describe("opencode mail courier", () => {
     const courier = await start();
     pending.push({ v: 1, context: "brief" });
     await courier.event(created("ses_root"));
-    const envelope = last(asked)!;
+    const envelope = present(last(asked), "the last value");
     expect(readdirSync(dir)).toEqual([]);
     // And the question named this pane, with the same process the reporter
     // beside it names — the deck pins a pane's identity to one process.
     expect(envelope.paneId).toBe("pane-3");
     expect(envelope.payload.reporter).toBe(String(process.pid));
     expect(
-      (envelope.payload.event as unknown as { type: string }).type,
+      envelope.payload.event.type,
     ).toBe("mail.ask");
   });
 
@@ -496,9 +547,7 @@ describe("opencode mail courier", () => {
     // message this courier carried was dropped in silence. The deck books a
     // message the moment it hands it over, so there is nothing to retry with
     // — a visible delivery beats a tidy failure nobody hears about.
-    (client.session as { promptAsync: unknown }).promptAsync = async () => ({
-      error: { name: "UnknownError" },
-    });
+    client.session.promptAsync = async () => ({ error: { name: "UnknownError" } });
     const courier = await start();
     await courier.event(created("ses_root"));
     pending.push({ v: 1, prompt: "ship it" });
@@ -572,14 +621,12 @@ describe("opencode mail courier", () => {
     // the slower one, and the pane was rebound to somebody else's
     // conversation for the life of the process.
     parents.ses_alien_child = "ses_alien_root";
-    const session = client.session as {
-      get: (call: Record<string, unknown>) => Promise<unknown>;
-    };
+    const session = client.session;
     const answer = session.get;
     // The alien's answer comes back LAST, deterministically — which is what
     // an extra hop up a chain buys it in practice.
     session.get = async (call: Record<string, unknown>) => {
-      if ((call.path as { id: string }).id.startsWith("ses_alien")) {
+      if (stringOf(recordOf(call.path, "call path").id, "session id").startsWith("ses_alien")) {
         await sleep(30);
       }
       return answer(call);
@@ -607,14 +654,14 @@ describe("opencode mail courier", () => {
     const courier = await start();
     await courier.event(created("ses_root"));
     await courier.event(idle("ses_root"));
-    expect(asked.map((ask) => (ask.payload.event as unknown as { target: string }).target))
+    expect(asked.map((ask) => ask.payload.event.target))
       .toEqual(["root", "root"]);
   });
 
   it("names the TUI's own prompt the root when no session is bound yet", async () => {
     const courier = await start();
     await ringUntil(() => asked.length > 0);
-    expect((asked[0].payload.event as unknown as { target: string }).target).toBe("root");
+    expect(asked[0].payload.event.target).toBe("root");
     void courier;
   });
 
@@ -622,19 +669,19 @@ describe("opencode mail courier", () => {
     // A resumed pane adopts whatever the client could not classify — a pane
     // bound to nothing is unreachable — but that adoption is not proof the
     // session is the main agent's, so the ask says so and the deck holds.
-    (client as { session: { get: unknown } }).session.get = async () => ({ error: "unavailable" });
+    client.session.get = async () => ({ error: "unavailable" });
     const courier = await start();
     await courier.event(busy("ses_unknown"));
     pending.push({ v: 1, prompt: "ship it" });
     await courier.event(idle("ses_unknown"));
-    expect((last(asked)?.payload.event as unknown as { target: string }).target).toBe("unknown");
+    expect(last(asked)?.payload.event.target).toBe("unknown");
   });
 
   it("stays inert outside KeepDeck", async () => {
     // A user's own opencode, or a KeepDeck too old to set the variable. It
     // must not ask, must not watch, and must not touch their session.
     delete process.env.KEEPDECK_BRIDGE;
-    expect(await start()).toEqual({});
+    expect(await rawCourierPlugin({ client })).toEqual({});
     expect(readdirSync(dir)).toEqual([]);
   });
 });

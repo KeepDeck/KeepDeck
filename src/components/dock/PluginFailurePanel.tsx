@@ -1,6 +1,10 @@
-import { crashSurfaceLabel, type PluginCrash } from "../../app/pluginHealth";
-import { useAppRuntime } from "../../app/runtimeContext";
-import { writeText } from "../../ipc/clipboard";
+import type { PluginCrash } from "../../app/pluginHealth";
+import { useRuntimePart } from "../../app/runtimeContext";
+
+/** The crash's surface in words — the log's line prefix and the hint. */
+function crashSurfaceLabel(crash: PluginCrash): string {
+  return `${crash.surfaceKind} "${crash.surfaceId}"`;
+}
 
 /**
  * What a crashed plugin's UI area shows instead of its (dead) content: the
@@ -18,7 +22,8 @@ export function PluginFailurePanel({
   label: string;
   crashes: readonly PluginCrash[];
 }) {
-  const { restartPlugin } = useAppRuntime().plugins;
+  const { restartPlugin } = useRuntimePart("plugins");
+  const { writeText } = useRuntimePart("clipboard");
   const log = crashes
     .map((crash) => `[${crashSurfaceLabel(crash)}] ${crash.detail}`)
     .join("\n\n");

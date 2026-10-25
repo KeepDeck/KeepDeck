@@ -4,10 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { createAgentStatusTracker } from "../app/agentStatusTracker";
-import { createUsageManager } from "../app/usageManager";
+import {
+  createAgentStatusTracker,
+  createUsageManager,
+} from "../app/testing";
 import { AppRuntimeProvider } from "../app/runtimeContext";
-import type { AppRuntime } from "../app/runtime";
 
 /** The runtime slice the panes under DeckStage read (activity + ctx%). The
  * tracker is a mutable binding so the frames describe can report live
@@ -24,7 +25,7 @@ const withRuntime = (el: ReactElement) =>
         usageManager: createUsageManager(),
         // The team cards read the board's owner; off here, so no board.
         tasks: { current: () => null, subscribe: () => () => {} },
-      } as unknown as AppRuntime,
+      },
     },
     el,
   );
@@ -60,18 +61,38 @@ const sessions = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../app/ptyManager", () => ({
-  paneSessionState: (paneId: string) => sessions.read(paneId),
-  subscribeSessions: sessions.subscribe,
-}));
+vi.mock("../app/usePaneSessionState", async () => {
+  const { useCallback, useSyncExternalStore } = await import("react");
+  return {
+    usePaneSessionState: (paneId: string) => {
+      const read = useCallback(() => sessions.read(paneId), [paneId]);
+      return useSyncExternalStore(sessions.subscribe, read, read);
+    },
+  };
+});
 
 /** The empty team's list, as the stage hands it over: its own suite
  * covers what it does with it. */
-const teamSessions = vi.hoisted(() => ({ props: null as null | Record<string, unknown>, mounts: 0 }));
+interface TeamSessionsFakeProps {
+  cwd: string;
+  onContinue(mode: "resume" | "fork", record: SessionHandle, role: string): void;
+}
+function isTeamSessionsFakeProps(value: unknown): value is TeamSessionsFakeProps {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "onContinue" in value &&
+    typeof value.onContinue === "function"
+  );
+}
+const teamSessions = vi.hoisted(() => ({
+  props: null as null | TeamSessionsFakeProps,
+  mounts: 0,
+}));
 vi.mock("./deck/TeamSessions", async () => {
   const { useEffect } = await import("react");
   return {
-    TeamSessions: (props: Record<string, unknown>) => {
+    TeamSessions: (props: TeamSessionsFakeProps) => {
       teamSessions.props = props;
       useEffect(() => {
         teamSessions.mounts += 1;
@@ -84,9 +105,9 @@ vi.mock("./deck/TeamSessions", async () => {
 import { TerminalPane } from "./terminal/TerminalPane";
 import { DeckStage } from "./DeckStage";
 import { NO_TEAMS_WORD } from "../presentation/stageView";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
+import { statusEdge } from "../testing/values.test-support";
+import type { SessionHandle } from "../domain/journal";
 
 /** A team on the workspace root: what every fixture pane is on, since the
  * stage lays out the OPEN team's members and nothing else. */
@@ -184,7 +205,11 @@ const browser = {
   transcript: vi.fn(() => Promise.resolve({ entries: [] })),
 };
 
-const props = (overrides: Record<string, unknown> = {}) => ({
+interface DeckPropsOverrides extends Record<string, unknown> {
+  viewByWs?: Record<string, Record<string, unknown>>;
+}
+
+const props = (overrides: DeckPropsOverrides = {}) => ({
   journal: {},
   browserShared: browser,
   workspaces,
@@ -217,10 +242,10 @@ const props = (overrides: Record<string, unknown> = {}) => ({
     "pane-2": { command: "codex", args: [], env: [] },
   },
   failedPanes: new Set<string>(),
-  restartEpochs: {} as Record<string, number>,
+  restartEpochs: {},
   ...callbacks,
   ...overrides,
-  viewByWs: openView(overrides.viewByWs as Record<string, Record<string, unknown>> | undefined),
+  viewByWs: openView(overrides.viewByWs),
 });
 
 function terminalProps(paneId: string) {
@@ -239,7 +264,7 @@ describe("DeckStage — exited agents across layouts", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     vi.mocked(TerminalPane).mockClear();
     for (const callback of Object.values(callbacks)) callback.mockClear();
   });
@@ -260,7 +285,7 @@ describe("DeckStage — exited agents across layouts", () => {
 
   it("keeps an exit while minimized, resumes it when revealed, then remounts by epoch", async () => {
     render({ viewByWs: { "ws-1": { minimized: ["pane-1"] } } });
-    const hidden = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
+    const hidden = present(document.querySelector<HTMLElement>("[data-pane-id='pane-1']"), "the [data-pane-id='pane-1'] element");
     expect(hidden.classList.contains("pane--hidden")).toBe(true);
 
     act(() => {
@@ -268,13 +293,13 @@ describe("DeckStage — exited agents across layouts", () => {
       terminalProps("pane-1").onExit?.(0, false);
     });
     render({ viewByWs: { "ws-1": {} } });
-    const revealed = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
+    const revealed = present(document.querySelector<HTMLElement>("[data-pane-id='pane-1']"), "the [data-pane-id='pane-1'] element");
     expect(revealed.classList.contains("pane--hidden")).toBe(false);
     expect(revealed.textContent).toContain("Agent exited");
 
-    const restartButton = revealed.querySelector<HTMLButtonElement>(
+    const restartButton = present(revealed.querySelector<HTMLButtonElement>(
       ".pane__exit-action--primary",
-    )!;
+    ), "the .pane__exit-action--primary element");
     await act(async () => restartButton.click());
     expect(callbacks.onRestartAgent).toHaveBeenCalledWith(
       "ws-1",
@@ -298,9 +323,9 @@ describe("DeckStage — exited agents across layouts", () => {
   it("removes a tray popover when a programmatic workspace switch hides its source", () => {
     const viewByWs = { "ws-1": { minimized: ["pane-1"] } };
     render({ workspaces: twoWorkspaces, viewByWs });
-    const trigger = document.querySelector<HTMLButtonElement>(
+    const trigger = present(document.querySelector<HTMLButtonElement>(
       ".deck__workspace:not(.deck__workspace--hidden) .minimized-overflow__trigger",
-    )!;
+    ), "the .deck__workspace:not(.deck__workspace--hidden) .minimized-overflow__trigger element");
     act(() => trigger.click());
     expect(document.querySelector("[role='dialog']")).not.toBeNull();
 
@@ -313,15 +338,15 @@ describe("DeckStage — exited agents across layouts", () => {
     render({ workspaces: twoWorkspaces, viewByWs });
     // happy-dom reports zero widths, so the chip lives in the +N popover.
     act(() =>
-      document
+      present(document
         .querySelector<HTMLButtonElement>(
           ".deck__workspace:not(.deck__workspace--hidden) .minimized-overflow__trigger",
-        )!
+        ), "the .deck__workspace:not(.deck__workspace--hidden) .minimized-overflow__trigger element")
         .click(),
     );
-    const item = document.querySelector<HTMLButtonElement>(
+    const item = present(document.querySelector<HTMLButtonElement>(
       "[role='dialog'] .minimized--chip",
-    )!;
+    ), "the [role='dialog'] .minimized--chip element");
     act(() => item.focus());
     expect(document.querySelector("[role='tooltip']")).not.toBeNull();
 
@@ -335,7 +360,7 @@ describe("DeckStage — the open team's slice", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     vi.mocked(TerminalPane).mockClear();
   });
 
@@ -347,7 +372,7 @@ describe("DeckStage — the open team's slice", () => {
     act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
 
   const paneEl = (paneId: string) =>
-    document.querySelector<HTMLElement>(`[data-pane-id='${paneId}']`)!;
+    present(document.querySelector<HTMLElement>(`[data-pane-id='${paneId}']`), "the element matching `[data-pane-id='${paneId}']`");
 
   /** pane-1 on team-1; pane-2 and pane-3 on team-2. */
   const twoTeams = [
@@ -392,10 +417,10 @@ describe("DeckStage — the open team's slice", () => {
       specByPane: specs,
       viewByWs: { "ws-1": { teamOpen: "team-2", minimized: ["pane-2", "pane-3"] } },
     });
-    expect(document.querySelector(".deck__grid-empty-title")!.textContent).toBe(
+    expect(present(document.querySelector(".deck__grid-empty-title"), "the .deck__grid-empty-title element").textContent).toBe(
       "Every agent on this team is minimized",
     );
-    expect(document.querySelector(".deck__tray-label")!.textContent).toBe("Minimized · 2");
+    expect(present(document.querySelector(".deck__tray-label"), "the .deck__tray-label element").textContent).toBe("Minimized · 2");
   });
 
   it("lays out nothing at the cards level, and says nothing about an empty grid", () => {
@@ -444,7 +469,7 @@ describe("DeckStage — the teams level", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     vi.mocked(TerminalPane).mockClear();
     for (const callback of Object.values(callbacks)) callback.mockClear();
   });
@@ -457,7 +482,7 @@ describe("DeckStage — the teams level", () => {
     act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
 
   const card = (teamId: string) =>
-    document.querySelector<HTMLElement>(`[data-team-id='${teamId}']`)!;
+    present(document.querySelector<HTMLElement>(`[data-team-id='${teamId}']`), "the element matching `[data-team-id='${teamId}']`");
   const menuItems = () =>
     [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")].map(
       (item) => item.textContent,
@@ -489,32 +514,32 @@ describe("DeckStage — the teams level", () => {
   it("draws one card per team with its six things, and the whole card is the way in", () => {
     render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
     const api = card("team-1");
-    expect(api.querySelector(".team-card__name")!.textContent).toBe("api");
-    expect(api.querySelector(".team-card__dot")!.classList.contains("team-dot--none")).toBe(true);
-    expect(api.querySelector(".team-card__branch")!.textContent).toContain("kd/api");
-    expect(api.querySelector(".team-card__count")!.textContent).toBe("2 agents");
-    expect(api.querySelector(".team-card__dir")!.textContent).toBe("api");
-    expect(api.querySelector<HTMLElement>(".team-card__dir")!.title).toBe("/repo/.wt/api");
+    expect(present(api.querySelector(".team-card__name"), "the .team-card__name element").textContent).toBe("api");
+    expect(present(api.querySelector(".team-card__dot"), "the .team-card__dot element").classList.contains("team-dot--none")).toBe(true);
+    expect(present(api.querySelector(".team-card__branch"), "the .team-card__branch element").textContent).toContain("kd/api");
+    expect(present(api.querySelector(".team-card__count"), "the .team-card__count element").textContent).toBe("2 agents");
+    expect(present(api.querySelector(".team-card__dir"), "the .team-card__dir element").textContent).toBe("api");
+    expect(present(api.querySelector<HTMLElement>(".team-card__dir"), "the .team-card__dir element").title).toBe("/repo/.wt/api");
     expect(api.classList.contains("team-card--pending")).toBe(false);
     // Nothing on the card but the menu is a control.
     expect(api.querySelectorAll("button")).toHaveLength(2);
 
     const docs = card("team-2");
     expect(docs.classList.contains("team-card--pending")).toBe(true);
-    expect(docs.querySelector(".team-card__dot")!.classList.contains("team-dot--failed")).toBe(true);
-    expect(docs.querySelector(".team-card__count")!.textContent).toBe("No agents");
+    expect(present(docs.querySelector(".team-card__dot"), "the .team-card__dot element").classList.contains("team-dot--failed")).toBe(true);
+    expect(present(docs.querySelector(".team-card__count"), "the .team-card__count element").textContent).toBe("No agents");
     expect(docs.textContent).not.toContain("branch exists");
 
     act(() => api.click());
     expect(callbacks.onEnterTeam).toHaveBeenCalledWith("ws-1", "team-1");
-    act(() => docs.querySelector<HTMLButtonElement>(".team-card__open")!.click());
+    act(() => present(docs.querySelector<HTMLButtonElement>(".team-card__open"), "the .team-card__open element").click());
     expect(callbacks.onEnterTeam).toHaveBeenLastCalledWith("ws-1", "team-2");
   });
 
   it("offers one menu on every card, with Retry only where the create failed, and performs each pick", () => {
     render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
     const menuOf = (label: string) =>
-      act(() => card(label).querySelector<HTMLButtonElement>(`button[aria-label='Team ${label === "team-1" ? "api" : "docs"} actions']`)!.click());
+      act(() => present(card(label).querySelector<HTMLButtonElement>(`button[aria-label='Team ${label === "team-1" ? "api" : "docs"} actions']`), "the element matching `button[aria-label='Team ${label === \"team-1\" ? \"api\" : \"docs\"} actions']`").click());
     menuOf("team-1");
     // No "Open" line: the whole card is the way in. Opening the menu is not
     // entering the team either.
@@ -536,14 +561,14 @@ describe("DeckStage — the teams level", () => {
 
   it("renames inline from the menu: Enter commits the trimmed draft to the team by id", () => {
     render({ workspaces: cards, viewByWs: { "ws-1": { teamOpen: undefined } } });
-    act(() => card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']")!.click());
+    act(() => present(card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']"), "the button[aria-label='Team api actions'] element").click());
     act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][1].click());
-    const input = card("team-1").querySelector<HTMLInputElement>(".team-card__rename")!;
+    const input = present(card("team-1").querySelector<HTMLInputElement>(".team-card__rename"), "the .team-card__rename element");
     expect(input.value).toBe("api");
     act(() => {
       // Through the prototype's setter: React's value tracker ignores a
       // value written on the instance, and would see no change to report.
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+      present(present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "the value setter").set, "the value setter").call(
         input,
         " platform ",
       );
@@ -559,14 +584,14 @@ describe("DeckStage — the teams level", () => {
       specByPane: {},
       viewByWs: { "ws-1": { teamOpen: undefined } },
     });
-    expect(card("team-1").querySelector(".team-card__count")!.textContent).toBe("No agents");
+    expect(present(card("team-1").querySelector(".team-card__count"), "the .team-card__count element").textContent).toBe("No agents");
     expect(document.querySelector(".deck__setup")).toBeNull();
   });
 
   it("says there is no team in a workspace with none — no sessions list there", () => {
     teamSessions.props = null;
     render({ workspaces: [{ ...workspaces[0], teams: [], panes: [] }], specByPane: {} });
-    expect(document.querySelector(".deck__grid-empty-title")!.textContent).toBe(NO_TEAMS_WORD.title);
+    expect(present(document.querySelector(".deck__grid-empty-title"), "the .deck__grid-empty-title element").textContent).toBe(NO_TEAMS_WORD.title);
     expect(teamSessions.props).toBeNull();
   });
 
@@ -575,8 +600,12 @@ describe("DeckStage — the teams level", () => {
     render({ workspaces: [{ ...workspaces[0], panes: [] }], specByPane: {} });
     expect(teamSessions.props).toMatchObject({ cwd: "/repo" });
     expect(document.querySelector(".deck__grid-empty")).toBeNull();
-    const record = { agent: "codex", sessionId: "s-1", cwd: "/repo" };
-    (teamSessions.props!.onContinue as (...args: unknown[]) => void)("fork", record, "lead");
+    const props: unknown = teamSessions.props;
+    if (!isTeamSessionsFakeProps(props)) {
+      throw new Error("expected the team sessions props");
+    }
+    const record: SessionHandle = { agent: "codex", sessionId: "s-1", cwd: "/repo" };
+    props.onContinue("fork", record, "lead");
     expect(callbacks.onContinueSession).toHaveBeenCalledWith("ws-1", "team-1", "fork", record, "lead");
   });
 
@@ -602,7 +631,7 @@ describe("DeckStage — the teams level", () => {
       specByPane: {},
     });
     expect(teamSessions.props).toBeNull();
-    expect(document.querySelector(".deck__grid-empty-title")!.textContent).toBe("No agents on this team");
+    expect(present(document.querySelector(".deck__grid-empty-title"), "the .deck__grid-empty-title element").textContent).toBe("No agents on this team");
   });
 
   it("asks the folder-gone card for a role when the pane's cannot come along to the root's team", () => {
@@ -624,14 +653,14 @@ describe("DeckStage — the teams level", () => {
       idleBlocked: { "pane-3": "/repo/gone" },
       viewByWs: { "ws-1": { teamOpen: "team-lost" } },
     });
-    act(() => document.querySelector<HTMLButtonElement>(".pane__card-role .dropdown__button")!.click());
-    const impl = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+    act(() => present(document.querySelector<HTMLButtonElement>(".pane__card-role .dropdown__button"), "the .pane__card-role .dropdown__button element").click());
+    const impl = present([...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
       (b) => b.textContent === "Implementer",
-    )!;
+    ), "the matching element");
     act(() => impl.click());
-    const startFresh = [...document.querySelectorAll<HTMLButtonElement>(".pane__card-action")].find((b) =>
+    const startFresh = present([...document.querySelectorAll<HTMLButtonElement>(".pane__card-action")].find((b) =>
       b.textContent?.startsWith("Start fresh"),
-    )!;
+    ), "the matching element");
     act(() => startFresh.click());
     // The root's team holds lead and impl-1: the pick lands past them.
     expect(callbacks.onStartFresh).toHaveBeenCalledWith("ws-1", "pane-3", "impl-2");
@@ -648,7 +677,7 @@ describe("DeckStage — agent identity on the pane header", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     vi.mocked(TerminalPane).mockClear();
   });
 
@@ -674,20 +703,20 @@ describe("DeckStage — agent identity on the pane header", () => {
         },
       ],
     });
-    const slot = document.querySelector<HTMLElement>(
+    const slot = present(document.querySelector<HTMLElement>(
       "[data-pane-id='pane-1'] .pane__agent",
-    )!;
+    ), "the [data-pane-id='pane-1'] .pane__agent element");
     expect(slot.title).toBe("Codex");
-    expect(slot.querySelector("path")!.getAttribute("d")).toBe(
+    expect(present(slot.querySelector("path"), "the path element").getAttribute("d")).toBe(
       mark.paths[0].d,
     );
   });
 
   it("an agent whose plugin ships no mark gets the neutral fallback", () => {
     render();
-    const slot = document.querySelector<HTMLElement>(
+    const slot = present(document.querySelector<HTMLElement>(
       "[data-pane-id='pane-1'] .pane__agent",
-    )!;
+    ), "the [data-pane-id='pane-1'] .pane__agent element");
     expect(slot.querySelector("svg polyline")).not.toBeNull();
   });
 
@@ -703,9 +732,9 @@ describe("DeckStage — agent identity on the pane header", () => {
         },
       ],
     });
-    const chip = document.querySelector<HTMLElement>(
+    const chip = present(document.querySelector<HTMLElement>(
       "[data-pane-id='pane-1'] .pane__yolo",
-    )!;
+    ), "the [data-pane-id='pane-1'] .pane__yolo element");
     // Icon-only chip: the bolt svg is the visible mark, and the accessible
     // name comes from aria-label (title is only the sighted tooltip).
     expect(chip.querySelector("svg")).not.toBeNull();
@@ -717,9 +746,9 @@ describe("DeckStage — agent identity on the pane header", () => {
   });
 
   const teamLabel = (paneId: string) =>
-    document.querySelector<HTMLElement>(
+    present(document.querySelector<HTMLElement>(
       `[data-pane-id='${paneId}'] .pane__role-text`,
-    )!.textContent;
+    ), "the element matching `[data-pane-id='${paneId}'] .pane__role-text`").textContent;
 
   it("names each pane's team once the deck runs more than one", () => {
     // Reported live: two teams up, two panes both badged `lead`, and the
@@ -765,7 +794,7 @@ describe("DeckStage — agent identity on the pane header", () => {
     expect(teamLabel("pane-2")).toBe("impl-1");
     // The name is still one hover away, on every badge.
     expect(
-      document.querySelector<HTMLElement>("[data-pane-id='pane-1'] .pane__role")!
+      present(document.querySelector<HTMLElement>("[data-pane-id='pane-1'] .pane__role"), "the [data-pane-id='pane-1'] .pane__role element")
         .title,
     ).toContain("api");
   });
@@ -776,20 +805,20 @@ describe("DeckStage — agent identity on the pane header", () => {
     render({ viewByWs: { "ws-1": { minimized: ["pane-2"] } } });
     // happy-dom reports zero widths, so the chip sits in the +N popover.
     act(() =>
-      document
-        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger")!
+      present(document
+        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger"), "the .minimized-overflow__trigger element")
         .click(),
     );
-    const chip = document.querySelector<HTMLButtonElement>(
+    const chip = present(document.querySelector<HTMLButtonElement>(
       "[role='dialog'] .minimized--chip",
-    )!;
+    ), "the [role='dialog'] .minimized--chip element");
     expect(chip.getAttribute("aria-label")).toContain(
       "impl-1 on team team-1",
     );
 
     act(() => chip.focus());
     expect(
-      document.querySelector<HTMLElement>(".minimized-tooltip__team")!
+      present(document.querySelector<HTMLElement>(".minimized-tooltip__team"), "the .minimized-tooltip__team element")
         .textContent,
     ).toContain("impl-1 on team team-1");
   });
@@ -800,7 +829,7 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     vi.mocked(TerminalPane).mockClear();
     for (const callback of Object.values(callbacks)) callback.mockClear();
   });
@@ -820,19 +849,19 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
     );
   const openOverflow = () =>
     act(() =>
-      document
-        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger")!
+      present(document
+        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger"), "the .minimized-overflow__trigger element")
         .click(),
     );
 
   it("lists the panes a maximize hides in the tray, and empties when un-maximized", () => {
     render({ viewByWs: { "ws-1": { focus: ["pane-1"] } } });
     expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-2']")!
+      present(document
+        .querySelector<HTMLElement>("[data-pane-id='pane-2']"), "the [data-pane-id='pane-2'] element")
         .classList.contains("pane--hidden"),
     ).toBe(true);
-    expect(document.querySelector(".deck__tray-label")!.textContent).toBe(
+    expect(present(document.querySelector(".deck__tray-label"), "the .deck__tray-label element").textContent).toBe(
       "Minimized · 1",
     );
 
@@ -871,7 +900,7 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
       },
       viewByWs: { "ws-1": { focus: ["pane-1"], minimized: ["pane-2"] } },
     });
-    expect(document.querySelector(".deck__tray-label")!.textContent).toBe(
+    expect(present(document.querySelector(".deck__tray-label"), "the .deck__tray-label element").textContent).toBe(
       "Minimized · 2",
     );
 
@@ -900,13 +929,13 @@ describe("DeckStage — status frames across layouts", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     vi.mocked(TerminalPane).mockClear();
     statusTracker = createAgentStatusTracker();
     statusTracker.registerNormalizer(
       "codex",
       (payload: unknown) =>
-        (payload as { edge?: AgentStatusEvent }).edge ?? null,
+        statusEdge(payload),
     );
   });
 
@@ -919,7 +948,7 @@ describe("DeckStage — status frames across layouts", () => {
     act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
 
   const paneEl = (paneId: string) =>
-    document.querySelector<HTMLElement>(`[data-pane-id='${paneId}']`)!;
+    present(document.querySelector<HTMLElement>(`[data-pane-id='${paneId}']`), "the element matching `[data-pane-id='${paneId}']`");
 
   const reportEdge = (paneId: string, edge: AgentStatusEvent) =>
     act(() => statusTracker.report(paneId, { agent: "codex", edge }));

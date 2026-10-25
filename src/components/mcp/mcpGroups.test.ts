@@ -8,6 +8,7 @@ import {
   describeMcpRow,
   labelForMcpScope,
 } from "./mcpGroups";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The tier as the service describes it: up, or not yet. */
 const tier = (up: boolean): BundledMcpDescription[] => [
@@ -40,17 +41,17 @@ describe("the server nav's groups", () => {
   it("shows only Global and Bundled with no workspace open, and an empty library", () => {
     const groups = buildMcpGroups(null, null, bundledMcpRows(tier(false)));
     expect(groups.map((g) => g.label)).toEqual(["Global", "Bundled"]);
-    expect(groups[0]!.items).toEqual([]);
+    expect(present(groups[0], "entry groups[0]").items).toEqual([]);
   });
 
   it("presents the deck's server with the invocation the backend hands out", () => {
     const [keepdeck] = bundledMcpRows(tier(true));
-    expect(describeMcpRow(keepdeck!)).toBe("/bin/keepdeck --mcp-shim /s");
+    expect(describeMcpRow(present(keepdeck, "keepdeck"))).toBe("/bin/keepdeck --mcp-shim /s");
     // Until the socket is confirmed there is no invocation to show — and the
     // row says so in the same words the panel does.
     const [pending] = bundledMcpRows(tier(false));
-    expect(pending!.verdict).toEqual({ kind: "pending" });
-    expect(describeMcpRow(pending!)).toBe(BUNDLED_PENDING);
+    expect(present(pending, "pending").verdict).toEqual({ kind: "pending" });
+    expect(describeMcpRow(present(pending, "pending"))).toBe(BUNDLED_PENDING);
   });
 
   it("describes a row by what it runs or reaches, or why it cannot be read", () => {

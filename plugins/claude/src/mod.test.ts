@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 // The Mod exactly as claude loads it — plain JS beside its copy of the wire.
-// @ts-expect-error untyped resource module
 import { register } from "../resources/keepdeck-mod/hooks/register.js";
 import { MOD_INTERRUPT_EVENT, MOD_PROMPT_ACCEPTED_EVENT } from "./status";
+import { present, recordOf, stringOf } from "@keepdeck/plugin-api/testing";
 
 const BRIDGE = JSON.stringify({
   v: 2,
@@ -12,7 +12,7 @@ const BRIDGE = JSON.stringify({
   url: "http://127.0.0.1:9/envelope",
 });
 
-type Handler = ($: unknown, e: unknown, next: (e: unknown) => unknown) => unknown;
+type Handler = Parameters<Parameters<typeof register>[0]>[1];
 
 /** The Mod registered against a fake claude: its handlers by event, and a
  * `$` whose env, process and HTTP the test controls. */
@@ -72,7 +72,7 @@ function loaded({
   const fire = async (name: string, e: unknown, result: unknown = e) => {
     const handler = handlers.get(name);
     if (!handler) throw new Error(`no handler for ${name}`);
-    const out = await handler($, e, async () => result);
+    const out = await handler($, recordOf(e, "hook event"), async () => result);
     // Let the wire's queue post what was published.
     for (let i = 0; i < 10; i++) await Promise.resolve();
     return out;
@@ -80,7 +80,7 @@ function loaded({
   const events = () =>
     posted
       .filter(({ envelope }) => envelope.type === "agent.status")
-      .map(({ envelope }) => (envelope.payload.event as { hook_event_name: string }).hook_event_name);
+      .map(({ envelope }) => stringOf(recordOf(recordOf(recordOf(envelope, "envelope").payload, "payload").event, "event").hook_event_name, "event name"));
   const ring = async () => {
     doorbell.up = true;
     for (const timer of timers) await timer.tick();
@@ -111,7 +111,7 @@ async function loadedTwin(first: ReturnType<typeof loaded>) {
     fs: { exists: async () => true },
     clock: { every: (_ms: number, tick: () => Promise<void>) => (ticks.push(tick), { cancel() {} }) },
   };
-  await twinHandlers.get("session.start")!($, {}, async (e: unknown) => e);
+  await present(twinHandlers.get("session.start"), "the entry for \"session.start\"")($, {}, async (e: unknown) => e);
   for (const tick of ticks) await tick();
 }
 
@@ -161,7 +161,7 @@ describe("KeepDeck's claude Mod", () => {
       [userAppend(), { message: { type: "attachment", content: [] }, uuid: "u" }],
     ];
     for (const [input, result] of cases) {
-      await mod.fire("session.append", input, result ?? { message: (input as { message: unknown }).message, uuid: "u" });
+      await mod.fire("session.append", input, result ?? { message: input.message, uuid: "u" });
     }
     expect(mod.events()).toEqual([]);
   });
@@ -250,7 +250,7 @@ describe("KeepDeck's claude Mod", () => {
     expect(mod.posted.filter(({ envelope }) => envelope.type === "companion.hello")).toHaveLength(1);
     // A reloaded module beside its predecessor: both see the same ring.
     mod.doorbell.up = true;
-    await mod.timers[0]!.tick();
+    await present(mod.timers[0], "the first mod.timers").tick();
     await loadedTwin(mod);
     expect(mod.doorbell.removed).toBe(1);
     expect(mod.submitted).toHaveLength(1);

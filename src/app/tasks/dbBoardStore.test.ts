@@ -3,6 +3,7 @@ import { encodeBoard, transition, type TaskBoard } from "../../domain/tasks";
 import { board, lead, mintSequence, task } from "../../domain/tasks/testSupport";
 import { createDbBoardStore } from "./dbBoardStore";
 import { testDatabase, isTestStoreError } from "./testDatabase";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const file = (workspace: string, json: string) => ({ workspace, json, checksum: `sum-${workspace}-${json.length}` });
 
@@ -20,7 +21,7 @@ async function readBoard(store: Awaited<ReturnType<typeof open>>["store"], works
 }
 
 const comment = (b: TaskBoard, body: string, id = "task-1"): TaskBoard => {
-  const t = b.tasks.find((x) => x.id === id)!;
+  const t = present(b.tasks.find((x) => x.id === id), `the  task`);
   const result = transition(t, { kind: "comment", body }, lead, { board: b, roster: ["lead"], at: 7 });
   if (!result.ok) throw new Error("refused");
   return result.board;
@@ -128,7 +129,10 @@ describe("createDbBoardStore — the board reaches the database", () => {
     const { db, store } = await open();
     expect(await store.read({ workspaceId: "ws-2" })).toEqual({ kind: "none" });
     await store.write({ workspaceId: "ws-2", board: board([task({ id: "task-1", teamId: "team-2" })], 2) });
-    const made = db.boards().find((x) => x.workspace === "ws-2")!;
+    const made = present(
+      db.boards().find((x) => x.workspace === "ws-2"),
+      "the ws-2 board row",
+    );
     expect(made.board).not.toBe("ws-2");
     expect(made.tasks[0].key).toBe("task-1");
   });

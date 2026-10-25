@@ -13,11 +13,12 @@ import {
   restore,
   wrongShapeFor,
 } from "./settings.testSupport";
+import { recordOf } from "../../testing/values.test-support";
 
 /** What a saved document contains. */
 
 const saved = (doc: Parameters<typeof serializeSettings>[0]) =>
-  JSON.parse(serializeSettings(doc)) as Record<string, unknown>;
+  recordOf(JSON.parse(serializeSettings(doc)), "record");
 
 const chose = (patch: Partial<Settings>) =>
   withSettings(defaultSettingsDocument(), patch);

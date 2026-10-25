@@ -3,6 +3,7 @@ import type { Pane, Workspace } from "../deck";
 import { resolveNamedPanes } from "../deck/teams/testSupport";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { resolveMailRecipient, resolveMailTarget, teamNameKey, teamOf } from "./team";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const AGENTS = [{ id: "claude", label: "Claude" }];
 
@@ -19,11 +20,11 @@ const workspace = (panes: Pane[]): Workspace =>
     cwd: "/repo",
     worktreeBaseDir: null,
     panes,
-  } as Workspace);
+  });
 
 /** The pane as the workspace holds it — the fixture's object is resolved
  * into a new one, so a test reads it back by id. */
-const held = (ws: Workspace, id: string): Pane => ws.panes.find((p) => p.id === id)!;
+const held = (ws: Workspace, id: string): Pane => present(ws.panes.find((p) => p.id === id), `the ${id} pane`);
 
 describe("teamNameKey", () => {
   it("folds case and surrounding space, and nothing else", () => {
@@ -71,7 +72,7 @@ describe("resolveMailTarget", () => {
     const byName = resolveMailTarget(ws, AGENTS, apiLead, "impl-1@web");
     expect(byName.ok && byName.value.id).toBe("pane-4");
     // By the team's id as well, however the role is cased.
-    const webId = teamOf(ws, held(ws, "pane-3"))!.id;
+    const webId = present(teamOf(ws, held(ws, "pane-3")), "the team of pane-3").id;
     const byId = resolveMailTarget(ws, AGENTS, apiLead, `LEAD@${webId}`);
     expect(byId.ok && byId.value.id).toBe("pane-3");
     // A bare role is never another team's: web's impl-1 writing to "lead"
@@ -91,7 +92,7 @@ describe("resolveMailTarget", () => {
     if (!result.ok) {
       // In the form a reply is shown — by the team's id — so the sender
       // copies one rather than guesses, and a rename cannot stale it.
-      const webId = ws.teams!.find((t) => t.name === "web")!.id;
+      const webId = present(present(ws.teams, "the workspace's teams").find((t) => t.name === "web"), "the web team").id;
       expect(result.message).toContain(`lead@${webId}`);
       expect(result.message).toContain(`impl-1@${webId}`);
     }
@@ -152,11 +153,11 @@ describe("resolveMailRecipient", () => {
   /** Another project: its teams keep ids of their own (`far-…`), since a
    * fixture's `team-N` restarts per workspace and the deck's never do. */
   const other = (panes: Pane[]): Workspace => {
-    const ws = resolveNamedPanes({ id: "ws-2", instance: createWorkspaceInstance(), name: "mocha", cwd: "/m", worktreeBaseDir: null, panes } as Workspace);
+    const ws = resolveNamedPanes({ id: "ws-2", instance: createWorkspaceInstance(), name: "mocha", cwd: "/m", worktreeBaseDir: null, panes });
     const far = (id: string) => `far-${id}`;
     return {
       ...ws,
-      teams: ws.teams!.map((t) => ({ ...t, id: far(t.id) })),
+      teams: present(ws.teams, "the workspace's teams").map((t) => ({ ...t, id: far(t.id) })),
       panes: ws.panes.map((p) => (p.team ? { ...p, team: { ...p.team, teamId: far(p.team.teamId) } } : p)),
     };
   };
@@ -172,7 +173,7 @@ describe("resolveMailRecipient", () => {
   it("crosses only by a team id another workspace holds; an unknown id keeps the own-workspace refusal", () => {
     const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
     const far = other([pane("pane-9", { name: "android", role: "lead" })]);
-    const farId = far.teams![0].id;
+    const farId = present(far.teams, "the far workspace's teams")[0].id;
     const reached = resolveMailRecipient([ws, far], ws, AGENTS, held(ws, "pane-1"), `lead@${farId}`);
     expect(reached.ok && reached.value.id).toBe("pane-9");
     const byName = resolveMailRecipient([ws, far], ws, AGENTS, held(ws, "pane-1"), "lead@android");
@@ -182,7 +183,7 @@ describe("resolveMailRecipient", () => {
   it("refuses a sender on no team across workspaces, and names the refusal", () => {
     const ws = workspace([pane("pane-7")]);
     const far = other([pane("pane-9", { name: "android", role: "lead" })]);
-    const result = resolveMailRecipient([ws, far], ws, AGENTS, held(ws, "pane-7"), `lead@${far.teams![0].id}`);
+    const result = resolveMailRecipient([ws, far], ws, AGENTS, held(ws, "pane-7"), `lead@${present(far.teams, "the far workspace's teams")[0].id}`);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toContain("on no team");
   });

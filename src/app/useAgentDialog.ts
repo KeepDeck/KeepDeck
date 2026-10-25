@@ -37,9 +37,13 @@ import {
   nextAgentIndex,
   nextAgentType,
 } from "./newAgentDefaults";
-import { useAppRuntime } from "./runtimeContext";
 import type { DirectoryHolder } from "./agentOrchestrator";
-import type { ContinueRequest, DoorName, DoorOutcome } from "./agentDoors";
+import type {
+  AgentDoors,
+  ContinueRequest,
+  DoorName,
+  DoorOutcome,
+} from "./agentDoors";
 import { roleChoiceView, type RoleChoice } from "../presentation/roleChoiceView";
 import type { Deck } from "./useDeck";
 import { errorMessage } from "@keepdeck/plugin-api";
@@ -77,6 +81,11 @@ export interface SharedDirectoryAsk {
   confirm(): void;
   cancel(): void;
 }
+
+/** The deck as the dialog reads it: the workspaces its suggestions and its
+ * checks are taken against. Everything the dialog CHANGES goes through the
+ * doors, so the deck's actions are not its to hold. */
+export type AgentDialogDeck = Pick<Deck, "workspaces">;
 
 /** What the dialog is opened FOR, as the caller says it: a new team, or a
  * member of the team `teamId`. */
@@ -126,7 +135,7 @@ export interface AgentDialogSpec {
  * form's data sources; it decides nothing about teams, roles or landings.
  */
 export function useAgentDialog(
-  deck: Deck,
+  deck: AgentDialogDeck,
   agents: AgentInfo[],
   /** Where a "Start from" continuation reports its failure. Explicit rather
    * than optional: an optional here is what forced the argument below to
@@ -140,8 +149,9 @@ export function useAgentDialog(
    * REQUIRED, like `paneSuspendBlock`'s: a default is how the next surface
    * omits it, compiles, and tells the user a dead pane is running again. */
   blockedPanes: Record<string, string>,
+  /** Where a confirmed dialog goes — the "+ Team" and "Add member" doors. */
+  agentDoors: AgentDoors,
 ) {
-  const { agentDoors } = useAppRuntime();
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
   /** The open "create anyway?" question, if one is standing. */
   const [sharedAsk, setSharedAsk] = useState<SharedDirectoryAsk | null>(null);

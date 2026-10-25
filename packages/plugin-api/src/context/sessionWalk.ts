@@ -83,19 +83,30 @@ export interface WalkedSession<State> {
  * the conversation, so stopping at the head's end is not a shortfall — it is
  * the reading working as asked. A mark here would say "part of this session
  * is missing" about a session nobody was reading.
+ *
+ * Records the format refused are the other kind of loss, and a real one in
+ * either scope: they are `parts` the reading went past without being able
+ * to use.
  */
 function shortfallOf(
   outcome: ReadOutcome,
   scope: ReadScope,
 ): Shortfall[] | undefined {
-  if (scope === "head") return undefined;
-  if (outcome.stopped === "exhausted" || outcome.stopped === "satisfied") {
-    return undefined;
+  const marks: Shortfall[] = [];
+  // Records the store held that the format's guard refused — in any scope:
+  // what was passed over is missing from whatever this reading meant to see.
+  if (outcome.refused !== undefined && outcome.refused > 0) {
+    marks.push({ kind: "parts", unreadableParts: outcome.refused });
   }
-  if (outcome.sourceBytes === undefined) return undefined;
-  return [
-    { kind: "bytes", size: outcome.sourceBytes, readBytes: outcome.payloadBytes },
-  ];
+  if (
+    scope === "whole" &&
+    outcome.stopped !== "exhausted" &&
+    outcome.stopped !== "satisfied" &&
+    outcome.sourceBytes !== undefined
+  ) {
+    marks.push({ kind: "bytes", size: outcome.sourceBytes, readBytes: outcome.payloadBytes });
+  }
+  return marks.length > 0 ? marks : undefined;
 }
 
 export async function walkSession<Req, Item, State>(opts: {

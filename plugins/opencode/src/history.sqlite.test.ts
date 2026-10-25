@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { opencodeHistory, type HistoryPorts } from "./history";
 import { opencodeStore } from "./store";
 import { verdictOn } from "./whereabouts";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The queries against a REAL SQLite, over stores with REAL damage in them,
@@ -165,7 +166,7 @@ describe("opencode history over a real 1.x store", () => {
     expect(await history.describe("ses_1")).toEqual({ cwd: "/repo", title: "a title" });
     expect(await history.content("ses_1")).toBe("first half\nsecond half\ntorn envelope");
 
-    const page = await history.transcriptPage!("ses_1", { offset: 0, limit: 10 });
+    const page = await present(history.transcriptPage, "the transcript page")("ses_1", { offset: 0, limit: 10 });
     // The torn PART leaves a hole inside a turn that still looks whole —
     // which is exactly why the count has to travel beside it. The torn
     // MESSAGE keeps its text and loses only its role.
@@ -215,7 +216,7 @@ describe("opencode history over a real 1.x store", () => {
     // 2.x in the store, every session's parts are read, and the 1.x
     // `session_message` decoy does not make it a 2.x store.
     const db = v1Store();
-    expect(await opencodeHistory(portsOver(db)).listing!()).toEqual({
+    expect(await present(opencodeHistory(portsOver(db)).listing, "the session listing")()).toEqual({
       stubs: [{ sessionId: "ses_1", ref: "ses_1", mtime: 1700, size: 5 }],
       complete: true,
     });
@@ -236,7 +237,7 @@ describe("opencode history over a real 2.x store", () => {
     // A fresh 2.x install: tables, no rows, no migration marker. Read with
     // 1.x queries it failed on "no such table" and never pruned again.
     const db = open(V2_SCHEMA);
-    expect(await opencodeHistory(portsOver(db)).listing!()).toEqual({
+    expect(await present(opencodeHistory(portsOver(db)).listing, "the session listing")()).toEqual({
       stubs: [],
       complete: true,
     });
@@ -260,14 +261,14 @@ describe("opencode history over a real 2.x store", () => {
     `);
     const history = opencodeHistory(portsOver(db));
 
-    expect(await history.listing!()).toEqual({
+    expect(await present(history.listing, "the session listing")()).toEqual({
       stubs: [{ sessionId: "ses_2", ref: "ses_2", mtime: 4000, size: 10 }],
       complete: true,
     });
     expect(await history.describe("ses_2")).toEqual({ cwd: "/repo", title: "two" });
     // A torn row and a wrong-shaped assistant are both losses the reader is
     // told of; an idle marker has no text and is not one.
-    expect(await history.transcriptPage!("ses_2", { offset: 0, limit: 10 })).toEqual({
+    expect(await present(history.transcriptPage, "the transcript page")("ses_2", { offset: 0, limit: 10 })).toEqual({
       entries: [
         { role: "user", text: "hi" },
         { role: "other", text: "too long" },
@@ -283,7 +284,7 @@ describe("opencode history over a real 2.x store", () => {
 describe("opencode history over a store holding both", () => {
   it("lists each session once, from the side that has the truth", async () => {
     const db = bothStore();
-    const listing = await opencodeHistory(portsOver(db)).listing!();
+    const listing = await present(opencodeHistory(portsOver(db)).listing, "the session listing")();
 
     expect(listing.complete).toBe(true);
     expect(byId(listing.stubs)).toEqual([
@@ -308,14 +309,14 @@ describe("opencode history over a store holding both", () => {
     `);
     const history = opencodeHistory(portsOver(db));
 
-    const stubs = (await history.listing!()).stubs;
+    const stubs = (await present(history.listing, "the session listing")()).stubs;
     expect(stubs.find((stub) => stub.sessionId === "ses_copied")).toEqual({
       sessionId: "ses_copied",
       ref: "ses_copied",
       mtime: 9000,
       size: 9100 + 4,
     });
-    const page = await history.transcriptPage!("ses_copied", { offset: 0, limit: 10 });
+    const page = await present(history.transcriptPage, "the transcript page")("ses_copied", { offset: 0, limit: 10 });
     expect(page.entries[page.entries.length - 1]).toEqual({ role: "user", text: "back in 1.x" });
     db.close();
   });
@@ -324,7 +325,7 @@ describe("opencode history over a store holding both", () => {
     // Mid-copy, the 2.x tables hold only part of the sessions: every 1.x one
     // stays, and the host must not prune on this list.
     const db = bothStore("sessions");
-    const listing = await opencodeHistory(portsOver(db)).listing!();
+    const listing = await present(opencodeHistory(portsOver(db)).listing, "the session listing")();
 
     expect(listing.complete).toBe(false);
     expect(listing.stubs.map((stub) => stub.sessionId).sort()).toEqual([
@@ -339,7 +340,7 @@ describe("opencode history over a store holding both", () => {
   it("hides a session archived in 2.x even though 1.x never archived it", async () => {
     const db = bothStore();
     db.exec("UPDATE session_v2 SET time_archived = 7500 WHERE id = 'ses_copied'");
-    const stubs = (await opencodeHistory(portsOver(db)).listing!()).stubs;
+    const stubs = (await present(opencodeHistory(portsOver(db)).listing, "the session listing")()).stubs;
     expect(stubs.map((stub) => stub.sessionId)).not.toContain("ses_copied");
     db.close();
   });
@@ -356,7 +357,7 @@ describe("opencode history over a store holding both", () => {
     // The copy folds 1.x's summary message into its compaction row; without
     // the rule that drops it, the summary would show twice.
     const db = bothStore();
-    const page = await opencodeHistory(portsOver(db)).transcriptPage!("ses_copied", {
+    const page = await present(opencodeHistory(portsOver(db)).transcriptPage, "the transcript page")("ses_copied", {
       offset: 0,
       limit: 10,
     });
@@ -374,7 +375,7 @@ describe("opencode history over a store holding both", () => {
 
   it("pages over the merged conversation, not over one side of it", async () => {
     const db = bothStore();
-    const page = await opencodeHistory(portsOver(db)).transcriptPage!("ses_copied", {
+    const page = await present(opencodeHistory(portsOver(db)).transcriptPage, "the transcript page")("ses_copied", {
       offset: 3,
       limit: 1,
     });

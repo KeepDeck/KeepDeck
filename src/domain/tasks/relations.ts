@@ -10,6 +10,7 @@
  * source on a disbanded team, a hand edit, tomorrow another workspace:
  * such an end is ABSENT, and each question says what absent means for it.
  */
+import { keyList } from "../json";
 import {
   RELATION_KINDS,
   blockerResolved,
@@ -82,6 +83,14 @@ export function findTask(board: TaskBoard, id: string): Task | undefined {
   return indexOf(board).byKey.get(id);
 }
 
+/** The task with key `id`, which the caller has already found valid; a
+ * missing one is a broken invariant and fails naming the key. */
+export function knownTask(board: TaskBoard, id: string): Task {
+  const task = findTask(board, id);
+  if (!task) throw new Error(`task ${id} was validated but is not on the board`);
+  return task;
+}
+
 /** The task with `uid`, if the board holds it. */
 export function taskByUid(board: TaskBoard, uid: string): Task | undefined {
   return indexOf(board).byUid.get(uid);
@@ -120,11 +129,24 @@ export function openBlockersOf(task: Task, board: TaskBoard): string[] {
   const open = GATING_KINDS.flatMap((kind) => into(board, kind, task.uid))
     .filter((relation) => !holdsNothing(statusOf(board, relation.from)))
     .map((relation) => relation.from);
-  return inBoardOrder(board, [...new Set(open)]).map((uid) => taskByUid(board, uid)!.id);
+  // What stands here passed the status rule, so it is on the board; one that
+  // is not is a corrupt relation, said by name rather than dropped.
+  const { place } = indexOf(board);
+  return [...new Set(open)]
+    .map((uid) => {
+      const at = place.get(uid);
+      if (at === undefined) throw new Error(`blocker ${uid} of ${task.id} is not on the board`);
+      return at;
+    })
+    .sort((a, b) => a - b)
+    .map((at) => board.tasks[at].id);
 }
 
+/** Every relation kind, once — the compiler holds it to the table. */
+const RELATION_KIND_LIST = keyList<typeof RELATION_KINDS>()(["blocks", "copied-from", "child-of"]);
+
 /** The kinds that gate the ladder's start, read from the table. */
-const GATING_KINDS: readonly RelationKind[] = (Object.keys(RELATION_KINDS) as RelationKind[]).filter(
+const GATING_KINDS: readonly RelationKind[] = RELATION_KIND_LIST.filter(
   (kind) => RELATION_KINDS[kind].gatesStart,
 );
 
@@ -171,20 +193,19 @@ export function tasksOfEpic(epic: Task, board: TaskBoard): Task[] {
   return present(board, into(board, "child-of", epic.uid).map((relation) => relation.from));
 }
 
-/** The tasks of `uids` this board holds, in board order. */
+/** The tasks of `uids` this board holds, in board order: their places on
+ * the board, sorted, read back off it — a uid the board does not hold has
+ * no place and drops out. */
 function present(board: TaskBoard, uids: readonly string[]): Task[] {
   const { place } = indexOf(board);
-  return inBoardOrder(board, uids.filter((uid) => place.has(uid))).map((uid) => taskByUid(board, uid)!);
-}
-
-/** `uids`, every one on the board, in board order. */
-function inBoardOrder(board: TaskBoard, uids: readonly string[]): string[] {
-  const { place } = indexOf(board);
-  return [...uids].sort((a, b) => place.get(a)! - place.get(b)!);
+  return uids
+    .flatMap((uid) => place.get(uid) ?? [])
+    .sort((a, b) => a - b)
+    .map((at) => board.tasks[at]);
 }
 
 /** The kinds that order their ends, read from the table. */
-const ORDERING_KINDS: readonly RelationKind[] = (Object.keys(RELATION_KINDS) as RelationKind[]).filter(
+const ORDERING_KINDS: readonly RelationKind[] = RELATION_KIND_LIST.filter(
   (kind) => RELATION_KINDS[kind].ordersEnds,
 );
 
@@ -205,8 +226,8 @@ export function transitiveWaiters(board: TaskBoard, uid: string): ReadonlySet<st
 function walk(start: string, next: (uid: string) => string[]): Set<string> {
   const seen = new Set([start]);
   const queue = [start];
-  while (queue.length > 0) {
-    for (const uid of next(queue.pop()!)) {
+  for (let at = queue.pop(); at !== undefined; at = queue.pop()) {
+    for (const uid of next(at)) {
       if (seen.has(uid)) continue;
       seen.add(uid);
       queue.push(uid);

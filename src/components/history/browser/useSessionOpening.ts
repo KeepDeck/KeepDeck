@@ -13,10 +13,10 @@ export function useSessionOpening() {
   // newer row's header (the search path has searchSeq; this is its twin).
   const viewSeq = useRef(0);
 
-  const openViewer = (target: ViewerTarget) => {
+  const openViewer = useCallback((target: ViewerTarget) => {
     viewSeq.current += 1;
     setOpen(target);
-  };
+  }, []);
 
   /** Any unified row opens on its read link — the shown link first (a
    * click retries exactly what the row displays), the union chain behind
@@ -39,9 +39,7 @@ export function useSessionOpening() {
       tried: 0,
       row,
     });
-    // openViewer is a stable local over setState/useRef only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [openViewer]);
 
   const closeViewer = () => {
     viewSeq.current += 1;

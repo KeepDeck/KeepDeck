@@ -180,10 +180,10 @@ export function rowInFlight(
   if (drag.kind !== "dragging") return null;
   // A task on screen is on a board: none, and there is no task.
   const task = taskOnScreen(board, drag.id, teamId);
-  if (!task) return null;
+  if (!task || board === null) return null;
   const fold = epicFold(task, foldedEpics);
   const lead: RowLead = fold === null ? "none" : "fold";
-  return { line: taskRowView(task, board!, now), fold, lead, leadClassName: leadClassName(lead) };
+  return { line: taskRowView(task, board, now), fold, lead, leadClassName: leadClassName(lead) };
 }
 
 /** An item's identity in the windowed list — a task's id, a heading's

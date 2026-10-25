@@ -11,10 +11,8 @@ import {
   type WindowForecast,
 } from "../../domain/usage/windowForecast";
 import { WindowBurn } from "./WindowBurn";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 const MIN = 60_000;
@@ -85,13 +83,13 @@ describe("WindowBurn", () => {
         x: plotLeft,
         y: plotTop,
         toJSON: () => ({}),
-      }) as DOMRect;
+      });
     return plot;
   };
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host") as HTMLDivElement;
+    host = instanceOf(document.getElementById("host"), HTMLDivElement, "host");
     root = createRoot(host);
     plotLeft = 20;
     plotTop = 100;
@@ -108,7 +106,7 @@ describe("WindowBurn", () => {
   ] as const)(
     "inspects the %s curve with the shared portaled tooltip",
     (size, clientX, expectedKind) => {
-      const plot = render(size)!;
+      const plot = present(render(size), "the rendered output");
 
       act(() =>
         plot.dispatchEvent(
@@ -120,7 +118,7 @@ describe("WindowBurn", () => {
         ),
       );
 
-      const tooltip = document.querySelector<HTMLElement>("[role='tooltip']")!;
+      const tooltip = present(document.querySelector<HTMLElement>("[role='tooltip']"), "the [role='tooltip'] element");
       expect(tooltip.parentElement).toBe(document.body);
       expect(tooltip.dataset.kind).toBe(expectedKind.toLowerCase());
       expect(tooltip.textContent).toContain(expectedKind);
@@ -146,7 +144,7 @@ describe("WindowBurn", () => {
     // `endPct` — the label would follow the data again and quietly
     // reintroduce the wrong-scale bug on every surviving window.
     render("card");
-    expect(host.querySelector(".usage-burn__ymax")!.textContent).toBe("100%");
+    expect(present(host.querySelector(".usage-burn__ymax"), "the .usage-burn__ymax element").textContent).toBe("100%");
   });
 
   it("gives the compact plot no ceiling or floor label to contradict", () => {
@@ -168,13 +166,13 @@ describe("WindowBurn", () => {
       reportedAt: NOW - (4 - index) * 10 * MIN,
       resetsAt: window.resetsAt,
     }));
-    const plot = render("compact", {
+    const plot = present(render("compact", {
       reports: quiet,
       window: { ...window, usedPct: 10 },
-    })!;
-    const points = plot
-      .querySelector("polyline")!
-      .getAttribute("points")!
+    }), "the rendered output");
+    const points = present(present(plot
+      .querySelector("polyline"), "the polyline element")
+      .getAttribute("points"), "the polyline element")
       .split(" ")
       .map((pair) => Number(pair.split(",")[1]));
     // The floor of a 20px plot with PAD 2 is y=18.
@@ -182,11 +180,11 @@ describe("WindowBurn", () => {
   });
 
   it("exposes the latest observed value immediately on keyboard focus", () => {
-    const plot = render("compact")!;
+    const plot = present(render("compact"), "the rendered output");
 
     act(() => plot.focus());
 
-    const tooltip = document.querySelector<HTMLElement>("[role='tooltip']")!;
+    const tooltip = present(document.querySelector<HTMLElement>("[role='tooltip']"), "the [role='tooltip'] element");
     expect(tooltip.dataset.kind).toBe("observed");
     expect(tooltip.textContent).toContain("Observed");
     expect(plot.getAttribute("aria-describedby")).toBe(tooltip.id);
@@ -196,7 +194,7 @@ describe("WindowBurn", () => {
   });
 
   it("rederives an open inspection when geometry updates", () => {
-    const plot = render("compact")!;
+    const plot = present(render("compact"), "the rendered output");
     act(() => plot.focus());
     expect(document.querySelector("[role='tooltip']")?.textContent).toContain(
       "62%",
@@ -224,7 +222,7 @@ describe("WindowBurn", () => {
   });
 
   it("discards inspection state while geometry is unavailable", () => {
-    const plot = render("compact")!;
+    const plot = present(render("compact"), "the rendered output");
     act(() => plot.focus());
     expect(document.querySelector("[role='tooltip']")).not.toBeNull();
 
@@ -236,7 +234,7 @@ describe("WindowBurn", () => {
   });
 
   it("keeps inspection open while either hover or focus remains", () => {
-    const plot = render("compact")!;
+    const plot = present(render("compact"), "the rendered output");
     act(() => {
       plot.focus();
       plot.dispatchEvent(
@@ -272,16 +270,16 @@ describe("WindowBurn", () => {
   });
 
   it("remeasures a focused plot when an ancestor scrolls", () => {
-    const plot = render("compact")!;
+    const plot = present(render("compact"), "the rendered output");
     act(() => plot.focus());
     const initialLeft =
-      document.querySelector<HTMLElement>("[role='tooltip']")!.style.left;
+      present(document.querySelector<HTMLElement>("[role='tooltip']"), "the [role='tooltip'] element").style.left;
 
     plotLeft = 80;
     act(() => globalThis.window.dispatchEvent(new Event("scroll")));
 
     expect(
-      document.querySelector<HTMLElement>("[role='tooltip']")!.style.left,
+      present(document.querySelector<HTMLElement>("[role='tooltip']"), "the [role='tooltip'] element").style.left,
     ).not.toBe(initialLeft);
   });
 });

@@ -3,9 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "./ConfirmDialog";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 const baseProps = {
   title: "Close agent?",
@@ -27,7 +25,7 @@ describe("ConfirmDialog — secondary action", () => {
     baseProps.onConfirm.mockClear();
     baseProps.onCancel.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 
   afterEach(() => {
@@ -93,7 +91,7 @@ describe("ConfirmDialog — secondary action", () => {
     // pushAlert routes errorMessage() into this body and the dialog has no
     // Copy button, so selection is the only way the text leaves the app. The
     // document baseline withholds it unless the element asks by name.
-    const message = document.querySelector(".confirm__message")!;
+    const message = present(document.querySelector(".confirm__message"), "the confirm message");
     expect(message.classList.contains("kd-selectable")).toBe(true);
   });
 
@@ -115,7 +113,7 @@ describe("ConfirmDialog — a held key dismisses once", () => {
   beforeEach(() => {
     baseProps.onCancel.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() =>
       root.render(createElement(ConfirmDialog, { ...baseProps })),
     );
@@ -154,7 +152,7 @@ describe("ConfirmDialog — a held ENTER cannot run the button twice", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() =>
       root.render(createElement(ConfirmDialog, { ...baseProps })),
     );

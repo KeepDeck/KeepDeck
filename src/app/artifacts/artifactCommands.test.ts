@@ -18,6 +18,8 @@ import {
   artifactRead,
   artifactDelete,
 } from "../../ipc/artifacts";
+import { recordOf, stringOf } from "../../testing/values.test-support";
+
 
 const ws = (panes: Workspace["panes"]): Workspace => ({
   id: "ws-1",
@@ -28,20 +30,18 @@ const ws = (panes: Workspace["panes"]): Workspace => ({
   panes,
 });
 
-const pane = (over: Partial<Workspace["panes"][number]> = {}) =>
-  ({
-    id: "pane-1",
-    title: "support 1",
-    ...over,
-  }) as Workspace["panes"][number];
+const pane = (over: Partial<Workspace["panes"][number]> = {}) => ({
+  id: "pane-1",
+  title: "support 1",
+  ...over,
+});
 
 /** The external-with-pane source the MCP pump resolves. */
-const paneSource = (id = "pane-1"): CommandSource =>
-  ({
-    kind: "external",
-    client: "mcp",
-    pane: { id, workspaceId: "ws-1", label: "support 1" },
-  }) as CommandSource;
+const paneSource = (id = "pane-1"): CommandSource => ({
+  kind: "external",
+  client: "mcp",
+  pane: { id, workspaceId: "ws-1", label: "support 1" },
+});
 
 const anonymous: CommandSource = { kind: "external", client: "mcp" };
 
@@ -58,7 +58,7 @@ function setup(panes: Workspace["panes"], teams?: Workspace["teams"]) {
   ) => {
     const result = await registry.execute(
       id,
-      args as never,
+      args,
       source,
     );
     if (!result.ok) throw new Error(result.error.message);
@@ -194,12 +194,12 @@ describe("registerArtifactCommands", () => {
       indexUrl: null,
     });
     const { run } = setup([pane()]);
-    const result = (await run(
+    const result = recordOf(await run(
       "artifact.publish",
       { title: "T", format: "html", content: "<p>hi</p>" },
       paneSource(),
-    )) as { note: string };
-    expect(result.note).toContain("display server is off");
+    ), "publish result");
+    expect(stringOf(result.note, "note")).toContain("display server is off");
   });
 
   it("a format that is not html is refused before the invoke — md included", async () => {
@@ -322,10 +322,8 @@ describe("registerArtifactCommands", () => {
   it("list carries the empty-workspace note", async () => {
     vi.mocked(artifactList).mockResolvedValue([]);
     const { run } = setup([pane()]);
-    const result = (await run("artifact.list", {}, paneSource())) as {
-      note: string;
-    };
-    expect(result.note).toContain("nothing published");
+    const result = recordOf(await run("artifact.list", {}, paneSource()), "list result");
+    expect(stringOf(result.note, "note")).toContain("nothing published");
   });
 
   it("a pane the deck no longer holds is anonymous (no wrong-pane naming)", async () => {
@@ -349,7 +347,7 @@ describe("registerArtifactCommands", () => {
       changed,
     });
     const run = async (id: string, args: Record<string, unknown>, source: CommandSource) => {
-      const result = await registry.execute(id, args as never, source);
+      const result = await registry.execute(id, args, source);
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     };

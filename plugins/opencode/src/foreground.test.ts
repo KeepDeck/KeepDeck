@@ -2,10 +2,8 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// Untyped resource JS — shipped to, and loaded by, the user's opencode.
-// @ts-expect-error untyped resource module
+// Resource JS — shipped to, and loaded by, the user's opencode.
 import * as foreground from "../resources/keepdeck-plugin/foreground.js";
-// @ts-expect-error untyped resource module
 import observer, { routeOf } from "../resources/keepdeck-plugin/route-observer.js";
 
 const { DEAD_MS, FOREGROUND_FILE, STALE_MS, observeRoute, readForeground, writeForeground } = foreground;

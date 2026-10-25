@@ -3,14 +3,13 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Segmented, segmentStep } from "./Segmented";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("Segmented", () => {
   let root: Root;
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
   });
   afterEach(() => act(() => root.unmount()));
   const radios = () => [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
@@ -29,7 +28,7 @@ describe("Segmented", () => {
         }),
       ),
     );
-    const group = document.querySelector('[role="radiogroup"]')!;
+    const group = present(document.querySelector('[role="radiogroup"]'), "the [role=\"radiogroup\"] element");
     expect(group.getAttribute("aria-label")).toBe("Tasks");
     expect(group.className).toBe("form__types");
     expect(radios().map((r) => [r.textContent, r.getAttribute("aria-checked"), r.className])).toEqual([
@@ -56,7 +55,7 @@ describe("Segmented", () => {
         ),
       );
     render(false);
-    expect(document.querySelector('[role="radiogroup"]')!.className).toBe("form__types form__types--sm");
+    expect(present(document.querySelector('[role="radiogroup"]'), "the [role=\"radiogroup\"] element").className).toBe("form__types form__types--sm");
     // Small: the small secondary button's own box — no second look.
     expect(radios()[0].className).toBe("kd-btn kd-btn--secondary kd-btn--sm");
     expect(radios()[0].getAttribute("aria-checked")).toBe("true");

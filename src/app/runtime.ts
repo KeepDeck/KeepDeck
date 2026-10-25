@@ -1,6 +1,9 @@
 import { paneAgentType, panesRunningIn } from "../domain/deck";
-import { openPath } from "../ipc/app";
+import { listApplications, openPath, openUrl } from "../ipc/app";
+import { readImageTempPath, readText, writeText } from "../ipc/clipboard";
 import { log } from "../ipc/log";
+import { ensureNotificationPermission, notificationPermissionGranted } from "../ipc/notify";
+import { pointerInWindow, pointerOnWindow } from "../ipc/window";
 import { vouchPaneProcess } from "../ipc/session";
 import { probeWorktree } from "../ipc/worktree";
 import {
@@ -109,6 +112,14 @@ import {
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
+import type {
+  ClipboardPort,
+  DirectoryProbePort,
+  HostLoggerPort,
+  NotificationPermissionPort,
+  ShellPort,
+  WindowPointerPort,
+} from "../presentation/hostPorts";
 
 /** Which CLI a pane runs, or null when the deck no longer holds it. */
 function paneAgentTypeOf(
@@ -148,8 +159,9 @@ export function createAppRuntime(
   const downloads = new DownloadManager(downloadBackend);
   const plugins = createPluginManager(downloads);
   const deckStore = createDeckStore();
+  const deckActions = createDeckActions(deckStore);
   const paneInputFocus = createPaneInputFocusController();
-  const paneViewActions = createPaneViewActions(deckStore, paneInputFocus);
+  const paneViewActions = createPaneViewActions(deckStore, deckActions, paneInputFocus);
   // What the migration ladder did to the deck file is said once, here, on
   // the launch that did it — a team dissolved is not something to find out
   // from an empty badge.
@@ -158,7 +170,6 @@ export function createAppRuntime(
       notify({ title: "Deck migrated", body, source: { type: "app" } });
     }
   });
-  const deckActions = createDeckActions(deckStore);
   /** How a pane reads, for anything that has to name one. Read per call — a
    * plugin can be installed or removed while the deck is up. */
   const agentLabels = () =>
@@ -474,6 +485,15 @@ export function createAppRuntime(
     worktrees,
   );
   const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
+  const logger: HostLoggerPort = log;
+  const clipboard: ClipboardPort = { writeText, readText, readImageTempPath };
+  const shell: ShellPort = { openUrl, listApplications };
+  const notificationPermission: NotificationPermissionPort = {
+    ensureNotificationPermission,
+    notificationPermissionGranted,
+  };
+  const directoryProbe: DirectoryProbePort = { probeWorktree };
+  const windowPointer: WindowPointerPort = { pointerInWindow, pointerOnWindow };
   let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
   let statusChannel: ReturnType<typeof createAgentStatusChannel> | null = null;
   let companionHellos: ReturnType<typeof listenPaneCompanions> | null = null;
@@ -505,6 +525,12 @@ export function createAppRuntime(
     statusTracker,
     sessionIndex,
     windowReportJournal,
+    logger,
+    clipboard,
+    shell,
+    notificationPermission,
+    directoryProbe,
+    windowPointer,
     start() {
       if (disposed) return;
       // The binding lane first, and the usage channel over it: the tails lane

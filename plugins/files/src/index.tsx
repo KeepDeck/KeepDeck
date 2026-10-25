@@ -18,9 +18,9 @@ import type {
   Disposable,
   FileOpenHandler,
   KeepDeckPlugin,
-  PluginContext,
+  PluginFs,
 } from "@keepdeck/plugin-api";
-import { setRuntime } from "./runtime";
+import { setRuntime, type FilesPorts } from "./runtime";
 import {
   hasOpenRequestConsumer,
   requestOpen,
@@ -34,7 +34,12 @@ import { FilesOverlay } from "./components/FilesOverlay";
 export const OPEN_LINKS_KEY = "openFileLinks";
 
 /** The handler the host's file-open chain calls on a terminal link click. */
-function peekOpener(ctx: PluginContext): FileOpenHandler {
+/** What the peek opener probes with: the parent's listing. */
+interface PeekPorts {
+  services: { fs: Pick<PluginFs, "readDir"> };
+}
+
+function peekOpener(ctx: PeekPorts): FileOpenHandler {
   return {
     id: "peek",
     label: "KeepDeck file peek",
@@ -72,7 +77,7 @@ function peekOpener(ctx: PluginContext): FileOpenHandler {
   };
 }
 
-const activate: KeepDeckPlugin["activate"] = async (ctx: PluginContext) => {
+export async function registerFiles(ctx: FilesPorts): Promise<void> {
   setRuntime(ctx);
   ctx.ui.registerDockTab({ id: "files", label: "Files", Component: FilesTab });
   // The viewer is a RESIDENT overlay, not part of the tab: the tree's own
@@ -107,7 +112,9 @@ const activate: KeepDeckPlugin["activate"] = async (ctx: PluginContext) => {
   };
   apply(await ctx.settings.read());
   ctx.settings.onChange(apply);
-};
+}
+
+const activate: KeepDeckPlugin["activate"] = (ctx) => registerFiles(ctx);
 
 const deactivate: KeepDeckPlugin["deactivate"] = () => {
   // Drain the one-slot bus: a request parked in this lifetime must never

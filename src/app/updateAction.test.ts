@@ -49,13 +49,13 @@ describe("updateActionView", () => {
     // WHICH step is running — which is the whole reason they are three phases
     // and not one. Asserting only `disabled` would let all three collapse into
     // the same label without a test noticing.
-    const running = {
-      downloading: "Downloading update…",
-      discarding: "Discarding update…",
-      installing: "Restarting…",
-    } as const;
-    for (const [phase, label] of Object.entries(running)) {
-      expect(updateActionView(stateAt(phase as UpdatePhase))).toEqual({
+    const running: [UpdatePhase, string][] = [
+      ["downloading", "Downloading update…"],
+      ["discarding", "Discarding update…"],
+      ["installing", "Restarting…"],
+    ];
+    for (const [phase, label] of running) {
+      expect(updateActionView(stateAt(phase))).toEqual({
         label,
         title: "Version 0.22.0 is available",
         disabled: true,

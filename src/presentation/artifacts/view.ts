@@ -1,4 +1,4 @@
-import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
+import type { ArtifactMetaRow } from "../../domain/artifacts/rowRef";
 
 /**
  * What the registry's body shows — the presentation model, decided away

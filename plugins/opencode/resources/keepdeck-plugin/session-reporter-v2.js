@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck session reporter on opencode 2.x — the 2.x twin of
  * session-reporter.js, started by opencode-v2.js.
@@ -32,22 +33,37 @@ import {
   usageReport,
 } from "./pane-report.js";
 
+/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ root: string | undefined, left: string | undefined, bound: boolean, classify: (id: string) => Promise<"root" | "child" | "unknown">, rootOf: (id: string) => string, chain: (id: string) => Array<[string, string]>, note: (child: string, parent: string) => void, newGeneration: (id: string) => boolean, bindFromChain: (id: string, keep?: Array<[string, string]>) => boolean, concernsPane: (id: string) => boolean, detach: () => boolean }} Pane */
+/** @typedef {{ id?: string, providerID?: string }} Model */
+/** @typedef {{ input?: number, output?: number, reasoning?: number, cache?: { read?: number, write?: number } }} Tokens */
+/** @typedef {{ content?: unknown, output?: unknown }} ToolResult */
+/** @typedef {{ sessionID?: string, parentID?: string, model?: Model, tokens?: Tokens, cost?: number, prompt?: { text?: string }, metadata?: Record<string, unknown>, status?: string, result?: ToolResult }} EventData */
+/** @typedef {{ type?: string, data?: EventData }} BusEvent */
+/** @typedef {{ model: { list: () => Promise<{ data?: Array<{ providerID: string, id: string, limit?: { context?: number } }> }> }, session: { get: (query: { sessionID: string }) => Promise<{ agent?: unknown, model?: unknown } | undefined>, create: (query: Record<string, unknown>) => Promise<{ id?: string } | undefined>, synthetic: (input: { sessionID: string, text: string, resume: boolean }) => Promise<unknown>, prompt: (input: { sessionID: string, text: string, metadata: Record<string, unknown> }) => Promise<unknown>, hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> }, tool: { hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> } }} Context */
+
+/** @param {{ context: Context, bridge: Bridge, pane: Pane }} input */
 export async function startReporterV2({ context, bridge, pane }) {
   /** Whether this pane skips approval prompts (pane-report.js). */
   const SKIPS_APPROVALS = skipsApprovals();
 
+  /** @param {string} type @param {Record<string, unknown>} payload */
   const publish = (type, payload) => {
     publishEnvelope(bridge, makeEnvelope(bridge, type, payload));
   };
 
-  /** sessionID → its latest running total: `{ tokens, cost }`. */
+  /** sessionID → its latest running total: `{ tokens, cost }`.
+   * @type {Map<string, { tokens?: Tokens, cost?: number }>} */
   const totals = new Map();
-  /** The root's last finished step: what its context holds now. */
+  /** The root's last finished step: what its context holds now.
+   * @type {Tokens | undefined} */
   let lastStep;
-  /** The model the root's latest step ran on: `{ id, providerID }`. */
+  /** The model the root's latest step ran on: `{ id, providerID }`.
+   * @type {Model | undefined} */
   let model;
   let sequence = 0;
-  /** The conversation this reporter is bound to and set up for. */
+  /** The conversation this reporter is bound to and set up for.
+   * @type {string | undefined} */
   let servedRoot;
   /** Whether it has bound any: every later one is the pane's conversation
    * continuing, never a second startup. */
@@ -56,16 +72,18 @@ export async function startReporterV2({ context, bridge, pane }) {
   /** A conversation this reporter is not serving: bind it, and start its
    * spend from nothing. `/new` is the pane's conversation continuing under a
    * new id; `switched`, the user opened it in the TUI. */
+  /** @param {boolean} [switched] */
   const serve = (switched = false) => {
-    if (pane.root === undefined || pane.root === servedRoot) return;
+    const root = pane.root;
+    if (root === undefined || root === servedRoot) return;
     const continuing = servedAny;
-    servedRoot = pane.root;
+    servedRoot = root;
     servedAny = true;
     totals.clear();
     lastStep = undefined;
     model = undefined;
     sequence = 0;
-    publish("session.bound", boundReport(servedRoot, continuing, switched));
+    publish("session.bound", boundReport(root, continuing, switched));
   };
 
   /** Whether the TUI reports its screen — then the screen, not the bus,
@@ -77,6 +95,7 @@ export async function startReporterV2({ context, bridge, pane }) {
   /** Bind through the evidence of any session this pane's process names —
    * the way a resumed pane, which fires no root `session.created`, is found.
    * Only while nobody reports the screen. */
+  /** @param {string | undefined} sessionID */
   const bindThrough = async (sessionID) => {
     if (!sessionID) return;
     if (!pane.bound && !screenDecides()) {
@@ -87,9 +106,10 @@ export async function startReporterV2({ context, bridge, pane }) {
   };
 
   /** Whose turn event this is — the only question answered on this side. */
+  /** @param {string} type @param {EventData} data */
   const belongsHere = (type, data) => {
     if (type.startsWith("session.execution.")) {
-      return pane.concernsPane(data.sessionID) && (pane.bound || !screenDecides());
+      return !!data.sessionID && pane.concernsPane(data.sessionID) && (pane.bound || !screenDecides());
     }
     if (type === "permission.asked" || type === "permission.replied") return !SKIPS_APPROVALS;
     // A form parks the terminal whichever session put it up (see the 1.x
@@ -102,9 +122,9 @@ export async function startReporterV2({ context, bridge, pane }) {
   const contextWindow = createWindowCache(async () => {
     const listed = await context.model.list();
     return (Array.isArray(listed?.data) ? listed.data : []).map((entry) => ({
-      providerID: entry?.providerID,
-      modelID: entry?.id,
-      window: entry?.limit?.context,
+      providerID: entry.providerID,
+      modelID: entry.id,
+      window: entry.limit?.context,
     }));
   });
 
@@ -115,7 +135,11 @@ export async function startReporterV2({ context, bridge, pane }) {
     let cost = 0;
     for (const { tokens, cost: spent } of totals.values()) {
       const counted = tokenCounts(tokens);
-      for (const key of Object.keys(totalsOf)) totalsOf[key] += counted[key];
+      totalsOf.input += counted.input;
+      totalsOf.output += counted.output;
+      totalsOf.reasoning += counted.reasoning;
+      totalsOf.cacheRead += counted.cacheRead;
+      totalsOf.cacheWrite += counted.cacheWrite;
       cost += typeof spent === "number" ? spent : 0;
     }
     publish(
@@ -132,12 +156,14 @@ export async function startReporterV2({ context, bridge, pane }) {
     );
   };
 
+  /** @param {BusEvent} event */
   const handle = async (event) => {
     const type = event?.type;
     const data = event?.data ?? {};
     if (typeof type !== "string") return;
 
     if (type === "session.created") {
+      if (!data.sessionID) return;
       if (data.parentID) {
         pane.note(data.sessionID, data.parentID);
         await bindThrough(data.parentID);
@@ -156,7 +182,7 @@ export async function startReporterV2({ context, bridge, pane }) {
 
     if (type === "session.step.started" || type === "session.step.ended") {
       await bindThrough(data.sessionID);
-      if (data.sessionID !== pane.root) return;
+      if (!data.sessionID || data.sessionID !== pane.root) return;
       if (type === "session.step.started") {
         model = data.model;
         return;
@@ -168,6 +194,7 @@ export async function startReporterV2({ context, bridge, pane }) {
 
     if (type === "session.usage.updated") {
       await bindThrough(data.sessionID);
+      if (!data.sessionID) return;
       // The pane's conversation and its subagents spend; others do not.
       if (pane.rootOf(data.sessionID) !== pane.root) return;
       totals.set(data.sessionID, { tokens: data.tokens, cost: data.cost });
@@ -181,7 +208,9 @@ export async function startReporterV2({ context, bridge, pane }) {
 
   // opencode does not wait on a subscriber: one queue keeps two events'
   // async work from interleaving, and an older report from landing last.
+  /** @type {Promise<unknown>} */
   let queue = Promise.resolve();
+  /** @param {() => Promise<unknown>} job */
   const enqueue = (job) => {
     queue = queue.then(job).catch(() => {});
     return queue;
@@ -210,6 +239,7 @@ export async function startReporterV2({ context, bridge, pane }) {
   );
 
   return {
+    /** @param {BusEvent} event */
     onEvent: (event) => {
       void enqueue(() => handle(event));
     },

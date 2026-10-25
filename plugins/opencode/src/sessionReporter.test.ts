@@ -5,13 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startDeck } from "../../../scripts/reporterHarness";
 import { normalizeOpencodeStatus } from "./status";
-// The reporter, the pane's session and the wire are untyped resource JS —
+import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
+// The reporter, the pane's session and the wire are resource JS —
 // shipped to, and loaded by, the user's opencode process, never bundled into
 // the plugin. The pane's session and the wire are ONE object per module
 // instance — which is the point of them — so each test loads them fresh, as a
 // new pane's process would (see `beforeEach`).
-let reporter: (input?: any) => Promise<any>;
-let paneSession: (client?: unknown) => any;
+type ReporterResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/session-reporter.js").startReporter>>;
+let rawReporter: typeof import("../resources/keepdeck-plugin/session-reporter.js").startReporter;
+let reporter: (input?: unknown) => Promise<Armed<ReporterResult, "event">>;
+let paneSession: typeof import("../resources/keepdeck-plugin/pane-session.js").paneSession;
 /** The wire's own word for "everything handed over has landed" — see
  * `envelopes` below for why silence is not it. */
 let drained: () => Promise<void>;
@@ -65,11 +68,10 @@ describe("opencode session reporter", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    // @ts-expect-error untyped resource module
-    ({ startReporter: reporter } = await import("../resources/keepdeck-plugin/session-reporter.js"));
-    // @ts-expect-error untyped resource module
+    const resource = await import("../resources/keepdeck-plugin/session-reporter.js");
+    rawReporter = resource.startReporter;
+    reporter = async (input) => requireHooks(await resource.startReporter(input), ["event"]);
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
-    // @ts-expect-error untyped resource module
     ({ drained } = await import("../resources/keepdeck-plugin/keepdeck-bridge.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-reporter-"));
     deck = await startDeck();
@@ -114,10 +116,10 @@ describe("opencode session reporter", () => {
    * envelope of two, and the suite read as a flake. The wire's drain is the
    * fact; the quiet wait stays only for the cases that assert nothing came.
    */
-  const envelopes = async (): Promise<any[]> => {
+  const envelopes = async () => {
     await drained();
     await deck.idle();
-    return deck.envelopes as any[];
+    return deck.envelopes;
   };
 
   const usageReports = async () =>
@@ -361,12 +363,12 @@ describe("opencode session reporter", () => {
 
   it("stays inert outside KeepDeck", async () => {
     delete process.env.KEEPDECK_BRIDGE;
-    expect(await reporter()).toEqual({});
+    expect(await rawReporter()).toEqual({});
   });
 
   it("stays inert when the bridge envelope is incomplete", async () => {
     process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir });
-    expect(await reporter()).toEqual({});
+    expect(await rawReporter()).toEqual({});
   });
 
   it("reports usage on a completed assistant message", async () => {
@@ -790,7 +792,7 @@ describe("opencode session reporter", () => {
     // The NEXT turn is a new fact and says so.
     await event(busy);
 
-    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+    expect((await statusEvents()).map((e) => e.type)).toEqual([
       "session.status",
       "session.idle",
       "session.status",
@@ -826,7 +828,7 @@ describe("opencode session reporter", () => {
       event: { type: "session.idle", properties: { sessionID: "ses_root" } },
     });
     await event(busy);
-    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+    expect((await statusEvents()).map((e) => e.type)).toEqual([
       "session.status",
       "session.error",
       "session.idle",
@@ -879,7 +881,7 @@ describe("opencode session reporter", () => {
     await event(idle);
 
     const forwarded = (await statusEvents());
-    expect(forwarded.filter((e: any) => e.type === "session.idle")).toHaveLength(
+    expect(forwarded.filter((e) => e.type === "session.idle")).toHaveLength(
       1,
     );
   });
@@ -923,12 +925,12 @@ describe("opencode session reporter", () => {
     // BOTH halves, or the test guards only one of them: a reporter that
     // silently swallowed the error would leave one turn-start standing and
     // this would stay green while raw forwarding was broken again.
-    expect(forwarded.map((e: any) => e.type)).toEqual([
+    expect(forwarded.map((e) => e.type)).toEqual([
       "session.status",
       "session.error",
     ]);
     const edges = forwarded
-      .map((raw: any, index: number) =>
+      .map((raw, index: number) =>
         normalizeOpencodeStatus({ agent: "opencode", event: raw }, index),
       )
       .filter(Boolean);
@@ -953,7 +955,7 @@ describe("opencode session reporter", () => {
     const { event } = await reporter();
     await event(created("ses_root"));
 
-    expect((await envelopes()).map((e: any) => e.type)).toEqual([
+    expect((await envelopes()).map((e) => e.type)).toEqual([
       "session.bound",
     ]);
   });
@@ -1032,7 +1034,7 @@ describe("opencode session reporter", () => {
       event: { type: "question.rejected", properties: { sessionID: "ses_child" } },
     });
     const events = (await statusEvents());
-    expect(events.map((e: any) => e.type)).toEqual([
+    expect(events.map((e) => e.type)).toEqual([
       "permission.asked",
       "permission.replied",
       "question.asked",
@@ -1072,7 +1074,7 @@ describe("opencode session reporter", () => {
       await event({
         event: { type: "question.asked", properties: { sessionID: "ses_root" } },
       });
-      expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+      expect((await statusEvents()).map((e) => e.type)).toEqual([
         "question.asked",
       ]);
     } finally {
@@ -1205,7 +1207,7 @@ describe("opencode session reporter", () => {
     }
 
     expect(deck.peakInFlight()).toBe(1);
-    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+    expect((await statusEvents()).map((e) => e.type)).toEqual([
       "session.error",
       "session.idle",
     ]);

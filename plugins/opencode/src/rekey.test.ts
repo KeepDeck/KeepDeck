@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { rekeyExportV1, rekeyExportV2, remintId, type V1Export, type V2Export } from "./rekey";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Deterministic byte source: a rising counter, so minted tails are
  * predictable and every call yields a DISTINCT tail (ids never collide). */
@@ -94,7 +95,7 @@ describe("rekeyExportV1", () => {
     expect(m0.info.sessionID).toBe(newSessionId);
     expect(m1.info.sessionID).toBe(newSessionId);
     // The part is re-linked to its message's NEW id and the new session.
-    const p0 = m0.parts![0];
+    const p0 = present(m0.parts, "the message parts")[0];
     expect(p0.id).not.toBe("prt_f2461db4d001aaAAaaAAaaAA00");
     expect(p0.sessionID).toBe(newSessionId);
     expect(p0.messageID).toBe(m0.info.id);
@@ -146,7 +147,7 @@ describe("rekeyExportV1", () => {
       ],
     };
     const { document: rekeyed } = rekeyExportV1(doc, "/t", { bytes: counterBytes() });
-    const newIds = rekeyed.messages[0].parts!.map((p) => String(p.id));
+    const newIds = present(rekeyed.messages[0].parts, "the message parts").map((p) => String(p.id));
     // The sort key (first 16 chars) is preserved BYTE-FOR-BYTE — any KEEP≠16
     // would change it and could reorder. This catches the boundary directly,
     // independent of what the random tail happens to be.
@@ -193,8 +194,8 @@ describe("rekeyExportV1", () => {
     };
     const { document: rekeyed, newSessionId } = rekeyExportV1(doc, "/t", { bytes: counterBytes() });
     expect(rekeyed.messages[0].parts).toBeUndefined();
-    expect(rekeyed.messages[1].parts![0].id).toBeUndefined(); // no id → not minted
-    expect(rekeyed.messages[1].parts![0].sessionID).toBe(newSessionId); // still re-linked
+    expect(present(rekeyed.messages[1].parts, "the message parts")[0].id).toBeUndefined(); // no id → not minted
+    expect(present(rekeyed.messages[1].parts, "the message parts")[0].sessionID).toBe(newSessionId); // still re-linked
 
     const empty = rekeyExportV1(
       { info: { id: SRC, directory: "/d", title: "t" }, messages: [] },

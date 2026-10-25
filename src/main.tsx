@@ -41,10 +41,12 @@ void initUpdates(runtime.downloads);
 void initWindowFocus();
 initUpdateNotifications();
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+const rootElement = document.getElementById("root");
+if (!rootElement) throw new Error("index.html has no #root to render into");
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <AppRuntimeProvider runtime={runtime}>
-      <App />
+      <App runtime={runtime} />
     </AppRuntimeProvider>
   </React.StrictMode>,
 );

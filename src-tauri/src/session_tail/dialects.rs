@@ -292,12 +292,36 @@ pub(super) fn sibling_paths(directory: &std::path::Path) -> Vec<PathBuf> {
 /// carrying its model and context window BEFORE the one carrying its
 /// numbers, so the window lands before the counts it qualifies.
 ///
-/// Status-lane activity records do not survive. Explicit context-only
-/// metadata keeps its latest value to seed the decoder. A record read out of the
-/// existing file describes a turn that ended before this deck was looking,
-/// and replaying it would end the turn running now — so the replay stops
-/// here, in the one place that sees the whole drain, rather than at each of
-/// the places that would otherwise have to remember.
+/// Status-lane activity records are not part of this summary: they leave as
+/// a reconcile ([`last_status_of_each`]), which the tracker may use only to
+/// END a turn still shown as running — never to start one. Explicit
+/// context-only metadata keeps its latest value to seed the decoder.
+/// The status half of a catch-up: of the ROOT file's status-lane records,
+/// the last of each watch, in FILE order — what a reconcile reads to tell
+/// whether the latest turn the file records has ended. Context-only
+/// metadata is not here (`last_of_each` keeps it), nor is a subagent file's
+/// status: its turns are its own story.
+///
+/// File order, not watch order, because the question a reader asks of it is
+/// "did anything start after the last ending" — which only the order the
+/// records were written in can answer.
+pub(super) fn last_status_of_each(events: &[TailedEvent], watches: &[TailWatch]) -> Vec<TailedEvent> {
+    let mut last: Vec<Option<(usize, &TailedEvent)>> = (0..watches.len()).map(|_| None).collect();
+    for (position, event) in events.iter().enumerate() {
+        let Some(slot) = event.slot else { continue };
+        let Some(watch) = watches.get(slot) else {
+            continue;
+        };
+        if !event.root || watch.lane != TailLane::Status || watch.replay_context {
+            continue;
+        }
+        last[slot] = Some((position, event));
+    }
+    let mut kept: Vec<(usize, &TailedEvent)> = last.into_iter().flatten().collect();
+    kept.sort_by_key(|(position, _)| *position);
+    kept.into_iter().map(|(_, event)| event.clone()).collect()
+}
+
 pub(super) fn last_of_each(events: Vec<TailedEvent>, watches: &[TailWatch]) -> Vec<TailedEvent> {
     let mut last: Vec<Option<TailedEvent>> = (0..watches.len()).map(|_| None).collect();
     for event in events {
@@ -346,6 +370,44 @@ mod tests {
         watched_events(line, watches, &mut Folds::default())
             .into_iter()
             .next()
+    }
+
+    // A reconcile reads "did anything start after the last ending": it keeps
+    // the last record of each ROOT status watch, in the order the file wrote
+    // them — not context metadata, not usage, not a subagent's own turns.
+    #[test]
+    fn the_status_summary_is_the_last_of_each_root_watch_in_file_order() {
+        let mut context = declare(vec![equals("type", "mode")], &["type", "n"], TailLane::Status);
+        context.replay_context = true;
+        let watches = vec![
+            declare(vec![equals("type", "start")], &["type", "n"], TailLane::Status),
+            declare(vec![equals("type", "end")], &["type", "n"], TailLane::Status),
+            declare(vec![equals("type", "usage")], &["type", "n"], TailLane::Usage),
+            context,
+        ];
+        let lines: [&[u8]; 6] = [
+            br#"{"type":"end","n":1}"#,
+            br#"{"type":"start","n":2}"#,
+            br#"{"type":"mode","n":3}"#,
+            br#"{"type":"usage","n":4}"#,
+            br#"{"type":"end","n":5}"#,
+            br#"{"type":"start","n":6}"#,
+        ];
+        let mut events: Vec<TailedEvent> = lines.iter().filter_map(|line| carried(line, &watches)).collect();
+        let mut child = present_in_child(&watches);
+        events.push(child.take().unwrap());
+        let kept: Vec<i64> = last_status_of_each(&events, &watches)
+            .iter()
+            .map(|event| event.payload["record"]["n"].as_i64().unwrap())
+            .collect();
+        assert_eq!(kept, vec![5, 6], "end 5 before start 6, as written");
+    }
+
+    /// A status record from a subagent file — which a reconcile must skip.
+    fn present_in_child(watches: &[TailWatch]) -> Option<TailedEvent> {
+        let mut event = carried(br#"{"type":"end","n":7}"#, watches)?;
+        event.root = false;
+        Some(event)
     }
 
     // Interrupts ride on the record's STRUCTURE, never its prose — and this

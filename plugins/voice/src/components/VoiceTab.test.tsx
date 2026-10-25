@@ -8,15 +8,12 @@ import {
 } from "../../../../packages/plugin-guest/src/fakeHost";
 import { createBindingsStore } from "../bindingsStore";
 import { clearRuntime, setRuntime } from "../runtime";
-import type { VoiceController, VoiceSnapshot } from "../controller";
-import type { ModelDownloads } from "../downloads";
-import type { ModelsStore } from "../models";
+import type { VoiceSnapshot } from "../controller";
+import { MODEL_CATALOG } from "../modelCatalog";
+import { createRecordingLatch } from "../recordingLatch";
+import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { VoiceTab } from "./VoiceTab";
-import { speechTranscript } from "@keepdeck/plugin-api/testing";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { elementOf, elementsOf, present, speechTranscript } from "@keepdeck/plugin-api/testing";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -59,27 +56,17 @@ describe("VoiceTab history click-to-copy", () => {
     host.ctx.services.clipboard.writeText = writeText;
 
     snap = snapshotWithHistory();
-    const controller = {
+    const controller = controllerOf({
       snapshot: () => snap,
-      subscribe: () => () => {},
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
       clearHistory: vi.fn(),
       chooseMicrophone: (chooseMicrophone = vi.fn(async () => {})),
       cancel: vi.fn(async () => {}),
-    } as unknown as VoiceController;
-    const modelsSnap = [{ installed: true }] as never;
-    const models = {
-      snapshot: () => modelsSnap,
-      subscribe: () => () => {},
-      error: () => null,
-    } as unknown as ModelsStore;
-    const dlSnap = { active: {}, errors: {}, interrupted: {} };
-    const downloads = {
-      snapshot: () => dlSnap,
-      subscribe: () => () => {},
-      anyActive: () => false,
-    } as unknown as ModelDownloads;
+    });
+    const modelsSnap = [{ ...MODEL_CATALOG[0], installed: true }];
+    const models = modelsOf({ snapshot: () => modelsSnap });
+    const downloads = downloadsOf();
 
     setRuntime({
       ctx: host.ctx,
@@ -87,7 +74,7 @@ describe("VoiceTab history click-to-copy", () => {
       downloads,
       models,
       bindings: createBindingsStore(host.ctx),
-      recordingLatch: undefined as never,
+      recordingLatch: createRecordingLatch(),
     });
   });
 
@@ -99,7 +86,7 @@ describe("VoiceTab history click-to-copy", () => {
 
   const render = () => act(() => root.render(createElement(VoiceTab)));
   const entries = () =>
-    [...stage.querySelectorAll(".voice__entry")] as HTMLElement[];
+    elementsOf(stage, ".voice__entry", HTMLElement);
 
   it("asks to replug a microphone adding an offset", () => {
     snap = {
@@ -117,12 +104,15 @@ describe("VoiceTab history click-to-copy", () => {
       render();
       await flush();
     });
-    const trigger = stage.querySelector(".voice-micblock button") as HTMLElement;
+    const trigger = elementOf(stage, ".voice-micblock button", HTMLElement);
     expect(trigger.textContent).toContain("System default (Test Microphone)");
     await act(async () => trigger.click());
-    const option = [...document.querySelectorAll('[role="option"]')].find(
-      (o) => o.textContent === "Test Microphone",
-    ) as HTMLElement;
+    const option = present(
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (o) => o.textContent === "Test Microphone",
+      ),
+      "the Test Microphone option",
+    );
     await act(async () => option.click());
     expect(chooseMicrophone).toHaveBeenCalledWith({ id: "fake:mic", name: "Test Microphone" });
   });
@@ -140,7 +130,7 @@ describe("VoiceTab history click-to-copy", () => {
     // Clicking a row copies it, but a user often wants half a sentence, and
     // the document baseline withholds selection unless the log asks by name.
     expect(
-      stage.querySelector(".voice__log")!.classList.contains("kd-selectable"),
+      present(stage.querySelector(".voice__log"), "the .voice__log element").classList.contains("kd-selectable"),
     ).toBe(true);
   });
 
@@ -241,10 +231,10 @@ describe("VoiceTab history click-to-copy", () => {
   it("does not copy when a drag-select ends IN this row (manual copy fallback)", async () => {
     render();
     // A selection that touches the clicked row — the user is drag-selecting.
-    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
-      toString: () => "selected",
-      containsNode: () => true,
-    } as unknown as Selection);
+    const selection = present(window.getSelection(), "the selection");
+    selection.selectAllChildren(entries()[0]);
+    // happy-dom answers containsNode wrongly, so the geometry is stated.
+    const touches = vi.spyOn(selection, "containsNode").mockReturnValue(true);
 
     await act(async () => {
       entries()[0].dispatchEvent(
@@ -254,16 +244,19 @@ describe("VoiceTab history click-to-copy", () => {
     });
 
     expect(writeText).not.toHaveBeenCalled();
-    selectionSpy.mockRestore();
+    touches.mockRestore();
+    selection.removeAllRanges();
   });
 
   it("still copies when the active selection is in ANOTHER element", async () => {
     render();
     // A selection elsewhere must NOT block the copy on this row.
-    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
-      toString: () => "selected",
-      containsNode: () => false,
-    } as unknown as Selection);
+    const elsewhere = document.body.appendChild(document.createElement("p"));
+    elsewhere.textContent = "selected";
+    const selection = present(window.getSelection(), "the selection");
+    selection.selectAllChildren(elsewhere);
+    // happy-dom answers containsNode wrongly, so the geometry is stated.
+    const touches = vi.spyOn(selection, "containsNode").mockReturnValue(false);
 
     await act(async () => {
       entries()[0].dispatchEvent(
@@ -273,6 +266,7 @@ describe("VoiceTab history click-to-copy", () => {
     });
 
     expect(writeText).toHaveBeenCalledTimes(1);
-    selectionSpy.mockRestore();
+    touches.mockRestore();
+    selection.removeAllRanges();
   });
 });

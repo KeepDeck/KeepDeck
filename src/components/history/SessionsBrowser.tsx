@@ -120,9 +120,12 @@ export function SessionsBrowser({
   // the sessionIndexManager's call (it also waits for plugin registration
   // on its own — this gate mirrors the surface's own readiness shape). The
   // listing itself refreshes per index revision inside the hook.
+  // The latest ask surface, read through a ref: the trigger is readiness,
+  // not the object the caller rebuilds on every render.
+  const apiRef = useRef(api);
+  apiRef.current = api;
   useEffect(() => {
-    if (ready) api.ensureFresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (ready) apiRef.current.ensureFresh();
   }, [ready]);
 
   // The journal rows' keys go to the SHARED enrichment table — the ask

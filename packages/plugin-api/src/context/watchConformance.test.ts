@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { watchMatches, watchProject, type TailWatch } from "./sessionTail";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * This side of the conformance corpus.
@@ -24,12 +25,12 @@ interface Case {
   readonly carried: { readonly watch: number; readonly record: unknown } | null;
 }
 
-const corpus = JSON.parse(
+const corpus: { cases: Case[] } = JSON.parse(
   readFileSync(
     fileURLToPath(new URL("../../conformance/watch-cases.json", import.meta.url)),
     "utf8",
   ),
-) as { cases: Case[] };
+);
 
 /** What this side does with a record, in the shape the corpus states. */
 function carry(
@@ -38,7 +39,7 @@ function carry(
 ): { watch: number; record: unknown } | null {
   const index = watches.findIndex((watch) => watchMatches(watch, record));
   if (index === -1) return null;
-  return { watch: index, record: watchProject(watches[index]!, record) };
+  return { watch: index, record: watchProject(present(watches[index], "the watches at the index"), record) };
 }
 
 describe("watch descriptor conformance", () => {

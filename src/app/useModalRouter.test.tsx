@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { useModalRouter } from "./useModalRouter";
+import { present } from "@keepdeck/plugin-api/testing";
 
 type Router = ReturnType<typeof useModalRouter>;
 
@@ -25,11 +26,12 @@ afterEach(() => {
 
 function mount() {
   const out = { current: null as Router | null };
-  root = createRoot(document.createElement("div"));
+  const mounted = createRoot(document.createElement("div"));
+  root = mounted;
   const render = (transactionOpen: boolean) =>
-    act(() => root!.render(createElement(Harness, { transactionOpen, out })));
+    act(() => mounted.render(createElement(Harness, { transactionOpen, out })));
   render(false);
-  const router = () => out.current!;
+  const router = () => present(out.current, "the modal router");
   return { render, router };
 }
 

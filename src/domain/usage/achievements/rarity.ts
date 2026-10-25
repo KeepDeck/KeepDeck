@@ -1,3 +1,4 @@
+import { keyList } from "../../json";
 import type { AchievementMetric } from "./catalog";
 
 /**
@@ -79,9 +80,26 @@ const REFERENCE_PACE: Record<AchievementMetric, number | null> = {
  * again beside it. `achievementRarity` asks this question of every tier, so
  * it is a real answer this module gives, not a view of itself kept for a
  * test to read. */
-export const PACED_METRICS: readonly AchievementMetric[] = (
-  Object.keys(REFERENCE_PACE) as AchievementMetric[]
-).filter((metric) => REFERENCE_PACE[metric] !== null);
+export const PACED_METRICS: readonly AchievementMetric[] = keyList<typeof REFERENCE_PACE>()([
+  "tokens",
+  "outputTokens",
+  "cacheTokens",
+  "sessions",
+  "spendUsd",
+  "dayTokens",
+  "daySessions",
+  "dayProviders",
+  "sessionTokens",
+  "sessionTurns",
+  "sessionHours",
+  "sessionSpendUsd",
+  "streakDays",
+  "providers",
+  "models",
+  "workspaces",
+]).filter(
+  (metric) => REFERENCE_PACE[metric] !== null,
+);
 
 const PACED = new Set<AchievementMetric>(PACED_METRICS);
 
@@ -112,11 +130,12 @@ export function achievementRarity(
   // `undefined`, and `NaN` loses every band comparison — so the tier would
   // arrive dressed as legendary instead of stopping the build, which is the
   // opposite of what the throw below is for.
-  if (!PACED.has(metric)) {
+  const pace = PACED.has(metric) ? REFERENCE_PACE[metric] : undefined;
+  if (typeof pace !== "number") {
     throw new Error(
       `achievement metric "${metric}" has neither a reference pace nor a declared rarity`,
     );
   }
-  return rarityForDays(threshold / (REFERENCE_PACE[metric] as number));
+  return rarityForDays(threshold / pace);
 }
 

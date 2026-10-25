@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.hoisted(() => vi.fn());
-const listen = vi.hoisted(() => vi.fn());
+const listen = vi.hoisted(() =>
+  vi.fn<(event: string, handler: (e: { payload: unknown }) => void) => Promise<() => void>>(),
+);
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 
@@ -21,7 +23,7 @@ describe("mcpBridge ipc", () => {
     await onMcpRequest(handler);
     expect(listen).toHaveBeenCalledWith(MCP_REQUEST_EVENT, expect.any(Function));
     expect(MCP_REQUEST_EVENT).toBe("deck://mcp/request");
-    const wrapped = listen.mock.calls[0][1] as (e: { payload: unknown }) => void;
+    const wrapped = listen.mock.calls[0][1];
     wrapped({ payload: { id: 4, line: "{}" } });
     expect(handler).toHaveBeenCalledWith({ id: 4, line: "{}" });
   });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { watchMatches, watchProject, type AgentHistory } from "@keepdeck/plugin-api";
+import { watchMatches, watchProject } from "@keepdeck/plugin-api";
 import { kimiRecords, kimiTail } from "./tail";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const project = (record: Record<string, unknown>) => {
   const watch = kimiRecords.watches.find((candidate) => watchMatches(candidate, record));
@@ -25,7 +26,7 @@ describe("Kimi's main wire lifecycle", () => {
   ])("uses the actual %s ending", (reason, expected) => {
     const record = project({ type: "turn.ended", agentId: "main", time: 200, reason,
       error: { name: "rate_limit", message: "limited" } });
-    expect(kimiRecords.read(record!)).toEqual(expected);
+    expect(kimiRecords.read(present(record, "the record"))).toEqual(expected);
   });
 
   it("refuses malformed, undated, foreign and unknown endings", () => {
@@ -47,8 +48,15 @@ describe("Kimi's main wire lifecycle", () => {
   });
 
   it("uses the reported path or reuses history discovery for an exact resumed session", async () => {
-    const listing = vi.fn(async () => ({ stubs: [{ sessionId: "session_one", ref: "/one/agents/main/wire.jsonl" }], complete: true }));
-    const tail = kimiTail({ listing } as unknown as AgentHistory);
+    const listing = vi.fn(async () => ({
+      stubs: [{ sessionId: "session_one", ref: "/one/agents/main/wire.jsonl", mtime: 1, size: 1 }],
+      complete: true,
+    }));
+    // The strict list is never the one asked while the honest listing exists.
+    const list = async (): Promise<never> => {
+      throw new Error("kimiTail asked the legacy list");
+    };
+    const tail = kimiTail({ list, listing });
     expect(await tail.follow({ sessionId: "one", store: "/reported", cwd: null })).toEqual({ path: "/reported" });
     expect(listing).not.toHaveBeenCalled();
     expect(await tail.follow({ sessionId: null, store: null, cwd: null })).toBeNull();

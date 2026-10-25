@@ -10,6 +10,8 @@ import {
   STRIP_REVEAL_DWELL_MS,
   STRIP_REVEAL_GRACE_MS,
 } from "../../presentation/stripReveal";
+import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 // Where the OS says the pointer is — in the window unless a test moves it.
 // `answer`, when set, is the one the next ask gets — a test holds it to
@@ -23,17 +25,16 @@ const os = vi.hoisted(() => ({
   point: null as { x: number; y: number; pressed: boolean } | null,
   pointAnswer: null as Promise<{ x: number; y: number; pressed: boolean } | null> | null,
 }));
-vi.mock("../../ipc/window", () => ({
-  pointerInWindow: () => {
-    os.asks += 1;
-    return os.answer ?? Promise.resolve(os.inWindow);
-  },
-  pointerOnWindow: () => os.pointAnswer ?? Promise.resolve(os.point),
-}));
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+    windowPointer: {
+      pointerInWindow: () => {
+        os.asks += 1;
+        return os.answer ?? Promise.resolve(os.inWindow);
+      },
+      pointerOnWindow: () => os.pointAnswer ?? Promise.resolve(os.point),
+    },
+  }));
 
 const mark = (id: string, name: string, extra: Partial<WorkspaceMark> = {}): WorkspaceMark => ({
   id,
@@ -97,7 +98,7 @@ describe("WorkspaceStrip", () => {
     render();
     const groups = [...host.querySelectorAll<HTMLElement>("[data-ws-id]")];
     expect(groups.map((m) => m.dataset.wsId)).toEqual(["a", "b", "c", "d"]);
-    const marks = groups.map((group) => group.querySelector<HTMLElement>(".strip__mark")!);
+    const marks = groups.map((group) => present(group.querySelector<HTMLElement>(".strip__mark"), "element \".strip__mark\""));
     expect(marks[0].classList.contains("strip__mark--active")).toBe(true);
     expect(marks[0].getAttribute("aria-current")).toBe("true");
     // Not "false" on every other mark: no attribute at all.
@@ -111,7 +112,7 @@ describe("WorkspaceStrip", () => {
 
   it("pins «+» above the marks, outside the list that scrolls", () => {
     render();
-    const add = byLabel("New workspace")!;
+    const add = present(byLabel("New workspace"), "New workspace field");
     expect(add.closest(".strip__marks")).toBeNull();
     act(() => add.click());
     expect(callbacks.onAdd).toHaveBeenCalledOnce();
@@ -129,7 +130,7 @@ function pointerEvent(
   type: string,
   init: { clientY?: number; button?: number } = {},
 ): PointerEvent {
-  const event = new Event(type, { bubbles: true, cancelable: true }) as PointerEvent;
+  const event = new PointerEvent(type, { bubbles: true, cancelable: true });
   Object.defineProperties(event, {
     button: { value: init.button ?? 0 },
     clientX: { value: 10 },
@@ -180,8 +181,8 @@ describe("WorkspaceStrip drag reorder", () => {
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = function () {
-      const top = Math.max(0, slot(this as HTMLElement)) * MARK_HEIGHT;
-      return { top, bottom: top + MARK_HEIGHT, left: 0, right: 52, width: 52, height: MARK_HEIGHT, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      const top = Math.max(0, slot(instanceOf(this, HTMLElement, "this"))) * MARK_HEIGHT;
+      return { top, bottom: top + MARK_HEIGHT, left: 0, right: 52, width: 52, height: MARK_HEIGHT, x: 0, y: top, toJSON: () => ({}) };
     };
     const geometry: Record<string, (el: HTMLElement) => number> = {
       offsetTop: (el) => Math.max(0, slot(el)) * MARK_HEIGHT,
@@ -194,7 +195,7 @@ describe("WorkspaceStrip drag reorder", () => {
       Object.defineProperty(HTMLElement.prototype, name, {
         configurable: true,
         get() {
-          return get(this as HTMLElement);
+          return get(instanceOf(this, HTMLElement, "this"));
         },
       });
     }
@@ -208,7 +209,7 @@ describe("WorkspaceStrip drag reorder", () => {
     HTMLElement.prototype.getBoundingClientRect = originalRect;
     for (const [name, descriptor] of Object.entries(saved)) {
       if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
-      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+      else Reflect.deleteProperty(HTMLElement.prototype, name);
     }
     document.body.innerHTML = "";
   });
@@ -216,13 +217,13 @@ describe("WorkspaceStrip drag reorder", () => {
   const order = () =>
     [...document.querySelectorAll<HTMLElement>("[data-ws-id]")].map((m) => m.dataset.wsId);
   const markEl = (id: string) =>
-    document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
+    present(document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`), "element `[data-ws-id=\"${id}\"] .strip__mark`");
 
   it("holds an open strip open through a drag, and after a drop on the column", () => {
     // Shutting it would drop every team list and jump the marks under the
     // hand; it holds as it is instead, however far the pointer goes.
     act(() => root.render(createElement(Harness)));
-    const col = document.querySelector(".strip__col")!;
+    const col = present(document.querySelector(".strip__col"), "element \".strip__col\"");
     act(() => {
       col.dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
@@ -252,7 +253,7 @@ describe("WorkspaceStrip drag reorder", () => {
 
   it("shuts an open strip a grace after a drop that ends off the column", () => {
     act(() => root.render(createElement(Harness)));
-    const col = document.querySelector(".strip__col")!;
+    const col = present(document.querySelector(".strip__col"), "element \".strip__col\"");
     act(() => {
       col.dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
@@ -278,7 +279,7 @@ describe("WorkspaceStrip drag reorder", () => {
 
   it("stays shut after a drop that ends off the column", () => {
     act(() => root.render(createElement(Harness)));
-    const col = document.querySelector(".strip__col")!;
+    const col = present(document.querySelector(".strip__col"), "element \".strip__col\"");
     act(() => {
       col.dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
@@ -303,7 +304,7 @@ describe("WorkspaceStrip drag reorder", () => {
       vi.advanceTimersByTime(300);
     });
     // The ghost is the mark's image: its letters and its dot.
-    const ghost = document.querySelector(".strip__ghost")!;
+    const ghost = present(document.querySelector(".strip__ghost"), "element \".strip__ghost\"");
     expect(ghost.querySelector(".strip__tile")?.textContent).toBe("Be");
     expect(ghost.querySelector(".strip__dot--waiting")).not.toBeNull();
     // The strip was shut: the ghost is the mark alone, no name.
@@ -336,7 +337,7 @@ describe("WorkspaceStrip «+»", () => {
         createElement(WorkspaceStrip, { view: VIEW, version: null, ...callbacks }),
       ),
     );
-    const tile = document.querySelector('button[aria-label="New workspace"] .strip__tile')!;
+    const tile = present(document.querySelector('button[aria-label="New workspace"] .strip__tile'), "element 'button[aria-label=\"New workspace\"] .strip__tile'");
     expect(tile.querySelector("svg")).not.toBeNull();
     expect(tile.textContent).toBe("");
     act(() => root.unmount());
@@ -350,7 +351,7 @@ describe("WorkspaceStrip opening on approach", () => {
     act(() =>
       root.render(createElement(WorkspaceStrip, { view: VIEW, version: null, ...callbacks })),
     );
-  const col = () => host.querySelector<HTMLElement>(".strip__col")!;
+  const col = () => present(host.querySelector<HTMLElement>(".strip__col"), "element \".strip__col\"");
   const revealed = () => host.querySelector(".strip--revealed") !== null;
   // React derives enter/leave from over/out with a relatedTarget outside.
   const pointer = (type: "enter" | "leave" | "down", target: Element = col()) =>
@@ -408,7 +409,7 @@ describe("WorkspaceStrip opening on approach", () => {
   it("does not open under a press — a click or the start of a hold-to-drag", () => {
     render();
     pointer("enter");
-    pointer("down", host.querySelector("[data-ws-id='b'] .strip__mark")!);
+    pointer("down", present(host.querySelector("[data-ws-id='b'] .strip__mark"), "element \"[data-ws-id='b'] .strip__mark\""));
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_DWELL_MS * 2));
     expect(revealed()).toBe(false);
   });
@@ -434,7 +435,7 @@ describe("WorkspaceStrip opening on approach", () => {
   it("keeps the name out of the drag ghost — the ghost is the mark's image", () => {
     render();
     // The face the ghost shares is the tile alone.
-    const face = host.querySelector("[data-ws-id='b'] .strip__tile")!;
+    const face = present(host.querySelector("[data-ws-id='b'] .strip__tile"), "element \"[data-ws-id='b'] .strip__tile\"");
     expect(face.querySelector(".strip__name")).toBeNull();
   });
 });
@@ -465,7 +466,7 @@ describe("WorkspaceStrip as the team switcher", () => {
     act(() =>
       root.render(createElement(WorkspaceStrip, { view: TEAMED, version: null, ...callbacks })),
     );
-  const col = () => host.querySelector<HTMLElement>(".strip__col")!;
+  const col = () => present(host.querySelector<HTMLElement>(".strip__col"), "element \".strip__col\"");
   const revealed = () => host.querySelector(".strip--revealed") !== null;
   const hover = (type: "enter" | "leave") =>
     act(() => {
@@ -484,7 +485,7 @@ describe("WorkspaceStrip as the team switcher", () => {
     host.querySelector<HTMLButtonElement>(`[data-ws-id="${id}"] .strip__toggle`);
   const listed = () =>
     [...host.querySelectorAll<HTMLElement>(".strip__teams")].map(
-      (list) => list.closest<HTMLElement>("[data-ws-id]")!.dataset.wsId,
+      (list) => present(list.closest<HTMLElement>("[data-ws-id]"), "element \"[data-ws-id]\"").dataset.wsId,
     );
 
   beforeEach(() => {
@@ -505,7 +506,7 @@ describe("WorkspaceStrip as the team switcher", () => {
     expect(host.querySelector(".strip__teams")).toBeNull();
     // Inert, not merely skipped by Tab: no click, no script, no reader
     // reaches a control past the shut edge.
-    expect(toggleOf("a")!.inert).toBe(true);
+    expect(present(toggleOf("a"), "team a toggle").inert).toBe(true);
     // A workspace with no teams has nothing to toggle.
     expect(toggleOf("c")).toBeNull();
   });
@@ -514,27 +515,27 @@ describe("WorkspaceStrip as the team switcher", () => {
     render();
     openStrip();
     expect(listed()).toEqual(["a"]);
-    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
-    expect(toggleOf("a")!.inert).toBe(false);
-    expect(host.querySelector(".strip__teams")!.getAttribute("aria-label")).toBe("Alpha");
+    expect(present(toggleOf("a"), "team a toggle").getAttribute("aria-expanded")).toBe("true");
+    expect(present(toggleOf("a"), "team a toggle").inert).toBe(false);
+    expect(present(host.querySelector(".strip__teams"), "element \".strip__teams\"").getAttribute("aria-label")).toBe("Alpha");
     const rows = [...host.querySelectorAll<HTMLButtonElement>(".strip__team")];
     expect(rows.map((row) => row.textContent)).toEqual(["api", "web"]);
     expect(rows[0].getAttribute("aria-current")).toBe("true");
     expect(rows[1].querySelector(".team-dot--working")).not.toBeNull();
     // A closed list counts itself; an open one does not.
-    expect(toggleOf("b")!.textContent).toBe("1");
-    expect(toggleOf("a")!.querySelector(".strip__count")).toBeNull();
+    expect(present(toggleOf("b"), "team b toggle").textContent).toBe("1");
+    expect(present(toggleOf("a"), "team a toggle").querySelector(".strip__count")).toBeNull();
   });
 
   it("opens and folds lists freely, any number at once", () => {
     render();
     openStrip();
-    act(() => toggleOf("b")!.click());
+    act(() => present(toggleOf("b"), "team b toggle").click());
     expect(listed()).toEqual(["a", "b"]);
     expect(callbacks.onSelect).not.toHaveBeenCalled();
-    act(() => toggleOf("a")!.click());
+    act(() => present(toggleOf("a"), "team a toggle").click());
     // Folding away: still drawn, no longer listed...
-    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("false");
+    expect(present(toggleOf("a"), "team a toggle").getAttribute("aria-expanded")).toBe("false");
     // ...and gone once its fold has run; Beta stays.
     act(() => void vi.advanceTimersByTime(500));
     expect(listed()).toEqual(["b"]);
@@ -543,7 +544,7 @@ describe("WorkspaceStrip as the team switcher", () => {
   it("opens again with the lists the person kept open", () => {
     render();
     openStrip();
-    act(() => toggleOf("b")!.click());
+    act(() => present(toggleOf("b"), "team b toggle").click());
     hover("leave");
     // The grace shuts it; then the folds run.
     act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS));
@@ -556,12 +557,12 @@ describe("WorkspaceStrip as the team switcher", () => {
   it("reopens a list caught mid-fold and keeps it open — no stale fold lands", () => {
     render();
     openStrip();
-    act(() => toggleOf("a")!.click()); // fold Alpha
-    act(() => toggleOf("a")!.click()); // and back, before the fold ends
+    act(() => present(toggleOf("a"), "team a toggle").click()); // fold Alpha
+    act(() => present(toggleOf("a"), "team a toggle").click()); // and back, before the fold ends
     act(() => void vi.advanceTimersByTime(500));
     // The old fold's frames must not settle it away under the new open.
     expect(listed()).toEqual(["a"]);
-    expect(toggleOf("a")!.getAttribute("aria-expanded")).toBe("true");
+    expect(present(toggleOf("a"), "team a toggle").getAttribute("aria-expanded")).toBe("true");
   });
 
   const graced = () => act(() => void vi.advanceTimersByTime(STRIP_REVEAL_GRACE_MS));
@@ -573,7 +574,7 @@ describe("WorkspaceStrip as the team switcher", () => {
   it("goes to a workspace from its mark and stays open for the next click — the pointer leaving shuts it", () => {
     render();
     openStrip();
-    act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__mark')!.click());
+    act(() => present(host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__mark'), "element '[data-ws-id=\"b\"] .strip__mark'").click());
     expect(callbacks.onSelect).toHaveBeenCalledWith("b");
     expect(revealed()).toBe(true);
     hover("leave");
@@ -584,8 +585,8 @@ describe("WorkspaceStrip as the team switcher", () => {
   it("enters a team from its row and stays open — clicking through teams needs no reopening", () => {
     render();
     openStrip();
-    act(() => toggleOf("b")!.click());
-    act(() => host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__team')!.click());
+    act(() => present(toggleOf("b"), "team b toggle").click());
+    act(() => present(host.querySelector<HTMLButtonElement>('[data-ws-id="b"] .strip__team'), "element '[data-ws-id=\"b\"] .strip__team'").click());
     expect(callbacks.onEnterTeam).toHaveBeenCalledWith("b", "t3");
     expect(revealed()).toBe(true);
   });
@@ -636,18 +637,18 @@ describe("WorkspaceStrip as the team switcher", () => {
     const key = ([t, type, fn, capture]: Entry) => [t, type, fn, capture];
     const added: Entry[] = [];
     const removed: Entry[] = [];
-    const capture = (o: unknown) => (typeof o === "boolean" ? o : Boolean((o as { capture?: boolean })?.capture));
+    const capture = (o: unknown) => typeof o === "boolean" ? o : typeof o === "object" && o !== null && "capture" in o && o.capture === true;
     const spies = [document, window, document.documentElement].flatMap((target) => {
       const add = target.addEventListener.bind(target);
       const remove = target.removeEventListener.bind(target);
       return [
-        vi.spyOn(target, "addEventListener").mockImplementation((type: string, fn: unknown, o?: unknown) => {
+        vi.spyOn(target, "addEventListener").mockImplementation((type: string, fn: EventListenerOrEventListenerObject, o?: boolean | AddEventListenerOptions) => {
           added.push([target, type, fn, capture(o)]);
-          add(type, fn as EventListener, o as AddEventListenerOptions);
+          add(type, fn, o);
         }),
-        vi.spyOn(target, "removeEventListener").mockImplementation((type: string, fn: unknown, o?: unknown) => {
+        vi.spyOn(target, "removeEventListener").mockImplementation((type: string, fn: EventListenerOrEventListenerObject, o?: boolean | AddEventListenerOptions) => {
           removed.push([target, type, fn, capture(o)]);
-          remove(type, fn as EventListener, o as EventListenerOptions);
+          remove(type, fn, o);
         }),
       ];
     });
@@ -853,7 +854,7 @@ describe("WorkspaceStrip as the team switcher", () => {
         try {
           document.dispatchEvent(new Event("visibilitychange"));
         } finally {
-          delete (document as unknown as { visibilityState?: string }).visibilityState;
+          Reflect.deleteProperty(document, "visibilityState");
         }
       },
     ]) {
@@ -918,9 +919,9 @@ describe("WorkspaceStrip dragging from the open strip", () => {
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = function () {
-      const group = groupOf(this as HTMLElement);
+      const group = groupOf(instanceOf(this, HTMLElement, "this"));
       const top = group ? topOf(group) : 0;
-      return { top, bottom: top + MARK, left: 0, right: 52, width: 52, height: MARK, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      return { top, bottom: top + MARK, left: 0, right: 52, width: 52, height: MARK, x: 0, y: top, toJSON: () => ({}) };
     };
     const geometry: Record<string, (el: HTMLElement) => number> = {
       offsetTop: (el) => (el.dataset.wsId ? topOf(el) : 0),
@@ -933,7 +934,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       Object.defineProperty(HTMLElement.prototype, name, {
         configurable: true,
         get() {
-          return get(this as HTMLElement);
+          return get(instanceOf(this, HTMLElement, "this"));
         },
       });
     }
@@ -947,18 +948,18 @@ describe("WorkspaceStrip dragging from the open strip", () => {
     HTMLElement.prototype.getBoundingClientRect = originalRect;
     for (const [name, descriptor] of Object.entries(saved)) {
       if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
-      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+      else Reflect.deleteProperty(HTMLElement.prototype, name);
     }
     document.body.innerHTML = "";
   });
 
   const order = () => groups().map((g) => g.dataset.wsId);
-  const markOf = (id: string) => document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`)!;
+  const markOf = (id: string) => present(document.querySelector<HTMLElement>(`[data-ws-id="${id}"] .strip__mark`), "element `[data-ws-id=\"${id}\"] .strip__mark`");
 
   it("carries the name with the mark when the strip is open", () => {
     act(() => root.render(createElement(TeamedHarness)));
     act(() => {
-      document.querySelector(".strip__col")!.dispatchEvent(
+      present(document.querySelector(".strip__col"), "element \".strip__col\"").dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
       );
     });
@@ -974,7 +975,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
   it("carries a dragged workspace as its mark alone, its list back where it lands", () => {
     act(() => root.render(createElement(TeamedHarness)));
     act(() => {
-      document.querySelector(".strip__col")!.dispatchEvent(
+      present(document.querySelector(".strip__col"), "element \".strip__col\"").dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
       );
     });
@@ -1003,7 +1004,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
   it("drags from the open strip with its lists in place: nothing moves under the hand", () => {
     act(() => root.render(createElement(TeamedHarness)));
     act(() => {
-      document.querySelector(".strip__col")!.dispatchEvent(
+      present(document.querySelector(".strip__col"), "element \".strip__col\"").dispatchEvent(
         new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }),
       );
     });

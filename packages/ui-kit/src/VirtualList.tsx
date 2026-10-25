@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { marksOf, type ChangeMarks } from "./listMotion";
 import { foldSpacer } from "./foldMotion";
 import { atListFoot, followsChange, footAfter, holdWhileOff, pinAfterCommit, pinAfterScroll } from "./followEnd";
@@ -134,6 +134,7 @@ export function VirtualList<T>({
   item,
   followEnd = false,
 }: VirtualListProps<T>) {
+  const RowContent = useMemo(() => rowContentOf<T>(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const marks = useChangeMarks(items, itemKey, easeKey);
   // The fold's hand-offs reach it through a ref: the anchoring is set up
@@ -170,21 +171,25 @@ export function VirtualList<T>({
     if (atEnd) onReachEnd?.();
   }, [atEnd, items.length, onReachEnd]);
 
+  // The reveal's render inputs, read through a ref: the effect below is
+  // triggered by a CHANGE of revealKey alone (see the prop), and a render
+  // with the same key must never scroll even when its items changed.
+  const revealRef = useRef({ fold, items, itemKey, reveal });
+  revealRef.current = { fold, items, itemKey, reveal };
   // In the layout phase: the frame painted is already scrolled — a passive
   // effect paints one frame with the cursor out of view first, a stutter
   // on every held arrow key.
   useLayoutEffect(() => {
     if (revealKey === null) return;
-    const index = items.findIndex((it) => itemKey(it) === revealKey);
+    const latest = revealRef.current;
+    const index = latest.items.findIndex((it) => latest.itemKey(it) === revealKey);
     // A key not (yet) among the items is not revealed later: the key must
     // name an item of the same render that sets it. A fold in flight lands
     // first: the reveal reads the final layout, and so must the scroll.
     if (index >= 0) {
-      fold.settle();
-      reveal(index);
+      latest.fold.settle();
+      latest.reveal(index);
     }
-    // A change of the key, never of the items: see `revealKey`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey]);
 
   const frame = fold.frame;
@@ -347,15 +352,21 @@ function placed(top: number) {
  * consumer's render changes. A fold draws the list once a frame — only
  * the boxes around the rows move, and the rows themselves (a task row's
  * controls, its labels) are not built again ten times over.
+ *
+ * Made once per list, for that list's item type: `memo` of a generic
+ * component keeps no type parameter, so one shared component could only
+ * have been asserted back into shape.
  */
-const RowContent = memo(function RowContent<T>({
-  item,
-  index,
-  render,
-}: {
-  item: T;
-  index: number;
-  render: (item: T, index: number) => ReactNode;
-}) {
-  return <>{render(item, index)}</>;
-}) as <T>(props: { item: T; index: number; render: (item: T, index: number) => ReactNode }) => ReactNode;
+function rowContentOf<T>() {
+  return memo(function RowContent({
+    item,
+    index,
+    render,
+  }: {
+    item: T;
+    index: number;
+    render: (item: T, index: number) => ReactNode;
+  }) {
+    return <>{render(item, index)}</>;
+  });
+}

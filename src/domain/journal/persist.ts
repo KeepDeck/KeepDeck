@@ -56,7 +56,7 @@ function readJournalEvent(value: unknown): JournalEvent | "foreign" | null {
     case "bound": {
       const record = readRecordBase(value.record);
       if (!record) return null;
-      const paneId = (value.record as Record<string, unknown>).paneId;
+      const paneId = isJsonRecord(value.record) ? value.record.paneId : undefined;
       if (typeof paneId !== "string") return null;
       return { e, v: 1, wsId, record: { ...record, paneId } };
     }

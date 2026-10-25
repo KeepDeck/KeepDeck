@@ -1,13 +1,12 @@
 import type {
   PluginLogger,
   PluginManifest,
-  PluginNotify,
-  PluginNotifyInput,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { stripUnsafeText } from "@keepdeck/plugin-api/unsafe-text";
 import { makeAdmit, type GateMode } from "../capabilities/tier";
 import { createTokenBucket } from "./tokenBucket";
+import { isOneOf } from "../../domain/json";
 
 /** String caps — a notification is a glance, not a document. Anything longer
  * is cut, not refused: the message still reaches the user. The manifest caps
@@ -25,9 +24,14 @@ const REFILL_MS = 10_000; // one token per 10s
 
 const SEVERITIES = ["info", "warning", "error"] as const;
 
+/** A non-null object, whose fields are read one by one as the unknowns they are. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function readWorkspaceRef(value: unknown): WorkspaceRef | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const { id, instance } = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const { id, instance } = value;
   return typeof id === "string" &&
     id !== "" &&
     typeof instance === "string" &&
@@ -53,6 +57,11 @@ export interface PluginNotificationDelivery {
 export type PluginNotificationSink = (
   delivery: PluginNotificationDelivery,
 ) => void;
+
+/** `ctx.notify` as the host builds it: it takes its input as what it is —
+ * whatever crossed the realm bridge — and trusts none of it. Taking `unknown`,
+ * it stands wherever a `PluginNotify` is wanted. */
+export type PluginNotifyPort = (input: unknown) => void;
 
 /** A delivery as the notification center's `notify()` input — the host names
  * the sender in the title, so an entry cannot pose as a system event or as
@@ -117,7 +126,7 @@ export function createPluginNotifyPort(
      * settings change live. */
     muted?: () => boolean;
   },
-): PluginNotify {
+): PluginNotifyPort {
   const { mode, log, deliver, muted } = opts;
   const declared = manifest.capabilities.some(
     (cap) => cap.kind === "notifications",
@@ -148,7 +157,7 @@ export function createPluginNotifyPort(
   // throttle instead of a plain log line.
   const admit = makeAdmit(mode, warnThrottled);
 
-  return (input: PluginNotifyInput) => {
+  return (input: unknown) => {
     if (muted?.()) return;
 
     admit(
@@ -160,13 +169,10 @@ export function createPluginNotifyPort(
       return;
     }
 
-    // External input is `unknown` in practice (it crossed the realm bridge):
+    // External input is `unknown` (it crossed the realm bridge), and typed so:
     // trust nothing, keep only own plain-string fields, strip restructuring
     // codepoints, cap lengths.
-    const raw: Record<string, unknown> =
-      typeof input === "object" && input !== null
-        ? (input as unknown as Record<string, unknown>)
-        : {};
+    const raw: Record<string, unknown> = isRecord(input) ? input : {};
     const title =
       typeof raw.title === "string" ? stripUnsafeText(raw.title) : "";
     if (title === "") {
@@ -176,11 +182,7 @@ export function createPluginNotifyPort(
     const cleanBody =
       typeof raw.body === "string" ? stripUnsafeText(raw.body) : "";
     const body = cleanBody !== "" ? cleanBody.slice(0, BODY_MAX) : undefined;
-    const severity = SEVERITIES.includes(
-      raw.severity as (typeof SEVERITIES)[number],
-    )
-      ? (raw.severity as (typeof SEVERITIES)[number])
-      : "info";
+    const severity = isOneOf(SEVERITIES, raw.severity) ? raw.severity : "info";
     const workspace = readWorkspaceRef(raw.workspace);
     const dockTab =
       typeof raw.dockTab === "string" && raw.dockTab !== ""

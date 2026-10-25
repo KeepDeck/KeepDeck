@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck session reporter — one of the two components of KeepDeck's
  * opencode plugin (index.js beside this file loads both).
@@ -41,15 +42,23 @@ import { follower } from "./follower.js";
 import { createLeaving } from "./leaving.js";
 import { paneSession } from "./pane-session.js";
 
+/** @typedef {import("./pane-report.js").TokenCounts} TokenCounts */
+/** @typedef {{ id?: string, role?: string, sessionID?: string, parentID?: string, providerID?: string, modelID?: string, time?: { created?: number, completed?: number }, cost?: number, tokens?: import("./pane-report.js").OpenCodeTokens, info?: MessageInfo }} MessageInfo */
+/** @typedef {MessageInfo & { id: string, sessionID: string }} CompletedInfo */
+/** @typedef {{ type: string, properties?: Record<string, unknown> & { sessionID?: string, status?: string | (Record<string, unknown> & { type?: string }), info?: MessageInfo } }} ReporterEvent */
+/** @typedef {{ id?: string, models?: Record<string, { limit?: { context?: number } }> }} Provider */
+/** @typedef {{ session?: { get?: (query: { path: { id: string } }) => Promise<{ error?: unknown, data?: { id?: string, parentID?: string } }>, messages?: (query: { path: { id: string } }) => Promise<unknown>, children?: (query: { path: { id: string } }) => Promise<unknown>, abort?: (query: { path: { id: string } }) => Promise<unknown> }, config?: { providers?: () => Promise<{ data?: { providers?: Provider[] }, providers?: Provider[] }> } }} ReporterClient */
+
+/** @param {unknown} [input] */
 export async function startReporter(input = {}) {
   const bridge = readBridge();
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
-  const { dir } = bridge;
 
   /** Whether this pane skips approval prompts (pane-report.js). */
   const SKIPS_APPROVALS = skipsApprovals();
 
-  const client = input?.client;
+  const candidate = input && typeof input === "object" && "client" in input ? input.client : undefined;
+  const client = candidate && typeof candidate === "object" ? /** @type {ReporterClient} */ (candidate) : undefined;
 
   /** State one fact about this pane.
    *
@@ -57,6 +66,7 @@ export async function startReporter(input = {}) {
    * What waits is the next POST, so the deck reads these facts in the order
    * the bus stated them; see `publish` in keepdeck-bridge.js for why that
    * ordering is not free. */
+  /** @param {string} type @param {Record<string, unknown>} payload */
   const publish = (type, payload) => {
     publishEnvelope(bridge, makeEnvelope(bridge, type, payload));
   };
@@ -64,6 +74,7 @@ export async function startReporter(input = {}) {
   // Per-message latest snapshot for the ACTIVE ROOT session and all of its
   // descendants, summed into the session cumulative. A new root session owns a
   // new generation: `/new`/fork must never inherit the previous root's spend.
+  /** @type {Map<string, TokenCounts & { cost: number }>} */
   const messages = new Map();
   // Which session is the pane's conversation, and which of the others are
   // subagents' — ONE object, shared with the mail courier beside this file.
@@ -71,21 +82,26 @@ export async function startReporter(input = {}) {
   // while mail lands in another.
   const pane = paneSession(parentLookupV1(client));
   // The latest ROOT assistant turn — defines occupancy/identity, not spend.
+  /** @type {{ sessionID: string, providerID?: string, modelID?: string, completedAt: number, turn: TokenCounts & { cost: number } } | undefined} */
   let root;
   let sequence = 0;
+  /** @type {Promise<void> | undefined} */
   let hydration;
+  /** @param {keyof (TokenCounts & { cost: number })} key */
   const sum = (key) => {
     let total = 0;
     for (const m of messages.values()) total += m[key] ?? 0;
     return total;
   };
 
+  /** @param {MessageInfo | undefined} info */
   const turnOf = (info) => ({ ...tokenCounts(info?.tokens), cost: info?.cost ?? 0 });
 
+  /** @param {MessageInfo | undefined} value @returns {CompletedInfo | undefined} */
   const completedAssistant = (value) => {
     const info = value?.info ?? value;
-    return info?.role === "assistant" && info?.time?.completed && info?.id
-      ? info
+    return info?.role === "assistant" && info?.time?.completed && info?.id && info.sessionID
+      ? /** @type {CompletedInfo} */ (info)
       : undefined;
   };
 
@@ -102,12 +118,14 @@ export async function startReporter(input = {}) {
    * their records settle out of order — and by ID, not by clock: comparing
    * finish times against the deck's phase misses one abort in fifteen.
    */
+  /** @type {{ id: string, created: number } | undefined} */
   let newestTurn;
 
   /** Record an assistant message of the pane's conversation as its turn.
    * Every frame counts, streaming ones included — the point is to know the
    * NEW turn's message before the old turn's record arrives, and creation is
    * the earliest that can be known. */
+  /** @param {MessageInfo | undefined} value */
   const noteTurn = (value) => {
     const info = value?.info ?? value;
     if (info?.role !== "assistant" || !info.id) return;
@@ -120,8 +138,10 @@ export async function startReporter(input = {}) {
   /** Whether a finished message is the turn the pane is on now. Nothing
    * recorded means nothing newer has begun — an unbound pane, or the first
    * message of a resumed one — so the message speaks for itself. */
+  /** @param {CompletedInfo} info */
   const isNewestTurn = (info) => !newestTurn || newestTurn.id === info.id;
 
+  /** @param {CompletedInfo} info @param {string} rootSessionID */
   const remember = (info, rootSessionID) => {
     const turn = turnOf(info);
     messages.set(`${info.sessionID}\0${info.id}`, turn);
@@ -139,7 +159,8 @@ export async function startReporter(input = {}) {
     }
   };
 
-  const responseData = (response) => response?.data ?? response;
+  /** @param {unknown} response */
+  const responseData = (response) => response && typeof response === "object" && "data" in response ? response.data : response;
 
   /**
    * How this client wants a session id: as a PATH parameter.
@@ -155,10 +176,12 @@ export async function startReporter(input = {}) {
    * below never fired, and the totals quietly became since-start-only on
    * every resume — with descendant spend missing entirely.
    */
+  /** @param {string} sessionID */
   const forSession = (sessionID) => ({ path: { id: sessionID } });
 
   /** Best-effort full-session hydration. It makes resume totals honest and
    * restores descendant spend without reading opencode's private SQLite. */
+  /** @param {string} sessionID @param {string} rootSessionID @param {Set<string>} seen */
   const hydrateSession = async (sessionID, rootSessionID, seen) => {
     if (!sessionID || seen.has(sessionID)) return;
     seen.add(sessionID);
@@ -197,6 +220,7 @@ export async function startReporter(input = {}) {
   // rather than a flag of its own: a second copy of "has this pane bound yet"
   // is a second place for that answer to be wrong, and this one would keep
   // saying "continuing" after a publish that silently failed.
+  /** @param {string} sessionID @param {boolean} continuing @param {boolean | undefined} switched */
   const bind = (sessionID, continuing, switched) =>
     publish("session.bound", boundReport(sessionID, continuing, switched));
 
@@ -209,6 +233,7 @@ export async function startReporter(input = {}) {
    * conversation already in progress keeps what is known about it, while a
    * root the pane just watched appear owns nothing from the last one.
    */
+  /** @param {string} sessionID @param {boolean} publishBinding @param {Array<[string, string]>} [keep] */
   const activateRoot = async (sessionID, publishBinding, keep) => {
     if (keep) pane.bindFromChain(sessionID, keep);
     else pane.newGeneration(sessionID);
@@ -237,7 +262,9 @@ export async function startReporter(input = {}) {
    * pane being bound, for the same reason — the courier may have bound it
    * already, and then a first conversation would report itself as a second.
    */
+  /** @type {string | undefined} */
   let servedRoot;
+  /** @param {boolean} publishBinding @param {boolean} [switched] */
   const setUpForConversation = async (publishBinding, switched = false) => {
     if (pane.root === undefined || pane.root === servedRoot) return;
     const continuing = servedRoot !== undefined;
@@ -258,15 +285,15 @@ export async function startReporter(input = {}) {
     if (!client?.config?.providers) throw new Error("no client to ask");
     const res = await client.config.providers();
     const providers = res?.data?.providers ?? res?.providers ?? [];
-    return providers.flatMap((provider) =>
-      provider?.id
-        ? Object.entries(provider.models ?? {}).map(([modelID, model]) => ({
-            providerID: provider.id,
-            modelID,
-            window: model?.limit?.context,
-          }))
-        : [],
-    );
+    return providers.flatMap((provider) => {
+      const providerID = provider?.id;
+      if (!providerID) return [];
+      return Object.entries(provider.models ?? {}).map(([modelID, model]) => ({
+        providerID,
+        modelID,
+        window: model?.limit?.context,
+      }));
+    });
   });
 
   /**
@@ -285,6 +312,7 @@ export async function startReporter(input = {}) {
    * apart from which an abort cannot be told from a failure. Both decisions
    * were about MEANING, made a process away from where meaning is decided.
    */
+  /** @param {ReporterEvent} event */
   const forward = (event) =>
     publish("agent.status", {
       event: { type: event.type, properties: event.properties ?? {} },
@@ -313,14 +341,16 @@ export async function startReporter(input = {}) {
    * the second through, and an `idle` payload carries nothing to tell it from
    * the first.
    */
+  /** @type {"busy" | "idle" | undefined} */
   let lastTurnState;
 
+  /** @param {ReporterEvent} event */
   const belongsHere = (event) => {
     const props = event.properties ?? {};
     switch (event.type) {
       case "session.status":
       case "session.idle":
-        return pane.concernsPane(props.sessionID);
+        return !!props.sessionID && pane.concernsPane(props.sessionID);
       case "session.error":
         // opencode declares sessionID OPTIONAL on this event, and the
         // publishers that omit it are process-wide — a plugin crash, a failed
@@ -365,6 +395,7 @@ export async function startReporter(input = {}) {
    * pair whose second half is `session.idle`, and counting it would make the
    * real ending look like a repeat of itself. What a fact MEANS stays the
    * normalizer's. */
+  /** @param {ReporterEvent} event */
   const turnStateOf = (event) => {
     if (event.type === "session.idle") return "idle";
     if (event.type !== "session.status") return undefined;
@@ -373,6 +404,7 @@ export async function startReporter(input = {}) {
     return kind === "busy" ? "busy" : undefined;
   };
 
+  /** @param {ReporterEvent} event */
   const handle = async (event) => {
     if (belongsHere(event)) {
       const stating = turnStateOf(event);
@@ -385,7 +417,7 @@ export async function startReporter(input = {}) {
       // The ending of a conversation the user left: told to the deck as the
       // pane's (or already told — an idle session's abort only repeats it),
       // and only now does the pane let it go.
-      if (event.type === "session.idle") leaving.ended(event.properties?.sessionID);
+      if (event.type === "session.idle" && event.properties?.sessionID) leaving.ended(event.properties.sessionID);
       return;
     }
 
@@ -507,6 +539,7 @@ export async function startReporter(input = {}) {
   // event through our own queue so hydration/catalog IO cannot interleave two
   // mutations or let an older snapshot publish after a newer one.
   let eventQueue = Promise.resolve();
+  /** @param {() => Promise<void>} job */
   const enqueue = (job) => {
     eventQueue = eventQueue.then(job).catch(() => {});
     return eventQueue;
@@ -521,7 +554,7 @@ export async function startReporter(input = {}) {
     pane,
     publish,
     enqueue,
-    interrupt: (sessionID) => client?.session?.abort?.({ path: { id: sessionID } }),
+    interrupt: async (sessionID) => client?.session?.abort?.({ path: { id: sessionID } }),
     onLetGo: () => {
       lastTurnState = undefined;
     },
@@ -545,6 +578,7 @@ export async function startReporter(input = {}) {
   );
 
   return {
+    /** @param {{ event: ReporterEvent }} input */
     event: ({ event }) => enqueue(() => handle(event)),
   };
 }

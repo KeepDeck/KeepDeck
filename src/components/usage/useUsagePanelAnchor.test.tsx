@@ -3,20 +3,18 @@ import { act, createElement, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUsagePanelAnchor } from "./useUsagePanelAnchor";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 /** Geometry the test states on each element, since happy-dom lays nothing
  *  out: `data-x` is the element's left edge, `data-w` its width. */
 function stubGeometry() {
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
-      const el = this as HTMLElement;
+      const el = instanceOf(this, HTMLElement, "this");
       const left = Number(el.dataset.x ?? 0);
       const width = Number(el.dataset.w ?? 0);
-      return { left, width, right: left + width, top: 0, bottom: 0, height: 0, x: left, y: 0, toJSON: () => ({}) } as DOMRect;
+      return { left, width, right: left + width, top: 0, bottom: 0, height: 0, x: left, y: 0, toJSON: () => ({}) };
     },
   );
   Object.defineProperty(document.documentElement, "clientWidth", {
@@ -64,7 +62,7 @@ describe("useUsagePanelAnchor", () => {
 
   const render = (props: Parameters<typeof Harness>[0]) =>
     act(() => root.render(createElement(Harness, props)));
-  const left = () => host.querySelector("div")!.dataset.left;
+  const left = () => present(host.querySelector("div"), "the div element").dataset.left;
 
   it("hangs the panel from the chip that opened it", () => {
     // Group at 500, chip at 620 — 120 along from the group's own left edge.

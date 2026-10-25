@@ -8,6 +8,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { createCapabilityGate, type ServiceBackends } from "./gate";
 import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
+import { recordOf, stringOf } from "../../testing/values.test-support";
 
 const manifest = (capabilities: Capability[]): PluginManifest => ({
   id: "p",
@@ -133,8 +134,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     // produced, not a rewrapped one, and it resolves to the backend's own
     // handle — never re-wrapped.
     expect(result).toBe(
-      (backend.sessions.spawn as ReturnType<typeof vi.fn>).mock.results[0]
-        .value,
+      vi.mocked(backend.sessions.spawn).mock.results[0].value,
     );
     expect(await result).toBe(handle);
     expect(log.warn).not.toHaveBeenCalled();
@@ -251,8 +251,7 @@ describe("createCapabilityGate — ports.allocate", () => {
     expect(backend.ports.allocate).toHaveBeenCalledTimes(1);
     expect(backend.ports.allocate).toHaveBeenCalledWith("preview-server");
     expect(result).toBe(
-      (backend.ports.allocate as ReturnType<typeof vi.fn>).mock.results[0]
-        .value,
+      vi.mocked(backend.ports.allocate).mock.results[0].value,
     );
     expect(log.warn).not.toHaveBeenCalled();
   });
@@ -656,10 +655,10 @@ describe("createCapabilityGate — fs", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("hands a plugin from before the GitDiff answer the diff's text alone", async () => {
-    // `diffFile` answered a string until API 52. A plugin compiled against
-    // that reads `.length` off the answer; the floor in its manifest is the
-    // one word on which contract it speaks, so the gate unwraps for it.
+  it("answers the GitDiff whatever the plugin's floor", async () => {
+    // The bare text an external plugin from before API 52 expects is the RPC
+    // bridge's to hand out (hostServices); a built-in is compiled against the
+    // GitDiff, so the gate never unwraps it.
     const { backend } = fakeBackend();
     backend.git.diffFile = vi.fn(async () => ({ text: "@@ -1 +1 @@\n", truncated: true }));
     const log = fakeLog();
@@ -674,7 +673,10 @@ describe("createCapabilityGate — fs", () => {
       { diagnostics: "silent", log },
     );
 
-    await expect(older.git.diffFile("/repo", "a.ts")).resolves.toBe("@@ -1 +1 @@\n");
+    await expect(older.git.diffFile("/repo", "a.ts")).resolves.toEqual({
+      text: "@@ -1 +1 @@\n",
+      truncated: true,
+    });
     await expect(current.git.diffFile("/repo", "a.ts")).resolves.toEqual({
       text: "@@ -1 +1 @@\n",
       truncated: true,
@@ -952,10 +954,9 @@ describe("createCapabilityGate — exec.runOnce", () => {
 
     await gate.exec.runOnce(request);
 
-    const passed = (backend.exec.runOnce as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as { key: string };
-    expect(passed.key).not.toBe(request.key);
-    expect(passed.key.endsWith(`:${request.key}`)).toBe(true);
+    const passed = recordOf(vi.mocked(backend.exec.runOnce).mock.calls[0][0], "exec request");
+    expect(stringOf(passed.key, "exec key")).not.toBe(request.key);
+    expect(stringOf(passed.key, "exec key").endsWith(`:${request.key}`)).toBe(true);
   });
 
   it("refuses a command no exec capability covers, and never reaches the host", () => {

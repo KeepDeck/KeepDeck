@@ -6,6 +6,7 @@ import {
   tokenTotal,
   type UsageEventV2,
 } from "./event";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Test-local shorthand — production always decodes through
  * decodeUsageEventLine, because `migrated` drives compaction healing. */
@@ -45,18 +46,18 @@ describe("usage event codec", () => {
 
   it("clamps epoch and future occurredAt to capturedAt, marking the line for compaction", () => {
     const epoch = JSON.stringify({ ...event, occurredAt: 0 });
-    const decodedEpoch = decodeUsageEventLine(epoch)!;
+    const decodedEpoch = present(decodeUsageEventLine(epoch), "the decoded epoch event");
     expect(decodedEpoch.event.occurredAt).toBe(event.capturedAt);
     expect(decodedEpoch.migrated).toBe(true); // heals on the next compaction
 
     const future = JSON.stringify({ ...event, occurredAt: event.capturedAt + 5 });
-    const decodedFuture = decodeUsageEventLine(future)!;
+    const decodedFuture = present(decodeUsageEventLine(future), "the decoded future event");
     expect(decodedFuture.event.occurredAt).toBe(event.capturedAt);
     expect(decodedFuture.migrated).toBe(true);
 
     // A legitimately old instant (a replay with a real source time) passes.
     const old = JSON.stringify({ ...event, occurredAt: 3 });
-    const decodedOld = decodeUsageEventLine(old)!;
+    const decodedOld = present(decodeUsageEventLine(old), "the decoded old event");
     expect(decodedOld.event.occurredAt).toBe(3);
     expect(decodedOld.migrated).toBe(false);
   });

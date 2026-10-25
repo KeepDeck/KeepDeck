@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck's opencode 2.x TUI plugin — the 2.x twin of route-observer.js.
  *
@@ -22,25 +23,33 @@ import { readBridge } from "./keepdeck-bridge.js";
 import { POLL_MS, observeRoute } from "./foreground.js";
 import { takeShowRequest } from "./show-request.js";
 
-/** A 2.x route as the server half reads it. */
+/** A 2.x route as the server half reads it.
+ * @param {unknown} current
+ */
 export const routeOfV2 = (current) => {
-  if (current?.type === "session" && typeof current.sessionID === "string" && current.sessionID) {
-    return { route: "session", sessionID: current.sessionID };
+  if (!current || typeof current !== "object") return { route: "other" };
+  const route = /** @type {{ type?: string, sessionID?: string }} */ (current);
+  if (route.type === "session" && typeof route.sessionID === "string" && route.sessionID) {
+    return { route: "session", sessionID: route.sessionID };
   }
-  if (current?.type === "home") return { route: "home" };
+  if (route.type === "home") return { route: "home" };
   // A plugin's own page, or anything newer than this file: no session is on
   // screen, and it is not the home screen either.
   return { route: "other" };
 };
 
 /** Show what the courier asked for, while the home screen is up. Returns the
- * stop. */
+ * stop.
+ * @param {{ current: () => unknown, navigate?: (route: { type: string, sessionID: string }) => unknown }} router
+ * @param {string} dir
+ */
 export function obeyShowRequests(router, dir) {
   const timer = setInterval(() => {
     try {
       const sessionID = takeShowRequest(dir);
-      if (!sessionID || router.current()?.type !== "home") return;
-      router.navigate({ type: "session", sessionID });
+      const current = router.current();
+      if (!sessionID || !current || typeof current !== "object" || !("type" in current) || current.type !== "home") return;
+      router.navigate?.({ type: "session", sessionID });
     } catch {
       // Best-effort: a request not obeyed costs one empty session, and the
       // courier tries no more until the screen changes.
@@ -52,6 +61,7 @@ export function obeyShowRequests(router, dir) {
 
 export default {
   id: "keepdeck-screen",
+  /** @param {{ ui?: { router?: { current: () => unknown, navigate?: (route: { type: string, sessionID: string }) => unknown } } } | undefined} context */
   setup(context) {
     try {
       const bridge = readBridge();

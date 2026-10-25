@@ -24,11 +24,7 @@ import {
 } from ".";
 // Straight from the module: the barrel deliberately does not carry it.
 import { resetPaneSpawnSpecs } from "./cache";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 
 // Staged skills are a host fact the plan build ASKS for — the worktree manager
@@ -235,11 +231,11 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
     const secret = peekPaneSpawnSpec("pane-1")?.mcpToken;
 
     expect(secret).toBeDefined();
-    expect(paneIdBySpawnSecret(secret!)).toBe("pane-1");
+    expect(paneIdBySpawnSecret(present(secret, "the MCP secret"))).toBe("pane-1");
     expect(paneIdBySpawnSecret("a-secret-nobody-holds")).toBeNull();
 
     dropPaneSpawnSpec("pane-1");
-    expect(paneIdBySpawnSecret(secret!)).toBeNull();
+    expect(paneIdBySpawnSecret(present(secret, "the MCP secret"))).toBeNull();
   });
 
   it("resolves the BRIDGE secret to the same pane", async () => {
@@ -252,9 +248,9 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
     const spec = peekPaneSpawnSpec("pane-1");
     expect(spec?.token).toBeDefined();
     expect(spec?.token).not.toBe(spec?.mcpToken);
-    expect(paneIdBySpawnSecret(spec!.token!)).toBe("pane-1");
+    expect(paneIdBySpawnSecret(present(spec?.token, "the bridge secret"))).toBe("pane-1");
 
     dropPaneSpawnSpec("pane-1");
-    expect(paneIdBySpawnSecret(spec!.token!)).toBeNull();
+    expect(paneIdBySpawnSecret(present(spec?.token, "the bridge secret"))).toBeNull();
   });
 });

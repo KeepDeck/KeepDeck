@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, type Dispatch, type SetStateAction } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
@@ -7,9 +7,7 @@ import type { AgentInfo } from "../../../domain/agents";
 import type { SessionsBrowserApi } from "../../../app/useSessionsBrowser";
 import type { UnifiedSessionRow } from "../../../domain/journal";
 import { SessionViewer, type ViewerTarget } from "./SessionViewer";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 const AGENT: AgentInfo = {
   id: "claude",
@@ -70,6 +68,9 @@ const settle = async () => {
   });
 };
 
+type ReadFailed = Dispatch<SetStateAction<ReadonlySet<string>>>;
+const readFailedMock = () => vi.fn<ReadFailed>();
+
 const renderViewer = async ({
   root,
   target: viewTarget,
@@ -82,7 +83,7 @@ const renderViewer = async ({
   target: ViewerTarget;
   transcript: SessionsBrowserApi["transcript"];
   viewSeq: { current: number };
-  readFailed: ReturnType<typeof vi.fn>;
+  readFailed: ReturnType<typeof readFailedMock>;
   onClose?: ReturnType<typeof vi.fn>;
 }) => {
   await act(async () => {
@@ -120,7 +121,7 @@ describe("SessionViewer", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "element \"host\""));
   });
 
   afterEach(() => {
@@ -131,7 +132,7 @@ describe("SessionViewer", () => {
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
       Promise.reject(new Error("no such file")),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({ root, target: target(), transcript, viewSeq, readFailed });
@@ -140,9 +141,8 @@ describe("SessionViewer", () => {
       "Read failed: no such file",
     );
     expect(document.body.textContent).not.toContain("nothing to read");
-    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0] as (
-      current: ReadonlySet<string>,
-    ) => ReadonlySet<string>;
+    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0];
+    if (typeof lastUpdate !== "function") throw new Error("expected a read-failure updater");
     expect(lastUpdate(new Set())).toEqual(new Set([SHOWN]));
   });
 
@@ -157,7 +157,7 @@ describe("SessionViewer", () => {
           resolvers.set(reference, resolve);
         }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
     const first = target({ fallbacks: ["/first"], title: "first header" });
     const second = target({
@@ -178,13 +178,13 @@ describe("SessionViewer", () => {
     });
 
     await act(async () => {
-      resolvers.get("/first")!({ entries: [entry("stale first page")] });
+      present(resolvers.get("/first"), "entry \"/first\" in resolvers")({ entries: [entry("stale first page")] });
     });
     expect(document.body.textContent).toContain("second header");
     expect(document.body.textContent).not.toContain("stale first page");
 
     await act(async () => {
-      resolvers.get("/second")!({ entries: [entry("current second page")] });
+      present(resolvers.get("/second"), "entry \"/second\" in resolvers")({ entries: [entry("current second page")] });
     });
     expect(document.body.textContent).toContain("current second page");
   });
@@ -196,7 +196,7 @@ describe("SessionViewer", () => {
           ? Promise.reject(new Error("journal gone"))
           : Promise.resolve({ entries: [entry("spare page")] }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({
@@ -219,7 +219,7 @@ describe("SessionViewer", () => {
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
       Promise.reject(new Error("permission denied")),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({
@@ -234,9 +234,8 @@ describe("SessionViewer", () => {
     expect(document.querySelector(".browser__empty")?.textContent).toBe(
       "Read failed: permission denied",
     );
-    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0] as (
-      current: ReadonlySet<string>,
-    ) => ReadonlySet<string>;
+    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0];
+    if (typeof lastUpdate !== "function") throw new Error("expected a read-failure updater");
     expect(lastUpdate(new Set())).toEqual(new Set([SHOWN, SPARE]));
   });
 
@@ -249,7 +248,7 @@ describe("SessionViewer", () => {
             })
           : Promise.resolve({ entries: [] }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({ root, target: target(), transcript, viewSeq, readFailed });
@@ -271,11 +270,11 @@ describe("SessionViewer", () => {
             })
           : Promise.resolve({ entries: [] }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({ root, target: target(), transcript, viewSeq, readFailed });
-    const body = document.querySelector(".browser__viewer-body")!;
+    const body = present(document.querySelector(".browser__viewer-body"), "element \".browser__viewer-body\"");
     setViewerGeometry(body, { scrollHeight: 1000, scrollTop: 700, clientHeight: 200 });
     await act(async () => {
       resolveFirst({
@@ -292,7 +291,7 @@ describe("SessionViewer", () => {
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
       Promise.resolve({ entries: [entry("page")] }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const onClose = vi.fn();
     const viewSeq = { current: 0 };
 
@@ -305,7 +304,7 @@ describe("SessionViewer", () => {
       onClose,
     });
     await settle();
-    const back = document.querySelector<HTMLButtonElement>(".browser__back")!;
+    const back = present(document.querySelector<HTMLButtonElement>(".browser__back"), "element \".browser__back\"");
     expect(back).not.toBeNull();
     await act(async () => back.click());
     expect(onClose).toHaveBeenCalledOnce();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { px, readStyles, ruleBody } from "./testSupport";
-import { STRIP_MOTION_MS } from "../app/stripTeamsMotion";
+import { STRIP_MOTION_MS } from "../ui/stripTeamsMotion";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const deck = readStyles("deck.css");
 
@@ -138,7 +139,10 @@ describe("the chosen plate and the drag's ghost", () => {
   it("a chosen toggle or choice changes its fill, never its edge — so it stands the size of its neighbour", () => {
     const button = readStyles("button.css");
     // The rule that names the checked option (with the pressed toggle).
-    const block = /\.kd-btn--secondary\[aria-checked="true"\][^{]*\{([^}]*)\}/.exec(button)![1];
+    const block = present(
+      /\.kd-btn--secondary\[aria-checked="true"\][^{]*\{([^}]*)\}/.exec(button),
+      "the rule for the checked secondary button",
+    )[1];
     expect(block).toMatch(/background-color: var\(--kd-text\);/);
     expect(block).not.toMatch(/border/);
   });

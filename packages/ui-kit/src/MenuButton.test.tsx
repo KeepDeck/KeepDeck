@@ -3,10 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MenuButton, menuStep, type MenuButtonProps } from "./MenuButton";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("MenuButton", () => {
   let root: Root;
@@ -31,7 +28,7 @@ describe("MenuButton", () => {
       ),
     );
 
-  const trigger = () => host.querySelector("button")!;
+  const trigger = () => present(host.querySelector("button"), "the button element");
   // The list is portaled out of the local DOM, so it is found on the document.
   const menu = () => document.querySelector('[role="menu"]');
   const items = () =>
@@ -251,7 +248,7 @@ describe("MenuButton", () => {
     act(() => trigger().click());
     expect(document.activeElement).toBe(items()[0]);
     const press = (key: string) =>
-      act(() => void document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+      act(() => void present(document.activeElement, "the activeElement of document").dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
     press("ArrowDown");
     expect(document.activeElement).toBe(items()[1]);
     press("End");

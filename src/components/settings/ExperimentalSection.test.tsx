@@ -5,24 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { ExperimentalSection } from "./ExperimentalSection";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
-const settingsManager = vi.hoisted(() => ({ updateSettings: vi.fn() }));
-vi.mock("../../app/settingsManager", () => ({
-  getSettings: () => settings.current,
-  subscribeSettings: () => () => {},
-  updateSettings: settingsManager.updateSettings,
-}));
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+const settingsWrite = vi.hoisted(() => ({ updateSettings: vi.fn() }));
+vi.mock("../../app/useSettings", async () =>
+  (await import("../../app/testing")).settingsHooksOver(settings, settingsWrite.updateSettings),
+);
 
 describe("ExperimentalSection", () => {
   let host: HTMLElement;
   let root: Root;
 
   beforeEach(() => {
-    settingsManager.updateSettings.mockReset();
+    settingsWrite.updateSettings.mockReset();
     settings.current = { ...DEFAULT_SETTINGS };
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
@@ -41,16 +37,16 @@ describe("ExperimentalSection", () => {
 
   it("writes the remote-agents key, and marks the stored value active", () => {
     mount();
-    expect(buttons().get("Off")!.className).toContain("form__type--active");
-    act(() => buttons().get("On")!.click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+    expect(present(buttons().get("Off"), "entry \"Off\" in buttons()").className).toContain("form__type--active");
+    act(() => present(buttons().get("On"), "entry \"On\" in buttons()").click());
+    expect(settingsWrite.updateSettings).toHaveBeenCalledWith({
       remoteAgents: true,
     });
 
     settings.current = { ...DEFAULT_SETTINGS, remoteAgents: true };
     mount();
-    expect(buttons().get("On")!.className).toContain("form__type--active");
-    expect(buttons().get("Off")!.className).not.toContain("form__type--active");
+    expect(present(buttons().get("On"), "entry \"On\" in buttons()").className).toContain("form__type--active");
+    expect(present(buttons().get("Off"), "entry \"Off\" in buttons()").className).not.toContain("form__type--active");
   });
 
   it("lists only what is still an experiment", () => {

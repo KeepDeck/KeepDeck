@@ -36,6 +36,7 @@ import {
   canHaveEpic,
   epicOf,
   findTask,
+  knownTask,
   linked,
   taskByUid,
   openBlockersOf,
@@ -570,7 +571,7 @@ export function blockerLink(task: Task, other: Task, side: BlockerSide): { taskI
 
 /** The uids of the tasks named by `ids` — every one known (validated). */
 function uidsOf(board: TaskBoard, ids: readonly string[]): string[] {
-  return ids.map((id) => findTask(board, id)!.uid);
+  return ids.map((id) => knownTask(board, id).uid);
 }
 
 function logged(
@@ -718,7 +719,7 @@ function changeTask(
         const bad = parentProblem(task, id, ctx.board);
         if (bad) return refuse(bad);
       }
-      const epic = id === null ? null : findTask(ctx.board, id)!.uid;
+      const epic = id === null ? null : knownTask(ctx.board, id).uid;
       const changed = logged(task, [{ at, from: by, field: "parent", was, now: id }], at, {});
       return { ok: true, task: changed, board: replaceTask(setEpic(ctx.board, task, epic, at, by), changed) };
     }
@@ -863,11 +864,13 @@ export interface CreateTaskInput {
   artifacts?: readonly string[];
   labels?: readonly string[];
   /** Where it starts: on the ladder (`todo`, the default) or parked in
-   * the backlog — anyone may park an idea; starting it is another matter. */
-  status?: CreateStatus;
+   * the backlog — anyone may park an idea; starting it is another matter.
+   * A word, not a CreateStatus: it arrives from a caller's words, and this
+   * is where an unknown one is refused (`bad-create-status`). */
+  status?: string;
   /** Work (the default) or an epic — anyone who may make a task may make
-   * either. */
-  kind?: TaskKind;
+   * either. A word for the same reason (`bad-create-kind`). */
+  kind?: string;
   /** The epic it is made under (a key): its author's choice, by the
    * family rule (`parentProblem`). */
   parent?: string;
@@ -876,6 +879,9 @@ export interface CreateTaskInput {
 /** The statuses a task may be created in. */
 export type CreateStatus = Extract<TaskStatus, "todo" | "backlog">;
 export const CREATE_STATUSES: readonly CreateStatus[] = ["todo", "backlog"];
+
+const isCreateStatus = (status: string): status is CreateStatus =>
+  (CREATE_STATUSES as readonly string[]).includes(status);
 
 export type CreateResult =
   | { ok: true; board: TaskBoard; task: Task }
@@ -916,7 +922,7 @@ export function createTask(
   const badBlockers = validateBlockers(null, input.teamId, blockedBy, ctx.board);
   if (badBlockers) return refuse(badBlockers);
   const status = input.status ?? "todo";
-  if (!(CREATE_STATUSES as readonly string[]).includes(status)) {
+  if (!isCreateStatus(status)) {
     return refuse({ kind: "bad-create-status", status, allowed: CREATE_STATUSES });
   }
   const labels = normalizeLabels(input.labels ?? []);
@@ -958,7 +964,7 @@ export function createTask(
   return {
     ok: true,
     task,
-    board: parent === null ? blocked : setEpic(blocked, task, findTask(ctx.board, parent)!.uid, ctx.at, actorName(actor)),
+    board: parent === null ? blocked : setEpic(blocked, task, knownTask(ctx.board, parent).uid, ctx.at, actorName(actor)),
   };
 }
 

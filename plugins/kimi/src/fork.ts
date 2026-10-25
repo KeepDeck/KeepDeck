@@ -1,9 +1,20 @@
 import {
+  isJsonRecord,
   sha256Hex,
   type ForkPlanInput,
-  type PluginContext,
+  type PluginFs,
+  type PluginFsWrite,
 } from "@keepdeck/plugin-api";
 import { rebaseState, rebaseWire } from "./forkRebase";
+
+/** What a fork needs from the host: reading the source session, and the
+ * store surgery that writes its clone. */
+export interface ForkPorts {
+  services: {
+    fs: Pick<PluginFs, "readDir" | "readFile">;
+    fsWrite: Pick<PluginFsWrite, "writeFile" | "copyFile" | "appendLine">;
+  };
+}
 
 /**
  * Kimi's cross-directory fork ([F8], probe-verified on kimi 0.27, re-verified
@@ -30,7 +41,7 @@ import { rebaseState, rebaseWire } from "./forkRebase";
  * kimi would have picked. The layout gate below is what catches that.
  */
 export async function kimiForkPlan(
-  ctx: PluginContext,
+  ctx: ForkPorts,
   input: ForkPlanInput,
 ): Promise<string> {
   const wire = input.transcriptPath;
@@ -59,12 +70,16 @@ export async function kimiForkPlan(
       `kimi fork of ${input.sessionId}: state.json is unreadable`,
     );
   }
-  let state: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    state = JSON.parse(stateFile.text) as Record<string, unknown>;
+    parsed = JSON.parse(stateFile.text);
   } catch {
     throw new Error(`kimi fork of ${input.sessionId}: state.json is not JSON`);
   }
+  if (!isJsonRecord(parsed)) {
+    throw new Error(`kimi fork of ${input.sessionId}: state.json is not a JSON object`);
+  }
+  const state = parsed;
 
   const newId = `session_${crypto.randomUUID()}`;
   const workspaceId = await wdKey(input.cwd);
@@ -112,7 +127,8 @@ export async function kimiForkPlan(
           try {
             // The same key the patch wrote — reading the other one would
             // report "an unreadable state" for a clone that is perfectly fine.
-            return (JSON.parse(landed.text) as Record<string, unknown>)[workDirKey];
+            const written: unknown = JSON.parse(landed.text);
+            return isJsonRecord(written) ? written[workDirKey] : null;
           } catch {
             return null;
           }
@@ -150,7 +166,7 @@ export async function kimiForkPlan(
  * and following one out of the store would be refused by write containment
  * anyway). */
 async function copyTree(
-  ctx: PluginContext,
+  ctx: ForkPorts,
   srcDir: string,
   dstDir: string,
   workspaceId: string,
@@ -178,7 +194,7 @@ async function copyTree(
 /** A whole file as text, window by window — a wire outgrows any single read.
  * The host ends each window on a character boundary and says where
  * (`readBytes`), so the next window starts exactly there. */
-async function readWholeText(ctx: PluginContext, path: string): Promise<string> {
+async function readWholeText(ctx: ForkPorts, path: string): Promise<string> {
   let text = "";
   let offset = 0;
   for (;;) {

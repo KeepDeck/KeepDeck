@@ -7,6 +7,7 @@ import {
   serializeSettings,
 } from ".";
 import { report, restore } from "./settings.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Per-key tolerant reading of a stored settings document. */
 
@@ -286,9 +287,10 @@ describe("hydrateSettings — the plugins bag", () => {
       for (const value of values) {
         const hydrated = hydrateSettings(JSON.stringify({ [key]: value }));
         expect(hydrated).not.toBeNull();
-        expect(hydrated!.doc.chosen).toEqual({});
-        expect(hydrated!.doc.extras).toEqual({});
-        expect(hydrated!.provenance.degraded).toEqual([]);
+        const settings = present(hydrated, "the hydrated settings");
+        expect(settings.doc.chosen).toEqual({});
+        expect(settings.doc.extras).toEqual({});
+        expect(settings.provenance.degraded).toEqual([]);
       }
     });
   }

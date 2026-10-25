@@ -4,7 +4,7 @@ import type { WelcomeFlow } from "../../app/useWelcomeFlow";
 import { welcomeView } from "../../presentation/welcomeView";
 import { useWallClock } from "../../ui/useWallClock";
 import { WorkspaceForm } from "../workspace/WorkspaceForm";
-import { useRecentProjects } from "./useRecentProjects";
+import { useRecentProjects } from "../../app/useRecentProjects";
 import { WelcomeScreen } from "./WelcomeScreen";
 
 /**

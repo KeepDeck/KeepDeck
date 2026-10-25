@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { createFakeHost, fakeManifest } from "../../../packages/plugin-guest/src/fakeHost";
 import { createModelsStore } from "./models";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -88,7 +89,7 @@ describe("voice model store — removal", () => {
     ctx.services.downloads.remove = remove;
     const store = createModelsStore(ctx);
     await tick();
-    const model = store.snapshot()![0];
+    const model = present(store.snapshot(), "the store snapshot")[0];
     exists.mockClear();
     await store.remove(model);
     expect(remove).toHaveBeenCalledWith(model.target);
@@ -104,7 +105,7 @@ describe("voice model store — removal", () => {
     });
     const store = createModelsStore(ctx);
     await tick();
-    const model = store.snapshot()![0];
+    const model = present(store.snapshot(), "the store snapshot")[0];
     const listener = vi.fn();
     store.subscribe(listener);
     await store.remove(model);

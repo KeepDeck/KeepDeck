@@ -122,8 +122,7 @@ export function RunLog({
     // applied to the live terminal by the effect below WITHOUT a rebuild (which
     // would drop the scrollback). showHint is stable (useTransient);
     // manager/ctx are the activation's stable holders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, cwd]);
+  }, [sessionId, cwd, showHint]);
 
   // Arm / disarm the LIVE terminal without rebuilding it: open or close stdin,
   // show or hide the cursor, and take focus when newly armed.

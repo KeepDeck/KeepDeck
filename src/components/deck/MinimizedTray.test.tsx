@@ -2,9 +2,8 @@
 import { act, createElement, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createAgentStatusTracker } from "../../app/agentStatusTracker";
+import { createAgentStatusTracker } from "../../app/testing";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
-import type { AppRuntime } from "../../app/runtime";
 import {
   MinimizedTray,
   type MinimizedTrayEntry,
@@ -12,18 +11,16 @@ import {
 } from "./MinimizedTray";
 import { MinimizedItem } from "./MinimizedItem";
 import { inertBackground } from "../../ui/inertBackground";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The runtime slice the stand-ins read (their activity selector). No test
  * here reports activity, so one instance across the file is inert. */
 const runtime = {
   statusTracker: createAgentStatusTracker(),
-} as unknown as AppRuntime;
+};
 const withRuntime = (el: ReactElement) => (
   <AppRuntimeProvider runtime={runtime}>{el}</AppRuntimeProvider>
 );
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
 
 describe("visibleTrayItemCount", () => {
   it("shows every natural-width item when the row fits exactly", () => {
@@ -122,7 +119,7 @@ describe("MinimizedTray", () => {
     }
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     observed = [];
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
   });
 
   afterEach(() => {
@@ -155,9 +152,9 @@ describe("MinimizedTray", () => {
     expect(
       document.querySelectorAll(".deck__tray-items .minimized--chip"),
     ).toHaveLength(2);
-    const overflow = document.querySelector<HTMLButtonElement>(
+    const overflow = present(document.querySelector<HTMLButtonElement>(
       ".minimized-overflow__trigger",
-    )!;
+    ), "the .minimized-overflow__trigger element");
     expect(overflow.textContent).toBe("+2");
     expect(overflow.getAttribute("aria-label")).toBe(
       "Show 2 more minimized agents",
@@ -165,7 +162,7 @@ describe("MinimizedTray", () => {
     expect(overflow.getAttribute("aria-expanded")).toBe("false");
 
     act(() => overflow.click());
-    const popover = document.querySelector<HTMLElement>("[role='dialog']")!;
+    const popover = present(document.querySelector<HTMLElement>("[role='dialog']"), "the [role='dialog'] element");
     expect(popover.getAttribute("aria-label")).toBe("Minimized agents");
     expect(popover.getAttribute("aria-modal")).toBe("false");
     expect(document.activeElement).toBe(popover);
@@ -198,11 +195,11 @@ describe("MinimizedTray", () => {
     expect(document.activeElement).toBe(overflow);
 
     act(() => overflow.click());
-    const reopened = document.querySelector<HTMLElement>("[role='dialog']")!;
+    const reopened = present(document.querySelector<HTMLElement>("[role='dialog']"), "the [role='dialog'] element");
 
-    const fourth = reopened.querySelector<HTMLButtonElement>(
+    const fourth = present(reopened.querySelector<HTMLButtonElement>(
       "[aria-label='Restore Agent 4']",
-    )!;
+    ), "the [aria-label='Restore Agent 4'] element");
     act(() => fourth.click());
     expect(restores[3]).toHaveBeenCalledOnce();
     expect(document.querySelector("[role='dialog']")).toBeNull();
@@ -230,9 +227,9 @@ describe("MinimizedTray", () => {
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
       "Suspended · 4",
     );
-    const overflow = document.querySelector<HTMLButtonElement>(
+    const overflow = present(document.querySelector<HTMLButtonElement>(
       ".minimized-overflow__trigger",
-    )!;
+    ), "the .minimized-overflow__trigger element");
     expect(overflow.getAttribute("aria-label")).toBe(
       "Show 2 more suspended agents",
     );
@@ -249,7 +246,13 @@ describe("MinimizedTray", () => {
     expect(document.querySelector(".minimized-overflow__trigger")).not.toBeNull();
 
     viewportWidth = 1120;
-    act(() => resizeCallback([], {} as ResizeObserver));
+    act(() =>
+      resizeCallback([], {
+        observe: () => {},
+        unobserve: () => {},
+        disconnect: () => {},
+      }),
+    );
 
     expect(
       document.querySelectorAll(".deck__tray-items .minimized--chip"),
@@ -261,9 +264,9 @@ describe("MinimizedTray", () => {
     act(() =>
       root.render(withRuntime(createElement(MinimizedTray, { entries, active: true }))),
     );
-    const overflow = document.querySelector<HTMLButtonElement>(
+    const overflow = present(document.querySelector<HTMLButtonElement>(
       ".minimized-overflow__trigger",
-    )!;
+    ), "the .minimized-overflow__trigger element");
     act(() => overflow.click());
     expect(document.querySelector("[role='dialog']")).not.toBeNull();
 
@@ -278,13 +281,13 @@ describe("MinimizedTray", () => {
     act(() =>
       root.render(withRuntime(createElement(MinimizedTray, { entries, active: true }))),
     );
-    const overflow = document.querySelector<HTMLButtonElement>(
+    const overflow = present(document.querySelector<HTMLButtonElement>(
       ".minimized-overflow__trigger",
-    )!;
+    ), "the .minimized-overflow__trigger element");
     act(() => overflow.click());
-    const restore = document.querySelector<HTMLButtonElement>(
+    const restore = present(document.querySelector<HTMLButtonElement>(
       "[aria-label='Restore Agent 4']",
-    )!;
+    ), "the [aria-label='Restore Agent 4'] element");
     act(() => restore.focus());
     expect(document.activeElement).toBe(restore);
 
@@ -339,15 +342,15 @@ describe("MinimizedTray", () => {
     }
 
     act(() => root.render(withRuntime(<DirectRestoreHarness />)));
-    const restore = document.querySelector<HTMLButtonElement>(
+    const restore = present(document.querySelector<HTMLButtonElement>(
       "[aria-label='Restore direct agent']",
-    )!;
+    ), "the [aria-label='Restore direct agent'] element");
     act(() => restore.focus());
     act(() => restore.click());
 
-    const pane = document.querySelector<HTMLElement>(
+    const pane = present(document.querySelector<HTMLElement>(
       "[data-pane-id='direct-pane']",
-    )!;
+    ), "the [data-pane-id='direct-pane'] element");
     expect(document.activeElement).not.toBe(pane);
     act(() => frame?.(0));
     expect(document.activeElement).toBe(pane);
@@ -387,14 +390,14 @@ describe("MinimizedTray", () => {
     }
 
     act(() => root.render(withRuntime(<ReplacementHarness />)));
-    const restore = document.querySelector<HTMLButtonElement>(
+    const restore = present(document.querySelector<HTMLButtonElement>(
       "[aria-label='Restore shared agent']",
-    )!;
+    ), "the [aria-label='Restore shared agent'] element");
     act(() => restore.focus());
     act(() => restore.click());
-    const replacement = document.querySelector<HTMLButtonElement>(
+    const replacement = present(document.querySelector<HTMLButtonElement>(
       "[data-restore-pane-id='shared-pane']",
-    )!;
+    ), "the [data-restore-pane-id='shared-pane'] element");
     expect(document.activeElement).not.toBe(replacement);
     act(() => frame?.(0));
     expect(document.activeElement).toBe(replacement);
@@ -433,19 +436,19 @@ describe("MinimizedTray", () => {
     }
 
     act(() => root.render(withRuntime(<LastRestoreHarness />)));
-    const overflow = document.querySelector<HTMLButtonElement>(
+    const overflow = present(document.querySelector<HTMLButtonElement>(
       ".minimized-overflow__trigger",
-    )!;
+    ), "the .minimized-overflow__trigger element");
     act(() => overflow.click());
-    const restore = document.querySelector<HTMLButtonElement>(
+    const restore = present(document.querySelector<HTMLButtonElement>(
       "[aria-label='Restore last agent']",
-    )!;
+    ), "the [aria-label='Restore last agent'] element");
     act(() => restore.click());
 
     expect(document.querySelector(".minimized-overflow__trigger")).toBeNull();
-    const pane = document.querySelector<HTMLElement>(
+    const pane = present(document.querySelector<HTMLElement>(
       "[data-pane-id='last-pane']",
-    )!;
+    ), "the [data-pane-id='last-pane'] element");
     expect(document.activeElement).not.toBe(pane);
     act(() => frame?.(0));
     expect(document.activeElement).toBe(pane);

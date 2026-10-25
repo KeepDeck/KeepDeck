@@ -11,15 +11,13 @@ import {
 import { accountWindowKeys } from "../../domain/usage/reportJournal";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { Providers } from "./Providers";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The provider section joined to a fixed instant. The dialog's own wiring —
  * the shared wall clock that advances this `now`, and the tab gating that
  * keeps this section alive when the ledger fails — is the shell's job and is
  * tested there; here the instant is a prop, so every case states the clock
  * it means instead of arranging one. */
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
 
 const NOW = TEST_NOW;
 const MIN = 60_000;
@@ -45,7 +43,7 @@ describe("Providers", () => {
   beforeEach(() => {
     vi.setSystemTime(NOW);
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -99,7 +97,7 @@ describe("Providers", () => {
     const cards = host.querySelectorAll(".stats__provider");
     expect(cards).toHaveLength(1);
     const card = cards[0];
-    expect(card.querySelector(".stats__provider-head")!.textContent).toBe(
+    expect(present(card.querySelector(".stats__provider-head"), "the .stats__provider-head element").textContent).toBe(
       "codexupdated 1m ago",
     );
     expect(card.querySelectorAll(".stats__window")).toHaveLength(2);
@@ -130,7 +128,7 @@ describe("Providers", () => {
     render({
       accounts: new Map([["claude", claude]]),
       reportsByKey: new Map([
-        [accountWindowKeys("claude", windows).get(windows[0])!.key, reports],
+        [present(accountWindowKeys("claude", windows).get(windows[0]), "the account window key").key, reports],
       ]),
     });
 
@@ -154,7 +152,7 @@ describe("Providers", () => {
     // The plot's right edge names that same moment, so the curve and the
     // sentence under it cannot disagree. Matching a bare clock shape would
     // have accepted the reset-prefixed label too — the wrong branch.
-    const foot = host.querySelector(".usage-burn__foot")!.textContent ?? "";
+    const foot = present(host.querySelector(".usage-burn__foot"), "the .usage-burn__foot element").textContent ?? "";
     expect(foot).toBe(`0${moment}`);
   });
 
@@ -198,9 +196,9 @@ describe("Providers", () => {
       events: [usageEvent({ agent: "claude" })],
     });
 
-    const card = host.querySelector(".stats__provider")!;
+    const card = present(host.querySelector(".stats__provider"), "the .stats__provider element");
     // The stale report age is announced once, in the card header.
-    expect(card.querySelector(".stats__provider-head")!.textContent).toContain(
+    expect(present(card.querySelector(".stats__provider-head"), "the .stats__provider-head element").textContent).toContain(
       "updated 2h ago",
     );
     const windows = [...card.querySelectorAll(".stats__window")];

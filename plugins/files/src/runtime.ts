@@ -1,4 +1,20 @@
-import type { PluginContext } from "@keepdeck/plugin-api";
+import type {
+  PluginFileOpeners,
+  PluginFs,
+  PluginLogger,
+  PluginOpener,
+  PluginSettings,
+  PluginUi,
+} from "@keepdeck/plugin-api";
+
+/** What the plugin needs from the host — the parts of its context it uses. */
+export interface FilesPorts {
+  ui: Pick<PluginUi, "registerDockTab" | "registerOverlay" | "setOverlayCovers">;
+  settings: Pick<PluginSettings, "registerSection" | "read" | "onChange">;
+  openers: PluginFileOpeners;
+  services: { fs: PluginFs; opener: Pick<PluginOpener, "openUrl" | "openPath"> };
+  log: PluginLogger;
+}
 
 /**
  * The activation's context, held at module scope. The dock-tab component tree
@@ -7,15 +23,15 @@ import type { PluginContext } from "@keepdeck/plugin-api";
  * through `getRuntime()`. Cleared on `deactivate`. Tests set it directly with a
  * fake context via `setRuntime`.
  */
-let ctx: PluginContext | null = null;
+let ctx: FilesPorts | null = null;
 
-export function setRuntime(next: PluginContext | null): void {
+export function setRuntime(next: FilesPorts | null): void {
   ctx = next;
 }
 
 /** The active context; throws if read before `activate` — a component rendered
  * without the plugin active is a wiring bug, not a recoverable state. */
-export function getRuntime(): PluginContext {
+export function getRuntime(): FilesPorts {
   if (!ctx) throw new Error("Files plugin: runtime read before activate()");
   return ctx;
 }

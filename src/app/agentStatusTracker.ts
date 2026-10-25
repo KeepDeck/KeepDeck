@@ -1,11 +1,38 @@
 import { CARRIED_RECORD, type AgentStatusEvent, type StatusNormalizer, isJsonRecord } from "@keepdeck/plugin-api";
 import { normalizeStatusBatch } from "./statusNormalization";
 import {
+  activityWord,
   answerResolves,
+  endingVerdict,
+  reconcileVerdict,
   reduceStatus,
   type PaneActivity,
   type PaneStatus,
 } from "../domain/status";
+import { log } from "../ipc/log";
+import { statusPayloadLabel } from "./statusPayloadLabel";
+
+/** An edge's own instant as a log reads it: local wall-clock, to the
+ * millisecond — the same clock the log lines' own stamps use, so a source
+ * time can be put beside the moment it was applied. */
+function clock(at: number): string {
+  const d = new Date(at);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+}
+
+/** Why a reconcile ended nothing, in a log line's words. */
+const RECONCILE_SKIP_WORDS = {
+  "pane-not-running": "the pane shows no running turn",
+  "started-after": "a turn started after the store's last ending",
+} as const;
+
+/** Why an ending changed nothing, in a log line's words. */
+const REFUSAL_WORDS = {
+  "already-ended": "the turn had already ended",
+  "older-than-phase": "older than the running phase",
+  "older-than-held-end": "older than the ending already held",
+} as const;
 
 /** Whether two projections say the same thing. Per-pane `PaneActivity` is
  * already identity-stable — the fold returns its input untouched when an
@@ -123,14 +150,80 @@ export function createAgentStatusTracker(): AgentStatusTracker {
    * reducer as its single answer. An edge the fold absorbs comes back as the
    * SAME object and stops here, without a store write.
    */
-  function apply(paneId: string, edges: readonly AgentStatusEvent[]): void {
+  function apply(paneId: string, edges: readonly AgentStatusEvent[], cause: string): void {
     const previous = statuses.get(paneId) ?? null;
-    const next = edges.reduce(reduceStatus, previous);
+    let next = previous;
+    for (const edge of edges) {
+      const before = next;
+      next = reduceStatus(before, edge);
+      explain(paneId, before, edge, next, cause);
+    }
     if (next === previous) return;
     const panes = new Map(statuses);
     if (next) panes.set(paneId, next);
     else panes.delete(paneId);
     commit(panes);
+  }
+
+  /**
+   * The log's account of one folded edge — the only record of WHY a pane
+   * reads what it reads. One line when the activity changed, with the edge
+   * and its source time; one when an ending changed nothing, or was held.
+   * Everything else (a tool completing mid-turn, a re-asserted wait) folds
+   * to the same object and says nothing, so a turn costs a few lines.
+   * Kinds and times only: no record body ever reaches the log.
+   */
+  function explain(
+    paneId: string,
+    before: PaneStatus | null,
+    edge: AgentStatusEvent,
+    after: PaneStatus | null,
+    cause: string,
+  ): void {
+    const verdict = endingVerdict(before, edge, after);
+    const what = `${edge.kind}@${clock(edge.at)} (${cause})`;
+    if (verdict?.kind === "refused") {
+      const since = before?.activity.state === "working" || before?.activity.state === "waiting"
+        ? `, since ${clock(before.activity.since)}` : "";
+      log.info("web:status", `${paneId}: ${what} refused — ${REFUSAL_WORDS[verdict.reason]}${since}`);
+      return;
+    }
+    if (verdict?.kind === "held") {
+      log.info("web:status", `${paneId}: ${what} held — ${verdict.open} agent turn(s) still open`);
+      return;
+    }
+    if (after?.activity === before?.activity) return;
+    log.info(
+      "web:status",
+      `${paneId}: ${activityWord(before?.activity)} → ${activityWord(after?.activity)} by ${what}`,
+    );
+  }
+
+  /**
+   * A reconcile — the tail's replay of a store's latest turn boundaries —
+   * may only END the turn the pane shows running (`reconcileVerdict`). Its
+   * decoding is read against the current checkpoint and then let go: a
+   * replay of the file's last records is no reading to resume from. Nor
+   * does it open a new epoch: it starts nothing.
+   */
+  function reconcile(
+    paneId: string,
+    previous: PaneStatus | null,
+    events: readonly AgentStatusEvent[],
+    cause: string,
+  ) {
+    const verdict = reconcileVerdict(previous, events);
+    if (verdict?.kind === "skip") {
+      log.info("web:status", `${paneId}: ${cause} ends nothing — ${RECONCILE_SKIP_WORDS[verdict.reason]}`);
+    }
+    const ending = verdict?.kind === "end" ? verdict.edge : null;
+    const preview = ending ? reduceStatus(previous, ending) : previous;
+    return {
+      activity: preview?.activity ?? null,
+      finish() {
+        if (ending) apply(paneId, [ending], cause);
+      },
+    };
   }
 
   function prepare(paneId: string, payload: unknown, at = Date.now()) {
@@ -154,6 +247,9 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     const normalizeAll = (reply?: string) => normalizeStatusBatch(
       normalize, payloads, at, stateNow(), reply, payload.contextOnly === true,
     );
+    if (payload.reconcile === true) {
+      return reconcile(paneId, previous, normalizeAll().events, statusPayloadLabel(payload));
+    }
     const initial = normalizeAll();
     const edges = initial.events;
     if (edges.length === 0 && initial.state === stateNow()) return ignored;
@@ -187,7 +283,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
         const guarded = settled.events.map((edge): AgentStatusEvent =>
           current !== previous && edge.kind === "turn-start"
             ? { kind: "turn-observed", at: edge.at } : edge);
-        apply(paneId, guarded);
+        apply(paneId, guarded, statusPayloadLabel(payload));
       },
     };
   }
@@ -212,7 +308,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       // that reads the same edge from an agent — asking it here in a second
       // spelling is how the two readings drift apart.
       if (!answerResolves(statuses.get(paneId)?.activity ?? null)) return;
-      apply(paneId, [{ kind: "resumed", at }]);
+      apply(paneId, [{ kind: "resumed", at }], "answered in the deck");
     },
 
     clear(paneId) {

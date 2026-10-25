@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DeckAction } from "../domain/deck/reducerActions";
 import type { DeckStore } from "./deckStore";
+import { deckStateOf } from "./deckStore.testSupport";
 import type { PaneLifecycle } from "./paneLifecycle";
 import type { PaneReportEvent } from "./verifiedPaneReports";
 
@@ -16,31 +17,24 @@ import { listenPaneUnbinds } from "./paneUnbinding";
  * what the lane dispatches. */
 function deckWith() {
   const dispatched: DeckAction[] = [];
-  const state = {
-    workspaces: [
-      {
-        id: "ws-1",
-        panes: [
-          { id: "pane-1", agentType: "opencode", session: { id: "ses_a", boundAt: "t" } },
-          {
-            id: "pane-2",
-            agentType: "opencode",
-            session: { id: "ses_r", boundAt: "t" },
-            location: { kind: "remote", endpoint: "http://vps:4096" },
-          },
-          { id: "pane-3", agentType: "opencode" },
-        ],
-      },
-    ],
-  };
-  const deck = {
+  const state = deckStateOf([
+    { id: "pane-1", agentType: "opencode", session: { id: "ses_a", boundAt: "t" } },
+    {
+      id: "pane-2",
+      agentType: "opencode",
+      session: { id: "ses_r", boundAt: "t" },
+      location: { kind: "remote", endpoint: "http://vps:4096" },
+    },
+    { id: "pane-3", agentType: "opencode" },
+  ]);
+  const deck: DeckStore = {
     getSnapshot: () => state,
     subscribe: () => () => {},
-    dispatch: (action: DeckAction) => {
+    dispatch: (action) => {
       dispatched.push(action);
       return state;
     },
-  } as unknown as DeckStore;
+  };
   return { deck, dispatched };
 }
 

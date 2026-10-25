@@ -1,6 +1,11 @@
 import { useSyncExternalStore } from "react";
 import { contextPct } from "../domain/usage";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
+import type { UsageManager } from "./usageManager";
+
+/** The usage store as this selector reads it: its snapshot, and when that
+ * changes. */
+export type PaneUsageSource = Pick<UsageManager, "subscribe" | "getSnapshot">;
 
 /**
  * The live context-occupancy percentage for ONE pane — or undefined when the
@@ -11,7 +16,15 @@ import { useAppRuntime } from "./runtimeContext";
  * scoped to a single pane so each `AgentPane` can carry its own header meter.
  */
 export function usePaneContextPct(paneId: string): number | undefined {
-  const { usageManager } = useAppRuntime();
+  return usePaneContextPctFrom(useRuntimePart("usageManager"), paneId);
+}
+
+/** [`usePaneContextPct`] over a usage store the caller names — the hook
+ * itself, with the runtime's store as the one production source. */
+export function usePaneContextPctFrom(
+  usageManager: PaneUsageSource,
+  paneId: string,
+): number | undefined {
   return useSyncExternalStore(usageManager.subscribe, () =>
     contextPct(usageManager.getSnapshot().panes.get(paneId)?.context),
   );

@@ -6,6 +6,7 @@ import { NO_QUERY } from "./queryView";
 import { statusMark, statusRing, taskRowView } from "./taskRowView";
 import { TASK_DETAIL_WORDS, changesOf, pickedPriority, commentsOf, menuActionDisabled, renamedTitle, pickedStatus, taskDetailClassName, taskDetailView } from "./taskDetailView";
 import { FIELD_WORDS, POOL_CHOICE } from "./words";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = 100_000;
 const ROSTER = ["lead", "impl-1", "impl-2"];
@@ -33,6 +34,8 @@ describe("task panel and form words and classes", () => {
   it("a pick asks for nothing when it changes nothing", () => {
     expect(pickedStatus("todo", "todo")).toBeNull();
     expect(pickedStatus("todo", "in-progress")).toBe("in-progress");
+    // A pick that names no status asks for no move.
+    expect(pickedStatus("todo", "someday")).toBeNull();
     expect(pickedPriority("normal", "normal")).toBeNull();
     expect(pickedPriority("normal", "high")).toBe("high");
     // No priority at all asks for nothing either.
@@ -181,7 +184,7 @@ describe("taskDetailView — an epic and its tasks", () => {
 
   it("an epic with no tasks says so; with no task left to add, it offers no Add an existing task", () => {
     const lone = board([task({ id: "task-1", kind: "epic" })], 2);
-    const view = taskDetailView(lone.tasks[0], lone, ROSTER, NOW).epic!;
+    const view = present(taskDetailView(lone.tasks[0], lone, ROSTER, NOW).epic, "the epic view");
     expect(view.empty).toBe("No tasks under it yet");
     expect(view.tasks).toEqual([]);
     expect(view.addExisting).toBeNull();
@@ -364,11 +367,14 @@ describe("commentsOf / changesOf — what was said, and what was changed, apart"
     // The picker opens on the first team it may go to.
     expect(view.transfer.initial).toBe("team-2");
     const refusal = (t: typeof b.tasks[number], within = teams) =>
-      taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions.find((a) => a.id === "transfer")!.refusal;
+      present(
+        taskDetailView(t, b, ROSTER, 0, [], false, within).menu.actions.find((a) => a.id === "transfer"),
+        "the transfer action",
+      ).refusal;
     expect(refusal(b.tasks[0], [teams[0]])).toBe("No other team in this workspace");
     expect(refusal(b.tasks[1])).toContain("done task stays where it is");
     const linked = board([task({ id: "task-4" }), task({ id: "task-6", blockedBy: ["task-4"] })]);
-    expect(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions.find((a) => a.id === "transfer")!.refusal).toContain("task-6 waits on it");
+    expect(present(taskDetailView(linked.tasks[0], linked, ROSTER, 0, [], false, teams).menu.actions.find((a) => a.id === "transfer"), "the transfer action").refusal).toContain("task-6 waits on it");
   });
 
   it("renames to the typed title — nothing for an empty one, or for the title the edit began with", () => {

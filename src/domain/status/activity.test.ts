@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import { reduceStatus, type PaneActivity, type PaneStatus } from "./activity";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The activity half of the fold. The inner reducer is private on purpose —
@@ -21,10 +22,13 @@ const act = (
     | { kind: "agent-turns-cleared" }
   >,
 ): PaneActivity =>
-  reduceStatus(
-    current && { activity: current, openAgentTurns: new Set(), heldEnd: null },
-    event,
-  )!.activity;
+  present(
+    reduceStatus(
+      current && { activity: current, openAgentTurns: new Set(), heldEnd: null },
+      event,
+    ),
+    "the status after the event",
+  ).activity;
 
 describe("activity edges", () => {
   it("starts a working phase from nothing", () => {
@@ -306,7 +310,7 @@ describe("activity edges", () => {
 describe("reduceStatus", () => {
   /** Fold a whole edge stream, the way the tracker does — from nothing. */
   const fold = (...events: AgentStatusEvent[]): PaneStatus =>
-    events.reduce<PaneStatus | null>(reduceStatus, null)!;
+    present(events.reduce<PaneStatus | null>(reduceStatus, null), "a status after the edge stream");
 
   it("a turn that closes while an agent turn is open has not ended", () => {
     // The case the whole mechanism exists for. claude reports a teammate as
@@ -438,10 +442,13 @@ describe("reduceStatus", () => {
       expect(state.openAgentTurns.size, ending.kind).toBe(0);
       expect(state.heldEnd, ending.kind).toBeNull();
       // ...and the pane can reach a real ending again afterwards.
-      const later = [
-        { kind: "turn-start", at: 200 } as const,
-        { kind: "turn-end", at: 210 } as const,
-      ].reduce<PaneStatus | null>(reduceStatus, state)!;
+      const later = present(
+        [
+          { kind: "turn-start", at: 200 } as const,
+          { kind: "turn-end", at: 210 } as const,
+        ].reduce<PaneStatus | null>(reduceStatus, state),
+        "a status after the later turn",
+      );
       expect(later.activity, ending.kind).toEqual({
         state: "done",
         at: 210,

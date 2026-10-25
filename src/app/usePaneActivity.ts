@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { PaneActivity } from "../domain/status";
-import { useAppRuntime } from "./runtimeContext";
+import { useRuntimePart } from "./runtimeContext";
 
 /**
  * The live activity of ONE pane's agent — or undefined when it has reported
@@ -11,7 +11,7 @@ import { useAppRuntime } from "./runtimeContext";
  * status tick. The sibling of [`usePaneContextPct`].
  */
 export function usePaneActivity(paneId: string): PaneActivity | undefined {
-  const { statusTracker } = useAppRuntime();
+  const statusTracker = useRuntimePart("statusTracker");
   return useSyncExternalStore(statusTracker.subscribe, () =>
     statusTracker.getSnapshot().panes.get(paneId),
   );

@@ -2,14 +2,12 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FsEntry, PluginContext } from "@keepdeck/plugin-api";
+import type { FsEntry } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
+import { inertPorts } from "../filesPorts.test-support";
 import { useFileTree } from "./useFileTree";
 import type { TreeState } from "../domain/tree";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 const entry = (root: string, name: string): FsEntry => ({
   name,
@@ -61,17 +59,20 @@ describe("useFileTree re-rooting", () => {
     act(() => root.render(createElement(Probe, { rootPath })));
 
   const settle = (path: string, entries: FsEntry[]) =>
-    act(async () => fs.pending.get(path)!(entries));
+    act(async () => present(fs.pending.get(path), "the entry for path")(entries));
 
   beforeEach(() => {
     fs = deferredFs();
     warn.mockReset();
-    setRuntime({
-      services: {
-        fs: { readDir: fs.readDir, readFile: fs.readFile, watch: fs.watch },
-      },
-      log: { info: vi.fn(), warn, error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(
+      inertPorts({
+        services: {
+          fs: { readDir: fs.readDir, readFile: fs.readFile, watch: fs.watch },
+          opener: inertPorts().services.opener,
+        },
+        log: { info: vi.fn(), warn, error: vi.fn() },
+      }),
+    );
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);

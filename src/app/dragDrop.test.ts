@@ -4,13 +4,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { log } from "../ipc/log";
 import { deliverPathsToPoint } from "./dragDrop";
 import { registerPaneInput } from "./paneInput";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** happy-dom lays nothing out, so a fixture states its own geometry. */
 function place(
   el: Element,
   box: { left: number; top: number; right: number; bottom: number },
 ): void {
-  vi.spyOn(el, "getBoundingClientRect").mockReturnValue(box as DOMRect);
+  vi.spyOn(el, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(box.left, box.top, box.right - box.left, box.bottom - box.top),
+  );
 }
 
 /**
@@ -35,13 +38,13 @@ function deck({ hidden = false } = {}): void {
            </main>`
         : ""
     }`;
-  place(document.querySelector('[data-pane-id="pane-1"]')!, {
+  place(present(document.querySelector('[data-pane-id="pane-1"]'), "the pane-1 element"), {
     left: 0,
     top: 0,
     right: 100,
     bottom: 100,
   });
-  place(document.querySelector('[data-pane-id="pane-2"]')!, {
+  place(present(document.querySelector('[data-pane-id="pane-2"]'), "the pane-2 element"), {
     left: 100,
     top: 0,
     right: 200,
@@ -50,7 +53,7 @@ function deck({ hidden = false } = {}): void {
   // An inactive layer keeps REAL rects at the same coordinates — that is what
   // makes the `--hidden` exclusion load-bearing rather than cosmetic.
   if (hidden) {
-    place(document.querySelector('[data-pane-id="pane-99"]')!, {
+    place(present(document.querySelector('[data-pane-id="pane-99"]'), "the pane-99 element"), {
       left: 0,
       top: 0,
       right: 100,

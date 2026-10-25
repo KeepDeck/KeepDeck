@@ -54,7 +54,6 @@ import {
   TASK_STATUSES,
   WORKER_STEPS,
   isTaskStatus,
-  type CreateStatus,
   issuable,
   normalizeLabel,
   countByStatus,
@@ -71,6 +70,7 @@ import {
 } from "../../domain/tasks";
 import { notCarriedText, refusalText } from "./refusalText";
 import type { TaskResult, TasksService } from "./tasksService";
+import { isOneOf } from "../../domain/json";
 
 export interface TaskCommandDeps {
   tasks: TasksService;
@@ -306,7 +306,7 @@ function createCommand(deps: TaskCommandDeps): CommandSpec {
             blockedBy: ids(args, "blockedBy"),
             artifacts: ids(args, "artifacts"),
             labels: ids(args, "labels"),
-            status: status as CreateStatus | undefined,
+            status,
             kind: kindArg(args),
             parent: parentArg(args) ?? undefined,
           },
@@ -405,10 +405,12 @@ function statusesArg(args: CommandArgs, required: boolean): TaskStatus[] | undef
     if (required) throw new Error(`name the statuses you want — one or several of ${TASK_STATUSES.join(", ")} (closed work is done, cancelled)`);
     return undefined;
   }
+  const statuses: TaskStatus[] = [];
   for (const status of named) {
     if (!isTaskStatus(status)) throw new Error(`status must be one of ${TASK_STATUSES.join(", ")}, not "${status}"`);
+    statuses.push(status);
   }
-  return named as TaskStatus[];
+  return statuses;
 }
 
 /** A team's tasks matching the filters every list-shaped answer shares. */
@@ -500,21 +502,27 @@ function searchCommand(deps: TaskCommandDeps): CommandSpec {
       // Asked of the whole board, then held to this caller's team and
       // filters — asked again, for more, while fewer than `limit` are kept
       // and the board had more to give.
-      const allowed = new Set(matching(board, team, args, statuses).map((task) => task.uid));
+      const allowed = new Map(matching(board, team, args, statuses).map((task) => [task.uid, task]));
       let asked = limit * SEARCH_OVERFETCH;
-      let hits: Awaited<ReturnType<TasksService["search"]>>;
+      let hits: { hit: Awaited<ReturnType<TasksService["search"]>>[number]; task: Task }[];
       for (;;) {
         const found = await deps.tasks.search(who.workspace.id, query, asked);
-        hits = found.filter((hit) => allowed.has(hit.uid)).slice(0, limit);
+        hits = found
+          .flatMap((hit) => {
+            const task = allowed.get(hit.uid);
+            return task ? [{ hit, task }] : [];
+          })
+          .slice(0, limit);
         if (hits.length >= limit || found.length < asked) break;
         asked *= SEARCH_OVERFETCH;
       }
       return reply(deps, who.workspace.id, {
         count: hits.length,
-        hits: hits.map((hit) => {
-          const task = board.tasks.find((t) => t.uid === hit.uid)!;
-          return { ...row(task, board), matched: hit.comment === null ? "brief" : `comment ${hit.comment}`, snippet: hit.snippet };
-        }),
+        hits: hits.map(({ hit, task }) => ({
+          ...row(task, board),
+          matched: hit.comment === null ? "brief" : `comment ${hit.comment}`,
+          snippet: hit.snippet,
+        })),
       });
     },
   };
@@ -535,7 +543,6 @@ function getCommand(deps: TaskCommandDeps): CommandSpec {
 }
 
 const HISTORY_KINDS = ["log", "comments", "briefs"] as const;
-type HistoryKind = (typeof HISTORY_KINDS)[number];
 
 function historyCommand(deps: TaskCommandDeps): CommandSpec {
   return {
@@ -549,8 +556,8 @@ function historyCommand(deps: TaskCommandDeps): CommandSpec {
     run: async (args, source) => {
       const who = caller(source, deps);
       const team = teamFor(args, who);
-      const kind = (str(args, "kind") ?? "log") as HistoryKind;
-      if (!HISTORY_KINDS.includes(kind)) throw new Error(`kind must be ${HISTORY_KINDS.join(", ")}, not "${kind}"`);
+      const kind = str(args, "kind") ?? "log";
+      if (!isOneOf(HISTORY_KINDS, kind)) throw new Error(`kind must be ${HISTORY_KINDS.join(", ")}, not "${kind}"`);
       const board = await boardOf(deps, who.workspace.id);
       const task = visible(board, taskIdArg(args), team);
       const answer = (body: Record<string, unknown>) => reply(deps, who.workspace.id, { id: task.id, ...body }, task);

@@ -8,8 +8,7 @@ import type { BundledMcpDescription } from "../../app/mcp";
 import { sameMcpRef, type McpScope, type McpServerDraft } from "../../domain/mcp";
 import { McpDialog } from "./McpDialog";
 import { button, buttonByTitle, confirmButton, input, row, textarea, type } from "../library/libraryTestDom";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** A row as the library would list it after the write landed. */
 const landed = (scope: McpScope, draft: McpServerDraft): McpLibraryRow => ({
@@ -118,7 +117,7 @@ describe("McpDialog", () => {
 
   it("opens the deck's own server read-only, showing its invocation", () => {
     render();
-    act(() => row("keepdeck")!.click());
+    act(() => present(row("keepdeck"), "row \"keepdeck\"").click());
     expect(input("mcp-command").value).toBe("/bin/keepdeck");
     expect(textarea("mcp-args").value).toBe("--mcp-shim\n/home/mcp.sock");
     expect(input("mcp-command").readOnly).toBe(true);
@@ -132,13 +131,13 @@ describe("McpDialog", () => {
 
   it("creates a local server from the typed lines, through the library", async () => {
     render();
-    act(() => buttonByTitle("New global server")!.click());
+    act(() => present(buttonByTitle("New global server"), "buttonByTitle \"New global server\"").click());
     type(input("mcp-name"), "github");
     type(input("mcp-command"), "npx");
     type(textarea("mcp-args"), "-y\n@modelcontextprotocol/server-github");
     type(textarea("mcp-env"), "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_x");
-    expect(button("Create")!.disabled).toBe(false);
-    await act(async () => button("Create")!.click());
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(false);
+    await act(async () => present(button("Create"), "button \"Create\"").click());
 
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
@@ -160,14 +159,14 @@ describe("McpDialog", () => {
 
   it("creates a remote server once the transport is switched", async () => {
     render();
-    act(() => buttonByTitle("New workspace server")!.click());
+    act(() => present(buttonByTitle("New workspace server"), "buttonByTitle \"New workspace server\"").click());
     type(input("mcp-name"), "gh-remote");
-    act(() => button("Remote endpoint")!.click());
-    expect(button("Create")!.disabled).toBe(true); // no url yet
+    act(() => present(button("Remote endpoint"), "button \"Remote endpoint\"").click());
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(true); // no url yet
     type(input("mcp-url"), "https://api.githubcopilot.com/mcp/");
     type(textarea("mcp-headers"), "X-Org: keepdeck");
     type(input("mcp-token"), "ghp_y");
-    await act(async () => button("Create")!.click());
+    await act(async () => present(button("Create"), "button \"Create\"").click());
 
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "workspace", wsId: "ws-1" },
@@ -186,22 +185,22 @@ describe("McpDialog", () => {
 
   it("refuses a line that is not a pair, and names it", () => {
     render();
-    act(() => buttonByTitle("New global server")!.click());
+    act(() => present(buttonByTitle("New global server"), "buttonByTitle \"New global server\"").click());
     type(input("mcp-name"), "x");
     type(input("mcp-command"), "npx");
     type(textarea("mcp-env"), "TOKEN=1\nnot a pair");
-    expect(button("Create")!.disabled).toBe(true);
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(true);
     expect(document.body.textContent).toContain("This line is not a pair: not a pair");
   });
 
   it("blocks a colliding or invalid name, in the domain's words", () => {
     lib.servers = [server("github")];
     render();
-    act(() => buttonByTitle("New global server")!.click());
+    act(() => present(buttonByTitle("New global server"), "buttonByTitle \"New global server\"").click());
     type(input("mcp-command"), "npx");
     type(input("mcp-name"), "github");
     expect(document.body.textContent).toContain("already exists in this scope");
-    expect(button("Create")!.disabled).toBe(true);
+    expect(present(button("Create"), "button \"Create\"").disabled).toBe(true);
     type(input("mcp-name"), "my.server");
     expect(document.body.textContent).toContain("letters, digits, hyphens and underscores");
   });
@@ -212,11 +211,11 @@ describe("McpDialog", () => {
     ];
     render();
     expect(row("broken")?.textContent).toContain('Cannot be read — unknown field "x"');
-    act(() => row("broken")!.click());
+    act(() => present(row("broken"), "row \"broken\"").click());
     expect(document.body.textContent).toContain("could not be read");
     expect(input("mcp-name").value).toBe("broken");
     type(input("mcp-command"), "npx");
-    await act(async () => button("Save")!.click());
+    await act(async () => present(button("Save"), "button \"Save\"").click());
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       { name: "broken", body: { transport: "stdio", command: "npx", args: [], env: {} } },
@@ -227,11 +226,11 @@ describe("McpDialog", () => {
   it("deleting asks first and routes through the library", async () => {
     lib.servers = [server("github")];
     render();
-    act(() => row("github")!.click());
-    act(() => button("Delete")!.click());
+    act(() => present(row("github"), "row \"github\"").click());
+    act(() => present(button("Delete"), "button \"Delete\"").click());
     // In-app confirm, not a system dialog.
     expect(document.body.textContent).toContain('Delete "github"?');
-    const confirmDelete = confirmButton("Delete")!;
+    const confirmDelete = present(confirmButton("Delete"), "confirmButton \"Delete\"");
     await act(async () => confirmDelete.click());
     expect(lib.remove).toHaveBeenCalledWith({ kind: "global" }, "github");
     expect(row("github")).toBeUndefined();
@@ -240,12 +239,12 @@ describe("McpDialog", () => {
   it("guards unsaved edits behind a discard confirm on close", () => {
     lib.servers = [server("github")];
     render();
-    act(() => row("github")!.click());
+    act(() => present(row("github"), "row \"github\"").click());
     type(input("mcp-command"), "bunx");
-    act(() => document.querySelector<HTMLButtonElement>('[aria-label="Close MCP servers"]')!.click());
+    act(() => present(document.querySelector<HTMLButtonElement>('[aria-label="Close MCP servers"]'), "element '[aria-label=\"Close MCP servers\"]'").click());
     expect(document.body.textContent).toContain("unsaved changes");
     expect(onClose).not.toHaveBeenCalled();
-    act(() => button("Discard")!.click());
+    act(() => present(button("Discard"), "button \"Discard\"").click());
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -257,7 +256,7 @@ describe("McpDialog", () => {
     tierState.current = [{ name: "keepdeck", body: null }];
     try {
       render();
-      act(() => row("keepdeck")!.click());
+      act(() => present(row("keepdeck"), "row \"keepdeck\"").click());
       expect(document.body.textContent).toContain("not up yet");
       expect(input("mcp-command").value).toBe("");
 

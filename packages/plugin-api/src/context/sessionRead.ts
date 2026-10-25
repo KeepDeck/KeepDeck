@@ -34,31 +34,35 @@ export type SessionCursor = string & { readonly __sessionCursor: unique symbol }
  *
  * The descriptor carries the correspondence "this format takes THIS request
  * and yields THESE items" in its own type, instead of a central table naming
- * every format. That is the whole point: a table would put the list of
- * formats back inside the host, so adding one would mean editing a type that
- * belongs to nobody, and the registry would be open in name and closed in
- * types.
+ * every format — and it carries it in what it DOES: `open` is the format's
+ * reader, built over the fs it is handed. A table would put the list of
+ * formats back inside the host, and a registry keyed by id could only hand
+ * its readers back by asserting their types; a descriptor that opens its own
+ * reader needs neither.
  *
- * The two `__` fields exist only to carry `Req` and `Item` into inference.
- * They are never read and never present at runtime — an unused type parameter
- * is invisible to TypeScript's inference, so it has to be witnessed by a
- * member.
+ * The transports are still this package's to define: a format is made by
+ * one of its constructors (`jsonl`), never by a plugin, and whatever reader
+ * one opens reads through the plugin's OWN gated fs — no reach the plugin
+ * did not already have.
  */
 export interface SessionFormat<Req, Item> {
   readonly id: string;
-  readonly __request?: Req;
-  readonly __item?: Item;
+  open(fs: PluginFs): SessionReader<Req, Item>;
 }
 
-/** The `jsonl` format: one JSON value per line. `Record` is the plugin's
- * assertion about its own records, made once here and typed from then on —
- * the host parses JSON and does not pretend to validate a shape it knows
- * nothing about. */
-export function jsonl<Record = unknown>(): SessionFormat<JsonlRequest, Record> {
-  return JSONL as SessionFormat<JsonlRequest, Record>;
+/**
+ * The `jsonl` format: one JSON value per line, handed over as `Record` once
+ * `accepts` says it is one.
+ *
+ * The guard is the plugin's, because only the plugin knows its records; the
+ * host parses the JSON and checks nothing else. A line that parses but that
+ * the guard refuses is not passed on and not dropped either: it is counted
+ * (`ReadOutcome.refused`), so a reading says when the store held something it
+ * could not use — the mark a format that moved underneath us leaves.
+ */
+export function jsonl<Record>(accepts: (value: unknown) => value is Record): SessionFormat<JsonlRequest, Record> {
+  return { id: "jsonl", open: (fs) => createJsonlReader(fs, accepts) };
 }
-
-const JSONL: SessionFormat<JsonlRequest, unknown> = { id: "jsonl" };
 
 export type { JsonlRequest };
 
@@ -93,6 +97,10 @@ export interface ReadOutcome {
   payloadBytes: number;
   /** Records handed to `consume`. */
   items: number;
+  /** Records the format's guard refused — present, and above zero, only when
+   * there were some. They were read (their bytes count) and passed over;
+   * the conversation around them is still whole. */
+  refused?: number;
   stopped: ReadStop;
   /** The store's full size in the same measure as `payloadBytes`, when the
    * transport has one (a file does; a table does not). Present so a caller
@@ -181,31 +189,12 @@ export interface PluginSessionStore {
  * so a big store costs a message per 256 KB instead of one per record.
  */
 export function createSessionStore(fs: PluginFs): PluginSessionStore {
-  // Formats by id. The map is the closed part — the host decides which
-  // transports exist — and the descriptor is the open part: adding a format
-  // is a reader, a descriptor and one line here, with no central type to
-  // widen and no other plugin to touch.
-  //
-  // The two casts are the price of a heterogeneous registry: a `Map` cannot
-  // say "the value's type parameters are whatever the key's descriptor
-  // declares". The descriptor IS that witness, and it comes from us — a
-  // caller cannot name a format we do not serve, so `read` below recovers
-  // exactly the types the caller already proved.
-  const readers = new Map<string, SessionReader<unknown, unknown>>([
-    [JSONL.id, createJsonlReader(fs) as SessionReader<unknown, unknown>],
-  ]);
-
   return {
     read(format, request, consume, scope = "whole") {
-      const reader = readers.get(format.id) as
-        | SessionReader<typeof request, Parameters<typeof consume>[0]>
-        | undefined;
-      if (reader === undefined) {
-        return Promise.reject(
-          new Error(`sessionStore.read: no reader for format "${format.id}"`),
-        );
-      }
-      return reader.pull(request, BUDGETS[scope], consume);
+      // The format opens its own reader, typed by its own descriptor; the
+      // store supplies the fs and the budget — the two things that are not
+      // the format's to choose.
+      return format.open(fs).pull(request, BUDGETS[scope], consume);
     },
   };
 }
