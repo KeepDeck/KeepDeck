@@ -7,6 +7,7 @@ import type {
 } from "./verifiedPaneReports";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 import { createPaneAttribution } from "./paneAttribution";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const stubs = vi.hoisted(() => ({
   peekPaneSpawnSpec: vi.fn(),
@@ -80,14 +81,14 @@ describe("createVerifiedPaneReports", () => {
   it("applies a report that passes membership and token", async () => {
     start(deckWith("pane-1"));
     await settle();
-    handler!({ paneId: "pane-1", token: "tok", payload: { agent: "claude" } });
+    present(handler, "the report handler")({ paneId: "pane-1", token: "tok", payload: { agent: "claude" } });
     expect(apply).toHaveBeenCalledWith("pane-1", { agent: "claude" });
   });
 
   it("drops a report for a pane the deck no longer holds", async () => {
     start(deckWith("pane-1"));
     await settle();
-    handler!(fromClaude("pane-9"));
+    present(handler, "the report handler")(fromClaude("pane-9"));
     expect(apply).not.toHaveBeenCalled();
     expect(stubs.warn).toHaveBeenCalledWith(
       "web:bridge",
@@ -98,11 +99,11 @@ describe("createVerifiedPaneReports", () => {
   it("drops a report whose token does not match the spawn plan", async () => {
     start(deckWith("pane-1"));
     await settle();
-    handler!(fromClaude("pane-1", "stale"));
+    present(handler, "the report handler")(fromClaude("pane-1", "stale"));
     expect(apply).not.toHaveBeenCalled();
     // No cached plan at all (dropped on restart) refuses too.
     stubs.peekPaneSpawnSpec.mockReturnValue(undefined);
-    handler!(fromClaude("pane-1"));
+    present(handler, "the report handler")(fromClaude("pane-1"));
     expect(apply).not.toHaveBeenCalled();
   });
 
@@ -112,7 +113,7 @@ describe("createVerifiedPaneReports", () => {
     // names, its numbers would land on this pane — no rebinding needed.
     start(deckWith("pane-1"));
     await settle();
-    handler!({
+    present(handler, "the report handler")({
       paneId: "pane-1",
       token: "tok",
       payload: { agent: "kimi", statusline: {} },
@@ -127,7 +128,7 @@ describe("createVerifiedPaneReports", () => {
   it("drops a report that names no agent at all", async () => {
     start(deckWith("pane-1"));
     await settle();
-    handler!({ paneId: "pane-1", token: "tok", payload: {} });
+    present(handler, "the report handler")({ paneId: "pane-1", token: "tok", payload: {} });
     expect(apply).not.toHaveBeenCalled();
     expect(stubs.warn).toHaveBeenCalledWith(
       "web:bridge",
@@ -139,7 +140,7 @@ describe("createVerifiedPaneReports", () => {
     start(deckWith("pane-1"), { requireLiveProcess: true });
     await settle();
     stubs.paneSessionState.mockReturnValue({ kind: "exited", code: 1 });
-    handler!(fromClaude("pane-1"));
+    present(handler, "the report handler")(fromClaude("pane-1"));
     expect(apply).not.toHaveBeenCalled();
     expect(stubs.warn).toHaveBeenCalledWith(
       "web:bridge",
@@ -147,7 +148,7 @@ describe("createVerifiedPaneReports", () => {
     );
     // A hook can beat the spawn promise's resolution — starting counts.
     stubs.paneSessionState.mockReturnValue({ kind: "starting" });
-    handler!(fromClaude("pane-1"));
+    present(handler, "the report handler")(fromClaude("pane-1"));
     expect(apply).toHaveBeenCalledTimes(1);
   });
 
@@ -155,7 +156,7 @@ describe("createVerifiedPaneReports", () => {
     start(deckWith("pane-1"));
     await settle();
     stubs.paneSessionState.mockReturnValue({ kind: "exited", code: 1 });
-    handler!(fromClaude("pane-1"));
+    present(handler, "the report handler")(fromClaude("pane-1"));
     expect(apply).toHaveBeenCalledTimes(1);
   });
 
@@ -166,7 +167,7 @@ describe("createVerifiedPaneReports", () => {
     expect(unlisten).toHaveBeenCalledTimes(1);
     // A report arriving after dispose is dropped even if the transport has
     // not detached yet.
-    handler!(fromClaude("pane-1"));
+    present(handler, "the report handler")(fromClaude("pane-1"));
     expect(apply).not.toHaveBeenCalled();
 
     // Dispose BEFORE the subscribe promise resolves: the late unlisten runs.

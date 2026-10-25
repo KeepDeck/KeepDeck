@@ -295,6 +295,10 @@ export function createAgentOrchestratorRestart({
           // moment ago proved it exists. An agent that finished in between
           // vanished from the registry while the conversation became fully
           // resumable: one quiet retry recovers exactly that race.
+          const { sessionId } = target;
+          if (sessionId === null) {
+            throw new Error("a quiet retry resumes the pane's session, and it has none bound");
+          }
           startOwed.add(paneId);
           const context = spawnContext.get();
           if (context) {
@@ -311,7 +315,7 @@ export function createAgentOrchestratorRestart({
                 mcpAccess,
               },
               context,
-              target.sessionId!,
+              sessionId,
               "restore",
               true,
             );

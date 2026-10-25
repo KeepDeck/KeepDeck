@@ -9,6 +9,7 @@ import {
   type Page,
   type PagedSearch,
 } from "./usePagedSessionSearch";
+import { present } from "@keepdeck/plugin-api/testing";
 
 interface Row {
   id: string;
@@ -36,7 +37,7 @@ describe("usePagedSessionSearch", () => {
       () => new Promise<Page<Row>>((resolve) => resolvers.push(resolve)),
     );
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => {
     act(() => root.unmount());

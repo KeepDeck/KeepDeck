@@ -4,6 +4,7 @@ import { board, mintSequence, relation, task } from "../../domain/tasks/testSupp
 import { countsLost, migrateBoards } from "./migration";
 import { boardFromStored } from "./storeWire";
 import { testDatabase } from "./testDatabase";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const file = (workspace: string, json: string) => ({ workspace, json, checksum: `sum-${json.length}-${workspace}` });
 const deps = (workspaces = ["ws-1", "ws-2"]) => ({ workspaces, mintUid: mintSequence("uid-m-") });
@@ -29,7 +30,10 @@ function current(): TaskBoard {
 
 /** What the database holds for `workspace`, as the domain reads it. */
 function held(db: ReturnType<typeof testDatabase>, workspace: string): TaskBoard {
-  const stored = db.boards().find((b) => b.workspace === workspace)!;
+  const stored = present(
+    db.boards().find((b) => b.workspace === workspace),
+    `the  board row`,
+  );
   const read = boardFromStored(stored, mintSequence());
   if (!read.ok) throw new Error(JSON.stringify(read.fault));
   return read.board;

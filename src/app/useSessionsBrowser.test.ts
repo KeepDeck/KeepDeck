@@ -25,6 +25,7 @@ import {
   type SessionsBrowserApi,
   type TranscriptSource,
 } from "./useSessionsBrowser";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * Which contract the browser reaches for. Both paths answer with the same
@@ -106,7 +107,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
     );
     shared = sharedOf();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => act(() => root.unmount()));
 

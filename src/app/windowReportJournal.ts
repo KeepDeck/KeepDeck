@@ -74,8 +74,8 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
     const lines: string[] = [];
     for (const [agent, account] of deps.usage.getSnapshot().accounts) {
       if (account.kind !== "reported") continue;
-      const keys = accountWindowKeys(agent, account.windows);
-      for (const window of account.windows) {
+      // Every window with its key, in the account's order.
+      for (const [window, entry] of accountWindowKeys(agent, account.windows)) {
         const next: WindowReport = {
           agent,
           windowMinutes: window.windowMinutes ?? null,
@@ -92,7 +92,6 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
         // back out would leave an empty series whose replay guard has
         // nothing to stand on — the same line then re-appends forever.
         if (!reportAlive(next, at)) continue;
-        const entry = keys.get(window)!;
         if (entry.ordinal > 0) next.ordinal = entry.ordinal;
         const key = entry.key;
         const kept = byKey.get(key);

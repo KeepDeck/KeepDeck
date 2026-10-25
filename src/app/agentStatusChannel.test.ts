@@ -14,6 +14,7 @@ import type { DeckWatch } from "./deckStore";
 import { deckStateOf } from "./deckStore.testSupport";
 import { createPaneAttribution } from "./paneAttribution";
 import type { PaneReportEvent } from "./verifiedPaneReports";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Every report is the main agent's and may move the pane: the channel
  * under test is the wiring, not the admission rule, which has its own tests. */
@@ -287,11 +288,11 @@ describe("createAgentStatusChannel", () => {
   });
 
   it("feeds VERIFIED bridge reports into the tracker through the shared guard", async () => {
-    let handler:
-      | ((report: { paneId: string; token: string; payload: unknown }) => void)
-      | null = null;
+    const captured: {
+      handler: ((report: { paneId: string; token: string; payload: unknown }) => void) | null;
+    } = { handler: null };
     ipc.onAgentStatus.mockImplementationOnce((h) => {
-      handler = h;
+      captured.handler = h;
       return Promise.resolve(() => {});
     });
     // The one case that reaches the lane, so it gets the real rule over its
@@ -310,7 +311,7 @@ describe("createAgentStatusChannel", () => {
     );
     await Promise.resolve();
 
-    handler!({
+    present(captured.handler, "the report handler")({
       paneId: "pane-1",
       token: "tok",
       payload: { agent: "claude", edge: { kind: "turn-start", at: 100 } },
@@ -318,7 +319,7 @@ describe("createAgentStatusChannel", () => {
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(true);
 
     // A wrong token never reaches the store.
-    handler!({
+    present(captured.handler, "the report handler")({
       paneId: "pane-1",
       token: "forged",
       payload: { agent: "claude", edge: { kind: "turn-end", at: 200 } },
@@ -332,11 +333,11 @@ describe("createAgentStatusChannel", () => {
     // claude's and codex's `SessionStart(compact)` both reports the rebuild
     // and asks for mail. Whatever the rebuild re-states (the team briefing)
     // has to be queued by the time that ask takes the queue.
-    let handler:
-      | ((report: { paneId: string; token: string; payload: unknown }) => void)
-      | null = null;
+    const captured: {
+      handler: ((report: { paneId: string; token: string; payload: unknown }) => void) | null;
+    } = { handler: null };
     ipc.onAgentStatus.mockImplementationOnce((h) => {
-      handler = h;
+      captured.handler = h;
       return Promise.resolve(() => {});
     });
     const deck = deckWith("pane-1");
@@ -358,7 +359,7 @@ describe("createAgentStatusChannel", () => {
     );
     await Promise.resolve();
 
-    handler!({
+    present(captured.handler, "the report handler")({
       paneId: "pane-1",
       token: "tok",
       payload: { agent: "claude", edge: { kind: "context-compacted", at: 100 } },

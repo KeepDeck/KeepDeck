@@ -86,24 +86,26 @@ export async function askBackgroundCarriers(
     | { kind: "answered"; rows: AgentLiveSession[] }
     | { kind: "failed" }
     | { kind: "no-capability" };
+  // One ask per agent type, however many entries share it.
   const rowsByAgent = new Map<string, Promise<PerAgent>>();
-  for (const agentType of new Set(entries.map((e) => e.agentType))) {
-    rowsByAgent.set(
-      agentType,
-      (async () => {
-        const live = findAgent(plugins, agentType)?.entry.liveSessions;
-        if (!live) return { kind: "no-capability" } as PerAgent;
-        try {
-          return { kind: "answered", rows: await live.list() } as PerAgent;
-        } catch {
-          return { kind: "failed" } as PerAgent;
-        }
-      })(),
-    );
-  }
+  const rowsOf = (agentType: string): Promise<PerAgent> => {
+    const asked = rowsByAgent.get(agentType);
+    if (asked) return asked;
+    const asking = (async () => {
+      const live = findAgent(plugins, agentType)?.entry.liveSessions;
+      if (!live) return { kind: "no-capability" } as PerAgent;
+      try {
+        return { kind: "answered", rows: await live.list() } as PerAgent;
+      } catch {
+        return { kind: "failed" } as PerAgent;
+      }
+    })();
+    rowsByAgent.set(agentType, asking);
+    return asking;
+  };
   return Promise.all(
     entries.map(async ({ agentType, sessionId }) => {
-      const answer = await rowsByAgent.get(agentType)!;
+      const answer = await rowsOf(agentType);
       if (answer.kind === "no-capability") return null;
       if (answer.kind === "failed") return "unknown";
       const held = answer.rows.find(

@@ -10,6 +10,7 @@ import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { PaneActivity } from "../../domain/status";
 import { registerMailCommands } from "./mailCommands";
 import { createMailManager } from "./mailManager";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const READY: PaneActivity = { state: "done", at: 1, interrupted: false };
 
@@ -423,7 +424,7 @@ describe("mail between two teams of one workspace", () => {
     if (!read.ok) throw new Error("inbox refused");
     const { messages } = read.value as { messages: { from: { address: string } }[] };
     // api is renamed between the question and the answer.
-    workspaces[0].teams = workspaces[0].teams!.map((t) => (t.id === "team-1" ? { ...t, name: "backend" } : t));
+    workspaces[0].teams = present(workspaces[0].teams, "the workspace teams").map((t) => (t.id === "team-1" ? { ...t, name: "backend" } : t));
     const reply = await run(registry, "mail.send", { to: messages[0].from.address, kind: "answer", body: "8080" }, from("pane-3", "ws-1", "Agent 3"));
     expect(reply.ok).toBe(true);
     expect(mail.takeAtTurnEnd("pane-1").map((m) => m.toPaneId)).toEqual(["pane-1"]);

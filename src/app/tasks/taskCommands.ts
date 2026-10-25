@@ -500,21 +500,27 @@ function searchCommand(deps: TaskCommandDeps): CommandSpec {
       // Asked of the whole board, then held to this caller's team and
       // filters — asked again, for more, while fewer than `limit` are kept
       // and the board had more to give.
-      const allowed = new Set(matching(board, team, args, statuses).map((task) => task.uid));
+      const allowed = new Map(matching(board, team, args, statuses).map((task) => [task.uid, task]));
       let asked = limit * SEARCH_OVERFETCH;
-      let hits: Awaited<ReturnType<TasksService["search"]>>;
+      let hits: { hit: Awaited<ReturnType<TasksService["search"]>>[number]; task: Task }[];
       for (;;) {
         const found = await deps.tasks.search(who.workspace.id, query, asked);
-        hits = found.filter((hit) => allowed.has(hit.uid)).slice(0, limit);
+        hits = found
+          .flatMap((hit) => {
+            const task = allowed.get(hit.uid);
+            return task ? [{ hit, task }] : [];
+          })
+          .slice(0, limit);
         if (hits.length >= limit || found.length < asked) break;
         asked *= SEARCH_OVERFETCH;
       }
       return reply(deps, who.workspace.id, {
         count: hits.length,
-        hits: hits.map((hit) => {
-          const task = board.tasks.find((t) => t.uid === hit.uid)!;
-          return { ...row(task, board), matched: hit.comment === null ? "brief" : `comment ${hit.comment}`, snippet: hit.snippet };
-        }),
+        hits: hits.map(({ hit, task }) => ({
+          ...row(task, board),
+          matched: hit.comment === null ? "brief" : `comment ${hit.comment}`,
+          snippet: hit.snippet,
+        })),
       });
     },
   };

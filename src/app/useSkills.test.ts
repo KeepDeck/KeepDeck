@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSkillsLibrary, type SkillsEditorState } from "./useSkills";
 import type { LibrarySkill, SkillsLibrary } from "./skillsLibrary";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * Driven over a FAKE library: what the hook owns is view state — loaded vs
@@ -66,7 +67,7 @@ describe("the skills library hook", () => {
     for (const fn of Object.values(library)) fn.mockClear();
     library.list.mockResolvedValue([]);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 
   afterEach(() => {

@@ -20,6 +20,7 @@ import type {
   SuspendOutcome,
 } from "./testSupport";
 import type { TeamLocation } from "../../domain/deck";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("agent orchestrator —suspending an agent", () => {
   let root: Root;
@@ -39,7 +40,7 @@ describe("agent orchestrator —suspending an agent", () => {
     catalog.moveSuspendedToTray = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 

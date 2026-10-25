@@ -28,12 +28,10 @@ export function usePaneDrag(onDropped: (paneId: string) => void) {
     let path: string | null = null; // the pressed row's path, if any
     let startX = 0;
     let startY = 0;
-    let dragging = false;
-    let ghost: HTMLElement | null = null;
+    let ghost: HTMLElement | null = null; // shown once the press becomes a drag
 
     const reset = () => {
       path = null;
-      dragging = false;
       ghost?.remove();
       ghost = null;
     };
@@ -48,32 +46,32 @@ export function usePaneDrag(onDropped: (paneId: string) => void) {
       path = pressed;
       startX = event.clientX;
       startY = event.clientY;
-      dragging = false;
+      ghost?.remove();
+      ghost = null;
     };
 
     const onPointerMove = (event: PointerEvent) => {
       if (!path) return;
-      if (!dragging) {
+      if (!ghost) {
         if (Math.hypot(event.clientX - startX, event.clientY - startY) < DRAG_THRESHOLD_PX)
           return;
-        dragging = true;
         ghost = makeGhost(path);
         document.body.appendChild(ghost);
       }
       // Keep the terminal out of our drag's pointer stream.
       event.preventDefault();
       event.stopPropagation();
-      moveGhost(ghost!, event.clientX, event.clientY);
+      moveGhost(ghost, event.clientX, event.clientY);
     };
 
     const onPointerUp = (event: PointerEvent) => {
-      if (!dragging) {
+      const droppedPath = path;
+      if (!ghost || !droppedPath) {
         reset();
         return;
       }
       event.preventDefault();
       event.stopPropagation();
-      const droppedPath = path!;
       const point = { x: event.clientX, y: event.clientY };
       reset();
       // A drag that starts and ends on the same row would otherwise fire a

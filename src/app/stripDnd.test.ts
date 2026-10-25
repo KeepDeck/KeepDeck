@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { collectMarkRects } from "./stripDnd";
+import { present } from "@keepdeck/plugin-api/testing";
 
 function rect(top: number): DOMRect {
   return {
@@ -28,7 +29,7 @@ describe("collectMarkRects (real DOM)", () => {
         <li class="rail__item" data-ws-id="ws-2"></li>
         <li>no id — skipped</li>
       </ul>`;
-    const list = document.getElementById("list")!;
+    const list = present(document.getElementById("list"), "the list element");
     const items = [...list.querySelectorAll<HTMLElement>("[data-ws-id]")];
     list.getBoundingClientRect = () => rect(100);
     Object.defineProperty(list, "scrollTop", { configurable: true, value: 5 });
@@ -54,8 +55,8 @@ describe("collectMarkRects (real DOM)", () => {
       <ul id="list">
         <li data-ws-id="ws-1" style="transform: translateY(500px)"></li>
       </ul>`;
-    const list = document.getElementById("list")!;
-    const item = list.querySelector<HTMLElement>("[data-ws-id]")!;
+    const list = present(document.getElementById("list"), "the list element");
+    const item = present(list.querySelector<HTMLElement>("[data-ws-id]"), "the workspace item");
     list.getBoundingClientRect = () => rect(20);
     Object.defineProperty(item, "offsetTop", { configurable: true, value: 10 });
     Object.defineProperty(item, "offsetHeight", {

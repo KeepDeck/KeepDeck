@@ -15,6 +15,7 @@ import {
   useAgentsFrom,
   type AgentCatalogSource,
 } from "./useAgents";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const ipc = vi.hoisted(() => ({
   detectBins: vi.fn<(bins: string[]) => Promise<BinStatus[]>>(),
@@ -92,7 +93,7 @@ describe("useAgents", () => {
     resetAgentsCache();
     installedPlugins = [];
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 
   afterEach(() => {
@@ -192,7 +193,7 @@ describe("useAgents", () => {
 
     // The remount's re-detect is still in flight — the cached status stands.
     ipc.detectBins.mockReturnValue(new Promise(() => {}));
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     await mount();
     expect(seen.agents[0]?.installed).toBe(false);
     expect(seen.agents[0]?.path).toBe("/usr/local/bin/claude");

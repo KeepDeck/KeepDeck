@@ -13,6 +13,7 @@ import {
   TEST_NOW,
   windowReport,
 } from "../domain/usage/reportJournal.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = TEST_NOW;
 const MIN = 60_000;
@@ -105,7 +106,7 @@ describe("windowReportJournal", () => {
     await settle();
     const [claude, codex] = ipc.appendUsageReports.mock.calls
       .flatMap(([lines]) => lines)
-      .map((line) => decodeWindowReport(line)!);
+      .map((line) => present(decodeWindowReport(line), "a decoded window report"));
     expect(claude).toMatchObject({ agent: "claude", sourcePaneId: "pane-1" });
     expect(codex).not.toHaveProperty("sourcePaneId");
 
@@ -146,7 +147,7 @@ describe("windowReportJournal", () => {
     await settle();
     const points = ipc.appendUsageReports.mock.calls
       .flatMap(([lines]) => lines)
-      .map((line) => decodeWindowReport(line)!);
+      .map((line) => present(decodeWindowReport(line), "a decoded window report"));
     expect(points.map((point) => [point.usedPct, point.sourcePaneId])).toEqual([
       [69, "active"],
     ]);

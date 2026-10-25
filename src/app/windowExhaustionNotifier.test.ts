@@ -15,6 +15,7 @@ import {
   TEST_NOW,
   windowReport,
 } from "../domain/usage/reportJournal.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = TEST_NOW;
 const MIN = 60_000;
@@ -31,7 +32,7 @@ const ACCOUNTS = new Map<string, AccountUsage>([
   ],
 ]);
 
-const KEY = accountWindowKeys("claude", [FIVE_H]).get(FIVE_H)!.key;
+const KEY = present(accountWindowKeys("claude", [FIVE_H]).get(FIVE_H), "the five-hour window key").key;
 
 /** A steady ramp at `pctPerMin`, newest report at NOW: 12% headroom left,
  * so pace 1 → critical (~12m out), pace 0.2 → warn (out in exactly 60m,
@@ -149,7 +150,7 @@ describe("createWindowExhaustionNotifier", () => {
   });
 
   it("delivers each critical window its own notification", async () => {
-    const codexKey = accountWindowKeys("codex", [FIVE_H]).get(FIVE_H)!.key;
+    const codexKey = present(accountWindowKeys("codex", [FIVE_H]).get(FIVE_H), "the five-hour window key").key;
     const accounts = new Map<string, AccountUsage>([
       ...ACCOUNTS,
       [

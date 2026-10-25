@@ -29,6 +29,7 @@ import {
 } from "./usageChannel";
 import type { DeckStore } from "./deckStore";
 import { deckStateOf } from "./deckStore.testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** What the codex fixture's dialect asks to have carried. Shared between the
  * declaration and the assertions so the two cannot drift: what the lane must
@@ -291,7 +292,11 @@ describe("createUsageChannel", () => {
   });
 
   it("carries a tailed record's context percentage into the pane store", async () => {
-    ipc.contributions[1]!.entry.usage!.normalize = carriedNormalizer;
+    const carrying = present(
+      present(ipc.contributions[1], "the second contribution").entry.usage,
+      "the second contribution's usage config",
+    );
+    carrying.normalize = carriedNormalizer;
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
 
     await act(async () => {
@@ -614,8 +619,12 @@ describe("createUsageChannel", () => {
   });
 
   it("reads codex limits at boot through the shared app-server source", async () => {
-    const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
-    codex.entry.usage!.limits!.normalize = (_body, at) => ({
+    const codex = present(ipc.contributions.find((item) => item.entry.id === "codex"), "the Codex contribution");
+    const codexLimits = present(
+      present(codex.entry.usage, "the Codex usage config").limits,
+      "the Codex limits source",
+    );
+    codexLimits.normalize = (_body, at) => ({
       kind: "reported",
       windows: [],
       reportedAt: at,
@@ -637,8 +646,12 @@ describe("createUsageChannel", () => {
   });
 
   it("serializes reads and uses native post-initialization freshness", async () => {
-    const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
-    codex.entry.usage!.limits!.normalize = (_body, at) => ({
+    const codex = present(ipc.contributions.find((item) => item.entry.id === "codex"), "the Codex contribution");
+    const codexLimits = present(
+      present(codex.entry.usage, "the Codex usage config").limits,
+      "the Codex limits source",
+    );
+    codexLimits.normalize = (_body, at) => ({
       kind: "reported",
       windows: [],
       reportedAt: at,
@@ -718,7 +731,11 @@ describe("createUsageChannel", () => {
     // delivers. If the sweep's envelope and the one the contract reads ever
     // disagree, the account chip goes quietly blank at boot — which a
     // normalizer echoing anything it is handed could never show.
-    ipc.contributions[1]!.entry.usage!.normalize = carriedNormalizer;
+    const carrying = present(
+      present(ipc.contributions[1], "the second contribution").entry.usage,
+      "the second contribution's usage config",
+    );
+    carrying.normalize = carriedNormalizer;
     ipc.readStoreCold.mockResolvedValue({
       records: [
         {

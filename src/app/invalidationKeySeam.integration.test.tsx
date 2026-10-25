@@ -141,9 +141,10 @@ describe("invalidation key seam (T6, end to end)", () => {
 
     const container = document.createElement("div");
     document.body.appendChild(container);
-    root = createRoot(container);
+    const mounted = createRoot(container);
+    root = mounted;
     await act(async () => {
-      root!.render(createElement(Probe));
+      mounted.render(createElement(Probe));
     });
 
     // Both keys are declared and answered as hits — the records the

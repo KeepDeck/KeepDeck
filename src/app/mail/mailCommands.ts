@@ -433,10 +433,9 @@ export function registerMailCommands(
           throw new Error(`${ref} needs a role — it is the address teammates use`);
         }
         const paneId = target.value.id;
-        const members = membersOf(workspace, held.id).map((pane) => ({
-          paneId: pane.id,
-          role: pane.id === paneId ? role : pane.team!.role,
-        }));
+        const members = membersOf(workspace, held.id).flatMap((pane) =>
+          pane.team ? [{ paneId: pane.id, role: pane.id === paneId ? role : pane.team.role }] : [],
+        );
         const planned = planTeam(
           workspace,
           { name: held.name, members, recruits: [] },

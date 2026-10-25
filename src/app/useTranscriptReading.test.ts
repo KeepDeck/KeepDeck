@@ -6,6 +6,7 @@ import { createElement } from "react";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { SessionsBrowserApi } from "./useSessionsBrowser";
 import { useTranscriptReading, type TranscriptReading } from "./useTranscriptReading";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The reading, exercised WITHOUT a viewer.
@@ -240,7 +241,7 @@ describe("useTranscriptReading", () => {
     seq.current += 1;
 
     await act(async () => {
-      resolvers.get(LIVE)!({ entries: [entry("stale page")] });
+      present(resolvers.get(LIVE), "the live page resolver")({ entries: [entry("stale page")] });
     });
     expect(seen.current?.entries).toEqual([]);
   });

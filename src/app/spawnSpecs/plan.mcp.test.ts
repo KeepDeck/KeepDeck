@@ -21,6 +21,7 @@ import {
   settle,
   planHarness,
 } from "./planTestSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * MCP through the plan: what the hook is told, what the pane's environment
@@ -91,7 +92,7 @@ describe("MCP servers through the plan", () => {
     hostState.installed = [external(MCP_HTTP_API - 1)];
     await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
     await settle();
-    expect(inputs).toEqual([{ servers: [mcpState.entries[0]!.spec] }]);
+    expect(inputs).toEqual([{ servers: [present(mcpState.entries[0], "the first MCP entry").spec] }]);
     expect(h.seen["pane-1"].env).not.toContainEqual(GH_TOKEN);
 
     // A floor at the arm's revision, and everything reaches the hook.

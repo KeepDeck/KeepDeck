@@ -11,6 +11,7 @@ import {
   type DeckPersistence,
 } from "./deckPersistence";
 import { usePersistence } from "./usePersistence";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const ipc = vi.hoisted(() => ({
   loadDeckState: vi.fn<() => Promise<string | null>>(),
@@ -74,7 +75,7 @@ describe("usePersistence", () => {
     settings.parkAgentsOnLaunch = false;
     settings.initSettings.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 
   afterEach(() => {

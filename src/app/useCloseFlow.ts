@@ -166,12 +166,9 @@ export function useCloseFlow(
    * asymmetry rule: any "background" wins, then any "unknown", else nothing
    * at all. */
   const carrierEntries = (panes: readonly Pane[]) =>
-    panes
-      .filter((pane) => pane.session?.id)
-      .map((pane) => ({
-        agentType: paneAgentType(pane),
-        sessionId: pane.session!.id,
-      }));
+    panes.flatMap((pane) =>
+      pane.session?.id ? [{ agentType: paneAgentType(pane), sessionId: pane.session.id }] : [],
+    );
 
   /** What this close would delete, as the dialog must say it — the same
    * decision the teardown runs, asked here for the sentence. */

@@ -3,6 +3,7 @@ import { USER_ACTOR, agentActor, encodeBoard, type TaskBoard } from "../../domai
 import { board, task } from "../../domain/tasks/testSupport";
 import { FORGOTTEN_WRITE, createTasksService, type TaskEvent } from "./tasksService";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const lead = agentActor("lead", "team-1");
 const impl1 = agentActor("impl-1", "team-1");
@@ -46,7 +47,7 @@ describe("createTasksService", () => {
     expect(state.kind === "ready" && state.board.tasks.map((t) => t.id)).toEqual(["task-1"]);
     expect(state.kind === "ready" && state.board.nextId).toBe(3);
     await flush();
-    expect(JSON.parse(store.files.get("ws-1")!).tasks.map((t: { id: string }) => t.id)).toEqual(["task-1"]);
+    expect(JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")).tasks.map((t: { id: string }) => t.id)).toEqual(["task-1"]);
   });
 
   it("a board the deck does not know the workspace of is left as it is — nothing is known to be gone", async () => {
@@ -68,7 +69,7 @@ describe("createTasksService", () => {
     service.retainTeams();
     await flush();
     expect(store.writes).toHaveLength(writesBefore);
-    workspaces[0] = { ...workspaces[0], teams: workspaces[0].teams!.filter((t) => t.id !== "team-2") };
+    workspaces[0] = { ...workspaces[0], teams: present(workspaces[0].teams, "the workspace teams").filter((t) => t.id !== "team-2") };
     service.retainTeams();
     await flush();
     const state = service.peek("ws-1");
@@ -121,7 +122,7 @@ describe("createTasksService", () => {
     const left = await service.restore({ kind: "backup", at: 5 });
     expect(left).toEqual([]);
     expect(store.writes.length).toBe(before + 1);
-    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["Task task-1", "newer than any backup"]);
+    expect((JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard).tasks.map((t) => t.title)).toEqual(["Task task-1", "newer than any backup"]);
   });
 
   it("a board unreadable from the damaged database is read again from the restored one", async () => {
@@ -256,7 +257,7 @@ describe("createTasksService", () => {
     await service.create("ws-1", { teamId: "team-1", title: "b" }, lead);
     await service.create("ws-1", { teamId: "team-1", title: "c" }, lead);
     await flush();
-    const last = JSON.parse(store.files.get("ws-1")!) as TaskBoard;
+    const last = JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard;
     expect(last.tasks.map((t) => t.title)).toEqual(["a", "b", "c"]);
     expect(store.writes.map((w) => (JSON.parse(w.json) as TaskBoard).tasks.length)).toEqual([1, 3]);
   });
@@ -279,7 +280,7 @@ describe("createTasksService", () => {
     ]);
     expect(c.ok && d.ok).toBe(true);
     await flush();
-    const last = JSON.parse(store.files.get("ws-1")!) as TaskBoard;
+    const last = JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard;
     expect(last.tasks.map((t) => `${t.id}:${t.priority}`)).toEqual(["task-1:high", "task-2:normal", "task-3:normal"]);
   });
 
@@ -327,7 +328,7 @@ describe("createTasksService", () => {
     expect(await service.ready("ws-1")).toEqual({ kind: "ready", board: { nextId: 1, tasks: [], relations: [] }, unsaved: null });
     await service.create("ws-1", { teamId: "team-1", title: "new" }, lead);
     await flush();
-    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["new"]);
+    expect((JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard).tasks.map((t) => t.title)).toEqual(["new"]);
   });
 
   it("a failed write is not a silent success: the caller hears it, the board shows it, and a retry lands it", async () => {
@@ -339,14 +340,14 @@ describe("createTasksService", () => {
     expect(result.ok && result.saveError).toBe("disk full");
     let state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.unsaved).toBe("disk full");
-    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks).toHaveLength(1);
+    expect((JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard).tasks).toHaveLength(1);
     // The retry, when its time comes, writes the board memory holds.
     tick();
     await service.flush();
     await flush();
     state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.unsaved).toBeNull();
-    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["kept", "not saved yet"]);
+    expect((JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard).tasks.map((t) => t.title)).toEqual(["kept", "not saved yet"]);
   });
 
   it("flush answers the boards it still could not write; a landed retry clears them", async () => {
@@ -363,7 +364,7 @@ describe("createTasksService", () => {
     await flush();
     expect(service.unsaved()).toEqual([]);
     expect(await service.flush()).toEqual([]);
-    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["a"]);
+    expect((JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard).tasks.map((t) => t.title)).toEqual(["a"]);
   });
 
   it("flush waits for a workspace closing meanwhile: the store may not close under its drop", async () => {
@@ -398,7 +399,7 @@ describe("createTasksService", () => {
     await service.create("ws-1", { teamId: "team-1", title: "dirty" }, lead);
     expect(store.files.get("ws-1")).toBeUndefined();
     await service.flush();
-    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["dirty"]);
+    expect((JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard).tasks.map((t) => t.title)).toEqual(["dirty"]);
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.unsaved).toBeNull();
   });
@@ -428,6 +429,6 @@ describe("createTasksService", () => {
     expect(landed.ok && landed.saved).toBe(true);
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.unsaved).toBeNull();
-    expect((JSON.parse(store.files.get("ws-1")!) as TaskBoard).tasks.map((t) => t.title)).toEqual(["a", "b"]);
+    expect((JSON.parse(present(store.files.get("ws-1"), "the saved ws-1 board file")) as TaskBoard).tasks.map((t) => t.title)).toEqual(["a", "b"]);
   });
 });

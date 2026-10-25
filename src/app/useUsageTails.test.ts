@@ -65,6 +65,7 @@ import {
   createSessionBinding,
   type SessionBinding,
 } from "./sessionBinding";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const usageByAgent = new Map<string, AgentUsage>([
   [
@@ -265,7 +266,7 @@ describe("usage tails — a store search racing a binding", () => {
         () => new Promise<void>((resolve) => (finishArm = () => resolve())),
       );
       await act(async () => {
-        announce!({
+        present(announce, "the announce hook")({
           paneId: "pane-1",
           sessionId: "ses-1",
           transcriptPath: "/x/rollout.jsonl",
@@ -277,9 +278,9 @@ describe("usage tails — a store search racing a binding", () => {
       ipc.unwatchSessionFile.mockClear();
 
       // The search admits it found nothing, THEN the arm completes.
-      await act(async () => answerLookup!(null));
+      await act(async () => present(answerLookup, "the lookup answer hook")(null));
       for (let i = 0; i < 4; i++) await act(async () => {});
-      await act(async () => finishArm!());
+      await act(async () => present(finishArm, "the arm finisher")());
       for (let i = 0; i < 4; i++) await act(async () => {});
 
       expect(ipc.unwatchSessionFile).not.toHaveBeenCalled();

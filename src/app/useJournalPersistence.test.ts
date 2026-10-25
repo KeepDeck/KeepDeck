@@ -16,6 +16,7 @@ import {
   createJournalPersistence,
   type JournalPersistence,
 } from "./journalPersistence";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const ipc = vi.hoisted(() => ({
   loadJournal: vi.fn<() => Promise<string[]>>(),
@@ -127,7 +128,7 @@ describe("useJournalPersistence", () => {
     ipc.appendJournal.mockImplementation(() => Promise.resolve());
     ipc.compactJournal.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 
   afterEach(() => {

@@ -24,6 +24,7 @@ import type {
   PaneIdle,
   ResumeRequest,
 } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("agent orchestrator —a request that lands mid-flight", () => {
   let root: Root;
@@ -43,7 +44,7 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -226,7 +227,7 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 

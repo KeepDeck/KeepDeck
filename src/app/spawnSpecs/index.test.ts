@@ -27,6 +27,7 @@ import {
 } from ".";
 // Straight from the module: the barrel deliberately does not carry it.
 import { resetPaneSpawnSpecs } from "./cache";
+import { present } from "@keepdeck/plugin-api/testing";
 
 
 // A fork's discard is the host removing paths inside the plugin's write
@@ -104,7 +105,7 @@ describe("the plan builders — live pane, resume, fork", () => {
     hostState.installed = [];
     skillsState.views = null;
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
 
   afterEach(() => {
@@ -444,7 +445,7 @@ describe("the plan builders — live pane, resume, fork", () => {
       if (!releaseResume) throw new Error("hook not entered yet");
     });
     dropPaneSpawnSpec("pane-1");
-    releaseResume!();
+    present(releaseResume, "the held resume hook")();
     await building;
 
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
@@ -487,12 +488,12 @@ describe("the plan builders — live pane, resume, fork", () => {
       "old-id",
       "restore",
     );
-    const before = peekPaneSpawnSpec("pane-1")!;
+    const before = present(peekPaneSpawnSpec("pane-1"), "the pane-1 spawn spec");
     expect(before.resumeOrigin).toBe("restore");
 
     markPaneResumeOrigin("pane-1", "manual");
 
-    const after = peekPaneSpawnSpec("pane-1")!;
+    const after = present(peekPaneSpawnSpec("pane-1"), "the pane-1 spawn spec");
     expect(after.resumeOrigin).toBe("manual");
     // Same plan otherwise: the args the CLI runs, the bridge token its
     // reporter echoes, and the resume key all have to survive untouched.

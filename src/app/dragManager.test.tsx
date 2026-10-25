@@ -3,6 +3,7 @@ import { act, createElement, type PointerEvent as ReactPointerEvent } from "reac
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePointerDrag } from "./dragManager";
+import { present } from "@keepdeck/plugin-api/testing";
 
 function pointerEvent(
   type: string,
@@ -65,7 +66,7 @@ describe("usePointerDrag", () => {
   const render = (label: string) =>
     act(() => root.render(createElement(Probe, { label })));
 
-  const source = () => document.getElementById("source")!;
+  const source = () => present(document.getElementById("source"), "the drag source element");
 
   it("arms a long-press drag at 300ms and uses the latest callbacks", () => {
     render("old");

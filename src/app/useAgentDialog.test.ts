@@ -18,6 +18,7 @@ import type {
   CreateTeamOutcome,
   CreateTeamRequest,
 } from "./agentOrchestrator";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // Per-path disk probes for suggestion filtering: paths in the map probe as a
 // non-empty non-worktree dir (blocked); anything else as missing (free).
@@ -717,7 +718,7 @@ describe("useAgentDialog targets", () => {
       defaultAgentType: "codex",
       preset: { mode: "fork", handle: { agent: "codex", sessionId: "s-9", cwd: "/base/kd-KeepDeck-1" } },
     });
-    expect(flow.dialog!.roles.addressFor("lead")).toBeNull();
+    expect(present(flow.dialog, "the open dialog").roles.addressFor("lead")).toBeNull();
   });
 
   it("opens for a member with no location to ask about, and lands it on the team by id under the role picked", async () => {
@@ -734,8 +735,8 @@ describe("useAgentDialog targets", () => {
       suggestedPath: "",
     });
     // The picker's data is built against the roster the team holds.
-    expect(flow.dialog!.roles.addressFor("lead")).toBeNull();
-    expect(flow.dialog!.roles.addressFor("impl")).toBe("impl-1");
+    expect(present(flow.dialog, "the open dialog").roles.addressFor("lead")).toBeNull();
+    expect(present(flow.dialog, "the open dialog").roles.addressFor("impl")).toBe("impl-1");
 
     await act(async () => flow.confirm({ ...fresh(), role: "impl-1" }));
     expect(offered()).toMatchObject({ team: "team-1", role: "impl-1" });
@@ -875,7 +876,7 @@ describe("useAgentDialog targets", () => {
     expect(flow.dialog).toBeNull();
 
     createTeam.mockReturnValueOnce({ kind: "created", teamId: "team-2" });
-    await act(async () => flow.sharedAsk!.confirm());
+    await act(async () => present(flow.sharedAsk, "the shared-name ask").confirm());
     // The SAME create, now carrying the answer.
     expect(createTeam).toHaveBeenLastCalledWith(
       expect.objectContaining({ name: "docs", shared: true }),
@@ -896,7 +897,7 @@ describe("useAgentDialog targets", () => {
     });
     await act(async () => flow.confirm({ ...fresh(), teamName: "docs" }));
     createTeam.mockClear();
-    await act(async () => flow.sharedAsk!.cancel());
+    await act(async () => present(flow.sharedAsk, "the shared-name ask").cancel());
     expect(flow.sharedAsk).toBeNull();
     expect(createTeam).not.toHaveBeenCalled();
     expect(deck.openTeam).not.toHaveBeenCalled();

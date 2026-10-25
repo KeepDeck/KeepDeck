@@ -26,6 +26,7 @@ import {
 import type {
   RestartOutcome,
 } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("agent orchestrator —restarting an exited agent", () => {
   let root: Root;
@@ -50,7 +51,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
   afterEach(() => {

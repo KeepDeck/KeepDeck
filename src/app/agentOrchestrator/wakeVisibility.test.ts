@@ -19,6 +19,7 @@ import type {
   DeckState,
   PaneIdle,
 } from "./testSupport";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("agent orchestrator —waking across workspace switches", () => {
   let root: Root;
@@ -40,7 +41,10 @@ describe("agent orchestrator —waking across workspace switches", () => {
   });
 
   const paneOf = (wsId: string) =>
-    deck.workspaces.find((w) => w.id === wsId)!.panes[0];
+    present(
+      deck.workspaces.find((w) => w.id === wsId),
+      `the  workspace`,
+    ).panes[0];
 
   beforeEach(() => {
     resetPaneSpawnSpecs();
@@ -54,7 +58,7 @@ describe("agent orchestrator —waking across workspace switches", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
@@ -202,7 +206,7 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
     catalog.parkOnLaunch = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
   });
 
