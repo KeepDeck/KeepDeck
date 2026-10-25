@@ -24,10 +24,9 @@ import {
   parseInstant,
   turnFailedEvent,
   type JsonlRequest,
-  type PluginContext,
   type SessionTailDialect,
 } from "@keepdeck/plugin-api";
-import { findRollout } from "./store";
+import { findRollout, type StorePorts } from "./store";
 import { codexQuestionWatches } from "./questions";
 
 /**
@@ -96,7 +95,7 @@ export const codexRecords = {
 >;
 
 export const codexTail = (
-  ctx: PluginContext,
+  ctx: StorePorts,
 ): SessionTailDialect<JsonlRequest, CarriedRollout> => ({
   format: jsonl<CarriedRollout>(),
   ...codexRecords,

@@ -10,11 +10,12 @@ import {
   type AgentHistory,
   type AgentSessionStub,
   type AgentTranscriptEntry,
-  type PluginContext,
+  type PluginLogger,
+  type PluginSessionStore,
   type ReadScope,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
-import { walkRollouts } from "./store";
+import { walkRollouts, type StorePorts } from "./store";
 
 /**
  * Discovery over codex's store ([F8] browser): date-partitioned rollouts at
@@ -69,7 +70,14 @@ const dialect: SessionDialect<CodexState, CodexRecord> = {
 };
 
 
-export function codexHistory(ctx: PluginContext): AgentHistory {
+/** What the history reads through: the store's listings, the session
+ * reader over them, and the log. */
+export interface HistoryPorts {
+  log: PluginLogger;
+  services: StorePorts["services"] & { sessionStore: PluginSessionStore };
+}
+
+export function codexHistory(ctx: HistoryPorts): AgentHistory {
   /** One reading of ONE rollout. (`walk`/`walkPartial` below are a different
    * job entirely: they walk the store's DIRECTORIES.) */
   const readSession = (

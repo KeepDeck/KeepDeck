@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
 import { fsStore } from "@keepdeck/plugin-api/testing";
-import { codexHistory } from "./history";
+import { codexHistory, type HistoryPorts } from "./history";
 
 const META = JSON.stringify({
   type: "session_meta",
@@ -45,9 +45,9 @@ const LINES = [
 
 function ctx(
   files: Record<string, string>,
-  dirs: Record<string, unknown[]>,
+  dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
-) {
+): HistoryPorts {
   // A rollout is read a WINDOW at a time now, so the double has to serve
   // windows; `dirs` stays hand-built, because these tests are about what the
   // enumeration does with listings a real directory cannot pose.
@@ -61,11 +61,10 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: fs.readFile,
       },
       sessionStore: createSessionStore(fs),
     },
-  } as unknown as PluginContext;
+  };
 }
 
 describe("codex history", () => {
@@ -143,7 +142,7 @@ describe("codex history", () => {
 
   it("listing() on a readable tree answers complete, with list()'s exact stubs", async () => {
     const name = "rollout-2026-07-19T16-27-47-019f7af4-f57f-7dc3-ac52-6e1bb90dceec.jsonl";
-    const dirs = {
+    const dirs: Record<string, FsEntry[]> = {
       "~/.codex/sessions": [{ name: "2026", path: "/s/2026", kind: "dir" }],
       "/s/2026": [{ name: "07", path: "/s/2026/07", kind: "dir" }],
       "/s/2026/07": [{ name: "19", path: "/s/2026/07/19", kind: "dir" }],

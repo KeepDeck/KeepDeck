@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type {
-  AgentContribution,
-  PluginContext,
-  SpawnPlanOutput,
-} from "@keepdeck/plugin-api";
-import plugin from "./index";
+import type { AgentContribution, SpawnPlanOutput } from "@keepdeck/plugin-api";
+import { registerCodex } from "./index";
 import { renderCodexMail, CODEX_MAIL_CHANNELS } from "./status";
 import { codexUsageWatches } from "./usage";
 
-/** Activate against a minimal fake ctx; returns the registered agent.
+/** Register against typed fake ports; returns the registered agent. A
+ * service a test does not fake rejects, the way a missing capability does.
  *
  * `scriptPath` stands for the resources DIRECTORY and every name resolves
  * inside it. It used to answer ONE path for every name, which made the two
@@ -18,13 +15,21 @@ import { codexUsageWatches } from "./usage";
  * install. */
 function activate(scriptPath: string | null): AgentContribution {
   let agent: AgentContribution | undefined;
-  plugin.activate({
+  const absent = (what: string) => async (): Promise<never> => {
+    throw new Error(`${what} is not available here`);
+  };
+  registerCodex({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     resources: {
       path: async (name: string) =>
         scriptPath === null ? null : scriptPath.replace(/[^/]+$/, name),
     },
-  } as unknown as PluginContext);
+    log: { info() {}, warn() {}, error() {} },
+    services: {
+      fs: { readDir: absent("fs") },
+      sessionStore: { read: absent("sessionStore") },
+    },
+  });
   if (!agent) throw new Error("plugin registered no agent");
   return agent;
 }

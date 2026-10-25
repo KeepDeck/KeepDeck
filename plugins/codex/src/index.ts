@@ -10,11 +10,12 @@ import {
   mailAskArgs,
   shellQuote,
   type KeepDeckPlugin,
+  type PluginAgents,
   type PluginResources,
   type SpawnPlanInput,
 } from "@keepdeck/plugin-api";
 import { codexBinding } from "./binding";
-import { codexHistory } from "./history";
+import { codexHistory, type HistoryPorts } from "./history";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
 import { cliArgs } from "./trust";
@@ -158,67 +159,75 @@ const remoteArgs = (target: SpawnPlanInput["target"]): string[] =>
 // argv/env stay untouched. `input.skills` still arrives for the day codex
 // grows a real injection flag.
 
+/** What the plugin needs from the host — the parts of its context it uses. */
+export type CodexPorts = HistoryPorts & {
+  agents: PluginAgents;
+  resources: PluginResources;
+};
+
+export function registerCodex(ctx: CodexPorts): void {
+  ctx.agents.register({
+    id: "codex",
+    label: "Codex",
+    icon,
+    detect: { bin: "codex" },
+    // Remote support and its ws/wss schemes are declared once in the
+    // manifest; this hook is only the implementation that consumes target.
+    // Per-pane tokens/context stay in the rollout; current account limits
+    // come from the host's one shared official app-server manager.
+    usage: {
+      normalize: normalizeCodexRollout,
+      tail: {
+        watches: codexUsageWatches,
+        // A rollout records the ACCOUNT's limits, so the newest files on
+        // disk are worth reading before any pane exists. Ten because a
+        // just-launched session writes its rollout before its first turn:
+        // the newest file can be empty of limits while the real last word
+        // sits a file or two back.
+        sweep: () => newestRollouts(ctx, 10),
+      },
+      limits: {
+        poll: "codex-app-server",
+        normalize: normalizeCodexRateLimits,
+      },
+    },
+    status: {
+      normalize: normalizeCodexStatus,
+      attribute: attributeCodexEvent,
+      mail: { channels: CODEX_MAIL_CHANNELS, render: renderCodexMail },
+      // What a rollout record means, for the turn edge codex pushes no
+      // hook for. The host reads the `watch` to know what to carry;
+      // `normalize` applies the `read` to what arrives.
+      tail: codexTail(ctx) as never,
+    },
+    // codex reports its `/new` as `startup`; this says when that is the
+    // user's new conversation rather than a second session (./binding.ts).
+    binding: codexBinding,
+    history: codexHistory(ctx),
+    hooks: launchPlans({
+      // Every `-c` flag and the yolo switch are GLOBAL: they precede the
+      // `resume`/`fork` subcommand the tail adds.
+      stage: async (input, output) => {
+        output.args.push(
+          ...remoteArgs(input.target),
+          ...(await hookArgs(ctx.resources)),
+          ...mcpArgs(input.mcp, ctx.log),
+          ...disablePasteBurstArgs,
+          ...yoloArgs(input.yolo),
+        );
+      },
+      resume: (input) => ["resume", input.sessionId],
+      // codex forks natively: `codex fork <id>` resolves the session by
+      // its GLOBAL id (no cwd filter), mints a NEW session id, copies the
+      // history, and binds the fork to the invocation dir — no store
+      // surgery at all (probe-verified, RESUME_ANY_HISTORY.md §2).
+      fork: (input) => ["fork", input.sessionId],
+    }),
+  });
+}
+
 const plugin: KeepDeckPlugin = {
-  activate(ctx) {
-    ctx.agents.register({
-      id: "codex",
-      label: "Codex",
-      icon,
-      detect: { bin: "codex" },
-      // Remote support and its ws/wss schemes are declared once in the
-      // manifest; this hook is only the implementation that consumes target.
-      // Per-pane tokens/context stay in the rollout; current account limits
-      // come from the host's one shared official app-server manager.
-      usage: {
-        normalize: normalizeCodexRollout,
-        tail: {
-          watches: codexUsageWatches,
-          // A rollout records the ACCOUNT's limits, so the newest files on
-          // disk are worth reading before any pane exists. Ten because a
-          // just-launched session writes its rollout before its first turn:
-          // the newest file can be empty of limits while the real last word
-          // sits a file or two back.
-          sweep: () => newestRollouts(ctx, 10),
-        },
-        limits: {
-          poll: "codex-app-server",
-          normalize: normalizeCodexRateLimits,
-        },
-      },
-      status: {
-        normalize: normalizeCodexStatus,
-        attribute: attributeCodexEvent,
-        mail: { channels: CODEX_MAIL_CHANNELS, render: renderCodexMail },
-        // What a rollout record means, for the turn edge codex pushes no
-        // hook for. The host reads the `watch` to know what to carry;
-        // `normalize` applies the `read` to what arrives.
-        tail: codexTail(ctx) as never,
-      },
-      // codex reports its `/new` as `startup`; this says when that is the
-      // user's new conversation rather than a second session (./binding.ts).
-      binding: codexBinding,
-      history: codexHistory(ctx),
-      hooks: launchPlans({
-        // Every `-c` flag and the yolo switch are GLOBAL: they precede the
-        // `resume`/`fork` subcommand the tail adds.
-        stage: async (input, output) => {
-          output.args.push(
-            ...remoteArgs(input.target),
-            ...(await hookArgs(ctx.resources)),
-            ...mcpArgs(input.mcp, ctx.log),
-            ...disablePasteBurstArgs,
-            ...yoloArgs(input.yolo),
-          );
-        },
-        resume: (input) => ["resume", input.sessionId],
-        // codex forks natively: `codex fork <id>` resolves the session by
-        // its GLOBAL id (no cwd filter), mints a NEW session id, copies the
-        // history, and binds the fork to the invocation dir — no store
-        // surgery at all (probe-verified, RESUME_ANY_HISTORY.md §2).
-        fork: (input) => ["fork", input.sessionId],
-      }),
-    });
-  },
+  activate: (ctx) => registerCodex(ctx),
 };
 
 export default plugin;

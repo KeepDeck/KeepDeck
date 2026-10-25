@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
-import { findRollout, newestRollouts } from "./store";
+import type { FsEntry } from "@keepdeck/plugin-api";
+import { findRollout, newestRollouts, type StorePorts } from "./store";
 
 /** A store shaped like codex's: `YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl`. */
 function storeOf(
   tree: Record<string, string[]>,
   unreadable: string[] = [],
   mtimes: Record<string, number> = {},
-) {
-  const read = (path: string) => {
+): StorePorts {
+  const read = (path: string): FsEntry[] => {
     if (unreadable.includes(path)) throw new Error("EACCES");
     const dirs = Object.keys(tree)
       .filter((dir) => dir !== path && dir.startsWith(`${path}/`))
@@ -16,18 +16,17 @@ function storeOf(
     return [
       ...new Set(dirs).values(),
     ]
-      .map((dir) => ({ kind: "dir" as const, name: dir.split("/").pop()!, path: dir }))
+      .map((dir): FsEntry => ({ kind: "dir", name: dir.split("/").pop()!, path: dir }))
       .concat(
-        (tree[path] ?? []).map((name) => ({
-          kind: "file" as const,
+        (tree[path] ?? []).map((name): FsEntry => ({
+          kind: "file",
           name,
           path: `${path}/${name}`,
           mtime: mtimes[name],
-        })) as never[],
+        })),
       );
   };
-  return { services: { fs: { readDir: async (p: string) => read(p) } } } as
-    unknown as PluginContext;
+  return { services: { fs: { readDir: async (p) => read(p) } } };
 }
 
 const SID = "019f7683-d6f4-7b00-8e66-00c4694731be";
