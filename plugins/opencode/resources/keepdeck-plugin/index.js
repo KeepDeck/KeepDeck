@@ -27,6 +27,7 @@
 import { startCourier } from "./mail-courier.js";
 import { startComponents } from "./components.js";
 import { follower } from "./follower.js";
+import { isRecord } from "./guards.js";
 import { setupV2 } from "./opencode-v2.js";
 import { startReporter } from "./session-reporter.js";
 
@@ -37,8 +38,6 @@ import { startReporter } from "./session-reporter.js";
  * must not hold the other's back. A handler that throws or rejects is
  * silenced alone.
  */
-/** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isRecord = (value) => typeof value === "object" && value !== null;
 /** @param {unknown} value @returns {value is (...args: unknown[]) => unknown} */
 const isHandler = (value) => typeof value === "function";
 

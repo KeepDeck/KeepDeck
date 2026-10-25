@@ -16,14 +16,15 @@
  */
 import { startComponents } from "./components.js";
 import { follower } from "./follower.js";
+import { isRecord } from "./guards.js";
 import { readBridge } from "./keepdeck-bridge.js";
 import { startCourierV2 } from "./mail-courier-v2.js";
 import { paneSession } from "./pane-session.js";
 import { startReporterV2 } from "./session-reporter-v2.js";
 
-/** @typedef {{ event: { subscribe: () => AsyncIterable<unknown> }, session: { get: (query: { sessionID: string }) => Promise<{ id?: string, parentID?: string }> } }} V2Context */
-/** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isRecord = (value) => typeof value === "object" && value !== null;
+/** @typedef {{ content?: unknown, output?: unknown }} ToolResult */
+/** @typedef {{ sessionID?: string, parentID?: string, prompt?: { text?: string }, metadata?: Record<string, unknown>, status?: string, result?: ToolResult }} EventData */
+/** @typedef {{ event: { subscribe: () => AsyncIterable<unknown> }, model: { list: () => Promise<{ data?: Array<{ providerID: string, id: string, limit?: { context?: number } }> }> }, session: { get: (query: { sessionID: string }) => Promise<{ id?: string, parentID?: string, agent?: unknown, model?: unknown }>, create: (query: Record<string, unknown>) => Promise<{ id?: string } | undefined>, synthetic: (input: { sessionID: string, text: string, resume: boolean }) => Promise<unknown>, prompt: (input: { sessionID: string, text: string, metadata: Record<string, unknown> }) => Promise<unknown>, hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> }, tool: { hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> } }} V2Context */
 
 /** Whether `context` is a 2.x host's: the domains this plugin uses.
  * @param {unknown} context
