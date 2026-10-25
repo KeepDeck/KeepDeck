@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import type { JournalRecords, SessionHandle } from "../../domain/journal";
 import { teamJournalLanes, type Workspace } from "../../domain/deck";
@@ -44,7 +44,13 @@ export function TeamSessions({
   // list is open — so the choice is rebuilt with it, and a pick it lost
   // is no pick.
   const catalog = useRoleCatalog();
-  const roles = useMemo(() => roleChoiceView([]), [catalog]);
+  // Rebuilt only when the catalog snapshot changes; the catalog is a real
+  // input (the view reads the live roles), so the cache is keyed by it.
+  const rolesCache = useRef<{ catalog: typeof catalog; roles: ReturnType<typeof roleChoiceView> } | null>(null);
+  if (rolesCache.current?.catalog !== catalog) {
+    rolesCache.current = { catalog, roles: roleChoiceView([]) };
+  }
+  const roles = rolesCache.current.roles;
   const roleId = roles.pickOf(picked);
   // A lost pick is discarded, not hidden: the role coming back later is
   // not somebody choosing it again.

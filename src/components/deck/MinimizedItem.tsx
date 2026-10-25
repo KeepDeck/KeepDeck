@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { activityBadge } from "../../domain/status";
 import { usePaneActivity } from "../../app/usePaneActivity";
@@ -130,23 +130,23 @@ export function MinimizedItem({
   const [tooltipAnchor, setTooltipAnchor] = useState<HTMLElement | null>(null);
   const tooltipId = useId();
 
-  const cancelHover = () => {
+  const cancelHover = useCallback(() => {
     if (hoverTimer.current === null) return;
     window.clearTimeout(hoverTimer.current);
     hoverTimer.current = null;
-  };
-  const closeTooltip = () => {
+  }, []);
+  const closeTooltip = useCallback(() => {
     cancelHover();
     setTooltipAnchor(null);
-  };
+  }, [cancelHover]);
   const openTooltip = () => {
     cancelHover();
     setTooltipAnchor(buttonRef.current);
   };
-  useEffect(() => cancelHover, []);
+  useEffect(() => cancelHover, [cancelHover]);
   useEffect(() => {
     if (!active) closeTooltip();
-  }, [active]);
+  }, [active, closeTooltip]);
 
   return (
     <>
