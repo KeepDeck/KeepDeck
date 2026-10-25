@@ -1,5 +1,6 @@
 import { vi } from "vitest";
-import type { AgentContribution, PluginContext } from "@keepdeck/plugin-api";
+import type { AgentContribution } from "@keepdeck/plugin-api";
+import { fakePluginContext } from "../../pluginContext.testSupport";
 import { createHostDispatch } from "./hostDispatch";
 
 /**
@@ -15,14 +16,14 @@ import { createHostDispatch } from "./hostDispatch";
 export function dispatchHarness() {
   let registered: AgentContribution | undefined;
   const pushes: { channel: string; payload: unknown }[] = [];
-  const ctx = {
+  const ctx = fakePluginContext({
     agents: {
       register: vi.fn((agent: AgentContribution) => {
         registered = agent;
         return { dispose() {} };
       }),
     },
-  } as unknown as PluginContext;
+  });
   const dispatch = createHostDispatch(ctx, (channel, payload) =>
     pushes.push({ channel, payload }),
   );

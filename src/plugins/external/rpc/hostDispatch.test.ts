@@ -1,14 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  AgentContribution,
   FileOpenHandler,
-  PluginContext,
+  PluginKV,
+  PluginSessionHandle,
+  PluginSettings,
   SpawnPlanOutput,
+  SpeechCapture,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { createHostDispatch } from "./hostDispatch";
+import { dispatchHarness as harness } from "./hostDispatch.testSupport";
+import { fakePluginContext } from "../../pluginContext.testSupport";
 import type { WireAgentHistoryCall, WireHookCall } from "./protocol";
-import { speechTranscript } from "@keepdeck/plugin-api/testing";
+import { speechCapture, speechTranscript } from "@keepdeck/plugin-api/testing";
 
 /**
  * The agent-hook proxy across the RPC seam: `agents.register` turns the
@@ -17,29 +21,6 @@ import { speechTranscript } from "@keepdeck/plugin-api/testing";
  * settles it — with the mutated output sanitized before it touches the
  * caller's object (the realm's word shapes a spawn).
  */
-function harness() {
-  let registered: AgentContribution | undefined;
-  const pushes: { channel: string; payload: unknown }[] = [];
-  const ctx = {
-    agents: {
-      register: vi.fn((agent: AgentContribution) => {
-        registered = agent;
-        return { dispose() {} };
-      }),
-    },
-  } as unknown as PluginContext;
-  const dispatch = createHostDispatch(ctx, (channel, payload) =>
-    pushes.push({ channel, payload }),
-  );
-  return {
-    dispatch,
-    pushes,
-    agent: () => {
-      if (!registered) throw new Error("nothing registered");
-      return registered;
-    },
-  };
-}
 
 const entry = {
   id: "gemini",
@@ -54,20 +35,23 @@ describe("workspace storage over the RPC seam", () => {
   const ref: WorkspaceRef = { id: "ws-1", instance: "instance-1" };
 
   it("forwards the exact workspace lifetime on every operation", async () => {
-    const kv = {
-      get: vi.fn(async () => "value"),
+    // `get<T>` lets its caller name T, so the one answer a typed fake can
+    // give for every T is "nothing stored"; the seam under test is the ref.
+    const kv: PluginKV = {
+      get: vi.fn(async () => undefined),
       set: vi.fn(async () => {}),
       delete: vi.fn(async () => {}),
     };
     const workspace = vi.fn(() => kv);
     const dispatch = createHostDispatch(
-      { storage: { workspace } } as unknown as PluginContext,
+      fakePluginContext({ storage: { workspace } }),
       () => {},
     );
 
     await expect(
       dispatch.call("storage.workspace.get", [ref, "key"]),
-    ).resolves.toBe("value");
+    ).resolves.toBeUndefined();
+    expect(kv.get).toHaveBeenCalledWith("key");
     await dispatch.call("storage.workspace.set", [ref, "key", 42]);
     await dispatch.call("storage.workspace.delete", [ref, "key"]);
 
@@ -82,7 +66,7 @@ describe("workspace storage over the RPC seam", () => {
   it("rejects the pre-API-21 wsId-only shape", async () => {
     const workspace = vi.fn();
     const dispatch = createHostDispatch(
-      { storage: { workspace } } as unknown as PluginContext,
+      fakePluginContext({ storage: { workspace } }),
       () => {},
     );
 
@@ -483,14 +467,14 @@ describe("agent history over the RPC seam", () => {
 function openersHarness() {
   let registered: FileOpenHandler | undefined;
   const pushes: { channel: string; payload: unknown }[] = [];
-  const ctx = {
+  const ctx = fakePluginContext({
     openers: {
       register: vi.fn((handler: FileOpenHandler) => {
         registered = handler;
         return { dispose() {} };
       }),
     },
-  } as unknown as PluginContext;
+  });
   const dispatch = createHostDispatch(ctx, (channel, payload) =>
     pushes.push({ channel, payload }),
   );
@@ -583,9 +567,9 @@ describe("file-open handlers over the RPC seam", () => {
 
   it("notify passes the wire value through to ctx.notify untouched", async () => {
     const notified: unknown[] = [];
-    const ctx = {
+    const ctx = fakePluginContext({
       notify: (input: unknown) => notified.push(input),
-    } as unknown as PluginContext;
+    });
     const dispatch = createHostDispatch(ctx, () => {});
     // Raw junk stays raw — the port behind ctx.notify owns ALL validation, so
     // the dispatch layer must not shape (or reject) the value.
@@ -601,16 +585,12 @@ describe("sessions over the RPC seam", () => {
     let releaseSpawn!: () => void;
     const spawn = vi.fn(
       () =>
-        new Promise<{ id: string; write: () => void; resize: () => void; close: typeof close }>(
-          (resolve) => {
-            releaseSpawn = () =>
-              resolve({ id: "s-1", write: vi.fn(), resize: vi.fn(), close });
-          },
-        ),
+        new Promise<PluginSessionHandle>((resolve) => {
+          releaseSpawn = () =>
+            resolve({ id: "s-1", write: vi.fn(async () => {}), resize: vi.fn(async () => {}), close });
+        }),
     );
-    const ctx = {
-      services: { sessions: { spawn } },
-    } as unknown as PluginContext;
+    const ctx = fakePluginContext({ services: { sessions: { spawn } } });
     const dispatch = createHostDispatch(ctx, () => {});
 
     const starting = dispatch.call("services.sessions.spawn", [{ command: "x" }]);
@@ -631,13 +611,11 @@ describe("speech captures over the RPC seam", () => {
     let releaseStart!: () => void;
     const startCapture = vi.fn(
       () =>
-        new Promise<{ stop: typeof stop; cancel: typeof cancel }>((resolve) => {
-          releaseStart = () => resolve({ stop, cancel });
+        new Promise<SpeechCapture>((resolve) => {
+          releaseStart = () => resolve(speechCapture({ stop, cancel }));
         }),
     );
-    const ctx = {
-      services: { speech: { startCapture } },
-    } as unknown as PluginContext;
+    const ctx = fakePluginContext({ services: { speech: { startCapture } } });
     const dispatch = createHostDispatch(ctx, () => {});
     return { dispatch, cancel, stop, releaseStart: () => releaseStart() };
   }
@@ -659,19 +637,16 @@ describe("speech captures over the RPC seam", () => {
     const cancel = vi.fn(async () => {});
     const goodDispose = vi.fn();
     const warns: string[] = [];
-    const ctx = {
+    const ctx = fakePluginContext({
       log: { warn: (m: string) => warns.push(m), info: vi.fn(), error: vi.fn() },
       services: {
         speech: {
-          startCapture: vi.fn(async () => ({
-            stop: vi.fn(),
-            cancel,
-          })),
+          startCapture: vi.fn(async () => speechCapture({ cancel })),
         },
       },
       settings: {
         registerSection: vi
-          .fn()
+          .fn<PluginSettings["registerSection"]>()
           .mockReturnValueOnce({
             dispose: () => {
               throw new Error("broken brace");
@@ -679,7 +654,7 @@ describe("speech captures over the RPC seam", () => {
           })
           .mockReturnValueOnce({ dispose: goodDispose }),
       },
-    } as unknown as PluginContext;
+    });
     const dispatch = createHostDispatch(ctx, () => {});
 
     await dispatch.call("services.speech.start", [1]);
