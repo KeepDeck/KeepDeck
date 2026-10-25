@@ -13,6 +13,7 @@ import type { MigrationSource } from "../../ipc/generated/tasks/MigrationSource"
 import type { StoreError } from "../../ipc/generated/tasks/StoreError";
 import type { StoreStatus } from "../../ipc/generated/tasks/StoreStatus";
 import type { StoredBoard } from "../../ipc/generated/tasks/StoredBoard";
+import type { StoredTask } from "../../ipc/generated/tasks/StoredTask";
 import type { TaskDatabasePort } from "./dbBoardStore";
 
 export function isTestStoreError(value: unknown): value is StoreError {
@@ -61,16 +62,26 @@ export function testDatabase(files: LegacyBoard[] = []) {
     board.tasks = board.tasks.filter((t) => !change.removed.includes(t.uid));
     for (const w of change.tasks) {
       const old = board.tasks.find((t) => t.uid === w.uid);
-      const task = old ?? ({ uid: w.uid, key: w.key ?? "", oldKeys: [], labels: [], artifacts: [], comments: [], log: [], briefs: [] } as unknown as StoredBoard["tasks"][number]);
-      Object.assign(task, {
-        teamId: w.teamId, title: w.title, body: w.body, bodyV: w.bodyV, status: w.status, priority: w.priority,
+      const fields = {
+        teamId: w.teamId, title: w.title, body: w.body, bodyV: w.bodyV, kind: w.kind, status: w.status, priority: w.priority,
         assignee: w.assignee, author: w.author, created: w.created, updated: w.updated, rev,
-      });
+      };
+      // A new task is made in this change, and its comments and log land in
+      // it — the landings the store keeps beside each part, as the Rust
+      // store's own tests pin them.
+      const task: StoredTask = old ?? {
+        uid: w.uid, key: w.key ?? "", oldKeys: [], ...fields, labels: [], artifacts: [], comments: [], log: [], briefs: [],
+        createdRev: rev, commentRevs: [], logRevs: [],
+      };
+      Object.assign(task, fields);
       if (w.labels) task.labels = [...w.labels].sort();
       if (w.artifacts) task.artifacts = [...w.artifacts];
       for (const c of w.comments) {
         const stored = task.comments.find((x) => x.n === c.n);
-        if (!stored) task.comments.push(c);
+        if (!stored) {
+          task.comments.push(c);
+          task.commentRevs.push(rev);
+        }
         else if (JSON.stringify(stored) !== JSON.stringify(c)) {
           throw { code: "constraint", detail: `comment ${c.n} is stored with other content` } satisfies StoreError;
         }
@@ -79,6 +90,7 @@ export function testDatabase(files: LegacyBoard[] = []) {
         if (task.log.some((x) => x.seq === e.seq)) continue;
         if (e.seq !== task.log.length) throw { code: "constraint", detail: "log gap" } satisfies StoreError;
         task.log.push(e);
+        task.logRevs.push(rev);
       }
       for (const b of w.briefs) if (!task.briefs.some((x) => x.v === b.v)) task.briefs.push(b);
       if (!old) board.tasks.push(task);

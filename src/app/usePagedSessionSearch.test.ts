@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   FIRST_PAGE,
   NEXT_PAGE,
@@ -17,16 +17,10 @@ const mkRows = (from: number, count: number): Row[] =>
   Array.from({ length: count }, (_, i) => ({ id: `r-${from + i}` }));
 
 let api: PagedSearch<Row>;
-let fetchPage: ReturnType<typeof vi.fn>;
+let fetchPage: Mock<(q: string, l: number, o: number) => Promise<Page<Row>>>;
 
 function Probe() {
-  api = usePagedSessionSearch<Row>(
-    fetchPage as unknown as (
-      q: string,
-      l: number,
-      o: number,
-    ) => Promise<Page<Row>>,
-  );
+  api = usePagedSessionSearch<Row>(fetchPage);
   return null;
 }
 

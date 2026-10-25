@@ -17,11 +17,17 @@ vi.mock("../ipc/menu", async (original) => ({
 describe("useMenuHotkeys", () => {
   it("routes every menu event to its own action", async () => {
     const calls: string[] = [];
-    const actions = Object.fromEntries(
-      (
-        ["newWorkspace", "newAgent", "closeAgent", "suspendAgent", "toggleMaximize", "openSettings"] as const
-      ).map((name) => [name, () => calls.push(name)]),
-    ) as unknown as MenuActions;
+    const record = (name: keyof MenuActions) => () => {
+      calls.push(name);
+    };
+    const actions: MenuActions = {
+      newWorkspace: record("newWorkspace"),
+      newAgent: record("newAgent"),
+      closeAgent: record("closeAgent"),
+      suspendAgent: record("suspendAgent"),
+      toggleMaximize: record("toggleMaximize"),
+      openSettings: record("openSettings"),
+    };
     function Probe() {
       useMenuHotkeys(actions);
       return null;

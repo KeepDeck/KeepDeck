@@ -55,7 +55,7 @@ export const mcpArming = mcpArmingIpc;
 export const mcpLibrary = mcpLibraryIpc;
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
-import type { Workspace } from "../../domain/deck";
+import type { WorkspaceInstance } from "../../domain/workspaceInstance";
 import type { ProvisionRequest } from "./index";
 import {
   createMcpPlanting,
@@ -123,7 +123,7 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
       id: ws.id,
       // Branded at the boundary: the suites speak in plain strings so a test
       // can write "life-1" and mean it.
-      instance: lifetimeOf(ws) as unknown as Workspace["instance"],
+      instance: lifetimeOf(ws) as WorkspaceInstance,
       name: ws.id,
       cwd: "/repo",
       worktreeBaseDir: null,
