@@ -1,4 +1,4 @@
-import type { ArgSpec, CommandArgs, CommandInfo, CommandResult } from "../commands";
+import type { ArgSpec, CommandInfo, CommandResult, RawArgs } from "../commands";
 import {
   INTERNAL_ERROR,
   INVALID_PARAMS,
@@ -51,7 +51,7 @@ export interface McpCommandPort {
    * a source identity (or to none). */
   execute(
     id: string,
-    args: CommandArgs,
+    args: RawArgs,
     caller: McpCaller,
   ): Promise<CommandResult>;
 }
@@ -175,7 +175,7 @@ export async function handleMcpLine(
       }
       // Value types are the registry's own validation — it answers with the
       // exact problem list, which maps below.
-      const args = (rawArgs ?? {}) as CommandArgs;
+      const args: RawArgs = rawArgs ?? {};
       let outcome: CommandResult;
       try {
         outcome = await port.execute(command.id, args, caller);

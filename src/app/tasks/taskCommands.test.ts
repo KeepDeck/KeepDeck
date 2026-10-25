@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCommandRegistry, type CommandArgs, type CommandSource } from "../../domain/commands";
+import { createCommandRegistry, type CommandArgs, type CommandSource, type RawArgs } from "../../domain/commands";
 import { WORKER_STEPS } from "../../domain/tasks";
 import { STATUS_ARG, registerTaskCommands } from "./taskCommands";
 import { createTasksService } from "./tasksService";
@@ -16,7 +16,8 @@ function setup() {
     if (!result.ok) throw new Error(result.error.message);
     return result.value as Record<string, unknown>;
   };
-  const refused = async (id: string, args: CommandArgs, source: CommandSource) => {
+  // What a transport may hand over — an MCP client can send any JSON.
+  const refused = async (id: string, args: RawArgs, source: CommandSource) => {
     const result = await registry.execute(id, args, source);
     if (result.ok) throw new Error(`expected a refusal, got ${JSON.stringify(result.value)}`);
     return result.error.message;
@@ -366,7 +367,7 @@ describe("task commands", () => {
 
   it("refuses labels sent as an array — never drops them — and names a filter that is no label", async () => {
     const { refused } = setup();
-    expect(await refused("task.create", { title: "Copy pass", labels: ["ui"] as never }, LEAD)).toContain('"labels" must be a string');
+    expect(await refused("task.create", { title: "Copy pass", labels: ["ui"] }, LEAD)).toContain('"labels" must be a string');
     expect(await refused("task.list", { status: "todo", label: "--" }, LEAD)).toContain('"--" is not a label');
   });
 

@@ -58,7 +58,7 @@ function setup(panes: Workspace["panes"], teams?: Workspace["teams"]) {
   ) => {
     const result = await registry.execute(
       id,
-      args as never,
+      args,
       source,
     );
     if (!result.ok) throw new Error(result.error.message);
@@ -349,7 +349,7 @@ describe("registerArtifactCommands", () => {
       changed,
     });
     const run = async (id: string, args: Record<string, unknown>, source: CommandSource) => {
-      const result = await registry.execute(id, args as never, source);
+      const result = await registry.execute(id, args, source);
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     };

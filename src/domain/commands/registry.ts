@@ -1,5 +1,5 @@
-import type { ArgSpec, CommandArgs } from "./args";
-import { validateArgs } from "./args";
+import type { ArgSpec, CommandArgs, RawArgs } from "./args";
+import { checkedArgs, validateArgs } from "./args";
 import { isValidCommandId } from "./ids";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -69,7 +69,7 @@ export interface JournalEntry {
   at: number;
   source: CommandSource;
   commandId: string;
-  args: CommandArgs;
+  args: RawArgs;
   outcome: "ok" | "error";
   error?: CommandError;
 }
@@ -82,7 +82,7 @@ export interface CommandRegistry {
   list(): CommandInfo[];
   execute(
     id: string,
-    args: CommandArgs,
+    args: RawArgs,
     source: CommandSource,
   ): Promise<CommandResult>;
   /** Newest-last view of recent calls, rejections included — an attempt that
@@ -115,7 +115,7 @@ export function createCommandRegistry(
   function record(
     source: CommandSource,
     commandId: string,
-    args: CommandArgs,
+    args: RawArgs,
     error?: CommandError,
   ): void {
     const entry: JournalEntry = {
@@ -193,7 +193,7 @@ export function createCommandRegistry(
         return { ok: false, error };
       }
       try {
-        const value = (await spec.run(args, source)) ?? null;
+        const value = (await spec.run(checkedArgs(args), source)) ?? null;
         record(source, id, args);
         return { ok: true, value };
       } catch (e) {
