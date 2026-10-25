@@ -5,7 +5,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { mergeSectionValues } from "@keepdeck/plugin-api";
 import { listApplications } from "../../ipc/app";
-import { writePluginValue } from "../../app/pluginValues";
+import { usePluginSurfaces } from "../../app/usePluginSurfaces";
 import { useSettings } from "../../app/useSettings";
 import { Combobox } from "../../ui/Combobox";
 import { Dropdown } from "../../ui/Dropdown";
@@ -34,7 +34,8 @@ export function PluginSettingsSection({
   // and only this surface papered over it.
   const values = mergeSectionValues(section, stored);
 
-  const write = (key: string, value: unknown) => writePluginValue(pluginId, key, value);
+  const surfaces = usePluginSurfaces();
+  const write = (key: string, value: unknown) => surfaces.writeValue(pluginId, key, value);
 
   return (
     <>

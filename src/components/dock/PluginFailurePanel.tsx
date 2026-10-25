@@ -1,6 +1,11 @@
-import { crashSurfaceLabel, type PluginCrash } from "../../app/pluginHealth";
+import type { PluginCrash } from "../../app/pluginHealth";
 import { useRuntimePart } from "../../app/runtimeContext";
 import { writeText } from "../../ipc/clipboard";
+
+/** The crash's surface in words — the log's line prefix and the hint. */
+function crashSurfaceLabel(crash: PluginCrash): string {
+  return `${crash.surfaceKind} "${crash.surfaceId}"`;
+}
 
 /**
  * What a crashed plugin's UI area shows instead of its (dead) content: the

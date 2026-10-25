@@ -20,11 +20,6 @@ export interface PluginCrash {
   detail: string;
 }
 
-/** The crash's surface in words — log lines and the panel's hint. */
-export function crashSurfaceLabel(crash: PluginCrash): string {
-  return `${crash.surfaceKind} "${crash.surfaceId}"`;
-}
-
 const records: PluginCrash[] = [];
 let snapshot: readonly PluginCrash[] = [];
 const listeners = new Set<() => void>();

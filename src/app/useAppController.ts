@@ -53,6 +53,7 @@ import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen } from "../presenta
 import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
 import { log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
+import { usePluginSurfaces } from "./usePluginSurfaces";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen, memberDoor } from "./doors";
 import { BAR_WORDS, type BarLevel } from "../presentation/barView";
 import type { WorkspaceCrumbView } from "../presentation/workspaceCrumbView";
@@ -202,6 +203,7 @@ export function useAppController(runtime: AppRuntime) {
   const pluginDockTabs = useContributions(pluginRegistries.dockTabs);
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
   const crashes = useSyncExternalStore(subscribePluginCrashes, pluginCrashes);
+  const pluginSurfaces = usePluginSurfaces();
   // A plugin's full-window peek, by the plugin's own word (`ui.setOverlayCovers`).
   const overlayCovers = useSyncExternalStore(subscribeOverlayCover, anyOverlayCovers);
   const focusDroppedPane = (paneId: string) =>
@@ -217,6 +219,7 @@ export function useAppController(runtime: AppRuntime) {
   const selectedPaneId =
     (active && resolveSelectedPaneId(stagePanes(active, activeView), activeView)) ?? null;
   const dockTabs = buildDockTabs({
+    host: pluginSurfaces,
     contributions: pluginDockTabs,
     crashes,
     workspace: active,

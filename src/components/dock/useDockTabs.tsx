@@ -1,5 +1,5 @@
-import { toWorkspaceSnapshot } from "../../app/pluginSnapshots";
-import { reportPluginCrash, type PluginCrash } from "../../app/pluginHealth";
+import type { PluginCrash } from "../../app/pluginHealth";
+import type { PluginSurfacesPort } from "../../app/usePluginSurfaces";
 import type { Workspace } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { externalPluginUrl } from "../../plugins/external/url";
@@ -24,12 +24,16 @@ import type { DockTabItem } from "./DockPanel";
  * chrome and exists exactly while this list is non-empty.
  */
 export function buildDockTabs({
+  host,
   contributions,
   crashes,
   workspace,
   selectedPaneId,
   open,
 }: {
+  /** What the tabs report a crash through and hand their plugin the
+   * workspace with. */
+  host: Pick<PluginSurfacesPort, "reportCrash" | "workspaceSnapshot">;
   contributions: readonly Contribution<DockTabContribution>[];
   crashes: readonly PluginCrash[];
   /** The active workspace, or null when there is none. */
@@ -72,11 +76,11 @@ export function buildDockTabs({
                 `web:plugin:${c.pluginId}`,
                 `dock tab "${c.entry.id}" crashed: ${errorMessage(e)}`,
               );
-              reportPluginCrash(c.pluginId, "tab", c.entry.id, e);
+              host.reportCrash(c.pluginId, "tab", c.entry.id, e);
             }}
           >
             <c.entry.Component
-              workspace={toWorkspaceSnapshot(workspace)}
+              workspace={host.workspaceSnapshot(workspace)}
               selectedPaneId={selectedPaneId}
             />
           </ErrorBoundary>

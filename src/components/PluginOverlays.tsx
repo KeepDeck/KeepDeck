@@ -1,10 +1,5 @@
-import { useSyncExternalStore } from "react";
-import {
-  overlayVisibility,
-  subscribeOverlayVisibility,
-} from "../app/overlayVisibility";
 import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
-import { reportPluginCrash } from "../app/pluginHealth";
+import { useOverlayVisibility, usePluginSurfaces } from "../app/usePluginSurfaces";
 import { useRuntimePart } from "../app/runtimeContext";
 import { log } from "../ipc/log";
 import { useContributions } from "../plugins";
@@ -26,10 +21,8 @@ import { errorMessage } from "@keepdeck/plugin-api";
 export function PluginOverlays() {
   const { pluginRegistries } = useRuntimePart("plugins");
   const overlays = useContributions(pluginRegistries.overlays);
-  const visibility = useSyncExternalStore(
-    subscribeOverlayVisibility,
-    overlayVisibility,
-  );
+  const visibility = useOverlayVisibility();
+  const surfaces = usePluginSurfaces();
   return (
     <>
       {overlays.map((c) => {
@@ -51,7 +44,7 @@ export function PluginOverlays() {
               // An overlay is invisible — without this report the crash
               // would be too. It lights the plugin's dock tab badge and
               // failure panel.
-              reportPluginCrash(c.pluginId, "overlay", c.entry.id, e);
+              surfaces.reportCrash(c.pluginId, "overlay", c.entry.id, e);
             }}
           >
             {"Component" in c.entry ? (
