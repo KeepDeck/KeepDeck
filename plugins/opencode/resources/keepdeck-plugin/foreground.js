@@ -24,6 +24,9 @@ import { join } from "node:path";
 
 export const FOREGROUND_FILE = "foreground.json";
 
+/** How often the observer reads the TUI's route: neither opencode
+ * generation tells a plugin the route changed (task-435, task-436). */
+export const POLL_MS = 250;
 /** How often the observer rewrites an unchanged route, so a reader can tell
  * a live TUI from one that stopped. */
 export const HEARTBEAT_MS = 1_000;
@@ -70,6 +73,47 @@ export function readForeground(dir, now = Date.now(), owner = process.pid) {
   }
   if (record.route === "home") return { kind: "home" };
   return { kind: "other" };
+}
+
+const same = (a, b) => a?.route === b?.route && a?.sessionID === b?.sessionID;
+
+/**
+ * The TUI half's watch, for either generation's TUI plugin: poll `read()` —
+ * the route as the server half reads it, `{ route, sessionID? }` — and write
+ * it down. Returns the stop.
+ *
+ * A route is written once it held for two polls in a row, so a screen the
+ * TUI only passes through is not reported as somewhere the user went; an
+ * unchanged one is rewritten once a heartbeat. A read that throws skips the
+ * poll, and a write that fails is dropped: a pane whose route cannot be
+ * written behaves as before.
+ */
+export function observeRoute(read, dir, now = () => Date.now()) {
+  let seen; // the last route read
+  let held; // the route last written
+  let writtenAt = 0;
+  const poll = () => {
+    let route;
+    try {
+      route = read();
+    } catch {
+      return;
+    }
+    const steady = same(route, seen);
+    seen = route;
+    const changed = steady && !same(route, held);
+    if (!changed && (held === undefined || now() - writtenAt < HEARTBEAT_MS)) return;
+    if (changed) held = route;
+    try {
+      writtenAt = now();
+      writeForeground(dir, held, writtenAt);
+    } catch {
+      // Best-effort, as above.
+    }
+  };
+  const timer = setInterval(poll, POLL_MS);
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
 
 const keyOf = (state) => `${state.kind}\0${state.sessionID ?? ""}`;
