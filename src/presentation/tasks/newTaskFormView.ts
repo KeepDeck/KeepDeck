@@ -50,7 +50,8 @@ export function newTaskFormView(
   epic: string | null,
 ): NewTaskFormView {
   // The rule's own list, asked for work about to be made in todo.
-  const kind = TASK_KINDS.find(canHaveEpic)!;
+  const kind = TASK_KINDS.find(canHaveEpic);
+  if (kind === undefined) throw new Error("no task kind may stand under an epic");
   const epics = board === null || teamId === null ? [] : epicCandidates({ kind, teamId, status: "todo" }, board);
   return {
     kindOptions: TASK_KINDS.map((kind) => ({ value: kind, label: KIND_LABEL[kind] })),

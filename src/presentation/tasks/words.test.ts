@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TaskStatus } from "../../domain/tasks";
 import { blockerLinkWords, openWorkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone } from "./words";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("words", () => {
   it("names the person `you`, marks only the ends of the priority scale, and maps statuses onto the four hues", () => {
@@ -55,7 +56,7 @@ describe("blockerLinkWords — the links that keep a task on its team", () => {
 describe("restoreView — the way out of an unusable database", () => {
   const HOUR = 3_600_000;
   it("offers the newest verified backup, says how old it is and what a restore loses", () => {
-    const view = restoreView({ kind: "damaged", backups: [10 * HOUR, 9 * HOUR] }, 12 * HOUR)!;
+    const view = present(restoreView({ kind: "damaged", backups: [10 * HOUR, 9 * HOUR] }, 12 * HOUR), "the restore view");
     expect(view.choice).toEqual({ kind: "backup", at: 10 * HOUR });
     expect(view.label).toBe("Restore the backup from 2h ago");
     expect(view.message).toContain("set aside, not deleted");
@@ -63,20 +64,20 @@ describe("restoreView — the way out of an unusable database", () => {
   });
 
   it("says a missing database is missing — nothing of it is set aside", () => {
-    const view = restoreView({ kind: "missing", backups: [10 * HOUR] }, 12 * HOUR)!;
+    const view = present(restoreView({ kind: "missing", backups: [10 * HOUR] }, 12 * HOUR), "the restore view");
     expect(view.choice).toEqual({ kind: "backup", at: 10 * HOUR });
     expect(view.message).toMatch(/^The task database is missing\./);
     expect(view.message).not.toContain("set aside");
   });
 
   it("with no backup to restore, offers a new database — never with a backup there", () => {
-    const view = restoreView({ kind: "damaged", backups: [] }, 0)!;
+    const view = present(restoreView({ kind: "damaged", backups: [] }, 0), "the restore view");
     expect(view.choice).toEqual({ kind: "empty" });
     expect(view.label).toBe("Start a new task database");
     expect(view.confirm).toBe("Start new");
     expect(view.message).toContain("Boards still in their files move into it");
     expect(view.message).toContain("any other board is not in it");
-    expect(restoreView({ kind: "missing", backups: [] }, 0)!.message).toMatch(/^The task database is missing\. There is no backup/);
+    expect(present(restoreView({ kind: "missing", backups: [] }, 0), "the restore view").message).toMatch(/^The task database is missing\. There is no backup/);
   });
 
   it("offers nothing when the database is usable", () => {

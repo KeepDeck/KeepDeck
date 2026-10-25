@@ -61,32 +61,46 @@ export function trayView(
   view: PaneVisibilityView | undefined,
   focusedHere: string | null,
 ): TrayView {
-  const entries: ShelfEntry[] = [];
+  const panesShelved = shelved(panes, view, focusedHere);
+  return {
+    entries: panesShelved.map(({ pane, reason }) => ({ paneId: pane.id, reason })),
+    stateLabel: stateLabelOf(panesShelved),
+  };
+}
+
+/** A shelved pane itself, with its reason — what an entry names by id. */
+interface Shelved {
+  pane: Pane;
+  reason: ShelfReason;
+}
+
+/** The shelved panes, in pane order. */
+function shelved(
+  panes: readonly Pane[],
+  view: PaneVisibilityView | undefined,
+  focusedHere: string | null,
+): Shelved[] {
+  const out: Shelved[] = [];
   for (const pane of panes) {
     const reasons = hiddenBy(view, pane.id);
     if (reasons.length > 0) {
-      entries.push({ paneId: pane.id, reason: reasons[reasons.length - 1] });
+      out.push({ pane, reason: reasons[reasons.length - 1] });
     } else if (focusedHere !== null && pane.id !== focusedHere) {
-      entries.push({ paneId: pane.id, reason: "maximized" });
+      out.push({ pane, reason: "maximized" });
     }
   }
-  return { entries, stateLabel: stateLabelOf(panes, entries) };
+  return out;
 }
 
 /** The shelf's one word for what it holds. Minimized and suspended agents
  * share one physical shelf, and a mixed shelf is named Hidden rather than
  * mislabeling stopped agents as merely minimized — as is a shelf holding a
  * tray pane that is not actually stopped. */
-function stateLabelOf(
-  panes: readonly Pane[],
-  entries: readonly ShelfEntry[],
-): TrayStateLabel {
+function stateLabelOf(entries: readonly Shelved[]): TrayStateLabel {
   const suspended = entries.filter((entry) => entry.reason === "suspendedTray");
   const others = entries.length - suspended.length;
   if (suspended.length > 0 && others > 0) return "Hidden";
-  const byId = new Map(panes.map((pane) => [pane.id, pane]));
-  if (suspended.some((entry) => !paneIsSuspended(byId.get(entry.paneId)!)))
-    return "Hidden";
+  if (suspended.some((entry) => !paneIsSuspended(entry.pane))) return "Hidden";
   return suspended.length > 0 ? "Suspended" : "Minimized";
 }
 
@@ -111,13 +125,12 @@ export function emptyGridMessage(
     };
   }
   // No spotlight on an empty grid: nothing is live to be covered.
-  const { entries } = trayView(panes, view, null);
+  const entries = shelved(panes, view, null);
   const inTray = entries.filter((entry) => entry.reason === "suspendedTray");
   const minimized = entries.length - inTray.length;
-  const byId = new Map(panes.map((pane) => [pane.id, pane]));
   const title =
     inTray.length === panes.length
-      ? inTray.every((entry) => paneIsSuspended(byId.get(entry.paneId)!))
+      ? inTray.every((entry) => paneIsSuspended(entry.pane))
         ? "Every agent on this team is suspended"
         : "Every agent on this team is in the tray"
       : inTray.length > 0 && minimized > 0

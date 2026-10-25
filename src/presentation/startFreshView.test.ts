@@ -3,6 +3,7 @@ import type { Pane, Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { roleChoiceView } from "./roleChoiceView";
 import { startFreshPick, startFreshRoles } from "./startFreshView";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const pane = (id: string, teamId: string, role?: string): Pane => ({
   id,
@@ -26,7 +27,7 @@ const deck = (role: string | undefined, rootRoles?: string[]): Workspace => ({
 });
 
 const rolesFor = (ws: Workspace) => startFreshRoles([ws], ws, ws.panes[0]);
-const offered = (ws: Workspace) => rolesFor(ws)!.optionsFor("x").map((option) => option.value);
+const offered = (ws: Workspace) => present(rolesFor(ws), "the role choices").optionsFor("x").map((option) => option.value);
 
 describe("startFreshRoles — what the folder-gone card asks before the move", () => {
   it("asks nothing when the pane's role carries — renumbered, if only its number is held", () => {

@@ -35,8 +35,8 @@ function Probe(props: ProbeProps) {
 function noop() {}
 
 function render(props: ProbeProps) {
-  root ??= createRoot(document.createElement("div"));
-  act(() => root!.render(createElement(Probe, props)));
+  const mounted = (root ??= createRoot(document.createElement("div")));
+  act(() => mounted.render(createElement(Probe, props)));
 }
 
 describe("usePaneInputFocus", () => {

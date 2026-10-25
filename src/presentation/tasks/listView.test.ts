@@ -24,6 +24,7 @@ import { taskRowView } from "./taskRowView";
 import { IDLE, armRow, moveRow, rowGrip, type DragState } from "./rowDrag";
 import { BOARD_ORDER, EPIC_FOLD_WORDS } from "./words";
 import type { TaskStatus } from "../../domain/tasks";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const tasks = [
   task({ id: "task-1", status: "todo", priority: "normal", created: 1 }),
@@ -174,13 +175,13 @@ describe("the list in a drag", () => {
 
   it("frames the group under the pointer whole: its heading opens the frame, its last row closes it", () => {
     const todo = listView(tasks, b, 0, NO_QUERY, NONE, null);
-    const edgeOf = (key: string) => todo.find((i) => i.key === key)!.edge;
+    const edgeOf = (key: string) => present(todo.find((i) => i.key === key), `the ${key} item`).edge;
     expect([edgeOf("head:todo"), edgeOf("task-2"), edgeOf("task-1")]).toEqual(["top", "middle", "bottom"]);
     // One row: it alone closes the frame.
     expect([edgeOf("head:done"), edgeOf("task-4")]).toEqual(["top", "bottom"]);
     // No rows shown — empty, or folded: the heading is the whole frame.
     expect(edgeOf("head:in-progress")).toBe("whole");
-    expect(listView(tasks, b, 0, NO_QUERY, new Set(["todo"] as const), null).find((i) => i.key === "head:todo")!.edge).toBe("whole");
+    expect(present(listView(tasks, b, 0, NO_QUERY, new Set(["todo"] as const), null).find((i) => i.key === "head:todo"), "the todo head item").edge).toBe("whole");
   });
 
   it("frames what the query leaves shown: its last shown row closes the frame, none shown is the heading alone", () => {
@@ -191,7 +192,7 @@ describe("the list in a drag", () => {
       task({ id: "task-4", status: "done" }),
     ];
     const items = listView(labelled, board(labelled), 0, { label: "ui" }, NONE, null);
-    const edgeOf = (key: string) => items.find((i) => i.key === key)!.edge;
+    const edgeOf = (key: string) => present(items.find((i) => i.key === key), `the ${key} item`).edge;
     const todoRows = items.filter((i) => i.kind === "row" && i.status === "todo");
     // Two shown of three: the second shown closes it, not the hidden third.
     expect(todoRows.map((r) => r.edge)).toEqual(["middle", "bottom"]);

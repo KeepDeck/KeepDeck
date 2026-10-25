@@ -4,6 +4,7 @@ import type { PaneActivity } from "../domain/status";
 import { board as taskBoard, task } from "../domain/tasks/testSupport";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { teamCardsView, teamHead, TEAM_CARD_WORDS } from "./teamCardView";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const attached: Team = {
   id: "team-1",
@@ -61,7 +62,7 @@ function card(
     if (activity) live.set(pane.id, activity);
   });
   const heads = new Map(head ? [[teamHeldPath(team) ?? deck.cwd, head]] : []);
-  return teamCardsView(deck, live, heads, null).find((c) => c.id === team.id)!;
+  return present(teamCardsView(deck, live, heads, null).find((c) => c.id === team.id), `the ${team.id} card`);
 }
 
 describe("teamCardView", () => {

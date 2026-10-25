@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_COMPOSER, beginSend, composerCanSend, finishSend, labelDraftAfter, labelSendable, typeDraft } from "./composer";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("composer", () => {
   it("a send takes the draft as typed, and an accepted send clears only that text", () => {
     const typed = typeDraft(EMPTY_COMPOSER, "first");
     expect(composerCanSend(typed)).toBe(true);
-    const begun = beginSend(typed)!;
+    const begun = present(beginSend(typed), "the begun send");
     expect(begun.body).toBe("first");
     expect(composerCanSend(begun.state)).toBe(false);
     expect(beginSend(begun.state)).toBeNull();
@@ -13,7 +14,7 @@ describe("composer", () => {
   });
 
   it("text typed while a send is out is kept — accepted or refused", () => {
-    const begun = beginSend(typeDraft(EMPTY_COMPOSER, "first"))!;
+    const begun = present(beginSend(typeDraft(EMPTY_COMPOSER, "first")), "the begun send");
     const typedMeanwhile = typeDraft(begun.state, "first and more");
     expect(finishSend(typedMeanwhile, true)).toEqual({ draft: "first and more", sending: null });
     expect(finishSend(typedMeanwhile, false)).toEqual({ draft: "first and more", sending: null });
