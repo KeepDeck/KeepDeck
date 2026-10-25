@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
-import { registerTerminalPaneKeys } from "./paneKeyBinding";
-import { reportPaneKey, subscribePaneKeys } from "../../app/paneKeys";
+import { registerTerminalPaneKeys } from "../components/terminal/paneKeyBinding";
+import { reportPaneKey, subscribePaneKeys } from "./paneKeys";
 
 /** A terminal that records WHICH of its two streams was subscribed, so a
  * rewire to the data stream is caught even if it somehow type-checked. */

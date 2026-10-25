@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { pasteToPane, registerPaneInput } from "../../app/paneInput";
+import { pasteToPane, registerPaneInput } from "./paneInput";
 import {
   registerTerminalPaneInput,
   terminalPaneInput,
-} from "./paneInputBinding";
+} from "../components/terminal/paneInputBinding";
 import { present } from "@keepdeck/plugin-api/testing";
 
 describe("terminalPaneInput", () => {
