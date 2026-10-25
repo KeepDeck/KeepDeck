@@ -33,8 +33,8 @@ import { request as httpRequest } from "node:http";
 import { createWire, parseBridge, SEND_TIMEOUT_MS } from "./keepdeck-wire.js";
 
 /** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
-/** @typedef {{ type: string, payload: Record<string, unknown> }} Envelope */
-/** @typedef {{ bridge: Bridge, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope, send: (envelope: Envelope) => Promise<{ answer: string | null, accepted: boolean }>, publish: (envelope: Envelope) => Promise<unknown>, drained: () => Promise<void> }} Wire */
+/** @typedef {{ v: number, type: string, paneId: string, token: string, payload: Record<string, unknown> }} Envelope */
+/** @typedef {{ bridge: Bridge, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope, send: (envelope: Envelope) => Promise<{ answer: string | null, accepted: boolean }>, publish: (envelope: Envelope) => Promise<{ answer: string | null, accepted: boolean }>, drained: () => Promise<void> }} Wire */
 
 /**
  * Which process is reporting, on every lane either plugin publishes.
@@ -62,7 +62,7 @@ export function readBridge() {
  */
 /** @type {Wire | null} */
 let wire = null;
-/** @param {Bridge} bridge */
+/** @param {Bridge} bridge @returns {Wire} */
 function wireFor(bridge) {
   if (wire === null || wire.bridge.url !== bridge.url || wire.bridge.token !== bridge.token) {
     wire = createWire({ bridge, agent: "opencode", reporter: REPORTER, post });

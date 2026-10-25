@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * The wire every in-process KeepDeck reporter speaks to the deck — and only
  * the wire.
@@ -15,6 +16,13 @@
  * ships beside each adapter (scripts/sync-reporters.mjs), because neither
  * host lets a plugin import from outside its own directory.
  */
+
+/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ status: number, body: string }} PostResult */
+/** @typedef {(url: string, body: string) => Promise<PostResult>} Post */
+/** @typedef {{ v: number, type: string, paneId: string, token: string, payload: Record<string, unknown> }} Envelope */
+/** @typedef {{ answer: string | null, accepted: boolean }} SendResult */
+/** @typedef {{ bridge: Bridge, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope, send: (envelope: Envelope) => Promise<SendResult>, publish: (envelope: Envelope) => Promise<SendResult>, drained: () => Promise<void> }} Wire */
 
 /** The bridge protocol these envelopes speak — the deck refuses others. */
 export const BRIDGE_PROTOCOL = 2;
@@ -38,6 +46,7 @@ export const SEND_TIMEOUT_MS = 3000;
  * fields are required: a pane without an address has nowhere to report and
  * should say so by being absent rather than by looking armed.
  */
+/** @param {string | undefined} raw @returns {Bridge | null} */
 export function parseBridge(raw) {
   let bridge;
   try {
@@ -63,10 +72,15 @@ export function parseBridge(raw) {
  *   0 when nothing answered; it gives up after `SEND_TIMEOUT_MS`. A post that
  *   throws or rejects counts as nothing answering.
  */
+/**
+ * @param {{ bridge: Bridge, agent: string, reporter: string, post: Post }} input
+ * @returns {Wire}
+ */
 export function createWire({ bridge, agent, reporter, post }) {
   /** One envelope, addressed to this pane's deck. Every lane carries the same
    * five things — the protocol, the type, the pane, its secret, and who is
    * reporting — spelled once so the format cannot half-change. */
+  /** @param {string} type @param {Record<string, unknown>} payload @returns {Envelope} */
   const makeEnvelope = (type, payload) => ({
     v: BRIDGE_PROTOCOL,
     type,
@@ -87,7 +101,9 @@ export function createWire({ bridge, agent, reporter, post }) {
    * would act on the difference anyway — the deck logs its own timeout and
    * puts back any messages whose answer reached nobody.
    */
+  /** @param {Envelope} envelope @returns {Promise<SendResult>} */
   const send = async (envelope) => {
+    /** @type {PostResult | null} */
     let posted;
     try {
       posted = await post(bridge.url, JSON.stringify(envelope));
@@ -96,7 +112,7 @@ export function createWire({ bridge, agent, reporter, post }) {
     }
     const status = posted?.status ?? 0;
     return {
-      answer: status === 200 ? posted.body : null,
+      answer: status === 200 ? posted?.body ?? null : null,
       accepted: status >= 200 && status < 300,
     };
   };
@@ -114,10 +130,12 @@ export function createWire({ bridge, agent, reporter, post }) {
    * Resolves to what `send` answered for this envelope, for the caller that
    * wants to know — still in its turn, so asking does not reorder anything.
    */
+  /** @type {Promise<void>} */
   let outbound = Promise.resolve();
+  /** @param {Envelope} envelope @returns {Promise<SendResult>} */
   const publish = (envelope) => {
     const sent = outbound.then(() => send(envelope));
-    outbound = sent.catch(() => {});
+    outbound = sent.then(() => {}).catch(() => {});
     return sent;
   };
 

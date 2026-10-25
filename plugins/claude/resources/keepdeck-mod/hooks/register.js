@@ -27,7 +27,8 @@ import { createWire, parseBridge } from "./keepdeck-wire.js";
 
 /** @typedef {{ process: { run: (argv: string[], options?: { timeoutMs: number }) => Promise<{ stdout: string, exitCode: number }> }, http: { fetch: (url: string, init: { method: string, headers: Record<string, string>, body: string }) => Promise<{ status: number, text: string }> }, fs: { exists: (path: string) => Promise<boolean> }, prompt: { submit: (input: { text: string }) => Promise<unknown> }, env: { get: (name: string) => Promise<string | undefined> }, clock: { every: (ms: number, tick: () => Promise<void>) => unknown } }} ModContext */
 /** @typedef {{ reason?: string, agentId?: string, door?: string, origin?: { kind?: string }, message?: { type?: string, isMeta?: boolean } }} ModEvent */
-/** @typedef {{ publish: (envelope: unknown) => Promise<{ accepted: boolean }>, makeEnvelope: (type: string, payload: Record<string, unknown>) => unknown }} Wire */
+/** @typedef {{ v: number, type: string, paneId: string, token: string, payload: Record<string, unknown> }} Envelope */
+/** @typedef {{ publish: (envelope: Envelope) => Promise<{ accepted: boolean }>, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope }} Wire */
 
 /** Which process is reporting: the process GROUP of this claude, measured the
  * way the hook reporters measure it (resources/reporters/lib/
@@ -140,7 +141,10 @@ function watchDoorbell($, dir) {
 /** What a Mod the deck refused holds instead of a wire: still "started", so
  * a second session.start does not try again, and nothing to say. */
 /** @type {Wire} */
-const REFUSED = { publish: async () => ({ accepted: false }), makeEnvelope: () => undefined };
+const REFUSED = {
+  publish: async () => ({ accepted: false }),
+  makeEnvelope: () => ({ v: 0, type: "refused", paneId: "", token: "", payload: {} }),
+};
 
 /** @param {(name: string, handler: ($: ModContext, e: ModEvent, next: (event: ModEvent) => unknown) => unknown) => unknown} on */
 export function register(on) {
@@ -161,13 +165,13 @@ export function register(on) {
       // Without a name for this process nothing it says can be placed — and
       // a silent Mod leaves the deck reading the transcript, as before.
       if (reporter !== null) {
-        wire = createWire({ bridge, agent: "claude", reporter, post: poster($) });
         // The doorbell only once the deck took the hello. A claude that
         // detached from the pane's terminal — a background worker of the
         // daemon some pane started — still carries that pane's bridge, and
         // would otherwise take the pane's rings and start turns in a
         // conversation that is not the pane's. Refused, it goes quiet.
-        const said = wire;
+        const said = createWire({ bridge, agent: "claude", reporter, post: poster($) });
+        wire = said;
         void said.publish(said.makeEnvelope("companion.hello", {})).then(({ accepted }) => {
           if (accepted) watchDoorbell($, bridge.dir);
           else if (wire === said) wire = REFUSED;
