@@ -14,9 +14,6 @@ vi.mock("../../app/settingsManager", () => ({
   updateSettings: settingsManager.updateSettings,
 }));
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 describe("ExperimentalSection", () => {
   let host: HTMLElement;
   let root: Root;

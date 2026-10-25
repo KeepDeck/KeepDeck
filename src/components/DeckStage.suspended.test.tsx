@@ -35,9 +35,6 @@ vi.mock("../app/ptyManager", () => ({
 import { TerminalPane } from "./terminal/TerminalPane";
 import { DeckStage } from "./DeckStage";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 // Every pane on the workspace's one team, which the view below keeps open:
 // the stage lays out the open team's members and nothing else.
 const workspaces = [

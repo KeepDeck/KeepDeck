@@ -14,11 +14,6 @@ import type { AppRuntime } from "./runtime";
 import { AppRuntimeProvider } from "./runtimeContext";
 import { resetAgentsCache, useAgents } from "./useAgents";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const ipc = vi.hoisted(() => ({
   detectBins: vi.fn<(bins: string[]) => Promise<BinStatus[]>>(),
 }));

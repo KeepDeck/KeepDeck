@@ -18,9 +18,6 @@ import { Providers } from "./Providers";
  * tested there; here the instant is a prop, so every case states the clock
  * it means instead of arranging one. */
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const NOW = TEST_NOW;
 const MIN = 60_000;
 const HOUR = 60 * MIN;

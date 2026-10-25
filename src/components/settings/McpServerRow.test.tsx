@@ -53,9 +53,6 @@ const up = (extra: Partial<Status> = {}): Status => ({
   ...extra,
 });
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 describe("McpServerRow", () => {
   let host: HTMLElement;
   let root: Root;

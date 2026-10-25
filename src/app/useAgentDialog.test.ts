@@ -22,10 +22,6 @@ import type {
 } from "./agentOrchestrator";
 import type { Deck } from "./useDeck";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 // Per-path disk probes for suggestion filtering: paths in the map probe as a
 // non-empty non-worktree dir (blocked); anything else as missing (free).
 const blockedDirs = vi.hoisted(() => new Set<string>());

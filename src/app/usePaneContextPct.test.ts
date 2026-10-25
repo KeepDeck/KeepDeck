@@ -8,10 +8,6 @@ import { AppRuntimeProvider } from "./runtimeContext";
 import { createUsageManager, type UsageManager } from "./usageManager";
 import { usePaneContextPct } from "./usePaneContextPct";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 /** A one-line probe: renders the hook's value so the DOM reflects it. */
 function Probe({ paneId }: { paneId: string }) {
   const pct = usePaneContextPct(paneId);

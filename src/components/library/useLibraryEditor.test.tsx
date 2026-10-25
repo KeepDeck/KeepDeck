@@ -6,8 +6,6 @@ import type { LibraryState } from "../../app/useLibraryState";
 import { libraryVerdicts, type NameProblem } from "./libraryVerdicts";
 import { useLibraryEditor, type EditorWorld } from "./useLibraryEditor";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 /**
  * The machine driven bare — no dialog, no fields — over the smallest library
  * that has both a writable scope and a read-only tier. What the two dialogs

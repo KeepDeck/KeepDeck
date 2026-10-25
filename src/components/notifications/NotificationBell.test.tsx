@@ -19,9 +19,6 @@ vi.mock("../../app/settingsManager", () => ({
   getSettings: () => null, // defaults: enabled, system-and-app
 }));
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const paneSource = {
   type: "pane",
   workspace: { id: "ws-1", instance: createWorkspaceInstance() },

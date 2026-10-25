@@ -15,11 +15,6 @@ import { vi } from "vitest";
  * import of a mocked module would load the real one before these register.
  */
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // The dialog's sections talk to the real settings manager over a mocked IPC —
 // the tests cover the whole loop: control → store → re-render.
 const settingsIpc = vi.hoisted(() => ({

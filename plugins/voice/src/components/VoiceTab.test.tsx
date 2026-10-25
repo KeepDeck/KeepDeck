@@ -14,10 +14,6 @@ import type { ModelsStore } from "../models";
 import { VoiceTab } from "./VoiceTab";
 import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 /** A snapshot with two history rows of different tones. */

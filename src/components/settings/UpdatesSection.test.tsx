@@ -41,10 +41,6 @@ const downloads = {
   cancel: vi.fn(async () => {}),
 };
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 let host: HTMLElement;
 let root: Root;
 

@@ -9,8 +9,6 @@ import { sameMcpRef, type McpScope, type McpServerDraft } from "../../domain/mcp
 import { McpDialog } from "./McpDialog";
 import { button, buttonByTitle, confirmButton, input, row, textarea, type } from "../library/libraryTestDom";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 /** A row as the library would list it after the write landed. */
 const landed = (scope: McpScope, draft: McpServerDraft): McpLibraryRow => ({
   scope,

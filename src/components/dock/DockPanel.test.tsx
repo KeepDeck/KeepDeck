@@ -6,11 +6,6 @@ import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
 import type { DockMode } from "../../domain/settings";
 import { DockPanel, type DockTabItem } from "./DockPanel";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const tab = (id: string, label: string): DockTabItem => ({
   id,
   label,

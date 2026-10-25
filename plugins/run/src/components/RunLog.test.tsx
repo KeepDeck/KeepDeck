@@ -6,10 +6,6 @@ import type { PluginContext } from "@keepdeck/plugin-api";
 import type { RunManager } from "../manager";
 import { setRuntime } from "../runtime";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // xterm can't mount under happy-dom — stub the renderer surface. The log's
 // output contract is the manager's attach/replay, covered in manager.test.ts;
 // here only the wiring around the terminal is under test.

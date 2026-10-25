@@ -12,10 +12,6 @@ import {
 } from "../../domain/usage/windowForecast";
 import { WindowBurn } from "./WindowBurn";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 const MIN = 60_000;
 const window = {

@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSkillsLibrary, type SkillsEditorState } from "./useSkills";
 import type { LibrarySkill, SkillsLibrary } from "./skillsLibrary";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 /**
  * Driven over a FAKE library: what the hook owns is view state — loaded vs
  * in-flight, the error in words, and when a stale list beats a blank one.

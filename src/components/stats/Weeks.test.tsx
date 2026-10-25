@@ -10,9 +10,6 @@ import type { UsageEventV2 } from "../../domain/usage/history/event";
 import { WEEK_MS } from "../../domain/usage/time";
 import { Weeks } from "./Weeks";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const NOW = TEST_NOW; // Wednesday; the current week opened Mon Jul 20
 
 let root: Root;

@@ -17,10 +17,6 @@ import {
 import type { SuspendOutcome } from "./suspendOutcome";
 import type { CloseRequest } from "./agentOrchestrator";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 /** The teardown, as this hook sees it: a request, recorded. What the close
  * then DOES — the token revocations, the reaping, the worktree removal and
  * their order — belongs to the orchestrator and is asserted there. This file

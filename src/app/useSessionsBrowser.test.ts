@@ -63,9 +63,6 @@ describe("the browser prefers the honest twin", () => {
   });
 });
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 /** The shared seam's stand-in: fixed revision/scanning, a keyed table the
  * tests may pre-fill, and recording declares. */
 const sharedOf = (over: Partial<BrowserSharedSeam> = {}): BrowserSharedSeam => ({

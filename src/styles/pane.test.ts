@@ -10,10 +10,6 @@ import type { AppRuntime } from "../app/runtime";
 import { appCss, px, readStyles, ruleBody } from "./testSupport";
 import { paneHeaderView } from "../presentation/paneHeaderView";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 /**
  * The pane's own wrappers, hand-written: mounting the real `AgentPane` costs
  * the module mocks its test file needs (xterm, the PTY registry), and this file

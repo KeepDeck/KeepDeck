@@ -14,9 +14,6 @@ import { Achievements } from "./Achievements";
  * so it is mounted directly: no history mock, no dialog shell, no tab click
  * between the assertion and the thing asserted. */
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const NOW = TEST_NOW;
 const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
   baseEvent({

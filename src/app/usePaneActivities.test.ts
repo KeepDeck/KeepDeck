@@ -12,10 +12,6 @@ import { AppRuntimeProvider } from "./runtimeContext";
 import type { AppRuntime } from "./runtime";
 import { usePaneActivities } from "./usePaneActivities";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 /**
  * The seam between the live tracker and whatever draws from it.
  *

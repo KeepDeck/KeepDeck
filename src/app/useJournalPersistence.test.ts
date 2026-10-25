@@ -17,9 +17,6 @@ import {
   type JournalPersistence,
 } from "./journalPersistence";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const ipc = vi.hoisted(() => ({
   loadJournal: vi.fn<() => Promise<string[]>>(),
   appendJournal: vi.fn<(lines: string[]) => Promise<void>>(() => Promise.resolve()),

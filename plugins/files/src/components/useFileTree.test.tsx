@@ -7,10 +7,6 @@ import { setRuntime } from "../runtime";
 import { useFileTree } from "./useFileTree";
 import type { TreeState } from "../domain/tree";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const entry = (root: string, name: string): FsEntry => ({
   name,
   path: `${root}/${name}`,

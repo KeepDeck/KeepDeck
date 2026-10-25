@@ -15,9 +15,6 @@ import {
   MinimizedItem,
 } from "./MinimizedItem";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 describe("MinimizedItem", () => {
   let root: Root;
   let statusTracker: AgentStatusTracker;

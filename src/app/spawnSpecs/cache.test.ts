@@ -25,11 +25,6 @@ import {
 // Straight from the module: the barrel deliberately does not carry it.
 import { resetPaneSpawnSpecs } from "./cache";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 
 // Staged skills are a host fact the plan build ASKS for — the worktree manager
 // resolves them (and owns which directories get armed), so here it is a thunk

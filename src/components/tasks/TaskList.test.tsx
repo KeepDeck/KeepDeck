@@ -7,8 +7,6 @@ import { board, relation, task } from "../../domain/tasks/testSupport";
 import { IDLE, NO_QUERY, listView } from "../../presentation/tasks";
 import { TaskList } from "./TaskList";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 let host: HTMLElement;
 let root: Root;
 let restore: () => void;

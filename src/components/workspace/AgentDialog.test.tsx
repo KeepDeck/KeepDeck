@@ -17,10 +17,6 @@ import type {
   SessionPickRow,
 } from "../../domain/agents";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 // The session picker is a windowed list: happy-dom lays nothing out, so
 // its box is pinned at the stylesheet's height (180px) with a row's height.
 const PICKER_PX = 180;

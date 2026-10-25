@@ -6,8 +6,6 @@ import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtual
 import { welcomeView } from "../../presentation/welcomeView";
 import { WelcomeScreen } from "./WelcomeScreen";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 const NOW = 10 * 86_400_000;
 const agents = [{ label: "claude", installed: true }];
 const projects = Array.from({ length: 7 }, (_, i) => ({ root: `/Users/me/p${i}`, sessions: i + 1, lastAt: NOW - i * 1000 }));

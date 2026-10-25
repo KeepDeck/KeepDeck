@@ -5,8 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import * as menu from "../ipc/menu";
 import { useMenuHotkeys, type MenuActions } from "./useMenuHotkeys";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 const handlers = new Map<string, () => void>();
 vi.mock("../ipc/menu", async (original) => ({
   ...(await original<typeof import("../ipc/menu")>()),

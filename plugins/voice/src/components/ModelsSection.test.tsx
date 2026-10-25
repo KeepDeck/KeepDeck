@@ -7,9 +7,6 @@ import { MODEL_CATALOG, type VoiceModelInfo } from "../modelCatalog";
 import { clearRuntime, setRuntime, type VoiceRuntime } from "../runtime";
 import { ModelsSection } from "./ModelsSection";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const installed = (id: string): VoiceModelInfo => ({
   ...MODEL_CATALOG.find((model) => model.id === id)!,
   installed: true,

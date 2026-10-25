@@ -17,9 +17,6 @@ import { useTranscriptReading, type TranscriptReading } from "./useTranscriptRea
  * the proof is still borrowed from the wrong one.
  */
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const LIVE = "/index/live";
 const DEAD = "/journal/dead";
 

@@ -7,10 +7,6 @@ import type { Settings } from "../../domain/settings";
 import { sameSkillRef, type SkillScope } from "../../domain/skills";
 import { useSkillsEditor } from "./useSkillsEditor";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const skill = (name: string): LibrarySkill => ({
   scope: { kind: "global" },
   name,

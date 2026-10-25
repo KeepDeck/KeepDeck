@@ -85,9 +85,6 @@ import { TerminalPane } from "./terminal/TerminalPane";
 import { DeckStage } from "./DeckStage";
 import { NO_TEAMS_WORD } from "../presentation/stageView";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 /** A team on the workspace root: what every fixture pane is on, since the
  * stage lays out the OPEN team's members and nothing else. */
 const team = (id: string, cwd: string) => ({

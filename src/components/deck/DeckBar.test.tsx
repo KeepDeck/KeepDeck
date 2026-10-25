@@ -8,11 +8,6 @@ import { BAR_TIP_DELAY_MS } from "../../ui/TipButton";
 import { DeckBar, type DeckBarProps } from "./DeckBar";
 import type { BarLevel } from "../../presentation/barView";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // The bar's two live children own their own data and are exercised by their
 // own tests; standing them up here would drag usage stores and a notification
 // centre into questions about which control calls which callback.

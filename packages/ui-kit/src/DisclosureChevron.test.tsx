@@ -4,8 +4,6 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 import { DisclosureChevron } from "./DisclosureChevron";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 describe("DisclosureChevron", () => {
   it("is one drawn mark, turned by its open class, kept from assistive tech", () => {
     document.body.innerHTML = "<div id='host'></div>";

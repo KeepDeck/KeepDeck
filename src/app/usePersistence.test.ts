@@ -12,10 +12,6 @@ import {
 } from "./deckPersistence";
 import { usePersistence } from "./usePersistence";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const ipc = vi.hoisted(() => ({
   loadDeckState: vi.fn<() => Promise<string | null>>(),
   saveDeckState: vi.fn<(json: string) => Promise<void>>(() => Promise.resolve()),

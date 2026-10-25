@@ -10,10 +10,6 @@ import {
 } from "../../app/settingsManager";
 import { PluginSettingsSection } from "./PluginSettingsSection";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // The section writes through the real settings manager over a mocked IPC —
 // the tests cover the whole loop: control → store → re-render.
 const ipc = vi.hoisted(() => ({

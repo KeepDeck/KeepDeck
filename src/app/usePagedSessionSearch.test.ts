@@ -10,9 +10,6 @@ import {
   type PagedSearch,
 } from "./usePagedSessionSearch";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 interface Row {
   id: string;
 }

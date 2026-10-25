@@ -25,9 +25,6 @@ vi.mock("../../app/mcp/useMcpStatus", () => ({
   }),
 }));
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 describe("TasksRows", () => {
   let host: HTMLElement;
   let root: Root;

@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RenameInput } from "./RenameInput";
 import { useInlineRename } from "./useInlineRename";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 function Host({ multiline, commit }: { multiline?: boolean; commit: (key: string, name: string) => void }) {
   const rename = useInlineRename(commit);
   return rename.editing === null

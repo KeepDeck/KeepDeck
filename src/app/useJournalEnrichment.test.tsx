@@ -17,9 +17,6 @@ import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
 import { rowKeyOf } from "../domain/journal/sessionRow";
 import { joinJournalRow } from "../domain/journal";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 /** A keyed answer fixture: every answer carries the key it answers —
  * hit, absent, foreign alike. */
 const ans = (

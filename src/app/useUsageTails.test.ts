@@ -6,10 +6,6 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions, type DeckActions } from "./deckActions";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const ipc = vi.hoisted(() => ({
   watchSessionFile: vi.fn<
     (paneId: string, path: string, token: string, format: string) => Promise<void>

@@ -8,10 +8,6 @@ import { forkPickLine } from "../../presentation/sessionResumeView";
 import type { AgentDialogResult, AgentDialogTarget, PathProbe, SessionPreset } from "../../domain/agents";
 import { roleById } from "../../domain/mail";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 // The same seams the main suite pins: the worktree ipc behind the resume
 // gate, the index manager behind the runtime, and one agent in the catalog
 // that can start, resume and fork — so a target that HIDES continuations is

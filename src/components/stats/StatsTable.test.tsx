@@ -10,9 +10,6 @@ import { StatsTable } from "./StatsTable";
  * the cases here state rows directly — the query that produces them has its
  * own suite, and the dialog's tab routing has the shell's. */
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const NOW = TEST_NOW;
 
 const row = (over: Partial<UsageStatsRow> = {}): UsageStatsRow => ({

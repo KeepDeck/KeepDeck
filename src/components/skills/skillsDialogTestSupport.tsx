@@ -19,10 +19,6 @@ import type { LibrarySkill } from "../../app/skillsLibrary";
 import type { Settings } from "../../domain/settings";
 import type { SkillsEditorState } from "../../app/useSkills";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 /** A row as the library would hold it after the write landed. */
 const landed = (scope: SkillScope, draft: SkillDraft): LibrarySkill => ({
   scope,

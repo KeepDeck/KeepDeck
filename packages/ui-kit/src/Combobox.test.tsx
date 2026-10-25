@@ -4,10 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Combobox, fuzzyFilter } from "./Combobox";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 describe("fuzzyFilter", () => {
   it("ranks prefix over substring over sparse subsequence", () => {
     // "log" is a prefix of none, substring of "feat/login", subsequence of

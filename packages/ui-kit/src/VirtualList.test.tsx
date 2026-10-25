@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualList } from "./VirtualList";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const ROW = 20;
 const items = Array.from({ length: 500 }, (_, i) => `row ${i}`);
 

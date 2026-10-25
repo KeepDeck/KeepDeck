@@ -4,9 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AchievementEmbers, reseed, seedField } from "./AchievementEmbers";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 /** The card the stylesheet would give this field: a 158×93 padding box plus
  * 26px of halo on every side. The test DOM lays nothing out, so the one
  * number the component reads is supplied here. */

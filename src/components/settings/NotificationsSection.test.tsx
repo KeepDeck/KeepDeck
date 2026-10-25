@@ -25,9 +25,6 @@ vi.mock("../../app/settingsManager", () => ({
   updateSettings: vi.fn(),
 }));
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const flush = () => act(() => new Promise<void>((r) => setTimeout(r, 0)));
 
 function withPrefs(prefs: Partial<Settings["notifications"]>): void {

@@ -11,11 +11,6 @@ import type {
 } from "../../app/artifacts/registryRead";
 import { useArtifactsRegistry, type ArtifactsRegistry } from "./useArtifactsRegistry";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // The reads are a PORT the hook is handed, so they are doubled as one; the
 // open and delete ladders (identity → live url, confirmed delete → store)
 // are the thing this surface leans on, so the test exercises the real ones

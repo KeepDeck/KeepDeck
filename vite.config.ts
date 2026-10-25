@@ -69,6 +69,7 @@ export default defineConfig(async () => ({
   // tests (e.g. portaled dialogs).
   test: {
     environment: "node",
+    setupFiles: ["src/actEnvironment.test-support.ts"],
     include: [
       "src/**/*.test.{ts,tsx}",
       "scripts/**/*.test.mjs",

@@ -4,10 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUsagePanelAnchor } from "./useUsagePanelAnchor";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 /** Geometry the test states on each element, since happy-dom lays nothing
  *  out: `data-x` is the element's left edge, `data-w` its width. */
 function stubGeometry() {

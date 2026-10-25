@@ -6,10 +6,6 @@ import type { FsFile, PluginContext } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
 import { FileViewer } from "./FileViewer";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const TS_TEXT = 'const s = "hi" // note\n\nexport default s\n';
 
 const fsFile = (path: string, text: string): FsFile => ({

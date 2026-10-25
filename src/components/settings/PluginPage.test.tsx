@@ -4,11 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginPage } from "./PluginPage";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const setEnabled = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("../../app/runtimeContext", () => ({

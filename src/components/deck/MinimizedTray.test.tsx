@@ -22,9 +22,6 @@ const withRuntime = (el: ReactElement) => (
   <AppRuntimeProvider runtime={runtime}>{el}</AppRuntimeProvider>
 );
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 describe("visibleTrayItemCount", () => {
   it("shows every natural-width item when the row fits exactly", () => {
     // 200 + 210 + 220px items + 2 × 8px gaps.

@@ -43,11 +43,6 @@ import type { SpawnPluginAccess } from "../spawnSpecs";
 import { createSpawnPluginsFake } from "../spawnSpecs/planTestSupport";
 import type { ProvisionRequest } from "../worktrees";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const ipc = vi.hoisted(() => ({
   probeWorktree: vi.fn(),
 }));

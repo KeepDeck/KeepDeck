@@ -5,8 +5,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { CHART_BAR_RADIUS } from "../../domain/usage/chartPalette";
 import { TEST_NOW, usageEvent } from "../../domain/usage/history/event.testSupport";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 // happy-dom lays nothing out, so the responsive box would measure 0×0 and
 // draw no chart: the box hands the chart a fixed size, as a laid-out one
 // would. Nothing else of recharts is replaced.

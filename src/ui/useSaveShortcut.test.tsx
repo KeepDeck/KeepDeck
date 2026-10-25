@@ -4,10 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useSaveShortcut } from "./useSaveShortcut";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 /**
  * The chord's own suite. It had none: "physical key, not layout character" was
  * pinned only inside one dialog's cases, which is where the next writing surface

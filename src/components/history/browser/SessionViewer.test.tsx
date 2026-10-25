@@ -8,9 +8,6 @@ import type { SessionsBrowserApi } from "../../../app/useSessionsBrowser";
 import type { UnifiedSessionRow } from "../../../domain/journal";
 import { SessionViewer, type ViewerTarget } from "./SessionViewer";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const AGENT: AgentInfo = {
   id: "claude",
   label: "Claude Code",

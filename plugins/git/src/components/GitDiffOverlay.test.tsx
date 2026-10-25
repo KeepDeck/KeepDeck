@@ -18,10 +18,6 @@ import { GitDiffOverlay } from "./GitDiffOverlay";
 import { GitTab } from "./GitTab";
 import type { ChangeRow } from "../domain/status";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const workspace: WorkspaceSnapshot = {
   id: "ws-1",
   instance: "instance-1",

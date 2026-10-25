@@ -25,8 +25,6 @@ const artifactReads: ArtifactsRegistryReadPort = {
   versions: async () => [],
 };
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 // The settings owner as a live in-memory store: the dialog reads the
 // list's folds from it and writes them back on a toggle.
 const settingsStore = vi.hoisted(() => ({

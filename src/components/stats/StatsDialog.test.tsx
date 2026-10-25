@@ -70,9 +70,6 @@ function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
   return createElement(StatsDialog, { tab, onSelectTab: setTab, onClose });
 }
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const NOW = TEST_NOW;
 /** This file's personality over the shared builder: a costed codex session
  * with a human pane name — the dialog's cost cells and identity columns

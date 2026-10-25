@@ -18,9 +18,6 @@ import { Overview } from "./Overview";
  * stats as a prop, so the cases here state a ledger and let the domain
  * answer — no dialog, no tab, no mocked hooks. */
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const NOW = TEST_NOW;
 const DAY = 24 * 60 * 60 * 1_000;
 

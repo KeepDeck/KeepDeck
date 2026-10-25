@@ -3,11 +3,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // The section talks to the real catalog manager over a mocked disk — the
 // tests cover the whole loop: control → manager → domain → re-render.
 const rolesIpc = vi.hoisted(() => {

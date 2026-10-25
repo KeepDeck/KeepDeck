@@ -6,10 +6,6 @@ import { Chip } from "@keepdeck/ui-kit/Chip";
 import { BoltIcon } from "@keepdeck/ui-kit/icons";
 import { appCss } from "./testSupport";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 let root: Root;
 let host: HTMLElement;
 let sheet: HTMLStyleElement;

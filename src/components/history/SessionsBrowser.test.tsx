@@ -12,9 +12,6 @@ import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 import { SessionRowView } from "./SessionRowView";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const worktreeIpc = vi.hoisted(() => ({
   probeWorktree: vi.fn((_path: string) =>
     Promise.resolve({ exists: true, isWorktree: false, branch: null }),

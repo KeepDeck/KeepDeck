@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DROP_BLOCKER_ATTR } from "./dropBlocker";
 import { Peek, type PeekProps } from "./Peek";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 describe("Peek", () => {
   let root: Root;
   let host: HTMLElement;

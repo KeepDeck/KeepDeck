@@ -7,10 +7,6 @@ import { setRuntime } from "../runtime";
 import type { ChangeGroups, ChangeRow } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const TS_DIFF = [
   "@@ -1,3 +1,3 @@",
   ' import { app } from "./app";',

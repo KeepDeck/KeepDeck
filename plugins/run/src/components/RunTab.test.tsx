@@ -7,10 +7,6 @@ import type { RunManager } from "../manager";
 import type { RunPreset, RunSession } from "../domain";
 import { setRuntime } from "../runtime";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // xterm can't mount under happy-dom; the log's contract is the manager's
 // attach/replay, covered in manager.test.ts and RunLog.test.tsx.
 vi.mock("./RunLog", () => ({ RunLog: () => null }));

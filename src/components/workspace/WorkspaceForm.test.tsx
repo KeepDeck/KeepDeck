@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceForm } from "./WorkspaceForm";
 import type { SpawnConfig } from "../../domain/deck";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const worktreeInput = () =>
   document.querySelector<HTMLInputElement>('input[aria-label="Worktree directory"]')!;
 const clearBtn = () =>

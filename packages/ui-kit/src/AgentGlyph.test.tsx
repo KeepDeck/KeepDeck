@@ -4,10 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentGlyph, type AgentGlyphIcon } from "./AgentGlyph";
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const mark: AgentGlyphIcon = {
   viewBox: "0 0 24 24",
   paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],

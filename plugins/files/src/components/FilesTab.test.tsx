@@ -22,10 +22,6 @@ import {
 const TREE_PX = 220;
 const TREE_ROW_PX = 22;
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const workspace: WorkspaceSnapshot = {
   id: "ws-1",
   instance: "instance-1",

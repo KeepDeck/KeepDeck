@@ -10,11 +10,6 @@ import {
 } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { ArtifactsDialog } from "./ArtifactsDialog";
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 // Doubled at the IPC edge only: the dialog, its machine and the shared
 // open-by-identity ladder all run for real, which is the seam worth
 // covering — a row on screen has to reach the browser.

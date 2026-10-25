@@ -31,10 +31,6 @@ vi.mock("../../ipc/window", () => ({
   pointerOnWindow: () => os.pointAnswer ?? Promise.resolve(os.point),
 }));
 
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 const mark = (id: string, name: string, extra: Partial<WorkspaceMark> = {}): WorkspaceMark => ({
   id,
   name,

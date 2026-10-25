@@ -33,10 +33,6 @@ const CODEX_WATCHES = [
   },
 ];
 
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
-
 const ipc = vi.hoisted(() => ({
   onUsageReport: vi.fn(),
   onSessionBound: vi.fn(),

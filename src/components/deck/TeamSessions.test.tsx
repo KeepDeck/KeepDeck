@@ -25,8 +25,6 @@ vi.mock("../../app/useRoleCatalog", () => ({ useRoleCatalog: () => liveCatalog.s
 import { TeamSessions } from "./TeamSessions";
 import { configureRoleCatalog, teamRoles } from "../../domain/mail";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 const record = { agent: "claude", sessionId: "s-1", cwd: "/repo/wt" } as SessionHandle;
 
 describe("TeamSessions — an empty team's sessions list", () => {
