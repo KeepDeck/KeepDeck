@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubCanvasContext } from "../canvasContext.test-support";
 import { AchievementEmbers, reseed, seedField } from "./AchievementEmbers";
 
 /** The card the stylesheet would give this field: a 158×93 padding box plus
@@ -29,6 +30,7 @@ function fakeContext() {
 let root: Root;
 let mounted = false;
 let context: ReturnType<typeof fakeContext>;
+let restoreCanvas: () => void;
 /** The observers this component installs, captured so a test can drive the
  * callback the browser would call. */
 let gates: ((entries: { isIntersecting: boolean }[]) => void)[] = [];
@@ -48,9 +50,7 @@ function stubMatchMedia(matches: boolean) {
 
 beforeEach(() => {
   context = fakeContext();
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-    () => context as unknown as CanvasRenderingContext2D,
-  );
+  restoreCanvas = stubCanvasContext(() => context);
   vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockReturnValue({
     ...BOX,
     x: 0,
@@ -78,6 +78,7 @@ beforeEach(() => {
 afterEach(() => {
   if (mounted) act(() => root.unmount());
   mounted = false;
+  restoreCanvas();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -200,9 +201,8 @@ describe("AchievementEmbers", () => {
   it("draws nothing on a canvas that has no 2d surface at all", async () => {
     // A DOM without canvas support answers null, and the badge must still
     // mount — the glow is decoration, not the badge.
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-      () => null as never,
-    );
+    restoreCanvas();
+    restoreCanvas = stubCanvasContext(() => null);
     const host = render();
     await frame();
     expect(host.querySelector("canvas")).not.toBeNull();
