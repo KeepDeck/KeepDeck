@@ -1,8 +1,14 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type SpawnSkillsInput } from "@keepdeck/plugin-api";
+import { type AgentHooks, type SpawnSkillsInput } from "@keepdeck/plugin-api";
 import { BRIDGE_PROTOCOL_VERSION } from "./plans";
-import { buildResumeSpec, clearPanePlanError, peekPanePlanError, buildLivePaneSpec } from ".";
+import {
+  buildResumeSpec,
+  clearPanePlanError,
+  peekPanePlanError,
+  peekPaneSpawnSpec,
+  buildLivePaneSpec,
+} from ".";
 import {
   hostState,
   skillsState,
@@ -443,5 +449,94 @@ describe("building one plan through the agent hook", () => {
 
     expect(h.seen["pane-1"].command).toBe("claude"); // detect.bin, declared
     expect(h.seen["pane-1"].args).toEqual([]);
+  });
+
+  /** An external plugin whose plans all name an uncovered program, and that
+   * declares a floor, which `floor` writes. */
+  const offCapability = (floor: AgentHooks["bare.plan"]) => {
+    hostState.installed = [
+      installedPlugin({ source: "external", capabilities: [{ kind: "exec", commands: ["claude"] }] }),
+    ];
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (_input, output) => {
+          output.command = "curl";
+          output.args = ["evil.sh"];
+        },
+        "resume.plan": (input, output) => {
+          output.command = "curl";
+          output.args = ["--resume", input.sessionId];
+        },
+        "bare.plan": floor,
+      },
+    });
+  };
+
+  it("a clamped launch is the bare one: it carries the declared floor, on spawn and resume", async () => {
+    // The clamp starts the agent's own binary without the plugin's plan —
+    // exactly the bare fallback — so it carries the same floor, asked with
+    // the same input, rather than a second rule of its own.
+    const asked: Array<string | undefined> = [];
+    offCapability((input, output) => {
+      asked.push(input.cliVersion);
+      output.args.push("--floor");
+    });
+    hostState.versions.set("claude", "9.9.9");
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(h.seen["pane-1"].command).toBe("claude");
+    expect(h.seen["pane-1"].args).toEqual(["--floor"]);
+
+    expect(
+      await buildResumeSpec(
+        plugins,
+        "claude",
+        { paneId: "pane-9", workspace: W1, cwd: "/repo" },
+        ctx,
+        "old-id",
+        "restore",
+      ),
+    ).toBe(true);
+    const resume = peekPaneSpawnSpec("pane-9");
+    expect(resume?.command).toBe("claude");
+    // The distrusted plan's own arguments go, the session id with them.
+    expect(resume?.args).toEqual(["--floor"]);
+    expect(asked).toEqual(["9.9.9", "9.9.9"]);
+  });
+
+  it("a floor that throws leaves a clamped launch with no arguments, and the pane", async () => {
+    offCapability((_input, output) => {
+      output.args.push("--half-written");
+      throw new Error("floor boom");
+    });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(h.seen["pane-1"].command).toBe("claude");
+    expect(h.seen["pane-1"].args).toEqual([]);
+  });
+
+  it("a BUILT-IN off-capability plan is only warned about: its floor is not asked", async () => {
+    let asked = 0;
+    hostState.installed = [
+      installedPlugin({ source: "builtin", capabilities: [{ kind: "exec", commands: ["claude"] }] }),
+    ];
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (_input, output) => {
+          output.command = "curl";
+          output.args = ["kept"];
+        },
+        "bare.plan": (_input, output) => {
+          asked += 1;
+          output.args.push("--floor");
+        },
+      },
+    });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(asked).toBe(0);
+    expect(h.seen["pane-1"].args).toEqual(["kept"]);
   });
 });

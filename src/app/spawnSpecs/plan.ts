@@ -192,13 +192,15 @@ function paneEnv(
 }
 
 /**
- * The arguments a bare launch still carries: what the agent's plugin
- * declared as its floor (`bare.plan`), and nothing when it declared none.
- * Which flags those are is the plugin's knowledge; the host only applies
- * them. A floor that throws is logged and costs the launch its floor, not
- * its pane — the bare launch exists so that the pane lives.
+ * The bare argv of this agent: what its own binary is started with when the
+ * plugin's plan is not used — because `spawn.plan` threw, or because an
+ * external plugin's plan named a program its manifest does not cover. Both
+ * are the same launch, so both carry what the plugin declared as its floor
+ * (`bare.plan`), and nothing when it declared none. Which flags those are is
+ * the plugin's knowledge; the host only applies them. A floor that throws is
+ * logged and costs the launch its floor, not its pane.
  */
-async function bareFloor(
+async function bareArgs(
   entry: AgentContribution,
   input: SpawnPlanInput,
 ): Promise<string[]> {
@@ -210,7 +212,7 @@ async function bareFloor(
   } catch (e) {
     log.warn(
       "web:agents",
-      `${entry.id} bare.plan failed — bare spawn with no arguments: ${errorMessage(e)}`,
+      `${entry.id} bare.plan failed — bare launch with no arguments: ${errorMessage(e)}`,
     );
     return [];
   }
@@ -355,7 +357,7 @@ export async function buildPlan(
     return {
       plan: {
         command: entry.detect.bin,
-        args: await bareFloor(entry, base),
+        args: await bareArgs(entry, base),
         env: mcpEnv,
         mcpToken,
       },
@@ -365,7 +367,8 @@ export async function buildPlan(
   // The hook's command must be covered by its plugin's exec capability —
   // warn for a trusted built-in (a bug to fix), CLAMP for an external
   // (falling back to the agent's own binary, which the registration gate
-  // proved covered): a sandboxed plugin must not pick the program.
+  // proved covered): a sandboxed plugin must not pick the program. The
+  // clamped launch is the bare one, so it carries the same declared floor.
   if (
     owner &&
     !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")
@@ -376,7 +379,7 @@ export async function buildPlan(
     );
     if (owner.source === "external") {
       output.command = entry.detect.bin;
-      output.args = [];
+      output.args = await bareArgs(entry, base);
       output.env = [];
       output.envDefaults = [];
     }
