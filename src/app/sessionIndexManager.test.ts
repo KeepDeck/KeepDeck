@@ -2,9 +2,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import { createSessionIndexManager } from "./sessionIndexManager";
 
-/** An opaque stand-in for a plugin history surface — the manager only
- * forwards it to scanAgentHistories (mocked), never calls it. */
-const history = (marker: string) => ({ marker }) as unknown as AgentHistory;
+/** A stand-in for an agent's plugin history surface — the manager only
+ * forwards it to scanAgentHistories (mocked), never calls it, so every
+ * method refuses. One per agent, the same object each time it is asked
+ * for, so a case can say WHICH surface reached the scan. */
+const histories = new Map<string, AgentHistory>();
+const history = (agent: string): AgentHistory => {
+  const known = histories.get(agent);
+  if (known) return known;
+  const notCalled = () => Promise.reject(new Error("not under test"));
+  const made: AgentHistory = {
+    list: notCalled,
+    describe: notCalled,
+    content: notCalled,
+    transcript: notCalled,
+  };
+  histories.set(agent, made);
+  return made;
+};
 
 /** A registry fake with a manual change signal: `set` swaps the
  * contributions and fires the subscribers, like the plugin registry does
@@ -106,9 +121,8 @@ describe("sessionIndexManager scope", () => {
     const { registry } = fakeRegistry(CONTRIBUTIONS);
     const manager = createSessionIndexManager(registry);
     manager.ensureFresh("codex");
-    expect(sourcesOf(0)).toEqual([
-      { agentId: "codex", history: history("codex") },
-    ]);
+    expect(sourcesOf(0)).toEqual([{ agentId: "codex", history: history("codex") }]);
+    expect(sourcesOf(0)[0].history).toBe(history("codex"));
   });
 });
 

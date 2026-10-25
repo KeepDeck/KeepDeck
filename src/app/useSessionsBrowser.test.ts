@@ -22,8 +22,8 @@ import {
   useSessionsBrowser,
   type BrowserSharedSeam,
   type SessionsBrowserApi,
+  type TranscriptSource,
 } from "./useSessionsBrowser";
-import type { AgentHistory } from "@keepdeck/plugin-api";
 
 /**
  * Which contract the browser reaches for. Both paths answer with the same
@@ -41,7 +41,7 @@ describe("the browser prefers the honest twin", () => {
       entries,
       shortfall: [{ kind: "bytes" as const, size: 40, readBytes: 8 }],
     }));
-    const history = { transcript, transcriptPage } as unknown as AgentHistory;
+    const history: TranscriptSource = { transcript, transcriptPage };
 
     const got = await readTranscriptPage(history, "/store/s-1", page);
 
@@ -54,7 +54,7 @@ describe("the browser prefers the honest twin", () => {
 
   it("falls back to the legacy method when there is no twin", async () => {
     const transcript = vi.fn(async () => entries);
-    const history = { transcript } as unknown as AgentHistory;
+    const history: TranscriptSource = { transcript };
 
     const got = await readTranscriptPage(history, "/store/s-1", page);
 

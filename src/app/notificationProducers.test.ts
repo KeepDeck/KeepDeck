@@ -70,6 +70,7 @@ function deckWith(paneName?: string): Workspace[] {
       instance: workspaceInstance,
       name: "Alpha",
       cwd: "/repo",
+      worktreeBaseDir: null,
       panes: [
         {
           id: "pane-1",
@@ -77,7 +78,7 @@ function deckWith(paneName?: string): Workspace[] {
           ...(paneName !== undefined ? { name: paneName } : {}),
         },
       ],
-    } as unknown as Workspace,
+    },
   ];
 }
 

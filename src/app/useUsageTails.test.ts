@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentUsage } from "@keepdeck/plugin-api";
+import type { AgentUsage, TailWatch } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions, type DeckActions } from "./deckActions";
@@ -48,7 +48,7 @@ const usageByAgent = new Map<string, AgentUsage>([
   [
     "codex",
     // Only `tail` is read here; the lane never normalizes in these tests.
-    { tail: { format: "codex", watches: [] } } as unknown as AgentUsage,
+    { normalize: () => null, tail: { watches: [] } },
   ],
 ]);
 
@@ -274,10 +274,14 @@ describe("usage tails — a store search racing a binding", () => {
 });
 
 describe("usage tails — a pane whose process has a companion", () => {
-  const USAGE_WATCH = { lane: "usage", match: [{ key: "type", equals: "assistant" }] };
+  const USAGE_WATCH: TailWatch = {
+    lane: "usage",
+    match: [{ key: "type", equals: "assistant" }],
+    keep: [],
+  };
   const STATUS_WATCH = { lane: "status", match: [{ key: "type", equals: "user" }] };
   const claudeUsage = new Map<string, AgentUsage>([
-    ["claude", { tail: { watches: [USAGE_WATCH] } } as unknown as AgentUsage],
+    ["claude", { normalize: () => null, tail: { watches: [USAGE_WATCH] } }],
   ]);
 
   function setup(covers: readonly string[] | null) {

@@ -118,8 +118,10 @@ export interface SessionsBrowserApi {
  * return the same entries for the same session, so a test comparing answers
  * cannot tell them apart — only WHICH METHOD RAN separates them.
  */
+export type TranscriptSource = Pick<AgentHistory, "transcript" | "transcriptPage">;
+
 export async function readTranscriptPage(
-  history: AgentHistory,
+  history: TranscriptSource,
   ref: string,
   page: { offset: number; limit: number },
 ): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }> {
