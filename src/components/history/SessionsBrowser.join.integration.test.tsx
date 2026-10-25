@@ -124,9 +124,8 @@ const sessionIndex = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../app/runtimeContext", () => ({
-  useRuntimePart: (part: string) => {
-    const parts: Record<string, unknown> = {
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
     plugins: {
       pluginRegistries: {
         agents: {
@@ -138,10 +137,7 @@ vi.mock("../../app/runtimeContext", () => ({
       },
     },
     sessionIndex: sessionIndex.sessionIndex,
-  };
-    return parts[part];
-  },
-}));
+  }));
 
 import {
   useBrowserSharedSeam,

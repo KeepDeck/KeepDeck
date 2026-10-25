@@ -25,12 +25,8 @@ const sessionIndex = vi.hoisted(() => {
     subscribe: () => () => {},
   };
 });
-vi.mock("../../app/runtimeContext", () => ({
-  useRuntimePart: (part: string) => {
-    const parts: Record<string, unknown> = { sessionIndex };
-    return parts[part];
-  },
-}));
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ sessionIndex }));
 vi.mock("../../app/useAgents", () => ({
   useAgents: () => ({
     agents: [

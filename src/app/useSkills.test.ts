@@ -43,12 +43,8 @@ const library = vi.hoisted(
     }) satisfies SkillsLibrary,
 );
 const subscribers = vi.hoisted(() => new Set<() => void>());
-vi.mock("./runtimeContext", () => ({
-  useRuntimePart: (part: string) => {
-    const parts: Record<string, unknown> = { skills: library };
-    return parts[part];
-  },
-}));
+vi.mock("./runtimeContext", async () =>
+  (await import("./runtimeContext.test-support")).runtimePartsModule({ skills: library }));
 
 const STORED: LibrarySkill = {
   scope: { kind: "global" },

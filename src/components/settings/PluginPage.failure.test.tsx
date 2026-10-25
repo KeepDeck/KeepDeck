@@ -7,18 +7,14 @@ import { PluginPage } from "./PluginPage";
 
 const setEnabled = vi.hoisted(() => vi.fn(async () => {}));
 
-vi.mock("../../app/runtimeContext", () => ({
-  useRuntimePart: (part: string) => {
-    const parts: Record<string, unknown> = {
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
     plugins: {
       externalPluginInfo: () => null,
       pluginHost: { setEnabled },
       restartPlugin: async () => {},
     },
-  };
-    return parts[part];
-  },
-}));
+  }));
 vi.mock("../../app/useSettings", () => ({ useSettings: () => null }));
 
 const FAILED_PLUGIN: InstalledPlugin = {

@@ -68,12 +68,13 @@ const sessionIndexRef = vi.hoisted(
     current: sessionIndex,
   }),
 );
-vi.mock("../../app/runtimeContext", () => ({
-  useRuntimePart: (part: string) => {
-    const parts: Record<string, unknown> = { sessionIndex: sessionIndexRef.current };
-    return parts[part];
-  },
-}));
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+    // Read per call: a test swaps the index in after the module is mocked.
+    get sessionIndex() {
+      return sessionIndexRef.current;
+    },
+  }));
 
 // The dialog pulls the agent catalog via useAgents; pin one agent at the
 // hook seam (the real hook would bootstrap the real plugin system). The

@@ -7,12 +7,8 @@ import { PluginFailurePanel } from "./PluginFailurePanel";
 const managerMock = vi.hoisted(() => ({
   restartPlugin: vi.fn(async () => {}),
 }));
-vi.mock("../../app/runtimeContext", () => ({
-  useRuntimePart: (part: string) => {
-    const parts: Record<string, unknown> = { plugins: managerMock };
-    return parts[part];
-  },
-}));
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ plugins: managerMock }));
 const clipboardMock = vi.hoisted(() => ({
   writeText: vi.fn(async (_text: string) => {}),
 }));

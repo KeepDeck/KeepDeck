@@ -28,10 +28,8 @@ const index = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../../app/runtimeContext", () => ({ useRuntimePart: (part: string) => {
-    const parts: Record<string, unknown> = { sessionIndex: index.manager };
-    return parts[part];
-  } }));
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ sessionIndex: index.manager }));
 const projects = vi.hoisted(() => ({ current: [] as { root: string; sessions: number; lastAt: number }[] }));
 vi.mock("../../ipc/history", () => ({ recentProjects: () => Promise.resolve({ home: "/Users/me", projects: projects.current }) }));
 
