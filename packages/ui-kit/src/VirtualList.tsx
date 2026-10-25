@@ -170,21 +170,25 @@ export function VirtualList<T>({
     if (atEnd) onReachEnd?.();
   }, [atEnd, items.length, onReachEnd]);
 
+  // The reveal's render inputs, read through a ref: the effect below is
+  // triggered by a CHANGE of revealKey alone (see the prop), and a render
+  // with the same key must never scroll even when its items changed.
+  const revealRef = useRef({ fold, items, itemKey, reveal });
+  revealRef.current = { fold, items, itemKey, reveal };
   // In the layout phase: the frame painted is already scrolled — a passive
   // effect paints one frame with the cursor out of view first, a stutter
   // on every held arrow key.
   useLayoutEffect(() => {
     if (revealKey === null) return;
-    const index = items.findIndex((it) => itemKey(it) === revealKey);
+    const latest = revealRef.current;
+    const index = latest.items.findIndex((it) => latest.itemKey(it) === revealKey);
     // A key not (yet) among the items is not revealed later: the key must
     // name an item of the same render that sets it. A fold in flight lands
     // first: the reveal reads the final layout, and so must the scroll.
     if (index >= 0) {
-      fold.settle();
-      reveal(index);
+      latest.fold.settle();
+      latest.reveal(index);
     }
-    // A change of the key, never of the items: see `revealKey`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey]);
 
   const frame = fold.frame;
