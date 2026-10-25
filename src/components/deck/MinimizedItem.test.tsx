@@ -13,6 +13,7 @@ import {
   MINIMIZED_TOOLTIP_DELAY_MS,
   MinimizedItem,
 } from "./MinimizedItem";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("MinimizedItem", () => {
   let root: Root;
@@ -38,7 +39,7 @@ describe("MinimizedItem", () => {
       (payload) => (payload as { edge?: AgentStatusEvent }).edge ?? null,
     );
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     onClick.mockClear();
     render({
       paneId: "pane-1",
@@ -68,9 +69,9 @@ describe("MinimizedItem", () => {
       active: true,
       onClick,
     });
-    const chip = document.querySelector(".minimized")!;
+    const chip = present(document.querySelector(".minimized"), "the .minimized element");
     expect(chip.classList.contains("minimized--frame-stopped")).toBe(true);
-    expect(chip.firstElementChild!.className).toBe("minimized__agent");
+    expect(present(chip.firstElementChild, "the firstElementChild of chip").className).toBe("minimized__agent");
     expect(chip.querySelector(".minimized__branch")).toBeNull();
     expect(chip.querySelector(".minimized__word")).toBeNull();
   });
@@ -82,7 +83,7 @@ describe("MinimizedItem", () => {
         edge: { kind: "waiting", at: Date.now(), reason: "permission" },
       }),
     );
-    const word = document.querySelector<HTMLElement>(".minimized__word")!;
+    const word = present(document.querySelector<HTMLElement>(".minimized__word"), "the .minimized__word element");
     expect(word.textContent).toBe("needs you");
     expect(word.className).toBe("minimized__word minimized__word--waiting");
   });
@@ -99,13 +100,13 @@ describe("MinimizedItem", () => {
       active: true,
       onClick,
     });
-    const marker = document.querySelector<HTMLElement>(".minimized__yolo")!;
+    const marker = present(document.querySelector<HTMLElement>(".minimized__yolo"), "the .minimized__yolo element");
     expect(marker.querySelector("svg")).not.toBeNull();
     expect(marker.title).toContain("without permission prompts");
   });
 
   it("replaces native title bubbles with full details after hover intent", () => {
-    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     expect(button.title).toBe("");
     expect(document.querySelector("[role='tooltip']")).toBeNull();
 
@@ -116,7 +117,7 @@ describe("MinimizedItem", () => {
     expect(document.querySelector("[role='tooltip']")).toBeNull();
 
     act(() => vi.advanceTimersByTime(1));
-    const tooltip = document.querySelector<HTMLElement>("[role='tooltip']")!;
+    const tooltip = present(document.querySelector<HTMLElement>("[role='tooltip']"), "the [role='tooltip'] element");
     expect(tooltip.textContent).toContain("A deliberately long agent title");
     expect(tooltip.textContent).toContain("fix/a-deliberately-long-branch");
     expect(button.getAttribute("aria-describedby")).toBe(tooltip.id);
@@ -128,7 +129,7 @@ describe("MinimizedItem", () => {
   });
 
   it("shows the same details immediately for keyboard focus", () => {
-    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     act(() => button.focus());
     expect(document.querySelector("[role='tooltip']")?.textContent).toContain(
       "fix/a-deliberately-long-branch",
@@ -147,25 +148,25 @@ describe("MinimizedItem", () => {
       active: true,
       onClick,
     });
-    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     act(() => button.focus());
 
-    const line = document.querySelector<HTMLElement>(
+    const line = present(document.querySelector<HTMLElement>(
       ".minimized-tooltip__team",
-    )!;
+    ), "the .minimized-tooltip__team element");
     // The same wording the header badge offers on its own hover — one home.
     expect(line.textContent).toBe(teamBadgeTitle("improvements", "lead"));
   });
 
   it("shows no team line for a pane on no team", () => {
-    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     act(() => button.focus());
     expect(document.querySelector("[role='tooltip']")).not.toBeNull();
     expect(document.querySelector(".minimized-tooltip__team")).toBeNull();
   });
 
   it("closes details and restores the agent on click", () => {
-    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     act(() => button.focus());
     act(() => button.click());
 
@@ -174,7 +175,7 @@ describe("MinimizedItem", () => {
   });
 
   it("wears the pane's status frame — attention must survive minimizing", () => {
-    let button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    let button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     expect(button.className).not.toContain("minimized--frame");
 
     act(() =>
@@ -183,7 +184,7 @@ describe("MinimizedItem", () => {
         edge: { kind: "waiting", at: Date.now(), reason: "permission" },
       }),
     );
-    button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     expect(button.className).toContain("minimized--frame-waiting");
 
     act(() =>
@@ -192,7 +193,7 @@ describe("MinimizedItem", () => {
         edge: { kind: "turn-end", at: Date.now() },
       }),
     );
-    button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     // No selection in the tray: done shows on its own rung.
     expect(button.className).toContain("minimized--frame-done");
 
@@ -202,13 +203,13 @@ describe("MinimizedItem", () => {
         edge: { kind: "turn-start", at: Date.now() },
       }),
     );
-    button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     // A running agent shows too — the tray is exactly where it isn't on screen.
     expect(button.className).toContain("minimized--frame-working");
   });
 
   it("names the pane's live status in the hover details", () => {
-    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     const hover = () => {
       act(() => {
         button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
@@ -229,9 +230,9 @@ describe("MinimizedItem", () => {
       }),
     );
     hover();
-    const status = document.querySelector<HTMLElement>(
+    const status = present(document.querySelector<HTMLElement>(
       ".minimized-tooltip__status",
-    )!;
+    ), "the .minimized-tooltip__status element");
     expect(status.textContent).toContain("Needs approval");
     expect(status.className).toContain("minimized-tooltip__status--waiting");
 
@@ -266,7 +267,7 @@ describe("MinimizedItem", () => {
       active: true,
       onClick,
     });
-    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     // No stale status frame: only the stopped ring a suspended agent wears.
     expect(button.className).toBe("minimized minimized--chip minimized--frame-stopped");
   });

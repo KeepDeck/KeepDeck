@@ -22,6 +22,7 @@ vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
 import { openUrl } from "../../ipc/app";
 import { artifactDelete, artifactResolveUrls } from "../../ipc/artifacts";
 import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The reads are a port the dialog is handed, doubled as one object for the
 // whole file — the machine keys its list effect on it.
@@ -218,16 +219,16 @@ describe("ArtifactsDialog", () => {
     await settle();
     expect(rowsOnScreen()).toHaveLength(2);
 
-    const search = document.querySelector<HTMLInputElement>(".artifacts__search")!;
+    const search = present(document.querySelector<HTMLInputElement>(".artifacts__search"), "the .artifacts__search element");
     // React tracks a controlled input's value through its own setter, so
     // a plain assignment is invisible to it — the sessions browser's
     // tests type the same way.
     const type = (text: string) =>
       act(() => {
-        Object.getOwnPropertyDescriptor(
+        present(present(Object.getOwnPropertyDescriptor(
           Object.getPrototypeOf(search),
           "value",
-        )!.set!.call(search, text);
+        ), "the value setter").set, "the value setter").call(search, text);
         search.dispatchEvent(new Event("input", { bubbles: true }));
       });
 

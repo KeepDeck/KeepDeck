@@ -4,6 +4,7 @@ import {
   registerTerminalPaneInput,
   terminalPaneInput,
 } from "./paneInputBinding";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("terminalPaneInput", () => {
   it("PASTE channel drives the terminal's term.paste, not the raw writer", () => {
@@ -13,7 +14,7 @@ describe("terminalPaneInput", () => {
 
     // terminalPaneInput always provides a paste channel.
     expect(input.paste).toBeDefined();
-    input.paste!("fix the header");
+    present(input.paste, "the paste handler")("fix the header");
 
     expect(paste).toHaveBeenCalledWith("fix the header");
     // A paste must not double-deliver through the raw PTY writer — the PASTE

@@ -12,6 +12,7 @@ import {
   type UsageStatsPeriod,
 } from "../../domain/usage/history/query";
 import { Overview } from "./Overview";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The Overview body: headline numbers, the recap sentence, the coverage
  * disclaimer and the period-independent Weeks block. It takes the queried
@@ -37,7 +38,7 @@ describe("Overview", () => {
   beforeEach(() => {
     vi.setSystemTime(NOW);
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -83,7 +84,7 @@ describe("Overview", () => {
         tokens: { input: 800 },
       }),
     ]);
-    const recap = host.querySelector(".stats__recap")!;
+    const recap = present(host.querySelector(".stats__recap"), "the .stats__recap element");
     expect(recap.textContent).toContain("+100% vs prior 7d");
     expect(recap.textContent).toContain("busiest day");
   });
@@ -101,7 +102,7 @@ describe("Overview", () => {
     // The recap must still be THERE — it has a busiest day to report. An
     // assertion that passed on a missing element would also pass on a recap
     // that stopped rendering altogether.
-    const recap = host.querySelector(".stats__recap")!;
+    const recap = present(host.querySelector(".stats__recap"), "the .stats__recap element");
     expect(recap.textContent).toContain("busiest day");
     expect(recap.textContent).not.toContain("vs prior");
   });

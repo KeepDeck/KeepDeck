@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { RestartOutcome } from "../../app/agentOrchestrator";
 import { useRestart } from "./useRestart";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Drive the hook from a throwaway component, exposing its state to the test.
  * The machine could not be reached at all while it lived inside the pane. */
@@ -23,7 +24,7 @@ function harness(
   return {
     root,
     Probe,
-    read: () => state!,
+    read: () => present(state, "the state"),
     park(stopped: unknown) {
       act(() => root.render(createElement(Probe, { stopped })));
     },

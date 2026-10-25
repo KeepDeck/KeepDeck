@@ -9,6 +9,7 @@ import {
 } from "../../domain/usage/history/event.testSupport";
 import { readStyles, ruleBody } from "../../styles/testSupport";
 import { Achievements } from "./Achievements";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The gallery takes one prop and computes everything else from the ledger,
  * so it is mounted directly: no history mock, no dialog shell, no tab click
@@ -34,7 +35,7 @@ describe("Achievements", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -50,16 +51,16 @@ describe("Achievements", () => {
 
   const cards = () => [...host.querySelectorAll(".stats__achievement")];
   const card = (text: string) =>
-    cards().find((item) => item.textContent?.includes(text))!;
+    present(cards().find((item) => item.textContent?.includes(text)), "the matching card");
 
   it("splits the gallery into In progress, Earned and Locked", () => {
     render();
 
     const sections = [...host.querySelectorAll(".stats__section")];
     const byTitle = (title: string) =>
-      sections.find(
+      present(sections.find(
         (section) => section.querySelector("h3")?.textContent === title,
-      )!;
+      ), "the h3 element");
     const inProgress = byTitle("In progress");
     const earned = byTitle("Earned");
     const locked = byTitle("Locked");
@@ -312,5 +313,5 @@ function hover(item: Element, type: "mouseover" | "mouseout" = "mouseover") {
 }
 
 function tooltip(): string {
-  return document.querySelector('[role="tooltip"]')!.textContent ?? "";
+  return present(document.querySelector('[role="tooltip"]'), "the [role=\"tooltip\"] element").textContent ?? "";
 }

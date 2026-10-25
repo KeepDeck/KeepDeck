@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubCanvasContext } from "../canvasContext.test-support";
 import { AchievementEmbers, reseed, seedField } from "./AchievementEmbers";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The card the stylesheet would give this field: a 158×93 padding box plus
  * 26px of halo on every side. The test DOM lays nothing out, so the one
@@ -111,15 +112,15 @@ describe("AchievementEmbers", () => {
     // The layer class is what keeps the card's content rules off this
     // element. Without it the canvas joins the flow, grows the card, and
     // the card's height feeds straight back into the canvas's own size.
-    expect(canvas!.classList.contains("stats__achievement-layer")).toBe(true);
-    expect(canvas!.classList.contains("stats__achievement-embers")).toBe(true);
+    expect(present(canvas, "the canvas").classList.contains("stats__achievement-layer")).toBe(true);
+    expect(present(canvas, "the canvas").classList.contains("stats__achievement-embers")).toBe(true);
     // Decorative: it carries no meaning a reader would miss.
-    expect(canvas!.getAttribute("aria-hidden")).toBe("true");
+    expect(present(canvas, "the canvas").getAttribute("aria-hidden")).toBe("true");
   });
 
   it("sizes its bitmap from its own box, scaled for the display", () => {
     const host = render();
-    const canvas = host.querySelector("canvas")!;
+    const canvas = present(host.querySelector("canvas"), "the canvas element");
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     expect(canvas.width).toBe(BOX.width * ratio);
     expect(canvas.height).toBe(BOX.height * ratio);

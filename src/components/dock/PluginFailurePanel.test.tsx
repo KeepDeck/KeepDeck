@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginFailurePanel } from "./PluginFailurePanel";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const managerMock = vi.hoisted(() => ({
   restartPlugin: vi.fn(async () => {}),
@@ -35,7 +36,7 @@ describe("PluginFailurePanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     act(() =>
       root.render(
         createElement(PluginFailurePanel, {
@@ -49,15 +50,15 @@ describe("PluginFailurePanel", () => {
   afterEach(() => act(() => root.unmount()));
 
   const button = (text: string) =>
-    Array.from(document.querySelectorAll("button")).find(
+    present(Array.from(document.querySelectorAll("button")).find(
       (b) => b.textContent === text,
-    )!;
+    ), "the button elements");
 
   it("names the plugin, the latest fallen surface, and shows the full log", () => {
     expect(document.body.textContent).toContain("Files isn't working");
     expect(document.body.textContent).toContain('tab "files"');
-    const pre = document.querySelector(".plugin-failure__log")!;
-    const log = pre.textContent!;
+    const pre = present(document.querySelector(".plugin-failure__log"), "the .plugin-failure__log element");
+    const log = present(pre.textContent, "the failure log text");
     expect(log).toContain('[overlay "viewer"] Error: render died');
     expect(log).toContain('[tab "files"] Error: again');
     // Copy log is one way out; selecting part of it is the other, and the
@@ -70,7 +71,7 @@ describe("PluginFailurePanel", () => {
     expect(clipboardMock.writeText).toHaveBeenCalledTimes(1);
     const copied = clipboardMock.writeText.mock.calls[0][0];
     expect(copied).toBe(
-      document.querySelector(".plugin-failure__log")!.textContent,
+      present(document.querySelector(".plugin-failure__log"), "the .plugin-failure__log element").textContent,
     );
   });
 

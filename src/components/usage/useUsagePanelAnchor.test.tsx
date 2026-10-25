@@ -3,6 +3,7 @@ import { act, createElement, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUsagePanelAnchor } from "./useUsagePanelAnchor";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** Geometry the test states on each element, since happy-dom lays nothing
  *  out: `data-x` is the element's left edge, `data-w` its width. */
@@ -60,7 +61,7 @@ describe("useUsagePanelAnchor", () => {
 
   const render = (props: Parameters<typeof Harness>[0]) =>
     act(() => root.render(createElement(Harness, props)));
-  const left = () => host.querySelector("div")!.dataset.left;
+  const left = () => present(host.querySelector("div"), "the div element").dataset.left;
 
   it("hangs the panel from the chip that opened it", () => {
     // Group at 500, chip at 620 — 120 along from the group's own left edge.

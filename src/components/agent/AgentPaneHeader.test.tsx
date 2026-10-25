@@ -7,6 +7,7 @@ import {
   AgentPaneHeader,
   type AgentPaneHeaderProps,
 } from "./AgentPaneHeader";
+import { present } from "@keepdeck/plugin-api/testing";
 
 
 const baseProps: AgentPaneHeaderProps = {
@@ -54,12 +55,12 @@ describe("AgentPaneHeader", () => {
 
   it("leads with the status dot, its words in the tooltip, and maps the tone to a class", () => {
     render({ view: view({ status: { tone: "working", label: "Working", tooltip: "Working · now" } }) });
-    const dot = host.querySelector<HTMLElement>(".pane__status")!;
+    const dot = present(host.querySelector<HTMLElement>(".pane__status"), "the .pane__status element");
     expect(dot.className).toBe("pane__status pane__status--working");
     expect(dot.textContent).toBe("");
     expect(dot.title).toBe("Working · now");
     // First in the identity: how the agent is doing reads before who it is.
-    expect(host.querySelector(".pane__identity")!.firstElementChild).toBe(dot);
+    expect(present(host.querySelector(".pane__identity"), "the .pane__identity element").firstElementChild).toBe(dot);
 
     render();
     expect(host.querySelector(".pane__status")).toBeNull();
@@ -68,7 +69,7 @@ describe("AgentPaneHeader", () => {
   it("says the state in words only when the view hands it a word", () => {
     const status = { tone: "waiting" as const, label: "Needs approval", tooltip: "" };
     render({ view: view({ status, stateWord: "Needs approval" }) });
-    const word = host.querySelector<HTMLElement>(".pane__state")!;
+    const word = present(host.querySelector<HTMLElement>(".pane__state"), "the .pane__state element");
     expect(word.textContent).toBe("Needs approval");
     expect(word.className).toBe("pane__state pane__state--waiting");
 
@@ -78,7 +79,7 @@ describe("AgentPaneHeader", () => {
 
   it("shows context as a number with its level class, only when the view has it", () => {
     render({ view: view({ ctx: { label: "82%", title: "Context 82% used", level: "warn" } }) });
-    const ctx = host.querySelector<HTMLElement>(".pane__ctx")!;
+    const ctx = present(host.querySelector<HTMLElement>(".pane__ctx"), "the .pane__ctx element");
     expect(ctx.textContent).toBe("82%");
     expect(ctx.className).toBe("pane__ctx pane__ctx--warn");
     expect(ctx.title).toBe("Context 82% used");
@@ -97,15 +98,15 @@ describe("AgentPaneHeader", () => {
     });
     // The role is identity: after the title, led by a silent separator it
     // carries inside itself (so the ladder never counts a separate item).
-    const identity = [...host.querySelector(".pane__identity")!.children].map(
+    const identity = [...present(host.querySelector(".pane__identity"), "the .pane__identity element").children].map(
       (el) => el.className.split(" ")[0],
     );
     expect(identity.slice(-2)).toEqual(["pane__title", "pane__role"]);
-    const sep = host.querySelector(".pane__role > .pane__sep")!;
+    const sep = present(host.querySelector(".pane__role > .pane__sep"), "the .pane__role > .pane__sep element");
     expect(sep.getAttribute("aria-hidden")).toBe("true");
     // Context is the session's reading, not its name: in the cluster, just
     // before the bolt.
-    const actions = [...host.querySelector(".pane__actions")!.children].map(
+    const actions = [...present(host.querySelector(".pane__actions"), "the .pane__actions element").children].map(
       (el) => el.className.split(" ")[0],
     );
     expect(actions.indexOf("pane__ctx")).toBe(actions.indexOf("yolo-mark") - 1);
@@ -119,11 +120,11 @@ describe("AgentPaneHeader", () => {
   it("renames inline: double-click edits, Enter commits, Escape abandons", () => {
     const onRename = vi.fn();
     render({ onRename });
-    const title = host.querySelector<HTMLElement>(".pane__title")!;
+    const title = present(host.querySelector<HTMLElement>(".pane__title"), "the .pane__title element");
     act(() =>
       title.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
     );
-    const input = host.querySelector<HTMLInputElement>(".pane__rename")!;
+    const input = present(host.querySelector<HTMLInputElement>(".pane__rename"), "the .pane__rename element");
     expect(input.value).toBe("Claude 1");
     // The shared field's look, not a pane-private copy of it.
     expect(input.classList.contains("rename-input")).toBe(true);
@@ -131,10 +132,10 @@ describe("AgentPaneHeader", () => {
     act(() => {
       // Through the native setter: React's value tracker dedupes a plain
       // `.value =` write and would swallow the input event.
-      Object.getOwnPropertyDescriptor(
+      present(present(Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
         "value",
-      )!.set!.call(input, "Renamed");
+      ), "the value setter").set, "the value setter").call(input, "Renamed");
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
@@ -163,8 +164,8 @@ describe("AgentPaneHeader", () => {
     // opens nothing: a role is picked when the member is added, and the
     // pane's team is the one the stage has open.
     render({ view: view({ role: { text: "impl-1", title: "impl-1 on team api" } }) });
-    const role = host.querySelector<HTMLElement>(".pane__role")!;
-    expect(role.querySelector(".pane__role-text")!.textContent).toBe("impl-1");
+    const role = present(host.querySelector<HTMLElement>(".pane__role"), "the .pane__role element");
+    expect(present(role.querySelector(".pane__role-text"), "the .pane__role-text element").textContent).toBe("impl-1");
     expect(role.title).toBe("impl-1 on team api");
     expect(role.closest("button")).toBeNull();
   });

@@ -54,6 +54,7 @@ import {
 import { AppRuntimeProvider } from "../../app/runtimeContext";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The runtime slice AgentPane actually reads (its activity and ctx%
  * selectors). Fresh stores per test — the factories' whole point. */
@@ -177,9 +178,9 @@ describe("AgentPane — the occupied-session card", () => {
       "Leave it",
     ]);
     expect(document.body.textContent).not.toContain("Open in terminal");
-    act(() => buttons()[0]!.click());
+    act(() => present(buttons()[0], "the first button").click());
     expect(onForkOccupied).toHaveBeenCalledTimes(1);
-    act(() => buttons()[1]!.click());
+    act(() => present(buttons()[1], "the second button").click());
     expect(onDismissOccupied).toHaveBeenCalledTimes(1);
   });
 
@@ -229,9 +230,9 @@ describe("AgentPane — header badges", () => {
 
     const ctx = document.querySelector<HTMLElement>(".pane__ctx");
     expect(ctx).not.toBeNull();
-    expect(ctx!.textContent).toBe("82%");
+    expect(present(ctx, "the context chip").textContent).toBe("82%");
     // 82% is autocompact territory → amber, not calm.
-    expect(ctx!.className).toContain("pane__ctx--warn");
+    expect(present(ctx, "the context chip").className).toContain("pane__ctx--warn");
   });
 
   it("names which teammate this pane is, and shows nothing when it is none", () => {
@@ -251,9 +252,9 @@ describe("AgentPane — header badges", () => {
       ),
     );
     const badge = document.querySelector<HTMLElement>(".pane__role");
-    expect(badge!.querySelector(".pane__role-text")!.textContent).toBe("impl-1");
+    expect(present(present(badge, "the badge").querySelector(".pane__role-text"), "the .pane__role-text element").textContent).toBe("impl-1");
     // The team name is the tooltip's job — the role is the address.
-    expect(badge!.title).toContain("api");
+    expect(present(badge, "the badge").title).toContain("api");
   });
 
   it("shows no context meter when the pane reports no usage", () => {
@@ -349,7 +350,7 @@ describe("AgentPane — header badges", () => {
   it("can receive restored focus without entering the tab order", () => {
     act(() => root.render(createElement(PaneUnderTest,baseProps)));
 
-    const pane = document.querySelector<HTMLElement>("[data-pane-id='ws:1']")!;
+    const pane = present(document.querySelector<HTMLElement>("[data-pane-id='ws:1']"), "the [data-pane-id='ws:1'] element");
     expect(pane.tabIndex).toBe(-1);
     act(() => pane.focus());
     expect(document.activeElement).toBe(pane);
@@ -385,8 +386,8 @@ describe("AgentPane — activity badge", () => {
 
     const badge = document.querySelector<HTMLElement>(".pane__status");
     expect(badge).not.toBeNull();
-    expect(badge!.className).toContain("pane__status--working");
-    expect(badge!.title).toBe("Working · now");
+    expect(present(badge, "the badge").className).toContain("pane__status--working");
+    expect(present(badge, "the badge").title).toBe("Working · now");
     expect(document.querySelector(".pane__state")).toBeNull();
   });
 
@@ -396,11 +397,11 @@ describe("AgentPane — activity badge", () => {
 
     let badge = document.querySelector<HTMLElement>(".pane__status");
     // The tone class alone carries the hue (status.css owns the palette).
-    expect(badge!.className).toContain("pane__status--waiting");
-    expect(badge!.title).toBe("Needs approval · now");
-    expect(document.querySelector(".pane__state")!.textContent).toBe("Needs approval");
+    expect(present(badge, "the badge").className).toContain("pane__status--waiting");
+    expect(present(badge, "the badge").title).toBe("Needs approval · now");
+    expect(present(document.querySelector(".pane__state"), "the .pane__state element").textContent).toBe("Needs approval");
     let pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-waiting");
+    expect(present(pane, "the pane").className).toContain("pane--frame-waiting");
 
     reportEdge({
       kind: "turn-failed",
@@ -409,12 +410,12 @@ describe("AgentPane — activity badge", () => {
       detail: "Weekly limit reached",
     });
     badge = document.querySelector<HTMLElement>(".pane__status");
-    expect(badge!.className).toContain("pane__status--failed");
+    expect(present(badge, "the badge").className).toContain("pane__status--failed");
     // The label is said; the longer prose rides the tooltip.
-    expect(document.querySelector(".pane__state")!.textContent).toBe("Rate limited");
-    expect(badge!.title).toBe("Rate limited — Weekly limit reached · now");
+    expect(present(document.querySelector(".pane__state"), "the .pane__state element").textContent).toBe("Rate limited");
+    expect(present(badge, "the badge").title).toBe("Rate limited — Weekly limit reached · now");
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-failed");
+    expect(present(pane, "the pane").className).toContain("pane--frame-failed");
   });
 
   it("ranks the frame by the domain ladder — attention beats selection, working and done yield", () => {
@@ -429,27 +430,27 @@ describe("AgentPane — activity badge", () => {
       ),
     );
     let pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-selected");
+    expect(present(pane, "the pane").className).toContain("pane--frame-selected");
 
     reportEdge({ kind: "waiting", at: Date.now(), reason: "question" });
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-waiting");
-    expect(pane!.className).not.toContain("pane--frame-selected");
+    expect(present(pane, "the pane").className).toContain("pane--frame-waiting");
+    expect(present(pane, "the pane").className).not.toContain("pane--frame-selected");
 
     // Done yields to selection on the selected pane…
     reportEdge({ kind: "turn-end", at: Date.now() });
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-selected");
+    expect(present(pane, "the pane").className).toContain("pane--frame-selected");
 
     // …and shows on its own once the selection frame is gone.
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-done");
+    expect(present(pane, "the pane").className).toContain("pane--frame-done");
 
     // Working frames on its own rung…
     reportEdge({ kind: "turn-start", at: Date.now() });
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-working");
+    expect(present(pane, "the pane").className).toContain("pane--frame-working");
 
     // …and yields to selection exactly like done does.
     act(() =>
@@ -461,7 +462,7 @@ describe("AgentPane — activity badge", () => {
       ),
     );
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-selected");
+    expect(present(pane, "the pane").className).toContain("pane--frame-selected");
   });
 
   it("wears attention only when its place fills the whole stage — the rim says nothing else", () => {
@@ -470,17 +471,17 @@ describe("AgentPane — activity badge", () => {
     act(() => root.render(createElement(PaneUnderTest, fillsStage)));
     reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
     let pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-waiting");
+    expect(present(pane, "the pane").className).toContain("pane--frame-waiting");
 
     // …but done and working don't — the pane's own header spells them out
     // in place, and a rim repeating them at the screen's edge is noise.
     reportEdge({ kind: "turn-end", at: Date.now() });
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).not.toContain("pane--frame-done");
+    expect(present(pane, "the pane").className).not.toContain("pane--frame-done");
 
     reportEdge({ kind: "turn-start", at: Date.now() });
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).not.toContain("pane--frame-working");
+    expect(present(pane, "the pane").className).not.toContain("pane--frame-working");
 
     // Selection has nothing to pick out from the whole stage either.
     act(() =>
@@ -492,7 +493,7 @@ describe("AgentPane — activity badge", () => {
       ),
     );
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).not.toContain("pane--frame-selected");
+    expect(present(pane, "the pane").className).not.toContain("pane--frame-selected");
 
     // Attention pierces that rim exactly the same way.
     reportEdge({
@@ -502,7 +503,7 @@ describe("AgentPane — activity badge", () => {
       detail: "Weekly limit reached",
     });
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-failed");
+    expect(present(pane, "the pane").className).toContain("pane--frame-failed");
   });
 
   it("frames working and done by the stated place — chrome `solo` is not the stage", () => {
@@ -513,11 +514,11 @@ describe("AgentPane — activity badge", () => {
     act(() => root.render(createElement(PaneUnderTest, row)));
     reportEdge({ kind: "turn-start", at: Date.now() });
     let pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-working");
+    expect(present(pane, "the pane").className).toContain("pane--frame-working");
 
     reportEdge({ kind: "turn-end", at: Date.now() });
     pane = document.querySelector<HTMLElement>(".pane");
-    expect(pane!.className).toContain("pane--frame-done");
+    expect(present(pane, "the pane").className).toContain("pane--frame-done");
   });
 
   it("shows nothing before the first edge, and renders the tracker verbatim", () => {
@@ -596,8 +597,8 @@ describe("AgentPane — provisioning cards", () => {
       ".pane__card-action",
     );
     expect(retry).not.toBeNull();
-    expect(retry!.textContent).toBe("Retry");
-    act(() => retry!.click());
+    expect(present(retry, "the retry button").textContent).toBe("Retry");
+    act(() => present(retry, "the retry button").click());
     expect(onRetryProvision).toHaveBeenCalledTimes(1);
   });
 
@@ -639,8 +640,8 @@ describe("AgentPane — plan-error tile", () => {
     const retry =
       document.querySelector<HTMLButtonElement>(".pane__card-action");
     expect(retry).not.toBeNull();
-    expect(retry!.textContent).toBe("Try again");
-    act(() => retry!.click());
+    expect(present(retry, "the retry button").textContent).toBe("Try again");
+    act(() => present(retry, "the retry button").click());
     expect(onRetryPlan).toHaveBeenCalledTimes(1);
   });
 
@@ -761,7 +762,7 @@ describe("AgentPane — minimize control", () => {
     act(() => root.render(createElement(PaneUnderTest,{ ...baseProps, onMinimize })));
     const btn = minimizeBtn();
     expect(btn).not.toBeNull();
-    act(() => btn!.click());
+    act(() => present(btn, "the btn").click());
     expect(onMinimize).toHaveBeenCalledTimes(1);
   });
 
@@ -780,8 +781,8 @@ describe("AgentPane — minimize control", () => {
       root.render(createElement(PaneUnderTest,{ ...baseProps, onSelect })),
     );
     act(() =>
-      document
-        .querySelector<HTMLElement>(".pane__bar")!
+      present(document
+        .querySelector<HTMLElement>(".pane__bar"), "the .pane__bar element")
         .dispatchEvent(new MouseEvent("mousedown", { bubbles: true })),
     );
     expect(onSelect).toHaveBeenCalled();
@@ -1043,8 +1044,8 @@ describe("AgentPane — suspended / parked card", () => {
     // A suspended pane has no process — mounting a terminal would spawn one.
     expect(TerminalPane).not.toHaveBeenCalled();
 
-    expect(action()!.textContent).toBe("Resume");
-    act(() => action()!.click());
+    expect(present(action(), "the action button").textContent).toBe("Resume");
+    act(() => present(action(), "the action button").click());
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
@@ -1061,7 +1062,7 @@ describe("AgentPane — suspended / parked card", () => {
       ),
     );
 
-    const line = document.querySelector<HTMLElement>(".pane__idle-session")!;
+    const line = present(document.querySelector<HTMLElement>(".pane__idle-session"), "the .pane__idle-session element");
     expect(line).not.toBeNull();
     expect(line.textContent).toBe(`Resume session: ${id}`);
     // The id is here TO BE COPIED, and the document baseline makes chrome
@@ -1132,7 +1133,7 @@ describe("AgentPane — suspended / parked card", () => {
     expect(document.body.textContent).not.toContain("Suspended");
     expect(document.body.textContent).not.toContain("ago");
     // Same verb as a suspended pane: one gesture, one word for it.
-    expect(action()!.textContent).toBe("Resume");
+    expect(present(action(), "the action button").textContent).toBe("Resume");
   });
 
   it("keeps the transient restored tile free of a resume gesture", () => {
@@ -1167,7 +1168,7 @@ describe("AgentPane — suspended / parked card", () => {
     );
 
     expect(document.querySelector(".pane--idle")).not.toBeNull();
-    act(() => action()!.click());
+    act(() => present(action(), "the action button").click());
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
@@ -1317,18 +1318,18 @@ describe("AgentPane — a refused resume explains itself", () => {
         }),
       ),
     );
-    expect(document.querySelector(".pane__wake-error")!.textContent).toContain('role "lead" is taken');
+    expect(present(document.querySelector(".pane__wake-error"), "the .pane__wake-error element").textContent).toContain('role "lead" is taken');
     expect(document.body.textContent).toContain(START_FRESH_WORDS.pickRole);
     const startFresh = () =>
-      [...document.querySelectorAll<HTMLButtonElement>(".pane__card-action")].find(
+      present([...document.querySelectorAll<HTMLButtonElement>(".pane__card-action")].find(
         (b) => b.textContent === START_FRESH_WORDS.action,
-      )!;
+      ), "the matching element");
     expect(startFresh().disabled).toBe(true);
 
-    act(() => document.querySelector<HTMLButtonElement>(".pane__card-role .dropdown__button")!.click());
-    const impl = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
-      (b) => b.textContent === roleById("impl")!.label,
-    )!;
+    act(() => present(document.querySelector<HTMLButtonElement>(".pane__card-role .dropdown__button"), "the .pane__card-role .dropdown__button element").click());
+    const impl = present([...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (b) => b.textContent === present(roleById("impl"), "the role \"impl\"").label,
+    ), "the matching element");
     act(() => impl.click());
     expect(startFresh().disabled).toBe(false);
     act(() => startFresh().click());

@@ -33,6 +33,7 @@ vi.mock("../app/ptyManager", () => ({
 
 import { TerminalPane } from "./terminal/TerminalPane";
 import { DeckStage } from "./DeckStage";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // Every pane on the workspace's one team, which the view below keeps open:
 // the stage lays out the open team's members and nothing else.
@@ -152,7 +153,7 @@ describe("DeckStage — suspended agents", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
     vi.mocked(TerminalPane).mockClear();
     for (const callback of Object.values(callbacks)) callback.mockClear();
   });
@@ -166,23 +167,23 @@ describe("DeckStage — suspended agents", () => {
 
   const openOnlyTrayEntry = () => {
     act(() =>
-      document
-        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger")!
+      present(document
+        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger"), "the .minimized-overflow__trigger element")
         .click(),
     );
-    return document.querySelector<HTMLButtonElement>(
+    return present(document.querySelector<HTMLButtonElement>(
       "[role='dialog'] .minimized--chip",
-    )!;
+    ), "the [role='dialog'] .minimized--chip element");
   };
 
   it("keeps the stopped card in place and resumes only from its action", () => {
     render({ workspaces: suspended });
-    const pane = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
+    const pane = present(document.querySelector<HTMLElement>("[data-pane-id='pane-1']"), "the [data-pane-id='pane-1'] element");
     expect(pane.textContent).toContain("Suspended");
     expect(vi.mocked(TerminalPane).mock.calls.map((call) => call[0].paneId)).toEqual([
       "pane-2",
     ]);
-    act(() => pane.querySelector<HTMLButtonElement>(".pane__card-action")!.click());
+    act(() => present(pane.querySelector<HTMLButtonElement>(".pane__card-action"), "the .pane__card-action element").click());
     expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
   });
 
@@ -192,8 +193,8 @@ describe("DeckStage — suspended agents", () => {
       viewByWs: { "ws-1": { suspendedTray: ["pane-1"] } },
     });
     expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
+      present(document
+        .querySelector<HTMLElement>("[data-pane-id='pane-1']"), "the [data-pane-id='pane-1'] element")
         .classList.contains("pane--hidden"),
     ).toBe(true);
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
@@ -213,11 +214,11 @@ describe("DeckStage — suspended agents", () => {
       workspaces: suspended,
       viewByWs: { "ws-1": { select: "pane-1" } },
     });
-    const pane = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
+    const pane = present(document.querySelector<HTMLElement>("[data-pane-id='pane-1']"), "the [data-pane-id='pane-1'] element");
     expect(pane.classList.contains("pane--hidden")).toBe(false);
     expect(pane.textContent).toContain("Suspended");
     expect(document.querySelector(".deck__tray")).toBeNull();
-    act(() => pane.querySelector<HTMLButtonElement>(".pane__card-action")!.click());
+    act(() => present(pane.querySelector<HTMLButtonElement>(".pane__card-action"), "the .pane__card-action element").click());
     expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
   });
 
@@ -240,8 +241,8 @@ describe("DeckStage — suspended agents", () => {
     });
 
     expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
+      present(document
+        .querySelector<HTMLElement>("[data-pane-id='pane-1']"), "the [data-pane-id='pane-1'] element")
         .classList.contains("pane--hidden"),
     ).toBe(true);
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
@@ -258,8 +259,8 @@ describe("DeckStage — suspended agents", () => {
   it("does not derive tray placement from the suspended marker alone", () => {
     render({ workspaces: suspended });
     expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
+      present(document
+        .querySelector<HTMLElement>("[data-pane-id='pane-1']"), "the [data-pane-id='pane-1'] element")
         .classList.contains("pane--hidden"),
     ).toBe(false);
     expect(document.querySelector(".deck__tray")).toBeNull();

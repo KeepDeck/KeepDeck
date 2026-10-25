@@ -23,6 +23,7 @@ import type { AgentInfo } from "../../domain/agents";
 import type { AccountUsage } from "../../domain/usage";
 import { accountWindowKeys, type WindowReport } from "../../domain/usage/reportJournal";
 import { UsagePanel } from "./UsagePanel";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 const MIN = 60_000;
@@ -94,7 +95,7 @@ describe("UsagePanel", () => {
           accounts: new Map([["claude", twinAccount]]),
           display: "used" as const,
           now: NOW,
-          reportsByKey: new Map([[keys.get(twin[1])!.key, reports]]),
+          reportsByKey: new Map([[present(keys.get(twin[1]), "the key for twin[1]").key, reports]]),
           seriesColors: new Map<string, string>(),
           onOpenStats: vi.fn(),
           onClose: vi.fn(),
@@ -116,7 +117,7 @@ describe("UsagePanel", () => {
       reportedAt: NOW - (4 - index) * 10 * MIN,
       resetsAt: window.resetsAt,
     }));
-    const host = render(new Map([[keys.get(window)!.key, reports]]));
+    const host = render(new Map([[present(keys.get(window), "the key for window").key, reports]]));
 
     // The next relevant event replaces the reset countdown, colored.
     expect(host.textContent).toContain("hits the limit in ~");

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { welcomeView } from "../../presentation/welcomeView";
 import { WelcomeScreen } from "./WelcomeScreen";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = 10 * 86_400_000;
 const agents = [{ label: "claude", installed: true }];
@@ -37,7 +38,7 @@ describe("WelcomeScreen", () => {
     expect(host.querySelectorAll(".welcome__steps li")).toHaveLength(3);
     expect(host.querySelector(".welcome__agents")?.textContent).toContain("claude");
     expect(host.querySelector(".welcome__recent")).toBeNull();
-    act(() => host.querySelector<HTMLButtonElement>(".welcome__open")!.click());
+    act(() => present(host.querySelector<HTMLButtonElement>(".welcome__open"), "the .welcome__open element").click());
     expect(handlers.onOpenFolder).toHaveBeenCalledOnce();
   });
 
@@ -48,7 +49,7 @@ describe("WelcomeScreen", () => {
     expect(rows.map((row) => row.querySelector(".welcome__project-name")?.textContent)).toEqual(["p0", "p1", "p2", "p3", "p4"]);
     act(() => rows[2].click());
     expect(handlers.onChoose).toHaveBeenCalledWith("/Users/me/p2");
-    act(() => host.querySelector<HTMLButtonElement>(".welcome__more")!.click());
+    act(() => present(host.querySelector<HTMLButtonElement>(".welcome__more"), "the .welcome__more element").click());
     expect(handlers.onShowAll).toHaveBeenCalledOnce();
   });
 
@@ -56,11 +57,11 @@ describe("WelcomeScreen", () => {
     let showAll = false;
     const handlers = { onOpenFolder: vi.fn(), onChoose: vi.fn(), onShowAll: vi.fn(() => void (showAll = true)) };
     render(welcomeView({ projects, home: null, showAll: false, agents, now: NOW }), handlers);
-    act(() => host.querySelector<HTMLButtonElement>(".welcome__more")!.click());
+    act(() => present(host.querySelector<HTMLButtonElement>(".welcome__more"), "the .welcome__more element").click());
     render(welcomeView({ projects, home: null, showAll, agents, now: NOW }), handlers);
     expect(document.activeElement?.querySelector(".welcome__project-name")?.textContent).toBe("p5");
     // Handed once: a later render leaves the keyboard where the person takes it.
-    act(() => host.querySelector<HTMLButtonElement>(".welcome__project")!.focus());
+    act(() => present(host.querySelector<HTMLButtonElement>(".welcome__project"), "the .welcome__project element").focus());
     render(welcomeView({ projects, home: null, showAll, agents, now: NOW }), handlers);
     expect(document.activeElement?.querySelector(".welcome__project-name")?.textContent).toBe("p0");
   });
