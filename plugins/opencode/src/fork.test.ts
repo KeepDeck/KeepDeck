@@ -34,8 +34,13 @@ const v2 = (options: Partial<FakeOpencodeOptions> = {}) =>
 
 /** The verb of a run: `export`/`import` on 1.x, `session export`/… on 2.x. */
 const verb = (run: FakeRun) => run.args.find((arg) => arg === "export" || arg === "import");
-/** A read-back is an export of the clone, not of the source. */
-const isReadBack = (run: FakeRun) => verb(run) === "export" && !run.args.includes(SRC);
+/** An export of the clone, not of the source: before the import, the check
+ * that its id is free; after it, the read-back. */
+const isCloneExport = (run: FakeRun) => verb(run) === "export" && !run.args.includes(SRC);
+const isReadBack = (run: FakeRun, before: readonly FakeRun[]) =>
+  isCloneExport(run) && before.some((earlier) => verb(earlier) === "import");
+const readBacks = (runs: readonly FakeRun[]) =>
+  runs.filter((run, i) => isReadBack(run, runs.slice(0, i)));
 
 const ok = (text: string): CommandRun => ({ text, code: 0 });
 
@@ -47,6 +52,8 @@ describe("a 1.x fork", () => {
     expect(id).not.toBe(SRC);
     expect(fake.runs).toEqual([
       { args: ["export", SRC], cwd: TARGET },
+      // The minted id is free: what the import leaves under it is the fork's.
+      { args: ["export", id], cwd: TARGET },
       // 1.x records the directory the import runs IN.
       { args: ["import", SCRATCH], cwd: TARGET },
       { args: ["export", id], cwd: TARGET },
@@ -100,8 +107,8 @@ describe("a 1.x fork", () => {
     // Measured on 1.19.3: an import that kept the source's message ids exits
     // 0, says `Imported session: <new>`, and the clone has no messages.
     const fake = v1({
-      answer: (run) =>
-        isReadBack(run)
+      answer: (run, before) =>
+        isReadBack(run, before)
           ? ok(`Exporting session: x\r\n${JSON.stringify({ ...v1Session(run.args[1] ?? "", TARGET), messages: [] })}`)
           : undefined,
     });
@@ -110,8 +117,8 @@ describe("a 1.x fork", () => {
 
   it("refuses a clone that landed in another directory", async () => {
     const fake = v1({
-      answer: (run) =>
-        isReadBack(run) ? ok(JSON.stringify(v1Session(run.args[1] ?? "", "/repo/source"))) : undefined,
+      answer: (run, before) =>
+        isReadBack(run, before) ? ok(JSON.stringify(v1Session(run.args[1] ?? "", "/repo/source"))) : undefined,
     });
     await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow(
       `the clone landed in /repo/source, not ${TARGET}`,
@@ -120,8 +127,8 @@ describe("a 1.x fork", () => {
 
   it("refuses a clone whose answer still names the source's turn", async () => {
     const fake = v1({
-      answer: (run) => {
-        if (!isReadBack(run)) return undefined;
+      answer: (run, before) => {
+        if (!isReadBack(run, before)) return undefined;
         const landed = fake.sessions.get(run.args[1] ?? "");
         const copy = JSON.parse(JSON.stringify(landed));
         copy.messages[1].info.parentID = "msg_f2461db4d001rzij8gRRPwcFG1";
@@ -143,8 +150,8 @@ describe("a 1.x fork", () => {
     const fake = fakeOpencode({
       generation: 1,
       sessions: { [SRC]: withTail },
-      answer: (run) => {
-        if (!isReadBack(run)) return undefined;
+      answer: (run, before) => {
+        if (!isReadBack(run, before)) return undefined;
         const landed = JSON.parse(JSON.stringify(fake.sessions.get(run.args[1] ?? "")));
         landed.messages = landed.messages.slice(0, 2);
         return ok(JSON.stringify(landed));
@@ -159,25 +166,26 @@ describe("a 1.x fork", () => {
     const locked = { text: `${V1_ERROR}Unexpected error\r\n\r\ndatabase is locked\r\n`, code: 1 };
     let lockedOnce = false;
     const once = v1({
-      answer: (run) => {
-        if (!isReadBack(run) || lockedOnce) return undefined;
+      answer: (run, before) => {
+        if (!isReadBack(run, before) || lockedOnce) return undefined;
         lockedOnce = true;
         return locked;
       },
     });
     await expect(forkInto(once.ports, recipeV1, request)).resolves.toMatch(/^ses_/);
-    expect(once.runs.filter(isReadBack)).toHaveLength(2);
+    expect(readBacks(once.runs)).toHaveLength(2);
 
-    const always = v1({ answer: (run) => (isReadBack(run) ? locked : undefined) });
+    const always = v1({ answer: (run, before) => (isReadBack(run, before) ? locked : undefined) });
     await expect(forkInto(always.ports, recipeV1, request)).rejects.toThrow("could not be read back");
-    expect(always.runs.filter(isReadBack)).toHaveLength(2);
+    expect(readBacks(always.runs)).toHaveLength(2);
   });
 
   it("deletes the clone it imported when it refuses the fork after all — only the clone, never the source", async () => {
     // Measured: a read-back that failed (a locked store) left the imported
     // clone behind as a stray session in the user's history.
     const fake = v1({
-      answer: (run) => (isReadBack(run) ? { text: "database is locked\r\n", code: 1 } : undefined),
+      answer: (run, before) =>
+        isReadBack(run, before) ? { text: "database is locked\r\n", code: 1 } : undefined,
     });
     await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow("could not be read back");
     const deleted = fake.runs[fake.runs.length - 1];
@@ -189,8 +197,8 @@ describe("a 1.x fork", () => {
 
   it("keeps its refusal when the clone cannot be deleted, and says so in the log", async () => {
     const fake = v1({
-      answer: (run) => {
-        if (isReadBack(run)) return { text: "database is locked\r\n", code: 1 };
+      answer: (run, before) => {
+        if (isReadBack(run, before)) return { text: "database is locked\r\n", code: 1 };
         if (run.args[1] === "delete") return { text: "database is locked\r\n", code: 1 };
         return undefined;
       },
@@ -219,6 +227,7 @@ describe("a 2.x fork", () => {
     expect(id).not.toBe(SRC);
     expect(fake.runs).toEqual([
       { args: ["session", "export", SRC, "--standalone"], cwd: TARGET },
+      { args: ["session", "export", id, "--standalone"], cwd: TARGET },
       {
         args: ["session", "import", SCRATCH, "--directory", TARGET, "--standalone"],
         cwd: TARGET,
@@ -235,17 +244,25 @@ describe("a 2.x fork", () => {
     await expect(forkInto(fake.ports, recipeV2, request)).rejects.toThrow("already exists");
   });
 
-  it("on a collision deletes only the id it minted — the session that already had it is not its own", async () => {
-    // The collision is with the minted id, never with the source's: the
-    // delete names the minted one, and 2.x answers it was not found.
+  it("deletes nothing on a collision — the session under that id is somebody else's", async () => {
+    // Measured live (task-464): deleting the minted id after `Session already
+    // exists` deleted the session that already had it.
     const fake = v2({
       answer: (run) => (verb(run) === "import" ? ok("Session already exists\r\n") : undefined),
     });
     await expect(forkInto(fake.ports, recipeV2, request)).rejects.toThrow("already exists");
-    const deleted = fake.runs[fake.runs.length - 1];
-    expect(deleted?.args).toEqual(["session", "delete", deleted?.args[2], "--standalone"]);
-    expect(deleted?.args[2]).not.toBe(SRC);
-    expect(fake.sessions.has(SRC)).toBe(true);
+    expect(fake.runs.some((run) => run.args[1] === "delete")).toBe(false);
+  });
+
+  it("refuses before importing when the minted id is already taken", async () => {
+    const fake = v2({
+      answer: (run, before) =>
+        isCloneExport(run) && !isReadBack(run, before)
+          ? ok(JSON.stringify(v2Session(run.args[2] ?? "", "/elsewhere")))
+          : undefined,
+    });
+    await expect(forkInto(fake.ports, recipeV2, request)).rejects.toThrow("is not free");
+    expect(fake.runs.some((run) => verb(run) === "import" || run.args[1] === "delete")).toBe(false);
   });
 
   it("refuses an import that exited 0 without its success line", async () => {

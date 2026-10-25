@@ -52,6 +52,8 @@ export type ImportReading =
   | { kind: "imported" }
   /** Claimed: read the clone back before believing it. */
   | { kind: "claimed" }
+  /** The id was already taken: what is under it is not this fork's. */
+  | { kind: "collision" }
   | { kind: "failed"; detail: string };
 
 export type Check = { ok: true } | { ok: false; detail: string };
@@ -177,7 +179,7 @@ export const recipeV2: ForkRecipe<V2Export> = {
     if (said(run, `Imported session: ${newSessionId}`) && !exitedBadly(run)) {
       return { kind: "imported" };
     }
-    if (said(run, "Session already exists")) return failed("a session with the clone's id already exists");
+    if (said(run, "Session already exists")) return { kind: "collision" };
     return failed(`opencode session import did not import ${newSessionId}: ${tail(run.text)}`);
   },
   deleteArgs: (sessionId) => ["session", "delete", sessionId, "--standalone"],

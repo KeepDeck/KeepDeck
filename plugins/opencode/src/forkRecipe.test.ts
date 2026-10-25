@@ -96,11 +96,8 @@ describe("2.x answers", () => {
     expect(recipeV2.readImport(run(CAPTURED.v2Imported, 0), "ses_other")).toMatchObject({ kind: "failed" });
   });
 
-  it("reads a collision — exit 0 — and an import error as failures", () => {
-    expect(recipeV2.readImport(run(CAPTURED.v2Collision, 0), "ses_x")).toEqual({
-      kind: "failed",
-      detail: "a session with the clone's id already exists",
-    });
+  it("reads a collision — exit 0 — as a collision, and an import error as a failure", () => {
+    expect(recipeV2.readImport(run(CAPTURED.v2Collision, 0), "ses_x")).toEqual({ kind: "collision" });
     expect(recipeV2.readImport(run(CAPTURED.v2InternalError, 1), "ses_x")).toMatchObject({ kind: "failed" });
     expect(recipeV2.readImport(run("", 0), "ses_x")).toMatchObject({ kind: "failed" });
   });

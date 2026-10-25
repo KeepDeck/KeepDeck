@@ -95,17 +95,29 @@ export async function forkInto<Document>(
   } catch (cause) {
     return failedCopy(errorMessage(cause));
   }
-  // An import of the source's own id rewrites the SOURCE (measured, 1.x).
+  // An import over an existing id rewrites THAT session (measured, 1.x: the
+  // source's own id moved the source). So the minted id must be free before
+  // the import — and then whatever the import leaves under it is this fork's
+  // own, and only that may a refusal delete.
   if (clone.newSessionId === sessionId) return failedCopy("the clone kept the source's id");
+  const taken = recipe.readExport(await run(recipe.exportArgs(clone.newSessionId)));
+  if (taken.kind !== "missing") return failedCopy(`the clone's id ${clone.newSessionId} is not free`);
 
   // One file per pane (overwritten on re-fork), not a pile of uuid files.
   const file = `${SCRATCH_DIR}/fork-${request.paneId}.json`;
   await ports.services.fsWrite.writeFile(file, JSON.stringify(clone.document));
+  /** Whether the minted id may now hold this fork's clone. */
+  let ours = true;
   try {
     const imported = recipe.readImport(
       await run(recipe.importArgs(file, cwd)),
       clone.newSessionId,
     );
+    if (imported.kind === "collision") {
+      // Somebody else's session took the id since it was found free.
+      ours = false;
+      return failedCopy("a session with the clone's id already exists");
+    }
     if (imported.kind === "failed") return failedCopy(imported.detail);
     if (imported.kind === "claimed") {
       const { verify } = recipe;
@@ -123,10 +135,10 @@ export async function forkInto<Document>(
   } catch (refusal) {
     // The import may have written the clone even so — 1.x's always claims
     // to — and a refused fork must not leave a stray session in the user's
-    // history. Only the newly minted id is ever deleted (it differs from the
-    // source's, checked above); deleting one that was never written is a
-    // harmless "not found".
-    await dropClone(ports, recipe, clone.newSessionId, cwd);
+    // history. The id was free before the import, so what is under it now is
+    // this fork's; deleting one that was never written is a harmless "not
+    // found".
+    if (ours) await dropClone(ports, recipe, clone.newSessionId, cwd);
     throw refusal;
   } finally {
     // The scratch held the WHOLE conversation; its purpose ends with the

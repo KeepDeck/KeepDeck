@@ -130,6 +130,6 @@ describe("forking", () => {
     const fake = fakeOpencode({ generation: 1, sessions: { [ID]: v1Session(ID, "/repo/source") } });
     const args = await sessionOpening(fake.ports).fork(forkOn());
     expect(args[0]).toBe("-s");
-    expect(fake.runs.map((run) => run.args[0])).toEqual(["export", "import", "export"]);
+    expect(fake.runs.map((run) => run.args[0])).toEqual(["export", "export", "import", "export"]);
   });
 });

@@ -29,8 +29,9 @@ export interface FakeOpencodeOptions {
   generation: 1 | 2;
   /** The store: session id → its exported document. */
   sessions?: Record<string, unknown>;
-  /** Bend one command: an answer here replaces the fake opencode's own. */
-  answer?: (run: FakeRun) => CommandRun | undefined;
+  /** Bend one command: an answer here replaces the fake opencode's own.
+   * `before` is every command run ahead of it. */
+  answer?: (run: FakeRun, before: readonly FakeRun[]) => CommandRun | undefined;
   /** A command that never exits. */
   hang?: (run: FakeRun) => boolean;
   /** Whether a directory exists; all do by default. */
@@ -85,7 +86,7 @@ export function fakeOpencode(options: FakeOpencodeOptions) {
   };
 
   const opencode = (run: FakeRun): CommandRun => {
-    const bent = options.answer?.(run);
+    const bent = options.answer?.(run, runs.slice(0, runs.indexOf(run)));
     if (bent) return bent;
     const [first, second, third] = run.args;
     if (first === "session" && second === "delete" && third) return deleteOf(third);
