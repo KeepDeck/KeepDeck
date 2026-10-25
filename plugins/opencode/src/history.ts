@@ -5,42 +5,24 @@ import {
   transcriptRole,
   type AgentHistory,
   type PluginLogger,
-  type PluginSqlite,
   type SqlAnswer,
 } from "@keepdeck/plugin-api";
 import {
   mergeSessions,
   mergeTurns,
-  migrationOf,
-  storeShape,
   transcriptOf,
-  type Migration,
   type StoreShape,
   type Turn,
   type V1Session,
   type V2Session,
 } from "./historyMerge";
+import { number, opencodeStore, type StorePorts } from "./store";
 
 /**
- * Discovery over opencode's store ([F8] browser): everything lives in one
- * SQLite database. Read via the `sqliteReadonly` capability (a binary blob is
- * useless to `fs`); the query text lives HERE because the schema knowledge is
- * this plugin's.
- *
- * The database holds 1.x tables, 2.x tables, or both (historyMerge.ts says
- * which rows win); every reading asks first which it is, because a 2.x run
- * can add its tables between two readings.
+ * Discovery over opencode's store ([F8] browser), read through store.ts; the
+ * query text lives HERE because what a session's turns are is this reader's
+ * knowledge.
  */
-const DB = "~/.local/share/opencode/opencode.db";
-
-/** The tables a store's shape is read from. A query the host lets through:
- * it takes SELECT only, no PRAGMA, no WITH. */
-const TABLES = "SELECT name FROM sqlite_master WHERE type = 'table'";
-
-/** The 1.x → 2.x copy's progress marker: its phase and when it was written. */
-const MIGRATION_MARKER =
-  "SELECT CASE WHEN json_valid(value) THEN json_extract(value, '$.phase') END," +
-  " time_updated FROM kv WHERE key = 'migration.v1-v2'";
 
 /**
  * The text-carrying parts of one 1.x session, in order, and whether each row
@@ -195,8 +177,6 @@ const V2_SESSION = "SELECT directory, title FROM session_v2 WHERE id = ?1";
 
 type Rows = SqlAnswer["rows"];
 
-const number = (cell: string | null | undefined) => Number(cell ?? 0);
-
 const v1Sessions = (rows: Rows): V1Session[] =>
   rows.flatMap(([id, created, updated, archived, partMax]) =>
     id
@@ -270,28 +250,21 @@ const v2Turns = (rows: Rows): Turn[] =>
   );
 
 /** What the history reads through: the host's SQL and its log. */
-export interface HistoryPorts {
-  services: { sqlite: PluginSqlite };
+export interface HistoryPorts extends StorePorts {
   log: PluginLogger;
 }
 
 export function opencodeHistory(ctx: HistoryPorts): AgentHistory {
-  const query = (sql: string, params: string[] = []) =>
-    ctx.services.sqlite.query(DB, sql, params);
+  const store = opencodeStore(ctx);
+  const { query } = store;
   const none: SqlAnswer = { rows: [], stopped: "exhausted", payloadBytes: 0 };
 
   /** The store's shape, now. A database with neither table set is not a
    * store this plugin can read — a refusal, never an empty store. */
   const shapeNow = async (): Promise<StoreShape> => {
-    const shape = storeShape((await query(TABLES)).rows.map(([name]) => name ?? ""));
+    const shape = await store.shape();
     if (!shape.v1 && !shape.v2) throw new Error("opencode: neither the 1.x nor the 2.x session tables are all in the store");
     return shape;
-  };
-
-  const migrationNow = async (shape: StoreShape): Promise<Migration> => {
-    if (!shape.v1 || !shape.v2 || !shape.kv) return migrationOf(shape, undefined);
-    const [marker] = (await query(MIGRATION_MARKER)).rows;
-    return migrationOf(shape, marker ? { phase: marker[0], at: number(marker[1]) } : undefined);
   };
 
   /** The host's stop, translated into the reader's vocabulary. It knows only
@@ -339,7 +312,7 @@ export function opencodeHistory(ctx: HistoryPorts): AgentHistory {
      * half is not all there yet. */
     async enumerate(unreadable) {
       const shape = await shapeNow();
-      const migration = await migrationNow(shape);
+      const migration = await store.migration(shape);
       const since = migration.state === "completed" ? String(migration.at) : "-1";
       const v1 = shape.v1 ? await query(V1_SESSIONS, [since]) : none;
       const v2 = shape.v2 ? await query(V2_SESSIONS) : none;
