@@ -6,6 +6,7 @@ import {
   clampScrollback,
   defaultSettingsDocument,
   serializeSettings,
+  settingsCodecs,
   withPluginMuted,
   withSettings,
 } from ".";
@@ -69,6 +70,15 @@ describe("withSettings", () => {
   it("the resolved settings always equal the defaults overlaid with the decisions", () => {
     const doc = withSettings(restore('{"scrollback":20000}'), { dockMode: "floating" });
     expect(doc.settings).toEqual({ ...DEFAULT_SETTINGS, ...doc.chosen });
+  });
+});
+
+describe("DEFAULT_SETTINGS", () => {
+  it("is every table default, in the table's key order", () => {
+    // The order is the saved key order, and SETTINGS_KEYS is read off it.
+    expect(Object.entries(DEFAULT_SETTINGS)).toEqual(
+      settingsCodecs().map(([key, codec]) => [key, codec.default]),
+    );
   });
 });
 

@@ -257,11 +257,26 @@ export function isSettingsKey(key: string): key is SettingsKey {
   return key in SETTINGS_CODECS;
 }
 
-/** Every setting at its default — DERIVED from the table, never hand-kept.
- * `Object.fromEntries` cannot carry the per-key types, so this is the one place
- * they are re-assembled into `Settings`; the table's totality is what makes the
- * assertion sound (a missing key fails to compile up there, so it cannot be
- * missing down here). */
-export const DEFAULT_SETTINGS: Settings = Object.fromEntries(
-  settingsCodecs().map(([key, codec]) => [key, codec.default]),
-) as unknown as Settings;
+/** One key's default into `into` — generic over the key, so the value the
+ * table holds is typed as that key's setting, not as `unknown`. */
+function putDefault<K extends SettingsKey>(into: Partial<Settings>, key: K): void {
+  into[key] = SETTINGS_CODECS[key].default;
+}
+
+/** Whether every key of the table has its value. The table's totality makes
+ * this always true (a missing key fails to compile up there); asking it is
+ * what lets the compiler see a whole `Settings` down here. */
+function isWhole(settings: Partial<Settings>): settings is Settings {
+  return settingsCodecs().every(([key]) => key in settings);
+}
+
+/** Every setting at its default — DERIVED from the table, never hand-kept, and
+ * in the table's key order. */
+function tableDefaults(): Settings {
+  const defaults: Partial<Settings> = {};
+  for (const [key] of settingsCodecs()) putDefault(defaults, key);
+  if (!isWhole(defaults)) throw new Error("a setting has no default");
+  return defaults;
+}
+
+export const DEFAULT_SETTINGS: Settings = tableDefaults();
