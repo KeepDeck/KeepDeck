@@ -54,6 +54,29 @@ describe("the linter", () => {
     expect(test.messages).toEqual([]);
   });
 
+  it("keeps presentation inward and gives production components IPC through ports", async () => {
+    const eslint = new ESLint({ cwd: REPO });
+    const [presentation] = await eslint.lintText(
+      'import type { DeckStore } from "../app/deckStore";\nimport "../components/DeckStage";\nimport "../ipc/app";\nimport "../plugins/kimi/src/status";\n',
+      { filePath: join(REPO, "src/presentation/lint-probe.ts") },
+    );
+    const [component] = await eslint.lintText(
+      'import "../../ipc/app";\nimport "../../plugins/kimi/src/status";\n',
+      { filePath: join(REPO, "src/components/dock/lint-probe.ts") },
+    );
+    const [componentTest] = await eslint.lintText(
+      'import "../../ipc/app";\n',
+      { filePath: join(REPO, "src/components/dock/lint-probe.test.ts") },
+    );
+    expect(presentation.messages.map((message) => message.ruleId)).toEqual(
+      Array(4).fill("no-restricted-imports"),
+    );
+    expect(component.messages.map((message) => message.ruleId)).toEqual(
+      Array(2).fill("no-restricted-imports"),
+    );
+    expect(componentTest.messages).toEqual([]);
+  });
+
   it("finds nothing in the source", async () => {
     const eslint = new ESLint({ cwd: REPO });
     const results = await eslint.lintFiles(["."]);

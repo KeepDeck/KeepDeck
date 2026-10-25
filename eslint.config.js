@@ -27,6 +27,21 @@ const NO_INTEGRATION = {
   regex: "(^|/)integration(/|$)",
   message: "Nothing imports from integration/: it is tests, and only tests.",
 };
+const NO_PRESENTATION_OUTWARD = {
+  regex: "(^|/)(app|components|ipc)(/|$)",
+  message: "Presentation reads domain and its own ports, not app wiring, components or IPC.",
+};
+const NO_COMPONENTS_IPC = {
+  regex: "(^|/)ipc(/|$)",
+  message: "Components receive native capabilities through app ports, not IPC imports.",
+};
+const COMPONENT_TESTS = [
+  "**/*.test.{ts,tsx}",
+  "**/*.test-support.{ts,tsx}",
+  "**/*testSupport.{ts,tsx}",
+  "**/*TestSupport.{ts,tsx}",
+  "**/*.fake.{ts,tsx}",
+];
 const RESOURCE_JS = ["plugins/*/resources/**/*.js"];
 const BAN_TS_COMMENT = ["error", { "ts-expect-error": true, "ts-ignore": true, "ts-nocheck": true, "ts-check": false }];
 
@@ -134,6 +149,25 @@ export default [
     files: ["src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": ["error", { patterns: [NO_PLUGIN, NO_INTEGRATION] }],
+    },
+  },
+
+  /** Presentation owns pure view policy and port shapes. Its tests follow
+   * the same dependency direction, using domain fixtures and port fakes. */
+  {
+    files: ["src/presentation/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [NO_PRESENTATION_OUTWARD, NO_PLUGIN, NO_INTEGRATION] }],
+    },
+  },
+
+  /** A component test may assemble the app and IPC doubles for the view it
+   * exercises. Production components receive native capabilities as ports. */
+  {
+    files: ["src/components/**/*.{ts,tsx}"],
+    ignores: COMPONENT_TESTS,
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [NO_COMPONENTS_IPC, NO_PLUGIN, NO_INTEGRATION] }],
     },
   },
 
