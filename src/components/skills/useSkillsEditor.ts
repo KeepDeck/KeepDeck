@@ -75,13 +75,18 @@ export function useSkillsEditor({ activeWs, onClose, canClose }: SkillsEditorDep
     canClose,
   });
 
+  // On the FIELDS, not the object: `activeWs` is built as a fresh literal by
+  // the caller on every App render. A narrowed identity carries the two
+  // fields the builder reads, so the groups rebuild exactly when one changes.
+  const wsId = activeWs?.id;
+  const wsName = activeWs?.name;
+  const activeIdentity = useMemo<GroupWorkspace | null>(
+    () => (wsId !== undefined && wsName !== undefined ? { id: wsId, name: wsName } : null),
+    [wsId, wsName],
+  );
   const groups = useMemo<SkillsNavGroup[]>(
-    () => buildSkillGroups(skills, activeWs),
-    // On the FIELDS, not the object: `activeWs` is built as a fresh literal by
-    // the caller on every App render, and depending on its identity rebuilt
-    // these groups constantly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [skills, activeWs?.id, activeWs?.name],
+    () => buildSkillGroups(skills, activeIdentity),
+    [skills, activeIdentity],
   );
 
   const { rows, ...machine } = editor;

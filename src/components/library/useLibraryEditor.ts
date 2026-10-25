@@ -172,11 +172,14 @@ export function useLibraryEditor<
     nameTouched,
   });
 
+  // The apply function is defined below (it needs the navigation helpers);
+  // the effect is triggered by the verdict and reads the latest apply
+  // through a ref, so a fresh closure per render does not re-run it.
+  const applyRef = useRef<((next: Selection<WriteScope> | null, closing?: boolean) => void) | null>(
+    null,
+  );
   useEffect(() => {
-    if (verdicts.vanished && !dirty) apply(null);
-    // `apply` and `dirty` are read fresh on each run; re-running on every
-    // render would fight the user's own navigation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (verdicts.vanished && !dirty) applyRef.current?.(null);
   }, [verdicts.vanished, dirty]);
 
   /** The ONE read-only-vs-own routing decision: a row with no scope to
@@ -286,6 +289,7 @@ export function useLibraryEditor<
     setDirty(false);
     setNameTouched(false);
   };
+  applyRef.current = apply;
 
   // While a confirm is up, Escape belongs to IT (useEscape handlers stack).
   useEscape(() => navigate(null, true), canClose && !confirm);
