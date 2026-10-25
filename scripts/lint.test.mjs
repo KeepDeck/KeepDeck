@@ -34,7 +34,7 @@ describe("the linter", () => {
     ]);
   });
 
-  it("keeps a component to app's hooks, runtime context and types", async () => {
+  it("keeps a component to app's hooks, runtime context and types, and its test to app/testing besides", async () => {
     const eslint = new ESLint({ cwd: REPO });
     const source = [
       'import { updateSettings } from "../../app/settingsManager";',
@@ -42,7 +42,8 @@ describe("the linter", () => {
       'import { useSettings } from "../../app/useSettings";',
       'import { useReadyTasksBoard } from "../../app/tasks/useBoardState";',
       'import { useRuntimePart } from "../../app/runtimeContext";',
-      "export const parts = [updateSettings, useSettings, useReadyTasksBoard, useRuntimePart];",
+      'import { createUsageManager } from "../../app/testing";',
+      "export const parts = [updateSettings, useSettings, useReadyTasksBoard, useRuntimePart, createUsageManager];",
       "export type Crash = PluginCrash;",
       "",
     ].join("\n");
@@ -50,9 +51,12 @@ describe("the linter", () => {
     const [test] = await eslint.lintText(source, { filePath: join(REPO, "src/components/probe/LintProbe.test.tsx") });
     expect(view.messages.map((message) => [message.line, message.ruleId])).toEqual([
       [1, "@typescript-eslint/no-restricted-imports"],
+      [6, "@typescript-eslint/no-restricted-imports"],
     ]);
-    // A view test is the composition root of the view it renders.
-    expect(test.messages).toEqual([]);
+    // A view test has one door more — app/testing — and no other.
+    expect(test.messages.map((message) => [message.line, message.ruleId])).toEqual([
+      [1, "@typescript-eslint/no-restricted-imports"],
+    ]);
   });
 
   it("keeps presentation inward and gives production components IPC through ports", async () => {

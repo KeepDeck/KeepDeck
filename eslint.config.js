@@ -57,6 +57,13 @@ const COMPONENTS_APP_SURFACE = {
   allowTypeImports: true,
   message: "A component reaches app only through a hook (app/**/use*) or runtimeContext; types are free.",
 };
+/** A component test's one extra door: app/testing, the app as a view test
+ * assembles it (task-483). */
+const COMPONENT_TESTS_APP_SURFACE = {
+  ...COMPONENTS_APP_SURFACE,
+  regex: "(^|/)app/(?!(.*/)?(use[A-Z][^/]*|runtimeContext)$|testing$)",
+  message: "A component test reaches app through its hooks, runtimeContext, or app/testing; types are free.",
+};
 const TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}", "**/*[tT]estSupport.{ts,tsx}"];
 
 export default [
@@ -207,15 +214,22 @@ export default [
    * parts, never through the app's managers and services directly (task-472).
    * The typed rule, so a type-only import passes — and a rule id of its own,
    * so it adds to the core `no-restricted-imports` blocks above rather than
-   * replacing them for these files. Tests are left out: a view test is the
-   * composition root of the view it renders, and builds or doubles the app
-   * parts it hands in.
+   * replacing them for these files. A view test holds to the same surface
+   * plus one door, app/testing: the real parts it builds, the singletons it
+   * seeds, the doubles and the port stand-ins — never a manager reached
+   * around the hooks.
    */
   {
     files: ["src/components/**/*.{ts,tsx}"],
     ignores: TEST_FILES,
     rules: {
       "@typescript-eslint/no-restricted-imports": ["error", { patterns: [COMPONENTS_APP_SURFACE] }],
+    },
+  },
+  {
+    files: TEST_FILES.map((pattern) => `src/components/${pattern}`),
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [COMPONENT_TESTS_APP_SURFACE] }],
     },
   },
 ];
