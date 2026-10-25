@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
-import { normalizeKimiStatus, renderKimiMail } from "../plugins/kimi/src/status";
+import { normalizeKimiStatus } from "../plugins/kimi/src/status";
 import { kimiRecords } from "../plugins/kimi/src/tail";
 import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -23,18 +23,16 @@ function setup() {
 }
 
 describe("Kimi lifecycle through the real status tracker", () => {
-  it.each([true, false])("waits for actual completion after Stop, delivered continuation=%s", (delivered) => {
+  it("ignores Stop until the main agent's wire reports completion", () => {
     const { tracker, hook, wire, activity } = setup();
     hook("UserPromptSubmit", 100);
     const changed = vi.fn();
     tracker.subscribe(changed);
-    const event = { hook_event_name: "Stop" };
-    const pending = tracker.prepare("pane", { agent: "kimi", event }, 200);
-    const reply = renderKimiMail({ event, messages: [{ id: "m", from: "lead", kind: "task", body: "Continue" }], cliVersion: null });
-    pending.finish(delivered ? (reply ?? undefined) : undefined);
-    expect(activity()?.state).toBe("working");
+    // Stop does not ask for mail, and it also fires for child agents without
+    // identifying who stopped. Only the main wire can finish this pane.
+    hook("Stop", 200);
+    expect(activity()).toEqual({ state: "working", since: 100 });
     expect(changed).not.toHaveBeenCalled();
-    // Kimi does not call Stop again after accepting its continuation.
     wire({ type: "turn.ended", time: 300, reason: "completed" });
     expect(activity()).toEqual({ state: "done", at: 300, interrupted: false });
   });
