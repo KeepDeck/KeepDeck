@@ -7,6 +7,7 @@ import { setRuntime, type GitPorts } from "../runtime";
 import { gitOf, inertPorts } from "../gitPorts.test-support";
 import type { ChangeGroups, ChangeRow } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const TS_DIFF = [
   "@@ -1,3 +1,3 @@",
@@ -180,7 +181,7 @@ describe("DiffPeek", () => {
     await settle(
       () => document.querySelectorAll(".git__linetext span[style]").length > 0,
     );
-    const meta = document.querySelector(".git__diffrow--meta .git__linetext")!;
+    const meta = present(document.querySelector(".git__diffrow--meta .git__linetext"), "the .git__diffrow--meta .git__linetext element");
     expect(meta.querySelectorAll("span[style]").length).toBe(0);
     expect(meta.textContent).toContain("No newline");
   });
@@ -196,11 +197,11 @@ describe("DiffPeek", () => {
     }
     // With the ± column gone, which gutter holds a number is the diff's only
     // hue-free add/del cue — this asserts the invariant the CSS leans on.
-    expect(gutters(document.querySelector(".git__diffrow--del")!)).toEqual([
+    expect(gutters(present(document.querySelector(".git__diffrow--del"), "the .git__diffrow--del element"))).toEqual([
       "2",
       "",
     ]);
-    expect(gutters(document.querySelector(".git__diffrow--add")!)).toEqual([
+    expect(gutters(present(document.querySelector(".git__diffrow--add"), "the .git__diffrow--add element"))).toEqual([
       "",
       "2",
     ]);
@@ -300,12 +301,12 @@ describe("DiffPeek", () => {
     setRuntime(makeCtx(TS_DIFF));
     const onSelect = vi.fn();
     await drawRow(RAIL_ROWS[0], 1, onSelect);
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const body = present(host.querySelector<HTMLElement>(".peek__body"), "the .peek__body element");
     readerScrolledAway(body);
 
-    const rowB = [
+    const rowB = present([
       ...host.querySelectorAll<HTMLElement>(".peek__aside .git__row"),
-    ].find((node) => node.textContent?.includes("b.ts"))!;
+    ].find((node) => node.textContent?.includes("b.ts")), "the matching item");
     act(() => rowB.click());
     expect(onSelect).toHaveBeenCalledWith(RAIL_ROWS[1]);
     await drawRow(RAIL_ROWS[1], 1, onSelect);
@@ -322,7 +323,7 @@ describe("DiffPeek", () => {
     setRuntime(portsOf({ diffFile }));
     const onSelect = vi.fn();
     await drawRow(RAIL_ROWS[0], 1, onSelect);
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const body = present(host.querySelector<HTMLElement>(".peek__body"), "the .peek__body element");
     readerScrolledAway(body);
 
     await drawRow(RAIL_ROWS[0], 2, onSelect);
@@ -352,7 +353,7 @@ describe("DiffPeek", () => {
     setRuntime(portsOf({ diffFile, changedFiles }));
 
     await drawHistoryFile("src/main.ts", "aaa1111");
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const body = present(host.querySelector<HTMLElement>(".peek__body"), "the .peek__body element");
     readerScrolledAway(body);
 
     await drawHistoryFile("src/main.ts", "bbb2222");
@@ -568,7 +569,7 @@ describe("DiffPeek", () => {
       );
     });
     await act(async () => {});
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const body = present(host.querySelector<HTMLElement>(".peek__body"), "the .peek__body element");
     expect(diffFile).not.toHaveBeenCalled();
 
     await drawHistoryFile("src/main.ts", "aaa1111");

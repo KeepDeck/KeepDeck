@@ -11,6 +11,7 @@ import {
   mountGitHarness,
   workspace,
 } from "./gitHarness";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The Git TAB: its change list, the repo it roots on, and the live feed
@@ -40,7 +41,7 @@ describe("GitTab", () => {
 
     // The Changes header carries the count and, since the branch stands
     // somewhere against its upstream, the ahead/behind badge.
-    const header = rig.host.querySelector("button.git__sechdr")!;
+    const header = present(rig.host.querySelector("button.git__sechdr"), "the button.git__sechdr element");
     expect(header.textContent).toContain("Changes");
     expect(header.querySelector(".git__count")?.textContent).toBe("2");
     expect(header.textContent).toContain("↑2 ↓1");
@@ -75,7 +76,7 @@ describe("GitTab", () => {
 
     // The closed control names the team, branch beside it; the folder line
     // belongs to the open list, so it is in the DOM under the option.
-    const picker = rig.host.querySelector(".git__root")!;
+    const picker = present(rig.host.querySelector(".git__root"), "the .git__root element");
     expect(picker.textContent).toContain("api");
     expect(picker.textContent).toContain("kd/app/1");
     expect(picker.querySelector(".git__rootteam")?.textContent).toBe("api");
@@ -100,7 +101,7 @@ describe("GitTab", () => {
     };
     await rig.render("p1", detached);
 
-    const picker = rig.host.querySelector(".git__root")!;
+    const picker = present(rig.host.querySelector(".git__root"), "the .git__root element");
     expect(picker.querySelector(".git__rootteam")?.textContent).toBe("api");
     expect(picker.querySelector(".git__rootbranch")?.textContent).toBe("0123456 (detached)");
   });

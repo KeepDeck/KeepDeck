@@ -16,6 +16,7 @@ import { setRuntime, type GitPorts } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
 import { GitTab } from "./GitTab";
 import { GitDiffOverlay } from "./GitDiffOverlay";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * Shared rig for the Git plugin's component tests: a fake git service, a
@@ -98,7 +99,7 @@ export function makeGit() {
         watchers.set(repo, set);
       }
       set.add(onChange);
-      return { ready: Promise.resolve(), dispose: () => void set!.delete(onChange) };
+      return { ready: Promise.resolve(), dispose: () => void present(set, "the set").delete(onChange) };
     }),
     /** Simulate the backend's repo-changed event. */
     fireChange: (repo: string) => watchers.get(repo)?.forEach((cb) => cb()),

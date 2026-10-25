@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GitChangedFile } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
 import { cleanStatus, makeCtx, makeGit, mountGitHarness } from "./gitHarness";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The whole gesture: a row or a history scope in the tab, through the request
@@ -63,7 +64,7 @@ describe("opening a working-tree change", { retry: 2 }, () => {
     expect(rig.host.textContent).toContain("goodbye");
 
     // The rail is there on the first frame, not after a second round trip.
-    const aside = rig.host.querySelector(".peek__aside")!;
+    const aside = present(rig.host.querySelector(".peek__aside"), "the .peek__aside element");
     expect(aside.textContent).toContain("app.ts");
     expect(aside.textContent).toContain("notes.md");
     expect(aside.querySelector(".git__row--on")?.textContent).toContain(
@@ -193,7 +194,7 @@ describe("opening a history scope", () => {
     });
     expect(rig.host.textContent).toContain("goodbye");
     // The rail names the commit and lists its files, the seeded one marked.
-    const aside = rig.host.querySelector(".peek__aside")!;
+    const aside = present(rig.host.querySelector(".peek__aside"), "the .peek__aside element");
     expect(aside.textContent).toContain("add feature");
     expect(aside.textContent).toContain("a1a1a1a");
     expect(aside.querySelector(".git__row--on")?.textContent).toContain(
@@ -240,7 +241,7 @@ describe("opening a history scope", () => {
       from: fork,
       to: undefined,
     });
-    const aside = rig.host.querySelector(".peek__aside")!;
+    const aside = present(rig.host.querySelector(".peek__aside"), "the .peek__aside element");
     expect(aside.textContent).toContain("Since fork");
     expect(aside.textContent).toContain("f0f0f0f");
     expect(aside.querySelector(".git__row--on")?.textContent).toContain(
@@ -299,7 +300,7 @@ describe("opening a history scope", () => {
     await act(async () => {});
 
     // The rail seeded the first file and its range diff loaded.
-    const aside = rig.host.querySelector(".peek__aside")!;
+    const aside = present(rig.host.querySelector(".peek__aside"), "the .peek__aside element");
     expect(aside.querySelector(".git__row--on")?.textContent).toContain(
       "one.ts",
     );
@@ -436,7 +437,7 @@ describe("opening a history scope", () => {
     await rig.settle(301);
 
     expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/app.ts", { staged: true });
-    const aside = rig.host.querySelector(".peek__aside")!;
+    const aside = present(rig.host.querySelector(".peek__aside"), "the .peek__aside element");
     expect(aside.textContent).toContain("Staged");
     expect(aside.querySelector(".git__row--on")?.textContent).toContain("app.ts");
     expect(rig.host.querySelector(".git__badge")?.className).toContain("git__badge--staged");
@@ -481,7 +482,7 @@ describe("opening a history scope", () => {
 
     // The error must SUPERSEDE the list. Keeping both left rows the failing
     // repo can no longer diff, still clickable and still seedable.
-    const aside = rig.host.querySelector(".peek__aside")!;
+    const aside = present(rig.host.querySelector(".peek__aside"), "the .peek__aside element");
     expect(aside.textContent).toContain("no such path: /repo");
     expect(aside.textContent).not.toContain("listed.ts");
   });

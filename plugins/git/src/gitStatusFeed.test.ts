@@ -3,6 +3,7 @@ import type { GitStatus } from "@keepdeck/plugin-api";
 import { setRuntime } from "./runtime";
 import { gitOf, inertPorts } from "./gitPorts.test-support";
 import { gitStatusSnapshot, subscribeGitStatus } from "./gitStatusFeed";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const clean = (): GitStatus => ({
   branch: "main",
@@ -48,7 +49,7 @@ function makeCtx() {
       ready,
       dispose: () => {
         disposed.push(repo);
-        set!.delete(onChange);
+        present(set, "the set").delete(onChange);
       },
     };
   });
