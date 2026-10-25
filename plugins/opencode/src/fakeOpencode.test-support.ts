@@ -79,10 +79,16 @@ export function fakeOpencode(options: FakeOpencodeOptions) {
     return { text: `Imported session: ${id}\r\n`, code: 0 };
   };
 
+  const deleteOf = (id: string): CommandRun => {
+    if (!sessions.delete(id)) return { text: `Session not found: ${id}\r\n`, code: 1 };
+    return { text: `Session ${id} deleted\r\n`, code: 0 };
+  };
+
   const opencode = (run: FakeRun): CommandRun => {
     const bent = options.answer?.(run);
     if (bent) return bent;
     const [first, second, third] = run.args;
+    if (first === "session" && second === "delete" && third) return deleteOf(third);
     if (v1 && first === "export" && second) return exportOf(second);
     if (v1 && first === "import" && second) return importOf(second, run.cwd ?? "");
     if (!v1 && first === "session" && second === "export" && third) return exportOf(third);

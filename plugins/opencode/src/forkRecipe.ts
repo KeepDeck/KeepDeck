@@ -32,6 +32,8 @@ export interface ForkRecipe<Document> {
   /** The import of the clone written to `file`, into `directory`. */
   importArgs(file: string, directory: string): readonly string[];
   readImport(run: CommandRun, newSessionId: string): ImportReading;
+  /** The deletion of a clone a refused fork imported. */
+  deleteArgs(sessionId: string): readonly string[];
   /** How a generation whose import only CLAIMS reads its clone back. */
   verify?: {
     args(newSessionId: string): readonly string[];
@@ -121,6 +123,11 @@ export const recipeV1: ForkRecipe<V1Export> = {
       ? { kind: "claimed" }
       : failed(`opencode import did not import ${newSessionId}: ${tail(run.text)}`);
   },
+  deleteArgs: (sessionId) => ["session", "delete", sessionId],
+  // What a clone must be to be believed: the three ways 1.x was measured to
+  // claim an import it did not make — an empty clone, a re-import that moved
+  // the source, a clone placed elsewhere — fail one of these. Parts are
+  // reminted, so the import cannot quietly keep half of them.
   verify: {
     args: (newSessionId) => ["export", newSessionId],
     read(run, clone, directory) {
@@ -173,4 +180,5 @@ export const recipeV2: ForkRecipe<V2Export> = {
     if (said(run, "Session already exists")) return failed("a session with the clone's id already exists");
     return failed(`opencode session import did not import ${newSessionId}: ${tail(run.text)}`);
   },
+  deleteArgs: (sessionId) => ["session", "delete", sessionId, "--standalone"],
 };

@@ -87,5 +87,3 @@ export function opencodeStore(ports: StorePorts) {
     },
   };
 }
-
-export type OpencodeStore = ReturnType<typeof opencodeStore>;

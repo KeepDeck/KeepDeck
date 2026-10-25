@@ -114,6 +114,7 @@ describe("the commands", () => {
   it("1.x: root export and import, the import placed by the directory it runs in", () => {
     expect(recipeV1.exportArgs("ses_s")).toEqual(["export", "ses_s"]);
     expect(recipeV1.importArgs("/tmp/f.json", "/repo")).toEqual(["import", "/tmp/f.json"]);
+    expect(recipeV1.deleteArgs("ses_c")).toEqual(["session", "delete", "ses_c"]);
   });
 
   it("2.x: `session` commands, each with its own server, the import told its directory", () => {
@@ -126,5 +127,6 @@ describe("the commands", () => {
       "/repo",
       "--standalone",
     ]);
+    expect(recipeV2.deleteArgs("ses_c")).toEqual(["session", "delete", "ses_c", "--standalone"]);
   });
 });

@@ -173,6 +173,9 @@ are `src/forkRecipe.ts`):
   every failure is the host's "Could not fork the session" alert. There is
   no fallback to opencode's own `--fork`, which keeps the copy in the
   source's directory (and 2.x has none).
+- A fork refused after its import ran deletes the clone it may have written
+  (`opencode session delete <id>`, `--standalone` on 2.x) — only the minted
+  id, never the source's.
 - A clone carries the root conversation only: no subagent sessions, and no
   snapshots, so diff/undo of turns from before the fork may fail in it.
 

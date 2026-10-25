@@ -26,7 +26,7 @@ import {
   type PluginFsWrite,
   type PluginLogger,
 } from "@keepdeck/plugin-api";
-import { runOpencode, type ExecPorts } from "./exec";
+import { runOpencode, tail, type ExecPorts } from "./exec";
 import type { ForkRecipe } from "./forkRecipe";
 
 /** OS-temp scratch for the one import file. `/tmp` is auto-reaped and, unlike
@@ -120,6 +120,14 @@ export async function forkInto<Document>(
       if (!check.ok) return failedCopy(check.detail);
     }
     return clone.newSessionId;
+  } catch (refusal) {
+    // The import may have written the clone even so — 1.x's always claims
+    // to — and a refused fork must not leave a stray session in the user's
+    // history. Only the newly minted id is ever deleted (it differs from the
+    // source's, checked above); deleting one that was never written is a
+    // harmless "not found".
+    await dropClone(ports, recipe, clone.newSessionId, cwd);
+    throw refusal;
   } finally {
     // The scratch held the WHOLE conversation; its purpose ends with the
     // import, on the failure path too.
@@ -128,6 +136,23 @@ export async function forkInto<Document>(
       .catch((cause: unknown) =>
         ports.log.warn(`could not remove the fork scratch ${file}: ${errorMessage(cause)}`),
       );
+  }
+}
+
+/** Delete a refused fork's clone; best effort, and said in the log either way. */
+async function dropClone<Document>(
+  ports: ForkPorts,
+  recipe: ForkRecipe<Document>,
+  cloneId: string,
+  cwd: string,
+): Promise<void> {
+  try {
+    const deleted = await runOpencode(ports, recipe.deleteArgs(cloneId), cwd);
+    if (deleted.code !== 0 && deleted.code !== null) {
+      ports.log.warn(`the refused fork's clone ${cloneId} was not deleted: ${tail(deleted.text)}`);
+    }
+  } catch (cause) {
+    ports.log.warn(`the refused fork's clone ${cloneId} was not deleted: ${errorMessage(cause)}`);
   }
 }
 

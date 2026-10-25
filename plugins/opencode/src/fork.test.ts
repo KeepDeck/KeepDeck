@@ -173,6 +173,38 @@ describe("a 1.x fork", () => {
     expect(always.runs.filter(isReadBack)).toHaveLength(2);
   });
 
+  it("deletes the clone it imported when it refuses the fork after all — only the clone, never the source", async () => {
+    // Measured: a read-back that failed (a locked store) left the imported
+    // clone behind as a stray session in the user's history.
+    const fake = v1({
+      answer: (run) => (isReadBack(run) ? { text: "database is locked\r\n", code: 1 } : undefined),
+    });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow("could not be read back");
+    const deleted = fake.runs[fake.runs.length - 1];
+    expect(deleted?.args.slice(0, 2)).toEqual(["session", "delete"]);
+    expect(deleted?.args[2]).not.toBe(SRC);
+    expect([...fake.sessions.keys()]).toEqual([SRC]);
+    expect(fake.sessions.get(SRC)).toEqual(v1Session(SRC, "/repo/source"));
+  });
+
+  it("keeps its refusal when the clone cannot be deleted, and says so in the log", async () => {
+    const fake = v1({
+      answer: (run) => {
+        if (isReadBack(run)) return { text: "database is locked\r\n", code: 1 };
+        if (run.args[1] === "delete") return { text: "database is locked\r\n", code: 1 };
+        return undefined;
+      },
+    });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow("could not be read back");
+    expect(fake.warns.join("\n")).toMatch(/clone ses_\S+ was not deleted: database is locked/);
+  });
+
+  it("deletes nothing when it refuses before the import ran", async () => {
+    const fake = v1({ answer: (run) => (verb(run) === "export" ? ok("nothing here\r\n") : undefined) });
+    await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow("The copy failed");
+    expect(fake.runs.some((run) => run.args[1] === "delete")).toBe(false);
+  });
+
   it("refuses an import that did not name the clone", async () => {
     const fake = v1({ answer: (run) => (verb(run) === "import" ? ok("done\r\n") : undefined) });
     await expect(forkInto(fake.ports, recipeV1, request)).rejects.toThrow("did not import");
@@ -201,6 +233,19 @@ describe("a 2.x fork", () => {
       answer: (run) => (verb(run) === "import" ? ok("Session already exists\r\n") : undefined),
     });
     await expect(forkInto(fake.ports, recipeV2, request)).rejects.toThrow("already exists");
+  });
+
+  it("on a collision deletes only the id it minted — the session that already had it is not its own", async () => {
+    // The collision is with the minted id, never with the source's: the
+    // delete names the minted one, and 2.x answers it was not found.
+    const fake = v2({
+      answer: (run) => (verb(run) === "import" ? ok("Session already exists\r\n") : undefined),
+    });
+    await expect(forkInto(fake.ports, recipeV2, request)).rejects.toThrow("already exists");
+    const deleted = fake.runs[fake.runs.length - 1];
+    expect(deleted?.args).toEqual(["session", "delete", deleted?.args[2], "--standalone"]);
+    expect(deleted?.args[2]).not.toBe(SRC);
+    expect(fake.sessions.has(SRC)).toBe(true);
   });
 
   it("refuses an import that exited 0 without its success line", async () => {
