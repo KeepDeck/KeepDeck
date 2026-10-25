@@ -97,7 +97,9 @@ function makeCtx(over: Partial<GitStatus> | null = null): GitPorts {
     },
     services: {
       git: {
-        status: vi.fn(async () => ({ ...status(["src/app.ts"]), ...over })),
+        // Overlay ownership is the subject here, so use a path with no
+        // grammar; cold Shiki compilation belongs to code-kit's own tests.
+        status: vi.fn(async () => ({ ...status(["src/app.unknown"]), ...over })),
         diffFile: vi.fn(async () => ({
           text: "@@ -1 +1 @@\n-hello\n+goodbye\n",
           truncated: false,
@@ -193,7 +195,7 @@ describe("GitDiffOverlay", () => {
         repo: "/repo",
         workspace: WS,
         kind: "worktree",
-        row: row("src/app.ts"),
+        row: row("src/app.unknown"),
       });
     });
 
@@ -213,7 +215,7 @@ describe("GitDiffOverlay", () => {
     expect(covers).toHaveBeenLastCalledWith("diff", false);
 
     await act(async () => {
-      requestPeek({ repo: "/repo", workspace: WS, kind: "worktree", row: row("src/app.ts") });
+      requestPeek({ repo: "/repo", workspace: WS, kind: "worktree", row: row("src/app.unknown") });
     });
     expect(covers).toHaveBeenLastCalledWith("diff", true);
 
@@ -232,9 +234,9 @@ describe("GitDiffOverlay", () => {
 
     const changeRow = present(
       [...tabHost.querySelectorAll<HTMLButtonElement>("button.git__row")].find(
-        (el) => el.textContent?.includes("app.ts"),
+        (el) => el.textContent?.includes("app.unknown"),
       ),
-      "the app.ts row",
+      "the app.unknown row",
     );
     await act(async () => changeRow.click());
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
@@ -247,7 +249,7 @@ describe("GitDiffOverlay", () => {
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
     expect(overlayHost.textContent).toContain("goodbye");
     expect(overlayHost.querySelector(".peek__aside")?.textContent).toContain(
-      "app.ts",
+      "app.unknown",
     );
   });
 
@@ -280,7 +282,7 @@ describe("GitDiffOverlay", () => {
         repo: "/repo",
         workspace: WS,
         kind: "worktree",
-        row: row("src/app.ts"),
+        row: row("src/app.unknown"),
       });
     });
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
@@ -301,7 +303,7 @@ describe("GitDiffOverlay", () => {
         repo: "/repo",
         workspace: WS,
         kind: "worktree",
-        row: row("src/app.ts"),
+        row: row("src/app.unknown"),
       });
     });
 
@@ -321,7 +323,7 @@ describe("GitDiffOverlay", () => {
         repo: "/repo",
         workspace: WS,
         kind: "worktree",
-        row: row("src/app.ts"),
+        row: row("src/app.unknown"),
       });
     });
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
@@ -343,7 +345,7 @@ describe("GitDiffOverlay", () => {
       (_repo: string, from: string, to?: string): Promise<GitChangedFile[]> => {
         calls.push([from, to ?? ""]);
         if (calls.length === 1) {
-          return Promise.resolve([{ path: "first.ts", origPath: null, code: "M" }]);
+          return Promise.resolve([{ path: "first.unknown", origPath: null, code: "M" }]);
         }
         return new Promise((resolve) => {
           releaseSecond = resolve;
@@ -364,7 +366,7 @@ describe("GitDiffOverlay", () => {
       });
     });
     expect(overlayHost.querySelector(".git__row--on")?.textContent).toContain(
-      "first.ts",
+      "first.unknown",
     );
 
     // Switch scopes while the peek stays open; the new list is still in
@@ -381,13 +383,13 @@ describe("GitDiffOverlay", () => {
     // The old list was still in state at this point. Seeding from it opened
     // a file that is not in this scope at all, under this scope's header.
     expect(overlayHost.querySelector(".git__row--on")).toBeNull();
-    expect(overlayHost.textContent).not.toContain("first.ts");
+    expect(overlayHost.textContent).not.toContain("first.unknown");
 
     await act(async () => {
-      releaseSecond([{ path: "second.ts", origPath: null, code: "M" }]);
+      releaseSecond([{ path: "second.unknown", origPath: null, code: "M" }]);
     });
     expect(overlayHost.querySelector(".git__row--on")?.textContent).toContain(
-      "second.ts",
+      "second.unknown",
     );
   });
 
@@ -399,7 +401,7 @@ describe("GitDiffOverlay", () => {
         repo: "/repo",
         workspace: WS,
         kind: "worktree",
-        row: row("src/app.ts"),
+        row: row("src/app.unknown"),
       });
     });
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
