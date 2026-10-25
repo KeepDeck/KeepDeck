@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { registerTerminalLinks, type LinkHost, type LinkTerminal } from "./terminalLinks";
 import type { PaneHint } from "./PaneHint";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // The kit's linker is INVERTED: the open primitives are injected on the
 // target, not imported. A test hands in `vi.fn()`s directly — no ipc module to
@@ -61,7 +62,7 @@ function stubTerm(rows: Row[], opts: { cols?: number; grid?: Grid } = {}) {
   };
   return {
     term,
-    provider: () => provider!,
+    provider: () => present(provider, "the link provider"),
     dispose,
   };
 }
@@ -141,8 +142,8 @@ describe("registerTerminalLinks", () => {
 
     const links = linksAt(provider(), 1);
     expect(links).toHaveLength(1);
-    expect(links![0].text).toBe("http://localhost:5173/");
-    expect(links![0].range).toEqual({
+    expect(present(links, "the links")[0].text).toBe("http://localhost:5173/");
+    expect(present(links, "the links")[0].range).toEqual({
       start: { x: 10, y: 1 },
       end: { x: 31, y: 1 },
     });
@@ -165,8 +166,8 @@ describe("registerTerminalLinks", () => {
     for (const lineNumber of [1, 2]) {
       const links = linksAt(provider(), lineNumber);
       expect(links).toHaveLength(1);
-      expect(links![0].text).toBe("http://localhost:5173/");
-      expect(links![0].range).toEqual({
+      expect(present(links, "the links")[0].text).toBe("http://localhost:5173/");
+      expect(present(links, "the links")[0].range).toEqual({
         start: { x: 10, y: 1 },
         end: { x: 3, y: 2 },
       });
@@ -189,9 +190,9 @@ describe("registerTerminalLinks", () => {
     for (const lineNumber of [1, 2, 3]) {
       const links = linksAt(provider(), lineNumber);
       expect(links).toHaveLength(1);
-      expect(links![0].text).toBe("/aa/bb/cccdd/ee/ffgg.ts");
+      expect(present(links, "the links")[0].text).toBe("/aa/bb/cccdd/ee/ffgg.ts");
       // Range spans the head row's "/" to the tail row's ".ts", indent undone.
-      expect(links![0].range).toEqual({
+      expect(present(links, "the links")[0].range).toEqual({
         start: { x: 1, y: 1 },
         end: { x: 7, y: 3 },
       });
@@ -202,7 +203,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
     registerTerminalLinks(term, host, target(null));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: false }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: false }), "");
     expect(showHint).toHaveBeenCalledWith({
       text: "⌘-click to open",
       // Click point translated to host-local coordinates.
@@ -217,7 +218,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
     registerTerminalLinks(term, host, target(null));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     expect(opener.openUrl).toHaveBeenCalledWith("http://localhost:5173/");
     expect(showHint).not.toHaveBeenCalled();
   });
@@ -226,7 +227,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "error at src/main.ts:12" }]);
     registerTerminalLinks(term, host, target("/wt/b"));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     expect(opener.openPath).toHaveBeenCalledWith("/wt/b/src/main.ts");
   });
 
@@ -235,7 +236,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
     registerTerminalLinks(term, host, target(null));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     await flush();
     expect(showHint).toHaveBeenCalledWith({
       text: "Couldn't open http://localhost:5173/",
@@ -251,7 +252,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([{ text: "see /wt/a/readme.md now" }]);
     registerTerminalLinks(term, host, target(null));
 
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     await flush();
     expect(showHint).toHaveBeenCalledWith({
       text: "Opened externally",
@@ -261,7 +262,7 @@ describe("registerTerminalLinks", () => {
 
     showHint.mockClear();
     opener.openPath.mockResolvedValueOnce(undefined);
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     await flush();
     expect(showHint).not.toHaveBeenCalled();
   });
@@ -337,7 +338,7 @@ describe("registerTerminalLinks — arming-independent ⌘-click", () => {
     fire("mousedown", metaDownAtCol(15));
     expect(opener.openUrl).toHaveBeenCalledTimes(1);
     // xterm's mouseup would call the same link's activate — it must not re-open.
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     expect(opener.openUrl).toHaveBeenCalledTimes(1);
   });
 
@@ -349,7 +350,7 @@ describe("registerTerminalLinks — arming-independent ⌘-click", () => {
 
     fire("mousedown", metaDownAtCol(15));
     expect(opener.openUrl).not.toHaveBeenCalled(); // raw handler no-ops…
-    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    present(linksAt(provider(), 1), "the links at that position")[0].activate(click({ metaKey: true }), "");
     expect(opener.openUrl).toHaveBeenCalledWith("http://localhost:5173/"); // …provider still works
   });
 
