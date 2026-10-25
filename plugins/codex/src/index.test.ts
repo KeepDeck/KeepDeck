@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentContribution, SpawnPlanOutput } from "@keepdeck/plugin-api";
+import type { AgentContribution, SpawnPlanInput, SpawnPlanOutput } from "@keepdeck/plugin-api";
 import { registerCodex } from "./index";
 import { renderCodexMail, CODEX_MAIL_CHANNELS } from "./status";
 import { codexUsageWatches } from "./usage";
@@ -334,6 +334,92 @@ describe("codex plugin hooks", () => {
       "resume",
       "uuid-9",
     ]);
+  });
+});
+
+describe("codex panes run their own process", () => {
+  const agent = activate("/App/resources/kd-session-hook.sh");
+  const remote = { kind: "nativeServer" as const, endpoint: "ws://vps:4500" };
+  /** Every way a pane launches, with the subcommand each must keep last. */
+  const launches = async (
+    over: Partial<SpawnPlanInput>,
+  ): Promise<Array<{ name: string; args: string[]; tail: string[] }>> => {
+    const given = { ...input, ...over };
+    const spawn = output();
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(given, spawn);
+    const resume = output();
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
+      { ...given, sessionId: "uuid-9" },
+      resume,
+    );
+    const fork = output();
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
+      { ...given, sessionId: "uuid-9", sourceCwd: "/x" },
+      fork,
+    );
+    return [
+      { name: "spawn", args: spawn.args, tail: [] },
+      { name: "resume", args: resume.args, tail: ["resume", "uuid-9"] },
+      { name: "fork", args: fork.args, tail: ["fork", "uuid-9"] },
+    ];
+  };
+
+  it.each(["0.156.0", "0.164.0", "0.156", "1.0.0"])(
+    "%s states --no-daemon on spawn, resume and fork, ahead of the subcommand",
+    async (cliVersion) => {
+      for (const launch of await launches({ cliVersion })) {
+        // Exactly once, and first: a global flag that codex keeps whether it
+        // comes before or after the subcommand, put where every global goes.
+        expect(launch.args.filter((a) => a === "--no-daemon"), launch.name).toHaveLength(1);
+        expect(launch.args[0], launch.name).toBe("--no-daemon");
+        expect(launch.args.slice(launch.args.length - launch.tail.length), launch.name).toEqual(
+          launch.tail,
+        );
+        // The `-c` stay as they were: the flag adds to them, it replaces none.
+        expect(launch.args, launch.name).toContain("disable_paste_burst=true");
+      }
+    },
+  );
+
+  it.each([
+    ["older than the flag", "0.155.9"],
+    ["far older", "0.99.0"],
+    ["illegible", "codex-cli"],
+    ["unknown", undefined],
+  ])("an %s release (%s) gets no --no-daemon: a flag codex lacks aborts the pane", async (_why, cliVersion) => {
+    for (const launch of await launches(cliVersion === undefined ? {} : { cliVersion })) {
+      expect(launch.args, launch.name).not.toContain("--no-daemon");
+      // What kept such a pane off the daemon before still does.
+      expect(launch.args, launch.name).toContain("disable_paste_burst=true");
+    }
+  });
+
+  it("never pairs --no-daemon with --remote, which codex refuses", async () => {
+    for (const launch of await launches({ cliVersion: "0.164.0", target: remote })) {
+      expect(launch.args, launch.name).not.toContain("--no-daemon");
+      expect(launch.args.slice(0, 2), launch.name).toEqual(["--remote", "ws://vps:4500"]);
+    }
+  });
+
+  it("declares the same rule as its bare floor, and nothing else", async () => {
+    const floor = present(agent.hooks["bare.plan"], "the bare.plan hook");
+    const floorOf = async (over: Partial<SpawnPlanInput>) => {
+      const out = output();
+      await floor({ ...input, ...over }, out);
+      return out;
+    };
+
+    const current = await floorOf({ cliVersion: "0.164.0" });
+    expect(current.args).toEqual(["--no-daemon"]);
+    expect(current.env).toEqual([]);
+    expect(current.command).toBe("codex");
+    expect((await floorOf({ cliVersion: "0.155.0" })).args).toEqual([]);
+    expect((await floorOf({})).args).toEqual([]);
+    // The host never degrades a remote pane to bare, but the floor is the
+    // same rule all the same, so it cannot drift into the forbidden pair.
+    expect((await floorOf({ cliVersion: "0.164.0", target: remote })).args).not.toContain(
+      "--no-daemon",
+    );
   });
 });
 

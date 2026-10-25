@@ -13,6 +13,7 @@ import {
 } from "@keepdeck/plugin-api";
 import { codexRecords } from "./tail";
 import { codexQuestionStatus } from "./questions";
+import { releasedSince } from "./version";
 
 /** The teammate framing both events below carry, worded once for every CLI
  * in [`frameTeammateMail`]. */
@@ -32,16 +33,6 @@ const teammateText = ({ messages, waiting }: MailReplyInput): string =>
  */
 const HOOK_SCHEMA_CHANGED_AT: readonly number[] = [0, 147, 0];
 
-/** `0.147.0` → `[0, 147, 0]`; anything unparseable → null. Padded to three,
- * so `0.147` and `0.147.0` compare equal rather than one ranking below the
- * other on a missing component. */
-function versionParts(version: string | null): number[] | null {
-  if (!version) return null;
-  const parts = version.split(".").map((part) => Number.parseInt(part, 10));
-  if (parts.length === 0 || parts.some((part) => !Number.isFinite(part))) return null;
-  return [parts[0], parts[1] ?? 0, parts[2] ?? 0];
-}
-
 /**
  * Whether this install wants the pre-0.147 schema.
  *
@@ -51,17 +42,7 @@ function versionParts(version: string | null): number[] | null {
  * on no evidence would break the working case to serve a retired one.
  */
 function wantsLegacySchema(cliVersion: string | null): boolean {
-  const parts = versionParts(cliVersion);
-  if (!parts) return false;
-  // Lexicographic, and it has to short-circuit on the FIRST component that
-  // differs: 1.0.0 is newer than 0.147.0 even though its second component is
-  // smaller, and a comparison that kept looking would call it older.
-  for (let i = 0; i < HOOK_SCHEMA_CHANGED_AT.length; i += 1) {
-    if (parts[i] !== HOOK_SCHEMA_CHANGED_AT[i]) {
-      return parts[i] < HOOK_SCHEMA_CHANGED_AT[i];
-    }
-  }
-  return false;
+  return releasedSince(cliVersion, HOOK_SCHEMA_CHANGED_AT) === false;
 }
 
 /**

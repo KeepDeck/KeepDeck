@@ -191,6 +191,34 @@ function paneEnv(
   return [...mcpEnv, ...pluginEnv, ...bridge];
 }
 
+/**
+ * The bare argv of this agent: what its own binary is started with when the
+ * plugin's plan is not used — because `spawn.plan` threw, or because an
+ * external plugin's plan named a program its manifest does not cover. Both
+ * are the same launch, so both carry what the plugin declared as its floor
+ * (`bare.plan`), and nothing when it declared none. Which flags those are is
+ * the plugin's knowledge; the host only applies them. A floor that throws is
+ * logged and costs the launch its floor, not its pane.
+ */
+async function bareArgs(
+  entry: AgentContribution,
+  input: SpawnPlanInput,
+): Promise<string[]> {
+  const floor = entry.hooks["bare.plan"];
+  if (typeof floor !== "function") return [];
+  const output: SpawnPlanOutput = { command: entry.detect.bin, args: [], env: [] };
+  try {
+    await floor(input, output);
+  } catch (e) {
+    log.warn(
+      "web:agents",
+      `${entry.id} bare.plan failed — bare launch with no arguments: ${errorMessage(e)}`,
+    );
+    return [];
+  }
+  return output.args;
+}
+
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
  * their session facts; the hook that runs is the variant's. */
 type PlanVariant =
@@ -204,7 +232,8 @@ type PlanVariant =
   | { kind: "fork"; sessionId: string; sourceCwd: string; transcriptPath?: string };
 
 /** Build one plan through the agent's hook. A throwing SPAWN hook degrades
- * to a bare spawn (no identity) rather than a dead pane; a throwing resume
+ * to a bare spawn (no identity, only the plugin's declared floor) rather
+ * than a dead pane; a throwing resume
  * or fork hook REJECTS — degrading a requested continuation (or a fork whose
  * surgery failed) into a fresh conversation would be silent data loss. */
 export async function buildPlan(
@@ -326,14 +355,20 @@ export async function buildPlan(
     // secret rides along for the same reason — the planted config names it,
     // and dropping it would resolve that pane's every call to nobody.
     return {
-      plan: { command: entry.detect.bin, args: [], env: mcpEnv, mcpToken },
+      plan: {
+        command: entry.detect.bin,
+        args: await bareArgs(entry, base),
+        env: mcpEnv,
+        mcpToken,
+      },
       deliver,
     };
   }
   // The hook's command must be covered by its plugin's exec capability —
   // warn for a trusted built-in (a bug to fix), CLAMP for an external
   // (falling back to the agent's own binary, which the registration gate
-  // proved covered): a sandboxed plugin must not pick the program.
+  // proved covered): a sandboxed plugin must not pick the program. The
+  // clamped launch is the bare one, so it carries the same declared floor.
   if (
     owner &&
     !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")
@@ -344,7 +379,7 @@ export async function buildPlan(
     );
     if (owner.source === "external") {
       output.command = entry.detect.bin;
-      output.args = [];
+      output.args = await bareArgs(entry, base);
       output.env = [];
       output.envDefaults = [];
     }

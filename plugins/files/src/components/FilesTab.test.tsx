@@ -146,6 +146,20 @@ describe("FilesTab", () => {
     await act(async () => {});
   };
 
+  /** Fire the watcher under a virtual clock, then let its debounced read
+   * finish in React. Wall time and machine load play no part in this step. */
+  const refreshFromWatch = async (path: string) => {
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fs.fireChange(path);
+        await vi.advanceTimersByTimeAsync(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
   let restoreViewport: () => void = () => {};
   beforeEach(() => {
     installResizeObserver();
@@ -189,11 +203,7 @@ describe("FilesTab", () => {
 
     // A new file lands on disk; the OS watcher fires for that directory.
     fs.dirs["/repo"] = [file("readme.md"), dir("src"), file("new.ts")];
-    fs.fireChange("/repo");
-    // Wait out the debounce (250ms), then let the re-read settle.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 320));
-    });
+    await refreshFromWatch("/repo");
 
     expect(treeNames()).toEqual(["src", "new.ts", "readme.md"]);
   });
@@ -422,10 +432,7 @@ describe("FilesTab", () => {
       // A re-render the cursor took no part in: a file lands on disk and
       // the listing reloads (past the watcher's 250ms debounce).
       fs.dirs["/repo"] = [...many, file("zzz.ts")];
-      fs.fireChange("/repo");
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 320));
-      });
+      await refreshFromWatch("/repo");
       expect(fs.readDir).toHaveBeenCalledTimes(2);
       expect(list().scrollTop).toBe(1000);
     });

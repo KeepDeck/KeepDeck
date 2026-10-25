@@ -8,6 +8,19 @@ import { gitOf, inertPorts } from "../gitPorts.test-support";
 import type { ChangeGroups, ChangeRow } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
 import { present } from "@keepdeck/plugin-api/testing";
+import { useHighlight } from "@keepdeck/code-kit";
+
+// DiffPeek's contract here is how it places the hook's tokens over diff rows.
+// code-kit's own suite exercises the real Shiki grammars and alignment.
+vi.mock("@keepdeck/code-kit", async (importOriginal) => {
+  const kit = await importOriginal<typeof import("@keepdeck/code-kit")>();
+  const useHighlight: typeof kit.useHighlight = vi.fn((text: string | null, lang: string | null) =>
+    text !== null && lang !== null
+      ? text.split("\n").map((line) => line === "" ? [] : [{ text: line, color: "#c00" }])
+      : null,
+  );
+  return { ...kit, useHighlight };
+});
 
 const TS_DIFF = [
   "@@ -1,3 +1,3 @@",
@@ -46,16 +59,13 @@ const changedRow = (path: string): ChangeRow => ({
 const rowTexts = () =>
   [...document.querySelectorAll(".git__linetext")].map((n) => n.textContent);
 
-/** Poll inside act — tokenization compiles real grammars, its latency is
- * genuine work, not a missing flush. */
-async function settle(ready: () => boolean, timeoutMs = 10_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!ready()) {
-    if (Date.now() > deadline) throw new Error("settle: condition never held");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    });
+/** The fake services below resolve by microtask. Flush their React commits,
+ * with no sleep or wall-clock deadline tied to machine load. */
+async function settle(ready: () => boolean) {
+  for (let turn = 0; turn < 8 && !ready(); turn++) {
+    await act(async () => { await Promise.resolve(); });
   }
+  expect(ready()).toBe(true);
 }
 
 describe("DiffPeek", () => {
@@ -164,23 +174,23 @@ describe("DiffPeek", () => {
     setRuntime(null);
   });
 
-  it("colors a known language's diff lines without changing their text", async () => {
+  it("renders a known language's colored tokens without changing diff text", async () => {
     await mount(changedRow("src/main.ts"), TS_DIFF);
-    const plain = rowTexts();
-    await settle(
-      () => document.querySelectorAll(".git__linetext span[style]").length > 0,
-    );
-    // Coloring must not change a single visible character of any row —
-    // added, deleted, context, or meta.
-    expect(rowTexts()).toEqual(plain);
-    expect(plain).toContain("const port = 8080; // changed");
+    expect(useHighlight).toHaveBeenCalledWith(expect.any(String), "typescript");
+    expect(document.querySelectorAll(".git__linetext span[style]").length).toBeGreaterThan(0);
+    expect(rowTexts().slice(0, 5)).toEqual([
+      'import { app } from "./app";',
+      "const port = 3000;",
+      "const port = 8080; // changed",
+      "export default app;",
+      "export default { app };",
+    ]);
+    expect(rowTexts()[5]).toContain("No newline at end of file");
   });
 
   it("keeps the meta line dim — no colored runs on it", async () => {
     await mount(changedRow("src/main.ts"), TS_DIFF);
-    await settle(
-      () => document.querySelectorAll(".git__linetext span[style]").length > 0,
-    );
+    expect(document.querySelectorAll(".git__linetext span[style]").length).toBeGreaterThan(0);
     const meta = present(document.querySelector(".git__diffrow--meta .git__linetext"), "the .git__diffrow--meta .git__linetext element");
     expect(meta.querySelectorAll("span[style]").length).toBe(0);
     expect(meta.textContent).toContain("No newline");
@@ -212,9 +222,6 @@ describe("DiffPeek", () => {
       changedRow("LICENSE"),
       "@@ -1 +1 @@\n-old words\n+new words\n",
     );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    });
     expect(
       document.querySelectorAll(".git__linetext span[style]").length,
     ).toBe(0);

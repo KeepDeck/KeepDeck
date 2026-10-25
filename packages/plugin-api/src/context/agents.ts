@@ -139,6 +139,18 @@ export interface AgentHooks {
     input: ForkPlanInput,
     output: SpawnPlanOutput,
   ): void | Promise<void>;
+  /** The floor of a BARE launch (API 66): the arguments this CLI must still
+   * carry when the host starts it without a plan — because `spawn.plan`
+   * threw, or because an external plugin's plan named a program its `exec`
+   * capability does not cover and the host clamped it to the agent's own
+   * binary. Only `output.args` is read — a bare launch runs that binary with
+   * nothing else of a plan — and the hook gets the same input the unused
+   * plan did, so a floor can depend on the release (`cliVersion`). Keep it to what a launch cannot go without; a floor that
+   * throws, or is absent, leaves the launch with no arguments at all. */
+  "bare.plan"?(
+    input: SpawnPlanInput,
+    output: SpawnPlanOutput,
+  ): void | Promise<void>;
 }
 
 export interface SpawnPlanInput {

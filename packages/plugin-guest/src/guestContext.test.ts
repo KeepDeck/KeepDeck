@@ -228,6 +228,44 @@ describe("agent registration payload", () => {
     });
   });
 
+  it("serves a bare.plan request: the floor's args go back as the hook's output", async () => {
+    const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
+    const rpc: GuestCaller = { call };
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    bundle.ctx.agents.register({
+      id: "codex",
+      label: "Codex",
+      detect: { bin: "codex" },
+      hooks: {
+        "bare.plan": (input, output) => {
+          output.args.push(`--floor=${input.cliVersion ?? "unknown"}`);
+        },
+      },
+    });
+    await bundle.registrationsSettled();
+
+    bundle.dispatchEvent("hook:21", {
+      agentId: "codex",
+      hook: "bare.plan",
+      input: {
+        paneId: "pane-1",
+        workspace: { id: "ws-1", instance: "i-1" },
+        cwd: "/repo",
+        cliVersion: "0.164.0",
+      },
+      output: { command: "codex", args: [], env: [] },
+    });
+    const result = () =>
+      call.mock.calls.find(
+        ([path, args]) => path === "agents.hookResult" && firstArgOf(args) === 21,
+      );
+    await vi.waitFor(() => expect(result()).toBeDefined());
+    expect(argsOf(present(result(), "the result"))[1]).toEqual({
+      ok: true,
+      output: { command: "codex", args: ["--floor=0.164.0"], env: [] },
+    });
+  });
+
   it("declares hasListing iff the history object really has the method, and serves listing requests", async () => {
     // The wire flag is the host's ONLY basis for exposing `listing` in its
     // proxy — a false declaration gets an old-guest realm asked for a

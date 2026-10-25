@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
+import { createSessionStore, type FsEntry, type PluginSessionStore } from "@keepdeck/plugin-api";
 import { present, fsStore } from "@keepdeck/plugin-api/testing";
 import { kimiHistory, type HistoryPorts } from "./history";
 
@@ -58,12 +58,22 @@ function ctx(
   files: Record<string, string>,
   dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
+  budget?: number,
 ): HistoryPorts {
   // A wire is read a WINDOW at a time now, so the double has to serve
   // windows. It also refuses a missing path by throwing, which is kimi's own
   // shape — the other two answer with null text; only the ANSWER is shared,
   // how a store refuses is the store's business.
   const fs = fsStore(files);
+  // A small host budget exercises the same reader's real byte boundary
+  // without manufacturing 9 MiB of JSON merely to reach the production cap.
+  const sessionStore: PluginSessionStore = budget === undefined
+    ? createSessionStore(fs)
+    : {
+        read(format, request, consume) {
+          return format.open(fs).pull(request, { maxPayloadBytes: budget }, consume);
+        },
+      };
   return {
     log: { warn, info: vi.fn(), error: vi.fn() },
     services: {
@@ -75,7 +85,7 @@ function ctx(
         },
         readFile: fs.readFile,
       },
-      sessionStore: createSessionStore(fs),
+      sessionStore,
     },
   };
 }
@@ -314,32 +324,29 @@ describe("kimi history", () => {
     expect(await history.content(wire)).toContain("held");
   });
 
-  // Its own time budget, not the suite's: the ~9 MB fixture has to exceed the
-  // host's 8 MiB read budget, and walking it is this test's own cost — on a
-  // machine running other suites at once it has taken 5–8 s and read as a
-  // flake. Twenty seconds names the cost; a page that never comes back still fails.
-  it("a page cut short by the budget says so in bytes", { timeout: 20_000 }, async () => {
+  it("a page cut short by the budget says so in bytes", async () => {
     // kimi is the store where a cut can land INSIDE an emitted turn: the
     // dialect accumulates fragments across lines, so the tail turn is short
     // and looks whole. That specific loss is unprovable from the held bytes,
     // so the honest claim is the one this page makes — the reading fell
     // short, and there may be more beyond it.
     //
-    // The fixture has to be genuinely bigger than one read may pass through:
-    // a double that merely CLAIMED a large file would describe a world where
-    // the bytes between what it returned and what it claimed do not exist.
+    // The host still frames REAL bytes: the first turn fits, then the next
+    // is cut mid-record. This is a legitimate smaller host budget, not a
+    // fake answer claiming unseen bytes that the fixture does not hold.
     const line = JSON.stringify({
       type: "context.append_message",
-      message: { role: "user", content: [{ type: "text", text: "x".repeat(2000) }] },
+      message: { role: "user", content: [{ type: "text", text: "x".repeat(200) }] },
     });
-    const big = `${line}\n`.repeat(4500);
+    const big = `${line}\n`.repeat(6);
     const size = new TextEncoder().encode(big).length;
+    const budget = new TextEncoder().encode(`${line}\n`).length + 8;
     const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
-    const history = kimiHistory(ctx({ [wire]: big }, {}));
+    const history = kimiHistory(ctx({ [wire]: big }, {}, vi.fn(), budget));
 
-    const page = await present(history.transcriptPage, "the transcript page")(wire, { offset: 4400, limit: 10 });
+    const page = await present(history.transcriptPage, "the transcript page")(wire, { offset: 0, limit: 10 });
 
-    expect(page.entries.length).toBeLessThan(10);
+    expect(page.entries).toHaveLength(1);
     expect(page.shortfall).toHaveLength(1);
     const [mark] = present(page.shortfall, "the shortfall of page");
     expect(mark).toMatchObject({ kind: "bytes", size });

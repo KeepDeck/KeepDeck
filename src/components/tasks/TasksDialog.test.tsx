@@ -13,6 +13,7 @@ import { USER_ACTOR, agentActor, blockerIdsOf, encodeBoard } from "../../domain/
 import { board as boardOf, task as taskOf } from "../../domain/tasks/testSupport";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { TasksDialog } from "./TasksDialog";
+import { CLICK_AFTER_DRAG_MS } from "../../presentation/tasks/rowDrag";
 import type { TasksAccess } from "../../app/tasks/useTasksBoard";
 import type { Workspace } from "../../domain/deck";
 import { DEFAULT_SETTINGS, type Settings } from "../../domain/settings";
@@ -841,6 +842,9 @@ describe("TasksDialog", () => {
     const render = mount(service);
     render();
     await flush();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => { vi.useRealTimers(); });
+    vi.setSystemTime(new Date(1_000));
     act(() => void pointerAt("pointerdown", rowOpens()[0], 10, 10));
     await flush();
     act(() => void pointerAt("pointermove", window, 40, 40));
@@ -859,7 +863,7 @@ describe("TasksDialog", () => {
     expect(focus).toBeNull();
 
     // A press that does not travel is a click: the row opens.
-    await new Promise((resolve) => setTimeout(resolve, 260));
+    vi.setSystemTime(new Date(1_000 + CLICK_AFTER_DRAG_MS));
     const pooled = () => present(rowOpens().find((c) => c.querySelector(".tasks__row-title")?.textContent === "Pooled work"), "task row \"Pooled work\"");
     act(() => {
       pointerAt("pointerdown", pooled(), 10, 10);

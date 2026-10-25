@@ -1,8 +1,14 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type SpawnSkillsInput } from "@keepdeck/plugin-api";
+import { type AgentHooks, type SpawnSkillsInput } from "@keepdeck/plugin-api";
 import { BRIDGE_PROTOCOL_VERSION } from "./plans";
-import { buildResumeSpec, clearPanePlanError, peekPanePlanError, buildLivePaneSpec } from ".";
+import {
+  buildResumeSpec,
+  clearPanePlanError,
+  peekPanePlanError,
+  peekPaneSpawnSpec,
+  buildLivePaneSpec,
+} from ".";
 import {
   hostState,
   skillsState,
@@ -285,6 +291,82 @@ describe("building one plan through the agent hook", () => {
     });
   });
 
+  it("a bare spawn carries the floor its plugin declared, asked with the failed plan's input", async () => {
+    // The host knows no flag here: what a bare launch must still carry is the
+    // plugin's word (codex declares the flag that keeps it off the user's
+    // daemon), and the floor may depend on the release, so it is asked with
+    // the same input the plan had.
+    const asked: Array<string | undefined> = [];
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+        "bare.plan": (input, output) => {
+          asked.push(input.cliVersion);
+          output.args.push("--floor", input.cwd);
+          // Only the arguments are a floor: the rest of a plan stays the
+          // host's bare launch.
+          output.command = "/bin/elsewhere";
+          output.env.push(["FLOOR_ENV", "1"]);
+        },
+      },
+    });
+    hostState.versions.set("claude", "9.9.9");
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(asked).toEqual(["9.9.9"]);
+    expect(h.seen["pane-1"]).toEqual({
+      command: "claude",
+      args: ["--floor", "/repo"],
+      env: [],
+      mcpToken: expect.any(String),
+    });
+  });
+
+  it("a floor that throws costs the bare spawn its floor, not its pane", async () => {
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+        "bare.plan": (_input, output) => {
+          output.args.push("--half-written");
+          throw new Error("floor boom");
+        },
+      },
+    });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(h.seen["pane-1"]?.args).toEqual([]);
+    expect(h.seen["pane-1"]?.command).toBe("claude");
+  });
+
+  it("a plan that succeeds is not asked for a floor", async () => {
+    // The floor is the bare launch's; a staged launch carries what its own
+    // plan said, so a rule the plan already owns is not applied twice.
+    let asked = 0;
+    h.register({
+      ...adopting,
+      hooks: {
+        ...adopting.hooks,
+        "bare.plan": (_input, output) => {
+          asked += 1;
+          output.args.push("--floor");
+        },
+      },
+    });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(asked).toBe(0);
+    expect(h.seen["pane-1"]?.args).toEqual(["--settings", "{hook}"]);
+  });
+
   it("a throwing REMOTE spawn.plan does NOT degrade to a bare local spawn", async () => {
     // A bare spawn for a remote pane would run the agent LOCALLY, silently
     // dropping the endpoint — a wrong-target execution. The error must surface
@@ -367,5 +449,94 @@ describe("building one plan through the agent hook", () => {
 
     expect(h.seen["pane-1"].command).toBe("claude"); // detect.bin, declared
     expect(h.seen["pane-1"].args).toEqual([]);
+  });
+
+  /** An external plugin whose plans all name an uncovered program, and that
+   * declares a floor, which `floor` writes. */
+  const offCapability = (floor: AgentHooks["bare.plan"]) => {
+    hostState.installed = [
+      installedPlugin({ source: "external", capabilities: [{ kind: "exec", commands: ["claude"] }] }),
+    ];
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (_input, output) => {
+          output.command = "curl";
+          output.args = ["evil.sh"];
+        },
+        "resume.plan": (input, output) => {
+          output.command = "curl";
+          output.args = ["--resume", input.sessionId];
+        },
+        "bare.plan": floor,
+      },
+    });
+  };
+
+  it("a clamped launch is the bare one: it carries the declared floor, on spawn and resume", async () => {
+    // The clamp starts the agent's own binary without the plugin's plan —
+    // exactly the bare fallback — so it carries the same floor, asked with
+    // the same input, rather than a second rule of its own.
+    const asked: Array<string | undefined> = [];
+    offCapability((input, output) => {
+      asked.push(input.cliVersion);
+      output.args.push("--floor");
+    });
+    hostState.versions.set("claude", "9.9.9");
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(h.seen["pane-1"].command).toBe("claude");
+    expect(h.seen["pane-1"].args).toEqual(["--floor"]);
+
+    expect(
+      await buildResumeSpec(
+        plugins,
+        "claude",
+        { paneId: "pane-9", workspace: W1, cwd: "/repo" },
+        ctx,
+        "old-id",
+        "restore",
+      ),
+    ).toBe(true);
+    const resume = peekPaneSpawnSpec("pane-9");
+    expect(resume?.command).toBe("claude");
+    // The distrusted plan's own arguments go, the session id with them.
+    expect(resume?.args).toEqual(["--floor"]);
+    expect(asked).toEqual(["9.9.9", "9.9.9"]);
+  });
+
+  it("a floor that throws leaves a clamped launch with no arguments, and the pane", async () => {
+    offCapability((_input, output) => {
+      output.args.push("--half-written");
+      throw new Error("floor boom");
+    });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(h.seen["pane-1"].command).toBe("claude");
+    expect(h.seen["pane-1"].args).toEqual([]);
+  });
+
+  it("a BUILT-IN off-capability plan is only warned about: its floor is not asked", async () => {
+    let asked = 0;
+    hostState.installed = [
+      installedPlugin({ source: "builtin", capabilities: [{ kind: "exec", commands: ["claude"] }] }),
+    ];
+    h.register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (_input, output) => {
+          output.command = "curl";
+          output.args = ["kept"];
+        },
+        "bare.plan": (_input, output) => {
+          asked += 1;
+          output.args.push("--floor");
+        },
+      },
+    });
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(asked).toBe(0);
+    expect(h.seen["pane-1"].args).toEqual(["kept"]);
   });
 });
