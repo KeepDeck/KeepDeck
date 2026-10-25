@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { opencodeHistory, type HistoryPorts } from "./history";
+import { opencodeStore } from "./store";
+import { verdictOn } from "./whereabouts";
 
 /**
  * The queries against a REAL SQLite, over stores with REAL damage in them,
@@ -378,5 +380,31 @@ describe("opencode history over a store holding both", () => {
     });
     expect(page.entries).toEqual([{ role: "other", text: "mail from KeepDeck" }]);
     db.close();
+  });
+});
+
+/**
+ * Where one session lives, read by the same SQL a resume and a fork ask
+ * before they start (store.ts, whereabouts.ts) — over the stores above.
+ */
+describe("where a session lives, in a real store", () => {
+  const verdicts = async (db: DatabaseSync, id: string) => {
+    const where = await opencodeStore(portsOver(db)).locate(id);
+    return { "1.x": verdictOn(1, where), "2.x": verdictOn(2, where) };
+  };
+
+  it("tells each kind of session in a store holding both table sets apart", async () => {
+    const db = bothStore();
+    // Copied, then continued in 2.x: 1.x would open the stale half.
+    expect(await verdicts(db, "ses_copied")).toEqual({ "1.x": "continued-elsewhere", "2.x": "here" });
+    // Made by 1.x after the copy: 2.x would open it empty.
+    expect(await verdicts(db, "ses_later_v1")).toEqual({ "1.x": "here", "2.x": "other-generation" });
+    expect(await verdicts(db, "ses_later_v2")).toEqual({ "1.x": "other-generation", "2.x": "here" });
+    expect(await verdicts(db, "ses_none")).toEqual({ "1.x": "nowhere", "2.x": "nowhere" });
+  });
+
+  it("calls a 1.x-only session pending while the copy runs, or before any 2.x touched the store", async () => {
+    expect((await verdicts(bothStore("sessions"), "ses_later_v1"))["2.x"]).toBe("copy-pending");
+    expect(await verdicts(v1Store(), "ses_1")).toEqual({ "1.x": "here", "2.x": "copy-pending" });
   });
 });
