@@ -79,10 +79,16 @@ export function useSessionPicker(deps: {
   // Re-query as the user types, switches agent, or opens resume/fork. Skipped
   // for "new" (no picker shown); the shared engine debounces and pages.
   const { search: searchSessionsPage } = pagedSessions;
+  // The engine's callback is rebuilt with the fetcher (and the fetcher with
+  // the dialog's `searchSessions` prop, which the caller recreates). The
+  // re-query trigger is the mode/agent/query, not the callback identity:
+  // reading the latest one through a ref avoids a search on every render.
+  const searchRef = useRef(searchSessionsPage);
+  searchRef.current = searchSessionsPage;
   useEffect(() => {
     if (startMode === "new") return;
-    searchSessionsPage(sessionQuery);
-  }, [startMode, agentType, sessionQuery, searchSessionsPage]);
+    searchRef.current(sessionQuery);
+  }, [startMode, agentType, sessionQuery]);
 
   // The picker reads the INDEX, which nothing refreshed unless the history
   // browser was visited. DECLARE the need for the selected agent's store —
