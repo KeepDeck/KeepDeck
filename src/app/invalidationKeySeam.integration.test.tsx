@@ -64,10 +64,24 @@ type IndexAnswer = {
   title: string | null;
   mtime: number;
 };
+const lookupKeys = (value: unknown) =>
+  recordsOf(value, "lookup keys").map((key) => ({
+    agent: stringOf(key.agent, "agent id"),
+    sessionId: stringOf(key.sessionId, "session id"),
+  }));
+
+const noHistory: AgentHistory = {
+  list: async () => [],
+  describe: async () => ({ cwd: "/repo" }),
+  content: async () => "",
+  transcript: async () => [],
+  transcriptPage: async () => ({ entries: [] }),
+};
+
 const indexTruth = new Map<string, IndexAnswer>();
 ipc.indexLookup.mockImplementation((...args: unknown[]) =>
   Promise.resolve(
-    (args[0] as { agent: string; sessionId: string }[]).map((asked) => {
+    lookupKeys(args[0]).map((asked) => {
       const answer = indexTruth.get(rowKeyOf(asked));
       return answer ?? { ...asked, status: "absent" };
     }),
@@ -93,13 +107,14 @@ function Probe() {
 // useSyncExternalStore imported lazily via React to keep the mock
 // block above hoisted first.
 import { useSyncExternalStore } from "react";
+import { recordsOf, stringOf } from "../testing/values.test-support";
 function useSyncExternalStoreRef() {
   return useSyncExternalStore(manager.subscribe, manager.snapshot);
 }
 
 const registry = () => ({
   list: () => [
-    { entry: { id: "claude", history: {} as AgentHistory } },
+    { entry: { id: "claude", history: noHistory } },
   ],
   subscribe: () => () => {},
 });

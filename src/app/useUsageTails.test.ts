@@ -16,7 +16,14 @@ import { createDeckActions, type DeckActions } from "./deckActions";
 
 const ipc = vi.hoisted(() => ({
   watchSessionFile: vi.fn<
-    (paneId: string, path: string, token: string, format: string) => Promise<void>
+    (
+      paneId: string,
+      path: string,
+      token: string,
+      agent: string,
+      watches?: readonly TailWatch[],
+      siblings?: string | null,
+    ) => Promise<void>
   >(() => Promise.resolve()),
   unwatchSessionFile: vi.fn(() => Promise.resolve()),
   findCodexRollout: vi.fn<(sessionId: string) => Promise<string | null>>(() =>
@@ -346,7 +353,7 @@ describe("usage tails — a pane whose process has a companion", () => {
   }
   /** The watches the last arm carried. */
   const lastWatches = () => {
-    const calls = ipc.watchSessionFile.mock.calls as unknown[][];
+    const calls = ipc.watchSessionFile.mock.calls;
     return calls[calls.length - 1]?.[4];
   };
 

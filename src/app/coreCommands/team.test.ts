@@ -10,6 +10,7 @@ import {
 } from "./testSupport";
 import { beforeEach, describe, expect, it } from "vitest";
 import { WORKSPACE_GONE_MESSAGE, type Workspace } from "../../domain/deck";
+import { recordOf } from "../../testing/values.test-support";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -23,7 +24,7 @@ const teamed = (over: Partial<Workspace> = {}): Workspace =>
     ...over,
   });
 
-const value = (result: { ok: boolean; value?: unknown }) => result.value as Record<string, unknown>;
+const value = (result: { ok: boolean; value?: unknown }) => recordOf(result.value, "record");
 const message = (result: { ok: boolean; error?: { message: string } }) => result.error?.message ?? "";
 
 describe("team.create", () => {

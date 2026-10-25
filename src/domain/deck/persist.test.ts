@@ -12,6 +12,7 @@ import {
   serializeDeck,
   type HydratedDeck,
 } from "./persist";
+import { recordOf } from "../../testing/values.test-support";
 
 /** Unwrap an expected-ok hydration; fails the test loudly otherwise. */
 function okDeck(json: string): HydratedDeck {
@@ -1604,7 +1605,7 @@ describe("the retired rail expansion map", () => {
   it("is dropped on read and never written back", () => {
     // Which workspaces the old rail listed teams under means nothing to the
     // strip; an older file's map must not ride along as an unknown extra.
-    const doc = JSON.parse(serializeDeck(state)) as Record<string, unknown>;
+    const doc = recordOf(JSON.parse(serializeDeck(state)), "record");
     doc.railExpandedByWs = { [state.workspaces[0].id]: true };
     const restored = okDeck(JSON.stringify(doc));
     expect(serializeDeck(restored.state, restored.docExtras)).not.toContain("railExpandedByWs");

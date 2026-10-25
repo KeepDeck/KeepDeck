@@ -60,10 +60,13 @@ type Report = {
 };
 
 const scans = vi.hoisted(() => ({
-  scanAgentHistories: vi.fn(
-    (..._args: unknown[]) =>
-      Promise.resolve({ dropped: [] } as Report),
-  ),
+  scanAgentHistories: vi.fn<
+    (
+      sources: Array<{ agentId: string; history: object }>,
+      ops?: unknown,
+      onProgress?: () => void,
+    ) => Promise<Report>
+  >(() => Promise.resolve({ dropped: [] })),
 }));
 vi.mock("./historyScan", () => scans);
 
@@ -83,9 +86,9 @@ function hangingScan() {
 function batchyScan() {
   let finish!: () => void;
   scans.scanAgentHistories.mockImplementationOnce(
-    (...args: unknown[]) =>
+    (...args) =>
       new Promise<Report>((resolve) => {
-        (args[2] as () => void)(); // a batch landed
+        args[2]?.(); // a batch landed
         finish = () => resolve({ dropped: [] });
       }),
   );
@@ -93,14 +96,11 @@ function batchyScan() {
 }
 
 const sourcesOf = (call: number) =>
-  scans.scanAgentHistories.mock.calls[call][0] as Array<{
-    agentId: string;
-    history: object;
-  }>;
+  scans.scanAgentHistories.mock.calls[call][0];
 
 beforeEach(() => {
   scans.scanAgentHistories.mockReset();
-  scans.scanAgentHistories.mockResolvedValue({ dropped: [] } as Report);
+  scans.scanAgentHistories.mockResolvedValue({ dropped: [] });
 });
 
 /** Let a settled scan's `.catch`/`.finally` chain (and the chained `run`

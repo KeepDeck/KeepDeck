@@ -10,6 +10,7 @@ import type { UsageEventV2 } from "../../domain/usage/history/event";
 import { WEEK_MS } from "../../domain/usage/time";
 import { Weeks } from "./Weeks";
 import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf, instanceOf } from "../../testing/values.test-support";
 
 const NOW = TEST_NOW; // Wednesday; the current week opened Mon Jul 20
 
@@ -129,16 +130,16 @@ describe("Weeks", () => {
     expect(host.textContent).toContain("1–8 of 12");
     const newer = present(host.querySelector('[aria-label="Newer weeks"]'), "the [aria-label=\"Newer weeks\"] element");
     const older = present(host.querySelector('[aria-label="Older weeks"]'), "the [aria-label=\"Older weeks\"] element");
-    expect((newer as HTMLButtonElement).disabled).toBe(true);
+    expect((instanceOf(newer, HTMLButtonElement, "newer")).disabled).toBe(true);
     click(older);
     expect(host.querySelectorAll('[role="row"]')).toHaveLength(4);
     expect(host.textContent).toContain("9–12 of 12");
     expect(
-      (host.querySelector('[aria-label="Older weeks"]') as HTMLButtonElement)
+      (elementOf(host, '[aria-label="Older weeks"]', HTMLButtonElement))
         .disabled,
     ).toBe(true);
     expect(
-      (host.querySelector('[aria-label="Newer weeks"]') as HTMLButtonElement)
+      (elementOf(host, '[aria-label="Newer weeks"]', HTMLButtonElement))
         .disabled,
     ).toBe(false);
   });

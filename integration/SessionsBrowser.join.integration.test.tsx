@@ -147,6 +147,8 @@ import {
 import { rowKeyOf } from "../src/domain/journal/sessionRow";
 import { SessionsBrowser } from "../src/components/history/SessionsBrowser";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
+import { instanceOf } from "../src/testing/values.test-support";
+import { recordsOf, stringOf } from "../src/testing/values.test-support";
 
 const AGENTS: AgentInfo[] = [
   {
@@ -171,16 +173,23 @@ const AGENTS: AgentInfo[] = [
   },
 ];
 
-const record = (over: Partial<SessionRecord>): SessionRecord =>
-  ({
+const lookupKeys = (value: unknown) =>
+  recordsOf(value, "lookup keys").map((key) => ({
+    agent: stringOf(key.agent, "agent id"),
+    sessionId: stringOf(key.sessionId, "session id"),
+  }));
+
+const record = (over: Partial<Extract<SessionRecord, { state: "closed" }>>): SessionRecord => {
+  const base: Extract<SessionRecord, { state: "closed" }> = {
     agent: "claude",
     sessionId: "s-1",
     cwd: "/repo",
     boundAt: "2026-07-19T10:00:00.000Z",
     state: "closed",
     endedAt: "2026-07-19T11:00:00.000Z",
-    ...over,
-  }) as SessionRecord;
+  };
+  return { ...base, ...over };
+};
 
 /** The component the app actually renders: the REAL shared seam (keyed
  * enrichment over the runtime fake, real transcript dispatch through the
@@ -233,7 +242,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
    * subject. */
   const answerBy: Record<string, IndexLookupAnswer> = {};
   const answerByKey = async (...raw: unknown[]): Promise<IndexLookupAnswer[]> => {
-    const keys = raw[0] as { agent: string; sessionId: string }[];
+    const keys = lookupKeys(raw[0]);
     return keys.map(
       (k) =>
         answerBy[rowKeyOf(k)] ?? {
@@ -275,7 +284,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     expect(row.querySelector(".history__resume")).toBeNull();
     expect(row.querySelector(".history__fork")).toBeNull();
 
-    await act(async () => (row as HTMLLIElement).click());
+    await act(async () => (instanceOf(row, HTMLLIElement, "row")).click());
     expect(document.querySelector(".browser__viewer")).toBeNull();
     // THE assertion this suite exists for: neither real plugin's fs was
     // asked for the kimi path — the union of read links stayed closed.
@@ -356,7 +365,7 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
     askLog = [];
     pendingResolvers = [];
     ipc.indexLookup.mockImplementation((...raw: unknown[]) => {
-      askLog.push(raw[0] as Array<{ agent: string; sessionId: string }>);
+      askLog.push(lookupKeys(raw[0]));
       return new Promise<IndexLookupAnswer[]>((res) => {
         pendingResolvers.push(res);
       });

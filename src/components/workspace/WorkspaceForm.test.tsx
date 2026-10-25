@@ -15,9 +15,12 @@ const chooseBtn = () =>
     (b) => b.textContent === "Choose…",
   ), "button \"Choose…\""); // first Choose… = working directory
 const createBtn = () =>
-  Array.from(document.querySelectorAll("button")).find(
-    (b) => b.textContent === "Create workspace",
-  ) as HTMLButtonElement;
+  present(
+    Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent === "Create workspace",
+    ),
+    "button \"Create workspace\"",
+  );
 
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */

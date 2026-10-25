@@ -42,7 +42,7 @@ vi.mock("../../app/usePaneSessionState", async () => {
   };
 });
 
-import type { AgentStatusEvent, NormalizedUsage } from "@keepdeck/plugin-api";
+import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import type { PaneIdle } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import {
@@ -55,6 +55,7 @@ import { AppRuntimeProvider } from "../../app/runtimeContext";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";
 import { present } from "@keepdeck/plugin-api/testing";
+import { usageResult, statusEdge } from "../../testing/values.test-support";
 
 /** The runtime slice AgentPane actually reads (its activity and ctx%
  * selectors). Fresh stores per test — the factories' whole point. */
@@ -217,7 +218,7 @@ describe("AgentPane — header badges", () => {
   it("shows the context meter in the header from live pane usage", () => {
     usage.registerNormalizer(
       "claude",
-      (payload) => (payload as { result: NormalizedUsage }).result,
+      (payload) => usageResult(payload),
     );
     usage.report("ws:1", {
       agent: "claude",
@@ -265,7 +266,7 @@ describe("AgentPane — header badges", () => {
   it("hides the context meter on a non-live (idle) pane despite usage", () => {
     usage.registerNormalizer(
       "claude",
-      (payload) => (payload as { result: NormalizedUsage }).result,
+      (payload) => usageResult(payload),
     );
     usage.report("ws:1", {
       agent: "claude",
@@ -311,7 +312,7 @@ describe("AgentPane — header badges", () => {
     (_label, override) => {
       usage.registerNormalizer(
         "claude",
-        (payload) => (payload as { result: NormalizedUsage }).result,
+        (payload) => usageResult(payload),
       );
       usage.report("ws:1", {
         agent: "claude",
@@ -330,7 +331,7 @@ describe("AgentPane — header badges", () => {
   it("hides the context meter once the pane's process has exited", () => {
     usage.registerNormalizer(
       "claude",
-      (payload) => (payload as { result: NormalizedUsage }).result,
+      (payload) => usageResult(payload),
     );
     usage.report("ws:1", {
       agent: "claude",
@@ -369,7 +370,7 @@ describe("AgentPane — activity badge", () => {
     statusTracker.registerNormalizer(
       "claude",
       (payload: unknown) =>
-        (payload as { edge?: AgentStatusEvent }).edge ?? null,
+        statusEdge(payload),
     );
   });
 

@@ -10,6 +10,7 @@ import {
 import { readStyles, ruleBody } from "../../styles/testSupport";
 import { Achievements } from "./Achievements";
 import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf } from "../../testing/values.test-support";
 
 /** The gallery takes one prop and computes everything else from the ledger,
  * so it is mounted directly: no history mock, no dialog shell, no tab click
@@ -134,7 +135,7 @@ describe("Achievements", () => {
   const DRIFT_BAND = 0.05;
 
   const rimOf = (item: Element) =>
-    item.querySelector(".stats__achievement-rim") as HTMLElement;
+    elementOf(item, ".stats__achievement-rim", HTMLElement);
 
   /** The rims of the levels that actually light a runner. The two numbers
    * ride EVERY rim — which levels show one is the stylesheet's question, not

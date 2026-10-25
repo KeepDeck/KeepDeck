@@ -152,7 +152,11 @@ describe("stepRow — J and K walk the tasks", () => {
 
 describe("the list in a drag", () => {
   const items = listView(tasks, b, 0, NO_QUERY, NONE, null);
-  const rowOf = (id: string) => items.find((i) => i.key === id) as Extract<ListItem, { kind: "row" }>;
+  const rowOf = (id: string) => {
+    const item = items.find((i) => i.key === id);
+    if (!item || item.kind !== "row") throw new Error(`expected row ${id}`);
+    return item;
+  };
   const dragging: DragState = { kind: "dragging", id: "task-1", x: 0, y: 0, grip: { width: 1, offsetX: 0, offsetY: 0 }, targets: new Set(["in-progress", "done"]) };
 
   it("knows each row's group — where a drop on it lands", () => {
@@ -208,7 +212,8 @@ describe("the list in a drag", () => {
     expect(listRowClassName(rowOf("task-1"), dragging, null)).toContain("tasks__row--dragging");
     expect(listRowClassName(rowOf("task-4"), dragging, "done")).toContain("tasks__drop--over");
     expect(listRowClassName(rowOf("task-4"), IDLE, null)).toBe(rowOf("task-4").className);
-    const done = items.find((i) => i.key === "head:done") as Extract<ListItem, { kind: "head" }>;
+    const done = items.find((i) => i.key === "head:done");
+    if (!done || done.kind !== "head") throw new Error("expected the done heading");
     expect(listHeadingDropClassName(done, dragging, null)).toBe("tasks__group tasks__group--done");
     expect(listHeadingDropClassName(done, dragging, "done")).toBe("tasks__group tasks__group--done tasks__drop--over tasks__drop-edge--top");
   });
@@ -248,7 +253,11 @@ describe("listView — an epic with its tasks under it (B1)", () => {
       "head:done",
       "head:cancelled",
     ]);
-    const row = (key: string) => items.find((i) => i.key === key) as Extract<ListItem, { kind: "row" }>;
+    const row = (key: string) => {
+      const item = items.find((i) => i.key === key);
+      if (!item || item.kind !== "row") throw new Error(`expected row ${key}`);
+      return item;
+    };
     // The gutter is the row's own: the epic's fold, its tasks' guide — stopping at the last — nothing for the rest.
     expect(["task-1", "task-5", "task-4", "task-2", "task-6"].map((k) => row(k).lead)).toEqual(["fold", "guide", "guide", "guide-end", "none"]);
     expect(["task-1", "task-4", "task-2", "task-6"].map((k) => row(k).leadClassName)).toEqual([

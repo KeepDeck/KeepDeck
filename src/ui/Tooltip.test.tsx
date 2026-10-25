@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { Tooltip } from "./Tooltip";
 import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf } from "../testing/values.test-support";
 
 let root: Root;
 afterEach(() => act(() => root.unmount()));
@@ -82,7 +83,7 @@ describe("Tooltip", () => {
 
   it("lets focus hold the tip through a brushing cursor", () => {
     const host = render({ focusable: true });
-    const anchor = host.querySelector(".kd-tip__anchor") as HTMLElement;
+    const anchor = elementOf(host, ".kd-tip__anchor", HTMLElement);
     act(() => anchor.focus());
     expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
     over(anchor, "mouseover");

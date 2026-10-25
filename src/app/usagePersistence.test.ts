@@ -8,7 +8,7 @@ import {
 
 const ipc = vi.hoisted(() => ({
   loadUsageCache: vi.fn(),
-  saveUsageCache: vi.fn(),
+  saveUsageCache: vi.fn<(json: string) => Promise<void>>(),
 }));
 vi.mock("../ipc/usage", () => ({
   loadUsageCache: ipc.loadUsageCache,
@@ -100,6 +100,6 @@ describe("initUsagePersistence", () => {
     expect(ipc.saveUsageCache).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(USAGE_SAVE_DEBOUNCE_MS);
     expect(ipc.saveUsageCache).toHaveBeenCalledTimes(1);
-    expect(ipc.saveUsageCache.mock.calls[0][0] as string).toContain("codex");
+    expect(ipc.saveUsageCache.mock.calls[0][0]).toContain("codex");
   });
 });

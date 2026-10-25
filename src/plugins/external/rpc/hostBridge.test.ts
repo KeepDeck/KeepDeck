@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext, PluginManifest, SpeechLevel } from "@keepdeck/plugin-api";
 import { createHostBridge } from "./hostBridge";
+import { decodeHostMessage } from "./decode";
 import type {
   GuestToHostMessage,
   HostToGuestMessage,
@@ -170,7 +171,7 @@ function driver(ctx: PluginContext) {
   openPorts.push(channel.port1, channel.port2);
   const bridge = createHostBridge(channel.port1, ctx);
   const inbox: HostToGuestMessage[] = [];
-  channel.port2.onmessage = (event) => inbox.push(event.data as HostToGuestMessage);
+  channel.port2.onmessage = (event) => inbox.push(decodeHostMessage(event.data));
   const send = (message: GuestToHostMessage) => channel.port2.postMessage(message);
   const results = () => inbox.filter((m): m is RpcResult => m.kind === "result");
   return { bridge, inbox, send, results };

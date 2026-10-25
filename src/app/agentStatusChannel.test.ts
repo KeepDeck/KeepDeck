@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStatus, AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
+import type { AgentStatus, StatusNormalizer } from "@keepdeck/plugin-api";
 import {
   createAgentStatusTracker,
   type AgentStatusTracker,
@@ -15,6 +15,8 @@ import { deckStateOf } from "./deckStore.testSupport";
 import { createPaneAttribution } from "./paneAttribution";
 import type { PaneReportEvent } from "./verifiedPaneReports";
 import { present } from "@keepdeck/plugin-api/testing";
+import { statusEdge } from "../testing/values.test-support";
+import { maybeRecord } from "../testing/values.test-support";
 
 /** Every report is the main agent's and may move the pane: the channel
  * under test is the wiring, not the admission rule, which has its own tests. */
@@ -33,7 +35,7 @@ vi.mock("./ptyManager", () => ({
 }));
 
 const edgeNormalizer = (payload: unknown) =>
-  (payload as { edge?: AgentStatusEvent }).edge ?? null;
+  statusEdge(payload);
 
 /** A deck store holding one workspace with the given pane ids. */
 /** These cases drive the tracker directly, never the bridge lane, so the
@@ -129,7 +131,7 @@ describe("createAgentStatusChannel", () => {
   it("retires decoder metadata when a process dies before publishing any activity", () => {
     const agents = agentsWith();
     const normalize: StatusNormalizer = (payload, at, context) => {
-      if ((payload as { seed?: boolean }).seed) return { kind: "status-reduction", state: "old-mode", events: [] };
+      if (maybeRecord(payload)?.seed === true) return { kind: "status-reduction", state: "old-mode", events: [] };
       return { kind: "turn-start", at: context?.state === "old-mode" ? 999 : at };
     };
     agents.replace([{ entry: { id: "claude", status: { normalize, attribute: mainAgent } } }]);

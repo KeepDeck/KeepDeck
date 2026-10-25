@@ -6,6 +6,7 @@ import type { LibrarySkill } from "../../app/skillsLibrary";
 import type { Settings } from "../../domain/settings";
 import { sameSkillRef, type SkillScope } from "../../domain/skills";
 import { useSkillsEditor } from "./useSkillsEditor";
+import { DEFAULT_SETTINGS } from "../../domain/settings";
 
 const skill = (name: string): LibrarySkill => ({
   scope: { kind: "global" },
@@ -268,7 +269,7 @@ describe("the confirm belongs to the machine", () => {
 describe("the unlock hint rides the controller", () => {
   it("is present while the artifacts setting is off", () => {
     act(() => {
-      settingsState.current = { artifacts: false } as Settings;
+      settingsState.current = { ...DEFAULT_SETTINGS, artifacts: false };
       root.render(createElement(Probe));
     });
     expect(editor.viewHint).toContain("Fleet artifacts");
@@ -276,7 +277,7 @@ describe("the unlock hint rides the controller", () => {
 
   it("is absent while it is on, and absent while it is unread", () => {
     act(() => {
-      settingsState.current = { artifacts: true } as Settings;
+      settingsState.current = { ...DEFAULT_SETTINGS, artifacts: true };
       root.render(createElement(Probe));
     });
     expect(editor.viewHint).toBeUndefined();

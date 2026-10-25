@@ -3,11 +3,11 @@
 // hint, and the union with a same-named user skill.
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Settings } from "../../domain/settings";
 import { lib, settingsState, skill, bundled, skillsDialogHost } from "./skillsDialogTestSupport";
 import { row, button, buttonByTitle, input, textarea, type } from "../library/libraryTestDom";
 import { SkillsDialog } from "./SkillsDialog";
 import { present } from "@keepdeck/plugin-api/testing";
+import { DEFAULT_SETTINGS } from "../../domain/settings";
 
 describe("SkillsDialog — the bundled tier", () => {
   const host = skillsDialogHost(SkillsDialog);
@@ -118,13 +118,13 @@ describe("SkillsDialog — the bundled tier", () => {
       });
 
       // Setting OFF (a re-render with a changed snapshot flips the hint).
-      settingsState.current = { artifacts: false } as Settings;
+      settingsState.current = { ...DEFAULT_SETTINGS, artifacts: false };
       await host.mount();
       const hint = document.querySelector(".library__readonly-hint");
       expect(hint?.textContent).toContain("Fleet artifacts");
 
       // Setting ON: absent.
-      settingsState.current = { artifacts: true } as Settings;
+      settingsState.current = { ...DEFAULT_SETTINGS, artifacts: true };
       await host.mount();
       expect(document.querySelector(".library__readonly-hint")).toBeNull();
 

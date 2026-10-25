@@ -2,7 +2,6 @@
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import {
   createAgentStatusTracker,
   type AgentStatusTracker,
@@ -14,6 +13,7 @@ import {
   MinimizedItem,
 } from "./MinimizedItem";
 import { present } from "@keepdeck/plugin-api/testing";
+import { statusEdge } from "../../testing/values.test-support";
 
 describe("MinimizedItem", () => {
   let root: Root;
@@ -36,7 +36,7 @@ describe("MinimizedItem", () => {
     statusTracker = createAgentStatusTracker();
     statusTracker.registerNormalizer(
       "claude",
-      (payload) => (payload as { edge?: AgentStatusEvent }).edge ?? null,
+      (payload) => statusEdge(payload),
     );
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(present(document.getElementById("host"), "the #host element"));

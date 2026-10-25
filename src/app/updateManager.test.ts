@@ -355,7 +355,15 @@ describe("update manager", () => {
 describe("isFoundUpdate", () => {
   // The predicate is exhaustive over UpdatePhase; this just locks the mapping
   // shared by the settings changelog gate and the bar badge.
-  const at = (phase: UpdateState["phase"]) => ({ phase }) as UpdateState;
+  const at = (phase: UpdateState["phase"]): UpdateState => ({
+    phase,
+    version: null,
+    received: 0,
+    total: null,
+    error: null,
+    checkedAt: null,
+    changelog: [],
+  });
 
   it("is true while a found update is in play", () => {
     for (const phase of [

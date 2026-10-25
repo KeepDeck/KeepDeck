@@ -17,7 +17,12 @@ import type { StoredTask } from "../../ipc/generated/tasks/StoredTask";
 import type { TaskDatabasePort } from "./dbBoardStore";
 
 export function isTestStoreError(value: unknown): value is StoreError {
-  return typeof value === "object" && value !== null && typeof (value as { code?: unknown }).code === "string";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "code" in value &&
+    typeof value.code === "string"
+  );
 }
 
 export function testDatabase(files: LegacyBoard[] = []) {
@@ -46,7 +51,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
   let loadHeld: Promise<void> | null = null;
   /** The next status is read now and answered on release. */
   let statusHeld: Promise<void> | null = null;
-  const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  const clone = <T>(value: T): T => structuredClone(value);
+  const positions = new Map<string, number | undefined>();
 
   const applyBoard = (change: ChangeSet["boards"][number]) => {
     let board = boards.find((b) => b.board === change.board);
@@ -74,6 +80,7 @@ export function testDatabase(files: LegacyBoard[] = []) {
         createdRev: rev, commentRevs: [], logRevs: [],
       };
       Object.assign(task, fields);
+      positions.set(task.uid, w.boardPos);
       if (w.labels) task.labels = [...w.labels].sort();
       if (w.artifacts) task.artifacts = [...w.artifacts];
       for (const c of w.comments) {
@@ -94,9 +101,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
       }
       for (const b of w.briefs) if (!task.briefs.some((x) => x.v === b.v)) task.briefs.push(b);
       if (!old) board.tasks.push(task);
-      (task as { boardPos?: number }).boardPos = w.boardPos;
     }
-    board.tasks.sort((a, b) => ((a as { boardPos?: number }).boardPos ?? 0) - ((b as { boardPos?: number }).boardPos ?? 0));
+    board.tasks.sort((a, b) => (positions.get(a.uid) ?? 0) - (positions.get(b.uid) ?? 0));
     const key = (r: { kind: string; from: string; to: string }) => `${r.kind}|${r.from}|${r.to}`;
     board.relations = board.relations.filter((r) => !change.relationsRemoved.some((k) => key(k) === key(r)));
     for (const r of change.relationsPut) {

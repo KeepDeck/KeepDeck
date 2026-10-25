@@ -125,7 +125,8 @@ describe("PaneViewActions", () => {
     suspendedTray: { select: "pane-1", suspendedTray: ["pane-2"] },
   };
 
-  it.each(Object.keys(hiddenViews) as HideReason[])(
+  const hideReason = (key: string): key is HideReason => key in hiddenViews;
+  it.each(Object.keys(hiddenViews).filter(hideReason))(
     "reveals a pane hidden by %s, and it is on screen afterwards",
     (reason) => {
       const deck = deckWith(hiddenViews[reason]);

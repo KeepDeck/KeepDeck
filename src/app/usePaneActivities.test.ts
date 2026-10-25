@@ -9,6 +9,7 @@ import {
   type AgentStatusTracker,
 } from "./agentStatusTracker";
 import { usePaneActivities } from "./usePaneActivities";
+import { statusEdge } from "../testing/values.test-support";
 
 /**
  * The seam between the live tracker and whatever draws from it.
@@ -43,7 +44,7 @@ describe("usePaneActivities", () => {
     statusTracker = createAgentStatusTracker();
     statusTracker.registerNormalizer(
       "claude",
-      (payload) => (payload as { edge?: AgentStatusEvent }).edge ?? null,
+      (payload) => statusEdge(payload),
     );
     host = document.createElement("div");
     document.body.appendChild(host);

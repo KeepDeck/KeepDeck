@@ -5,6 +5,7 @@ import { issuable } from "./board";
 import { blockerIdsOf, copiedFromOf } from "./relations";
 import { transition } from "./transition";
 import { board, lead, mintSequence, relation, task } from "./testSupport";
+import { recordOf } from "../../testing/values.test-support";
 
 const mint = () => mintSequence("uid-minted-");
 
@@ -355,7 +356,7 @@ describe("board codec — brief versions", () => {
   });
 
   it("refuses versions without their number, or a number without its versions — either reading would let one go", () => {
-    const { bodyV: _v, briefs: _b, ...bare } = encodedTask("task-1") as Record<string, unknown>;
+    const { bodyV: _v, briefs: _b, ...bare } = recordOf(encodedTask("task-1"), "record");
     const read = (extra: Record<string, unknown>) =>
       decodeBoard(JSON.stringify({ nextId: 2, relations: [], tasks: [{ ...bare, body: "now", log: [], ...extra }] }), mint());
     expect(read({ briefs: [{ v: 1, body: "earlier brief" }] })).toMatchObject({ ok: false, fault: { kind: "bad-task", id: "task-1" } });

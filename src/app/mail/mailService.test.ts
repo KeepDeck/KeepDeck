@@ -5,6 +5,7 @@ import type { Pane, Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createMailService } from "./mailService";
+import { recordsOf, recordOf } from "../../testing/values.test-support";
 
 const READY: PaneActivity = { state: "done", at: 1, interrupted: false };
 const WORKING: PaneActivity = { state: "working", since: 1 };
@@ -174,7 +175,7 @@ describe("createMailService", () => {
       client: "mcp",
       pane: { id: "pane-2", workspaceId: "ws-1", label: "Agent 2" },
     });
-    expect(before.ok && (before.value as { messages: unknown[] }).messages).toHaveLength(1);
+    expect(before.ok && recordsOf(recordOf(before.value, "mail read").messages, "messages")).toHaveLength(1);
 
     // pane-2 closes. `pane-N` is a REUSABLE slot, so the next pane can be
     // handed the same id — and must not inherit a conversation.
@@ -184,7 +185,7 @@ describe("createMailService", () => {
       client: "mcp",
       pane: { id: "pane-2", workspaceId: "ws-1", label: "Agent 2" },
     });
-    expect(after.ok && (after.value as { messages: unknown[] }).messages).toEqual([]);
+    expect(after.ok && recordsOf(recordOf(after.value, "mail read").messages, "messages")).toEqual([]);
   });
 
   it("exposes the manager from creation until dispose", () => {

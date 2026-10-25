@@ -7,6 +7,7 @@ import {
   type HistoryPorts as ClaudeHistoryPorts,
 } from "../plugins/claude/src/history";
 import { opencodeHistory, type HistoryPorts } from "../plugins/opencode/src/history";
+import { sessionIds } from "../src/testing/values.test-support";
 
 // The scan's own ipc surface never runs here — ops are injected below; the
 // mock only keeps the module import from reaching tauri's invoke.
@@ -265,7 +266,7 @@ describe("scanAgentHistories × real plugins", () => {
       [{ agentId: "opencode", history: opencodeHistory(ctx) }],
       mock,
     );
-    expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual([
+    expect(sessionIds(upserts)).toEqual([
       "ses_1",
       "ses_2",
     ]);
@@ -292,7 +293,7 @@ describe("scanAgentHistories × real plugins", () => {
       [{ agentId: "opencode", history: opencodeHistory(ctx) }],
       mock,
     );
-    expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual([
+    expect(sessionIds(upserts)).toEqual([
       "ses_1",
     ]);
     expect(prunes).toEqual([]);

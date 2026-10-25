@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { STYLES_DIR, appCss, stripComments } from "./testSupport";
+import { instanceOf } from "../testing/values.test-support";
 
 const REPO_ROOT = join(STYLES_DIR, "..", "..");
 const PLUGINS_DIR = join(REPO_ROOT, "plugins");
@@ -103,7 +104,7 @@ function resolve(selector: string, property: string): string {
   const element = document.querySelector(selector);
   expect(element, `no element matched ${selector}`).not.toBeNull();
   for (
-    let node: HTMLElement | null = element as HTMLElement;
+    let node: HTMLElement | null = instanceOf(element, HTMLElement, "element");
     node;
     node = node.parentElement
   ) {

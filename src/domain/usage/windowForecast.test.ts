@@ -566,9 +566,8 @@ describe("captions", () => {
     // `100 - ceil(endPct)` understates headroom where `ceil(100 - endPct)`
     // overstates it, and the two disagree by a point at every non-integer
     // landing.
-    expect(parts[1].text).toContain(
-      formatPct((ok as { endPct: number }).endPct, "left"),
-    );
+    if (!("endPct" in ok) || typeof ok.endPct !== "number") throw new Error("expected a landing window");
+    expect(parts[1].text).toContain(formatPct(ok.endPct, "left"));
   });
 
   it("separates an idle window from one it cannot read yet", () => {
@@ -619,9 +618,8 @@ describe("captions", () => {
     // not others, so `/^\d{2}:\d{2}$/` pinned the runner's timezone instead
     // of the contract. What matters is that the edge names that instant.
     const edge = burnEdgeLabel(FIVE_H, out, NOW);
-    expect(edge.text).toBe(
-      formatMoment((out as { outAt: number }).outAt, NOW),
-    );
+    if (!("outAt" in out) || typeof out.outAt !== "number") throw new Error("expected a run-out edge");
+    expect(edge.text).toBe(formatMoment(out.outAt, NOW));
     expect(edge.level).toBe("warn");
     expect(edge.atReset).toBe(false);
 

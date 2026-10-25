@@ -98,7 +98,11 @@ const browser = {
   transcript: vi.fn(() => Promise.resolve({ entries: [] })),
 };
 
-const props = (overrides: Record<string, unknown> = {}) => ({
+interface DeckPropsOverrides extends Record<string, unknown> {
+  viewByWs?: Record<string, Record<string, unknown>>;
+}
+
+const props = (overrides: DeckPropsOverrides = {}) => ({
   journal: {},
   browserShared: browser,
   workspaces,
@@ -131,10 +135,10 @@ const props = (overrides: Record<string, unknown> = {}) => ({
     "pane-2": { command: "codex", args: [], env: [] },
   },
   failedPanes: new Set<string>(),
-  restartEpochs: {} as Record<string, number>,
+  restartEpochs: {},
   ...callbacks,
   ...overrides,
-  viewByWs: openView(overrides.viewByWs as Record<string, Record<string, unknown>> | undefined),
+  viewByWs: openView(overrides.viewByWs),
 });
 
 describe("DeckStage — suspended agents", () => {

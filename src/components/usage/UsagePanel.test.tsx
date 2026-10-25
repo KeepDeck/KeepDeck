@@ -24,7 +24,7 @@ import { present } from "@keepdeck/plugin-api/testing";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 const MIN = 60_000;
-const agent = { id: "claude", label: "Claude" } as AgentInfo;
+const agent: AgentInfo = { id: "claude", label: "Claude", command: "claude", features: [], installed: true, path: null };
 const window = { usedPct: 62, resetsAt: NOW + 155 * MIN, windowMinutes: 300 };
 const account: AccountUsage = {
   kind: "reported",

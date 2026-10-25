@@ -13,7 +13,8 @@ import {
 import { createHostDispatch } from "./hostDispatch";
 import { dispatchHarness as harness } from "./hostDispatch.testSupport";
 import { fakePluginContext } from "../../pluginContext.testSupport";
-import type { WireAgentHistoryCall, WireHookCall } from "./protocol";
+import type { WireAgentHistoryCall } from "./protocol";
+import { decodeHookCall } from "./decode";
 import { present, speechCapture, speechTranscript } from "@keepdeck/plugin-api/testing";
 
 /**
@@ -169,7 +170,7 @@ describe("agent hooks over the RPC seam", () => {
     expect(h.pushes).toHaveLength(1);
     const { channel, payload } = h.pushes[0];
     expect(channel).toMatch(/^hook:\d+$/);
-    expect((payload as WireHookCall).agentId).toBe("gemini");
+    expect(decodeHookCall(payload).agentId).toBe("gemini");
 
     const id = Number(channel.slice("hook:".length));
     await h.dispatch.call("agents.hookResult", [

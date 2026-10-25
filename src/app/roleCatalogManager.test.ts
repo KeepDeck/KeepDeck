@@ -141,11 +141,9 @@ describe("roleCatalogManager", () => {
     // both halves of the lie.
     const { disk, ports, manager } = host();
     await manager.init();
-    (ports.fetchRoleFiles as ReturnType<typeof vi.fn>).mockImplementation(
-      async () => {
-        throw new Error("transient EIO");
-      },
-    );
+    vi.mocked(ports.fetchRoleFiles).mockImplementation(async () => {
+      throw new Error("transient EIO");
+    });
     await manager.save("docs", {
       label: "Docs",
       summary: "writes it down",

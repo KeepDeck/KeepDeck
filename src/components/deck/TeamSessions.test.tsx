@@ -10,9 +10,15 @@ import { TEAM_SESSIONS_WORDS } from "../../presentation/stageView";
 
 /** The browser under the list, as the list drives it: what it scopes and
  * what a row's Resume and Fork call. Its own suite covers the rows. */
-const browser = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
+interface BrowserProps {
+  onResume: (r: SessionHandle) => void;
+  onFork: (r: SessionHandle) => void;
+  dirs: Set<string>;
+  team: unknown;
+}
+const browser = vi.hoisted(() => ({ props: null as null | BrowserProps }));
 vi.mock("../history/SessionsBrowser", () => ({
-  WorkspaceSessionsBrowser: (props: Record<string, unknown>) => {
+  WorkspaceSessionsBrowser: (props: BrowserProps) => {
     browser.props = props;
     return null;
   },
@@ -78,11 +84,11 @@ describe("TeamSessions — an empty team's sessions list", () => {
     act(() => option.click());
   };
   const hint = () => present(document.querySelector(".team-sessions__hint"), "the .team-sessions__hint element");
-  const resume = (r: SessionHandle) => act(() => (present(browser.props, "the browser props").onResume as (r: SessionHandle) => void)(r));
-  const fork = (r: SessionHandle) => act(() => (present(browser.props, "the browser props").onFork as (r: SessionHandle) => void)(r));
+  const resume = (r: SessionHandle) => act(() => present(browser.props, "the browser props").onResume(r));
+  const fork = (r: SessionHandle) => act(() => present(browser.props, "the browser props").onFork(r));
 
   it("scopes the list to the team's directory and asks the rows about THIS team", () => {
-    expect([...(present(browser.props, "the browser props").dirs as Set<string>)]).toEqual(["/repo/wt"]);
+    expect([...present(browser.props, "the browser props").dirs]).toEqual(["/repo/wt"]);
     expect(present(browser.props, "the browser props").team).toEqual({ cwd: "/repo/wt" });
     expect(document.body.textContent).toContain(TEAM_SESSIONS_WORDS.title);
   });

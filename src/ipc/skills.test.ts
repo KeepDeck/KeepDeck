@@ -34,6 +34,22 @@ import {
   saveSkill,
   stageSkills,
 } from "./skills";
+import { recordOf } from "../testing/values.test-support";
+
+
+function wireSkillScope(value: unknown): {
+  scope: "global" | "workspace" | "bundled";
+  wsId: string | null;
+} {
+  const record = recordOf(value, "invoke args");
+  if (record.scope !== "global" && record.scope !== "workspace" && record.scope !== "bundled") {
+    throw new Error("unexpected skill scope");
+  }
+  if (record.wsId !== null && typeof record.wsId !== "string") {
+    throw new Error("unexpected skill workspace id");
+  }
+  return { scope: record.scope, wsId: record.wsId };
+}
 
 describe("the skills invoke-key contract", () => {
   beforeEach(() => {
@@ -137,10 +153,7 @@ describe("the skills invoke-key contract", () => {
       { kind: "workspace", wsId: "ws-1" },
     ] as const) {
       await deleteSkill(scope, "review");
-      const sent = tauri.invoke.mock.lastCall?.[1] as {
-        scope: "global" | "workspace";
-        wsId: string | null;
-      };
+      const sent = wireSkillScope(tauri.invoke.mock.lastCall?.[1]);
       expect(sameSkillScope(skillScopeOf(sent), scope), scope.kind).toBe(true);
     }
     // And the global arm sends null, never "" — an empty id is the domain's

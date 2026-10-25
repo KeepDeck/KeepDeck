@@ -18,6 +18,8 @@ import {
   artifactRead,
   artifactDelete,
 } from "../../ipc/artifacts";
+import { recordOf, stringOf } from "../../testing/values.test-support";
+
 
 const ws = (panes: Workspace["panes"]): Workspace => ({
   id: "ws-1",
@@ -194,12 +196,12 @@ describe("registerArtifactCommands", () => {
       indexUrl: null,
     });
     const { run } = setup([pane()]);
-    const result = (await run(
+    const result = recordOf(await run(
       "artifact.publish",
       { title: "T", format: "html", content: "<p>hi</p>" },
       paneSource(),
-    )) as { note: string };
-    expect(result.note).toContain("display server is off");
+    ), "publish result");
+    expect(stringOf(result.note, "note")).toContain("display server is off");
   });
 
   it("a format that is not html is refused before the invoke — md included", async () => {
@@ -322,10 +324,8 @@ describe("registerArtifactCommands", () => {
   it("list carries the empty-workspace note", async () => {
     vi.mocked(artifactList).mockResolvedValue([]);
     const { run } = setup([pane()]);
-    const result = (await run("artifact.list", {}, paneSource())) as {
-      note: string;
-    };
-    expect(result.note).toContain("nothing published");
+    const result = recordOf(await run("artifact.list", {}, paneSource()), "list result");
+    expect(stringOf(result.note, "note")).toContain("nothing published");
   });
 
   it("a pane the deck no longer holds is anonymous (no wrong-pane naming)", async () => {

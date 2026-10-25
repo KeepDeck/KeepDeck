@@ -12,6 +12,7 @@ import {
 } from "../../domain/usage/windowForecast";
 import { WindowBurn } from "./WindowBurn";
 import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 const MIN = 60_000;
@@ -88,7 +89,7 @@ describe("WindowBurn", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host") as HTMLDivElement;
+    host = instanceOf(document.getElementById("host"), HTMLDivElement, "host");
     root = createRoot(host);
     plotLeft = 20;
     plotTop = 100;

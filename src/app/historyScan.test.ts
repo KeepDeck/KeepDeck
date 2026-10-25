@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import { scanAgentHistories, type ScanIndexOps } from "./historyScan";
 import { log } from "../ipc/log";
+import { sessionIds } from "../testing/values.test-support";
 
 vi.mock("../ipc/history", () => ({
   indexRefs: vi.fn(),
@@ -133,7 +134,7 @@ describe("scanAgentHistories", () => {
       ],
       mock,
     );
-    expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual([
+    expect(sessionIds(upserts)).toEqual([
       "b",
       "p",
     ]);
@@ -157,7 +158,7 @@ describe("scanAgentHistories", () => {
     );
     // b is new → described and upserted; gone vanished but the walk saw
     // only part of the store, so deleting it would be deleting the unread.
-    expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual(["b"]);
+    expect(sessionIds(upserts)).toEqual(["b"]);
     expect(prunes).toEqual([]);
   });
 
@@ -218,7 +219,7 @@ describe("scanAgentHistories", () => {
       ],
       pass2.mock,
     );
-    expect((pass2.upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual(["b"]);
+    expect(sessionIds(pass2.upserts)).toEqual(["b"]);
     expect(pass2.prunes).toEqual([["/s/a", "/s/b"]]);
   });
 
@@ -311,7 +312,7 @@ describe("scanAgentHistories", () => {
       ],
       mock,
     );
-    expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual(["a", "b"]);
+    expect(sessionIds(upserts)).toEqual(["a", "b"]);
     expect(prunes).toEqual([["/s/a", "/s/b"]]);
   });
 
@@ -350,7 +351,7 @@ describe("scanAgentHistories", () => {
       "claude big: describe read 8388608 of 10259690 bytes — facts may be incomplete, indexing continued",
     );
     // "indexing continued" is not decoration: the session still lands.
-    expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual(["big"]);
+    expect(sessionIds(upserts)).toEqual(["big"]);
   });
 
   it("stays silent when the describe read everything it looked at", async () => {

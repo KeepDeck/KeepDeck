@@ -2,9 +2,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import { createUsageManager, type UsageManager } from "./usageManager";
 import { usePaneContextPctFrom } from "./usePaneContextPct";
+import { usageResult } from "../testing/values.test-support";
 
 /** A one-line probe: renders the hook's value so the DOM reflects it. */
 function Probe({ paneId }: { paneId: string }) {
@@ -31,7 +31,7 @@ describe("usePaneContextPct", () => {
     usage = createUsageManager();
     usage.registerNormalizer(
       "claude",
-      (payload) => (payload as { result: NormalizedUsage }).result,
+      (payload) => usageResult(payload),
     );
     host = document.createElement("div");
     root = createRoot(host);

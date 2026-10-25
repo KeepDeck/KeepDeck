@@ -246,7 +246,13 @@ describe("MinimizedTray", () => {
     expect(document.querySelector(".minimized-overflow__trigger")).not.toBeNull();
 
     viewportWidth = 1120;
-    act(() => resizeCallback([], {} as ResizeObserver));
+    act(() =>
+      resizeCallback([], {
+        observe: () => {},
+        unobserve: () => {},
+        disconnect: () => {},
+      }),
+    );
 
     expect(
       document.querySelectorAll(".deck__tray-items .minimized--chip"),

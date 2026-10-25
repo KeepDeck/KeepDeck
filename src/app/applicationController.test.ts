@@ -196,13 +196,17 @@ describe("application controller", () => {
     });
     const view = ui();
     controller.bindUi(view);
-    const notification = {
+    const notification: Notification = {
+      id: "n-1",
+      title: "A pane",
+      severity: "info",
+      at: 0,
       source: {
         type: "pane",
         workspace: { id: target.id, instance: target.instance },
         paneId: "pane-2",
       },
-    } as Notification;
+    };
 
     controller.openNotification(notification);
 
@@ -237,23 +241,31 @@ describe("application controller", () => {
     controller.bindUi(view);
 
     controller.openNotification({
+      id: "n-1",
+      title: "A task",
+      severity: "info",
+      at: 0,
       source: {
         type: "tasks",
         workspace: { id: target.id, instance: target.instance },
         taskId: "task-7",
       },
-    } as Notification);
+    });
     expect(deck.getSnapshot().activeId).toBe("ws-1");
     expect(view.openTasks).toHaveBeenCalledWith("task-7");
 
     // The same id, another lifetime: the workspace this spoke of is gone.
     controller.openNotification({
+      id: "n-2",
+      title: "A task",
+      severity: "info",
+      at: 0,
       source: {
         type: "tasks",
         workspace: { id: target.id, instance: createWorkspaceInstance() },
         taskId: "task-7",
       },
-    } as Notification);
+    });
     expect(view.openTasks).toHaveBeenCalledTimes(1);
   });
 

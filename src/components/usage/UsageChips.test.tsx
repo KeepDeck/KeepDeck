@@ -11,6 +11,8 @@ import {
 } from "../../app/testing";
 import { UsageChips } from "./UsageChips";
 import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf, instanceOf } from "../../testing/values.test-support";
+import { usageResult } from "../../testing/values.test-support";
 
 const settingsMock = vi.hoisted(() => ({ updateSettings: vi.fn() }));
 vi.mock("../../app/useSettings", async () =>
@@ -87,7 +89,8 @@ describe("UsageChips", () => {
     // The echo normalizer: payloads carry their normalized result, stamped
     // with the report time like a real parser would.
     usage.registerNormalizer("claude", (payload, at) => {
-      const { result } = payload as { result: NormalizedUsage };
+      const result = usageResult(payload);
+      if (!result) return null;
       return {
         account: result.account ? { ...result.account, reportedAt: at } : null,
         pane: result.pane,
@@ -196,7 +199,7 @@ describe("UsageChips", () => {
     usage.report("pane-1",paneReport(), AT);
     render();
     act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+      (elementOf(host, ".usage-chip", HTMLButtonElement)).click();
     });
     const panel = present(host.querySelector("#usage-panel"), "the #usage-panel element");
     expect(panel.textContent).not.toContain("Sessions");
@@ -237,7 +240,7 @@ describe("UsageChips", () => {
     );
     render();
     act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+      (elementOf(host, ".usage-chip", HTMLButtonElement)).click();
     });
     const panel = present(host.querySelector("#usage-panel"), "the #usage-panel element");
     expect(panel.textContent).toContain("plan allowance");
@@ -252,7 +255,7 @@ describe("UsageChips", () => {
     // to point at.
     expect(chip.getAttribute("aria-controls")).toBeNull();
     act(() => {
-      (chip as HTMLButtonElement).click();
+      (instanceOf(chip, HTMLButtonElement, "chip")).click();
     });
     expect(chip.getAttribute("aria-controls")).toBe("usage-panel");
     const panel = present(host.querySelector("#usage-panel"), "the #usage-panel element");
@@ -264,7 +267,7 @@ describe("UsageChips", () => {
     expect(panel.querySelector(".usage-bar")).not.toBeNull();
 
     act(() => {
-      (panel.querySelector(".usage-panel__toggle") as HTMLButtonElement).click();
+      (elementOf(panel, ".usage-panel__toggle", HTMLButtonElement)).click();
     });
     expect(settingsMock.updateSettings).toHaveBeenCalledWith({
       usageDisplay: "left",
@@ -288,7 +291,7 @@ describe("UsageChips", () => {
     usage.report("pane-1",limitsReport(42), AT);
     render();
     act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+      (elementOf(host, ".usage-chip", HTMLButtonElement)).click();
     });
 
     const open = present(host.querySelector<HTMLButtonElement>(".usage-panel__stats"), "the .usage-panel__stats element");

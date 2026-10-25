@@ -23,7 +23,10 @@ const failed: Team = {
   ...creating,
   id: "team-3",
   name: "docs",
-  location: { ...creating.location, error: "branch exists" } as Team["location"],
+  location:
+    creating.location?.kind === "provisioning"
+      ? { ...creating.location, error: "branch exists" }
+      : creating.location,
 };
 
 const ws = (teams: Team[], members: Record<string, number>): Workspace => ({

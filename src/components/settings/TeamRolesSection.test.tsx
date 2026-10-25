@@ -30,6 +30,7 @@ import {
 import { roleById } from "../../domain/mail";
 import { TeamRolesSection } from "./TeamRolesSection";
 import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 let root: Root;
 
@@ -69,6 +70,9 @@ const field = (label: string) =>
     `[aria-label="${label}"]`,
   ), "element `[aria-label=\"${label}\"]`");
 
+const inputField = (label: string) =>
+  instanceOf(field(label), HTMLInputElement, `input ${label}`);
+
 /** Type into a controlled React input/textarea: set via the native setter
  * (bypassing React's value tracker) and fire a bubbling `input` event. */
 function type(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
@@ -100,7 +104,7 @@ describe("TeamRolesSection", () => {
   it("edits a built-in's texts through its file, and reset deletes the file", async () => {
     await mount();
     await click(row("Lead"));
-    type(field("Role label") as HTMLInputElement, "Architect");
+    type(inputField("Role label"), "Architect");
     await click(button("Save"));
     // The record landed on disk and the catalog re-read it: the row now
     // carries the new label and the provenance note.
@@ -116,9 +120,9 @@ describe("TeamRolesSection", () => {
   it("refuses a creation the domain grammar refuses, and writes nothing", async () => {
     await mount();
     await click(button("+ Add role"));
-    type(field("Role id") as HTMLInputElement, "impl-2");
-    type(field("Role label") as HTMLInputElement, "Impostor");
-    type(field("Role summary") as HTMLInputElement, "pretends");
+    type(inputField("Role id"), "impl-2");
+    type(inputField("Role label"), "Impostor");
+    type(inputField("Role summary"), "pretends");
     type(field("Role charter"), "You pretend.");
     await click(button("Save"));
     expect(present(document.querySelector('[role="alert"]'), "element '[role=\"alert\"]'").textContent).toContain(
@@ -130,7 +134,7 @@ describe("TeamRolesSection", () => {
   it("lets a late-landing catalog re-seed an untouched editor", async () => {
     await mount();
     await click(row("Lead"));
-    expect((field("Role label") as HTMLInputElement).value).toBe("Lead");
+    expect((inputField("Role label")).value).toBe("Lead");
     // The stored override lands AFTER the editor opened — a slow boot read
     // resolving, another surface saving. Untouched, the draft follows it:
     // saving the pre-load seed would overwrite texts the user never saw.
@@ -145,9 +149,9 @@ describe("TeamRolesSection", () => {
         charter: ["You DOCUMENT."],
       });
     });
-    expect((field("Role label") as HTMLInputElement).value).toBe("Captain");
+    expect((inputField("Role label")).value).toBe("Captain");
     // Typed-into, the draft is the user's and stays through the next change.
-    type(field("Role label") as HTMLInputElement, "Chief");
+    type(inputField("Role label"), "Chief");
     await act(async () => {
       await saveStoredRole("buddy", {
         label: "Buddy",
@@ -155,7 +159,7 @@ describe("TeamRolesSection", () => {
         charter: ["You HELP."],
       });
     });
-    expect((field("Role label") as HTMLInputElement).value).toBe("Chief");
+    expect((inputField("Role label")).value).toBe("Chief");
   });
 
   it("shows an orphan deletion's failure even with no editor open", async () => {
@@ -177,10 +181,10 @@ describe("TeamRolesSection", () => {
     rolesIpc.disk.set("broken", "{oops");
     await mount();
     await click(row("Peer"));
-    type(field("Role label") as HTMLInputElement, "Buddy");
+    type(inputField("Role label"), "Buddy");
     await click(button("Delete"));
     expect(rolesIpc.disk.has("broken")).toBe(false);
-    expect((field("Role label") as HTMLInputElement).value).toBe("Buddy");
+    expect((inputField("Role label")).value).toBe("Buddy");
   });
 
   it("freezes a custom role's standing and repeatability after creation", async () => {
@@ -203,9 +207,9 @@ describe("TeamRolesSection", () => {
   it("creates a role of the user's own that the whole catalog then knows", async () => {
     await mount();
     await click(button("+ Add role"));
-    type(field("Role id") as HTMLInputElement, "docs");
-    type(field("Role label") as HTMLInputElement, "Docs");
-    type(field("Role summary") as HTMLInputElement, "writes it down");
+    type(inputField("Role id"), "docs");
+    type(inputField("Role label"), "Docs");
+    type(inputField("Role summary"), "writes it down");
     type(field("Role charter"), "You DOCUMENT.\nYou do not edit code.");
     await click(button("Save"));
     // Not just rendered — the DOMAIN sees it, which is what the dialog's

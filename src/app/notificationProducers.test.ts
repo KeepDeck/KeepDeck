@@ -10,6 +10,7 @@ import {
   resetUpdateNotifications,
 } from "./notificationProducers";
 import { createAgentStatusTracker } from "./agentStatusTracker";
+import { maybeRecord, statusEdge } from "../testing/values.test-support";
 
 const center = vi.hoisted(() => ({
   notify: vi.fn(),
@@ -18,7 +19,7 @@ const center = vi.hoisted(() => ({
 /** The input of the notify call #i — for assertions on the WHOLE shape
  * (objectContaining cannot see a key that must be ABSENT). */
 const callArg = (i: number): Record<string, unknown> | undefined =>
-  center.notify.mock.calls[i]?.[0] as Record<string, unknown> | undefined;
+  maybeRecord(center.notify.mock.calls[i]?.[0]);
 vi.mock("./notificationCenter", () => center);
 
 const settings = vi.hoisted(() => ({
@@ -219,8 +220,7 @@ describe("update producer", () => {
 
 describe("activity notifications", () => {
   const edgeNormalizer = (payload: unknown) =>
-    (payload as { edge?: import("@keepdeck/plugin-api").AgentStatusEvent })
-      .edge ?? null;
+    statusEdge(payload);
   let tracker: ReturnType<typeof createAgentStatusTracker>;
   let stop: () => void;
 

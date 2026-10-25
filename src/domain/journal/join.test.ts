@@ -2,16 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { SessionRecord } from "./sessionLog";
 import { joinJournalRow, type JoinEntry } from "./join";
 
-const record = (over: Partial<SessionRecord> = {}): SessionRecord =>
-  ({
+const record = (over: Partial<Extract<SessionRecord, { state: "closed" }>> = {}): SessionRecord => {
+  const base: Extract<SessionRecord, { state: "closed" }> = {
     agent: "claude",
     sessionId: "s-1",
     cwd: "/repo",
     boundAt: "2026-07-19T10:00:00.000Z",
     state: "closed",
     endedAt: "2026-07-19T11:00:00.000Z",
-    ...over,
-  }) as SessionRecord;
+  };
+  return { ...base, ...over };
+};
 
 const LABEL = "Claude Code";
 /** The join's fourth argument for the common case: the answer is

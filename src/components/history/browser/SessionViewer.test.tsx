@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, type Dispatch, type SetStateAction } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
@@ -68,6 +68,9 @@ const settle = async () => {
   });
 };
 
+type ReadFailed = Dispatch<SetStateAction<ReadonlySet<string>>>;
+const readFailedMock = () => vi.fn<ReadFailed>();
+
 const renderViewer = async ({
   root,
   target: viewTarget,
@@ -80,7 +83,7 @@ const renderViewer = async ({
   target: ViewerTarget;
   transcript: SessionsBrowserApi["transcript"];
   viewSeq: { current: number };
-  readFailed: ReturnType<typeof vi.fn>;
+  readFailed: ReturnType<typeof readFailedMock>;
   onClose?: ReturnType<typeof vi.fn>;
 }) => {
   await act(async () => {
@@ -129,7 +132,7 @@ describe("SessionViewer", () => {
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
       Promise.reject(new Error("no such file")),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({ root, target: target(), transcript, viewSeq, readFailed });
@@ -138,9 +141,8 @@ describe("SessionViewer", () => {
       "Read failed: no such file",
     );
     expect(document.body.textContent).not.toContain("nothing to read");
-    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0] as (
-      current: ReadonlySet<string>,
-    ) => ReadonlySet<string>;
+    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0];
+    if (typeof lastUpdate !== "function") throw new Error("expected a read-failure updater");
     expect(lastUpdate(new Set())).toEqual(new Set([SHOWN]));
   });
 
@@ -155,7 +157,7 @@ describe("SessionViewer", () => {
           resolvers.set(reference, resolve);
         }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
     const first = target({ fallbacks: ["/first"], title: "first header" });
     const second = target({
@@ -194,7 +196,7 @@ describe("SessionViewer", () => {
           ? Promise.reject(new Error("journal gone"))
           : Promise.resolve({ entries: [entry("spare page")] }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({
@@ -217,7 +219,7 @@ describe("SessionViewer", () => {
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
       Promise.reject(new Error("permission denied")),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({
@@ -232,9 +234,8 @@ describe("SessionViewer", () => {
     expect(document.querySelector(".browser__empty")?.textContent).toBe(
       "Read failed: permission denied",
     );
-    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0] as (
-      current: ReadonlySet<string>,
-    ) => ReadonlySet<string>;
+    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0];
+    if (typeof lastUpdate !== "function") throw new Error("expected a read-failure updater");
     expect(lastUpdate(new Set())).toEqual(new Set([SHOWN, SPARE]));
   });
 
@@ -247,7 +248,7 @@ describe("SessionViewer", () => {
             })
           : Promise.resolve({ entries: [] }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({ root, target: target(), transcript, viewSeq, readFailed });
@@ -269,7 +270,7 @@ describe("SessionViewer", () => {
             })
           : Promise.resolve({ entries: [] }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const viewSeq = { current: 0 };
 
     await renderViewer({ root, target: target(), transcript, viewSeq, readFailed });
@@ -290,7 +291,7 @@ describe("SessionViewer", () => {
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
       Promise.resolve({ entries: [entry("page")] }),
     );
-    const readFailed = vi.fn();
+    const readFailed = readFailedMock();
     const onClose = vi.fn();
     const viewSeq = { current: 0 };
 

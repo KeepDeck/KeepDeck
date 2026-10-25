@@ -12,6 +12,7 @@ import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 import { SessionRowView } from "./SessionRowView";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 const worktreeIpc = vi.hoisted(() => ({
   probeWorktree: vi.fn((_path: string) =>
@@ -73,27 +74,32 @@ const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
  * memoized one: a fresh literal per render would churn the list's memos. */
 const NO_RECORDS: SessionRecord[] = [];
 
-const closed = (over: Partial<SessionRecord> = {}): SessionRecord =>
-  ({
+type ClosedRecord = Extract<SessionRecord, { state: "closed" }>;
+type LiveRecord = Extract<SessionRecord, { state: "live" }>;
+
+const closed = (over: Partial<ClosedRecord> = {}): SessionRecord => {
+  const base: ClosedRecord = {
     agent: "claude",
     sessionId: "s-1",
     cwd: "/repo",
     boundAt: "2026-07-19T10:00:00.000Z",
     state: "closed",
     endedAt: "2026-07-19T11:00:00.000Z",
-    ...over,
-  }) as SessionRecord;
+  };
+  return { ...base, ...over };
+};
 
-const live = (over: Partial<SessionRecord> = {}): SessionRecord =>
-  ({
+const live = (over: Partial<LiveRecord> = {}): SessionRecord => {
+  const base: LiveRecord = {
     agent: "claude",
     sessionId: "s-live",
     cwd: "/repo",
     boundAt: "2026-07-19T10:00:00.000Z",
     state: "live",
     paneId: "pane-1",
-    ...over,
-  }) as SessionRecord;
+  };
+  return { ...base, ...over };
+};
 
 const laneOf = (
   hits: SearchHit[],
@@ -202,7 +208,9 @@ describe("SessionsBrowser", () => {
   const mount = (
     a: SessionsBrowserApi,
     rows: SessionRecord[] = [],
-    callbacks: { onResume?: unknown; onFork?: unknown } = {},
+    callbacks: Partial<
+      Pick<ComponentProps<typeof SessionsBrowser>, "onResume" | "onFork">
+    > = {},
   ) =>
     act(async () =>
       root.render(
@@ -213,8 +221,8 @@ describe("SessionsBrowser", () => {
           agents: [CAPABLE_AGENT],
           ready: true,
           rows,
-          onResume: (callbacks.onResume as (r: never) => void) ?? vi.fn(),
-          onFork: (callbacks.onFork as (r: never) => void) ?? vi.fn(),
+          onResume: callbacks.onResume ?? vi.fn(),
+          onFork: callbacks.onFork ?? vi.fn(),
         }),
       ),
     );
@@ -445,7 +453,7 @@ describe("SessionsBrowser", () => {
     expect(open.disabled).toBe(true);
     // The OTHER lane's row (the queue's tail) stays inert.
     const hitRow = otherRows(1)[0];
-    await act(async () => (hitRow as HTMLLIElement).click());
+    await act(async () => (instanceOf(hitRow, HTMLLIElement, "hitRow")).click());
     expect(a.transcript).not.toHaveBeenCalled();
     expect(document.querySelector(".browser__viewer")).toBeNull();
   });
@@ -1081,7 +1089,7 @@ describe("SessionsBrowser journal join", () => {
     expect(
       present(row.querySelector<HTMLButtonElement>(".browser__open"), "element \".browser__open\"").disabled,
     ).toBe(true);
-    await act(async () => (row as HTMLLIElement).click());
+    await act(async () => (instanceOf(row, HTMLLIElement, "row")).click());
   });
 
   it("the joined title: a nameless row takes the index's, a meaningful own name keeps itself, an agent-label title yields", async () => {
@@ -1143,7 +1151,7 @@ describe("SessionsBrowser journal join", () => {
     expect(row.querySelector(".history__fork")).toBeNull();
     // The kimi path never reaches any plugin: not by row click, and the
     // continuation affordances are gone outright.
-    await act(async () => (row as HTMLLIElement).click());
+    await act(async () => (instanceOf(row, HTMLLIElement, "row")).click());
     expect(a.transcript).not.toHaveBeenCalled();
     expect(onResume).not.toHaveBeenCalled();
     expect(onFork).not.toHaveBeenCalled();
@@ -1987,7 +1995,7 @@ describe("virtualized list — the window, not the pile", () => {
       ].find((el) => el.querySelector(".browser__name")?.getAttribute("title") === key);
       if (!li) return null;
       const m = /(translateY\()(-?\d+(?:\.\d+)?)(px\))/.exec(
-        (li as HTMLElement).style.transform ?? "",
+        (instanceOf(li, HTMLElement, "li")).style.transform ?? "",
       );
       return m ? Number(m[2]) - list.scrollTop : null;
     };
@@ -2088,7 +2096,7 @@ describe("virtualized list — the window, not the pile", () => {
       ].find((el) => el.querySelector(".browser__name")?.getAttribute("title") === key);
       if (!li) return null;
       const m = /translateY\((-?\d+(?:\.\d+)?)px\)/.exec(
-        (li as HTMLElement).style.transform ?? "",
+        (instanceOf(li, HTMLElement, "li")).style.transform ?? "",
       );
       return m ? Number(m[1]) - list.scrollTop : null;
     };
@@ -2097,7 +2105,10 @@ describe("virtualized list — the window, not the pile", () => {
         .map((n) => n.getAttribute("title"))
         .filter((t): t is string => t !== null);
     const watchedKey = present(visibleKeys().find(
-      (k) => rowTopOf(k) !== null && (rowTopOf(k) as number) >= 0,
+      (k) => {
+        const top = rowTopOf(k);
+        return top !== null && top >= 0;
+      },
     ), "visible key with a rendered row");
     expect(watchedKey).toBeDefined();
     const watchedBefore = rowTopOf(watchedKey);
@@ -2334,7 +2345,7 @@ describe("unified row guard — both blocks, one markup", () => {
    * by auto-placement); the meta line flows in the name's column
    * below. */
   const slotNameOf = (el: Element): string => {
-    const c = (el as HTMLElement).classList;
+    const c = (instanceOf(el, HTMLElement, "el")).classList;
     if (c.contains("history__glyph")) return "glyph";
     if (c.contains("browser__open")) return "name";
     if (c.contains("history__actions")) return "actions";
@@ -2350,7 +2361,7 @@ describe("unified row guard — both blocks, one markup", () => {
    * not assumed. */
   const metaPartsOf = (row: Element): string[] =>
     [...(row.querySelector(".history__meta")?.children ?? [])].map((el) => {
-      const c = (el as HTMLElement).classList;
+      const c = (instanceOf(el, HTMLElement, "el")).classList;
       if (c.contains("history__meta-folder")) return "folder";
       if (c.contains("history__meta-age")) return "age";
       if (c.contains("history__meta-mark")) return "mark";
@@ -2445,12 +2456,12 @@ describe("unified row guard — both blocks, one markup", () => {
       expect(present(group, "group").querySelector(".history__fork")).not.toBeNull();
       expect(
         [...row.children].some(
-          (c) => (c as HTMLElement).classList.contains("history__resume"),
+          (c) => (instanceOf(c, HTMLElement, "c")).classList.contains("history__resume"),
         ),
       ).toBe(false);
       expect(
         [...row.children].some(
-          (c) => (c as HTMLElement).classList.contains("history__fork"),
+          (c) => (instanceOf(c, HTMLElement, "c")).classList.contains("history__fork"),
         ),
       ).toBe(false);
     }

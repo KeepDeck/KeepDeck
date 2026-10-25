@@ -9,6 +9,7 @@ import { createAgentStatusTracker } from "../app/agentStatusTracker";
 import { appCss, px, readStyles, ruleBody } from "./testSupport";
 import { paneHeaderView } from "../presentation/paneHeaderView";
 import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../testing/values.test-support";
 
 /**
  * The pane's own wrappers, hand-written: mounting the real `AgentPane` costs
@@ -119,7 +120,7 @@ function renderStandIn(): void {
 const styleOf = (selector: string) => {
   const element = document.querySelector(selector);
   expect(element, `no element matched ${selector}`).not.toBeNull();
-  return getComputedStyle(element as HTMLElement);
+  return getComputedStyle(instanceOf(element, HTMLElement, "element"));
 };
 
 function mountBody(): void {

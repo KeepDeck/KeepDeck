@@ -57,8 +57,17 @@ const gate = vi.hoisted(() => ({ build: null as Promise<void> | null }));
 
 /** The plan cache behind the mock, reachable so a test can stand in a plan the
  * deck restored but never built here (a rejected boot resume). */
+interface CachedSpec {
+  command?: string;
+  args: string[];
+  env: [string, string][];
+  resumeOf?: string;
+  resumeOrigin?: string;
+  resumeRetry?: boolean;
+  postbackMark?: number;
+}
 const plans = vi.hoisted(() => ({
-  specs: new Map<string, unknown>(),
+  specs: new Map<string, CachedSpec>(),
   /** Panes whose last plan build failed — the error tile's source. */
   failed: new Set<string>(),
   /** Set by the mock factory; a test that seeds the cache by hand calls it. */
@@ -137,15 +146,7 @@ vi.mock("../spawnSpecs", () => {
       notify();
       return true;
     }),
-    peekPaneSpawnSpec: (id: string) =>
-      specs.get(id) as
-        | {
-            args: string[];
-            resumeOf?: string;
-            resumeOrigin?: string;
-            postbackMark?: number;
-          }
-        | undefined,
+    peekPaneSpawnSpec: (id: string) => specs.get(id),
     // A refused manual wake drops the half-built plan, or the pane's next
     // wake lands on the plan-error tile instead of a terminal.
     dropPaneSpawnSpec: vi.fn((id: string) => {
@@ -154,7 +155,7 @@ vi.mock("../spawnSpecs", () => {
       return had;
     }),
     markPaneResumeOrigin: vi.fn((id: string, origin: string) => {
-      const spec = specs.get(id) as Record<string, unknown> | undefined;
+      const spec = specs.get(id);
       if (spec) specs.set(id, { ...spec, resumeOrigin: origin });
       notify();
     }),

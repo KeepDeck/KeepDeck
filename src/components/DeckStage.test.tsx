@@ -73,11 +73,26 @@ vi.mock("../app/usePaneSessionState", async () => {
 
 /** The empty team's list, as the stage hands it over: its own suite
  * covers what it does with it. */
-const teamSessions = vi.hoisted(() => ({ props: null as null | Record<string, unknown>, mounts: 0 }));
+interface TeamSessionsFakeProps {
+  cwd: string;
+  onContinue(mode: "resume" | "fork", record: SessionHandle, role: string): void;
+}
+function isTeamSessionsFakeProps(value: unknown): value is TeamSessionsFakeProps {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "onContinue" in value &&
+    typeof value.onContinue === "function"
+  );
+}
+const teamSessions = vi.hoisted(() => ({
+  props: null as null | TeamSessionsFakeProps,
+  mounts: 0,
+}));
 vi.mock("./deck/TeamSessions", async () => {
   const { useEffect } = await import("react");
   return {
-    TeamSessions: (props: Record<string, unknown>) => {
+    TeamSessions: (props: TeamSessionsFakeProps) => {
       teamSessions.props = props;
       useEffect(() => {
         teamSessions.mounts += 1;
@@ -91,6 +106,8 @@ import { TerminalPane } from "./terminal/TerminalPane";
 import { DeckStage } from "./DeckStage";
 import { NO_TEAMS_WORD } from "../presentation/stageView";
 import { present } from "@keepdeck/plugin-api/testing";
+import { statusEdge } from "../testing/values.test-support";
+import type { SessionHandle } from "../domain/journal";
 
 /** A team on the workspace root: what every fixture pane is on, since the
  * stage lays out the OPEN team's members and nothing else. */
@@ -188,7 +205,11 @@ const browser = {
   transcript: vi.fn(() => Promise.resolve({ entries: [] })),
 };
 
-const props = (overrides: Record<string, unknown> = {}) => ({
+interface DeckPropsOverrides extends Record<string, unknown> {
+  viewByWs?: Record<string, Record<string, unknown>>;
+}
+
+const props = (overrides: DeckPropsOverrides = {}) => ({
   journal: {},
   browserShared: browser,
   workspaces,
@@ -221,10 +242,10 @@ const props = (overrides: Record<string, unknown> = {}) => ({
     "pane-2": { command: "codex", args: [], env: [] },
   },
   failedPanes: new Set<string>(),
-  restartEpochs: {} as Record<string, number>,
+  restartEpochs: {},
   ...callbacks,
   ...overrides,
-  viewByWs: openView(overrides.viewByWs as Record<string, Record<string, unknown>> | undefined),
+  viewByWs: openView(overrides.viewByWs),
 });
 
 function terminalProps(paneId: string) {
@@ -579,8 +600,12 @@ describe("DeckStage — the teams level", () => {
     render({ workspaces: [{ ...workspaces[0], panes: [] }], specByPane: {} });
     expect(teamSessions.props).toMatchObject({ cwd: "/repo" });
     expect(document.querySelector(".deck__grid-empty")).toBeNull();
-    const record = { agent: "codex", sessionId: "s-1", cwd: "/repo" };
-    (present<Record<string, unknown>>(teamSessions.props, "the team sessions props").onContinue as (...args: unknown[]) => void)("fork", record, "lead");
+    const props: unknown = teamSessions.props;
+    if (!isTeamSessionsFakeProps(props)) {
+      throw new Error("expected the team sessions props");
+    }
+    const record: SessionHandle = { agent: "codex", sessionId: "s-1", cwd: "/repo" };
+    props.onContinue("fork", record, "lead");
     expect(callbacks.onContinueSession).toHaveBeenCalledWith("ws-1", "team-1", "fork", record, "lead");
   });
 
@@ -910,7 +935,7 @@ describe("DeckStage — status frames across layouts", () => {
     statusTracker.registerNormalizer(
       "codex",
       (payload: unknown) =>
-        (payload as { edge?: AgentStatusEvent }).edge ?? null,
+        statusEdge(payload),
     );
   });
 

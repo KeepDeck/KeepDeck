@@ -13,6 +13,8 @@ import {
   type SkillsLibrary,
   type SkillsStorage,
 } from "./skillsLibrary";
+import { stringOf } from "../testing/values.test-support";
+
 
 const GLOBAL: SkillScope = { kind: "global" };
 const WS: SkillScope = { kind: "workspace", wsId: "ws-1" };
@@ -70,12 +72,12 @@ type SkillStorageFakes = {
 
 /** The SKILL.md a save was handed, read back the way production reads it —
  * through the projection every surface uses, not the raw codec underneath it. */
-const written = (save: { mock: { calls: unknown[][] } }) =>
+const written = (save: { mock: { calls: Parameters<SkillsStorage["save"]>[] } }) =>
   skillDraftOf({
     // The (name, content) pair as the storage got it — the projection prefers
     // the directory name, so handing it a blank one would mask the composed one.
-    name: save.mock.calls[0]?.[1] as string,
-    content: save.mock.calls[0]?.[2] as string,
+    name: stringOf(save.mock.calls[0]?.[1], "skill name"),
+    content: stringOf(save.mock.calls[0]?.[2], "skill content"),
   });
 
 describe("a write reports the library as changed", () => {

@@ -11,6 +11,7 @@ import {
   STRIP_REVEAL_GRACE_MS,
 } from "../../presentation/stripReveal";
 import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 // Where the OS says the pointer is — in the window unless a test moves it.
 // `answer`, when set, is the one the next ask gets — a test holds it to
@@ -129,7 +130,7 @@ function pointerEvent(
   type: string,
   init: { clientY?: number; button?: number } = {},
 ): PointerEvent {
-  const event = new Event(type, { bubbles: true, cancelable: true }) as PointerEvent;
+  const event = new PointerEvent(type, { bubbles: true, cancelable: true });
   Object.defineProperties(event, {
     button: { value: init.button ?? 0 },
     clientX: { value: 10 },
@@ -180,7 +181,7 @@ describe("WorkspaceStrip drag reorder", () => {
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = function () {
-      const top = Math.max(0, slot(this as HTMLElement)) * MARK_HEIGHT;
+      const top = Math.max(0, slot(instanceOf(this, HTMLElement, "this"))) * MARK_HEIGHT;
       return { top, bottom: top + MARK_HEIGHT, left: 0, right: 52, width: 52, height: MARK_HEIGHT, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
     };
     const geometry: Record<string, (el: HTMLElement) => number> = {
@@ -194,7 +195,7 @@ describe("WorkspaceStrip drag reorder", () => {
       Object.defineProperty(HTMLElement.prototype, name, {
         configurable: true,
         get() {
-          return get(this as HTMLElement);
+          return get(instanceOf(this, HTMLElement, "this"));
         },
       });
     }
@@ -636,18 +637,18 @@ describe("WorkspaceStrip as the team switcher", () => {
     const key = ([t, type, fn, capture]: Entry) => [t, type, fn, capture];
     const added: Entry[] = [];
     const removed: Entry[] = [];
-    const capture = (o: unknown) => (typeof o === "boolean" ? o : Boolean((o as { capture?: boolean })?.capture));
+    const capture = (o: unknown) => typeof o === "boolean" ? o : typeof o === "object" && o !== null && "capture" in o && o.capture === true;
     const spies = [document, window, document.documentElement].flatMap((target) => {
       const add = target.addEventListener.bind(target);
       const remove = target.removeEventListener.bind(target);
       return [
-        vi.spyOn(target, "addEventListener").mockImplementation((type: string, fn: unknown, o?: unknown) => {
+        vi.spyOn(target, "addEventListener").mockImplementation((type: string, fn: EventListenerOrEventListenerObject, o?: boolean | AddEventListenerOptions) => {
           added.push([target, type, fn, capture(o)]);
-          add(type, fn as EventListener, o as AddEventListenerOptions);
+          add(type, fn, o);
         }),
-        vi.spyOn(target, "removeEventListener").mockImplementation((type: string, fn: unknown, o?: unknown) => {
+        vi.spyOn(target, "removeEventListener").mockImplementation((type: string, fn: EventListenerOrEventListenerObject, o?: boolean | AddEventListenerOptions) => {
           removed.push([target, type, fn, capture(o)]);
-          remove(type, fn as EventListener, o as EventListenerOptions);
+          remove(type, fn, o);
         }),
       ];
     });
@@ -918,7 +919,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = function () {
-      const group = groupOf(this as HTMLElement);
+      const group = groupOf(instanceOf(this, HTMLElement, "this"));
       const top = group ? topOf(group) : 0;
       return { top, bottom: top + MARK, left: 0, right: 52, width: 52, height: MARK, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
     };
@@ -933,7 +934,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       Object.defineProperty(HTMLElement.prototype, name, {
         configurable: true,
         get() {
-          return get(this as HTMLElement);
+          return get(instanceOf(this, HTMLElement, "this"));
         },
       });
     }

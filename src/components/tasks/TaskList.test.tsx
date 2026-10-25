@@ -7,6 +7,7 @@ import { board, relation, task } from "../../domain/tasks/testSupport";
 import { IDLE, NO_QUERY, listView } from "../../presentation/tasks";
 import { TaskList } from "./TaskList";
 import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../../testing/values.test-support";
 
 let host: HTMLElement;
 let root: Root;
@@ -102,7 +103,7 @@ describe("TaskList", () => {
     const bar = present(progress.querySelector<HTMLElement>(".status-bar"), "element \".status-bar\"");
     expect(bar.className).toBe("status-bar tasks__epic-bar");
     expect(bar.getAttribute("aria-hidden")).toBe("true");
-    expect([...bar.children].map((part) => [part.className, (part as HTMLElement).style.flexBasis])).toEqual([["status-bar__part status-bar__part--done", "100%"]]);
+    expect([...bar.children].map((part) => [part.className, (instanceOf(part, HTMLElement, "part")).style.flexBasis])).toEqual([["status-bar__part status-bar__part--done", "100%"]]);
     expect(step.className).toContain("tasks__row--under-epic");
     // One gutter leads every row: the epic's holds its fold, its task's the guide (ending at the last).
     expect(step.firstElementChild?.className).toBe("tasks__row-lead tasks__row-lead--guide tasks__row-lead--end");

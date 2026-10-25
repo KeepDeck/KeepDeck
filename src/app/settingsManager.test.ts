@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, SETTINGS_VERSION } from "../domain/settings";
 import { createSettingsManager, type SettingsPorts } from "./settingsManager";
+import { recordOf } from "../testing/values.test-support";
 
 vi.mock("../ipc/log", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -27,7 +28,7 @@ const stored = (settings: Record<string, unknown>) =>
   JSON.stringify({ version: SETTINGS_VERSION, ...settings });
 
 const savedBy = (calls: [string][]) =>
-  calls.map(([json]) => JSON.parse(json) as Record<string, unknown>);
+  calls.map(([json]) => recordOf(JSON.parse(json), "saved settings"));
 
 describe("reading the stored document", () => {
   it("is null until the load settles — the paint gate", async () => {

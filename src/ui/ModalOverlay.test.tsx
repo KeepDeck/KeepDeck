@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ModalOverlay } from "./ModalOverlay";
 import { present } from "@keepdeck/plugin-api/testing";
+import { instanceOf } from "../testing/values.test-support";
 
 describe("ModalOverlay", () => {
   let stage: HTMLElement;
@@ -41,7 +42,7 @@ describe("ModalOverlay", () => {
     const at = (id: string) => present(document.getElementById(id), `the #${id} element`);
     const tab = (shiftKey: boolean) => {
       const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
-      act(() => (document.activeElement as HTMLElement).dispatchEvent(event));
+      act(() => instanceOf(document.activeElement, HTMLElement, "active element").dispatchEvent(event));
       return event.defaultPrevented;
     };
     at("field").focus();

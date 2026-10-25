@@ -11,7 +11,9 @@ function place(
   el: Element,
   box: { left: number; top: number; right: number; bottom: number },
 ): void {
-  vi.spyOn(el, "getBoundingClientRect").mockReturnValue(box as DOMRect);
+  vi.spyOn(el, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(box.left, box.top, box.right - box.left, box.bottom - box.top),
+  );
 }
 
 /**

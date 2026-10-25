@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CommandInfo, CommandResult } from "../commands";
+import type { CommandInfo } from "../commands";
 import {
   ANONYMOUS_CALLER,
   MCP_PROTOCOL_VERSION,
@@ -25,14 +25,16 @@ const CLOSE: CommandInfo = {
 };
 
 function port(
-  overrides: Partial<McpCommandPort> = {},
-): McpCommandPort & { execute: ReturnType<typeof vi.fn> } {
-  const execute = vi.fn(
-    (): Promise<CommandResult> => Promise.resolve({ ok: true, value: { paneId: "p1" } }),
+  overrides: Partial<Omit<McpCommandPort, "execute">> = {},
+): McpCommandPort & { execute: ReturnType<typeof vi.fn<McpCommandPort["execute"]>> } {
+  const execute = vi.fn<McpCommandPort["execute"]>(
+    () => Promise.resolve({ ok: true, value: { paneId: "p1" } }),
   );
-  return { list: () => [SPAWN, CLOSE], execute, ...overrides } as McpCommandPort & {
-    execute: ReturnType<typeof vi.fn>;
-  };
+  return {
+    list: () => [SPAWN, CLOSE],
+    execute,
+    ...overrides,
+  } satisfies McpCommandPort & { execute: ReturnType<typeof vi.fn> };
 }
 
 const request = (id: number, method: string, params?: unknown) =>

@@ -8,6 +8,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { createCapabilityGate, type ServiceBackends } from "./gate";
 import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
+import { recordOf, stringOf } from "../../testing/values.test-support";
 
 const manifest = (capabilities: Capability[]): PluginManifest => ({
   id: "p",
@@ -133,8 +134,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     // produced, not a rewrapped one, and it resolves to the backend's own
     // handle — never re-wrapped.
     expect(result).toBe(
-      (backend.sessions.spawn as ReturnType<typeof vi.fn>).mock.results[0]
-        .value,
+      vi.mocked(backend.sessions.spawn).mock.results[0].value,
     );
     expect(await result).toBe(handle);
     expect(log.warn).not.toHaveBeenCalled();
@@ -251,8 +251,7 @@ describe("createCapabilityGate — ports.allocate", () => {
     expect(backend.ports.allocate).toHaveBeenCalledTimes(1);
     expect(backend.ports.allocate).toHaveBeenCalledWith("preview-server");
     expect(result).toBe(
-      (backend.ports.allocate as ReturnType<typeof vi.fn>).mock.results[0]
-        .value,
+      vi.mocked(backend.ports.allocate).mock.results[0].value,
     );
     expect(log.warn).not.toHaveBeenCalled();
   });
@@ -955,10 +954,9 @@ describe("createCapabilityGate — exec.runOnce", () => {
 
     await gate.exec.runOnce(request);
 
-    const passed = (backend.exec.runOnce as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as { key: string };
-    expect(passed.key).not.toBe(request.key);
-    expect(passed.key.endsWith(`:${request.key}`)).toBe(true);
+    const passed = recordOf(vi.mocked(backend.exec.runOnce).mock.calls[0][0], "exec request");
+    expect(stringOf(passed.key, "exec key")).not.toBe(request.key);
+    expect(stringOf(passed.key, "exec key").endsWith(`:${request.key}`)).toBe(true);
   });
 
   it("refuses a command no exec capability covers, and never reaches the host", () => {

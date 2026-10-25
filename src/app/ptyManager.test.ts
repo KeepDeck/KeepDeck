@@ -50,7 +50,7 @@ const SPEC = { command: "claude", cwd: "/repo", cols: 80, rows: 24 };
 
 function makeSink() {
   return {
-    onOutput: vi.fn(),
+    onOutput: vi.fn<(bytes: Uint8Array) => void>(),
     onExit: vi.fn(),
     onSpawnError: vi.fn(),
     onReady: vi.fn(),
@@ -290,8 +290,8 @@ describe("attachPane", () => {
     const sink = makeSink();
     attachPane("pane-1", sink);
     expect(sink.onOutput).toHaveBeenCalledTimes(2);
-    expect((sink.onOutput.mock.calls[0][0] as Uint8Array)[0]).toBe(2);
-    expect((sink.onOutput.mock.calls[1][0] as Uint8Array)[0]).toBe(3);
+    expect(sink.onOutput.mock.calls[0][0][0]).toBe(2);
+    expect(sink.onOutput.mock.calls[1][0][0]).toBe(3);
   });
 });
 
@@ -365,7 +365,7 @@ describe("launch signal", () => {
     const late = makeSink();
     attachPane("pane-1", late);
     expect(late.onOutput).toHaveBeenCalledTimes(1);
-    expect((late.onOutput.mock.calls[0][0] as Uint8Array)[0]).toBe(7);
+    expect(late.onOutput.mock.calls[0][0][0]).toBe(7);
   });
 
   it("does not report launch before any output — a spawned PTY has not yet painted", async () => {

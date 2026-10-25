@@ -6,6 +6,7 @@ import { createTasksFeature } from "./tasksFeature";
 import { RETRY_WRITE_MS } from "./tasksService";
 import { fakeStore, teamedWorkspaces } from "./testSupport";
 import { present } from "@keepdeck/plugin-api/testing";
+import { recordsOf, recordOf, stringOf } from "../../testing/values.test-support";
 
 /** A promise handed out to be settled by the test — a backend call that
  * takes as long as the test says. */
@@ -16,6 +17,9 @@ function gate(): { promise: Promise<void>; resolve: () => void } {
   });
   return { promise, resolve };
 }
+
+const savedTasks = (json: string) =>
+  recordsOf(recordOf(JSON.parse(json), "saved board").tasks, "board tasks");
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -306,7 +310,7 @@ describe("createTasksFeature", () => {
     await flush();
     await flush();
     expect(h.order).toEqual(["write", "disable"]);
-    expect((JSON.parse(present(h.store.files.get("ws-1"), "the saved ws-1 board file")) as { tasks: { title: string }[] }).tasks.map((t) => t.title)).toEqual(["a"]);
+    expect(savedTasks(present(h.store.files.get("ws-1"), "the saved ws-1 board file")).map((t) => stringOf(t.title, "task title"))).toEqual(["a"]);
     await h.settleNext();
     expect(h.status.last()).toEqual({ desired: false, ok: true, detail: null });
   });
@@ -343,7 +347,7 @@ describe("createTasksFeature", () => {
       expect(h.calls.map((c) => c.kind)).toEqual(["enable", "disable"]);
       await settle(1);
       expect(h.status.last()).toEqual({ desired: false, ok: true, detail: null });
-      expect((JSON.parse(present(h.store.files.get("ws-1"), "the saved ws-1 board file")) as { tasks: unknown[] }).tasks).toHaveLength(1);
+      expect(savedTasks(present(h.store.files.get("ws-1"), "the saved ws-1 board file"))).toHaveLength(1);
       h.feature.dispose();
     } finally {
       vi.useRealTimers();

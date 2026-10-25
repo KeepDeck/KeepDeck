@@ -4,6 +4,7 @@ import { WORKER_STEPS } from "../../domain/tasks";
 import { STATUS_ARG, registerTaskCommands } from "./taskCommands";
 import { createTasksService } from "./tasksService";
 import { ANONYMOUS, fakeStore, from, teamedWorkspaces } from "./testSupport";
+import { booleanOf, listOf, numberOf, recordsOf, recordOf, stringOf } from "../../testing/values.test-support";
 
 function setup() {
   const workspaces = teamedWorkspaces();
@@ -14,7 +15,7 @@ function setup() {
   const run = async (id: string, args: CommandArgs, source: CommandSource) => {
     const result = await registry.execute(id, args, source);
     if (!result.ok) throw new Error(result.error.message);
-    return result.value as Record<string, unknown>;
+    return recordOf(result.value, "command result");
   };
   // What a transport may hand over — an MCP client can send any JSON.
   const refused = async (id: string, args: RawArgs, source: CommandSource) => {
@@ -133,15 +134,15 @@ describe("task commands", () => {
     // Spaces at the ends are never kept, so they never count.
     const padded = `  ${"y".repeat(120)}   `;
     const made = await run("task.create", { title: padded }, LEAD);
-    const kept = await run("task.get", { id: made.id as string }, LEAD);
-    expect((kept.task as { title: string }).title).toBe("y".repeat(120));
+    const kept = await run("task.get", { id: stringOf(made.id, "task id") }, LEAD);
+    expect(kept.task).toMatchObject({ title: "y".repeat(120) });
   });
 
   it("creates into the backlog when asked — never issuable there — and refuses any other start", async () => {
     const { run, refused } = setup();
     await run("task.create", { title: "Idea", status: "backlog" }, IMPL1);
-    const listed = (await run("task.list", { status: "backlog" }, LEAD)).tasks as { id: string; issuable: boolean }[];
-    expect(listed.map((t) => [t.id, t.issuable])).toEqual([["task-1", false]]);
+    const listed = recordsOf((await run("task.list", { status: "backlog" }, LEAD)).tasks, "tasks");
+    expect(listed.map((t) => [stringOf(t.id, "task id"), booleanOf(t.issuable, "issuable")])).toEqual([["task-1", false]]);
     expect(await refused("task.create", { title: "x", status: "done" }, LEAD)).toContain("created in todo or backlog");
     expect(await refused("task.list", { status: "parked" }, LEAD)).toContain("backlog, todo");
   });
@@ -189,7 +190,7 @@ describe("task commands", () => {
     const open = await run("task.list", { status: "todo,in-progress" }, LEAD);
     expect(open.count).toBe(2);
     expect(JSON.stringify(open)).not.toContain("secret brief");
-    expect((open.tasks as { id: string; issuable: boolean }[]).map((t) => `${t.id}:${t.issuable}`)).toEqual(["task-1:false", "task-2:true"]);
+    expect(recordsOf(open.tasks, "tasks").map((t) => `${stringOf(t.id, "task id")}:${booleanOf(t.issuable, "issuable")}`)).toEqual(["task-1:false", "task-2:true"]);
     expect((await run("task.list", { status: "cancelled" }, LEAD)).count).toBe(1);
     expect((await run("task.list", { status: "todo,in-progress", assignee: "pool" }, LEAD)).count).toBe(1);
     expect((await run("task.list", { status: "todo,in-progress", assignee: "impl-2" }, LEAD)).count).toBe(0);
@@ -201,9 +202,9 @@ describe("task commands", () => {
     await run("task.create", { title: "a", assignee: "impl-1" }, LEAD);
     await run("task.comment", { id: "task-1", body: "one" }, IMPL1);
     await run("task.update", { id: "task-1", body: "v2" }, LEAD);
-    const [row] = (await run("task.list", { status: "todo" }, LEAD)).tasks as { more: unknown }[];
-    expect(row.more).toEqual({ comments: 1, history: 1, briefVersions: 1 });
-    const got = (await run("task.get", { id: "task-1" }, LEAD)).task as Record<string, unknown>;
+    const [row] = recordsOf((await run("task.list", { status: "todo" }, LEAD)).tasks, "tasks");
+    expect(recordOf(row, "row").more).toEqual({ comments: 1, history: 1, briefVersions: 1 });
+    const got = recordOf((await run("task.get", { id: "task-1" }, LEAD)).task, "task");
     expect(got.more).toEqual({ comments: 1, history: 1, briefVersions: 1 });
     // The log and earlier briefs are history's, never the task's.
     expect(got).not.toHaveProperty("log");
@@ -215,14 +216,14 @@ describe("task commands", () => {
     await run("task.create", { title: "first", body: "the brief" }, LEAD);
     await run("task.create", { title: "second", blockedBy: "task-1" }, LEAD);
     await run("task.comment", { id: "task-1", body: "on it" }, IMPL1);
-    const got = (await run("task.get", { id: "task-1" }, IMPL1)).task as Record<string, unknown>;
+    const got = recordOf((await run("task.get", { id: "task-1" }, IMPL1)).task, "task");
     expect(got).toMatchObject({ id: "task-1", body: "the brief", unblocks: ["task-2"], issuable: true });
     expect(got.comments).toEqual([{ n: 1, at: 42, from: "impl-1", body: "on it" }]);
-    const second = (await run("task.get", { id: "task-2" }, IMPL1)).task as Record<string, unknown>;
+    const second = recordOf((await run("task.get", { id: "task-2" }, IMPL1)).task, "task");
     expect(second).toMatchObject({ blockers: [{ id: "task-1", status: "todo" }], issuable: false });
     // Closed: the thread is history's, counted.
     await run("task.update", { id: "task-1", status: "cancelled" }, LEAD);
-    const closed = (await run("task.get", { id: "task-1" }, IMPL1)).task as Record<string, unknown>;
+    const closed = recordOf((await run("task.get", { id: "task-1" }, IMPL1)).task, "task");
     expect(closed).not.toHaveProperty("comments");
     expect(closed.more).toMatchObject({ comments: 1 });
   });
@@ -251,9 +252,9 @@ describe("task commands", () => {
     await run("task.create", { title: "a", assignee: "impl-1", body: "first" }, LEAD);
     await run("task.update", { id: "task-1", body: "second", priority: "high" }, LEAD);
     await run("task.comment", { id: "task-1", body: "noted" }, IMPL1);
-    const log = (await run("task.history", { id: "task-1" }, IMPL1)).log as { field: string }[];
-    expect(log.map((e) => e.field)).toEqual(["priority", "body"]);
-    expect(((await run("task.history", { id: "task-1", field: "body" }, IMPL1)).log as unknown[]).length).toBe(1);
+    const log = recordsOf((await run("task.history", { id: "task-1" }, IMPL1)).log, "log");
+    expect(log.map((e) => stringOf(e.field, "log field"))).toEqual(["priority", "body"]);
+    expect(listOf((await run("task.history", { id: "task-1", field: "body" }, IMPL1)).log, "log")).toHaveLength(1);
     expect(await run("task.history", { id: "task-1", kind: "briefs" }, IMPL1)).toEqual({
       id: "task-1",
       current: 2,
@@ -261,7 +262,7 @@ describe("task commands", () => {
       more: { comments: 1, history: 2, briefVersions: 1 },
       rev: 3,
     });
-    expect(((await run("task.history", { id: "task-1", kind: "comments" }, IMPL1)).comments as { body: string }[]).map((c) => c.body)).toEqual(["noted"]);
+    expect(recordsOf((await run("task.history", { id: "task-1", kind: "comments" }, IMPL1)).comments, "comments").map((c) => stringOf(c.body, "comment body"))).toEqual(["noted"]);
     expect(await refused("task.history", { id: "task-1", kind: "everything" }, IMPL1)).toContain("kind must be");
   });
 
@@ -273,7 +274,7 @@ describe("task commands", () => {
     await run("task.update", { id: "task-2", status: "cancelled" }, LEAD);
     await run("task.create", { title: "web sqlite work" }, OTHER_LEAD);
     const found = await run("task.search", { query: "sqlite" }, LEAD);
-    expect((found.hits as { id: string; matched: string }[]).map((h) => [h.id, h.matched])).toEqual([
+    expect(recordsOf(found.hits, "hits").map((h) => [stringOf(h.id, "hit id"), stringOf(h.matched, "hit field")])).toEqual([
       ["task-1", "brief"],
       ["task-2", "comment 1"],
     ]);
@@ -282,7 +283,7 @@ describe("task commands", () => {
     for (let i = 0; i < 90; i += 1) await run("task.create", { title: `web zinc ${i}` }, OTHER_LEAD);
     await run("task.create", { title: "our zinc" }, LEAD);
     const ours = await run("task.search", { query: "zinc", limit: 5 }, LEAD);
-    expect((ours.hits as { title: string }[]).map((h) => h.title)).toEqual(["our zinc"]);
+    expect(recordsOf(ours.hits, "hits").map((h) => stringOf(h.title, "hit title"))).toEqual(["our zinc"]);
   });
 
   it("since names what changed after a rev — or from a time — and every answer carries the rev to ask next", async () => {
@@ -293,21 +294,21 @@ describe("task commands", () => {
     expect(typeof rev).toBe("number");
     await run("task.comment", { id: "task-2", body: "moved on" }, LEAD);
     const since = await run("task.since", { since: String(rev) }, LEAD);
-    expect((since.tasks as { id: string }[]).map((t) => t.id)).toEqual(["task-2"]);
-    expect(since.rev).toBe((rev as number) + 1);
-    expect(((await run("task.since", { since: "1970-01-01T00:00:00Z" }, LEAD)).tasks as unknown[]).length).toBe(2);
+    expect(recordsOf(since.tasks, "tasks").map((t) => stringOf(t.id, "task id"))).toEqual(["task-2"]);
+    expect(since.rev).toBe(numberOf(rev, "rev") + 1);
+    expect(listOf((await run("task.since", { since: "1970-01-01T00:00:00Z" }, LEAD)).tasks, "tasks")).toHaveLength(2);
     expect(await refused("task.since", { since: "yesterday-ish" }, LEAD)).toContain("neither a rev nor a time");
   });
 
   it("since says what changed after each mark: the comments gained, the fields moved, a task new since", async () => {
     const { run } = setup();
     await run("task.create", { title: "a" }, LEAD);
-    const before = (await run("task.list", { status: "todo" }, LEAD)).rev as number;
+    const before = numberOf((await run("task.list", { status: "todo" }, LEAD)).rev, "rev");
     await run("task.comment", { id: "task-1", body: "one" }, LEAD);
-    const between = (await run("task.list", { status: "todo" }, LEAD)).rev as number;
+    const between = numberOf((await run("task.list", { status: "todo" }, LEAD)).rev, "rev");
     await run("task.comment", { id: "task-1", body: "two" }, LEAD);
     await run("task.update", { id: "task-1", priority: "high" }, LEAD);
-    const changed = (mark: number) => run("task.since", { since: String(mark) }, LEAD).then((a) => (a.tasks as { changed: unknown }[])[0]?.changed);
+    const changed = (mark: number) => run("task.since", { since: String(mark) }, LEAD).then((a) => recordsOf(a.tasks, "tasks")[0]?.changed);
     expect(await changed(before - 1)).toEqual({ new: true, comments: 2, fields: ["priority"] });
     expect(await changed(before)).toEqual({ new: false, comments: 2, fields: ["priority"] });
     expect(await changed(between)).toEqual({ new: false, comments: 1, fields: ["priority"] });
@@ -321,7 +322,7 @@ describe("task commands", () => {
     await run("task.update", { id: "task-2", status: "review" }, IMPL2);
     const brief = await run("task.brief", {}, LEAD);
     expect(brief.board).toEqual({ backlog: 0, todo: 1, "in-progress": 0, blocked: 0, review: 1 });
-    expect((brief.waitingOnYou as { id: string }[]).map((t) => t.id)).toEqual(["task-2"]);
+    expect(recordsOf(brief.waitingOnYou, "waiting tasks").map((t) => stringOf(t.id, "task id"))).toEqual(["task-2"]);
     expect(typeof brief.rev).toBe("number");
     expect(await refused("task.brief", {}, IMPL1)).toContain("for whoever hands out work");
   });
@@ -356,7 +357,7 @@ describe("task commands", () => {
     const { run, refused } = setup();
     await run("task.create", { title: "Copy pass", assignee: "impl-1", labels: "Copy Edit, ui" }, LEAD);
     await run("task.create", { title: "Other" }, LEAD);
-    const listed = (await run("task.list", { status: "todo", label: "copy edit" }, LEAD)).tasks as { id: string; labels: string[] }[];
+    const listed = recordsOf((await run("task.list", { status: "todo", label: "copy edit" }, LEAD)).tasks, "tasks");
     expect(listed.map((t) => [t.id, t.labels])).toEqual([["task-1", ["copy-edit", "ui"]]]);
     // The assignee files its own task; the change is named.
     const updated = await run("task.update", { id: "task-1", labels: "ui" }, IMPL1);
@@ -403,7 +404,7 @@ describe("task commands — epics", () => {
 
   it("a member makes an epic and work under it; rows say which is an epic, its progress, and a task's epic", async () => {
     const { run } = await family();
-    const listed = (await run("task.list", { status: "todo" }, LEAD)).tasks as Record<string, unknown>[];
+    const listed = recordsOf((await run("task.list", { status: "todo" }, LEAD)).tasks, "tasks");
     expect(listed.map((t) => [t.id, t.kind, t.parent, t.progress])).toEqual([
       ["task-1", "epic", undefined, { done: 0, open: 2, cancelled: 0 }],
       ["task-2", undefined, "task-1", undefined],
@@ -418,7 +419,7 @@ describe("task commands — epics", () => {
   it("a list narrows to epics, to one epic's tasks, or to the tasks under none", async () => {
     const { run } = await family();
     const ids = async (args: Record<string, string>) =>
-      ((await run("task.list", { status: "todo", ...args }, LEAD)).tasks as { id: string }[]).map((t) => t.id);
+      recordsOf((await run("task.list", { status: "todo", ...args }, LEAD)).tasks, "tasks").map((t) => stringOf(t.id, "task id"));
     expect(await ids({ kind: "epic" })).toEqual(["task-1"]);
     expect(await ids({ parent: "task-1" })).toEqual(["task-2", "task-3"]);
     expect(await ids({ parent: "none" })).toEqual(["task-1", "task-4"]);
@@ -426,13 +427,13 @@ describe("task commands — epics", () => {
 
   it("get reads an epic with its progress and none of its tasks — those come by status from list; a task with its epic", async () => {
     const { run } = await family();
-    const epic = (await run("task.get", { id: "task-1" }, LEAD)).task as Record<string, unknown>;
+    const epic = recordOf((await run("task.get", { id: "task-1" }, LEAD)).task, "task");
     expect(epic).toMatchObject({ kind: "epic", parent: null, progress: { done: 0, open: 2, cancelled: 0 } });
     expect(epic).not.toHaveProperty("tasks");
     expect(epic).not.toHaveProperty("moreTasks");
-    const todo = (await run("task.list", { status: "todo", parent: "task-1" }, LEAD)).tasks as { id: string }[];
+    const todo = recordsOf((await run("task.list", { status: "todo", parent: "task-1" }, LEAD)).tasks, "tasks");
     expect(todo.map((t) => t.id)).toEqual(["task-2", "task-3"]);
-    const work = (await run("task.get", { id: "task-2" }, LEAD)).task as Record<string, unknown>;
+    const work = recordOf((await run("task.get", { id: "task-2" }, LEAD)).task, "task");
     expect(work).toMatchObject({ kind: "task", parent: { id: "task-1", title: "Epics" } });
     expect(work).not.toHaveProperty("progress");
   });
@@ -443,14 +444,14 @@ describe("task commands — epics", () => {
     const walk = { done: ["in-progress", "review", "done"], "in-progress": ["in-progress"], review: ["in-progress", "review"], blocked: ["blocked"], cancelled: ["cancelled"] };
     for (const steps of Object.values(walk)) {
       const made = await run("task.create", { title: "Step", parent: "task-1", assignee: "lead" }, LEAD);
-      for (const status of steps) await run("task.update", { id: made.id as string, status }, LEAD);
+      for (const status of steps) await run("task.update", { id: stringOf(made.id, "task id"), status }, LEAD);
     }
     const expected = { done: 1, open: 3, cancelled: 1 };
-    const rows = (await run("task.list", { status: "todo,in-progress,review,blocked,done,cancelled" }, LEAD)).tasks as Record<string, unknown>[];
+    const rows = recordsOf((await run("task.list", { status: "todo,in-progress,review,blocked,done,cancelled" }, LEAD)).tasks, "tasks");
     expect(rows.find((row) => row.id === "task-1")?.progress).toStrictEqual(expected);
     // Work carries no progress, whatever its status.
     expect(rows.filter((row) => row.id !== "task-1").every((row) => !("progress" in row))).toBe(true);
-    expect(((await run("task.get", { id: "task-1" }, LEAD)).task as Record<string, unknown>).progress).toStrictEqual(expected);
+    expect(recordOf((await run("task.get", { id: "task-1" }, LEAD)).task, "task").progress).toStrictEqual(expected);
   });
 
   it("update moves a task between epics for whoever hands out work, names it changed, and refuses a working role", async () => {
@@ -460,7 +461,7 @@ describe("task commands — epics", () => {
     expect(moved.changed).toEqual(["parent"]);
     const out = await run("task.update", { id: "task-2", parent: "none" }, LEAD);
     expect(out.changed).toEqual(["parent"]);
-    expect(((await run("task.get", { id: "task-2" }, LEAD)).task as Record<string, unknown>).parent).toBeNull();
+    expect(recordOf((await run("task.get", { id: "task-2" }, LEAD)).task, "task").parent).toBeNull();
     expect(await refused("task.update", { id: "task-3", parent: "none" }, IMPL2)).toContain("parent is lead's to set");
   });
 
@@ -469,7 +470,7 @@ describe("task commands — epics", () => {
     expect(await refused("task.create", { title: "x", kind: "story" }, LEAD)).toBe('kind must be task or epic, not "story"');
     // "none" reads as no epic in every command.
     const loose = await run("task.create", { title: "Loose too", parent: "none" }, LEAD);
-    expect(((await run("task.get", { id: loose.id as string }, LEAD)).task as Record<string, unknown>).parent).toBeNull();
+    expect(recordOf((await run("task.get", { id: stringOf(loose.id, "task id") }, LEAD)).task, "task").parent).toBeNull();
     expect(await refused("task.create", { title: "x", kind: "epic", parent: "task-1" }, LEAD)).toContain("one level");
     expect(await refused("task.update", { id: "task-1", status: "cancelled" }, LEAD)).toBe(
       "this epic still has open work — task-2 (to do), task-3 (to do); close or move them first (task.list parent=<epic> lists them all)",

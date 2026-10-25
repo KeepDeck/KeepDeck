@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { planDelete, type DeletableArtifact } from "./delete";
+import { validateSlug } from "./model";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const artifact = (over: Partial<DeletableArtifact> = {}): DeletableArtifact => ({
-  slug: "auth-flow" as DeletableArtifact["slug"],
+  slug: present(validateSlug("auth-flow"), "auth-flow slug"),
   format: "html",
   versionCount: 5,
   createdAt: 1786800000000,

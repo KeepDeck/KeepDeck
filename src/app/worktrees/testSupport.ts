@@ -97,6 +97,13 @@ export type DeckEntry = LiveWorkspace & { instance?: string };
 
 const lifetimeOf = (ws: DeckEntry): string => ws.instance ?? `${ws.id}-life-1`;
 
+/** The suites speak plain strings for lifetimes; this names that boundary
+ * without an assertion in the deck view below. */
+function workspaceInstance(value: string): WorkspaceInstance;
+function workspaceInstance(value: string): string {
+  return value;
+}
+
 /** A workspace REF: the id keys the disk, the instance keys the memo. */
 export const ref = (id: string, instance = `${id}-life-1`): WorkspaceRef => ({
   id,
@@ -123,7 +130,7 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
       id: ws.id,
       // Branded at the boundary: the suites speak in plain strings so a test
       // can write "life-1" and mean it.
-      instance: lifetimeOf(ws) as WorkspaceInstance,
+      instance: workspaceInstance(lifetimeOf(ws)),
       name: ws.id,
       cwd: "/repo",
       worktreeBaseDir: null,

@@ -9,7 +9,7 @@ function pointerEvent(
   type: string,
   init: { pointerId?: number; clientX?: number; clientY?: number; button?: number } = {},
 ): PointerEvent {
-  const event = new Event(type, { bubbles: true, cancelable: true }) as PointerEvent;
+  const event = new PointerEvent(type, { bubbles: true, cancelable: true });
   Object.defineProperties(event, {
     button: { value: init.button ?? 0 },
     clientX: { value: init.clientX ?? 0 },

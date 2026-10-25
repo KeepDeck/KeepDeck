@@ -474,10 +474,7 @@ describe("agent orchestrator —forking a recorded session", () => {
   const forked = () => handle({ agent: "claude", cwd: "/old/wt", yolo: false });
   /** The step registered for the pane, as the worktree runner would call it. */
   const registeredStep = () =>
-    steps.register.mock.calls[0][1] as (wt: {
-      cwd: string;
-      branch: string;
-    }) => Promise<void>;
+    steps.register.mock.calls[0][1];
 
   it("dir target: mints an UNBOUND pane in the chosen dir with the fork plan", async () => {
     await act(async () =>
