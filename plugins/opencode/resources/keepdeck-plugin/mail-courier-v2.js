@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * KeepDeck mail courier on opencode 2.x — the 2.x twin of mail-courier.js,
  * started by opencode-v2.js. It asks the deck (mail-ask.js) at the same
@@ -27,6 +28,14 @@ import { follower } from "./follower.js";
 import { answerText, askMail } from "./mail-ask.js";
 import { requestShow } from "./show-request.js";
 
+/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ root: string | undefined, left: string | undefined, bound: boolean, classify: (id: string) => Promise<"root" | "child" | "unknown">, rootOf: (id: string) => string, chain: (id: string) => Array<[string, string]>, note: (child: string, parent: string) => void, newGeneration: (id: string) => boolean, bindFromChain: (id: string, keep?: Array<[string, string]>) => boolean, concernsPane: (id: string) => boolean, detach: () => boolean }} Pane */
+/** @typedef {{ agent?: unknown, model?: unknown }} Selection */
+/** @typedef {{ content?: unknown, output?: unknown }} ToolResult */
+/** @typedef {{ sessionID?: string, parentID?: string, model?: { id?: string, providerID?: string }, tokens?: { input?: number, output?: number, reasoning?: number, cache?: { read?: number, write?: number } }, cost?: number, prompt?: { text?: string }, metadata?: Record<string, unknown>, status?: string, result?: ToolResult }} EventData */
+/** @typedef {{ type?: string, data?: EventData }} BusEvent */
+/** @typedef {{ model: { list: () => Promise<{ data?: Array<{ providerID: string, id: string, limit?: { context?: number } }> }> }, session: { get: (query: { sessionID: string }) => Promise<{ agent?: unknown, model?: unknown } | undefined>, create: (query: Record<string, unknown>) => Promise<{ id?: string } | undefined>, synthetic: (input: { sessionID: string, text: string, resume: boolean }) => Promise<unknown>, prompt: (input: { sessionID: string, text: string, metadata: Record<string, unknown> }) => Promise<unknown>, hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> }, tool: { hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> } }} Context */
+
 /** What marks a prompt this courier sent, for the prompt hook to pass by. */
 const MAIL_METADATA = { keepdeck: "mail" };
 
@@ -36,12 +45,15 @@ const TURN_ENDS = new Set([
   "session.execution.interrupted",
 ]);
 
+/** @param {{ context: Context, bridge: Bridge, pane: Pane, resumed?: string }} input */
 export async function startCourierV2({ context, bridge, pane, resumed }) {
   const ask = askMail(bridge);
 
   /** Put an answer into the pane's conversation. Our own prompt is marked,
    * so the prompt hook below — which opencode runs for it too — passes it by. */
+  /** @param {{ context?: string, prompt?: string } | null} answer @param {string} sessionID */
   const deliver = async (answer, sessionID) => {
+    if (!answer) return;
     if (typeof answer.context === "string" && answer.context) {
       await context.session.synthetic({ sessionID, text: answer.context, resume: false });
     }
@@ -57,7 +69,13 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
    * which waits on the chain: a delivery inside it waited on itself, and
    * every later prompt on the pane hung behind it (2.1.2, task-375).
    */
+  /** @type {Promise<unknown>} */
   let asks = Promise.resolve();
+  /**
+   * @template T
+   * @param {() => Promise<T>} job
+   * @returns {Promise<T>}
+   */
   const inTurn = (job) => {
     const turn = asks.then(job);
     asks = turn.catch(() => {});
@@ -66,10 +84,13 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
 
   /** Deliveries, in the order their asks were answered — a chain of its own
    * that no hook waits on. */
+  /** @type {Promise<unknown>} */
   let deliveries = Promise.resolve();
 
   /** Ask, then deliver — into the conversation the pane has, or the one
-   * that has just begun (`into`). */
+   * that has just begun (`into`).
+   * @param {string} [into]
+   */
   const collect = async (into) => {
     const root = into ?? (pane.bound ? pane.root : null);
     if (!root) return;
@@ -119,7 +140,9 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
 
   /** One collection at a time: the policy's home-screen delivery is not
    * re-entrant, and a ring landing mid-collection follows it. */
+  /** @type {Promise<unknown>} */
   let work = Promise.resolve();
+  /** @param {() => Promise<unknown>} job */
   const enqueue = (job) => {
     work = work.then(job).catch(() => {});
     return work;
@@ -132,6 +155,7 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
   // "working" (review of task-375). A conversation that has just begun gets
   // its brief by its own id — it is the user's, and on screen — unless the
   // policy made it for mail, which is delivered once it is shown.
+  /** @param {BusEvent} event */
   const onEvent = (event) => {
     const type = event?.type;
     const data = event?.data ?? {};
@@ -142,7 +166,7 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
       if (!policy.ours(data.sessionID)) void collect(data.sessionID);
       return;
     }
-    if (TURN_ENDS.has(type) && data.sessionID && data.sessionID === pane.root) {
+    if (typeof type === "string" && TURN_ENDS.has(type) && data.sessionID && data.sessionID === pane.root) {
       void enqueue(() => policy.collect());
     }
   };
@@ -158,9 +182,10 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
   // after this hook, so its text is what changes.
   await context.session.hook("prompt", async (event) => {
     if (!event?.sessionID || event.sessionID !== pane.root) return;
+    const sessionID = event.sessionID;
     if (typeof event.prompt?.text !== "string") return;
     if (event.metadata?.keepdeck === MAIL_METADATA.keepdeck) return;
-    const answer = await inTurn(async () => ask(await pane.classify(event.sessionID))).catch(
+    const answer = await inTurn(async () => ask(await pane.classify(sessionID))).catch(
       () => null,
     );
     const text = answer ? answerText(answer) : "";
@@ -173,12 +198,13 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
   // after this hook (packages/core/src/tool.ts at v2.1.2).
   await context.tool.hook("execute.after", async (event) => {
     if (!event?.sessionID || event.sessionID !== pane.root) return;
+    const sessionID = event.sessionID;
     // A turn running where the user is not looking — a tab left behind — is
     // not reached.
     if (!policy.visible()) return;
     if (event.status !== "completed" || !event.result) return;
     const answer = await inTurn(async () =>
-      ask(await pane.classify(event.sessionID), "mail.ask.tool"),
+      ask(await pane.classify(sessionID), "mail.ask.tool"),
     ).catch(() => null);
     const text = answer ? answerText(answer) : "";
     if (!text) return;
@@ -196,10 +222,11 @@ export async function startCourierV2({ context, bridge, pane, resumed }) {
  * reading (normalizeContent, packages/core/src/tool/runtime.ts): a string is
  * one text part, an empty list falls back to the output, stringified.
  */
+/** @param {ToolResult} result @returns {unknown[]} */
 function contentOf(result) {
   const { content, output } = result;
   if (typeof content === "string") return [{ type: "text", text: content }];
   if (Array.isArray(content) && content.length > 0) return content;
   if (output === undefined) return [];
-  return [{ type: "text", text: typeof output === "string" ? output : JSON.stringify(output) }];
+  return [{ type: "text", text: typeof output === "string" ? output : JSON.stringify(output) ?? "" }];
 }

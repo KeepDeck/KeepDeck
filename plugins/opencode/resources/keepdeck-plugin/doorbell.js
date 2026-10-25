@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * The deck's doorbell (bridge/nudge.rs): `mail.wake` in the pane's own inbox
  * directory, rung when mail waits for an idle pane and nothing else was going
@@ -9,7 +10,11 @@
 import { existsSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
 
-/** Call `onRing` once per ring, taking each down. Returns the stop. */
+/** Call `onRing` once per ring, taking each down. Returns the stop.
+ * @param {string} dir
+ * @param {() => void} onRing
+ * @returns {() => void}
+ */
 export function watchDoorbell(dir, onRing) {
   // `dir` is this pane's OWN inbox, so the doorbell needs no name of its own
   // — there is only ever one pane's worth of traffic in here.
@@ -23,6 +28,7 @@ export function watchDoorbell(dir, onRing) {
     }
     onRing();
   };
+  /** @type {import("node:fs").FSWatcher | undefined} */
   let watcher;
   try {
     // A ring that landed before this process was watching — a pane still
@@ -36,5 +42,7 @@ export function watchDoorbell(dir, onRing) {
     // No watcher: the pane still gets its mail at every turn boundary and
     // every prompt the user sends. Only the idle case is lost.
   }
-  return () => watcher?.close();
+  return () => {
+    watcher?.close();
+  };
 }
