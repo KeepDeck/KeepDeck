@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
 import { fsStore } from "@keepdeck/plugin-api/testing";
-import { claudeHistory } from "./history";
+import { claudeHistory, type HistoryPorts } from "./history";
 
 const LINES = [
   JSON.stringify({
@@ -34,9 +34,9 @@ const LINES = [
 
 function ctx(
   files: Record<string, string>,
-  dirs: Record<string, unknown[]>,
+  dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
-) {
+): HistoryPorts {
   // A store is read a WINDOW at a time now, so the double has to serve
   // windows: one that ignored `offset` would hand back the same first slice
   // forever and every assertion below would be about a file that does not
@@ -52,11 +52,10 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: fs.readFile,
       },
       sessionStore: createSessionStore(fs),
     },
-  } as unknown as PluginContext;
+  };
 }
 
 describe("claude history", () => {
@@ -131,7 +130,7 @@ describe("claude history", () => {
   });
 
   it("listing() on a readable store answers complete, with list()'s exact stubs", async () => {
-    const dirs = {
+    const dirs: Record<string, FsEntry[]> = {
       "~/.claude/projects": [
         { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
       ],
@@ -150,7 +149,7 @@ describe("claude history", () => {
     // the enumeration derives the id from the filename, so keeping the
     // row would index an address that never existed. Both roads drop it —
     // a partial walk must not let the garbage ride the older one.
-    const dirs = {
+    const dirs: Record<string, FsEntry[]> = {
       "~/.claude/projects": [
         { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
       ],
@@ -180,7 +179,7 @@ describe("claude history", () => {
     // The drop is BY NAME and the name grammar is claude's, not ours: any
     // .jsonl without the orphaned marker is a session row as far as the
     // enumeration is concerned, whatever its id looks like.
-    const dirs = {
+    const dirs: Record<string, FsEntry[]> = {
       "~/.claude/projects": [
         { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
       ],
@@ -254,7 +253,7 @@ describe("claude history", () => {
     const history = claudeHistory({
       log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
       services: { fs: withCount, sessionStore: createSessionStore(withCount) },
-    } as unknown as PluginContext);
+    });
 
     await history.describe("/f.jsonl");
     const forDescribe = reads.mock.calls.length;

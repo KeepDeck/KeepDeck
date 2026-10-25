@@ -2,12 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type {
   AgentContribution,
-  PluginContext,
   SettingsSectionContribution,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import { mergeSectionValues } from "@keepdeck/plugin-api";
-import plugin from "./index";
+import { registerClaude } from "./index";
 import { ARTIFACTS_FIELD, DISABLE_ARTIFACTS_VAR } from "./artifacts";
 import { CLAUDE_MAIL_CHANNELS, renderClaudeMail } from "./status";
 
@@ -19,7 +18,8 @@ import { claudeUsageWatches } from "./usage";
 /** The section this plugin registered during the last [`activate`]. */
 let registered: SettingsSectionContribution | undefined;
 
-/** Activate against a minimal fake ctx; returns the registered agent.
+/** Register against typed fake ports; returns the registered agent. A
+ * service a test does not fake rejects, the way a missing capability does.
  * `resources` maps script name → resolved path (missing name = null), so a
  * test can arm the two reporters independently. `stored` is what the
  * settings file holds for this plugin — resolved through the CONTRACT's own
@@ -32,8 +32,12 @@ function activate(
 ): AgentContribution {
   let agent: AgentContribution | undefined;
   registered = undefined;
-  plugin.activate({
+  const absent = (what: string) => async (): Promise<never> => {
+    throw new Error(`${what} is not available here`);
+  };
+  registerClaude({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
+    log: { info() {}, warn() {}, error() {} },
     resources: { path: async (name: string) => resources?.[name] ?? null },
     settings: {
       registerSection: (section: SettingsSectionContribution) => (
@@ -44,7 +48,7 @@ function activate(
     services: {
       // A store holding the forked session's transcript and nothing else.
       fs: {
-        readDir: async (path: string) =>
+        readDir: async (path) =>
           path === "/Users/u/.claude/projects/-old-worktree"
             ? [{ name: "uuid-1.jsonl", path: `${path}/uuid-1.jsonl`, kind: "file" }]
             : path === "/Users/u/.claude"
@@ -52,13 +56,15 @@ function activate(
               : [],
       },
       fsWrite: {
-        copyFile: async (src: string, dst: string) => {
+        copyFile: async (src, dst) => {
           copies.push([src, dst]);
         },
         remove: async () => {},
       },
+      sessionStore: { read: absent("sessionStore") },
+      sessions: { spawn: absent("sessions") },
     },
-  } as unknown as PluginContext);
+  });
   if (!agent) throw new Error("plugin registered no agent");
   return agent;
 }

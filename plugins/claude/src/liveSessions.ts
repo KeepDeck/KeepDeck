@@ -1,8 +1,8 @@
 import type {
   AgentLiveSession,
   AgentLiveSessions,
-  PluginContext,
   PluginSessionEvent,
+  PluginSessions,
 } from "@keepdeck/plugin-api";
 
 /**
@@ -60,7 +60,12 @@ export function parseLiveSessions(stdout: string): AgentLiveSession[] | null {
  * anything approaching this size is a runaway process, not a listing. */
 const MAX_OUTPUT = 4 * 1024 * 1024;
 
-export function claudeLiveSessions(ctx: PluginContext): AgentLiveSessions {
+/** What asking the CLI needs from the host: one short-lived session. */
+export interface LiveSessionsPorts {
+  services: { sessions: PluginSessions };
+}
+
+export function claudeLiveSessions(ctx: LiveSessionsPorts): AgentLiveSessions {
   return {
     async list(): Promise<AgentLiveSession[]> {
       // A THROWING list() is a legitimate answer the caller reads as

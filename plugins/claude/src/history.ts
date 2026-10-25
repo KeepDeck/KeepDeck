@@ -11,7 +11,9 @@ import {
   type AgentHistory,
   type AgentSessionStub,
   type AgentTranscriptEntry,
-  type PluginContext,
+  type PluginFs,
+  type PluginLogger,
+  type PluginSessionStore,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
 
@@ -98,7 +100,17 @@ const dialect: SessionDialect<ClaudeState, ClaudeRecord> = {
   end: () => [],
 };
 
-export function claudeHistory(ctx: PluginContext): AgentHistory {
+/** What the history reads through: the store's folders, the session reader
+ * over them, and the log. */
+export interface HistoryPorts {
+  log: PluginLogger;
+  services: {
+    fs: Pick<PluginFs, "readDir">;
+    sessionStore: PluginSessionStore;
+  };
+}
+
+export function claudeHistory(ctx: HistoryPorts): AgentHistory {
   const walk = (
     ref: string,
     extra: {
