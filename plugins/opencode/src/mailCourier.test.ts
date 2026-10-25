@@ -11,7 +11,7 @@ import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
-import { requireHooks, type Armed } from "./resourceTestSupport";
+import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
 // The courier is resource JS — shipped to, and loaded by, the user's
 // opencode process, never bundled into the plugin. The pane's session it
 // shares is ONE object per module instance — which is the point of it — so

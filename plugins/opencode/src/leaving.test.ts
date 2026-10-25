@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
 import { HEARTBEAT_MS } from "../resources/keepdeck-plugin/foreground.js";
-import { requireHooks, type Armed } from "./resourceTestSupport";
+import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
 
 /**
  * Leaving a conversation, and mail on the home screen (opencode 1.x,

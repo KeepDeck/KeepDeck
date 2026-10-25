@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
-import { requireHooks, type Armed } from "./resourceTestSupport";
+import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
 
 /**
  * The pane follows the TUI (task-435): the user opens another session, and

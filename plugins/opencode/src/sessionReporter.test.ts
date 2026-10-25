@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startDeck } from "../../../scripts/reporterHarness";
 import { normalizeOpencodeStatus } from "./status";
-import { requireHooks, type Armed } from "./resourceTestSupport";
+import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
 // The reporter, the pane's session and the wire are resource JS —
 // shipped to, and loaded by, the user's opencode process, never bundled into
 // the plugin. The pane's session and the wire are ONE object per module
