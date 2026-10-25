@@ -2,13 +2,17 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  asFiniteNumber,
+  carriedUsageRecord,
+  isJsonRecord,
   jsonl,
+  reportedLimits,
   type AgentStatus,
   type AgentUsage,
   type NormalizedUsage,
   type TailWatch,
+  type UsageNormalizer,
 } from "@keepdeck/plugin-api";
-import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
 import type { SessionBound } from "../ipc/sessions";
 import type { DeckState, Pane } from "../domain/deck";
@@ -80,6 +84,47 @@ const reported = (at: number): NormalizedUsage => ({
   account: { kind: "reported", windows: [], reportedAt: at, sourcePaneId: "" },
   pane: { agent: "any", reportedAt: at },
 });
+
+/**
+ * A normalizer reading only what a usage watch CARRIED, through the
+ * contract's own `carriedUsageRecord` — the one reading a plugin's
+ * normalizer starts with. The record's fields are this fake's: `context`
+ * becomes the pane's, `limits` the account's. What these tests prove is the
+ * host's half: the envelope it hands over is the one the contract reads, and
+ * the times it stamps are the record's. How codex turns its own rollout into
+ * those numbers is codex's tests' business.
+ */
+const carriedNormalizer: UsageNormalizer = (payload, at) => {
+  const record = carriedUsageRecord(payload);
+  if (!record || !isJsonRecord(record.payload)) return null;
+  const { context, limits } = record.payload;
+  const usedPct = isJsonRecord(limits) ? asFiniteNumber(limits.usedPct) : undefined;
+  return {
+    account:
+      isJsonRecord(limits) && usedPct !== undefined
+        ? reportedLimits(
+            [
+              {
+                usedPct,
+                resetsAt: asFiniteNumber(limits.resetsAt) ?? null,
+                windowMinutes: asFiniteNumber(limits.windowMinutes) ?? null,
+              },
+            ],
+            at,
+          )
+        : null,
+    pane: isJsonRecord(context)
+      ? {
+          agent: "codex",
+          context: {
+            usedPct: asFiniteNumber(context.usedPct),
+            windowTokens: asFiniteNumber(context.windowTokens),
+          },
+          reportedAt: at,
+        }
+      : null,
+  };
+};
 
 /** A pane runs an agent, and a report is only believed from the agent its
  * pane runs — so an unnamed pane here is a claude pane, not an agentless
@@ -245,8 +290,8 @@ describe("createUsageChannel", () => {
     });
   });
 
-  it("carries Codex's baseline-adjusted context percentage into the pane store", async () => {
-    ipc.contributions[1]!.entry.usage!.normalize = normalizeCodexRollout;
+  it("carries a tailed record's context percentage into the pane store", async () => {
+    ipc.contributions[1]!.entry.usage!.normalize = carriedNormalizer;
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
 
     await act(async () => {
@@ -259,13 +304,7 @@ describe("createUsageChannel", () => {
             type: "store.record",
             lane: "usage",
             record: {
-              payload: {
-                type: "token_count",
-                info: {
-                  last_token_usage: { total_tokens: 37_696 },
-                  model_context_window: 258_400,
-                },
-              },
+              payload: { context: { usedPct: 10, windowTokens: 258_400 } },
             },
           },
         },
@@ -674,12 +713,12 @@ describe("createUsageChannel", () => {
   });
 
   it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
-    // The REAL normalizer, over the shape the sweep actually hands back: a
-    // carried record, the same one a live tail delivers. The sweep reads a
-    // cold store with a watch of the host's own, and if that watch and the
-    // plugin's declaration ever disagree the account chip goes quietly blank
-    // at boot — which a stubbed normalizer could never show.
-    ipc.contributions[1]!.entry.usage!.normalize = normalizeCodexRollout;
+    // A normalizer reading through the contract, over the shape the sweep
+    // actually hands back: a carried record, the same one a live tail
+    // delivers. If the sweep's envelope and the one the contract reads ever
+    // disagree, the account chip goes quietly blank at boot — which a
+    // normalizer echoing anything it is handed could never show.
+    ipc.contributions[1]!.entry.usage!.normalize = carriedNormalizer;
     ipc.readStoreCold.mockResolvedValue({
       records: [
         {
@@ -688,14 +727,7 @@ describe("createUsageChannel", () => {
             lane: "usage",
             record: {
               payload: {
-                type: "token_count",
-                rate_limits: {
-                  primary: {
-                    used_percent: 40,
-                    window_minutes: 10_080,
-                    resets_at: 1_784_834_810,
-                  },
-                },
+                limits: { usedPct: 40, windowMinutes: 10_080, resetsAt: 1_784_834_810_000 },
               },
             },
           },

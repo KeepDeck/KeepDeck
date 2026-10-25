@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizeClaudeStatusline } from "../../plugins/claude/src/usage";
 import type { NormalizedUsage } from "../domain/usage";
 import { createUsageManager, type UsageManager } from "./usageManager";
+import { gatedLimitsNormalizer, gatedLimitsReport } from "./gatedLimits.testSupport";
 
 // A fresh instance per test — the factory's whole point: no shared module
 // state, no teardown hook.
@@ -141,9 +141,9 @@ describe("report", () => {
 
 });
 
-describe("claude account activity gate", () => {
-  /** A reporter-shaped claude envelope: the verbatim statusline, with the
-   * session's API cumulatives beside the week's limit. */
+describe("account activity gate", () => {
+  /** A reporter that re-sends frozen limits on a timer (claude's statusline
+   * is one): the week's limit beside the session's API cumulatives. */
   const line = (
     sessionId: string,
     weekPct: number | null,
@@ -151,24 +151,13 @@ describe("claude account activity gate", () => {
     apiDurationMs: number,
     extra: Record<string, unknown> = {},
   ) => ({
-    agent: "claude",
-    statusline: {
-      session_id: sessionId,
-      cost: { total_cost_usd: costUsd, total_api_duration_ms: apiDurationMs },
-      ...(weekPct === null
-        ? {}
-        : {
-            rate_limits: {
-              seven_day: { used_percentage: weekPct, resets_at: 1_800_000_000 },
-            },
-          }),
-    },
+    ...gatedLimitsReport("gated", sessionId, weekPct, costUsd, apiDurationMs),
     ...extra,
   });
-  const week = () => usage.getSnapshot().accounts.get("claude");
+  const week = () => usage.getSnapshot().accounts.get("gated");
 
   beforeEach(() => {
-    usage.registerNormalizer("claude", normalizeClaudeStatusline);
+    usage.registerNormalizer("gated", gatedLimitsNormalizer);
   });
 
   it("keeps an idle pane's frozen limits out, however the envelope is dated", () => {

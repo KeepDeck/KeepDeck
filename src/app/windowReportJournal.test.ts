@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AccountUsage, UsageWindow } from "../domain/usage";
-import { normalizeClaudeStatusline } from "../../plugins/claude/src/usage";
 import {
   decodeWindowReport,
   encodeWindowReport,
   type WindowReport,
 } from "../domain/usage/reportJournal";
 import { createUsageManager } from "./usageManager";
+import { gatedLimitsNormalizer, gatedLimitsReport } from "./gatedLimits.testSupport";
 import { createWindowReportJournal } from "./windowReportJournal";
 
 import {
@@ -118,12 +118,12 @@ describe("windowReportJournal", () => {
     ).toEqual(stored());
   });
 
-  it("never journals an idle claude pane's frozen limits — the sawtooth, end to end", async () => {
-    // The real chain: claude normalizer → usage manager's activity gate →
+  it("never journals an idle pane's frozen limits — the sawtooth, end to end", async () => {
+    // The real chain: a gated normalizer → usage manager's activity gate →
     // this journal. The active pane is witnessed at 69%; the idle pane
     // re-sends its frozen 67% on every refresh, newer-dated each time.
     const usage = createUsageManager();
-    usage.registerNormalizer("claude", normalizeClaudeStatusline);
+    usage.registerNormalizer("claude", gatedLimitsNormalizer);
     const ipc = {
       loadUsageReports: vi.fn(async () => [] as string[]),
       appendUsageReports: vi.fn(async (_lines: string[]) => {}),
@@ -132,16 +132,8 @@ describe("windowReportJournal", () => {
     const journal = createWindowReportJournal({ ipc, usage, now: () => NOW });
     journal.start();
     await settle();
-    const line = (session: string, pct: number, cost: number, apiMs: number) => ({
-      agent: "claude",
-      statusline: {
-        session_id: session,
-        cost: { total_cost_usd: cost, total_api_duration_ms: apiMs },
-        rate_limits: {
-          seven_day: { used_percentage: pct, resets_at: (NOW + 3 * 24 * 60 * MIN) / 1000 },
-        },
-      },
-    });
+    const line = (session: string, pct: number, cost: number, apiMs: number) =>
+      gatedLimitsReport("claude", session, pct, cost, apiMs, NOW + 3 * 24 * 60 * MIN);
     usage.report("active", line("a", 68, 1, 1_000), NOW - 20 * MIN);
     usage.report("active", line("a", 69, 2, 2_000), NOW - 15 * MIN);
     for (let index = 0; index < 4; index += 1) {
