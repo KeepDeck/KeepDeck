@@ -14,7 +14,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { downloadChannel, fswatchChannel, speechLevelChannel } from "./protocol";
 import type { HostSessions } from "./hostSessions";
-import { errorMessage } from "@keepdeck/plugin-api";
+import { errorMessage, GIT_DIFF_ANSWER_API } from "@keepdeck/plugin-api";
 
 /**
  * The `services.*` half of the dispatch table: thin adaptors from a positional
@@ -127,12 +127,23 @@ export function createServiceHandlers({
         from as string,
         to as string | undefined,
       ),
-    "services.git.diffFile": ([repo, file, opts]) =>
-      ctx.services.git.diffFile(
+    "services.git.diffFile": ([repo, file, opts]) => {
+      const answer = ctx.services.git.diffFile(
         repo as string,
         file as string,
         opts as GitDiffOptions | undefined,
-      ),
+      );
+      // `diffFile` answered the bare text until API 52. An external plugin
+      // built before that reads `.length` off the answer, so it gets the text
+      // alone. The shim lives here, not in the services gate: this bridge is
+      // where the host meets a plugin compiled against an older contract —
+      // a built-in is compiled against the current GitDiff — and the answer
+      // leaves the typed world here anyway. The floor is the manifest's word
+      // on which contract the plugin speaks.
+      return ctx.manifest.minApiVersion < GIT_DIFF_ANSWER_API
+        ? answer.then((diff) => diff.text)
+        : answer;
+    },
     // Git watches share the fs watches' plumbing: same guest-minted id space
     // (one counter mints both), same retained-Disposable map, same
     // `fswatch:<id>` push channel — a watch is a watch, only the backend

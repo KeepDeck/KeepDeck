@@ -656,10 +656,10 @@ describe("createCapabilityGate — fs", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("hands a plugin from before the GitDiff answer the diff's text alone", async () => {
-    // `diffFile` answered a string until API 52. A plugin compiled against
-    // that reads `.length` off the answer; the floor in its manifest is the
-    // one word on which contract it speaks, so the gate unwraps for it.
+  it("answers the GitDiff whatever the plugin's floor", async () => {
+    // The bare text an external plugin from before API 52 expects is the RPC
+    // bridge's to hand out (hostServices); a built-in is compiled against the
+    // GitDiff, so the gate never unwraps it.
     const { backend } = fakeBackend();
     backend.git.diffFile = vi.fn(async () => ({ text: "@@ -1 +1 @@\n", truncated: true }));
     const log = fakeLog();
@@ -674,7 +674,10 @@ describe("createCapabilityGate — fs", () => {
       { diagnostics: "silent", log },
     );
 
-    await expect(older.git.diffFile("/repo", "a.ts")).resolves.toBe("@@ -1 +1 @@\n");
+    await expect(older.git.diffFile("/repo", "a.ts")).resolves.toEqual({
+      text: "@@ -1 +1 @@\n",
+      truncated: true,
+    });
     await expect(current.git.diffFile("/repo", "a.ts")).resolves.toEqual({
       text: "@@ -1 +1 @@\n",
       truncated: true,

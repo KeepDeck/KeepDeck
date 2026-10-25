@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  FileOpenHandler,
-  PluginKV,
-  PluginSessionHandle,
-  PluginSettings,
-  SpawnPlanOutput,
-  SpeechCapture,
-  WorkspaceRef,
+import {
+  GIT_DIFF_ANSWER_API,
+  type FileOpenHandler,
+  type GitDiff,
+  type PluginKV,
+  type PluginSessionHandle,
+  type PluginSettings,
+  type SpawnPlanOutput,
+  type SpeechCapture,
+  type WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { createHostDispatch } from "./hostDispatch";
 import { dispatchHarness as harness } from "./hostDispatch.testSupport";
@@ -576,6 +578,32 @@ describe("file-open handlers over the RPC seam", () => {
     await dispatch.call("notify", [{ title: "hi", junk: 1 }]);
     expect(notified).toEqual([{ title: "hi", junk: 1 }]);
     dispatch.dispose();
+  });
+});
+
+describe("git diffs over the RPC seam", () => {
+  const diff: GitDiff = { text: "@@ -1 +1 @@\n", truncated: true };
+  const diffOver = (minApiVersion: number) =>
+    createHostDispatch(
+      fakePluginContext({
+        manifest: { minApiVersion },
+        services: { git: { diffFile: vi.fn(async () => diff) } },
+      }),
+      () => {},
+    );
+
+  it("hands a plugin from before the GitDiff answer the diff's text alone", async () => {
+    // `diffFile` answered a string until API 52; an external plugin built
+    // against that reads `.length` off the answer.
+    await expect(
+      diffOver(GIT_DIFF_ANSWER_API - 1).call("services.git.diffFile", ["/repo", "a.ts"]),
+    ).resolves.toBe("@@ -1 +1 @@\n");
+  });
+
+  it("hands a current plugin the GitDiff", async () => {
+    await expect(
+      diffOver(GIT_DIFF_ANSWER_API).call("services.git.diffFile", ["/repo", "a.ts"]),
+    ).resolves.toEqual(diff);
   });
 });
 
