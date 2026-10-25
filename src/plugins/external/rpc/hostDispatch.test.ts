@@ -623,7 +623,7 @@ describe("sessions over the RPC seam", () => {
     const ctx = fakePluginContext({ services: { sessions: { spawn } } });
     const dispatch = createHostDispatch(ctx, () => {});
 
-    const starting = dispatch.call("services.sessions.spawn", [{ command: "x" }]);
+    const starting = dispatch.call("services.sessions.spawn", [{ command: "x", cols: 80, rows: 24 }]);
     // The realm dies while the PTY is spawning: the sweep already ran over a
     // map the handle isn't in yet. Storing it would orphan a live process
     // group — the exact leak the speech guard closed one handler over.

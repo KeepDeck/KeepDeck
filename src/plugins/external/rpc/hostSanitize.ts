@@ -11,6 +11,7 @@ import type {
   WireAgentHistoryCall,
   WireSpawnPlanOutput,
 } from "./protocol";
+import { isRecord } from "./decode";
 
 /**
  * The boundary's rebuild rules. Nothing a realm says is passed through: every
@@ -35,8 +36,8 @@ export function asRealmResult<T extends { ok: true }>(
   value: unknown,
   onOk: (v: Record<string, unknown>) => T,
 ): T | { ok: false; error: string } {
-  if (typeof value === "object" && value !== null) {
-    const v = value as Record<string, unknown>;
+  if (isRecord(value)) {
+    const v = value;
     if (v.ok === true) return onOk(v);
     if (v.ok === false) {
       return {
@@ -53,13 +54,13 @@ export function asRealmResult<T extends { ok: true }>(
  * icon with nothing left drops to `undefined` (no icon) rather than refusing
  * the registration. */
 export function sanitizeAgentIcon(value: unknown): AgentIcon | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const v = value;
   if (typeof v.viewBox !== "string" || !Array.isArray(v.paths))
     return undefined;
   const paths = v.paths.flatMap((layer): AgentIconPath[] => {
-    if (typeof layer !== "object" || layer === null) return [];
-    const l = layer as Record<string, unknown>;
+    if (!isRecord(layer)) return [];
+    const l = layer;
     if (typeof l.d !== "string") return [];
     return [
       {
@@ -76,14 +77,16 @@ export function sanitizeAgentIcon(value: unknown): AgentIcon | undefined {
 /** Validate a realm-returned plan output down to plain strings; `null` when
  * anything is off-shape. */
 export function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const v = value;
   if (v.command !== null && typeof v.command !== "string") return null;
-  if (!Array.isArray(v.args) || !v.args.every((a) => typeof a === "string"))
+  const args = v.args;
+  if (!Array.isArray(args) || !args.every((a) => typeof a === "string"))
     return null;
+  const env = v.env;
   if (
-    !Array.isArray(v.env) ||
-    !v.env.every(
+    !Array.isArray(env) ||
+    !env.every(
       (pair) =>
         Array.isArray(pair) &&
         pair.length === 2 &&
@@ -99,33 +102,28 @@ export function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
         pair.length === 2 &&
         pair.every((x) => typeof x === "string"),
     );
-  if (v.envDefaults !== undefined && !pairs(v.envDefaults)) return null;
+  const envDefaults = v.envDefaults;
+  if (envDefaults !== undefined && !pairs(envDefaults)) return null;
   const strings = (val: unknown): val is string[] =>
     Array.isArray(val) && val.every((x) => typeof x === "string");
-  const discard = v.discard as Record<string, unknown> | undefined;
-  if (
-    discard !== undefined &&
-    (typeof discard !== "object" ||
-      discard === null ||
-      (discard.onceStarted !== undefined && !strings(discard.onceStarted)) ||
-      (discard.ifNeverStarted !== undefined && !strings(discard.ifNeverStarted)))
-  )
-    return null;
+  const rawDiscard = v.discard;
+  if (rawDiscard !== undefined && !isRecord(rawDiscard)) return null;
+  const discard = rawDiscard;
+  const onceStarted = discard?.onceStarted;
+  const ifNeverStarted = discard?.ifNeverStarted;
+  if (onceStarted !== undefined && !strings(onceStarted)) return null;
+  if (ifNeverStarted !== undefined && !strings(ifNeverStarted)) return null;
+  const command = v.command;
+  const envDefaultsOk = envDefaults === undefined ? undefined : envDefaults;
   return {
-    command: v.command as string | null,
-    args: v.args as string[],
-    env: v.env as [string, string][],
-    ...(v.envDefaults !== undefined
-      ? { envDefaults: v.envDefaults as [string, string][] }
-      : {}),
+    command,
+    args,
+    env,
+    ...(envDefaultsOk !== undefined ? { envDefaults: envDefaultsOk } : {}),
     ...(discard !== undefined && {
       discard: {
-        ...(discard.onceStarted !== undefined && {
-          onceStarted: discard.onceStarted as string[],
-        }),
-        ...(discard.ifNeverStarted !== undefined && {
-          ifNeverStarted: discard.ifNeverStarted as string[],
-        }),
+        ...(onceStarted !== undefined && { onceStarted }),
+        ...(ifNeverStarted !== undefined && { ifNeverStarted }),
       },
     }),
   };
@@ -146,8 +144,8 @@ export function sanitizeHistoryList(value: unknown): AgentSessionStub[] | null {
   if (!Array.isArray(value)) return null;
   const result: AgentSessionStub[] = [];
   for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
+    if (!isRecord(item)) return null;
+    const v = item;
     if (
       typeof v.sessionId !== "string" ||
       typeof v.ref !== "string" ||
@@ -173,8 +171,8 @@ export function sanitizeHistoryList(value: unknown): AgentSessionStub[] | null {
 export function sanitizeHistoryListing(
   value: unknown,
 ): { stubs: AgentSessionStub[]; complete: boolean } | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const v = value;
   if (typeof v.complete !== "boolean") return null;
   const stubs = sanitizeHistoryList(v.stubs);
   if (stubs === null) return null;
@@ -190,8 +188,8 @@ export function sanitizeLiveSessions(value: unknown): AgentLiveSession[] | null 
   if (!Array.isArray(value)) return null;
   const result: AgentLiveSession[] = [];
   for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
+    if (!isRecord(item)) return null;
+    const v = item;
     if (typeof v.sessionId !== "string" || typeof v.kind !== "string")
       return null;
     result.push({
@@ -234,8 +232,8 @@ function sanitizeShortfall(value: unknown): Shortfall[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   const result: Shortfall[] = [];
   for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
+    if (!isRecord(item)) return null;
+    const v = item;
     switch (v.kind) {
       case "bytes":
         if (!measure(v.size) || !measure(v.readBytes)) return null;
@@ -257,8 +255,8 @@ function sanitizeShortfall(value: unknown): Shortfall[] | null {
 }
 
 export function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const v = value;
   if (
     typeof v.cwd !== "string" ||
     (v.title !== undefined && typeof v.title !== "string") ||
@@ -289,8 +287,8 @@ export function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
 export function sanitizeHistoryTranscriptPage(
   value: unknown,
 ): { entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] } | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const v = value;
   const entries = sanitizeHistoryTranscript(v.entries);
   if (entries === null) return null;
   const shortfall =
@@ -309,8 +307,8 @@ export function sanitizeHistoryTranscript(
   if (!Array.isArray(value)) return null;
   const result: AgentTranscriptEntry[] = [];
   for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
+    if (!isRecord(item)) return null;
+    const v = item;
     if (
       (v.role !== "user" &&
         v.role !== "assistant" &&
