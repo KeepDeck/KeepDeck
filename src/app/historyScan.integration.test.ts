@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
 import { fsStore } from "@keepdeck/plugin-api/testing";
 import { scanAgentHistories, type ScanIndexOps } from "./historyScan";
-import { claudeHistory } from "../../plugins/claude/src/history";
+import {
+  claudeHistory,
+  type HistoryPorts as ClaudeHistoryPorts,
+} from "../../plugins/claude/src/history";
 import { opencodeHistory, type HistoryPorts } from "../../plugins/opencode/src/history";
 
 // The scan's own ipc surface never runs here — ops are injected below; the
@@ -40,8 +43,8 @@ const ops = (stored: { reference: string; mtime: number; size: number }[]) => {
  * that throw — an absent key IS the unreadable directory. */
 function fsCtx(
   files: Record<string, string>,
-  dirs: Record<string, unknown[]>,
-): PluginContext {
+  dirs: Record<string, FsEntry[]>,
+): ClaudeHistoryPorts {
   // A real plugin reads its store a window at a time, so the double serves
   // windows; `dirs` stays hand-built, because these tests are about what the
   // enumeration does with listings a real directory cannot pose.
@@ -57,11 +60,10 @@ function fsCtx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: fs.readFile,
       },
       sessionStore: createSessionStore(fs),
     },
-  } as unknown as PluginContext;
+  };
 }
 
 /** A sqlite double for the opencode plugin: a 1.x store's tables for the

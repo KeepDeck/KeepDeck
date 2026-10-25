@@ -5,14 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSessionStore,
   type FsReadFileOptions,
-  type PluginContext,
+  type PluginFs,
 } from "@keepdeck/plugin-api";
 import { fsStore } from "@keepdeck/plugin-api/testing";
 import type { IndexLookupAnswer, SearchPage } from "../../ipc/history";
 import type { AgentInfo } from "../../domain/agents";
 import type { SessionRecord } from "../../domain/journal";
-import { claudeHistory } from "../../../plugins/claude/src/history";
-import { kimiHistory } from "../../../plugins/kimi/src/history";
+import {
+  claudeHistory,
+  type HistoryPorts as ClaudeHistoryPorts,
+} from "../../../plugins/claude/src/history";
+import {
+  kimiHistory,
+  type HistoryPorts as KimiHistoryPorts,
+} from "../../../plugins/kimi/src/history";
 
 // The seams this suite must NOT double: the browser hook chain
 // (useSessionsBrowser → useJournalEnrichment → the join in the component),
@@ -45,7 +51,7 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 const NO_RECORDS: SessionRecord[] = [];
 
 function recordingCtx(files: Record<string, string>): {
-  ctx: PluginContext;
+  ctx: ClaudeHistoryPorts & KimiHistoryPorts;
   reads: string[];
 } {
   const reads: string[] = [];
@@ -54,7 +60,7 @@ function recordingCtx(files: Record<string, string>): {
   // window. What the wrong-owner case rests on is WHICH file was opened, and
   // that is unchanged by how many windows it took.
   const store = fsStore(files);
-  const fs = {
+  const fs: PluginFs = {
     readFile: async (path: string, opts?: FsReadFileOptions) => {
       reads.push(path);
       return store.readFile(path, opts);
@@ -65,7 +71,7 @@ function recordingCtx(files: Record<string, string>): {
   const ctx = {
     log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
     services: { fs, sessionStore: createSessionStore(fs) },
-  } as unknown as PluginContext;
+  };
   return { ctx, reads };
 }
 

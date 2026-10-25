@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext, PluginSessionEvent } from "@keepdeck/plugin-api";
-import { claudeLiveSessions } from "../../plugins/claude/src/liveSessions";
+import type { PluginSessionEvent, PluginSpawnOptions } from "@keepdeck/plugin-api";
+import {
+  claudeLiveSessions,
+  type LiveSessionsPorts,
+} from "../../plugins/claude/src/liveSessions";
 import {
   askBackgroundCarriers,
   askLiveRegistry,
@@ -25,14 +28,14 @@ import {
 function claudeWithAgentsJson(
   rows: unknown,
   exitCode = 0,
-): { plugins: SpawnPluginAccess; spawns: { args: string[] }[] } {
-  const spawns: { args: string[] }[] = [];
-  const ctx = {
+): { plugins: SpawnPluginAccess; spawns: Pick<PluginSpawnOptions, "args">[] } {
+  const spawns: Pick<PluginSpawnOptions, "args">[] = [];
+  const ctx: LiveSessionsPorts = {
     services: {
       sessions: {
         spawn: vi.fn(
           async (
-            opts: { command: string; args: string[] },
+            opts: PluginSpawnOptions,
             cb: (event: PluginSessionEvent) => void,
           ) => {
             spawns.push({ args: opts.args });
@@ -43,15 +46,15 @@ function claudeWithAgentsJson(
             });
             return {
               id: "child",
-              write: vi.fn(),
-              resize: vi.fn(),
+              write: vi.fn(async () => {}),
+              resize: vi.fn(async () => {}),
               close: vi.fn(async () => {}),
             };
           },
         ),
       },
     },
-  } as unknown as PluginContext;
+  };
   const { plugins } = spawnPluginsWith(
     [agentContribution({ id: "claude", liveSessions: claudeLiveSessions(ctx) })],
     "keepdeck.claude",
