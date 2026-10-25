@@ -33,16 +33,14 @@ function harness(
   scriptsState: Parameters<typeof scriptsPort>[0] = {},
 ) {
   const abort = new AbortController();
-  const run = vi.fn(
-    async (
-      operation: (
-        access: typeof ACCESS,
-        signal: AbortSignal,
-      ) => Promise<unknown>,
-    ) => operation(ACCESS, abort.signal),
-  ) as unknown as KimiServerManager["run"];
   const dispose = vi.fn(async () => abort.abort());
-  const server: KimiServerManager = { run, dispose };
+  const server: KimiServerManager = {
+    run: (operation) => operation(ACCESS, abort.signal),
+    dispose,
+  };
+  // Spied rather than built with vi.fn: a mock's call signature is not
+  // generic, and `run` is.
+  const run = vi.spyOn(server, "run");
   const queue = [...responses];
   const fetcher = vi.fn(async (input: string) => {
     const response = queue.shift();
@@ -53,7 +51,7 @@ function harness(
       url: input,
       json: async () => response,
     };
-  }) as unknown as typeof fetch;
+  });
   const manager = createKimiCompanionManager(
     server,
     COMPANION_DESCRIPTOR,
@@ -242,7 +240,7 @@ describe("Kimi companion manager", () => {
       json: async () => {
         throw new SyntaxError("Unexpected token <");
       },
-    } as unknown as Response);
+    });
     await expect(manager.inspect()).rejects.toThrow(
       "Kimi setup API failed (404). Update Kimi Code and try again.",
     );
@@ -341,14 +339,8 @@ describe("Kimi companion manager", () => {
 
   it("aborts an in-flight RPC when the server transaction is cancelled", async () => {
     const abort = new AbortController();
-    const run = vi.fn(
-      async (
-        operation: (
-          access: typeof ACCESS,
-          signal: AbortSignal,
-        ) => Promise<unknown>,
-      ) => operation(ACCESS, abort.signal),
-    ) as unknown as KimiServerManager["run"];
+    const run: KimiServerManager["run"] = (operation) =>
+      operation(ACCESS, abort.signal);
     const fetcher = vi.fn(
       async (_input: string, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {

@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentContribution,
-  PluginContext,
   PluginSessionEvent,
   SettingsSectionContribution,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
-import plugin, { setupNotification } from "./index";
+import plugin, { registerKimi, setupNotification, type KimiPorts } from "./index";
 import { KIMI_MAIL_CHANNELS, renderKimiMail } from "./status";
 
 // The fork's store surgery has its own suite (fork.test.ts); here only the
@@ -18,6 +17,8 @@ interface ActivationOptions {
   installedPlugins?: unknown[];
 }
 
+/** Register against typed fake ports. A service a test does not fake
+ * rejects, the way a missing capability does. */
 function activate(options: ActivationOptions = {}) {
   const manifestPath =
     options.manifestPath === undefined
@@ -51,7 +52,10 @@ function activate(options: ActivationOptions = {}) {
     : vi.fn(async () => {
         throw new Error("kimi unavailable in unit test");
       });
-  const ctx = {
+  const absent = (what: string) => async (): Promise<never> => {
+    throw new Error(`${what} is not available here`);
+  };
+  const ctx: KimiPorts = {
     agents: {
       register: vi.fn((entry: AgentContribution) => {
         agent = entry;
@@ -61,6 +65,13 @@ function activate(options: ActivationOptions = {}) {
     resources: { path: vi.fn(async () => manifestPath) },
     services: {
       sessions: { spawn },
+      fs: { readFile: absent("fs"), readDir: absent("fs") },
+      fsWrite: {
+        writeFile: absent("fsWrite"),
+        copyFile: absent("fsWrite"),
+        appendLine: absent("fsWrite"),
+      },
+      sessionStore: { read: absent("sessionStore") },
     },
     settings: {
       registerSection: vi.fn((section: SettingsSectionContribution) => {
@@ -70,8 +81,8 @@ function activate(options: ActivationOptions = {}) {
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     notify,
-  } as unknown as PluginContext;
-  return Promise.resolve(plugin.activate(ctx)).then(() => {
+  };
+  return registerKimi(ctx).then(() => {
     if (!agent || !settings) {
       throw new Error("Kimi plugin did not register its surfaces");
     }

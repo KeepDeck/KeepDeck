@@ -58,7 +58,9 @@ export const kimiRecords = {
 } satisfies Pick<SessionTailDialect<JsonlRequest, WireRecord>, "watches" | "read" | "ignores">;
 
 /** Reuse history's discovery for a resumed pane whose SessionStart was missed. */
-export const kimiTail = (history: AgentHistory): SessionTailDialect<JsonlRequest, WireRecord> => ({
+export const kimiTail = (
+  history: Pick<AgentHistory, "list" | "listing">,
+): SessionTailDialect<JsonlRequest, WireRecord> => ({
   format: jsonl<WireRecord>(),
   ...kimiRecords,
   async follow({ store, sessionId }) {

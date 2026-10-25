@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
-import { kimiForkPlan, wdKey } from "./fork";
+import type { ForkPlanInput } from "@keepdeck/plugin-api";
+import { kimiForkPlan, wdKey, type ForkPorts } from "./fork";
 
 const HOME = "/Users/u/.kimi-code";
 const SRC_DIR = `${HOME}/sessions/wd_a_3c3646ae2a28/session_orig-1`;
@@ -22,7 +22,7 @@ const STATE = {
 };
 
 interface Fx {
-  ctx: PluginContext;
+  ctx: ForkPorts;
   writes: Map<string, string>;
   copies: [string, string][];
   appends: [string, string][];
@@ -75,10 +75,10 @@ function fixture(
   const writes = new Map<string, string>();
   const copies: [string, string][] = [];
   const appends: [string, string][] = [];
-  const ctx = {
+  const ctx: ForkPorts = {
     services: {
       fs: {
-        readFile: async (path: string, opts?: { offset?: number }) => {
+        readFile: async (path, opts) => {
           const wire = WIRES[path];
           if (wire !== undefined) {
             const offset = opts?.offset ?? 0;
@@ -102,27 +102,28 @@ function fixture(
             isBinary: written === null,
             size: written?.length ?? 0,
             truncated: false,
+            readBytes: written?.length ?? 0,
           };
         },
-        readDir: async (path: string) =>
+        readDir: async (path) =>
           (TREE[path] ?? []).map((entry) => ({
             ...entry,
             path: `${path}/${entry.name}`,
           })),
       },
       fsWrite: {
-        writeFile: async (path: string, text: string) => {
+        writeFile: async (path, text) => {
           writes.set(path, text);
         },
-        copyFile: async (src: string, dst: string) => {
+        copyFile: async (src, dst) => {
           copies.push([src, dst]);
         },
-        appendLine: async (path: string, line: string) => {
+        appendLine: async (path, line) => {
           appends.push([path, line]);
         },
       },
     },
-  } as unknown as PluginContext;
+  };
   return { ctx, writes, copies, appends };
 }
 
@@ -292,9 +293,9 @@ describe("kimiForkPlan", () => {
 
   it("refuses a wire it cannot read rather than cloning half of it", async () => {
     const fx = fixture();
-    const fs = (fx.ctx as unknown as { services: { fs: { readFile: unknown } } }).services.fs;
-    const original = fs.readFile as (p: string, o?: unknown) => Promise<unknown>;
-    fs.readFile = async (path: string, opts?: unknown) =>
+    const fs = fx.ctx.services.fs;
+    const original = fs.readFile;
+    fs.readFile = async (path, opts) =>
       path.endsWith("wire.jsonl")
         ? { path, text: null, isBinary: true, size: 9, truncated: false, readBytes: 0 }
         : original(path, opts);
@@ -304,12 +305,7 @@ describe("kimiForkPlan", () => {
 
   it("a state-write failure leaves the index un-appended — activation lands last", async () => {
     const fx = fixture();
-    const services = (
-      fx.ctx as unknown as {
-        services: { fsWrite: { writeFile(p: string, t: string): Promise<void> } };
-      }
-    ).services;
-    services.fsWrite.writeFile = async () => {
+    fx.ctx.services.fsWrite.writeFile = async () => {
       throw new Error("disk full at state");
     };
     await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow(
@@ -322,12 +318,7 @@ describe("kimiForkPlan", () => {
   it("a mid-sequence write failure leaves nothing resumable — state and index land last", async () => {
     const fx = fixture();
     // A conversation-file copy fails midway: the clone must stay inert.
-    const services = (
-      fx.ctx as unknown as {
-        services: { fsWrite: { copyFile(s: string, d: string): Promise<void> } };
-      }
-    ).services;
-    services.fsWrite.copyFile = async () => {
+    fx.ctx.services.fsWrite.copyFile = async () => {
       throw new Error("disk full");
     };
 

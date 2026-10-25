@@ -57,7 +57,10 @@ export interface InstalledScripts {
   shipped(): Promise<ReadonlyMap<string, string>>;
 }
 
-type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+/** The parts of a response the setup API is read through. */
+type ApiResponse = Pick<Response, "ok" | "status" | "url" | "json">;
+
+type FetchLike = (input: string, init?: RequestInit) => Promise<ApiResponse>;
 
 interface ApiEnvelope<T> {
   code: number;
@@ -304,7 +307,7 @@ async function callApi<T>(
     init.body = JSON.stringify(call.body);
   }
 
-  let response: Response;
+  let response: ApiResponse;
   try {
     response = await fetcher(
       `${access.origin}/api/v1${call.path}`,

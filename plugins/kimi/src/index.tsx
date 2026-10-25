@@ -1,11 +1,16 @@
 import "./styles.css";
 import { kimiBinding } from "./binding";
-import { kimiForkPlan } from "./fork";
-import { kimiHistory } from "./history";
+import { kimiForkPlan, type ForkPorts } from "./fork";
+import { kimiHistory, type HistoryPorts } from "./history";
 import {
   launchPlans,
   sha256Hex,
   type KeepDeckPlugin,
+  type PluginAgents,
+  type PluginNotify,
+  type PluginResources,
+  type PluginSessions,
+  type PluginSettings,
   type SpawnPlanInput,
   type SpawnPlanOutput,
   type SpawnSkillsInput,
@@ -93,136 +98,148 @@ export function setupNotification(state: SetupState): {
   return null;
 }
 
-const plugin: KeepDeckPlugin = {
-  async activate(ctx) {
-    const history = kimiHistory(ctx);
-    ctx.agents.register({
-      id: "kimi",
-      label: "Kimi Code",
-      icon,
-      detect: { bin: "kimi" },
-      // Tokens/context ride the tailed wire.jsonl; rate windows exist only
-      // behind the polled usages endpoint (kimi's own /usage queries it too).
-      usage: {
-        normalize: normalizeKimiWire,
-        tail: { watches: kimiUsageWatches },
-        limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
-      },
-      status: {
-        normalize: normalizeKimiStatus,
-        attribute: attributeKimiEvent,
-        mail: { channels: KIMI_MAIL_CHANNELS, render: renderKimiMail },
-        tail: kimiTail(history) as never,
-      },
-      // kimi reports its `/new` as `startup`; this says it is the user's new
-      // conversation rather than a second session (./binding.ts).
-      binding: kimiBinding,
-      history,
-      hooks: launchPlans({
-        stage: stageLaunch,
-        resume: (input) => ["--session", input.sessionId],
-        fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
-      }),
-    });
+/** What the plugin needs from the host — the parts of its context it uses. */
+export type KimiPorts = HistoryPorts &
+  ForkPorts & {
+    agents: PluginAgents;
+    resources: PluginResources;
+    settings: Pick<PluginSettings, "registerSection">;
+    notify: PluginNotify;
+    services: { sessions: PluginSessions };
+  };
 
-    // The RESOURCES ROOT, not one companion's folder: the fleet installs
-    // several plugins that live side by side under it, and each knows its
-    // own directory name. Resolved through the reporter's manifest because
-    // `resources.path` answers about files, and every companion's root is
-    // this one's parent.
-    const companionManifest = await ctx.resources.path(
-      COMPANION_MANIFEST_RESOURCE,
-    );
-    const companionDirectory = companionManifest
-      ? parentDirectory(parentDirectory(companionManifest) ?? "")
-      : null;
-    const server = createKimiServerManager(ctx.services.sessions);
-    // What "current" means for a companion's script files: the bytes this
-    // build SHIPS (digested once per activation), against the managed copy
-    // on disk. Digested eagerly here — a resource that cannot be read at
-    // activation is a packaging bug, and failing now names it instead of
-    // failing per inspect, later, with less context.
-    // Digested once per activation. A resource this build does not carry
-    // (a dev tree without the bundle) leaves that companion's map EMPTY —
-    // the manager then has nothing to compare and no claim to make, which
-    // is the same state that build's configure() has always been in: it
-    // cannot install the file either. No throw: registration must survive
-    // a bundle-less build, as it always has.
-    const shippedByFile = new Map<string, ReadonlyMap<string, string>>();
-    for (const descriptor of COMPANION_DESCRIPTORS) {
-      const digests = new Map<string, string>();
-      try {
-        for (const { file } of descriptor.scripts) {
-          const path = await ctx.resources.path(
-            `${descriptor.resourceDirectoryName}/${file}`,
-          );
-          const read = path
-            ? await ctx.services.fs.readFile(path)
-            : null;
-          if (read?.text) digests.set(file, await sha256Hex(read.text));
-        }
-      } catch {
-        // Partial is fine: every file that DID read is still verifiable.
+export async function registerKimi(ctx: KimiPorts): Promise<void> {
+  const history = kimiHistory(ctx);
+  ctx.agents.register({
+    id: "kimi",
+    label: "Kimi Code",
+    icon,
+    detect: { bin: "kimi" },
+    // Tokens/context ride the tailed wire.jsonl; rate windows exist only
+    // behind the polled usages endpoint (kimi's own /usage queries it too).
+    usage: {
+      normalize: normalizeKimiWire,
+      tail: { watches: kimiUsageWatches },
+      limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
+    },
+    status: {
+      normalize: normalizeKimiStatus,
+      attribute: attributeKimiEvent,
+      mail: { channels: KIMI_MAIL_CHANNELS, render: renderKimiMail },
+      tail: kimiTail(history) as never,
+    },
+    // kimi reports its `/new` as `startup`; this says it is the user's new
+    // conversation rather than a second session (./binding.ts).
+    binding: kimiBinding,
+    history,
+    hooks: launchPlans({
+      stage: stageLaunch,
+      resume: (input) => ["--session", input.sessionId],
+      fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
+    }),
+  });
+
+  // The RESOURCES ROOT, not one companion's folder: the fleet installs
+  // several plugins that live side by side under it, and each knows its
+  // own directory name. Resolved through the reporter's manifest because
+  // `resources.path` answers about files, and every companion's root is
+  // this one's parent.
+  const companionManifest = await ctx.resources.path(
+    COMPANION_MANIFEST_RESOURCE,
+  );
+  const companionDirectory = companionManifest
+    ? parentDirectory(parentDirectory(companionManifest) ?? "")
+    : null;
+  const server = createKimiServerManager(ctx.services.sessions);
+  // What "current" means for a companion's script files: the bytes this
+  // build SHIPS (digested once per activation), against the managed copy
+  // on disk. Digested eagerly here — a resource that cannot be read at
+  // activation is a packaging bug, and failing now names it instead of
+  // failing per inspect, later, with less context.
+  // Digested once per activation. A resource this build does not carry
+  // (a dev tree without the bundle) leaves that companion's map EMPTY —
+  // the manager then has nothing to compare and no claim to make, which
+  // is the same state that build's configure() has always been in: it
+  // cannot install the file either. No throw: registration must survive
+  // a bundle-less build, as it always has.
+  const shippedByFile = new Map<string, ReadonlyMap<string, string>>();
+  for (const descriptor of COMPANION_DESCRIPTORS) {
+    const digests = new Map<string, string>();
+    try {
+      for (const { file } of descriptor.scripts) {
+        const path = await ctx.resources.path(
+          `${descriptor.resourceDirectoryName}/${file}`,
+        );
+        const read = path
+          ? await ctx.services.fs.readFile(path)
+          : null;
+        if (read?.text) digests.set(file, await sha256Hex(read.text));
       }
-      shippedByFile.set(descriptor.id, digests);
+    } catch {
+      // Partial is fine: every file that DID read is still verifiable.
     }
-    const fleet = createKimiCompanionFleet(
-      COMPANION_DESCRIPTORS.map((descriptor) => ({
+    shippedByFile.set(descriptor.id, digests);
+  }
+  const fleet = createKimiCompanionFleet(
+    COMPANION_DESCRIPTORS.map((descriptor) => ({
+      descriptor,
+      manager: createKimiCompanionManager(
+        server,
         descriptor,
-        manager: createKimiCompanionManager(
-          server,
-          descriptor,
-          {
-            list: async () => {
-              try {
-                const entries = await ctx.services.fs.readDir(
-                  `~/.kimi-code/plugins/managed/${descriptor.id}`,
-                );
-                return new Set(entries.map((entry) => entry.name));
-              } catch {
-                return null;
-              }
-            },
-            read: async (file) => {
-              const read = await ctx.services.fs.readFile(
-                `~/.kimi-code/plugins/managed/${descriptor.id}/${file}`,
-              );
-              if (read.text === null) {
-                throw new Error(`kimi: installed ${file} is not text`);
-              }
-              return read.text;
-            },
-            shipped: async () => shippedByFile.get(descriptor.id)!,
-          },
-        ),
-      })),
-    );
-    const controller = createKimiSetupController(
-      fleet,
-      companionDirectory,
-      ctx.log,
-    );
-    activeController = controller;
-    ctx.settings.registerSection({
-      label: "Kimi Code",
-      fields: [
         {
-          kind: "custom",
-          key: "setup",
-          Component: createSetupSection(controller),
+          list: async () => {
+            try {
+              const entries = await ctx.services.fs.readDir(
+                `~/.kimi-code/plugins/managed/${descriptor.id}`,
+              );
+              return new Set(entries.map((entry) => entry.name));
+            } catch {
+              return null;
+            }
+          },
+          read: async (file) => {
+            const read = await ctx.services.fs.readFile(
+              `~/.kimi-code/plugins/managed/${descriptor.id}/${file}`,
+            );
+            if (read.text === null) {
+              throw new Error(`kimi: installed ${file} is not text`);
+            }
+            return read.text;
+          },
+          shipped: async () => shippedByFile.get(descriptor.id)!,
         },
-      ],
-    });
+      ),
+    })),
+  );
+  const controller = createKimiSetupController(
+    fleet,
+    companionDirectory,
+    ctx.log,
+  );
+  activeController = controller;
+  ctx.settings.registerSection({
+    label: "Kimi Code",
+    fields: [
+      {
+        kind: "custom",
+        key: "setup",
+        Component: createSetupSection(controller),
+      },
+    ],
+  });
 
-    // activate() runs only for enabled plugins. Inspect Kimi's real plugin
-    // state on every KeepDeck launch so an external disable/remove is visible
-    // immediately rather than trusting stale KeepDeck-owned metadata.
-    void controller.check().then((state) => {
-      if (activeController !== controller) return;
-      const notification = setupNotification(state);
-      if (notification) ctx.notify(notification);
-    });
-  },
+  // activate() runs only for enabled plugins. Inspect Kimi's real plugin
+  // state on every KeepDeck launch so an external disable/remove is visible
+  // immediately rather than trusting stale KeepDeck-owned metadata.
+  void controller.check().then((state) => {
+    if (activeController !== controller) return;
+    const notification = setupNotification(state);
+    if (notification) ctx.notify(notification);
+  });
+}
+
+const plugin: KeepDeckPlugin = {
+  activate: (ctx) => registerKimi(ctx),
 
   async deactivate() {
     const controller = activeController;

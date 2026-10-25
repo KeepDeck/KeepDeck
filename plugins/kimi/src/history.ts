@@ -12,7 +12,9 @@ import {
   type AgentSessionStub,
   type AgentTranscriptEntry,
   type FsEntry,
-  type PluginContext,
+  type PluginFs,
+  type PluginLogger,
+  type PluginSessionStore,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
 
@@ -123,7 +125,17 @@ const dialect: SessionDialect<KimiState, KimiRecord> = {
 
 const WIRE_SUFFIX = "/agents/main/wire.jsonl";
 
-export function kimiHistory(ctx: PluginContext): AgentHistory {
+/** What the history reads through: the store's folders and files, the
+ * session reader over them, and the log. */
+export interface HistoryPorts {
+  log: PluginLogger;
+  services: {
+    fs: Pick<PluginFs, "readDir" | "readFile">;
+    sessionStore: PluginSessionStore;
+  };
+}
+
+export function kimiHistory(ctx: HistoryPorts): AgentHistory {
   const readSession = (
     ref: string,
     extra: { keep?: { offset: number; limit: number } } = {},

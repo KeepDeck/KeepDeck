@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
 import { fsStore } from "@keepdeck/plugin-api/testing";
-import { kimiHistory } from "./history";
+import { kimiHistory, type HistoryPorts } from "./history";
 
 // Shapes mirror a REAL kimi 0.27 wire: the user opens turns in
 // append_message and interjects mid-turn via turn.steer (origin.kind
@@ -56,9 +56,9 @@ const STATE = JSON.stringify({
 
 function ctx(
   files: Record<string, string>,
-  dirs: Record<string, unknown[]>,
+  dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
-) {
+): HistoryPorts {
   // A wire is read a WINDOW at a time now, so the double has to serve
   // windows. It also refuses a missing path by throwing, which is kimi's own
   // shape — the other two answer with null text; only the ANSWER is shared,
@@ -77,7 +77,7 @@ function ctx(
       },
       sessionStore: createSessionStore(fs),
     },
-  } as unknown as PluginContext;
+  };
 }
 
 describe("kimi history", () => {
