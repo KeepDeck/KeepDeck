@@ -18,7 +18,14 @@
  * furnishing over it — it is somebody's lived-in home, and overwriting it
  * is not a decision a background job gets to make.
  */
-import type { PluginContext } from "@keepdeck/plugin-api";
+import type { PluginExec, PluginFs, PluginLogger } from "@keepdeck/plugin-api";
+
+/** What the warm-up needs from the host: reading the dir, one bounded run,
+ * and the log. */
+export interface WarmPorts {
+  log: Pick<PluginLogger, "warn">;
+  services: { fs: Pick<PluginFs, "readFile" | "readDir">; exec: PluginExec };
+}
 
 /** What one look at the dir concluded. */
 export type TreeHealth =
@@ -54,7 +61,7 @@ type Read =
   | { state: "unreadable" }
   | { state: "read"; json: Record<string, unknown> };
 
-async function readJson(ctx: PluginContext, path: string): Promise<Read> {
+async function readJson(ctx: WarmPorts, path: string): Promise<Read> {
   let text: string;
   try {
     const file = await ctx.services.fs.readFile(path);
@@ -74,7 +81,7 @@ async function readJson(ctx: PluginContext, path: string): Promise<Read> {
 
 /** Whether the install ever created its tree. Distinguishes "not started"
  * from "started and stopped" when the provenance file is missing. */
-async function hasNodeModules(ctx: PluginContext, dir: string): Promise<boolean> {
+async function hasNodeModules(ctx: WarmPorts, dir: string): Promise<boolean> {
   try {
     await ctx.services.fs.readDir(`${dir}/node_modules`);
     return true;
@@ -92,7 +99,7 @@ async function hasNodeModules(ctx: PluginContext, dir: string): Promise<boolean>
  * damaged tree that prompted this carried them on 1 entry of 27.
  */
 export async function treeHealth(
-  ctx: PluginContext,
+  ctx: WarmPorts,
   dir: string,
 ): Promise<TreeHealth> {
   const manifest = await readJson(ctx, `${dir}/${MANIFEST}`);
@@ -144,7 +151,7 @@ export async function treeHealth(
  * answers it, and a memory would go on answering after the dir changed.
  */
 export async function warmConfigDir(
-  ctx: PluginContext,
+  ctx: WarmPorts,
   dir: string,
 ): Promise<void> {
   try {

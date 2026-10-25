@@ -15,13 +15,19 @@
  * field of the draft.
  */
 import type {
-  PluginContext,
+  PluginResources,
   SpawnPlanInput,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import { mcpConfigFragment } from "./mcp";
 import { generationOf } from "./version";
-import { warmConfigDir } from "./warm";
+import { warmConfigDir, type WarmPorts } from "./warm";
+
+/** What a launch needs from the host: the plugin's own resources, and what
+ * warming a config dir takes. */
+export interface LaunchPorts extends WarmPorts {
+  resources: PluginResources;
+}
 
 /** What a launch is decided from. */
 export type LaunchInput = Pick<
@@ -66,7 +72,7 @@ const part = (prepare: (input: LaunchInput, draft: LaunchDraft) => void): Openco
  * is replaced. Its reporter and courier stay separate components inside it
  * (resources/keepdeck-plugin/index.js says why they are one entry).
  */
-const keepdeckServerPlugin = (ctx: PluginContext): OpencodeLaunch => ({
+const keepdeckServerPlugin = (ctx: LaunchPorts): OpencodeLaunch => ({
   async prepare(_input, draft) {
     // `resources.path` answers about files, so the directory is found through
     // its entry — which also keeps a bundle missing the entry from injecting
@@ -126,7 +132,7 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
  * Then bootstrapped, so the dependency install does not happen inside the
  * pane's own boot (see warm.ts).
  */
-const stagedConfigDir = (ctx: PluginContext): OpencodeLaunch => ({
+const stagedConfigDir = (ctx: LaunchPorts): OpencodeLaunch => ({
   async prepare(input, draft) {
     const dir = input.skills?.opencodeConfigDir;
     if (!dir) return;
@@ -158,7 +164,7 @@ const stagedConfigDir = (ctx: PluginContext): OpencodeLaunch => ({
  * wins, and the pane then simply has no observer — mail behaves as it did
  * before there was one.
  */
-const tuiObserver = (ctx: PluginContext): OpencodeLaunch => ({
+const tuiObserver = (ctx: LaunchPorts): OpencodeLaunch => ({
   async prepare(_input, draft) {
     const config = await ctx.resources.path("keepdeck-plugin/tui-v1.json");
     if (config) draft.envDefaults.push(["OPENCODE_TUI_CONFIG", config]);
@@ -214,7 +220,7 @@ const remoteAttach = (endpoint: string) =>
  * (an unknown version runs as 1.x). How a recorded session opens on top of
  * the launch is opening.ts's. */
 export function launchFor(
-  ctx: PluginContext,
+  ctx: LaunchPorts,
   input: LaunchInput,
 ): { launch: OpencodeLaunch; settles: boolean } {
   const shared = [keepdeckServerPlugin(ctx), mcpServers, permissionMode];
@@ -247,7 +253,7 @@ export function render(draft: LaunchDraft, output: SpawnPlanOutput): void {
 /** Everything a launch of this CLI carries before a session is named; true
  * when the launch is settled whole (remote attach). */
 export async function stageLaunch(
-  ctx: PluginContext,
+  ctx: LaunchPorts,
   input: LaunchInput,
   output: SpawnPlanOutput,
 ): Promise<boolean> {

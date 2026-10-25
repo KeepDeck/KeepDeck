@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
-import { treeHealth, warmConfigDir } from "./warm";
+import type { PluginExecOutcome, PluginExecRequest } from "@keepdeck/plugin-api";
+import { treeHealth, warmConfigDir, type WarmPorts } from "./warm";
 
 const DIR = "/cfg/ws-1";
 
@@ -15,15 +15,21 @@ function lock(entries: Record<string, unknown>): string {
  * asked to run. Anything not in `files` rejects, the way a missing file
  * does. */
 function ctxWith(files: Record<string, string>, execOk = true) {
-  const runOnce = vi.fn(async () => ({ ran: true, ok: execOk, said: execOk ? "" : "boom" }));
-  const warn = vi.fn();
-  const ctx = {
+  const runOnce = vi.fn(
+    async (_request: PluginExecRequest): Promise<PluginExecOutcome> => ({
+      ran: true,
+      ok: execOk,
+      said: execOk ? "" : "boom",
+    }),
+  );
+  const warn = vi.fn((_message: string) => {});
+  const ctx: WarmPorts = {
     services: {
       fs: {
         readFile: async (path: string) => {
           const text = files[path];
           if (text === undefined) throw new Error(`ENOENT: ${path}`);
-          return { text };
+          return { path, text, isBinary: false, size: text.length, truncated: false, readBytes: text.length };
         },
         readDir: async (path: string) => {
           // A dir "exists" when any fixture file lives under it.
@@ -33,8 +39,8 @@ function ctxWith(files: Record<string, string>, execOk = true) {
       },
       exec: { runOnce },
     },
-    log: { info() {}, warn, error() {} },
-  } as unknown as PluginContext;
+    log: { warn },
+  };
   return { ctx, runOnce, warn };
 }
 
@@ -163,9 +169,8 @@ describe("warmConfigDir", () => {
   });
 
   it("never throws when the host refuses the call outright", async () => {
-    const { ctx } = ctxWith({ [`${DIR}/package.json`]: "{}" });
-    (ctx.services.exec.runOnce as unknown as ReturnType<typeof vi.fn>)
-      .mockRejectedValue(new Error("no exec capability"));
+    const { ctx, runOnce } = ctxWith({ [`${DIR}/package.json`]: "{}" });
+    runOnce.mockRejectedValue(new Error("no exec capability"));
 
     await expect(warmConfigDir(ctx, DIR)).resolves.toBeUndefined();
   });

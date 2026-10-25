@@ -95,7 +95,10 @@ describe("opencode mail courier", () => {
   let parents: Record<string, string | undefined>;
   let pending: unknown[];
   /** Every question the courier asked, in order. */
-  let asked: { paneId: string; payload: Record<string, string> }[];
+  let asked: {
+    paneId: string;
+    payload: { reporter: string; event: { type: string; target?: string } };
+  }[];
 
   let deck: Awaited<ReturnType<typeof startDeck>>;
 
@@ -459,7 +462,7 @@ describe("opencode mail courier", () => {
     expect(envelope.paneId).toBe("pane-3");
     expect(envelope.payload.reporter).toBe(String(process.pid));
     expect(
-      (envelope.payload.event as unknown as { type: string }).type,
+      envelope.payload.event.type,
     ).toBe("mail.ask");
   });
 
@@ -607,14 +610,14 @@ describe("opencode mail courier", () => {
     const courier = await start();
     await courier.event(created("ses_root"));
     await courier.event(idle("ses_root"));
-    expect(asked.map((ask) => (ask.payload.event as unknown as { target: string }).target))
+    expect(asked.map((ask) => ask.payload.event.target))
       .toEqual(["root", "root"]);
   });
 
   it("names the TUI's own prompt the root when no session is bound yet", async () => {
     const courier = await start();
     await ringUntil(() => asked.length > 0);
-    expect((asked[0].payload.event as unknown as { target: string }).target).toBe("root");
+    expect(asked[0].payload.event.target).toBe("root");
     void courier;
   });
 
@@ -627,7 +630,7 @@ describe("opencode mail courier", () => {
     await courier.event(busy("ses_unknown"));
     pending.push({ v: 1, prompt: "ship it" });
     await courier.event(idle("ses_unknown"));
-    expect((last(asked)?.payload.event as unknown as { target: string }).target).toBe("unknown");
+    expect(last(asked)?.payload.event.target).toBe("unknown");
   });
 
   it("stays inert outside KeepDeck", async () => {

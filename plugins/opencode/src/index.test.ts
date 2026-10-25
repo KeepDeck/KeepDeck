@@ -1,25 +1,21 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type {
-  AgentContribution,
-  PluginContext,
-  SpawnPlanOutput,
-} from "@keepdeck/plugin-api";
+import type { AgentContribution, SpawnPlanOutput } from "@keepdeck/plugin-api";
 import {
   fakeOpencode,
   v1Session,
   v2Session,
   type FakeOpencodeOptions,
 } from "./fakeOpencode.test-support";
-import plugin from "./index";
+import { registerOpencode, type OpencodePorts } from "./index";
 import { OPENCODE_SESSION_ENV } from "./opening";
 
 /** This plugin's real resources, which the fake below answers from. */
 const RESOURCES = join(__dirname, "..", "resources");
 
-/** Activate against a minimal fake ctx; returns the registered agent. An
- * optional `services` stub is threaded through for the fork hook.
+/** Register against typed fake ports; returns the registered agent. A
+ * service a test does not fake rejects, the way a missing capability does.
  *
  * `resourcesRoot` is where the bundle's resources appear to live. The fake
  * answers the way the host does (src-tauri plugins_fs.rs
@@ -27,12 +23,16 @@ const RESOURCES = join(__dirname, "..", "resources");
  * directory or anything missing — a fake answering every name hid a plugin
  * that asked for a directory. Null means nothing resolves, as on a broken
  * install. */
+type Services = OpencodePorts["services"];
 function activate(
   resourcesRoot: string | null,
-  services?: unknown,
+  services: { [K in keyof Services]?: Partial<Services[K]> } = {},
 ): AgentContribution {
   let agent: AgentContribution | undefined;
-  plugin.activate({
+  const absent = (what: string) => async (): Promise<never> => {
+    throw new Error(`${what} is not available here`);
+  };
+  registerOpencode({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     resources: {
       path: async (name: string) => {
@@ -42,9 +42,14 @@ function activate(
       },
     },
     log: { info() {}, warn() {}, error() {} },
-    notify: () => {},
-    ...(services ? { services } : {}),
-  } as unknown as PluginContext);
+    services: {
+      sessions: { spawn: absent("sessions"), ...services.sessions },
+      fs: { readFile: absent("fs"), readDir: absent("fs"), ...services.fs },
+      fsWrite: { writeFile: absent("fsWrite"), remove: absent("fsWrite"), ...services.fsWrite },
+      sqlite: { query: absent("sqlite"), ...services.sqlite },
+      exec: { runOnce: absent("exec"), ...services.exec },
+    },
+  });
   if (!agent) throw new Error("plugin registered no agent");
   return agent;
 }
@@ -613,7 +618,9 @@ describe("opencode plugin — warming the config dir", () => {
       services: {
         fs: {
           readFile: async (path: string) => {
-            if (path === `${CFG}/package.json`) return { text: "{}" };
+            if (path === `${CFG}/package.json`) {
+              return { path, text: "{}", isBinary: false, size: 2, truncated: false, readBytes: 2 };
+            }
             throw new Error(`ENOENT: ${path}`);
           },
         },
@@ -631,7 +638,7 @@ describe("opencode plugin — warming the config dir", () => {
     const { runOnce, services } = warmServices();
     const agent = activate("/App/resources", services);
 
-    await agent.hooks["spawn.plan"]!(withSkills as never, output());
+    await agent.hooks["spawn.plan"]!(withSkills, output());
 
     expect(runOnce).toHaveBeenCalledTimes(1);
     expect(runOnce.mock.calls[0][0]).toMatchObject({ key: CFG, command: "opencode" });
@@ -641,7 +648,7 @@ describe("opencode plugin — warming the config dir", () => {
     const { runOnce, services } = warmServices();
     const agent = activate("/App/resources", services);
 
-    await agent.hooks["spawn.plan"]!({ ...withSkills, cliVersion: "2.1.2" } as never, output());
+    await agent.hooks["spawn.plan"]!({ ...withSkills, cliVersion: "2.1.2" }, output());
 
     expect(runOnce).not.toHaveBeenCalled();
   });
@@ -653,7 +660,7 @@ describe("opencode plugin — warming the config dir", () => {
     const { runOnce, services } = warmServices();
     const agent = activate("/App/resources", services);
 
-    await agent.hooks["spawn.plan"]!(input as never, output());
+    await agent.hooks["spawn.plan"]!(input, output());
 
     expect(runOnce).not.toHaveBeenCalled();
   });
@@ -666,7 +673,7 @@ describe("opencode plugin — warming the config dir", () => {
     const agent = activate("/App/resources", services);
     const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
 
-    await agent.hooks["spawn.plan"]!({ ...withSkills, target } as never, output());
+    await agent.hooks["spawn.plan"]!({ ...withSkills, target }, output());
 
     expect(runOnce).not.toHaveBeenCalled();
   });
