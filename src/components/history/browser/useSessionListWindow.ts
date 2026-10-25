@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { useRowWindow } from "@keepdeck/ui-kit/useRowWindow";
@@ -81,7 +81,13 @@ export function useSessionListWindow({
   // HONEST LIMIT: the stand's pinned sizes prove the threshold
   // ARITHMETIC (which engine, how far, how often); whether 40 rows
   // feels early enough in a live fling is the user's eye, not ours.
+  // The lane objects are rebuilt with every browser render; the paging
+  // decision is about the range and the counts, so read the latest lanes
+  // through a ref and re-check on a range change or a landed page.
+  const lanes = useRef({ workspace, other });
+  lanes.current = { workspace, other };
   const checkPaging = useCallback(() => {
+    const { workspace, other } = lanes.current;
     if (lastVirtualIndex < 0) return;
     // The workspace lane's tail asks ONLY its own engine.
     if (workspace.hasMore && workspaceRowCount > 0) {
@@ -95,20 +101,13 @@ export function useSessionListWindow({
         other.loadMore();
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    lastVirtualIndex,
-    workspace.hasMore,
-    workspace.loadMore,
-    other.hasMore,
-    other.loadMore,
-    workspaceRowCount,
-    queue.length,
-  ]);
+  }, [lastVirtualIndex, workspaceRowCount, queue.length]);
+  const landedPages = workspace.hits.length + other.hits.length;
   useEffect(() => {
-    checkPaging();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkPaging, workspace.hits.length, other.hits.length]);
+    // A page landing moves the counts; with both lanes empty there is
+    // nothing to page toward.
+    if (landedPages > 0) checkPaging();
+  }, [checkPaging, landedPages]);
 
   // A focused row scrolled out keeps the keyboard's place on the list —
   // the app's one handoff, shared with every windowed list (ui-kit).

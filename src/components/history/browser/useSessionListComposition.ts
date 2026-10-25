@@ -117,16 +117,13 @@ export function useSessionListComposition({
     // The hits arrays and entries are the engines'/table's own state:
     // a new page or a landed answer is a new reference — exactly when
     // the source map SHOULD rebuild.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, otherRecords, api.workspace.hits, api.other.hits, api.enrichment.entries, answerMutable]);
   const workspaceRows = useMemo(
     () => workspaceRowsAll.map((row) => stabilize(row, sources.sourceOfKey(rowKeyOf(row)))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [workspaceRowsAll, sources],
   );
   const otherRows = useMemo(
     () => otherRowsAll.map((row) => stabilize(row, sources.sourceOfKey(rowKeyOf(row)))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [otherRowsAll, sources],
   );
 
