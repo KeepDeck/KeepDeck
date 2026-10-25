@@ -1,11 +1,16 @@
-import type { Terminal } from "@xterm/xterm";
+import type { IDisposable, ILinkProvider } from "@xterm/xterm";
 import {
   detectLinks,
   openErrorHint,
   resolvePathTarget,
   type DetectedLink,
 } from "./links";
-import { logicalLineAt, mapRange, type BufferRange } from "./wrappedLines";
+import {
+  logicalLineAt,
+  mapRange,
+  type BufferRange,
+  type WrappedBufferLike,
+} from "./wrappedLines";
 import type { PaneHint } from "./PaneHint";
 
 /**
@@ -30,6 +35,43 @@ export interface TerminalLinkTarget {
   openPath(path: string): Promise<void | { notice?: string }>;
 }
 
+/** What the linker reads of a `getBoundingClientRect` answer. */
+interface RectLike {
+  readonly left: number;
+  readonly top: number;
+}
+
+/**
+ * The slice of xterm's `Terminal` the linker touches: the link-provider
+ * registry, the grid, the active buffer's rows and scroll, and the rendered
+ * element to measure cells against. Structural (the `WrappedBufferLike`
+ * pattern) so a real Terminal fits and a test builds exactly this.
+ */
+export interface LinkTerminal {
+  readonly cols: number;
+  readonly rows: number;
+  /** Absent until xterm is opened into the DOM; the grid is unmeasurable then. */
+  readonly element?: {
+    querySelector(
+      selectors: string,
+    ): { getBoundingClientRect(): RectLike & { width: number; height: number } } | null;
+  };
+  readonly buffer: { readonly active: WrappedBufferLike & { readonly viewportY: number } };
+  registerLinkProvider(provider: ILinkProvider): IDisposable;
+}
+
+/** The element xterm is mounted in, as the linker uses it: hints are placed
+ * against its rect, and the capture-phase ⌘-mousedown listener sits on it. */
+export interface LinkHost {
+  getBoundingClientRect(): RectLike;
+  addEventListener(type: "mousedown", listener: (event: MouseEvent) => void, capture: boolean): void;
+  removeEventListener(
+    type: "mousedown",
+    listener: (event: MouseEvent) => void,
+    capture: boolean,
+  ): void;
+}
+
 /**
  * Cells of slack on each side of a link's hit region. The pointer→cell math
  * (floor of pixel / renderer cell width) plus the canvas renderer's sub-pixel
@@ -47,7 +89,7 @@ const HIT_PAD = 1;
  * `ILink.range`. Null when the grid isn't measurable or the point is off-grid.
  */
 function cellFromEvent(
-  term: Terminal,
+  term: LinkTerminal,
   event: MouseEvent,
 ): { col: number; row: number } | null {
   const screen = term.element?.querySelector(".xterm-screen");
@@ -94,7 +136,7 @@ function linkAtCell(
 function openOrHint(
   d: DetectedLink,
   event: MouseEvent,
-  host: HTMLElement,
+  host: LinkHost,
   target: TerminalLinkTarget,
 ): void {
   // Surface-local coords captured now, at click-time geometry, not when a
@@ -144,8 +186,8 @@ function openOrHint(
  * offset parent renders the PaneHintView.
  */
 export function registerTerminalLinks(
-  term: Terminal,
-  host: HTMLElement,
+  term: LinkTerminal,
+  host: LinkHost,
   target: TerminalLinkTarget,
 ): { dispose(): void } {
   // Set when our own ⌘-mousedown handled the gesture, so xterm's later

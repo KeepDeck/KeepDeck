@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { registerTerminalLinks } from "./terminalLinks";
+import type { ILink, ILinkProvider } from "@xterm/xterm";
+import { registerTerminalLinks, type LinkHost, type LinkTerminal } from "./terminalLinks";
 import type { PaneHint } from "./PaneHint";
 
 // The kit's linker is INVERTED: the open primitives are injected on the
@@ -16,18 +16,37 @@ const opener = {
 /** Rows of a fake xterm buffer; `wrapped` marks a continuation row. */
 type Row = { text: string; wrapped?: boolean };
 
-/** The slice of Terminal the linker touches: provider registry + buffer. */
-function stubTerm(rows: Row[], opts: { cols?: number } = {}) {
+/** The grid a stub measures by; without one the stub has no element (xterm
+ * not yet opened), so a ⌘-mousedown cannot resolve a cell. */
+type Grid = { cols: number; rows: number; viewportY?: number };
+
+/** The slice of Terminal the linker touches: provider registry + buffer.
+ *  With a grid, cells are 10px wide × 20px tall and the screen sits at the
+ *  viewport origin, so cellFromEvent resolves a cell. */
+function stubTerm(rows: Row[], opts: { cols?: number; grid?: Grid } = {}) {
   let provider: ILinkProvider | undefined;
   const dispose = vi.fn();
-  const term = {
-    cols: opts.cols,
+  const grid = opts.grid;
+  const screen = grid && {
+    getBoundingClientRect: () => ({
+      left: 0,
+      top: 0,
+      width: grid.cols * 10,
+      height: grid.rows * 20,
+    }),
+  };
+  const term: LinkTerminal = {
+    // A real terminal always has a width; a wide one leaves short rows unstitched.
+    cols: grid?.cols ?? opts.cols ?? 80,
+    rows: grid?.rows ?? 24,
+    element: screen && { querySelector: () => screen },
     registerLinkProvider(p: ILinkProvider) {
       provider = p;
       return { dispose };
     },
     buffer: {
       active: {
+        viewportY: grid?.viewportY ?? 0,
         getLine(y: number) {
           const row = rows[y];
           if (!row) return undefined;
@@ -41,61 +60,43 @@ function stubTerm(rows: Row[], opts: { cols?: number } = {}) {
     },
   };
   return {
-    term: term as unknown as Terminal,
+    term,
     provider: () => provider!,
     dispose,
   };
 }
 
 /** The host anchors hint coordinates and carries the ⌘-mousedown listener. */
-const host = {
+const host: LinkHost = {
   getBoundingClientRect: () => ({ left: 10, top: 20 }),
   addEventListener: () => {},
   removeEventListener: () => {},
-} as unknown as HTMLElement;
+};
 
 /** A host that captures its listeners so a test can fire a ⌘-mousedown. */
 function captureHost() {
-  const handlers: Record<string, EventListener[]> = {};
-  const el = {
+  type Listener = (event: MouseEvent) => void;
+  const handlers: Record<string, Listener[]> = {};
+  const el: LinkHost = {
     getBoundingClientRect: () => ({ left: 0, top: 0 }),
-    addEventListener: (type: string, fn: EventListener) => {
+    addEventListener: (type, fn) => {
       (handlers[type] ??= []).push(fn);
     },
-    removeEventListener: (type: string, fn: EventListener) => {
+    removeEventListener: (type, fn) => {
       handlers[type] = (handlers[type] ?? []).filter((f) => f !== fn);
     },
   };
   return {
-    host: el as unknown as HTMLElement,
+    host: el,
     fire: (type: string, ev: Partial<MouseEvent>) =>
       (handlers[type] ?? []).forEach((f) => f(ev as MouseEvent)),
     count: (type: string) => (handlers[type] ?? []).length,
   };
 }
 
-/** A term stub with measurable grid geometry so cellFromEvent resolves a cell.
- *  Cells are 10px wide × 20px tall; the screen sits at the viewport origin. */
-function stubTermWithGrid(
-  rows: Row[],
-  grid: { cols: number; rows: number; viewportY?: number },
-) {
-  const base = stubTerm(rows, { cols: grid.cols });
-  const screen = {
-    getBoundingClientRect: () => ({
-      left: 0,
-      top: 0,
-      width: grid.cols * 10,
-      height: grid.rows * 20,
-    }),
-  };
-  Object.assign(base.term as object, {
-    rows: grid.rows,
-    element: { querySelector: () => screen },
-  });
-  (base.term as { buffer: { active: { viewportY: number } } }).buffer.active.viewportY =
-    grid.viewportY ?? 0;
-  return base;
+/** A term stub with measurable grid geometry so cellFromEvent resolves a cell. */
+function stubTermWithGrid(rows: Row[], grid: Grid) {
+  return stubTerm(rows, { grid });
 }
 
 /** A left-edge ⌘-mousedown over the cell whose 1-based column is `col`, row 1. */

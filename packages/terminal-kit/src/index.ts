@@ -47,6 +47,8 @@ export {
 } from "./wrappedLines";
 export {
   registerTerminalLinks,
+  type LinkHost,
+  type LinkTerminal,
   type TerminalLinkTarget,
 } from "./terminalLinks";
 export { HINT_MS, PaneHintView, type PaneHint } from "./PaneHint";
