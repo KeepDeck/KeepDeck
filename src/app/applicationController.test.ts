@@ -7,9 +7,11 @@ import {
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Notification } from "../domain/notifications";
 import { createDeckStore } from "./deckStore";
-import { createApplicationController } from "./applicationController";
-import type { createPluginManager } from "./pluginManager";
-import type { createAgentOrchestrator } from "./agentOrchestrator";
+import {
+  createApplicationController,
+  type ApplicationOrchestrator,
+  type ApplicationPlugins,
+} from "./applicationController";
 import type { PaneInputFocusPort } from "./paneInputFocusPort";
 import type { PaneViewPort } from "./paneViewPort";
 import { fakeMcpLibrary } from "./mcpLibrary.fake";
@@ -27,15 +29,26 @@ const workspace = (): Workspace => ({
 
 function dependencies() {
   const plugins = {
-    bootstrapPlugins: vi.fn(async () => {}),
-    revealPluginDockTab: vi.fn(() => true),
-  } as unknown as ReturnType<typeof createPluginManager>;
+    bootstrapPlugins: vi.fn<ApplicationPlugins["bootstrapPlugins"]>(async () => {}),
+    revealPluginDockTab: vi.fn<ApplicationPlugins["revealPluginDockTab"]>(() => true),
+  } satisfies ApplicationPlugins;
   const orchestrator = {
-    suspend: vi.fn(async () => "suspended"),
-    resume: vi.fn(() => "resuming"),
-    createPane: vi.fn(() => ({ kind: "created" })),
-    createWorkspace: vi.fn(() => ({ ok: true })),
-  } as unknown as ReturnType<typeof createAgentOrchestrator>;
+    suspend: vi.fn<ApplicationOrchestrator["suspend"]>(async () => "suspended"),
+    resume: vi.fn<ApplicationOrchestrator["resume"]>(() => "resuming"),
+    createPane: vi.fn<ApplicationOrchestrator["createPane"]>(() => ({
+      kind: "created",
+      teamId: "team-1",
+    })),
+    createTeam: vi.fn<ApplicationOrchestrator["createTeam"]>(() => ({
+      kind: "created",
+      teamId: "team-1",
+    })),
+    retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(),
+    createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(() => ({
+      ok: true,
+      workspace: workspace(),
+    })),
+  } satisfies ApplicationOrchestrator;
   return { plugins, orchestrator };
 }
 

@@ -34,10 +34,16 @@ export interface PaneLifecycle {
   endSession(paneId: string): void;
 }
 
+/** What each holder is asked when a pane starts over — exactly that, so a
+ * holder gaining a duty here shows in every place that stands one in. */
+export type LifecycleUsage = Pick<UsageManager, "clearPane" | "beginPaneSession">;
+export type LifecycleTracker = Pick<AgentStatusTracker, "clear">;
+export type LifecycleAttribution = Pick<PaneAttribution, "retire">;
+
 export function createPaneLifecycle(
-  usage: UsageManager,
-  tracker: AgentStatusTracker,
-  attribution: PaneAttribution,
+  usage: LifecycleUsage,
+  tracker: LifecycleTracker,
+  attribution: LifecycleAttribution,
   /** The mail owner, looked up rather than held: it exists only while the
    * feature is switched on, and a reference captured here would outlive a
    * toggle. Null is the ordinary case, not an error. */

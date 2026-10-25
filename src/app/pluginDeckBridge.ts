@@ -7,6 +7,13 @@ import type { Deck } from "./useDeck";
 type Plugins = ReturnType<typeof createPluginManager>;
 type WorkspaceRef = Pick<Workspace, "id" | "instance">;
 
+/** The plugin side as the bridge meets it: where deck access and the dock
+ * reveal are wired, and the deck events plugins hear. */
+export type PluginDeckSide = Pick<
+  Plugins,
+  "wireDeckAccess" | "wireDeckUi" | "pluginDeckEvents"
+>;
+
 export interface PluginDeckBridge {
   dispose(): void;
 }
@@ -32,7 +39,7 @@ export function closedWorkspaces(
 /** App-owned bridge between the deck store and plugin storage/UI/events. */
 export function createPluginDeckBridge(
   deck: DeckStore,
-  plugins: Plugins,
+  plugins: PluginDeckSide,
 ): PluginDeckBridge {
   const actions = createDeckActions(deck);
   let disposed = false;
