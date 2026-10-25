@@ -45,7 +45,7 @@ describe("satisfiesApiFloor", () => {
     expect(satisfiesApiFloor(1.5, 3)).toBe(false);
     expect(satisfiesApiFloor(3, -1)).toBe(false);
     // A stray old-format string can never pass.
-    expect(satisfiesApiFloor("0.0.1" as unknown as number, 3)).toBe(false);
+    expect(satisfiesApiFloor("0.0.1", 3)).toBe(false);
   });
 
   it("defaults to the current API_VERSION", () => {

@@ -37,10 +37,12 @@ export const MIN_COMPATIBLE_API_VERSION = 30;
 /**
  * Whether a manifest's floor falls inside the host's compatibility window.
  * Fails CLOSED — any non-integer (a malformed manifest, a stray `0.0.x` string
- * that slipped the reader) yields `false`, so it can never pass the gate.
+ * that slipped the reader) yields `false`, so it can never pass the gate. The
+ * floor is taken as `unknown` because that is what it is checked for: whatever
+ * the manifest's JSON held, whatever its declared type claims.
  */
 export function satisfiesApiFloor(
-  minApiVersion: number,
+  minApiVersion: unknown,
   apiVersion: number = API_VERSION,
   minCompatibleVersion: number = MIN_COMPATIBLE_API_VERSION,
 ): boolean {

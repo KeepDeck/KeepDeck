@@ -96,12 +96,12 @@ describe("sessionHistory — reading", () => {
 describe("store helpers", () => {
   it("readStoreDir returns the entries, or reports the directory and answers null", async () => {
     const entries = [{ name: "a", path: "/d/a", kind: "file" as const }];
-    const fs = {
+    const fs: Pick<PluginFs, "readDir"> = {
       readDir: async (path: string) => {
         if (path === "/bad") throw new Error("EACCES");
         return entries;
       },
-    } as unknown as PluginFs;
+    };
     const unreadable = vi.fn();
     expect(await readStoreDir(fs, "/d", unreadable)).toBe(entries);
     expect(await readStoreDir(fs, "/bad", unreadable)).toBeNull();
