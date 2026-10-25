@@ -21,11 +21,12 @@
 import { drained } from "./keepdeck-bridge.js";
 
 /** How long a session made for the mail may take to come on screen. */
-export const SHOW_WAIT_MS = 3_000;
+const SHOW_WAIT_MS = 3_000;
 
 /**
  * Whether the pane's conversation is what the TUI shows. Unknown — no
- * observer for this process — means as before there was one. A subagent's
+ * trusted observer for the TUI this process serves — means as before there
+ * was one. A subagent's
  * view is its conversation's; one not yet known to be is held, not guessed.
  */
 export const visibleOn = (screen, pane) =>

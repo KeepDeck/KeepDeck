@@ -29,7 +29,7 @@
  */
 
 /** How long to wait for an interruption's ending before letting go. */
-export const LET_GO_MS = 3_000;
+const LET_GO_MS = 3_000;
 
 export function createLeaving({ pane, publish, enqueue, interrupt, onLetGo }) {
   let leaving;

@@ -42,8 +42,8 @@ export function follower() {
 function create() {
   /** The reporter's move: one job in its queue, resolved once done. */
   let move;
-  /** The reporter's leaving: abort the session left, and let the pane go of
-   * it once its ending reached the deck. */
+  /** The reporter's leaving: what leaving costs the session left, and the
+   * pane letting go of it (leaving.js). Resolves once done. */
   let leave;
   /** The last screen this process showed that was a session or the home
    * screen — what a home screen is a move FROM. */
@@ -102,9 +102,9 @@ function create() {
     },
     /** What the TUI shows now, read as the follower reads it — the courier
      * asks here rather than naming the TUI's pid itself. */
-    screen(now = Date.now()) {
+    screen() {
       const dir = watched ?? readBridge()?.dir;
-      return dir ? readForeground(dir, now, owner) : { kind: "unknown" };
+      return dir ? readForeground(dir, Date.now(), owner) : { kind: "unknown" };
     },
     /** Watch the route of the TUI `tui` (its pid) — once, after both
      * components joined. Changes are followed one at a time, in the order
