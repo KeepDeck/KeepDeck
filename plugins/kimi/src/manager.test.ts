@@ -254,6 +254,27 @@ describe("Kimi companion manager", () => {
     }
   });
 
+  it("refuses our companion listed in a shape it cannot judge, and skips anyone else's", async () => {
+    // Ours by id, but `enabled` is no boolean: a setup error, never a guess
+    // at whether it is installed.
+    const garbled = harness([{ code: 0, msg: "", data: { plugins: [pluginSummary({ enabled: "yes" })] } }]);
+    await expect(garbled.manager.inspect()).rejects.toThrow("in a shape this installer does not understand");
+    // Entries that are not ours are not ours to read.
+    const others = harness([{ code: 0, msg: "", data: { plugins: [null, "x", { id: 7 }] } }]);
+    await expect(others.manager.inspect()).resolves.toBeNull();
+  });
+
+  it("treats an install answer it cannot read as the wrong plugin, and enables nothing", async () => {
+    const { manager, fetcher } = harness([
+      { code: 0, msg: "", data: { plugins: [] } },
+      { code: 0, msg: "", data: { id: COMPANION_ID } },
+    ]);
+    await expect(manager.configure(SOURCE_DIRECTORY)).rejects.toThrow(
+      "Kimi returned an unexpected plugin after installation",
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("surfaces Kimi's API error", async () => {
     const { manager } = harness([
       { code: 0, msg: "", data: { plugins: [pluginSummary()] } },

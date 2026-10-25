@@ -76,12 +76,13 @@ export function addPreset(
   return [...presets, preset];
 }
 
-/** Remove the preset with `id`; the SAME array when it isn't present. */
+/** Remove the preset with `id`; the SAME array when it isn't present — so
+ * it takes the array it may hand back, not a read-only view of one. */
 export function removePreset(
-  presets: readonly RunPreset[],
+  presets: RunPreset[],
   id: string,
 ): RunPreset[] {
-  if (!presets.some((p) => p.id === id)) return presets as RunPreset[];
+  if (!presets.some((p) => p.id === id)) return presets;
   return presets.filter((p) => p.id !== id);
 }
 
@@ -89,13 +90,13 @@ export function removePreset(
  * array when it isn't present or the command trims empty. Name falls back like
  * [`addPreset`]'s. */
 export function updatePreset(
-  presets: readonly RunPreset[],
+  presets: RunPreset[],
   id: string,
   name: string,
   command: string,
 ): RunPreset[] {
   const trimmed = command.trim();
-  if (!trimmed || !presets.some((p) => p.id === id)) return presets as RunPreset[];
+  if (!trimmed || !presets.some((p) => p.id === id)) return presets;
   return presets.map((p) =>
     p.id === id
       ? { id, name: name.trim() || truncate(trimmed, 32), command: trimmed }

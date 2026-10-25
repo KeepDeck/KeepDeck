@@ -2,7 +2,7 @@ import type {
   KimiServerAccess,
   KimiServerManager,
 } from "./serverManager";
-import { sha256Hex } from "@keepdeck/plugin-api";
+import { isJsonRecord, sha256Hex } from "@keepdeck/plugin-api";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -62,12 +62,6 @@ type ApiResponse = Pick<Response, "ok" | "status" | "url" | "json">;
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<ApiResponse>;
 
-interface ApiEnvelope<T> {
-  code: number;
-  msg: string;
-  data: T;
-}
-
 /** One call on kimi's public plugin API (`/api/v1/plugins`, kap-server's
  * `routes/plugins.ts`, since kimi 0.36.1). `name` is for the error a person
  * reads, not the wire. */
@@ -94,15 +88,33 @@ const pluginApi = {
   }),
 } satisfies Record<string, PluginCall | ((...args: never[]) => PluginCall)>;
 
+/** A plugin as kimi's API lists it — the fields this installer reads.
+ * `state` is "ok" or "error" and `source` is "local-path", "zip-url" or
+ * "github" today; read as words, so a value a newer kimi adds is judged
+ * (not healthy, not ours) rather than refused. */
 interface PluginSummary {
   id: string;
   displayName: string;
   version?: string;
   enabled: boolean;
-  state: "ok" | "error";
+  state: string;
   hasErrors: boolean;
-  source: "local-path" | "zip-url" | "github";
+  source: string;
   originalSource?: string;
+}
+
+function isPluginSummary(value: unknown): value is PluginSummary {
+  return (
+    isJsonRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.displayName === "string" &&
+    (value.version === undefined || typeof value.version === "string") &&
+    typeof value.enabled === "boolean" &&
+    typeof value.state === "string" &&
+    typeof value.hasErrors === "boolean" &&
+    typeof value.source === "string" &&
+    (value.originalSource === undefined || typeof value.originalSource === "string")
+  );
 }
 
 /** Performs reporter transactions on the one server owned by
@@ -168,13 +180,14 @@ export function createKimiCompanionManager(
           throw ownershipError(companion.id);
         }
 
-        const installed = await callApi<PluginSummary>(
+        const installed = await callApi(
           fetcher,
           access,
           pluginApi.install(sourceDirectory),
           signal,
         );
         if (
+          !isPluginSummary(installed) ||
           !isOwnedCompanion(installed, companion) ||
           installed.version !== companion.version ||
           installed.originalSource !== sourceDirectory
@@ -264,26 +277,31 @@ async function findCompanion(
   signal: AbortSignal,
   pluginId: string,
 ): Promise<PluginSummary | null> {
-  const list = await callApi<{ plugins?: unknown } | null>(
-    fetcher,
-    access,
-    pluginApi.list,
-    signal,
-  );
+  const list = await callApi(fetcher, access, pluginApi.list, signal);
   // An envelope that says success but carries no list is a server this
   // installer does not understand — a setup error, not a crash.
-  if (!Array.isArray(list?.plugins)) {
+  const plugins = isJsonRecord(list) ? list.plugins : undefined;
+  if (!Array.isArray(plugins)) {
     throw new Error("Kimi returned no plugin list. Update Kimi Code and try again.");
   }
-  return (list.plugins as PluginSummary[]).find((entry) => entry.id === pluginId) ?? null;
+  const entry = plugins.find((candidate) => isJsonRecord(candidate) && candidate.id === pluginId);
+  if (entry === undefined) return null;
+  // Ours by id, but not in a shape this installer can judge: the same
+  // setup error as a missing list, never a guess either way.
+  if (!isPluginSummary(entry)) {
+    throw new Error(`Kimi listed ${pluginId} in a shape this installer does not understand. Update Kimi Code and try again.`);
+  }
+  return entry;
 }
 
-async function callApi<T>(
+/** One call on kimi's plugin API: the envelope's `data` when it says
+ * success, read as `unknown` — what it holds is the caller's to check. */
+async function callApi(
   fetcher: FetchLike,
   access: KimiServerAccess,
   call: PluginCall,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<unknown> {
   if (signal) throwIfCancelled(signal);
   const request = new AbortController();
   let timedOut = false;
@@ -325,21 +343,22 @@ async function callApi<T>(
     throw new Error("Kimi setup API responded from an unexpected origin.");
   }
 
-  let envelope: ApiEnvelope<T> | null = null;
+  let envelope: unknown = null;
   try {
-    envelope = (await response.json()) as ApiEnvelope<T>;
+    envelope = await response.json();
   } catch {
     // The status below is still useful when the server has no plugin API
     // (a Kimi older than 0.36.1).
   }
-  if (!response.ok || envelope?.code !== 0) {
-    const detail = envelope?.msg?.trim();
+  const answer = isJsonRecord(envelope) ? envelope : null;
+  if (!response.ok || answer?.code !== 0) {
+    const detail = typeof answer?.msg === "string" ? answer.msg.trim() : "";
     throw new Error(
       detail ||
         `Kimi setup API failed (${response.status}). Update Kimi Code and try again.`,
     );
   }
-  return envelope.data;
+  return answer.data;
 }
 
 /** Everything an installation is EXCEPT whether its scripts are current —

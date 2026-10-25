@@ -19,6 +19,7 @@
  * is not a decision a background job gets to make.
  */
 import type { PluginExec, PluginFs, PluginLogger } from "@keepdeck/plugin-api";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /** What the warm-up needs from the host: reading the dir, one bounded run,
  * and the log. */
@@ -71,12 +72,15 @@ async function readJson(ctx: WarmPorts, path: string): Promise<Read> {
     // Not there, or there and unreadable — the service does not say which.
     return { state: "absent" };
   }
+  let json: unknown;
   try {
-    return { state: "read", json: JSON.parse(text) as Record<string, unknown> };
+    json = JSON.parse(text);
   } catch {
     // Present but not parseable: something wrote here and did not finish.
     return { state: "unreadable" };
   }
+  // JSON, but no object: no lockfile or manifest npm writes looks like that.
+  return isJsonRecord(json) ? { state: "read", json } : { state: "unreadable" };
 }
 
 /** Whether the install ever created its tree. Distinguishes "not started"
@@ -119,13 +123,13 @@ export async function treeHealth(
   if (lock.state === "unreadable") return { state: "broken" };
   const packages = lock.json.packages;
   if (typeof packages !== "object" || packages === null) return { state: "broken" };
-  const entries = Object.entries(packages as Record<string, unknown>);
+  const entries = Object.entries(packages);
   const covered = entries.every(([name, entry]) => {
     // The root key ("") describes the dir itself, not a download, and has
     // no provenance to carry.
     if (name === "") return true;
-    if (typeof entry !== "object" || entry === null) return false;
-    const record = entry as Record<string, unknown>;
+    if (!isJsonRecord(entry)) return false;
+    const record = entry;
     // Present but empty is an install that never finished writing it.
     return (
       typeof record.resolved === "string" &&

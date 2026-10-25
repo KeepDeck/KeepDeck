@@ -4,6 +4,7 @@ import type {
   PluginSessionEvent,
   PluginSessions,
 } from "@keepdeck/plugin-api";
+import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /**
  * Which claude sessions are alive RIGHT NOW — held by an interactive run or
@@ -18,13 +19,6 @@ import type {
  * out-of-band), collects stdout, and exits.
  */
 
-interface RawLiveRow {
-  sessionId?: unknown;
-  kind?: unknown;
-  name?: unknown;
-  state?: unknown;
-}
-
 /** Parse the CLI's rows down to the contract's shape; `null` = the output
  * was not the documented JSON array (a version change, a stray banner). */
 export function parseLiveSessions(stdout: string): AgentLiveSession[] | null {
@@ -37,8 +31,8 @@ export function parseLiveSessions(stdout: string): AgentLiveSession[] | null {
   if (!Array.isArray(parsed)) return null;
   const rows: AgentLiveSession[] = [];
   for (const item of parsed) {
-    if (typeof item !== "object" || item === null) return null;
-    const row = item as RawLiveRow;
+    if (!isJsonRecord(item)) return null;
+    const row = item;
     // A row without a session id names no conversation we could refuse to
     // resume — skipped, not fatal, exactly like a store entry without a
     // transcript. But a row whose id/kind are off-TYPE breaks the whole

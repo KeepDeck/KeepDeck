@@ -1,5 +1,6 @@
 import {
   fileStub,
+  isJsonRecord,
   jsonl,
   pageOfWalk,
   readStoreDir,
@@ -236,11 +237,11 @@ export function kimiHistory(ctx: HistoryPorts): AgentHistory {
         .readFile(`${sessionDir}/state.json`)
         .catch(() => null);
       try {
-        const parsed = JSON.parse(state?.text ?? "") as {
-          cwd?: unknown;
-          workDir?: unknown;
-          title?: unknown;
-        };
+        const read: unknown = JSON.parse(state?.text ?? "");
+        // Not an object: the session's details are unknown, as for a file
+        // that does not parse.
+        if (!isJsonRecord(read)) return { cwd: "", transcriptPath: ref };
+        const parsed = read;
         // The working directory moved key: sessions written since kimi 0.38
         // carry `cwd`, older ones `workDir`. Reading only the old name left
         // every recent session unattached to its folder in the browser.

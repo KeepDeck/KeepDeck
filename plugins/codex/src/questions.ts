@@ -1,4 +1,4 @@
-import { asNonEmptyString, reduceQuestionStatus, type AgentStatusEvent, type QuestionState,
+import { asNonEmptyString, isJsonRecord, isQuestionState, reduceQuestionStatus, type AgentStatusEvent, type QuestionState,
   type StatusReduction, type TailWatch,
   parseInstant,
 } from "@keepdeck/plugin-api";
@@ -8,6 +8,17 @@ interface DecoderState {
   readonly contextAt?: number;
   readonly mode?: string;
   readonly questions?: QuestionState;
+}
+
+/** Whether `value` is the state this decoder handed back last time — the
+ * host returns it as `unknown`. */
+function isDecoderState(value: unknown): value is DecoderState {
+  return (
+    isJsonRecord(value) &&
+    (value.contextAt === undefined || typeof value.contextAt === "number") &&
+    (value.mode === undefined || typeof value.mode === "string") &&
+    (value.questions === undefined || isQuestionState(value.questions))
+  );
 }
 
 // RequestUserInput itself is transient in 0.153.2. The direct function call is
@@ -26,7 +37,7 @@ export const codexQuestionWatches: readonly TailWatch[] = [
 ];
 
 export function codexQuestionStatus(previous: unknown, record: Record | null, edge: AgentStatusEvent | null): StatusReduction {
-  let state = previous as DecoderState | undefined;
+  let state = isDecoderState(previous) ? previous : undefined;
   const at = parseInstant(record?.timestamp);
   if (record?.type === "turn_context" && at !== null && at >= (state?.contextAt ?? -Infinity)) {
     state = { ...state, contextAt: at, mode: asNonEmptyString(record["payload.collaboration_mode.mode"]) ?? undefined };

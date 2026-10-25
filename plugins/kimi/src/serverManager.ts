@@ -38,12 +38,11 @@ export interface KimiServerManager {
   dispose(): Promise<void>;
 }
 
+/** One queued run: it executes on the server and settles its own caller's
+ * promise — so the queue holds runs of any result type without asserting
+ * one back. `reject` alone is for a run that never gets the server. */
 interface QueuedOperation {
-  execute(
-    access: KimiServerAccess,
-    signal: AbortSignal,
-  ): Promise<unknown>;
-  resolve(value: unknown): void;
+  run(access: KimiServerAccess, signal: AbortSignal): Promise<void>;
   reject(reason: unknown): void;
 }
 
@@ -101,13 +100,7 @@ export function createKimiServerManager(
       while (!disposed) {
         const operation = queue.shift();
         if (!operation) break;
-        try {
-          operation.resolve(
-            await operation.execute(server.access, server.abort.signal),
-          );
-        } catch (error) {
-          operation.reject(error);
-        }
+        await operation.run(server.access, server.abort.signal);
       }
     } finally {
       await stopServer(server);
@@ -243,8 +236,13 @@ export function createKimiServerManager(
       if (disposed) return Promise.reject(disposedError());
       return new Promise<T>((resolve, reject) => {
         queue.push({
-          execute: operation,
-          resolve: (value) => resolve(value as T),
+          run: async (access, signal) => {
+            try {
+              resolve(await operation(access, signal));
+            } catch (error) {
+              reject(error);
+            }
+          },
           reject,
         });
         schedule();

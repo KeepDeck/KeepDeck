@@ -59,7 +59,14 @@ export {
   frameTeammateMail,
   turnFailedEvent,
 } from "./status.ts";
-export { updateQuestionCalls, reduceQuestionStatus, type QuestionCalls, type QuestionState } from "./questionCalls.ts";
+export {
+  updateQuestionCalls,
+  reduceQuestionStatus,
+  isQuestionState,
+  questionStateOf,
+  type QuestionCalls,
+  type QuestionState,
+} from "./questionCalls.ts";
 export type {
   AccountUsage,
   AgentUsage,

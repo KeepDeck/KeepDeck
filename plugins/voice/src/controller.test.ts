@@ -116,6 +116,16 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().phase).toBe("idle");
   });
 
+  it("acts on no workspace list it cannot read, and says so", async () => {
+    const { host, controller } = setup(speechTranscript({ text: "Create a lead in keep deck with task fix the header." }));
+    host.commandResults.set("workspace.list", { ok: true, value: [{ id: "ws-1", name: "KeepDeck" }] });
+    await controller.start("command");
+    await controller.stop();
+
+    expect(host.executedCommands.map((c) => c.id)).not.toContain("agent.spawn");
+    expect(texts(controller)[0]).toEqual(["error", "workspace.list answered in a shape voice does not read"]);
+  });
+
   it("reads the persisted model pick from the plugin's settings values", async () => {
     const stop = vi.fn(async () => speechTranscript({ text: "close", seconds: 1, level: 0.1 }));
     const host = hostWithSettings({ model: "whisper-small-q5_1" });

@@ -1,4 +1,5 @@
 import {
+  isJsonRecord,
   sha256Hex,
   type ForkPlanInput,
   type PluginFs,
@@ -69,12 +70,16 @@ export async function kimiForkPlan(
       `kimi fork of ${input.sessionId}: state.json is unreadable`,
     );
   }
-  let state: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    state = JSON.parse(stateFile.text) as Record<string, unknown>;
+    parsed = JSON.parse(stateFile.text);
   } catch {
     throw new Error(`kimi fork of ${input.sessionId}: state.json is not JSON`);
   }
+  if (!isJsonRecord(parsed)) {
+    throw new Error(`kimi fork of ${input.sessionId}: state.json is not a JSON object`);
+  }
+  const state = parsed;
 
   const newId = `session_${crypto.randomUUID()}`;
   const workspaceId = await wdKey(input.cwd);
@@ -122,7 +127,8 @@ export async function kimiForkPlan(
           try {
             // The same key the patch wrote — reading the other one would
             // report "an unreadable state" for a clone that is perfectly fine.
-            return (JSON.parse(landed.text) as Record<string, unknown>)[workDirKey];
+            const written: unknown = JSON.parse(landed.text);
+            return isJsonRecord(written) ? written[workDirKey] : null;
           } catch {
             return null;
           }

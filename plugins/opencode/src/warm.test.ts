@@ -103,6 +103,16 @@ describe("treeHealth", () => {
     expect(await treeHealth(ctx, DIR)).toEqual({ state: "broken" });
   });
 
+  it("calls a provenance file that is JSON but no object broken, as it does an unparseable one", async () => {
+    for (const text of ["null", "[]", "7"]) {
+      const { ctx } = ctxWith({
+        [`${DIR}/package.json`]: "{}",
+        [`${DIR}/node_modules/.package-lock.json`]: text,
+      });
+      expect(await treeHealth(ctx, DIR)).toEqual({ state: "broken" });
+    }
+  });
+
   it("calls a tree with packages but no provenance broken — the mid-write window", async () => {
     // node_modules exists, its record does not: an install wrote packages
     // and stopped. The shape the real damaged dir was caught in.

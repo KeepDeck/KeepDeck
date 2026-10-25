@@ -1,4 +1,4 @@
-import type { SpeechDevice, SpeechStartOptions } from "@keepdeck/plugin-api";
+import { isJsonRecord, type SpeechDevice, type SpeechStartOptions } from "@keepdeck/plugin-api";
 
 /**
  * The microphone choice: which input the user picked, kept in the plugin's
@@ -16,8 +16,8 @@ export interface MicPick {
 /** The stored pick, or null for "system default" (absent or malformed). */
 export function readMicPick(values: Record<string, unknown>): MicPick | null {
   const value = values[MIC_KEY];
-  if (typeof value !== "object" || value === null) return null;
-  const { id, name } = value as Record<string, unknown>;
+  if (!isJsonRecord(value)) return null;
+  const { id, name } = value;
   return typeof id === "string" && id !== "" && typeof name === "string" ? { id, name } : null;
 }
 

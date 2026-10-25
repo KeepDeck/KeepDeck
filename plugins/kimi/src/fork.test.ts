@@ -255,6 +255,14 @@ describe("kimiForkPlan", () => {
     expect(fx.appends).toHaveLength(0);
   });
 
+  it("refuses a state.json that is JSON but no object — zero writes", async () => {
+    for (const text of ["null", "[]", "7", '"state"']) {
+      const fx = fixture(text);
+      await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow("state.json is not a JSON object");
+      expect(fx.writes.size).toBe(0);
+    }
+  });
+
   it("rejects when state.json lost the fields the gate depends on", async () => {
     const fx = fixture(JSON.stringify({ title: "x" }));
     await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow(
