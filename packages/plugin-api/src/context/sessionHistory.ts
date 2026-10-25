@@ -119,7 +119,7 @@ export function pageOfWalk(walked: WalkedSession<unknown>): TranscriptPage {
 /** One directory's children for an enumeration: the entries, or null after
  * reporting the directory as an unreadable part. */
 export async function readStoreDir(
-  fs: PluginFs,
+  fs: Pick<PluginFs, "readDir">,
   path: string,
   unreadable: (part: string, error?: unknown) => void,
 ): Promise<FsEntry[] | null> {
