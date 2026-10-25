@@ -8,7 +8,6 @@ import {
   serializeSettings,
   withPluginMuted,
   withSettings,
-  type Settings,
 } from ".";
 import { restore } from "./settings.testSupport";
 
@@ -59,10 +58,11 @@ describe("withSettings", () => {
   });
 
   it("drops a key the settings table does not know", () => {
-    const doc = withSettings(defaultSettingsDocument(), {
-      bogus: 1,
-    } as unknown as Partial<Settings>);
-    expect(doc.chosen).toEqual({});
+    // A wider object is a Partial<Settings> to the compiler — the way a stray
+    // key reaches a patch in typed code.
+    const patch = { dockMode: "floating" as const, bogus: 1 };
+    const doc = withSettings(defaultSettingsDocument(), patch);
+    expect(doc.chosen).toEqual({ dockMode: "floating" });
     expect(serializeSettings(doc)).not.toContain("bogus");
   });
 
