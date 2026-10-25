@@ -32,8 +32,10 @@ export interface LaunchAdapter {
   ): boolean | void | Promise<boolean | void>;
   /** What opens a recorded session: its arguments, or its arguments and
    * the environment that tells the agent's own reporter which session it is
-   * — for a CLI whose reporter cannot read the arguments it was started with. */
-  resume(input: ResumePlanInput): ResumeLaunch;
+   * — for a CLI whose reporter cannot read the arguments it was started with.
+   * Throwing refuses the resume: the session cannot be opened here, and the
+   * message says why. */
+  resume(input: ResumePlanInput): ResumeLaunch | Promise<ResumeLaunch>;
   /** The store surgery a fork needs, then the arguments that open the fork —
    * with what of that surgery only the start needs, when there is any.
    * Throwing must leave the store untouched. */
@@ -66,7 +68,7 @@ export function launchPlans(
     },
     "resume.plan": async (input, output) => {
       if (await adapter.stage(input, output)) return;
-      const launch = adapter.resume(input);
+      const launch = await adapter.resume(input);
       if (isArgs(launch)) {
         output.args.push(...launch);
         return;
