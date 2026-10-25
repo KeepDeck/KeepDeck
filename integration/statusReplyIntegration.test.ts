@@ -22,6 +22,7 @@ import { deckStoreOf } from "../src/app/deckStore.testSupport";
 import type { PaneReportEvent } from "../src/app/verifiedPaneReports";
 import { createMailManager } from "../src/app/mail/mailManager";
 import { createHookReplies, type HookReplyDeps } from "../src/app/mail/hookReply";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const ipc = vi.hoisted(() => ({ handler: undefined as ((report: PaneReportEvent) => void) | undefined }));
 vi.mock("../src/ipc/status", () => ({ onAgentStatus: async (fn: typeof ipc.handler) => {
@@ -84,7 +85,7 @@ async function setup(dialect = dialects[0]) {
   await Promise.resolve();
   const emit = (name: string, at: number, ask = false, extra: Record<string, unknown> = {}) => {
     now = at;
-    ipc.handler!({ paneId: "pane", token: "tok", payload: {
+    present(ipc.handler, "the registered hook handler")({ paneId: "pane", token: "tok", payload: {
       agent: dialect.agent, ...(ask ? { reply: "correlation" } : {}),
       event: { hook_event_name: name, session_id: "s1", notification_type: "permission_prompt", ...extra },
     } });

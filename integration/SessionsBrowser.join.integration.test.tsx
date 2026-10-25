@@ -7,7 +7,7 @@ import {
   type FsReadFileOptions,
   type PluginFs,
 } from "@keepdeck/plugin-api";
-import { fsStore } from "@keepdeck/plugin-api/testing";
+import { fsStore, present } from "@keepdeck/plugin-api/testing";
 import type { IndexLookupAnswer, SearchPage } from "../src/ipc/history";
 import type { AgentInfo } from "../src/domain/agents";
 import type { SessionRecord } from "../src/domain/journal";
@@ -218,7 +218,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     installResizeObserver();
     restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -265,11 +265,11 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
       { agent: "claude", sessionId: "kimi-9" },
     ]);
 
-    const row = document.querySelector(".history__row")!;
+    const row = present(document.querySelector(".history__row"), "the history row");
     expect(row.textContent).toContain("the corrupted record");
     expect(row.querySelector(".history__meta-mark")?.textContent).toBe("wrong agent");
     expect(
-      row.querySelector<HTMLButtonElement>(".browser__open")!.disabled,
+      present(row.querySelector<HTMLButtonElement>(".browser__open"), "the row's open button").disabled,
     ).toBe(true);
     expect(row.querySelector(".history__resume")).toBeNull();
     expect(row.querySelector(".history__fork")).toBeNull();
@@ -294,7 +294,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     ]);
 
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "the open button").click(),
     );
     expect(claude.reads).toEqual([CLAUDE_JOURNAL_ONLY]); // the journal's path, via the real plugin
     expect(kimi.reads).toEqual([]);
@@ -317,7 +317,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     await mount([record({ sessionId: "s-i" })]);
 
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+      present(document.querySelector<HTMLButtonElement>(".browser__open"), "the open button").click(),
     );
     expect(claude.reads).toEqual([CLAUDE_INDEX_ONLY]); // the index's link, via the real plugin
     expect(document.querySelector(".browser__turn--user")?.textContent).toContain(
@@ -364,7 +364,7 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
     installResizeObserver();
     restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the host element"));
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -419,8 +419,8 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
   const snapshot = () => {
     const order = [...document.querySelectorAll(".history__row")]
       .filter((r) => r.querySelector(".browser__name"))
-      .map((r) => r.querySelector(".browser__name")!.getAttribute("title"));
-    const p = document.querySelector<HTMLElement>("[data-probe]")!;
+      .map((r) => present(r.querySelector(".browser__name"), "the row's name cell").getAttribute("title"));
+    const p = present(document.querySelector<HTMLElement>("[data-probe]"), "the probe element");
     return {
       order,
       indicator: p.dataset.indicator,

@@ -3,6 +3,7 @@ import { watchMatches, watchProject } from "@keepdeck/plugin-api";
 import { normalizeKimiStatus, renderKimiMail } from "../plugins/kimi/src/status";
 import { kimiRecords } from "../plugins/kimi/src/tail";
 import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
+import { present } from "@keepdeck/plugin-api/testing";
 
 function setup() {
   const tracker = createAgentStatusTracker();
@@ -30,7 +31,7 @@ describe("Kimi lifecycle through the real status tracker", () => {
     const event = { hook_event_name: "Stop" };
     const pending = tracker.prepare("pane", { agent: "kimi", event }, 200);
     const reply = renderKimiMail({ event, messages: [{ id: "m", from: "lead", kind: "task", body: "Continue" }], cliVersion: null });
-    pending.finish(delivered ? reply! : undefined);
+    pending.finish(delivered ? (reply ?? undefined) : undefined);
     expect(activity()?.state).toBe("working");
     expect(changed).not.toHaveBeenCalled();
     // Kimi does not call Stop again after accepting its continuation.
@@ -68,7 +69,7 @@ describe("Kimi lifecycle through the real status tracker", () => {
     wire({ type: "task.started", time: 150, info }, { type: "turn.ended", time: 200, reason: "completed" });
     expect(activity()?.state).toBe("working");
     const observed: string[] = [];
-    tracker.subscribe(() => observed.push(activity()!.state));
+    tracker.subscribe(() => observed.push(present(activity(), "the Kimi pane").state));
     wire({ type: "task.terminated", time: 300, info }, { type: "turn.prompt", time: 300 });
     expect(observed).toEqual(["working"]);
     wire({ type: "turn.ended", time: 400, reason: "failed", error: { name: "rate_limit", message: "limited" } });

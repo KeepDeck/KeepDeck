@@ -3,6 +3,7 @@ import { watchMatches, watchProject } from "@keepdeck/plugin-api";
 import { normalizeClaudeStatus } from "../plugins/claude/src/status";
 import { claudeTail } from "../plugins/claude/src/tail";
 import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const iso = (at: number) => new Date(at).toISOString();
 const interrupt = (at: number) => ({
@@ -36,7 +37,7 @@ describe("Claude queued hard steering", () => {
     hook("UserPromptSubmit", 100);
     hook("UserPromptSubmit", 200);
     const states: string[] = [];
-    tracker.subscribe(() => states.push(tracker.getSnapshot().panes.get("pane")!.state));
+    tracker.subscribe(() => states.push(present(tracker.getSnapshot().panes.get("pane"), "the pane").state));
     tail([interrupt(300), accepted(307)]);
     expect(tracker.getSnapshot().panes.get("pane")).toEqual({ state: "working", since: 307 });
     expect(states).toEqual(["working"]);

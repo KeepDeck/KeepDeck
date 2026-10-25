@@ -4,6 +4,7 @@ import { normalizeCodexStatus } from "../plugins/codex/src/status";
 import { codexRecords } from "../plugins/codex/src/tail";
 import { activityBadge } from "../src/domain/status/format";
 import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
+import { present } from "@keepdeck/plugin-api/testing";
 
 // Codex 0.153.2, 2026-09-08: the usage-limit turn had no Stop hook.
 // task_complete carried the error; ids/prose shortened, shape preserved.
@@ -25,9 +26,8 @@ function setup() {
   }, at);
   const tail = () => {
     const watch = codexRecords.watches.find((candidate) => watchMatches(candidate, terminal));
-    expect(watch).toBeDefined();
     tracker.report("pane", {
-      agent: "codex", kind: "store.record", record: watchProject(watch!, terminal),
+      agent: "codex", kind: "store.record", record: watchProject(present(watch, "the Codex failure watch"), terminal),
     }, failedAt + 2000);
   };
   return { tracker, hook, tail };
@@ -38,7 +38,7 @@ describe("Codex terminal failures through the status lane", () => {
     const { tracker, hook, tail } = setup();
     hook("UserPromptSubmit", failedAt - 1000);
     tail();
-    const failed = tracker.getSnapshot().panes.get("pane")!;
+    const failed = present(tracker.getSnapshot().panes.get("pane"), "the Codex pane");
     expect(activityBadge(failed)).toMatchObject({ tone: "failed", label: "Rate limited" });
     expect(failed).toMatchObject({ at: failedAt, detail: "You've hit your usage limit." });
     hook("PostToolUse", failedAt + 2100);

@@ -3,6 +3,7 @@ import { normalizeClaudeStatus } from "../plugins/claude/src/status";
 import { reduceStatus, type PaneStatus } from "../src/domain/status/activity";
 import { activityBadge } from "../src/domain/status/format";
 import { normalizeStatusBatch } from "../src/app/statusNormalization";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The oversize-request recovery, end to end: claude's own hook payloads →
@@ -80,8 +81,10 @@ describe("a session that outgrew its context window", () => {
     ).toEqual({ state: "working", since: 100 });
     expect(
       activityBadge(
-        receive(compacted, { ...SESSION, hook_event_name: "Stop" }, 500)!
-          .activity,
+        present(
+          receive(compacted, { ...SESSION, hook_event_name: "Stop" }, 500),
+          "the pane state after Stop",
+        ).activity,
       ),
     ).toMatchObject({ tone: "done", label: "Done" });
   });
@@ -127,7 +130,10 @@ describe("a session that outgrew its context window", () => {
     );
     expect(
       activityBadge(
-        receive(next, { ...SESSION, hook_event_name: "Stop" }, 400)!.activity,
+        present(
+          receive(next, { ...SESSION, hook_event_name: "Stop" }, 400),
+          "the pane state after Stop",
+        ).activity,
       ),
     ).toMatchObject({ tone: "done", label: "Done" });
   });
@@ -138,12 +144,11 @@ describe("a session that outgrew its context window", () => {
     // to read an overflow into a failure it cannot see. That is what keeps
     // the compaction edge earning its place: it is the backstop for the
     // failures this lane could not identify.
-    const failed = receive(
-      null,
-      { ...SESSION, hook_event_name: "StopFailure" },
-      100,
+    const failed = present(
+      receive(null, { ...SESSION, hook_event_name: "StopFailure" }, 100),
+      "the failed pane state",
     );
-    expect(activityBadge(failed!.activity)).toMatchObject({
+    expect(activityBadge(failed.activity)).toMatchObject({
       tone: "failed",
       label: "Turn failed",
     });
@@ -151,12 +156,15 @@ describe("a session that outgrew its context window", () => {
     // The user runs `/compact`. It is a local command, so this is the ONLY
     // report it produces — no UserPromptSubmit before it, no Stop after.
     // Before this edge existed, the pane stayed red until the next prompt.
-    const compacted = receive(
-      failed,
-      { ...SESSION, hook_event_name: "SessionStart", source: "compact" },
-      200,
+    const compacted = present(
+      receive(
+        failed,
+        { ...SESSION, hook_event_name: "SessionStart", source: "compact" },
+        200,
+      ),
+      "the pane state after compaction",
     );
-    expect(activityBadge(compacted!.activity)).toMatchObject({
+    expect(activityBadge(compacted.activity)).toMatchObject({
       tone: "done",
       label: "Interrupted",
     });
