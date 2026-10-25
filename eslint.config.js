@@ -14,7 +14,6 @@ const TYPESCRIPT = [
   "plugins/*/src/**/*.{ts,tsx}",
   "integration/**/*.{ts,tsx}",
 ];
-const TESTS = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}", "**/*testSupport.{ts,tsx}"];
 
 /** Import patterns more than one block refuses. A later block's
  * `no-restricted-imports` replaces an earlier one's for the files both
@@ -70,10 +69,10 @@ export default [
    * there proves the two sides compose (a plugin's real normalizer driving
    * the real tracker, a plugin's history read by the real scan), and may
    * import both. It is a leaf — packages and plugins import nothing from
-   * it, and neither does the core, tests included.
+   * it, and neither does the core (below).
    */
   {
-    files: ["src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}", "plugins/*/src/**/*.{ts,tsx}"],
+    files: ["packages/*/src/**/*.{ts,tsx}", "plugins/*/src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": ["error", { patterns: [NO_INTEGRATION] }],
     },
@@ -81,12 +80,13 @@ export default [
 
   /**
    * The core names no plugin: a CLI's knowledge lives in its plugin, reached
-   * through the plugin contract. Tests may pair the host with a real plugin
-   * to prove the contract end to end.
+   * through the plugin contract. No exception for tests: a core test that
+   * needs what a plugin would hand it builds a typed fake through
+   * @keepdeck/plugin-api; a test proving the host and a real plugin compose
+   * belongs in integration/.
    */
   {
     files: ["src/**/*.{ts,tsx}"],
-    ignores: TESTS,
     rules: {
       "no-restricted-imports": ["error", { patterns: [NO_PLUGIN, NO_INTEGRATION] }],
     },
