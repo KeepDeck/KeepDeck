@@ -346,6 +346,20 @@ describe("kimi history", () => {
     expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
   });
 
+  it("counts a line that is no wire record, as a shortfall, and reads the rest as before", async () => {
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    // A `message` that is not an object is no wire record either.
+    const odd = `7\n${JSON.stringify({ type: "message", message: "flat" })}\n`;
+    const clean = kimiHistory(ctx({ [wire]: WIRE }, {}));
+    const stray = kimiHistory(ctx({ [wire]: odd + WIRE }, {}));
+    const read = (history: typeof clean) =>
+      present(history.transcriptPage, "the transcript page")(wire, { offset: 0, limit: 10 });
+    const [before, after] = [await read(clean), await read(stray)];
+    expect(before.entries.length).toBeGreaterThan(0);
+    expect(after.entries).toEqual(before.entries);
+    expect(after.shortfall).toEqual([{ kind: "parts", unreadableParts: 2 }]);
+  });
+
   it("a page that read everything carries no shortfall at all", async () => {
     const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
     const history = kimiHistory(ctx({ [wire]: WIRE }, {}));

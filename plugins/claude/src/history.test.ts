@@ -361,6 +361,17 @@ describe("claude history", () => {
     expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
   });
 
+  it("counts a line that is JSON but no record, as a shortfall, and reads the rest as before", async () => {
+    const clean = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
+    const stray = claudeHistory(ctx({ "/f.jsonl": `"stray"\n[1]\n${LINES}` }, {}));
+    const read = (history: typeof clean) =>
+      present(history.transcriptPage, "the transcript page")("/f.jsonl", { offset: 0, limit: 10 });
+    const [before, after] = [await read(clean), await read(stray)];
+    expect(before.entries.length).toBeGreaterThan(0);
+    expect(after.entries).toEqual(before.entries);
+    expect(after.shortfall).toEqual([{ kind: "parts", unreadableParts: 2 }]);
+  });
+
   it("a page that read everything carries no shortfall at all", async () => {
     // Absence is the ONLY spelling of "nothing was missed" — an empty array
     // would be a second one, and two spellings of one truth drift apart.
