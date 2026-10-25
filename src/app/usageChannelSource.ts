@@ -20,8 +20,9 @@ export interface UsageLaneContext {
   attribution: PaneAttribution;
   /** The bindings the session lane ACCEPTED. Lanes that need to know a pane
    * bound take them from here rather than re-judging the raw event, because
-   * the verdict is stateful and must be reached once per report. */
-  bindings: SessionBinding;
+   * the verdict is stateful and must be reached once per report. Only their
+   * stream: the lanes never end the session lane. */
+  bindings: Pick<SessionBinding, "subscribe">;
   declarations: UsageDeclarations;
   /** The runtime's usage store — every lane writes through this value. */
   usage: UsageManager;

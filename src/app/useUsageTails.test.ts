@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentUsage, TailWatch } from "@keepdeck/plugin-api";
+import {
+  jsonl,
+  type AgentUsage,
+  type CompanionCover,
+  type JsonlRequest,
+  type SessionTailDialect,
+  type TailWatch,
+  type TailTarget,
+} from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions, type DeckActions } from "./deckActions";
@@ -37,6 +45,20 @@ vi.mock("./spawnSpecs", () => ({
 }));
 import { createUsageTailsLane } from "./usageChannelTails";
 import type { UsageLane } from "./usageChannelSource";
+import type { AcceptedBinding } from "./sessionBinding";
+
+/** A dialect as the tails lane uses one: what to carry and where the store
+ * is. It reads no record here. */
+const dialectOf = (
+  watches: readonly TailWatch[],
+  follow: (pane: TailTarget) => Promise<JsonlRequest | null>,
+): SessionTailDialect<JsonlRequest, unknown> => ({
+  format: jsonl(),
+  watches,
+  follow,
+  read: () => null,
+  ignores: () => true,
+});
 import { createUsageManager } from "./usageManager";
 import { createPaneAttribution } from "./paneAttribution";
 import {
@@ -104,13 +126,10 @@ describe("usage tails — a suspended pane's watcher", () => {
       // rather than a command of the host's. The fake is that search, over
       // the same mocked lookup this file already had.
       tailOf: () =>
-        ({
-          watches: [],
-          follow: async ({ sessionId }: { sessionId: string | null }) => {
-            const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
-            return path ? { path } : null;
-          },
-        }) as never,
+        dialectOf([], async ({ sessionId }) => {
+          const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
+          return path ? { path } : null;
+        }),
       // The tails lane only arms watchers; events reach the store via the
       // reports lane, so a fresh, unobserved instance satisfies the context.
       companionOf: () => undefined,
@@ -202,32 +221,28 @@ describe("usage tails — a store search racing a binding", () => {
       secretOf: () => specs.token ?? undefined,
     });
 
-    let announce: ((bound: {
-      paneId: string;
-      transcriptPath: string | null;
-      token: string;
-    }) => void) | null = null;
+    let announce: ((bound: AcceptedBinding) => void) | null = null;
     let answerLookup: ((path: string | null) => void) | null = null;
 
     const lane = createUsageTailsLane({
       deck: store,
       attribution,
       bindings: {
-        subscribe: (listener: never) => {
+        subscribe: (listener) => {
           announce = listener;
           return () => {};
         },
-      } as never,
+      },
       // The search hangs until the test lets it answer — that gap is where
       // the binding lands.
       tailOf: () =>
-        ({
-          watches: [],
-          follow: () =>
+        dialectOf(
+          [],
+          () =>
             new Promise((resolve) => {
               answerLookup = (path) => resolve(path ? { path } : null);
             }),
-        }) as never,
+        ),
       companionOf: () => undefined,
       usage: createUsageManager(),
       declarations: {
@@ -252,6 +267,7 @@ describe("usage tails — a store search racing a binding", () => {
       await act(async () => {
         announce!({
           paneId: "pane-1",
+          sessionId: "ses-1",
           transcriptPath: "/x/rollout.jsonl",
           token: "token-1",
         });
@@ -279,30 +295,30 @@ describe("usage tails — a pane whose process has a companion", () => {
     match: [{ key: "type", equals: "assistant" }],
     keep: [],
   };
-  const STATUS_WATCH = { lane: "status", match: [{ key: "type", equals: "user" }] };
+  const STATUS_WATCH: TailWatch = { lane: "status", match: [{ key: "type", equals: "user" }], keep: [] };
   const claudeUsage = new Map<string, AgentUsage>([
     ["claude", { normalize: () => null, tail: { watches: [USAGE_WATCH] } }],
   ]);
 
-  function setup(covers: readonly string[] | null) {
+  function setup(covers: readonly CompanionCover[] | null) {
     const store = createDeckStore();
     deck = createDeckActions(store);
     const attribution = createPaneAttribution({
       workspaces: () => store.getSnapshot().workspaces,
       secretOf: () => "token-1",
     });
-    let announce!: (bound: { paneId: string; transcriptPath: string; token: string }) => void;
+    let announce!: (bound: AcceptedBinding) => void;
     const lane = createUsageTailsLane({
       deck: store,
       attribution,
       bindings: {
-        subscribe: (listener: never) => {
+        subscribe: (listener) => {
           announce = listener;
           return () => {};
         },
-      } as never,
-      tailOf: () => ({ watches: [STATUS_WATCH], follow: async () => null }) as never,
-      companionOf: () => (covers ? ({ covers } as never) : undefined),
+      },
+      tailOf: () => dialectOf([STATUS_WATCH], async () => null),
+      companionOf: () => (covers ? { covers } : undefined),
       usage: createUsageManager(),
       declarations: { current: () => claudeUsage, subscribe: () => () => {} },
     });
@@ -318,7 +334,7 @@ describe("usage tails — a pane whose process has a companion", () => {
     });
     const bind = async () => {
       await act(async () =>
-        announce({ paneId: "pane-1", transcriptPath: "/p/s.jsonl", token: "token-1" }),
+        announce({ paneId: "pane-1", sessionId: "ses-1", transcriptPath: "/p/s.jsonl", token: "token-1" }),
       );
       for (let i = 0; i < 4; i++) await act(async () => {});
     };

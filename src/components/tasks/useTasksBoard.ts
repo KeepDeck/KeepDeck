@@ -7,7 +7,7 @@ import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead
 
 import { isTypingTarget } from "../../ui/typingTarget";
 import { refusalOf, tasksEnableStatus } from "../../app/tasks/enableStatus";
-import { readyBoard } from "../../app/tasks/tasksService";
+import { readyBoard, type TaskProblem } from "../../app/tasks/tasksService";
 import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS, type TasksBoardSettings } from "../../domain/settings";
@@ -313,13 +313,13 @@ export function useTasksBoard(
   };
 
   const write = useCallback(
-    async (work: () => Promise<{ ok: boolean; refusal?: unknown } & Record<string, unknown>>) => {
+    async (work: () => Promise<{ ok: true } | { ok: false; refusal: TaskProblem }>) => {
       const result = await work();
       if (result.ok) {
         setError(null);
         return true;
       }
-      setError(refusalText(result.refusal as never));
+      setError(refusalText(result.refusal));
       return false;
     },
     [],

@@ -342,7 +342,7 @@ describe("the backlog — work parked, not yet to be started", () => {
   });
 
   it("is created in todo or the backlog — anything else is refused, by the domain itself", () => {
-    const done = createTask({ teamId: "team-1", title: "x", status: "done" as never }, lead, ctx([]));
+    const done = createTask({ teamId: "team-1", title: "x", status: "done" }, lead, ctx([]));
     expect(done.ok ? null : done.refusal).toEqual({ kind: "bad-create-status", status: "done", allowed: ["todo", "backlog"] });
   });
 
@@ -1018,7 +1018,7 @@ describe("epics — the family", () => {
     expect(under.task.kind).toBe("task");
     expect(epicOf(under.task, under.board)?.id).toBe("task-1");
     expect(under.board.relations).toContainEqual({ kind: "child-of", from: under.task.uid, to: "uid-task-1", at: 5_000, by: "impl-1" });
-    expect(createTask({ teamId: "team-1", title: "x", kind: "story" as never }, lead, on(b))).toEqual({
+    expect(createTask({ teamId: "team-1", title: "x", kind: "story" }, lead, on(b))).toEqual({
       ok: false,
       refusal: { kind: "bad-create-kind", value: "story", allowed: ["task", "epic"] },
     });

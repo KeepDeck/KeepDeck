@@ -1,4 +1,4 @@
-import { errorMessage, type AgentHistory, type AgentLiveSession, type AgentHooks, type CommandInfo, type CommandResult, type Disposable, type WatchHandle, type DownloadState, type FileOpenRequest, type PluginContext, type PluginManifest, type PluginSessionEvent, type SpeechLevel, type WorkspaceRef } from "@keepdeck/plugin-api";
+import { errorMessage, type AgentHistory, type AgentLiveSession, type AgentHooks, type CommandInfo, type ForkPlanInput, type ResumePlanInput, type SpawnPlanInput, type CommandResult, type Disposable, type WatchHandle, type DownloadState, type FileOpenRequest, type PluginContext, type PluginManifest, type PluginSessionEvent, type SpeechLevel, type WorkspaceRef } from "@keepdeck/plugin-api";
 
 import { RemoteDownloadStream } from "./downloadStream";
 import { createGuestServices } from "./guestServices";
@@ -369,9 +369,32 @@ export function buildGuestContext(
   function runHook(callId: number, payload: unknown): Promise<void> {
     const { agentId, hook, input, output } = payload as WireHookCall;
     return answer("agents.hookResult", callId, async () => {
-      const fn = agentHooks.get(agentId)?.[hook as keyof AgentHooks];
-      if (!fn) throw new Error(`no ${hook} hook for agent "${agentId}"`);
-      await fn(input as never, output as never);
+      const hooks = agentHooks.get(agentId);
+      const missing = () => new Error(`no ${hook} hook for agent "${agentId}"`);
+      // One case per hook: each takes its own input, and the input is wire
+      // data the host built for exactly that hook.
+      switch (hook) {
+        case "spawn.plan": {
+          const fn = hooks?.["spawn.plan"];
+          if (!fn) throw missing();
+          await fn(input as SpawnPlanInput, output);
+          break;
+        }
+        case "resume.plan": {
+          const fn = hooks?.["resume.plan"];
+          if (!fn) throw missing();
+          await fn(input as ResumePlanInput, output);
+          break;
+        }
+        case "fork.plan": {
+          const fn = hooks?.["fork.plan"];
+          if (!fn) throw missing();
+          await fn(input as ForkPlanInput, output);
+          break;
+        }
+        default:
+          throw missing();
+      }
       return { output };
     });
   }

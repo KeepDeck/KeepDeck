@@ -67,10 +67,13 @@ export function createSkillsStaging(
       const memoized = staged.get(key);
       if (memoized) return armThen(workspace.id, memoized);
 
+      // The staging below names this entry (a narrowed set is memoized under
+      // its own key), so the entry exists first; its `views` is replaced
+      // before this function returns, so nobody reads the placeholder.
       const entry: {
         roots: string[];
         views: Promise<WorktreeSkillViews | null>;
-      } = { roots, views: undefined as never };
+      } = { roots, views: Promise.resolve(null) };
       entry.views = inOrder(() => {
         const claimed = new Set(deck.rootsOf(workspace));
         const armable = roots.filter(

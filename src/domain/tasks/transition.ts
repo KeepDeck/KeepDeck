@@ -863,11 +863,13 @@ export interface CreateTaskInput {
   artifacts?: readonly string[];
   labels?: readonly string[];
   /** Where it starts: on the ladder (`todo`, the default) or parked in
-   * the backlog — anyone may park an idea; starting it is another matter. */
-  status?: CreateStatus;
+   * the backlog — anyone may park an idea; starting it is another matter.
+   * A word, not a CreateStatus: it arrives from a caller's words, and this
+   * is where an unknown one is refused (`bad-create-status`). */
+  status?: string;
   /** Work (the default) or an epic — anyone who may make a task may make
-   * either. */
-  kind?: TaskKind;
+   * either. A word for the same reason (`bad-create-kind`). */
+  kind?: string;
   /** The epic it is made under (a key): its author's choice, by the
    * family rule (`parentProblem`). */
   parent?: string;
@@ -876,6 +878,9 @@ export interface CreateTaskInput {
 /** The statuses a task may be created in. */
 export type CreateStatus = Extract<TaskStatus, "todo" | "backlog">;
 export const CREATE_STATUSES: readonly CreateStatus[] = ["todo", "backlog"];
+
+const isCreateStatus = (status: string): status is CreateStatus =>
+  (CREATE_STATUSES as readonly string[]).includes(status);
 
 export type CreateResult =
   | { ok: true; board: TaskBoard; task: Task }
@@ -916,7 +921,7 @@ export function createTask(
   const badBlockers = validateBlockers(null, input.teamId, blockedBy, ctx.board);
   if (badBlockers) return refuse(badBlockers);
   const status = input.status ?? "todo";
-  if (!(CREATE_STATUSES as readonly string[]).includes(status)) {
+  if (!isCreateStatus(status)) {
     return refuse({ kind: "bad-create-status", status, allowed: CREATE_STATUSES });
   }
   const labels = normalizeLabels(input.labels ?? []);
