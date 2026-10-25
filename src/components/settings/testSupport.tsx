@@ -175,10 +175,12 @@ export async function pluginRegistries() {
   return runtime.registries;
 }
 
-export const button = (text: string) =>
-  present(Array.from(document.querySelectorAll("button")).find(
-    (b) => b.textContent === text,
-  ), "button matching text");
+/** The button labelled `text`, or undefined — the one matching rule, for
+ * the checks that a button is absent as well as for `button()`. */
+export const findButton = (text: string) =>
+  Array.from(document.querySelectorAll("button")).find((b) => b.textContent === text);
+
+export const button = (text: string) => present(findButton(text), `the "${text}" button`);
 
 export const scrollbackInput = () =>
   document.querySelector<HTMLInputElement>(

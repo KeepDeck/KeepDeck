@@ -6,6 +6,7 @@ import {
   agentsIpc,
   blur,
   button,
+  findButton,
   DEFAULT_SETTINGS,
   dialogHost,
   getSettings,
@@ -76,7 +77,7 @@ describe("SettingsDialog", () => {
       (entry) => entry.textContent,
     );
     expect(labels).not.toContain("Stats");
-    expect([...document.querySelectorAll("button")].some((entry) => entry.textContent === "24h")).toBe(false);
+    expect(findButton("24h")).toBeUndefined();
   });
 
   it("an uncommitted scrollback draft survives a section round-trip", async () => {
@@ -160,7 +161,7 @@ describe("SettingsDialog", () => {
 
   it("the ✕ and Escape only dismiss; instant-apply needs no Done footer", async () => {
     await mount();
-    expect([...document.querySelectorAll("button")].some((entry) => entry.textContent === "Done")).toBe(false);
+    expect(findButton("Done")).toBeUndefined();
     expect(document.querySelector(".confirm__actions")).toBeNull();
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Close settings",

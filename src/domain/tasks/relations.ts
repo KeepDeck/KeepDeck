@@ -128,7 +128,17 @@ export function openBlockersOf(task: Task, board: TaskBoard): string[] {
   const open = GATING_KINDS.flatMap((kind) => into(board, kind, task.uid))
     .filter((relation) => !holdsNothing(statusOf(board, relation.from)))
     .map((relation) => relation.from);
-  return present(board, [...new Set(open)]).map((blocker) => blocker.id);
+  // What stands here passed the status rule, so it is on the board; one that
+  // is not is a corrupt relation, said by name rather than dropped.
+  const { place } = indexOf(board);
+  return [...new Set(open)]
+    .map((uid) => {
+      const at = place.get(uid);
+      if (at === undefined) throw new Error(`blocker ${uid} of ${task.id} is not on the board`);
+      return at;
+    })
+    .sort((a, b) => a - b)
+    .map((at) => board.tasks[at].id);
 }
 
 /** The kinds that gate the ladder's start, read from the table. */
