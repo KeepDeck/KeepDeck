@@ -277,7 +277,7 @@ export function useTasksBoard(
   });
 
   const open = taskOnScreen(board, focus, teamId);
-  const detail = open ? taskDetailView(open, board!, roster, now, knownArtifacts, screen.activityOpen, teams) : null;
+  const detail = open && board ? taskDetailView(open, board, roster, now, knownArtifacts, screen.activityOpen, teams) : null;
   // Stable by identity between renders that change nothing it shows: the
   // windowed list anchors the reader's place on a CHANGE of its items, and
   // a fresh array per pointer move re-ran that on every one.

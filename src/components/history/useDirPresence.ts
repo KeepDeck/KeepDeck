@@ -67,7 +67,12 @@ export function useDirPresence(
       // The NEXT map carries every asked path's answer — carried and
       // fresh alike — so the render sees the whole live set's presence.
       setPresence(
-        new Map(paths.map((p) => [p, answersRef.current.get(p)!])),
+        new Map(
+          paths.flatMap((p) => {
+            const present = answersRef.current.get(p);
+            return present === undefined ? [] : [[p, present] as const];
+          }),
+        ),
       );
     };
     if (fresh.length === 0) {

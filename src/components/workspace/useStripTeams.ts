@@ -113,10 +113,10 @@ export function useStripTeams(
       el.style.height = "auto";
       const full = el.scrollHeight;
       el.style.height = `${reached}px`;
-      return [{ id, reached, full }];
+      return [{ id, reached, full, el }];
     });
-    const opening = starts.map((start) => {
-      const head = elements.get(start.id)!.previousElementSibling ?? elements.get(start.id)!;
+    const opening = starts.map(({ el, ...start }) => {
+      const head = el.previousElementSibling ?? el;
       const row = head.getBoundingClientRect();
       return { ...start, row: { top: row.top - listBox.top, bottom: row.bottom - listBox.top } };
     });
@@ -139,7 +139,8 @@ export function useStripTeams(
     );
     const durationMs = prefersReducedMotion() ? 0 : STRIP_MOTION_MS;
     for (const plan of plans) {
-      const el = elements.get(plan.id)!;
+      const el = elements.get(plan.id);
+      if (!el) continue; // a plan is made only for a measured block
       const opens = plan.to > 0;
       stopMotion(plan.id);
       start(
