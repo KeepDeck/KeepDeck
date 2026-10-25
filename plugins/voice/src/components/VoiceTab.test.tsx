@@ -8,9 +8,10 @@ import {
 } from "../../../../packages/plugin-guest/src/fakeHost";
 import { createBindingsStore } from "../bindingsStore";
 import { clearRuntime, setRuntime } from "../runtime";
-import type { VoiceController, VoiceSnapshot } from "../controller";
-import type { ModelDownloads } from "../downloads";
-import type { ModelsStore } from "../models";
+import type { VoiceSnapshot } from "../controller";
+import { MODEL_CATALOG } from "../modelCatalog";
+import { createRecordingLatch } from "../recordingLatch";
+import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { VoiceTab } from "./VoiceTab";
 import { speechTranscript } from "@keepdeck/plugin-api/testing";
 
@@ -55,27 +56,17 @@ describe("VoiceTab history click-to-copy", () => {
     host.ctx.services.clipboard.writeText = writeText;
 
     snap = snapshotWithHistory();
-    const controller = {
+    const controller = controllerOf({
       snapshot: () => snap,
-      subscribe: () => () => {},
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
       clearHistory: vi.fn(),
       chooseMicrophone: (chooseMicrophone = vi.fn(async () => {})),
       cancel: vi.fn(async () => {}),
-    } as unknown as VoiceController;
-    const modelsSnap = [{ installed: true }] as never;
-    const models = {
-      snapshot: () => modelsSnap,
-      subscribe: () => () => {},
-      error: () => null,
-    } as unknown as ModelsStore;
-    const dlSnap = { active: {}, errors: {}, interrupted: {} };
-    const downloads = {
-      snapshot: () => dlSnap,
-      subscribe: () => () => {},
-      anyActive: () => false,
-    } as unknown as ModelDownloads;
+    });
+    const modelsSnap = [{ ...MODEL_CATALOG[0], installed: true }];
+    const models = modelsOf({ snapshot: () => modelsSnap });
+    const downloads = downloadsOf();
 
     setRuntime({
       ctx: host.ctx,
@@ -83,7 +74,7 @@ describe("VoiceTab history click-to-copy", () => {
       downloads,
       models,
       bindings: createBindingsStore(host.ctx),
-      recordingLatch: undefined as never,
+      recordingLatch: createRecordingLatch(),
     });
   });
 
@@ -237,10 +228,10 @@ describe("VoiceTab history click-to-copy", () => {
   it("does not copy when a drag-select ends IN this row (manual copy fallback)", async () => {
     render();
     // A selection that touches the clicked row — the user is drag-selecting.
-    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
-      toString: () => "selected",
-      containsNode: () => true,
-    } as unknown as Selection);
+    const selection = window.getSelection()!;
+    selection.selectAllChildren(entries()[0]);
+    // happy-dom answers containsNode wrongly, so the geometry is stated.
+    const touches = vi.spyOn(selection, "containsNode").mockReturnValue(true);
 
     await act(async () => {
       entries()[0].dispatchEvent(
@@ -250,16 +241,19 @@ describe("VoiceTab history click-to-copy", () => {
     });
 
     expect(writeText).not.toHaveBeenCalled();
-    selectionSpy.mockRestore();
+    touches.mockRestore();
+    selection.removeAllRanges();
   });
 
   it("still copies when the active selection is in ANOTHER element", async () => {
     render();
     // A selection elsewhere must NOT block the copy on this row.
-    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
-      toString: () => "selected",
-      containsNode: () => false,
-    } as unknown as Selection);
+    const elsewhere = document.body.appendChild(document.createElement("p"));
+    elsewhere.textContent = "selected";
+    const selection = window.getSelection()!;
+    selection.selectAllChildren(elsewhere);
+    // happy-dom answers containsNode wrongly, so the geometry is stated.
+    const touches = vi.spyOn(selection, "containsNode").mockReturnValue(false);
 
     await act(async () => {
       entries()[0].dispatchEvent(
@@ -269,6 +263,7 @@ describe("VoiceTab history click-to-copy", () => {
     });
 
     expect(writeText).toHaveBeenCalledTimes(1);
-    selectionSpy.mockRestore();
+    touches.mockRestore();
+    selection.removeAllRanges();
   });
 });

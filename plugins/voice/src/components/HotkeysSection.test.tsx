@@ -9,6 +9,7 @@ import {
 import { createBindingsStore } from "../bindingsStore";
 import { createRecordingLatch, type RecordingLatch } from "../recordingLatch";
 import { clearRuntime, setRuntime } from "../runtime";
+import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { HOTKEYS_KEY } from "../binding";
 import { HotkeysSection } from "./HotkeysSection";
 
@@ -61,9 +62,9 @@ describe("HotkeysSection", () => {
     });
     setRuntime({
       ctx: host.ctx,
-      controller: undefined as never,
-      downloads: undefined as never,
-      models: undefined as never,
+      controller: controllerOf(),
+      downloads: downloadsOf(),
+      models: modelsOf(),
       bindings: store,
       recordingLatch: latch,
     });

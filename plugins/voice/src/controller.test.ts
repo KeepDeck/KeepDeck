@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext, SpeechTranscript } from "@keepdeck/plugin-api";
+import type {
+  PluginContext,
+  SpeechCaptureOptions,
+  SpeechTranscript,
+} from "@keepdeck/plugin-api";
 import {
   createFakeHost,
   fakeManifest,
@@ -37,7 +41,9 @@ function hostWithSettings(settingsValues: Record<string, unknown>): FakeHost {
 function setup(transcript: SpeechTranscript, now: () => number = () => 42) {
   const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
   const cancelCapture = vi.fn(async () => {});
-  const stopCapture = vi.fn(async () => transcript);
+  const stopCapture = vi.fn(
+    async (_opts: SpeechCaptureOptions): Promise<SpeechTranscript> => transcript,
+  );
   let onLevel: ((rms: number) => void) | undefined;
   const ctx: PluginContext = {
     ...host.ctx,
@@ -442,7 +448,7 @@ describe("createVoiceController", () => {
     const { controller, stopCapture } = setup(speechTranscript({ text: "close" }));
     await controller.start("command");
     await controller.stop();
-    const prompt = (stopCapture.mock.calls[0] as unknown as [{ prompt: string }])[0].prompt;
+    const prompt = stopCapture.mock.calls[0][0].prompt;
     for (const word of commandVocabulary()) expect(prompt).toContain(word);
     expect(prompt).toContain("KeepDeck"); // and the deck's own names
   });

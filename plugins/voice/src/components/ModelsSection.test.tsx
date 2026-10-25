@@ -4,7 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MODEL_KEY } from "../modelChoice";
 import { MODEL_CATALOG, type VoiceModelInfo } from "../modelCatalog";
-import { clearRuntime, setRuntime, type VoiceRuntime } from "../runtime";
+import {
+  createFakeHost,
+  fakeManifest,
+} from "../../../../packages/plugin-guest/src/fakeHost";
+import { createBindingsStore } from "../bindingsStore";
+import { createRecordingLatch } from "../recordingLatch";
+import { clearRuntime, setRuntime } from "../runtime";
+import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { ModelsSection } from "./ModelsSection";
 
 const installed = (id: string): VoiceModelInfo => ({
@@ -16,7 +23,7 @@ describe("ModelsSection", () => {
   let stage: HTMLElement;
   let root: Root;
   const write = vi.fn();
-  const remove = vi.fn((_model: unknown) => Promise.resolve());
+  const remove = vi.fn((_model: VoiceModelInfo) => Promise.resolve());
 
   // Stable snapshots: useSyncExternalStore re-renders on every new object.
   const noDownloads = { active: {}, errors: {}, interrupted: {} };
@@ -26,25 +33,24 @@ describe("ModelsSection", () => {
     write.mockClear();
     remove.mockClear();
     const models = [installed("whisper-small"), installed("parakeet-tdt-0.6b-v3")];
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
     setRuntime({
-      ctx: { services: { downloads: { remove } }, log: { warn: vi.fn() } },
-      downloads: {
+      ctx: host.ctx,
+      controller: controllerOf(),
+      downloads: downloadsOf({
         snapshot: () => noDownloads,
-        subscribe: () => () => {},
-        start: vi.fn(),
+        start: vi.fn(async () => true),
         cancel: vi.fn(),
-        anyActive: () => false,
-      },
-      models: {
+      }),
+      models: modelsOf({
         snapshot: () => models,
-        subscribe: () => () => {},
-        error: () => null,
         removeErrors: () => noRemoveErrors,
         remove,
-        refresh: () => Promise.resolve(),
         current: () => Promise.resolve(models),
-      },
-    } as unknown as VoiceRuntime);
+      }),
+      bindings: createBindingsStore(host.ctx),
+      recordingLatch: createRecordingLatch(),
+    });
     stage = document.body.appendChild(document.createElement("div"));
     root = createRoot(stage);
     act(() =>
@@ -52,7 +58,7 @@ describe("ModelsSection", () => {
         createElement(ModelsSection, {
           values: { [MODEL_KEY]: "whisper-small" },
           write,
-        } as never),
+        }),
       ),
     );
   });
