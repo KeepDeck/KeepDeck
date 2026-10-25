@@ -25,9 +25,7 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 // suite measures (React re-renders non-memo children whenever the
 // parent re-renders, whatever the real component does).
 const stability = vi.hoisted(() => ({
-  rowRenders: vi.fn() as unknown as ReturnType<typeof vi.fn> & {
-    (id: string): void;
-  },
+  rowRenders: vi.fn<(id: string) => void>(),
 }));
 vi.mock("./SessionRowView", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./SessionRowView")>();

@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * same shape in session.rs's deserialization test.
  */
 const tauri = vi.hoisted(() => ({
-  invoke: vi.fn(async (): Promise<unknown> => "session-1"),
+  invoke: vi.fn(async (_command: string, _args: { spec: object }): Promise<unknown> => "session-1"),
   channel: class {
     onmessage: unknown;
   },
@@ -60,10 +60,7 @@ describe("the session_spawn wire contract", () => {
 
   it("omitted optionals cross the wire as their explicit defaults", async () => {
     await spawnSession({ cols: 1, rows: 1 }, () => {});
-    const [, payload] = tauri.invoke.mock.calls[0] as unknown as [
-      string,
-      { spec: object },
-    ];
+    const [, payload] = tauri.invoke.mock.calls[0];
     expect(payload.spec).toEqual({
       command: null,
       args: [],

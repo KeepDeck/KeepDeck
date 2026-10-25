@@ -102,9 +102,11 @@ const { TEST_AGENTS, AGENTS_PLUGIN } = vi.hoisted(() => {
 });
 
 const runtime = vi.hoisted(() => ({
-  registries: null as unknown as ReturnType<
-    typeof import("../../plugins/registries/contributions").createContributionRegistries
-  >,
+  registries: undefined as
+    | ReturnType<
+        typeof import("../../plugins/registries/contributions").createContributionRegistries
+      >
+    | undefined,
 }));
 
 vi.mock("../../app/runtimeContext", async () => {
@@ -168,6 +170,7 @@ export const agentsPlugin = AGENTS_PLUGIN;
  * import here is what makes the registries exist before a test seeds them. */
 export async function pluginRegistries() {
   await import("../../app/runtimeContext");
+  if (!runtime.registries) throw new Error("the runtime mock did not build the registries");
   return runtime.registries;
 }
 

@@ -15,20 +15,20 @@ const HALO = 26;
  * TypeError rather than as a silent no-op. */
 function fakeContext() {
   return {
-    drawImage: vi.fn(),
-    clearRect: vi.fn(),
-    fillRect: vi.fn(),
-    setTransform: vi.fn(),
+    drawImage: vi.fn<(image: unknown, x: number, y: number, w: number, h: number) => void>(),
+    clearRect: vi.fn<(x: number, y: number, w: number, h: number) => void>(),
+    fillRect: vi.fn<(x: number, y: number, w: number, h: number) => void>(),
+    setTransform: vi.fn<(a: number, b: number, c: number, d: number, e: number, f: number) => void>(),
     createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     fillStyle: "",
     globalAlpha: 1,
     globalCompositeOperation: "source-over",
-  } as unknown as CanvasRenderingContext2D;
+  };
 }
 
 let root: Root;
 let mounted = false;
-let context: CanvasRenderingContext2D;
+let context: ReturnType<typeof fakeContext>;
 /** The observers this component installs, captured so a test can drive the
  * callback the browser would call. */
 let gates: ((entries: { isIntersecting: boolean }[]) => void)[] = [];
@@ -49,7 +49,7 @@ function stubMatchMedia(matches: boolean) {
 beforeEach(() => {
   context = fakeContext();
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-    () => context as never,
+    () => context as unknown as CanvasRenderingContext2D,
   );
   vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockReturnValue({
     ...BOX,
@@ -130,8 +130,7 @@ describe("AchievementEmbers", () => {
     render();
     await frame();
 
-    const calls = (context.drawImage as unknown as ReturnType<typeof vi.fn>).mock
-      .calls as [unknown, number, number, number, number][];
+    const calls = context.drawImage.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     for (const [, x, y, w, h] of calls) {
       // The halo is the drift room. If it were ever too small for the
@@ -152,8 +151,7 @@ describe("AchievementEmbers", () => {
 
     // Spawn is the CARD, not the canvas: the glow is the badge radiating,
     // so a spark appearing out in the halo would read as debris.
-    const calls = (context.drawImage as unknown as ReturnType<typeof vi.fn>).mock
-      .calls as [unknown, number, number, number, number][];
+    const calls = context.drawImage.mock.calls;
     for (const [, x, y, w, h] of calls) {
       const centreX = x + w / 2;
       const centreY = y + h / 2;
@@ -193,7 +191,7 @@ describe("AchievementEmbers", () => {
     // changes; sampling it once left the canvas as the one thing still moving.
     media.matches = true;
     act(() => motionListeners.forEach((listener) => listener()));
-    (context.drawImage as unknown as ReturnType<typeof vi.fn>).mockClear();
+    context.drawImage.mockClear();
     await frame();
     await frame();
     expect(context.drawImage).not.toHaveBeenCalled();
@@ -219,7 +217,7 @@ describe("AchievementEmbers", () => {
     expect(gates).toHaveLength(1);
 
     act(() => gates[0]([{ isIntersecting: false }]));
-    (context.drawImage as unknown as ReturnType<typeof vi.fn>).mockClear();
+    context.drawImage.mockClear();
     await frame();
     await frame();
     expect(context.drawImage).not.toHaveBeenCalled();

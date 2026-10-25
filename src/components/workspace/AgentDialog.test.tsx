@@ -9,7 +9,12 @@ import {
 } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { roleChoiceView } from "../../presentation/roleChoiceView";
 import * as dirPresenceModule from "../history/useDirPresence";
-import { createSessionIndexManager } from "../../app/sessionIndexManager";
+import {
+  createSessionIndexManager,
+  type SessionIndexManager,
+  type SessionIndexSnapshot,
+} from "../../app/sessionIndexManager";
+import type { AgentHistory } from "@keepdeck/plugin-api";
 import type {
   AgentDialogResult,
   DirectoryState,
@@ -47,20 +52,22 @@ const sessionIndex = vi.hoisted(() => {
   // Identity-stable on purpose — the dialog reads it through
   // useSyncExternalStore, and a fresh object per call is the loop the
   // UsageChips lesson warns about (bites the stub, not just the real thing).
-  const snapshot = { scanning: false, revision: 0 };
+  const snapshot: SessionIndexSnapshot = {
+    scanning: false,
+    revision: 0,
+    invalidated: new Set(),
+  };
   return {
     ensureFresh: vi.fn(),
     snapshot: () => snapshot,
     subscribe: () => () => {},
   };
 });
-const sessionIndexRef = vi.hoisted(() => ({
-  current: sessionIndex as unknown as {
-    ensureFresh: (agent?: string) => void;
-    snapshot: () => { scanning: boolean; revision: number };
-    subscribe: (listener: () => void) => () => void;
-  },
-}));
+const sessionIndexRef = vi.hoisted(
+  (): { current: Pick<SessionIndexManager, "ensureFresh" | "snapshot" | "subscribe"> } => ({
+    current: sessionIndex,
+  }),
+);
 vi.mock("../../app/runtimeContext", () => ({
   useAppRuntime: () => ({ sessionIndex: sessionIndexRef.current }),
 }));
@@ -1509,15 +1516,19 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
   }));
   vi.mock("../../app/historyScan", () => scans);
 
-  const asHistory = (marker: string) =>
-    ({ marker }) as unknown as import("@keepdeck/plugin-api").AgentHistory;
+  // The scan seam is mocked, so no store is ever read; the registry only
+  // needs a history to exist per agent.
+  const asHistory = (): AgentHistory => {
+    const unread = () => Promise.reject(new Error("the scan is mocked"));
+    return { list: unread, describe: unread, content: unread, transcript: unread };
+  };
 
   /** The registry the real manager subscribes to: claude + codex stores. */
   const makeRegistry = () => {
     const listeners = new Set<() => void>();
     const contributions = [
-      { entry: { id: "claude", history: asHistory("claude") } },
-      { entry: { id: "codex", history: asHistory("codex") } },
+      { entry: { id: "claude", history: asHistory() } },
+      { entry: { id: "codex", history: asHistory() } },
     ];
     return {
       list: () => contributions,

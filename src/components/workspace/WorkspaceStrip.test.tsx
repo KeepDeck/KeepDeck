@@ -204,7 +204,7 @@ describe("WorkspaceStrip drag reorder", () => {
     HTMLElement.prototype.getBoundingClientRect = originalRect;
     for (const [name, descriptor] of Object.entries(saved)) {
       if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
-      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+      else Reflect.deleteProperty(HTMLElement.prototype, name);
     }
     document.body.innerHTML = "";
   });
@@ -849,7 +849,7 @@ describe("WorkspaceStrip as the team switcher", () => {
         try {
           document.dispatchEvent(new Event("visibilitychange"));
         } finally {
-          delete (document as unknown as { visibilityState?: string }).visibilityState;
+          Reflect.deleteProperty(document, "visibilityState");
         }
       },
     ]) {
@@ -943,7 +943,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
     HTMLElement.prototype.getBoundingClientRect = originalRect;
     for (const [name, descriptor] of Object.entries(saved)) {
       if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
-      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+      else Reflect.deleteProperty(HTMLElement.prototype, name);
     }
     document.body.innerHTML = "";
   });

@@ -14,6 +14,8 @@ import {
   sessionClaimant,
   type Pane,
 } from ".";
+import type { Workspace } from "../workspaces";
+import { createWorkspaceInstance } from "../../workspaceInstance";
 
 /** A workspace whose one team is still creating its directory, and that
  * team's member: the pane's own record says nothing about the create. */
@@ -226,9 +228,9 @@ describe("idleReadsAsStopped", () => {
 });
 
 describe("paneSessionHandle", () => {
-  const ws = {
+  const ws: Workspace = {
     id: "ws-1",
-    instance: "i",
+    instance: createWorkspaceInstance(),
     name: "ws",
     cwd: "/repo",
     worktreeBaseDir: null,
@@ -237,7 +239,7 @@ describe("paneSessionHandle", () => {
       { id: "team-2", name: "making", location: { kind: "provisioning" as const, intent: { repo: "/repo", path: "/wt/b", index: 2 } } },
     ],
     panes: [],
-  } as unknown as Parameters<typeof paneSessionHandle>[0];
+  };
 
   it("is the pane's bound session where its team runs, as a continuation takes it", () => {
     expect(

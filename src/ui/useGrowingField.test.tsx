@@ -39,11 +39,12 @@ describe("useGrowingField", () => {
       clientWidth: { configurable: true, get: () => width * 8 },
     });
     observed = [];
-    (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
-      constructor(private readonly callback: () => void) {}
+    globalThis.ResizeObserver = class implements ResizeObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
       observe() {
-        observed.push(this.callback);
+        observed.push(() => this.callback([], this));
       }
+      unobserve() {}
       disconnect() {}
     };
     document.body.innerHTML = "<div id='host'></div>";
@@ -52,7 +53,7 @@ describe("useGrowingField", () => {
   afterEach(() => {
     act(() => root.unmount());
     for (const name of ["scrollHeight", "offsetHeight", "clientHeight", "clientWidth"]) {
-      delete (HTMLTextAreaElement.prototype as unknown as Record<string, unknown>)[name];
+      Reflect.deleteProperty(HTMLTextAreaElement.prototype, name);
     }
   });
 

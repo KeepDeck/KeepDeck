@@ -2,10 +2,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const plugin = vi.hoisted(() => ({
-  error: vi.fn(() => Promise.resolve()),
-  warn: vi.fn(() => Promise.resolve()),
-  info: vi.fn(() => Promise.resolve()),
-  debug: vi.fn(() => Promise.resolve()),
+  error: vi.fn((_message: string) => Promise.resolve()),
+  warn: vi.fn((_message: string) => Promise.resolve()),
+  info: vi.fn((_message: string) => Promise.resolve()),
+  debug: vi.fn((_message: string) => Promise.resolve()),
   attachConsole: vi.fn(() => Promise.resolve(() => {})),
 }));
 vi.mock("@tauri-apps/plugin-log", () => plugin);
@@ -70,7 +70,7 @@ describe("initLogging", () => {
     window.dispatchEvent(
       new ErrorEvent("error", { message: "boom", error: thrown }),
     );
-    const shipped = (plugin.error.mock.lastCall as unknown as [string])[0];
+    const shipped = plugin.error.mock.lastCall![0];
     const lines = shipped.split("\n");
     // Message line + at most 8 frames, none longer than its cap.
     expect(lines.length).toBe(9);
