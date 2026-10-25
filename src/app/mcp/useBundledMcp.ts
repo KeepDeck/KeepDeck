@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useRef } from "react";
 import type { BundledMcpDescription } from "./bundled";
 import { useRuntimePart } from "../runtimeContext";
 import { useMcpStatus } from "./useMcpStatus";
@@ -11,7 +11,16 @@ export function useBundledMcp(): BundledMcpDescription[] {
   const mcp = useRuntimePart("mcp");
   const status = useMcpStatus();
   // Keyed on the status object: the service publishes a fresh one on every
-  // settled transition, and the descriptions are a pure function of it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => mcp.bundled(), [mcp, status]);
+  // settled transition, and the descriptions follow it. The cache keeps the
+  // array's identity for consumers while making the status a real input,
+  // rather than a dependency the memo body never reads.
+  const cached = useRef<{
+    mcp: typeof mcp;
+    status: typeof status;
+    tier: BundledMcpDescription[];
+  } | null>(null);
+  if (cached.current === null || cached.current.mcp !== mcp || cached.current.status !== status) {
+    cached.current = { mcp, status, tier: mcp.bundled() };
+  }
+  return cached.current.tier;
 }

@@ -159,13 +159,12 @@ export function useTranscriptReading(input: {
           if (seq.current === at) setLoading(false);
         });
     },
-    // `seq` is a ref: stable by contract, so it is not a dependency. Listing
-    // it would make this callback — and the effect below — rebuild whenever a
-    // caller handed in a fresh ref object, restarting the reading on every
-    // render. A ref that is treated as data is a loop waiting for a careless
-    // caller.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [read, agent, links],
+    // `seq` is a ref object and the contract keeps it stable for the
+    // surface's life (see the prop); naming it keeps the callback in step
+    // without restarting. A caller that hands a fresh ref per render breaks
+    // the contract and restarts the reading — that is the caller's bug, not a
+    // reason to hide the input.
+    [read, agent, links, seq],
   );
 
   useEffect(() => {
@@ -180,10 +179,9 @@ export function useTranscriptReading(input: {
     // is exactly the case that must try the first handle again.
     serving.current = { reference: links[0] ?? "", tried: 0 };
     load(links[0] ?? "", 0, 0);
-    // `links` rides along with the opening it belongs to; watching it too
-    // would restart a live reading whenever the row's array were rebuilt.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opening, load]);
+    // `links` is the opening's union: `load` already depends on it, so
+    // naming it here states the same trigger instead of hiding it.
+  }, [opening, load, links]);
 
   const more = useCallback(() => {
     if (exhausted || loading) return;
