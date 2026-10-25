@@ -26,6 +26,8 @@ const appIpc = vi.hoisted(() => ({
   listApplications: vi.fn<() => Promise<string[]>>(async () => []),
 }));
 vi.mock("../../ipc/app", () => appIpc);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ shell: appIpc }));
 
 const section: SettingsSectionContribution = {
   label: "Run",

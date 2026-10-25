@@ -3,7 +3,7 @@ import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useDirPresence } from "./useDirPresence";
+import { useDirPresence } from "../../app/useDirPresence";
 import { present } from "@keepdeck/plugin-api/testing";
 
 const worktreeIpc = vi.hoisted(() => ({

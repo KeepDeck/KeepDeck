@@ -9,7 +9,7 @@ import type { SessionsBrowserApi } from "../../../app/useSessionsBrowser";
 import { useTranscriptReading } from "../../../app/useTranscriptReading";
 import type { UnifiedSessionRow } from "../../../domain/journal";
 import { BackIcon } from "../../../ui/icons";
-import { dirPresent } from "../useDirPresence";
+import { dirPresent } from "../../../app/useDirPresence";
 import { SessionRowActions } from "../SessionRowView";
 import { readingVerdict } from "./verdictText";
 

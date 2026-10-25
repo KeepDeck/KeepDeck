@@ -3,16 +3,14 @@ import {
   registerTerminalLinks as registerKitLinks,
   type PaneHint,
 } from "@keepdeck/terminal-kit";
-import { openUrl } from "../../ipc/app";
 import type {
   FileOpenManager,
   FileOpenOutcome,
 } from "../../app/fileOpenManager";
 
 /** Where link activation lands: cwd for relative paths, hints for feedback.
- * The kit's provider is ipc-inverted (it takes `openUrl`/`openPath` on the
- * target); this host wrapper binds those to the app's Tauri ipc once, so every
- * host call site keeps the small `{ cwd, showHint }` shape it always had. */
+ * The kit's provider takes URL opening on the target; the app binds that
+ * capability before this wrapper sees it. */
 export interface TerminalLinkTarget {
   /** Working dir resolving relative path links; null resolves against the
    * app's cwd (the backend's default). */
@@ -20,6 +18,7 @@ export interface TerminalLinkTarget {
   /** Transient in-surface feedback (the ⌘ affordance, a failed open),
    * anchored at surface-local coordinates. */
   showHint(hint: PaneHint): void;
+  openUrl(url: string): Promise<void>;
 }
 
 /**
@@ -40,7 +39,6 @@ export function registerTerminalLinks(
 ): { dispose(): void } {
   return registerKitLinks(term, host, {
     ...target,
-    openUrl,
     openPath: async (path) => linkOpenNotice(await fileOpen.open({ path })),
   });
 }

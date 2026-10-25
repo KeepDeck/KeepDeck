@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { probeWorktree } from "../../ipc/worktree";
+import { probeWorktree } from "../ipc/worktree";
 
 /** The joiner for the probe-set fingerprint: NUL cannot appear in a path
  * (paths may legitimately contain spaces). */

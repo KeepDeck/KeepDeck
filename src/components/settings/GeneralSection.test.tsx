@@ -32,6 +32,15 @@ vi.mock("../../app/mcp/useMcpStatus", () => ({
     refused: [],
   }),
 }));
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+    clipboard: {
+      writeText: async () => {},
+      readText: async () => "",
+      readImageTempPath: async () => null,
+    },
+  }),
+);
 
 describe("GeneralSection — dock mode", () => {
   let host: HTMLElement;

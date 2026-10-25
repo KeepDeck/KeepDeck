@@ -1,7 +1,6 @@
 import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
 import { useOverlayVisibility, usePluginSurfaces } from "../app/usePluginSurfaces";
 import { useRuntimePart } from "../app/runtimeContext";
-import { log } from "../ipc/log";
 import { useContributions } from "../plugins";
 import { externalPluginUrl } from "../plugins/external/url";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
@@ -20,6 +19,7 @@ import { errorMessage } from "@keepdeck/plugin-api";
  */
 export function PluginOverlays() {
   const { pluginRegistries } = useRuntimePart("plugins");
+  const logger = useRuntimePart("logger");
   const overlays = useContributions(pluginRegistries.overlays);
   const visibility = useOverlayVisibility();
   const surfaces = usePluginSurfaces();
@@ -37,7 +37,7 @@ export function PluginOverlays() {
             // slot's position — an overlay's failure has no place HERE.
             fallback={null}
             onError={(e) => {
-              log.error(
+              logger.error(
                 `web:plugin:${c.pluginId}`,
                 `overlay "${c.entry.id}" crashed: ${errorMessage(e)}`,
               );

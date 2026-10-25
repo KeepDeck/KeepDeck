@@ -33,7 +33,8 @@ vi.mock("../../app/mcp/useMcpStatus", () => ({
 const clipboard = vi.hoisted(() => ({
   writeText: vi.fn(() => Promise.resolve()),
 }));
-vi.mock("../../ipc/clipboard", () => clipboard);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ clipboard }));
 
 /** Before the enable settles: nothing confirmed, nothing wrong. */
 const down = (): Status => ({

@@ -1,7 +1,7 @@
 import type { PluginCrash } from "../../app/pluginHealth";
 import type { PluginSurfacesPort } from "../../app/usePluginSurfaces";
 import type { Workspace } from "../../domain/deck";
-import { log } from "../../ipc/log";
+import type { HostLoggerPort } from "../../presentation/hostPorts";
 import { externalPluginUrl } from "../../plugins/external/url";
 import type { Contribution } from "../../plugins/registries/contributions";
 import { errorMessage, type DockTabContribution } from "@keepdeck/plugin-api";
@@ -25,6 +25,7 @@ import type { DockTabItem } from "./DockPanel";
  */
 export function buildDockTabs({
   host,
+  logger,
   contributions,
   crashes,
   workspace,
@@ -34,6 +35,7 @@ export function buildDockTabs({
   /** What the tabs report a crash through and hand their plugin the
    * workspace with. */
   host: Pick<PluginSurfacesPort, "reportCrash" | "workspaceSnapshot">;
+  logger: HostLoggerPort;
   contributions: readonly Contribution<DockTabContribution>[];
   crashes: readonly PluginCrash[];
   /** The active workspace, or null when there is none. */
@@ -72,7 +74,7 @@ export function buildDockTabs({
           <ErrorBoundary
             label={c.entry.label}
             onError={(e) => {
-              log.error(
+              logger.error(
                 `web:plugin:${c.pluginId}`,
                 `dock tab "${c.entry.id}" crashed: ${errorMessage(e)}`,
               );

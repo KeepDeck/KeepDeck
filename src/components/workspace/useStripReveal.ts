@@ -11,7 +11,7 @@ import {
   stripReveal,
   type PointerEvidence,
 } from "../../presentation/stripReveal";
-import { pointerInWindow, pointerOnWindow } from "../../ipc/window";
+import { useRuntimePart } from "../../app/runtimeContext";
 
 
 /**
@@ -41,6 +41,7 @@ import { pointerInWindow, pointerOnWindow } from "../../ipc/window";
  * rest as if the pointer had just come.
  */
 export function useStripReveal(column: RefObject<HTMLElement | null>, suspended: boolean) {
+  const { pointerInWindow, pointerOnWindow } = useRuntimePart("windowPointer");
   const [state, dispatch] = useReducer(stripReveal, REVEAL_AT_REST);
   // Pointer events seen so far: an OS answer asked before the latest one
   // is stale — the page has heard the pointer since.
@@ -93,7 +94,7 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
       );
     }, STRIP_POINTER_CHECK_MS);
     return stop;
-  }, [state.open, state.suspended]);
+  }, [state.open, state.suspended, pointerInWindow]);
 
   useEffect(() => {
     const inColumn = (node: EventTarget | null) =>
@@ -178,7 +179,7 @@ export function useStripReveal(column: RefObject<HTMLElement | null>, suspended:
     };
     // The column REF is stable for the strip's life; naming it subscribes
     // once, while the current element is read through it on every event.
-  }, [column]);
+  }, [column, pointerOnWindow]);
 
   return { open: state.open };
 }

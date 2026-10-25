@@ -220,6 +220,7 @@ export function useAppController(runtime: AppRuntime) {
     (active && resolveSelectedPaneId(stagePanes(active, activeView), activeView)) ?? null;
   const dockTabs = buildDockTabs({
     host: pluginSurfaces,
+    logger: runtime.logger,
     contributions: pluginDockTabs,
     crashes,
     workspace: active,

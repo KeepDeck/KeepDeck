@@ -1,8 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useRuntimePart } from "../../app/runtimeContext";
-import type { RecentProjects } from "../../domain/recentProject";
-import { recentProjects } from "../../ipc/history";
-import { log } from "../../ipc/log";
+import { useRuntimePart } from "./runtimeContext";
+import type { RecentProjects } from "../domain/recentProject";
+import { recentProjects } from "../ipc/history";
+import { log } from "../ipc/log";
 import { errorMessage } from "@keepdeck/plugin-api";
 
 /**

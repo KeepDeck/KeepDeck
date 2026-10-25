@@ -125,6 +125,19 @@ vi.mock("../../app/runtimeContext", async () => {
   }
   return {
     ...(await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+      clipboard: {
+        writeText: async () => {},
+        readText: async () => "",
+        readImageTempPath: async () => null,
+      },
+      shell: {
+        openUrl: async () => {},
+        listApplications: async () => [],
+      },
+      notificationPermission: {
+        notificationPermissionGranted: async () => false,
+        ensureNotificationPermission: async () => false,
+      },
       plugins: {
         pluginRegistries: registries,
         bootstrapPlugins: () => Promise.resolve(),

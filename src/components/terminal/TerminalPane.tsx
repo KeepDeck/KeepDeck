@@ -6,7 +6,6 @@ import "@xterm/xterm/css/xterm.css";
 import { usePaneTerminal } from "../../app/usePaneTerminal";
 import { registerTerminalPaneKeys } from "./paneKeyBinding";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
-import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerTerminalPaneInput } from "./paneInputBinding";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
@@ -121,6 +120,8 @@ export function TerminalPane({
   const fileOpen = useRuntimePart("fileOpen");
   const terminal = usePaneTerminal();
   const paneInputFocus = useRuntimePart("paneInputFocus");
+  const { readImageTempPath, readText, writeText } = useRuntimePart("clipboard");
+  const { openUrl } = useRuntimePart("shell");
   // Scrollback comes straight from the settings store ([F6]) — no prop
   // threading through the grid. Loaded before panes can mount (App gates the
   // first paint on it); the fallback only covers isolated test mounts.
@@ -311,6 +312,7 @@ export function TerminalPane({
       {
         cwd: cwd ?? null,
         showHint,
+        openUrl,
       },
       fileOpen,
     );
@@ -415,7 +417,7 @@ export function TerminalPane({
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [command, cwd, paneId, showHint, fileOpen, terminal]);
+  }, [command, cwd, paneId, showHint, fileOpen, terminal, readImageTempPath, readText, writeText, openUrl]);
 
   // Scrollback is a runtime xterm option — apply a settings change to the
   // live terminal ([F6]); shrinking trims the buffer, growing keeps it.

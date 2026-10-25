@@ -24,13 +24,16 @@ const os = vi.hoisted(() => ({
   point: null as { x: number; y: number; pressed: boolean } | null,
   pointAnswer: null as Promise<{ x: number; y: number; pressed: boolean } | null> | null,
 }));
-vi.mock("../../ipc/window", () => ({
-  pointerInWindow: () => {
-    os.asks += 1;
-    return os.answer ?? Promise.resolve(os.inWindow);
-  },
-  pointerOnWindow: () => os.pointAnswer ?? Promise.resolve(os.point),
-}));
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+    windowPointer: {
+      pointerInWindow: () => {
+        os.asks += 1;
+        return os.answer ?? Promise.resolve(os.inWindow);
+      },
+      pointerOnWindow: () => os.pointAnswer ?? Promise.resolve(os.point),
+    },
+  }));
 
 const mark = (id: string, name: string, extra: Partial<WorkspaceMark> = {}): WorkspaceMark => ({
   id,

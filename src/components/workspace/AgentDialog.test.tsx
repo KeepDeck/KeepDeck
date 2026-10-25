@@ -8,7 +8,7 @@ import {
   pinListViewport,
 } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { roleChoiceView } from "../../presentation/roleChoiceView";
-import * as dirPresenceModule from "../history/useDirPresence";
+import * as dirPresenceModule from "../../app/useDirPresence";
 import {
   createSessionIndexManager,
   type SessionIndexManager,

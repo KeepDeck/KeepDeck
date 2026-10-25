@@ -8,12 +8,11 @@ import { present } from "@keepdeck/plugin-api/testing";
 const managerMock = vi.hoisted(() => ({
   restartPlugin: vi.fn(async () => {}),
 }));
-vi.mock("../../app/runtimeContext", async () =>
-  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ plugins: managerMock }));
 const clipboardMock = vi.hoisted(() => ({
   writeText: vi.fn(async (_text: string) => {}),
 }));
-vi.mock("../../ipc/clipboard", () => clipboardMock);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ plugins: managerMock, clipboard: clipboardMock }));
 
 const CRASHES = [
   {

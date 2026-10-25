@@ -5,10 +5,7 @@ import {
   NOTIFICATION_MODES,
   type NotificationsMode,
 } from "../../domain/settings";
-import {
-  ensureNotificationPermission,
-  notificationPermissionGranted,
-} from "../../ipc/notify";
+import { useRuntimePart } from "../../app/runtimeContext";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 import { ON_OFF } from "../../presentation/choices";
 
@@ -35,6 +32,8 @@ const MODE_OPTIONS: Record<NotificationsMode, { label: string; hint: string }> =
  * lives in System Settings, not here.
  */
 export function NotificationsSection() {
+  const { ensureNotificationPermission, notificationPermissionGranted } =
+    useRuntimePart("notificationPermission");
   const settings = useSettings();
   const updateSettings = useSettingsWrite();
   const prefs = settings?.notifications ?? DEFAULT_SETTINGS.notifications;
@@ -61,7 +60,7 @@ export function NotificationsSection() {
     return () => {
       alive = false;
     };
-  }, [usesSystem]);
+  }, [usesSystem, notificationPermissionGranted]);
 
   return (
     <>

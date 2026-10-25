@@ -6,10 +6,13 @@ import { initUpdates, resetUpdateManager } from "../../app/updateManager";
 import type { AvailableUpdate } from "../../ipc/updater";
 import { UpdatesSection } from "./UpdatesSection";
 
-vi.mock("../../ipc/app", () => ({
+const appIpc = vi.hoisted(() => ({
   fetchAppInfo: vi.fn(),
   openUrl: vi.fn(async () => {}),
 }));
+vi.mock("../../ipc/app", () => appIpc);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ shell: appIpc }));
 vi.mock("../../ipc/updater", () => ({
   checkForUpdate: vi.fn(),
   discardUpdate: vi.fn(async () => {}),

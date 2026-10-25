@@ -1,6 +1,5 @@
 import type { PluginCrash } from "../../app/pluginHealth";
 import { useRuntimePart } from "../../app/runtimeContext";
-import { writeText } from "../../ipc/clipboard";
 
 /** The crash's surface in words — the log's line prefix and the hint. */
 function crashSurfaceLabel(crash: PluginCrash): string {
@@ -24,6 +23,7 @@ export function PluginFailurePanel({
   crashes: readonly PluginCrash[];
 }) {
   const { restartPlugin } = useRuntimePart("plugins");
+  const { writeText } = useRuntimePart("clipboard");
   const log = crashes
     .map((crash) => `[${crashSurfaceLabel(crash)}] ${crash.detail}`)
     .join("\n\n");

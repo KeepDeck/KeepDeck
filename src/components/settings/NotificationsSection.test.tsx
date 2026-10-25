@@ -11,7 +11,8 @@ const notifyIpc = vi.hoisted(() => ({
   notificationPermissionGranted: vi.fn(() => Promise.resolve(false)),
   ensureNotificationPermission: vi.fn(() => Promise.resolve(true)),
 }));
-vi.mock("../../ipc/notify", () => notifyIpc);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ notificationPermission: notifyIpc }));
 
 const settings = vi.hoisted(() => ({
   current: null as Settings | null,
