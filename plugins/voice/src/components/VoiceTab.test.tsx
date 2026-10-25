@@ -13,7 +13,7 @@ import { MODEL_CATALOG } from "../modelCatalog";
 import { createRecordingLatch } from "../recordingLatch";
 import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { VoiceTab } from "./VoiceTab";
-import { speechTranscript } from "@keepdeck/plugin-api/testing";
+import { present, speechTranscript } from "@keepdeck/plugin-api/testing";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -127,7 +127,7 @@ describe("VoiceTab history click-to-copy", () => {
     // Clicking a row copies it, but a user often wants half a sentence, and
     // the document baseline withholds selection unless the log asks by name.
     expect(
-      stage.querySelector(".voice__log")!.classList.contains("kd-selectable"),
+      present(stage.querySelector(".voice__log"), "the .voice__log element").classList.contains("kd-selectable"),
     ).toBe(true);
   });
 
@@ -228,7 +228,7 @@ describe("VoiceTab history click-to-copy", () => {
   it("does not copy when a drag-select ends IN this row (manual copy fallback)", async () => {
     render();
     // A selection that touches the clicked row — the user is drag-selecting.
-    const selection = window.getSelection()!;
+    const selection = present(window.getSelection(), "the selection");
     selection.selectAllChildren(entries()[0]);
     // happy-dom answers containsNode wrongly, so the geometry is stated.
     const touches = vi.spyOn(selection, "containsNode").mockReturnValue(true);
@@ -250,7 +250,7 @@ describe("VoiceTab history click-to-copy", () => {
     // A selection elsewhere must NOT block the copy on this row.
     const elsewhere = document.body.appendChild(document.createElement("p"));
     elsewhere.textContent = "selected";
-    const selection = window.getSelection()!;
+    const selection = present(window.getSelection(), "the selection");
     selection.selectAllChildren(elsewhere);
     // happy-dom answers containsNode wrongly, so the geometry is stated.
     const touches = vi.spyOn(selection, "containsNode").mockReturnValue(false);

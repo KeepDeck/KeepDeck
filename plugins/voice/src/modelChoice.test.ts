@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 import { activeModel, MODEL_KEY, readModelPick } from "./modelChoice";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const model = (id: string, installed: boolean): VoiceModelInfo => ({
-  ...MODEL_CATALOG.find((m) => m.id === id)!,
+  ...present(MODEL_CATALOG.find((m) => m.id === id), "the matching item"),
   installed,
 });
 

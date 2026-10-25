@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { DownloadsSnapshot } from "./downloads";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 import { barFill, downloadRows, modelCards, modelName, ratingFill } from "./modelsView";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const model = (id: string, installed: boolean): VoiceModelInfo => ({
-  ...MODEL_CATALOG.find((m) => m.id === id)!,
+  ...present(MODEL_CATALOG.find((m) => m.id === id), "the matching item"),
   installed,
 });
 const NO_DL = { active: {}, errors: {}, interrupted: {} };

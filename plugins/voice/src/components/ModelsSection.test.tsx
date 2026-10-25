@@ -13,9 +13,10 @@ import { createRecordingLatch } from "../recordingLatch";
 import { clearRuntime, setRuntime } from "../runtime";
 import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { ModelsSection } from "./ModelsSection";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const installed = (id: string): VoiceModelInfo => ({
-  ...MODEL_CATALOG.find((model) => model.id === id)!,
+  ...present(MODEL_CATALOG.find((model) => model.id === id), "the matching item"),
   installed: true,
 });
 
@@ -70,9 +71,9 @@ describe("ModelsSection", () => {
   });
 
   const card = (name: RegExp) =>
-    [...stage.querySelectorAll<HTMLElement>(".voice-models__card")].find((el) =>
+    present([...stage.querySelectorAll<HTMLElement>(".voice-models__card")].find((el) =>
       name.test(el.textContent ?? ""),
-    )!;
+    ), "the matching item");
   const click = (el: Element) =>
     act(() => {
       el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -84,17 +85,17 @@ describe("ModelsSection", () => {
   });
 
   it("still picks from the card's size — only its actions are contained", () => {
-    const size = [...card(/Parakeet/i).querySelectorAll(".voice-models__foot-right > span")].find(
+    const size = present([...card(/Parakeet/i).querySelectorAll(".voice-models__foot-right > span")].find(
       (span) => /MB$/.test(span.textContent ?? ""),
-    )!;
+    ), "the .voice-models__foot-right > span elements");
     click(size);
     expect(write).toHaveBeenCalledWith(MODEL_KEY, "parakeet-tdt-0.6b-v3");
   });
 
   it("deletes without also picking the model it is deleting", () => {
-    const deleteButton = [...card(/Parakeet/i).querySelectorAll("button")].find(
+    const deleteButton = present([...card(/Parakeet/i).querySelectorAll("button")].find(
       (button) => button.textContent === "Delete",
-    )!;
+    ), "the button elements");
     click(deleteButton);
     expect(remove).toHaveBeenCalledTimes(1);
     expect(remove.mock.calls[0][0]).toMatchObject({ id: "parakeet-tdt-0.6b-v3" });
