@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import { createSessionIndexManager } from "./sessionIndexManager";
+import type { IndexLookupAnswer, IndexLookupKey } from "../ipc/history";
 
 /** A stand-in for an agent's plugin history surface — the manager only
  * forwards it to scanAgentHistories (mocked), never calls it, so every
@@ -387,18 +388,17 @@ describe("sessionIndexManager locateTranscript", () => {
    * would have put into the index. */
   function withIndex(initial: Record<string, Answer> = {}) {
     const table: Record<string, Answer> = { ...initial };
-    const lookup = vi.fn(async (keys: Array<{ agent: string; sessionId: string }>) =>
-      keys.map((key) => ({
-        ...key,
-        ...(table[`${key.agent}:${key.sessionId}`] ?? { status: "absent" as const }),
-        reference: "ref",
-        title: null,
-        mtime: 0,
-      })),
+    const lookup = vi.fn(async (keys: IndexLookupKey[]): Promise<IndexLookupAnswer[]> =>
+      keys.map((key): IndexLookupAnswer => {
+        const known = table[`${key.agent}:${key.sessionId}`];
+        return known?.status === "hit"
+          ? { ...key, status: "hit", reference: "ref", title: null, mtime: 0, transcriptPath: known.transcriptPath }
+          : { ...key, status: "absent" };
+      }),
     );
     const { registry } = fakeRegistry(CONTRIBUTIONS);
     const manager = createSessionIndexManager(registry, {
-      lookup: lookup as never,
+      lookup,
     });
     return { manager, table, lookup };
   }

@@ -1219,7 +1219,7 @@ describe("SessionsBrowser journal join", () => {
             agents,
             ready: true,
             rows: [
-              closed({ agent: "codex" as never, sessionId: "b", branch: "kd/ws/2" }),
+              closed({ agent: "codex", sessionId: "b", branch: "kd/ws/2" }),
             ],
             onResume: vi.fn(),
             onFork: vi.fn(),

@@ -6,7 +6,7 @@
  * Every suite imports THIS before the dialog: the doubles register when this
  * module evaluates, and the dialog would pull the real hooks in first.
  */
-import { act, createElement } from "react";
+import { act, createElement, type FunctionComponent } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
 import {
@@ -98,10 +98,10 @@ export const WS = { id: "ws-1", name: "My project" };
  * would replace the implementations above with ones that leave the list
  * untouched, i.e. put the double back in a state the real hook cannot be
  * in. A case that wants a failure says so with `mockResolvedValueOnce`. */
-export function skillsDialogHost(Dialog: (props: {
+export function skillsDialogHost(Dialog: FunctionComponent<{
   activeWs: { id: string; name: string } | null;
   onClose(): void;
-}) => unknown) {
+}>) {
   let root: Root;
   let closed = 0;
   return {
@@ -124,7 +124,7 @@ export function skillsDialogHost(Dialog: (props: {
     /** Render (or re-render, after the double's list moved). */
     mount: (activeWs: { id: string; name: string } | null = WS) =>
       act(async () =>
-        root.render(createElement(Dialog as never, { activeWs, onClose: () => closed++ })),
+        root.render(createElement(Dialog, { activeWs, onClose: () => closed++ })),
       ),
     closed: () => closed,
   };

@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { InstalledPlugin } from "../../plugins";
 import { PluginPage } from "./PluginPage";
 
 const setEnabled = vi.hoisted(() => vi.fn(async () => {}));
@@ -20,7 +21,7 @@ vi.mock("../../app/runtimeContext", () => ({
 }));
 vi.mock("../../app/useSettings", () => ({ useSettings: () => null }));
 
-const FAILED_PLUGIN = {
+const FAILED_PLUGIN: InstalledPlugin = {
   manifest: {
     id: "keepdeck.git",
     name: "Git",
@@ -30,8 +31,9 @@ const FAILED_PLUGIN = {
     capabilities: [],
     contributes: {},
   },
+  source: "builtin",
   status: { kind: "failed", reason: "spawn keepdeck-git ENOENT" },
-} as never;
+};
 
 describe("PluginPage — the failure reason a user has to copy", () => {
   let root: Root;

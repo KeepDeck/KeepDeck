@@ -127,7 +127,7 @@ describe("Kimi CLI plugin", () => {
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, resume);
     const fork = output();
     await agent.hooks["fork.plan"]!(
-      { ...input, sessionId: "session_123", sourceCwd: "/old" } as never,
+      { ...input, sessionId: "session_123", sourceCwd: "/old" },
       fork,
     );
     expect(fork.args).toEqual(["--session", "session_forked"]);

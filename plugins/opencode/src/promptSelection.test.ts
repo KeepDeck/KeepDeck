@@ -102,7 +102,7 @@ describe("the selection a delivery repeats", () => {
     // The resource cannot import plugin-api; this keeps its copy honest.
     const framed = frameTeammateMail([
       { id: "mail-1", kind: "task", from: "lead", body: "x", standing: false },
-    ] as never);
+    ]);
     expect(framed.startsWith(MAIL_FRAME)).toBe(true);
   });
 });

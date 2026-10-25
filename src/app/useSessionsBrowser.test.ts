@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { sharedOf } from "./browserShared.test-support";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IndexFolderScope, SearchHit, SearchPage } from "../ipc/history";
 
@@ -61,21 +62,6 @@ describe("the browser prefers the honest twin", () => {
     expect(transcript).toHaveBeenCalledWith("/store/s-1", page);
     expect(got).toEqual({ entries });
   });
-});
-
-/** The shared seam's stand-in: fixed revision/scanning, a keyed table the
- * tests may pre-fill, and recording declares. */
-const sharedOf = (over: Partial<BrowserSharedSeam> = {}): BrowserSharedSeam => ({
-  scanning: false,
-  revision: 1,
-  enrichment: {
-    entries: new Map(),
-    pending: false,
-    declare: vi.fn(),
-  },
-  ensureFresh: vi.fn(),
-  transcript: vi.fn(() => Promise.resolve({ entries: [] })),
-  ...over,
 });
 
 const mkHits = (from: number, count: number): SearchHit[] =>

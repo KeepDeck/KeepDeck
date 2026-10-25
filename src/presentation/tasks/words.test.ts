@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { TaskStatus } from "../../domain/tasks";
 import { blockerLinkWords, openWorkWords, boardBanner, fieldCount, readOnlyBanner, restoreView, unsavedBanner, personName, priorityMark, statusTone } from "./words";
 
 describe("words", () => {
@@ -6,7 +7,8 @@ describe("words", () => {
     expect(personName("user")).toBe("you");
     expect(personName("impl-1")).toBe("impl-1");
     expect([priorityMark("high"), priorityMark("normal"), priorityMark("low")]).toEqual(["HIGH", null, "LOW"]);
-    expect(["in-progress", "review", "blocked", "done", "todo", "cancelled"].map((s) => statusTone(s as never))).toEqual([
+    const statuses: TaskStatus[] = ["in-progress", "review", "blocked", "done", "todo", "cancelled"];
+    expect(statuses.map((s) => statusTone(s))).toEqual([
       "working",
       "waiting",
       "failed",

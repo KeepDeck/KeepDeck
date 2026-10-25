@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { DownloadsSnapshot } from "./downloads";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 import { barFill, downloadRows, modelCards, modelName, ratingFill } from "./modelsView";
 
@@ -48,10 +49,13 @@ describe("modelCards", () => {
   });
 
   it("a download in flight offers Cancel with its progress and a bar", () => {
-    const dl = {
-      active: { "parakeet-tdt-0.6b-v3": { phase: "downloading", received: 50, total: 100 } },
+    const dl: DownloadsSnapshot = {
+      active: {
+        "parakeet-tdt-0.6b-v3": { id: "parakeet-tdt-0.6b-v3", phase: "downloading", received: 50, total: 100 },
+      },
       errors: {},
-    } as never;
+      interrupted: {},
+    };
     const card = modelCards([model("parakeet-tdt-0.6b-v3", false)], null, dl, {})[0];
     expect(card.action).toEqual({ kind: "cancel", progress: "50%" });
     expect(card.bar).toEqual({ percent: 50 });
@@ -91,7 +95,7 @@ describe("model bars and rows", () => {
   it("the tab lists a running download by the model's one name", () => {
     const rows = downloadRows({
       "parakeet-tdt-0.6b-v3": { id: "x", phase: "downloading", received: 25, total: 100 },
-    } as never);
+    });
     expect(rows).toEqual([
       { id: "parakeet-tdt-0.6b-v3", text: "Downloading Parakeet TDT 0.6B v3… 25%", fill: { width: "25%" } },
     ]);

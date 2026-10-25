@@ -107,7 +107,7 @@ const teamPicked = () => document.querySelector('button[aria-label="Team"] .drop
 const rowOpens = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".tasks__row .tasks__row-open"));
 const rowTitles = () => Array.from(document.querySelectorAll(".tasks__list .tasks__row-title")).map((t) => t.textContent);
 
-function mount(service: TasksService | null, initial = teamedWorkspaces()[0], strict = false) {
+function mount(service: TasksService | null, initial: Workspace | null = teamedWorkspaces()[0], strict = false) {
   let workspace = initial;
   const render = (next?: Workspace) => {
     if (next) workspace = next;
@@ -1249,7 +1249,7 @@ describe("TasksDialog", () => {
   });
 
   it("walks the ladder: no workspace, owner down, empty board", async () => {
-    const render = mount(null, null as never);
+    const render = mount(null, null);
     render();
     await flush();
     expect(text()).toContain("No workspace open");

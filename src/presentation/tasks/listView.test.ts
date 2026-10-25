@@ -62,7 +62,9 @@ describe("listView — the board's tasks as one list", () => {
     expect(keys(items)).toEqual(["head:blocked", "head:backlog", "head:todo", "head:in-progress", "head:review", "task-5", "head:done", "head:cancelled"]);
     expect(items[4]).toMatchObject({ kind: "head", label: "Review", count: 1, folded: false });
     expect(items[0]).toMatchObject({ kind: "head", count: 0 });
-    expect(listHeadingClassName(items[0] as never)).toContain("tasks__group--empty");
+    const empty = items[0];
+    if (empty?.kind !== "head") throw new Error("the list does not start with a heading");
+    expect(listHeadingClassName(empty)).toContain("tasks__group--empty");
   });
 
   it("folds a group to its heading alone — the heading stays, with the count of what it hides", () => {

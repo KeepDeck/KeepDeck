@@ -23,6 +23,7 @@ const liveCatalog = vi.hoisted(() => ({ snapshot: {} as object }));
 vi.mock("../../app/useRoleCatalog", () => ({ useRoleCatalog: () => liveCatalog.snapshot }));
 
 import { TeamSessions } from "./TeamSessions";
+import { sharedOf } from "../../app/browserShared.test-support";
 import { configureRoleCatalog, teamRoles } from "../../domain/mail";
 
 const record = { agent: "claude", sessionId: "s-1", cwd: "/repo/wt" } as SessionHandle;
@@ -45,7 +46,7 @@ describe("TeamSessions — an empty team's sessions list", () => {
           },
           cwd: "/repo/wt",
           journal: {},
-          browserShared: {} as never,
+          browserShared: sharedOf(),
           agents: [],
           agentsReady: true,
           onContinue,

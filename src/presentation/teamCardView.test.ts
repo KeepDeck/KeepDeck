@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PANES, TEAM_FULL_MESSAGE, teamHeldPath, type GitPosition, type Team, type Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
+import { board as taskBoard, task } from "../domain/tasks/testSupport";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { teamCardsView, teamHead, TEAM_CARD_WORDS } from "./teamCardView";
 
@@ -160,12 +161,10 @@ describe("teamCardsView and teamHead", () => {
   it("builds every card in deck order, each with its own head and its tasks line", () => {
     const deck = ws([attached, creating], { "team-1": 2, "team-2": 0 });
     const heads = new Map([["/repo/.wt/api", { branch: "kd/api-live", head: "abc" }]]);
-    const board = {
-      tasks: [
-        { id: "task-1", teamId: "team-1", status: "todo" },
-        { id: "task-2", teamId: "team-1", status: "review" },
-      ],
-    } as never;
+    const board = taskBoard([
+      task({ id: "task-1", teamId: "team-1", status: "todo" }),
+      task({ id: "task-2", teamId: "team-1", status: "review" }),
+    ]);
     const cards = teamCardsView(deck, new Map([["team-1-p1", working]]), heads, board);
     expect(cards.map((c) => [c.id, c.branch, c.dot, c.tasksLine])).toEqual([
       ["team-1", "kd/api-live", "working", "1 open · 1 in review"],

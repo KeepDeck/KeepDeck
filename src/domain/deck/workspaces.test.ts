@@ -393,10 +393,11 @@ describe("directoryState", () => {
     // Its card waits for Retry; telling the person to "try again in a
     // moment" would be a wait that never ends.
     const failed = creatingTeam("team-2", "/wt/pending");
+    if (failed.location?.kind !== "provisioning") throw new Error("a creating team provisions");
     const deck: Workspace[] = [
       {
         ...ws("a", []),
-        teams: [{ ...failed, location: { ...failed.location!, error: "boom" } as never }],
+        teams: [{ ...failed, location: { ...failed.location, error: "boom" } }],
         panes: [],
       },
     ];
