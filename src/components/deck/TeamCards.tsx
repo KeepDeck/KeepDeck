@@ -16,8 +16,7 @@
  */
 import { useMemo } from "react";
 import { useRuntimePart } from "../../app/runtimeContext";
-import { readyBoard } from "../../app/tasks/tasksService";
-import { useTasksBoardState } from "../../app/tasks/useBoardState";
+import { useReadyTasksBoard } from "../../app/tasks/useBoardState";
 import type { GitPosition, Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
 import {
@@ -62,8 +61,7 @@ export function TeamCards({
   onRetry,
 }: TeamCardsProps) {
   const tasks = useRuntimePart("tasks");
-  const boardState = useTasksBoardState(tasks, workspace.id);
-  const board = readyBoard(boardState);
+  const board = useReadyTasksBoard(tasks, workspace.id);
   const cards = useMemo(
     () => teamCardsView(workspace, activities, gitHeads, board),
     [workspace, gitHeads, activities, board],

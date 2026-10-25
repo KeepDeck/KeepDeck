@@ -1,5 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import type { TaskBoard } from "../../domain/tasks";
 import type { BoardState, TasksService } from ".";
+import { readyBoard } from "./tasksService";
 import type { TasksAccess } from "./useTasksBoard";
 
 const noop = () => () => {};
@@ -53,4 +55,10 @@ export function useTasksBoardFeed(
  * count, the team cards. */
 export function useTasksBoardState(access: TasksAccess, workspaceId: string | null): BoardState | null {
   return useTasksBoardFeed(access, workspaceId).state;
+}
+
+/** That board, once it reads — null while it loads, will not decode, or
+ * no workspace is asked about. */
+export function useReadyTasksBoard(access: TasksAccess, workspaceId: string | null): TaskBoard | null {
+  return readyBoard(useTasksBoardState(access, workspaceId));
 }

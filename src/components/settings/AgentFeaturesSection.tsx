@@ -1,4 +1,4 @@
-import { projectAgentFeatureRows } from "../../app/agentFeatureCatalog";
+import { projectAgentFeatureRows } from "../../presentation/agentFeatureCatalog";
 import type { AgentFeature } from "../../domain/agents";
 import type { InstalledPlugin } from "../../plugins";
 

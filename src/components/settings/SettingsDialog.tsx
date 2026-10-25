@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { buildAgentFeatureCatalog } from "../../app/agentFeatureCatalog";
+import { buildAgentFeatureCatalog } from "../../presentation/agentFeatureCatalog";
 import { useRuntimePart } from "../../app/runtimeContext";
 import {
   useContributions,

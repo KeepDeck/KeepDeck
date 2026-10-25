@@ -1,6 +1,5 @@
-import { useSyncExternalStore } from "react";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
-import { offBlockedBy, tasksEnableStatus } from "../../app/tasks/enableStatus";
+import { useTasksOffBlockedBy } from "../../app/tasks/useTasksEnableStatus";
 import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { offWaitingHint, showTasksSocketHint } from "../../presentation/tasks";
@@ -27,9 +26,7 @@ export function TasksRows() {
   const served = useMcpStatus().socket !== null;
   // An Off the backend refused — a board it would have closed over
   // unsaved — is the one state the toggle alone misstates.
-  const offWaiting = offWaitingHint(
-    offBlockedBy(useSyncExternalStore(tasksEnableStatus.subscribe, tasksEnableStatus.last, tasksEnableStatus.last)),
-  );
+  const offWaiting = offWaitingHint(useTasksOffBlockedBy());
 
   return (
     <>
