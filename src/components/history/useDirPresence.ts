@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { probeWorktree } from "../ipc/worktree";
+import { useRuntimePart } from "../../app/runtimeContext";
 
 /** The joiner for the probe-set fingerprint: NUL cannot appear in a path
  * (paths may legitimately contain spaces). */
@@ -32,6 +32,7 @@ const SEP = String.fromCharCode(0);
 export function useDirPresence(
   cwds: readonly string[],
 ): ReadonlyMap<string, boolean> {
+  const { probeWorktree } = useRuntimePart("directoryProbe");
   const [presence, setPresence] = useState<ReadonlyMap<string, boolean>>(
     new Map(),
   );
@@ -91,7 +92,7 @@ export function useDirPresence(
     return () => {
       alive = false;
     };
-  }, [dirs]);
+  }, [dirs, probeWorktree]);
   return presence;
 }
 

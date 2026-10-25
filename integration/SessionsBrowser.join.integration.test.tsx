@@ -126,6 +126,7 @@ const sessionIndex = vi.hoisted(() => {
 
 vi.mock("../src/app/runtimeContext", async () =>
   (await import("../src/app/runtimeContext.test-support")).runtimePartsModule({
+    directoryProbe: worktreeIpc,
     plugins: {
       pluginRegistries: {
         agents: {

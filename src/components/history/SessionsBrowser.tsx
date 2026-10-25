@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { dirPresent, useDirPresence } from "../../app/useDirPresence";
+import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentInfo } from "../../domain/agents";
 import {
   handleFromHit,

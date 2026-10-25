@@ -13,11 +13,12 @@ import { present } from "@keepdeck/plugin-api/testing";
 // gate, the index manager behind the runtime, and one agent in the catalog
 // that can start, resume and fork — so a target that HIDES continuations is
 // hiding something the agent offers.
-vi.mock("../../ipc/worktree", () => ({
+const worktreeIpc = vi.hoisted(() => ({
   probeWorktree: vi.fn((_path: string) =>
     Promise.resolve({ exists: true, isWorktree: false, branch: null }),
   ),
 }));
+vi.mock("../../ipc/worktree", () => worktreeIpc);
 const sessionIndex = vi.hoisted(() => {
   const snapshot = { scanning: false, revision: 0 };
   return {
@@ -27,7 +28,10 @@ const sessionIndex = vi.hoisted(() => {
   };
 });
 vi.mock("../../app/runtimeContext", async () =>
-  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({ sessionIndex }));
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+    sessionIndex,
+    directoryProbe: worktreeIpc,
+  }));
 vi.mock("../../app/useAgents", () => ({
   useAgents: () => ({
     agents: [

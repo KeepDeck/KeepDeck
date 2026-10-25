@@ -19,6 +19,11 @@ const worktreeIpc = vi.hoisted(() => ({
   ),
 }));
 vi.mock("../../ipc/worktree", () => worktreeIpc);
+vi.mock("../../app/runtimeContext", async () =>
+  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+    directoryProbe: worktreeIpc,
+  }),
+);
 
 // The row-render counter for the stability suite: hoisted with the mock
 // that uses it (vi.mock bodies run before describe bodies). The wrapper

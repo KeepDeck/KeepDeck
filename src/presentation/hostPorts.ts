@@ -17,6 +17,10 @@ export interface NotificationPermissionPort {
   ensureNotificationPermission(): Promise<boolean>;
 }
 
+export interface DirectoryProbePort {
+  probeWorktree(path: string): Promise<{ exists: boolean }>;
+}
+
 export interface WindowPointerPort {
   pointerInWindow(): Promise<boolean | null>;
   pointerOnWindow(): Promise<{ x: number; y: number; pressed: boolean } | null>;

@@ -10,6 +10,7 @@ const mask = /block|divider|section/i;
 // vocabulary: a missing directory blocks Resume. Every other hit in the
 // production scope needs an explicit, current meaning.
 const liveUses: Array<{ path: string; text: RegExp }> = [
+  { path: "src/components/history/useDirPresence.ts", text: /would block$/i },
   { path: "src/components/history/SessionRowView.tsx", text: /blocks Resume/i },
   { path: "src/components/history/SessionRowView.tsx", text: /Resume is blocked/i },
 ];

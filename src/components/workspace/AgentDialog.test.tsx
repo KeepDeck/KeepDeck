@@ -8,7 +8,7 @@ import {
   pinListViewport,
 } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 import { roleChoiceView } from "../../presentation/roleChoiceView";
-import * as dirPresenceModule from "../../app/useDirPresence";
+import * as dirPresenceModule from "../history/useDirPresence";
 import {
   createSessionIndexManager,
   type SessionIndexManager,
@@ -71,6 +71,7 @@ const sessionIndexRef = vi.hoisted(
 );
 vi.mock("../../app/runtimeContext", async () =>
   (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+    directoryProbe: worktreeIpc,
     // Read per call: a test swaps the index in after the module is mocked.
     get sessionIndex() {
       return sessionIndexRef.current;

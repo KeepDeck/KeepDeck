@@ -114,6 +114,7 @@ import { createPaneInputFocusController } from "../presentation/paneInputFocusCo
 import { createPaneViewActions } from "../presentation/paneViewActions";
 import type {
   ClipboardPort,
+  DirectoryProbePort,
   HostLoggerPort,
   NotificationPermissionPort,
   ShellPort,
@@ -491,6 +492,7 @@ export function createAppRuntime(
     ensureNotificationPermission,
     notificationPermissionGranted,
   };
+  const directoryProbe: DirectoryProbePort = { probeWorktree };
   const windowPointer: WindowPointerPort = { pointerInWindow, pointerOnWindow };
   let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
   let statusChannel: ReturnType<typeof createAgentStatusChannel> | null = null;
@@ -527,6 +529,7 @@ export function createAppRuntime(
     clipboard,
     shell,
     notificationPermission,
+    directoryProbe,
     windowPointer,
     start() {
       if (disposed) return;

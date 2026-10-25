@@ -24,7 +24,7 @@ import type {
 } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
 import { resumeBlock } from "../../domain/deck";
-import { dirPresent, useDirPresence } from "../../app/useDirPresence";
+import { dirPresent, useDirPresence } from "../history/useDirPresence";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useRuntimePart } from "../../app/runtimeContext";
 
