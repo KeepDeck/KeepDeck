@@ -14,6 +14,7 @@ import { CLAUDE_MAIL_CHANNELS, renderClaudeMail } from "./status";
  * deck read. */
 const ASKS_FOR_MAIL = new Set(CLAUDE_MAIL_CHANNELS.map((channel) => channel.event));
 import { claudeUsageWatches } from "./usage";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The section this plugin registered during the last [`activate`]. */
 let registered: SettingsSectionContribution | undefined;
@@ -102,7 +103,7 @@ describe("claude plugin hooks", () => {
   it("arms the SessionStart reporter — identity is reporter-based", async () => {
     const agent = activate(SESSION_HOOK);
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     expect(out.args[0]).toBe("--settings");
     const settings = JSON.parse(out.args[1]);
@@ -122,7 +123,7 @@ describe("claude plugin hooks", () => {
   it("arms every turn-lifecycle event on one status reporter", async () => {
     const agent = activate(STATUS_HOOK);
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     const settings = JSON.parse(out.args[1]);
     // The agent id is the ONLY argument. The script takes no others, and a
@@ -203,7 +204,7 @@ describe("claude plugin hooks", () => {
     // itself, so the shape is pinned here rather than left to review.
     const agent = activate({ ...SESSION_HOOK, ...STATUS_HOOK });
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     const settings = JSON.parse(out.args[1]);
     expect(
@@ -224,7 +225,7 @@ describe("claude plugin hooks", () => {
   it("arms the statusLine usage reporter alongside identity", async () => {
     const agent = activate({ ...SESSION_HOOK, ...USAGE_HOOK });
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     const settings = JSON.parse(out.args[1]);
     expect(settings.statusLine).toEqual({
@@ -243,7 +244,7 @@ describe("claude plugin hooks", () => {
     const awkward = "/Users/Jo O'Neil/\"Apps\"/kd-status-hook.sh";
     const agent = activate({ "kd-status-hook.sh": awkward });
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
     const settings = JSON.parse(out.args[1]);
     expect(argv(settings.hooks.Stop[0])).toEqual(["/bin/sh", awkward, "claude", "--ask"]);
   });
@@ -251,7 +252,7 @@ describe("claude plugin hooks", () => {
   it("each reporter degrades independently when its script is missing", async () => {
     const agent = activate(USAGE_HOOK);
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     const settings = JSON.parse(out.args[1]);
     expect(settings.hooks).toBeUndefined();
@@ -272,17 +273,17 @@ describe("claude plugin hooks", () => {
     };
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, mcp }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, mcp }, spawn);
     expect(spawn.args).toContain("--mcp-config");
 
     // A resumed pane is the same session to the user, so it gets the same
     // servers — the resume hook must not be the one that forgets.
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, mcp, sessionId: "s" }, resume);
     expect(resume.args).toContain("--mcp-config");
 
     const bare = output();
-    await agent.hooks["spawn.plan"]!(input, bare);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, bare);
     expect(bare.args).not.toContain("--mcp-config");
   });
 
@@ -295,14 +296,14 @@ describe("claude plugin hooks", () => {
     };
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, skills }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, skills }, spawn);
     expect(spawn.args.slice(2)).toEqual([
       "--plugin-dir",
       "/kd/staging/ws-1/claude-plugin",
     ]);
 
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...input, skills, sessionId: "s" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, skills, sessionId: "s" }, resume);
     expect(resume.args.slice(2)).toEqual([
       "--plugin-dir",
       "/kd/staging/ws-1/claude-plugin",
@@ -312,15 +313,15 @@ describe("claude plugin hooks", () => {
 
     // No skills staged — the flag must not appear at all.
     const bare = output();
-    await agent.hooks["spawn.plan"]!(input, bare);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, bare);
     expect(bare.args).not.toContain("--plugin-dir");
-    expect(JSON.parse(bare.args[bare.args.indexOf("--settings") + 1]!).enabledPlugins).toBeUndefined();
+    expect(JSON.parse(present(bare.args[bare.args.indexOf("--settings") + 1], "the bare.args at the index")).enabledPlugins).toBeUndefined();
   });
 
   it("resume reuses the recorded id and keeps the reporter armed", async () => {
     const agent = activate(SESSION_HOOK);
     const out = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "old-id" }, out);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "old-id" }, out);
 
     expect(out.args[0]).toBe("--settings");
     expect(out.args.slice(2)).toEqual(["--resume", "old-id"]);
@@ -329,7 +330,7 @@ describe("claude plugin hooks", () => {
   it("degrades to a bare spawn when both reporter scripts are missing", async () => {
     const agent = activate(null);
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     expect(out.args).toEqual([]);
   });
@@ -338,11 +339,11 @@ describe("claude plugin hooks", () => {
     const agent = activate(null);
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, spawn);
     expect(spawn.args).toEqual(["--dangerously-skip-permissions"]);
 
     const resume = output();
-    await agent.hooks["resume.plan"]!(
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
       { ...input, yolo: true, sessionId: "old-id" },
       resume,
     );
@@ -368,20 +369,20 @@ describe("claude plugin hooks", () => {
     const agent = activate(null, [], { artifacts: false });
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!(input, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, spawn);
     expect(spawn.env).toEqual([[DISABLE_ARTIFACTS_VAR, "1"]]);
 
     // A resumed pane is the same session to the user: the switch it was
     // spawned under must not lapse the first time it is woken.
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "s" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "s" }, resume);
     expect(resume.env).toEqual([[DISABLE_ARTIFACTS_VAR, "1"]]);
   });
 
   it("leaves the pane environment alone while they are on — the deck has no opinion", async () => {
     const agent = activate(null);
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
     expect(out.env).toEqual([]);
   });
 });
@@ -413,12 +414,12 @@ describe("claude's Mod", () => {
       "keepdeck-mod/.claude-plugin/plugin.json": "/App/resources/keepdeck-mod/.claude-plugin/plugin.json",
     });
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
     const at = out.args.indexOf("--plugin-dir");
     expect(out.args[at + 1]).toBe("/App/resources/keepdeck-mod");
     // Kept on even where the user switched it off — under the inline key
     // claude gives it, and the name its manifest declares.
-    const settings = JSON.parse(out.args[out.args.indexOf("--settings") + 1]!);
+    const settings = JSON.parse(present(out.args[out.args.indexOf("--settings") + 1], "the out.args at the index"));
     expect(settings.enabledPlugins).toEqual({ "keepdeck-reporter@inline": true });
     const manifest = JSON.parse(
       readFileSync("plugins/claude/resources/keepdeck-mod/.claude-plugin/plugin.json", "utf8"),
@@ -426,9 +427,9 @@ describe("claude's Mod", () => {
     expect(manifest.name).toBe("keepdeck-reporter");
     // Missing from the bundle: the pane runs without it, nothing else moves.
     const bare = output();
-    await activate(SESSION_HOOK).hooks["spawn.plan"]!(input, bare);
+    await present(activate(SESSION_HOOK).hooks["spawn.plan"], "the spawn.plan hook")(input, bare);
     expect(bare.args).not.toContain("--plugin-dir");
-    expect(JSON.parse(bare.args[bare.args.indexOf("--settings") + 1]!).enabledPlugins).toBeUndefined();
+    expect(JSON.parse(present(bare.args[bare.args.indexOf("--settings") + 1], "the bare.args at the index")).enabledPlugins).toBeUndefined();
   });
 
   it("declares that its hello takes over the tail's status records and the wake", () => {
@@ -454,7 +455,7 @@ describe("claude fork.plan", () => {
     const copies: [string, string][] = [];
     const agent = activate(SESSION_HOOK, copies);
     const out = output();
-    await agent.hooks["fork.plan"]!({ ...forkInput, cwd: "/repo/wt_2.x" }, out);
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")({ ...forkInput, cwd: "/repo/wt_2.x" }, out);
 
     const [, forkId, , , scratchId] = out.args.slice(-5);
     expect(out.args.slice(-5)).toEqual(["--session-id", forkId, "--fork-session", "--resume", scratchId]);
@@ -478,7 +479,7 @@ describe("claude fork.plan", () => {
     // `mcpArgs(input.mcp)` from this hook would pass every one of them.
     const agent = activate(SESSION_HOOK, []);
     const out = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       {
         ...forkInput,
         cwd: "/repo/wt_2.x",
@@ -498,7 +499,7 @@ describe("claude fork.plan", () => {
 
     const at = out.args.indexOf("--mcp-config");
     expect(at).toBeGreaterThan(-1);
-    expect(JSON.parse(out.args[at + 1]!)).toEqual({
+    expect(JSON.parse(present(out.args[at + 1], "the out.args at the index"))).toEqual({
       mcpServers: {
         keepdeck: {
           command: "/bin/keepdeck",
@@ -514,7 +515,7 @@ describe("claude fork.plan", () => {
     // forked pane would quietly regain what its source was denied.
     const agent = activate(SESSION_HOOK, [], { artifacts: false });
     const out = output();
-    await agent.hooks["fork.plan"]!({ ...forkInput, cwd: "/repo/wt_2.x" }, out);
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")({ ...forkInput, cwd: "/repo/wt_2.x" }, out);
     expect(out.env).toEqual([[DISABLE_ARTIFACTS_VAR, "1"]]);
   });
 
@@ -524,7 +525,7 @@ describe("claude fork.plan", () => {
     // around; this pins that its argv vocabulary has no such entry.
     const agent = activate(SESSION_HOOK);
     const out = output();
-    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, out);
     expect(out.args).not.toContain("agents");
     expect(out.args).toContain("--dangerously-skip-permissions");
   });

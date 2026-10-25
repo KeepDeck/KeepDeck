@@ -5,6 +5,7 @@ import {
   watchProject,
 } from "@keepdeck/plugin-api";
 import { claudeUsageWatches, normalizeClaudeStatusline } from "./usage";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** The documented statusLine stdin (docs 2.1.x), as the reporter forwards
  * it — payload shape `{agent, statusline}`. */
@@ -166,7 +167,7 @@ describe("normalizeClaudeStatusline", () => {
       watchMatches(candidate, row),
     );
     expect(watch).toBeDefined();
-    expect(watchProject(watch!, row)).toEqual({});
+    expect(watchProject(present(watch, "the watcher"), row)).toEqual({});
     // And a row with no counts at all is not carried.
     expect(
       claudeUsageWatches.some((candidate) =>

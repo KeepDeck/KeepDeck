@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 // The Mod exactly as claude loads it — plain JS beside its copy of the wire.
 import { register } from "../resources/keepdeck-mod/hooks/register.js";
 import { MOD_INTERRUPT_EVENT, MOD_PROMPT_ACCEPTED_EVENT } from "./status";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const BRIDGE = JSON.stringify({
   v: 2,
@@ -110,7 +111,7 @@ async function loadedTwin(first: ReturnType<typeof loaded>) {
     fs: { exists: async () => true },
     clock: { every: (_ms: number, tick: () => Promise<void>) => (ticks.push(tick), { cancel() {} }) },
   };
-  await twinHandlers.get("session.start")!($, {}, async (e: unknown) => e);
+  await present(twinHandlers.get("session.start"), "the entry for \"session.start\"")($, {}, async (e: unknown) => e);
   for (const tick of ticks) await tick();
 }
 
@@ -249,7 +250,7 @@ describe("KeepDeck's claude Mod", () => {
     expect(mod.posted.filter(({ envelope }) => envelope.type === "companion.hello")).toHaveLength(1);
     // A reloaded module beside its predecessor: both see the same ring.
     mod.doorbell.up = true;
-    await mod.timers[0]!.tick();
+    await present(mod.timers[0], "the first mod.timers").tick();
     await loadedTwin(mod);
     expect(mod.doorbell.removed).toBe(1);
     expect(mod.submitted).toHaveLength(1);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
-import { fsStore } from "@keepdeck/plugin-api/testing";
+import { present, fsStore } from "@keepdeck/plugin-api/testing";
 import { claudeHistory, type HistoryPorts } from "./history";
 
 const LINES = [
@@ -110,7 +110,7 @@ describe("claude history", () => {
         warn,
       ),
     );
-    expect(await history.listing!()).toEqual({
+    expect(await present(history.listing, "the session listing")()).toEqual({
       stubs: [
         { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
       ],
@@ -125,7 +125,7 @@ describe("claude history", () => {
     // host's prune would wipe the agent's whole index.
     const warn = vi.fn();
     const history = claudeHistory(ctx({}, {}, warn));
-    expect(await history.listing!()).toEqual({ stubs: [], complete: false });
+    expect(await present(history.listing, "the session listing")()).toEqual({ stubs: [], complete: false });
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
@@ -139,7 +139,7 @@ describe("claude history", () => {
       ],
     };
     const history = claudeHistory(ctx({}, dirs));
-    const answer = await history.listing!();
+    const answer = await present(history.listing, "the session listing")();
     expect(answer.complete).toBe(true);
     expect(answer.stubs).toEqual(await history.list());
   });
@@ -168,7 +168,7 @@ describe("claude history", () => {
     expect(await history.list()).toEqual([
       { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
     ]);
-    const answer = await history.listing!();
+    const answer = await present(history.listing, "the session listing")();
     expect(answer.stubs).toEqual([
       { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
     ]);
@@ -342,7 +342,7 @@ describe("claude history", () => {
     const size = new TextEncoder().encode(big).length;
     const history = claudeHistory(ctx({ "/f.jsonl": big }, {}));
 
-    const page = await history.transcriptPage!("/f.jsonl", {
+    const page = await present(history.transcriptPage, "the transcript page")("/f.jsonl", {
       offset: 4400,
       limit: 10,
     });
@@ -351,7 +351,7 @@ describe("claude history", () => {
     // which is also how the viewer's pagination learns it has reached the end.
     expect(page.entries.length).toBeLessThan(10);
     expect(page.shortfall).toHaveLength(1);
-    const [mark] = page.shortfall!;
+    const [mark] = present(page.shortfall, "the shortfall of page");
     expect(mark.kind).toBe("bytes");
     // Both numbers from the reading itself: the file's own length, and how
     // much of it was actually passed through. Pinning the budget here would
@@ -365,7 +365,7 @@ describe("claude history", () => {
     // Absence is the ONLY spelling of "nothing was missed" — an empty array
     // would be a second one, and two spellings of one truth drift apart.
     const history = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
-    const page = await history.transcriptPage!("/f.jsonl", { offset: 0, limit: 10 });
+    const page = await present(history.transcriptPage, "the transcript page")("/f.jsonl", { offset: 0, limit: 10 });
     expect(page.shortfall).toBeUndefined();
   });
 
