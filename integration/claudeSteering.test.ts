@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
-import { normalizeClaudeStatus } from "../../plugins/claude/src/status";
-import { claudeTail } from "../../plugins/claude/src/tail";
-import { createAgentStatusTracker } from "./agentStatusTracker";
+import { normalizeClaudeStatus } from "../plugins/claude/src/status";
+import { claudeTail } from "../plugins/claude/src/tail";
+import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
 
 const iso = (at: number) => new Date(at).toISOString();
 const interrupt = (at: number) => ({

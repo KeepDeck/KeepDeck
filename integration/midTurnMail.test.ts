@@ -1,12 +1,12 @@
 import { collectsAtTurnEnd, type MailChannel } from "@keepdeck/plugin-api";
 import { describe, expect, it } from "vitest";
-import { CLAUDE_MAIL_CHANNELS } from "../../../plugins/claude/src/status";
-import { CODEX_MAIL_CHANNELS } from "../../../plugins/codex/src/status";
-import { KIMI_MAIL_CHANNELS } from "../../../plugins/kimi/src/status";
-import { OPENCODE_MAIL_CHANNELS } from "../../../plugins/opencode/src/mail";
-import { decideDelivery } from "../../domain/mail/policy";
-import type { Mail } from "../../domain/mail/message";
-import type { PaneActivity } from "../../domain/status";
+import { CLAUDE_MAIL_CHANNELS } from "../plugins/claude/src/status";
+import { CODEX_MAIL_CHANNELS } from "../plugins/codex/src/status";
+import { KIMI_MAIL_CHANNELS } from "../plugins/kimi/src/status";
+import { OPENCODE_MAIL_CHANNELS } from "../plugins/opencode/src/mail";
+import { decideDelivery } from "../src/domain/mail/policy";
+import type { Mail } from "../src/domain/mail/message";
+import type { PaneActivity } from "../src/domain/status";
 
 /**
  * How a message reaches each built-in agent WHILE ITS TURN RUNS — a fact no

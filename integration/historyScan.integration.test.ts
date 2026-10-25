@@ -1,23 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
 import { fsStore } from "@keepdeck/plugin-api/testing";
-import { scanAgentHistories, type ScanIndexOps } from "./historyScan";
+import { scanAgentHistories, type ScanIndexOps } from "../src/app/historyScan";
 import {
   claudeHistory,
   type HistoryPorts as ClaudeHistoryPorts,
-} from "../../plugins/claude/src/history";
-import { opencodeHistory, type HistoryPorts } from "../../plugins/opencode/src/history";
+} from "../plugins/claude/src/history";
+import { opencodeHistory, type HistoryPorts } from "../plugins/opencode/src/history";
 
 // The scan's own ipc surface never runs here — ops are injected below; the
 // mock only keeps the module import from reaching tauri's invoke.
-vi.mock("../ipc/history", () => ({
+vi.mock("../src/ipc/history", () => ({
   indexRefs: vi.fn(),
   indexUpsert: vi.fn(),
   indexPrune: vi.fn(),
   indexSearch: vi.fn(),
   pluginsSqliteQuery: vi.fn(),
 }));
-vi.mock("../ipc/log", () => ({
+vi.mock("../src/ipc/log", () => ({
   log: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 

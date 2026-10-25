@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
-import { normalizeKimiStatus, renderKimiMail } from "../../plugins/kimi/src/status";
-import { kimiRecords } from "../../plugins/kimi/src/tail";
-import { createAgentStatusTracker } from "./agentStatusTracker";
+import { normalizeKimiStatus, renderKimiMail } from "../plugins/kimi/src/status";
+import { kimiRecords } from "../plugins/kimi/src/tail";
+import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
 
 function setup() {
   const tracker = createAgentStatusTracker();

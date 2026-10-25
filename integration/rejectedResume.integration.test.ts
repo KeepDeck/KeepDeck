@@ -3,20 +3,20 @@ import type { PluginSessionEvent, PluginSpawnOptions } from "@keepdeck/plugin-ap
 import {
   claudeLiveSessions,
   type LiveSessionsPorts,
-} from "../../plugins/claude/src/liveSessions";
+} from "../plugins/claude/src/liveSessions";
 import {
   askBackgroundCarriers,
   askLiveRegistry,
-} from "./liveSessions";
-import { decideRejectedResume } from "../domain/agents";
-import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { closeMessageFor } from "./useCloseFlow";
-import type { SpawnPluginAccess } from "./spawnSpecs";
+} from "../src/app/liveSessions";
+import { decideRejectedResume } from "../src/domain/agents";
+import { createWorkspaceInstance } from "../src/domain/workspaceInstance";
+import { closeMessageFor } from "../src/app/useCloseFlow";
+import type { SpawnPluginAccess } from "../src/app/spawnSpecs";
 import {
   agentContribution,
   createSpawnPluginsFake,
   spawnPluginsWith,
-} from "./spawnSpecs/planTestSupport";
+} from "../src/app/spawnSpecs/planTestSupport";
 
 /**
  * The return path's spine, end to end with REAL pieces: the claude plugin's

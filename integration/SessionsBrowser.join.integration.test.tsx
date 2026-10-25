@@ -8,17 +8,17 @@ import {
   type PluginFs,
 } from "@keepdeck/plugin-api";
 import { fsStore } from "@keepdeck/plugin-api/testing";
-import type { IndexLookupAnswer, SearchPage } from "../../ipc/history";
-import type { AgentInfo } from "../../domain/agents";
-import type { SessionRecord } from "../../domain/journal";
+import type { IndexLookupAnswer, SearchPage } from "../src/ipc/history";
+import type { AgentInfo } from "../src/domain/agents";
+import type { SessionRecord } from "../src/domain/journal";
 import {
   claudeHistory,
   type HistoryPorts as ClaudeHistoryPorts,
-} from "../../../plugins/claude/src/history";
+} from "../plugins/claude/src/history";
 import {
   kimiHistory,
   type HistoryPorts as KimiHistoryPorts,
-} from "../../../plugins/kimi/src/history";
+} from "../plugins/kimi/src/history";
 
 // The seams this suite must NOT double: the browser hook chain
 // (useSessionsBrowser → useJournalEnrichment → the join in the component),
@@ -29,11 +29,11 @@ const ipc = vi.hoisted(() => ({
   indexSearch: vi.fn<(...args: unknown[]) => Promise<SearchPage>>(),
   indexLookup: vi.fn<(...args: unknown[]) => Promise<IndexLookupAnswer[]>>(),
 }));
-vi.mock("../../ipc/history", () => ({
+vi.mock("../src/ipc/history", () => ({
   indexSearch: ipc.indexSearch,
   indexLookup: ipc.indexLookup,
 }));
-vi.mock("../../ipc/log", () => ({
+vi.mock("../src/ipc/log", () => ({
   log: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 
@@ -42,7 +42,7 @@ const worktreeIpc = vi.hoisted(() => ({
     Promise.resolve({ exists: true, isWorktree: false, branch: null }),
   ),
 }));
-vi.mock("../../ipc/worktree", () => worktreeIpc);
+vi.mock("../src/ipc/worktree", () => worktreeIpc);
 
 /** REAL plugin histories over recording fs doubles — the pair the
  * corrupted records straddle. Every readFile is remembered; that record
@@ -124,8 +124,8 @@ const sessionIndex = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../app/runtimeContext", async () =>
-  (await import("../../app/runtimeContext.test-support")).runtimePartsModule({
+vi.mock("../src/app/runtimeContext", async () =>
+  (await import("../src/app/runtimeContext.test-support")).runtimePartsModule({
     plugins: {
       pluginRegistries: {
         agents: {
@@ -142,9 +142,9 @@ vi.mock("../../app/runtimeContext", async () =>
 import {
   useBrowserSharedSeam,
   useSessionsBrowser,
-} from "../../app/useSessionsBrowser";
-import { rowKeyOf } from "../../domain/journal/sessionRow";
-import { SessionsBrowser } from "./SessionsBrowser";
+} from "../src/app/useSessionsBrowser";
+import { rowKeyOf } from "../src/domain/journal/sessionRow";
+import { SessionsBrowser } from "../src/components/history/SessionsBrowser";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";
 
 const AGENTS: AgentInfo[] = [

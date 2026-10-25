@@ -119,7 +119,7 @@ deck. Verified from the 1.19.3 source, 2026-10-22.
 - Mail riding along with `chat.message` is added as complete parts, with
   `id`, `sessionID` and `messageID`. Since 1.16.0, a bare part fails the
   user's whole prompt.
-- `src/app/mail/midTurnMail.test.ts` pins, per agent, how a working pane
+- `integration/midTurnMail.test.ts` pins, per agent, how a working pane
   is reached.
 
 When ancestry cannot be determined, a session is classified "unknown", and

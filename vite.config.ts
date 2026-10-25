@@ -75,6 +75,7 @@ export default defineConfig(async () => ({
       "scripts/**/*.test.mjs",
       "packages/*/src/**/*.test.{ts,tsx}",
       "plugins/*/src/**/*.test.{ts,tsx}",
+      "integration/**/*.test.{ts,tsx}",
     ],
   },
 }));

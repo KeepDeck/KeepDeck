@@ -8,8 +8,25 @@ import reactHooks from "eslint-plugin-react-hooks";
  * code that broke it was fixed, not excused (task-468).
  */
 
-const TYPESCRIPT = ["src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}", "plugins/*/src/**/*.{ts,tsx}"];
+const TYPESCRIPT = [
+  "src/**/*.{ts,tsx}",
+  "packages/*/src/**/*.{ts,tsx}",
+  "plugins/*/src/**/*.{ts,tsx}",
+  "integration/**/*.{ts,tsx}",
+];
 const TESTS = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}", "**/*testSupport.{ts,tsx}"];
+
+/** Import patterns more than one block refuses. A later block's
+ * `no-restricted-imports` replaces an earlier one's for the files both
+ * match, so each block lists every pattern that holds for its files. */
+const NO_PLUGIN = {
+  regex: "(^|/)plugins/[^/]+/src(/|$)",
+  message: "The core imports no plugin: go through the plugin contract.",
+};
+const NO_INTEGRATION = {
+  regex: "(^|/)integration(/|$)",
+  message: "Nothing imports from integration/: it is tests, and only tests.",
+};
 
 export default [
   // Only the TypeScript this repo authors: built bundles, generated plugin
@@ -49,6 +66,20 @@ export default [
   },
 
   /**
+   * integration/ is the one place the host and a real plugin meet: a test
+   * there proves the two sides compose (a plugin's real normalizer driving
+   * the real tracker, a plugin's history read by the real scan), and may
+   * import both. It is a leaf — packages and plugins import nothing from
+   * it, and neither does the core, tests included.
+   */
+  {
+    files: ["src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}", "plugins/*/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [NO_INTEGRATION] }],
+    },
+  },
+
+  /**
    * The core names no plugin: a CLI's knowledge lives in its plugin, reached
    * through the plugin contract. Tests may pair the host with a real plugin
    * to prove the contract end to end.
@@ -57,17 +88,7 @@ export default [
     files: ["src/**/*.{ts,tsx}"],
     ignores: TESTS,
     rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              regex: "(^|/)plugins/[^/]+/src(/|$)",
-              message: "The core imports no plugin: go through the plugin contract.",
-            },
-          ],
-        },
-      ],
+      "no-restricted-imports": ["error", { patterns: [NO_PLUGIN, NO_INTEGRATION] }],
     },
   },
 
@@ -93,10 +114,8 @@ export default [
               regex: "(^|/)(app|ipc|components|presentation)(/|$)",
               message: "The domain depends on nothing outside it: no app wiring, IPC, components or presentation.",
             },
-            {
-              regex: "(^|/)plugins/[^/]+/src(/|$)",
-              message: "The core imports no plugin: go through the plugin contract.",
-            },
+            NO_PLUGIN,
+            NO_INTEGRATION,
           ],
         },
       ],

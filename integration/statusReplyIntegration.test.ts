@@ -5,30 +5,30 @@ import {
   CLAUDE_MAIL_CHANNELS,
   normalizeClaudeStatus,
   renderClaudeMail,
-} from "../../../plugins/claude/src/status";
+} from "../plugins/claude/src/status";
 import {
   attributeCodexEvent,
   CODEX_MAIL_CHANNELS,
   normalizeCodexStatus,
   renderCodexMail,
-} from "../../../plugins/codex/src/status";
-import { createAgentStatusTracker } from "../agentStatusTracker";
+} from "../plugins/codex/src/status";
+import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
 import {
   createAgentStatusChannel,
   type StatusDeclarationsPort,
-} from "../agentStatusChannel";
-import { createPaneAttribution } from "../paneAttribution";
-import { deckStoreOf } from "../deckStore.testSupport";
-import type { PaneReportEvent } from "../verifiedPaneReports";
-import { createMailManager } from "./mailManager";
-import { createHookReplies, type HookReplyDeps } from "./hookReply";
+} from "../src/app/agentStatusChannel";
+import { createPaneAttribution } from "../src/app/paneAttribution";
+import { deckStoreOf } from "../src/app/deckStore.testSupport";
+import type { PaneReportEvent } from "../src/app/verifiedPaneReports";
+import { createMailManager } from "../src/app/mail/mailManager";
+import { createHookReplies, type HookReplyDeps } from "../src/app/mail/hookReply";
 
 const ipc = vi.hoisted(() => ({ handler: undefined as ((report: PaneReportEvent) => void) | undefined }));
-vi.mock("../../ipc/status", () => ({ onAgentStatus: async (fn: typeof ipc.handler) => {
+vi.mock("../src/ipc/status", () => ({ onAgentStatus: async (fn: typeof ipc.handler) => {
   ipc.handler = fn;
   return () => {};
 } }));
-vi.mock("../ptyManager", () => ({ paneSessionState: () => ({ kind: "live" }) }));
+vi.mock("../src/app/ptyManager", () => ({ paneSessionState: () => ({ kind: "live" }) }));
 
 const disposers: (() => void)[] = [];
 afterEach(() => {

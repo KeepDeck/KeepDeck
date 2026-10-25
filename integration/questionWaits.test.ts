@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { watchMatches, watchProject, type StatusNormalizer, type TailWatch } from "@keepdeck/plugin-api";
-import { normalizeCodexStatus } from "../../plugins/codex/src/status";
-import { codexRecords } from "../../plugins/codex/src/tail";
-import { normalizeKimiStatus } from "../../plugins/kimi/src/status";
-import { kimiRecords } from "../../plugins/kimi/src/tail";
-import { createAgentStatusTracker } from "./agentStatusTracker";
+import { normalizeCodexStatus } from "../plugins/codex/src/status";
+import { codexRecords } from "../plugins/codex/src/tail";
+import { normalizeKimiStatus } from "../plugins/kimi/src/status";
+import { kimiRecords } from "../plugins/kimi/src/tail";
+import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
 
 const stamp = (at: number) => new Date(at).toISOString();
 const mode = (at: number, value: unknown = "plan") => ({

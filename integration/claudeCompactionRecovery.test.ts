@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { normalizeClaudeStatus } from "../../plugins/claude/src/status";
-import { reduceStatus, type PaneStatus } from "../domain/status/activity";
-import { activityBadge } from "../domain/status/format";
-import { normalizeStatusBatch } from "./statusNormalization";
+import { normalizeClaudeStatus } from "../plugins/claude/src/status";
+import { reduceStatus, type PaneStatus } from "../src/domain/status/activity";
+import { activityBadge } from "../src/domain/status/format";
+import { normalizeStatusBatch } from "../src/app/statusNormalization";
 
 /**
  * The oversize-request recovery, end to end: claude's own hook payloads →

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
-import { normalizeCodexStatus } from "../../plugins/codex/src/status";
-import { codexRecords } from "../../plugins/codex/src/tail";
-import { activityBadge } from "../domain/status/format";
-import { createAgentStatusTracker } from "./agentStatusTracker";
+import { normalizeCodexStatus } from "../plugins/codex/src/status";
+import { codexRecords } from "../plugins/codex/src/tail";
+import { activityBadge } from "../src/domain/status/format";
+import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
 
 // Codex 0.153.2, 2026-09-08: the usage-limit turn had no Stop hook.
 // task_complete carried the error; ids/prose shortened, shape preserved.
