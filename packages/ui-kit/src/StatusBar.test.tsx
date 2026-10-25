@@ -3,15 +3,16 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { StatusBar } from "./StatusBar";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("StatusBar", () => {
   let root: Root;
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = createRoot(present(document.getElementById("host"), "the #host element"));
   });
   afterEach(() => act(() => root.unmount()));
-  const bar = () => document.querySelector<HTMLElement>(".status-bar")!;
+  const bar = () => present(document.querySelector<HTMLElement>(".status-bar"), "the .status-bar element");
   const parts = () => [...document.querySelectorAll<HTMLElement>(".status-bar__part")];
 
   it("paints each part in its hue, in order, exactly its share — the rest of the track bare — named for what it says", () => {

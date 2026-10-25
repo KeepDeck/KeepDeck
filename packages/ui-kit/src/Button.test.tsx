@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Button, type ButtonProps } from "./Button";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("Button", () => {
   let root: Root;
@@ -25,7 +26,7 @@ describe("Button", () => {
         }),
       ),
     );
-  const button = () => host.querySelector("button")!;
+  const button = () => present(host.querySelector("button"), "the button element");
 
   it("is a quiet neighbour until something says otherwise", () => {
     // `secondary` is the default because promoting an action has to be a

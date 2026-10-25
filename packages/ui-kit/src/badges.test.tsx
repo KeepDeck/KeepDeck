@@ -8,6 +8,7 @@ import {
   YOLO_BADGE_LABEL,
   YOLO_BADGE_TITLE,
 } from "./badges";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("badges", () => {
   let root: Root;
@@ -15,7 +16,7 @@ describe("badges", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -26,7 +27,7 @@ describe("badges", () => {
   describe("YoloBadge", () => {
     it("is the bare bolt — no chip — naming the mode to assistive tech", () => {
       act(() => root.render(createElement(YoloBadge, {})));
-      const mark = host.querySelector<HTMLElement>(".yolo-mark")!;
+      const mark = present(host.querySelector<HTMLElement>(".yolo-mark"), "the .yolo-mark element");
       expect(mark.className).toBe("yolo-mark");
       // Not a ringed chip any more: a glyph among the header's glyphs.
       expect(mark.classList.contains("chip")).toBe(false);
@@ -42,14 +43,14 @@ describe("badges", () => {
           createElement(YoloBadge, { size: "sm", className: "minimized__yolo" }),
         ),
       );
-      expect(host.querySelector(".yolo-mark")!.className).toBe(
+      expect(present(host.querySelector(".yolo-mark"), "the .yolo-mark element").className).toBe(
         "yolo-mark yolo-mark--sm minimized__yolo",
       );
     });
 
     it("goes decorative inside an already-labeled control", () => {
       act(() => root.render(createElement(YoloBadge, { decorative: true })));
-      const badge = host.querySelector<HTMLElement>(".yolo-mark")!;
+      const badge = present(host.querySelector<HTMLElement>(".yolo-mark"), "the .yolo-mark element");
       expect(badge.getAttribute("aria-hidden")).toBe("true");
       expect(badge.getAttribute("role")).toBeNull();
       expect(badge.getAttribute("aria-label")).toBeNull();
@@ -69,11 +70,11 @@ describe("badges", () => {
           }),
         ),
       );
-      const badge = host.querySelector<HTMLElement>(".chip")!;
+      const badge = present(host.querySelector<HTMLElement>(".chip"), "the .chip element");
       // No own anatomy class: the site hook passes through untouched.
       expect(badge.className).toBe("chip pane__branch");
       expect(badge.querySelector(".chip__icon svg")).not.toBeNull();
-      expect(badge.querySelector(".chip__label")!.textContent).toBe("main");
+      expect(present(badge.querySelector(".chip__label"), "the .chip__label element").textContent).toBe("main");
       expect(badge.title).toBe("on main");
       // Standalone = self-naming: never aria-hidden unless the site asks.
       expect(badge.getAttribute("aria-hidden")).toBeNull();
@@ -89,7 +90,7 @@ describe("badges", () => {
           }),
         ),
       );
-      const badge = host.querySelector<HTMLElement>(".chip")!;
+      const badge = present(host.querySelector<HTMLElement>(".chip"), "the .chip element");
       expect(badge.className).toBe("chip chip--sm");
       expect(badge.title).toBe("");
       expect(badge.getAttribute("aria-hidden")).toBe("true");

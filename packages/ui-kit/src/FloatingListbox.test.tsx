@@ -9,6 +9,7 @@ import {
   FLOATING_LISTBOX_CONTENT_MAX,
   type FloatingListboxAnchorRect,
 } from "./FloatingListbox";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const rect = (
   overrides: Partial<FloatingListboxAnchorRect> = {},
@@ -186,7 +187,7 @@ describe("FloatingListbox", () => {
       return listRef?.(node);
     };
     act(() => {
-      root!.render(
+      present(root, "the root element").render(
         createElement(
           FloatingListbox,
           {
@@ -235,7 +236,7 @@ describe("FloatingListbox", () => {
   });
 
   afterEach(() => {
-    if (root) act(() => root!.unmount());
+    if (root) act(() => present(root, "the root element").unmount());
     root = null;
     vi.unstubAllGlobals();
     Reflect.deleteProperty(document.documentElement, "clientWidth");
@@ -248,7 +249,7 @@ describe("FloatingListbox", () => {
       exposed = node;
     });
 
-    const list = document.querySelector<HTMLUListElement>("#branches")!;
+    const list = present(document.querySelector<HTMLUListElement>("#branches"), "the #branches element");
     expect(exposed).toBe(list);
     expect(list.getAttribute("role")).toBe("listbox");
     expect(list.getAttribute("aria-label")).toBe("Branches");
@@ -269,7 +270,7 @@ describe("FloatingListbox", () => {
     scroller.getBoundingClientRect = () => ({ top: 80, bottom: 300, left: 0, right: 400, width: 400, height: 220, x: 0, y: 80, toJSON: () => ({}) }) as DOMRect;
     const hidden = vi.fn();
     act(() => {
-      root!.render(createElement(FloatingListbox, { anchorRef: { current: anchor }, onAnchorHidden: hidden }, createElement("li", null, "main")));
+      present(root, "the root element").render(createElement(FloatingListbox, { anchorRef: { current: anchor }, onAnchorHidden: hidden }, createElement("li", null, "main")));
     });
     expect(hidden).not.toHaveBeenCalled();
     // Scrolled up past the box's top edge.
@@ -284,7 +285,7 @@ describe("FloatingListbox", () => {
     overlay.appendChild(anchor);
     mount();
 
-    const layer = document.querySelector<HTMLElement>(".dropdown__layer")!;
+    const layer = present(document.querySelector<HTMLElement>(".dropdown__layer"), "the .dropdown__layer element");
     expect(layer.parentElement).toBe(overlay);
     expect(layer.style.zIndex).toBe("1");
   });
@@ -296,7 +297,7 @@ describe("FloatingListbox", () => {
     );
     mount(externalRef);
 
-    act(() => root!.unmount());
+    act(() => present(root, "the root element").unmount());
     root = null;
     expect(cleanup).toHaveBeenCalledOnce();
     expect(externalRef).toHaveBeenCalledTimes(1);
@@ -304,7 +305,7 @@ describe("FloatingListbox", () => {
 
   it("repositions on captured ancestor scroll and window resize", () => {
     mount();
-    const list = document.querySelector<HTMLUListElement>("#branches")!;
+    const list = present(document.querySelector<HTMLUListElement>("#branches"), "the #branches element");
 
     anchorRect = rect({
       top: 300,
@@ -329,7 +330,7 @@ describe("FloatingListbox", () => {
 
   it("observes both elements, recomputes their geometry, and disconnects", () => {
     mount();
-    const list = document.querySelector<HTMLUListElement>("#branches")!;
+    const list = present(document.querySelector<HTMLUListElement>("#branches"), "the #branches element");
     expect(observe).toHaveBeenCalledWith(anchor);
     expect(observe).toHaveBeenCalledWith(list);
 
@@ -344,7 +345,7 @@ describe("FloatingListbox", () => {
     expect(list.style.top).toBe("236px");
     expect(list.style.left).toBe("70px");
 
-    act(() => root!.unmount());
+    act(() => present(root, "the root element").unmount());
     root = null;
     expect(disconnect).toHaveBeenCalledOnce();
   });

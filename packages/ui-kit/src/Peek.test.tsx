@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DROP_BLOCKER_ATTR } from "./dropBlocker";
 import { Peek, type PeekProps } from "./Peek";
+import { present } from "@keepdeck/plugin-api/testing";
 
 describe("Peek", () => {
   let root: Root;
@@ -11,7 +12,7 @@ describe("Peek", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
-    host = document.getElementById("host")!;
+    host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
 
@@ -31,7 +32,7 @@ describe("Peek", () => {
     return act(() => root.render(createElement(Peek, full)));
   };
 
-  const body = () => host.querySelector<HTMLElement>(".peek__body")!;
+  const body = () => present(host.querySelector<HTMLElement>(".peek__body"), "the .peek__body element");
 
   /** The reader is deep into a long file, and off to the side of a wide one. */
   const scrollAway = () => {
@@ -53,7 +54,7 @@ describe("Peek", () => {
     // island, and its gutters opt back out with .kd-inert. Drop the token and
     // peeked code silently stops being copyable, with nothing else failing.
     expect(
-      host.querySelector(".peek__panel")!.classList.contains("kd-selectable"),
+      present(host.querySelector(".peek__panel"), "the .peek__panel element").classList.contains("kd-selectable"),
     ).toBe(true);
   });
 
@@ -76,9 +77,9 @@ describe("Peek", () => {
   });
 
   const railButton = () =>
-    host.querySelector<HTMLElement>(".peek__aside button")!;
+    present(host.querySelector<HTMLElement>(".peek__aside button"), "the .peek__aside button element");
   const headerButton = () =>
-    host.querySelector<HTMLElement>(".peek__head button:last-of-type")!;
+    present(host.querySelector<HTMLElement>(".peek__head button:last-of-type"), "the .peek__head button:last-of-type element");
   const aside = () => createElement("button", { type: "button" }, "sibling");
   const actions = () => createElement("button", { type: "button" }, "wrap");
 

@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dropdown } from "./Dropdown";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const OPTIONS = [
   { value: "/wt/a", label: "kd/a" },
@@ -26,7 +27,7 @@ describe("Dropdown", () => {
       ),
     );
   const button = () =>
-    document.querySelector<HTMLButtonElement>('button[aria-label="Pick"]')!;
+    present(document.querySelector<HTMLButtonElement>('button[aria-label="Pick"]'), "the button[aria-label=\"Pick\"] element");
   const menu = () => document.querySelector('[role="listbox"]');
 
   beforeEach(() => {
@@ -46,7 +47,7 @@ describe("Dropdown", () => {
       act(() =>
         root.render(createElement(Dropdown, { options: OPTIONS, value: "/wt/a", onChange, ariaLabel: "Pick", variant: "inline" })),
       );
-      expect(host.querySelector(".dropdown")!.className).toBe("dropdown dropdown--inline");
+      expect(present(host.querySelector(".dropdown"), "the .dropdown element").className).toBe("dropdown dropdown--inline");
       act(() => button().click());
       expect((menu() as HTMLElement).style.width).toBe("180px");
       // The field keeps its column's width for its menu.
@@ -63,9 +64,9 @@ describe("Dropdown", () => {
     act(() =>
       root.render(createElement(Dropdown, { options: OPTIONS, value: "/wt/a", onChange, ariaLabel: "Pick", size: "sm", quiet: true })),
     );
-    expect(host.querySelector(".dropdown")!.className).toBe("dropdown dropdown--sm dropdown--quiet");
+    expect(present(host.querySelector(".dropdown"), "the .dropdown element").className).toBe("dropdown dropdown--sm dropdown--quiet");
     mount();
-    expect(host.querySelector(".dropdown")!.className).toBe("dropdown");
+    expect(present(host.querySelector(".dropdown"), "the .dropdown element").className).toBe("dropdown");
   });
 
   it("shows the current option's label and no native select anywhere", () => {
@@ -78,7 +79,7 @@ describe("Dropdown", () => {
     mount();
     expect(menu()).toBeNull();
     act(() => button().click());
-    const listbox = menu()!;
+    const listbox = present(menu(), "the menu");
     expect(document.body.contains(listbox)).toBe(true);
     expect(host.contains(listbox)).toBe(false);
     expect(
@@ -138,7 +139,7 @@ describe("Dropdown", () => {
     root = createRoot(shell.appendChild(document.createElement("div")));
     mount();
     act(() => button().click());
-    const option = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "Workspace folder")!;
+    const option = present(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((o) => o.textContent === "Workspace folder"), "the matching item");
     act(() => {
       option.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
       shell.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
@@ -214,7 +215,7 @@ describe("Dropdown", () => {
 
     act(() => button().click());
     expect(button().getAttribute("aria-expanded")).toBe("true");
-    expect(button().getAttribute("aria-controls")).toBe(menu()!.id);
+    expect(button().getAttribute("aria-controls")).toBe(present(menu(), "the menu").id);
   });
 
   it("Escape closes and stays local (no bubbling to modal layers)", () => {
