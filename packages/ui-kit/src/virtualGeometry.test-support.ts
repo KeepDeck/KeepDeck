@@ -9,7 +9,18 @@
  * value. No production code reads anything from here.
  */
 
-import { instanceOf } from "@keepdeck/plugin-api/testing";
+/** A local copy of plugin-api/testing's guard, on purpose: this module is
+ * also loaded into the built-bundle check's browser realm
+ * (scripts/check-plugin-bundles.test-support.mjs), which resolves only the
+ * app's import map — and test helpers are not in it. */
+function instanceOf<T>(
+  value: unknown,
+  ctor: abstract new (...args: never[]) => T,
+  what: string,
+): T {
+  if (!(value instanceof ctor)) throw new Error(`expected ${what} to be a ${ctor.name}`);
+  return value;
+}
 
 /** Pins one list's scroll container (and everything inside it) to a
  * viewport size. `list` is the container's class — a second virtualized
