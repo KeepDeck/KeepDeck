@@ -9,6 +9,15 @@
  * value. No production code reads anything from here.
  */
 
+function instanceOf<T>(
+  value: unknown,
+  ctor: abstract new (...args: never[]) => T,
+  what: string,
+): T {
+  if (!(value instanceof ctor)) throw new Error(`expected ${what} to be a ${ctor.name}`);
+  return value;
+}
+
 /** Pins one list's scroll container (and everything inside it) to a
  * viewport size. `list` is the container's class — a second virtualized
  * list arrived and the selector stopped being a property of this file.
@@ -36,7 +45,7 @@ export function pinListViewport(
     this: Element,
   ): DOMRect {
     const base = original.call(this);
-    const el = this as HTMLElement;
+    const el = instanceOf(this, HTMLElement, "virtual list element");
     if (inList(el)) {
       // Everything inside the list reports the CONTAINER's box as its
       // own: the virtualizer's viewport probe reads the container, and
@@ -90,7 +99,7 @@ export function pinListViewport(
   // The tallest child's height, not the first's: a zero-tall pinned layer
   // may stand before the spacer.
   const content = (el: Element) =>
-    Math.max(height, ...[...el.children].map((child) => Number.parseFloat((child as HTMLElement).style.height) || 0));
+    Math.max(height, ...[...el.children].map((child) => Number.parseFloat(instanceOf(child, HTMLElement, "list child").style.height) || 0));
   Object.defineProperty(HTMLElement.prototype, "clientHeight", {
     configurable: true,
     get(this: Element) {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualList } from "./VirtualList";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf } from "./testDom.test-support";
 
 const ROW = 20;
 const items = Array.from({ length: 500 }, (_, i) => `row ${i}`);
@@ -69,7 +70,7 @@ describe("VirtualList", () => {
     expect(rows.length).toBeGreaterThanOrEqual(10);
     expect(rows.length).toBeLessThan(40);
     expect(rows[0].textContent).toBe("row 0");
-    const spacer = host.querySelector(".list > div") as HTMLElement;
+    const spacer = elementOf(host, ".list > div", HTMLElement);
     expect(spacer.style.height).toBe(`${500 * ROW}px`);
   });
 
@@ -103,7 +104,7 @@ describe("VirtualList", () => {
         }),
       ),
     );
-    const spacer = host.querySelector(".list > ul.list__spacer") as HTMLElement;
+    const spacer = elementOf(host, ".list > ul.list__spacer", HTMLElement);
     expect(spacer).toBeTruthy();
     // Named where a reader meets the list — the ul, not the generic box.
     expect(spacer.getAttribute("aria-label")).toBe("Things");

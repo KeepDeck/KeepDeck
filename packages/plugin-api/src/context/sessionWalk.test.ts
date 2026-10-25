@@ -5,10 +5,10 @@ import type {
   ReadOutcome,
   ReadScope,
   ReadStop,
-  SessionCursor,
   SessionFormat,
 } from "./sessionRead.ts";
 import { CONTENT_CAP, walkSession, type SessionDialect } from "./sessionWalk.ts";
+import { cursorOf } from "../testing.ts";
 
 /** A store that hands over the records it was given and stops the way it was
  * told to — the walk's whole job is what it does with records and with the
@@ -19,39 +19,45 @@ function fakeStore(
   sourceBytes?: number,
   refused?: number,
 ): PluginSessionStore & { reads: number } {
-  const store = {
+  const store: PluginSessionStore & { reads: number } = {
     reads: 0,
-    async read(
-      _format: SessionFormat<unknown, unknown>,
-      _request: unknown,
-      consume: (item: unknown) => "more" | "enough",
+    async read<Req, Item>(
+      _format: SessionFormat<Req, Item>,
+      _request: Req,
+      consume: (item: Item) => "more" | "enough",
+      _scope?: ReadScope,
     ): Promise<ReadOutcome> {
       store.reads += 1;
       let items = 0;
       for (const record of records) {
         items += 1;
-        if (consume(record) === "enough") {
+        if (Reflect.apply(consume, undefined, [record]) === "enough") {
           return {
             payloadBytes: 10,
             items,
             stopped: "satisfied",
             sourceBytes,
-            next: "j1:10:20" as SessionCursor,
+            next: cursorOf("j1:10:20"),
           };
         }
       }
       return { payloadBytes: 10, items, ...(refused ? { refused } : {}), stopped, sourceBytes };
     },
   };
-  return store as PluginSessionStore & { reads: number };
+  return store;
 }
 
-const FORMAT = { id: "fake" } as SessionFormat<Record<string, never>, unknown>;
+const fakeFormat = <Item>(): SessionFormat<Record<string, never>, Item> => ({
+  id: "fake",
+  open: () => ({
+    pull: async () => ({ payloadBytes: 0, items: 0, stopped: "exhausted" }),
+  }),
+});
 
 /** The simplest dialect there is: one record, one turn. */
-const flat: SessionDialect<null, unknown> = {
+const flat: SessionDialect<null, AgentTranscriptEntry> = {
   begin: () => null,
-  step: (_state, item) => [item as AgentTranscriptEntry],
+  step: (_state, item) => [item],
   end: () => [],
 };
 
@@ -85,7 +91,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
     });
@@ -100,7 +106,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: buffering(),
     });
@@ -116,7 +122,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: buffering(),
     });
@@ -129,7 +135,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
     });
@@ -143,7 +149,7 @@ describe("walkSession", () => {
     const walk = (stopped: ReadStop, scope: ReadScope) =>
       walkSession({
         store: fakeStore([{ role: "user", text: "hi" }], stopped, 900, 3),
-        format: FORMAT,
+        format: fakeFormat<unknown>(),
         request: {},
         dialect: flat,
         scope,
@@ -166,7 +172,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
     });
@@ -185,7 +191,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
     });
@@ -200,7 +206,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
     });
@@ -219,7 +225,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
       keep: { offset: 10, limit: 3 },
@@ -239,7 +245,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
       keep: { offset: 0, limit: 3 },
@@ -253,7 +259,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
       keep: { offset: 40, limit: 10 },
@@ -280,7 +286,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT as SessionFormat<Record<string, never>, { cwd?: string }>,
+      format: fakeFormat<{ cwd?: string }>(),
       request: {},
       dialect,
       until: (state) => state.cwd !== undefined,
@@ -305,7 +311,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT as SessionFormat<Record<string, never>, { cwd?: string }>,
+      format: fakeFormat<{ cwd?: string }>(),
       request: {},
       dialect,
       until: (state) => state.cwd !== undefined,
@@ -324,7 +330,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT as SessionFormat<Record<string, never>, string>,
+      format: fakeFormat<string>(),
       request: {},
       dialect: buffering(),
       keep: { offset: 1, limit: 5 },
@@ -340,7 +346,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT as SessionFormat<Record<string, never>, string>,
+      format: fakeFormat<string>(),
       request: {},
       dialect: buffering(),
       keep: { offset: 0, limit: 2 },
@@ -357,7 +363,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
       scope: "head",
@@ -372,7 +378,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
     });
@@ -389,10 +395,10 @@ describe("walkSession", () => {
       },
     };
 
-    await walkSession({ store, format: FORMAT, request: {}, dialect: flat });
+    await walkSession({ store, format: fakeFormat<unknown>(), request: {}, dialect: flat });
     await walkSession({
       store,
-      format: FORMAT,
+      format: fakeFormat<unknown>(),
       request: {},
       dialect: flat,
       scope: "head",
@@ -417,7 +423,7 @@ describe("walkSession", () => {
 
     const walked = await walkSession({
       store,
-      format: FORMAT as SessionFormat<Record<string, never>, { cwd?: string }>,
+      format: fakeFormat<{ cwd?: string }>(),
       request: {},
       dialect,
     });

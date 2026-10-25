@@ -341,7 +341,13 @@ describe("FloatingListbox", () => {
       right: 250,
       width: 180,
     });
-    act(() => resizeCallback([], {} as ResizeObserver));
+    act(() =>
+      resizeCallback([], {
+        observe: () => {},
+        unobserve: () => {},
+        disconnect: () => {},
+      }),
+    );
     expect(list.style.top).toBe("236px");
     expect(list.style.left).toBe("70px");
 

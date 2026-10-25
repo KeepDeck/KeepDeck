@@ -51,9 +51,11 @@ vi.mock("@xterm/addon-fit", () => ({
 // the linker, keeping PaneHintView/useTransient real.
 const linker = vi.hoisted(() => ({
   registerTerminalLinks: vi.fn(
-    (_term: object, _host: HTMLElement, _target: { cwd: string | null }) => ({
-      dispose: vi.fn(),
-    }),
+    (
+      _term: object,
+      _host: HTMLElement,
+      _target: { cwd: string | null },
+    ): { dispose: ReturnType<typeof vi.fn> } => ({ dispose: vi.fn() }),
   ),
 }));
 vi.mock("@keepdeck/terminal-kit", async (importOriginal) => {
@@ -142,9 +144,7 @@ describe("RunLog", () => {
 
   it("disposes the linker with the log", async () => {
     await mount("s1", "/wt/b");
-    const registration = linker.registerTerminalLinks.mock.results[0].value as {
-      dispose: ReturnType<typeof vi.fn>;
-    };
+    const registration = linker.registerTerminalLinks.mock.results[0].value;
 
     act(() => root.unmount());
     expect(registration.dispose).toHaveBeenCalled();

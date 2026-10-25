@@ -18,6 +18,7 @@
 
 import type { FsEntry, FsFile, PluginFs } from "./context/services.ts";
 import type { SpeechCapture, SpeechTranscript } from "./context/speech.ts";
+import type { SessionCursor } from "./context/sessionRead.ts";
 
 /**
  * One `readFile` answer, as the fs service would give it.
@@ -208,5 +209,94 @@ export function speechCapture(partial: Partial<SpeechCapture> = {}): SpeechCaptu
  */
 export function present<T>(value: T | null | undefined, what: string): T {
   if (value === null || value === undefined) throw new Error(`expected ${what}, found none`);
+  return value;
+}
+
+/** A cursor the suites speak as a plain string; the brand is the boundary's,
+ * not the test's. */
+export function cursorOf(value: string): SessionCursor;
+export function cursorOf(value: string): string {
+  return value;
+}
+
+// --------------------------------------------------------------- values
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** A record a test is about to read fields from, or a failure naming what was
+ * expected. */
+export function recordOf(value: unknown, what: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`expected ${what}, found ${typeof value}`);
+  return value;
+}
+
+export function maybeRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+/** A list a test is about to map, or a failure naming what was expected. */
+export function listOf(value: unknown, what: string): unknown[] {
+  if (!Array.isArray(value)) throw new Error(`expected ${what}, found ${typeof value}`);
+  return [...value];
+}
+
+/** A list of records a test is about to read fields from. */
+export function recordsOf(value: unknown, what: string): Record<string, unknown>[] {
+  return listOf(value, what).map((item) => recordOf(item, what));
+}
+
+export function stringOf(value: unknown, what: string): string {
+  if (typeof value !== "string") throw new Error(`expected ${what} to be a string`);
+  return value;
+}
+
+export function numberOf(value: unknown, what: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`expected ${what} to be a finite number`);
+  }
+  return value;
+}
+
+export function booleanOf(value: unknown, what: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`expected ${what} to be a boolean`);
+  return value;
+}
+
+/** The `sessionId` of each record in a list. */
+export function sessionIds(value: unknown, what = "session records"): string[] {
+  return recordsOf(value, what).map((record) =>
+    stringOf(record.sessionId, "session id"),
+  );
+}
+
+/** The element matched by `selector` in `root`, proven to be a `ctor`. */
+export function elementOf<T extends Element>(
+  root: ParentNode,
+  selector: string,
+  ctor: abstract new (...args: never[]) => T,
+): T {
+  return instanceOf(root.querySelector(selector), ctor, selector);
+}
+
+/** Every element matched by `selector` in `root`, each proven to be a `ctor`. */
+export function elementsOf<T extends Element>(
+  root: ParentNode,
+  selector: string,
+  ctor: abstract new (...args: never[]) => T,
+): T[] {
+  return [...root.querySelectorAll(selector)].map((found) =>
+    instanceOf(found, ctor, selector),
+  );
+}
+
+/** `value` proven to be a `ctor`, for a node a test already found. */
+export function instanceOf<T>(
+  value: unknown,
+  ctor: abstract new (...args: never[]) => T,
+  what: string,
+): T {
+  if (!(value instanceof ctor)) throw new Error(`expected ${what} to be a ${ctor.name}`);
   return value;
 }

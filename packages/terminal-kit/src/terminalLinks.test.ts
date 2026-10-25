@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ILink, ILinkProvider } from "@xterm/xterm";
 import { registerTerminalLinks, type LinkHost, type LinkTerminal } from "./terminalLinks";
@@ -90,7 +91,7 @@ function captureHost() {
   return {
     host: el,
     fire: (type: string, ev: Partial<MouseEvent>) =>
-      (handlers[type] ?? []).forEach((f) => f(ev as MouseEvent)),
+      (handlers[type] ?? []).forEach((f) => f(mouseEvent(ev))),
     count: (type: string) => (handlers[type] ?? []).length,
   };
 }
@@ -117,8 +118,14 @@ function linksAt(provider: ILinkProvider, lineNumber: number) {
   return out;
 }
 
-const click = (over: Partial<MouseEvent> = {}) =>
-  ({ metaKey: false, clientX: 110, clientY: 220, ...over }) as MouseEvent;
+const mouseEvent = (over: Partial<MouseEvent> = {}): MouseEvent =>
+  Object.assign(new MouseEvent("mousedown"), {
+    metaKey: false,
+    clientX: 110,
+    clientY: 220,
+    ...over,
+  });
+const click = (over: Partial<MouseEvent> = {}) => mouseEvent(over);
 
 const flush = async () => {
   await Promise.resolve();

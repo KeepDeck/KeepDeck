@@ -3,7 +3,7 @@ import { buildGuestContext } from "./context";
 import { fakeManifest } from "./fakeHost";
 import { GuestRpc, type GuestCaller } from "./rpc";
 import type { DownloadRequest } from "@keepdeck/plugin-api";
-import { present } from "@keepdeck/plugin-api/testing";
+import { listOf, present, recordOf, stringOf } from "@keepdeck/plugin-api/testing";
 
 /**
  * Direct tests of the guest context builder — the parts worth pinning without
@@ -12,6 +12,11 @@ import { present } from "@keepdeck/plugin-api/testing";
  * plugin author sees the mistake at the `register` call, not as a silent no-op
  * or a broken frame later).
  */
+
+const argsOf = (call: readonly unknown[]) => listOf(call[1], "rpc args");
+const firstArgOf = (args: unknown) => listOf(args, "rpc args")[0];
+const payloadOf = (call: readonly unknown[] | undefined, what: string) =>
+  recordOf(argsOf(present(call, what))[1], what);
 
 /** A GuestRpc over a port whose `postMessage` is a no-op — the synchronous
  * guard under test fires before anything would be sent. */
@@ -94,7 +99,7 @@ describe("registration outcomes fail loud", () => {
 
     const warned = () => call.mock.calls.find(([path]) => path === "log.warn");
     await vi.waitFor(() => expect(warned()).toBeDefined());
-    const [message] = present(warned(), "the warned")[1] as string[];
+    const message = stringOf(argsOf(present(warned(), "the warned"))[0], "warning");
     expect(message).toContain("settings not declared");
     // Retained, that refusal would resurface here — and, unhandled, would
     // reach the realm as an unhandled rejection.
@@ -123,7 +128,7 @@ describe("agent registration payload", () => {
       ([path]) => path === "agents.register",
     );
     expect(register).toBeDefined();
-    const [, payload] = present(register, "the registered handler")[1] as [number, Record<string, unknown>];
+    const payload = payloadOf(register, "the registered handler");
     expect(payload.icon).toEqual(icon);
     expect(payload.hookNames).toEqual(["spawn.plan"]);
     expect(payload).not.toHaveProperty("hooks");
@@ -143,10 +148,10 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
     const warn = call.mock.calls.find(([path]) => path === "log.warn");
     expect(warn).toBeDefined();
-    expect(String((present(warn, "the warning handler")[1] as string[])[0])).toContain("usage contributions");
+    expect(stringOf(argsOf(present(warn, "the warning handler"))[0], "warning")).toContain("usage contributions");
     // And the declaration still never rides the wire (functions can't).
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = present(register, "the registered handler")[1] as [number, Record<string, unknown>];
+    const payload = payloadOf(register, "the registered handler");
     expect(payload).not.toHaveProperty("usage");
   });
 
@@ -164,10 +169,10 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
     const warn = call.mock.calls.find(([path]) => path === "log.warn");
     expect(warn).toBeDefined();
-    expect(String((present(warn, "the warning handler")[1] as string[])[0])).toContain("status contributions");
+    expect(stringOf(argsOf(present(warn, "the warning handler"))[0], "warning")).toContain("status contributions");
     // And the declaration still never rides the wire (functions can't).
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = present(register, "the registered handler")[1] as [number, Record<string, unknown>];
+    const payload = payloadOf(register, "the registered handler");
     expect(payload).not.toHaveProperty("status");
   });
 
@@ -194,7 +199,7 @@ describe("agent registration payload", () => {
     await bundle.registrationsSettled();
 
     const register = call.mock.calls.find(([path]) => path === "agents.register");
-    const [, payload] = present(register, "the registered handler")[1] as [number, Record<string, unknown>];
+    const payload = payloadOf(register, "the registered handler");
     expect(payload.hasHistory).toBe(true);
     expect(payload).not.toHaveProperty("history");
 
@@ -208,16 +213,16 @@ describe("agent registration payload", () => {
         call.mock.calls.find(
           ([path, args]) =>
             path === "agents.historyResult" &&
-            (args as unknown[])[0] === 17,
+            firstArgOf(args) === 17,
         ),
       ).toBeDefined(),
     );
     expect(describe).toHaveBeenCalledWith("session-ref");
     const result = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.historyResult" && (args as unknown[])[0] === 17,
+        path === "agents.historyResult" && firstArgOf(args) === 17,
     );
-    expect((present(result, "the result")[1] as unknown[])[1]).toEqual({
+    expect(argsOf(present(result, "the result"))[1]).toEqual({
       ok: true,
       value: { cwd: "/repo", title: "session-ref" },
     });
@@ -260,7 +265,7 @@ describe("agent registration payload", () => {
 
     const payloads = call.mock.calls
       .filter(([path]) => path === "agents.register")
-      .map(([, payload]) => (payload as [number, Record<string, unknown>])[1]);
+      .map(([, args]) => recordOf(listOf(args, "rpc args")[1], "registered payload"));
     expect(payloads[0].hasListing).toBe(true);
     expect(payloads[1]).not.toHaveProperty("hasListing");
 
@@ -273,16 +278,16 @@ describe("agent registration payload", () => {
       expect(
         call.mock.calls.find(
           ([path, args]) =>
-            path === "agents.historyResult" && (args as unknown[])[0] === 17,
+            path === "agents.historyResult" && firstArgOf(args) === 17,
         ),
       ).toBeDefined(),
     );
     expect(listing).toHaveBeenCalledTimes(1);
     const answered = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.historyResult" && (args as unknown[])[0] === 17,
+        path === "agents.historyResult" && firstArgOf(args) === 17,
     );
-    expect((present(answered, "the answer")[1] as unknown[])[1]).toEqual({
+    expect(argsOf(present(answered, "the answer"))[1]).toEqual({
       ok: true,
       value: { stubs: [], complete: false },
     });
@@ -298,15 +303,15 @@ describe("agent registration payload", () => {
       expect(
         call.mock.calls.find(
           ([path, args]) =>
-            path === "agents.historyResult" && (args as unknown[])[0] === 18,
+            path === "agents.historyResult" && firstArgOf(args) === 18,
         ),
       ).toBeDefined(),
     );
     const refused = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.historyResult" && (args as unknown[])[0] === 18,
+        path === "agents.historyResult" && firstArgOf(args) === 18,
     );
-    expect(((present(refused, "the refusal")[1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
+    expect(recordOf(argsOf(present(refused, "the refusal"))[1], "refusal").ok).toBe(false);
   });
 
   it("declares hasLiveSessions iff the agent contributes one, and serves the query on its own channel", async () => {
@@ -333,7 +338,7 @@ describe("agent registration payload", () => {
 
     const payloads = call.mock.calls
       .filter(([path]) => path === "agents.register")
-      .map(([, payload]) => (payload as [number, Record<string, unknown>])[1]);
+      .map(([, args]) => recordOf(listOf(args, "rpc args")[1], "registered payload"));
     expect(payloads[0].hasLiveSessions).toBe(true);
     expect(payloads[1]).not.toHaveProperty("hasLiveSessions");
 
@@ -342,16 +347,16 @@ describe("agent registration payload", () => {
       expect(
         call.mock.calls.find(
           ([path, args]) =>
-            path === "agents.liveResult" && (args as unknown[])[0] === 23,
+            path === "agents.liveResult" && firstArgOf(args) === 23,
         ),
       ).toBeDefined(),
     );
     expect(list).toHaveBeenCalledTimes(1);
     const answered = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.liveResult" && (args as unknown[])[0] === 23,
+        path === "agents.liveResult" && firstArgOf(args) === 23,
     );
-    expect((present(answered, "the answer")[1] as unknown[])[1]).toEqual({
+    expect(argsOf(present(answered, "the answer"))[1]).toEqual({
       ok: true,
       value: [
         { sessionId: "s-1", kind: "background", name: "Fix the build", state: "working" },
@@ -365,15 +370,15 @@ describe("agent registration payload", () => {
       expect(
         call.mock.calls.find(
           ([path, args]) =>
-            path === "agents.liveResult" && (args as unknown[])[0] === 24,
+            path === "agents.liveResult" && firstArgOf(args) === 24,
         ),
       ).toBeDefined(),
     );
     const refused = call.mock.calls.find(
       ([path, args]) =>
-        path === "agents.liveResult" && (args as unknown[])[0] === 24,
+        path === "agents.liveResult" && firstArgOf(args) === 24,
     );
-    expect(((present(refused, "the refusal")[1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
+    expect(recordOf(argsOf(present(refused, "the refusal"))[1], "refusal").ok).toBe(false);
   });
 });
 

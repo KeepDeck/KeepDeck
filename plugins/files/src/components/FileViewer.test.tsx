@@ -7,6 +7,7 @@ import { setRuntime, type FilesPorts } from "../runtime";
 import { fsOf, inertPorts } from "../filesPorts.test-support";
 import { FileViewer } from "./FileViewer";
 import { present } from "@keepdeck/plugin-api/testing";
+import { recordOf } from "@keepdeck/plugin-api/testing";
 
 const TS_TEXT = 'const s = "hi" // note\n\nexport default s\n';
 
@@ -178,7 +179,7 @@ describe("FileViewer", { retry: 2 }, () => {
 
     expect(document.querySelector(".files__md script")).toBeNull();
     expect(document.querySelector(".files__md img")).toBeNull();
-    expect((window as { pwned?: boolean }).pwned).toBeUndefined();
+    expect(recordOf(window, "window")).not.toHaveProperty("pwned");
   });
 
   it("routes external links to the opener and keeps relative ones inert", async () => {
@@ -197,7 +198,7 @@ describe("FileViewer", { retry: 2 }, () => {
     const links = [...document.querySelectorAll<HTMLAnchorElement>(".files__md a")];
     const external = present(links.find((a) => a.textContent === "docs"), "the matching item");
     const relative = present(links.find((a) => a.textContent === "local"), "the matching item");
-    const openUrl = ctx.services.opener.openUrl as ReturnType<typeof vi.fn>;
+    const openUrl = vi.mocked(ctx.services.opener.openUrl);
 
     await act(async () => external.click());
     expect(openUrl).toHaveBeenCalledWith("https://example.com/docs");
@@ -256,14 +257,14 @@ describe("FileViewer", { retry: 2 }, () => {
     // happy-dom lays nothing out, so stand in for a layout: the viewport
     // starts at 100 and rows are 20 tall, which puts row 5 as the first one
     // still (partly) on screen.
-    vi.spyOn(body, "getBoundingClientRect").mockReturnValue({
-      top: 100,
-    } as DOMRect);
+    vi.spyOn(body, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 100, 0, 0),
+    );
     const rows = [...code.children];
     rows.forEach((row, i) =>
-      vi.spyOn(row, "getBoundingClientRect").mockReturnValue({
-        bottom: i * 20 + 20,
-      } as DOMRect),
+      vi.spyOn(row, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, 0, 0, i * 20 + 20),
+      ),
     );
     const held = rows.map((row) =>
       vi.spyOn(row, "scrollIntoView").mockImplementation(() => {}),

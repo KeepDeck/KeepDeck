@@ -28,7 +28,10 @@ describe("Dropdown", () => {
     );
   const button = () =>
     present(document.querySelector<HTMLButtonElement>('button[aria-label="Pick"]'), "the button[aria-label=\"Pick\"] element");
-  const menu = () => document.querySelector('[role="listbox"]');
+  const menu = (): HTMLElement | null => {
+    const found = document.querySelector('[role="listbox"]');
+    return found instanceof HTMLElement ? found : null;
+  };
 
   beforeEach(() => {
     onChange = vi.fn();
@@ -49,12 +52,12 @@ describe("Dropdown", () => {
       );
       expect(present(host.querySelector(".dropdown"), "the .dropdown element").className).toBe("dropdown dropdown--inline");
       act(() => button().click());
-      expect((menu() as HTMLElement).style.width).toBe("180px");
+      expect(present(menu(), "the menu").style.width).toBe("180px");
       // The field keeps its column's width for its menu.
       act(() => button().click());
       mount();
       act(() => button().click());
-      expect((menu() as HTMLElement).style.width).toBe("48px");
+      expect(present(menu(), "the menu").style.width).toBe("48px");
     } finally {
       rect.mockRestore();
     }

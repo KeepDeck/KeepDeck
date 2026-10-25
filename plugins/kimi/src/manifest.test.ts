@@ -10,15 +10,16 @@ import { present } from "@keepdeck/plugin-api/testing";
  * wrong command in this file stops status — or mail — with no error
  * anywhere.
  */
-const manifest = JSON.parse(
-  readFileSync(
-    new URL(
-      "../resources/keepdeck-session-reporter/kimi.plugin.json",
-      import.meta.url,
+const manifest: { hooks: { event: string; command: string; timeout: number }[] } =
+  JSON.parse(
+    readFileSync(
+      new URL(
+        "../resources/keepdeck-session-reporter/kimi.plugin.json",
+        import.meta.url,
+      ),
+      "utf8",
     ),
-    "utf8",
-  ),
-) as { hooks: { event: string; command: string; timeout: number }[] };
+  );
 
 const commandFor = (event: string) =>
   manifest.hooks.find((hook) => hook.event === event)?.command;
@@ -75,9 +76,11 @@ describe("kimi companion manifest", () => {
     // web's REST, or the unmerged PR that would let PreToolUse stdout in —
     // are outside this pane: one needs the pane to stop being a terminal
     // session, the other is somebody else's patch.
-    const declared = JSON.parse(
+    const declared: {
+      contributes: { agents: { features?: { id: string }[] }[] };
+    } = JSON.parse(
       readFileSync(new URL("../manifest.json", import.meta.url), "utf8"),
-    ) as { contributes: { agents: { features?: { id: string }[] }[] } };
+    );
     const ids = declared.contributes.agents.flatMap((agent) =>
       (agent.features ?? []).map((feature) => feature.id),
     );
@@ -120,17 +123,17 @@ describe("kimi companion manifest", () => {
  * warning in Kimi's own log — somewhere nobody looks.
  */
 describe("kimi teams manifest", () => {
-  const teams = JSON.parse(
-    readFileSync(
-      new URL("../resources/keepdeck-teams/kimi.plugin.json", import.meta.url),
-      "utf8",
-    ),
-  ) as {
+  const teams: {
     name: string;
     skills?: string;
     sessionStart?: { skill?: string };
     hooks?: unknown[];
-  };
+  } = JSON.parse(
+    readFileSync(
+      new URL("../resources/keepdeck-teams/kimi.plugin.json", import.meta.url),
+      "utf8",
+    ),
+  );
 
   it("points its session start at a skill that exists on disk", () => {
     expect(teams.sessionStart?.skill).toBe("keepdeck-team");

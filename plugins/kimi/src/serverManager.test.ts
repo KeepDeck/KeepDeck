@@ -10,6 +10,7 @@ import {
   extractServerAccess,
 } from "./serverStartup";
 import { setupServerWrapperScript } from "./serverWrapper";
+import { listOf, recordOf } from "@keepdeck/plugin-api/testing";
 
 const encoder = new TextEncoder();
 // `--port 0` makes Kimi bind an ephemeral port; the banner carries the real one.
@@ -148,13 +149,10 @@ describe("Kimi server manager", () => {
       Array.from({ length: 10 }, () => READY_ORIGIN),
     );
     expect(spawn).toHaveBeenCalledOnce();
-    const spawnOptions = spawn.mock.calls[0][0] as {
-      command: string;
-      args: string[];
-    };
+    const spawnOptions = recordOf(spawn.mock.calls[0][0], "spawn options");
     expect(spawnOptions.command).toBe("/bin/sh");
-    expect(spawnOptions.args[0]).toBe("-c");
-    expect(spawnOptions.args[1]).toBe(setupServerWrapperScript());
+    expect(listOf(spawnOptions.args, "spawn args")[0]).toBe("-c");
+    expect(listOf(spawnOptions.args, "spawn args")[1]).toBe(setupServerWrapperScript());
     expect(maxActive).toBe(1);
     expect(order).toEqual([
       "first:start",

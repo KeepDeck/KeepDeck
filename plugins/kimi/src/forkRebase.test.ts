@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { rebaseState, rebaseWire } from "./forkRebase";
 import { present } from "@keepdeck/plugin-api/testing";
+import { recordOf } from "@keepdeck/plugin-api/testing";
 
 const OLD_DIR = "/Users/u/.kimi-code/sessions/wd_a_111111111111/session_old";
 const TARGET = {
@@ -47,7 +48,7 @@ describe("rebaseState", () => {
 
   it("leaves an agent entry without a home as it was", () => {
     const state = { ...v2, agents: { ...v2.agents, odd: { type: "sub" } } };
-    expect((present(rebaseState(state, TARGET), "the rebased state").state.agents as Record<string, unknown>).odd)
+    expect(recordOf(present(rebaseState(state, TARGET), "the rebased state").state.agents, "agents").odd)
       .toEqual({ type: "sub" });
   });
 

@@ -15,6 +15,7 @@ import { CLAUDE_MAIL_CHANNELS, renderClaudeMail } from "./status";
 const ASKS_FOR_MAIL = new Set(CLAUDE_MAIL_CHANNELS.map((channel) => channel.event));
 import { claudeUsageWatches } from "./usage";
 import { present } from "@keepdeck/plugin-api/testing";
+import { numberOf, recordsOf } from "@keepdeck/plugin-api/testing";
 
 /** The section this plugin registered during the last [`activate`]. */
 let registered: SettingsSectionContribution | undefined;
@@ -188,10 +189,9 @@ describe("claude plugin hooks", () => {
     // would then sit in the pane's inbox, never in its context, silently on
     // both sides.
     for (const event of armed) {
-      for (const entry of settings.hooks[event] as {
-        hooks: { timeout?: number }[];
-      }[]) {
-        expect(entry.hooks[0].timeout, event).toBeGreaterThanOrEqual(5);
+      for (const entry of recordsOf(settings.hooks[event], "hook entries")) {
+        const hooks = recordsOf(entry.hooks, "hook commands");
+        expect(numberOf(hooks[0]?.timeout, "hook timeout"), event).toBeGreaterThanOrEqual(5);
       }
     }
   });

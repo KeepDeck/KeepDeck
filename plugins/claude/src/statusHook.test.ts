@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runReporter, startDeck } from "../../../scripts/reporterHarness";
 import { normalizeClaudeStatus } from "./status";
+import { recordOf } from "@keepdeck/plugin-api/testing";
 
 /**
  * The status reporter, EXECUTED — scripts/reporterScripts.test.mjs pins every
@@ -54,12 +55,12 @@ function oversized(event: Record<string, unknown>): string {
 /** The posted envelope as the normalizer receives it — so a reduction can be
  * judged by the EDGE it produces, not by its serialized shape. */
 function envelopeEvent(nth = 0): unknown {
-  return (envelope(nth) as { payload: unknown }).payload;
+  return recordOf(envelope(nth), "the envelope").payload;
 }
 
 function envelope(nth = 0): Record<string, unknown> {
   expect(deck.envelopes.length).toBeGreaterThan(nth);
-  return deck.envelopes[nth] as Record<string, unknown>;
+  return recordOf(deck.envelopes[nth], "the envelope");
 }
 
 describe("kd-status-hook.sh", () => {
@@ -143,12 +144,12 @@ describe("kd-status-hook.sh", () => {
     // Whoever raised it can no longer be told, and the deck hands mail only
     // to the main agent: asking would be refused, so it is not asked.
     await hook(["claude", "--ask"], oversized({ hook_event_name: "Stop" }));
-    const payload = envelopeEvent() as Record<string, unknown>;
+    const payload = recordOf(envelopeEvent(), "the event payload");
     expect(payload.reduced).toBe(true);
     expect(payload).not.toHaveProperty("reply");
     // And a payload that rides whole carries no mark.
     await hook(["claude", "--ask"], JSON.stringify({ hook_event_name: "Stop" }));
-    const whole = envelopeEvent(1) as Record<string, unknown>;
+    const whole = recordOf(envelopeEvent(1), "the event payload");
     expect(whole).not.toHaveProperty("reduced");
     expect(whole).toHaveProperty("reply");
   });

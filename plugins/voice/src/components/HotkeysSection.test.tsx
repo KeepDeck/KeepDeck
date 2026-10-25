@@ -12,6 +12,7 @@ import { clearRuntime, setRuntime } from "../runtime";
 import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { HOTKEYS_KEY } from "../binding";
 import { HotkeysSection } from "./HotkeysSection";
+import { elementOf, elementsOf } from "@keepdeck/plugin-api/testing";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -81,7 +82,7 @@ describe("HotkeysSection", () => {
     );
 
   const chordButtons = () =>
-    [...stage.querySelectorAll(".voice-hotkeys__chord")] as HTMLElement[];
+    elementsOf(stage, ".voice-hotkeys__chord", HTMLElement);
 
   it("shows the two default chords", () => {
     render();
@@ -162,7 +163,7 @@ describe("HotkeysSection", () => {
     pressKey({ code: "KeyJ", key: "j", ctrlKey: true, metaKey: true });
     expect(chordButtons()[0].textContent).toBe("⌃⌘J");
 
-    const reset = stage.querySelector(".voice-hotkeys__reset") as HTMLElement;
+    const reset = elementOf(stage, ".voice-hotkeys__reset", HTMLElement);
     click(reset);
     expect(chordButtons()[0].textContent).toBe("⌥Space");
   });

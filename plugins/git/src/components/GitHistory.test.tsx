@@ -3,6 +3,7 @@ import { act } from "react";
 import { describe, expect, it } from "vitest";
 import { setRuntime } from "../runtime";
 import { cleanStatus, makeCtx, makeGit, mountGitHarness } from "./gitHarness";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The History SECTION's listing: the log, the fork divider and its
@@ -11,11 +12,18 @@ import { cleanStatus, makeCtx, makeGit, mountGitHarness } from "./gitHarness";
  */
 const rig = mountGitHarness();
 
+function findButton(root: ParentNode, selector: string, text: string): HTMLButtonElement {
+  const found = [...root.querySelectorAll<HTMLButtonElement>(selector)].find((el) =>
+    el.textContent?.includes(text),
+  );
+  return present(found, `the button containing ${text}`);
+}
+
+
+
 /** The History section's header — a toggle. */
 function historyHeader() {
-  return [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
-    el.textContent?.includes("History"),
-  ) as HTMLButtonElement;
+  return findButton(rig.host, "button.git__sechdr", "History");
 }
 
 async function openHistory() {

@@ -357,8 +357,9 @@ describe("claude history", () => {
     // much of it was actually passed through. Pinning the budget here would
     // put the host's number back in a plugin's test.
     expect(mark).toMatchObject({ size });
-    expect((mark as { readBytes: number }).readBytes).toBeGreaterThan(0);
-    expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
+    if (mark.kind !== "bytes") throw new Error("expected a byte shortfall");
+    expect(mark.readBytes).toBeGreaterThan(0);
+    expect(mark.readBytes).toBeLessThan(size);
   });
 
   it("counts a line that is JSON but no record, as a shortfall, and reads the rest as before", async () => {

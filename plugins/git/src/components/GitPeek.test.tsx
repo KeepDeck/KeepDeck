@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GitChangedFile } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
 import { cleanStatus, makeCtx, makeGit, mountGitHarness } from "./gitHarness";
-import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf, present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The whole gesture: a row or a history scope in the tab, through the request
@@ -14,19 +14,22 @@ import { present } from "@keepdeck/plugin-api/testing";
  */
 const rig = mountGitHarness();
 
+function findButton(root: ParentNode, selector: string, text: string): HTMLButtonElement {
+  const found = [...root.querySelectorAll<HTMLButtonElement>(selector)].find((el) =>
+    el.textContent?.includes(text),
+  );
+  return present(found, `the button containing ${text}`);
+}
+
 /** Open the History section. */
 async function openHistory() {
-  const header = [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
-    el.textContent?.includes("History"),
-  ) as HTMLButtonElement;
+  const header = findButton(rig.host, "button.git__sechdr", "History");
   await act(async () => header.click());
 }
 
 /** A row of the tab's own sections (not the peek's rail). */
 function listRow(subject: string) {
-  return [...rig.host.querySelectorAll(".git__secbody button.git__row")].find(
-    (el) => el.textContent?.includes(subject),
-  ) as HTMLButtonElement;
+  return findButton(rig.host, ".git__secbody button.git__row", subject);
 }
 
 // Load-sensitive under a full parallel run (real git/tmpdirs or real-timer
@@ -45,12 +48,10 @@ describe("opening a working-tree change", { retry: 2 }, () => {
     setRuntime(ctx);
 
     await rig.render();
-    const row = [...rig.host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("app.ts"),
-    );
+    const row = findButton(rig.host, "button.git__row", "app.ts");
     expect(row).toBeTruthy();
     await act(async () => {
-      (row as HTMLButtonElement).click();
+      row.click();
     });
 
     expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/app.ts", {
@@ -72,9 +73,7 @@ describe("opening a working-tree change", { retry: 2 }, () => {
     );
 
     // Clicking a sibling switches the peek to ITS diff in place.
-    const sibling = [...aside.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("notes.md"),
-    ) as HTMLButtonElement;
+    const sibling = findButton(aside, "button.git__row", "notes.md");
     await act(async () => sibling.click());
     expect(ctx.services.fs.readFile).toHaveBeenCalledWith("/repo/notes.md");
     expect(rig.host.textContent).toContain("brand new");
@@ -96,9 +95,7 @@ describe("opening a working-tree change", { retry: 2 }, () => {
     setRuntime(ctx);
 
     await rig.render();
-    const row = [...rig.host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("app.ts"),
-    ) as HTMLButtonElement;
+    const row = findButton(rig.host, "button.git__row", "app.ts");
     await act(async () => row.click());
 
     const marked = () =>
@@ -142,11 +139,9 @@ describe("opening a working-tree change", { retry: 2 }, () => {
     setRuntime(ctx);
 
     await rig.render();
-    const row = [...rig.host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("notes.md"),
-    );
+    const row = findButton(rig.host, "button.git__row", "notes.md");
     await act(async () => {
-      (row as HTMLButtonElement).click();
+      row.click();
     });
 
     expect(git.diffFile).not.toHaveBeenCalled();
@@ -203,7 +198,7 @@ describe("opening a history scope", () => {
 
     // Closing the peek returns to the commit list; nothing slid in behind it.
     await act(async () => {
-      (rig.host.querySelector(".peek") as HTMLElement).click();
+      elementOf(rig.host, ".peek", HTMLElement).click();
     });
     expect(rig.host.querySelector(".peek")).toBeNull();
     expect(rig.host.textContent).toContain("fix tests");
@@ -228,9 +223,11 @@ describe("opening a history scope", () => {
     await rig.render();
     await openHistory();
 
-    const pin = rig.host.querySelector(
+    const pin = elementOf(
+      rig.host,
       "button.git__row--pin",
-    ) as HTMLButtonElement;
+      HTMLButtonElement,
+    );
     await act(async () => pin.click());
     expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, undefined);
     await act(async () => {});
@@ -352,7 +349,7 @@ describe("opening a history scope", () => {
 
     // Close BEFORE the file list resolves.
     await act(async () => {
-      (rig.host.querySelector(".peek") as HTMLElement).click();
+      elementOf(rig.host, ".peek", HTMLElement).click();
     });
     expect(rig.host.querySelector(".peek")).toBeNull();
 
@@ -396,7 +393,7 @@ describe("opening a history scope", () => {
 
     // Close, then open the other commit — its files/diff load; A's don't leak.
     await act(async () => {
-      (rig.host.querySelector(".peek") as HTMLElement).click();
+      elementOf(rig.host, ".peek", HTMLElement).click();
     });
     await act(async () => listRow("second commit").click());
     await act(async () => {});
@@ -508,7 +505,7 @@ describe("opening a history scope", () => {
 
     await rig.render();
     await openHistory();
-    const pin = rig.host.querySelector("button.git__row--pin") as HTMLButtonElement;
+    const pin = elementOf(rig.host, "button.git__row--pin", HTMLButtonElement);
     await act(async () => pin.click());
     await rig.settle(0);
 

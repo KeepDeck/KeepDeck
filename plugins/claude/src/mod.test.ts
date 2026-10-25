@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 // The Mod exactly as claude loads it — plain JS beside its copy of the wire.
 import { register } from "../resources/keepdeck-mod/hooks/register.js";
 import { MOD_INTERRUPT_EVENT, MOD_PROMPT_ACCEPTED_EVENT } from "./status";
-import { present } from "@keepdeck/plugin-api/testing";
+import { present, recordOf, stringOf } from "@keepdeck/plugin-api/testing";
 
 const BRIDGE = JSON.stringify({
   v: 2,
@@ -72,7 +72,7 @@ function loaded({
   const fire = async (name: string, e: unknown, result: unknown = e) => {
     const handler = handlers.get(name);
     if (!handler) throw new Error(`no handler for ${name}`);
-    const out = await handler($, e as Parameters<Handler>[1], async () => result);
+    const out = await handler($, recordOf(e, "hook event"), async () => result);
     // Let the wire's queue post what was published.
     for (let i = 0; i < 10; i++) await Promise.resolve();
     return out;
@@ -80,7 +80,7 @@ function loaded({
   const events = () =>
     posted
       .filter(({ envelope }) => envelope.type === "agent.status")
-      .map(({ envelope }) => (envelope.payload.event as { hook_event_name: string }).hook_event_name);
+      .map(({ envelope }) => stringOf(recordOf(recordOf(recordOf(envelope, "envelope").payload, "payload").event, "event").hook_event_name, "event name"));
   const ring = async () => {
     doorbell.up = true;
     for (const timer of timers) await timer.tick();
@@ -161,7 +161,7 @@ describe("KeepDeck's claude Mod", () => {
       [userAppend(), { message: { type: "attachment", content: [] }, uuid: "u" }],
     ];
     for (const [input, result] of cases) {
-      await mod.fire("session.append", input, result ?? { message: (input as { message: unknown }).message, uuid: "u" });
+      await mod.fire("session.append", input, result ?? { message: input.message, uuid: "u" });
     }
     expect(mod.events()).toEqual([]);
   });

@@ -343,7 +343,8 @@ describe("kimi history", () => {
     expect(page.shortfall).toHaveLength(1);
     const [mark] = present(page.shortfall, "the shortfall of page");
     expect(mark).toMatchObject({ kind: "bytes", size });
-    expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
+    if (mark.kind !== "bytes") throw new Error("expected a byte shortfall");
+    expect(mark.readBytes).toBeLessThan(size);
   });
 
   it("counts a line that is no wire record, as a shortfall, and reads the rest as before", async () => {

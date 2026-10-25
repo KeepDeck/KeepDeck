@@ -13,7 +13,7 @@ import { MODEL_CATALOG } from "../modelCatalog";
 import { createRecordingLatch } from "../recordingLatch";
 import { controllerOf, downloadsOf, modelsOf } from "../voiceFakes.test-support";
 import { VoiceTab } from "./VoiceTab";
-import { present, speechTranscript } from "@keepdeck/plugin-api/testing";
+import { elementOf, elementsOf, present, speechTranscript } from "@keepdeck/plugin-api/testing";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -86,7 +86,7 @@ describe("VoiceTab history click-to-copy", () => {
 
   const render = () => act(() => root.render(createElement(VoiceTab)));
   const entries = () =>
-    [...stage.querySelectorAll(".voice__entry")] as HTMLElement[];
+    elementsOf(stage, ".voice__entry", HTMLElement);
 
   it("asks to replug a microphone adding an offset", () => {
     snap = {
@@ -104,12 +104,15 @@ describe("VoiceTab history click-to-copy", () => {
       render();
       await flush();
     });
-    const trigger = stage.querySelector(".voice-micblock button") as HTMLElement;
+    const trigger = elementOf(stage, ".voice-micblock button", HTMLElement);
     expect(trigger.textContent).toContain("System default (Test Microphone)");
     await act(async () => trigger.click());
-    const option = [...document.querySelectorAll('[role="option"]')].find(
-      (o) => o.textContent === "Test Microphone",
-    ) as HTMLElement;
+    const option = present(
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (o) => o.textContent === "Test Microphone",
+      ),
+      "the Test Microphone option",
+    );
     await act(async () => option.click());
     expect(chooseMicrophone).toHaveBeenCalledWith({ id: "fake:mic", name: "Test Microphone" });
   });

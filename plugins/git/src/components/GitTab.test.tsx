@@ -11,7 +11,7 @@ import {
   mountGitHarness,
   workspace,
 } from "./gitHarness";
-import { present } from "@keepdeck/plugin-api/testing";
+import { elementOf, present } from "@keepdeck/plugin-api/testing";
 
 /**
  * The Git TAB: its change list, the repo it roots on, and the live feed
@@ -21,6 +21,15 @@ import { present } from "@keepdeck/plugin-api/testing";
  * peek of its own.
  */
 const rig = mountGitHarness();
+
+function findButton(root: ParentNode, selector: string, text: string): HTMLButtonElement {
+  const found = [...root.querySelectorAll<HTMLButtonElement>(selector)].find((el) =>
+    el.textContent?.includes(text),
+  );
+  return present(found, `the button containing ${text}`);
+}
+
+
 
 describe("GitTab", () => {
   it("shows the branch line and grouped changes for the workspace repo", async () => {
@@ -159,12 +168,8 @@ describe("GitTab", () => {
     setRuntime(makeCtx(git));
 
     await rig.renderTabOnly();
-    const row = [...rig.host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("app.ts"),
-    );
-    await act(async () => {
-      (row as HTMLButtonElement).click();
-    });
+    const row = findButton(rig.host, "button.git__row", "app.ts");
+    await act(async () => row.click());
 
     // Nothing full-window inside the tab: a peek rendered here would be
     // hidden with the tab body and destroyed when the dock closes.
@@ -216,10 +221,7 @@ describe("GitTab", () => {
     setRuntime(ctx);
 
     await rig.render();
-    const header = () =>
-      [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
-        el.textContent?.includes("History"),
-      ) as HTMLButtonElement;
+    const header = () => findButton(rig.host, "button.git__sechdr", "History");
     await act(async () => header().click());
     expect(header().getAttribute("aria-expanded")).toBe("true");
     expect(slot.set).toHaveBeenCalledWith("sections", { changes: true, history: true });
@@ -246,9 +248,7 @@ describe("GitTab", () => {
     setRuntime(ctx);
 
     await rig.render();
-    const header = [...rig.host.querySelectorAll("button.git__sechdr")].find((el) =>
-      el.textContent?.includes("History"),
-    ) as HTMLButtonElement;
+    const header = findButton(rig.host, "button.git__sechdr", "History");
     await act(async () => header.click());
 
     // The toggle holds on screen; the failure to keep it leaves a trace.
@@ -262,7 +262,7 @@ describe("GitTab", () => {
 
     await rig.render();
 
-    const trouble = rig.host.querySelector(".git__empty--bad") as HTMLElement;
+    const trouble = elementOf(rig.host, ".git__empty--bad", HTMLElement);
     expect(trouble.textContent).toBe("Not a git repository.");
     expect(trouble.title).toContain("not a git repository: /repo");
   });

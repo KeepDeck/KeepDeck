@@ -18,6 +18,7 @@ import { requestPeek, takePeekRequest } from "../peekRequests";
 import { GitDiffOverlay } from "./GitDiffOverlay";
 import { GitTab } from "./GitTab";
 import type { ChangeRow } from "../domain/status";
+import { elementOf, present } from "@keepdeck/plugin-api/testing";
 
 const workspace: WorkspaceSnapshot = {
   id: "ws-1",
@@ -229,13 +230,13 @@ describe("GitDiffOverlay", () => {
     await mountOverlay();
     await mountTab();
 
-    const changeRow = [...tabHost.querySelectorAll("button.git__row")].find(
-      (el) => el.textContent?.includes("app.ts"),
+    const changeRow = present(
+      [...tabHost.querySelectorAll<HTMLButtonElement>("button.git__row")].find(
+        (el) => el.textContent?.includes("app.ts"),
+      ),
+      "the app.ts row",
     );
-    expect(changeRow).toBeTruthy();
-    await act(async () => {
-      (changeRow as HTMLButtonElement).click();
-    });
+    await act(async () => changeRow.click());
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
 
     // The dock closes: the host unmounts the panel, and with it the tab.
@@ -404,7 +405,7 @@ describe("GitDiffOverlay", () => {
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
 
     await act(async () => {
-      (overlayHost.querySelector(".peek") as HTMLElement).click();
+      elementOf(overlayHost, ".peek", HTMLElement).click();
     });
 
     expect(overlayHost.querySelector(".peek")).toBeNull();

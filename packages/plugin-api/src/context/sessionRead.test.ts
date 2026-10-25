@@ -9,6 +9,7 @@ import {
 } from "./sessionRead.ts";
 import { createJsonlReader } from "./sessionReadJsonl.ts";
 import { isJsonRecord } from "../json.ts";
+import { cursorOf } from "../testing.ts";
 
 /** Any parsed line at all — for the tests about framing, not about guards. */
 const anyLine = (_value: unknown): _value is unknown => true;
@@ -230,7 +231,7 @@ describe("jsonl reader", () => {
       fs,
       "/s.jsonl",
       NARROW,
-      "j0:12:34" as SessionCursor,
+      cursorOf("j0:12:34"),
     );
 
     expect(outcome.stopped).toBe("changed");

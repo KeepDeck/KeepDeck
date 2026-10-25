@@ -25,12 +25,12 @@ interface Case {
   readonly carried: { readonly watch: number; readonly record: unknown } | null;
 }
 
-const corpus = JSON.parse(
+const corpus: { cases: Case[] } = JSON.parse(
   readFileSync(
     fileURLToPath(new URL("../../conformance/watch-cases.json", import.meta.url)),
     "utf8",
   ),
-) as { cases: Case[] };
+);
 
 /** What this side does with a record, in the shape the corpus states. */
 function carry(

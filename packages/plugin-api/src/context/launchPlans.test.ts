@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { launchPlans, type LaunchAdapter } from "./launchPlans";
 import type { ForkPlanInput, ResumePlanInput, SpawnPlanInput, SpawnPlanOutput } from "./agents";
 
-const input = { paneId: "p", workspace: { id: "w", instance: "i" }, cwd: "/repo" } as SpawnPlanInput;
+const input: SpawnPlanInput = { paneId: "p", workspace: { id: "w", instance: "i" }, cwd: "/repo" };
+const resumeInput: ResumePlanInput = { ...input, sessionId: "s1" };
+const forkInput: ForkPlanInput = { ...input, sessionId: "s1", sourceCwd: "/repo" };
 const output = (): SpawnPlanOutput => ({ command: "cli", args: [], env: [] });
 
 /** An adapter whose stage carries `--common` and settles the launch when told. */
@@ -25,11 +27,11 @@ describe("launchPlans", () => {
     expect(spawn.args).toEqual(["--common"]);
 
     const resume = output();
-    await plans["resume.plan"]({ ...input, sessionId: "s1" } as ResumePlanInput, resume);
+    await plans["resume.plan"](resumeInput, resume);
     expect(resume.args).toEqual(["--common", "--resume", "s1"]);
 
     const fork = output();
-    await plans["fork.plan"]({ ...input, sessionId: "s1" } as ForkPlanInput, fork);
+    await plans["fork.plan"](forkInput, fork);
     expect(fork.args).toEqual(["--common", "--fork", "s1"]);
   });
 
@@ -38,7 +40,7 @@ describe("launchPlans", () => {
     // its store before naming it; a refusal is the resume's error.
     const asking = { ...adapter(), resume: async (i: ResumePlanInput) => ["--resume", i.sessionId] };
     const resume = output();
-    await launchPlans(asking)["resume.plan"]({ ...input, sessionId: "s1" } as ResumePlanInput, resume);
+    await launchPlans(asking)["resume.plan"](resumeInput, resume);
     expect(resume.args).toEqual(["--common", "--resume", "s1"]);
 
     const refusing = {
@@ -48,7 +50,7 @@ describe("launchPlans", () => {
       },
     };
     await expect(
-      launchPlans(refusing)["resume.plan"]({ ...input, sessionId: "s1" } as ResumePlanInput, output()),
+      launchPlans(refusing)["resume.plan"](resumeInput, output()),
     ).rejects.toThrow("recorded by another release");
   });
 
@@ -58,10 +60,10 @@ describe("launchPlans", () => {
     const settled = adapter(true);
     const plans = launchPlans(settled);
     const resume = output();
-    await plans["resume.plan"]({ ...input, sessionId: "s1" } as ResumePlanInput, resume);
+    await plans["resume.plan"](resumeInput, resume);
     expect(resume.args).toEqual(["--common"]);
     const fork = output();
-    await plans["fork.plan"]({ ...input, sessionId: "s1" } as ForkPlanInput, fork);
+    await plans["fork.plan"](forkInput, fork);
     expect(fork.args).toEqual(["--common"]);
     expect(settled.fork).not.toHaveBeenCalled();
   });
@@ -75,7 +77,7 @@ describe("launchPlans", () => {
       })),
     };
     const fork = output();
-    await launchPlans(scaffolded)["fork.plan"]({ ...input, sessionId: "s1" } as ForkPlanInput, fork);
+    await launchPlans(scaffolded)["fork.plan"](forkInput, fork);
     expect(fork.args).toEqual(["--common", "--fork", "s1"]);
     expect(fork.discard).toEqual({
       onceStarted: ["/store/T.jsonl"],
@@ -88,7 +90,7 @@ describe("launchPlans", () => {
     // only the environment reaches it, so the session is named there too.
     const named = { ...adapter(), resume: (i: ResumePlanInput) => ({ args: ["-s", i.sessionId], env: [["WHICH", i.sessionId]] as const }) };
     const resume = output();
-    await launchPlans(named)["resume.plan"]({ ...input, sessionId: "s1" } as ResumePlanInput, resume);
+    await launchPlans(named)["resume.plan"](resumeInput, resume);
     expect(resume.args).toEqual(["--common", "-s", "s1"]);
     expect(resume.env).toEqual([["WHICH", "s1"]]);
   });
@@ -96,7 +98,7 @@ describe("launchPlans", () => {
   it("lets a failed fork surgery reject the plan", async () => {
     const failing = { ...adapter(), fork: vi.fn(async () => { throw new Error("disk full"); }) };
     await expect(
-      launchPlans(failing)["fork.plan"]({ ...input, sessionId: "s1" } as ForkPlanInput, output()),
+      launchPlans(failing)["fork.plan"](forkInput, output()),
     ).rejects.toThrow("disk full");
   });
 });
