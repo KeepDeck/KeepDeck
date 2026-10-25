@@ -116,7 +116,7 @@ export function decodeBoard(json: string, mintUid: () => string): DecodeResult {
   try {
     raw = JSON.parse(json);
   } catch (e) {
-    return { ok: false, fault: { kind: "not-json", detail: (e as Error).message } };
+    return { ok: false, fault: { kind: "not-json", detail: e instanceof Error ? e.message : String(e) } };
   }
   return decodeBoardValue(raw, mintUid);
 }
@@ -133,8 +133,11 @@ export function decodeBoardValue(raw: unknown, mintUid: () => string): DecodeRes
   const stray = strayKey(raw, BOARD_KEYS);
   if (stray !== null) return { ok: false, fault: { kind: "unknown-field", field: stray } };
   if (!Array.isArray(raw.tasks)) return { ok: false, fault: { kind: "tasks-not-array" } };
-  const legacy = raw.relations === undefined;
-  if (!legacy && !Array.isArray(raw.relations)) return { ok: false, fault: { kind: "relations-not-array" } };
+  const storedRelations = raw.relations;
+  const legacy = storedRelations === undefined;
+  if (storedRelations !== undefined && !Array.isArray(storedRelations)) {
+    return { ok: false, fault: { kind: "relations-not-array" } };
+  }
   const tasks: Task[] = [];
   /** A legacy task's `blockedBy`, by its uid — the links it becomes. */
   const waits = new Map<string, readonly string[]>();
@@ -160,15 +163,15 @@ export function decodeBoardValue(raw: unknown, mintUid: () => string): DecodeRes
   // The counter must be a safe integer above every id on the board, or
   // the next create mints a twin — which the next read then refuses.
   const nextId = raw.nextId;
-  if (!Number.isSafeInteger(nextId) || (nextId as number) <= highest) {
+  if (typeof nextId !== "number" || !Number.isSafeInteger(nextId) || nextId <= highest) {
     return { ok: false, fault: { kind: "bad-counter", atLeast: highest + 1 } };
   }
-  const board: TaskBoard = { nextId: nextId as number, tasks, relations: [] };
-  if (legacy) {
+  const board: TaskBoard = { nextId, tasks, relations: [] };
+  if (storedRelations === undefined) {
     const migrated = migratedRelations(tasks, waits);
     return { ok: true, board: withRelations(board, migrated.relations), migrated: true, dropped: migrated.dropped };
   }
-  const relations = decodeRelations(raw.relations as unknown[], tasks);
+  const relations = decodeRelations(storedRelations, tasks);
   if (!relations.ok) return relations;
   return { ok: true, board: withRelations(board, relations.relations), migrated: upgraded, dropped: [] };
 }
@@ -284,9 +287,9 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   // A legacy task may already carry one (a hand edit, a half-written
   // build): kept when it is one, drawn afresh when not — the codec before
   // relations never read it. On a new board every task must have its own.
-  const valid = typeof raw.uid === "string" && isTaskUid(raw.uid);
-  if (!legacy && !valid) return fail(raw.uid === undefined ? "uid (a board with relations gives every task one)" : "uid");
-  const uid = valid ? (raw.uid as string) : mintUid();
+  const storedUid = typeof raw.uid === "string" && isTaskUid(raw.uid) ? raw.uid : null;
+  if (!legacy && storedUid === null) return fail(raw.uid === undefined ? "uid (a board with relations gives every task one)" : "uid");
+  const uid = storedUid ?? mintUid();
   if (typeof raw.teamId !== "string" || raw.teamId === "") return fail("teamId");
   // Absent on boards written before epics: every task then was work.
   if (raw.kind !== undefined && (typeof raw.kind !== "string" || !isTaskKind(raw.kind))) return fail("kind");
@@ -299,7 +302,8 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   // Blockers are links now: a new board holding them on a task as well
   // has two answers to one question, and which is true is not ours to
   // guess.
-  if (legacy ? !isStringArray(raw.blockedBy) : raw.blockedBy !== undefined) {
+  const blockedBy = raw.blockedBy;
+  if (legacy ? !isStringArray(blockedBy) : blockedBy !== undefined) {
     return fail(legacy ? "blockedBy" : "blockedBy (blockers are kept in relations)");
   }
   if (!isStringArray(raw.artifacts)) return fail("artifacts");
@@ -332,7 +336,7 @@ function decodeTask(raw: unknown, legacy: boolean, mintUid: () => string): TaskR
   if (!briefs.ok) return fail(briefs.field);
   return {
     ok: true,
-    ...(legacy ? { blockedBy: raw.blockedBy as string[] } : {}),
+    ...(legacy && isStringArray(blockedBy) ? { blockedBy } : {}),
     ...(raw.bodyV === undefined ? { upgraded: true } : {}),
     task: {
       uid,

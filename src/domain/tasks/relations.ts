@@ -10,6 +10,7 @@
  * source on a disbanded team, a hand edit, tomorrow another workspace:
  * such an end is ABSENT, and each question says what absent means for it.
  */
+import { keysOf } from "../json";
 import {
   RELATION_KINDS,
   blockerResolved,
@@ -142,7 +143,7 @@ export function openBlockersOf(task: Task, board: TaskBoard): string[] {
 }
 
 /** The kinds that gate the ladder's start, read from the table. */
-const GATING_KINDS: readonly RelationKind[] = (Object.keys(RELATION_KINDS) as RelationKind[]).filter(
+const GATING_KINDS: readonly RelationKind[] = keysOf(RELATION_KINDS).filter(
   (kind) => RELATION_KINDS[kind].gatesStart,
 );
 
@@ -201,7 +202,7 @@ function present(board: TaskBoard, uids: readonly string[]): Task[] {
 }
 
 /** The kinds that order their ends, read from the table. */
-const ORDERING_KINDS: readonly RelationKind[] = (Object.keys(RELATION_KINDS) as RelationKind[]).filter(
+const ORDERING_KINDS: readonly RelationKind[] = keysOf(RELATION_KINDS).filter(
   (kind) => RELATION_KINDS[kind].ordersEnds,
 );
 

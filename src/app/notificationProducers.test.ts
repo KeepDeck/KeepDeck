@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
-import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { createWorkspaceInstance, UNMINTED_INSTANCE } from "../domain/workspaceInstance";
 import {
   initActivityNotifications,
   initUpdateNotifications,
@@ -141,6 +141,12 @@ describe("plugin notification source", () => {
       workspace: { id: "ws-1", instance: workspaceInstance },
       dockTab: "changes",
     });
+  });
+
+  it("carries a lifetime this app never minted as one that names nothing", () => {
+    expect(
+      pluginNotificationSource("git", { id: "ws-1", instance: "forged" }).workspace,
+    ).toEqual({ id: "ws-1", instance: UNMINTED_INSTANCE });
   });
 
   it("preserves a stale lifetime instead of resolving by reusable id", () => {

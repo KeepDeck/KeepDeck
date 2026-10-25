@@ -1,6 +1,6 @@
 import { isJsonRecord, type PluginKV, type WorkspaceRef } from "@keepdeck/plugin-api";
 import type { Workspace } from "../domain/deck";
-import type { WorkspaceInstance } from "../domain/workspaceInstance";
+import { workspaceInstanceOf, type WorkspaceInstance } from "../domain/workspaceInstance";
 
 /**
  * The deck-backed workspace KV behind `ctx.storage.workspace(workspace)`. A
@@ -33,7 +33,7 @@ export function makeWorkspaceKv(
   // stale or invented ref stays inert and can never attach itself to a future
   // workspace that happens to reuse the same public id.
   const wsId = ref.id;
-  const workspaceInstance = ref.instance as WorkspaceInstance;
+  const workspaceInstance = workspaceInstanceOf(ref.instance);
   const workspace = (): Workspace | undefined =>
     access
       .workspaces()

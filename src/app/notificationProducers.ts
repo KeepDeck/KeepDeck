@@ -11,7 +11,7 @@ import {
   activityTransition,
   type PaneActivity,
 } from "../domain/status";
-import type { WorkspaceInstance } from "../domain/workspaceInstance";
+import { workspaceInstanceOf } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import type { AgentStatusTracker } from "./agentStatusTracker";
 import { notify } from "./notificationCenter";
@@ -58,7 +58,7 @@ export function pluginNotificationSource(
     ...(workspace !== undefined && {
       workspace: {
         id: workspace.id,
-        instance: workspace.instance as WorkspaceInstance,
+        instance: workspaceInstanceOf(workspace.instance),
       },
     }),
     ...(dockTab !== undefined && { dockTab }),

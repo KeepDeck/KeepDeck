@@ -28,7 +28,16 @@ export type UtcDayStart = number & { readonly __utcDayStart: unique symbol };
 
 /** The UTC day bucket an instant belongs to (its midnight, unix ms). */
 export function utcDayStart(at: number): UtcDayStart {
-  return (Math.floor(at / DAY_MS) * DAY_MS) as UtcDayStart;
+  const start = Math.floor(at / DAY_MS) * DAY_MS;
+  if (!isUtcDayStart(start)) throw new Error(`${start} is not a UTC midnight`);
+  return start;
+}
+
+/** Whether `value` is a UTC midnight: a whole number of days since the
+ * epoch. A non-finite instant has no day; it passes through as it always
+ * has, and every reader's arithmetic carries it on. */
+function isUtcDayStart(value: number): value is UtcDayStart {
+  return value % DAY_MS === 0 || !Number.isFinite(value);
 }
 
 /**
@@ -67,15 +76,23 @@ export type LocalDayNumber = number & {
  */
 export function localDayNumber(at: number): LocalDayNumber {
   const date = new Date(at);
-  return Math.floor(
-    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS,
-  ) as LocalDayNumber;
+  const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS);
+  if (!isLocalDayNumber(day)) throw new Error(`${day} is not a day ordinal`);
+  return day;
 }
 
 /** Step a day ordinal by whole days — THE one place the brand is allowed to
  * come off and go back on, so no caller has to hand-cast to walk a run. */
 export function shiftDay(day: LocalDayNumber, days: number): LocalDayNumber {
-  return (day + days) as LocalDayNumber;
+  const shifted = day + days;
+  if (!isLocalDayNumber(shifted)) throw new Error(`a day ordinal moves by whole days, not ${days}`);
+  return shifted;
+}
+
+/** Whether `value` is a day ordinal: a whole number. Non-finite passes, as
+ * for [`isUtcDayStart`]. */
+function isLocalDayNumber(value: number): value is LocalDayNumber {
+  return Number.isInteger(value) || !Number.isFinite(value);
 }
 
 export const WEEK_MS = 7 * DAY_MS;

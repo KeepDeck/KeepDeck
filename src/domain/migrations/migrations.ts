@@ -1,4 +1,5 @@
 import { isJsonRecord } from "@keepdeck/plugin-api";
+import { keysOf } from "../json";
 /**
  * Schema revisions and migrations for every durable JSON document — the one
  * file to touch when a document's shape changes.
@@ -357,12 +358,10 @@ function migrateWorkspaceTeamsToV11(
   const teams: Record<string, unknown>[] = [];
   const membership = new Map<Record<string, unknown>, { teamId: string; role: string }>();
   for (const group of groups) {
-    const own = group.members.find(
-      (entry) => typeof entry.pane.name === "string" && entry.pane.name.trim(),
-    );
-    const name = uniqueName(
-      group.name ?? (own ? (own.pane.name as string).trim() : `Team ${group.seq}`),
-    );
+    const ownName = group.members
+      .map((entry) => entry.pane.name)
+      .find((name): name is string => typeof name === "string" && name.trim() !== "");
+    const name = uniqueName(group.name ?? (ownName !== undefined ? ownName.trim() : `Team ${group.seq}`));
     const team: Record<string, unknown> = { id: group.id, name };
     if (group.placement.provisioning) {
       team.provisioning = group.placement.provisioning;
@@ -430,8 +429,9 @@ function migrateDeckFromV11toV12(doc: RawDoc): RawDoc {
     workspaces: workspaces.map((ws) => {
       if (!isJsonRecord(ws) || typeof ws.id !== "string") return ws;
       const view: RawDoc = {};
-      for (const [map, field] of Object.entries(V11_VIEW_MAPS)) {
-        const entries = maps[map as keyof typeof maps];
+      for (const map of keysOf(V11_VIEW_MAPS)) {
+        const field = V11_VIEW_MAPS[map];
+        const entries = maps[map];
         if (isJsonRecord(entries) && entries[ws.id] !== undefined) view[field] = entries[ws.id];
       }
       return Object.keys(view).length > 0 ? { ...ws, view } : ws;

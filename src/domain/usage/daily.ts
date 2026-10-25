@@ -6,6 +6,7 @@ import {
 import { periodCutoff, type UsageStatsPeriod } from "./history/query";
 import { DAY_MS, HOUR_MS } from "./time";
 import type { TokenCounts } from "./usage";
+import { nullPrototypeRecord } from "../json";
 
 /**
  * Token buckets over time for the Overview chart, zero-filled so the time
@@ -98,8 +99,7 @@ export function usageTimeline(
     // Null-prototype buckets: agent ids are plugin-declared strings, and a
     // plain object literal would resolve "__proto__" through the prototype
     // chain — silently losing that agent's tokens.
-    const bucket =
-      totals.get(start) ?? (Object.create(null) as Record<string, BucketSlice>);
+    const bucket = totals.get(start) ?? nullPrototypeRecord<BucketSlice>();
     const slice = (bucket[event.agent] ??= { totalTokens: 0, tokens: {} });
     slice.totalTokens += tokenTotal(event.tokens);
     addTokenCounts(slice.tokens, event.tokens);

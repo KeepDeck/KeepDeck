@@ -1,3 +1,4 @@
+import { isJsonRecord } from "@keepdeck/plugin-api";
 import type { UsageWindow } from "./usage";
 import { HOUR_MS, DAY_MS } from "./time";
 
@@ -232,10 +233,8 @@ export function decodeWindowReport(line: string): WindowReport | null {
   } catch {
     return null;
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const raw = value as Record<string, unknown>;
+  if (!isJsonRecord(value)) return null;
+  const raw = value;
   if (typeof raw.agent !== "string" || raw.agent === "") return null;
   if (typeof raw.usedPct !== "number" || !Number.isFinite(raw.usedPct)) {
     return null;

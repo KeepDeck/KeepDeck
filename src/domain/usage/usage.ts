@@ -1,3 +1,4 @@
+import { isObjectLike } from "../json";
 import { reportedLimits, type AccountUsage, type ApiActivity, type NormalizedUsage, type PaneUsage, type UsageWindow } from "@keepdeck/plugin-api";
 
 /**
@@ -234,8 +235,8 @@ export function serializeUsageCache(
 }
 
 function readWindow(value: unknown): { window: UsageWindow } | null {
-  if (typeof value !== "object" || value === null) return null;
-  const raw = value as Record<string, unknown>;
+  if (!isObjectLike(value)) return null;
+  const raw = value;
   if (typeof raw.usedPct !== "number" || !Number.isFinite(raw.usedPct)) return null;
   return {
     window: {
@@ -266,12 +267,12 @@ export function hydrateUsageCache(json: string): Map<string, AccountUsage> {
   } catch {
     return out;
   }
-  if (typeof raw !== "object" || raw === null) return out;
-  const accounts = (raw as Record<string, unknown>).accounts;
+  if (!isObjectLike(raw)) return out;
+  const accounts = raw.accounts;
   if (typeof accounts !== "object" || accounts === null) return out;
   for (const [provider, entry] of Object.entries(accounts)) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const e = entry as Record<string, unknown>;
+    if (!isObjectLike(entry)) continue;
+    const e = entry;
     if (e.kind !== "reported") continue;
     if (typeof e.reportedAt !== "number" || !Number.isFinite(e.reportedAt)) continue;
     if (!Array.isArray(e.windows)) continue;

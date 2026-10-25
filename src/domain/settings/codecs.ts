@@ -8,11 +8,11 @@ import {
   SCROLLBACK_MIN,
   SUSPENDED_AGENT_PLACEMENTS,
   USAGE_DISPLAYS,
-  type NotificationsMode,
   type Settings,
   type SettingsKey,
 } from "./types";
 import { isJsonRecord } from "@keepdeck/plugin-api";
+import { isOneOf, keysOf } from "../json";
 
 /**
  * How a STORED value becomes a setting, and what each setting falls back to.
@@ -84,7 +84,7 @@ export function clampScrollback(value: number): number {
 function readOneOf<T extends string>(
   allowed: readonly T[],
 ): (stored: unknown) => T | undefined {
-  return (stored) => (allowed.includes(stored as T) ? (stored as T) : undefined);
+  return (stored) => (isOneOf(allowed, stored) ? stored : undefined);
 }
 
 function readBoolean(stored: unknown): boolean | undefined {
@@ -164,8 +164,8 @@ function readNotifications(
   if (typeof value.enabled === "boolean") enabled = value.enabled;
   else if (value.enabled !== undefined) discard("notifications.enabled");
   let mode = DEFAULT_NOTIFICATIONS.mode;
-  if (NOTIFICATION_MODES.includes(value.mode as NotificationsMode)) {
-    mode = value.mode as NotificationsMode;
+  if (isOneOf(NOTIFICATION_MODES, value.mode)) {
+    mode = value.mode;
   } else if (value.mode !== undefined) discard("notifications.mode");
   const mutedPlugins: string[] = [];
   if (Array.isArray(value.mutedPlugins)) {
@@ -245,10 +245,7 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
 /** The table as entries, typed once so every consumer doesn't re-assert the
  * key type. Iteration order is the table's, which is the saved key order. */
 export function settingsCodecs(): [SettingsKey, SettingCodec<unknown>][] {
-  return Object.entries(SETTINGS_CODECS) as [
-    SettingsKey,
-    SettingCodec<unknown>,
-  ][];
+  return keysOf(SETTINGS_CODECS).map((key): [SettingsKey, SettingCodec<unknown>] => [key, SETTINGS_CODECS[key]]);
 }
 
 /** Whether `key` is a setting this build knows — the one place that question is
