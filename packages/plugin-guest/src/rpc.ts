@@ -19,7 +19,9 @@ export class GuestRpc {
     { resolve: (value: unknown) => void; reject: (reason: unknown) => void }
   >();
 
-  constructor(private readonly port: MessagePort) {}
+  /** Only `postMessage` — results arrive through `settle`, which the
+   * connection calls from its own `onmessage`. */
+  constructor(private readonly port: Pick<MessagePort, "postMessage">) {}
 
   /** Invoke a host method; resolves with its return value, rejects with an
    * `Error` carrying the host's message — and its `code`, when the host sent
@@ -46,3 +48,8 @@ export class GuestRpc {
     }
   }
 }
+
+/** What the context builders use of the client: the call alone. Settling is
+ * the connection's job, so a builder (and its test) never needs a whole
+ * `GuestRpc` — only something that answers a call. */
+export type GuestCaller = Pick<GuestRpc, "call">;

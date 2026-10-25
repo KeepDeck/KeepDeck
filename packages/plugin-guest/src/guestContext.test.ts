@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildGuestContext } from "./context";
 import { fakeManifest } from "./fakeHost";
-import { GuestRpc } from "./rpc";
+import { GuestRpc, type GuestCaller } from "./rpc";
 import type { DownloadRequest } from "@keepdeck/plugin-api";
 
 /**
@@ -15,8 +15,7 @@ import type { DownloadRequest } from "@keepdeck/plugin-api";
 /** A GuestRpc over a port whose `postMessage` is a no-op — the synchronous
  * guard under test fires before anything would be sent. */
 function silentRpc(): GuestRpc {
-  const port = { postMessage() {}, onmessage: null } as unknown as MessagePort;
-  return new GuestRpc(port);
+  return new GuestRpc({ postMessage() {} });
 }
 
 describe("buildGuestContext dock tabs", () => {
@@ -49,13 +48,13 @@ describe("registration outcomes fail loud", () => {
     // The host answers ok:false (an undeclared contribution, a gate
     // violation) — activation must FAIL, not show active with the
     // contribution silently missing.
-    const rpc = {
+    const rpc: GuestCaller = {
       call: vi.fn((path: string) =>
         path === "agents.register"
           ? Promise.reject(new Error('agents "codex" not declared'))
           : Promise.resolve(undefined),
       ),
-    } as unknown as GuestRpc;
+    };
     const bundle = buildGuestContext(rpc, fakeManifest());
     bundle.ctx.agents.register({
       id: "codex",
@@ -67,9 +66,9 @@ describe("registration outcomes fail loud", () => {
   });
 
   it("accepted registrations settle clean", async () => {
-    const rpc = {
+    const rpc: GuestCaller = {
       call: vi.fn(() => Promise.resolve(undefined)),
-    } as unknown as GuestRpc;
+    };
     const bundle = buildGuestContext(rpc, fakeManifest());
     bundle.ctx.settings.registerSection({ label: "S", fields: [] });
     await expect(bundle.registrationsSettled()).resolves.toBeUndefined();
@@ -86,7 +85,7 @@ describe("registration outcomes fail loud", () => {
         ? Promise.reject(new Error("settings not declared"))
         : Promise.resolve(undefined),
     );
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     await bundle.registrationsSettled();
 
@@ -105,7 +104,7 @@ describe("registration outcomes fail loud", () => {
 describe("agent registration payload", () => {
   it("carries the icon as data; hooks cross as names only", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const icon = {
       viewBox: "0 0 24 24",
@@ -131,7 +130,7 @@ describe("agent registration payload", () => {
 
   it("warns loudly when an agent declares usage — the tier cannot carry it", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     bundle.ctx.agents.register({
       id: "codex",
@@ -152,7 +151,7 @@ describe("agent registration payload", () => {
 
   it("warns loudly when an agent declares status — the tier cannot carry it", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     bundle.ctx.agents.register({
       id: "codex",
@@ -173,7 +172,7 @@ describe("agent registration payload", () => {
 
   it("keeps history callbacks local and serves host history requests", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const describe = vi.fn(async (ref: string) => ({
       cwd: "/repo",
@@ -228,7 +227,7 @@ describe("agent registration payload", () => {
     // proxy — a false declaration gets an old-guest realm asked for a
     // method it throws on, so the flag tracks the object, not optimism.
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const listing = vi.fn(async () => ({ stubs: [], complete: false }));
     bundle.ctx.agents.register({
@@ -311,7 +310,7 @@ describe("agent registration payload", () => {
 
   it("declares hasLiveSessions iff the agent contributes one, and serves the query on its own channel", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
-    const rpc = { call } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const list = vi.fn(async () => [
       { sessionId: "s-1", kind: "background", name: "Fix the build", state: "working" },
@@ -385,7 +384,7 @@ describe("remote download streams", () => {
   };
 
   it("rejects duplicate ids without replacing the first route", async () => {
-    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call: vi.fn(async () => undefined) };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const first = bundle.ctx.services.downloads.start(request);
     expect(() => bundle.ctx.services.downloads.start(request)).toThrow(
@@ -402,7 +401,7 @@ describe("remote download streams", () => {
   });
 
   it("conflates progress and return detaches only that reader", async () => {
-    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call: vi.fn(async () => undefined) };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const iterator = bundle.ctx.services.downloads
       .start(request)
@@ -431,7 +430,7 @@ describe("remote download streams", () => {
   });
 
   it("fans the current state out to independent readers", async () => {
-    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const rpc: GuestCaller = { call: vi.fn(async () => undefined) };
     const bundle = buildGuestContext(rpc, fakeManifest());
     const stream = bundle.ctx.services.downloads.start(request);
     const first = stream[Symbol.asyncIterator]();

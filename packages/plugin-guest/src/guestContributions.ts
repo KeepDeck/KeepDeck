@@ -7,7 +7,7 @@ import type {
   PluginContext,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import type { GuestRpc } from "./rpc";
+import type { GuestCaller } from "./rpc";
 
 /**
  * The three surfaces a plugin REGISTERS through, guest-side. They look
@@ -30,7 +30,7 @@ import type { GuestRpc } from "./rpc";
  * implement gets the host asking for a call this side would have to refuse.
  */
 export interface GuestContributionDeps {
-  rpc: GuestRpc;
+  rpc: GuestCaller;
   noop: () => void;
   registerRemote: (
     path: string,

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { speechErrorKind } from "@keepdeck/plugin-api";
 import { GuestRpc } from "./rpc";
 
-/** A GuestRpc over a port that only records what it posts. */
+/** A GuestRpc over a port that posts nowhere — results are settled by hand. */
 function rpc(): GuestRpc {
-  return new GuestRpc({ postMessage: () => {} } as unknown as MessagePort);
+  return new GuestRpc({ postMessage: () => {} });
 }
 
 describe("GuestRpc", () => {

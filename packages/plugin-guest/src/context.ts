@@ -3,7 +3,7 @@ import { errorMessage, type AgentHistory, type AgentLiveSession, type AgentHooks
 import { RemoteDownloadStream } from "./downloadStream";
 import { createGuestServices } from "./guestServices";
 import { createGuestContributions } from "./guestContributions";
-import type { GuestRpc } from "./rpc";
+import type { GuestCaller } from "./rpc";
 import {
   type WireAgentHistoryCall,
   type WireAgentLiveSessionsCall,
@@ -47,7 +47,7 @@ export interface GuestContextBundle {
  * retire that `regId`.
  */
 export function buildGuestContext(
-  rpc: GuestRpc,
+  rpc: GuestCaller,
   manifest: PluginManifest,
 ): GuestContextBundle {
   const noop = (): void => {};

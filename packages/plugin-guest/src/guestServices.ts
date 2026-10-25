@@ -21,7 +21,7 @@ import { createSessionStore, errorMessage } from "@keepdeck/plugin-api";
 
 import { RemoteDownloadStream } from "./downloadStream";
 import { speechLevelChannel } from "./protocol";
-import type { GuestRpc } from "./rpc";
+import type { GuestCaller } from "./rpc";
 
 /**
  * The `services` half of the guest context: one proxy per member, each a thin
@@ -38,7 +38,7 @@ import type { GuestRpc } from "./rpc";
  * holds the teardown.
  */
 export interface GuestServiceDeps {
-  rpc: GuestRpc;
+  rpc: GuestCaller;
   noop: () => void;
   sessionListeners: Map<string, (event: PluginSessionEvent) => void>;
   /** Output can arrive before `spawn` resolves and installs the listener. */
