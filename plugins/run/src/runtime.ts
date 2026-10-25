@@ -1,4 +1,11 @@
-import type { PluginContext } from "@keepdeck/plugin-api";
+import type {
+  PluginEvents,
+  PluginHostFacts,
+  PluginLogger,
+  PluginOpener,
+  PluginSettings,
+  PluginStorage,
+} from "@keepdeck/plugin-api";
 import type { RunManager } from "./manager";
 
 /**
@@ -12,7 +19,18 @@ import type { RunManager } from "./manager";
  */
 export interface RunRuntime {
   manager: RunManager;
-  ctx: PluginContext;
+  ctx: RunViewPorts;
+}
+
+/** What the tab tree needs from the host — the parts of its context the
+ * presets, the "Open in" choice and the log view read. */
+export interface RunViewPorts {
+  storage: Pick<PluginStorage, "workspace">;
+  events: Pick<PluginEvents, "onDeckChanged">;
+  settings: Pick<PluginSettings, "read" | "onChange">;
+  host: PluginHostFacts;
+  services: { opener: PluginOpener };
+  log: PluginLogger;
 }
 
 let runtime: RunRuntime | null = null;

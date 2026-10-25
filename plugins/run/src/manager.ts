@@ -76,8 +76,11 @@ interface Entry {
 }
 
 
+/** What the manager runs on: the PTY spawn and the port allocation. */
+export type RunManagerServices = Pick<PluginServices, "sessions" | "ports">;
+
 export function createRunManager(
-  services: PluginServices,
+  services: RunManagerServices,
   log: PluginLogger,
 ): RunManager {
   const entries = new Map<string, Entry>();

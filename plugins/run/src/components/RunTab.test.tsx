@@ -2,10 +2,10 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginContext, WorkspaceSnapshot } from "@keepdeck/plugin-api";
-import type { RunManager } from "../manager";
+import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
 import type { RunPreset, RunSession } from "../domain";
 import { setRuntime } from "../runtime";
+import { inertViewPorts, openerOf } from "../runPorts.test-support";
 
 // xterm can't mount under happy-dom; the log's contract is the manager's
 // attach/replay, covered in manager.test.ts and RunLog.test.tsx.
@@ -56,6 +56,7 @@ function makeManager() {
     stopWorkspaceRuns: vi.fn(),
     stopAll: vi.fn(),
     attachRun: vi.fn(() => () => {}),
+    writeRun: vi.fn(),
     resizeRun: vi.fn(),
     getSessions: vi.fn((): RunSession[] => manager.sessions),
     subscribe: vi.fn(() => () => {}),
@@ -67,25 +68,22 @@ const kv = { get: vi.fn(), set: vi.fn(async () => {}), delete: vi.fn(async () =>
 // The plugin's effective settings values — per-test mutable (the Open in
 // describe swaps the app list).
 let settingsBag: Record<string, unknown> = {};
-const opener = {
+const openPathWith = vi.fn(async (_path: string, _application: string) => {});
+const opener = openerOf({
   openUrl: vi.fn(async () => {}),
   openPath: vi.fn(async () => {}),
-  openPathWith: vi.fn(async () => {}),
-};
-const ctx = {
-  storage: { workspace: vi.fn(() => kv), global: kv },
-  events: {
-    onDeckChanged: vi.fn(() => ({ dispose: vi.fn() })),
-    onWorkspaceClosed: vi.fn(() => ({ dispose: vi.fn() })),
-    onPaneSelected: vi.fn(() => ({ dispose: vi.fn() })),
-  },
+  openPathWith,
+});
+const ctx = inertViewPorts({
+  storage: { workspace: vi.fn(() => kv) },
+  events: { onDeckChanged: vi.fn(() => ({ dispose: vi.fn() })) },
   services: { opener },
   settings: {
     read: vi.fn(async () => settingsBag),
     onChange: vi.fn(() => ({ dispose: vi.fn() })),
   },
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-} as unknown as PluginContext;
+});
 
 function type(el: HTMLTextAreaElement | HTMLInputElement, text: string) {
   const set = Object.getOwnPropertyDescriptor(
@@ -124,7 +122,7 @@ describe("RunTab — the merged Commands list", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     manager = makeManager();
-    setRuntime({ manager: manager as unknown as RunManager, ctx });
+    setRuntime({ manager, ctx });
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -368,7 +366,7 @@ describe("RunTab — target follows the highlighted pane", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     manager = makeManager();
-    setRuntime({ manager: manager as unknown as RunManager, ctx });
+    setRuntime({ manager, ctx });
     kv.get.mockResolvedValue([]);
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
@@ -462,7 +460,7 @@ describe("RunTab — Open in", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     manager = makeManager();
-    setRuntime({ manager: manager as unknown as RunManager, ctx });
+    setRuntime({ manager, ctx });
     kv.get.mockResolvedValue([]);
     // The settings-sourced application list (Settings → Run).
     settingsBag = { openApps: ["Visual Studio Code", "IntelliJ IDEA"] };
@@ -486,7 +484,7 @@ describe("RunTab — Open in", () => {
   const row = () => document.querySelector<HTMLElement>(".run__open");
 
   it("logs an open the OS refuses, naming the app and the target", async () => {
-    opener.openPathWith.mockRejectedValueOnce({ code: 2 });
+    openPathWith.mockRejectedValueOnce({ code: 2 });
     await mount();
     await act(async () => byText("Open")!.click());
     expect(ctx.log.warn).toHaveBeenCalledWith(
@@ -497,7 +495,7 @@ describe("RunTab — Open in", () => {
   it("opens the CURRENT target in the list's first app when nothing is picked", async () => {
     await mount(); // pane-2 highlighted → target /wt/b
     act(() => byText("Open")!.click());
-    expect(opener.openPathWith).toHaveBeenCalledWith(
+    expect(openPathWith).toHaveBeenCalledWith(
       "/wt/b",
       "Visual Studio Code",
     );
@@ -511,7 +509,7 @@ describe("RunTab — Open in", () => {
     act(() => byText("IntelliJ IDEA")!.click());
     expect(kv.set).toHaveBeenCalledWith("openApp", "IntelliJ IDEA");
     act(() => byText("Open")!.click());
-    expect(opener.openPathWith).toHaveBeenCalledWith("/wt/b", "IntelliJ IDEA");
+    expect(openPathWith).toHaveBeenCalledWith("/wt/b", "IntelliJ IDEA");
   });
 
   it("hydrates the stored pick from the workspace slot", async () => {
