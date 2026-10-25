@@ -68,6 +68,7 @@ export default [
     files: [...TYPESCRIPT, ...RESOURCE_JS],
     languageOptions: { parser: tsParser },
     plugins: { "@typescript-eslint": tsPlugin },
+    linterOptions: { noInlineConfig: true },
     rules: {
       // A dynamic boundary gets `unknown` and a guard; `any` silently turns
       // off checking for every operation that follows it.

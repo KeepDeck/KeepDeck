@@ -1,3 +1,4 @@
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
@@ -75,6 +76,27 @@ describe("the linter", () => {
       Array(2).fill("no-restricted-imports"),
     );
     expect(componentTest.messages).toEqual([]);
+  });
+
+  it("checks every plugin resource JS with @ts-check", () => {
+    const files = [];
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        const relative = path.slice(REPO.length + 1);
+        if (entry.isDirectory()) walk(path);
+        else if (entry.name.endsWith(".js") && /^plugins\/[^/]+\/resources\//.test(relative)) {
+          files.push(path);
+        }
+      }
+    };
+    walk(join(REPO, "plugins"));
+    // A run that read nothing proves nothing.
+    expect(files.length).toBeGreaterThan(20);
+    const missing = files
+      .filter((file) => !readFileSync(file, "utf8").split("\n").slice(0, 6).some((line) => line.trim() === "// @ts-check"))
+      .map((file) => file.slice(REPO.length + 1));
+    expect(missing).toEqual([]);
   });
 
   it("finds nothing in the source", async () => {
