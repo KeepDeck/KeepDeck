@@ -196,3 +196,17 @@ export function speechCapture(partial: Partial<SpeechCapture> = {}): SpeechCaptu
     ...partial,
   };
 }
+
+/**
+ * `value`, when it is there; a test failure that names `what` when it is
+ * not.
+ *
+ * What a test meant by `x!`: "this element, entry or match must exist". The
+ * non-null assertion only told the compiler so — a missing one then failed a
+ * line later as "cannot read properties of undefined", naming nothing. This
+ * says what was expected, where it was expected.
+ */
+export function present<T>(value: T | null | undefined, what: string): T {
+  if (value === null || value === undefined) throw new Error(`expected ${what}, found none`);
+  return value;
+}

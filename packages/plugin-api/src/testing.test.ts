@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fsStore } from "./testing.ts";
+import { fsStore, present } from "./testing.ts";
 
 /**
  * The double against the host it stands in for.
@@ -191,5 +191,18 @@ describe("fsStore mirrors project_fs_read_file", () => {
 
     expect(file.readBytes).toBe(7);
     expect(file.truncated).toBe(true);
+  });
+});
+
+describe("present", () => {
+  it("hands back what is there, falsy values included", () => {
+    expect(present(0, "a count")).toBe(0);
+    expect(present("", "a label")).toBe("");
+    expect(present(false, "a flag")).toBe(false);
+  });
+
+  it("fails by name when it is not", () => {
+    expect(() => present(null, "the save button")).toThrow("expected the save button, found none");
+    expect(() => present(undefined, "row 3")).toThrow("expected row 3, found none");
   });
 });
