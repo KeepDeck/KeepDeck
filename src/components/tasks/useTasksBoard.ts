@@ -168,10 +168,10 @@ export function useTasksBoard(
   // runs twice and which must not perform IO.
   const [drag, setDrag] = useState<DragState>(IDLE);
   const dragRef = useRef<DragState>(IDLE);
-  const updateDrag = (next: DragState) => {
+  const updateDrag = useCallback((next: DragState) => {
     dragRef.current = next;
     setDrag(next);
-  };
+  }, []);
   const dragEndedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A copy on its way: the ref answers a second press at once, the state
@@ -212,12 +212,39 @@ export function useTasksBoard(
     () => (board && teamId !== null ? tasksOfTeam(board, teamId) : []),
     [board, teamId],
   );
-  const roster = useMemo(
-    () => (service && workspaceId !== null && teamId !== null ? service.rosterOf(workspaceId, teamId) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [service, workspaceId, teamId, revision],
-  );
+  // The revision is the service's clock: it is a real input even though the
+  // call itself only names the workspace and team. Cache the read per tick so
+  // the roster keeps its identity between unrelated renders.
+  const rosterCache = useRef<{
+    service: typeof service;
+    workspaceId: string | null;
+    teamId: string | null;
+    revision: number;
+    roster: ReturnType<NonNullable<typeof service>["rosterOf"]>;
+  } | null>(null);
+  if (
+    rosterCache.current === null ||
+    rosterCache.current.service !== service ||
+    rosterCache.current.workspaceId !== workspaceId ||
+    rosterCache.current.teamId !== teamId ||
+    rosterCache.current.revision !== revision
+  ) {
+    rosterCache.current = {
+      service,
+      workspaceId,
+      teamId,
+      revision,
+      roster:
+        service && workspaceId !== null && teamId !== null
+          ? service.rosterOf(workspaceId, teamId)
+          : [],
+    };
+  }
+  const roster = rosterCache.current.roster;
 
+  // The release itself is defined below (it needs the write helpers); the
+  // window listener reads the latest one through a ref.
+  const releaseRef = useRef<(over: TaskStatus | null) => void>(() => {});
   // The drag's window listeners live only while a row is pressed or in
   // flight; they read the board and the roster, so they come after both.
   useEffect(() => {
@@ -229,7 +256,7 @@ export function useTasksBoard(
     const onMove = (event: PointerEvent) => updateDrag(moveRow(dragRef.current, event.clientX, event.clientY, targetsOf));
     // A release anywhere ends the drag; a group's own release handler
     // (the drop) runs first, in the bubble phase before the window's.
-    const onUp = () => release(null);
+    const onUp = () => releaseRef.current(null);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
@@ -238,8 +265,7 @@ export function useTasksBoard(
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag.kind, board, roster, now, teamId]);
+  }, [drag.kind, board, roster, now, teamId, updateDrag]);
 
   const ladder = tasksLadder({
     workspaceId,
@@ -269,8 +295,7 @@ export function useTasksBoard(
     if (ended === null) return;
     updateDrag(ended);
     run({ type: "hover", status: null, dragging: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inFlight]);
+  }, [inFlight, updateDrag, run]);
 
   // J / K walk the list's rows, the open task following — never while a
   // field has the keys (a comment, a label being typed).
@@ -293,8 +318,7 @@ export function useTasksBoard(
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [walks, listItems, openId]);
+  }, [walks, listItems, openId, run]);
   const form = newTaskFormView(roster, board, teamId, screen.composeEpic);
 
   /** The pointer was released over `over` (a status group, or nothing). One
@@ -311,6 +335,7 @@ export function useTasksBoard(
     }
     run({ type: "hover", status: null, dragging: false });
   };
+  releaseRef.current = release;
 
   const write = useCallback(
     async (work: () => Promise<{ ok: true } | { ok: false; refusal: TaskProblem }>) => {

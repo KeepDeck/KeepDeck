@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { BoardState, TasksService } from "../../app/tasks";
 import type { TasksAccess } from "./useTasksBoard";
 
@@ -25,12 +25,28 @@ export function useTasksBoardFeed(
     if (service && workspaceId !== null) void service.ready(workspaceId);
   }, [service, workspaceId]);
   // `revision` is the board's clock: the read changes only when it ticks.
-  const state = useMemo(
-    () => (service && workspaceId !== null ? service.peek(workspaceId) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [service, workspaceId, revision],
-  );
-  return { service, revision, state };
+  // The cache makes it a real input instead of a dependency the memo body
+  // never reads, while keeping the board's identity between ticks.
+  const cached = useRef<{
+    service: typeof service;
+    workspaceId: string | null;
+    revision: number;
+    state: BoardState | null;
+  } | null>(null);
+  if (
+    cached.current === null ||
+    cached.current.service !== service ||
+    cached.current.workspaceId !== workspaceId ||
+    cached.current.revision !== revision
+  ) {
+    cached.current = {
+      service,
+      workspaceId,
+      revision,
+      state: service && workspaceId !== null ? service.peek(workspaceId) : null,
+    };
+  }
+  return { service, revision, state: cached.current.state };
 }
 
 /** One workspace's board for a surface that only reads it — the door's
