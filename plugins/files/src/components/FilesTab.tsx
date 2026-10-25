@@ -33,8 +33,9 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
     ...[
       ...new Map(
         workspace.panes
-          .filter((pane) => pane.cwd && pane.cwd !== workspace.cwd)
-          .map((pane) => [pane.cwd!, pane.branch ?? shortPath(pane.cwd!)]),
+          .flatMap((pane) =>
+            pane.cwd && pane.cwd !== workspace.cwd ? [[pane.cwd, pane.branch ?? shortPath(pane.cwd)] as const] : [],
+          ),
       ).entries(),
     ].map(([value, label]) => ({ value, label })),
     { value: workspace.cwd, label: "Workspace folder" },

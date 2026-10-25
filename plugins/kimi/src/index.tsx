@@ -162,7 +162,7 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
   // is the same state that build's configure() has always been in: it
   // cannot install the file either. No throw: registration must survive
   // a bundle-less build, as it always has.
-  const shippedByFile = new Map<string, ReadonlyMap<string, string>>();
+  const companions = [];
   for (const descriptor of COMPANION_DESCRIPTORS) {
     const digests = new Map<string, string>();
     try {
@@ -178,10 +178,10 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
     } catch {
       // Partial is fine: every file that DID read is still verifiable.
     }
-    shippedByFile.set(descriptor.id, digests);
+    companions.push({ descriptor, digests });
   }
   const fleet = createKimiCompanionFleet(
-    COMPANION_DESCRIPTORS.map((descriptor) => ({
+    companions.map(({ descriptor, digests }) => ({
       descriptor,
       manager: createKimiCompanionManager(
         server,
@@ -206,7 +206,7 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
             }
             return read.text;
           },
-          shipped: async () => shippedByFile.get(descriptor.id)!,
+          shipped: async () => digests,
         },
       ),
     })),

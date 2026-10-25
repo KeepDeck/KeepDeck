@@ -60,11 +60,9 @@ export interface RunRequest {
  * instances in other targets, rendered as indented child rows with their own
  * controls. A row without a preset is an orphan: its preset was deleted while
  * the session lived. */
-export interface CommandRow {
-  preset?: RunPreset;
-  session?: RunSession;
-  elsewhere: RunSession[];
-}
+export type CommandRow =
+  | { preset: RunPreset; session?: RunSession; elsewhere: RunSession[] }
+  | { preset?: undefined; session: RunSession; elsewhere: RunSession[] };
 
 /** Fuse the workspace's presets with its live sessions for `currentTarget`.
  * Every preset gets a row (idle ones too); sessions whose preset is gone trail

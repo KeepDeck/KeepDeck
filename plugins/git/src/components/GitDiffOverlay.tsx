@@ -125,13 +125,6 @@ function OpenDiffPeek({
     version,
     error,
   });
-  // A worktree row follows its file across the live groups: staged under
-  // the open peek, it shows the staged diff next, not an empty re-read of
-  // the worktree one. Derived per tick, so the row the overlay holds is
-  // only where the peek was opened, never a frozen classification.
-  const worktreeRow =
-    diff.kind === "worktree" && groups ? reconcileRow(diff.row, groups) : diff.row;
-
   return (
     <DiffPeek
       repo={diff.repo}
@@ -139,7 +132,12 @@ function OpenDiffPeek({
         diff.kind === "worktree"
           ? {
               kind: "file",
-              row: worktreeRow!,
+              // A worktree row follows its file across the live groups:
+              // staged under the open peek, it shows the staged diff next,
+              // not an empty re-read of the worktree one. Derived per tick,
+              // so the row the overlay holds is only where the peek was
+              // opened, never a frozen classification.
+              row: groups ? reconcileRow(diff.row, groups) : diff.row,
               changeSet: { kind: "worktree", groups, error },
             }
           : diff.row !== null
