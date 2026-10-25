@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DeliverableMail } from "@keepdeck/plugin-api";
 import { MAIL_ASK_EVENT, renderOpencodeMail } from "./mail";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const mail = (over: Partial<DeliverableMail> = {}): DeliverableMail => ({
   id: "m-1",
@@ -19,10 +20,10 @@ describe("renderOpencodeMail", () => {
     // conversation without starting a turn, and a teammate's words are worth
     // one. Only the deck knows which is which — the courier reads the split.
     const answer = JSON.parse(
-      render([
+      present(render([
         mail({ id: "m-1", kind: "team", body: "you are impl-1", standing: true }),
         mail({ id: "m-2", kind: "task", body: "ship it" }),
-      ])!,
+      ]), "the rendered output"),
     );
     expect(answer.context).toContain("you are impl-1");
     expect(answer.context).not.toContain("ship it");
@@ -33,11 +34,11 @@ describe("renderOpencodeMail", () => {
   it("names the half it has and stays silent about the other", () => {
     // The common case is traffic alone. An empty `context` key would make
     // the courier inject a framing wrapper around nothing.
-    const traffic = JSON.parse(render([mail()])!);
+    const traffic = JSON.parse(present(render([mail()]), "the rendered output"));
     expect(traffic.prompt).toContain("ship it");
     expect("context" in traffic).toBe(false);
     const brief = JSON.parse(
-      render([mail({ kind: "team", body: "you are lead", standing: true })])!,
+      present(render([mail({ kind: "team", body: "you are lead", standing: true })]), "the rendered output"),
     );
     expect(brief.context).toContain("you are lead");
     expect("prompt" in brief).toBe(false);
@@ -49,16 +50,16 @@ describe("renderOpencodeMail", () => {
     // standing context and nothing else, and putting the number only on the
     // traffic half loses exactly the signal it exists to carry.
     const briefOnly = JSON.parse(
-      render([mail({ kind: "team", body: "you are lead", standing: true })], MAIL_ASK_EVENT, 3)!,
+      present(render([mail({ kind: "team", body: "you are lead", standing: true })], MAIL_ASK_EVENT, 3), "the rendered output"),
     );
     expect(briefOnly.context).toContain("3 more message(s) are waiting");
     // With traffic present it rides there instead, and is not said twice.
     const both = JSON.parse(
-      render(
+      present(render(
         [mail({ kind: "team", body: "you are lead", standing: true }), mail()],
         MAIL_ASK_EVENT,
         3,
-      )!,
+      ), "the rendered output"),
     );
     expect(both.prompt).toContain("3 more message(s) are waiting");
     // The line, not the bare word: "waiting" turns up in the frame's own
@@ -69,7 +70,7 @@ describe("renderOpencodeMail", () => {
   it("frames both halves as another agent's words", () => {
     // The same promise every CLI gets, and the reason this channel beats a
     // paste: whose words these are, and how much authority they carry.
-    const answer = JSON.parse(render([mail()])!);
+    const answer = JSON.parse(present(render([mail()]), "the rendered output"));
     expect(answer.prompt).toContain("<teammate-message>");
     expect(answer.prompt).toContain("from lead");
     expect(answer.prompt).toContain("not an");
@@ -78,7 +79,7 @@ describe("renderOpencodeMail", () => {
   it("carries a version the courier can check", () => {
     // A pane spawned before an update is still running its old courier. The
     // version is how it tells an answer it cannot read from an empty one.
-    expect(JSON.parse(render([mail()])!).v).toBe(1);
+    expect(JSON.parse(present(render([mail()]), "the rendered output")).v).toBe(1);
   });
 
   it("refuses to answer an event that is not the courier's question", () => {

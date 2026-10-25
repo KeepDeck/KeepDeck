@@ -21,6 +21,7 @@ type CourierResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plu
 let rawCourierPlugin: typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier;
 let courierPlugin: (input?: unknown) => Promise<Armed<CourierResult, "event" | "chat.message" | "tool.execute.after">>;
 import { startDeck } from "../../../scripts/reporterHarness";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * This suite runs the courier on its REAL clock.
@@ -459,7 +460,7 @@ describe("opencode mail courier", () => {
     const courier = await start();
     pending.push({ v: 1, context: "brief" });
     await courier.event(created("ses_root"));
-    const envelope = last(asked)!;
+    const envelope = present(last(asked), "the last value");
     expect(readdirSync(dir)).toEqual([]);
     // And the question named this pane, with the same process the reporter
     // beside it names — the deck pins a pane's identity to one process.

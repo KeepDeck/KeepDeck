@@ -7,6 +7,7 @@ import { startDeck } from "../../../scripts/reporterHarness";
 import { HEARTBEAT_MS, writeForeground } from "../resources/keepdeck-plugin/foreground.js";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * KeepDeck's plugin on opencode 2.x, driven through a stand-in of the
@@ -411,9 +412,9 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       await reported();
       pending.push({ v: 1, prompt: "from lead" }, { v: 1, prompt: "also waiting" });
       const other = { sessionID: "ses_kid", prompt: { text: "task" } };
-      await hooks["session.prompt"]!(other);
+      await present(hooks["session.prompt"], "the session.prompt hook")(other);
       const mine = { sessionID: "ses_a", prompt: { text: "hi" } };
-      await hooks["session.prompt"]!(mine);
+      await present(hooks["session.prompt"], "the session.prompt hook")(mine);
 
       expect(mine.prompt.text).toBe("hi\n\nfrom lead");
       expect(other.prompt.text).toBe("task");
@@ -432,7 +433,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
         status: "completed",
         result: { content: [{ type: "text", text: "3 files changed" }] },
       };
-      await hooks["tool.execute.after"]!(event);
+      await present(hooks["tool.execute.after"], "the tool.execute.after hook")(event);
 
       expect(event.result.content).toEqual([
         { type: "text", text: "3 files changed" },
@@ -451,7 +452,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
         status: "completed",
         result: { output: { files: 3 } },
       };
-      await hooks["tool.execute.after"]!(event);
+      await present(hooks["tool.execute.after"], "the tool.execute.after hook")(event);
 
       expect(event.result.content).toEqual([
         { type: "text", text: '{"files":3}' },
@@ -472,7 +473,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       for (let round = 0; round < 40 && prompts.length === 0; round++) await tick();
       // The user can still send; what is waiting rides along with it.
       const mine = { sessionID: "ses_a", prompt: { text: "hi" } };
-      await hooks["session.prompt"]!(mine);
+      await present(hooks["session.prompt"], "the session.prompt hook")(mine);
 
       // The courier's own prompt carried only its own words.
       expect(prompts).toEqual([{ sessionID: "ses_a", text: "rung" }]);
@@ -576,7 +577,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       bus.push("session.execution.succeeded", { sessionID: "ses_a" });
       const result = { content: "done" };
       const call = { sessionID: "ses_a", status: "completed", result };
-      await hooks["tool.execute.after"]!(call);
+      await present(hooks["tool.execute.after"], "the tool.execute.after hook")(call);
       await reported();
       expect(asks()).toBe(0);
       expect(prompts).toEqual([]);
@@ -636,7 +637,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       expect(typeof cleanup).toBe("function");
       bus.push("session.created", { sessionID: "ses_a" });
       await reported();
-      cleanup!();
+      present(cleanup, "the cleanup")();
       deck.envelopes.length = 0;
       bus.push("session.execution.started", { sessionID: "ses_a" });
       // Nobody watches the screen: a ring would be delivered into the pane.

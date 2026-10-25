@@ -10,6 +10,7 @@ import {
 } from "./fakeOpencode.test-support";
 import { registerOpencode, type OpencodePorts } from "./index";
 import { OPENCODE_SESSION_ENV } from "./opening";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** This plugin's real resources, which the fake below answers from. */
 const RESOURCES = join(__dirname, "..", "resources");
@@ -84,7 +85,7 @@ describe("opencode plugin hooks", () => {
     // plugins are not replaced.
     const agent = activate("/App/resources");
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
 
     expect(out.args).toEqual([]);
     const env = Object.fromEntries(out.env);
@@ -108,13 +109,13 @@ describe("opencode plugin hooks", () => {
       ],
     };
     const out = output();
-    await agent.hooks["spawn.plan"]!({ ...input, mcp }, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, mcp }, out);
 
     const assignments = out.env.filter(
       ([key]) => key === "OPENCODE_CONFIG_CONTENT",
     );
     expect(assignments).toHaveLength(1);
-    expect(JSON.parse(assignments[0]![1])).toEqual({
+    expect(JSON.parse(present(assignments[0], "the first assignments")[1])).toEqual({
       plugin: ["/App/resources/keepdeck-plugin"],
       mcp: {
         keepdeck: {
@@ -146,11 +147,11 @@ describe("opencode plugin hooks", () => {
         ([key]) => key === "OPENCODE_CONFIG_CONTENT",
       );
       expect(assignments).toHaveLength(1);
-      return JSON.parse(assignments[0]![1]).mcp?.keepdeck?.command;
+      return JSON.parse(present(assignments[0], "the first assignments")[1]).mcp?.keepdeck?.command;
     };
 
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, mcp, sessionId: "s" }, resume);
     expect(carries(resume)).toEqual([
       "/bin/keepdeck",
       "--mcp-shim",
@@ -158,7 +159,7 @@ describe("opencode plugin hooks", () => {
     ]);
 
     const fork = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, mcp, sessionId: SRC, sourceCwd: "/old" },
       fork,
     );
@@ -199,11 +200,11 @@ describe("opencode plugin hooks", () => {
     };
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!(shared, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(shared, spawn);
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...shared, sessionId: "s" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...shared, sessionId: "s" }, resume);
     const fork = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...shared, sessionId: SRC, sourceCwd: "/old" },
       fork,
     );
@@ -228,14 +229,14 @@ describe("opencode plugin hooks", () => {
   it("tells the reporter when this pane's approvals are answered for it", async () => {
     const agent = activate("/App/resources");
     const skipped = output();
-    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, skipped);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, skipped);
     expect(skipped.env).toContainEqual([
       "KEEPDECK_OPENCODE_SKIPS_APPROVALS",
       "1",
     ]);
 
     const normal = output();
-    await agent.hooks["spawn.plan"]!({ ...input, yolo: false }, normal);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: false }, normal);
     expect(normal.env.map(([key]) => key)).not.toContain(
       "KEEPDECK_OPENCODE_SKIPS_APPROVALS",
     );
@@ -246,7 +247,7 @@ describe("opencode plugin hooks", () => {
     // features sharing one variable.
     const agent = activate(null);
     const out = output();
-    await agent.hooks["spawn.plan"]!(
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(
       {
         ...input,
         mcp: {
@@ -263,8 +264,8 @@ describe("opencode plugin hooks", () => {
       out,
     );
     const env = Object.fromEntries(out.env);
-    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!).mcp.keepdeck).toBeDefined();
-    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!).plugin).toBeUndefined();
+    expect(JSON.parse(present(env.OPENCODE_CONFIG_CONTENT, "the OPENCODE_CONFIG_CONTENT of env")).mcp.keepdeck).toBeDefined();
+    expect(JSON.parse(present(env.OPENCODE_CONFIG_CONTENT, "the OPENCODE_CONFIG_CONTENT of env")).plugin).toBeUndefined();
   });
 
   it("staged skills ride OPENCODE_CONFIG_DIR as an env DEFAULT, never an override", async () => {
@@ -275,7 +276,7 @@ describe("opencode plugin hooks", () => {
       skillsDir: "/kd/staging/ws-1/skills",
     };
     const out = output();
-    await agent.hooks["spawn.plan"]!({ ...input, skills }, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, skills }, out);
 
     // A default, not plain env: the variable is opencode's whole config
     // home, and a user-set value must win over skills delivery.
@@ -289,17 +290,17 @@ describe("opencode plugin hooks", () => {
     expect(env.OPENCODE_CONFIG_CONTENT).toBeDefined();
 
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...input, skills, sessionId: "s" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, skills, sessionId: "s" }, resume);
     expect(Object.fromEntries(resume.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBe(
       "/kd/staging/ws-1/opencode",
     );
 
     // No skills — no config dir, on spawn AND resume alike.
     const bareSpawn = output();
-    await agent.hooks["spawn.plan"]!(input, bareSpawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, bareSpawn);
     expect(Object.fromEntries(bareSpawn.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBeUndefined();
     const bareResume = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "s" }, bareResume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "s" }, bareResume);
     expect(Object.fromEntries(bareResume.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBeUndefined();
     expect(Object.fromEntries(bareResume.env).OPENCODE_CONFIG_DIR).toBeUndefined();
   });
@@ -311,7 +312,7 @@ describe("opencode plugin hooks", () => {
     const agent = activate("/App/resources");
     for (const hook of ["spawn.plan", "resume.plan"] as const) {
       const out = output();
-      await agent.hooks[hook]!({ ...input, cliVersion: "1.19.3", sessionId: "s" }, out);
+      await present(agent.hooks[hook], "the agent.hooks at the index")({ ...input, cliVersion: "1.19.3", sessionId: "s" }, out);
       expect(out.envDefaults).toEqual([
         ["OPENCODE_TUI_CONFIG", "/App/resources/keepdeck-plugin/tui-v1.json"],
       ]);
@@ -319,21 +320,21 @@ describe("opencode plugin hooks", () => {
     }
     // An unknown version runs as 1.x, observer included.
     const unknown = output();
-    await agent.hooks["spawn.plan"]!(input, unknown);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, unknown);
     expect(Object.fromEntries(unknown.envDefaults ?? []).OPENCODE_TUI_CONFIG).toBeDefined();
   });
 
   it("gives the TUI plugin to nobody else: not 2.x, not a remote pane, not a broken install", async () => {
     const agent = activate("/App/resources");
     const v2 = output();
-    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "opencode v2.1.2" }, v2);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, cliVersion: "opencode v2.1.2" }, v2);
     const remote = output();
-    await agent.hooks["spawn.plan"]!(
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(
       { ...input, target: { kind: "nativeServer", endpoint: "http://vps:4096" } },
       remote,
     );
     const broken = output();
-    await activate(null).hooks["spawn.plan"]!(input, broken);
+    await present(activate(null).hooks["spawn.plan"], "the spawn.plan hook")(input, broken);
     for (const out of [v2, remote, broken]) {
       expect(Object.fromEntries(out.envDefaults ?? []).OPENCODE_TUI_CONFIG).toBeUndefined();
     }
@@ -348,7 +349,7 @@ describe("opencode plugin hooks", () => {
     };
     for (const hook of ["spawn.plan", "resume.plan"] as const) {
       const out = output();
-      await agent.hooks[hook]!({ ...input, skills, sessionId: "s", cliVersion: "2.1.2" }, out);
+      await present(agent.hooks[hook], "the agent.hooks at the index")({ ...input, skills, sessionId: "s", cliVersion: "2.1.2" }, out);
       expect(out.envDefaults ?? [], hook).toEqual([]);
       const env = Object.fromEntries(out.env);
       expect(env.OPENCODE_CONFIG_DIR, hook).toBeUndefined();
@@ -357,14 +358,14 @@ describe("opencode plugin hooks", () => {
 
     // No skills — no key at all.
     const bare = output();
-    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "2.1.2" }, bare);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, cliVersion: "2.1.2" }, bare);
     expect(JSON.parse(Object.fromEntries(bare.env).OPENCODE_CONFIG_CONTENT)).not.toHaveProperty("skills");
   });
 
   it("resumes with -s and still arms the reporter (catches /new)", async () => {
     const agent = activate("/App/resources");
     const out = output();
-    await agent.hooks["resume.plan"]!({ ...input, sessionId: "ses_x" }, out);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "ses_x" }, out);
 
     expect(out.args).toEqual(["-s", "ses_x"]);
     expect(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
@@ -373,7 +374,7 @@ describe("opencode plugin hooks", () => {
   it("forks INTO the pane's directory and opens the clone by its own id — never with --fork", async () => {
     const agent = activate("/App/resources", opencodeServices());
     const out = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, cwd: "/new/target", sessionId: SRC, sourceCwd: "/src" },
       out,
     );
@@ -387,7 +388,7 @@ describe("opencode plugin hooks", () => {
   it("a fork honors YOLO: the skip-permissions flag precedes the clone's id", async () => {
     const agent = activate("/App/resources", opencodeServices());
     const out = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, yolo: true, cwd: "/new/target", sessionId: SRC, sourceCwd: "/src" },
       out,
     );
@@ -401,7 +402,7 @@ describe("opencode plugin hooks", () => {
     // why, and no pane runs the agent in another team's checkout.
     const missing = activate("/App/resources", opencodeServices({ exists: () => false }));
     await expect(
-      missing.hooks["fork.plan"]!({ ...input, cwd: "/gone", sessionId: SRC, sourceCwd: "/src" }, output()),
+      present(missing.hooks["fork.plan"], "the fork.plan hook")({ ...input, cwd: "/gone", sessionId: SRC, sourceCwd: "/src" }, output()),
     ).rejects.toThrow("The fork target /gone does not exist.");
 
     const broken = activate(
@@ -411,14 +412,14 @@ describe("opencode plugin hooks", () => {
       }),
     );
     await expect(
-      broken.hooks["fork.plan"]!({ ...input, cwd: "/new/target", sessionId: SRC, sourceCwd: "/src" }, output()),
+      present(broken.hooks["fork.plan"], "the fork.plan hook")({ ...input, cwd: "/new/target", sessionId: SRC, sourceCwd: "/src" }, output()),
     ).rejects.toThrow("The copy failed");
   });
 
   it("degrades to a bare spawn when neither of our plugins resolves", async () => {
     const agent = activate(null);
     const out = output();
-    await agent.hooks["spawn.plan"]!(input, out);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, out);
     expect(out.env).toEqual([]);
     expect(out.args).toEqual([]);
   });
@@ -443,15 +444,15 @@ describe("opencode plugin hooks", () => {
     const v2 = { ...input, cliVersion: "opencode v2.1.2" };
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!(v2, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(v2, spawn);
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_x" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...v2, sessionId: "ses_x" }, resume);
     const fork = output();
-    await agent.hooks["fork.plan"]!({ ...v2, sessionId: SRC, sourceCwd: "/repo" }, fork);
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")({ ...v2, sessionId: SRC, sourceCwd: "/repo" }, fork);
     for (const plan of [spawn, resume, fork]) expect(plan.args).toContain("--standalone");
 
     const v1 = output();
-    await agent.hooks["spawn.plan"]!({ ...input, cliVersion: "1.19.3" }, v1);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, cliVersion: "1.19.3" }, v1);
     expect(v1.args).not.toContain("--standalone");
   });
 
@@ -462,11 +463,11 @@ describe("opencode plugin hooks", () => {
     const v2 = { ...input, cliVersion: "opencode v2.1.2", yolo: true };
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!(v2, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(v2, spawn);
     expect(spawn.args).toEqual(["--standalone", "--dangerously-skip-permissions"]);
 
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_x" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...v2, sessionId: "ses_x" }, resume);
     expect(resume.args).toEqual(["--standalone", "--dangerously-skip-permissions", "-s", "ses_x"]);
   });
 
@@ -478,19 +479,19 @@ describe("opencode plugin hooks", () => {
     const v2 = { ...input, cliVersion: "opencode v2.1.2" };
 
     const resume = output();
-    await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_r" }, resume);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...v2, sessionId: "ses_r" }, resume);
     expect(resume.args).toEqual(["--standalone", "-s", "ses_r"]);
     expect(Object.fromEntries(resume.env)[OPENCODE_SESSION_ENV]).toBe("ses_r");
     // The name the plugin reads (resources/keepdeck-plugin/opencode-v2.js).
     expect(OPENCODE_SESSION_ENV).toBe("KEEPDECK_OPENCODE_SESSION");
 
     const v1 = output();
-    await agent.hooks["resume.plan"]!({ ...input, cliVersion: "1.19.3", sessionId: "ses_r" }, v1);
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, cliVersion: "1.19.3", sessionId: "ses_r" }, v1);
     expect(v1.args).toEqual(["-s", "ses_r"]);
     expect(Object.fromEntries(v1.env).KEEPDECK_OPENCODE_SESSION).toBeUndefined();
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!(v2, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(v2, spawn);
     expect(Object.fromEntries(spawn.env).KEEPDECK_OPENCODE_SESSION).toBeUndefined();
   });
 
@@ -507,7 +508,7 @@ describe("opencode plugin hooks", () => {
 
     for (const cliVersion of ["1.19.3", "opencode v2.1.2", undefined]) {
       const spawn = output();
-      await agent.hooks["spawn.plan"]!({ ...input, target, skills, cliVersion }, spawn);
+      await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, target, skills, cliVersion }, spawn);
       expect(spawn.envDefaults ?? []).toEqual([]);
       const config = JSON.parse(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT);
       expect(config).not.toHaveProperty("skills");
@@ -519,13 +520,13 @@ describe("opencode plugin hooks", () => {
     const agent = activate("/App/resources");
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, spawn);
     expect(spawn.args).toEqual(["--dangerously-skip-permissions"]);
     // The reporter's env injection is independent of the mode.
     expect(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
 
     const resume = output();
-    await agent.hooks["resume.plan"]!(
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
       { ...input, yolo: true, sessionId: "ses_x" },
       resume,
     );
@@ -541,11 +542,11 @@ describe("opencode plugin hooks", () => {
     const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
 
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, target }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, target }, spawn);
     expect(spawn.args).toEqual(["attach", "http://vps:4096"]);
 
     const resume = output();
-    await agent.hooks["resume.plan"]!(
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")(
       { ...input, target, sessionId: "ses_x" },
       resume,
     );
@@ -557,7 +558,7 @@ describe("opencode plugin hooks", () => {
     // Remote fork short-circuits before any store surgery — no services stub
     // needed, and no --fork (forking is server-side once attached).
     const fork = output();
-    await agent.hooks["fork.plan"]!(
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")(
       { ...input, target, cwd: "/t", sessionId: "ses_x", sourceCwd: "/src" },
       fork,
     );
@@ -582,7 +583,7 @@ describe("opencode plugin hooks", () => {
     const agent = activate("/App/resources");
     const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
     const spawn = output();
-    await agent.hooks["spawn.plan"]!({ ...input, target, yolo: true }, spawn);
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, target, yolo: true }, spawn);
     expect(spawn.args).toEqual([
       "attach",
       "http://vps:4096",
@@ -638,7 +639,7 @@ describe("opencode plugin — warming the config dir", () => {
     const { runOnce, services } = warmServices();
     const agent = activate("/App/resources", services);
 
-    await agent.hooks["spawn.plan"]!(withSkills, output());
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(withSkills, output());
 
     expect(runOnce).toHaveBeenCalledTimes(1);
     expect(runOnce.mock.calls[0][0]).toMatchObject({ key: CFG, command: "opencode" });
@@ -648,7 +649,7 @@ describe("opencode plugin — warming the config dir", () => {
     const { runOnce, services } = warmServices();
     const agent = activate("/App/resources", services);
 
-    await agent.hooks["spawn.plan"]!({ ...withSkills, cliVersion: "2.1.2" }, output());
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...withSkills, cliVersion: "2.1.2" }, output());
 
     expect(runOnce).not.toHaveBeenCalled();
   });
@@ -660,7 +661,7 @@ describe("opencode plugin — warming the config dir", () => {
     const { runOnce, services } = warmServices();
     const agent = activate("/App/resources", services);
 
-    await agent.hooks["spawn.plan"]!(input, output());
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, output());
 
     expect(runOnce).not.toHaveBeenCalled();
   });
@@ -673,7 +674,7 @@ describe("opencode plugin — warming the config dir", () => {
     const agent = activate("/App/resources", services);
     const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
 
-    await agent.hooks["spawn.plan"]!({ ...withSkills, target }, output());
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...withSkills, target }, output());
 
     expect(runOnce).not.toHaveBeenCalled();
   });
