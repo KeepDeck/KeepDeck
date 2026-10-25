@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FsEntry } from "@keepdeck/plugin-api";
 import { findRollout, newestRollouts, type StorePorts } from "./store";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /** A store shaped like codex's: `YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl`. */
 function storeOf(
@@ -16,7 +17,7 @@ function storeOf(
     return [
       ...new Set(dirs).values(),
     ]
-      .map((dir): FsEntry => ({ kind: "dir", name: dir.split("/").pop()!, path: dir }))
+      .map((dir): FsEntry => ({ kind: "dir", name: present(dir.split("/").pop(), "the last item"), path: dir }))
       .concat(
         (tree[path] ?? []).map((name): FsEntry => ({
           kind: "file",

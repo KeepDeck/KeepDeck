@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
 import { codexRecords } from "./tail";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const ISO = "2026-08-01T10:00:00Z";
 const abort = (reason?: string) => ({
@@ -23,7 +24,7 @@ describe("codexTail", () => {
     };
     const watch = codexRecords.watches.find((candidate) => watchMatches(candidate, line));
     expect(watch).toBeDefined();
-    const carried = watchProject(watch!, line);
+    const carried = watchProject(present(watch, "the watcher"), line);
     expect(JSON.stringify(carried)).not.toContain("private conversation");
     expect(codexRecords.read(carried)).toEqual({
       kind: "turn-failed", at: Date.parse(ISO), error: "rate_limit", detail: "Usage exhausted",
