@@ -46,6 +46,11 @@ export default [
       // Resource JS uses @ts-check to verify its JSDoc. Suppressions would
       // hide mistakes there as surely as they do in TypeScript.
       "@typescript-eslint/ban-ts-comment": BAN_TS_COMMENT,
+      // `x!` tells only the compiler that a value is there. A value the code
+      // relies on is made present by its type, a guard that fails by name,
+      // or in a test by present() from @keepdeck/plugin-api/testing
+      // (task-474).
+      "@typescript-eslint/no-non-null-assertion": "error",
     },
   },
 
