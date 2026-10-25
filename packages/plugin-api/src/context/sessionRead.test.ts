@@ -8,6 +8,12 @@ import {
   type SessionCursor,
 } from "./sessionRead.ts";
 import { createJsonlReader } from "./sessionReadJsonl.ts";
+import { isJsonRecord } from "../json.ts";
+
+/** Any parsed line at all — for the tests about framing, not about guards. */
+const anyLine = (_value: unknown): _value is unknown => true;
+/** A record of the store these tests write: `{ i: <its index> }`. */
+const isIndexed = (value: unknown): value is { i: number } => isJsonRecord(value) && typeof value.i === "number";
 
 const NARROW: ReadBudget = { maxPayloadBytes: 64 * 1024 };
 
@@ -19,7 +25,7 @@ async function readAll(
   from?: SessionCursor,
 ) {
   const seen: unknown[] = [];
-  const outcome = await createJsonlReader(fs).pull({ path, from }, budget, (r) => {
+  const outcome = await createJsonlReader(fs, anyLine).pull({ path, from }, budget, (r) => {
     seen.push(r);
     return "more";
   });
@@ -119,7 +125,7 @@ describe("jsonl reader", () => {
     const fs = fakeFs({ "/s.jsonl": store(50) });
     const seen: unknown[] = [];
 
-    const outcome = await createJsonlReader(fs).pull(
+    const outcome = await createJsonlReader(fs, anyLine).pull(
       { path: "/s.jsonl" },
       NARROW,
       (record) => {
@@ -136,7 +142,7 @@ describe("jsonl reader", () => {
   it("resumes from the cursor with no record repeated or lost", async () => {
     const fs = fakeFs({ "/s.jsonl": store(40) }, 7);
     const first: unknown[] = [];
-    const head = await createJsonlReader(fs).pull(
+    const head = await createJsonlReader(fs, anyLine).pull(
       { path: "/s.jsonl" },
       NARROW,
       (record) => {
@@ -170,7 +176,7 @@ describe("jsonl reader", () => {
   it("reports a store that shrank under the cursor as changed", async () => {
     const fs = fakeFs({ "/s.jsonl": store(40) });
     const head: unknown[] = [];
-    const first = await createJsonlReader(fs).pull(
+    const first = await createJsonlReader(fs, anyLine).pull(
       { path: "/s.jsonl" },
       NARROW,
       (record) => {
@@ -198,7 +204,7 @@ describe("jsonl reader", () => {
     // confuse with a rewrite.
     const fs = fakeFs({ "/s.jsonl": store(5) });
     const head: unknown[] = [];
-    const first = await createJsonlReader(fs).pull(
+    const first = await createJsonlReader(fs, anyLine).pull(
       { path: "/s.jsonl" },
       NARROW,
       (record) => {
@@ -248,7 +254,7 @@ describe("session store", () => {
     const seen: { i: number }[] = [];
 
     const outcome = await createSessionStore(fs).read(
-      jsonl<{ i: number }>(),
+      jsonl(isIndexed),
       { path: "/s.jsonl" },
       (record) => {
         seen.push(record);
@@ -260,13 +266,35 @@ describe("session store", () => {
     expect(outcome.stopped).toBe("exhausted");
   });
 
-  it("refuses a format it has no reader for", async () => {
-    const fs = fakeFs({});
-    const unknownFormat = { id: "parquet" };
+  it("counts a line the format refuses, hands it to no one, and never counts it twice", async () => {
+    const lines = ['{"i":0}', '"just a string"', '{"i":1}', "[1,2]", '{"x":true}', '{"i":2}'];
+    const fs = fakeFs({ "/s.jsonl": lines.join("\n") + "\n" });
+    const seen: number[] = [];
 
-    await expect(
-      createSessionStore(fs).read(unknownFormat, {}, () => "more"),
-    ).rejects.toThrow(/parquet/);
+    // Stopped after the second record: the refusal before it is counted once.
+    const first = await createSessionStore(fs).read(jsonl(isIndexed), { path: "/s.jsonl" }, (record) => {
+      seen.push(record.i);
+      return seen.length === 2 ? "enough" : "more";
+    });
+    expect(first).toMatchObject({ items: 2, refused: 1, stopped: "satisfied" });
+
+    // Resumed past it: only the two refusals after the cursor are this read's.
+    const rest = await createJsonlReader(fs, isIndexed).pull(
+      { path: "/s.jsonl", from: first.next },
+      NARROW,
+      (record) => {
+        seen.push(record.i);
+        return "more";
+      },
+    );
+    expect(rest).toMatchObject({ items: 1, refused: 2, stopped: "exhausted" });
+    expect(seen).toEqual([0, 1, 2]);
+  });
+
+  it("says nothing of refusals when there were none", async () => {
+    const fs = fakeFs({ "/s.jsonl": store(3) });
+    const outcome = await createSessionStore(fs).read(jsonl(isIndexed), { path: "/s.jsonl" }, () => "more");
+    expect(outcome.refused).toBeUndefined();
   });
 
   it("reads through the fs it was given, and no other", async () => {
@@ -275,7 +303,7 @@ describe("session store", () => {
     const fs = fakeFs({ "/s.jsonl": store(2) });
     const readFile = vi.spyOn(fs, "readFile");
 
-    await createSessionStore(fs).read(jsonl(), { path: "/s.jsonl" }, () => "more");
+    await createSessionStore(fs).read(jsonl(anyLine), { path: "/s.jsonl" }, () => "more");
 
     expect(readFile).toHaveBeenCalled();
   });

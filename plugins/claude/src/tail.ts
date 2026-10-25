@@ -15,6 +15,7 @@
  * word back into the status union. What moved is the deciding.
  */
 import {
+  isJsonRecord,
   jsonl,
   parseInstant,
   type JsonlRequest,
@@ -36,6 +37,11 @@ interface ClaudeRecord {
   promptSource?: unknown;
   isMeta?: unknown;
   isSidechain?: unknown;
+}
+
+/** Any JSON object: every field above is read as `unknown`. */
+function isClaudeRecord(value: unknown): value is ClaudeRecord {
+  return isJsonRecord(value);
 }
 
 /**
@@ -73,7 +79,7 @@ const ORDINARY = new Set([
 ]);
 
 export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
-  format: jsonl<ClaudeRecord>(),
+  format: jsonl(isClaudeRecord),
 
   /**
    * Lifecycle metadata only; prompt and assistant contents stay on disk.

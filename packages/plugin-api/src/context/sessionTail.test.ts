@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentStatusEvent } from "./status.ts";
 import { jsonl, type JsonlRequest } from "./sessionRead.ts";
+import { isJsonRecord } from "../json.ts";
 import {
   tailPass,
   watchMatches,
@@ -13,8 +14,17 @@ import {
  * traffic, and one this dialect has never seen. */
 type Record = { type?: string; interruptedMessageId?: string; at?: number };
 
+function isRecord(value: unknown): value is Record {
+  return (
+    isJsonRecord(value) &&
+    (value.type === undefined || typeof value.type === "string") &&
+    (value.interruptedMessageId === undefined || typeof value.interruptedMessageId === "string") &&
+    (value.at === undefined || typeof value.at === "number")
+  );
+}
+
 const dialect: SessionTailDialect<JsonlRequest, Record> = {
-  format: jsonl<Record>(),
+  format: jsonl(isRecord),
   watches: [{
     match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
     keep: ["type", "interruptedMessageId", "at"],

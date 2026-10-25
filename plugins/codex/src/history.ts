@@ -1,4 +1,5 @@
 import {
+  isJsonRecord,
   fileStub,
   firstMeaningfulUserTurn,
   jsonl,
@@ -25,9 +26,8 @@ import { walkRollouts, type StorePorts } from "./store";
 // The store's shape lives in ./store, so the browser, the live tail and
 // anything else that has to find a rollout read one description of it.
 
-/** One line of a rollout, as this plugin reads it. An assertion about the
- * format made in ONE place: the host parses the JSON and validates nothing,
- * because it knows nothing about codex. */
+/** One line of a rollout, as this plugin reads it. The host parses the
+ * JSON and validates nothing, because it knows nothing about codex. */
 interface CodexRecord {
   type?: unknown;
   payload?: {
@@ -36,6 +36,11 @@ interface CodexRecord {
     content?: unknown;
     cwd?: unknown;
   };
+}
+
+/** A JSON object whose `payload`, when there is one, is an object too. */
+function isCodexRecord(value: unknown): value is CodexRecord {
+  return isJsonRecord(value) && (value.payload === undefined || isJsonRecord(value.payload));
 }
 
 /** What codex records in passing, on lines the walk goes through anyway. */
@@ -93,7 +98,7 @@ export function codexHistory(ctx: HistoryPorts): AgentHistory {
   ) =>
     walkSession({
       store: ctx.services.sessionStore,
-      format: jsonl<CodexRecord>(),
+      format: jsonl(isCodexRecord),
       request: { path: ref },
       dialect,
       ...extra,

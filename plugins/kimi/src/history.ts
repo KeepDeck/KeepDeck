@@ -28,14 +28,26 @@ import {
  */
 const ROOT = "~/.kimi-code/sessions";
 
-/** One wire line, as this plugin reads it. An assertion about the format
- * made in ONE place: the host parses the JSON and validates nothing. */
+/** One wire line, as this plugin reads it. The host parses the JSON and
+ * validates nothing. */
 interface KimiRecord {
   type?: unknown;
   message?: { role?: unknown; content?: unknown };
   event?: { type?: unknown; part?: { type?: unknown; text?: unknown } };
   input?: unknown;
   origin?: { kind?: unknown };
+}
+
+/** A JSON object whose `message`, `event` (and its `part`) and `origin`,
+ * where present, are objects too. */
+function isKimiRecord(value: unknown): value is KimiRecord {
+  const objectOrAbsent = (field: unknown) => field === undefined || isJsonRecord(field);
+  return (
+    isJsonRecord(value) &&
+    objectOrAbsent(value.message) &&
+    objectOrAbsent(value.origin) &&
+    (value.event === undefined || (isJsonRecord(value.event) && objectOrAbsent(value.event.part)))
+  );
 }
 
 /** The assistant's text, still arriving.
@@ -143,7 +155,7 @@ export function kimiHistory(ctx: HistoryPorts): AgentHistory {
   ) =>
     walkSession({
       store: ctx.services.sessionStore,
-      format: jsonl<KimiRecord>(),
+      format: jsonl(isKimiRecord),
       request: { path: ref },
       dialect,
       ...extra,

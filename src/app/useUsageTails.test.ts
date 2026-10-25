@@ -53,7 +53,7 @@ const dialectOf = (
   watches: readonly TailWatch[],
   follow: (pane: TailTarget) => Promise<JsonlRequest | null>,
 ): SessionTailDialect<JsonlRequest, unknown> => ({
-  format: jsonl(),
+  format: jsonl((_record: unknown): _record is unknown => true),
   watches,
   follow,
   read: () => null,

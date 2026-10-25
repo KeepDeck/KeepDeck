@@ -3,6 +3,7 @@ import type { AgentTranscriptEntry } from "./agents.ts";
 import type {
   PluginSessionStore,
   ReadOutcome,
+  ReadScope,
   ReadStop,
   SessionCursor,
   SessionFormat,
@@ -16,6 +17,7 @@ function fakeStore(
   records: unknown[],
   stopped: ReadStop = "exhausted",
   sourceBytes?: number,
+  refused?: number,
 ): PluginSessionStore & { reads: number } {
   const store = {
     reads: 0,
@@ -38,7 +40,7 @@ function fakeStore(
           };
         }
       }
-      return { payloadBytes: 10, items, stopped, sourceBytes };
+      return { payloadBytes: 10, items, ...(refused ? { refused } : {}), stopped, sourceBytes };
     },
   };
   return store as PluginSessionStore & { reads: number };
@@ -133,6 +135,24 @@ describe("walkSession", () => {
     });
 
     expect(walked.shortfall).toEqual([
+      { kind: "bytes", size: 900, readBytes: 10 },
+    ]);
+  });
+
+  it("marks the records the format refused, in either scope, beside a budget cut", async () => {
+    const walk = (stopped: ReadStop, scope: ReadScope) =>
+      walkSession({
+        store: fakeStore([{ role: "user", text: "hi" }], stopped, 900, 3),
+        format: FORMAT,
+        request: {},
+        dialect: flat,
+        scope,
+      });
+
+    expect((await walk("exhausted", "whole")).shortfall).toEqual([{ kind: "parts", unreadableParts: 3 }]);
+    expect((await walk("budget", "head")).shortfall).toEqual([{ kind: "parts", unreadableParts: 3 }]);
+    expect((await walk("budget", "whole")).shortfall).toEqual([
+      { kind: "parts", unreadableParts: 3 },
       { kind: "bytes", size: 900, readBytes: 10 },
     ]);
   });

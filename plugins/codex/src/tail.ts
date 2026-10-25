@@ -42,6 +42,11 @@ interface CarriedRollout {
   "payload.error"?: unknown;
 }
 
+/** Any JSON object: every carried key is read as `unknown`. */
+function isCarriedRollout(value: unknown): value is CarriedRollout {
+  return isJsonRecord(value);
+}
+
 /**
  * The half that needs nothing from the machine: which records to carry, what
  * one means, and what this dialect claims to know.
@@ -97,7 +102,7 @@ export const codexRecords = {
 export const codexTail = (
   ctx: StorePorts,
 ): SessionTailDialect<JsonlRequest, CarriedRollout> => ({
-  format: jsonl<CarriedRollout>(),
+  format: jsonl(isCarriedRollout),
   ...codexRecords,
 
   /**

@@ -88,9 +88,10 @@ function utf8Length(text: string, end: number): number {
   return bytes;
 }
 
-export function createJsonlReader(
+export function createJsonlReader<Item>(
   fs: PluginFs,
-): SessionReader<JsonlRequest, unknown> {
+  accepts: (value: unknown) => value is Item,
+): SessionReader<JsonlRequest, Item> {
   return {
     async pull(request, budget, consume): Promise<ReadOutcome> {
       const resume =
@@ -108,6 +109,8 @@ export function createJsonlReader(
        * a valid place to resume, so this is what a cursor names. */
       let consumedEnd = start;
       let items = 0;
+      /** Lines that parsed but are no record of this format. */
+      let refused = 0;
       /** The tail of a window that ended mid-line, waiting for its rest. */
       let carry = "";
       let carryBytes = 0;
@@ -116,6 +119,7 @@ export function createJsonlReader(
       const outcome = (stopped: ReadOutcome["stopped"]): ReadOutcome => ({
         payloadBytes: at - start,
         items,
+        ...(refused > 0 ? { refused } : {}),
         stopped,
         sourceBytes,
         // A cursor only where there is something left to come back for.
@@ -179,8 +183,17 @@ export function createJsonlReader(
           if (line.trim() === "") continue;
           let record: unknown;
           try {
-            record = JSON.parse(line) as unknown;
+            record = JSON.parse(line);
           } catch {
+            continue;
+          }
+          // Whole, but not a record this format reads: counted, not handed
+          // over — the reading reports it (`refused`) rather than losing it.
+          if (!accepts(record)) {
+            refused += 1;
+            // Past it for good: a read resumed after this line must not
+            // count it a second time.
+            consumedEnd = bufferStart + utf8Length(buffer, chars);
             continue;
           }
 

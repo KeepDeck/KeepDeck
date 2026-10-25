@@ -237,7 +237,7 @@ describe("createUsageChannel", () => {
             // Only `watches` and `follow` are the host's to call; a dialect
             // reads no record here.
             tail: {
-              format: jsonl(),
+              format: jsonl((_record: unknown): _record is unknown => true),
               watches: CODEX_WATCHES,
               follow: async ({ sessionId }) => {
                 const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
