@@ -64,17 +64,21 @@ the user had left, and the agent worked there unseen (task-435).
 - `route-observer.js` is a TUI plugin, loaded through `tui-v1.json` beside it.
   A local 1.x launch points `OPENCODE_TUI_CONFIG` at that file, as an env
   DEFAULT, apart from the skills' config dir. It polls `api.route.current`
-  every 250 ms and writes `foreground.json` into the pane's bridge
-  directory: a route that held for two polls, plus a heartbeat every second.
-- `foreground.js` reads it: `unknown` (no observer for this process, or
-  silent for 30 s, so behave as before), `stale` (silent for 3 s), `home`,
-  `other`, or `session`.
+  every 250 ms and hands it to `observeRoute` in `foreground.js`, which
+  writes `foreground.json` into the pane's bridge directory: a route that
+  held for two polls, plus a heartbeat every second.
+- `foreground.js` reads it: `unknown` (no observer for the TUI this process
+  serves, or silent for 30 s, so behave as before), `stale` (silent for 3 s),
+  `home`, `other`, or `session`. A record is trusted only from the TUI's pid,
+  which the follower is started with (`follower().start(dir, tui)`); the
+  courier reads the screen through `follower().screen()`.
 - `follower.js`: when another session is on screen, the pane moves to it
   (to its root for a subagent's view; not at all if it cannot be
   classified). The move is one job in the reporter's queue: `session.bound`
   with source `resume`, then the session's spend. After the wire has drained,
   the courier collects for it.
-- Leaving a conversation stops it (user decision): another root on screen,
+- Leaving a conversation stops it (user decision; `leaving.js`, which the
+  1.x reporter hands its abort as `interrupt`): another root on screen,
   or the home screen after a session this process showed. The reporter
   aborts the left session's turn, outside its own queue. A move to another
   session needs nothing more. For the home screen, the abort's error and
@@ -85,7 +89,8 @@ the user had left, and the agent worked there unseen (task-435).
   lets go anyway, unless the pane already moved on. opencode STARTING on
   home (before `-s` opens, or the native `--fork`) is not a leaving.
 - Mail goes only where the user is looking. Every channel asks the same
-  rule: `unknown` behaves as before; the pane's root or its subagent's view
+  rule, in `courier-policy.js` (the 1.x courier supplies how to create,
+  show and deliver into a session): `unknown` behaves as before; the pane's root or its subagent's view
   is delivered to; anything else is held, the end-of-turn ask and
   `mail.ask.tool` alike. The courier never moves the pane.
 - On the home screen after a leaving, only a doorbell ring (mail waiting)
