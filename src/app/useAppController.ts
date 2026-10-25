@@ -135,7 +135,7 @@ export function useAppController() {
     onForkFailed: (message) => pushAlert("Could not fork the session", message),
     onCreateFailed: (message) => pushAlert("Could not add the agent", message),
     onTeamFailed: (message) => pushAlert("Could not start the team", message),
-  }, runView.blocked);
+  }, runView.blocked, runtime.agentDoors);
   const closeFlow = useCloseFlow(deck, {
     onError: (message) => pushAlert("Worktree error", message),
     onSuspendRefused: (message) =>
@@ -309,7 +309,7 @@ export function useAppController() {
   useActivityNotifications(deck.workspaces, agents);
   // One subscription for the whole strip; what the activity MEANS for a mark
   // is `stripView`'s.
-  const paneActivities = usePaneActivities();
+  const paneActivities = usePaneActivities(runtime.statusTracker);
   const needsYou = {
     rows: needsYouRows(deck.workspaces, paneActivities, agents),
     onOpen: (row: NeedsYouRow) =>

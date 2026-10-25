@@ -8,8 +8,6 @@ import {
   createAgentStatusTracker,
   type AgentStatusTracker,
 } from "./agentStatusTracker";
-import { AppRuntimeProvider } from "./runtimeContext";
-import type { AppRuntime } from "./runtime";
 import { usePaneActivities } from "./usePaneActivities";
 
 /**
@@ -30,21 +28,12 @@ describe("usePaneActivities", () => {
   let renders = 0;
 
   function Probe() {
-    latest = usePaneActivities();
+    latest = usePaneActivities(statusTracker);
     renders += 1;
     return null;
   }
 
-  const render = () =>
-    act(() =>
-      root.render(
-        createElement(
-          AppRuntimeProvider,
-          { runtime: { statusTracker } as unknown as AppRuntime },
-          createElement(Probe),
-        ),
-      ),
-    );
+  const render = () => act(() => root.render(createElement(Probe)));
 
   const reportEdge = (paneId: string, edge: AgentStatusEvent) =>
     act(() => statusTracker.report(paneId, { agent: "claude", edge }));

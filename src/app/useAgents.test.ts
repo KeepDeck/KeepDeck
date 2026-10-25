@@ -10,9 +10,11 @@ import type {
 import type { BinStatus } from "../ipc/agents";
 import type { InstalledPlugin } from "../plugins";
 import { createContributionRegistries } from "../plugins/registries/contributions";
-import type { AppRuntime } from "./runtime";
-import { AppRuntimeProvider } from "./runtimeContext";
-import { resetAgentsCache, useAgents } from "./useAgents";
+import {
+  resetAgentsCache,
+  useAgentsFrom,
+  type AgentCatalogSource,
+} from "./useAgents";
 
 const ipc = vi.hoisted(() => ({
   detectBins: vi.fn<(bins: string[]) => Promise<BinStatus[]>>(),
@@ -25,13 +27,11 @@ const pluginHost = {
   subscribe: () => () => {},
   getInstalled: () => installedPlugins,
 };
-const runtime = {
-  plugins: {
-    pluginHost,
-    pluginRegistries,
-    bootstrapPlugins: () => Promise.resolve(),
-  },
-} as unknown as AppRuntime;
+const plugins: AgentCatalogSource = {
+  pluginHost,
+  pluginRegistries,
+  bootstrapPlugins: () => Promise.resolve(),
+};
 
 const claude: AgentContribution = {
   id: "claude",
@@ -44,9 +44,9 @@ const claude: AgentContribution = {
   hooks: {},
 };
 
-let seen: ReturnType<typeof useAgents>;
+let seen: ReturnType<typeof useAgentsFrom>;
 function Probe() {
-  seen = useAgents();
+  seen = useAgentsFrom(plugins);
   return null;
 }
 
@@ -103,9 +103,7 @@ describe("useAgents", () => {
 
   const mount = () =>
     act(async () =>
-      root.render(
-        createElement(AppRuntimeProvider, { runtime }, createElement(Probe)),
-      ),
+      root.render(createElement(Probe)),
     );
 
   it("assembles the catalog from agent contributions plus detection", async () => {

@@ -26,7 +26,7 @@ export function useContributions<T>(
 
 /** Live installed-plugin snapshot for the Experiments UI. */
 export function useInstalledPlugins(
-  host: PluginHost,
+  host: Pick<PluginHost, "subscribe" | "getInstalled">,
 ): readonly InstalledPlugin[] {
   return useSyncExternalStore(host.subscribe, host.getInstalled);
 }
