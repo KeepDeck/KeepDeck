@@ -19,10 +19,9 @@
  * session the client cannot classify does not move the pane — following a
  * leaf would bind the pane to somebody else's turn.
  *
- * LEAVING A SESSION STOPS IT (user decision, task-435): the conversation the
- * user left — for another one, or for the home screen (`/new`) — is no
- * longer the pane's, and its running turn is aborted, subagents included.
- * Parallel work is another pane, not a session left running out of sight.
+ * LEAVING is told to the reporter, which decides what it costs the session
+ * left (leaving.js): on 1.x it is aborted (user decision, task-435), on 2.x
+ * — a tab per session — it runs on (task-436).
  * Only a real leaving counts: a move to the home screen FROM a session this
  * process showed. opencode starts on the home screen and opens `-s` a beat
  * later, and the native `--fork` fallback stays there until the fork exists

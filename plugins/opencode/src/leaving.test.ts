@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
+// @ts-expect-error untyped resource module
+import { HEARTBEAT_MS } from "../resources/keepdeck-plugin/foreground.js";
 
 /**
  * Leaving a conversation, and mail on the home screen (opencode 1.x,
@@ -157,7 +159,10 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await both(created("ses_a"));
     writeForeground(dir, { route: "session", sessionID: "ses_a" });
     await until(() => kinds().includes("session.bound"));
-    await sleep(50);
+    // The follower has read the screen by its next heartbeat at the latest:
+    // under load the directory watcher can drop the write's event, and a
+    // home screen it never saw a session before is not a leaving.
+    await sleep(HEARTBEAT_MS + 100);
   };
 
   /** The user pressed /new; opencode answers the abort with its ending. */
