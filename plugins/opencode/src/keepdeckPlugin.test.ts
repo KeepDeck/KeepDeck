@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { startComponents } from "../resources/keepdeck-plugin/components.js";
 // @ts-expect-error untyped resource module
 import keepdeckPlugin, { composeHooks } from "../resources/keepdeck-plugin/index.js";
+// @ts-expect-error untyped resource module
+import tuiPlugin from "../resources/keepdeck-plugin/tui.js";
 
 /** The directory the spawn plan injects (src/index.ts sessionConfigEnv). */
 const PLUGIN_DIR = join(__dirname, "..", "resources", "keepdeck-plugin");
@@ -115,14 +117,35 @@ describe("the TUI plugin's own config file", () => {
 });
 
 describe("what opencode 2.x finds in the directory", () => {
-  it("holds nothing 2.x would take for its TUI entry", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("holds exactly one TUI entry — tui.js — and nothing else 2.x would take for one", () => {
     // 2.x resolves a plugin directory's TUI entry by the bare name `tui`, and
     // a `tui.json` meant for 1.x was refused as a module — "1 plugin failed"
-    // on every 2.x pane (task-448). Until 2.x has a TUI half of its own
-    // (task-436), no file here may answer to that name.
-    // A file or a directory (Bun resolves `tui/index.js` too), in any case —
-    // a case-insensitive volume answers `TUI.json` to `tui`.
+    // on every 2.x pane (task-448). A file or a directory (Bun resolves
+    // `tui/index.js` too), in any case — a case-insensitive volume answers
+    // `TUI.json` to `tui`. The one that may answer is the 2.x TUI half
+    // (task-436).
     const named = readdirSync(PLUGIN_DIR).filter((file) => /^tui([./]|$)/i.test(file));
-    expect(named).toEqual([]);
+    expect(named).toEqual(["tui.js"]);
+  });
+
+  it("finds a TUI plugin with an id and a setup — not a server half, not a 1.x tui", () => {
+    // 2.x refuses a TUI module whose default lacks `id` or `setup`
+    // (packages/tui/src/plugin/context.tsx isPlugin), with a toast.
+    expect(typeof tuiPlugin.id).toBe("string");
+    expect(tuiPlugin.id).not.toBe(keepdeckPlugin.id);
+    expect(typeof tuiPlugin.setup).toBe("function");
+    expect(tuiPlugin).not.toHaveProperty("server");
+    expect(tuiPlugin).not.toHaveProperty("tui");
+  });
+
+  it("stays inert, and never throws, outside a pane or on a context it cannot read", () => {
+    vi.stubEnv("KEEPDECK_BRIDGE", "");
+    expect(tuiPlugin.setup({ ui: { router: { current: () => ({ type: "home" }) } } })).toBeUndefined();
+    vi.stubEnv("KEEPDECK_BRIDGE", JSON.stringify({ v: 2, dir: "/nonexistent", pane: "p", token: "t", url: "http://127.0.0.1:9/envelope" }));
+    expect(() => tuiPlugin.setup({})).not.toThrow();
+    expect(tuiPlugin.setup({})).toBeUndefined();
+    expect(tuiPlugin.setup(undefined)).toBeUndefined();
   });
 });
