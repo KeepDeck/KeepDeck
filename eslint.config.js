@@ -36,7 +36,12 @@ export default [
     files: TYPESCRIPT,
     languageOptions: { parser: tsParser },
     plugins: { "react-hooks": reactHooks },
-    linterOptions: { reportUnusedDisableDirectives: "off" },
+    linterOptions: {
+      // A comment that disables a rule is not a way to pass the lint
+      // (task-468): the code is fixed, the rule stays on.
+      noInlineConfig: true,
+      reportUnusedDisableDirectives: "off",
+    },
     rules: {
       /**
        * No cast that switches the type checker off. `x as unknown as T`
@@ -61,6 +66,10 @@ export default [
       // A hook called conditionally or outside a component breaks React's
       // own bookkeeping; nothing here does it, and nothing will.
       "react-hooks/rules-of-hooks": "error",
+      // Every effect names what it reads, or keeps the value in a ref when
+      // the trigger is deliberately narrower (task-471). No suppressions:
+      // `noInlineConfig` above refuses them.
+      "react-hooks/exhaustive-deps": "error",
     },
   },
 
