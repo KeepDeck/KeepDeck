@@ -7,6 +7,7 @@ import { setRuntime } from "../runtime";
 import { inertPorts } from "../filesPorts.test-support";
 import { useFileTree } from "./useFileTree";
 import type { TreeState } from "../domain/tree";
+import { present } from "@keepdeck/plugin-api/testing";
 
 const entry = (root: string, name: string): FsEntry => ({
   name,
@@ -58,7 +59,7 @@ describe("useFileTree re-rooting", () => {
     act(() => root.render(createElement(Probe, { rootPath })));
 
   const settle = (path: string, entries: FsEntry[]) =>
-    act(async () => fs.pending.get(path)!(entries));
+    act(async () => present(fs.pending.get(path), "the entry for path")(entries));
 
   beforeEach(() => {
     fs = deferredFs();
