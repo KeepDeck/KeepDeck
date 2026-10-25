@@ -1,4 +1,5 @@
 import tsParser from "@typescript-eslint/parser";
+import tsPlugin from "@typescript-eslint/eslint-plugin";
 import reactHooks from "eslint-plugin-react-hooks";
 
 /**
@@ -26,11 +27,27 @@ const NO_INTEGRATION = {
   regex: "(^|/)integration(/|$)",
   message: "Nothing imports from integration/: it is tests, and only tests.",
 };
+const RESOURCE_JS = ["plugins/*/resources/**/*.js"];
+const BAN_TS_COMMENT = ["error", { "ts-expect-error": true, "ts-ignore": true, "ts-nocheck": true, "ts-check": false }];
 
 export default [
   // Only the TypeScript this repo authors: built bundles, generated plugin
-  // copies and plain JS are not what these rules are about.
-  { ignores: ["**/*.{js,mjs,cjs}", "**/dist/**", "**/node_modules/**", "target/**", "src-tauri/**"] },
+  // copies and plain JS outside plugin resources are not what these rules are about.
+  { ignores: ["**/*.{mjs,cjs}", "**/dist/**", "**/node_modules/**", "target/**", "src-tauri/**"] },
+
+  {
+    files: [...TYPESCRIPT, ...RESOURCE_JS],
+    languageOptions: { parser: tsParser },
+    plugins: { "@typescript-eslint": tsPlugin },
+    rules: {
+      // A dynamic boundary gets `unknown` and a guard; `any` silently turns
+      // off checking for every operation that follows it.
+      "@typescript-eslint/no-explicit-any": "error",
+      // Resource JS uses @ts-check to verify its JSDoc. Suppressions would
+      // hide mistakes there as surely as they do in TypeScript.
+      "@typescript-eslint/ban-ts-comment": BAN_TS_COMMENT,
+    },
+  },
 
   {
     files: TYPESCRIPT,
