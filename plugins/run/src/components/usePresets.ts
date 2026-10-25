@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { RunPreset } from "../domain";
 import { getRuntime } from "../runtime";
@@ -18,10 +18,15 @@ export function usePresets(
 ): [RunPreset[], (next: RunPreset[]) => void] {
   const { ctx } = getRuntime();
   const [presets, setPresets] = useState<RunPreset[]>([]);
+  // The slot is named by the workspace's id + instance; the caller may hand
+  // a fresh object for the same slot. Read the latest object through a ref
+  // rather than re-subscribing to its identity.
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
 
   useEffect(() => {
     let alive = true;
-    const slot = ctx.storage.workspace(workspace);
+    const slot = ctx.storage.workspace(workspaceRef.current);
     const load = () => {
       void slot.get<RunPreset[]>("presets").then((stored) => {
         if (alive) setPresets(stored ?? []);
@@ -37,10 +42,10 @@ export function usePresets(
 
   const save = useCallback(
     (next: RunPreset[]) => {
-      void ctx.storage.workspace(workspace).set("presets", next);
+      void ctx.storage.workspace(workspaceRef.current).set("presets", next);
       setPresets(next);
     },
-    [ctx, workspace.id, workspace.instance],
+    [ctx],
   );
 
   return [presets, save];

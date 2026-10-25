@@ -110,10 +110,15 @@ export function PeekSiblings({
       ?.scrollIntoView({ block: "nearest" });
   }, [current?.path, current?.kind]);
 
+  // The fetch's inputs, read through a ref: `key` is their identity
+  // (`repo` + range), and `version` deliberately refetches the same key.
+  const fetchRef = useRef({ repo, range });
+  fetchRef.current = { repo, range };
   // A version bump refetches IN PLACE; a different change set supersedes the
   // list, which needs no separate clear — the list carries the key it was
   // fetched for, so a stale one simply stops counting as loaded.
   useEffect(() => {
+    const { repo, range } = fetchRef.current;
     if (!range) return;
     // Torn down: the host is unmounting this surface; nothing to read.
     const runtime = activeRuntime();
@@ -139,7 +144,8 @@ export function PeekSiblings({
     };
     // `version` rides alongside the key: it must refetch WITHOUT counting as
     // a different change set. The peek's owner freezes it for a commit scope
-    // (see `readVersionFor`) — a commit's file list cannot move.
+    // (see `readVersionFor`) — a commit's file list cannot move. The latest
+    // repo/range are read from `fetchRef`; their identity is `key`.
   }, [key, version]);
 
   // A History scope opens the peek without a file yet — seed the first one

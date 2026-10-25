@@ -28,6 +28,11 @@ export function useSections(
   // BEFORE the toggle, and applying it flipped the section back for a
   // moment — until the next mount read the toggle it had already saved.
   const touchedRef = useRef(false);
+  // The workspace OBJECT may be recreated by the caller while the slot it
+  // names (id + instance) is the same. The load is per slot, so read the
+  // latest object through a ref instead of re-subscribing to the object.
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
 
   useEffect(() => {
     // Torn down: the default, for whatever is left of this surface.
@@ -36,7 +41,7 @@ export function useSections(
     let cancelled = false;
     touchedRef.current = false;
     void runtime.storage
-      .workspace(workspace)
+      .workspace(workspaceRef.current)
       .get(KEY)
       .then((raw) => {
         if (!cancelled && !touchedRef.current) setState(readSections(raw));
@@ -57,7 +62,7 @@ export function useSections(
     const runtime = activeRuntime();
     if (!runtime) return;
     void runtime.storage
-      .workspace(workspace)
+      .workspace(workspaceRef.current)
       .set(KEY, next)
       .catch((cause: unknown) => {
         // The screen keeps the toggle; the next mount will show the slot's

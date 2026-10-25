@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import { openInFailed } from "../domain";
 import { getRuntime } from "../runtime";
@@ -21,10 +21,15 @@ export function useOpenApp(workspace: WorkspaceRef): {
 } {
   const { ctx } = getRuntime();
   const [pick, setPick] = useState<string | null>(null);
+  // The slot is named by the workspace's id + instance; the caller may hand
+  // a fresh object for the same slot. Read the latest object through a ref
+  // rather than re-subscribing to its identity.
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
 
   useEffect(() => {
     let alive = true;
-    const slot = ctx.storage.workspace(workspace);
+    const slot = ctx.storage.workspace(workspaceRef.current);
     const load = () => {
       void slot.get("openApp").then((stored) => {
         if (alive) setPick(typeof stored === "string" ? stored : null);
@@ -40,10 +45,10 @@ export function useOpenApp(workspace: WorkspaceRef): {
 
   const save = useCallback(
     (next: string) => {
-      void ctx.storage.workspace(workspace).set("openApp", next);
+      void ctx.storage.workspace(workspaceRef.current).set("openApp", next);
       setPick(next);
     },
-    [ctx, workspace.id, workspace.instance],
+    [ctx],
   );
 
   const open = useCallback(
