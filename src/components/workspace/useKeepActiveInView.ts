@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import { markGroups } from "../../app/stripDnd";
+import { markGroups } from "../../ui/stripDnd";
 import { scrollToShow } from "../../presentation/stripExpand";
 
 /**

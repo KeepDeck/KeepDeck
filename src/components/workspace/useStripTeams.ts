@@ -12,7 +12,7 @@ import {
   browserClock,
   prefersReducedMotion,
   type MotionHandle,
-} from "../../app/stripTeamsMotion";
+} from "../../ui/stripTeamsMotion";
 
 /** The id a workspace's team list carries — what the chevron controls and
  * what the motion finds. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { px, readStyles, ruleBody } from "./testSupport";
-import { STRIP_MOTION_MS } from "../app/stripTeamsMotion";
+import { STRIP_MOTION_MS } from "../ui/stripTeamsMotion";
 import { present } from "@keepdeck/plugin-api/testing";
 
 const deck = readStyles("deck.css");

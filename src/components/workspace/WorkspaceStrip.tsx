@@ -2,20 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PlusIcon } from "@keepdeck/ui-kit/icons";
 import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
-import { collectMarkRects, markGroups } from "../../app/stripDnd";
+import { collectMarkRects, markGroups } from "../../ui/stripDnd";
 import {
   animateElementReorder,
   animateFixedElementToRect,
   snapshotElementRects,
   usePointerDrag,
   type ElementRectSnapshot,
-} from "../../app/dragManager";
+} from "../../ui/dragManager";
 import { markAtY } from "../../domain/deck";
 import { STRIP_WORDS, type StripView, type WorkspaceMark } from "../../presentation/stripView";
 import { stripGroupView } from "../../presentation/stripExpand";
 import { useStripReveal } from "./useStripReveal";
 import { stripTeamsId, useStripTeams } from "./useStripTeams";
-import { STRIP_MOTION_MS } from "../../app/stripTeamsMotion";
+import { STRIP_MOTION_MS } from "../../ui/stripTeamsMotion";
 import { useKeepActiveInView } from "./useKeepActiveInView";
 
 interface WorkspaceStripProps {
