@@ -198,7 +198,7 @@ export function registerCodex(ctx: CodexPorts): void {
       // What a rollout record means, for the turn edge codex pushes no
       // hook for. The host reads the `watch` to know what to carry;
       // `normalize` applies the `read` to what arrives.
-      tail: codexTail(ctx) as never,
+      tail: codexTail(ctx),
     },
     // codex reports its `/new` as `startup`; this says when that is the
     // user's new conversation rather than a second session (./binding.ts).

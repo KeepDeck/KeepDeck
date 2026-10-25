@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  AgentStatus,
-  AgentUsage,
-  NormalizedUsage,
-  TailWatch,
+import {
+  jsonl,
+  type AgentStatus,
+  type AgentUsage,
+  type NormalizedUsage,
+  type TailWatch,
 } from "@keepdeck/plugin-api";
 import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
@@ -187,18 +188,18 @@ describe("createUsageChannel", () => {
           status: {
             normalize: () => null,
             attribute: () => null,
-            // The one cast left: the status slot types every dialect as
-            // SessionTailDialect<never, never>, plugin-api's stand-in for
-            // "some request, some record", which no dialect whose `follow`
-            // finds a real request satisfies — codex's own plugin fills the
-            // slot with a cast too. The fix is that type's, not this fake's.
+            // Only `watches` and `follow` are the host's to call; a dialect
+            // reads no record here.
             tail: {
+              format: jsonl(),
               watches: CODEX_WATCHES,
-              follow: async ({ sessionId }: { sessionId: string | null }) => {
+              follow: async ({ sessionId }) => {
                 const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
                 return path ? { path } : null;
               },
-            } as unknown as AgentStatus["tail"],
+              read: () => null,
+              ignores: () => true,
+            },
           },
         },
       },

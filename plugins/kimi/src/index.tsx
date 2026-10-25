@@ -126,7 +126,7 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
       normalize: normalizeKimiStatus,
       attribute: attributeKimiEvent,
       mail: { channels: KIMI_MAIL_CHANNELS, render: renderKimiMail },
-      tail: kimiTail(history) as never,
+      tail: kimiTail(history),
     },
     // kimi reports its `/new` as `startup`; this says it is the user's new
     // conversation rather than a second session (./binding.ts).

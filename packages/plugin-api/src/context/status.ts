@@ -15,6 +15,7 @@
 import { isJsonRecord } from "../json.ts";
 import { asNonEmptyString } from "./usage.ts";
 import { CARRIED_RECORD, type SessionTailDialect } from "./sessionTail.ts";
+import type { JsonlRequest } from "./sessionReadJsonl.ts";
 import type { AgentMail, EventAttribution } from "./agentEvents.ts";
 
 /** Why an agent is waiting on the user. `permission` = a tool-approval
@@ -173,8 +174,12 @@ export interface AgentStatus {
    * turn edges it has are its hooks'. Present = the host carries the records
    * this dialect's `watch` names, and `normalize` is where its `read` gets
    * applied — the two are the same contribution because they answer the same
-   * question from two sources. */
-  tail?: SessionTailDialect<never, never>;
+   * question from two sources.
+   *
+   * The host follows a store as jsonl and never reads a record itself —
+   * `read` is the plugin's, applied in `normalize` — so the slot names the
+   * request it follows and leaves the record type to the dialect. */
+  tail?: SessionTailDialect<JsonlRequest, unknown>;
   /** How the deck nudges this pane into taking a turn when mail is waiting
    * and no turn boundary is coming on its own.
    *
