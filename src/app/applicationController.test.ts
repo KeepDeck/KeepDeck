@@ -7,13 +7,14 @@ import {
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Notification } from "../domain/notifications";
 import { createDeckStore } from "./deckStore";
+import { createDeckActions } from "./deckActions";
 import {
   createApplicationController,
   type ApplicationOrchestrator,
   type ApplicationPlugins,
 } from "./applicationController";
-import type { PaneInputFocusPort } from "./paneInputFocusPort";
-import type { PaneViewPort } from "./paneViewPort";
+import type { PaneInputFocusPort } from "../presentation/paneInputFocusController";
+import type { PaneViewPort } from "../presentation/paneViewActions";
 import { fakeMcpLibrary } from "./mcpLibrary.fake";
 import { fakeSkillsLibrary } from "./skillsLibrary.fake";
 import { createPaneViewActions } from "../presentation/paneViewActions";
@@ -133,7 +134,7 @@ describe("application controller", () => {
     const registry = createCommandRegistry();
     const { plugins, orchestrator } = dependencies();
     const focus = paneInputFocus();
-    const paneView = createPaneViewActions(deck, focus);
+    const paneView = createPaneViewActions(deck, createDeckActions(deck), focus);
     const controller = createApplicationController({
       deck,
       plugins,
@@ -181,7 +182,7 @@ describe("application controller", () => {
     });
     const { plugins, orchestrator } = dependencies();
     const focus = paneInputFocus();
-    const paneView = createPaneViewActions(deck, focus);
+    const paneView = createPaneViewActions(deck, createDeckActions(deck), focus);
     const revealPane = vi.spyOn(paneView, "revealPane");
     const controller = createApplicationController({
       deck,

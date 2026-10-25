@@ -1,4 +1,4 @@
-import type { BoardState } from "../../app/tasks/tasksService";
+import type { BoardState } from "./boardReadModels";
 import { NEW_TASK_LABEL } from "./words";
 
 /**

@@ -4,7 +4,7 @@
  * detail and the team card cannot disagree.
  */
 import { formatAge } from "../../domain/usage";
-import type { Recovery, RestoreChoice } from "../../app/tasks/tasksService";
+import type { Recovery, RestoreChoice } from "./boardReadModels";
 import {
   TASK_PRIORITIES,
   USER_NAME,

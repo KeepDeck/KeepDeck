@@ -19,8 +19,8 @@ import {
   workspaceForNotification,
 } from "./notificationNavigation";
 import type { AgentOrchestrator } from "./agentOrchestrator";
-import type { PaneInputFocusPort } from "./paneInputFocusPort";
-import type { PaneViewPort } from "./paneViewPort";
+import type { PaneInputFocusPort } from "../presentation/paneInputFocusController";
+import type { PaneViewPort } from "../presentation/paneViewActions";
 
 /** The plugin side the controller drives: the one bootstrap at start, and
  * a plugin's dock tab revealed for its notification. */

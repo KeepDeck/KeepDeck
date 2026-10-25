@@ -8,6 +8,14 @@ export interface ArtifactIncarnation {
   generation: string;
 }
 
+/** A registry listing row, including the incarnation used by open history
+ * and delete confirmation. The wire and the view share this shape. */
+export interface ArtifactMetaRow extends ArtifactIncarnation {
+  title: string;
+  versionCount: number;
+  updatedAt: number;
+}
+
 /**
  * A reference to the row a surface is holding open — a question about it,
  * a history read for it.

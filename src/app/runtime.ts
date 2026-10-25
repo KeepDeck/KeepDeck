@@ -148,8 +148,9 @@ export function createAppRuntime(
   const downloads = new DownloadManager(downloadBackend);
   const plugins = createPluginManager(downloads);
   const deckStore = createDeckStore();
+  const deckActions = createDeckActions(deckStore);
   const paneInputFocus = createPaneInputFocusController();
-  const paneViewActions = createPaneViewActions(deckStore, paneInputFocus);
+  const paneViewActions = createPaneViewActions(deckStore, deckActions, paneInputFocus);
   // What the migration ladder did to the deck file is said once, here, on
   // the launch that did it — a team dissolved is not something to find out
   // from an empty badge.
@@ -158,7 +159,6 @@ export function createAppRuntime(
       notify({ title: "Deck migrated", body, source: { type: "app" } });
     }
   });
-  const deckActions = createDeckActions(deckStore);
   /** How a pane reads, for anything that has to name one. Read per call — a
    * plugin can be installed or removed while the deck is up. */
   const agentLabels = () =>

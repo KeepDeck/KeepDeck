@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ArtifactMetaRow,
-  ArtifactVersionRow,
-} from "../../app/artifacts/registryRead";
+import type { ArtifactMetaRow } from "../../domain/artifacts/rowRef";
+import type { ArtifactVersionRow } from "../../domain/artifacts/model";
 import { artifactRowView, type OpenHistory } from "./rowView";
 import { HISTORY_GONE, HISTORY_LOADING } from "./words";
 

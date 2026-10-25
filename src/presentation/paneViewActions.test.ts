@@ -1,23 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  deckReducer,
   hiddenBy,
   initialDeckState,
   paneOnScreen,
   stagePanes,
+  type DeckAction,
+  type DeckState,
   type HideReason,
   type Team,
   type WorkspaceView,
 } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { createDeckStore } from "../app/deckStore";
 import { createPaneViewActions } from "./paneViewActions";
+import type { PaneInputFocusPort } from "./paneInputFocusController";
 
 const team = (id: string): Team => ({ id, name: id, location: { kind: "attached", cwd: "/repo" } });
 
 /** Two panes on team-1, which is open — or, `apart`, pane-2 on a team of
  * its own, team-2, with team-1 still the open one. */
-const deckWith = (view: WorkspaceView = {}, apart = false) =>
-  createDeckStore({
+const deckWith = (view: WorkspaceView = {}, apart = false) => {
+  let state: DeckState = {
     ...initialDeckState,
     workspaces: [
       {
@@ -35,7 +38,23 @@ const deckWith = (view: WorkspaceView = {}, apart = false) =>
     ],
     activeId: "ws-1",
     viewByWs: { "ws-1": { teamOpen: "team-1", ...view } },
-  });
+  };
+  return {
+    getSnapshot: () => state,
+    dispatch(action: DeckAction) {
+      state = deckReducer(state, action);
+      return state;
+    },
+  };
+};
+
+const viewActions = (deck: ReturnType<typeof deckWith>, focus: PaneInputFocusPort) =>
+  createPaneViewActions(deck, {
+    openTeam: (wsId, teamId) => { deck.dispatch({ type: "openTeam", wsId, teamId }); },
+    toggleMinimize: (wsId, paneId) => { deck.dispatch({ type: "toggleMinimize", wsId, paneId }); },
+    restoreSuspendedPane: (wsId, paneId) => { deck.dispatch({ type: "restoreSuspendedPane", wsId, paneId }); },
+    toggleFocus: (wsId, paneId) => { deck.dispatch({ type: "toggleFocus", wsId, paneId }); },
+  }, focus);
 
 describe("PaneViewActions", () => {
   it("opens the pane's team before any marker comes off — a reveal into another team lands there", () => {
@@ -45,7 +64,7 @@ describe("PaneViewActions", () => {
     // that is then in view, and a marker removed on a closed team's pane
     // would reveal nothing.
     const deck = deckWith({ select: "pane-1", minimized: ["pane-2"] }, true);
-    const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
+    const actions = viewActions(deck, { requestFocus: vi.fn() });
 
     actions.revealPane("ws-1", "pane-2");
 
@@ -60,7 +79,7 @@ describe("PaneViewActions", () => {
     const requestFocus = vi.fn(() =>
       observedLayouts.push(deck.getSnapshot().viewByWs["ws-1"]?.focus),
     );
-    const actions = createPaneViewActions(deck, { requestFocus });
+    const actions = viewActions(deck, { requestFocus });
 
     actions.toggleMaximize("ws-1", "pane-1");
     actions.toggleMaximize("ws-1", "pane-1");
@@ -72,7 +91,7 @@ describe("PaneViewActions", () => {
 
   it("switches maximize spotlight to an addressed hidden pane", () => {
     const deck = deckWith({ select: "pane-1", focus: ["pane-1"] });
-    const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
+    const actions = viewActions(deck, { requestFocus: vi.fn() });
 
     actions.revealPane("ws-1", "pane-2");
 
@@ -87,7 +106,7 @@ describe("PaneViewActions", () => {
     // pane-1 is team-1's spotlight, which says nothing about team-2's grid:
     // pane-2 is revealed plain, and team-1 is still maximized to come back to.
     const deck = deckWith({ select: "pane-1", focus: ["pane-1"] }, true);
-    const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
+    const actions = viewActions(deck, { requestFocus: vi.fn() });
 
     actions.revealPane("ws-1", "pane-2");
 
@@ -110,7 +129,7 @@ describe("PaneViewActions", () => {
     "reveals a pane hidden by %s, and it is on screen afterwards",
     (reason) => {
       const deck = deckWith(hiddenViews[reason]);
-      const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
+      const actions = viewActions(deck, { requestFocus: vi.fn() });
 
       actions.revealPane("ws-1", "pane-2");
 
@@ -137,7 +156,7 @@ describe("PaneViewActions", () => {
       minimized: ["pane-2"],
       suspendedTray: ["pane-2"],
     });
-    const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
+    const actions = viewActions(deck, { requestFocus: vi.fn() });
 
     actions.revealPane("ws-1", "pane-2");
 

@@ -1,7 +1,5 @@
-import type {
-  ArtifactMetaRow,
-  ArtifactVersionRow,
-} from "../../app/artifacts/registryRead";
+import type { ArtifactMetaRow } from "../../domain/artifacts/rowRef";
+import type { ArtifactVersionRow } from "../../domain/artifacts/model";
 import { formatAge } from "../../domain/usage";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
 import { HISTORY_GONE, HISTORY_LOADING } from "./words";

@@ -1,8 +1,23 @@
-import type { PaneInputFocusPort } from "../app/paneInputFocusPort";
-import { createDeckActions } from "../app/deckActions";
-import type { DeckStore } from "../app/deckStore";
-import type { PaneViewPort } from "../app/paneViewPort";
-import { findPane, findWorkspace, hiddenBy, spotlightOn } from "../domain/deck";
+import type { PaneInputFocusPort } from "./paneInputFocusController";
+import { findPane, findWorkspace, hiddenBy, spotlightOn, type DeckState } from "../domain/deck";
+
+/** The view reads the deck, while the app owns its writes. */
+export interface PaneViewDeckPort {
+  getSnapshot(): DeckState;
+}
+
+/** Only the deck transitions that revealing and focusing a pane need. */
+export interface PaneViewDeckActionsPort {
+  openTeam(workspaceId: string, teamId: string): void;
+  toggleMinimize(workspaceId: string, paneId: string): void;
+  restoreSuspendedPane(workspaceId: string, paneId: string): void;
+  toggleFocus(workspaceId: string, paneId: string): void;
+}
+
+/** Capability to bring an addressed pane into view. */
+export interface PaneViewPort {
+  revealPane(workspaceId: string, paneId: string): void;
+}
 
 export interface PaneViewActions extends PaneViewPort {
   toggleMaximize(workspaceId: string, paneId: string): void;
@@ -10,11 +25,10 @@ export interface PaneViewActions extends PaneViewPort {
 
 /** Presentation policy shared by pane activation, chrome and menu hotkeys. */
 export function createPaneViewActions(
-  deck: DeckStore,
+  deck: PaneViewDeckPort,
+  actions: PaneViewDeckActionsPort,
   paneInputFocus: PaneInputFocusPort,
 ): PaneViewActions {
-  const actions = createDeckActions(deck);
-
   return {
     revealPane(workspaceId, paneId) {
       // The pane's team first: a pane is only ever in front of the person

@@ -1,4 +1,7 @@
-import type { PaneInputFocusPort } from "../app/paneInputFocusPort";
+/** Capability to hand keyboard input to an addressed live pane. */
+export interface PaneInputFocusPort {
+  requestFocus(paneId: string): void;
+}
 
 export interface PaneInputFocusRequest {
   readonly paneId: string | null;

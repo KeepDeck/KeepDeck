@@ -59,6 +59,10 @@ export interface ArtifactVersionMeta {
   message?: string;
 }
 
+/** A version read from the registry has the same fields as its manifest
+ * entry; the read orders these oldest first. */
+export type ArtifactVersionRow = ArtifactVersionMeta;
+
 /** What `artifact.list` returns per artifact — counts, not arrays:
  * the list is a directory, not a document. */
 export interface ArtifactMeta {

@@ -1,8 +1,6 @@
 import { formatAge } from "../../domain/usage";
-import type {
-  ArtifactMetaRow,
-  ArtifactVersionRow,
-} from "../../app/artifacts/registryRead";
+import type { ArtifactMetaRow } from "../../domain/artifacts/rowRef";
+import type { ArtifactVersionRow } from "../../domain/artifacts/model";
 
 /**
  * A history reads newest first, while the store writes it oldest first —
