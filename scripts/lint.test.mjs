@@ -63,5 +63,8 @@ describe("the linter", () => {
     // A run that read nothing proves nothing.
     expect(results.length).toBeGreaterThan(500);
     expect(problems).toEqual([]);
-  }, 120_000);
+    // Six seconds alone; well past two minutes on a machine running the rest
+    // of the suite and other work at once. The budget is for a hung linter,
+    // not a busy one.
+  }, 600_000);
 });
