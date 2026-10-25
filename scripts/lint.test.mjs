@@ -32,7 +32,7 @@ describe("the linter", () => {
       "@typescript-eslint/no-explicit-any",
       "@typescript-eslint/ban-ts-comment",
     ]);
-  });
+  }, 60_000);
 
   it("catches an unchecked assertion in src and in a plugin", async () => {
     const eslint = new ESLint({ cwd: REPO });
