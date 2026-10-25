@@ -205,7 +205,10 @@ describe("GitTab", () => {
     // BEFORE the toggle below.
     let answer: (raw: unknown) => void = () => {};
     const slot = {
-      get: vi.fn(() => new Promise<unknown>((resolve) => (answer = resolve))),
+      get: <T,>(_key: string, accepts: (value: unknown) => value is T) =>
+        new Promise<T | undefined>((resolve) => {
+          answer = (raw) => resolve(accepts(raw) ? raw : undefined);
+        }),
       set: vi.fn(async () => {}),
       delete: vi.fn(async () => {}),
     };

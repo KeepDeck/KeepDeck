@@ -1,3 +1,5 @@
+import { isJsonRecord } from "@keepdeck/plugin-api";
+
 /**
  * Which of the tab's sections are open — UI state, kept per workspace.
  *
@@ -24,11 +26,12 @@ export function toggleSection(state: SectionsState, id: SectionId): SectionsStat
 
 /** The state as stored, or the default for anything that is not one — a
  * slot written by another revision, or never written. */
+export function isSectionsState(raw: unknown): raw is SectionsState {
+  if (!isJsonRecord(raw)) return false;
+  const { changes, history } = raw;
+  return typeof changes === "boolean" && typeof history === "boolean";
+}
+
 export function readSections(raw: unknown): SectionsState {
-  if (typeof raw !== "object" || raw === null) return DEFAULT_SECTIONS;
-  const { changes, history } = raw as Record<string, unknown>;
-  if (typeof changes !== "boolean" || typeof history !== "boolean") {
-    return DEFAULT_SECTIONS;
-  }
-  return { changes, history };
+  return isSectionsState(raw) ? raw : DEFAULT_SECTIONS;
 }

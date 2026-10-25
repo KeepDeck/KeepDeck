@@ -67,6 +67,26 @@ export function buildGuestContext(
 ): GuestContextBundle {
   const noop = (): void => {};
 
+  /** Read one stored value through the caller's guard. A value the guard
+   * refuses is treated exactly like a missing key; when a value WAS there,
+   * the plugin's log says why it was dropped. */
+  function stored<T>(
+    path: string,
+    args: unknown[],
+    key: string,
+    accepts: (value: unknown) => value is T,
+  ): Promise<T | undefined> {
+    return rpc.call(path, args).then((value) => {
+      if (accepts(value)) return value;
+      if (value !== undefined) {
+        void rpc
+          .call("log.warn", [`stored value "${key}" did not match its guard`])
+          .catch(noop);
+      }
+      return undefined;
+    });
+  }
+
   // ---- local fan-out registries, all keyed so dispatchEvent can find them ----
   // `channelListeners` holds the plain broadcast channels (deck events AND the
   // settings-change feed): each fans one host subscription out to many local
@@ -292,10 +312,11 @@ export function buildGuestContext(
         // object must not retarget an existing external handle.
         const workspace: WorkspaceRef = { id, instance };
         return {
-          get: <T>(key: string): Promise<T | undefined> =>
-            rpc.call("storage.workspace.get", [workspace, key]) as Promise<
-              T | undefined
-            >,
+          get: <T>(
+            key: string,
+            accepts: (value: unknown) => value is T,
+          ): Promise<T | undefined> =>
+            stored("storage.workspace.get", [workspace, key], key, accepts),
           set: (key, value) =>
             rpc
               .call("storage.workspace.set", [workspace, key, value])
@@ -305,8 +326,11 @@ export function buildGuestContext(
         };
       },
       global: {
-        get: <T>(key: string): Promise<T | undefined> =>
-          rpc.call("storage.global.get", [key]) as Promise<T | undefined>,
+        get: <T>(
+          key: string,
+          accepts: (value: unknown) => value is T,
+        ): Promise<T | undefined> =>
+          stored("storage.global.get", [key], key, accepts),
         set: (key, value) => rpc.call("storage.global.set", [key, value]).then(noop),
         delete: (key) => rpc.call("storage.global.delete", [key]).then(noop),
       },

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
-import type { RunPreset } from "../domain";
+import { isRunPresets, type RunPreset } from "../domain";
 import { getRuntime } from "../runtime";
 
 /**
@@ -28,7 +28,7 @@ export function usePresets(
     let alive = true;
     const slot = ctx.storage.workspace(workspaceRef.current);
     const load = () => {
-      void slot.get<RunPreset[]>("presets").then((stored) => {
+      void slot.get("presets", isRunPresets).then((stored) => {
         if (alive) setPresets(stored ?? []);
       });
     };

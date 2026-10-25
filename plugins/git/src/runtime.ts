@@ -1,5 +1,6 @@
 import type {
   PluginEvents,
+  PluginKV,
   PluginFs,
   PluginGit,
   PluginLogger,
@@ -10,8 +11,8 @@ import type {
 /** A workspace's slot as the tab uses it: read back untyped and validated on
  * the way in (`readSections`), written whole. */
 export interface SectionsSlot {
-  get(key: string): Promise<unknown>;
-  set(key: string, value: unknown): Promise<void>;
+  get: PluginKV["get"];
+  set: PluginKV["set"];
 }
 
 /** What the plugin needs from the host — the parts of its context it uses. */

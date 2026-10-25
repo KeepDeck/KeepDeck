@@ -16,6 +16,9 @@ const ref = (workspace: Workspace) => ({
   id: workspace.id,
   instance: workspace.instance,
 });
+const isString = (value: unknown): value is string => typeof value === "string";
+const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
+const acceptAny = (_value: unknown): _value is unknown => true;
 
 function access(workspaces: Workspace[]): DeckAccess & {
   setPluginSlot: ReturnType<typeof vi.fn>;
@@ -28,21 +31,21 @@ describe("makeWorkspaceKv", () => {
     const workspace = ws("w1", { "keepdeck.sample": { note: "hi" } });
     const a = access([workspace]);
     const kv = makeWorkspaceKv(a, "keepdeck.sample", ref(workspace));
-    expect(await kv.get("note")).toBe("hi");
-    expect(await kv.get("missing")).toBeUndefined();
+    expect(await kv.get("note", isString)).toBe("hi");
+    expect(await kv.get("missing", isString)).toBeUndefined();
   });
 
   it("answers undefined for an unknown workspace or foreign slot", async () => {
     const workspace = ws("w1", { other: { note: "x" } });
     const a = access([workspace]);
     expect(
-      await makeWorkspaceKv(a, "keepdeck.sample", ref(workspace)).get("note"),
+      await makeWorkspaceKv(a, "keepdeck.sample", ref(workspace)).get("note", isString),
     ).toBeUndefined();
     expect(
       await makeWorkspaceKv(a, "keepdeck.sample", {
         id: "gone",
         instance: "gone-instance",
-      }).get("note"),
+      }).get("note", isString),
     ).toBeUndefined();
   });
 
@@ -87,9 +90,16 @@ describe("makeWorkspaceKv", () => {
       setPluginSlot: vi.fn(),
     };
     const kv = makeWorkspaceKv(a, "p", ref(current[0]));
-    expect(await kv.get("k")).toBeUndefined();
+    expect(await kv.get("k", acceptAny)).toBeUndefined();
     current = [{ ...current[0], plugins: { p: { k: "now" } } }];
-    expect(await kv.get("k")).toBe("now");
+    expect(await kv.get("k", acceptAny)).toBe("now");
+  });
+
+  it("reads a stored value the caller's guard refuses as undefined", async () => {
+    const workspace = ws("w1", { "keepdeck.sample": { note: 1 } });
+    const a = access([workspace]);
+    const kv = makeWorkspaceKv(a, "keepdeck.sample", ref(workspace));
+    expect(await kv.get("note", isString)).toBeUndefined();
   });
 
   it("never attaches a stale handle to a workspace that reuses its id", async () => {
@@ -100,7 +110,7 @@ describe("makeWorkspaceKv", () => {
 
     current = [ws("ws-3", { p: { fresh: true } })];
 
-    expect(await stale.get("old")).toBeUndefined();
+    expect(await stale.get("old", isBoolean)).toBeUndefined();
     await stale.set("leak", true);
     await stale.delete("fresh");
     expect(setPluginSlot).not.toHaveBeenCalled();
@@ -111,7 +121,7 @@ describe("makeGlobalKvStub", () => {
   it("reads as empty and rejects writes loudly", async () => {
     const warn = vi.fn();
     const kv = makeGlobalKvStub(warn);
-    expect(await kv.get("k")).toBeUndefined();
+    expect(await kv.get("k", acceptAny)).toBeUndefined();
     await expect(kv.set("k", 1)).rejects.toThrow("not implemented");
     await expect(kv.delete("k")).rejects.toThrow("not implemented");
     expect(warn).toHaveBeenCalledTimes(2);

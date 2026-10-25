@@ -53,7 +53,7 @@ describe("workspace storage over the RPC seam", () => {
     await expect(
       dispatch.call("storage.workspace.get", [ref, "key"]),
     ).resolves.toBeUndefined();
-    expect(kv.get).toHaveBeenCalledWith("key");
+    expect(kv.get).toHaveBeenCalledWith("key", expect.any(Function));
     await dispatch.call("storage.workspace.set", [ref, "key", 42]);
     await dispatch.call("storage.workspace.delete", [ref, "key"]);
 

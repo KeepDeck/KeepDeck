@@ -1,3 +1,5 @@
+import { isJsonRecord } from "@keepdeck/plugin-api";
+
 /**
  * Run presets — launch the app under development.
  *
@@ -22,6 +24,18 @@ export interface RunPreset {
   name: string;
   /** The shell command line, run via `$SHELL -c` in the chosen worktree. */
   command: string;
+}
+
+/** Whether a stored value is a preset list this revision can use. */
+export function isRunPresets(value: unknown): value is RunPreset[] {
+  return Array.isArray(value) && value.every(isRunPreset);
+}
+
+function isRunPreset(value: unknown): value is RunPreset {
+  return isJsonRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.command === "string";
 }
 
 /** Env every run command receives. `port` is the base of the target's 10-port

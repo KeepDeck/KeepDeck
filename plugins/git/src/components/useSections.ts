@@ -3,6 +3,7 @@ import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import { activeRuntime } from "../runtime";
 import {
   DEFAULT_SECTIONS,
+  isSectionsState,
   readSections,
   toggleSection,
   type SectionId,
@@ -42,7 +43,7 @@ export function useSections(
     touchedRef.current = false;
     void runtime.storage
       .workspace(workspaceRef.current)
-      .get(KEY)
+      .get(KEY, isSectionsState)
       .then((raw) => {
         if (!cancelled && !touchedRef.current) setState(readSections(raw));
       })

@@ -31,7 +31,7 @@ export function useOpenApp(workspace: WorkspaceRef): {
     let alive = true;
     const slot = ctx.storage.workspace(workspaceRef.current);
     const load = () => {
-      void slot.get("openApp").then((stored) => {
+      void slot.get("openApp", (value): value is string => typeof value === "string").then((stored) => {
         if (alive) setPick(typeof stored === "string" ? stored : null);
       });
     };

@@ -237,10 +237,15 @@ export function createFakeHost(
     resources: { path: async () => null },
     storage: {
       workspace: (workspace) => ({
-        get: async <T>(key: string) =>
-          workspaceStore.get(
+        get: async <T>(
+          key: string,
+          accepts: (value: unknown) => value is T,
+        ) => {
+          const value = workspaceStore.get(
             `${workspace.id}:${workspace.instance}::${key}`,
-          ) as T | undefined,
+          );
+          return accepts(value) ? value : undefined;
+        },
         set: async (key, value) =>
           void workspaceStore.set(
             `${workspace.id}:${workspace.instance}::${key}`,
@@ -252,7 +257,13 @@ export function createFakeHost(
           ),
       }),
       global: {
-        get: async <T>(key: string) => globalStore.get(key) as T | undefined,
+        get: async <T>(
+          key: string,
+          accepts: (value: unknown) => value is T,
+        ) => {
+          const value = globalStore.get(key);
+          return accepts(value) ? value : undefined;
+        },
         set: async (key, value) => void globalStore.set(key, value),
         delete: async (key) => void globalStore.delete(key),
       },

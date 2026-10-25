@@ -46,8 +46,12 @@ export function makeWorkspaceKv(
     return isJsonRecord(value) ? value : {};
   };
   return {
-    async get<T>(key: string): Promise<T | undefined> {
-      return slot()[key] as T | undefined;
+    async get<T>(
+      key: string,
+      accepts: (value: unknown) => value is T,
+    ): Promise<T | undefined> {
+      const value = slot()[key];
+      return accepts(value) ? value : undefined;
     },
     async set(key: string, value: unknown): Promise<void> {
       if (!workspace()) return;
@@ -81,7 +85,10 @@ export function makeGlobalKvStub(
   warn: (message: string) => void,
 ): PluginKV {
   return {
-    async get<T>(): Promise<T | undefined> {
+    async get<T>(
+      _key: string,
+      _accepts: (value: unknown) => value is T,
+    ): Promise<T | undefined> {
       return undefined;
     },
     async set(key: string): Promise<void> {

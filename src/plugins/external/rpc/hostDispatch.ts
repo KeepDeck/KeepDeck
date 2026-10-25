@@ -82,6 +82,10 @@ export interface HostDispatch {
   dispose(): void;
 }
 
+/** The host forwards a stored value it cannot know; the guest's own guard is
+ * the one that proves the shape where it lands. */
+const acceptsAny = (_value: unknown): _value is unknown => true;
+
 export function createHostDispatch(
   ctx: PluginContext,
   push: (channel: string, payload: unknown) => void,
@@ -189,12 +193,16 @@ export function createHostDispatch(
     // ---- storage: every operation carries the exact serializable lifetime
     // ref captured by the guest handle, never merely a reusable public id. ----
     "storage.workspace.get": ([workspace, key]) =>
-      workspaceStorage(workspace).get(str(key, "storage key")),
+      workspaceStorage(workspace).get(
+        str(key, "storage key"),
+        acceptsAny,
+      ),
     "storage.workspace.set": ([workspace, key, value]) =>
       workspaceStorage(workspace).set(str(key, "storage key"), value),
     "storage.workspace.delete": ([workspace, key]) =>
       workspaceStorage(workspace).delete(str(key, "storage key")),
-    "storage.global.get": ([key]) => ctx.storage.global.get(str(key, "storage key")),
+    "storage.global.get": ([key]) =>
+      ctx.storage.global.get(str(key, "storage key"), acceptsAny),
     "storage.global.set": ([key, value]) =>
       ctx.storage.global.set(str(key, "storage key"), value),
     "storage.global.delete": ([key]) =>

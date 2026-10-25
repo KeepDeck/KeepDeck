@@ -16,7 +16,11 @@ export interface PluginStorage {
 }
 
 export interface PluginKV {
-  get<T>(key: string): Promise<T | undefined>;
+  /** Read one value through a guard the CALLER owns: a stored value the
+   * guard refuses reads as `undefined`, exactly like a missing key. The
+   * plugin is the only side that knows what it wrote, so it is the side
+   * that proves the shape on the way back. */
+  get<T>(key: string, accepts: (value: unknown) => value is T): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
 }
