@@ -33,6 +33,25 @@ describe("launchPlans", () => {
     expect(fork.args).toEqual(["--common", "--fork", "s1"]);
   });
 
+  it("waits for a resume that has something to check first, and passes on its refusal", async () => {
+    // A CLI that would open a session it cannot find as something else asks
+    // its store before naming it; a refusal is the resume's error.
+    const asking = { ...adapter(), resume: async (i: ResumePlanInput) => ["--resume", i.sessionId] };
+    const resume = output();
+    await launchPlans(asking)["resume.plan"]({ ...input, sessionId: "s1" } as ResumePlanInput, resume);
+    expect(resume.args).toEqual(["--common", "--resume", "s1"]);
+
+    const refusing = {
+      ...adapter(),
+      resume: async () => {
+        throw new Error("recorded by another release");
+      },
+    };
+    await expect(
+      launchPlans(refusing)["resume.plan"]({ ...input, sessionId: "s1" } as ResumePlanInput, output()),
+    ).rejects.toThrow("recorded by another release");
+  });
+
   it("names no session and runs no fork surgery once the stage settled the launch", async () => {
     // A remote attach replaces the whole invocation: continuity is the
     // server's, and a store surgery here would touch a store nobody opens.

@@ -8,14 +8,15 @@
 import { launchPlans, type KeepDeckPlugin } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { opencodeHistory } from "./history";
-import { relocatingForkId } from "./fork";
-import { launchFor, stageLaunch } from "./launch";
+import { stageLaunch } from "./launch";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
+import { sessionOpening } from "./opening";
 import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
 
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
+    const opening = sessionOpening(ctx);
     ctx.agents.register({
       id: "opencode",
       label: "OpenCode",
@@ -58,19 +59,12 @@ const plugin: KeepDeckPlugin = {
       },
       hooks: launchPlans({
         stage: (input, output) => stageLaunch(ctx, input, output),
-        resume: (input) => launchFor(ctx, input).resume(input.sessionId),
-        // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
-        // directory, ignoring the target (probe-verified, 1.18.4). So a
-        // RELOCATING fork goes through export→rekey→import (see `fork.ts`),
-        // binding the new session's directory to the target. `relocatingForkId`
-        // returns the relocated session's id, or null (native `--fork`
-        // fallback) for a not-yet-provisioned worktree OR any recipe failure.
-        // Remote never gets here: `stage` attached to the server, where the
-        // fork runs server-side.
-        fork: async (input) => {
-          const relocated = await relocatingForkId(ctx, input);
-          return relocated ? ["-s", relocated] : ["-s", input.sessionId, "--fork"];
-        },
+        // Both ask the store first where the session lives, and refuse one
+        // this pane's opencode would open as something else (opening.ts).
+        // A fork copies the session INTO the pane's directory (fork.ts), or
+        // refuses. Remote never gets here: `stage` attached to the server.
+        resume: (input) => opening.resume(input),
+        fork: (input) => opening.fork(input),
       }),
     });
   },

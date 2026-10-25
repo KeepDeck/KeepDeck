@@ -14,7 +14,20 @@
  * timers and a bracket scanner in the same file as the prose a user reads on a
  * badge — and made the scanner untestable without spawning something.
  */
-import type { PluginContext, PluginSessionHandle } from "@keepdeck/plugin-api";
+import type { PluginSessionHandle, PluginSessions } from "@keepdeck/plugin-api";
+
+/** What running a command needs from the host: its PTY sessions. */
+export interface ExecPorts {
+  services: { sessions: Pick<PluginSessions, "spawn"> };
+}
+
+/** One finished command: what it printed and how it exited. */
+export interface CommandRun {
+  /** stdout and stderr together, as the PTY wrote them (`\r\n`, colours). */
+  text: string;
+  /** null when the PTY could not report one. */
+  code: number | null;
+}
 
 /** Hard cap on one export/import. They are fast (no model/MCP), so this only
  * catches a genuinely stuck process — without it a hung opencode would leave
@@ -26,10 +39,10 @@ const RUN_TIMEOUT_MS = 60_000;
  * text; the PTY only maps `\n`→`\r\n` (harmless JSON whitespace). Rejects on a
  * spawn failure or if the process does not exit within `RUN_TIMEOUT_MS`. */
 export async function runOpencode(
-  ctx: PluginContext,
-  args: string[],
+  ctx: ExecPorts,
+  args: readonly string[],
   cwd?: string,
-): Promise<{ text: string; code: number | null }> {
+): Promise<CommandRun> {
   const chunks: Uint8Array[] = [];
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -49,13 +62,13 @@ export async function runOpencode(
       const killed = handle?.close().catch(() => {}) ?? Promise.resolve();
       void killed.then(() =>
         finish(() =>
-          reject(new Error(`opencode ${args[0] ?? ""} timed out after ${RUN_TIMEOUT_MS}ms`)),
+          reject(new Error(`opencode ${args.slice(0, 2).join(" ")} timed out after ${RUN_TIMEOUT_MS}ms`)),
         ),
       );
     }, RUN_TIMEOUT_MS);
     ctx.services.sessions
       .spawn(
-        { command: "opencode", args, ...(cwd ? { cwd } : {}), cols: 120, rows: 40 },
+        { command: "opencode", args: [...args], ...(cwd ? { cwd } : {}), cols: 120, rows: 40 },
         (event) => {
           if (event.type === "output") chunks.push(event.bytes);
           else finish(() => resolve({ text: decode(chunks), code: event.code }));
@@ -84,7 +97,17 @@ function decode(chunks: Uint8Array[]): string {
 }
 
 /** Last chars of a command's output, for an error message. */
-export const tail = (text: string): string => text.trim().slice(-200);
+export const tail = (text: string): string => plainText(text).trim().slice(-200);
+
+/** A command's output as words: without the terminal's colour codes (1.x
+ * prints its `Error:` in colour) and its `\r`. A verdict read from the raw
+ * bytes would match only for as long as no colour lands inside the phrase. */
+export const plainText = (text: string): string =>
+  text.replace(/\x1b\[[0-9;]*m/g, "").replace(/\r/g, "");
+
+/** The output's lines, as words. */
+export const linesOf = (run: CommandRun): string[] =>
+  plainText(run.text).split("\n").map((line) => line.trim());
 
 /** The JSON object out of `opencode export`'s output. A `Exporting session:`
  * line rides ahead of the payload on the PTY, and opencode MAY print a trailing

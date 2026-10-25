@@ -87,7 +87,7 @@ the user had left, and the agent worked there unseen (task-435).
   pane, and `session.unbound` makes the deck forget the session. A restore
   starts fresh (`src/app/paneUnbinding.ts`). With no ending within 3 s it
   lets go anyway, unless the pane already moved on. opencode STARTING on
-  home (before `-s` opens, or the native `--fork`) is not a leaving.
+  home (before `-s` opens) is not a leaving.
 - Mail goes only where the user is looking. Every channel asks the same
   rule, in `courier-policy.js` (the 1.x courier supplies how to create,
   show and deliver into a session): `unknown` behaves as before; the pane's root or its subagent's view
@@ -133,14 +133,55 @@ Bus events from the reporter: `session.status` (busy or idle),
 `session.idle` and `session.error`, plus permission and question dialogs. A
 dialog raised by a child session blocks the pane too.
 
-## Sessions and fork (1.x)
+## Sessions, resume and fork (both generations)
 
-Sessions are in OpenCode's SQLite database, read-only. Fork into another
-directory goes `opencode export`, then re-key every id and set the
-directory (`src/rekey.ts`), then `opencode import` run from the target
-directory. `import` records the directory from its cwd, not from the JSON.
-If that fails, KeepDeck falls back to native `-s <id> --fork`, which stays
-in the source directory.
+Sessions are in OpenCode's SQLite database, read-only (`src/store.ts`). One
+database holds the 1.x tables, the 2.x tables or both, and each opencode
+reads only its own. History shows both, so before a resume or a fork the
+plugin asks where the session lives (`src/whereabouts.ts`) and refuses, in
+words, a session the pane's opencode would open as something else
+(task-378, task-460):
+- 2.x given a session only 1.x has makes an EMPTY session under its id
+  (`-s` creates a missing one). While 2.x's background copy of 1.x
+  sessions is still running, the copy later deletes the turns typed into
+  it (measured live).
+- 1.x given a session 2.x went on with opens the half from before the copy;
+  1.x given a 2.x-only session exits, and a restore would start fresh.
+- A session in neither set is left to opencode when it says so itself (1.x
+  exits, a fork's export fails); only a 2.x resume is refused for it.
+- A store the plugin cannot read leaves the answer to opencode. The path is
+  the release builds' `opencode.db`; a pane under `OPENCODE_DB` or another
+  channel reads another store, which the plugin cannot see.
+
+A fork into a directory is `export → rekey → import`, run from the target,
+on both generations (`src/fork.ts`; the per-generation commands and readers
+are `src/forkRecipe.ts`):
+- 1.x: `opencode export <id>`, `opencode import <file>`. `import` records
+  the directory from its cwd. Its `Imported session: <id>` is only a
+  claim: it says so for an empty clone, and for a re-import of the source's
+  own id, which moves the SOURCE (measured). So the clone is exported back
+  and checked: its id, its directory, every finished message and the turn
+  each answer names.
+- 2.x: `opencode session export <id> --standalone`, `opencode session
+  import <file> --directory <target> --standalone`. Only the exact
+  `Imported session: <id>` is a success; a collision exits 0 with `Session
+  already exists`.
+- Every id is minted again — the session, each message (and each part on
+  1.x), and the links between them (`src/rekey.ts`). A tool call's id and a
+  shell's id are not message ids and stay.
+- A fork lands in the target or does not happen (the user's decision):
+  every failure is the host's "Could not fork the session" alert. There is
+  no fallback to opencode's own `--fork`, which keeps the copy in the
+  source's directory (and 2.x has none).
+- Before the import the minted id is checked to be free (an export of it
+  must say not found): an import over an existing id rewrites that session.
+  So what the import leaves under the id is the fork's own, and a fork
+  refused after its import ran deletes it (`opencode session delete <id>`,
+  `--standalone` on 2.x). A 2.x collision (`Session already exists`) deletes
+  nothing: that session is somebody else's (measured: deleting it there
+  deleted the session that had the id).
+- A clone carries the root conversation only: no subagent sessions, and no
+  snapshots, so diff/undo of turns from before the fork may fail in it.
 
 ## What OpenCode 2.x changes
 
@@ -222,7 +263,8 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
     the pane-identity rule of task-424 does not admit it yet (open).
 - **Remote.** `attach` is gone; it is now `--server <url>` with
   `OPENCODE_PASSWORD`.
-- **Fork.** `--fork` is gone; forking needs the API's fork plus a move.
+- **Fork.** `--fork` is gone; KeepDeck forks by `session export`/`import`
+  (see "Sessions, resume and fork").
 - **Status.** Events are new (`session.execution.*`, `permission.*`,
   `form.*`).
 - **Skills.** There is a `skills` config key, which can replace

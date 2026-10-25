@@ -6,8 +6,14 @@ import type {
   PluginContext,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
+import {
+  fakeOpencode,
+  v1Session,
+  v2Session,
+  type FakeOpencodeOptions,
+} from "./fakeOpencode.test-support";
 import plugin from "./index";
-import { OPENCODE_SESSION_ENV } from "./launch";
+import { OPENCODE_SESSION_ENV } from "./opening";
 
 /** This plugin's real resources, which the fake below answers from. */
 const RESOURCES = join(__dirname, "..", "resources");
@@ -43,44 +49,16 @@ function activate(
   return agent;
 }
 
-/** A services stub for the fork hook. `targetMissing` makes the target look
- * un-provisioned (native fallback); otherwise `sessions.spawn` fakes
- * export→import so the relocating recipe returns a minted id. */
-function forkServices(opts?: { targetMissing?: boolean; importFails?: boolean }) {
-  // A realistic (guard-valid) exported session id; the reminted clone id is
-  // what fork.plan resumes. Distinct from the input `ses_x` passed to export.
-  const SRC = "ses_0db9e24cbffej1WlbsRKynAHf3";
-  const writes = new Map<string, string>();
-  const enc = (s: string) => new TextEncoder().encode(s);
-  return {
-    fs: {
-      readDir: async (path: string) => {
-        if (opts?.targetMissing) throw new Error(`ENOENT: ${path}`);
-        return [];
-      },
-    },
-    fsWrite: { writeFile: async (p: string, t: string) => void writes.set(p, t) },
-    sessions: {
-      spawn: async (
-        o: { args: string[]; cwd?: string },
-        onEvent: (e: { type: "output"; bytes: Uint8Array } | { type: "exit"; code: number | null }) => void,
-      ) => {
-        queueMicrotask(() => {
-          if (o.args[0] === "export") {
-            const doc = { info: { id: SRC, directory: "/src", title: "t" }, messages: [] };
-            onEvent({ type: "output", bytes: enc(`Exporting session: ${SRC}\r\n${JSON.stringify(doc)}`) });
-            onEvent({ type: "exit", code: 0 });
-          } else {
-            const id = JSON.parse(writes.get(o.args[1]) ?? "{}").info.id as string;
-            onEvent({ type: "output", bytes: enc(opts?.importFails ? "error\r\n" : `Imported session: ${id}\r\n`) });
-            onEvent({ type: "exit", code: opts?.importFails ? 1 : 0 });
-          }
-        });
-        return { id: "h", write: async () => {}, resize: async () => {}, close: async () => {} };
-      },
-    },
-  };
-}
+/** A source session with a real opencode id shape: the fork remints it. */
+const SRC = "ses_0db9e24cbffej1WlbsRKynAHf3";
+
+/** The host's services over a fake opencode holding SRC — of 1.x unless
+ * told otherwise (fakeOpencode.test-support.ts). */
+const opencodeServices = (options: Partial<FakeOpencodeOptions> = {}) => {
+  const generation = options.generation ?? 1;
+  const session = generation === 1 ? v1Session(SRC, "/src") : v2Session(SRC, "/src");
+  return fakeOpencode({ generation, sessions: { [SRC]: session }, ...options }).ports.services;
+};
 
 const output = (): SpawnPlanOutput => ({
   command: "opencode",
@@ -147,7 +125,7 @@ describe("opencode plugin hooks", () => {
     // All three hooks call the same helper, but only spawn was covered —
     // reverting either of the other two to the reporter-only call would have
     // passed every existing test.
-    const agent = activate("/App/resources");
+    const agent = activate("/App/resources", opencodeServices());
     const mcp = {
       servers: [
         {
@@ -176,7 +154,7 @@ describe("opencode plugin hooks", () => {
 
     const fork = output();
     await agent.hooks["fork.plan"]!(
-      { ...input, mcp, sessionId: "s", sourceCwd: "/old" },
+      { ...input, mcp, sessionId: SRC, sourceCwd: "/old" },
       fork,
     );
     expect(carries(fork)).toEqual([
@@ -195,7 +173,7 @@ describe("opencode plugin hooks", () => {
    * added tomorrow is covered without touching this test.
    */
   it("stages every launch alike — a fresh spawn, a resume and a fork", async () => {
-    const agent = activate("/App/resources");
+    const agent = activate("/App/resources", opencodeServices());
     const shared = {
       ...input,
       mcp: {
@@ -221,7 +199,7 @@ describe("opencode plugin hooks", () => {
     await agent.hooks["resume.plan"]!({ ...shared, sessionId: "s" }, resume);
     const fork = output();
     await agent.hooks["fork.plan"]!(
-      { ...shared, sessionId: "s", sourceCwd: "/old" },
+      { ...shared, sessionId: SRC, sourceCwd: "/old" },
       fork,
     );
 
@@ -387,63 +365,49 @@ describe("opencode plugin hooks", () => {
     expect(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
   });
 
-  it("relocating fork: an EXISTING target imports a clone, resumes its NEW id (no --fork)", async () => {
-    const agent = activate("/App/resources", forkServices());
+  it("forks INTO the pane's directory and opens the clone by its own id — never with --fork", async () => {
+    const agent = activate("/App/resources", opencodeServices());
     const out = output();
     await agent.hooks["fork.plan"]!(
-      { ...input, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
+      { ...input, cwd: "/new/target", sessionId: SRC, sourceCwd: "/src" },
       out,
     );
 
-    // The relocated clone is resumed by its minted id — never the source, and
-    // NOT via native --fork (which would re-home to the source dir).
     expect(out.args).not.toContain("--fork");
     expect(out.args[0]).toBe("-s");
-    expect(out.args[1]).not.toBe("ses_x");
+    expect(out.args[1]).not.toBe(SRC);
     expect(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
   });
 
-  it("relocating fork honors YOLO: skip-permissions flag precedes the resumed clone id", async () => {
-    const agent = activate("/App/resources", forkServices());
+  it("a fork honors YOLO: the skip-permissions flag precedes the clone's id", async () => {
+    const agent = activate("/App/resources", opencodeServices());
     const out = output();
     await agent.hooks["fork.plan"]!(
-      { ...input, yolo: true, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
+      { ...input, yolo: true, cwd: "/new/target", sessionId: SRC, sourceCwd: "/src" },
       out,
     );
     expect(out.args[0]).toBe("--dangerously-skip-permissions");
     expect(out.args[1]).toBe("-s");
-    expect(out.args[2]).not.toBe("ses_x"); // the relocated clone id, not the source
-    expect(out.args).not.toContain("--fork");
+    expect(out.args[2]).not.toBe(SRC);
   });
 
-  it("falls back to native -s --fork when the target isn't provisioned yet", async () => {
-    const agent = activate("/App/resources", forkServices({ targetMissing: true }));
-    const out = output();
-    await agent.hooks["fork.plan"]!(
-      { ...input, cwd: "/future/worktree", sessionId: "ses_x", sourceCwd: "/x" },
-      out,
-    );
-    expect(out.args).toEqual(["-s", "ses_x", "--fork"]);
+  it("refuses a fork it cannot land in the pane's directory — it never opens one in the source's", async () => {
+    // A missing target, a failed copy: the hook throws, the host's alert says
+    // why, and no pane runs the agent in another team's checkout.
+    const missing = activate("/App/resources", opencodeServices({ exists: () => false }));
+    await expect(
+      missing.hooks["fork.plan"]!({ ...input, cwd: "/gone", sessionId: SRC, sourceCwd: "/src" }, output()),
+    ).rejects.toThrow("The fork target /gone does not exist.");
 
-    // The YOLO flag stays global/first even on the fallback path.
-    const yolo = output();
-    await agent.hooks["fork.plan"]!(
-      { ...input, yolo: true, cwd: "/future/worktree", sessionId: "ses_x", sourceCwd: "/x" },
-      yolo,
+    const broken = activate(
+      "/App/resources",
+      opencodeServices({
+        answer: (run) => (run.args[0] === "import" ? { text: "error\r\n", code: 1 } : undefined),
+      }),
     );
-    expect(yolo.args[0]).not.toBe("-s");
-    expect(yolo.args.slice(-3)).toEqual(["-s", "ses_x", "--fork"]);
-  });
-
-  it("falls back to native -s --fork when the relocating recipe FAILS (no hard-fail)", async () => {
-    const agent = activate("/App/resources", forkServices({ importFails: true }));
-    const out = output();
-    await agent.hooks["fork.plan"]!(
-      { ...input, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
-      out,
-    );
-    // A recipe error degrades to native, never throws out of the hook.
-    expect(out.args).toEqual(["-s", "ses_x", "--fork"]);
+    await expect(
+      broken.hooks["fork.plan"]!({ ...input, cwd: "/new/target", sessionId: SRC, sourceCwd: "/src" }, output()),
+    ).rejects.toThrow("The copy failed");
   });
 
   it("degrades to a bare spawn when neither of our plugins resolves", async () => {
@@ -470,7 +434,7 @@ describe("opencode plugin hooks", () => {
   it("gives a 2.x pane a server of its own on spawn, resume and fork, and a 1.x pane none", async () => {
     // Without it every 2.x pane joins one background service that loaded the
     // plugin with the first pane's environment; 1.x exits on the flag.
-    const agent = activate("/App/resources", forkServices({ targetMissing: true }));
+    const agent = activate("/App/resources", opencodeServices({ generation: 2 }));
     const v2 = { ...input, cliVersion: "opencode v2.1.2" };
 
     const spawn = output();
@@ -478,7 +442,7 @@ describe("opencode plugin hooks", () => {
     const resume = output();
     await agent.hooks["resume.plan"]!({ ...v2, sessionId: "ses_x" }, resume);
     const fork = output();
-    await agent.hooks["fork.plan"]!({ ...v2, sessionId: "ses_x", sourceCwd: "/repo" }, fork);
+    await agent.hooks["fork.plan"]!({ ...v2, sessionId: SRC, sourceCwd: "/repo" }, fork);
     for (const plan of [spawn, resume, fork]) expect(plan.args).toContain("--standalone");
 
     const v1 = output();

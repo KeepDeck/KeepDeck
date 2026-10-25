@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractJson, tail } from "./exec";
+import { extractJson, plainText, tail } from "./exec";
 
 /**
  * The scanner could not be reached without spawning something while it lived
@@ -52,5 +52,14 @@ describe("reading what opencode printed", () => {
   it("keeps the end of a failed command's output, which is where it says why", () => {
     expect(tail(`${"noise ".repeat(100)}fatal: nope`)).toMatch(/fatal: nope$/);
     expect(tail("  short  ")).toBe("short");
+  });
+});
+
+describe("output as words", () => {
+  it("drops the colour codes 1.x prints around `Error:`, and the PTY's carriage returns", () => {
+    // As captured from 1.19.3 (isolated/v1193/export-missing).
+    expect(plainText("\x1b[91m\x1b[1mError: \x1b[0mSession not found: ses_1\r\n")).toBe(
+      "Error: Session not found: ses_1\n",
+    );
   });
 });
