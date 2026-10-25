@@ -8,7 +8,7 @@ import { AppRuntimeProvider } from "../../app/runtimeContext";
 import {
   createUsageManager,
   type UsageManager,
-} from "../../app/usageManager";
+} from "../../app/testing";
 import { UsageChips } from "./UsageChips";
 import { present } from "@keepdeck/plugin-api/testing";
 

@@ -46,11 +46,9 @@ import { TerminalPane } from "../terminal/TerminalPane";
 import {
   createUsageManager,
   type UsageManager,
-} from "../../app/usageManager";
-import {
   createAgentStatusTracker,
   type AgentStatusTracker,
-} from "../../app/agentStatusTracker";
+} from "../../app/testing";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";

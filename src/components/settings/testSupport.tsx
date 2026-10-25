@@ -161,11 +161,11 @@ import {
   initSettings,
   resetSettingsManager,
   updateSettings,
-} from "../../app/settingsManager";
+} from "../../app/testing";
 import type { Settings } from "../../domain/settings";
 import { present } from "@keepdeck/plugin-api/testing";
 
-export { getSettings, resetSettingsManager, updateSettings } from "../../app/settingsManager";
+export { getSettings, resetSettingsManager, updateSettings } from "../../app/testing";
 export { DEFAULT_SETTINGS, SCROLLBACK_MIN } from "../../domain/settings";
 export type { Settings } from "../../domain/settings";
 

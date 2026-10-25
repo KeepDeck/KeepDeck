@@ -6,7 +6,7 @@ import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import {
   createAgentStatusTracker,
   type AgentStatusTracker,
-} from "../../app/agentStatusTracker";
+} from "../../app/testing";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
 import { teamBadgeTitle } from "../../ui/badges";
 import {

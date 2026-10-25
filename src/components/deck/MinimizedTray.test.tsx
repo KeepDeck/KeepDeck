@@ -2,7 +2,7 @@
 import { act, createElement, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createAgentStatusTracker } from "../../app/agentStatusTracker";
+import { createAgentStatusTracker } from "../../app/testing";
 import { AppRuntimeProvider } from "../../app/runtimeContext";
 import {
   MinimizedTray,

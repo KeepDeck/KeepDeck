@@ -26,7 +26,7 @@ import {
   initRoleCatalog,
   resetRoleCatalogManager,
   saveStoredRole,
-} from "../../app/roleCatalogManager";
+} from "../../app/testing";
 import { roleById } from "../../domain/mail";
 import { TeamRolesSection } from "./TeamRolesSection";
 import { present } from "@keepdeck/plugin-api/testing";

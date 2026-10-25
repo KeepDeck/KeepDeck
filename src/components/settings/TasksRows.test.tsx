@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../domain/settings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
-import { tasksEnableStatus } from "../../app/tasks/enableStatus";
+import { tasksEnableStatus } from "../../app/testing";
 import { TasksRows } from "./TasksRows";
 import { present } from "@keepdeck/plugin-api/testing";
 

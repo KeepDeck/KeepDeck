@@ -7,7 +7,7 @@ import {
   createNotificationCenter,
   type NotificationCenter,
   type NotifyInput,
-} from "../../app/notificationCenter";
+} from "../../app/testing";
 import type { NeedsYouRow } from "../../presentation/needsYouView";
 import { NotificationBell } from "./NotificationBell";
 import { present } from "@keepdeck/plugin-api/testing";

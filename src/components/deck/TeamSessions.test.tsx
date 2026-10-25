@@ -23,7 +23,7 @@ const liveCatalog = vi.hoisted(() => ({ snapshot: {} as object }));
 vi.mock("../../app/useRoleCatalog", () => ({ useRoleCatalog: () => liveCatalog.snapshot }));
 
 import { TeamSessions } from "./TeamSessions";
-import { sharedOf } from "../../app/browserShared.test-support";
+import { sharedOf } from "../../app/testing";
 import { configureRoleCatalog, teamRoles } from "../../domain/mail";
 import { present } from "@keepdeck/plugin-api/testing";
 

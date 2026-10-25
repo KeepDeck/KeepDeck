@@ -2,9 +2,13 @@
 import { StrictMode, act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { createTasksService, type TasksService } from "../../app/tasks";
+import {
+  createTasksService,
+  type TasksService,
+  fakeStore,
+  teamedWorkspaces,
+} from "../../app/testing";
 import type { RestoreChoice } from "../../app/tasks/tasksService";
-import { fakeStore, teamedWorkspaces } from "../../app/tasks/testSupport";
 import { USER_ACTOR, agentActor, blockerIdsOf, encodeBoard } from "../../domain/tasks";
 import { board as boardOf, task as taskOf } from "../../domain/tasks/testSupport";
 import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtualGeometry.test-support";

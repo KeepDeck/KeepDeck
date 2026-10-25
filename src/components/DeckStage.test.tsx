@@ -4,8 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { createAgentStatusTracker } from "../app/agentStatusTracker";
-import { createUsageManager } from "../app/usageManager";
+import {
+  createAgentStatusTracker,
+  createUsageManager,
+} from "../app/testing";
 import { AppRuntimeProvider } from "../app/runtimeContext";
 
 /** The runtime slice the panes under DeckStage read (activity + ctx%). The

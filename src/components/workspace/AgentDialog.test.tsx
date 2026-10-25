@@ -13,7 +13,7 @@ import {
   createSessionIndexManager,
   type SessionIndexManager,
   type SessionIndexSnapshot,
-} from "../../app/sessionIndexManager";
+} from "../../app/testing";
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import type {
   AgentDialogResult,

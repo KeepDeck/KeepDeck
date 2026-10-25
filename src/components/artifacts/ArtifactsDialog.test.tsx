@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { artifactChanges } from "../../app/artifacts/changes";
+import { artifactChanges } from "../../app/testing";
 import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
 import {
   installResizeObserver,

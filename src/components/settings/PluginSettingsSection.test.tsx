@@ -7,7 +7,7 @@ import {
   getSettings,
   initSettings,
   resetSettingsManager,
-} from "../../app/settingsManager";
+} from "../../app/testing";
 import { PluginSettingsSection } from "./PluginSettingsSection";
 import { present } from "@keepdeck/plugin-api/testing";
 
