@@ -208,7 +208,7 @@ describe("GitTab", () => {
       set: vi.fn(async () => {}),
       delete: vi.fn(async () => {}),
     };
-    ctx.storage.workspace = () => slot as unknown as ReturnType<typeof ctx.storage.workspace>;
+    ctx.storage.workspace = () => slot;
     setRuntime(ctx);
 
     await rig.render();
@@ -238,7 +238,7 @@ describe("GitTab", () => {
       }),
       delete: vi.fn(async () => {}),
     };
-    ctx.storage.workspace = () => slot as unknown as ReturnType<typeof ctx.storage.workspace>;
+    ctx.storage.workspace = () => slot;
     setRuntime(ctx);
 
     await rig.render();

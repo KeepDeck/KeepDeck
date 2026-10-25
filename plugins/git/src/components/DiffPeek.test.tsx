@@ -2,8 +2,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
-import { setRuntime } from "../runtime";
+import type { PluginGit } from "@keepdeck/plugin-api";
+import { setRuntime, type GitPorts } from "../runtime";
+import { gitOf, inertPorts } from "../gitPorts.test-support";
 import type { ChangeGroups, ChangeRow } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
 
@@ -22,14 +23,16 @@ const TS_DIFF = [
 /** The host's answer for a diff: text under its cap, not cut. */
 const diffOf = (text: string) => ({ text, truncated: false });
 
-function makeCtx(diffText: string): PluginContext {
-  return {
-    services: {
-      git: { diffFile: vi.fn(async () => diffOf(diffText)) },
-      fs: { readFile: vi.fn() },
-    },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+/** Ports over the git calls a test fakes, and the file read where it has one. */
+function portsOf(
+  git: Partial<PluginGit>,
+  fs: GitPorts["services"]["fs"] = inertPorts().services.fs,
+): GitPorts {
+  return inertPorts({ services: { git: gitOf(git), fs } });
+}
+
+function makeCtx(diffText: string): GitPorts {
+  return portsOf({ diffFile: vi.fn(async () => diffOf(diffText)) });
 }
 
 const changedRow = (path: string): ChangeRow => ({
@@ -223,13 +226,7 @@ describe("DiffPeek", () => {
     // "Loading…" beside it (the same holds for a fetch error).
     const diffFile = vi.fn(async () => diffOf(TS_DIFF));
     const changedFiles = vi.fn(async () => []);
-    setRuntime({
-      services: {
-        git: { diffFile, changedFiles },
-        fs: { readFile: vi.fn() },
-      },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile, changedFiles }));
     await act(async () => {
       root.render(
         createElement(DiffPeek, {
@@ -268,13 +265,7 @@ describe("DiffPeek", () => {
       { path: "src/b.ts", origPath: null, code: "M" },
     ]);
     const onSelect = vi.fn();
-    setRuntime({
-      services: {
-        git: { diffFile, changedFiles },
-        fs: { readFile: vi.fn() },
-      },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile, changedFiles }));
     await act(async () => {
       root.render(
         createElement(DiffPeek, {
@@ -328,10 +319,7 @@ describe("DiffPeek", () => {
 
   it("a watcher refresh re-reads the open diff without moving the reader", async () => {
     const diffFile = vi.fn(async () => diffOf(TS_DIFF));
-    setRuntime({
-      services: { git: { diffFile }, fs: { readFile: vi.fn() } },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile }));
     const onSelect = vi.fn();
     await drawRow(RAIL_ROWS[0], 1, onSelect);
     const body = host.querySelector<HTMLElement>(".peek__body")!;
@@ -361,10 +349,7 @@ describe("DiffPeek", () => {
     const changedFiles = vi.fn(async () => [
       { path: "src/main.ts", origPath: null, code: "M" },
     ]);
-    setRuntime({
-      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile, changedFiles }));
 
     await drawHistoryFile("src/main.ts", "aaa1111");
     const body = host.querySelector<HTMLElement>(".peek__body")!;
@@ -390,10 +375,7 @@ describe("DiffPeek", () => {
     // the range test above pins that shape.
     const diffFile = vi.fn(async () => diffOf(TS_DIFF));
     const changedFiles = vi.fn(async () => []);
-    setRuntime({
-      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile, changedFiles }));
 
     await act(async () => {
       root.render(
@@ -446,17 +428,15 @@ describe("DiffPeek", () => {
     // A working-tree range lists untracked files as `?`; git has no diff for
     // them at any range, so the row reads the file the way a status row does.
     const diffFile = vi.fn(async () => diffOf(TS_DIFF));
-    const readFile = vi.fn(async () => ({
+    const readFile = vi.fn(async (path: string) => ({
+      path,
       text: "notes\n",
       isBinary: false,
       size: 6,
       truncated: false,
       readBytes: 6,
     }));
-    setRuntime({
-      services: { git: { diffFile, changedFiles: vi.fn(async () => []) }, fs: { readFile } },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile, changedFiles: vi.fn(async () => []) }, { readFile }));
 
     await act(async () => {
       root.render(
@@ -484,17 +464,15 @@ describe("DiffPeek", () => {
     // Both reads are capped host-side. What arrives is the head of the
     // content; presenting it as all of it is the lie this note prevents.
     const diffFile = vi.fn(async () => ({ text: TS_DIFF, truncated: true }));
-    const readFile = vi.fn(async () => ({
+    const readFile = vi.fn(async (path: string) => ({
+      path,
       text: "first\nsecond\n",
       isBinary: false,
       size: 5_000_000,
       truncated: true,
       readBytes: 13,
     }));
-    setRuntime({
-      services: { git: { diffFile }, fs: { readFile } },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile }, { readFile }));
     const note = () =>
       [...host.querySelectorAll(".peek__note")].map((n) => n.textContent).join(" | ");
 
@@ -514,17 +492,15 @@ describe("DiffPeek", () => {
     // kinds, a stray `+` in the text, line numbers from 1. The row reads the
     // working file instead and says why.
     const diffFile = vi.fn(async () => diffOf(TS_DIFF));
-    const readFile = vi.fn(async () => ({
+    const readFile = vi.fn(async (path: string) => ({
+      path,
       text: "a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> side\nc\n",
       isBinary: false,
       size: 42,
       truncated: false,
       readBytes: 42,
     }));
-    setRuntime({
-      services: { git: { diffFile }, fs: { readFile } },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile }, { readFile }));
 
     const row: ChangeRow = { path: "f.txt", origPath: null, code: "U", kind: "conflicted" };
     await act(async () => {
@@ -575,10 +551,7 @@ describe("DiffPeek", () => {
     const changedFiles = vi.fn(async (_repo: string) => [
       { path: "src/main.ts", origPath: null, code: "M" },
     ]);
-    setRuntime({
-      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile, changedFiles }));
 
     await act(async () => {
       root.render(
@@ -620,10 +593,7 @@ describe("DiffPeek", () => {
     const changedFiles = vi.fn(async (_repo: string) => [
       { path: "src/main.ts", origPath: null, code: "M" },
     ]);
-    setRuntime({
-      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    } as unknown as PluginContext);
+    setRuntime(portsOf({ diffFile, changedFiles }));
 
     await drawHistoryFile("src/main.ts", "aaa1111");
     await drawHistoryFile("src/main.ts", "aaa1111", "/wt/one");

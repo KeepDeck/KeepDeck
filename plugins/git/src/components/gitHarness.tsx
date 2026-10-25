@@ -6,14 +6,13 @@ import type {
   GitChangedFile,
   GitHistory,
   GitStatus,
-  PluginContext,
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
 import {
   installResizeObserver,
   pinListViewport,
 } from "@keepdeck/ui-kit/virtualGeometry.test-support";
-import { setRuntime } from "../runtime";
+import { setRuntime, type GitPorts } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
 import { GitTab } from "./GitTab";
 import { GitDiffOverlay } from "./GitDiffOverlay";
@@ -107,7 +106,7 @@ export function makeGit() {
   };
 }
 
-export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
+export function makeCtx(git: ReturnType<typeof makeGit>): GitPorts {
   return {
     // The tab remembers its open sections per workspace; an empty slot here
     // means the defaults, and writes are accepted and forgotten.
@@ -142,19 +141,18 @@ export function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
         watch: git.watch,
       },
       fs: {
-        readDir: vi.fn(async () => []),
         readFile: vi.fn(async (path: string) => ({
           path,
           text: "brand new\n",
           isBinary: false,
           size: 10,
           truncated: false,
+          readBytes: 10,
         })),
-        watch: vi.fn(() => ({ dispose: vi.fn() })),
       },
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  };
 }
 
 export interface GitHarness {

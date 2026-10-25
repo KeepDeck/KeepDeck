@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GitStatus, PluginContext } from "@keepdeck/plugin-api";
+import type { GitStatus } from "@keepdeck/plugin-api";
 import { setRuntime } from "./runtime";
+import { gitOf, inertPorts } from "./gitPorts.test-support";
 import { gitStatusSnapshot, subscribeGitStatus } from "./gitStatusFeed";
 
 const clean = (): GitStatus => ({
@@ -51,10 +52,10 @@ function makeCtx() {
       },
     };
   });
-  const ctx = {
-    services: { git: { status, watch }, fs: {} },
+  const ctx = inertPorts({
+    services: { git: gitOf({ status, watch }), fs: inertPorts().services.fs },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
+  });
   return {
     ctx,
     status,

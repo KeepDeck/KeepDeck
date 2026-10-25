@@ -3,10 +3,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { readManifest } from "@keepdeck/plugin-api";
-import type { PluginContext } from "@keepdeck/plugin-api";
 import { requestPeek, takePeekRequest } from "./peekRequests";
 import { gitStatusSnapshot, subscribeGitStatus } from "./gitStatusFeed";
-import plugin from "./index";
+import plugin, { registerGit } from "./index";
+import { gitOf, inertPorts } from "./gitPorts.test-support";
 
 /**
  * The manifest is the registration gate: the host refuses any contribution
@@ -35,41 +35,36 @@ function declaredIds(kind: "dockTabs" | "overlays"): string[] {
 /** Activate against a context that RECORDS what each surface registers. */
 function activateAndRecord() {
   const registered: Record<string, string[]> = { dockTabs: [], overlays: [] };
-  const ctx = {
-    services: {
-      git: {
-        status: vi.fn(async (repo: string) => ({
-          branch: "main",
-          detached: false,
-          oid: repo,
-          upstream: null,
-          ahead: null,
-          behind: null,
-          entries: [],
-        })),
-        watch: vi.fn(() => ({ dispose: vi.fn() })),
+  registerGit(
+    inertPorts({
+      services: {
+        git: gitOf({
+          status: vi.fn(async (repo: string) => ({
+            branch: "main",
+            detached: false,
+            oid: repo,
+            upstream: null,
+            ahead: null,
+            behind: null,
+            entries: [],
+          })),
+          watch: vi.fn(() => ({ ready: Promise.resolve(), dispose: vi.fn() })),
+        }),
+        fs: inertPorts().services.fs,
       },
-      fs: {},
-    },
-    events: {
-      onPaneSelected: () => ({ dispose: vi.fn() }),
-      onWorkspaceClosed: () => ({ dispose: vi.fn() }),
-      onDeckChanged: () => ({ dispose: vi.fn() }),
-    },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    ui: {
-      registerDockTab: (tab: { id: string }) => {
-        registered.dockTabs.push(tab.id);
-        return { dispose: vi.fn() };
+      ui: {
+        registerDockTab: (tab) => {
+          registered.dockTabs.push(tab.id);
+          return { dispose: vi.fn() };
+        },
+        registerOverlay: (overlay) => {
+          registered.overlays.push(overlay.id);
+          return { dispose: vi.fn() };
+        },
+        setOverlayCovers: vi.fn(),
       },
-      registerOverlay: (overlay: { id: string }) => {
-        registered.overlays.push(overlay.id);
-        return { dispose: vi.fn() };
-      },
-    },
-  } as unknown as PluginContext;
-
-  plugin.activate(ctx);
+    }),
+  );
   return registered;
 }
 
