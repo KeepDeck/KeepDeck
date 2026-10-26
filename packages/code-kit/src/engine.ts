@@ -118,11 +118,17 @@ const TOKENIZE = { theme: "one-dark-pro", tokenizeTimeLimit: 0 };
 
 let instance: Promise<HighlighterCore> | null = null;
 
+/** The instance, created on first use. A creation that fails is forgotten,
+ * so the next request tries again instead of every one in the session
+ * failing on the same cached rejection. */
 function getHighlighter(): Promise<HighlighterCore> {
   instance ??= createHighlighterCore({
     langs: LANGS,
     themes: [themeOneDarkPro],
     engine: createOnigurumaEngine(getWasmInstance),
+  }).catch((cause: unknown) => {
+    instance = null;
+    throw cause;
   });
   return instance;
 }

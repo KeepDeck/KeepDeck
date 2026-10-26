@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { canHighlight } from "./limits";
 import { tokenizeLines } from "./highlighter";
 import type { LineTokens } from "./tokens";
@@ -37,16 +37,21 @@ const SEPARATOR = "\u0000";
  * Stale results are dropped twice over: a cancelled effect never commits its
  * result, and the returned value is cross-checked against the CURRENT props,
  * so even the committed state of previous texts reads as null rather than as
- * the wrong file's colors. Texts compare by value: rebuilding the array each
- * render never re-triggers tokenization.
+ * the wrong file's colors. Texts compare by value: a rebuilt array never
+ * re-triggers tokenization, though a stable one (memoized by the caller) also
+ * spares the join that tells.
  */
 export function useHighlights(
   texts: readonly string[] | null,
   lang: string | null,
 ): LineTokens[][] | null {
   const [state, setState] = useState<Highlighted | null>(null);
-  // No documents is nothing to do, like no text.
-  const key = texts === null || texts.length === 0 ? null : texts.join(SEPARATOR);
+  // No documents is nothing to do, like no text. Joined once per array, not
+  // per render: a diff's sides can be a megabyte each.
+  const key = useMemo(
+    () => (texts === null || texts.length === 0 ? null : texts.join(SEPARATOR)),
+    [texts],
+  );
 
   useEffect(() => {
     if (key === null || lang === null) return;
@@ -80,6 +85,7 @@ export function useHighlight(
   text: string | null,
   lang: string | null,
 ): LineTokens[] | null {
-  const docs = useHighlights(text === null ? null : [text], lang);
+  const texts = useMemo(() => (text === null ? null : [text]), [text]);
+  const docs = useHighlights(texts, lang);
   return docs?.[0] ?? null;
 }

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isHighlightRequest } from "./protocol";
 
 /** A stand-in for the inline worker: records what the client posts and lets
  * the test answer — the engine itself has its own suite (engine.test.ts). */
@@ -32,6 +33,14 @@ vi.mock("./worker?worker&inline", () => ({ default: FakeWorker }));
 async function load() {
   vi.resetModules();
   return import("./highlighter");
+}
+
+/** The id of the last tokenize `worker` was asked. */
+function lastTokenizeId(worker: FakeWorker): number {
+  const requests = worker.posted.filter(isHighlightRequest);
+  const request = requests[requests.length - 1];
+  if (request?.kind !== "tokenize") throw new Error("no tokenize was posted");
+  return request.id;
 }
 
 function only(): FakeWorker {
@@ -86,6 +95,59 @@ describe("the highlight client", () => {
     expect(FakeWorker.spawned[1].posted).toEqual([
       { kind: "tokenize", id: 1, text: "b", lang: "typescript" },
     ]);
+  });
+
+  it("drops a worker that leaves a request unanswered past the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const { tokenizeLines, REPLY_DEADLINE_MS } = await load();
+      const stuck = tokenizeLines("a", "typescript");
+      const settled = expect(stuck).rejects.toThrow("no answer in 30s");
+      await vi.advanceTimersByTimeAsync(REPLY_DEADLINE_MS);
+      await settled;
+      expect(only().terminated).toBe(true);
+      void tokenizeLines("b", "typescript");
+      expect(FakeWorker.spawned).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an answer in time clears its deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const { tokenizeLines, REPLY_DEADLINE_MS } = await load();
+      const answered = tokenizeLines("a", "typescript");
+      only().reply({ id: 0, lines: null });
+      await expect(answered).resolves.toBeNull();
+      await vi.advanceTimersByTimeAsync(REPLY_DEADLINE_MS * 2);
+      expect(only().terminated).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up after failures in a row, and an answer between them resets the count", async () => {
+    const { tokenizeLines, MAX_FAILURES } = await load();
+    // Two failures, then an answer, then MAX_FAILURES - 1 more: still alive.
+    for (let i = 0; i < MAX_FAILURES - 1; i++) {
+      const request = tokenizeLines("a", "typescript");
+      FakeWorker.spawned[FakeWorker.spawned.length - 1].fail("boom");
+      await expect(request).rejects.toThrow("boom");
+    }
+    const answered = tokenizeLines("ok", "typescript");
+    const live = FakeWorker.spawned[FakeWorker.spawned.length - 1];
+    live.reply({ id: lastTokenizeId(live), lines: null });
+    await expect(answered).resolves.toBeNull();
+    for (let i = 0; i < MAX_FAILURES; i++) {
+      const request = tokenizeLines("a", "typescript");
+      FakeWorker.spawned[FakeWorker.spawned.length - 1].fail("boom");
+      await expect(request).rejects.toThrow("boom");
+    }
+    // Now off for the session: plain, and no worker spawned.
+    const spawned = FakeWorker.spawned.length;
+    await expect(tokenizeLines("a", "typescript")).resolves.toBeNull();
+    expect(FakeWorker.spawned).toHaveLength(spawned);
   });
 
   it("warms with a message, no reply expected", async () => {
