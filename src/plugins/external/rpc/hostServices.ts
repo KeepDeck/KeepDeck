@@ -22,7 +22,7 @@ import {
   str,
   strArray,
   isDownloadIntegrity,
-  isRecord,
+  isObjectLike,
 } from "./decode";
 
 /**
@@ -277,6 +277,6 @@ export function createServiceHandlers({
 }
 
 function decodeSpeechDeviceId(options: unknown): string | undefined {
-  if (!isRecord(options) || options.deviceId === undefined) return undefined;
+  if (!isObjectLike(options) || options.deviceId === undefined) return undefined;
   return str(options.deviceId, "speech.start deviceId");
 }
