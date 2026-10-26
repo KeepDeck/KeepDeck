@@ -40,6 +40,11 @@ export interface ChangeGroups {
   total: number;
 }
 
+/** Every path the status names, once loaded; none before. */
+export function changedPaths(status: GitStatus | null): string[] {
+  return status ? status.entries.map((entry) => entry.path) : [];
+}
+
 /** Split status entries into the tab's sections, keeping git's own order
  * within each. */
 export function groupEntries(entries: GitStatusEntry[]): ChangeGroups {

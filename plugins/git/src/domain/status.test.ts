@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GitStatus, GitStatusEntry } from "@keepdeck/plugin-api";
 import {
   baseName,
+  changedPaths,
   codeLabel,
   dirName,
   groupEntries,
@@ -18,6 +19,22 @@ const entry = (over: Partial<GitStatusEntry>): GitStatusEntry => ({
   untracked: false,
   conflicted: false,
   ...over,
+});
+
+describe("changedPaths", () => {
+  it("names every entry's path once the status is loaded, and none before", () => {
+    const status: GitStatus = {
+      branch: "main",
+      detached: false,
+      oid: null,
+      upstream: null,
+      ahead: null,
+      behind: null,
+      entries: [entry({ path: "a.ts" }), entry({ path: "b.rs", untracked: true })],
+    };
+    expect(changedPaths(status)).toEqual(["a.ts", "b.rs"]);
+    expect(changedPaths(null)).toEqual([]);
+  });
 });
 
 describe("groupEntries", () => {
