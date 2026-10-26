@@ -57,13 +57,13 @@ fn reads_a_side_at_a_revision_and_in_the_index() {
         .unwrap()
         .expect("committed");
     assert_eq!(
-        (committed.text.as_str(), committed.truncated),
-        ("const v = 1;\n", false)
+        (committed.bytes.as_slice(), committed.truncated),
+        (b"const v = 1;\n".as_slice(), false)
     );
     let staged = blob::file_at(&repo, "a.ts", None).unwrap().expect("staged");
     assert_eq!(
-        (staged.text.as_str(), staged.truncated),
-        ("const v = 2;\n", false)
+        (staged.bytes.as_slice(), staged.truncated),
+        (b"const v = 2;\n".as_slice(), false)
     );
 }
 
@@ -89,12 +89,17 @@ fn an_unborn_head_has_no_files() {
 }
 
 #[test]
-fn a_revision_spelled_as_an_option_is_refused() {
+fn a_revision_spelled_as_an_option_or_empty_is_refused() {
     let repo = init_repo();
-    assert!(matches!(
-        blob::file_at(&repo, "a.ts", Some("--output=/tmp/x")),
-        Err(GitError::InvalidInput(_))
-    ));
+    for rev in ["--output=/tmp/x", ""] {
+        assert!(
+            matches!(
+                blob::file_at(&repo, "a.ts", Some(rev)),
+                Err(GitError::InvalidInput(_))
+            ),
+            "{rev:?} must be refused"
+        );
+    }
 }
 
 #[test]
@@ -108,6 +113,6 @@ fn a_large_file_is_capped_at_a_line_boundary() {
         .unwrap()
         .expect("staged");
     assert!(capped.truncated);
-    assert!(capped.text.len() <= blob::BLOB_MAX_BYTES);
-    assert!(capped.text.ends_with('\n'));
+    assert!(capped.bytes.len() <= blob::BLOB_MAX_BYTES);
+    assert_eq!(capped.bytes.last(), Some(&b'\n'));
 }

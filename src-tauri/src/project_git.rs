@@ -54,6 +54,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::containment::resolve_within;
+use crate::project_fs::read::decode_text;
 use crate::fswatch;
 
 /// The Tauri event delivering "this repo's git status may have changed" to the
@@ -189,13 +190,13 @@ pub fn project_git_file_at(
 ) -> Result<Option<GitBlob>, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
     blob::file_at(&repo, &file, rev.as_deref())
-        .map(|found| found.map(|capped| GitBlob::new(capped.text, capped.truncated)))
+        .map(|found| found.map(|stored| GitBlob::new(stored.bytes, stored.truncated)))
         .map_err(|e| e.to_string())
 }
 
 /// One stored file as reported to the plugin: its text up to the crate's
-/// cap, or none when it is binary (a NUL in what was read — git's own test),
-/// and whether it was cut.
+/// cap, or none when it is binary — judged on the bytes by the same rule as a
+/// working file's read ([`decode_text`]) — and whether it was cut.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitBlob {
@@ -205,11 +206,11 @@ pub struct GitBlob {
 }
 
 impl GitBlob {
-    fn new(text: String, truncated: bool) -> Self {
-        let is_binary = text.contains('\0');
+    fn new(bytes: Vec<u8>, truncated: bool) -> Self {
+        let decoded = decode_text(bytes, truncated);
         GitBlob {
-            text: (!is_binary).then_some(text),
-            is_binary,
+            text: decoded.text,
+            is_binary: decoded.is_binary,
             truncated,
         }
     }
@@ -755,6 +756,18 @@ mod tests {
         git(&repo, &["add", "logo.bin"]);
         assert_eq!(
             at("logo.bin", None).unwrap(),
+            Some(GitBlob {
+                text: None,
+                is_binary: true,
+                truncated: false
+            })
+        );
+
+        // No NUL, but not UTF-8 either: binary, never replacement characters.
+        fs::write(repo.join("latin1.txt"), b"caf\xe9\n").unwrap();
+        git(&repo, &["add", "latin1.txt"]);
+        assert_eq!(
+            at("latin1.txt", None).unwrap(),
             Some(GitBlob {
                 text: None,
                 is_binary: true,

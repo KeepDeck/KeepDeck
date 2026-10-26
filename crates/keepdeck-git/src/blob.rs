@@ -7,7 +7,9 @@
 
 use std::path::Path;
 
-use crate::cmd::{run_git, run_git_capped, Capped};
+use crate::cmd::{run_git, run_git_capped_bytes};
+
+pub use crate::cmd::CappedBytes;
 use crate::error::GitError;
 
 /// How much of one stored file crosses into the webview — the diff's cap, for
@@ -17,17 +19,24 @@ pub const BLOB_MAX_BYTES: usize = 1024 * 1024;
 /// `path`'s content at `rev`, or in the index when `rev` is `None`, capped at
 /// [`BLOB_MAX_BYTES`] (whole lines). `Ok(None)` when there is no such file
 /// there — added after `rev`, deleted from the index, a revision that names
-/// no commit. Every other failure is an error, not an absence.
+/// no commit. Every other failure is an error, not an absence. The bytes come
+/// back undecoded: whether they are text is the reader's judgement.
 ///
 /// The bytes are the stored blob: `cat-file` applies no textconv, no smudge
 /// filter and no end-of-line conversion — the same normalized content a
 /// `git diff` of that side shows.
-pub fn file_at(repo: &Path, path: &str, rev: Option<&str>) -> Result<Option<Capped>, GitError> {
+pub fn file_at(
+    repo: &Path,
+    path: &str,
+    rev: Option<&str>,
+) -> Result<Option<CappedBytes>, GitError> {
     let spec = match rev {
         // `rev-parse` takes options up to the first non-option, and a
         // revision spelled `--output=…` must never be read as one.
-        Some(rev) if rev.starts_with('-') => {
-            return Err(GitError::InvalidInput(format!("not a revision: {rev}")))
+        // An empty one would read `:path` — the index — while the caller
+        // asked for a revision.
+        Some(rev) if rev.is_empty() || rev.starts_with('-') => {
+            return Err(GitError::InvalidInput(format!("not a revision: {rev:?}")))
         }
         Some(rev) => format!("{rev}:{path}"),
         None => format!(":{path}"),
@@ -35,7 +44,7 @@ pub fn file_at(repo: &Path, path: &str, rev: Option<&str>) -> Result<Option<Capp
     let Some(oid) = resolve_blob(repo, &spec)? else {
         return Ok(None);
     };
-    run_git_capped(
+    run_git_capped_bytes(
         repo,
         ["--no-optional-locks", "cat-file", "blob", oid.as_str()],
         BLOB_MAX_BYTES,
