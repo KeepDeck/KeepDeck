@@ -1,15 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Peek } from "@keepdeck/ui-kit/Peek";
-import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
+import { canHighlight, langFor, TokenLine, useHighlights } from "@keepdeck/code-kit";
 import { activeRuntime } from "../runtime";
-import {
-  flatLines,
-  hunkOffsets,
-  isEmptyDiff,
-  parseDiff,
-  type FileDiff,
-} from "../domain/diff";
-import { diffReadFor, fileAsDiff } from "../domain/diffRead";
+import { isEmptyDiff, parseDiff, type FileDiff } from "../domain/diff";
+import { diffReadFor, diffSidesFor, fileAsDiff } from "../domain/diffRead";
+import { diffHighlightPlan, lineTokens } from "../presentation/diffHighlight";
+import { readDiffSides, type SideTexts } from "./readDiffSides";
 import { noteKey, noteText } from "../presentation/diffNoteView";
 import { repoTrouble } from "../domain/repoState";
 import { troubleText } from "../presentation/troubleView";
@@ -45,11 +41,11 @@ export type PeekView =
  * executes the read and renders the model it gets.
  *
  * Lines are syntax-colored by the changed file's language (code-kit, the same
- * engine as the Files preview): the hunks' lines tokenize as ONE flat document
- * — an approximation, since hunks start mid-file and add/del runs interleave,
- * but the aligner's guarantee holds (a drifted line degrades to plain, never
- * to wrong text) and the add/del tints stay as row backgrounds under the
- * colored runs. Meta lines keep their dim styling, uncolored.
+ * engine as the Files preview), each from a document a grammar can read: its
+ * side of the file read whole (`diffSidesFor`, read beside the diff and kept
+ * with it), or its own hunk's side where that is not to be had — the plan is
+ * `diffHighlightPlan`'s. The add/del tints stay as row backgrounds under the
+ * colored runs; meta lines keep their dim styling, uncolored.
  *
  * `version` is the status feed's revision: when the watcher refreshes the
  * list, an open peek re-fetches too, so it never shows yesterday's hunks. A
@@ -93,19 +89,23 @@ export function DiffPeek({
   // frame could paint one file's diff under another file's header. Derived
   // per render, a superseded diff simply stops counting.
   const [fetched, setFetched] = useState<
-    { key: string; diff: FileDiff } | { key: string; error: string } | null
+    | { key: string; diff: FileDiff; sides: SideTexts }
+    | { key: string; error: string }
+    | null
   >(null);
   const settled = fetched?.key === key ? fetched : null;
   const diff = settled && "diff" in settled ? settled.diff : null;
+  const sides = settled && "sides" in settled ? settled.sides : null;
   const error = settled && "error" in settled ? settled.error : null;
-  // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
-  // string each render never re-triggers tokenization.
-  const showsCode = diff !== null && !diff.binary;
-  const tokens = useHighlight(
-    showsCode ? flatLines(diff).join("\n") : null,
+  // One plan per read: splitting a whole side is not work for every render.
+  const plan = useMemo(
+    () => (diff && sides ? diffHighlightPlan(diff, sides, canHighlight) : null),
+    [diff, sides],
+  );
+  const docs = useHighlights(
+    plan?.texts ?? null,
     view.kind === "file" ? langFor(view.row.path) : null,
   );
-  const offsets = showsCode ? hunkOffsets(diff) : [];
 
   // The fetch's inputs, read through a ref: `key` is their identity (repo,
   // row and range folded into one string), and `version` deliberately
@@ -135,10 +135,12 @@ export function DiffPeek({
         : services.git
             .diffFile(repo, row.path, plan.options)
             .then((d) => parseDiff(d.text, d.truncated));
-    read
-      .then((next) => {
+    // The sides are read beside the diff and kept with it: one key, one
+    // version, so the colors never belong to a different read than the hunks.
+    Promise.all([read, readDiffSides(services, repo, diffSidesFor(repo, row, range))])
+      .then(([next, sideTexts]) => {
         if (cancelled) return;
-        setFetched({ key, diff: next });
+        setFetched({ key, diff: next, sides: sideTexts });
       })
       .catch((cause: unknown) => {
         const message = errorMessage(cause);
@@ -233,10 +235,7 @@ export function DiffPeek({
                 <div className="git__hunkhead kd-inert">{hunk.header}</div>
               )}
               {hunk.lines.map((line, i) => {
-                // Meta lines ("\ No newline…") aren't code — keep their dim
-                // CSS color instead of the tokenizer's guess.
-                const runs =
-                  line.kind !== "meta" ? tokens?.[offsets[h] + i] : undefined;
+                const runs = plan ? lineTokens(plan, docs, h, i) : undefined;
                 return (
                   <div
                     className={`git__diffrow git__diffrow--${line.kind}`}

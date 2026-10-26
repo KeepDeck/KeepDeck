@@ -141,30 +141,6 @@ export function parseDiff(raw: string, truncated = false): FileDiff {
   return { hunks, binary, notes, truncated };
 }
 
-/** Every hunk's lines flattened in render order — the text the syntax
- * highlighter tokenizes as one document (joined with newlines). Mixed add/del
- * runs and mid-file hunk starts make that an approximation of real grammar
- * state; the acceptable kind (GitHub colors diffs the same way), because the
- * aligner degrades any line it can't reconstruct to plain, never to wrong
- * text. Meta lines ride along to keep indexing trivial; the renderer skips
- * styling them. */
-export function flatLines(diff: FileDiff): string[] {
-  return diff.hunks.flatMap((hunk) => hunk.lines.map((line) => line.text));
-}
-
-/** Each hunk's starting index into `flatLines`' order, so a renderer can map
- * (hunk, line) back to the flat tokenization without carrying a counter
- * through JSX. */
-export function hunkOffsets(diff: FileDiff): number[] {
-  const offsets: number[] = [];
-  let next = 0;
-  for (const hunk of diff.hunks) {
-    offsets.push(next);
-    next += hunk.lines.length;
-  }
-  return offsets;
-}
-
 /** A working file's content as a "diff": one all-added hunk — what an
  * untracked or an unmerged file shows, since git has no two-sided diff for
  * either (`diffRead` decides which rows read this way, and what to note).
