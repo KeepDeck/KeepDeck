@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
+  GitBlob,
   GitBranches,
   GitChangedFile,
   GitDiff,
@@ -50,6 +51,24 @@ export function projectGitDiffFile(
     from: from ?? null,
     to: to ?? null,
     origPath: origPath ?? null,
+  });
+}
+
+/** One file as git stores it at `rev`, or in the index without one; null
+ * when it is not there. Capped Rust-side, like a diff. */
+export function projectGitFileAt(
+  path: string,
+  roots: string[],
+  everywhere: boolean,
+  file: string,
+  rev?: string,
+): Promise<GitBlob | null> {
+  return invoke<GitBlob | null>("project_git_file_at", {
+    path,
+    roots,
+    everywhere,
+    file,
+    rev: rev ?? null,
   });
 }
 

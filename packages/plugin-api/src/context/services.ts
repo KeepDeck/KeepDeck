@@ -309,6 +309,14 @@ export interface PluginGit {
    * generated file's diff can run to hundreds of megabytes — and
    * `truncated` says when it was cut. */
   diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<GitDiff>;
+  /** One file as git stores it — at revision `rev`, or in the index when
+   * `rev` is omitted: the whole side of a diff, for a reader that needs the
+   * lines between its hunks (the working tree's side is `fs.readFile`).
+   * `null` when the file is not there — added after `rev`, deleted, an unborn
+   * HEAD, a root commit's parent. The stored blob, unfiltered (no textconv,
+   * no end-of-line conversion: the text a diff of that side shows), capped
+   * host-side like a diff. Rejects a path outside the scope. */
+  fileAt(repo: string, file: string, rev?: string): Promise<GitBlob | null>;
   /** The repo's history for a changes view: the full recent log (newest
    * first, capped by the host), annotated with the branch's fork point off
    * `base` (defaulting to the repo's default branch — exact for worktrees
@@ -337,6 +345,14 @@ export interface PluginGit {
  * view rather than presenting the head of a diff as all of it. */
 export interface GitDiff {
   text: string;
+  truncated: boolean;
+}
+
+/** One stored file. `text` is null for a binary file (`isBinary`);
+ * `truncated` means the host stopped at its cap, at a line boundary. */
+export interface GitBlob {
+  text: string | null;
+  isBinary: boolean;
   truncated: boolean;
 }
 

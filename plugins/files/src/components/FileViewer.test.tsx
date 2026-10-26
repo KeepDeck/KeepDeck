@@ -8,6 +8,7 @@ import { fsOf, inertPorts } from "../filesPorts.test-support";
 import { FileViewer } from "./FileViewer";
 import { present } from "@keepdeck/plugin-api/testing";
 import { recordOf } from "@keepdeck/plugin-api/testing";
+import { installInProcessWorker } from "@keepdeck/code-kit/testing";
 
 const TS_TEXT = 'const s = "hi" // note\n\nexport default s\n';
 
@@ -71,6 +72,8 @@ describe("FileViewer", { retry: 2 }, () => {
   };
 
   beforeEach(() => {
+    // Real colors through the real client: the worker's handler, in-process.
+    installInProcessWorker();
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);

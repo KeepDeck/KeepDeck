@@ -159,6 +159,14 @@ export function refreshTargets(state: TreeState): string[] {
   return targets;
 }
 
+/** Every file the tree knows of — fetched, shown or not: what someone may
+ * open next from it. */
+export function loadedFiles(state: TreeState): string[] {
+  return Object.values(state.nodes)
+    .filter((node) => node.kind === "file")
+    .map((node) => node.path);
+}
+
 /** The last path segment — a display name for a full path. */
 export function baseName(path: string): string {
   const trimmed = path.replace(/[/\\]+$/, "");

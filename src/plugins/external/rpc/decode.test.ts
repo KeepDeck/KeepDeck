@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readManifest } from "@keepdeck/plugin-api";
 import {
   decodeAgentHistoryCall,
+  isGitBlobAnswer,
   decodeCommandInfos,
   decodeForkPlanInput,
   decodeManifest,
@@ -161,5 +162,19 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
     }
     expect(() => decodeResumePlanInput(spawn, "resume plan input")).toThrow("malformed resume plan input.sessionId: expected a string");
     expect(() => decodeForkPlanInput({ ...spawn, sessionId: "s" }, "fork plan input")).toThrow("malformed fork plan input.sourceCwd: expected a string");
+  });
+});
+
+describe("isGitBlobAnswer", () => {
+  it("takes a stored file, a binary one, or the null that says it is not there", () => {
+    expect(isGitBlobAnswer({ text: "x\n", isBinary: false, truncated: true })).toBe(true);
+    expect(isGitBlobAnswer({ text: null, isBinary: true, truncated: false })).toBe(true);
+    expect(isGitBlobAnswer(null)).toBe(true);
+  });
+
+  it("refuses anything else", () => {
+    expect(isGitBlobAnswer(undefined)).toBe(false);
+    expect(isGitBlobAnswer({ text: "x", truncated: false })).toBe(false);
+    expect(isGitBlobAnswer({ text: 1, isBinary: false, truncated: false })).toBe(false);
   });
 });

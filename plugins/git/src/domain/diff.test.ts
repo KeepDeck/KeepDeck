@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   binaryFileDiff,
-  flatLines,
-  hunkOffsets,
   isEmptyDiff,
   newFileDiff,
   parseDiff,
@@ -106,26 +104,6 @@ describe("parseDiff", () => {
     );
     expect(diff.notes).toEqual([{ kind: "mode", from: "100644", to: "100755" }]);
     expect(diff.hunks).toHaveLength(1);
-  });
-});
-
-describe("flatLines / hunkOffsets", () => {
-  it("flatten hunks in render order and index them back", () => {
-    const diff = parseDiff(
-      "@@ -1,2 +1,2 @@\n a\n-b\n+B\n@@ -9 +9 @@\n-z\n+Z\n\\ No newline at end of file\n",
-    );
-    const flat = flatLines(diff);
-    const offsets = hunkOffsets(diff);
-    expect(flat).toEqual(["a", "b", "B", "z", "Z", "\\ No newline at end of file"]);
-    expect(offsets).toEqual([0, 3]);
-    // The renderer's mapping: hunk h, line i → flat[offsets[h] + i].
-    expect(flat[offsets[1] + 1]).toBe("Z");
-  });
-
-  it("handle an empty diff", () => {
-    const diff = parseDiff("");
-    expect(flatLines(diff)).toEqual([]);
-    expect(hunkOffsets(diff)).toEqual([]);
   });
 });
 

@@ -14,6 +14,9 @@ export function gitOf(fake: Partial<PluginGit> = {}): PluginGit {
     diffFile: async (): Promise<never> => {
       throw unfaked("git.diffFile");
     },
+    fileAt: async (): Promise<never> => {
+      throw unfaked("git.fileAt");
+    },
     history: async (): Promise<never> => {
       throw unfaked("git.history");
     },

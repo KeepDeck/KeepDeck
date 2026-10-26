@@ -4,6 +4,7 @@ import {
   baseName,
   parentDir,
   initTree,
+  loadedFiles,
   refreshTargets,
   setChildren,
   setError,
@@ -156,6 +157,16 @@ describe("refreshTargets", () => {
     state = toggleExpanded(state, "/repo/a"); // a is open + loaded
     // b is loaded=false (never fetched); a/inner is collapsed → skipped.
     expect(refreshTargets(state)).toEqual(["/repo", "/repo/a"]);
+  });
+});
+
+describe("loadedFiles", () => {
+  it("lists every fetched file, inside a collapsed directory too, and no directory", () => {
+    let state = initTree("/repo");
+    expect(loadedFiles(state)).toEqual([]);
+    state = setChildren(state, "/repo", [dir("/repo/src"), file("/repo/README.md")]);
+    state = setChildren(state, "/repo/src", [file("/repo/src/main.rs")]);
+    expect(loadedFiles(state).sort()).toEqual(["/repo/README.md", "/repo/src/main.rs"]);
   });
 });
 

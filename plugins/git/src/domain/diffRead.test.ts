@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffReadFor, fileAsDiff } from "./diffRead";
+import { diffReadFor, diffSidesFor, fileAsDiff, sideText } from "./diffRead";
 import { isEmptyDiff } from "./diff";
 import type { ChangeRow } from "./status";
 
@@ -71,6 +71,56 @@ describe("diffReadFor", () => {
     expect(diffReadFor("/repo/", untracked, undefined)).toMatchObject({ path: "/repo/notes.md" });
     expect(diffReadFor("/repo//", untracked, undefined)).toMatchObject({ path: "/repo/notes.md" });
     expect(diffReadFor("/", untracked, undefined)).toMatchObject({ path: "/notes.md" });
+  });
+});
+
+describe("diffSidesFor", () => {
+  it("a staged row is HEAD against the index, a rename's old side under its old name", () => {
+    expect(diffSidesFor("/repo", row({ kind: "staged" }), undefined)).toEqual({
+      old: { source: "git", path: "src/app.ts", rev: "HEAD" },
+      new: { source: "git", path: "src/app.ts" },
+    });
+    expect(
+      diffSidesFor("/repo", row({ kind: "staged", code: "R", path: "new.ts", origPath: "old.ts" }), undefined),
+    ).toEqual({
+      old: { source: "git", path: "old.ts", rev: "HEAD" },
+      new: { source: "git", path: "new.ts" },
+    });
+  });
+
+  it("an unstaged row is the index against the working file, both under the current name", () => {
+    // Staged as old.ts → new.ts, then edited: the index already holds new.ts.
+    const edited = row({ kind: "unstaged", path: "new.ts", origPath: "old.ts" });
+    expect(diffSidesFor("/repo", edited, undefined)).toEqual({
+      old: { source: "git", path: "new.ts" },
+      new: { source: "file", path: "/repo/new.ts" },
+    });
+  });
+
+  it("a range reads its two revisions, or its start against the working tree when open", () => {
+    const renamed = row({ kind: "history", code: "R", path: "new.ts", origPath: "old.ts" });
+    expect(diffSidesFor("/repo", renamed, { from: "a^", to: "a" })).toEqual({
+      old: { source: "git", path: "old.ts", rev: "a^" },
+      new: { source: "git", path: "new.ts", rev: "a" },
+    });
+    expect(diffSidesFor("/repo", row({ kind: "history" }), { from: "f0" })).toEqual({
+      old: { source: "git", path: "src/app.ts", rev: "f0" },
+      new: { source: "file", path: "/repo/src/app.ts" },
+    });
+  });
+
+  it("an untracked or unmerged row has no sides: its diff is the whole file", () => {
+    expect(diffSidesFor("/repo", row({ kind: "untracked", code: "?" }), undefined)).toEqual({ old: null, new: null });
+    expect(diffSidesFor("/repo", row({ kind: "conflicted", code: "UU" }), { from: "f0" })).toEqual({ old: null, new: null });
+  });
+});
+
+describe("sideText", () => {
+  it("is the text of a side that is there and is text, cut short or not", () => {
+    expect(sideText({ text: "a\n", isBinary: false })).toBe("a\n");
+    expect(sideText(null)).toBeNull();
+    expect(sideText({ text: null, isBinary: true })).toBeNull();
+    expect(sideText({ text: "PNG", isBinary: true })).toBeNull();
   });
 });
 

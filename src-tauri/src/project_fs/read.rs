@@ -167,13 +167,43 @@ pub fn project_fs_read_file(
         .take(cap)
         .read_to_end(&mut buf)
         .map_err(|e| format!("cannot read: {e}"))?;
-    let mut read_bytes = buf.len() as u64;
+    let read_bytes = buf.len() as u64;
     // Anything left AFTER this window — the file's end for a read that started
     // at zero, the next window's start for one that did not. A `start` past the
     // end reads nothing and is NOT truncated: there is no remainder to come
     // back for, and saying otherwise would loop a walking reader on emptiness.
     let truncated = size > start.saturating_add(read_bytes);
 
+    let Decoded {
+        text,
+        is_binary,
+        read_bytes,
+    } = decode_text(buf, truncated);
+
+    Ok(FsFile {
+        path: file.to_string_lossy().into_owned(),
+        text,
+        is_binary,
+        size,
+        truncated,
+        read_bytes,
+    })
+}
+
+/// Bytes read from a file, as a reader receives them.
+pub(crate) struct Decoded {
+    pub text: Option<String>,
+    pub is_binary: bool,
+    /// How many of the bytes the text holds — all of them, unless a cut
+    /// character's stub was dropped (see below).
+    pub read_bytes: u64,
+}
+
+/// Whether `buf` is text, and the text. `truncated` says the read stopped
+/// because WE stopped it — the file's own working-tree read, or a stored
+/// file git capped (`project_git_file_at`); the one rule for both.
+pub(crate) fn decode_text(buf: Vec<u8>, truncated: bool) -> Decoded {
+    let mut read_bytes = buf.len() as u64;
     // Binary detection, the git heuristic: a NUL byte means binary. Otherwise
     // try to decode UTF-8; invalid bytes are binary too (can't render as text).
     //
@@ -221,15 +251,11 @@ pub fn project_fs_read_file(
             Err(_) => (None, true),
         }
     };
-
-    Ok(FsFile {
-        path: file.to_string_lossy().into_owned(),
+    Decoded {
         text,
         is_binary,
-        size,
-        truncated,
         read_bytes,
-    })
+    }
 }
 
 #[cfg(test)]

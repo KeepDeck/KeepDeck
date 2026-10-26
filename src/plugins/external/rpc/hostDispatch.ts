@@ -45,7 +45,7 @@ import {
   isNotifyInput,
   isOpenerEntry,
   isOverlayEntry,
-  isRecord,
+  isObjectLike,
   isSettingsSection,
   num,
   str,
@@ -179,7 +179,7 @@ export function createHostDispatch(
    * shape makes the API-21 incompatibility explicit instead of silently
    * binding an operation to the wrong lifetime. */
   function workspaceStorage(value: unknown) {
-    if (!isRecord(value))
+    if (!isObjectLike(value))
       throw new Error("workspace storage requires a workspace lifetime ref");
     const id = str(value.id, "workspace storage id");
     const instance = str(value.instance, "workspace storage instance");

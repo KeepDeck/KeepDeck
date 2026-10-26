@@ -22,7 +22,7 @@ import {
   str,
   strArray,
   isDownloadIntegrity,
-  isRecord,
+  isObjectLike,
 } from "./decode";
 
 /**
@@ -145,6 +145,12 @@ export function createServiceHandlers({
       ctx.services.git.history(
         str(repo, "git.history repo"),
         decodeGitHistoryOptions(opts),
+      ),
+    "services.git.fileAt": ([repo, file, rev]) =>
+      ctx.services.git.fileAt(
+        str(repo, "git.fileAt repo"),
+        str(file, "git.fileAt file"),
+        optional(rev, (value): value is string => typeof value === "string", "git.fileAt rev"),
       ),
     "services.git.branches": ([repo]) =>
       ctx.services.git.branches(str(repo, "git.branches repo")),
@@ -271,6 +277,6 @@ export function createServiceHandlers({
 }
 
 function decodeSpeechDeviceId(options: unknown): string | undefined {
-  if (!isRecord(options) || options.deviceId === undefined) return undefined;
+  if (!isObjectLike(options) || options.deviceId === undefined) return undefined;
   return str(options.deviceId, "speech.start deviceId");
 }

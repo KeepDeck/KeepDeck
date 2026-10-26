@@ -21,6 +21,7 @@
 mod cmd;
 mod error;
 
+pub mod blob;
 pub mod branch;
 pub mod diff;
 pub mod exclude;

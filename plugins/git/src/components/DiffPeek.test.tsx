@@ -8,18 +8,21 @@ import { gitOf, inertPorts } from "../gitPorts.test-support";
 import type { ChangeGroups, ChangeRow } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
 import { present } from "@keepdeck/plugin-api/testing";
-import { useHighlight } from "@keepdeck/code-kit";
+import { useHighlights } from "@keepdeck/code-kit";
 
 // DiffPeek's contract here is how it places the hook's tokens over diff rows.
 // code-kit's own suite exercises the real Shiki grammars and alignment.
 vi.mock("@keepdeck/code-kit", async (importOriginal) => {
   const kit = await importOriginal<typeof import("@keepdeck/code-kit")>();
-  const useHighlight: typeof kit.useHighlight = vi.fn((text: string | null, lang: string | null) =>
-    text !== null && lang !== null
-      ? text.split("\n").map((line) => line === "" ? [] : [{ text: line, color: "#c00" }])
-      : null,
+  const useHighlights: typeof kit.useHighlights = vi.fn(
+    (texts: readonly string[] | null, lang: string | null) =>
+      texts !== null && lang !== null
+        ? texts.map((text) =>
+            text.split("\n").map((line) => (line === "" ? [] : [{ text: line, color: "#c00" }])),
+          )
+        : null,
   );
-  return { ...kit, useHighlight };
+  return { ...kit, useHighlights };
 });
 
 const TS_DIFF = [
@@ -176,7 +179,7 @@ describe("DiffPeek", () => {
 
   it("renders a known language's colored tokens without changing diff text", async () => {
     await mount(changedRow("src/main.ts"), TS_DIFF);
-    expect(useHighlight).toHaveBeenCalledWith(expect.any(String), "typescript");
+    expect(useHighlights).toHaveBeenCalledWith(expect.any(Array), "typescript");
     expect(document.querySelectorAll(".git__linetext span[style]").length).toBeGreaterThan(0);
     expect(rowTexts().slice(0, 5)).toEqual([
       'import { app } from "./app";',
@@ -186,6 +189,67 @@ describe("DiffPeek", () => {
       "export default { app };",
     ]);
     expect(rowTexts()[5]).toContain("No newline at end of file");
+  });
+
+  it("reads both sides of a changed row whole and colors from them, kept with the diff", async () => {
+    const OLD = 'import { app } from "./app";\nconst port = 3000;\n';
+    const NEW = 'import { app } from "./app";\nconst port = 8080;\n';
+    const fileAt = vi.fn(async () => ({ text: OLD, isBinary: false, truncated: false }));
+    const readFile = vi.fn(async (path: string) => ({
+      path,
+      text: NEW,
+      isBinary: false,
+      size: NEW.length,
+      truncated: false,
+      readBytes: NEW.length,
+    }));
+    const raw = '@@ -1,2 +1,2 @@\n import { app } from "./app";\n-const port = 3000;\n+const port = 8080;\n';
+    setRuntime(portsOf({ diffFile: vi.fn(async () => diffOf(raw)), fileAt }, { readFile }));
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: { kind: "file", row: changedRow("src/main.ts"), changeSet: { kind: "worktree", groups: null, error: null } },
+          version: 0,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await settle(() => document.querySelectorAll(".git__linetext span[style]").length > 0);
+    // An unstaged row: the index against the working file.
+    expect(fileAt).toHaveBeenCalledWith("/repo", "src/main.ts", undefined);
+    expect(readFile).toHaveBeenCalledWith("/repo/src/main.ts");
+    expect(vi.mocked(useHighlights)).toHaveBeenLastCalledWith([NEW, OLD], "typescript");
+    expect(document.querySelectorAll(".git__linetext span[style]").length).toBe(3);
+  });
+
+  it("still shows and colors the diff when a side fails to read — from its hunks", async () => {
+    const fileAt = vi.fn(async (): Promise<never> => {
+      throw new Error("git exploded");
+    });
+    const raw = "@@ -1 +1 @@\n-const port = 3000;\n+const port = 8080;\n";
+    setRuntime(portsOf({ diffFile: vi.fn(async () => diffOf(raw)), fileAt }));
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: { kind: "file", row: changedRow("src/main.ts"), changeSet: { kind: "worktree", groups: null, error: null } },
+          version: 0,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await settle(() => document.querySelectorAll(".git__linetext span[style]").length > 0);
+    expect(fileAt).toHaveBeenCalled();
+    expect(rowTexts()).toEqual(["const port = 3000;", "const port = 8080;"]);
+    // No side: each line colors from its own hunk's side.
+    expect(vi.mocked(useHighlights)).toHaveBeenLastCalledWith(
+      ["const port = 3000;", "const port = 8080;"],
+      "typescript",
+    );
+    expect(document.querySelector(".peek__note--bad")).toBeNull();
   });
 
   it("keeps the meta line dim — no colored runs on it", async () => {

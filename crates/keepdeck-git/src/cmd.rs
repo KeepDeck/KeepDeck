@@ -71,6 +71,24 @@ pub struct Capped {
     pub truncated: bool,
 }
 
+/// [`Capped`] before decoding: the bytes as git wrote them, for a reader that
+/// must judge them itself (is this text at all?) rather than receive a lossy
+/// string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CappedBytes {
+    pub bytes: Vec<u8>,
+    pub truncated: bool,
+}
+
+impl CappedBytes {
+    fn lossy(self) -> Capped {
+        Capped {
+            text: String::from_utf8_lossy(&self.bytes).into_owned(),
+            truncated: self.truncated,
+        }
+    }
+}
+
 /// Run `git -C <dir> <args...>` and return its stdout on success.
 ///
 /// This is the single boundary where the crate shells out to the user's `git`;
@@ -95,7 +113,7 @@ where
     S: AsRef<OsStr>,
 {
     let (command, shown) = git_command(dir, args);
-    run(command, shown, None, Some(GIT_TIMEOUT)).map(|capped| capped.text)
+    run(command, shown, None, Some(GIT_TIMEOUT)).map(|out| out.lossy().text)
 }
 
 /// Run `git -C <dir> <args...>` with no clock on it — for PROVISIONING:
@@ -111,7 +129,7 @@ where
     S: AsRef<OsStr>,
 {
     let (command, shown) = git_command(dir, args);
-    run(command, shown, None, None).map(|capped| capped.text)
+    run(command, shown, None, None).map(|out| out.lossy().text)
 }
 
 /// Run `git -C <dir> <args...>` and return its stdout up to `max_bytes`.
@@ -128,6 +146,19 @@ pub(crate) fn run_git_capped<I, S>(
     args: I,
     max_bytes: usize,
 ) -> Result<Capped, GitError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    run_git_capped_bytes(dir, args, max_bytes).map(CappedBytes::lossy)
+}
+
+/// [`run_git_capped`], answering the bytes undecoded.
+pub(crate) fn run_git_capped_bytes<I, S>(
+    dir: &Path,
+    args: I,
+    max_bytes: usize,
+) -> Result<CappedBytes, GitError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -173,7 +204,7 @@ fn run(
     shown: Vec<String>,
     cap: Option<usize>,
     timeout: Option<Duration>,
-) -> Result<Capped, GitError> {
+) -> Result<CappedBytes, GitError> {
     count_spawn();
     command
         .stdin(Stdio::null())
@@ -236,8 +267,8 @@ fn run(
             buf.truncate(nl + 1);
         }
     }
-    let answer = Capped {
-        text: String::from_utf8_lossy(&buf).into_owned(),
+    let answer = CappedBytes {
+        bytes: buf,
         truncated,
     };
 
@@ -362,14 +393,14 @@ mod tests {
     fn sh(script: &str, cap: Option<usize>, timeout: Duration) -> Result<Capped, GitError> {
         let mut command = Command::new("sh");
         command.args(["-c", script]);
-        run(command, vec!["sh".into(), "-c".into()], cap, Some(timeout))
+        run(command, vec!["sh".into(), "-c".into()], cap, Some(timeout)).map(CappedBytes::lossy)
     }
 
     #[test]
     fn a_run_on_no_clock_waits_for_the_child_however_long() {
         let mut command = Command::new("sh");
         command.args(["-c", "sleep 0.5; echo done"]);
-        let out = run(command, vec!["sh".into()], None, None).unwrap();
+        let out = run(command, vec!["sh".into()], None, None).unwrap().lossy();
         assert_eq!(out.text, "done\n");
     }
 

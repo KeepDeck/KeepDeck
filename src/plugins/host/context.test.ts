@@ -88,6 +88,7 @@ function fakeDeps() {
     git: {
       status: vi.fn(),
       diffFile: vi.fn(),
+      fileAt: vi.fn(),
       history: vi.fn(),
       branches: vi.fn(),
       changedFiles: vi.fn(),

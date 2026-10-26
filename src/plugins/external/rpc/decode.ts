@@ -1,4 +1,5 @@
 import { readManifest } from "@keepdeck/plugin-api";
+import { isObjectLike } from "../../../domain/json";
 import type {
   CommandArgSpec,
   CommandInfo,
@@ -14,6 +15,7 @@ import type {
   FsEntry,
   FsFile,
   FsReadFileOptions,
+  GitBlob,
   GitBranches,
   GitChangedFile,
   GitDiff,
@@ -49,6 +51,9 @@ import type {
   WireSpawnPlanOutput,
 } from "./protocol";
 
+// The guest reads its decoders through this module; the guard is theirs too.
+export { isObjectLike };
+
 /**
  * Decoders for everything that crosses the external-plugin wire. A value from
  * `postMessage` is `unknown`; each decoder checks the shape it needs and names
@@ -56,9 +61,6 @@ import type {
  * type. The protocol module names the shapes; this module is the one place
  * that proves them.
  */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 export const isString = (value: unknown): value is string => typeof value === "string";
 export const isNumber = (value: unknown): value is number =>
@@ -73,7 +75,7 @@ export const isPairs = (value: unknown): value is [string, string][] =>
       Array.isArray(pair) && pair.length === 2 && pair.every(isString),
   );
 const isWorkspaceRef = (value: unknown): value is WorkspaceRef =>
-  isRecord(value) && isString(value.id) && isString(value.instance);
+  isObjectLike(value) && isString(value.id) && isString(value.instance);
 
 /** A named refusal, used wherever a wire value does not match its contract. */
 export function malformed(what: string, detail?: string): Error {
@@ -81,7 +83,7 @@ export function malformed(what: string, detail?: string): Error {
 }
 
 export function record(value: unknown, what: string): Record<string, unknown> {
-  if (!isRecord(value)) throw malformed(what, "expected an object");
+  if (!isObjectLike(value)) throw malformed(what, "expected an object");
   return value;
 }
 
@@ -123,12 +125,12 @@ export function optional<T>(
 // --------------------------------------------------------------- messages
 
 export function isWireSpawnPlanOutput(value: unknown): value is WireSpawnPlanOutput {
-  if (!isRecord(value)) return false;
+  if (!isObjectLike(value)) return false;
   if (value.command !== null && !isString(value.command)) return false;
   if (!isStringArray(value.args) || !isPairs(value.env)) return false;
   if (value.envDefaults !== undefined && !isPairs(value.envDefaults)) return false;
   if (value.discard !== undefined) {
-    if (!isRecord(value.discard)) return false;
+    if (!isObjectLike(value.discard)) return false;
     if (value.discard.onceStarted !== undefined && !isStringArray(value.discard.onceStarted)) return false;
     if (value.discard.ifNeverStarted !== undefined && !isStringArray(value.discard.ifNeverStarted)) return false;
   }
@@ -386,12 +388,12 @@ export function decodeSpeechOptions(value: unknown): SpeechCaptureOptions {
 }
 
 export function isCommandArgs(value: unknown): value is Record<string, string | boolean | number> {
-  if (!isRecord(value)) return false;
+  if (!isObjectLike(value)) return false;
   return Object.values(value).every((cell) => isString(cell) || isBoolean(cell) || isNumber(cell));
 }
 
 export function isSessionSpawn(value: unknown): value is { id: string } {
-  return isRecord(value) && isString(value.id);
+  return isObjectLike(value) && isString(value.id);
 }
 
 export function isNullableString(value: unknown): value is string | null {
@@ -414,20 +416,20 @@ export function decodeWith<T>(
 // ------------------------------------------------- registration payloads
 
 export function isSettingsSection(value: unknown): value is SettingsSectionContribution {
-  if (!isRecord(value) || !isString(value.label) || !Array.isArray(value.fields)) return false;
+  if (!isObjectLike(value) || !isString(value.label) || !Array.isArray(value.fields)) return false;
   if (value.stored !== undefined && !isStringArray(value.stored)) return false;
   return value.fields.every((field) => {
-    if (!isRecord(field) || !isString(field.kind) || !isString(field.key) || !isString(field.label)) return false;
+    if (!isObjectLike(field) || !isString(field.kind) || !isString(field.key) || !isString(field.label)) return false;
     return field.kind !== "custom";
   });
 }
 
 export function isDockTab(value: unknown): value is DockTabContribution {
-  return isRecord(value) && isString(value.id) && isString(value.label) && isString(value.iframe);
+  return isObjectLike(value) && isString(value.id) && isString(value.label) && isString(value.iframe);
 }
 
 export function isNotifyInput(value: unknown): value is PluginNotifyInput {
-  if (!isRecord(value) || !isString(value.title)) return false;
+  if (!isObjectLike(value) || !isString(value.title)) return false;
   if (value.body !== undefined && !isString(value.body)) return false;
   if (value.severity !== undefined && value.severity !== "info" && value.severity !== "warning" && value.severity !== "error") return false;
   if (value.workspace !== undefined && !isWorkspaceRef(value.workspace)) return false;
@@ -438,15 +440,15 @@ export function isNotifyInput(value: unknown): value is PluginNotifyInput {
 
 export interface WireActionEntry { id: string; title: string }
 export const isActionEntry = (value: unknown): value is WireActionEntry =>
-  isRecord(value) && isString(value.id) && isString(value.title);
+  isObjectLike(value) && isString(value.id) && isString(value.title);
 
 export interface WireOverlayEntry { id: string; iframe: string }
 export const isOverlayEntry = (value: unknown): value is WireOverlayEntry =>
-  isRecord(value) && isString(value.id) && isString(value.iframe);
+  isObjectLike(value) && isString(value.id) && isString(value.iframe);
 
 export interface WireOpenerEntry { id: string; label: string }
 export const isOpenerEntry = (value: unknown): value is WireOpenerEntry =>
-  isRecord(value) && isString(value.id) && isString(value.label);
+  isObjectLike(value) && isString(value.id) && isString(value.label);
 
 export interface WireAgentRegistration {
   id: string;
@@ -462,8 +464,8 @@ export interface WireAgentRegistration {
 }
 
 export function isAgentRegistration(value: unknown): value is WireAgentRegistration {
-  if (!isRecord(value) || !isString(value.id) || !isString(value.label)) return false;
-  if (!isRecord(value.detect) || !isString(value.detect.bin)) return false;
+  if (!isObjectLike(value) || !isString(value.id) || !isString(value.label)) return false;
+  if (!isObjectLike(value.detect) || !isString(value.detect.bin)) return false;
   for (const name of ["hookNames"] as const) {
     if (value[name] !== undefined && !isStringArray(value[name])) return false;
   }
@@ -557,10 +559,10 @@ export function decodeForkPlanInput(value: unknown, what: string): ForkPlanInput
 
 export interface WirePage { offset: number; limit: number }
 export const isPage = (value: unknown): value is WirePage =>
-  isRecord(value) && isNumber(value.offset) && isNumber(value.limit);
+  isObjectLike(value) && isNumber(value.offset) && isNumber(value.limit);
 
 export function isFsEntry(value: unknown): value is FsEntry {
-  if (!isRecord(value) || !isString(value.name) || !isString(value.path)) return false;
+  if (!isObjectLike(value) || !isString(value.name) || !isString(value.path)) return false;
   if (value.kind !== "file" && value.kind !== "dir" && value.kind !== "symlink") return false;
   if (value.size !== undefined && !isNumber(value.size)) return false;
   if (value.mtime !== undefined && !isNumber(value.mtime)) return false;
@@ -570,55 +572,62 @@ export const isFsEntries = (value: unknown): value is FsEntry[] =>
   Array.isArray(value) && value.every(isFsEntry);
 
 export function isFsFile(value: unknown): value is FsFile {
-  return isRecord(value) && isString(value.path) &&
+  return isObjectLike(value) && isString(value.path) &&
     (value.text === null || isString(value.text)) &&
     isBoolean(value.isBinary) && isNumber(value.size) &&
     isBoolean(value.truncated) && isNumber(value.readBytes);
 }
 
 export function isSqlAnswer(value: unknown): value is SqlAnswer {
-  if (!isRecord(value) || !Array.isArray(value.rows)) return false;
+  if (!isObjectLike(value) || !Array.isArray(value.rows)) return false;
   if (value.stopped !== "exhausted" && value.stopped !== "budget") return false;
   if (!isNumber(value.payloadBytes)) return false;
   return value.rows.every((row) => Array.isArray(row) && row.every((cell) => cell === null || isString(cell)));
 }
 
 export function isGitDiff(value: unknown): value is GitDiff {
-  return isRecord(value) && isString(value.text) && isBoolean(value.truncated);
+  return isObjectLike(value) && isString(value.text) && isBoolean(value.truncated);
+}
+
+/** A stored file, or the null that says it is not there. */
+export function isGitBlobAnswer(value: unknown): value is GitBlob | null {
+  return value === null || (isObjectLike(value) &&
+    (value.text === null || isString(value.text)) &&
+    isBoolean(value.isBinary) && isBoolean(value.truncated));
 }
 
 export function isGitStatus(value: unknown): value is GitStatus {
-  if (!isRecord(value) || !Array.isArray(value.entries)) return false;
+  if (!isObjectLike(value) || !Array.isArray(value.entries)) return false;
   if (value.branch !== null && !isString(value.branch)) return false;
   if (!isBoolean(value.detached)) return false;
   if (value.oid !== null && !isString(value.oid)) return false;
   if (value.upstream !== null && !isString(value.upstream)) return false;
   if (value.ahead !== null && !isNumber(value.ahead)) return false;
   if (value.behind !== null && !isNumber(value.behind)) return false;
-  return value.entries.every((entry) => isRecord(entry) && isString(entry.path) &&
+  return value.entries.every((entry) => isObjectLike(entry) && isString(entry.path) &&
     (entry.origPath === null || isString(entry.origPath)) && isString(entry.staged) &&
     isString(entry.unstaged) && isBoolean(entry.untracked) && isBoolean(entry.conflicted));
 }
 
 export function isGitBranches(value: unknown): value is GitBranches {
-  return isRecord(value) && (value.current === null || isString(value.current)) && isStringArray(value.branches);
+  return isObjectLike(value) && (value.current === null || isString(value.current)) && isStringArray(value.branches);
 }
 
 export function isGitHistory(value: unknown): value is GitHistory {
-  if (!isRecord(value) || !Array.isArray(value.commits)) return false;
+  if (!isObjectLike(value) || !Array.isArray(value.commits)) return false;
   if (value.forkSha !== null && !isString(value.forkSha)) return false;
   if (value.ahead !== null && !isNumber(value.ahead)) return false;
-  return value.commits.every((commit) => isRecord(commit) && isString(commit.sha) &&
+  return value.commits.every((commit) => isObjectLike(commit) && isString(commit.sha) &&
     isString(commit.author) && isNumber(commit.timestamp) && isString(commit.subject));
 }
 
 export function isGitChangedFiles(value: unknown): value is GitChangedFile[] {
-  return Array.isArray(value) && value.every((entry) => isRecord(entry) && isString(entry.path) &&
+  return Array.isArray(value) && value.every((entry) => isObjectLike(entry) && isString(entry.path) &&
     (entry.origPath === null || isString(entry.origPath)) && isString(entry.code));
 }
 
 export function isExecOutcome(value: unknown): value is PluginExecOutcome {
-  return isRecord(value) && isBoolean(value.ran) && isBoolean(value.ok) && isString(value.said);
+  return isObjectLike(value) && isBoolean(value.ran) && isBoolean(value.ok) && isString(value.said);
 }
 
 export function isSpeechEngines(value: unknown): value is SpeechEngine[] {
@@ -626,25 +635,25 @@ export function isSpeechEngines(value: unknown): value is SpeechEngine[] {
 }
 
 export function isSpeechDevices(value: unknown): value is SpeechDevice[] {
-  return Array.isArray(value) && value.every((device) => isRecord(device) && isString(device.id) &&
+  return Array.isArray(value) && value.every((device) => isObjectLike(device) && isString(device.id) &&
     isString(device.name) && isBoolean(device.isDefault));
 }
 
 export function isSpeechStart(value: unknown): value is { device: string; deviceMissing: boolean } {
-  return isRecord(value) && isString(value.device) && isBoolean(value.deviceMissing);
+  return isObjectLike(value) && isString(value.device) && isBoolean(value.deviceMissing);
 }
 
 export function isSpeechTranscript(value: unknown): value is SpeechTranscript {
-  return isRecord(value) && isString(value.text) && isBoolean(value.silence) &&
+  return isObjectLike(value) && isString(value.text) && isBoolean(value.silence) &&
     (value.silenceReason === null || value.silenceReason === "no-audio" || value.silenceReason === "dead-signal" || value.silenceReason === "no-speech") &&
     isNumber(value.seconds) && isNumber(value.level) && isNumber(value.peak) &&
     isNumber(value.clippedRatio) && isNumber(value.dcOffset) && isString(value.device) && isBoolean(value.cutShort);
 }
 
 export function isCommandResult(value: unknown): value is CommandResult {
-  if (!isRecord(value)) return false;
+  if (!isObjectLike(value)) return false;
   if (value.ok === true) return true;
-  if (value.ok !== false || !isRecord(value.error)) return false;
+  if (value.ok !== false || !isObjectLike(value.error)) return false;
   return (value.error.code === "unknown-command" || value.error.code === "invalid-args" ||
     value.error.code === "not-permitted" || value.error.code === "failed") && isString(value.error.message);
 }
@@ -681,11 +690,11 @@ export function decodeCommandInfos(value: unknown, what: string): CommandInfo[] 
 }
 
 export function isHostSettings(value: unknown): value is HostSettingsSnapshot {
-  return isRecord(value) && isNumber(value.terminalScrollback);
+  return isObjectLike(value) && isNumber(value.terminalScrollback);
 }
 
 export function isDownloadState(value: unknown): value is DownloadState {
-  if (!isRecord(value) || !isString(value.id) || !isNumber(value.received)) return false;
+  if (!isObjectLike(value) || !isString(value.id) || !isNumber(value.received)) return false;
   if (!["queued", "downloading", "verifying", "unpacking", "completed", "cancelled", "failed"].includes(String(value.phase))) return false;
   if (value.total !== null && !isNumber(value.total)) return false;
   if (value.error !== undefined && !isString(value.error)) return false;
@@ -693,15 +702,15 @@ export function isDownloadState(value: unknown): value is DownloadState {
 }
 
 export function isSpeechLevel(value: unknown): value is SpeechLevel {
-  return isRecord(value) && isNumber(value.rms) && isNumber(value.peak) &&
+  return isObjectLike(value) && isNumber(value.rms) && isNumber(value.peak) &&
     isBoolean(value.clipped) && isNumber(value.dcOffset);
 }
 
 export function isWorkspaceEvent(value: unknown): value is { workspace: WorkspaceRef } {
-  return isRecord(value) && isWorkspaceRef(value.workspace);
+  return isObjectLike(value) && isWorkspaceRef(value.workspace);
 }
 
 export function isPaneEvent(value: unknown): value is { workspace: WorkspaceRef; paneId: string | null } {
-  return isRecord(value) && isWorkspaceRef(value.workspace) &&
+  return isObjectLike(value) && isWorkspaceRef(value.workspace) &&
     (value.paneId === null || isString(value.paneId));
 }

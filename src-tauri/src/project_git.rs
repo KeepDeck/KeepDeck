@@ -48,12 +48,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use keepdeck_git::{diff, fork, head, log, repo, status};
+use keepdeck_git::{blob, diff, fork, head, log, repo, status};
 use notify::{Event, EventKind, RecommendedWatcher};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::containment::resolve_within;
+use crate::project_fs::read::decode_text;
 use crate::fswatch;
 
 /// The Tauri event delivering "this repo's git status may have changed" to the
@@ -171,6 +172,48 @@ pub fn project_git_diff_file(
         truncated: capped.truncated,
     })
     .map_err(|e| e.to_string())
+}
+
+/// One file as git stores it — at `rev`, or in the index when `rev` is
+/// absent: the whole-file side of a diff, which the hunks alone cannot give a
+/// reader that needs the lines between them. `None` when the file is not
+/// there (added after `rev`, deleted, an unborn HEAD) — and when `rev` names
+/// no commit, as a root commit's parent does: the empty side
+/// [`project_git_diff_file`]'s range diffs against.
+#[tauri::command(async)]
+pub fn project_git_file_at(
+    path: String,
+    roots: Vec<String>,
+    everywhere: bool,
+    file: String,
+    rev: Option<String>,
+) -> Result<Option<GitBlob>, String> {
+    let repo = resolve_within(&path, &roots, everywhere)?;
+    blob::file_at(&repo, &file, rev.as_deref())
+        .map(|found| found.map(|stored| GitBlob::new(stored.bytes, stored.truncated)))
+        .map_err(|e| e.to_string())
+}
+
+/// One stored file as reported to the plugin: its text up to the crate's
+/// cap, or none when it is binary — judged on the bytes by the same rule as a
+/// working file's read ([`decode_text`]) — and whether it was cut.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBlob {
+    pub text: Option<String>,
+    pub is_binary: bool,
+    pub truncated: bool,
+}
+
+impl GitBlob {
+    fn new(bytes: Vec<u8>, truncated: bool) -> Self {
+        let decoded = decode_text(bytes, truncated);
+        GitBlob {
+            text: decoded.text,
+            is_binary: decoded.is_binary,
+            truncated,
+        }
+    }
 }
 
 /// One file's diff as reported to the plugin: the text up to the crate's
@@ -683,6 +726,65 @@ mod tests {
         .expect_err("outside the roots must be refused");
         assert!(err.contains("outside"), "unexpected error: {err}");
 
+        fs::remove_dir_all(&repo).ok();
+        fs::remove_dir_all(&elsewhere).ok();
+    }
+
+    #[test]
+    fn file_at_answers_a_stored_side_or_nothing_and_stays_in_the_roots() {
+        let repo = init_repo();
+        let at = |file: &str, rev: Option<&str>| {
+            project_git_file_at(
+                repo.to_string_lossy().into_owned(),
+                roots(&repo),
+                false,
+                file.to_string(),
+                rev.map(str::to_string),
+            )
+        };
+        assert_eq!(
+            at("README.md", Some("HEAD")).unwrap(),
+            Some(GitBlob {
+                text: Some("hello\n".into()),
+                is_binary: false,
+                truncated: false
+            })
+        );
+        assert_eq!(at("missing.md", None).unwrap(), None);
+
+        fs::write(repo.join("logo.bin"), b"PNG\0\x01\x02").unwrap();
+        git(&repo, &["add", "logo.bin"]);
+        assert_eq!(
+            at("logo.bin", None).unwrap(),
+            Some(GitBlob {
+                text: None,
+                is_binary: true,
+                truncated: false
+            })
+        );
+
+        // No NUL, but not UTF-8 either: binary, never replacement characters.
+        fs::write(repo.join("latin1.txt"), b"caf\xe9\n").unwrap();
+        git(&repo, &["add", "latin1.txt"]);
+        assert_eq!(
+            at("latin1.txt", None).unwrap(),
+            Some(GitBlob {
+                text: None,
+                is_binary: true,
+                truncated: false
+            })
+        );
+
+        let elsewhere = unique_dir("elsewhere");
+        let err = project_git_file_at(
+            repo.to_string_lossy().into_owned(),
+            roots(&elsewhere),
+            false,
+            "README.md".into(),
+            None,
+        )
+        .expect_err("outside the roots must be refused");
+        assert!(err.contains("outside"), "unexpected error: {err}");
         fs::remove_dir_all(&repo).ok();
         fs::remove_dir_all(&elsewhere).ok();
     }

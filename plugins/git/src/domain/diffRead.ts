@@ -40,6 +40,70 @@ export function diffReadFor(
   };
 }
 
+/**
+ * Where each SIDE of a row's diff is read from whole — for a reader that needs
+ * the lines between the hunks (the highlighter: a comment or string opened in
+ * a gap decides how the next hunk reads). The rule; the peek executes it.
+ *
+ * `git` reads the stored file at `rev`, or in the index when `rev` is absent;
+ * `file` reads the working file. A side that turns out not to exist (an added
+ * file's old side, a deleted file's new one) reads as absent — no rule here
+ * guesses that from the row's code.
+ *
+ * - An untracked or unmerged row shows the working file itself: its diff IS
+ *   the whole file, so there is no side to add.
+ * - A range: its `from` against its `to`, or against the working tree when
+ *   the range is open (everything since the fork, uncommitted work too).
+ * - A staged row: HEAD against the index.
+ * - An unstaged row: the index against the working file, BOTH under the
+ *   row's current name. An old path here usually means a rename staged and
+ *   then edited, and the index already holds the new name. A rename not yet
+ *   staged reads the same from status, but there the index still holds the
+ *   OLD name: the new one names nothing, the old side reads as absent, and
+ *   its lines color from their hunks — a safe miss the status cannot tell
+ *   apart.
+ */
+export type SideRead =
+  | { source: "git"; path: string; rev?: string }
+  | { source: "file"; path: string };
+
+export interface DiffSides {
+  old: SideRead | null;
+  new: SideRead | null;
+}
+
+export function diffSidesFor(
+  repo: string,
+  row: ChangeRow,
+  range: GitRange | undefined,
+): DiffSides {
+  if (row.kind === "untracked" || row.kind === "conflicted") {
+    return { old: null, new: null };
+  }
+  const working: SideRead = { source: "file", path: filePath(repo, row.path) };
+  const before = row.origPath ?? row.path;
+  if (range) {
+    return {
+      old: { source: "git", path: before, rev: range.from },
+      new: range.to === undefined ? working : { source: "git", path: row.path, rev: range.to },
+    };
+  }
+  if (row.kind === "staged") {
+    return {
+      old: { source: "git", path: before, rev: "HEAD" },
+      new: { source: "git", path: row.path },
+    };
+  }
+  return { old: { source: "git", path: row.path }, new: working };
+}
+
+/** What a side read gives the highlighter: its text, or none for a side that
+ * is not there or is not text. A cut-short side still counts — its lines are
+ * whole up to the cap, and a line past it simply finds nothing to match. */
+export function sideText(read: { text: string | null; isBinary: boolean } | null): string | null {
+  return read === null || read.isBinary ? null : read.text;
+}
+
 /** A read of the working file, as the diff a file-shaped row shows: the
  * content all-added — an untracked file plainly, an unmerged one under its
  * note — or the binary marker when there is no text, the note kept: a

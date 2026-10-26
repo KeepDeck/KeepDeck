@@ -4,9 +4,10 @@ import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { shortPath } from "@keepdeck/ui-kit/paths";
 import { useRootSelection } from "@keepdeck/ui-kit/useRootSelection";
+import { useWarmHighlighter } from "@keepdeck/code-kit";
 import { useFileTree } from "./useFileTree";
 import { requestOpen } from "../openRequests";
-import { visibleRows, type TreeNode } from "../domain/tree";
+import { loadedFiles, visibleRows, type TreeNode } from "../domain/tree";
 import { navigate, type ArrowKey } from "../domain/navigate";
 import { rowsPerPage } from "../presentation/treeLayout";
 import { TreeView } from "./TreeView";
@@ -50,6 +51,8 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   });
 
   const { state, toggle, refresh } = useFileTree(target);
+  // The viewer opens what the tree shows: its languages compile ahead.
+  useWarmHighlighter(loadedFiles(state));
   const [cursor, setCursor] = useState<string | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
 

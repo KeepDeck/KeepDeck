@@ -49,6 +49,7 @@ import {
   projectGitBranches,
   projectGitChangedFiles,
   projectGitDiffFile,
+  projectGitFileAt,
   projectGitHistory,
   projectGitStatus,
   projectGitUnwatch,
@@ -475,6 +476,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
           opts?.to,
           opts?.origPath,
         ),
+      fileAt: (repo, file, rev, scope) =>
+        projectGitFileAt(repo, fsRoots(scope), scope === "everywhere", file, rev),
       history: (repo, scope, opts) =>
         projectGitHistory(
           repo,

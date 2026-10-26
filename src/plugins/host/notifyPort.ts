@@ -6,7 +6,7 @@ import type {
 import { stripUnsafeText } from "@keepdeck/plugin-api/unsafe-text";
 import { makeAdmit, type GateMode } from "../capabilities/tier";
 import { createTokenBucket } from "./tokenBucket";
-import { isOneOf } from "../../domain/json";
+import { isObjectLike, isOneOf } from "../../domain/json";
 
 /** String caps — a notification is a glance, not a document. Anything longer
  * is cut, not refused: the message still reaches the user. The manifest caps
@@ -24,13 +24,9 @@ const REFILL_MS = 10_000; // one token per 10s
 
 const SEVERITIES = ["info", "warning", "error"] as const;
 
-/** A non-null object, whose fields are read one by one as the unknowns they are. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function readWorkspaceRef(value: unknown): WorkspaceRef | undefined {
-  if (!isRecord(value)) return undefined;
+  if (!isObjectLike(value)) return undefined;
   const { id, instance } = value;
   return typeof id === "string" &&
     id !== "" &&
@@ -172,7 +168,7 @@ export function createPluginNotifyPort(
     // External input is `unknown` (it crossed the realm bridge), and typed so:
     // trust nothing, keep only own plain-string fields, strip restructuring
     // codepoints, cap lengths.
-    const raw: Record<string, unknown> = isRecord(input) ? input : {};
+    const raw: Record<string, unknown> = isObjectLike(input) ? input : {};
     const title =
       typeof raw.title === "string" ? stripUnsafeText(raw.title) : "";
     if (title === "") {

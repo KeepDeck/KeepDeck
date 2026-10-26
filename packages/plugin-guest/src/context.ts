@@ -18,7 +18,7 @@ import {
   isNullableString,
   isPage,
   isPaneEvent,
-  isRecord,
+  isObjectLike,
   decodeSpawnPlanInput,
   decodeResumePlanInput,
   decodeForkPlanInput,
@@ -265,14 +265,14 @@ export function buildGuestContext(
       read: () =>
         rpc
           .call("settings.read", [])
-          .then((value) => decodeWith(value, isRecord, "settings read")),
+          .then((value) => decodeWith(value, isObjectLike, "settings read")),
       write: (key, value) => rpc.call("settings.write", [key, value]).then(noop),
       // The settings-change feed is just another broadcast channel — ref-counted
       // and fanned out exactly like a deck event, over its own subscribe path.
       onChange: (cb) =>
         subscribeChannel(
           "settingsChanged",
-          (payload) => cb(decodeWith(payload, isRecord, "settings changed")),
+          (payload) => cb(decodeWith(payload, isObjectLike, "settings changed")),
           () => void rpc.call("settings.onChange", []).catch(noop),
           () => void rpc.call("settings.offChange", []).catch(noop),
         ),
