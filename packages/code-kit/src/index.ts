@@ -8,5 +8,6 @@ export { langFor } from "./lang";
 export { canHighlight } from "./limits";
 export { tokenizeLines } from "./highlighter";
 export { useHighlight } from "./useHighlight";
+export { useWarmHighlighter } from "./warm";
 export { TokenLine } from "./TokenLine";
 export type { LineTokens, Token } from "./tokens";

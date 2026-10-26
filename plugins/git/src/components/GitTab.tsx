@@ -1,6 +1,7 @@
 import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { useRootSelection } from "@keepdeck/ui-kit/useRootSelection";
+import { useWarmHighlighter } from "@keepdeck/code-kit";
 import { useGitStatus } from "./useGitStatus";
 import { useGitHistory } from "./useGitHistory";
 import { useSections } from "./useSections";
@@ -54,6 +55,8 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
     roots: facts.map((fact) => fact.cwd),
   });
   const { status, error, version } = useGitStatus(target);
+  // A diff opens on a changed file: their languages compile ahead.
+  useWarmHighlighter(status ? status.entries.map((entry) => entry.path) : []);
   // The shown root's HEAD by its own status: a detached tree, which the
   // host has no branch name for, reads as its commit.
   const options = rootOptions(withHead(facts, target, status));
