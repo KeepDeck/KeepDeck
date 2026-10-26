@@ -9,11 +9,8 @@
  * at most that one grammar.
  */
 import { tokenize, warm } from "./engine";
+import { errorMessage } from "@keepdeck/plugin-api";
 import { isHighlightRequest, type HighlightReply } from "./protocol";
-
-function errorText(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 export function serve(data: unknown, reply: (message: HighlightReply) => void): void {
   if (!isHighlightRequest(data)) return;
@@ -27,6 +24,6 @@ export function serve(data: unknown, reply: (message: HighlightReply) => void): 
   const { id, text, lang } = data;
   tokenize(text, lang).then(
     (lines) => reply({ id, lines }),
-    (cause: unknown) => reply({ id, error: errorText(cause) }),
+    (cause: unknown) => reply({ id, error: errorMessage(cause) }),
   );
 }

@@ -4,6 +4,7 @@
  * guards are how each end proves what arrived, since a message crosses as
  * `unknown`.
  */
+import { isJsonRecord } from "@keepdeck/plugin-api";
 import type { LineTokens, Token } from "./tokens";
 
 /** Main thread → worker. `id` pairs a tokenize with its reply; a warm-up
@@ -18,12 +19,8 @@ export type HighlightReply =
   | { id: number; lines: LineTokens[] | null }
   | { id: number; error: string };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 export function isHighlightRequest(value: unknown): value is HighlightRequest {
-  if (!isRecord(value)) return false;
+  if (!isJsonRecord(value)) return false;
   if (value.kind === "warm") return value.lang === null || typeof value.lang === "string";
   return (
     value.kind === "tokenize" &&
@@ -35,7 +32,7 @@ export function isHighlightRequest(value: unknown): value is HighlightRequest {
 
 function isToken(value: unknown): value is Token {
   return (
-    isRecord(value) &&
+    isJsonRecord(value) &&
     typeof value.text === "string" &&
     (value.color === undefined || typeof value.color === "string") &&
     (value.italic === undefined || typeof value.italic === "boolean")
@@ -47,7 +44,7 @@ function isLines(value: unknown): value is LineTokens[] {
 }
 
 export function isHighlightReply(value: unknown): value is HighlightReply {
-  if (!isRecord(value) || typeof value.id !== "number") return false;
+  if (!isJsonRecord(value) || typeof value.id !== "number") return false;
   if ("error" in value) return typeof value.error === "string";
   return value.lines === null || isLines(value.lines);
 }
