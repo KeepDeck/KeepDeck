@@ -8,6 +8,7 @@ import type {
   FsFile,
   FsCopyOptions,
   FsReadFileOptions,
+  GitBlob,
   GitBranches,
   GitChangedFile,
   GitDiffOptions,
@@ -84,6 +85,12 @@ export interface GitBackend {
     scope: FsScope,
     opts?: GitDiffOptions,
   ): Promise<GitDiff>;
+  fileAt(
+    repo: string,
+    file: string,
+    rev: string | undefined,
+    scope: FsScope,
+  ): Promise<GitBlob | null>;
   history(
     repo: string,
     scope: FsScope,
@@ -363,6 +370,13 @@ export function createCapabilityGate(
           gitScope(manifest.capabilities),
           opts,
         );
+      },
+      fileAt(repo, file, rev) {
+        admit(
+          hasGitCapability(manifest.capabilities),
+          `git.fileAt: "${repo}" requires a "git" capability, which the manifest does not declare`,
+        );
+        return backend.git.fileAt(repo, file, rev, gitScope(manifest.capabilities));
       },
       history(repo, opts) {
         admit(

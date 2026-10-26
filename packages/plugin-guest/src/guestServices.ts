@@ -18,6 +18,7 @@ import {
   isExecOutcome,
   isFsFile,
   isFsEntries,
+  isGitBlobAnswer,
   isGitBranches,
   isGitChangedFiles,
   isGitDiff,
@@ -166,6 +167,10 @@ export function createGuestServices({
         rpc
           .call("services.git.diffFile", [repo, file, opts])
           .then((value) => decodeWith(value, isGitDiff, "git diff")),
+      fileAt: (repo, file, rev) =>
+        rpc
+          .call("services.git.fileAt", [repo, file, rev])
+          .then((value) => decodeWith(value, isGitBlobAnswer, "git file")),
       history: (repo, opts) =>
         rpc
           .call("services.git.history", [repo, opts])

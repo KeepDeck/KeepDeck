@@ -14,6 +14,7 @@ import type {
   FsEntry,
   FsFile,
   FsReadFileOptions,
+  GitBlob,
   GitBranches,
   GitChangedFile,
   GitDiff,
@@ -585,6 +586,13 @@ export function isSqlAnswer(value: unknown): value is SqlAnswer {
 
 export function isGitDiff(value: unknown): value is GitDiff {
   return isRecord(value) && isString(value.text) && isBoolean(value.truncated);
+}
+
+/** A stored file, or the null that says it is not there. */
+export function isGitBlobAnswer(value: unknown): value is GitBlob | null {
+  return value === null || (isRecord(value) &&
+    (value.text === null || isString(value.text)) &&
+    isBoolean(value.isBinary) && isBoolean(value.truncated));
 }
 
 export function isGitStatus(value: unknown): value is GitStatus {

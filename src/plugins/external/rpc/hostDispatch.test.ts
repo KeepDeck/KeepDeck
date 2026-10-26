@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GIT_DIFF_ANSWER_API,
   type FileOpenHandler,
+  type GitBlob,
   type GitDiff,
   type PluginKV,
   type PluginSessionHandle,
@@ -616,6 +617,25 @@ describe("git diffs over the RPC seam", () => {
     await expect(
       diffOver(GIT_DIFF_ANSWER_API).call("services.git.diffFile", ["/repo", "a.ts"]),
     ).resolves.toEqual(diff);
+  });
+});
+
+describe("a stored file over the RPC seam", () => {
+  it("passes the revision through, or none for the index, and answers the blob or null", async () => {
+    const blob: GitBlob = { text: "x\n", isBinary: false, truncated: false };
+    const fileAt = vi.fn(async (_repo: string, file: string) => (file === "a.ts" ? blob : null));
+    const dispatch = createHostDispatch(
+      fakePluginContext({ services: { git: { fileAt } } }),
+      () => {},
+    );
+    await expect(dispatch.call("services.git.fileAt", ["/repo", "a.ts", "HEAD"])).resolves.toEqual(blob);
+    await expect(dispatch.call("services.git.fileAt", ["/repo", "gone.ts"])).resolves.toBeNull();
+    expect(fileAt.mock.calls).toEqual([
+      ["/repo", "a.ts", "HEAD"],
+      ["/repo", "gone.ts", undefined],
+    ]);
+    await expect(dispatch.call("services.git.fileAt", ["/repo", "a.ts", 7])).rejects.toThrow("git.fileAt rev");
+    dispatch.dispose();
   });
 });
 

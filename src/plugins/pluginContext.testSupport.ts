@@ -115,6 +115,7 @@ export function fakePluginContext(fake: PluginContextFake = {}): PluginContext {
       git: {
         status: unfaked("services.git.status"),
         diffFile: unfaked("services.git.diffFile"),
+        fileAt: unfaked("services.git.fileAt"),
         history: unfaked("services.git.history"),
         branches: unfaked("services.git.branches"),
         changedFiles: unfaked("services.git.changedFiles"),

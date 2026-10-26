@@ -148,6 +148,7 @@ export type {
   FsEntryKind,
   FsFile,
   FsReadFileOptions,
+  GitBlob,
   GitBranches,
   GitChangedFile,
   GitCommit,

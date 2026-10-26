@@ -104,6 +104,7 @@ function makeCtx(over: Partial<GitStatus> | null = null): GitPorts {
           text: "@@ -1 +1 @@\n-hello\n+goodbye\n",
           truncated: false,
         })),
+        fileAt: vi.fn(async () => null),
         history: vi.fn(async () => ({ forkSha: null, ahead: null, commits: [] })),
         branches: vi.fn(async () => ({ current: "main", branches: ["main"] })),
         changedFiles: vi.fn(async () => []),

@@ -146,6 +146,12 @@ export function createServiceHandlers({
         str(repo, "git.history repo"),
         decodeGitHistoryOptions(opts),
       ),
+    "services.git.fileAt": ([repo, file, rev]) =>
+      ctx.services.git.fileAt(
+        str(repo, "git.fileAt repo"),
+        str(file, "git.fileAt file"),
+        optional(rev, (value): value is string => typeof value === "string", "git.fileAt rev"),
+      ),
     "services.git.branches": ([repo]) =>
       ctx.services.git.branches(str(repo, "git.branches repo")),
     "services.git.changedFiles": ([repo, from, to]) =>

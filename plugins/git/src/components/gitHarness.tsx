@@ -2,6 +2,7 @@ import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, vi } from "vitest";
 import type {
+  GitBlob,
   GitBranches,
   GitChangedFile,
   GitHistory,
@@ -92,6 +93,8 @@ export function makeGit() {
       text: "@@ -1 +1 @@\n-hello\n+goodbye\n",
       truncated: false,
     })),
+    // No stored side unless a test gives one: the peek highlights per hunk.
+    fileAt: vi.fn(async (): Promise<GitBlob | null> => null),
     watch: vi.fn((repo: string, onChange: () => void) => {
       let set = watchers.get(repo);
       if (!set) {
@@ -136,6 +139,7 @@ export function makeCtx(git: ReturnType<typeof makeGit>): GitPorts {
       git: {
         status: git.status,
         diffFile: git.diffFile,
+        fileAt: git.fileAt,
         history: git.history,
         branches: git.branches,
         changedFiles: git.changedFiles,
