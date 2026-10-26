@@ -296,6 +296,7 @@ pub fn run() {
             project_fs::watch::project_fs_unwatch,
             project_git::project_git_status,
             project_git::project_git_diff_file,
+            project_git::project_git_file_at,
             project_git::project_git_history,
             project_git::project_git_branches,
             project_git::project_git_changed_files,
