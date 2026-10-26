@@ -3,41 +3,61 @@ import { canHighlight } from "./limits";
 import { tokenizeLines } from "./highlighter";
 import type { LineTokens } from "./tokens";
 
-/** What the hook holds: which (text, lang) the tokens belong to, so a render
- * with NEW text never shows the OLD text's colors (state updates lag a render
+/** What the hook holds: which (texts, lang) the tokens belong to, so a render
+ * with NEW texts never shows the OLD texts' colors (state updates lag a render
  * behind the props; the ownership check below closes that gap). */
 interface Highlighted {
-  text: string;
+  texts: readonly string[];
   lang: string;
-  lines: LineTokens[];
+  docs: LineTokens[][];
 }
 
+/** Same texts by value, in the same order. */
+function sameTexts(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((text, i) => text === b[i]);
+}
+
+/** The texts as one value the effect can key on. NUL never occurs in a text
+ * worth highlighting — the host reads such content as binary. */
+const SEPARATOR = "\u0000";
+
 /**
- * Progressive highlighting: returns null immediately (render plain — the
- * text is on screen without waiting for a grammar engine), then the per-line
- * tokens once tokenization lands, and the consumer re-renders in color.
+ * Progressive highlighting of several documents in one language — a diff's
+ * two sides, its hunks: returns null immediately (render plain — the text is
+ * on screen without waiting for a grammar engine), then each document's
+ * per-line tokens once every one has landed, and the consumer re-renders in
+ * color.
  *
- * null stays forever when there's nothing to do: no language, text over the
- * limits (limits.ts), a language the kit didn't load, or a tokenizer failure
- * (logged, not thrown — color is decoration, the text already renders).
+ * All or nothing, like `canHighlight`: null stays forever when there's
+ * nothing to do — no language, a document over the limits (limits.ts), a
+ * language the kit didn't load, or a tokenizer failure (logged, not thrown —
+ * color is decoration, the text already renders). Half a view in color reads
+ * as a rendering bug.
  *
  * Stale results are dropped twice over: a cancelled effect never commits its
  * result, and the returned value is cross-checked against the CURRENT props,
- * so even the committed state of a previous (text, lang) reads as null rather
- * than as the wrong file's colors.
+ * so even the committed state of previous texts reads as null rather than as
+ * the wrong file's colors. Texts compare by value: rebuilding the array each
+ * render never re-triggers tokenization.
  */
-export function useHighlight(
-  text: string | null,
+export function useHighlights(
+  texts: readonly string[] | null,
   lang: string | null,
-): LineTokens[] | null {
+): LineTokens[][] | null {
   const [state, setState] = useState<Highlighted | null>(null);
+  // No documents is nothing to do, like no text.
+  const key = texts === null || texts.length === 0 ? null : texts.join(SEPARATOR);
 
   useEffect(() => {
-    if (text === null || lang === null || !canHighlight(text)) return;
+    if (key === null || lang === null) return;
+    const docTexts = key.split(SEPARATOR);
+    if (!docTexts.every(canHighlight)) return;
     let cancelled = false;
-    tokenizeLines(text, lang).then(
-      (lines) => {
-        if (!cancelled && lines) setState({ text, lang, lines });
+    Promise.all(docTexts.map((text) => tokenizeLines(text, lang))).then(
+      (docs) => {
+        const lines = docs.filter((doc) => doc !== null);
+        if (cancelled || lines.length !== docs.length) return;
+        setState({ texts: docTexts, lang, docs: lines });
       },
       (cause: unknown) => {
         if (!cancelled) {
@@ -48,9 +68,18 @@ export function useHighlight(
     return () => {
       cancelled = true;
     };
-  }, [text, lang]);
+  }, [key, lang]);
 
-  return state !== null && state.text === text && state.lang === lang
-    ? state.lines
+  return state !== null && texts !== null && state.lang === lang && sameTexts(state.texts, texts)
+    ? state.docs
     : null;
+}
+
+/** One document: `useHighlights` for a single text. */
+export function useHighlight(
+  text: string | null,
+  lang: string | null,
+): LineTokens[] | null {
+  const docs = useHighlights(text === null ? null : [text], lang);
+  return docs?.[0] ?? null;
 }
