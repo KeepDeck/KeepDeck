@@ -224,6 +224,34 @@ describe("DiffPeek", () => {
     expect(document.querySelectorAll(".git__linetext span[style]").length).toBe(3);
   });
 
+  it("still shows and colors the diff when a side fails to read — from its hunks", async () => {
+    const fileAt = vi.fn(async (): Promise<never> => {
+      throw new Error("git exploded");
+    });
+    const raw = "@@ -1 +1 @@\n-const port = 3000;\n+const port = 8080;\n";
+    setRuntime(portsOf({ diffFile: vi.fn(async () => diffOf(raw)), fileAt }));
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: { kind: "file", row: changedRow("src/main.ts"), changeSet: { kind: "worktree", groups: null, error: null } },
+          version: 0,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await settle(() => document.querySelectorAll(".git__linetext span[style]").length > 0);
+    expect(fileAt).toHaveBeenCalled();
+    expect(rowTexts()).toEqual(["const port = 3000;", "const port = 8080;"]);
+    // No side: each line colors from its own hunk's side.
+    expect(vi.mocked(useHighlights)).toHaveBeenLastCalledWith(
+      ["const port = 3000;", "const port = 8080;"],
+      "typescript",
+    );
+    expect(document.querySelector(".peek__note--bad")).toBeNull();
+  });
+
   it("keeps the meta line dim — no colored runs on it", async () => {
     await mount(changedRow("src/main.ts"), TS_DIFF);
     expect(document.querySelectorAll(".git__linetext span[style]").length).toBeGreaterThan(0);

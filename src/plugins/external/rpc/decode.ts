@@ -1,8 +1,5 @@
 import { readManifest } from "@keepdeck/plugin-api";
 import { isObjectLike } from "../../../domain/json";
-
-// The guest reads its decoders through this module; the guard is theirs too.
-export { isObjectLike };
 import type {
   CommandArgSpec,
   CommandInfo,
@@ -53,6 +50,9 @@ import type {
   WireSessionEvent,
   WireSpawnPlanOutput,
 } from "./protocol";
+
+// The guest reads its decoders through this module; the guard is theirs too.
+export { isObjectLike };
 
 /**
  * Decoders for everything that crosses the external-plugin wire. A value from

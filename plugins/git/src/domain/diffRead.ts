@@ -56,8 +56,12 @@ export function diffReadFor(
  *   the range is open (everything since the fork, uncommitted work too).
  * - A staged row: HEAD against the index.
  * - An unstaged row: the index against the working file, BOTH under the
- *   row's current name — a rename staged before the edit is already the
- *   index's, so the old path names nothing there.
+ *   row's current name. An old path here usually means a rename staged and
+ *   then edited, and the index already holds the new name. A rename not yet
+ *   staged reads the same from status, but there the index still holds the
+ *   OLD name: the new one names nothing, the old side reads as absent, and
+ *   its lines color from their hunks — a safe miss the status cannot tell
+ *   apart.
  */
 export type SideRead =
   | { source: "git"; path: string; rev?: string }

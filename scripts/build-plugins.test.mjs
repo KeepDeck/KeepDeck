@@ -255,6 +255,18 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
       readFileSync(join(kimiTeams, "skills", "keepdeck-team", "SKILL.md"), "utf8"),
     ).toContain("mail.inbox");
 
+    // The plugins that show code carry their highlight worker INSIDE their
+    // one file: the host loads index.js alone, and a worker emitted beside it
+    // (a `?worker` import without `&inline`) would never load — every file
+    // and diff would quietly render plain.
+    for (const id of ["keepdeck.files", "keepdeck.git"]) {
+      const dir = join(distRoot, "plugins", id);
+      expect(readdirSync(dir).sort(), id).toEqual(["index.css", "index.js", "manifest.json"]);
+      const bundle = readFileSync(join(dir, "index.js"), "utf8");
+      expect(bundle, id).toContain("new Worker(");
+      expect(bundle, id).toContain("createObjectURL");
+    }
+
     // opencode's plugin is a DIRECTORY loaded by absolute path: its index
     // imports both components, and they import TWO siblings between them —
     // the wire, and the pane's session. Shipping any of them without the rest
