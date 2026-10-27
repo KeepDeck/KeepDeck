@@ -13,20 +13,22 @@ import {
   type AgentSessionStub,
   type AgentTranscriptEntry,
   type FsEntry,
+  type PluginEnv,
   type PluginFs,
   type PluginLogger,
   type PluginSessionStore,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
+import { kimiHome } from "./home";
 
 /**
  * Discovery over kimi's store ([F8] browser): sessions live at
- * `~/.kimi-code/sessions/wd_<key>/session_<id>/` — `state.json` carries
+ * `<kimi home>/sessions/wd_<key>/session_<id>/` — `state.json` carries
  * workDir + title, `agents/main/wire.jsonl` is the conversation. The wire
  * file is the change fingerprint (a dir's mtime doesn't move when a child
- * file grows). Read-only via `fs`.
+ * file grows). Read-only via `fs`. The home is kimi's own rule
+ * (`KIMI_CODE_HOME`, else `~/.kimi-code`), read once per walk.
  */
-const ROOT = "~/.kimi-code/sessions";
 
 /** One wire line, as this plugin reads it. The host parses the JSON and
  * validates nothing. */
@@ -145,6 +147,7 @@ export interface HistoryPorts {
   services: {
     fs: Pick<PluginFs, "readDir" | "readFile">;
     sessionStore: PluginSessionStore;
+    env: PluginEnv;
   };
 }
 
@@ -234,7 +237,8 @@ export function kimiHistory(ctx: HistoryPorts): AgentHistory {
   return sessionHistory("kimi", ctx.log, {
     async enumerate(unreadable) {
       const stubs: AgentSessionStub[] = [];
-      for (const wd of await ctx.services.fs.readDir(ROOT)) {
+      const root = `${await kimiHome(ctx.services.env)}/sessions`;
+      for (const wd of await ctx.services.fs.readDir(root)) {
         if (wd.kind !== "dir" || !wd.name.startsWith("wd_")) continue;
         const sessions = await readStoreDir(ctx.services.fs, wd.path, unreadable);
         if (sessions) stubs.push(...(await stubsOfSessions(sessions, unreadable)));

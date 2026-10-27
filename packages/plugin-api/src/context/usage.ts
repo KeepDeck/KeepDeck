@@ -173,9 +173,6 @@ export interface UsageTail {
   sweep?(): Promise<readonly string[]>;
 }
 
-/** Native polled limit sources the host offers. */
-export type UsageLimitsSource = "kimi-usages";
-
 /** The usage half of an agent contribution.
  *
  * BUILT-IN (in-process) agents only for now: the external tier does not
@@ -189,11 +186,10 @@ export interface AgentUsage {
   /** Follow the session file named by this agent's bindings (the binding's
    * transcriptPath is the file), carrying the records this declares. */
   tail?: UsageTail;
-  /** Account limits: the host asks for them on a slow interval while one of
+  /** Account limits: the host calls `read` on a slow interval while one of
    * this agent's panes is live (and once at boot), and hands what came back
-   * to `normalize`. `read` is the plugin's own fetch — through its services,
-   * typically `rpc` or `http`; `poll` names a native source the host keeps
-   * for the agents that have not moved yet. */
+   * to `normalize`. `read` is the plugin's own fetch, through its services —
+   * typically `rpc` or `http`. */
   limits?: AgentLimits;
 }
 
@@ -204,9 +200,10 @@ export interface LimitsRead {
   sourceAt?: number;
 }
 
-export type AgentLimits =
-  | { read(): Promise<LimitsRead>; poll?: never; normalize: LimitsNormalizer }
-  | { poll: UsageLimitsSource; read?: never; normalize: LimitsNormalizer };
+export interface AgentLimits {
+  read(): Promise<LimitsRead>;
+  normalize: LimitsNormalizer;
+}
 
 /* ---- Authoring helpers ----------------------------------------------- *
  * The tolerant-reading idiom every normalizer shares: never throw, drop

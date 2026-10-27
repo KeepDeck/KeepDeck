@@ -77,7 +77,6 @@ export type {
   NormalizedUsage,
   PaneUsage,
   TokenCounts,
-  UsageLimitsSource,
   UsageNormalizer,
   UsageTail,
   UsageWindow,

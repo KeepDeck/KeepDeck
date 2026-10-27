@@ -51,7 +51,7 @@ const ipc = vi.hoisted(() => ({
   // What the codex contribution's own `limits.read` does — in the plugin
   // that is a `services.rpc` call; the lane sees only the read.
   readCodexLimits: vi.fn(),
-  fetchKimiUsages: vi.fn(),
+  readKimiLimits: vi.fn(),
   findCodexRollout: vi.fn(),
   readStoreCold: vi.fn(),
   loadUsageCache: vi.fn(),
@@ -67,7 +67,6 @@ vi.mock("../ipc/usage", () => ({
   onUsageReport: ipc.onUsageReport,
   watchSessionFile: ipc.watchSessionFile,
   unwatchSessionFile: ipc.unwatchSessionFile,
-  fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
   readStoreCold: ipc.readStoreCold,
   loadUsageCache: ipc.loadUsageCache,
@@ -264,7 +263,7 @@ describe("createUsageChannel", () => {
     ipc.readCodexLimits
       .mockReset()
       .mockResolvedValue({ body: "{}", sourceAt: Date.now() });
-    ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
+    ipc.readKimiLimits.mockReset().mockResolvedValue({ body: "{}" });
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
     ipc.readStoreCold.mockReset().mockResolvedValue(null);
     ipc.loadUsageCache.mockReset().mockResolvedValue(null);
@@ -582,7 +581,7 @@ describe("createUsageChannel", () => {
             normalize: (_p, at) => reported(at),
             tail: { watches: [] },
             limits: {
-              poll: "kimi-usages",
+              read: () => ipc.readKimiLimits(),
               normalize: (_body, at) => ({
                 kind: "reported",
                 windows: [],
@@ -607,7 +606,7 @@ describe("createUsageChannel", () => {
       ]),
     );
     await act(async () => {});
-    expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(1);
+    expect(ipc.readKimiLimits).toHaveBeenCalledTimes(1);
     expect(usage.getSnapshot().accounts.get("kimi")).toMatchObject({
       kind: "reported",
     });
@@ -616,7 +615,7 @@ describe("createUsageChannel", () => {
     // the boot fetch never repeats.
     await mount(deckWith([{ id: "pane-2", agentType: "kimi" }]));
     await act(async () => {});
-    expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(2);
+    expect(ipc.readKimiLimits).toHaveBeenCalledTimes(2);
   });
 
   it("reads ANY agent's limits through its own read — the lane knows no agent by name", async () => {

@@ -8,7 +8,8 @@
     "react": "^19.1.0"
   },
   "dependencies": {
-    "@keepdeck/plugin-api": "workspace:*"
+    "@keepdeck/plugin-api": "workspace:*",
+    "smol-toml": "^1.9.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.8",

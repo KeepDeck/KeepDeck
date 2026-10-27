@@ -12,7 +12,6 @@ mod fs_claim;
 mod fs_names;
 mod head_watch;
 mod http;
-mod kimi_usage;
 mod links;
 mod logging;
 mod mcp;
@@ -328,7 +327,6 @@ pub fn run() {
             rpc_child::plugin_rpc_stop,
             plugin_permissions::plugin_permissions_resolve,
             plugin_http::plugin_http_get,
-            kimi_usage::kimi_usages_fetch,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

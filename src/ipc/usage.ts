@@ -67,13 +67,6 @@ export function unwatchSessionFile(paneId: string): Promise<void> {
   return invoke("usage_unwatch_session_file", { paneId });
 }
 
-/** One read-only GET of kimi's account usages document (the polled limits
- * source — kimi keeps no rate windows on disk). Body rides back opaque;
- * the kimi plugin's normalizer owns its schema. */
-export function fetchKimiUsages(): Promise<string> {
-  return invoke("kimi_usages_fetch");
-}
-
 // Resolving a codex session's rollout used to live here, as a host command
 // that knew the CLI's day-partitioned tree and its filename shape. It went
 // home: the agent's own plugin already walked that tree for its history

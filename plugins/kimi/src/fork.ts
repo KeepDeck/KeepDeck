@@ -52,9 +52,9 @@ export async function kimiForkPlan(
   }
   // …/sessions/wd_<key>/session_<id>/agents/main/wire.jsonl — the store root
   // is derived from the recorded path, never guessed, so a layout change
-  // fails LOUDLY here. (A KIMI_CODE_HOME override still can't fork: writes
-  // are containment-scoped to the manifest's ~/.kimi-code prefix — and
-  // discovery wouldn't list such sessions anyway.)
+  // fails LOUDLY here. (History lists a KIMI_CODE_HOME store too, but a
+  // fork of one is refused when it writes: writes are containment-scoped to
+  // the manifest's ~/.kimi-code prefix, and a variable widens no write.)
   const match = wire.match(/^(.*\/sessions)\/(wd_[^/]+)\/(session_[^/]+)\/agents\/main\/wire\.jsonl$/);
   if (!match || match[3] !== input.sessionId) {
     throw new Error(

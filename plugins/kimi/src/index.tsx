@@ -2,6 +2,7 @@ import "./styles.css";
 import { kimiBinding } from "./binding";
 import { kimiForkPlan, type ForkPorts } from "./fork";
 import { kimiHistory, type HistoryPorts } from "./history";
+import { readKimiLimits, type LimitsPorts } from "./limits";
 import {
   launchPlans,
   sha256Hex,
@@ -100,7 +101,8 @@ export function setupNotification(state: SetupState): {
 
 /** What the plugin needs from the host — the parts of its context it uses. */
 export type KimiPorts = HistoryPorts &
-  ForkPorts & {
+  ForkPorts &
+  LimitsPorts & {
     agents: PluginAgents;
     resources: PluginResources;
     settings: Pick<PluginSettings, "registerSection">;
@@ -116,11 +118,11 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
     icon,
     detect: { bin: "kimi" },
     // Tokens/context ride the tailed wire.jsonl; rate windows exist only
-    // behind the polled usages endpoint (kimi's own /usage queries it too).
+    // behind the usages endpoint (kimi's own /usage queries it too).
     usage: {
       normalize: normalizeKimiWire,
       tail: { watches: kimiUsageWatches },
-      limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
+      limits: { read: () => readKimiLimits(ctx), normalize: normalizeKimiUsages },
     },
     status: {
       normalize: normalizeKimiStatus,

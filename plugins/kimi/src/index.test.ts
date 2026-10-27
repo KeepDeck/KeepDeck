@@ -73,6 +73,8 @@ function activate(options: ActivationOptions = {}) {
         appendLine: absent("fsWrite"),
       },
       sessionStore: { read: absent("sessionStore") },
+      http: { get: absent("http") },
+      env: { get: async () => null },
     },
     settings: {
       registerSection: vi.fn((section: SettingsSectionContribution) => {

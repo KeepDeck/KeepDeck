@@ -70,7 +70,7 @@ function recordingCtx(files: Record<string, string>): {
   };
   const ctx = {
     log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
-    services: { fs, sessionStore: createSessionStore(fs) },
+    services: { fs, sessionStore: createSessionStore(fs), env: { get: async () => null } },
   };
   return { ctx, reads };
 }
