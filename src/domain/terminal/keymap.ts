@@ -1,17 +1,18 @@
 /**
  * Decides what to do with a terminal key event before xterm encodes it.
  *
- * The only override today is Shift+Enter. Terminals send a bare CR for both
- * Enter and Shift+Enter, so the agent can't tell a soft newline from submit;
- * Claude Code reads the CSI-u sequence `\x1b[13;2u` (key 13 = Enter, modifier
- * 2 = Shift in the Kitty keyboard protocol) as "insert a newline" instead. It's
- * the same sequence VSCode's xterm.js sends, accepted without protocol
- * negotiation.
+ * Generic terminal policy, the same for every agent: the only override is
+ * Shift+Enter. Terminals send a bare CR for both Enter and Shift+Enter, so a
+ * program can't tell a soft newline from submit. KeepDeck sends the CSI-u
+ * sequence `\x1b[13;2u` instead (key 13 = Enter, modifier 2 = Shift; the
+ * fixterms / Kitty keyboard encoding), which agent TUIs read as "insert a
+ * newline". It's the sequence VSCode's xterm.js sends, accepted without
+ * protocol negotiation; every bundled agent was checked live (task-516).
  *
  * Crucially, Shift+Enter must be BLOCKED on every event type (keydown, keypress,
  * keyup) so xterm can't emit a CR from the keypress/keyup that slips past a
  * keydown-only block — but the sequence is sent only once, on keydown. Kept pure
- * so the mapping is testable without xterm/DOM; per-agent key maps come with [F9].
+ * so the mapping is testable without xterm/DOM.
  */
 export interface KeyEventLike {
   type: string;
