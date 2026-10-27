@@ -1,5 +1,6 @@
 import { isJsonRecord, type TokenCounts } from "@keepdeck/plugin-api";
 import { finiteNonNegative } from "./guards";
+import { isV1CostSource, salvageV1Event } from "./migrateV1";
 
 /**
  * The durable usage event — its schema and its wire codec. Provider payloads
@@ -79,10 +80,8 @@ export function clampOccurredAt(occurredAt: number, capturedAt: number): number 
   return occurredAt;
 }
 
-/** Tolerant per-line decoder with a narrow v1 salvage path. V1 Codex and
- * OpenCode token deltas remain trustworthy, but locally estimated costs are
- * discarded. Claude v1 token counters came from a non-cumulative status-line
- * field, so only its positive provider-reported cost deltas survive. */
+/** Tolerant per-line decoder, with a narrow salvage path for schema-1 lines
+ * ([`salvageV1Event`]). */
 export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
   let value: unknown;
   try {
@@ -95,14 +94,7 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
   }
   const migrated = value.schemaVersion === 1;
   if (!migrated && value.schemaVersion !== USAGE_EVENT_SCHEMA_VERSION) return null;
-  if (
-    migrated &&
-    value.costSource !== "reported" &&
-    value.costSource !== "estimated" &&
-    value.costSource !== "unavailable"
-  ) {
-    return null;
-  }
+  if (migrated && !isV1CostSource(value.costSource)) return null;
 
   const common = readCommonEvent(value);
   if (!common) return null;
@@ -123,50 +115,17 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
     return null;
   }
 
+  if (migrated) {
+    const event = salvageV1Event(
+      { common, tokens, observedTokens, observationCost, costSource: value.costSource, costUsd: value.costUsd },
+      USAGE_EVENT_SCHEMA_VERSION,
+    );
+    return event ? { migrated: true, event } : null;
+  }
   const observed: UsageObservation = {
-    tokens: migrated && value.agent === "claude" ? {} : observedTokens,
+    tokens: observedTokens,
     ...(observationCost !== undefined ? { costUsd: observationCost } : {}),
   };
-  if (migrated) {
-    const providerCost =
-      value.costSource === "reported" && finiteNonNegative(value.costUsd)
-        ? value.costUsd
-        : undefined;
-    if (value.agent === "claude") {
-      if (providerCost === undefined || providerCost <= 0) return null;
-      return {
-        migrated: true,
-        event: {
-          ...common,
-          schemaVersion: USAGE_EVENT_SCHEMA_VERSION,
-          tokens: {},
-          costSource: "provider",
-          costUsd: providerCost,
-          observation: observed,
-        },
-      };
-    }
-    return {
-      migrated: true,
-      event:
-        providerCost !== undefined
-          ? {
-              ...common,
-              schemaVersion: USAGE_EVENT_SCHEMA_VERSION,
-              tokens,
-              costSource: "provider",
-              costUsd: providerCost,
-              observation: observed,
-            }
-          : {
-              ...common,
-              schemaVersion: USAGE_EVENT_SCHEMA_VERSION,
-              tokens,
-              costSource: "unavailable",
-              observation: observed,
-            },
-    };
-  }
 
   if (value.costSource === "provider") {
     if (!finiteNonNegative(value.costUsd)) return null;
@@ -215,12 +174,10 @@ export function isFutureSchemaLine(line: string): boolean {
   }
 }
 
-function readCommonEvent(
-  value: Record<string, unknown>,
-): Omit<
-  UsageEventV2Base,
-  "schemaVersion" | "tokens" | "observation"
-> | null {
+/** What every event says whatever its schema: who, where and when. */
+export type UsageEventCommon = Omit<UsageEventV2Base, "schemaVersion" | "tokens" | "observation">;
+
+function readCommonEvent(value: Record<string, unknown>): UsageEventCommon | null {
   const eventId = nonEmptyString(value.eventId);
   const agent = nonEmptyString(value.agent);
   const workspaceId = nonEmptyString(value.workspaceId);

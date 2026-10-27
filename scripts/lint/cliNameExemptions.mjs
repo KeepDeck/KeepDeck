@@ -30,9 +30,9 @@ export const CLI_NAME_EXEMPTIONS = [
 
   // Frozen history: what an older build's files meant.
   { file: "src/domain/migrations/migrations.ts", names: ["claude"], count: 1, reason: "deck v13 → v14: a pane stored without an agent was claude's", until: null },
+  { file: "src/domain/usage/history/migrateV1.ts", names: ["claude"], count: 1, reason: "usage schema 1: claude's v1 counters were not cumulative", until: null },
 
   // Presentation the core holds per CLI.
-  { file: "src/domain/usage/history/event.ts", names: ["claude"], count: 2, reason: "reads legacy usage records as claude", until: "task-527" },
   { file: "src/app/coreCommands/spawn.ts", names: ["claude", "codex", "opencode"], count: 6, reason: "tool descriptions list agent ids; built from the catalog", until: "task-528" },
   { file: "src/components/mcp/McpDialog.tsx", names: ["claude", "codex", "kimi", "opencode"], count: 4, reason: "hint lists the CLIs; built from the catalog", until: "task-528" },
   { file: "src/components/skills/SkillsDialog.tsx", names: ["claude", "codex", "kimi", "opencode"], count: 4, reason: "hint lists the CLIs; built from the catalog", until: "task-528" },
