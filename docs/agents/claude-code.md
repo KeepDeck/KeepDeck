@@ -76,7 +76,11 @@ included.
   host counts it only for the process the pane is pinned to.
 - **Esc:** `turn.complete` with `reason: "aborted"` and no `agentId`, sent
   as `KeepDeckInterrupt`. One per Esc, mid-stream or mid-tool; none for a
-  stopped subagent.
+  stopped subagent. None either for a turn cut by a prompt sent while it
+  ran: claude settles a turn's own prompt before its `turn.start`, so a
+  prompt accepted while a turn is open is the next turn's, and that turn's
+  `turn.complete` (same `turnId`) can arrive after it from claude's serial
+  turn-event queue — stating it would end the new turn (2.1.311).
 - **Accepted prompt:** `session.append`, observed after claude wrote it,
   `door: "prompt"`, origin `composer`, no `agentId`, a non-meta user row.
   Sent as `KeepDeckPromptAccepted`: one per prompt taken in, idle or

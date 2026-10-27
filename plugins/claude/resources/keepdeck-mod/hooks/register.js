@@ -26,7 +26,7 @@
 import { createWire, parseBridge } from "./keepdeck-wire.js";
 
 /** @typedef {{ process: { run: (argv: string[], options?: { timeoutMs: number }) => Promise<{ stdout: string, exitCode: number }> }, http: { fetch: (url: string, init: { method: string, headers: Record<string, string>, body: string }) => Promise<{ status: number, text: string }> }, fs: { exists: (path: string) => Promise<boolean> }, prompt: { submit: (input: { text: string }) => Promise<unknown> }, env: { get: (name: string) => Promise<string | undefined> }, clock: { every: (ms: number, tick: () => Promise<void>) => unknown } }} ModContext */
-/** @typedef {{ reason?: string, agentId?: string, door?: string, origin?: { kind?: string }, message?: { type?: string, isMeta?: boolean } }} ModEvent */
+/** @typedef {{ reason?: string, turnId?: string, agentId?: string, door?: string, origin?: { kind?: string }, message?: { type?: string, isMeta?: boolean } }} ModEvent */
 /** @typedef {{ v: number, type: string, paneId: string, token: string, payload: Record<string, unknown> }} Envelope */
 /** @typedef {{ publish: (envelope: Envelope) => Promise<{ accepted: boolean }>, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope }} Wire */
 
@@ -181,14 +181,39 @@ export function register(on) {
     return next(e);
   });
 
+  /** The main turn last started, and the one a prompt taken in while it ran
+   * has superseded. A turn that ended never ends again, so neither needs
+   * clearing. While this Mod hooks `session.append`, claude settles a
+   * turn's own prompt rows before it raises that turn's `turn.start`, so a
+   * prompt accepted while a turn is open belongs to the NEXT turn — one sent
+   * while a tool ran, which cuts the running turn. That prompt can reach this
+   * Mod before the cut turn's `turn.complete`, which waits in claude's serial
+   * turn-event queue; its abort is then the hand-over, not the user stopping,
+   * and stating it would end the turn now running. A mid-turn fold of a
+   * queued prompt is an attachment, not an accepted prompt, so an Esc after
+   * one still interrupts. */
+  /** @type {string | null} */
+  let lastTurn = null;
+  /** @type {string | null} */
+  let supersededTurn = null;
+
+  on("turn.start", async (_$, e, next) => {
+    if (e.agentId === undefined && typeof e.turnId === "string") lastTurn = e.turnId;
+    return next(e);
+  });
+
   on("turn.complete", async (_$, e, next) => {
-    if (e.reason === "aborted" && e.agentId === undefined) state("KeepDeckInterrupt");
+    const superseded = e.turnId !== undefined && e.turnId === supersededTurn;
+    if (e.reason === "aborted" && e.agentId === undefined && !superseded) state("KeepDeckInterrupt");
     return next(e);
   });
 
   on("session.append", async (_$, e, next) => {
     const result = await next(e);
-    if (acceptedPrompt(e, result)) state("KeepDeckPromptAccepted");
+    if (acceptedPrompt(e, result)) {
+      if (lastTurn !== null) supersededTurn = lastTurn;
+      state("KeepDeckPromptAccepted");
+    }
     return result;
   });
 }
