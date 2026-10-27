@@ -41,6 +41,7 @@ const onRoot: Team = {
 
 const member = (teamId: string, own?: Pane["location"]): Pane => ({
   id: `pane-${teamId}`,
+  agentType: "claude",
   team: { teamId, role: "lead" },
   ...(own && { location: own }),
 });
@@ -72,9 +73,9 @@ describe("panePlacement is the team's", () => {
     expect(panePlacement(workspace, member("team-3"))).toEqual({ kind: "root" });
     expect(paneExecutionCwd(workspace, member("team-3"))).toBe("/repo");
     expect(paneBranch(workspace, member("team-3"))).toBeUndefined();
-    expect(paneExecutionCwd(workspace, { id: "pane-9" })).toBe("/repo");
+    expect(paneExecutionCwd(workspace, { id: "pane-9", agentType: "claude" })).toBe("/repo");
     expect(paneExecutionCwd(ws(), member("team-404"))).toBe("/repo");
-    expect(paneBranch(workspace, { id: "pane-9", location: { kind: "remote", endpoint: "e" } })).toBeUndefined();
+    expect(paneBranch(workspace, { id: "pane-9", agentType: "claude", location: { kind: "remote", endpoint: "e" } })).toBeUndefined();
   });
 
   it("paneWorktree names a team's directory apart from the root, and nothing for the root", () => {
@@ -84,7 +85,7 @@ describe("panePlacement is the team's", () => {
     expect(paneBranch(workspace, member("team-4"))).toBe("main");
     expect(paneWorktree(workspace, member("team-4"))).toBeNull();
     expect(paneWorktree(ws({ cwd: "/repo/" , teams: [onRoot] }), member("team-4"))).toBeNull();
-    expect(paneWorktree(workspace, { id: "pane-9" })).toBeNull();
+    expect(paneWorktree(workspace, { id: "pane-9", agentType: "claude" })).toBeNull();
   });
 });
 

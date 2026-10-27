@@ -92,17 +92,6 @@ describe("paneRunIntent — reasons to stay down", () => {
     });
   });
 
-  it("defaults the agent id the way the persisted format does", () => {
-    const intent = paneRunIntent({},
-      pane({ agentType: undefined }),
-      env({ agentAvailable: false }),
-    );
-    expect(intent).toEqual({
-      kind: "hold",
-      reason: { kind: "agent-unavailable", agent: "claude" },
-    });
-  });
-
   it("carries a suspend marker WHOLE, so a failed wake can restore it", () => {
     const idle = { reason: "suspended", at: "2026-07-26T10:00:00.000Z" } as const;
     expect(paneRunIntent({},pane({ idle }), env())).toEqual({

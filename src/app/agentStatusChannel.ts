@@ -4,7 +4,6 @@ import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import { attributedEvent } from "./statusPayloadLabel";
-import { paneAgentType } from "../domain/deck";
 import { isNavigationKey } from "../domain/terminal";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
@@ -120,7 +119,7 @@ export function createAgentStatusChannel(
       if (current.has(agentId)) continue;
       for (const workspace of deck.getSnapshot().workspaces) {
         for (const pane of workspace.panes) {
-          if (paneAgentType(pane) === agentId) tracker.clear(pane.id);
+          if (pane.agentType === agentId) tracker.clear(pane.id);
         }
       }
     }

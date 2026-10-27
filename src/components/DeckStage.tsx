@@ -4,7 +4,6 @@ import {
   gridTracks,
   paneColumnSpan,
   paneDisplayTitle,
-  paneAgentType,
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
@@ -371,7 +370,7 @@ export function DeckStage({
         ): MinimizedTrayEntry => {
           const title = titleOf(pane);
           const team = teamOf(ws, pane);
-          const agent = agents.find((a) => a.id === paneAgentType(pane));
+          const agent = agents.find((a) => a.id === pane.agentType);
           return {
             id: pane.id,
             title,
@@ -405,7 +404,7 @@ export function DeckStage({
         // badge resolution lives in ONE place; `layout` carries positioning.
         const renderPane = (pane: Pane) => {
           const layout = layoutFor(pane);
-          const agentType = paneAgentType(pane);
+          const agentType = pane.agentType;
           const agentInfo = agents.find((a) => a.id === agentType);
           const spec = specByPane[pane.id];
           const command =

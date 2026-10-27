@@ -2,7 +2,6 @@ import {
   findPane,
   findWorkspace,
   findWorkspaceByRef,
-  paneAgentType,
   paneResumeSessionId,
   paneBranch,
   paneExecutionCwd,
@@ -124,7 +123,7 @@ export function createAgentOrchestratorRestart({
     return {
       workspace: { id: workspace.id, instance: workspace.instance },
       paneId,
-      agentType: paneAgentType(pane),
+      agentType: pane.agentType,
       cwd,
       branch: paneBranch(workspace, pane),
       yolo: pane.yolo,

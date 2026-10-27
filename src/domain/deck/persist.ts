@@ -152,7 +152,7 @@ export function serializeDeck(
           return {
           ...p.extras,
           id: p.id,
-          ...(p.agentType !== undefined && { agentType: p.agentType }),
+          agentType: p.agentType,
           // Sparse: only the armed mode hits disk.
           ...(p.yolo === true && { yolo: true }),
           // The pane's own placement is a remote endpoint or nothing: its
@@ -482,15 +482,15 @@ function readPane(
 ): Pane | null {
   if (!isJsonRecord(value)) return null;
   if (typeof value.id !== "string") return null;
-  const pane: Pane = { id: value.id, idle: readIdle(value.idle) };
   // Any non-empty string id is kept verbatim: the id set is OPEN (agents
   // come from plugins) and hydration runs BEFORE plugin bootstrap, so a
   // catalog check here would misfire on every boot. A pane whose plugin is
   // absent surfaces "agent unavailable" at render time — silently degrading
-  // it to a default agent would resume the wrong CLI in its directory.
-  if (typeof value.agentType === "string" && value.agentType) {
-    pane.agentType = value.agentType;
-  }
+  // it to a default agent would resume the wrong CLI in its directory. A
+  // pane that names no agent at all is not one this reader can run: the
+  // ladder gave every stored pane its agent (v14), so it was written so.
+  if (typeof value.agentType !== "string" || !value.agentType) return null;
+  const pane: Pane = { id: value.id, agentType: value.agentType, idle: readIdle(value.idle) };
   // Strictly `true` — any other value degrades to the safe default (off),
   // matching the sparse write above.
   if (value.yolo === true) pane.yolo = true;

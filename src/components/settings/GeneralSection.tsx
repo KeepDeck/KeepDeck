@@ -72,7 +72,7 @@ export function GeneralSection() {
       <Segmented
         ariaLabel="Default agent"
         options={agentOptions.map((a) => ({ value: a.id, label: a.label }))}
-        value={defaultAgent}
+        value={defaultAgent ?? undefined}
         onChange={(id) => updateSettings({ defaultAgent: id })}
       />
       <span className="settings__hint">

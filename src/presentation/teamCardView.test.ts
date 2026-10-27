@@ -39,6 +39,7 @@ const ws = (teams: Team[], members: Record<string, number>): Workspace => ({
   panes: teams.flatMap((team) =>
     Array.from({ length: members[team.id] ?? 0 }, (_, index) => ({
       id: `${team.id}-p${index + 1}`,
+      agentType: "claude",
       team: { teamId: team.id, role: `impl-${index + 1}` },
     })),
   ),

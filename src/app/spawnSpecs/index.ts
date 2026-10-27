@@ -8,7 +8,6 @@
 import type { ResumeOrigin } from "../../domain/agents";
 import type { SpawnPlan, SpawnPlanContext } from "./plans";
 import {
-  paneAgentType,
   paneHasProcess,
   type Pane,
   type Workspace,
@@ -183,7 +182,7 @@ export async function buildLivePaneSpec(
   if (hasPaneSpawnSpec(pane.id) || isPaneSpawnSpecPending(pane.id) || peekPanePlanError(pane.id)) {
     return false;
   }
-  const agent = findAgent(plugins, paneAgentType(pane));
+  const agent = findAgent(plugins, pane.agentType);
   if (!agent) return false;
   const endpoint = remoteEndpointOf(pane);
   // Where the pane runs, through the deck's one formula — null while its

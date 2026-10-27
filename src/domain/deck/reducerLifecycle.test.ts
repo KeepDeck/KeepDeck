@@ -15,10 +15,11 @@ describe("deckReducer restore actions ([F7])", () => {
     panes: [
       {
         id: "pane-1",
+        agentType: "claude",
         idle: { reason: "waking", origin: "restore" },
         team: { teamId: "team-1", role: "lead" },
       },
-      { id: "pane-2", team: { teamId: "team-1", role: "impl-1" } },
+      { id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
     ],
   };
   /** The view with the team open — a highlight only ever lives inside one. */
@@ -56,6 +57,7 @@ describe("deckReducer restore actions ([F7])", () => {
     });
     expect(next.workspaces[0].panes[0]).toEqual({
       id: "pane-1",
+      agentType: "claude",
       team: { teamId: "team-1", role: "lead" },
     });
   });
@@ -87,6 +89,7 @@ describe("deckReducer restore actions ([F7])", () => {
     });
     expect(next.workspaces[0].panes[1]).toEqual({
       id: "pane-2",
+      agentType: "claude",
       team: { teamId: "team-1", role: "impl-1" },
       idle: { reason: "suspended", at: "2026-07-25T10:00:00.000Z" },
     });
@@ -236,6 +239,7 @@ describe("deckReducer restore actions ([F7])", () => {
     });
     expect(woken.workspaces[0].panes[1]).toEqual({
       id: "pane-2",
+      agentType: "claude",
       team: { teamId: "team-1", role: "impl-1" },
       idle: {
         reason: "waking",
@@ -341,11 +345,12 @@ describe("deckReducer restore actions ([F7])", () => {
       panes: [
         {
           id: "pane-1",
+          agentType: "claude",
           idle: { reason: "waking", origin: "restore" },
           team: { teamId: "team-1", role: "lead" },
           session: { id: "s", boundAt: "2026-07-02T00:00:00Z" },
         },
-        { id: "pane-2" },
+        { id: "pane-2", agentType: "claude" },
       ],
     };
     const start = state({ workspaces: [wtWs], activeId: "ws-1" });
@@ -356,6 +361,7 @@ describe("deckReducer restore actions ([F7])", () => {
     });
     expect(reset.workspaces[0].panes[0]).toEqual({
       id: "pane-1",
+      agentType: "claude",
       idle: { reason: "waking", origin: "restore" },
       team: { teamId: "team-1", role: "lead" },
     });
@@ -433,6 +439,7 @@ describe("resetPaneSession", () => {
       panes: [
         {
           id: "pane-1",
+          agentType: "claude",
           idle: { reason: "waking", origin: "restore" },
           team: { teamId: "team-1", role: "lead" },
           session: { id: "s-1", boundAt: "2026-07-07T00:00:00Z" },
@@ -449,6 +456,7 @@ describe("resetPaneSession", () => {
     );
     expect(next.workspaces[0].panes[0]).toEqual({
       id: "pane-1",
+      agentType: "claude",
       idle: { reason: "waking", origin: "restore" },
       team: { teamId: "team-1", role: "lead" },
     });
@@ -473,7 +481,7 @@ describe("deckReducer team provisioning actions", () => {
         },
       },
     ],
-    panes: [{ id: "pane-1", team: { teamId: "team-1", role: "lead" } }],
+    panes: [{ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
   };
   const location = (s: { workspaces: Workspace[] }) => s.workspaces[0].teams?.[0].location;
 

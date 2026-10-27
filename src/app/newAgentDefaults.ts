@@ -25,12 +25,10 @@ import { getSettings } from "./settingsManager";
  * The preference is read here, at the moment of asking — its value matters
  * when the pane is being shaped, not when the app booted.
  */
-export function nextAgentType(agents: AgentInfo[], ws: Workspace): AgentType {
+export function nextAgentType(agents: AgentInfo[], ws: Workspace): AgentType | null {
   return defaultAgentType(
     agents,
-    ws.panes[ws.panes.length - 1]?.agentType ??
-      getSettings()?.defaultAgent ??
-      "claude",
+    ws.panes[ws.panes.length - 1]?.agentType ?? getSettings()?.defaultAgent ?? null,
   );
 }
 

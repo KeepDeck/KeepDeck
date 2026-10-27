@@ -19,7 +19,7 @@ import { bindingOrigin, createPaneAttribution } from "./paneAttribution";
 const workspaces: Workspace[] = [
   {
     ...workspace("ws-1", []),
-    panes: [{ id: "pane-1", agentType: "claude" }, { id: "pane-2" }],
+    panes: [{ id: "pane-1", agentType: "claude" }, { id: "pane-2", agentType: "claude" }],
   },
 ];
 

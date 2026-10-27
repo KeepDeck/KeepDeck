@@ -8,9 +8,9 @@ const twoTeams = (): Workspace => ({
   ...teamedWorkspace("a", ["a-1", "a-2", "a-3"]),
   teams: [team("team-1"), team("team-2")],
   panes: [
-    { id: "a-1", team: { teamId: "team-1", role: "lead" } },
-    { id: "a-2", team: { teamId: "team-2", role: "lead" } },
-    { id: "a-3", team: { teamId: "team-2", role: "impl-1" } },
+    { id: "a-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+    { id: "a-2", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
+    { id: "a-3", agentType: "claude", team: { teamId: "team-2", role: "impl-1" } },
   ],
 });
 

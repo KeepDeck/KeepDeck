@@ -8,7 +8,6 @@ import {
 } from "../domain/agents";
 import {
   findWorkspaceOfPane,
-  paneAgentType,
   type Workspace,
 } from "../domain/deck";
 import type { AgentBindingReport } from "@keepdeck/plugin-api";
@@ -142,7 +141,7 @@ export function createPaneAttribution(
     const pane = findWorkspaceOfPane(deps.workspaces(), paneId)?.panes.find(
       (candidate) => candidate.id === paneId,
     );
-    return pane ? paneAgentType(pane) : undefined;
+    return pane ? pane.agentType : undefined;
   };
 
   /** The pane's agent on this report, asked safely: its contribution is a

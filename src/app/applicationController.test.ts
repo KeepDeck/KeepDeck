@@ -25,7 +25,7 @@ const workspace = (): Workspace => ({
   name: "Workspace",
   cwd: "/repo",
   worktreeBaseDir: null,
-  panes: [{ id: "pane-1" }, { id: "pane-2" }],
+  panes: [{ id: "pane-1", agentType: "claude" }, { id: "pane-2", agentType: "claude" }],
 });
 
 function dependencies() {
@@ -121,8 +121,8 @@ describe("application controller", () => {
       ...workspace(),
       teams: [{ id: "team-1", name: "team-1", location: { kind: "attached", cwd: "/repo" } }],
       panes: [
-        { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
-        { id: "pane-2", team: { teamId: "team-1", role: "impl-1" } },
+        { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+        { id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
       ],
     };
     const deck = createDeckStore({

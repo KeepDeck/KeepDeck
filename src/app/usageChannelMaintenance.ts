@@ -1,5 +1,5 @@
 import { errorMessage, type TailWatch, type UsageNormalizer } from "@keepdeck/plugin-api";
-import { paneAgentType, paneWorktree } from "../domain/deck";
+import { paneWorktree } from "../domain/deck";
 import { log } from "../ipc/log";
 import { readStoreCold } from "../ipc/usage";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
@@ -108,7 +108,7 @@ export function createUsageMaintenanceLane({
       const pane = workspace?.panes.find(
         (candidate) => candidate.id === paneId,
       );
-      if (!workspace || !pane || paneAgentType(pane) !== paneUsage.agent) {
+      if (!workspace || !pane || pane.agentType !== paneUsage.agent) {
         continue;
       }
       const sessionId = paneUsage.sessionId ?? pane.session?.id;

@@ -31,24 +31,24 @@ const creating = {
     },
   ],
 };
-const creatingMember: Pane = { id: "p", team: { teamId: "team-1", role: "lead" } };
+const creatingMember: Pane = { id: "p", agentType: "claude", team: { teamId: "team-1", role: "lead" } };
 
 describe("paneHasProcess", () => {
   it("false for every reason a pane has none, true only for a plain pane", () => {
-    expect(paneHasProcess({},{ id: "p" })).toBe(true);
+    expect(paneHasProcess({},{ id: "p", agentType: "claude" })).toBe(true);
     // Exited is still "has a process" to the model: the marker is runtime
     // state the durable shape deliberately doesn't carry.
-    expect(paneHasProcess({},{ id: "p", session: { id: "s", boundAt: "t" } })).toBe(
+    expect(paneHasProcess({},{ id: "p", agentType: "claude", session: { id: "s", boundAt: "t" } })).toBe(
       true,
     );
     // Every idle reason, including the one on its way UP — a rising pane has
     // no session YET, which is what the telemetry lanes need to know.
-    expect(paneHasProcess({},{ id: "p", idle: { reason: "parked" } })).toBe(false);
+    expect(paneHasProcess({},{ id: "p", agentType: "claude", idle: { reason: "parked" } })).toBe(false);
     expect(
-      paneHasProcess({},{ id: "p", idle: { reason: "suspended", at: "t" } }),
+      paneHasProcess({},{ id: "p", agentType: "claude", idle: { reason: "suspended", at: "t" } }),
     ).toBe(false);
     expect(
-      paneHasProcess({},{ id: "p", idle: { reason: "waking", origin: "manual" } }),
+      paneHasProcess({},{ id: "p", agentType: "claude", idle: { reason: "waking", origin: "manual" } }),
     ).toBe(false);
     // The half the limits poller used to drop: mid-create, never ran.
     expect(paneHasProcess(creating, creatingMember)).toBe(false);
@@ -60,18 +60,18 @@ describe("paneCanSuspend", () => {
     // Exit is runtime state the durable model doesn't carry, so an exited pane
     // is indistinguishable here — deliberately: parking a dead agent is
     // meaningful, its card just becomes the honest stopped one.
-    expect(paneCanSuspend({},{ id: "p" }, false)).toBe(true);
+    expect(paneCanSuspend({},{ id: "p", agentType: "claude" }, false)).toBe(true);
     expect(
-      paneCanSuspend({},{ id: "p", session: { id: "s", boundAt: "t" } }, false),
+      paneCanSuspend({},{ id: "p", agentType: "claude", session: { id: "s", boundAt: "t" } }, false),
     ).toBe(true);
   });
 
   it("false only for a pane already STAYING down", () => {
-    expect(paneCanSuspend({},{ id: "p", idle: { reason: "parked" } }, false)).toBe(
+    expect(paneCanSuspend({},{ id: "p", agentType: "claude", idle: { reason: "parked" } }, false)).toBe(
       false,
     );
     expect(
-      paneCanSuspend({},{ id: "p", idle: { reason: "suspended", at: "t" } }, false),
+      paneCanSuspend({},{ id: "p", agentType: "claude", idle: { reason: "suspended", at: "t" } }, false),
     ).toBe(false);
   });
 
@@ -80,27 +80,27 @@ describe("paneCanSuspend", () => {
     // activated; refusing them made those agents impossible to park.
     expect(
       paneCanSuspend({},
-        { id: "p", idle: { reason: "waking", origin: "restore" } },
+        { id: "p", agentType: "claude", idle: { reason: "waking", origin: "restore" } },
         false,
       ),
     ).toBe(true);
     expect(
       paneCanSuspend({},
-        { id: "p", idle: { reason: "waking", origin: "manual" } },
+        { id: "p", agentType: "claude", idle: { reason: "waking", origin: "manual" } },
         false,
       ),
     ).toBe(true);
   });
 
   it("names the reason it refuses, so every surface says the same thing", () => {
-    expect(paneSuspendBlock({},{ id: "p" }, false)).toBeNull();
-    expect(paneSuspendBlock({},{ id: "p", idle: { reason: "parked" } }, false)).toBe(
+    expect(paneSuspendBlock({},{ id: "p", agentType: "claude" }, false)).toBeNull();
+    expect(paneSuspendBlock({},{ id: "p", agentType: "claude", idle: { reason: "parked" } }, false)).toBe(
       "stopped",
     );
     expect(paneSuspendBlock(creating, creatingMember, false)).toBe("provisioning");
     expect(
       paneSuspendBlock({},
-        { id: "p", location: { kind: "remote", endpoint: "ws://vps:4500" } },
+        { id: "p", agentType: "claude", location: { kind: "remote", endpoint: "ws://vps:4500" } },
         false,
       ),
     ).toBe("remote");
@@ -109,6 +109,7 @@ describe("paneCanSuspend", () => {
       paneSuspendBlock({},
         {
           id: "p",
+          agentType: "claude",
           idle: { reason: "parked" },
           location: { kind: "remote", endpoint: "ws://vps:4500" },
         },
@@ -123,21 +124,22 @@ describe("paneCanSuspend", () => {
     // tile and the tray cannot disagree about which panes are dead.
     const rising = {
       id: "p",
+      agentType: "claude",
       idle: { reason: "waking", origin: "restore" },
     } as const;
     expect(paneSuspendBlock({},rising, false)).toBeNull();
     expect(paneSuspendBlock({},rising, true)).toBe("stopped");
     // A LIVE pane is never stopped by a stale entry: it has no idle marker,
     // and a running agent is not "already stopped" whatever the map says.
-    expect(paneSuspendBlock({},{ id: "p" }, true)).toBeNull();
+    expect(paneSuspendBlock({},{ id: "p", agentType: "claude" }, true)).toBeNull();
     // Already-down panes answer the same with or without a block — the
     // argument can only ADD a reason to refuse, never remove one.
     for (const idle of [
       { reason: "parked" },
       { reason: "suspended", at: "t" },
     ] as const) {
-      expect(paneSuspendBlock({},{ id: "p", idle }, false)).toBe("stopped");
-      expect(paneSuspendBlock({},{ id: "p", idle }, true)).toBe("stopped");
+      expect(paneSuspendBlock({},{ id: "p", agentType: "claude", idle }, false)).toBe("stopped");
+      expect(paneSuspendBlock({},{ id: "p", agentType: "claude", idle }, true)).toBe("stopped");
     }
   });
 
@@ -147,7 +149,7 @@ describe("paneCanSuspend", () => {
 
   it("false for a REMOTE pane — its conversation lives on the server", () => {
     expect(
-      paneCanSuspend({},{ id: "p", location: { kind: "remote", endpoint: "ws://vps:4500" } }, false),
+      paneCanSuspend({},{ id: "p", agentType: "claude", location: { kind: "remote", endpoint: "ws://vps:4500" } }, false),
     ).toBe(false);
   });
 });
@@ -173,16 +175,16 @@ describe("paneWakeOrigin / paneWakesAutomatically", () => {
     // `: "restore"` fallback: that fallback would hand a future auto-waking
     // reason the one origin allowed to become a different conversation.
     expect(
-      paneWakeOrigin({ id: "p", idle: { reason: "waking", origin: "restore" } }),
+      paneWakeOrigin({ id: "p", agentType: "claude", idle: { reason: "waking", origin: "restore" } }),
     ).toBe("restore");
     expect(
-      paneWakeOrigin({ id: "p", idle: { reason: "waking", origin: "manual" } }),
+      paneWakeOrigin({ id: "p", agentType: "claude", idle: { reason: "waking", origin: "manual" } }),
     ).toBe("manual");
-    expect(paneWakeOrigin({ id: "p", idle: { reason: "parked" } })).toBeNull();
+    expect(paneWakeOrigin({ id: "p", agentType: "claude", idle: { reason: "parked" } })).toBeNull();
     expect(
-      paneWakeOrigin({ id: "p", idle: { reason: "suspended", at: "t" } }),
+      paneWakeOrigin({ id: "p", agentType: "claude", idle: { reason: "suspended", at: "t" } }),
     ).toBeNull();
-    expect(paneWakeOrigin({ id: "p" })).toBeNull();
+    expect(paneWakeOrigin({ id: "p", agentType: "claude" })).toBeNull();
   });
 
   it("agrees with the predicate the sweep guards on", () => {
@@ -193,18 +195,18 @@ describe("paneWakeOrigin / paneWakesAutomatically", () => {
       { reason: "parked" },
       { reason: "suspended", at: "t" },
     ] as const) {
-      const pane = { id: "p", ...(idle && { idle }) };
+      const pane = { id: "p", agentType: "claude" as const, ...(idle && { idle }) };
       expect(paneWakeOrigin(pane) !== null).toBe(paneWakesAutomatically(pane));
     }
   });
 
   it("a live pane is not the sweep's business", () => {
-    expect(paneWakesAutomatically({ id: "p" })).toBe(false);
-    expect(paneWakesAutomatically({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(
+    expect(paneWakesAutomatically({ id: "p", agentType: "claude" })).toBe(false);
+    expect(paneWakesAutomatically({ id: "p", agentType: "claude", idle: { reason: "waking", origin: "restore" } })).toBe(
       true,
     );
     expect(
-      paneWakesAutomatically({ id: "p", idle: { reason: "suspended", at: "t" } }),
+      paneWakesAutomatically({ id: "p", agentType: "claude", idle: { reason: "suspended", at: "t" } }),
     ).toBe(false);
   });
 });
@@ -254,9 +256,9 @@ describe("paneSessionHandle", () => {
   });
 
   it("is null with nothing bound, or no directory yet to have run it in", () => {
-    expect(paneSessionHandle(ws, { id: "p", team: { teamId: "team-1", role: "lead" } })).toBeNull();
+    expect(paneSessionHandle(ws, { id: "p", agentType: "claude", team: { teamId: "team-1", role: "lead" } })).toBeNull();
     expect(
-      paneSessionHandle(ws, { id: "p", team: { teamId: "team-2", role: "lead" }, session: { id: "s-1", boundAt: "t" } }),
+      paneSessionHandle(ws, { id: "p", agentType: "claude", team: { teamId: "team-2", role: "lead" }, session: { id: "s-1", boundAt: "t" } }),
     ).toBeNull();
   });
 });
@@ -264,9 +266,9 @@ describe("paneSessionHandle", () => {
 describe("paneResumeSessionId", () => {
   it("is the binding, or null when the pane would start fresh", () => {
     expect(
-      paneResumeSessionId({ id: "p", session: { id: "s-1", boundAt: "t" } }),
+      paneResumeSessionId({ id: "p", agentType: "claude", session: { id: "s-1", boundAt: "t" } }),
     ).toBe("s-1");
-    expect(paneResumeSessionId({ id: "p" })).toBeNull();
+    expect(paneResumeSessionId({ id: "p", agentType: "claude" })).toBeNull();
   });
 
   it("is null for a remote pane even when a stale binding clings to it", () => {
@@ -275,6 +277,7 @@ describe("paneResumeSessionId", () => {
     expect(
       paneResumeSessionId({
         id: "p",
+        agentType: "claude",
         location: { kind: "remote", endpoint: "ws://vps:4500" },
         session: { id: "stale", boundAt: "t" },
       }),
@@ -301,7 +304,7 @@ describe("paneBlock — the head both ladders share", () => {
 
   it("carries the idle marker WHOLE, so a caller can put it back", () => {
     const idle = { reason: "suspended", at: "2026-07-27T10:00:00.000Z" } as const;
-    expect(paneBlock({},{ id: "p1", idle }, true)).toEqual({
+    expect(paneBlock({},{ id: "p1", agentType: "claude", idle }, true)).toEqual({
       kind: "stopped",
       by: idle,
     });
@@ -313,13 +316,13 @@ describe("sessionClaimant", () => {
   const free = () => false;
 
   it("says nothing when no pane holds the session", () => {
-    expect(sessionClaimant(decks([{ id: "p1" }]), "s-1", free)).toBeNull();
+    expect(sessionClaimant(decks([{ id: "p1", agentType: "claude" }]), "s-1", free)).toBeNull();
   });
 
   it("finds the holder across workspaces and calls a live one running", () => {
-    const holder: Pane = { id: "p2", session: { id: "s-1", boundAt: "t" } };
+    const holder: Pane = { id: "p2", agentType: "claude", session: { id: "s-1", boundAt: "t" } };
     expect(
-      sessionClaimant([{ panes: [{ id: "p1" }] }, { panes: [holder] }], "s-1", free),
+      sessionClaimant([{ panes: [{ id: "p1", agentType: "claude" }] }, { panes: [holder] }], "s-1", free),
     ).toEqual({ pane: holder, reads: "running" });
   });
 
@@ -329,6 +332,7 @@ describe("sessionClaimant", () => {
         decks([
           {
             id: "p1",
+            agentType: "claude",
             idle: { reason: "suspended", at: "t" },
             session: { id: "s-1", boundAt: "t" },
           },
@@ -347,6 +351,7 @@ describe("sessionClaimant", () => {
         decks([
           {
             id: "p1",
+            agentType: "claude",
             idle: { reason: "waking", origin: "restore" },
             session: { id: "s-1", boundAt: "t" },
           },
@@ -365,6 +370,7 @@ describe("sessionClaimant", () => {
         decks([
           {
             id: "p1",
+            agentType: "claude",
             idle: { reason: "waking", origin: "restore" },
             session: { id: "s-1", boundAt: "t" },
           },
@@ -379,24 +385,24 @@ describe("sessionClaimant", () => {
 describe("paneCanPark", () => {
   it("parks a pane still rising by the sweep's own reasons", () => {
     expect(
-      paneCanPark({ id: "p1", idle: { reason: "waking", origin: "restore" } }),
+      paneCanPark({ id: "p1", agentType: "claude", idle: { reason: "waking", origin: "restore" } }),
     ).toBe(true);
   });
 
   it("never parks one a user just asked for", () => {
     expect(
-      paneCanPark({ id: "p1", idle: { reason: "waking", origin: "manual" } }),
+      paneCanPark({ id: "p1", agentType: "claude", idle: { reason: "waking", origin: "manual" } }),
     ).toBe(false);
   });
 
   it("never parks a running pane — a preference must not stop a live agent", () => {
-    expect(paneCanPark({ id: "p1" })).toBe(false);
+    expect(paneCanPark({ id: "p1", agentType: "claude" })).toBe(false);
   });
 
   it("never re-parks one that is already down", () => {
-    expect(paneCanPark({ id: "p1", idle: { reason: "parked" } })).toBe(false);
+    expect(paneCanPark({ id: "p1", agentType: "claude", idle: { reason: "parked" } })).toBe(false);
     expect(
-      paneCanPark({ id: "p1", idle: { reason: "suspended", at: "t" } }),
+      paneCanPark({ id: "p1", agentType: "claude", idle: { reason: "suspended", at: "t" } }),
     ).toBe(false);
   });
 

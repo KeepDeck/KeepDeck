@@ -125,8 +125,10 @@ export function remoteEndpointOf(pane: Pick<Pane, "location">): string | null {
  * title comes from `name` / the auto title / the derived "Agent N". */
 export interface Pane {
   id: string;
-  /** The coding agent this pane runs — per pane, NOT tied to the workspace. */
-  agentType?: AgentType;
+  /** The coding agent this pane runs — per pane, NOT tied to the workspace.
+   * Always there: a pane stored before the field existed is given the agent
+   * it ran when the deck file is read (the v14 migration). */
+  agentType: AgentType;
   /** The pane's own placement — a remote endpoint, see [`PaneLocation`].
    * Absent means local: the pane runs in its team's directory, sparse like
    * every other field here. */

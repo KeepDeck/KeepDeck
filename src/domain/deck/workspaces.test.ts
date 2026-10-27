@@ -38,14 +38,14 @@ const ws = (id: string, paneNums: number[]): Workspace => ({
   name: id,
   cwd: "/tmp",
   worktreeBaseDir: null,
-  panes: paneNums.map((n) => ({ id: `${id}-p${n}` })),
+  panes: paneNums.map((n) => ({ id: `${id}-p${n}`, agentType: "claude" })),
 });
 
 describe("addAgentPane", () => {
   it("appends a pane (with its membership) to the target only", () => {
-    const pane: Pane = { id: "a-p2", team: { teamId: "team-1", role: "lead" } };
+    const pane: Pane = { id: "a-p2", agentType: "claude", team: { teamId: "team-1", role: "lead" } };
     const after = addAgentPane([ws("a", [1]), ws("b", [])], "a", pane);
-    expect(after[0].panes).toEqual([{ id: "a-p1" }, pane]);
+    expect(after[0].panes).toEqual([{ id: "a-p1", agentType: "claude" }, pane]);
     expect(after[1].panes).toHaveLength(0); // b untouched
   });
 
@@ -56,7 +56,7 @@ describe("addAgentPane", () => {
       "a",
       Array.from({ length: MAX_PANES }, (_, i) => i + 1),
     );
-    const after = addAgentPane([full], "a", { id: "overflow" });
+    const after = addAgentPane([full], "a", { id: "overflow", agentType: "claude" });
     expect(after[0].panes).toHaveLength(MAX_PANES + 1);
   });
 });
@@ -149,17 +149,18 @@ describe("renamePane", () => {
       "Build",
     );
     expect(after[0].panes).toEqual([
-      { id: "a-p1" },
-      { id: "a-p2", name: "Build" },
+      { id: "a-p1", agentType: "claude" },
+      { id: "a-p2", agentType: "claude", name: "Build" },
     ]);
-    expect(after[1].panes).toEqual([{ id: "b-p1" }]); // b untouched
+    expect(after[1].panes).toEqual([{ id: "b-p1", agentType: "claude" }]); // b untouched
   });
 
   it("clears the name (reverts to auto) on an empty/whitespace name", () => {
     const named = renamePane([ws("a", [1])], "a", "a-p1", "X");
-    expect(named[0].panes[0]).toEqual({ id: "a-p1", name: "X" });
+    expect(named[0].panes[0]).toEqual({ id: "a-p1", agentType: "claude", name: "X" });
     expect(renamePane(named, "a", "a-p1", "   ")[0].panes[0]).toEqual({
       id: "a-p1",
+      agentType: "claude",
     });
   });
 });
@@ -175,10 +176,10 @@ describe("worktreeTargets", () => {
     cwd: "/repo",
     worktreeBaseDir: "/wt",
     panes: [
-      { id: "a-p1", team: { teamId: "team-1", role: "lead" } },
-      { id: "a-p2", team: { teamId: "team-2", role: "lead" } },
-      { id: "a-p3", team: { teamId: "team-3", role: "lead" } },
-      { id: "a-p4", team: { teamId: "team-4", role: "lead" } },
+      { id: "a-p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+      { id: "a-p2", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
+      { id: "a-p3", agentType: "claude", team: { teamId: "team-3", role: "lead" } },
+      { id: "a-p4", agentType: "claude", team: { teamId: "team-4", role: "lead" } },
     ],
     teams: [
       { id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/kd-a-1", branch: "kd/a/1" } },
@@ -242,7 +243,7 @@ describe("worktreeTargets", () => {
       name: "b",
       cwd: "/repo",
       worktreeBaseDir: null,
-      panes: [{ id: "b-p1", team: { teamId: "team-1", role: "lead" } }],
+      panes: [{ id: "b-p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
       teams: [{ id: "team-1", name: "root", location: { kind: "attached", cwd: "/repo" } }],
     };
     expect(worktreeTargets(plain)).toEqual([]);
@@ -288,14 +289,15 @@ describe("findWorkspace / findWorkspaceOfPane", () => {
 describe("setPaneAutoTitle", () => {
   it("sets the (trimmed) auto title in the target pane only", () => {
     const after = setPaneAutoTitle([ws("a", [1, 2])], "a", "a-p1", "  ~/proj  ");
-    expect(after[0].panes[0]).toEqual({ id: "a-p1", autoTitle: "~/proj" });
-    expect(after[0].panes[1]).toEqual({ id: "a-p2" });
+    expect(after[0].panes[0]).toEqual({ id: "a-p1", agentType: "claude", autoTitle: "~/proj" });
+    expect(after[0].panes[1]).toEqual({ id: "a-p2", agentType: "claude" });
   });
 
   it("clears the auto title when empty", () => {
     const set = setPaneAutoTitle([ws("a", [1])], "a", "a-p1", "t");
     expect(setPaneAutoTitle(set, "a", "a-p1", "")[0].panes[0]).toEqual({
       id: "a-p1",
+      agentType: "claude",
     });
   });
 
@@ -321,13 +323,13 @@ const creatingTeam = (id: string, path: string): Team => ({
   name: id,
   location: { kind: "provisioning", intent: { repo: "/repo", path, index: 1 } },
 });
-const memberOf = (id: string, teamId: string): Pane => ({ id, team: { teamId, role: "lead" } });
+const memberOf = (id: string, teamId: string): Pane => ({ id, agentType: "claude", team: { teamId, role: "lead" } });
 
 describe("paneExecutionCwd", () => {
   it("uses the team's directory when the pane is on one, otherwise the workspace cwd", () => {
     const workspace: Workspace = { ...ws("a", [1]), teams: [teamAt("team-1", "/wt/one")] };
     expect(paneExecutionCwd(workspace, memberOf("a-p1", "team-1"))).toBe("/wt/one");
-    expect(paneExecutionCwd(workspace, { id: "a-p1" })).toBe("/tmp");
+    expect(paneExecutionCwd(workspace, { id: "a-p1", agentType: "claude" })).toBe("/tmp");
   });
 
   it("returns null while the team's create is still out", () => {
@@ -344,7 +346,7 @@ describe("gitWatchPaths", () => {
         teams: [teamAt("team-1", "/wt/one", "kd/a/1")],
         panes: [
           memberOf("a-p1", "team-1"),
-          { id: "a-p2" }, // runs in the workspace folder
+          { id: "a-p2", agentType: "claude" }, // runs in the workspace folder
         ],
       },
       {
@@ -375,7 +377,7 @@ describe("directoryState", () => {
       {
         ...ws("a", []),
         teams: [teamAt("team-1", "/wt/live", "kd/a/1"), creatingTeam("team-2", "/wt/pending")],
-        panes: [memberOf("a-p1", "team-1"), memberOf("a-p2", "team-2"), { id: "a-p3" }],
+        panes: [memberOf("a-p1", "team-1"), memberOf("a-p2", "team-2"), { id: "a-p3", agentType: "claude" }],
       },
     ];
     const here = deck[0];
@@ -571,38 +573,40 @@ describe("suspendPane", () => {
     const start = withPanes([
       {
         id: "a-p1",
+        agentType: "claude",
         team: { teamId: "team-1", role: "lead" },
         session: { id: "s1", boundAt: "2026-07-25T09:00:00.000Z" },
       },
-      { id: "a-p2" },
+      { id: "a-p2", agentType: "claude" },
     ]);
     const after = suspendPane(start, "a", "a-p1", AT);
     // The membership (the pane's directory is its team's) and the resume key
     // are exactly what a resume needs later — suspending must not touch either.
     expect(after[0].panes[0]).toEqual({
       id: "a-p1",
+      agentType: "claude",
       team: { teamId: "team-1", role: "lead" },
       session: { id: "s1", boundAt: "2026-07-25T09:00:00.000Z" },
       idle: { reason: "suspended", at: AT },
     });
-    expect(after[0].panes[1]).toEqual({ id: "a-p2" });
+    expect(after[0].panes[1]).toEqual({ id: "a-p2", agentType: "claude" });
     expect(after[1]).toBe(start[1]); // the other workspace keeps its identity
   });
 
   it("is a no-op (same ref) for an unknown pane or workspace", () => {
-    const start = withPanes([{ id: "a-p1" }]);
+    const start = withPanes([{ id: "a-p1", agentType: "claude" }]);
     expect(suspendPane(start, "a", "nope", AT)).toBe(start);
     expect(suspendPane(start, "nope", "a-p1", AT)).toBe(start);
   });
 
   it("is a no-op for a pane that is already STAYING down", () => {
     const suspended = withPanes([
-      { id: "a-p1", idle: { reason: "suspended", at: AT } },
+      { id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } },
     ]);
     expect(suspendPane(suspended, "a", "a-p1", "2026-07-25T11:00:00.000Z")).toBe(
       suspended,
     );
-    const parked = withPanes([{ id: "a-p1", idle: { reason: "parked" } }]);
+    const parked = withPanes([{ id: "a-p1", agentType: "claude", idle: { reason: "parked" } }]);
     expect(suspendPane(parked, "a", "a-p1", AT)).toBe(parked);
   });
 
@@ -610,7 +614,7 @@ describe("suspendPane", () => {
     // Panes in a workspace the user isn't looking at stay `waking` until it is
     // activated, so refusing every idle pane made those agents unparkable.
     const rising = withPanes([
-      { id: "a-p1", idle: { reason: "waking", origin: "restore" } },
+      { id: "a-p1", agentType: "claude", idle: { reason: "waking", origin: "restore" } },
     ]);
     expect(suspendPane(rising, "a", "a-p1", AT)[0].panes[0].idle).toEqual({
       reason: "suspended",
@@ -642,7 +646,7 @@ describe("suspendPane", () => {
     // The sweep can be out on a probe when the user stops the pane; clearing
     // then would spawn the process they just stopped.
     const rising = withPanes([
-      { id: "a-p1", idle: { reason: "waking", origin: "manual" } },
+      { id: "a-p1", agentType: "claude", idle: { reason: "waking", origin: "manual" } },
     ]);
     const stopped = suspendPane(rising, "a", "a-p1", AT);
     expect(clearPaneIdle(stopped, "a", "a-p1")).toBe(stopped);
@@ -652,7 +656,7 @@ describe("suspendPane", () => {
     // The action is exported through the deck barrel, so a future "suspend
     // every agent here" must not park the panes the predicate protects.
     const remote = withPanes([
-      { id: "a-p1", location: { kind: "remote", endpoint: "ws://vps:4500" } },
+      { id: "a-p1", agentType: "claude", location: { kind: "remote", endpoint: "ws://vps:4500" } },
     ]);
     expect(suspendPane(remote, "a", "a-p1", AT)).toBe(remote);
   });
@@ -664,7 +668,7 @@ describe("requestPaneWake", () => {
 
   it("hands a suspended pane back to the sweep, marked as the user's doing", () => {
     const after = requestPaneWake(
-      withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } }),
+      withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } }),
       "a",
       "a-p1",
     );
@@ -683,7 +687,7 @@ describe("requestPaneWake", () => {
 
   it("does the same for a pane parked by the launch policy", () => {
     const after = requestPaneWake(
-      withPane({ id: "a-p1", idle: { reason: "parked" } }),
+      withPane({ id: "a-p1", agentType: "claude", idle: { reason: "parked" } }),
       "a",
       "a-p1",
     );
@@ -704,6 +708,7 @@ describe("requestPaneWake", () => {
     // This is what makes the blocked card's "Look again" mean anything.
     const restored = withPane({
       id: "a-p1",
+      agentType: "claude",
       idle: { reason: "waking", origin: "restore" },
     });
     expect(requestPaneWake(restored, "a", "a-p1")[0].panes[0].idle).toEqual({
@@ -713,10 +718,10 @@ describe("requestPaneWake", () => {
   });
 
   it("is a no-op (same ref) for a live pane, one already asked for, or an unknown id", () => {
-    const live = withPane({ id: "a-p1" });
+    const live = withPane({ id: "a-p1", agentType: "claude" });
     expect(requestPaneWake(live, "a", "a-p1")).toBe(live);
     // A second click while the sweep is still working must not re-mark it.
-    const asked = withPane({ id: "a-p1", idle: { reason: "waking", origin: "manual" } });
+    const asked = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "waking", origin: "manual" } });
     expect(requestPaneWake(asked, "a", "a-p1")).toBe(asked);
     expect(requestPaneWake(asked, "a", "nope")).toBe(asked);
     expect(requestPaneWake(asked, "nope", "a-p1")).toBe(asked);
@@ -730,6 +735,7 @@ describe("parkPane", () => {
   it("stops a rising pane so its card says stopped instead of starting", () => {
     const before = withPane({
       id: "pane-1",
+      agentType: "claude",
       idle: { reason: "waking", origin: "restore" },
     });
     expect(parkPane(before, "a", "pane-1")[0].panes[0].idle).toEqual({
@@ -742,26 +748,28 @@ describe("parkPane", () => {
     // for — taking that request away would be answering a different question.
     const before = withPane({
       id: "pane-1",
+      agentType: "claude",
       idle: { reason: "waking", origin: "manual" },
     });
     expect(parkPane(before, "a", "pane-1")).toBe(before);
   });
 
   it("does not touch a RUNNING pane — a preference must not kill a live agent", () => {
-    const before = withPane({ id: "pane-1" });
+    const before = withPane({ id: "pane-1", agentType: "claude" });
     expect(parkPane(before, "a", "pane-1")).toBe(before);
   });
 
   it("leaves a suspend stamp alone rather than overwriting it", () => {
     const before = withPane({
       id: "pane-1",
+      agentType: "claude",
       idle: { reason: "suspended", at: AT },
     });
     expect(parkPane(before, "a", "pane-1")).toBe(before);
   });
 
   it("returns the same array for an unknown pane", () => {
-    const before = withPane({ id: "pane-1" });
+    const before = withPane({ id: "pane-1", agentType: "claude" });
     expect(parkPane(before, "a", "pane-9")).toBe(before);
   });
 });
@@ -771,7 +779,7 @@ describe("failPaneWake", () => {
   const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
 
   it("puts a manual wake back down with the stamp it went up with", () => {
-    const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
+    const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
     const waking = requestPaneWake(suspended, "a", "a-p1");
     const back = failPaneWake(waking, "a", "a-p1");
     // The card reads exactly as it did before the failed attempt — restamping
@@ -784,7 +792,7 @@ describe("failPaneWake", () => {
     // forge a decision the user never made and make it survive restarts, so
     // turning the launch policy off could never bring this pane back.
     const waking = requestPaneWake(
-      withPane({ id: "a-p1", idle: { reason: "parked" } }),
+      withPane({ id: "a-p1", agentType: "claude", idle: { reason: "parked" } }),
       "a",
       "a-p1",
     );
@@ -797,7 +805,7 @@ describe("failPaneWake", () => {
     // Restored → "Look again" upgrades it to a manual wake with no stamp;
     // a failure leaves it stopped and waiting, not falsely suspended.
     const upgraded = requestPaneWake(
-      withPane({ id: "a-p1", idle: { reason: "waking", origin: "restore" } }),
+      withPane({ id: "a-p1", agentType: "claude", idle: { reason: "waking", origin: "restore" } }),
       "a",
       "a-p1",
     );
@@ -812,7 +820,7 @@ describe("failPaneWake", () => {
     // is the one the pane must return to — restoring the first would date the
     // card by a decision the user has already replaced.
     const LATER = "2026-07-25T11:30:00.000Z";
-    const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
+    const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
     const rising = requestPaneWake(suspended, "a", "a-p1");
     const stoppedAgain = suspendPane(rising, "a", "a-p1", LATER);
     const risingAgain = requestPaneWake(stoppedAgain, "a", "a-p1");
@@ -826,16 +834,17 @@ describe("failPaneWake", () => {
   it("leaves a BOOT restore alone — its fresh-start degradation is deliberate", () => {
     const booting = withPane({
       id: "a-p1",
+      agentType: "claude",
       idle: { reason: "waking", origin: "restore" },
     });
     expect(failPaneWake(booting, "a", "a-p1")).toBe(booting);
   });
 
   it("is a no-op (same ref) for a live pane or an unknown id", () => {
-    const live = withPane({ id: "a-p1" });
+    const live = withPane({ id: "a-p1", agentType: "claude" });
     expect(failPaneWake(live, "a", "a-p1")).toBe(live);
     expect(failPaneWake(live, "a", "nope")).toBe(live);
-    const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
+    const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
     expect(failPaneWake(suspended, "a", "a-p1")).toBe(suspended);
   });
 });

@@ -65,6 +65,12 @@ export function registerSpawnCommands(
     if (requested && !agents.some((a) => a.id === requested))
       throw new Error(`unknown agent type "${requested}"`);
     const agentType = requested ?? nextAgentType(agents, ws);
+    // No agent at all — none installed, or the catalog not loaded yet:
+    // refused before an id is minted or a directory asked for, so nothing
+    // is left behind and the caller can retry once there is one.
+    if (agentType === null) {
+      throw new Error("no agent available: install or enable an agent plugin, or pass agentType");
+    }
     if (!agentSupportsNew(agents, agentType)) {
       throw new Error(`agent type "${agentType}" does not support new sessions`);
     }

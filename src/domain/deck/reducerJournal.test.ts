@@ -13,7 +13,7 @@ const journalWorkspace = (): Workspace => ({
   worktreeBaseDir: null,
   panes: [
     { id: "pane-1", agentType: "codex", name: "auth bug", yolo: true },
-    { id: "pane-2", team: { teamId: "team-1", role: "lead" } },
+    { id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
   ],
   teams: [{ id: "team-1", name: "wt", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/2" } }],
 });

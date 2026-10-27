@@ -108,7 +108,9 @@ export interface AgentDialogSpec {
   /** The role picker's data, built against what the target team holds —
    * the view decides nothing about roles itself. */
   roles: RoleChoice;
-  defaultAgentType: AgentType;
+  /** The agent the picker opens on — null when there is none to offer (the
+   * catalog loading, or no agent plugin installed): the dialog says so. */
+  defaultAgentType: AgentType | null;
   /** A session the dialog opens with, already picked. */
   preset?: SessionPreset;
   /** The YOLO toggle's starting position ([F6] global preference). */

@@ -4,7 +4,6 @@ import {
   findTeam,
   findWorkspace,
   membersOf,
-  paneAgentType,
   paneHasProcess,
   teamOfPane,
   teamsOf,
@@ -167,7 +166,7 @@ export function useCloseFlow(
    * at all. */
   const carrierEntries = (panes: readonly Pane[]) =>
     panes.flatMap((pane) =>
-      pane.session?.id ? [{ agentType: paneAgentType(pane), sessionId: pane.session.id }] : [],
+      pane.session?.id ? [{ agentType: pane.agentType, sessionId: pane.session.id }] : [],
     );
 
   /** What this close would delete, as the dialog must say it — the same

@@ -1,8 +1,4 @@
-import {
-  paneAgentType,
-  type Pane,
-  type PaneSession,
-} from "./panes";
+import type { Pane, PaneSession } from "./panes";
 import {
   emptyJournal,
   flushJournalTail,
@@ -115,7 +111,7 @@ function boundEventFor(
     v: 1,
     wsId: ws.id,
     record: {
-      agent: paneAgentType(pane),
+      agent: pane.agentType,
       sessionId: session.id,
       // The journal attributes a session to a directory, and a session is
       // bound only once the pane has a process — so the formula never answers

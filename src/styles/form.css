@@ -272,6 +272,14 @@
   gap: 8px;
 }
 
+/* Stands where the Agent list would, while there is none to offer. */
+.form__agent-notice {
+  margin: 0 0 20px;
+  font-size: var(--kd-font-small);
+  line-height: 1.45;
+  color: var(--kd-text-3);
+}
+
 .form__role-hint {
   margin: -12px 0 20px;
   font-size: var(--kd-font-small);

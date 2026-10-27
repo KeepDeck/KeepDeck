@@ -39,6 +39,10 @@ export function teamFullMessage(maxPanes: number): string {
  * inside the awaits a worktree create or a fork's surgery needs. */
 export const WORKSPACE_GONE_MESSAGE = "That workspace was closed.";
 
+/** The error when a member is asked for while no agent is there to run it —
+ * none installed or enabled. No agent is ever assumed in its place. */
+export const NO_AGENT_MESSAGE = "No agent available — install or enable an agent plugin.";
+
 /** What a refusal is called, said the same way whichever door asked. */
 export function placementRefusalMessage(why: PlacementRefusal): string {
   switch (why) {

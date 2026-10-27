@@ -10,17 +10,17 @@ import {
 } from ".";
 
 const seed = (n: number): Pane[] =>
-  Array.from({ length: n }, (_, i) => ({ id: `pane-${i + 1}` }));
+  Array.from({ length: n }, (_, i) => ({ id: `pane-${i + 1}`, agentType: "claude" }));
 
 describe("appendPane", () => {
   it("appends an already-formed pane (worktree fields preserved)", () => {
-    const pane = { id: "pane-2", cwd: "/wt/2", branch: "kd/ws/2" };
-    expect(appendPane(seed(1), pane)).toEqual([{ id: "pane-1" }, pane]);
+    const pane = { id: "pane-2", agentType: "claude", cwd: "/wt/2", branch: "kd/ws/2" };
+    expect(appendPane(seed(1), pane)).toEqual([{ id: "pane-1", agentType: "claude" }, pane]);
   });
 
   it("appends past MAX_PANES — the cap is the team's, enforced where a pane joins one", () => {
     const full = seed(MAX_PANES);
-    expect(appendPane(full, { id: "overflow" })).toHaveLength(MAX_PANES + 1);
+    expect(appendPane(full, { id: "overflow", agentType: "claude" })).toHaveLength(MAX_PANES + 1);
   });
 });
 
@@ -28,8 +28,8 @@ describe("appendPane", () => {
 describe("removePane", () => {
   it("removes by id and keeps the rest", () => {
     expect(removePane(seed(3), "pane-2")).toEqual([
-      { id: "pane-1" },
-      { id: "pane-3" },
+      { id: "pane-1", agentType: "claude" },
+      { id: "pane-3", agentType: "claude" },
     ]);
   });
 
@@ -125,9 +125,5 @@ describe("paneDisplayTitle", () => {
     expect(
       paneDisplayTitle({ id: "pane-1", agentType: "codex" }, 0, agents),
     ).toBe("codex 1");
-  });
-
-  it("defaults a type-less pane to claude", () => {
-    expect(paneDisplayTitle({ id: "pane-1" }, 1, agents)).toBe("Claude Code 2");
   });
 });

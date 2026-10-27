@@ -12,7 +12,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
   it("the deck + settings revisions are the expected values", () => {
     // Pin the bumps so a forgotten version bump (the r3 SETTINGS miss) fails
     // loudly rather than silently shrinking the ladder-loop's coverage.
-    expect(DECK_STATE_VERSION).toBe(13);
+    expect(DECK_STATE_VERSION).toBe(14);
     expect(SETTINGS_VERSION).toBe(27);
   });
 
@@ -49,7 +49,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     expect(out).toEqual({
       kind: "ok",
       doc: {
-        version: 13,
+        version: 14,
         minVersion: 11,
         workspaces: [
           { id: "ws-1", view: { focus: ["pane-1"], select: "pane-2" }, panes: [] },
@@ -76,7 +76,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     expect(out).toEqual({
       kind: "ok",
       doc: {
-        version: 13,
+        version: 14,
         minVersion: 11,
         workspaces: [
           { id: "ws-1", view: { focus: ["pane-1"], select: "pane-2" } },
@@ -89,7 +89,57 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     });
   });
 
-  it("keeps the deck floor at 11: an older build misreads nothing in a v13 file", () => {
+  it("v13 → v14 names the agent of every pane written without one, and only those", () => {
+    // Before v14 an absent agentType MEANT claude — the one agent there was
+    // when panes started naming theirs. The file now says so itself, and a
+    // pane naming any agent keeps it, a retired one included.
+    const out = migrateDeck({
+      version: 13,
+      minVersion: 11,
+      workspaces: [
+        {
+          id: "ws-1",
+          panes: [
+            { id: "p1" },
+            { id: "p2", agentType: "codex" },
+            { id: "p3", agentType: "retired" },
+            "not a pane",
+          ],
+        },
+        { id: "ws-2" },
+        "not a workspace",
+      ],
+    });
+    expect(out).toEqual({
+      kind: "ok",
+      doc: {
+        version: 14,
+        minVersion: 11,
+        workspaces: [
+          {
+            id: "ws-1",
+            panes: [
+              { id: "p1", agentType: "claude" },
+              { id: "p2", agentType: "codex" },
+              { id: "p3", agentType: "retired" },
+              "not a pane",
+            ],
+          },
+          { id: "ws-2" },
+          "not a workspace",
+        ],
+      },
+    });
+  });
+
+  it("v13 → v14 leaves an already-named deck exactly as it was", () => {
+    const workspaces = [{ id: "ws-1", panes: [{ id: "p1", agentType: "kimi" }] }];
+    const out = migrateDeck({ version: 13, minVersion: 11, workspaces });
+    expect(out).toEqual({ kind: "ok", doc: { version: 14, minVersion: 11, workspaces } });
+  });
+
+  it("keeps the deck floor at 11: an older build misreads nothing in a v14 file", () => {
+    // v14 only writes a field older builds already read.
     expect(DECK_MIN_READER).toBe(11);
   });
 
@@ -298,10 +348,11 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
       { id: "team-2", name: "Team 2", cwd: "/wt/2" },
     ]);
     // Each agent keeps its directory and its session, and answers to a
-    // minted address on its own team of one.
+    // minted address on its own team of one. (The agent each names comes
+    // from a later hop: v10 left it unwritten.)
     expect(panesOf(workspaces[0])).toEqual([
-      { id: "pane-1", session: { id: "s1", boundAt: "t" }, team: { teamId: "team-1", role: "lead" } },
-      { id: "pane-2", session: { id: "s2", boundAt: "t" }, team: { teamId: "team-2", role: "lead" } },
+      { id: "pane-1", session: { id: "s1", boundAt: "t" }, team: { teamId: "team-1", role: "lead" }, agentType: "claude" },
+      { id: "pane-2", session: { id: "s2", boundAt: "t" }, team: { teamId: "team-2", role: "lead" }, agentType: "claude" },
     ]);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toContain("“api”");
@@ -322,9 +373,9 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
     // The roster's roles stay; the pane the roster did not name gets the
     // next free address; a remote endpoint is the pane's own and stays.
     expect(panesOf(workspaces[0])).toEqual([
-      { id: "pane-264", name: "isp lead", team: { teamId: "team-1", role: "lead" } },
-      { id: "pane-265", team: { teamId: "team-1", role: "impl-1" } },
-      { id: "pane-9", remoteEndpoint: "ws://vps:4500", team: { teamId: "team-1", role: "impl-2" } },
+      { id: "pane-264", name: "isp lead", team: { teamId: "team-1", role: "lead" }, agentType: "claude" },
+      { id: "pane-265", team: { teamId: "team-1", role: "impl-1" }, agentType: "claude" },
+      { id: "pane-9", remoteEndpoint: "ws://vps:4500", team: { teamId: "team-1", role: "impl-2" }, agentType: "claude" },
     ]);
   });
 
@@ -376,8 +427,8 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
     ]);
     expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "Team 1", provisioning: intent }]);
     expect(panesOf(workspaces[0])).toEqual([
-      { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
-      { id: "pane-2", team: { teamId: "team-1", role: "impl-1" } },
+      { id: "pane-1", team: { teamId: "team-1", role: "lead" }, agentType: "claude" },
+      { id: "pane-2", team: { teamId: "team-1", role: "impl-1" }, agentType: "claude" },
     ]);
   });
 
@@ -423,9 +474,9 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
     ]);
     expect(teamsOf(workspaces[0])).toEqual([{ id: "team-1", name: "Team 1", cwd: "/ws-1", branch: "feature/a" }]);
     expect(panesOf(workspaces[0])).toEqual([
-      { id: "pane-1", remoteEndpoint: "ws://vps", team: { teamId: "team-1", role: "lead" } },
-      { id: "pane-2", team: { teamId: "team-1", role: "impl-1" } },
-      { id: "pane-3", team: { teamId: "team-1", role: "impl-2" } },
+      { id: "pane-1", remoteEndpoint: "ws://vps", team: { teamId: "team-1", role: "lead" }, agentType: "claude" },
+      { id: "pane-2", team: { teamId: "team-1", role: "impl-1" }, agentType: "claude" },
+      { id: "pane-3", team: { teamId: "team-1", role: "impl-2" }, agentType: "claude" },
     ]);
     expect(notices).toEqual([]);
   });
@@ -476,10 +527,10 @@ describe("migrateDeck — v10 → v11: a team is a directory's worth of agents",
     expect(workspaces[0]).toEqual({ id: "ws-0", marker: "kept" });
     expect(teamsOf(workspaces[1])).toEqual([{ id: "team-1", name: "Team 1", cwd: "/ws-1" }]);
     expect(panesOf(workspaces[1])).toEqual([
-      { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
-      { id: "pane-2", yolo: true, extra: "kept", team: { teamId: "team-1", role: "impl-1" } },
-      { id: "pane-3", team: { teamId: "team-1", role: "impl-2" } },
-      { id: "pane-4", team: { teamId: "team-1", role: "impl-3" } },
+      { id: "pane-1", team: { teamId: "team-1", role: "lead" }, agentType: "claude" },
+      { id: "pane-2", yolo: true, extra: "kept", team: { teamId: "team-1", role: "impl-1" }, agentType: "claude" },
+      { id: "pane-3", team: { teamId: "team-1", role: "impl-2" }, agentType: "claude" },
+      { id: "pane-4", team: { teamId: "team-1", role: "impl-3" }, agentType: "claude" },
     ]);
   });
 });

@@ -31,8 +31,8 @@ const deckWith = (view: WorkspaceView = {}, apart = false) => {
         worktreeBaseDir: null,
         teams: apart ? [team("team-1"), team("team-2")] : [team("team-1")],
         panes: [
-          { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
-          { id: "pane-2", team: { teamId: apart ? "team-2" : "team-1", role: apart ? "lead" : "impl-1" } },
+          { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+          { id: "pane-2", agentType: "claude", team: { teamId: apart ? "team-2" : "team-1", role: apart ? "lead" : "impl-1" } },
         ],
       },
     ],

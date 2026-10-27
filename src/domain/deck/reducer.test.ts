@@ -160,9 +160,9 @@ const twoTeams = (): Workspace => ({
   ...tws("a", ["a-1", "a-2", "a-3"]),
   teams: [team("team-1"), team("team-2")],
   panes: [
-    { id: "a-1", team: { teamId: "team-1", role: "lead" } },
-    { id: "a-2", team: { teamId: "team-2", role: "lead" } },
-    { id: "a-3", team: { teamId: "team-2", role: "impl-1" } },
+    { id: "a-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+    { id: "a-2", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
+    { id: "a-3", agentType: "claude", team: { teamId: "team-2", role: "impl-1" } },
   ],
 });
 
@@ -241,7 +241,7 @@ describe("deckReducer openTeam / closeTeam", () => {
     expect(next.viewByWs.a?.focus).toBeUndefined();
     const kept = deckReducer(
       state({
-        workspaces: [{ ...twoTeams(), panes: [...twoTeams().panes, { id: "a-4", team: { teamId: "team-1", role: "impl-1" } }] }],
+        workspaces: [{ ...twoTeams(), panes: [...twoTeams().panes, { id: "a-4", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } }] }],
         activeId: "a",
         viewByWs: { a: { teamOpen: "team-2", focus: ["a-1", "a-2"] } },
       }),
@@ -276,7 +276,7 @@ describe("deckReducer openTeam / closeTeam", () => {
 
   it("dissolving the open team is the way back to the cards; another team's dissolve is not", () => {
     // Only a team with nobody on it dissolves: team-2 once its members are gone.
-    const emptied = { ...twoTeams(), panes: [{ id: "a-1", team: { teamId: "team-1", role: "lead" } }] };
+    const emptied = { ...twoTeams(), panes: [{ id: "a-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }] };
     const back = deckReducer(
       state({ workspaces: [emptied], activeId: "a", viewByWs: { a: { teamOpen: "team-2" } } }),
       { type: "dissolveTeam", wsId: "a", teamId: "team-2" },
@@ -489,7 +489,7 @@ describe("deckReducer selection", () => {
       {
         type: "addAgentPane",
         id: "a",
-        pane: { id: "a-2", team: { teamId: "team-1", role: "lead" } },
+        pane: { id: "a-2", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
       },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-2"]);
@@ -508,7 +508,7 @@ describe("deckReducer selection", () => {
       {
         type: "addAgentPane",
         id: "a",
-        pane: { id: "a-4", team: { teamId: "team-1", role: "impl-1" } },
+        pane: { id: "a-4", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
       },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-2", "a-3", "a-4"]);
@@ -525,7 +525,7 @@ describe("deckReducer selection", () => {
       {
         type: "addAgentPane",
         id: "a",
-        pane: { id: "a-2", team: { teamId: "team-1", role: "lead" } },
+        pane: { id: "a-2", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
       },
     );
     // Maximize dropped so the appended pane isn't left hidden; it's selected.
@@ -536,7 +536,7 @@ describe("deckReducer selection", () => {
     const full = Array.from({ length: 16 }, (_, i) => `a-${i}`);
     const next = deckReducer(
       state({ workspaces: [ws("a", full)], activeId: "a" }),
-      { type: "addAgentPane", id: "a", pane: { id: "overflow" } },
+      { type: "addAgentPane", id: "a", pane: { id: "overflow", agentType: "claude" } },
     );
     expect(next.workspaces[0].panes).toHaveLength(17);
   });
@@ -548,7 +548,7 @@ describe("deckReducer pane naming", () => {
       state({ workspaces: [ws("a", ["a-1"])], activeId: "a" }),
       { type: "renamePane", wsId: "a", paneId: "a-1", name: "Build" },
     );
-    expect(next.workspaces[0].panes[0]).toEqual({ id: "a-1", name: "Build" });
+    expect(next.workspaces[0].panes[0]).toEqual({ id: "a-1", agentType: "claude", name: "Build" });
   });
 
   it("setPaneAutoTitle sets the auto title", () => {
@@ -556,7 +556,7 @@ describe("deckReducer pane naming", () => {
       state({ workspaces: [ws("a", ["a-1"])], activeId: "a" }),
       { type: "setPaneAutoTitle", wsId: "a", paneId: "a-1", title: "~/x" },
     );
-    expect(next.workspaces[0].panes[0]).toEqual({ id: "a-1", autoTitle: "~/x" });
+    expect(next.workspaces[0].panes[0]).toEqual({ id: "a-1", agentType: "claude", autoTitle: "~/x" });
   });
 
   it("setPaneAutoTitle returns the SAME state when the title is unchanged", () => {
@@ -568,7 +568,7 @@ describe("deckReducer pane naming", () => {
           name: "a",
           cwd: "/tmp",
           worktreeBaseDir: null,
-          panes: [{ id: "a-1", autoTitle: "same" }],
+          panes: [{ id: "a-1", agentType: "claude", autoTitle: "same" }],
         },
       ],
       activeId: "a",

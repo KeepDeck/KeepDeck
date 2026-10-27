@@ -174,7 +174,7 @@ describe("useAgentDialog suggestions", () => {
           location: { kind: "attached", cwd: "/base/kd-KeepDeck-2", branch: "kd/KeepDeck/2" },
         },
       ],
-      panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
+      panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
     });
     await mount(ws);
     await act(async () => flow.openFor(ws));
@@ -204,7 +204,7 @@ describe("useAgentDialog suggestions", () => {
           location: { kind: "attached", cwd: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" },
         },
       ],
-      panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
+      panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
     });
     await mount(ws);
     await act(async () => flow.openFor(ws));
@@ -240,7 +240,7 @@ describe("useAgentDialog suggestions", () => {
     const ws = workspace({
       worktreeBaseDir: null,
       teams: [{ id: "team-1", name: "two", location: { kind: "attached", cwd: "/elsewhere/kd-KeepDeck-2" } }],
-      panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
+      panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
     });
     await mount(ws);
     await act(async () => flow.openFor(ws));
@@ -603,9 +603,10 @@ describe("useAgentDialog start-from routing", () => {
   it("sessionClaim reads the panes' bindings, idle panes included", async () => {
     const ws = workspace({
       panes: [
-        { id: "p1", session: { id: "s-run", boundAt: "2026-07-20T00:00:00Z" } },
+        { id: "p1", agentType: "claude", session: { id: "s-run", boundAt: "2026-07-20T00:00:00Z" } },
         {
           id: "p2",
+          agentType: "claude",
           idle: { reason: "suspended", at: "2026-07-20T01:00:00Z" },
           session: { id: "s-dorm", boundAt: "2026-07-20T00:00:00Z" },
         },
@@ -627,6 +628,7 @@ describe("useAgentDialog start-from routing", () => {
       panes: [
         {
           id: "p1",
+          agentType: "claude",
           idle: { reason: "waking", origin: "restore" },
           session: { id: "s-blocked", boundAt: "2026-07-20T00:00:00Z" },
         },
@@ -641,6 +643,7 @@ describe("useAgentDialog start-from routing", () => {
       panes: [
         {
           id: "p1",
+          agentType: "claude",
           idle: { reason: "waking", origin: "restore" },
           session: { id: "s-rising", boundAt: "2026-07-20T00:00:00Z" },
         },

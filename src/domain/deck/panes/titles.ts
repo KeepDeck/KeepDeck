@@ -6,7 +6,6 @@
  * the word "pane": adding a fallback, or teaching the cleaner a new glyph,
  * has no business landing in the same file as "may this pane be removed".
  */
-import { paneAgentType } from "./lifecycle";
 import type { Pane } from "./model";
 
 /** What naming a pane needs of its agent: the label for the positional
@@ -32,12 +31,11 @@ export function paneDisplayTitle(
   index: number,
   agents: readonly TitleAgent[],
 ): string {
-  const agentType = paneAgentType(pane);
-  const agent = agents.find((a) => a.id === agentType);
+  const agent = agents.find((a) => a.id === pane.agentType);
   return (
     pane.name ??
     cleanAutoTitle(pane.autoTitle, agent?.titleGlyphs) ??
-    `${agent?.label ?? agentType} ${index + 1}`
+    `${agent?.label ?? pane.agentType} ${index + 1}`
   );
 }
 
@@ -45,8 +43,7 @@ export function paneDisplayTitle(
  * else the cleaned terminal auto title — never the derived "Agent N" (that is
  * positional, meaningless once the pane is gone). */
 export function paneFrozenTitle(pane: Pane, agents: readonly TitleAgent[]): string | undefined {
-  const agentType = paneAgentType(pane);
-  return pane.name ?? cleanAutoTitle(pane.autoTitle, agents.find((a) => a.id === agentType)?.titleGlyphs);
+  return pane.name ?? cleanAutoTitle(pane.autoTitle, agents.find((a) => a.id === pane.agentType)?.titleGlyphs);
 }
 
 /** A terminal title without the decoration the pane's own CLI puts in front

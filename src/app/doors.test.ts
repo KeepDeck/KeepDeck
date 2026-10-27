@@ -34,7 +34,11 @@ describe("the top bar's doors", () => {
 
 describe("memberDoor", () => {
   const withMembers = (n: number) => ({
-    panes: Array.from({ length: n }, (_, i) => ({ id: `p${i}`, team: { teamId: "t", role: `r${i}` } })),
+    panes: Array.from({ length: n }, (_, i) => ({
+      id: `p${i}`,
+      agentType: "claude",
+      team: { teamId: "t", role: `r${i}` },
+    })),
   });
 
   it("opens onto a team with room, stays shut under a dialog without a word", () => {

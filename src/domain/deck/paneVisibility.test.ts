@@ -9,7 +9,7 @@ import {
 } from "./paneVisibility";
 
 const seed = (count: number): Pane[] =>
-  Array.from({ length: count }, (_, index) => ({ id: `pane-${index + 1}` }));
+  Array.from({ length: count }, (_, index) => ({ id: `pane-${index + 1}`, agentType: "claude" }));
 
 describe("hiddenBy", () => {
   it("names each reason a pane is off the grid, in a fixed order, and none for a pane on it", () => {

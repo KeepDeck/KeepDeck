@@ -190,7 +190,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
           name: "a",
           cwd: "/r",
           worktreeBaseDir: null,
-          panes: [{ id: "pane-1" }],
+          panes: [{ id: "pane-1", agentType: "claude" }],
         },
       ],
       activeId: "ws-1",
@@ -791,6 +791,36 @@ describe("hydrateDeck — unusable input", () => {
       expect(restored.state.workspaces[0].panes[0].agentType).toBe(id);
     }
   });
+
+  const deckOf = (version: number, panes: unknown[]) =>
+    JSON.stringify({
+      version,
+      activeId: "ws-1",
+      workspaces: [{ id: "ws-1", name: "x", cwd: "/x", worktreeBaseDir: null, panes }],
+    });
+
+  it("restores a pane an older build wrote without an agent as the one it meant", () => {
+    const restored = okDeck(deckOf(13, [{ id: "pane-1" }]));
+    expect(restored.state.workspaces[0].panes).toEqual([
+      expect.objectContaining({ id: "pane-1", agentType: "claude" }),
+    ]);
+  });
+
+  it("reads a current pane that names no agent as a malformed one — no agent is assumed for it", () => {
+    // The same verdict as a pane without an id: since v14 the file itself
+    // names every pane's agent, so one that does not was not written so.
+    for (const agentType of [undefined, "", 7]) {
+      const json = deckOf(DECK_STATE_VERSION, [{ id: "pane-1", agentType }, { id: "pane-2", agentType: "codex" }]);
+      expect(hydrateDeck(json).kind).toBe("corrupt");
+    }
+  });
+
+  it("always writes the pane's agent", () => {
+    const written = JSON.parse(serializeDeck(state));
+    for (const ws of written.workspaces) {
+      for (const pane of ws.panes) expect(typeof pane.agentType).toBe("string");
+    }
+  });
 });
 
 describe("hydrateDeck — tolerated degradations", () => {
@@ -881,8 +911,8 @@ describe("a workspace's view, inside it (v12)", () => {
     worktreeBaseDir: null,
     teams: [{ id: `team-${id}`, name: "t", cwd: `/${id}` }],
     panes: [
-      { id: `pane-${id}-a`, team: { teamId: `team-${id}`, role: "lead" } },
-      { id: `pane-${id}-b`, team: { teamId: `team-${id}`, role: "impl-1" } },
+      { id: `pane-${id}-a`, agentType: "claude", team: { teamId: `team-${id}`, role: "lead" } },
+      { id: `pane-${id}-b`, agentType: "claude", team: { teamId: `team-${id}`, role: "impl-1" } },
     ],
     ...(view !== undefined && { view }),
   });
@@ -912,7 +942,7 @@ describe("a workspace's view, inside it (v12)", () => {
       "ws-1": { select: "pane-ws-1-a" },
       "ws-2": { teamOpen: "team-ws-2", focus: ["pane-ws-2-b"] },
     });
-    const solo = okDeck(doc([{ ...ws("ws-1", { focus: ["pane-ws-1-a"] }), panes: [{ id: "pane-ws-1-a" }], teams: undefined }]));
+    const solo = okDeck(doc([{ ...ws("ws-1", { focus: ["pane-ws-1-a"] }), panes: [{ id: "pane-ws-1-a", agentType: "claude" }], teams: undefined }]));
     expect(solo.state.viewByWs).toEqual({});
   });
 
@@ -925,11 +955,11 @@ describe("a workspace's view, inside it (v12)", () => {
         { id: "team-c", name: "c", cwd: "/c" },
       ],
       panes: [
-        { id: "a-1", team: { teamId: "team-a", role: "lead" } },
-        { id: "a-2", team: { teamId: "team-a", role: "impl-1" } },
-        { id: "b-1", team: { teamId: "team-b", role: "lead" } },
-        { id: "b-2", team: { teamId: "team-b", role: "impl-1" } },
-        { id: "c-1", team: { teamId: "team-c", role: "lead" } },
+        { id: "a-1", agentType: "claude", team: { teamId: "team-a", role: "lead" } },
+        { id: "a-2", agentType: "claude", team: { teamId: "team-a", role: "impl-1" } },
+        { id: "b-1", agentType: "claude", team: { teamId: "team-b", role: "lead" } },
+        { id: "b-2", agentType: "claude", team: { teamId: "team-b", role: "impl-1" } },
+        { id: "c-1", agentType: "claude", team: { teamId: "team-c", role: "lead" } },
       ],
     };
     // b-2 is a second spotlight on team-b, written by hand: the first stands.
@@ -1190,7 +1220,7 @@ describe("workspace plugin slots round-trip", () => {
             nested: { branches: ["main", "dev"], count: 2 },
           },
         },
-        panes: [{ id: "pane-1" }],
+        panes: [{ id: "pane-1", agentType: "claude" }],
       },
     ],
     activeId: "ws-1",
@@ -1385,7 +1415,7 @@ describe("deck v5 — Workspace.run retirement", () => {
           cwd: "/repo",
           worktreeBaseDir: null,
           setup: "pnpm i",
-          panes: [{ id: "pane-1" }],
+          panes: [{ id: "pane-1", agentType: "claude" }],
         },
         {
           id: "ws-2",
@@ -1393,7 +1423,7 @@ describe("deck v5 — Workspace.run retirement", () => {
           cwd: "/site",
           worktreeBaseDir: null,
           setup: 42,
-          panes: [{ id: "pane-2" }],
+          panes: [{ id: "pane-2", agentType: "claude" }],
         },
       ],
     };
@@ -1556,9 +1586,9 @@ describe("the launch policy never reaches disk", () => {
     // Writing it would make the decision durable, and turning the setting off
     // could never bring the pane back.
     const restored = deckWith([
-      { id: "pane-1", idle: { reason: "waking", origin: "restore" } },
+      { id: "pane-1", agentType: "claude", idle: { reason: "waking", origin: "restore" } },
     ]);
-    const parked = deckWith([{ id: "pane-1", idle: { reason: "parked" } }]);
+    const parked = deckWith([{ id: "pane-1", agentType: "claude", idle: { reason: "parked" } }]);
     expect(serializeDeck(parked)).toBe(serializeDeck(restored));
   });
 });

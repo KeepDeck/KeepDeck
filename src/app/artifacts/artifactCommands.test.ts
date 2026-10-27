@@ -32,6 +32,7 @@ const ws = (panes: Workspace["panes"]): Workspace => ({
 
 const pane = (over: Partial<Workspace["panes"][number]> = {}) => ({
   id: "pane-1",
+  agentType: "claude",
   title: "support 1",
   ...over,
 });

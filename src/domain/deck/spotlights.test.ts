@@ -11,12 +11,12 @@ import type { Pane } from "./panes";
 /** team-1: a-1, a-2; team-2: b-1, b-2; team-3: c-1 alone; x on no team. */
 const ws: { panes: Pane[] } = {
   panes: [
-    { id: "a-1", team: { teamId: "team-1", role: "lead" } },
-    { id: "a-2", team: { teamId: "team-1", role: "impl-1" } },
-    { id: "b-1", team: { teamId: "team-2", role: "lead" } },
-    { id: "b-2", team: { teamId: "team-2", role: "impl-1" } },
-    { id: "c-1", team: { teamId: "team-3", role: "lead" } },
-    { id: "x" },
+    { id: "a-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+    { id: "a-2", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
+    { id: "b-1", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
+    { id: "b-2", agentType: "claude", team: { teamId: "team-2", role: "impl-1" } },
+    { id: "c-1", agentType: "claude", team: { teamId: "team-3", role: "lead" } },
+    { id: "x", agentType: "claude" },
   ],
 };
 

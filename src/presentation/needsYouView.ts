@@ -8,7 +8,7 @@
  * here — the tiles and the tray already say them, and a list of everything
  * is a list of nothing.
  */
-import { blockedAgents, paneAgentType, paneDisplayTitle, type TitleAgent, type Workspace } from "../domain/deck";
+import { blockedAgents, paneDisplayTitle, type TitleAgent, type Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import { activityBadge } from "./activityBadge";
 import { formatAge } from "../domain/usage";
@@ -53,7 +53,7 @@ export function needsYouRows(
     tone: activity.state,
     title: paneDisplayTitle(pane, index, agents),
     where: [ws.name, team.name, pane.team?.role].filter(Boolean).join(" · "),
-    label: activityBadge(activity, agents.find((agent) => agent.id === paneAgentType(pane))?.failureLabels).label,
+    label: activityBadge(activity, agents.find((agent) => agent.id === pane.agentType)?.failureLabels).label,
     since,
   }));
 }

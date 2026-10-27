@@ -94,8 +94,9 @@ function readBoolean(stored: unknown): boolean | undefined {
 /** Any non-empty string id is kept: the id set is open (agents come from
  * plugins, hydration runs before their bootstrap). A preference whose plugin
  * is gone simply loses the picker vote — `defaultAgentType` snaps to the first
- * selectable agent. */
-function readAgentId(stored: unknown): AgentType | undefined {
+ * selectable agent. A stored null is the no-choice the default also is. */
+function readAgentId(stored: unknown): AgentType | null | undefined {
+  if (stored === null) return null;
   return typeof stored === "string" && stored ? stored : undefined;
 }
 
@@ -223,7 +224,7 @@ function readFoldedGroups(stored: unknown, discard: Discard): Settings["tasksBoa
  * Key ORDER here is the order a saved document lists its keys.
  */
 const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
-  defaultAgent: { default: "claude", read: readAgentId },
+  defaultAgent: { default: null, read: readAgentId },
   defaultYolo: { default: false, read: readBoolean },
   scrollback: { default: 10_000, read: readScrollback },
   suspendedAgentPlacement: {

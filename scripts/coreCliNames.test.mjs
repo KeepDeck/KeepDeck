@@ -85,13 +85,16 @@ describe("CLI names in the core", () => {
     expect(judge("src/fresh.ts", [], 0)).toEqual([]);
   });
 
-  it("lists each exemption once, for a file that exists, with a reason and the task it waits for", () => {
+  it("lists each exemption once, for a file that exists, with a reason and the task it waits for — or none, for a frozen record", () => {
     const files = CLI_NAME_EXEMPTIONS.map((entry) => entry.file);
     expect(new Set(files).size).toBe(files.length);
     for (const entry of CLI_NAME_EXEMPTIONS) {
       expect(existsSync(join(REPO, entry.file)), entry.file).toBe(true);
       expect(entry.reason.length, entry.file).toBeGreaterThanOrEqual(10);
-      expect(entry.until, entry.file).toMatch(/^task-\d+$/);
+      // null: a migration reading what an older build wrote — the name is
+      // that file's history, and no task moves history into a plugin.
+      if (entry.until !== null) expect(entry.until, entry.file).toMatch(/^task-\d+$/);
+      else expect(entry.file, entry.file).toMatch(/migrat/i);
       expect(entry.count, entry.file).toBeGreaterThan(0);
       expect(entry.names.every((name) => CLI_NAMES.has(name)), entry.file).toBe(true);
     }

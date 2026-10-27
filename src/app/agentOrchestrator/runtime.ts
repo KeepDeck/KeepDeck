@@ -3,7 +3,6 @@ import type { SpawnPlanContext } from "../spawnSpecs";
 import {
   findPane,
   findWorkspace,
-  paneAgentType,
   paneExecutionCwd,
   paneRunIntent,
   paneWakeOrigin,
@@ -244,7 +243,7 @@ export function createAgentOrchestratorRuntime(
     dir: string,
     sessionId: string | null,
   ): Promise<void> {
-    const agentType = paneAgentType(pane);
+    const agentType = pane.agentType;
     // WHOSE resume this is decides what happens when the CLI rejects the id.
     // A boot restore takes the one-shot fall back to a fresh conversation —
     // nobody is watching, and an empty pane beats a dead one. A resume the
@@ -367,7 +366,7 @@ export function createAgentOrchestratorRuntime(
         // agent no plugin provides, a directory that is gone, a workspace
         // nobody has opened — and the reason it gives is the reason the card
         // shows.
-        const agentType = paneAgentType(pane);
+        const agentType = pane.agentType;
         // A restart owns this pane until it is finished, and that covers BOTH
         // halves of the sweep. Guarding only the spawn half left the wake half
         // open: a suspend during a restart's awaits marks the pane idle, a
@@ -546,7 +545,7 @@ export function createAgentOrchestratorRuntime(
       if (!workspace || !pane) return "gone";
       if (paneProvisioning(workspace, pane)) return "provisioning";
       if (!pane.idle) return "running";
-      if (!agents.commands().has(paneAgentType(pane))) return "unavailable";
+      if (!agents.commands().has(pane.agentType)) return "unavailable";
       if (runView.clearNotes(paneId)) publish();
       startOwed.add(paneId);
       actions.requestPaneWake(wsId, paneId);

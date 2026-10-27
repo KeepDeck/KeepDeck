@@ -76,9 +76,12 @@ describe("defaultAgentType", () => {
     expect(defaultAgentType(list)).toBe("opencode");
   });
 
-  it("falls back to claude when the catalog is empty (pre-load)", () => {
-    expect(defaultAgentType([])).toBe("claude");
-    expect(defaultAgentType([], "codex")).toBe("claude");
+  it("names no agent while the catalog is empty — none is ever assumed", () => {
+    // Pre-load, or no agent plugin enabled: a preference for an agent nobody
+    // provides is no answer either.
+    expect(defaultAgentType([])).toBeNull();
+    expect(defaultAgentType([], "codex")).toBeNull();
+    expect(defaultAgentType([], null)).toBeNull();
   });
 
   it("prefers within the full list when nothing is installed", () => {

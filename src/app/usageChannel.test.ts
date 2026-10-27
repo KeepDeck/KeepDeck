@@ -130,7 +130,7 @@ const carriedNormalizer: UsageNormalizer = (payload, at) => {
 /** A pane runs an agent, and a report is only believed from the agent its
  * pane runs — so an unnamed pane here is a claude pane, not an agentless
  * one, which no deck ever holds. */
-const deckWith = (panes: Pane[]): DeckState =>
+const deckWith = (panes: (Omit<Pane, "agentType"> & Partial<Pick<Pane, "agentType">>)[]): DeckState =>
   deckStateOf(panes.map((pane) => ({ agentType: "claude", ...pane })));
 
 /** The wire type itself, not a hand-copy: a local one drifted the moment

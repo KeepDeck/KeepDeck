@@ -1,4 +1,4 @@
-import { paneAgentType, paneHasProcess } from "../domain/deck";
+import { paneHasProcess } from "../domain/deck";
 import { log } from "../ipc/log";
 import { usageSourceTimestamp } from "./usageProvenance";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
@@ -125,7 +125,7 @@ export function createUsageLimitsLane({
       workspaces.some((workspace) =>
         workspace.panes.some(
           (pane) =>
-            paneAgentType(pane) === agentId && paneHasProcess(workspace, pane),
+            pane.agentType === agentId && paneHasProcess(workspace, pane),
         ),
       ),
     );

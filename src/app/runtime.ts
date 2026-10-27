@@ -1,4 +1,4 @@
-import { paneAgentType, panesRunningIn } from "../domain/deck";
+import { panesRunningIn } from "../domain/deck";
 import { listApplications, openPath, openUrl } from "../ipc/app";
 import { readImageTempPath, readText, writeText } from "../ipc/clipboard";
 import { log } from "../ipc/log";
@@ -129,7 +129,7 @@ function paneAgentTypeOf(
 ): string | null {
   for (const workspace of deck.getSnapshot().workspaces) {
     const pane = workspace.panes.find((candidate) => candidate.id === paneId);
-    if (pane) return paneAgentType(pane);
+    if (pane) return pane.agentType;
   }
   return null;
 }

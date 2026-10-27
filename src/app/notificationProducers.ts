@@ -1,7 +1,6 @@
 import type { WorkspaceRef as PluginWorkspaceRef } from "@keepdeck/plugin-api";
 import {
   findWorkspace,
-  paneAgentType,
   paneDisplayTitle,
   type Workspace,
 } from "../domain/deck";
@@ -47,7 +46,7 @@ function paneContext(
     title: paneDisplayTitle(pane, index, agents),
     wsName: ws.name,
     workspace: { id: ws.id, instance: ws.instance },
-    agent: agents.find((agent) => agent.id === paneAgentType(pane)),
+    agent: agents.find((agent) => agent.id === pane.agentType),
   };
 }
 

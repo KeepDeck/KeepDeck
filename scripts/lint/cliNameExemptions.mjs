@@ -6,6 +6,9 @@
  * lowered; an entry whose file names no CLI fails until it is deleted. So
  * this list only shrinks, and the task that empties a file deletes its
  * entry. Nothing is added here to make a new leak pass.
+ *
+ * `until: null` marks the one kind of entry that stays: a migration reading
+ * what an older build wrote, where the name is a fact of that old file.
  */
 export const CLI_NAME_EXEMPTIONS = [
   // The contract's per-CLI staging dirs; plugins build their own in their workspace dir.
@@ -25,11 +28,8 @@ export const CLI_NAME_EXEMPTIONS = [
   { file: "src-tauri/src/mcp/kimi.rs", names: ["kimi"], count: 2, reason: "kimi's MCP config writer", until: "task-533" },
   { file: "src-tauri/src/mcp/mod.rs", names: ["kimi"], count: 1, reason: "declares the kimi MCP module", until: "task-533" },
 
-  // claude as the default agent.
-  { file: "src/app/newAgentDefaults.ts", names: ["claude"], count: 1, reason: "claude is the default new agent", until: "task-526" },
-  { file: "src/domain/agents/agents.ts", names: ["claude"], count: 1, reason: "claude is the default agent", until: "task-526" },
-  { file: "src/domain/deck/panes/lifecycle.ts", names: ["claude"], count: 1, reason: "a pane without an agent is claude", until: "task-526" },
-  { file: "src/domain/settings/codecs.ts", names: ["claude"], count: 1, reason: "settings default to claude", until: "task-526" },
+  // Frozen history: what an older build's files meant.
+  { file: "src/domain/migrations/migrations.ts", names: ["claude"], count: 1, reason: "deck v13 → v14: a pane stored without an agent was claude's", until: null },
 
   // Presentation the core holds per CLI.
   { file: "src/domain/usage/history/event.ts", names: ["claude"], count: 2, reason: "reads legacy usage records as claude", until: "task-527" },

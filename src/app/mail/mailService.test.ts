@@ -20,8 +20,8 @@ const SENDER = {
 function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => undefined) {
   // pane-1 is on a team, so the standing-presence has something to re-state.
   let panes: Pane[] = [
-    { id: "pane-1", team: { teamId: "team-1", role: "lead" } },
-    { id: "pane-2" },
+    { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+    { id: "pane-2", agentType: "claude" },
   ];
   const agentTypes: Record<string, string> = {
     "pane-1": "claude",
@@ -179,7 +179,7 @@ describe("createMailService", () => {
 
     // pane-2 closes. `pane-N` is a REUSABLE slot, so the next pane can be
     // handed the same id — and must not inherit a conversation.
-    h.closePanes([{ id: "pane-1" }]);
+    h.closePanes([{ id: "pane-1", agentType: "claude" }]);
     const after = await h.registry.execute("mail.inbox", {}, {
       kind: "external",
       client: "mcp",
@@ -246,12 +246,12 @@ describe("createMailService", () => {
     const h = setup();
     h.learned.length = 0;
 
-    h.closePanes([{ id: "pane-1" }, { id: "pane-2" }]);
+    h.closePanes([{ id: "pane-1", agentType: "claude" }, { id: "pane-2", agentType: "claude" }]);
     expect(h.learned).toEqual(["claude", "codex"]);
 
     // And a pane running something new is asked about along with the rest.
     h.learned.length = 0;
-    h.closePanes([{ id: "pane-1" }, { id: "pane-9" }]);
+    h.closePanes([{ id: "pane-1", agentType: "claude" }, { id: "pane-9", agentType: "claude" }]);
     expect(h.learned).toEqual(["claude", "kimi"]);
   });
 
@@ -391,8 +391,8 @@ describe("mail service — whether a working pane is held or woken", () => {
 });
 
 describe("mail service — a briefing follows membership", () => {
-  const lead = (): Pane => ({ id: "pane-1", team: { teamId: "team-1", role: "lead" } });
-  const impl = (): Pane => ({ id: "pane-2", team: { teamId: "team-1", role: "impl-1" } });
+  const lead = (): Pane => ({ id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } });
+  const impl = (): Pane => ({ id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } });
 
   it("briefs a pane the moment the deck shows it on a team — before any session event", () => {
     // Synchronous with the membership write, on purpose: the briefing has
