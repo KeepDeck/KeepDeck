@@ -20,7 +20,7 @@ describe("a composed launch", () => {
       },
     };
     const d = draft();
-    await composed(slow, fast).prepare({}, d);
+    await composed(slow, fast).prepare({ workspace: { id: "ws-1", instance: "i-1" } }, d);
     expect(d.args).toEqual(["first", "second"]);
   });
 });

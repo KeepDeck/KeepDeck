@@ -14,25 +14,29 @@
  * needs (a config dir, a flag) is a part of that generation's launch, never a
  * field of the draft.
  */
-import type {
-  PluginResources,
-  SpawnPlanInput,
-  SpawnPlanOutput,
+import {
+  errorMessage,
+  type PluginResources,
+  type SpawnPlanInput,
+  type SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
+import type { SkillsConfigDirs } from "./layout";
 import { mcpConfigFragment } from "./mcp";
 import { generationOf } from "./version";
 import { warmConfigDir, type WarmPorts } from "./warm";
 
-/** What a launch needs from the host: the plugin's own resources, and what
- * warming a config dir takes. */
+/** What a launch needs: the plugin's own resources, what warming a config
+ * dir takes, and the builder of the skills config dirs (one per plugin, so
+ * its builds are ordered across launches). */
 export interface LaunchPorts extends WarmPorts {
   resources: PluginResources;
+  configDirs: SkillsConfigDirs;
 }
 
 /** What a launch is decided from. */
 export type LaunchInput = Pick<
   SpawnPlanInput,
-  "mcp" | "skills" | "target" | "yolo" | "cliVersion"
+  "mcp" | "skills" | "target" | "yolo" | "cliVersion" | "workspace"
 >;
 
 /** What every launch of opencode carries, while it is being assembled. */
@@ -118,24 +122,31 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-skip-permissions"] : [];
 
 /**
- * 1.x: the staged skills as an EXTRA config directory — opencode loads
+ * 1.x: the shared skills as an EXTRA config directory — opencode loads
  * `OPENCODE_CONFIG_DIR` on top of the global and project ones (additive,
- * probe-verified on 1.18.3). The host hands over a STABLE per-workspace dir,
- * never a wiped staging one: opencode treats its config dir as a writable
- * home (plugin node_modules, account/state files — field-verified), so a
- * rebuilt-from-scratch directory would destroy those.
+ * probe-verified on 1.18.3). This plugin builds it in its own workspace
+ * directory (layout.ts), STABLE across launches: opencode treats its config
+ * dir as a writable home (plugin node_modules, account/state files —
+ * field-verified), so only the skills it holds are rebuilt.
  *
  * An env DEFAULT, not an override: `OPENCODE_CONFIG_DIR` is a variable the
  * user may legitimately own (their custom config home), and a user-set value
  * must win over skills delivery.
  *
  * Then bootstrapped, so the dependency install does not happen inside the
- * pane's own boot (see warm.ts).
+ * pane's own boot (see warm.ts). A directory that could not be built costs
+ * the pane its skills, not its launch.
  */
-const stagedConfigDir = (ctx: LaunchPorts): OpencodeLaunch => ({
+const skillsConfigDir = (ctx: LaunchPorts): OpencodeLaunch => ({
   async prepare(input, draft) {
-    const dir = input.skills?.opencodeConfigDir;
-    if (!dir) return;
+    if (!input.skills) return;
+    let dir: string;
+    try {
+      dir = await ctx.configDirs.build(input.workspace, input.skills.skills);
+    } catch (e) {
+      ctx.log.warn(`skills config dir not built; launching without skills: ${errorMessage(e)}`);
+      return;
+    }
     draft.envDefaults.push(["OPENCODE_CONFIG_DIR", dir]);
     await warmConfigDir(ctx, dir);
   },
@@ -181,7 +192,7 @@ const tuiObserver = (ctx: LaunchPorts): OpencodeLaunch => ({
  * instructions.
  */
 const skillsInConfig = part((input, draft) => {
-  if (input.skills) draft.config.skills = [input.skills.skillsDir];
+  if (input.skills) draft.config.skills = [input.skills.dir];
 });
 
 /** 1.x arguments. */
@@ -234,7 +245,7 @@ export function launchFor(
     return { launch: composed(...shared, skillsInConfig, invocationV2), settles: false };
   }
   return {
-    launch: composed(...shared, stagedConfigDir(ctx), tuiObserver(ctx), invocationV1),
+    launch: composed(...shared, skillsConfigDir(ctx), tuiObserver(ctx), invocationV1),
     settles: false,
   };
 }

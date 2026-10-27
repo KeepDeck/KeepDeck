@@ -43,10 +43,18 @@ function activate(
       },
     },
     log: { info() {}, warn() {}, error() {} },
+    // The plugin's own directory per workspace — a path, nothing on disk:
+    // what is built there goes through fsWrite, which a test fakes.
+    workspaces: { dir: async (workspace) => `/pw/keepdeck.opencode/${workspace.id}` },
     services: {
       sessions: { spawn: absent("sessions"), ...services.sessions },
       fs: { readFile: absent("fs"), readDir: absent("fs"), ...services.fs },
-      fsWrite: { writeFile: absent("fsWrite"), remove: absent("fsWrite"), ...services.fsWrite },
+      fsWrite: {
+        writeFile: absent("fsWrite"),
+        remove: absent("fsWrite"),
+        move: absent("fsWrite"),
+        ...services.fsWrite,
+      },
       sqlite: { query: absent("sqlite"), ...services.sqlite },
       exec: { runOnce: absent("exec"), ...services.exec },
     },
@@ -271,7 +279,13 @@ describe("opencode plugin hooks", () => {
   });
 
   it("staged skills ride OPENCODE_CONFIG_DIR as an env DEFAULT, never an override", async () => {
-    const agent = activate("/App/resources");
+    const noWrite = async () => {};
+    const agent = activate("/App/resources", {
+      fsWrite: { writeFile: noWrite, remove: noWrite, move: noWrite },
+    });
+    // The plugin's own config dir, built in its workspace directory — not
+    // the host's older view, whatever the input still carries.
+    const config = `/pw/keepdeck.opencode/${input.workspace.id}/config`;
     const skills = {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/kd/staging/ws-1/opencode",
@@ -285,7 +299,7 @@ describe("opencode plugin hooks", () => {
     // A default, not plain env: the variable is opencode's whole config
     // home, and a user-set value must win over skills delivery.
     expect(Object.fromEntries(out.envDefaults ?? [])).toEqual({
-      OPENCODE_CONFIG_DIR: "/kd/staging/ws-1/opencode",
+      OPENCODE_CONFIG_DIR: config,
       OPENCODE_TUI_CONFIG: "/App/resources/keepdeck-plugin/tui-v1.json",
     });
     const env = Object.fromEntries(out.env);
@@ -295,9 +309,7 @@ describe("opencode plugin hooks", () => {
 
     const resume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, skills, sessionId: "s" }, resume);
-    expect(Object.fromEntries(resume.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBe(
-      "/kd/staging/ws-1/opencode",
-    );
+    expect(Object.fromEntries(resume.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBe(config);
 
     // No skills — no config dir, on spawn AND resume alike.
     const bareSpawn = output();
@@ -346,10 +358,11 @@ describe("opencode plugin hooks", () => {
 
   it("hands 2.x its skills in the config, and never OPENCODE_CONFIG_DIR — there it replaces the user's", async () => {
     const agent = activate("/App/resources");
+    // The generic `dir`, whatever the host's older view says.
     const skills = {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/kd/staging/ws-1/opencode",
-      skillsDir: "/kd/staging/ws-1/skills",
+      skillsDir: "/elsewhere/skills",
       dir: "/kd/staging/ws-1/skills",
       skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };
@@ -612,7 +625,7 @@ describe("opencode plugin identity", () => {
 });
 
 describe("opencode plugin — warming the config dir", () => {
-  const CFG = "/cfg/ws-1";
+  const CFG = `/pw/keepdeck.opencode/${input.workspace.id}/config`;
 
   /** A services stub that answers as a dir with a manifest and nothing
    * installed — the state a fresh workspace is in — and records runs. */
@@ -634,13 +647,20 @@ describe("opencode plugin — warming the config dir", () => {
           },
         },
         exec: { runOnce },
+        fsWrite: { writeFile: async () => {}, remove: async () => {}, move: async () => {} },
       },
     };
   }
 
   const withSkills = {
     ...input,
-    skills: { opencodeConfigDir: CFG, skillsDir: "/s", claudePluginDir: "/c", dir: "/s", skills: [] },
+    skills: {
+      opencodeConfigDir: "/c/o",
+      skillsDir: "/s",
+      claudePluginDir: "/c",
+      dir: "/s",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
+    },
   };
 
   it("bootstraps a local pane's config dir before it spawns", async () => {

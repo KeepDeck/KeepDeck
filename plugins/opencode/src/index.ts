@@ -15,18 +15,21 @@ import { opencodeBinding } from "./binding";
 import { opencodePresentation } from "./presentation";
 import { opencodeHistory, type HistoryPorts } from "./history";
 import { stageLaunch, type LaunchPorts } from "./launch";
+import { skillsConfigDirs, type LayoutPorts } from "./layout";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { sessionOpening, type OpeningPorts } from "./opening";
 import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
 
 /** What the plugin needs from the host — the parts of its context it uses. */
-export type OpencodePorts = LaunchPorts &
+export type OpencodePorts = Omit<LaunchPorts, "configDirs"> &
+  LayoutPorts &
   OpeningPorts &
   HistoryPorts & { agents: PluginAgents };
 
 export function registerOpencode(ctx: OpencodePorts): void {
   const opening = sessionOpening(ctx);
+  const launchPorts: LaunchPorts = { ...ctx, configDirs: skillsConfigDirs(ctx) };
   ctx.agents.register({
     id: "opencode",
     label: "OpenCode",
@@ -70,7 +73,7 @@ export function registerOpencode(ctx: OpencodePorts): void {
       wake: "bridge",
     },
     hooks: launchPlans({
-      stage: (input, output) => stageLaunch(ctx, input, output),
+      stage: (input, output) => stageLaunch(launchPorts, input, output),
       // Both ask the store first where the session lives, and refuse one
       // this pane's opencode would open as something else (opening.ts).
       // A fork copies the session INTO the pane's directory (fork.ts), or
