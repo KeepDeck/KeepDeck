@@ -176,11 +176,105 @@ describe("KeepDeck's claude Mod", () => {
     }
   });
 
+  describe("which turn an abort belongs to", () => {
+    /** A typed prompt as claude raises it: the row is appended, and only once
+     * every hooked append settled does its turn start. */
+    const typed = (mod: ReturnType<typeof loaded>, uuid: string) => {
+      const append = userAppend({ uuid });
+      return mod.fire("session.append", append, { message: append.message, uuid });
+    };
+    const start = (mod: ReturnType<typeof loaded>, turnId: string, agentId?: string) =>
+      mod.fire("turn.start", { text: "hi", turnId, ...(agentId !== undefined && { agentId }) });
+    const aborted = (mod: ReturnType<typeof loaded>, turnId: string, agentId?: string) =>
+      mod.fire("turn.complete", { reason: "aborted", isAborted: true, turnId, ...(agentId !== undefined && { agentId }) });
+
+    it("states no interrupt for a turn cut by a prompt sent while it ran", async () => {
+      const mod = loaded();
+      await mod.fire("session.start", {});
+      await typed(mod, "u-1");
+      await start(mod, "t-1");
+      // Sent while a tool ran: the prompt's append reached the Mod before
+      // the cut turn's queued turn.complete.
+      await typed(mod, "u-2");
+      await aborted(mod, "t-1");
+      await start(mod, "t-2");
+      expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_PROMPT_ACCEPTED_EVENT]);
+    });
+
+    it("an Esc in the turn that took over still interrupts", async () => {
+      const mod = loaded();
+      await mod.fire("session.start", {});
+      await typed(mod, "u-1");
+      await start(mod, "t-1");
+      await typed(mod, "u-2");
+      await aborted(mod, "t-1");
+      await start(mod, "t-2");
+      await aborted(mod, "t-2");
+      expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_PROMPT_ACCEPTED_EVENT, MOD_INTERRUPT_EVENT]);
+    });
+
+    it("a genuine Esc interrupts, also after a queued prompt was folded in", async () => {
+      const mod = loaded();
+      await mod.fire("session.start", {});
+      await typed(mod, "u-1");
+      await start(mod, "t-1");
+      // A mid-turn fold is an attachment row, not an accepted prompt.
+      const fold = userAppend({ uuid: "a-1", door: "delivery" });
+      await mod.fire("session.append", fold, { message: { type: "attachment", content: [] }, uuid: "a-1" });
+      await aborted(mod, "t-1");
+      expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_INTERRUPT_EVENT]);
+    });
+
+    it("Esc, then a new prompt: both stated, in order", async () => {
+      const mod = loaded();
+      await mod.fire("session.start", {});
+      await typed(mod, "u-1");
+      await start(mod, "t-1");
+      await aborted(mod, "t-1");
+      await typed(mod, "u-2");
+      await start(mod, "t-2");
+      expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_INTERRUPT_EVENT, MOD_PROMPT_ACCEPTED_EVENT]);
+    });
+
+    it("a prompt after a turn ended normally supersedes nothing: the next turn's Esc interrupts", async () => {
+      const mod = loaded();
+      await mod.fire("session.start", {});
+      await typed(mod, "u-1");
+      await start(mod, "t-1");
+      await mod.fire("turn.complete", { reason: "answer", isAborted: false, turnId: "t-1" });
+      // The ended turn is still the last started when this prompt lands.
+      await typed(mod, "u-2");
+      await start(mod, "t-2");
+      await aborted(mod, "t-2");
+      expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_PROMPT_ACCEPTED_EVENT, MOD_INTERRUPT_EVENT]);
+    });
+
+    it("a subagent's turns neither open nor close the main one", async () => {
+      const mod = loaded();
+      await mod.fire("session.start", {});
+      await typed(mod, "u-1");
+      await start(mod, "t-1");
+      await start(mod, "s-1", "a-1");
+      await aborted(mod, "s-1", "a-1");
+      await aborted(mod, "t-1");
+      expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_INTERRUPT_EVENT]);
+    });
+
+    it("an abort of a turn it never saw start still interrupts", async () => {
+      const mod = loaded();
+      await mod.fire("session.start", {});
+      await typed(mod, "u-1");
+      await aborted(mod, "t-0");
+      expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_INTERRUPT_EVENT]);
+    });
+  });
+
   it("hands every event on to claude", async () => {
     const mod = loaded();
     await mod.fire("session.start", {});
     const complete = { reason: "aborted", isAborted: true };
     expect(await mod.fire("turn.complete", complete, "next-result")).toBe("next-result");
+    expect(await mod.fire("turn.start", { text: "hi", turnId: "t-1" }, "started")).toBe("started");
     const result = { message: userAppend().message, uuid: "u-1" };
     expect(await mod.fire("session.append", userAppend(), result)).toBe(result);
   });
