@@ -236,6 +236,19 @@ describe("KeepDeck's claude Mod", () => {
       expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_INTERRUPT_EVENT, MOD_PROMPT_ACCEPTED_EVENT]);
     });
 
+    it("a prompt after a turn ended normally supersedes nothing: the next turn's Esc interrupts", async () => {
+      const mod = loaded();
+      await mod.fire("session.start", {});
+      await typed(mod, "u-1");
+      await start(mod, "t-1");
+      await mod.fire("turn.complete", { reason: "answer", isAborted: false, turnId: "t-1" });
+      // The ended turn is still the last started when this prompt lands.
+      await typed(mod, "u-2");
+      await start(mod, "t-2");
+      await aborted(mod, "t-2");
+      expect(mod.events()).toEqual([MOD_PROMPT_ACCEPTED_EVENT, MOD_PROMPT_ACCEPTED_EVENT, MOD_INTERRUPT_EVENT]);
+    });
+
     it("a subagent's turns neither open nor close the main one", async () => {
       const mod = loaded();
       await mod.fire("session.start", {});
