@@ -29,6 +29,7 @@ import {
 } from "@keepdeck/plugin-api";
 import { ARTIFACTS_FIELD, artifactsEnv } from "./artifacts";
 import { icon } from "./icon";
+import { claudeBinding } from "./binding";
 import { claudePresentation } from "./presentation";
 import { mcpArgs } from "./mcp";
 import {
@@ -282,6 +283,7 @@ export function registerClaude(ctx: ClaudePorts): void {
     icon,
     detect: { bin: "claude" },
     presentation: claudePresentation,
+    binding: claudeBinding,
     // StatusLine carries provider cost/limits; the transcript tail supplies
     // deduplicated cumulative tokens.
     usage: {

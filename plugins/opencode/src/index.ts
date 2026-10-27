@@ -11,6 +11,7 @@ import {
   type PluginAgents,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
+import { opencodeBinding } from "./binding";
 import { opencodePresentation } from "./presentation";
 import { opencodeHistory, type HistoryPorts } from "./history";
 import { stageLaunch, type LaunchPorts } from "./launch";
@@ -32,6 +33,7 @@ export function registerOpencode(ctx: OpencodePorts): void {
     icon,
     detect: { bin: "opencode" },
     presentation: opencodePresentation,
+    binding: opencodeBinding,
     // opencode has a native client/server split: the host can run this pane
     // as a local `opencode attach <ep>` thin client against an `opencode
     // serve` on a VPS. Support and http/https schemes are declared once in

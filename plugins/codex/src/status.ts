@@ -1,5 +1,5 @@
 import {
-  agentIdActor,
+  actorFromFields,
   asNonEmptyString,
   decodeStatusPayload,
   frameTeammateMail,
@@ -155,9 +155,13 @@ export const attributeCodexEvent = (payload: unknown): EventAttribution | null =
   if (decoded.source === "record") return { event: null, actor: "main", status: true };
   const event = asNonEmptyString(decoded.event.hook_event_name);
   if (!event) return null;
-  const actor = agentIdActor(decoded.event, decoded.reduced);
+  const actor = actorFromFields(decoded.event, decoded.reduced, CODEX_HOOK_ACTOR_FIELDS);
   return { event, actor, status: actor !== "child" };
 };
+
+/** Where codex's hook payloads name who raised them — the fields its hooks
+ * share with claude's: `agent_id` for a subagent, `session_id` for all. */
+const CODEX_HOOK_ACTOR_FIELDS = { childId: "agent_id", sessionId: "session_id" } as const;
 
 export const renderCodexMail: MailReplyRenderer = (input) => {
   const text = teammateText(input);

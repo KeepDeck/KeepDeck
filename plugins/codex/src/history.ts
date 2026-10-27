@@ -124,7 +124,8 @@ export function codexHistory(ctx: HistoryPorts): AgentHistory {
       const walked = await readSession(ref, {
         scope: "head",
         until: (state, turns) =>
-          state.cwd !== undefined && firstMeaningfulUserTurn(turns) !== undefined,
+          state.cwd !== undefined &&
+          firstMeaningfulUserTurn(turns, dialect.titleSkipPrefixes ?? []) !== undefined,
       });
       return {
         cwd: walked.state.cwd ?? "",

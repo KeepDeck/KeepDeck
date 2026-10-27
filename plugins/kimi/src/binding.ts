@@ -1,4 +1,4 @@
-import type { AgentBinding } from "@keepdeck/plugin-api";
+import type { AgentBinding, AgentBindingReport } from "@keepdeck/plugin-api";
 
 /**
  * kimi's `/new`, told apart from what the deck guards against (task-450).
@@ -23,6 +23,9 @@ import type { AgentBinding } from "@keepdeck/plugin-api";
  * Asked only about a fresh session from the pane's own, already bound
  * process; the process rules stay the deck's.
  */
-export const kimiBinding: AgentBinding = {
-  restartsConversation: ({ source }) => source === "startup",
-};
+export const kimiBinding = {
+  // The one word kimi reports for a continued conversation: `/fork` roots
+  // and resumed sessions say `resume`; `/new` and `/clear` say `startup`.
+  swapSources: ["resume"],
+  restartsConversation: ({ source }: AgentBindingReport) => source === "startup",
+} satisfies AgentBinding;

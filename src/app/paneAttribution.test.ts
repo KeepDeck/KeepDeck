@@ -23,10 +23,14 @@ const workspaces: Workspace[] = [
   },
 ];
 
+/** The words the agents in these cases declare for a continued session. */
+const CONTINUED = ["resume", "clear", "compact", "fork"];
+
 const attribution = () =>
   createPaneAttribution({
     workspaces: () => workspaces,
     secretOf: () => "tok",
+    swapSources: () => CONTINUED,
   });
 
 const report = (over: Partial<SessionBound> = {}): SessionBound => ({
@@ -40,17 +44,19 @@ const report = (over: Partial<SessionBound> = {}): SessionBound => ({
 });
 
 describe("bindingOrigin", () => {
-  it("reads every word our agents use for a continued conversation", () => {
-    for (const word of ["resume", "clear", "compact", "fork", "new"]) {
-      expect(bindingOrigin(word), word).toBe("swap");
-    }
+  it("reads a word as a continuation only when the pane's agent declares it", () => {
+    for (const word of CONTINUED) expect(bindingOrigin(word, CONTINUED), word).toBe("swap");
+    // One agent's `new` is a continuation, another's is not a word it uses.
+    expect(bindingOrigin("new", ["resume", "new"])).toBe("swap");
+    expect(bindingOrigin("new", CONTINUED)).toBe("startup");
   });
 
-  it("treats a word it does not know as a fresh start, not a continuation", () => {
+  it("treats a word it does not know, or an agent that declared none, as a fresh start", () => {
     // The strict side: an unknown word can then only be refused as a second
     // start. Read as a continuation it would overwrite the pane's identity.
-    expect(bindingOrigin("teleported")).toBe("startup");
-    expect(bindingOrigin(undefined)).toBe("startup");
+    expect(bindingOrigin("teleported", CONTINUED)).toBe("startup");
+    expect(bindingOrigin(undefined, CONTINUED)).toBe("startup");
+    expect(bindingOrigin("resume", [])).toBe("startup");
   });
 });
 
@@ -130,6 +136,7 @@ describe("createPaneAttribution", () => {
     const owner = createPaneAttribution({
       workspaces: () => workspaces,
       secretOf: () => "tok",
+      swapSources: () => CONTINUED,
       restartsConversation: (agent, given) => {
         asked.push([agent, given]);
         return given.facts.originator === "tui";
@@ -158,6 +165,7 @@ describe("createPaneAttribution", () => {
     const owner = createPaneAttribution({
       workspaces: () => workspaces,
       secretOf: () => "tok",
+      swapSources: () => CONTINUED,
       restartsConversation: () => {
         throw new Error("plugin bug");
       },

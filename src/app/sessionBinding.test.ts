@@ -80,6 +80,8 @@ describe("createSessionBinding", () => {
     const attribution = createPaneAttribution({
       workspaces: () => state.workspaces,
       secretOf: () => "tok",
+      // The words a claude-like agent declares for a continued session.
+      swapSources: () => ["resume", "clear", "compact", "fork"],
     });
     return {
       binding: createSessionBinding(store, telemetry, attribution),

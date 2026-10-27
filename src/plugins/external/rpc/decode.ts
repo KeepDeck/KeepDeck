@@ -506,13 +506,15 @@ export interface WireAgentRegistration {
   hasLiveSessions?: boolean;
   usage?: unknown;
   presentation?: AgentPresentation;
+  /** `binding.swapSources`, the binding's static half. */
+  swapSources?: string[];
 }
 
 export function isAgentRegistration(value: unknown): value is WireAgentRegistration {
   if (!isObjectLike(value) || !isString(value.id) || !isString(value.label)) return false;
   if (!isObjectLike(value.detect) || !isString(value.detect.bin)) return false;
   if (value.presentation !== undefined && !isAgentPresentation(value.presentation)) return false;
-  for (const name of ["hookNames"] as const) {
+  for (const name of ["hookNames", "swapSources"] as const) {
     if (value[name] !== undefined && !isStringArray(value[name])) return false;
   }
   for (const name of ["hasHistory", "hasListing", "hasTranscriptPage", "hasLiveSessions"] as const) {

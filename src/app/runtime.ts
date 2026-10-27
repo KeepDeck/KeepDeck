@@ -326,7 +326,8 @@ export function createAppRuntime(
     workspaces: () => deckStore.getSnapshot().workspaces,
     secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
     restartsConversation: (agentId, report) =>
-      agentEntry(agentId)?.binding?.restartsConversation(report) ?? false,
+      agentEntry(agentId)?.binding?.restartsConversation?.(report) ?? false,
+    swapSources: (agentId) => agentEntry(agentId)?.binding?.swapSources ?? [],
   });
   // The native side counts the children of a pane's pinned process as the
   // pane's own (opencode 2.x's MCP servers are its `serve`'s), so it is told

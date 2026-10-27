@@ -44,6 +44,7 @@ async function lane() {
   const attribution = createPaneAttribution({
     workspaces: () => deck.getSnapshot().workspaces,
     secretOf: () => "tok",
+    swapSources: () => [],
   });
   for (const pane of ["pane-1", "pane-2", "pane-3"]) attribution.recordBinding(pane, "4021");
   const lifecycle: PaneLifecycle = { retire: vi.fn(), beginSession: vi.fn(), endSession: vi.fn() };

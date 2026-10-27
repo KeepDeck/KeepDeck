@@ -57,6 +57,7 @@ describe("createVerifiedPaneReports", () => {
       createPaneAttribution({
         workspaces: () => deck.getSnapshot().workspaces,
         secretOf: (paneId) => stubs.peekPaneSpawnSpec(paneId)?.token,
+        swapSources: () => [],
       }),
       {
         label: "test report",

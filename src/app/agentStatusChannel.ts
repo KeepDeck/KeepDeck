@@ -3,6 +3,7 @@ import { onAgentStatus } from "../ipc/status";
 import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
+import { attributedEvent } from "./statusPayloadLabel";
 import { paneAgentType } from "../domain/deck";
 import { isNavigationKey } from "../domain/terminal";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
@@ -105,7 +106,9 @@ export function createAgentStatusChannel(
       if (!entry.status) continue;
       current.add(entry.id);
       normalizerDisposers.push(
-        tracker.registerNormalizer(entry.id, admitted(entry.status)),
+        tracker.registerNormalizer(entry.id, admitted(entry.status), (payload) =>
+          attributedEvent(entry.status, payload),
+        ),
       );
     }
     // An agent that LOST its status voice (plugin disabled) can never

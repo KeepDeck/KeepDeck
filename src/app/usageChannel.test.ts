@@ -164,6 +164,7 @@ describe("createUsageChannel", () => {
       const attribution = createPaneAttribution({
         workspaces: () => deckStore.getSnapshot().workspaces,
         secretOf: (paneId) => ipc.peekPaneSpawnSpec(paneId)?.token,
+        swapSources: () => ["resume", "clear", "compact", "fork"],
       });
       bindings = createSessionBinding(
         deckStore,

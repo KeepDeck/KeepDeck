@@ -126,10 +126,15 @@ export interface AgentBindingReport {
  * teammates. Only the agent knows which one it is looking at.
  */
 export interface AgentBinding {
+  /** The CLI's words for a session that CONTINUES the pane's conversation
+   * (resumed, cleared, compacted, forked…) rather than starting one (API
+   * 70). A word not listed — or none at all — reads as a fresh start, the
+   * strict side: an unknown word can never overwrite a pane's identity. */
+  swapSources?: readonly string[];
   /** Whether this fresh session, from the pane's own process, is the user
    * starting a new conversation. Asked only for that case; the process rules
-   * are never the agent's to waive. */
-  restartsConversation(report: AgentBindingReport): boolean;
+   * are never the agent's to waive. Absent means not. */
+  restartsConversation?(report: AgentBindingReport): boolean;
 }
 
 /** Where a pane's agent should run. Absent = the pane's own machine (local),

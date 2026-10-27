@@ -51,6 +51,10 @@ export interface SessionDialect<State, Item> {
   step(state: State, item: Item): AgentTranscriptEntry[];
   /** Whatever the dialect is still holding. */
   end(state: State): AgentTranscriptEntry[];
+  /** Prose this CLI injects as a user turn that must not name a session
+   * (API 70) — a skill bootstrap, a local-command caveat. Exact prefixes;
+   * markup and slash commands are skipped for every agent already. */
+  titleSkipPrefixes?: readonly string[];
 }
 
 export interface WalkedSession<State> {
@@ -209,7 +213,7 @@ export async function walkSession<Req, Item, State>(opts: {
 
     const shortfall = shortfallOf(outcome, scope);
     return {
-      title: firstMeaningfulUserTurn(turns),
+      title: firstMeaningfulUserTurn(turns, dialect.titleSkipPrefixes ?? []),
       content: turns.map((t) => t.text).join("\n"),
       turns,
       ...(shortfall ? { shortfall } : {}),

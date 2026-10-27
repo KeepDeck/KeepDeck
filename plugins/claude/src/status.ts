@@ -1,5 +1,5 @@
 import {
-  agentIdActor,
+  actorFromFields,
   asNonEmptyString,
   decodeStatusPayload,
   frameTeammateMail,
@@ -443,9 +443,13 @@ export const attributeClaudeEvent = (payload: unknown): EventAttribution | null 
   if (event === MOD_INTERRUPT_EVENT || event === MOD_PROMPT_ACCEPTED_EVENT) {
     return { event, actor: "main", status: true };
   }
-  const actor = agentIdActor(decoded.event, decoded.reduced);
+  const actor = actorFromFields(decoded.event, decoded.reduced, CLAUDE_HOOK_ACTOR_FIELDS);
   return { event, actor, status: true };
 };
+
+/** Where claude's hook payloads name who raised them: a subagent's carries
+ * `agent_id`, every hook the session's `session_id`. */
+const CLAUDE_HOOK_ACTOR_FIELDS = { childId: "agent_id", sessionId: "session_id" } as const;
 
 export const renderClaudeMail: MailReplyRenderer = ({ event, messages, waiting }) => {
   const text = frameTeammateMail(messages, waiting);
