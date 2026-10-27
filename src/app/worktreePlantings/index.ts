@@ -41,6 +41,6 @@ export function createWorktreePlantings(
     skillsFor: skills.skillsFor,
     invalidateSkills: skills.invalidateSkills,
     plantMcp: mcp.plantMcp,
-    sweep: createSweep(deck, inOrder, disarm).sweep,
+    sweep: createSweep(deck, inOrder, disarm, factories.prunePluginDirs).sweep,
   };
 }

@@ -300,6 +300,7 @@ export function buildPluginContext(
       },
     },
     storage: deps.storage(pluginId),
+    workspaces: deps.workspaces(pluginId),
     resources: deps.resources(manifest, source),
     events: {
       onWorkspaceClosed: (cb) => track(deps.events.onWorkspaceClosed(cb)),

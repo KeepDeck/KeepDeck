@@ -22,6 +22,7 @@ mod notify_identity;
 mod paths;
 mod plugin_http;
 mod plugin_permissions;
+mod plugin_workspaces;
 mod plugins_fs;
 mod plugins_fs_write;
 mod plugins_sqlite;
@@ -277,6 +278,9 @@ pub fn run() {
             plugins_fs_write::plugins_fs_write_file,
             plugins_fs_write::plugins_fs_write_append,
             plugins_fs_write::plugins_fs_write_remove,
+            plugins_fs_write::plugins_fs_write_move,
+            plugin_workspaces::plugin_workspace_dir,
+            plugin_workspaces::plugin_workspaces_prune,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,

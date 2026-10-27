@@ -9,7 +9,7 @@ import type { PluginFileOpeners } from "./openers.ts";
 import type { PluginServices } from "./services.ts";
 import type { PluginSettings } from "./settings.ts";
 import type { PluginResources } from "./resources.ts";
-import type { PluginStorage } from "./storage.ts";
+import type { PluginStorage, PluginWorkspaces } from "./storage.ts";
 import type { PluginUi } from "./ui.ts";
 
 /**
@@ -35,6 +35,8 @@ export interface PluginContext {
   readonly agents: PluginAgents;
   readonly commands: PluginCommands;
   readonly storage: PluginStorage;
+  /** This plugin's private directory per workspace (API 71). */
+  readonly workspaces: PluginWorkspaces;
   readonly resources: PluginResources;
   readonly events: PluginEvents;
   readonly services: PluginServices;

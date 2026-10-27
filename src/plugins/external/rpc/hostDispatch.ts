@@ -5,6 +5,7 @@ import type {
   PluginContext,
   SpeechCapture,
   SpawnPlanOutput,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import {
   actionChannel,
@@ -178,18 +179,22 @@ export function createHostDispatch(
    * in-process plugin context. Old guests sent only `wsId`; rejecting that
    * shape makes the API-21 incompatibility explicit instead of silently
    * binding an operation to the wrong lifetime. */
-  function workspaceStorage(value: unknown) {
-    if (!isObjectLike(value))
-      throw new Error("workspace storage requires a workspace lifetime ref");
-    const id = str(value.id, "workspace storage id");
-    const instance = str(value.instance, "workspace storage instance");
+  function workspaceRef(value: unknown, what: string): WorkspaceRef {
+    if (!isObjectLike(value)) throw new Error(`${what} requires a workspace lifetime ref`);
+    const id = str(value.id, `${what} id`);
+    const instance = str(value.instance, `${what} instance`);
     if (id === "" || instance === "") {
-      throw new Error("workspace storage requires non-empty id and instance");
+      throw new Error(`${what} requires non-empty id and instance`);
     }
-    return ctx.storage.workspace({ id, instance });
+    return { id, instance };
+  }
+
+  function workspaceStorage(value: unknown) {
+    return ctx.storage.workspace(workspaceRef(value, "workspace storage"));
   }
 
   const handlers: Record<string, (args: unknown[]) => unknown> = {
+    "workspaces.dir": ([workspace]) => ctx.workspaces.dir(workspaceRef(workspace, "workspaces.dir")),
     // ---- storage: every operation carries the exact serializable lifetime
     // ref captured by the guest handle, never merely a reusable public id. ----
     "storage.workspace.get": ([workspace, key]) =>

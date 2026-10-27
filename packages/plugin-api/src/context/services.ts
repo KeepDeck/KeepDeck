@@ -248,9 +248,10 @@ export interface PluginFs {
 }
 
 /** Narrow WRITE surface over the manifest's declared `fsWrite` path
- * prefixes — the surgery side of session portability (fork/relocate). Every
- * call is containment-checked host-side against those prefixes, on both ends
- * of a copy; nothing here deletes. */
+ * prefixes and the plugin's own workspace directories (`ctx.workspaces`) —
+ * the surgery side of session portability (fork/relocate), and the layouts a
+ * plugin builds for its CLI. Every call is containment-checked host-side
+ * against those roots, on both ends of a copy or a move. */
 /** How a copy may differ from its source (API 60). */
 export interface FsCopyOptions {
   /** `[from, to]` pairs replaced everywhere in the copy, in order — the
@@ -276,6 +277,12 @@ export interface PluginFsWrite {
   /** Append one newline-terminated line — a single O_APPEND write. The line
    * itself must not contain a newline. */
   appendLine(path: string, line: string): Promise<void>;
+  /** Move a file or a directory (API 71) — how a layout built aside is
+   * published whole. An existing `dst` is replaced: renamed aside, then
+   * removed once the move landed, and put back if it did not. Missing `dst`
+   * parents are created; a symlink moves as a link. Both ends must sit
+   * inside the plugin's write roots, neither may be one. */
+  move(src: string, dst: string): Promise<void>;
 }
 
 /** A single parameterized SELECT against a declared store database, opened

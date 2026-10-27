@@ -13,6 +13,7 @@ import type {
   PluginServices,
   PluginSettings,
   PluginStorage,
+  PluginWorkspaces,
 } from "@keepdeck/plugin-api";
 import type { PluginSource } from "../model/installed";
 
@@ -43,6 +44,8 @@ export interface PluginCommandsPort {
 export interface PluginHostDeps {
   /** This plugin's namespaced persistence (workspace + global KV). */
   storage(pluginId: string): PluginStorage;
+  /** This plugin's private directory per workspace. */
+  workspaces(pluginId: string): PluginWorkspaces;
   /**
    * This plugin's settings VALUES only — `registerSection` is the core's job
    * (it lands in the contributions registry), so the dep supplies just the

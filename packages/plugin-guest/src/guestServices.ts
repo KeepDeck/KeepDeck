@@ -154,6 +154,7 @@ export function createGuestServices({
         rpc.call("services.fsWrite.writeFile", [path, text]).then(noop),
       appendLine: (path, line) =>
         rpc.call("services.fsWrite.appendLine", [path, line]).then(noop),
+      move: (src, dst) => rpc.call("services.fsWrite.move", [src, dst]).then(noop),
     },
     sqlite: {
       query: (dbPath, sql, params) =>

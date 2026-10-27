@@ -336,6 +336,13 @@ export function buildGuestContext(
       },
     },
 
+    workspaces: {
+      dir: ({ id, instance }) =>
+        rpc
+          .call("workspaces.dir", [{ id, instance }])
+          .then((value) => str(value, "workspaces.dir")),
+    },
+
     events: {
       onWorkspaceClosed: (cb) =>
         subscribeChannel(

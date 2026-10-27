@@ -244,7 +244,7 @@ export type {
   WorkspaceSnapshot,
 } from "./snapshots.ts";
 export type { PluginResources } from "./resources.ts";
-export type { PluginKV, PluginStorage } from "./storage.ts";
+export type { PluginKV, PluginStorage, PluginWorkspaces } from "./storage.ts";
 export type {
   DockTabContribution,
   DockTabProps,

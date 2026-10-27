@@ -173,8 +173,9 @@ export function createFakeHost(
     };
   }
 
+  const ctxManifest = options.manifest ?? fakeManifest();
   const ctx: PluginContext = {
-    manifest: options.manifest ?? fakeManifest(),
+    manifest: ctxManifest,
     ui: {
       registerDockTab: (tab) => record(dockTabs, tab),
       registerTopBarAction: (action) => record(topBarActions, action),
@@ -235,6 +236,10 @@ export function createFakeHost(
         })),
     },
     resources: { path: async () => null },
+    workspaces: {
+      // A path, never a directory: the fake host writes nothing.
+      dir: async (workspace) => `/fake-home/plugin-workspaces/${ctxManifest.id}/${workspace.id}`,
+    },
     storage: {
       workspace: (workspace) => ({
         get: async <T>(
@@ -368,6 +373,7 @@ export function createFakeHost(
         remove: async () => {},
         writeFile: async () => {},
         appendLine: async () => {},
+        move: async () => {},
       },
       git: {
         status: async () => ({

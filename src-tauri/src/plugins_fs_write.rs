@@ -90,17 +90,8 @@ pub fn plugins_fs_write_copy(
 /// twice); a declared root itself is never removed.
 #[tauri::command(async)]
 pub fn plugins_fs_write_remove(path: String, roots: Vec<String>) -> Result<(), String> {
-    let literal = PathBuf::from(expand_home(&path)?);
-    let (Some(parent), Some(name)) = (literal.parent(), literal.file_name()) else {
-        return Err(format!("fsWrite.remove: {path} names no file"));
-    };
-    // The PARENT is proven, then the name re-joined: realizing the path
-    // itself would resolve a symlink to its target and remove that instead.
-    let dir = resolve_write(&parent.to_string_lossy(), &roots)?;
-    let target = dir.path.join(name);
-    if target == dir.root || !target.starts_with(&dir.root) {
-        return Err(format!("fsWrite.remove: {path} is a declared root, not inside one"));
-    }
+    let dir = resolve_entry(&path, &roots, "remove")?;
+    let target = dir.path;
     match fs::symlink_metadata(&target) {
         Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(&target),
         Ok(_) => fs::remove_file(&target),
@@ -160,6 +151,77 @@ pub fn plugins_fs_write_append(
     file.write_all(format!("{line}\n").as_bytes())
         .and_then(|()| file.sync_all())
         .map_err(|e| e.to_string())
+}
+
+/// Move a file or a directory — how a layout built aside is PUBLISHED: the
+/// destination is either what it was or what was built, never half of each.
+/// An existing destination is renamed aside first and removed once the move
+/// landed; a move that fails puts it back. Both ends are proven by their
+/// PARENTS, like `remove`, so a symlink moves as a link and is never resolved
+/// to its target. Neither end may be a root itself, and a directory cannot
+/// move into itself.
+#[tauri::command(async)]
+pub fn plugins_fs_write_move(src: String, dst: String, roots: Vec<String>) -> Result<(), String> {
+    let from = resolve_entry(&src, &roots, "move")?;
+    let to = resolve_entry(&dst, &roots, "move")?;
+    if from.path == to.path {
+        return Err(format!("fsWrite.move: source and destination are the same ({})", to.path.display()));
+    }
+    if to.path.starts_with(&from.path) {
+        return Err(format!("fsWrite.move: {} cannot move into itself", from.path.display()));
+    }
+    fs::symlink_metadata(&from.path).map_err(|e| format!("fsWrite.move: {src}: {e}"))?;
+    if let Some(dir) = to.path.parent() {
+        create_dirs_owner_only(dir, &to.root)?;
+    }
+    let aside = match fs::symlink_metadata(&to.path) {
+        Ok(_) => {
+            let aside = aside_of(&to.path);
+            fs::rename(&to.path, &aside).map_err(|e| e.to_string())?;
+            Some(aside)
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => None,
+        Err(e) => return Err(e.to_string()),
+    };
+    if let Err(e) = fs::rename(&from.path, &to.path) {
+        if let Some(aside) = &aside {
+            let _ = fs::rename(aside, &to.path);
+        }
+        return Err(e.to_string());
+    }
+    if let Some(aside) = aside {
+        let gone = match fs::symlink_metadata(&aside) {
+            Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(&aside),
+            _ => fs::remove_file(&aside),
+        };
+        if let Err(e) = gone {
+            log::warn!("fsWrite.move: {} was replaced but not removed: {e}", aside.display());
+        }
+    }
+    Ok(())
+}
+
+/// A sibling name nothing else uses, for what a move replaces.
+fn aside_of(path: &Path) -> PathBuf {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    path.with_file_name(format!(".{name}.old-{}-{n}", std::process::id()))
+}
+
+/// An entry proven by its parent, the name re-joined: realizing the entry
+/// itself would resolve a symlink to its target. A root is no entry.
+fn resolve_entry(path: &str, roots: &[String], op: &str) -> Result<WriteTarget, String> {
+    let literal = PathBuf::from(expand_home(path)?);
+    let (Some(parent), Some(name)) = (literal.parent(), literal.file_name()) else {
+        return Err(format!("fsWrite.{op}: {path} names no file"));
+    };
+    let dir = resolve_write(&parent.to_string_lossy(), roots)?;
+    let entry = dir.path.join(name);
+    if entry == dir.root || !entry.starts_with(&dir.root) {
+        return Err(format!("fsWrite.{op}: {path} is a declared root, not inside one"));
+    }
+    Ok(WriteTarget { path: entry, root: dir.root })
 }
 
 /// Owner-only modes for what this capability CREATES.
@@ -699,5 +761,75 @@ mod tests {
         plugins_fs_write_remove(link.to_string_lossy().into_owned(), roots).unwrap();
         assert!(fs::symlink_metadata(&link).is_err());
         assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "keep");
+    }
+
+    fn s(path: &Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn move_publishes_a_built_directory_in_place_of_the_old_one() {
+        let (dir, roots) = root();
+        let built = dir.path().join("plugin.tmp");
+        let live = dir.path().join("plugin");
+        fs::create_dir_all(built.join("skills/a")).unwrap();
+        fs::write(built.join("skills/a/SKILL.md"), "new").unwrap();
+        fs::create_dir_all(live.join("skills/gone")).unwrap();
+        fs::write(live.join("skills/gone/SKILL.md"), "old").unwrap();
+        plugins_fs_write_move(s(&built), s(&live), roots).unwrap();
+        assert_eq!(fs::read_to_string(live.join("skills/a/SKILL.md")).unwrap(), "new");
+        assert!(!live.join("skills/gone").exists(), "nothing of the old layout survives");
+        assert!(!built.exists());
+        let leftovers: Vec<_> = fs::read_dir(dir.path()).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(leftovers, vec![std::ffi::OsString::from("plugin")], "no aside copy is left");
+    }
+
+    #[test]
+    fn move_creates_missing_parents_and_moves_a_file() {
+        let (dir, roots) = root();
+        let src = dir.path().join("a.txt");
+        fs::write(&src, "x").unwrap();
+        let dst = dir.path().join("deep/er/b.txt");
+        plugins_fs_write_move(s(&src), s(&dst), roots).unwrap();
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "x");
+        assert!(!src.exists());
+    }
+
+    #[test]
+    fn move_refuses_either_end_outside_a_root_and_a_root_itself() {
+        let (dir, roots) = root();
+        let outside = tempfile::tempdir().unwrap();
+        let inside = dir.path().join("in.txt");
+        fs::write(&inside, "x").unwrap();
+        let foreign = outside.path().join("out.txt");
+        fs::write(&foreign, "y").unwrap();
+        assert!(plugins_fs_write_move(s(&foreign), s(&dir.path().join("got")), roots.clone()).is_err());
+        assert!(plugins_fs_write_move(s(&inside), s(&outside.path().join("leak")), roots.clone()).is_err());
+        assert!(plugins_fs_write_move(s(&inside), s(dir.path()), roots.clone()).is_err());
+        assert!(plugins_fs_write_move(s(dir.path()), s(&outside.path().join("all")), roots).is_err());
+        assert!(inside.exists() && foreign.exists(), "a refused move moves nothing");
+    }
+
+    #[test]
+    fn move_refuses_a_missing_source_itself_and_into_itself() {
+        let (dir, roots) = root();
+        let src = dir.path().join("d");
+        assert!(plugins_fs_write_move(s(&src), s(&dir.path().join("e")), roots.clone()).is_err());
+        fs::create_dir(&src).unwrap();
+        assert!(plugins_fs_write_move(s(&src), s(&src), roots.clone()).is_err());
+        assert!(plugins_fs_write_move(s(&src), s(&src.join("inner")), roots).is_err());
+        assert!(src.is_dir());
+    }
+
+    #[test]
+    fn move_takes_a_symlink_as_a_link() {
+        let (dir, roots) = root();
+        let foreign = tempfile::tempdir().unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(foreign.path(), &link).unwrap();
+        let moved = dir.path().join("moved");
+        plugins_fs_write_move(s(&link), s(&moved), roots).unwrap();
+        assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
+        assert!(foreign.path().is_dir(), "the target stays where it was");
     }
 }

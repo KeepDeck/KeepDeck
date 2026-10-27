@@ -53,6 +53,8 @@ export const worktree = worktreeIpc;
 export const skills = skillsIpc;
 export const mcpArming = mcpArmingIpc;
 export const mcpLibrary = mcpLibraryIpc;
+/** Plugins' private directories, pruned by the same pass. */
+export const pluginDirs = { prune: vi.fn(async (_liveWsIds: readonly string[]) => true) };
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { WorkspaceInstance } from "../../domain/workspaceInstance";
@@ -157,6 +159,7 @@ export function managerFor(read: () => DeckEntry[]): WorktreeManager {
   const factories: WorktreePlantingFactories = {
     skills: createSkillsStaging,
     mcp: createMcpPlanting,
+    prunePluginDirs: pluginDirs.prune,
   };
   return createWorktreeManager(deckView(read), (deck, inOrder) =>
     createWorktreePlantings(deck, inOrder, factories),
@@ -178,4 +181,5 @@ export function armDoubles(): void {
   mcpArming.mcpDisarm.mockResolvedValue(true);
   mcpArming.mcpPrune.mockResolvedValue(true);
   mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);
+  pluginDirs.prune.mockResolvedValue(true);
 }

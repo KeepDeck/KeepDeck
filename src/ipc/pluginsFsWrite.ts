@@ -43,6 +43,14 @@ export function pluginsFsWriteFile(
   return invoke("plugins_fs_write_file", { path, text, roots });
 }
 
+export function pluginsFsWriteMove(
+  src: string,
+  dst: string,
+  roots: readonly string[],
+): Promise<void> {
+  return invoke("plugins_fs_write_move", { src, dst, roots });
+}
+
 export function pluginsFsWriteAppend(
   path: string,
   line: string,

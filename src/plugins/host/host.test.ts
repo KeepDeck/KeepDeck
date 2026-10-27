@@ -77,6 +77,7 @@ function fakeDeps() {
       remove: vi.fn(() => Promise.resolve()),
       writeFile: vi.fn(() => Promise.resolve()),
       appendLine: vi.fn(() => Promise.resolve()),
+      move: vi.fn(() => Promise.resolve()),
     },
     git: {
       status: vi.fn(),
@@ -97,6 +98,7 @@ function fakeDeps() {
   const onEnabledChanged = vi.fn();
   const deps: PluginHostDeps = {
     storage: vi.fn(() => storage),
+    workspaces: vi.fn(() => ({ dir: vi.fn(async () => "/plugin-workspaces/p/ws") })),
     settings: vi.fn(() => ({
       read: vi.fn(async () => ({})),
       write: vi.fn(async () => {}),

@@ -9,7 +9,10 @@ import {
   pluginsFsWriteRemove,
   pluginsFsWriteFile,
   pluginsFsWriteMkdir,
+  pluginsFsWriteMove,
 } from "../ipc/pluginsFsWrite";
+import { pluginWorkspaceDir, pluginWorkspacesPrune } from "../ipc/pluginWorkspaces";
+import { createPluginWorkspaceDirs } from "./pluginWorkspaceDirs";
 import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
   declaredAgentBins,
@@ -261,6 +264,16 @@ export function createPluginManager(appDownloads: DownloadManager) {
       deckAccess.setPluginSlot(wsId, workspaceInstance, pluginId, value),
   };
 
+  /** Plugins' private per-workspace directories, handed out against the
+   * live deck and pruned by the worktrees sweep with every other leftover
+   * of a departed workspace. */
+  const workspaceDirs = createPluginWorkspaceDirs({
+    workspaces: () => liveDeckAccess.workspaces(),
+    create: pluginWorkspaceDir,
+    prune: pluginWorkspacesPrune,
+    warn: (message) => log.warn("web:plugins", message),
+  });
+
   /** The deck's UI actions, late-bound like `DeckAccess` but a SEPARATE port:
    * the KV factories consume DeckAccess as a storage port and must not be
    * handed UI powers they never use. */
@@ -463,6 +476,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
       remove: (path, roots) => pluginsFsWriteRemove(path, roots),
       writeFile: (path, text, roots) => pluginsFsWriteFile(path, text, roots),
       appendLine: (path, line, roots) => pluginsFsWriteAppend(path, line, roots),
+      move: (src, dst, roots) => pluginsFsWriteMove(src, dst, roots),
     },
     fs: {
       readDir: (path, scope) =>
@@ -553,7 +567,9 @@ export function createPluginManager(appDownloads: DownloadManager) {
           diagnostics: source === "external" ? "silent" : "log",
           log: loggerFor(manifest.id),
           permissions: permissionsOf(manifest.id),
+          workspaceDirs: () => workspaceDirs.rootsOf(manifest.id),
         }),
+      workspaces: (pluginId) => workspaceDirs.forPlugin(pluginId),
       commands: (manifest) =>
         createPluginCommandsPort(
           manifest,
@@ -1132,6 +1148,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
 
   return {
     pluginRegistries,
+    workspaceDirs,
     wireDeckAccess,
     wireDeckUi,
     revealPluginDockTab,

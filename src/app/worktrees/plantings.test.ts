@@ -4,6 +4,7 @@ import {
   managerFor,
   mcpArming,
   mcpLibrary,
+  pluginDirs,
   ref,
   skills,
   stagedFor,
@@ -376,6 +377,15 @@ describe("sweep", () => {
     deck = [];
     await manager.sweep(true);
     expect(skills.pruneSkills).toHaveBeenCalledWith([]);
+  });
+
+  it("prunes plugins' directories by the same live ids, and retries a pass they failed", async () => {
+    deck = [{ id: "ws-2", roots: ["/b"] }, { id: "ws-1", roots: ["/a"] }];
+    pluginDirs.prune.mockResolvedValueOnce(false);
+    await manager.sweep(true);
+    expect(pluginDirs.prune).toHaveBeenCalledWith(["ws-1", "ws-2"]);
+    await manager.sweep(true);
+    expect(pluginDirs.prune).toHaveBeenCalledTimes(2);
   });
 
   it("coalesces a burst — six panes closing sweep the same dirs once", async () => {

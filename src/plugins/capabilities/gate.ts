@@ -54,9 +54,10 @@ export interface FsBackend {
 }
 
 /** The prefix-aware write backend the gate wraps: the gate passes the
- * manifest's DECLARED `fsWrite` prefixes with every call; the host enforces
- * containment against them (both ends of a copy). The plugin never supplies
- * the prefixes — the manifest is the only source. */
+ * manifest's DECLARED `fsWrite` prefixes and the workspace directories the
+ * host made for the plugin with every call; the host enforces containment
+ * against them (both ends of a copy or a move). The plugin never supplies
+ * the roots. */
 export interface FsWriteBackend {
   mkdir(path: string, roots: readonly string[]): Promise<void>;
   copyFile(
@@ -68,6 +69,7 @@ export interface FsWriteBackend {
   remove(path: string, roots: readonly string[]): Promise<void>;
   writeFile(path: string, text: string, roots: readonly string[]): Promise<void>;
   appendLine(path: string, line: string, roots: readonly string[]): Promise<void>;
+  move(src: string, dst: string, roots: readonly string[]): Promise<void>;
 }
 
 /** The prefix-aware read-only SQL backend, mirroring [`FsWriteBackend`]. */
@@ -218,9 +220,28 @@ export function createCapabilityGate(
     /** What this manifest's `env` and `net` resolved to — the only source
      * of env values and network reach the gate hands out. */
     permissions: ResolvedPermissions;
+    /** The workspace directories this plugin was handed (`ctx.workspaces`)
+     * — write roots it holds without declaring them. Read per call: one is
+     * handed out, or pruned, while the plugin runs. */
+    workspaceDirs?: () => readonly string[];
   },
 ): PluginServices {
   const { diagnostics, log, permissions } = opts;
+  /** Where this plugin may write: what its manifest declares, and the
+   * directories the host made for it. */
+  const writeRoots = (): readonly string[] => [
+    ...fsWritePaths(manifest.capabilities),
+    ...(opts.workspaceDirs?.() ?? []),
+  ];
+  /** The roots for one write, admitted only when there are any. */
+  function writableRoots(op: string, path: string): readonly string[] {
+    const roots = writeRoots();
+    admit(
+      roots.length > 0,
+      `fsWrite.${op}: "${path}" requires an "fsWrite" capability, which the manifest does not declare, or a directory from ctx.workspaces`,
+    );
+    return roots;
+  }
   const declaredEnv = new Set(
     manifest.capabilities.flatMap((capability) => (capability.kind === "env" ? capability.names : [])),
   );
@@ -349,46 +370,14 @@ export function createCapabilityGate(
     fs,
     sessionStore: createSessionStore(fs),
     fsWrite: {
-      mkdir(path) {
-        admit(
-          fsWritePaths(manifest.capabilities).length > 0,
-          `fsWrite.mkdir: "${path}" requires an "fsWrite" capability, which the manifest does not declare`,
-        );
-        return backend.fsWrite.mkdir(path, fsWritePaths(manifest.capabilities));
-      },
-      copyFile(src, dst, options) {
-        admit(
-          fsWritePaths(manifest.capabilities).length > 0,
-          `fsWrite.copyFile: "${dst}" requires an "fsWrite" capability, which the manifest does not declare`,
-        );
-        return backend.fsWrite.copyFile(
-          src,
-          dst,
-          fsWritePaths(manifest.capabilities),
-          options,
-        );
-      },
-      remove(path) {
-        admit(
-          fsWritePaths(manifest.capabilities).length > 0,
-          `fsWrite.remove: "${path}" requires an "fsWrite" capability, which the manifest does not declare`,
-        );
-        return backend.fsWrite.remove(path, fsWritePaths(manifest.capabilities));
-      },
-      writeFile(path, text) {
-        admit(
-          fsWritePaths(manifest.capabilities).length > 0,
-          `fsWrite.writeFile: "${path}" requires an "fsWrite" capability, which the manifest does not declare`,
-        );
-        return backend.fsWrite.writeFile(path, text, fsWritePaths(manifest.capabilities));
-      },
-      appendLine(path, line) {
-        admit(
-          fsWritePaths(manifest.capabilities).length > 0,
-          `fsWrite.appendLine: "${path}" requires an "fsWrite" capability, which the manifest does not declare`,
-        );
-        return backend.fsWrite.appendLine(path, line, fsWritePaths(manifest.capabilities));
-      },
+      mkdir: (path) => backend.fsWrite.mkdir(path, writableRoots("mkdir", path)),
+      copyFile: (src, dst, options) =>
+        backend.fsWrite.copyFile(src, dst, writableRoots("copyFile", dst), options),
+      remove: (path) => backend.fsWrite.remove(path, writableRoots("remove", path)),
+      writeFile: (path, text) => backend.fsWrite.writeFile(path, text, writableRoots("writeFile", path)),
+      appendLine: (path, line) =>
+        backend.fsWrite.appendLine(path, line, writableRoots("appendLine", path)),
+      move: (src, dst) => backend.fsWrite.move(src, dst, writableRoots("move", dst)),
     },
     sqlite: {
       query(dbPath, sql, params) {

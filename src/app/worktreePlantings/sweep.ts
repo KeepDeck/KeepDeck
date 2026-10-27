@@ -14,6 +14,7 @@ export function createSweep(
   deck: WorktreeDeckView,
   inOrder: InOrder,
   disarm: (roots: string[]) => Promise<boolean>,
+  prunePluginDirs: (liveWsIds: readonly string[]) => Promise<boolean>,
 ): WorktreeHousekeeping {
   let swept: LiveWorkspace[] | null = null;
 
@@ -36,6 +37,7 @@ export function createSweep(
           pruneSkills(liveIds),
           mcpPrune(liveIds),
           pruneMcpLibrary(liveIds),
+          prunePluginDirs(liveIds),
         ]);
         const pruned = sweeps.every(Boolean);
         if (disarmed && pruned) swept = live;

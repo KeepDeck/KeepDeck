@@ -422,6 +422,7 @@ export function createAppRuntime(
         skills: (deck, inOrder) =>
           createSkillsStaging(deck, inOrder, skillRefusals.publish),
         mcp: createMcpPlanting,
+        prunePluginDirs: plugins.workspaceDirs.prune,
       }),
   );
   // The library takes only the staleness half of the worktree manager: a write

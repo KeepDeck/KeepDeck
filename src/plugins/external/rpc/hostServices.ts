@@ -139,6 +139,8 @@ export function createServiceHandlers({
         str(path, "fsWrite.appendLine path"),
         str(line, "fsWrite.appendLine line"),
       ),
+    "services.fsWrite.move": ([src, dst]) =>
+      ctx.services.fsWrite.move(str(src, "fsWrite.move src"), str(dst, "fsWrite.move dst")),
     "services.fs.unwatch": ([id]) => {
       const key = num(id, "fs.unwatch id");
       watches.get(key)?.dispose();

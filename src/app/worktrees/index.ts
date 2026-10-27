@@ -235,6 +235,9 @@ export interface WorktreePlantingFactories {
     inOrder: InOrder,
   ): WorktreeSkillsPlanting;
   mcp(inOrder: InOrder): McpPlanting;
+  /** Drop plugins' private directories of every workspace not in `liveWsIds`;
+   * false when that could not be done (the sweep tries again). */
+  prunePluginDirs(liveWsIds: readonly string[]): Promise<boolean>;
 }
 
 export interface WorktreeSkillsPlanting

@@ -79,6 +79,7 @@ export function fakePluginContext(fake: PluginContextFake = {}): PluginContext {
       global: unfakedKv("storage.global"),
       ...fake.storage,
     },
+    workspaces: { dir: unfaked("workspaces.dir"), ...fake.workspaces },
     resources: { path: unfaked("resources.path"), ...fake.resources },
     events: {
       onWorkspaceClosed: unfaked("events.onWorkspaceClosed"),
@@ -111,6 +112,7 @@ export function fakePluginContext(fake: PluginContextFake = {}): PluginContext {
         remove: unfaked("services.fsWrite.remove"),
         writeFile: unfaked("services.fsWrite.writeFile"),
         appendLine: unfaked("services.fsWrite.appendLine"),
+        move: unfaked("services.fsWrite.move"),
         ...services.fsWrite,
       },
       sqlite: { query: unfaked("services.sqlite.query"), ...services.sqlite },

@@ -89,6 +89,7 @@ function fakeBackend() {
       remove: vi.fn(() => Promise.resolve()),
       writeFile: vi.fn(() => Promise.resolve()),
       appendLine: vi.fn(() => Promise.resolve()),
+      move: vi.fn(() => Promise.resolve()),
     },
     git: {
       status: vi.fn(async () => ({
@@ -963,8 +964,40 @@ describe("createCapabilityGate — fsWrite", () => {
     expect(() => gate.fsWrite.remove("/a")).toThrow('"fsWrite" capability');
     expect(() => gate.fsWrite.writeFile("/p", "t")).toThrow('"fsWrite" capability');
     expect(() => gate.fsWrite.appendLine("/p", "l")).toThrow('"fsWrite" capability');
+    expect(() => gate.fsWrite.move("/a", "/b")).toThrow('"fsWrite" capability');
     expect(backend.fsWrite.mkdir).not.toHaveBeenCalled();
     expect(backend.fsWrite.remove).not.toHaveBeenCalled();
+    expect(backend.fsWrite.move).not.toHaveBeenCalled();
+  });
+
+  it("writes into the workspace directories the host made for the plugin, declared or not", async () => {
+    const { backend } = fakeBackend();
+    let dirs: string[] = [];
+    const undeclared = createCapabilityGate(manifest([]), backend, {
+      diagnostics: "silent",
+      log: fakeLog(),
+      permissions: NO_PERMISSIONS,
+      workspaceDirs: () => dirs,
+    });
+    // None handed out yet: nothing to write into.
+    expect(() => undeclared.fsWrite.writeFile("/w/a", "t")).toThrow("ctx.workspaces");
+    dirs = ["/home/plugin-workspaces/p/ws-1"];
+    await undeclared.fsWrite.move("/home/plugin-workspaces/p/ws-1/tmp", "/home/plugin-workspaces/p/ws-1/out");
+    expect(backend.fsWrite.move).toHaveBeenCalledWith(
+      "/home/plugin-workspaces/p/ws-1/tmp",
+      "/home/plugin-workspaces/p/ws-1/out",
+      ["/home/plugin-workspaces/p/ws-1"],
+    );
+
+    // Beside a declared prefix, both are roots — read per call.
+    const declared = createCapabilityGate(manifest([{ kind: "fsWrite", paths: ["~/.store"] }]), backend, {
+      diagnostics: "silent",
+      log: fakeLog(),
+      permissions: NO_PERMISSIONS,
+      workspaceDirs: () => dirs,
+    });
+    await declared.fsWrite.mkdir("/x");
+    expect(backend.fsWrite.mkdir).toHaveBeenCalledWith("/x", ["~/.store", "/home/plugin-workspaces/p/ws-1"]);
   });
 });
 

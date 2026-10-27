@@ -56,6 +56,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
     },
     agents: { register: () => disposable },
     resources: { path: async () => null },
+    workspaces: { dir: async () => "/plugin-workspaces/p/ws" },
     storage: {
       workspace: () => ({
         get: async () => undefined,
@@ -130,6 +131,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         remove: async () => {},
         writeFile: async () => {},
         appendLine: async () => {},
+        move: async () => {},
       },
       git: {
         status: async () => ({

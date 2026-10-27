@@ -81,6 +81,27 @@ describe("workspace storage over the RPC seam", () => {
   });
 });
 
+describe("workspace directories and moves over the RPC seam", () => {
+  it("asks for a directory by the exact workspace lifetime, and refuses a bare id", async () => {
+    const dir = vi.fn(async () => "/home/plugin-workspaces/p/ws-1");
+    const dispatch = createHostDispatch(fakePluginContext({ workspaces: { dir } }), () => {});
+    const ref: WorkspaceRef = { id: "ws-1", instance: "instance-1" };
+    await expect(dispatch.call("workspaces.dir", [ref])).resolves.toBe("/home/plugin-workspaces/p/ws-1");
+    expect(dir).toHaveBeenCalledWith(ref);
+    await expect(dispatch.call("workspaces.dir", ["ws-1"])).rejects.toThrow(/lifetime ref/);
+    expect(dir).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries a move's two paths, and only strings", async () => {
+    const move = vi.fn(async () => {});
+    const dispatch = createHostDispatch(fakePluginContext({ services: { fsWrite: { move } } }), () => {});
+    await dispatch.call("services.fsWrite.move", ["/a", "/b"]);
+    expect(move).toHaveBeenCalledWith("/a", "/b");
+    await expect(dispatch.call("services.fsWrite.move", ["/a", 7])).rejects.toThrow();
+    expect(move).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("agent hooks over the RPC seam", () => {
   it("proxies only the contract's hook names", async () => {
     const h = harness();
