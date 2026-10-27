@@ -1,3 +1,26 @@
+/** A value JSON can carry as it is. */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/** Whether `value` is made of JSON values only, all the way down — what a
+ * value from a manifest or the plugin wire must be before it is sent on as
+ * JSON (a structured clone can carry a Date, a Map, a NaN). */
+export function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return (
+    isJsonRecord(value) &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    Object.values(value).every(isJsonValue)
+  );
+}
+
 /** Whether `value` is a plain JSON object: not null, not an array. The one
  * guard every reader of untrusted JSON starts from — the manifest validator,
  * the authoring helpers, the host's codecs. */

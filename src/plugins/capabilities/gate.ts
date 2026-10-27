@@ -15,6 +15,7 @@ import type {
   GitHistory,
   GitHistoryOptions,
   GitStatus,
+  JsonValue,
   PluginLogger,
   PluginFs,
   PluginManifest,
@@ -23,6 +24,8 @@ import type {
   PluginServices,
   PluginSessions,
   PluginSpeech,
+  RpcAnswer,
+  RpcServerDeclaration,
   SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore } from "@keepdeck/plugin-api";
@@ -116,6 +119,18 @@ export interface ServiceBackends {
    * `sessions.spawn` — a plugin that may run a command in a pane may run it
    * without one; nothing here widens what may be run. */
   exec: import("@keepdeck/plugin-api").PluginExec;
+  /** The host's JSON-RPC children. The gate hands over the MANIFEST's
+   * declaration of the server, never the plugin's words; the native side
+   * holds the call to that shape. `stop` ends every child of the plugin. */
+  rpc: {
+    request(
+      pluginId: string,
+      server: RpcServerDeclaration,
+      method: string,
+      params: JsonValue | undefined,
+    ): Promise<RpcAnswer>;
+    stop(pluginId: string): Promise<void>;
+  };
   ports: PluginPorts;
   opener: PluginOpener;
   fs: FsBackend;
@@ -190,7 +205,7 @@ export function createCapabilityGate(
   const activeDownloadIds = new Set<string>();
 
   /** One authorization path. Diagnostics add visibility, never authority. */
-  function admit(ok: boolean, message: string): void {
+  function admit(ok: boolean, message: string): asserts ok {
     if (ok) return;
     if (diagnostics === "log") log.warn(message);
     throw new Error(message);
@@ -256,6 +271,24 @@ export function createCapabilityGate(
           ...request,
           key: `${manifest.id}:${request.key}`,
         });
+      },
+    },
+    rpc: {
+      request(call) {
+        const server = rpcServer(manifest.capabilities, call.server);
+        admit(
+          server !== undefined,
+          `rpc.request: server "${call.server}" is not declared in an "exec" capability`,
+        );
+        admit(
+          execCovers(manifest.capabilities, server.command),
+          `rpc.request: "${server.command}" is not among the "exec" commands`,
+        );
+        admit(
+          server.methods.includes(call.method),
+          `rpc.request: "${call.method}" is not a declared method of "${call.server}"`,
+        );
+        return backend.rpc.request(manifest.id, server, call.method, call.params);
       },
     },
     ports: {
@@ -542,6 +575,13 @@ function netDomains(capabilities: Capability[]): string[] {
   return capabilities.flatMap((capability) =>
     capability.kind === "net" ? capability.domains : [],
   );
+}
+
+/** The declared server of that id, from any `exec` capability. */
+function rpcServer(capabilities: Capability[], id: string): RpcServerDeclaration | undefined {
+  return capabilities
+    .flatMap((capability) => (capability.kind === "exec" ? (capability.servers ?? []) : []))
+    .find((server) => server.id === id);
 }
 
 function hasPortsCapability(capabilities: Capability[]): boolean {

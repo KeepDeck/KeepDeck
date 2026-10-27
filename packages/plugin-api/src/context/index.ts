@@ -71,7 +71,9 @@ export type {
   AccountUsage,
   AgentUsage,
   ApiActivity,
+  AgentLimits,
   LimitsNormalizer,
+  LimitsRead,
   NormalizedUsage,
   PaneUsage,
   TokenCounts,
@@ -113,7 +115,7 @@ export {
   type SessionStore,
   type TranscriptPage,
 } from "./sessionHistory.ts";
-export { isJsonRecord, keyList } from "../json.ts";
+export { isJsonRecord, isJsonValue, keyList, type JsonValue } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,
@@ -173,6 +175,9 @@ export type {
   PluginExec,
   PluginExecOutcome,
   PluginExecRequest,
+  PluginRpc,
+  RpcAnswer,
+  RpcCall,
   PluginSessions,
   PluginSpawnOptions,
 } from "./services.ts";

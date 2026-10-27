@@ -58,6 +58,10 @@ export interface PluginHostDeps {
    * plugin never declared; `source` picks the gate's TIER — a trusted
    * built-in warns on a violation, an untrusted external throws (enforce). */
   services(manifest: PluginManifest, source: PluginSource): PluginServices;
+  /** The processes the host keeps on a plugin's behalf (`services.rpc`'s
+   * children): stopped when the plugin goes away — deactivated, disabled,
+   * uninstalled, or failed mid-activation. */
+  processes: { stop(pluginId: string): Promise<void> };
   /** This plugin's command-registry window (see `PluginCommandsPort`). The
    * manifest is threaded for the execute-permission patterns; `source` for
    * tier-specific handling, mirroring `services`. */

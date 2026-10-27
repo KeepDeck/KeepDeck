@@ -19,12 +19,11 @@ export const CLI_NAME_EXEMPTIONS = [
   { file: "src-tauri/src/skills/mod.rs", names: ["opencode"], count: 1, reason: "declares the opencode skill module", until: "task-533" },
 
   // Account limits read by the core per CLI; the plugins read them through services.rpc / services.http.
-  { file: "packages/plugin-api/src/context/usage.ts", names: ["codex", "kimi"], count: 2, reason: "UsageLimitsSource names the two core readers", until: "task-533" },
-  { file: "src/app/usageChannelLimits.ts", names: ["codex", "kimi"], count: 6, reason: "routes limits to the codex and kimi readers", until: "task-523" },
-  { file: "src/ipc/usage.ts", names: ["codex", "kimi"], count: 6, reason: "the codex app-server and kimi usages commands", until: "task-523" },
-  { file: "src-tauri/src/codex_app_server.rs", names: ["codex"], count: 44, reason: "runs codex app-server for rate limits", until: "task-522" },
+  { file: "packages/plugin-api/src/context/usage.ts", names: ["kimi"], count: 1, reason: "UsageLimitsSource names the kimi core reader", until: "task-523" },
+  { file: "src/app/usageChannelLimits.ts", names: ["kimi"], count: 3, reason: "routes a poll to the kimi reader", until: "task-523" },
+  { file: "src/ipc/usage.ts", names: ["kimi"], count: 2, reason: "the kimi usages command", until: "task-523" },
   { file: "src-tauri/src/kimi_usage.rs", names: ["kimi"], count: 17, reason: "reads kimi's credentials and usages endpoint", until: "task-523" },
-  { file: "src-tauri/src/lib.rs", names: ["codex", "kimi"], count: 8, reason: "registers the codex and kimi limit readers", until: "task-523" },
+  { file: "src-tauri/src/lib.rs", names: ["kimi"], count: 3, reason: "registers the kimi limit reader", until: "task-523" },
 
   // kimi's MCP file, rendered and armed by the core.
   { file: "src/app/mcp/kimi.ts", names: ["kimi"], count: 6, reason: "renders kimi's .kimi-code/mcp.json", until: "task-532" },

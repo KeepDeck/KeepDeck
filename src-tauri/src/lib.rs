@@ -4,7 +4,6 @@ mod app_updater;
 mod artifacts;
 mod bridge;
 mod clipboard;
-mod codex_app_server;
 mod containment;
 mod dnd;
 mod downloads;
@@ -33,6 +32,7 @@ mod session_tail;
 mod session;
 mod sessions;
 mod roles;
+mod rpc_child;
 mod run_bounded;
 mod skills;
 mod tasks;
@@ -115,7 +115,7 @@ pub fn run() {
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(session_tail::UsageTails::default())
-        .manage(codex_app_server::CodexAppServerManager::default())
+        .manage(std::sync::Arc::new(rpc_child::RpcChildPool::default()))
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())
@@ -319,7 +319,8 @@ pub fn run() {
             session_tail::usage_watch_session_file,
             session_tail::usage_unwatch_session_file,
             session_tail::usage_read_store_cold,
-            codex_app_server::codex_rate_limits_read,
+            rpc_child::plugin_rpc_request,
+            rpc_child::plugin_rpc_stop,
             kimi_usage::kimi_usages_fetch,
         ])
         .build(tauri::generate_context!())

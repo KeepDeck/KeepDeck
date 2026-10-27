@@ -13,8 +13,10 @@ import {
   decodeGuestMessage,
   decodeHookCall,
   decodeHostMessage,
+  decodeRpcCall,
   decodeSessionEvent,
   decodeSpawnOptions,
+  isRpcAnswer,
 } from "./decode";
 
 describe("wire decoders", () => {
@@ -67,6 +69,26 @@ describe("wire decoders", () => {
     expect(() =>
       decodeSessionEvent({ type: "output", bytes: [0, 256] }),
     ).toThrow("malformed session output bytes");
+  });
+
+  it("passes an rpc call whose params are JSON, and refuses one whose params are not", () => {
+    expect(decodeRpcCall({ server: "app", method: "read", params: { n: [1, "a", null] } })).toEqual({
+      server: "app",
+      method: "read",
+      params: { n: [1, "a", null] },
+    });
+    expect(decodeRpcCall({ server: "app", method: "read" })).toEqual({ server: "app", method: "read" });
+    // A structured clone carries what JSON cannot; the host would send it on.
+    for (const params of [new Date(0), new Map(), { n: Number.NaN }, [undefined]]) {
+      expect(() => decodeRpcCall({ server: "app", method: "read", params })).toThrow("malformed rpc call params");
+    }
+    expect(() => decodeRpcCall({ server: 1, method: "read" })).toThrow("malformed rpc call server");
+  });
+
+  it("reads an rpc answer only with a string result and a number time", () => {
+    expect(isRpcAnswer({ result: "{}", sentAt: 1 })).toBe(true);
+    expect(isRpcAnswer({ result: {}, sentAt: 1 })).toBe(false);
+    expect(isRpcAnswer({ result: "{}" })).toBe(false);
   });
 });
 

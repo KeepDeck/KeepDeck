@@ -9,6 +9,26 @@
  * an ignorable extra — capabilities are the one place a tolerant read would
  * be a security bug.
  */
+import type { JsonValue } from "../json.ts";
+
+/** A long-lived helper the host keeps for the plugin: one of its declared
+ * `commands`, speaking newline-delimited JSON-RPC 2.0 over stdio. The host
+ * starts it on first use, performs the handshake itself, and passes on only
+ * the methods named here — consent lists them verbatim. */
+export interface RpcServerDeclaration {
+  /** Unique in the manifest; what `services.rpc.request` names. */
+  id: string;
+  /** One of this capability's `commands` — a name, not a path. */
+  command: string;
+  /** The fixed argument list. */
+  args: string[];
+  /** Run once per child, by the host: request `method`, then send the
+   * notification `then`. Neither is ever callable by the plugin. */
+  handshake?: { method: string; params?: JsonValue; then?: string };
+  /** The ONLY methods a call may name. */
+  methods: string[];
+}
+
 export interface LegacyDownloadMigration {
   source: string;
   target: string;
@@ -43,8 +63,13 @@ export type Capability =
    * which programs those plugins may start.
    *
    * Revisit if third-party plugins become a real population — today none
-   * exist, which is exactly why the contract is cheap to change later. */
-  | { kind: "exec"; commands: string[] }
+   * exist, which is exactly why the contract is cheap to change later.
+   *
+   * `servers` adds helpers the host keeps running (`services.rpc`). They
+   * narrow nothing above — a declared command may already be run with any
+   * arguments — but the primitive itself carries only the listed methods,
+   * so it never becomes a general pipe into a logged-in CLI. */
+  | { kind: "exec"; commands: string[]; servers?: RpcServerDeclaration[] }
   /** Read project files. `workspace` = the workspace folder and its panes'
    * worktrees; `everywhere` = no path restriction (consent shouts this). */
   | { kind: "fs"; scope: "workspace" | "everywhere" }

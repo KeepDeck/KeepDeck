@@ -70,6 +70,7 @@ function fakeDeps() {
       readText: vi.fn(async () => ""),
     },
     exec: { runOnce: vi.fn(async () => ({ ran: true, ok: true, said: "" })) },
+    rpc: { request: vi.fn() },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
@@ -111,6 +112,7 @@ function fakeDeps() {
     settings: vi.fn(() => settingsView),
     events,
     services: vi.fn(() => services),
+    processes: { stop: vi.fn(async () => {}) },
     commands: vi.fn(() => commandsPort),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
     ui,
@@ -461,6 +463,47 @@ describe("buildPluginContext", () => {
     disposeAll();
     expect(fsWatch).toHaveBeenCalledTimes(1);
     expect(gitWatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposeAll stops the processes the host keeps for a plugin that declares servers, once", () => {
+    const { deps } = fakeDeps();
+    const server = { id: "app", command: "tool", args: [], methods: ["read"] };
+    const withServers = buildPluginContext(
+      manifest("p", { capabilities: [{ kind: "exec", commands: ["tool"], servers: [server] }] }),
+      "builtin",
+      createContributionRegistries(),
+      deps,
+    );
+    const without = buildPluginContext(
+      manifest("q", { capabilities: [{ kind: "exec", commands: ["tool"] }] }),
+      "builtin",
+      createContributionRegistries(),
+      deps,
+    );
+
+    withServers.disposeAll();
+    withServers.disposeAll();
+    without.disposeAll();
+
+    expect(deps.processes.stop).toHaveBeenCalledTimes(1);
+    expect(deps.processes.stop).toHaveBeenCalledWith("p");
+  });
+
+  it("logs a failed stop instead of letting it escape the sweep", async () => {
+    const { deps, logger } = fakeDeps();
+    vi.mocked(deps.processes.stop).mockRejectedValueOnce(new Error("gone"));
+    const server = { id: "app", command: "tool", args: [], methods: ["read"] };
+    const { disposeAll } = buildPluginContext(
+      manifest("p", { capabilities: [{ kind: "exec", commands: ["tool"], servers: [server] }] }),
+      "builtin",
+      createContributionRegistries(),
+      deps,
+    );
+
+    disposeAll();
+    await vi.waitFor(() =>
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("stopping its processes failed: gone")),
+    );
   });
 
   it("an early manual dispose retires the brace — disposeAll never runs it again", () => {

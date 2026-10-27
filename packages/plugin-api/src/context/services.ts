@@ -1,3 +1,4 @@
+import type { JsonValue } from "../json.ts";
 import type { WatchHandle } from "./disposable.ts";
 import type { PluginDownloads } from "./downloads.ts";
 import type { PluginSessionStore } from "./sessionRead.ts";
@@ -16,6 +17,11 @@ export interface PluginServices {
    * same permission asked for a quieter shape: a plugin that may run a
    * command in a pane may run it without one. */
   readonly exec: PluginExec;
+  /** Call a method of a JSON-RPC server the plugin declared in `exec.servers`.
+   * The host keeps the child, performs its handshake, and carries only the
+   * declared methods; the gate checks the server and the method against the
+   * manifest on every call. */
+  readonly rpc: PluginRpc;
   readonly ports: PluginPorts;
   readonly opener: PluginOpener;
   readonly fs: PluginFs;
@@ -100,6 +106,33 @@ export interface PluginExecOutcome {
   ok: boolean;
   /** The tail of what a failing run said; empty when it succeeded. */
   said: string;
+}
+
+/**
+ * A host-kept JSON-RPC child (see `RpcServerDeclaration`). One child per
+ * declared server, started on first use and reaped when idle or when the
+ * plugin goes away; a call that finds it cold waits for the start and the
+ * handshake. A server that sends the client a request is refused — the host
+ * answers none. Results come back opaque: the plugin parses its own.
+ */
+export interface PluginRpc {
+  request(call: RpcCall): Promise<RpcAnswer>;
+}
+
+export interface RpcCall {
+  /** A declared server's `id`. */
+  server: string;
+  /** One of that server's declared `methods`. */
+  method: string;
+  params?: JsonValue;
+}
+
+export interface RpcAnswer {
+  /** The JSON-RPC `result`, serialized. */
+  result: string;
+  /** Unix ms just before the request was written — after any cold start
+   * and handshake, so the earliest the server could have looked. */
+  sentAt: number;
 }
 
 export interface PluginSessions {

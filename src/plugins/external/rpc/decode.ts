@@ -1,4 +1,4 @@
-import { readManifest } from "@keepdeck/plugin-api";
+import { isJsonValue, readManifest } from "@keepdeck/plugin-api";
 import { isObjectLike } from "../../../domain/json";
 import type {
   CommandArgSpec,
@@ -30,6 +30,8 @@ import type {
   PluginManifest,
   PluginSpawnOptions,
   ResumePlanInput,
+  RpcAnswer,
+  RpcCall,
   SettingsSectionContribution,
   SpawnPlanInput,
   SpeechCaptureOptions,
@@ -259,6 +261,20 @@ export function decodeHostMessage(value: unknown): HostToGuestMessage {
 }
 
 // ----------------------------------------------------------- service args
+
+export function decodeRpcCall(value: unknown): RpcCall {
+  const v = record(value, "rpc call");
+  if (v.params !== undefined && !isJsonValue(v.params)) throw malformed("rpc call params", "expected JSON");
+  return {
+    server: str(v.server, "rpc call server"),
+    method: str(v.method, "rpc call method"),
+    ...(v.params !== undefined ? { params: v.params } : {}),
+  };
+}
+
+export function isRpcAnswer(value: unknown): value is RpcAnswer {
+  return isObjectLike(value) && isString(value.result) && isNumber(value.sentAt);
+}
 
 export function decodeExecRequest(value: unknown): PluginExecRequest {
   const v = record(value, "exec request");

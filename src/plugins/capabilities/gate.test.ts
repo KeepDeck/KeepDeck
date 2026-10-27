@@ -53,6 +53,10 @@ function fakeBackend() {
       readText: vi.fn(async () => ""),
     },
     exec: { runOnce: vi.fn(async () => ({ ran: true, ok: true, said: "" })) },
+    rpc: {
+      request: vi.fn(async () => ({ result: "{}", sentAt: 1 })),
+      stop: vi.fn(async () => {}),
+    },
     sessions: { spawn: vi.fn(async () => handle) },
     opener: {
       openUrl: vi.fn(async () => {}),
@@ -1008,6 +1012,51 @@ describe("createCapabilityGate — exec.runOnce", () => {
 
     expect(() => gate.exec.runOnce(request)).toThrow(/exec/);
     expect(backend.exec.runOnce).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCapabilityGate — rpc.request", () => {
+  const server = {
+    id: "app",
+    command: "tool",
+    args: ["serve"],
+    handshake: { method: "init" },
+    methods: ["read"],
+  };
+  const gateFor = (capabilities: Capability[]) => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    return { backend, gate: createCapabilityGate(manifest(capabilities), backend, { diagnostics: "silent", log }) };
+  };
+
+  it("hands the backend the MANIFEST's server, the method and the params", async () => {
+    const { backend, gate } = gateFor([{ kind: "exec", commands: ["tool"], servers: [server] }]);
+
+    await expect(gate.rpc.request({ server: "app", method: "read", params: { n: 1 } })).resolves.toEqual({
+      result: "{}",
+      sentAt: 1,
+    });
+
+    expect(backend.rpc.request).toHaveBeenCalledWith("p", server, "read", { n: 1 });
+  });
+
+  it("refuses an undeclared server, an undeclared method, and a server outside the exec commands", () => {
+    const declared = gateFor([{ kind: "exec", commands: ["tool"], servers: [server] }]);
+    expect(() => declared.gate.rpc.request({ server: "other", method: "read" })).toThrow(/not declared/);
+    expect(() => declared.gate.rpc.request({ server: "app", method: "write" })).toThrow(
+      /not a declared method/,
+    );
+    expect(() => declared.gate.rpc.request({ server: "app", method: "init" })).toThrow(
+      /not a declared method/,
+    );
+    // A manifest the validator would refuse, reaching the gate anyway: the
+    // gate checks the command itself rather than trusting the validator.
+    const stray = gateFor([{ kind: "exec", commands: ["git"], servers: [server] }]);
+    expect(() => stray.gate.rpc.request({ server: "app", method: "read" })).toThrow(
+      /not among the "exec" commands/,
+    );
+    expect(declared.backend.rpc.request).not.toHaveBeenCalled();
+    expect(stray.backend.rpc.request).not.toHaveBeenCalled();
   });
 });
 

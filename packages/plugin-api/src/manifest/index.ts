@@ -4,6 +4,7 @@ export {
   CAPABILITY_KINDS,
   type Capability,
   type LegacyDownloadMigration,
+  type RpcServerDeclaration,
 } from "./capabilities.ts";
 export {
   declaredAgentBins,

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { execRunOnce } from "../ipc/exec";
+import { pluginRpcRequest, pluginRpcStop } from "../ipc/rpc";
 import { pluginsSqliteQuery } from "../ipc/history";
 import { workspaceDirectories } from "../domain/deck";
 import {
@@ -385,6 +386,11 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * manifest); this backend turns that scope into concrete roots. */
   const serviceBackend: ServiceBackends = {
     exec: { runOnce: (request) => execRunOnce(request) },
+    rpc: {
+      request: (pluginId, server, method, params) =>
+        pluginRpcRequest(pluginId, server, method, params),
+      stop: (pluginId) => pluginRpcStop(pluginId),
+    },
     sessions: {
       async spawn(opts, onEvent) {
         return spawnSession(
@@ -530,6 +536,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
         onPaneSelected: (cb) => paneSelected.on(cb),
         onDeckChanged: (cb) => deckChanged.on(cb),
       },
+      processes: { stop: (pluginId) => serviceBackend.rpc.stop(pluginId) },
       services: (manifest, source) =>
         createCapabilityGate(manifest, serviceBackend, {
           // Both tiers enforce the manifest. Built-ins additionally log a

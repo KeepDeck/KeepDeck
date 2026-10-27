@@ -296,6 +296,62 @@ describe("readManifest", () => {
     }
   });
 
+  describe("exec servers", () => {
+    const server = {
+      id: "app",
+      command: "tool",
+      args: ["serve"],
+      handshake: { method: "initialize", params: { client: { name: "deck" } }, then: "initialized" },
+      methods: ["read"],
+    };
+    const exec = (servers: unknown) => ({ kind: "exec", commands: ["tool"], servers });
+
+    it("keeps a declared server whole, and an exec without servers as it was", () => {
+      const result = readManifest({
+        ...GOLDEN,
+        capabilities: [exec([server]), { kind: "exec", commands: ["git"] }],
+      });
+      expect(result.ok && result.manifest.capabilities).toEqual([
+        { kind: "exec", commands: ["tool"], servers: [server] },
+        { kind: "exec", commands: ["git"] },
+      ]);
+    });
+
+    it("refuses a server the capability's commands do not cover, or one named by path", () => {
+      for (const command of ["other", "/usr/bin/tool"]) {
+        const result = readManifest({ ...GOLDEN, capabilities: [exec([{ ...server, command }])] });
+        expect(!result.ok && result.errors.join(" "), command).toContain("one of this capability's commands");
+      }
+    });
+
+    it("never lets the handshake be a callable method", () => {
+      for (const method of ["initialize", "initialized"]) {
+        const result = readManifest({
+          ...GOLDEN,
+          capabilities: [exec([{ ...server, methods: ["read", method] }])],
+        });
+        expect(!result.ok && result.errors.join(" "), method).toContain("handshake is the host's");
+      }
+    });
+
+    it("refuses the whole capability for any malformed server", () => {
+      const cases: [unknown, string][] = [
+        ["app", "must be an array"],
+        [[{ ...server, id: "a b" }], "plain token"],
+        [[server, server], "declared twice"],
+        [[{ ...server, args: "serve" }], '"args"'],
+        [[{ ...server, methods: [] }], '"methods"'],
+        [[{ ...server, handshake: { then: "x" } }], '"method"'],
+        [[{ ...server, handshake: { method: "init", then: "" } }], '"then"'],
+      ];
+      for (const [servers, expected] of cases) {
+        const result = readManifest({ ...GOLDEN, capabilities: [exec(servers)] });
+        expect(result.ok, expected).toBe(false);
+        expect(!result.ok && result.errors.join(" "), expected).toContain(expected);
+      }
+    });
+  });
+
   it("rejects a contribution id that isn't a path-safe token", () => {
     // A dock-tab id becomes `<id>.html` in the iframe URL — slashes, dots,
     // and whitespace could address a different path under the plugin origin.

@@ -74,20 +74,6 @@ export function fetchKimiUsages(): Promise<string> {
   return invoke("kimi_usages_fetch");
 }
 
-/** Read Codex account limits through KeepDeck's shared, lazily-lived
- * official app-server process. Body rides back opaque so the Codex plugin,
- * not the host transport, owns the version-specific response schema.
- * `sourceAt` is captured by native immediately before the actual JSON-RPC
- * write — after a cold app-server has initialized. */
-export interface CodexRateLimitsRead {
-  body: string;
-  sourceAt: number;
-}
-
-export function fetchCodexRateLimits(): Promise<CodexRateLimitsRead> {
-  return invoke("codex_rate_limits_read");
-}
-
 // Resolving a codex session's rollout used to live here, as a host command
 // that knew the CLI's day-partitioned tree and its filename shape. It went
 // home: the agent's own plugin already walked that tree for its history

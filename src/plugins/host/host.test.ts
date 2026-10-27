@@ -60,6 +60,7 @@ function fakeDeps() {
       readText: vi.fn(async () => ""),
     },
     exec: { runOnce: vi.fn(async () => ({ ran: true, ok: true, said: "" })) },
+    rpc: { request: vi.fn() },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
@@ -101,6 +102,7 @@ function fakeDeps() {
     })),
     events,
     services: vi.fn(() => services),
+    processes: { stop: vi.fn(async () => {}) },
     commands: vi.fn(() => ({
       register: vi.fn(spyDisposable),
       execute: vi.fn(async () => ({ ok: true, value: null }) as const),

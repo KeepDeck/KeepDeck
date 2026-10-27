@@ -12,6 +12,7 @@ import {
   decodeDownloadRequest,
   decodeDownloadTarget,
   decodeExecRequest,
+  decodeRpcCall,
   decodeGitDiffOptions,
   decodeGitHistoryOptions,
   decodeReadFileOptions,
@@ -63,6 +64,7 @@ export function createServiceHandlers({
   return {
     "services.exec.runOnce": ([request]) =>
       ctx.services.exec.runOnce(decodeExecRequest(request)),
+    "services.rpc.request": ([call]) => ctx.services.rpc.request(decodeRpcCall(call)),
     "services.ports.allocate": ([key]) =>
       ctx.services.ports.allocate(str(key, "ports.allocate key")),
     "services.opener.openUrl": ([url]) =>

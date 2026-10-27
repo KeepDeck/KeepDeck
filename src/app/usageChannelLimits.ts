@@ -1,21 +1,20 @@
-import type { UsageLimitsSource } from "@keepdeck/plugin-api";
+import type { AgentLimits, LimitsRead, UsageLimitsSource } from "@keepdeck/plugin-api";
 import { paneAgentType, paneHasProcess } from "../domain/deck";
 import { log } from "../ipc/log";
-import { fetchCodexRateLimits, fetchKimiUsages } from "../ipc/usage";
+import { fetchKimiUsages } from "../ipc/usage";
 import { usageSourceTimestamp } from "./usageProvenance";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
 export const LIMITS_POLL_MS = 60_000;
 
-interface LimitsRead {
-  body: string;
-  sourceAt?: number;
-}
-
 const LIMIT_SOURCES: Record<UsageLimitsSource, () => Promise<LimitsRead>> = {
-  "codex-app-server": fetchCodexRateLimits,
   "kimi-usages": async () => ({ body: await fetchKimiUsages() }),
 };
+
+/** One read of a declaration's limits, whichever way it reads them. */
+function readLimits(limits: AgentLimits): Promise<LimitsRead> {
+  return limits.read ? limits.read() : LIMIT_SOURCES[limits.poll]();
+}
 
 type LimitsRequest = () => Promise<void>;
 
@@ -78,7 +77,7 @@ export function createUsageLimitsLane({
       if (!limits) return;
       const requestedAt = Date.now();
       try {
-        const read = await LIMIT_SOURCES[limits.poll]();
+        const read = await readLimits(limits);
         if (
           disposed ||
           declarations.current().get(agentId)?.limits !== limits
@@ -96,10 +95,10 @@ export function createUsageLimitsLane({
           // whole release cycle. Every polled source, one line.
           log.debug(
             "web:usage",
-            `${limits.poll} ${phase}: response did not normalize — no account claim recorded`,
+            `${agentId} limits ${phase}: response did not normalize — no account claim recorded`,
           );
       } catch (error) {
-        log.debug("web:usage", `${limits.poll} ${phase} failed: ${error}`);
+        log.debug("web:usage", `${agentId} limits ${phase} failed: ${error}`);
       }
     });
   };

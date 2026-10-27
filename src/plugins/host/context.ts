@@ -67,6 +67,16 @@ export function buildPluginContext(
     return { ready: handle.ready, dispose: () => tracked.dispose() };
   }
 
+  // The plugin's host-kept processes go with it. Registered once, here,
+  // rather than per call: a child outlives the call that started it.
+  if (manifest.capabilities.some((capability) => capability.kind === "exec" && capability.servers)) {
+    disposers.add(() => {
+      deps.processes.stop(pluginId).catch((error: unknown) => {
+        log.error(`stopping its processes failed: ${errorMessage(error)}`);
+      });
+    });
+  }
+
   function disposeAll(): void {
     for (const run of [...disposers]) {
       disposers.delete(run);

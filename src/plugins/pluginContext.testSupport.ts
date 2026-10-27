@@ -89,6 +89,7 @@ export function fakePluginContext(fake: PluginContextFake = {}): PluginContext {
     services: {
       sessions: { spawn: unfaked("services.sessions.spawn"), ...services.sessions },
       exec: { runOnce: unfaked("services.exec.runOnce"), ...services.exec },
+      rpc: { request: unfaked("services.rpc.request"), ...services.rpc },
       ports: { allocate: unfaked("services.ports.allocate"), ...services.ports },
       opener: {
         openUrl: unfaked("services.opener.openUrl"),

@@ -64,6 +64,42 @@ describe("capabilityFingerprint", () => {
     );
   });
 
+  describe("exec servers", () => {
+    const server = {
+      id: "app",
+      command: "tool",
+      args: ["serve"],
+      handshake: { method: "init", params: { a: 1, b: 2 }, then: "ready" },
+      methods: ["read", "list"],
+    };
+    const print = (servers: (typeof server)[]) =>
+      capabilityFingerprint(manifest([{ kind: "exec", commands: ["tool"], servers }]));
+
+    it("leave an exec without servers fingerprinted as it always was", () => {
+      expect(capabilityFingerprint(manifest([{ kind: "exec", commands: ["tool"] }]))).toBe(
+        JSON.stringify(["category:deck", "exec:tool"]),
+      );
+    });
+
+    it("change it when a server, a method, an argument or the handshake changes", () => {
+      const base = print([server]);
+      expect(print([])).not.toBe(base);
+      expect(print([{ ...server, methods: [...server.methods, "write"] }])).not.toBe(base);
+      expect(print([{ ...server, args: ["serve", "--all"] }])).not.toBe(base);
+      expect(print([{ ...server, handshake: { ...server.handshake, then: "go" } }])).not.toBe(base);
+      expect(print([server, { ...server, id: "second" }])).not.toBe(base);
+    });
+
+    it("stay put when only the order of servers, methods or params keys changes", () => {
+      const other = { ...server, id: "other" };
+      expect(print([other, server])).toBe(print([server, other]));
+      expect(print([{ ...server, methods: ["list", "read"] }])).toBe(print([server]));
+      expect(print([{ ...server, handshake: { ...server.handshake, params: { b: 2, a: 1 } } }])).toBe(
+        print([server]),
+      );
+    });
+  });
+
   it("fs and git scopes fingerprint apart — one cannot pass as consent for the other", () => {
     expect(
       capabilityFingerprint(manifest([{ kind: "fs", scope: "workspace" }])),

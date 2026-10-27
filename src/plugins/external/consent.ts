@@ -1,4 +1,9 @@
-import type { Capability, PluginManifest } from "@keepdeck/plugin-api";
+import type {
+  Capability,
+  JsonValue,
+  PluginManifest,
+  RpcServerDeclaration,
+} from "@keepdeck/plugin-api";
 
 /**
  * A stable fingerprint of a manifest's declared capabilities — what a user's
@@ -21,11 +26,45 @@ export function capabilityFingerprint(manifest: PluginManifest): string {
   ]);
 }
 
+/** Declared servers as JSON tuples — every field consent shows, the method
+ * set sorted, the servers ordered by id, the handshake's params with sorted
+ * keys. A tuple, not a join, so no value can pose as a separator. */
+function canonicalServers(servers: readonly RpcServerDeclaration[]): string {
+  return JSON.stringify(
+    [...servers]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((server) => [
+        server.id,
+        server.command,
+        server.args,
+        [...server.methods].sort(),
+        server.handshake
+          ? [server.handshake.method, sortedKeys(server.handshake.params ?? null), server.handshake.then ?? null]
+          : null,
+      ]),
+  );
+}
+
+/** The same JSON whatever order its object keys were written in. */
+function sortedKeys(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(sortedKeys);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortedKeys(value[key])]),
+  );
+}
+
 /** One capability as a canonical, order-independent string. */
 function canonical(cap: Capability): string {
   switch (cap.kind) {
-    case "exec":
-      return `exec:${[...cap.commands].sort().join(",")}`;
+    case "exec": {
+      const commands = `exec:${[...cap.commands].sort().join(",")}`;
+      // Without servers the string stays what it always was, so adding the
+      // field to the contract re-asks no one.
+      return cap.servers ? `${commands}|servers:${canonicalServers(cap.servers)}` : commands;
+    }
     case "fs":
       return `fs:${cap.scope}`;
     case "fsWrite":

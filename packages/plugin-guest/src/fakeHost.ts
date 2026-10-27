@@ -326,6 +326,9 @@ export function createFakeHost(
         readText: async () => "",
       },
       exec: { runOnce: async () => ({ ran: true, ok: true, said: "" }) },
+      // Echoes the params back as the result, so a round trip shows both
+      // directions crossed whole.
+      rpc: { request: async (call) => ({ result: JSON.stringify(call.params ?? null), sentAt: 1 }) },
       sessions: {
         spawn: async (_opts, onEvent) => {
           const id = `s${sessions.length + 1}`;

@@ -25,6 +25,7 @@ import {
   isGitHistory,
   isGitStatus,
   isNumber,
+  isRpcAnswer,
   isSessionSpawn,
   isSpeechDevices,
   isSpeechEngines,
@@ -231,6 +232,12 @@ export function createGuestServices({
         rpc
           .call("services.exec.runOnce", [request])
           .then((value) => decodeWith(value, isExecOutcome, "exec outcome")),
+    },
+    rpc: {
+      request: (call) =>
+        rpc
+          .call("services.rpc.request", [call])
+          .then((value) => decodeWith(value, isRpcAnswer, "rpc answer")),
     },
     speech: {
       engines: () =>

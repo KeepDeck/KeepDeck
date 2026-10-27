@@ -12,6 +12,7 @@ import {
   type KeepDeckPlugin,
   type PluginAgents,
   type PluginResources,
+  type PluginRpc,
 } from "@keepdeck/plugin-api";
 import { codexBinding } from "./binding";
 import { codexHistory, type HistoryPorts } from "./history";
@@ -30,6 +31,7 @@ import { codexTail } from "./tail";
 import {
   codexUsageWatches,
   normalizeCodexRateLimits,
+  readCodexLimits,
   normalizeCodexRollout,
 } from "./usage";
 
@@ -155,6 +157,7 @@ const disablePasteBurstArgs: string[] = ["-c", "disable_paste_burst=true"];
 export type CodexPorts = HistoryPorts & {
   agents: PluginAgents;
   resources: PluginResources;
+  services: { rpc: PluginRpc };
 };
 
 export function registerCodex(ctx: CodexPorts): void {
@@ -166,7 +169,7 @@ export function registerCodex(ctx: CodexPorts): void {
     // Remote support and its ws/wss schemes are declared once in the
     // manifest; this hook is only the implementation that consumes target.
     // Per-pane tokens/context stay in the rollout; current account limits
-    // come from the host's one shared official app-server manager.
+    // come from codex's own app-server, which the host keeps for this plugin.
     usage: {
       normalize: normalizeCodexRollout,
       tail: {
@@ -179,7 +182,7 @@ export function registerCodex(ctx: CodexPorts): void {
         sweep: () => newestRollouts(ctx, 10),
       },
       limits: {
-        poll: "codex-app-server",
+        read: () => readCodexLimits(ctx.services.rpc),
         normalize: normalizeCodexRateLimits,
       },
     },
