@@ -1,6 +1,5 @@
 import {
   paneAgentType,
-  paneFrozenTitle,
   type Pane,
   type PaneSession,
 } from "./panes";
@@ -253,7 +252,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
             v: 1,
             wsId,
             sessionId: closing.session.id,
-            title: paneFrozenTitle(closing),
+            title: action.sealTitle,
             at: action.at,
           })
         : state.journal;
@@ -551,7 +550,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           v: 1,
           wsId,
           sessionId: prev.id,
-          title: paneFrozenTitle(pane),
+          title: action.sealTitle,
           at: action.at,
         });
       }

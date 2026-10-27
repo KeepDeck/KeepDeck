@@ -1,4 +1,5 @@
-import { needsPerson, type ActivityBadge, type ActivityTone } from "../domain/status";
+import { needsPerson } from "../domain/status";
+import type { ActivityBadge, ActivityTone } from "./activityBadge";
 import { contextLevel, formatAge, type UsageLevel } from "../domain/usage";
 import { teamBadgeTitle } from "@keepdeck/ui-kit/teamWords";
 

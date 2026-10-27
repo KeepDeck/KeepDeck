@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ActivityBadge } from "../domain/status";
+import type { ActivityBadge } from "./activityBadge";
 import { paneControlsView, paneHeaderView, type PaneHeaderInput } from "./paneHeaderView";
 
 const NOW = 1_700_000_000_000;

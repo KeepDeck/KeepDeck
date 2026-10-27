@@ -189,6 +189,7 @@ describe("createUsageChannel", () => {
     deckListeners = new Set();
     deckStore = {
       getSnapshot: () => currentDeck,
+      titleAgents: () => [],
       subscribe(listener) {
         deckListeners.add(listener);
         return () => deckListeners.delete(listener);

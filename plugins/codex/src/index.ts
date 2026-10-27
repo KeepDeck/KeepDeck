@@ -17,6 +17,7 @@ import {
 import { codexBinding } from "./binding";
 import { codexHistory, type HistoryPorts } from "./history";
 import { icon } from "./icon";
+import { codexPresentation } from "./presentation";
 import { mcpArgs } from "./mcp";
 import { processArgs } from "./process";
 import { cliArgs } from "./trust";
@@ -166,6 +167,7 @@ export function registerCodex(ctx: CodexPorts): void {
     label: "Codex",
     icon,
     detect: { bin: "codex" },
+    presentation: codexPresentation,
     // Remote support and its ws/wss schemes are declared once in the
     // manifest; this hook is only the implementation that consumes target.
     // Per-pane tokens/context stay in the rollout; current account limits

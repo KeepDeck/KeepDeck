@@ -23,6 +23,7 @@ import {
 } from "./companion";
 import { createKimiCompanionFleet } from "./fleet";
 import { icon } from "./icon";
+import { kimiPresentation } from "./presentation";
 import { createKimiCompanionManager } from "./manager";
 import { createKimiServerManager } from "./serverManager";
 import {
@@ -117,6 +118,7 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
     label: "Kimi Code",
     icon,
     detect: { bin: "kimi" },
+    presentation: kimiPresentation,
     // Tokens/context ride the tailed wire.jsonl; rate windows exist only
     // behind the usages endpoint (kimi's own /usage queries it too).
     usage: {

@@ -72,6 +72,7 @@ describe("createSessionBinding", () => {
     const store: DeckStore = {
       getSnapshot: () => state,
       subscribe: () => () => {},
+      titleAgents: () => [],
       dispatch,
     };
     // The REAL rule, over stub deps: a fake here would only assert that the

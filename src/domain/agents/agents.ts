@@ -47,6 +47,14 @@ export interface AgentIconPath {
 export interface AgentInfo {
   id: AgentType;
   label: string;
+  /** Glyphs this agent's CLI decorates its terminal titles with, stripped
+   * from what its panes are called (see `paneDisplayTitle`). */
+  titleGlyphs?: readonly string[];
+  /** This agent's own words for its failure codes (the shared ones are the
+   * host's). */
+  failureLabels?: Readonly<Record<string, string>>;
+  /** This agent's series colour in usage charts, `#RRGGBB`. */
+  chartColor?: string;
   /** The agent's brand mark, when its plugin ships one. */
   icon?: AgentIcon;
   /** CLI command to spawn (passed back to `session_spawn`). */

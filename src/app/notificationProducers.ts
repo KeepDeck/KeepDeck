@@ -1,16 +1,17 @@
 import type { WorkspaceRef as PluginWorkspaceRef } from "@keepdeck/plugin-api";
 import {
   findWorkspace,
+  paneAgentType,
   paneDisplayTitle,
   type Workspace,
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
 import type { NotificationSource } from "../domain/notifications";
 import {
-  activityBadge,
   activityTransition,
   type PaneActivity,
 } from "../domain/status";
+import { activityBadge } from "../presentation/activityBadge";
 import { workspaceInstanceOf } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import type { AgentStatusTracker } from "./agentStatusTracker";
@@ -34,14 +35,19 @@ function paneContext(
   title: string;
   wsName: string;
   workspace: { id: string; instance: Workspace["instance"] };
+  /** The pane's agent in the catalog — absent while it loads, or when its
+   * plugin is gone. */
+  agent: AgentInfo | undefined;
 } | null {
   const ws = findWorkspace(workspaces, wsId);
   const index = ws?.panes.findIndex((p) => p.id === paneId) ?? -1;
   if (!ws || index === -1) return null;
+  const pane = ws.panes[index];
   return {
-    title: paneDisplayTitle(ws.panes[index], index, agents),
+    title: paneDisplayTitle(pane, index, agents),
     wsName: ws.name,
     workspace: { id: ws.id, instance: ws.instance },
+    agent: agents.find((agent) => agent.id === paneAgentType(pane)),
   };
 }
 
@@ -168,7 +174,7 @@ function announceActivity(
   if (verdict === "none") return;
   const c = paneContextById(workspaces, paneId, agents);
   if (!c) return;
-  const badge = activityBadge(activity);
+  const badge = activityBadge(activity, c.agent?.failureLabels);
   const source = {
     type: "pane",
     workspace: c.workspace,

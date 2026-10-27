@@ -175,6 +175,8 @@ export function createGuestContributions({
             label: agent.label,
             icon: agent.icon,
             detect: agent.detect,
+            // Static data, carried as it is; the host checks its shape.
+            ...(agent.presentation !== undefined && { presentation: agent.presentation }),
             hookNames: Object.keys(agent.hooks),
             ...(agent.history !== undefined && { hasHistory: true }),
             // Declared IFF the method really sits on the object — the

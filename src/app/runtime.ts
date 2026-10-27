@@ -22,6 +22,7 @@ import { createAgentDoors } from "./agentDoors";
 import { createDeckActions } from "./deckActions";
 import { createDeckPersistence } from "./deckPersistence";
 import { createDeckStore } from "./deckStore";
+import { titleAgentOf } from "./titleAgent";
 import {
   DownloadManager,
   tauriDownloadBackend,
@@ -158,7 +159,10 @@ export function createAppRuntime(
 ) {
   const downloads = new DownloadManager(downloadBackend);
   const plugins = createPluginManager(downloads);
-  const deckStore = createDeckStore();
+  /** How a pane reads, for anything that has to name one. Read per call — a
+   * plugin can be installed or removed while the deck is up. */
+  const agentLabels = () => plugins.pluginRegistries.agents.list().map(({ entry }) => titleAgentOf(entry));
+  const deckStore = createDeckStore(undefined, agentLabels);
   const deckActions = createDeckActions(deckStore);
   const paneInputFocus = createPaneInputFocusController();
   const paneViewActions = createPaneViewActions(deckStore, deckActions, paneInputFocus);
@@ -170,12 +174,6 @@ export function createAppRuntime(
       notify({ title: "Deck migrated", body, source: { type: "app" } });
     }
   });
-  /** How a pane reads, for anything that has to name one. Read per call — a
-   * plugin can be installed or removed while the deck is up. */
-  const agentLabels = () =>
-    plugins.pluginRegistries.agents
-      .list()
-      .map(({ entry }) => ({ id: entry.id, label: entry.label }));
   // The MCP feature: the transport service and the user's library, wired to
   // each other once behind one door.
   const mcp = createMcp({

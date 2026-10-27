@@ -30,6 +30,7 @@ function deckWith() {
   const deck: DeckStore = {
     getSnapshot: () => state,
     subscribe: () => () => {},
+    titleAgents: () => [],
     dispatch: (action) => {
       dispatched.push(action);
       return state;

@@ -371,11 +371,12 @@ export function DeckStage({
         ): MinimizedTrayEntry => {
           const title = titleOf(pane);
           const team = teamOf(ws, pane);
+          const agent = agents.find((a) => a.id === paneAgentType(pane));
           return {
             id: pane.id,
             title,
-            icon:
-              agents.find((a) => a.id === paneAgentType(pane))?.icon ?? null,
+            icon: agent?.icon ?? null,
+            failureLabels: agent?.failureLabels,
             gitBadge: badgeOf(pane),
             team,
             yolo: pane.yolo,
@@ -436,6 +437,7 @@ export function DeckStage({
               title={displayTitle}
               agentIcon={agentInfo?.icon ?? null}
               agentLabel={agentInfo?.label ?? agentType}
+              failureLabels={agentInfo?.failureLabels}
               command={command}
               args={spec?.args}
               env={spec?.env}

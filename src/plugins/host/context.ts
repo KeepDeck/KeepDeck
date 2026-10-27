@@ -4,7 +4,7 @@ import type {
   PluginContext,
   PluginManifest,
 } from "@keepdeck/plugin-api";
-import { declaredKeys, errorMessage } from "@keepdeck/plugin-api";
+import { declaredKeys, errorMessage, isAgentPresentation } from "@keepdeck/plugin-api";
 import { execCovers } from "../capabilities/execCovers";
 import type { ContributionRegistries } from "../registries/contributions";
 import type { PluginSource } from "../model/installed";
@@ -262,6 +262,11 @@ export function buildPluginContext(
         validateAgentFeatureImplementations(declaredAgent, agent, {
           external: source === "external",
         });
+        // Presentation is shown as it is — a title glyph, a label, a chart
+        // colour — so a malformed one is refused here, both tiers.
+        if (agent.presentation !== undefined && !isAgentPresentation(agent.presentation)) {
+          throw new Error(`agent "${agent.id}": presentation is malformed (short plain text, #RRGGBB colour)`);
+        }
         // The agent's binary is what spawn plans fall back to — it must be
         // legitimate by declaration, both tiers, no exceptions.
         if (!execCovers(manifest.capabilities, agent.detect.bin)) {

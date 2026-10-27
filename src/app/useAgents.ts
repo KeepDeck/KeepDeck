@@ -13,6 +13,7 @@ import {
 } from "../plugins/react";
 import type { ContributionRegistries } from "../plugins/registries/contributions";
 import { useRuntimePart } from "./runtimeContext";
+import { titleAgentOf } from "./titleAgent";
 
 /** The plugin side as the catalog reads it: the one bootstrap to join, the
  * installed plugins (for each agent's declared summary), and the agents
@@ -105,8 +106,9 @@ function toAgentInfo(
   status: BinStatus | undefined,
 ): AgentInfo {
   return {
-    id: entry.id,
-    label: entry.label,
+    ...titleAgentOf(entry),
+    ...(entry.presentation?.failureLabels && { failureLabels: entry.presentation.failureLabels }),
+    ...(entry.presentation?.chartColor && { chartColor: entry.presentation.chartColor }),
     icon: entry.icon,
     command: entry.detect.bin,
     features: summary.features,

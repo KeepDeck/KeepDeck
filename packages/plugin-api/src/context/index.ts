@@ -14,6 +14,7 @@ export type {
   AgentBinding,
   AgentBindingReport,
   AgentCompanion,
+  AgentPresentation,
   CompanionCover,
   ForkDiscard,
   ForkPlanInput,
@@ -29,7 +30,7 @@ export type {
   SpawnSkillsInput,
   SpawnTarget,
 } from "./agents.ts";
-export { MCP_HTTP_API, mapMcpServers, mcpHttpHeaders } from "./agents.ts";
+export { isAgentPresentation, MCP_HTTP_API, mapMcpServers, mcpHttpHeaders } from "./agents.ts";
 export type {
   AgentStatus,
   AgentStatusEvent,

@@ -1,6 +1,7 @@
-import { isJsonValue, readManifest } from "@keepdeck/plugin-api";
+import { isAgentPresentation, isJsonValue, readManifest } from "@keepdeck/plugin-api";
 import { isObjectLike } from "../../../domain/json";
 import type {
+  AgentPresentation,
   CommandArgSpec,
   CommandInfo,
   CommandResult,
@@ -504,11 +505,13 @@ export interface WireAgentRegistration {
   hasTranscriptPage?: boolean;
   hasLiveSessions?: boolean;
   usage?: unknown;
+  presentation?: AgentPresentation;
 }
 
 export function isAgentRegistration(value: unknown): value is WireAgentRegistration {
   if (!isObjectLike(value) || !isString(value.id) || !isString(value.label)) return false;
   if (!isObjectLike(value.detect) || !isString(value.detect.bin)) return false;
+  if (value.presentation !== undefined && !isAgentPresentation(value.presentation)) return false;
   for (const name of ["hookNames"] as const) {
     if (value[name] !== undefined && !isStringArray(value[name])) return false;
   }

@@ -316,6 +316,7 @@ export function createHostDispatch(
         hasTranscriptPage,
         hasLiveSessions,
         usage,
+        presentation,
       } = decodeWith(entry, isAgentRegistration, "agent registration");
       // Usage contributions cannot cross this boundary yet: the store calls
       // `normalize` SYNCHRONOUSLY per report, and a cross-realm proxy is
@@ -417,6 +418,7 @@ export function createHostDispatch(
           hooks,
           ...(history && { history }),
           ...(liveSessions && { liveSessions }),
+          ...(presentation && { presentation }),
         }),
       );
     },

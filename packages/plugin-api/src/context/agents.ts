@@ -1,3 +1,5 @@
+import { isJsonRecord } from "../json.ts";
+import { hasUnsafeText } from "../manifest/text.ts";
 import type { Disposable } from "./disposable.ts";
 import type { WorkspaceRef } from "./snapshots.ts";
 import type { AgentStatus } from "./status.ts";
@@ -45,6 +47,10 @@ export interface AgentContribution {
    * itself from the pane's own process (API 61) — absent when the agent has
    * none. */
   companion?: AgentCompanion;
+  /** How the host shows this agent where its CLI's habits matter (API 70):
+   * decoration on its terminal titles, words for its own failure codes, its
+   * colour in charts. Absent = the generic presentation. */
+  presentation?: AgentPresentation;
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
@@ -58,6 +64,46 @@ export interface AgentContribution {
    * history method. Absent = the agent cannot say, and a refused resume
    * keeps its old meaning. */
   liveSessions?: AgentLiveSessions;
+}
+
+/** Static presentation data — values the host reads, never code. */
+export interface AgentPresentation {
+  /** Glyphs the CLI puts at the start of its terminal titles as decoration
+   * (each followed by whitespace). The host strips one from the pane's
+   * title; another agent's leading glyph is left alone. */
+  oscLeadingGlyphs?: readonly string[];
+  /** Words for this CLI's own failure codes, beside the shared ones the host
+   * already names (rate limits, overload, authentication). An unnamed code
+   * is shown as `Failed: <code>`. */
+  failureLabels?: Readonly<Record<string, string>>;
+  /** This agent's series colour in usage charts, `#RRGGBB`. Without one the
+   * host gives it a spare colour. */
+  chartColor?: string;
+}
+
+/** The limits a presentation must keep: it is shown as it is, so it must be
+ * small, plain text, and a colour the charts can draw. */
+const PRESENTATION_TEXT_MAX = 64;
+const CHART_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** Whether `value` is a well-formed presentation — what the host checks on
+ * every agent registration, in-process or across the external tier. */
+export function isAgentPresentation(value: unknown): value is AgentPresentation {
+  if (!isJsonRecord(value)) return false;
+  const { oscLeadingGlyphs, failureLabels, chartColor } = value;
+  const shortText = (text: unknown) =>
+    typeof text === "string" &&
+    text.length > 0 &&
+    text.length <= PRESENTATION_TEXT_MAX &&
+    !hasUnsafeText(text);
+  if (oscLeadingGlyphs !== undefined && !(Array.isArray(oscLeadingGlyphs) && oscLeadingGlyphs.every(shortText)))
+    return false;
+  if (
+    failureLabels !== undefined &&
+    !(isJsonRecord(failureLabels) && Object.entries(failureLabels).every(([code, label]) => shortText(code) && shortText(label)))
+  )
+    return false;
+  return chartColor === undefined || (typeof chartColor === "string" && CHART_COLOR.test(chartColor));
 }
 
 /** One session binding as the agent's reporter stated it. */

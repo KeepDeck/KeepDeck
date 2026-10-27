@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { claudePresentation } from "../plugins/claude/src/presentation";
 import { normalizeClaudeStatus } from "../plugins/claude/src/status";
 import { reduceStatus, type PaneStatus } from "../src/domain/status/activity";
-import { activityBadge } from "../src/domain/status/format";
+import { activityBadge } from "../src/presentation/activityBadge";
 import { normalizeStatusBatch } from "../src/app/statusNormalization";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -85,6 +86,7 @@ describe("a session that outgrew its context window", () => {
           receive(compacted, { ...SESSION, hook_event_name: "Stop" }, 500),
           "the pane state after Stop",
         ).activity,
+        claudePresentation.failureLabels,
       ),
     ).toMatchObject({ tone: "done", label: "Done" });
   });
@@ -134,6 +136,7 @@ describe("a session that outgrew its context window", () => {
           receive(next, { ...SESSION, hook_event_name: "Stop" }, 400),
           "the pane state after Stop",
         ).activity,
+        claudePresentation.failureLabels,
       ),
     ).toMatchObject({ tone: "done", label: "Done" });
   });
@@ -148,7 +151,7 @@ describe("a session that outgrew its context window", () => {
       receive(null, { ...SESSION, hook_event_name: "StopFailure" }, 100),
       "the failed pane state",
     );
-    expect(activityBadge(failed.activity)).toMatchObject({
+    expect(activityBadge(failed.activity, claudePresentation.failureLabels)).toMatchObject({
       tone: "failed",
       label: "Turn failed",
     });
@@ -164,7 +167,7 @@ describe("a session that outgrew its context window", () => {
       ),
       "the pane state after compaction",
     );
-    expect(activityBadge(compacted.activity)).toMatchObject({
+    expect(activityBadge(compacted.activity, claudePresentation.failureLabels)).toMatchObject({
       tone: "done",
       label: "Interrupted",
     });

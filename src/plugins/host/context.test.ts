@@ -552,6 +552,47 @@ describe("buildPluginContext", () => {
   });
 });
 
+describe("an agent's presentation at registration", () => {
+  const register = (presentation: unknown) => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("cli", {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: ["tool"] }],
+        contributes: { agents: [{ id: "tool", label: "Tool", features: [] }] },
+      }),
+      "builtin",
+      registries,
+      deps,
+    );
+    const entry = { id: "tool", label: "Tool", detect: { bin: "tool" }, hooks: {} };
+    // Through `Reflect.set`, a value the contract type would refuse at
+    // compile time reaches the runtime check as an external realm's would.
+    Reflect.set(entry, "presentation", presentation);
+    ctx.agents.register(entry);
+    return registries;
+  };
+
+  it("accepts glyphs, labels and a #RRGGBB colour", () => {
+    const registries = register({ oscLeadingGlyphs: ["✶"], failureLabels: { e: "E" }, chartColor: "#3987e5" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("refuses a colour the charts cannot draw, empty or control text, or an array of labels", () => {
+    for (const presentation of [
+      { chartColor: "blue" },
+      { chartColor: "#12345" },
+      { oscLeadingGlyphs: [""] },
+      { oscLeadingGlyphs: ["\u001b[31m"] },
+      { failureLabels: { e: "x".repeat(65) } },
+      { failureLabels: ["E"] },
+    ]) {
+      expect(() => register(presentation), JSON.stringify(presentation)).toThrow("presentation is malformed");
+    }
+  });
+});
+
 describe("the agent-binary exec gate", () => {
   it("refuses an agent whose binary no exec capability covers", () => {
     const registries = createContributionRegistries();

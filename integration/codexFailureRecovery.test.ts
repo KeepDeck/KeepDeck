@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
 import { normalizeCodexStatus } from "../plugins/codex/src/status";
 import { codexRecords } from "../plugins/codex/src/tail";
-import { activityBadge } from "../src/domain/status/format";
+import { activityBadge } from "../src/presentation/activityBadge";
 import { createAgentStatusTracker } from "../src/app/agentStatusTracker";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -39,7 +39,9 @@ describe("Codex terminal failures through the status lane", () => {
     hook("UserPromptSubmit", failedAt - 1000);
     tail();
     const failed = present(tracker.getSnapshot().panes.get("pane"), "the Codex pane");
-    expect(activityBadge(failed)).toMatchObject({ tone: "failed", label: "Rate limited" });
+    // The shared word: codex's usage limit normalizes to rate_limit, so no
+    // label of codex's own is needed for it.
+    expect(activityBadge(failed, undefined)).toMatchObject({ tone: "failed", label: "Rate limited" });
     expect(failed).toMatchObject({ at: failedAt, detail: "You've hit your usage limit." });
     hook("PostToolUse", failedAt + 2100);
     hook("Stop", failedAt + 2200);

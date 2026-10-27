@@ -32,6 +32,13 @@ vi.mock("../../app/useUsage", () => ({
   useUsage: () => usage.snapshot,
 }));
 
+/** The catalog the series colours read — this suite is not about colours,
+ * so no agent is installed (every series is the overflow gray). */
+const catalog = vi.hoisted(() => ({ agents: [], loading: false }));
+vi.mock("../../app/useAgents", () => ({
+  useAgents: () => catalog,
+}));
+
 /** The chip asks the runtime for one number; this suite is about WHERE the
  * dialog seats it, so the number is a constant here and the witness behind
  * it is tested in `activityWitness.test.ts`. */

@@ -3,6 +3,7 @@ import { MAX_PANES } from "../layout";
 import {
   appendPane,
   paneDisplayTitle,
+  paneFrozenTitle,
   removePane,
   resolveFocus,
   type Pane,
@@ -89,13 +90,35 @@ describe("paneDisplayTitle", () => {
     expect(paneDisplayTitle(pane, 2, agents)).toBe("Claude Code 3");
   });
 
-  it("strips decorative Claude title glyphs without changing the stored auto title", () => {
-    expect(
-      paneDisplayTitle({ id: "pane-1", agentType: "claude", autoTitle: "✶ Claude Code" }, 0, agents),
-    ).toBe("Claude Code");
-    expect(
-      paneDisplayTitle({ id: "pane-1", agentType: "claude", autoTitle: "✳ thinking" }, 0, agents),
-    ).toBe("thinking");
+  describe("title glyphs", () => {
+    const decorated = [
+      { id: "glyphs", label: "Glyphs", titleGlyphs: ["✶", "✳"] },
+      { id: "plain", label: "Plain" },
+    ];
+    const title = (agentType: string, autoTitle: string) =>
+      paneDisplayTitle({ id: "pane-1", agentType, autoTitle }, 0, decorated);
+
+    it("strips a glyph only for the agent that declares it, followed by whitespace", () => {
+      expect(title("glyphs", "✶ Glyphs")).toBe("Glyphs");
+      expect(title("glyphs", "✳ thinking")).toBe("thinking");
+      // Another agent's leading glyph is its own title.
+      expect(title("plain", "✶ deliberate")).toBe("✶ deliberate");
+      // A glyph that is part of the word is not decoration.
+      expect(title("glyphs", "✶deliberate")).toBe("✶deliberate");
+      // A glyph it does not declare stays.
+      expect(title("glyphs", "✦ other")).toBe("✦ other");
+    });
+
+    it("falls back past a title that was only the decoration", () => {
+      expect(title("glyphs", "✶  ")).toBe("Glyphs 1");
+    });
+
+    it("freezes the same cleaned title the header shows, and nothing positional", () => {
+      const pane = { id: "pane-1", agentType: "glyphs", autoTitle: "✶ sealed" };
+      expect(paneFrozenTitle(pane, decorated)).toBe("sealed");
+      expect(paneFrozenTitle({ id: "pane-1", agentType: "glyphs" }, decorated)).toBeUndefined();
+      expect(paneFrozenTitle({ ...pane, name: "named" }, decorated)).toBe("named");
+    });
   });
 
   it("falls back to the raw agent id while the catalog has no entry", () => {
