@@ -29,9 +29,9 @@ export const CLI_NAME_EXEMPTIONS = [
   // kimi's MCP file, rendered and armed by the core.
   { file: "src/app/mcp/kimi.ts", names: ["kimi"], count: 6, reason: "renders kimi's .kimi-code/mcp.json", until: "task-532" },
   { file: "src/app/mcp/injection.ts", names: ["kimi"], count: 1, reason: "calls the kimi MCP renderer", until: "task-532" },
-  { file: "src-tauri/src/mcp/arming.rs", names: ["kimi"], count: 8, reason: "arms kimi's MCP config dir", until: "task-532" },
-  { file: "src-tauri/src/mcp/kimi.rs", names: ["kimi"], count: 2, reason: "kimi's MCP config writer", until: "task-532" },
-  { file: "src-tauri/src/mcp/mod.rs", names: ["kimi"], count: 1, reason: "declares the kimi MCP module", until: "task-532" },
+  { file: "src-tauri/src/mcp/arming.rs", names: ["kimi"], count: 8, reason: "arms kimi's MCP config dir", until: "task-533" },
+  { file: "src-tauri/src/mcp/kimi.rs", names: ["kimi"], count: 2, reason: "kimi's MCP config writer", until: "task-533" },
+  { file: "src-tauri/src/mcp/mod.rs", names: ["kimi"], count: 1, reason: "declares the kimi MCP module", until: "task-533" },
 
   // claude as the default agent.
   { file: "src/app/newAgentDefaults.ts", names: ["claude"], count: 1, reason: "claude is the default new agent", until: "task-526" },
@@ -46,5 +46,5 @@ export const CLI_NAME_EXEMPTIONS = [
   { file: "src/components/mcp/McpDialog.tsx", names: ["claude", "codex", "kimi", "opencode"], count: 4, reason: "hint lists the CLIs; built from the catalog", until: "task-528" },
   { file: "src/components/skills/SkillsDialog.tsx", names: ["claude", "codex", "kimi", "opencode"], count: 4, reason: "hint lists the CLIs; built from the catalog", until: "task-528" },
   { file: "src/components/settings/ExperimentalSection.tsx", names: ["codex", "opencode"], count: 2, reason: "hint lists the CLIs; built from the catalog", until: "task-528" },
-  { file: "src/components/settings/McpServerRow.tsx", names: ["kimi"], count: 1, reason: "hint names kimi; built from the catalog", until: "task-528" },
+  { file: "src/components/settings/McpServerRow.tsx", names: ["kimi"], count: 1, reason: "warning names kimi; goes with cwd arming", until: "task-530" },
 ];

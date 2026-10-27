@@ -149,14 +149,15 @@ describe("the linter", () => {
       'export const home = "CODEX_HOME";',
       "export const kimiDir = `${home}/.kimi-code`;",
       'export const encode = (codec: string) => "open code " + codec;',
+      "export const tail = /\\.kimi-code\\//;",
       "",
     ].join("\n");
     const rule = (result) => result.messages.filter((message) => message.ruleId === "keepdeck/no-cli-names");
     const [src] = await eslint.lintText(leak, { filePath: join(REPO, "src/lint-probe.ts") });
-    expect(rule(src).map((message) => message.line)).toEqual([2, 3, 3]);
+    expect(rule(src).map((message) => message.line)).toEqual([2, 3, 3, 5]);
     // A block that redefines no-restricted-syntax does not drop it.
     const [component] = await eslint.lintText(leak, { filePath: join(REPO, "src/components/dock/lint-probe.ts") });
-    expect(rule(component)).toHaveLength(3);
+    expect(rule(component)).toHaveLength(4);
     const [plugin] = await eslint.lintText(leak, { filePath: join(REPO, "plugins/opencode/src/lint-probe.ts") });
     const [test] = await eslint.lintText(leak, { filePath: join(REPO, "src/components/dock/lint-probe.test.ts") });
     expect([rule(plugin), rule(test)]).toEqual([[], []]);

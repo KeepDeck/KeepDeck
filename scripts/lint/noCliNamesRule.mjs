@@ -33,7 +33,8 @@ export const noCliNames = {
       Identifier: (node) => read(node, node.name),
       PrivateIdentifier: (node) => read(node, node.name),
       JSXIdentifier: (node) => read(node, node.name),
-      Literal: (node) => read(node, node.value),
+      // A regex literal's value is a RegExp object; its pattern is the text.
+      Literal: (node) => read(node, node.regex ? node.regex.pattern : node.value),
       TemplateElement: (node) => read(node, node.value.cooked ?? node.value.raw),
       JSXText: (node) => read(node, node.value),
       "Program:exit": (program) => {
