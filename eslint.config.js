@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import reactHooks from "eslint-plugin-react-hooks";
+import { noCliNames } from "./scripts/lint/noCliNamesRule.mjs";
 
 /**
  * The patterns this codebase refuses, as rules that fail the build (`build`
@@ -210,6 +211,23 @@ export default [
     files: ["src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": ["error", { patterns: [NO_PLUGIN, NO_INTEGRATION] }],
+    },
+  },
+
+  /**
+   * The core names no CLI (task-514): not the host, not the plugin contract,
+   * not the shared packages. Out of it: plugins/ (where a CLI's knowledge
+   * belongs), integration/ (where host and real plugins meet), and tests,
+   * whose CLI names are fixture ids — a test of CLI behaviour goes with the
+   * production file the rule catches. The files that still leak are listed,
+   * each until its task, in scripts/lint/cliNameExemptions.mjs.
+   */
+  {
+    files: ["src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+    ignores: COMPONENT_TESTS,
+    plugins: { keepdeck: { rules: { "no-cli-names": noCliNames } } },
+    rules: {
+      "keepdeck/no-cli-names": "error",
     },
   },
 

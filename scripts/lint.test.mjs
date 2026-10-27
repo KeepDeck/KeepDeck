@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
  * The linter, as part of the test run.
  *
  * eslint.config.js refuses casts that switch the type checker off, explicit
- * `any`, TypeScript suppression comments, and a component reaching past
- * app's hooks. The build runs it too; running
+ * `any`, TypeScript suppression comments, a component reaching past
+ * app's hooks, and a CLI named in the core. The build runs it too; running
  * it here means a plain `vitest run` fails on a new one.
  */
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -79,11 +79,11 @@ describe("the linter", () => {
   it("keeps presentation inward and gives production components IPC through ports", async () => {
     const eslint = new ESLint({ cwd: REPO });
     const [presentation] = await eslint.lintText(
-      'import type { DeckStore } from "../app/deckStore";\nimport "../components/DeckStage";\nimport "../ipc/app";\nimport "../plugins/kimi/src/status";\n',
+      'import type { DeckStore } from "../app/deckStore";\nimport "../components/DeckStage";\nimport "../ipc/app";\nimport "../plugins/git/src/status";\n',
       { filePath: join(REPO, "src/presentation/lint-probe.ts") },
     );
     const [component] = await eslint.lintText(
-      'import "../../ipc/app";\nimport "../../plugins/kimi/src/status";\n',
+      'import "../../ipc/app";\nimport "../../plugins/git/src/status";\n',
       { filePath: join(REPO, "src/components/dock/lint-probe.ts") },
     );
     const [componentTest] = await eslint.lintText(
@@ -140,6 +140,46 @@ describe("the linter", () => {
       { filePath: join(REPO, "src/components/probe/LintProbe.tsx") },
     );
     expect(view.messages.filter((message) => message.ruleId === "no-restricted-syntax").length).toBe(2);
+  });
+
+  it("refuses a CLI named in the core, not in a plugin, a test or a comment", async () => {
+    const eslint = new ESLint({ cwd: REPO });
+    const leak = [
+      "// codex in a comment decides nothing",
+      'export const home = "CODEX_HOME";',
+      "export const kimiDir = `${home}/.kimi-code`;",
+      'export const encode = (codec: string) => "open code " + codec;',
+      "",
+    ].join("\n");
+    const rule = (result) => result.messages.filter((message) => message.ruleId === "keepdeck/no-cli-names");
+    const [src] = await eslint.lintText(leak, { filePath: join(REPO, "src/lint-probe.ts") });
+    expect(rule(src).map((message) => message.line)).toEqual([2, 3, 3]);
+    // A block that redefines no-restricted-syntax does not drop it.
+    const [component] = await eslint.lintText(leak, { filePath: join(REPO, "src/components/dock/lint-probe.ts") });
+    expect(rule(component)).toHaveLength(3);
+    const [plugin] = await eslint.lintText(leak, { filePath: join(REPO, "plugins/opencode/src/lint-probe.ts") });
+    const [test] = await eslint.lintText(leak, { filePath: join(REPO, "src/components/dock/lint-probe.test.ts") });
+    expect([rule(plugin), rule(test)]).toEqual([[], []]);
+  });
+
+  it("holds an exempt file to its listed count and drops a stale exemption", async () => {
+    const eslint = new ESLint({ cwd: REPO });
+    // src/app/mcp/injection.ts is exempt for one "kimi".
+    const filePath = join(REPO, "src/app/mcp/injection.ts");
+    const source = readFileSync(filePath, "utf8");
+    const messages = async (text) =>
+      (await eslint.lintText(text, { filePath }))[0].messages
+        .filter((message) => message.ruleId === "keepdeck/no-cli-names")
+        .map((message) => message.message);
+    expect(await messages(source)).toEqual([]);
+    expect(await messages(`${source}\nexport const more = "kimi";\n`)).toEqual([
+      expect.stringContaining("the new one belongs in the CLI's plugin"),
+    ]);
+    expect(await messages(`${source}\nexport const other = "codex";\n`)).toEqual([
+      expect.stringContaining("not codex"),
+      expect.stringContaining("the new one belongs in the CLI's plugin"),
+    ]);
+    expect(await messages("export const nothing = 1;\n")).toEqual([expect.stringContaining("delete its exemption")]);
   });
 
   it("finds nothing in the source", async () => {
