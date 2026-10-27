@@ -5,6 +5,8 @@ import { labelForScope } from "./skillGroups";
 import { useSkillRefusals } from "../../app/useSkillRefusals";
 import { useSkillsEditor } from "./useSkillsEditor";
 import { LibraryDialog } from "../library/LibraryDialog";
+import { useAgents } from "../../app/useAgents";
+import { skillsReachHint } from "../../presentation/agentReachView";
 
 interface SkillsDialogProps {
   /** The active workspace, hosting the "This workspace" scope; `null` (no
@@ -42,6 +44,7 @@ export function SkillsDialog({
   // itself when they do.
   const refusals = useSkillRefusals();
   const { error, groups, selection, form, verdicts, busy } = editor;
+  const { agents } = useAgents();
 
   return (
     <LibraryDialog
@@ -50,7 +53,7 @@ export function SkillsDialog({
       noun="skill"
       placeholder={{
         title: "One skill, every agent",
-        body: "Pick a skill on the left or create one — it reaches Claude Code, Kimi, OpenCode and Codex worktrees at their next session",
+        body: skillsReachHint(agents),
       }}
       machine={{ ...editor, rows: editor.skills }}
       banner={

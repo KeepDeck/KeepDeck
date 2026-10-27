@@ -2,11 +2,13 @@
 // The bundled tier in the dialog: its group, its read-only panel, the unlock
 // hint, and the union with a same-named user skill.
 import { act } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lib, settingsState, skill, bundled, skillsDialogHost } from "./skillsDialogTestSupport";
 import { row, button, buttonByTitle, input, textarea, type } from "../library/libraryTestDom";
 import { SkillsDialog } from "./SkillsDialog";
 import { present } from "@keepdeck/plugin-api/testing";
+
+vi.mock("../../app/useAgents", () => ({ useAgents: () => ({ agents: [], loading: false }) }));
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 
 describe("SkillsDialog — the bundled tier", () => {

@@ -3,11 +3,15 @@
 // create form, and the fields' verdicts as words. What the machine does
 // underneath is pinned once, in ../library/useLibraryEditor.test.tsx.
 import { act } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lib, skill, skillsDialogHost } from "./skillsDialogTestSupport";
 import { row, button, buttonByTitle, input, textarea, type } from "../library/libraryTestDom";
 import { SkillsDialog } from "./SkillsDialog";
 import { present } from "@keepdeck/plugin-api/testing";
+
+// The placeholder names the agents the catalog says take skills; its words
+// are agentReachView's to test, and these run without a runtime.
+vi.mock("../../app/useAgents", () => ({ useAgents: () => ({ agents: [], loading: false }) }));
 
 describe("SkillsDialog", () => {
   const host = skillsDialogHost(SkillsDialog);

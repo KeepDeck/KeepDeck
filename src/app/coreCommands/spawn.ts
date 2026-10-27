@@ -30,6 +30,15 @@ const ROLE_ARG = {
     "The role it takes on its team — how teammates address it; nobody picks one for it. An address (impl-2) as it is, or a role (impl, peer) at its next free address. A team with nobody on it takes lead or a peer; a led team its working roles; a flat team more peers. Refused when taken, unknown, or a shape the team cannot have",
 } as const;
 
+/** The agent the pane runs. No ids are listed: the installed plugins are
+ * the catalog, and a list written here would be the host naming agents. */
+const AGENT_TYPE_ARG = {
+  name: "agentType",
+  type: "string",
+  description:
+    "An installed agent's id, as workspace.list shows a pane's agentType; omitted, the agent the workspace used last, else the default agent",
+} as const;
+
 export function registerSpawnCommands(
   registry: CommandRegistry,
   deps: Pick<CoreCommandDeps, "deck" | "agents" | "createPane" | "createTeam">,
@@ -168,11 +177,7 @@ export function registerSpawnCommands(
           description:
             "Team id or name to join (see workspace.list teams); omitted, the agent gets a team of its own — a new worktree in a repo workspace with a base folder, else the workspace root",
         },
-        {
-          name: "agentType",
-          type: "string",
-          description: "Agent id from the catalog (claude, codex, opencode)",
-        },
+        AGENT_TYPE_ARG,
         { name: "name", type: "string", description: "Pane name" },
         ROLE_ARG,
         {
@@ -332,11 +337,7 @@ export function registerSpawnCommands(
           required: true,
           description: "Team id or name (see workspace.list teams)",
         },
-        {
-          name: "agentType",
-          type: "string",
-          description: "Agent id from the catalog (claude, codex, opencode)",
-        },
+        AGENT_TYPE_ARG,
         { name: "name", type: "string", description: "Pane name" },
         ROLE_ARG,
         {

@@ -26,6 +26,10 @@ export const AGENT_FEATURE = {
   accountUsage: "usage.account",
   yolo: "execution.yolo",
   remoteTarget: "target.remote",
+  /** The agent receives the library's MCP servers at its next session. */
+  mcpServers: "integration.mcp",
+  /** The agent receives the library's skills at its next session. */
+  skills: "integration.skills",
 } as const;
 
 export function findAgentFeature(

@@ -2,6 +2,8 @@ import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 import { ON_OFF } from "../../presentation/choices";
+import { remoteAgentsHint } from "../../presentation/agentReachView";
+import { useAgents } from "../../app/useAgents";
 
 /**
  * Experimental features ([F6] → Experimental) — opt-in capabilities that ship
@@ -19,6 +21,7 @@ export function ExperimentalSection() {
   const updateSettings = useSettingsWrite();
   const remoteAgents =
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
+  const { agents } = useAgents();
 
   return (
     <>
@@ -29,11 +32,7 @@ export function ExperimentalSection() {
         value={remoteAgents}
         onChange={(on) => updateSettings({ remoteAgents: on })}
       />
-      <span className="settings__hint">
-        Lets an agent that speaks a client/server protocol (Codex, OpenCode)
-        run against a remote endpoint from the “Add member” dialog’s Where option.
-        Off by default — the feature is experimental.
-      </span>
+      <span className="settings__hint">{remoteAgentsHint(agents)}</span>
     </>
   );
 }

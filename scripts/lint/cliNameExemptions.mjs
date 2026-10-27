@@ -33,9 +33,5 @@ export const CLI_NAME_EXEMPTIONS = [
   { file: "src/domain/usage/history/migrateV1.ts", names: ["claude"], count: 1, reason: "usage schema 1: claude's v1 counters were not cumulative", until: null },
 
   // Presentation the core holds per CLI.
-  { file: "src/app/coreCommands/spawn.ts", names: ["claude", "codex", "opencode"], count: 6, reason: "tool descriptions list agent ids; built from the catalog", until: "task-528" },
-  { file: "src/components/mcp/McpDialog.tsx", names: ["claude", "codex", "kimi", "opencode"], count: 4, reason: "hint lists the CLIs; built from the catalog", until: "task-528" },
-  { file: "src/components/skills/SkillsDialog.tsx", names: ["claude", "codex", "kimi", "opencode"], count: 4, reason: "hint lists the CLIs; built from the catalog", until: "task-528" },
-  { file: "src/components/settings/ExperimentalSection.tsx", names: ["codex", "opencode"], count: 2, reason: "hint lists the CLIs; built from the catalog", until: "task-528" },
   { file: "src/components/settings/McpServerRow.tsx", names: ["kimi"], count: 1, reason: "warning names kimi; goes with cwd arming", until: "task-530" },
 ];

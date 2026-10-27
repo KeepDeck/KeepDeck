@@ -10,6 +10,10 @@ import { McpDialog } from "./McpDialog";
 import { button, buttonByTitle, confirmButton, input, row, textarea, type } from "../library/libraryTestDom";
 import { present } from "@keepdeck/plugin-api/testing";
 
+// The placeholder names the agents the catalog says take MCP servers; its
+// words are agentReachView's to test, and these run without a runtime.
+vi.mock("../../app/useAgents", () => ({ useAgents: () => ({ agents: [], loading: false }) }));
+
 /** A row as the library would list it after the write landed. */
 const landed = (scope: McpScope, draft: McpServerDraft): McpLibraryRow => ({
   scope,

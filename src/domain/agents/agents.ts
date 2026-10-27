@@ -81,6 +81,11 @@ export function selectableAgents(agents: AgentInfo[]): AgentInfo[] {
   return installed.length > 0 ? installed : launchable;
 }
 
+/** The catalog's agents whose plugin declares `featureId`, in catalog order. */
+export function agentsDeclaring(agents: readonly AgentInfo[], featureId: string): AgentInfo[] {
+  return agents.filter((agent) => hasAgentFeature(agent.features, featureId));
+}
+
 /** Pick a sensible agent type from the selectable set: keep `preferred` if
  *  it's still selectable, else the first selectable — or null when there is
  *  none, while the catalog loads or with no agent plugin installed. No agent

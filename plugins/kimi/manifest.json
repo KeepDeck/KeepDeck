@@ -67,6 +67,16 @@
             "group": "execution"
           },
           {
+            "id": "integration.mcp",
+            "label": "MCP servers from the library",
+            "group": "integration"
+          },
+          {
+            "id": "integration.skills",
+            "label": "Skills from the library",
+            "group": "integration"
+          },
+          {
             "id": "mail.turn-end",
             "label": "Mail at the turn boundary",
             "group": "mail"

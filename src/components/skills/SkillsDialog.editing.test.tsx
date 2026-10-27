@@ -2,11 +2,13 @@
 // Editing an existing skill through the dialog: what the fields, the buttons
 // and the keyboard do around a save, a rename and a delete.
 import { act } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lib, skill, skillsDialogHost } from "./skillsDialogTestSupport";
 import { button, buttonByTitle, confirmButton, input, row, textarea, type } from "../library/libraryTestDom";
 import { SkillsDialog } from "./SkillsDialog";
 import { present } from "@keepdeck/plugin-api/testing";
+
+vi.mock("../../app/useAgents", () => ({ useAgents: () => ({ agents: [], loading: false }) }));
 
 describe("SkillsDialog — editing", () => {
   const host = skillsDialogHost(SkillsDialog);
