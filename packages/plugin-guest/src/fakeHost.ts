@@ -329,6 +329,9 @@ export function createFakeHost(
       // Echoes the params back as the result, so a round trip shows both
       // directions crossed whole.
       rpc: { request: async (call) => ({ result: JSON.stringify(call.params ?? null), sentAt: 1 }) },
+      // Echo the request back so a round trip shows it crossed whole.
+      http: { get: async (request) => ({ status: 200, body: JSON.stringify(request), truncated: false, sentAt: 1 }) },
+      env: { get: async (name) => (name === "FAKE_HOME" ? "/fake/home" : null) },
       sessions: {
         spawn: async (_opts, onEvent) => {
           const id = `s${sessions.length + 1}`;

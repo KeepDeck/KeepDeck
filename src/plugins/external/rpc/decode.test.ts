@@ -13,9 +13,11 @@ import {
   decodeGuestMessage,
   decodeHookCall,
   decodeHostMessage,
+  decodeHttpGet,
   decodeRpcCall,
   decodeSessionEvent,
   decodeSpawnOptions,
+  isHttpAnswer,
   isRpcAnswer,
 } from "./decode";
 
@@ -83,6 +85,20 @@ describe("wire decoders", () => {
       expect(() => decodeRpcCall({ server: "app", method: "read", params })).toThrow("malformed rpc call params");
     }
     expect(() => decodeRpcCall({ server: 1, method: "read" })).toThrow("malformed rpc call server");
+  });
+
+  it("decodes an http request whole and refuses a credential missing its file", () => {
+    expect(decodeHttpGet({ url: "https://a", credential: { source: "s", file: "f" }, accept: "text/plain" })).toEqual({
+      url: "https://a",
+      credential: { source: "s", file: "f" },
+      accept: "text/plain",
+    });
+    expect(decodeHttpGet({ url: "https://a" })).toEqual({ url: "https://a" });
+    expect(() => decodeHttpGet({ url: "https://a", credential: { source: "s" } })).toThrow(
+      "malformed http request credential file",
+    );
+    expect(isHttpAnswer({ status: 401, body: "", truncated: false, sentAt: 1 })).toBe(true);
+    expect(isHttpAnswer({ status: "401", body: "", truncated: false, sentAt: 1 })).toBe(false);
   });
 
   it("reads an rpc answer only with a string result and a number time", () => {

@@ -15,6 +15,7 @@ import type {
   GitHistory,
   GitHistoryOptions,
   GitStatus,
+  HttpAnswer,
   JsonValue,
   PluginLogger,
   PluginFs,
@@ -29,7 +30,9 @@ import type {
   SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore } from "@keepdeck/plugin-api";
+import type { HttpCredential } from "../../ipc/http";
 import { execCovers } from "./execCovers";
+import { allNetAllowances, credentialEntry, type ResolvedPermissions } from "./permissions";
 
 /** The two scopes the `fs` capability may declare, as the backend consumes
  * them: the gate DERIVES this from the manifest and passes it down; the backend
@@ -132,6 +135,17 @@ export interface ServiceBackends {
     stop(pluginId: string): Promise<void>;
   };
   ports: PluginPorts;
+  /** One bounded GET. The gate passes the reach the declaration resolved to
+   * and, for a signed request, the source's resolved directory and fields;
+   * the native side admits the URL and reads the token itself. */
+  http: {
+    get(
+      allowed: readonly string[],
+      url: string,
+      credential: HttpCredential | undefined,
+      accept: string | undefined,
+    ): Promise<HttpAnswer>;
+  };
   opener: PluginOpener;
   fs: FsBackend;
   fsWrite: FsWriteBackend;
@@ -198,9 +212,18 @@ export type GateDiagnostics = "log" | "silent";
 export function createCapabilityGate(
   manifest: PluginManifest,
   backend: ServiceBackends,
-  opts: { diagnostics: GateDiagnostics; log: PluginLogger },
+  opts: {
+    diagnostics: GateDiagnostics;
+    log: PluginLogger;
+    /** What this manifest's `env` and `net` resolved to — the only source
+     * of env values and network reach the gate hands out. */
+    permissions: ResolvedPermissions;
+  },
 ): PluginServices {
-  const { diagnostics, log } = opts;
+  const { diagnostics, log, permissions } = opts;
+  const declaredEnv = new Set(
+    manifest.capabilities.flatMap((capability) => (capability.kind === "env" ? capability.names : [])),
+  );
   const maxActiveDownloads = 8;
   const activeDownloadIds = new Set<string>();
 
@@ -449,11 +472,41 @@ export function createCapabilityGate(
         );
       },
     },
+    env: {
+      get(name) {
+        // An undeclared name is not refused, it is absent: asking reveals
+        // nothing about whether the variable exists.
+        return Promise.resolve(declaredEnv.has(name) ? (permissions.env[name] ?? null) : null);
+      },
+    },
+    http: {
+      get(request) {
+        // Which reach applies is decided here; whether the URL fits it is
+        // decided natively, once, by the rule downloads use too.
+        if (request.credential) {
+          const owner = credentialEntry(permissions, request.credential.source);
+          admit(
+            owner !== undefined,
+            `http.get: credential source "${request.credential.source}" is not declared`,
+          );
+          return backend.http.get(
+            owner.allow,
+            request.url,
+            { ...owner.credential, file: request.credential.file },
+            request.accept,
+          );
+        }
+        const allowed = allNetAllowances(permissions);
+        admit(allowed.length > 0, `http.get: "${request.url}" requires a "net" capability`);
+        return backend.http.get(allowed, request.url, undefined, request.accept);
+      },
+    },
     downloads: {
       start(request) {
+        const allowed = allNetAllowances(permissions);
         admit(
-          netCovers(manifest.capabilities, request.source.url),
-          `downloads.start: "${request.source.url}" requires a matching "net" capability`,
+          allowed.length > 0,
+          `downloads.start: "${request.source.url}" requires a "net" capability`,
         );
         if (activeDownloadIds.size >= maxActiveDownloads) {
           throw new Error(
@@ -471,7 +524,7 @@ export function createCapabilityGate(
         const stream = backend.downloads.start(
           manifest.id,
           request,
-          netDomains(manifest.capabilities),
+          allowed,
           () => {
             terminal = true;
             finishDownload(request.id);
@@ -557,24 +610,6 @@ function hasCapability(
   kind: ParamlessCapabilityKind,
 ): boolean {
   return capabilities.some((capability) => capability.kind === kind);
-}
-
-function netCovers(capabilities: Capability[], rawUrl: string): boolean {
-  let host: string;
-  try {
-    host = new URL(rawUrl).host;
-  } catch {
-    return false;
-  }
-  return netDomains(capabilities).some(
-    (domain) => domain.toLowerCase() === host.toLowerCase(),
-  );
-}
-
-function netDomains(capabilities: Capability[]): string[] {
-  return capabilities.flatMap((capability) =>
-    capability.kind === "net" ? capability.domains : [],
-  );
 }
 
 /** The declared server of that id, from any `exec` capability. */

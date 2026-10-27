@@ -21,6 +21,8 @@ mod migration;
 #[cfg(target_os = "macos")]
 mod notify_identity;
 mod paths;
+mod plugin_http;
+mod plugin_permissions;
 mod plugins_fs;
 mod plugins_fs_write;
 mod plugins_sqlite;
@@ -87,6 +89,9 @@ pub use mcp::shim::{run as run_mcp_shim, shim_mode as mcp_shim_mode};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The environment plugins' declarations resolve against is the one the
+    // app was launched with: taken now, before anything could change it.
+    plugin_permissions::host_environment();
     // Trim past runs' log files before the plugin opens this run's own.
     let collected = logging::collect_garbage();
     tauri::Builder::default()
@@ -115,7 +120,7 @@ pub fn run() {
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(session_tail::UsageTails::default())
-        .manage(std::sync::Arc::new(rpc_child::RpcChildPool::default()))
+        .manage(rpc_child::RpcChildPool::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())
@@ -321,6 +326,8 @@ pub fn run() {
             session_tail::usage_read_store_cold,
             rpc_child::plugin_rpc_request,
             rpc_child::plugin_rpc_stop,
+            plugin_permissions::plugin_permissions_resolve,
+            plugin_http::plugin_http_get,
             kimi_usage::kimi_usages_fetch,
         ])
         .build(tauri::generate_context!())

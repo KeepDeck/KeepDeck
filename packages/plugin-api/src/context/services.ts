@@ -38,6 +38,11 @@ export interface PluginServices {
   readonly git: PluginGit;
   /** Generic host-managed network transfers into private plugin storage. */
   readonly downloads: PluginDownloads;
+  /** One bounded GET to a `net` domain, optionally signed with a token the
+   * host reads from a declared credential source. */
+  readonly http: PluginHttp;
+  /** The declared environment variables' values (capability: `env`). */
+  readonly env: PluginEnv;
   /** Microphone capture + local speech-to-text (capability: `mic`). */
   readonly speech: PluginSpeech;
   /** OS clipboard text, gated by `clipboardWrite` / `clipboardRead`. The host
@@ -133,6 +138,41 @@ export interface RpcAnswer {
   /** Unix ms just before the request was written — after any cold start
    * and handshake, so the earliest the server could have looked. */
   sentAt: number;
+}
+
+/**
+ * One GET, bounded: 10 s, the body capped at 1 MiB (`truncated` says when it
+ * was cut), no redirect followed, no proxy. The URL must sit in a `net`
+ * domain. A `credential` names a declared source and a plain file name in
+ * its directory: the host reads the token there and sends it as
+ * `Authorization: Bearer` — only to the domains of the `net` entry that
+ * declares the source, and only over https (or http to a numeric loopback
+ * address). The token never reaches the plugin.
+ */
+export interface PluginHttp {
+  get(request: HttpGet): Promise<HttpAnswer>;
+}
+
+export interface HttpGet {
+  url: string;
+  credential?: { source: string; file: string };
+  /** The Accept header; `application/json` when absent. */
+  accept?: string;
+}
+
+export interface HttpAnswer {
+  /** Any status: a 401 is an answer, not a failure. */
+  status: number;
+  body: string;
+  truncated: boolean;
+  /** Unix ms just before the request went out. */
+  sentAt: number;
+}
+
+/** The app's own startup environment, by declared name only. */
+export interface PluginEnv {
+  /** The raw value, `""` included; null when unset or not declared. */
+  get(name: string): Promise<string | null>;
 }
 
 export interface PluginSessions {

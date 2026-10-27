@@ -29,6 +29,38 @@ export interface RpcServerDeclaration {
   methods: string[];
 }
 
+/** A value chosen by a declared environment variable, with a literal
+ * fallback used when the variable is unset or exactly empty. No
+ * interpolation, no shell, no nesting: one name and one default. A
+ * non-empty value that does not fit is an error, never a quiet fallback. */
+export interface EnvDefault {
+  /** A name the plugin's `env` capability declares. */
+  env: string;
+  default: string;
+}
+
+/** A `net` domain: a literal `host[:port]` (both schemes), or the ORIGIN
+ * of an http(s) URL a declared variable chooses — exactly its scheme, host
+ * and port; its path grants nothing. */
+export type NetDomain = string | EnvDefault;
+
+/** Where a credential source's token files live: an absolute or `~/` path,
+ * or one a declared variable chooses (a relative value resolves against the
+ * app's launch directory, as the CLI reading the same variable would),
+ * optionally with a fixed relative `append`. Resolved once, natively. */
+export type CredentialDirectory = string | (EnvDefault & { append?: string });
+
+/** Tokens the HOST reads on the plugin's behalf and sends as
+ * `Authorization: Bearer` — only to the origins of the `net` entry that
+ * declares this source. The plugin never sees the token. */
+export interface CredentialSource {
+  /** Unique across the plugin; what `services.http.get` names. */
+  id: string;
+  dir: CredentialDirectory;
+  /** JSON string fields tried in order; the first non-empty one is the token. */
+  tokenFields: string[];
+}
+
 export interface LegacyDownloadMigration {
   source: string;
   target: string;
@@ -88,8 +120,16 @@ export type Capability =
    * useless on the binary blob. Opened READ-ONLY host-side. */
   | { kind: "sqliteReadonly"; paths: string[] }
   /** Network access from the plugin's own realm, enforced via the realm's
-   * CSP. Domains are literal hosts; `*` is deliberately not supported. */
-  | { kind: "net"; domains: string[] }
+   * CSP, and for `downloads` and `services.http`. Domains are literal hosts
+   * or a declared variable's origin; `*` is deliberately not supported.
+   * `credentials` lets the host sign `services.http` requests to THIS
+   * entry's domains with a token it reads itself. */
+  | { kind: "net"; domains: NetDomain[]; credentials?: CredentialSource[] }
+  /** Read these environment variables, by name, from the app's own startup
+   * environment (`services.env`) — and let a `net` domain or credentials
+   * directory refer to them. Nothing undeclared is readable; consent names
+   * every one. */
+  | { kind: "env"; names: string[] }
   /** Declarative, host-run migration for artifacts created before plugins
    * owned their private storage. Reserved for bundled plugins. */
   | { kind: "legacyDownloads"; migrations: LegacyDownloadMigration[] }
@@ -132,6 +172,7 @@ export const CAPABILITY_KINDS = [
   "git",
   "sqliteReadonly",
   "net",
+  "env",
   "legacyDownloads",
   "ports",
   "open",

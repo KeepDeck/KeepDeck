@@ -3,7 +3,11 @@
 export {
   CAPABILITY_KINDS,
   type Capability,
+  type CredentialDirectory,
+  type CredentialSource,
+  type EnvDefault,
   type LegacyDownloadMigration,
+  type NetDomain,
   type RpcServerDeclaration,
 } from "./capabilities.ts";
 export {

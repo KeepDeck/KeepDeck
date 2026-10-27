@@ -101,10 +101,11 @@ pub struct RpcAnswer {
     sent_at: u64,
 }
 
-/// Every plugin's children, keyed by (plugin, server). Tauri managed state;
-/// dropping it stops them all.
+/// Every plugin's children, keyed by (plugin, server). Tauri managed state,
+/// cloned into blocking tasks; dropping the last clone stops them all.
+#[derive(Clone)]
 pub struct RpcChildPool {
-    children: Mutex<HashMap<(String, String), PoolEntry>>,
+    children: Arc<Mutex<HashMap<(String, String), PoolEntry>>>,
     configure: Arc<dyn Fn(&RpcServerSpec) -> WorkerConfig + Send + Sync>,
 }
 
@@ -122,7 +123,7 @@ impl Default for RpcChildPool {
 impl RpcChildPool {
     fn new(configure: Arc<dyn Fn(&RpcServerSpec) -> WorkerConfig + Send + Sync>) -> Self {
         Self {
-            children: Mutex::new(HashMap::new()),
+            children: Arc::new(Mutex::new(HashMap::new())),
             configure,
         }
     }
@@ -203,13 +204,13 @@ impl RpcChildPool {
 /// bound `server` to the plugin's manifest; this side holds the call to it.
 #[tauri::command(async)]
 pub async fn plugin_rpc_request(
-    pool: State<'_, Arc<RpcChildPool>>,
+    pool: State<'_, RpcChildPool>,
     plugin_id: String,
     server: RpcServerSpec,
     method: String,
     params: Option<Value>,
 ) -> Result<RpcAnswer, String> {
-    let pool = Arc::clone(&pool);
+    let pool = pool.inner().clone();
     tauri::async_runtime::spawn_blocking(move || pool.request(&plugin_id, &server, &method, params))
         .await
         .map_err(|error| format!("rpc request task failed: {error}"))?
@@ -217,8 +218,8 @@ pub async fn plugin_rpc_request(
 
 /// Stop every child of a plugin that went away.
 #[tauri::command(async)]
-pub async fn plugin_rpc_stop(pool: State<'_, Arc<RpcChildPool>>, plugin_id: String) -> Result<(), String> {
-    let pool = Arc::clone(&pool);
+pub async fn plugin_rpc_stop(pool: State<'_, RpcChildPool>, plugin_id: String) -> Result<(), String> {
+    let pool = pool.inner().clone();
     tauri::async_runtime::spawn_blocking(move || pool.stop(&plugin_id))
         .await
         .map_err(|error| format!("rpc stop task failed: {error}"))

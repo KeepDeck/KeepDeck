@@ -24,6 +24,8 @@ import {
   isGitDiff,
   isGitHistory,
   isGitStatus,
+  isHttpAnswer,
+  isNullableString,
   isNumber,
   isRpcAnswer,
   isSessionSpawn,
@@ -238,6 +240,18 @@ export function createGuestServices({
         rpc
           .call("services.rpc.request", [call])
           .then((value) => decodeWith(value, isRpcAnswer, "rpc answer")),
+    },
+    http: {
+      get: (request) =>
+        rpc
+          .call("services.http.get", [request])
+          .then((value) => decodeWith(value, isHttpAnswer, "http answer")),
+    },
+    env: {
+      get: (name) =>
+        rpc
+          .call("services.env.get", [name])
+          .then((value) => decodeWith(value, isNullableString, "env value")),
     },
     speech: {
       engines: () =>

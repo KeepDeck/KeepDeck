@@ -178,6 +178,10 @@ export type {
   PluginRpc,
   RpcAnswer,
   RpcCall,
+  PluginHttp,
+  HttpGet,
+  HttpAnswer,
+  PluginEnv,
   PluginSessions,
   PluginSpawnOptions,
 } from "./services.ts";

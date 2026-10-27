@@ -24,6 +24,8 @@ import type {
   GitHistoryOptions,
   GitStatus,
   HostSettingsSnapshot,
+  HttpAnswer,
+  HttpGet,
   PluginExecOutcome,
   PluginExecRequest,
   PluginNotifyInput,
@@ -274,6 +276,31 @@ export function decodeRpcCall(value: unknown): RpcCall {
 
 export function isRpcAnswer(value: unknown): value is RpcAnswer {
   return isObjectLike(value) && isString(value.result) && isNumber(value.sentAt);
+}
+
+export function decodeHttpGet(value: unknown): HttpGet {
+  const v = record(value, "http request");
+  let credential: HttpGet["credential"];
+  if (v.credential !== undefined) {
+    const c = record(v.credential, "http request credential");
+    credential = { source: str(c.source, "http request credential source"), file: str(c.file, "http request credential file") };
+  }
+  const accept = optStr(v.accept, "http request accept");
+  return {
+    url: str(v.url, "http request url"),
+    ...(credential ? { credential } : {}),
+    ...(accept !== undefined ? { accept } : {}),
+  };
+}
+
+export function isHttpAnswer(value: unknown): value is HttpAnswer {
+  return (
+    isObjectLike(value) &&
+    isNumber(value.status) &&
+    isString(value.body) &&
+    isBoolean(value.truncated) &&
+    isNumber(value.sentAt)
+  );
 }
 
 export function decodeExecRequest(value: unknown): PluginExecRequest {

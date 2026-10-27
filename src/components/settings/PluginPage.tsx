@@ -62,7 +62,7 @@ export function PluginPage({
             </span>
             {external && plugin.manifest.capabilities.length > 0 && (
               <span className="settings__hint">
-                Wants: {capabilitiesInWords(plugin.manifest.capabilities)}
+                Wants: {capabilitiesInWords(plugin.manifest.capabilities, external.permissions)}
               </span>
             )}
           </span>

@@ -7,6 +7,7 @@ import type {
   PluginSpawnOptions,
 } from "@keepdeck/plugin-api";
 import { createCapabilityGate, type ServiceBackends } from "./gate";
+import { NO_PERMISSIONS, type ResolvedPermissions } from "./permissions";
 import { speechTranscript, speechCapture } from "@keepdeck/plugin-api/testing";
 import { recordOf, stringOf } from "../../testing/values.test-support";
 
@@ -64,6 +65,7 @@ function fakeBackend() {
       openPathWith: vi.fn(async () => {}),
     },
     ports: { allocate: vi.fn(async () => 4000) },
+    http: { get: vi.fn(async () => ({ status: 200, body: "{}", truncated: false, sentAt: 1 })) },
     fs: {
       readDir: vi.fn(async () => []),
       readFile: vi.fn(async (path: string) => ({
@@ -126,7 +128,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
     const opts = spawnOpts("git");
     const onEvent = vi.fn();
@@ -151,7 +153,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await gate.sessions.spawn(spawnOpts("/usr/bin/git"), vi.fn());
@@ -166,7 +168,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["$SHELL"] }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await gate.sessions.spawn(spawnOpts(undefined), vi.fn());
@@ -181,7 +183,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     expect(() => gate.sessions.spawn(spawnOpts(undefined), vi.fn())).toThrow(
@@ -198,7 +200,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["*"] }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     expect(() => gate.sessions.spawn(spawnOpts("anything-goes"), vi.fn())).toThrow(
@@ -212,6 +214,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "log",
+      permissions: NO_PERMISSIONS,
       log,
     });
 
@@ -231,6 +234,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log,
     });
 
@@ -248,6 +252,7 @@ describe("createCapabilityGate — ports.allocate", () => {
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([{ kind: "ports" }]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log,
     });
 
@@ -266,6 +271,7 @@ describe("createCapabilityGate — ports.allocate", () => {
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "log",
+      permissions: NO_PERMISSIONS,
       log,
     });
 
@@ -287,6 +293,7 @@ describe("createCapabilityGate — ports.allocate", () => {
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log,
     });
 
@@ -296,13 +303,26 @@ describe("createCapabilityGate — ports.allocate", () => {
   });
 });
 
+/** What a manifest's `net` entries resolved to, one allowance list each. */
+const allowing = (...entries: string[][]): ResolvedPermissions => ({
+  env: {},
+  net: entries.map((allow) => ({ allow, credentials: [] })),
+});
+
 describe("createCapabilityGate — downloads", () => {
-  it("passes plugin scope and declared domains to the shared backend", () => {
+  it("hands the shared backend the reach every net entry resolved to — the native side judges each hop", () => {
     const { backend } = fakeBackend();
     const gate = createCapabilityGate(
-      manifest([{ kind: "net", domains: ["files.example.com"] }]),
+      manifest([
+        { kind: "net", domains: ["files.example.com"] },
+        { kind: "net", domains: ["other.example.com"] },
+      ]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      {
+        diagnostics: "silent",
+        log: fakeLog(),
+        permissions: allowing(["files.example.com"], ["https://other.example.com:8443"]),
+      },
     );
     const request = downloadRequest();
 
@@ -311,50 +331,22 @@ describe("createCapabilityGate — downloads", () => {
     expect(backend.downloads.start).toHaveBeenCalledWith(
       "p",
       request,
-      ["files.example.com"],
+      ["files.example.com", "https://other.example.com:8443"],
       expect.any(Function),
     );
-  });
-
-  it("rejects undeclared hosts before starting a job", () => {
-    const { backend } = fakeBackend();
-    const gate = createCapabilityGate(
-      manifest([{ kind: "net", domains: ["other.example.com"] }]),
-      backend,
-      { diagnostics: "silent", log: fakeLog() },
-    );
-
-    expect(() => gate.downloads.start(downloadRequest())).toThrow(
-      'matching "net" capability',
-    );
-    expect(backend.downloads.start).not.toHaveBeenCalled();
   });
 
   it("enforces network capabilities even for trusted warn-mode plugins", () => {
     const { backend } = fakeBackend();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "log",
+      permissions: NO_PERMISSIONS,
       log: fakeLog(),
     });
     expect(() => gate.downloads.start(downloadRequest())).toThrow(
-      'matching "net" capability',
+      'requires a "net" capability',
     );
     expect(backend.downloads.start).not.toHaveBeenCalled();
-  });
-
-  it("honors an explicitly declared port", () => {
-    const { backend } = fakeBackend();
-    const gate = createCapabilityGate(
-      manifest([{ kind: "net", domains: ["localhost:4000"] }]),
-      backend,
-      { diagnostics: "silent", log: fakeLog() },
-    );
-    const request = downloadRequest();
-    request.source.url = "http://localhost:4000/model.bin";
-
-    gate.downloads.start(request);
-
-    expect(backend.downloads.start).toHaveBeenCalledOnce();
   });
 
   it("uses the job id alone and only cancels jobs started by this plugin", () => {
@@ -362,7 +354,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: allowing(["files.example.com"]) },
     );
 
     gate.downloads.start(downloadRequest());
@@ -384,7 +376,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: allowing(["files.example.com"]) },
     );
     expect(() => gate.downloads.start(downloadRequest())).toThrow(
       "global id collision",
@@ -400,7 +392,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: allowing(["files.example.com"]) },
     );
     for (let index = 0; index < 8; index++) {
       gate.downloads.start(downloadRequest(`job-${index}`));
@@ -412,12 +404,72 @@ describe("createCapabilityGate — downloads", () => {
   });
 });
 
+describe("createCapabilityGate — env and http", () => {
+  const signed: ResolvedPermissions = {
+    env: { TOOL_HOME: "/custom", TOOL_BASE_URL: null },
+    net: [
+      { allow: ["127.0.0.1"], credentials: [] },
+      {
+        allow: ["api.tool.example", "https://custom.example:8443"],
+        credentials: [{ id: "tool", dir: "/custom/credentials", tokenFields: ["access_token"] }],
+      },
+    ],
+  };
+  const gateWith = (capabilities: Capability[], permissions: ResolvedPermissions) => {
+    const { backend } = fakeBackend();
+    return {
+      backend,
+      gate: createCapabilityGate(manifest(capabilities), backend, { diagnostics: "silent", log: fakeLog(), permissions }),
+    };
+  };
+  const declared: Capability[] = [{ kind: "env", names: ["TOOL_HOME", "TOOL_BASE_URL"] }];
+
+  it("answers a declared variable from the resolution and an undeclared one as absent", async () => {
+    const { gate } = gateWith(declared, { ...signed, env: { ...signed.env, SECRET: "leak" } });
+    await expect(gate.env.get("TOOL_HOME")).resolves.toBe("/custom");
+    await expect(gate.env.get("TOOL_BASE_URL")).resolves.toBeNull();
+    // Even a value the resolution carried is not handed out undeclared.
+    await expect(gate.env.get("SECRET")).resolves.toBeNull();
+  });
+
+  it("signs a request only within the reach of the entry that declares the source", async () => {
+    const { backend, gate } = gateWith(declared, signed);
+
+    await gate.http.get({ url: "https://custom.example:8443/usages", credential: { source: "tool", file: "t.json" } });
+
+    expect(backend.http.get).toHaveBeenCalledWith(
+      ["api.tool.example", "https://custom.example:8443"],
+      "https://custom.example:8443/usages",
+      { id: "tool", dir: "/custom/credentials", tokenFields: ["access_token"], file: "t.json" },
+      undefined,
+    );
+  });
+
+  it("gives an unsigned request every entry's reach, and refuses an undeclared source or no net at all", async () => {
+    const { backend, gate } = gateWith(declared, signed);
+    await gate.http.get({ url: "http://127.0.0.1:9/x", accept: "text/plain" });
+    expect(backend.http.get).toHaveBeenCalledWith(
+      ["127.0.0.1", "api.tool.example", "https://custom.example:8443"],
+      "http://127.0.0.1:9/x",
+      undefined,
+      "text/plain",
+    );
+    expect(() => gate.http.get({ url: "https://x", credential: { source: "other", file: "t" } })).toThrow(
+      'credential source "other" is not declared',
+    );
+    const bare = gateWith([], NO_PERMISSIONS);
+    expect(() => bare.gate.http.get({ url: "https://x" })).toThrow('requires a "net" capability');
+    expect(bare.backend.http.get).not.toHaveBeenCalled();
+  });
+});
+
 describe("createCapabilityGate — zero capabilities", () => {
   it("a manifest with no capabilities logs and refuses every call with log diagnostics", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "log",
+      permissions: NO_PERMISSIONS,
       log,
     });
 
@@ -434,6 +486,7 @@ describe("createCapabilityGate — zero capabilities", () => {
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log,
     });
 
@@ -448,6 +501,7 @@ describe("createCapabilityGate — zero capabilities", () => {
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([{ kind: "open" }]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log,
     });
     await gate.opener.openUrl("http://localhost:3000");
@@ -468,6 +522,7 @@ describe("createCapabilityGate — zero capabilities", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
       diagnostics: "log",
+      permissions: NO_PERMISSIONS,
       log: warn.log,
     });
     expect(() => warnGate.opener.openUrl("http://x")).toThrow();
@@ -478,6 +533,7 @@ describe("createCapabilityGate — zero capabilities", () => {
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log: hard.log,
     });
     expect(() => hardGate.opener.openPath("/etc/hosts")).toThrow(
@@ -498,7 +554,7 @@ describe("createCapabilityGate — clipboard", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "clipboardWrite" }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await gate.clipboard.writeText("hello");
@@ -513,7 +569,7 @@ describe("createCapabilityGate — clipboard", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "clipboardRead" }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await gate.clipboard.readText();
@@ -528,7 +584,7 @@ describe("createCapabilityGate — clipboard", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "clipboardWrite" }]),
       backend,
-      { diagnostics: "log", log },
+      { diagnostics: "log", log, permissions: NO_PERMISSIONS },
     );
 
     expect(() => gate.clipboard.readText()).toThrow('"clipboardRead" capability');
@@ -542,7 +598,7 @@ describe("createCapabilityGate — clipboard", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "clipboardRead" }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     expect(() => gate.clipboard.writeText("x")).toThrow(
@@ -555,6 +611,7 @@ describe("createCapabilityGate — clipboard", () => {
     const { backend } = fakeBackend();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log: fakeLog(),
     });
 
@@ -569,7 +626,7 @@ describe("createCapabilityGate — clipboard", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "clipboardWrite" }, { kind: "clipboardRead" }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     await gate.clipboard.writeText("both");
@@ -587,7 +644,7 @@ describe("createCapabilityGate — fs", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "workspace" }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await gate.fs.readDir("/repo/src");
@@ -610,7 +667,7 @@ describe("createCapabilityGate — fs", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "everywhere" }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await gate.fs.readDir("/anywhere");
@@ -622,6 +679,7 @@ describe("createCapabilityGate — fs", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
       diagnostics: "log",
+      permissions: NO_PERMISSIONS,
       log: warn.log,
     });
     expect(() => warnGate.fs.readDir("/repo")).toThrow();
@@ -632,6 +690,7 @@ describe("createCapabilityGate — fs", () => {
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log: hard.log,
     });
     expect(() => hardGate.fs.readFile("/etc/passwd")).toThrow(
@@ -646,7 +705,7 @@ describe("createCapabilityGate — fs", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "workspace" }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
     const onChange = vi.fn();
 
@@ -670,12 +729,12 @@ describe("createCapabilityGate — fs", () => {
     const older = createCapabilityGate(
       { ...manifest([{ kind: "git", scope: "workspace" }]), minApiVersion: 51 },
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
     const current = createCapabilityGate(
       { ...manifest([{ kind: "git", scope: "workspace" }]), minApiVersion: 52 },
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await expect(older.git.diffFile("/repo", "a.ts")).resolves.toEqual({
@@ -693,6 +752,7 @@ describe("createCapabilityGate — fs", () => {
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log,
     });
     expect(() => gate.fs.watch("/repo", vi.fn())).toThrow('"fs" capability');
@@ -707,7 +767,7 @@ describe("createCapabilityGate — git", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "git", scope: "workspace" }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
     const onChange = vi.fn();
 
@@ -734,7 +794,7 @@ describe("createCapabilityGate — git", () => {
     const fsOnlyGate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "everywhere" }]),
       fsOnly.backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
     expect(() => fsOnlyGate.git.status("/repo")).toThrow('"git" capability');
     expect(fsOnly.backend.git.status).not.toHaveBeenCalled();
@@ -745,7 +805,7 @@ describe("createCapabilityGate — git", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "git", scope: "workspace" }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     await gate.git.history("/repo", { base: "main" });
@@ -764,6 +824,7 @@ describe("createCapabilityGate — git", () => {
     const bare = fakeBackend();
     const bareGate = createCapabilityGate(manifest([]), bare.backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log: fakeLog(),
     });
     expect(() => bareGate.git.history("/repo")).toThrow('"git" capability');
@@ -779,7 +840,7 @@ describe("createCapabilityGate — git", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "git", scope: "workspace" }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
     await gate.git.fileAt("/repo", "src/a.ts", "HEAD");
     await gate.git.fileAt("/repo", "src/a.ts");
@@ -791,6 +852,7 @@ describe("createCapabilityGate — git", () => {
     const bare = fakeBackend();
     const bareGate = createCapabilityGate(manifest([]), bare.backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log: fakeLog(),
     });
     expect(() => bareGate.git.fileAt("/repo", "a.ts")).toThrow('"git" capability');
@@ -805,7 +867,7 @@ describe("createCapabilityGate — git", () => {
         { kind: "git", scope: "everywhere" },
       ]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     await gate.git.status("/anywhere");
@@ -817,6 +879,7 @@ describe("createCapabilityGate — git", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
       diagnostics: "log",
+      permissions: NO_PERMISSIONS,
       log: warn.log,
     });
     expect(() => warnGate.git.status("/repo")).toThrow();
@@ -827,6 +890,7 @@ describe("createCapabilityGate — git", () => {
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log: hard.log,
     });
     expect(() => hardGate.git.diffFile("/repo", "a.ts")).toThrow(
@@ -847,7 +911,7 @@ describe("createCapabilityGate — fsWrite", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "fsWrite", paths: ["~/.claude/projects"] }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await gate.fsWrite.mkdir("~/.claude/projects/-x");
@@ -892,7 +956,7 @@ describe("createCapabilityGate — fsWrite", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "everywhere" }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
     expect(() => gate.fsWrite.mkdir("/x")).toThrow('"fsWrite" capability');
     expect(() => gate.fsWrite.copyFile("/a", "/b")).toThrow('"fsWrite" capability');
@@ -911,7 +975,7 @@ describe("createCapabilityGate — sqlite", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "sqliteReadonly", paths: ["~/.local/share/opencode"] }]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
 
     await gate.sqlite.query("~/.local/share/opencode/opencode.db", "SELECT 1", ["a"]);
@@ -938,7 +1002,7 @@ describe("createCapabilityGate — sqlite", () => {
         { kind: "fsWrite", paths: ["/x"] },
       ]),
       backend,
-      { diagnostics: "silent", log },
+      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
     );
     expect(() => gate.sqlite.query("/db", "SELECT 1")).toThrow(
       '"sqliteReadonly" capability',
@@ -957,7 +1021,7 @@ describe("createCapabilityGate — exec.runOnce", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     await gate.exec.runOnce(request);
@@ -977,7 +1041,7 @@ describe("createCapabilityGate — exec.runOnce", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     await gate.exec.runOnce(request);
@@ -994,7 +1058,7 @@ describe("createCapabilityGate — exec.runOnce", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     expect(() => gate.exec.runOnce({ ...request, command: "curl" })).toThrow(
@@ -1007,6 +1071,7 @@ describe("createCapabilityGate — exec.runOnce", () => {
     const { backend } = fakeBackend();
     const gate = createCapabilityGate(manifest([]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log: fakeLog(),
     });
 
@@ -1026,7 +1091,7 @@ describe("createCapabilityGate — rpc.request", () => {
   const gateFor = (capabilities: Capability[]) => {
     const { backend } = fakeBackend();
     const log = fakeLog();
-    return { backend, gate: createCapabilityGate(manifest(capabilities), backend, { diagnostics: "silent", log }) };
+    return { backend, gate: createCapabilityGate(manifest(capabilities), backend, { diagnostics: "silent", log, permissions: NO_PERMISSIONS }) };
   };
 
   it("hands the backend the MANIFEST's server, the method and the params", async () => {
@@ -1063,7 +1128,7 @@ describe("createCapabilityGate — rpc.request", () => {
 describe("createCapabilityGate — speech", () => {
   it("refuses the microphone list and a capture to a plugin without the mic capability", () => {
     const { backend } = fakeBackend();
-    const gate = createCapabilityGate(manifest([]), backend, { diagnostics: "silent", log: fakeLog() });
+    const gate = createCapabilityGate(manifest([]), backend, { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS });
     expect(() => gate.speech.devices()).toThrow(/"mic" capability/);
     expect(() => gate.speech.startCapture()).toThrow(/"mic" capability/);
     expect(backend.speech.devices).not.toHaveBeenCalled();
@@ -1074,6 +1139,7 @@ describe("createCapabilityGate — speech", () => {
     const { backend } = fakeBackend();
     const gate = createCapabilityGate(manifest([{ kind: "mic" }]), backend, {
       diagnostics: "silent",
+      permissions: NO_PERMISSIONS,
       log: fakeLog(),
     });
     const onLevel = vi.fn();

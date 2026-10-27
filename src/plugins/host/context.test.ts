@@ -71,6 +71,8 @@ function fakeDeps() {
     },
     exec: { runOnce: vi.fn(async () => ({ ran: true, ok: true, said: "" })) },
     rpc: { request: vi.fn() },
+    http: { get: vi.fn() },
+    env: { get: vi.fn() },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
