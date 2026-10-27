@@ -97,10 +97,12 @@ describe("the skills invoke-key contract", () => {
       to: "new",
     });
 
-    await stageSkills("ws-1", ["/cwd/a"]);
+    const excluded = [{ scope: "global" as const, wsId: null, name: "bare" }];
+    await stageSkills("ws-1", ["/cwd/a"], excluded);
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_stage", {
       wsId: "ws-1",
       roots: ["/cwd/a"],
+      excluded,
     });
 
     await disarmSkills(["/cwd/a"]);
@@ -116,7 +118,7 @@ describe("the skills invoke-key contract", () => {
 
   it("stage degrades on a backend error; disarm and prune stay silent", async () => {
     tauri.invoke.mockRejectedValue(new Error("boom"));
-    expect(await stageSkills("ws-1", [])).toBeNull();
+    expect(await stageSkills("ws-1", [], [])).toBeNull();
     await disarmSkills(["/x"]); // must not throw
     await pruneSkills(["ws-1"]); // must not throw
   });
@@ -236,17 +238,22 @@ describe("the stage wire is untouched by refusals", () => {
       claudePluginDir: "/c",
       opencodeConfigDir: "/o",
       skillsDir: "/s",
+      dir: "/s",
+      skills: [{ name: "a", content: "---\ndescription: a\n---\n" }],
     });
 
-    const views = await stageSkills("ws-1", ["/repo"]);
+    const views = await stageSkills("ws-1", ["/repo"], []);
 
     expect(tauri.invoke).toHaveBeenCalledWith("skills_stage", {
       wsId: "ws-1",
       roots: ["/repo"],
+      excluded: [],
     });
     expect(views && Object.keys(views).sort()).toEqual([
       "claudePluginDir",
+      "dir",
       "opencodeConfigDir",
+      "skills",
       "skillsDir",
     ]);
   });

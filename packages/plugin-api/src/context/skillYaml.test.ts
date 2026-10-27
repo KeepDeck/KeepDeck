@@ -6,9 +6,9 @@ import {
   frontmatterTextOf,
   parseSkillFile,
   renameSkillFile,
-} from "./skillFile";
-import { CARRIED, REFUSED } from "./skills.testSupport";
-import { recordOf } from "../../testing/values.test-support";
+} from "./skill.ts";
+import { CARRIED, REFUSED } from "./skill.testSupport.ts";
+import { recordOf } from "../testing.ts";
 
 /**
  * The codec against a REAL YAML reader, which is what every supported CLI reads

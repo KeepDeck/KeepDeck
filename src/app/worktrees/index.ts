@@ -77,6 +77,8 @@ export interface WorktreeSkillViews {
   claudePluginDir: string;
   opencodeConfigDir: string;
   skillsDir: string;
+  dir: string;
+  skills: { name: string; content: string }[];
 }
 
 /** The planting result the MCP feature reports through the infrastructure

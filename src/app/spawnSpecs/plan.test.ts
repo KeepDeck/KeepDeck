@@ -192,6 +192,8 @@ describe("building one plan through the agent hook", () => {
       claudePluginDir: "/home/skills/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/home/skills/staging/ws-1/opencode",
       skillsDir: "/home/skills/staging/ws-1/skills",
+      dir: "/home/skills/staging/ws-1/skills",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };
     const inputs: Array<SpawnSkillsInput | undefined> = [];
     h.register({

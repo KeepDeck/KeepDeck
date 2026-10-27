@@ -6,7 +6,10 @@ import {
   type SkillDraft,
   type SkillScope,
 } from "../domain/skills";
-import { CARRIED, REFUSED } from "../domain/skills/skills.testSupport";
+import {
+  CARRIED_SKILL_FILES as CARRIED,
+  REFUSED_SKILL_FILES as REFUSED,
+} from "@keepdeck/plugin-api/testing";
 import {
   createSkillsLibrary,
   type LibrarySkill,

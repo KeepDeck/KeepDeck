@@ -57,6 +57,8 @@ export interface StagedSkillsViews {
   claudePluginDir: string;
   opencodeConfigDir: string;
   skillsDir: string;
+  dir: string;
+  skills: { name: string; content: string }[];
 }
 
 /** The pane-side facts a plan is built from — the hook input's shape minus

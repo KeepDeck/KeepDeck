@@ -159,20 +159,23 @@ pub fn skills_rename(
 /// Rebuild and return the staged views for one workspace — `None` when the
 /// library holds nothing for it (callers then inject no skills at all).
 /// `roots` are the workspace's pane spawn cwds: each gets the codex-facing
-/// `.agents/skills` symlink armed (or disarmed when empty).
+/// `.agents/skills` symlink armed (or disarmed when empty). `excluded` are
+/// the rows the host judged to have no usable description: they stage
+/// nowhere, and never shadow a fit same-name row.
 #[tauri::command(async)]
 pub fn skills_stage(
     locks: tauri::State<'_, SkillsLocks>,
     gates: tauri::State<'_, GateRegistry>,
     ws_id: String,
     roots: Vec<String>,
+    excluded: Vec<staging::ExcludedSource>,
 ) -> Result<Option<SkillStagingDto>, String> {
     let root = skills_root()?;
     library::require_safe(&ws_id, "workspace id")?;
     // The composition root owns the feature dependency; this command sees a
     // fresh bool from the registry and staging below stays artifacts-free.
     let claimed = gates.resolve(GateKey::Artifacts);
-    staging::stage(&locks, &root, &ws_id, &roots, BUNDLED, claimed)
+    staging::stage(&locks, &root, &ws_id, &roots, BUNDLED, claimed, &excluded)
         .map_err(|e| e.to_string())
 }
 
@@ -275,9 +278,9 @@ mod tests {
         save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
         let roots = vec![shared.to_string_lossy().into_owned()];
         let locks = SkillsLocks::default();
-        staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
+        staging::stage(&locks, &root, "ws-live", &roots, &[], false, &[]).unwrap().unwrap();
         staging::arm(&locks, &root, "ws-live", &roots);
-        staging::stage(&locks, &root, "ws-dead", &roots, &[], false).unwrap().unwrap();
+        staging::stage(&locks, &root, "ws-dead", &roots, &[], false, &[]).unwrap().unwrap();
         staging::arm(&locks, &root, "ws-dead", &roots);
 
         // ws-dead crashed; ws-live still runs panes in the shared cwd. The
@@ -291,7 +294,7 @@ mod tests {
 
         // And ws-live's next arming re-aims the surviving link at ITS view
         // — the re-aim is arming's job, which is now its own pass.
-        let views = staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
+        let views = staging::stage(&locks, &root, "ws-live", &roots, &[], false, &[]).unwrap().unwrap();
         staging::arm(&locks, &root, "ws-live", &roots);
         assert_eq!(
             fs::read_link(shared.join(".agents").join("skills")).unwrap(),
@@ -306,7 +309,7 @@ mod tests {
         save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
         let locks = SkillsLocks::default();
-        staging::stage(&locks, &root, "ws-9", &roots, &[], false).unwrap().unwrap();
+        staging::stage(&locks, &root, "ws-9", &roots, &[], false, &[]).unwrap().unwrap();
         // Staging builds; the arming pass plants — and it is what records
         // the manifest the prune below reads.
         staging::arm(&locks, &root, "ws-9", &roots);
@@ -351,6 +354,7 @@ mod tests {
             &[],
             &tier,
             false,
+            &[],
         )
         .unwrap()
         .unwrap();

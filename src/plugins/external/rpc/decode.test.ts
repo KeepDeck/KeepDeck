@@ -165,7 +165,13 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
     workspace: { id: "ws-1", instance: "workspace-a-b-1" },
     cwd: "/w",
     yolo: true,
-    skills: { claudePluginDir: "/s/c", opencodeConfigDir: "/s/o", skillsDir: "/s/k" },
+    skills: {
+      claudePluginDir: "/s/c",
+      opencodeConfigDir: "/s/o",
+      skillsDir: "/s/k",
+      dir: "/s/k",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
+    },
     mcp: { servers: [
       { name: "keepdeck", transport: "stdio", command: "/bin/kd", args: ["--mcp"], envPassthrough: ["KD"] },
       { name: "remote", transport: "http", url: "https://x", headers: { "X-A": "1" }, bearerTokenEnv: "TOKEN" },
@@ -186,6 +192,12 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
   it("refuses each nested part of a spawn input by its path", () => {
     const refused: [unknown, string][] = [
       [{ ...spawn, skills: { ...spawn.skills, skillsDir: 7 } }, "spawn plan input.skills.skillsDir: expected a string"],
+      [{ ...spawn, skills: { ...spawn.skills, dir: 7 } }, "spawn plan input.skills.dir: expected a string"],
+      [{ ...spawn, skills: { ...spawn.skills, skills: "x" } }, "spawn plan input.skills.skills: expected an array"],
+      [
+        { ...spawn, skills: { ...spawn.skills, skills: [{ name: "a", content: 7 }] } },
+        "spawn plan input.skills.skills[0].content: expected a string",
+      ],
       [{ ...spawn, skills: "dir" }, "spawn plan input.skills: expected an object"],
       [{ ...spawn, mcp: { servers: "all" } }, "spawn plan input.mcp.servers: expected an array"],
       [{ ...spawn, mcp: { servers: [{ ...spawn.mcp.servers[0], args: "--mcp" }] } }, "spawn plan input.mcp.servers[0].args: expected an array of strings"],

@@ -188,7 +188,7 @@ describe("the ordering between arming and teardown", () => {
     // The freed folder is taken again by a new pane: same roots, same key.
     deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }];
     await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"], []);
     expect(skills.stageSkills).toHaveBeenCalledTimes(3);
   });
 

@@ -54,7 +54,24 @@ describe("skillsFor", () => {
     await manager.skillsFor(ref("ws-1", "life-2"));
     expect(skills.stageSkills).toHaveBeenCalledTimes(2);
     // The DISK key is the durable id — that's where the user's library is.
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", []);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", [], []);
+  });
+
+  it("stages without the rows the codec finds no description in — judged here, not natively", async () => {
+    skills.fetchSkills.mockResolvedValue([
+      { scope: "global", wsId: null, name: "fine", content: "---\ndescription: Reviews\n---\n" },
+      { scope: "global", wsId: null, name: "bare", content: "no frontmatter" },
+    ]);
+    await manager.skillsFor(ref("ws-1"));
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", expect.any(Array), [
+      { scope: "global", wsId: null, name: "bare" },
+    ]);
+  });
+
+  it("stages nothing when the library cannot be read to judge it", async () => {
+    skills.fetchSkills.mockRejectedValue(new Error("unreadable"));
+    expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
+    expect(skills.stageSkills).not.toHaveBeenCalled();
   });
 
   it("re-stages after a library edit invalidates the memo", async () => {
@@ -69,7 +86,7 @@ describe("skillsFor", () => {
     // (possibly stale) snapshot, so it cannot arm a directory being deleted.
     deck = [{ id: "ws-1", roots: ["/wt/b", "/wt/a"] }];
     await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"], []);
   });
 
   it("a new worktree in the deck re-stages — it must be armed now, not later", async () => {
@@ -81,7 +98,7 @@ describe("skillsFor", () => {
     deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }];
     await manager.skillsFor(ref("ws-1"));
     expect(skills.stageSkills).toHaveBeenCalledTimes(2);
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"], []);
   });
 
   it("a landing cwd rides along, and does not duplicate a root already there", async () => {
@@ -89,10 +106,10 @@ describe("skillsFor", () => {
     // in a directory of its own.
     deck = [{ id: "ws-1", roots: ["/wt/a"] }];
     await manager.skillsFor(ref("ws-1"), "/wt/new");
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/new"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/new"], []);
 
     await manager.skillsFor(ref("ws-1"), "/wt/a");
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"], []);
   });
 
   it("answers a reborn workspace from ITS own roots, not the dead lifetime's", async () => {
@@ -101,11 +118,11 @@ describe("skillsFor", () => {
     // that belonged to a workspace the user closed.
     deck = [{ id: "ws-1", roots: ["/wt/old"], instance: "life-1" }];
     await manager.skillsFor(ref("ws-1", "life-1"));
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/old"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/old"], []);
 
     deck = [{ id: "ws-1", roots: ["/wt/new"], instance: "life-2" }];
     await manager.skillsFor(ref("ws-1", "life-2"));
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/new"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/new"], []);
   });
 
   it("arms only what the deck STILL claims when the staging finally runs", async () => {
@@ -126,7 +143,7 @@ describe("skillsFor", () => {
     await removing;
     await arming;
 
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"], []);
   });
 
   it("stages nothing for a workspace the deck has dropped", async () => {
@@ -154,11 +171,11 @@ describe("skillsFor", () => {
     release();
     await removing;
     await narrowed;
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"], []);
 
     deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }]; // and b comes back
     await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"], []);
   });
 
   it("never answers a dead lifetime with the roots of the id's new owner", async () => {

@@ -293,6 +293,8 @@ describe("claude plugin hooks", () => {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/kd/staging/ws-1/opencode",
       skillsDir: "/kd/staging/ws-1/skills",
+      dir: "/kd/staging/ws-1/skills",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };
 
     const spawn = output();

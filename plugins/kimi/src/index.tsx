@@ -53,7 +53,7 @@ let activeController: ReturnType<typeof createKimiSetupController> | null = null
  * KeepDeck library instead of `~/.kimi`-style discovery. Revisit if kimi
  * grows an additive flag (its `extra_skill_dirs` is config-file-only). */
 const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
-  skills ? ["--skills-dir", skills.skillsDir] : [];
+  skills ? ["--skills-dir", skills.dir] : [];
 
 /** Everything a launch of kimi carries, whichever way the pane starts it —
  * fresh, resumed, or forked into a session it names.

@@ -235,10 +235,28 @@ export interface SpawnPlanInput {
   cliVersion?: string;
 }
 
-/** One skills library rendered in each CLI's injection dialect — staged
- * directories under KeepDeck's own home (absolute paths), never the user's
- * dotfiles or repo. A hook reads the view its CLI understands. */
+/** One staged skill as text: its SKILL.md byte for byte (API 71). A plugin
+ * that builds its CLI's own layout writes it as it is, and reads it — when it
+ * must — with this package's SKILL.md codec. */
+export interface SpawnSkill {
+  name: string;
+  content: string;
+}
+
+/** The workspace's shared skills — staged under KeepDeck's own home
+ * (absolute paths), never the user's dotfiles or repo.
+ *
+ * `dir` and `skills` are the generic source (API 71): a plugin points a CLI
+ * that takes a skills directory at `dir`, and builds any other layout its CLI
+ * reads from `skills`, in its own workspace directory (`ctx.workspaces`).
+ * The three CLI-shaped views beside them are the host's older renderings,
+ * kept until every agent builds its own. */
 export interface SpawnSkillsInput {
+  /** The bare standard layout: `<dir>/<name>/SKILL.md`. */
+  dir: string;
+  /** The same skills as text, alphabetical by name. Never empty: with no
+   * skill to hand out, `skills` itself is absent from the plan input. */
+  skills: SpawnSkill[];
   /** Claude-plugin layout (`.claude-plugin/plugin.json` + `skills/`) —
    * made for `claude --plugin-dir`. */
   claudePluginDir: string;

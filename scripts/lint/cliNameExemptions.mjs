@@ -17,7 +17,7 @@ export const CLI_NAME_EXEMPTIONS = [
   { file: "src/app/worktrees/index.ts", names: ["claude", "opencode"], count: 2, reason: "fills claudePluginDir/opencodeConfigDir", until: "task-533" },
   { file: "src/ipc/skills.ts", names: ["claude", "opencode"], count: 2, reason: "the staged claude plugin and opencode config dirs", until: "task-533" },
   { file: "src/plugins/external/rpc/decode.ts", names: ["claude", "opencode"], count: 2, reason: "decodes claudePluginDir/opencodeConfigDir", until: "task-533" },
-  { file: "src-tauri/src/skills/staging.rs", names: ["claude", "opencode"], count: 23, reason: "stages the claude plugin and opencode skill layouts", until: "task-533" },
+  { file: "src-tauri/src/skills/staging.rs", names: ["claude", "opencode"], count: 22, reason: "stages the claude plugin and opencode skill layouts", until: "task-533" },
   { file: "src-tauri/src/skills/opencode.rs", names: ["opencode"], count: 2, reason: "opencode's skill folder writer", until: "task-533" },
   { file: "src-tauri/src/skills/mod.rs", names: ["opencode"], count: 1, reason: "declares the opencode skill module", until: "task-533" },
 

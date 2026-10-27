@@ -9,6 +9,9 @@
     "./unsafe-text": "./src/manifest/text.ts",
     "./testing": "./src/testing.ts"
   },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
   "peerDependencies": {
     "react": "^19.1.0"
   },

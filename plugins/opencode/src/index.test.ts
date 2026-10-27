@@ -196,6 +196,8 @@ describe("opencode plugin hooks", () => {
         claudePluginDir: "/staged/claude-plugin",
         opencodeConfigDir: "/staged/opencode",
         skillsDir: "/staged/skills",
+        dir: "/staged/skills",
+        skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
       },
     };
 
@@ -274,6 +276,8 @@ describe("opencode plugin hooks", () => {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/kd/staging/ws-1/opencode",
       skillsDir: "/kd/staging/ws-1/skills",
+      dir: "/kd/staging/ws-1/skills",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };
     const out = output();
     await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, skills }, out);
@@ -346,6 +350,8 @@ describe("opencode plugin hooks", () => {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/kd/staging/ws-1/opencode",
       skillsDir: "/kd/staging/ws-1/skills",
+      dir: "/kd/staging/ws-1/skills",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };
     for (const hook of ["spawn.plan", "resume.plan"] as const) {
       const out = output();
@@ -504,6 +510,8 @@ describe("opencode plugin hooks", () => {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/kd/staging/ws-1/opencode",
       skillsDir: "/kd/staging/ws-1/skills",
+      dir: "/kd/staging/ws-1/skills",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };
 
     for (const cliVersion of ["1.19.3", "opencode v2.1.2", undefined]) {
@@ -632,7 +640,7 @@ describe("opencode plugin — warming the config dir", () => {
 
   const withSkills = {
     ...input,
-    skills: { opencodeConfigDir: CFG, skillsDir: "/s", claudePluginDir: "/c" },
+    skills: { opencodeConfigDir: CFG, skillsDir: "/s", claudePluginDir: "/c", dir: "/s", skills: [] },
   };
 
   it("bootstraps a local pane's config dir before it spawns", async () => {

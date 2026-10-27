@@ -26,7 +26,14 @@ export interface SkillsStagingViews {
   opencodeConfigDir: string;
   /** Bare standard layout (`<skill>/SKILL.md` at the top level). */
   skillsDir: string;
+  /** The generic source: the bare view, and each staged skill as text. */
+  dir: string;
+  skills: { name: string; content: string }[];
 }
+
+/** A stored row the host judged unfit to hand any agent, in the wire's own
+ * terms — the scope and workspace of a `StoredSkill`, and its name. */
+export type ExcludedSkill = Pick<StoredSkill, "scope" | "wsId" | "name">;
 
 /** A scope in the shape the wire carries. Typed as the stored row's own two
  * fields, not an inferred literal, so this and the domain's `skillScopeOf` —
@@ -85,13 +92,14 @@ export async function renameSkill(scope: SkillScope, from: string, to: string): 
  * (empty library, or staging failed — a pane spawns fine without skills).
  * `roots` (the workspace's pane spawn cwds — the Rust command's exact wire
  * key) get the codex-facing `.agents/skills` symlink armed while skills
- * exist. */
+ * exist. `excluded` rows stage nowhere. */
 export async function stageSkills(
   wsId: string,
   roots: string[],
+  excluded: readonly ExcludedSkill[],
 ): Promise<SkillsStagingViews | null> {
   try {
-    return await invoke<SkillsStagingViews | null>("skills_stage", { wsId, roots });
+    return await invoke<SkillsStagingViews | null>("skills_stage", { wsId, roots, excluded });
   } catch (e) {
     log.warn("web:skills", `skills_stage failed; spawning without skills: ${errorMessage(e)}`);
     return null;

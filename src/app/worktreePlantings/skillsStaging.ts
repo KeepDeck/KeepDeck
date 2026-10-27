@@ -4,8 +4,28 @@
  * composition root; the infrastructure manager only receives the resulting
  * composite planting.
  */
-import { armSkills, type SkillArmRefusal } from "../../ipc/skills";
-import { stageSkills } from "../../ipc/skills";
+import {
+  armSkills,
+  fetchSkills,
+  stageSkills,
+  type ExcludedSkill,
+  type SkillArmRefusal,
+} from "../../ipc/skills";
+import { log } from "../../ipc/log";
+import { errorMessage } from "@keepdeck/plugin-api";
+import { skillsUnfitForAgents } from "../../domain/skills";
+
+/** The library rows no agent may be handed, by the codec's judgement — or
+ * null when the library could not be read: then nothing stages (a pane
+ * spawns fine without skills), rather than staging rows nobody judged. */
+async function unfitSkills(): Promise<ExcludedSkill[] | null> {
+  try {
+    return skillsUnfitForAgents(await fetchSkills()).map(({ scope, wsId, name }) => ({ scope, wsId, name }));
+  } catch (e) {
+    log.warn("web:skills", `skills_list failed; spawning without skills: ${errorMessage(e)}`);
+    return null;
+  }
+}
 import type {
   WorktreeDeckView,
   WorktreeSkillViews,
@@ -87,7 +107,9 @@ export function createSkillsStaging(
         if (armable.length === 0 && !deck.live().some((ws) => ws.id === workspace.id)) {
           return Promise.resolve(null);
         }
-        return stageSkills(workspace.id, armable);
+        return unfitSkills().then((excluded) =>
+          excluded === null ? null : stageSkills(workspace.id, armable, excluded),
+        );
       });
       staged.set(key, entry);
       return armThen(workspace.id, entry);

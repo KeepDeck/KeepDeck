@@ -27,6 +27,7 @@ export type {
   McpServerSpec,
   McpStdioServerSpec,
   SpawnMcpInput,
+  SpawnSkill,
   SpawnSkillsInput,
   SpawnTarget,
 } from "./agents.ts";
@@ -245,6 +246,19 @@ export type {
 } from "./snapshots.ts";
 export type { PluginResources } from "./resources.ts";
 export type { PluginKV, PluginStorage, PluginWorkspaces } from "./storage.ts";
+export {
+  composeSkillFile,
+  frontmatterLine,
+  frontmatterObstacle,
+  frontmatterTextOf,
+  hasUsableSkillDescription,
+  normalizeSkillDescription,
+  parseSkillFile,
+  renameSkillFile,
+  type ParsedSkill,
+  type SkillDraft,
+  type SkillFileRename,
+} from "./skill.ts";
 export type {
   DockTabContribution,
   DockTabProps,

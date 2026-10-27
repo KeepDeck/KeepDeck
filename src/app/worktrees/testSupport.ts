@@ -22,6 +22,7 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 // The IPC wrappers report whether they got through — the owner only records a
 // sweep as done when they did — so the doubles answer `true` like the real ones.
 const skillsIpc = vi.hoisted(() => ({
+  fetchSkills: vi.fn(async () => [] as { scope: "global"; wsId: null; name: string; content: string }[]),
   stageSkills: vi.fn(),
   armSkills: vi.fn(async () => ({ armed: [], refused: [] })),
   disarmSkills: vi.fn(async (_roots: string[]) => true),
@@ -116,6 +117,8 @@ export const stagedFor = (wsId: string) => ({
   claudePluginDir: `/staging/${wsId}/claude-plugin`,
   opencodeConfigDir: `/staging/${wsId}/opencode`,
   skillsDir: `/staging/${wsId}/skills`,
+  dir: `/staging/${wsId}/skills`,
+  skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
 });
 
 /** The deck view over a suite's mutable array, through the PRODUCTION
@@ -173,6 +176,7 @@ export function managerFor(read: () => DeckEntry[]): WorktreeManager {
  * that costs is this — every double has to say again what the real wrapper
  * says, or the owner reads `undefined` as a failure and retries it forever. */
 export function armDoubles(): void {
+  skills.fetchSkills.mockResolvedValue([]);
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
   skills.armSkills.mockResolvedValue({ armed: [], refused: [] });
   skills.disarmSkills.mockResolvedValue(true);
