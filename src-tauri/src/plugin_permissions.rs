@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::net::IpAddr;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use url::Url;
@@ -384,42 +384,14 @@ fn credential_dir(
         }
         path.push(append);
     }
-    let real = real_prefix(&path)?;
+    // `..` stays allowed where the directory exists (an env value may spell
+    // it so); the proof refuses it in the missing rest, and refuses a dangling
+    // link or an unreadable component instead of reading either as "missing".
+    let real = crate::containment::real_prefix(&path).map_err(|_| "CREDENTIAL_DIR_INVALID")?;
     if is_unbounded(&real, host) {
         return Err("CREDENTIAL_ROOT_UNBOUNDED".into());
     }
     Ok(real)
-}
-
-/// `path` with its longest existing prefix canonicalized and the missing
-/// rest appended as written — `..` in the missing rest is refused, since
-/// nothing could say where it leads.
-fn real_prefix(path: &Path) -> Result<PathBuf, String> {
-    let mut existing = path.to_path_buf();
-    let mut missing = Vec::new();
-    loop {
-        match std::fs::canonicalize(&existing) {
-            Ok(real) => {
-                let mut out = real;
-                for part in missing.iter().rev() {
-                    out.push(part);
-                }
-                return Ok(out);
-            }
-            Err(_) => {
-                let Some(name) = existing.file_name().map(OsStr::to_os_string) else {
-                    return Err("CREDENTIAL_DIR_INVALID".into());
-                };
-                if existing.components().next_back() != Some(Component::Normal(&name)) {
-                    return Err("CREDENTIAL_DIR_INVALID".into());
-                }
-                missing.push(name);
-                if !existing.pop() {
-                    return Err("CREDENTIAL_DIR_INVALID".into());
-                }
-            }
-        }
-    }
 }
 
 /// The filesystem root or the whole home: a root that bounds nothing.
@@ -745,6 +717,21 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved.net[1].credentials[0].dir, real.join("credentials").to_string_lossy());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_on_the_way_is_no_missing_directory() {
+        // home/dangling -> <outside>/gone: once `gone` appears, the granted
+        // directory would sit outside — so it is never granted as if inside.
+        let (dir, home, cwd) = stand();
+        std::os::unix::fs::symlink(dir.path().join("gone"), home.join("dangling")).unwrap();
+        let error = resolve(
+            &tool_capabilities(),
+            &host(&[("TOOL_HOME", home.join("dangling").to_str().unwrap())], &home, &cwd),
+        )
+        .unwrap_err();
+        assert!(error.contains("CREDENTIAL_DIR_INVALID"), "{error}");
     }
 
     #[test]

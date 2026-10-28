@@ -307,40 +307,7 @@ fn realize(path: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err("path must be absolute".into());
     }
-    let mut existing = path.to_path_buf();
-    let mut rest: Vec<std::ffi::OsString> = Vec::new();
-    loop {
-        match fs::canonicalize(&existing) {
-            Ok(canonical) => {
-                let mut real = canonical;
-                for part in rest.iter().rev() {
-                    real.push(part);
-                }
-                return Ok(real);
-            }
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                // A DANGLING symlink also canonicalizes to NotFound — but it
-                // exists, and creating "through" it follows the link to
-                // wherever it points, outside the proof this function is.
-                // (The atomic write path replaced the link itself, by
-                // accident of its temp-rename; append followed it.)
-                if fs::symlink_metadata(&existing).is_ok() {
-                    return Err(format!(
-                        "path passes through a broken symlink: {}",
-                        existing.display()
-                    ));
-                }
-                let Some(parent) = existing.parent() else {
-                    return Err("path has no existing ancestor".into());
-                };
-                if let Some(name) = existing.file_name() {
-                    rest.push(name.to_os_string());
-                }
-                existing = parent.to_path_buf();
-            }
-            Err(e) => return Err(e.to_string()),
-        }
-    }
+    crate::containment::real_prefix(path)
 }
 
 /// A containment-proven write target together with the declared root that

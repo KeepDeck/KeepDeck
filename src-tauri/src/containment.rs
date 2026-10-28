@@ -8,7 +8,8 @@
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::ErrorKind;
+use std::path::{Component, Path, PathBuf};
 
 /// The user's home as the environment names it — the ONE place this module
 /// reads the process's environment. The rules below take the home as a
@@ -95,6 +96,54 @@ pub fn resolve_within_from(
         Ok(canonical)
     } else {
         Err(format!("path is outside the allowed workspace roots: {path}"))
+    }
+}
+
+/// `path` with its deepest existing ancestor canonicalized and the missing
+/// rest re-joined as written — the proof for a path that may not exist yet,
+/// and THE one copy of it (a write target, a credential directory).
+///
+/// Only a component that is genuinely not there is peeled. A dangling
+/// symlink also fails to canonicalize, but it exists: whatever is later
+/// created through it lands where it points, so it refuses. So does any
+/// other error (no permission, a file on the way) — it says nothing about
+/// what is missing. A `..` in the missing rest refuses too: nothing could
+/// say where it leads. Whether `..` may appear in the EXISTING part is the
+/// caller's policy, not this proof's.
+pub fn real_prefix(path: &Path) -> Result<PathBuf, String> {
+    let mut existing = path.to_path_buf();
+    let mut missing: Vec<OsString> = Vec::new();
+    loop {
+        match fs::canonicalize(&existing) {
+            Ok(real) => {
+                let mut out = real;
+                for part in missing.iter().rev() {
+                    out.push(part);
+                }
+                return Ok(out);
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                match fs::symlink_metadata(&existing) {
+                    Ok(_) => {
+                        return Err(format!(
+                            "path passes through a broken symlink: {}",
+                            existing.display()
+                        ))
+                    }
+                    Err(e) if e.kind() == ErrorKind::NotFound => {}
+                    Err(e) => return Err(format!("{}: {e}", existing.display())),
+                }
+                match existing.components().next_back() {
+                    Some(Component::Normal(name)) => missing.push(name.to_os_string()),
+                    Some(Component::ParentDir) => {
+                        return Err("path leaves a missing directory with ..".into())
+                    }
+                    _ => return Err("path has no existing ancestor".into()),
+                }
+                existing.pop();
+            }
+            Err(e) => return Err(format!("{}: {e}", existing.display())),
+        }
     }
 }
 
@@ -279,6 +328,44 @@ mod tests {
         let err = resolve_within_from("~/x", &stand.root_of(&stand.home), false, None)
             .expect_err("no home to expand against");
         assert!(err.contains("no home directory"), "{err}");
+    }
+
+    #[cfg(unix)]
+    mod deepest_existing {
+        use super::*;
+        use std::os::unix::fs::symlink;
+
+        #[test]
+        fn a_missing_tail_is_rejoined_onto_the_real_existing_part() {
+            let stand = Stand::new();
+            let real = fs::canonicalize(&stand.home).unwrap();
+            assert_eq!(real_prefix(&stand.home.join("a/b")).unwrap(), real.join("a/b"));
+            assert_eq!(real_prefix(&stand.home).unwrap(), real);
+        }
+
+        #[test]
+        fn a_dangling_symlink_on_the_way_refuses_even_before_its_target_exists() {
+            let stand = Stand::new();
+            // home/dangling -> elsewhere/missing: today nothing is there, but
+            // whatever is created through it lands outside home.
+            symlink(stand.elsewhere.join("missing"), stand.home.join("dangling")).unwrap();
+            let err = real_prefix(&stand.home.join("dangling/leaf")).unwrap_err();
+            assert!(err.contains("broken symlink"), "{err}");
+        }
+
+        #[test]
+        fn dot_dot_in_the_missing_tail_refuses() {
+            let stand = Stand::new();
+            let err = real_prefix(&stand.home.join("missing/../../elsewhere")).unwrap_err();
+            assert!(err.contains(".."), "{err}");
+        }
+
+        #[test]
+        fn a_file_on_the_way_is_an_error_not_a_missing_directory() {
+            let stand = Stand::new();
+            fs::write(stand.home.join("file"), "x").unwrap();
+            assert!(real_prefix(&stand.home.join("file/below")).is_err());
+        }
     }
 
     #[cfg(unix)]
