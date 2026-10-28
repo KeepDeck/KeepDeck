@@ -13,6 +13,7 @@ import {
 
 const pane = (id: string, suspended = false): Pane => ({
   id,
+  agentType: "claude",
   ...(suspended
     ? { idle: { reason: "suspended" as const, at: "2026-09-06T10:00:00.000Z" } }
     : {}),

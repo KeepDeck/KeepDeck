@@ -22,7 +22,7 @@ const ws = (over: Partial<Workspace>): Workspace => ({
  * team's, and the pane runs in it. */
 const teamed = (id: string, cwd: string): { team: Team; pane: Pane } => ({
   team: { id: `team-${id}`, name: id, location: { kind: "attached", cwd } },
-  pane: { id, team: { teamId: `team-${id}`, role: "lead" } },
+  pane: { id, agentType: "claude", team: { teamId: `team-${id}`, role: "lead" } },
 });
 /** A workspace whose teams hold the given directories, one member each. */
 const holding = (over: Partial<Workspace>, dirs: [string, string][]): Workspace => {
@@ -87,7 +87,7 @@ describe("workspaceDirectories", () => {
             location: { kind: "provisioning", intent: { repo: "/repo", path: "/wt/a", index: 1 } },
           },
         ],
-        panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
+        panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
       }),
     );
     expect([...set]).toEqual(["/repo"]);
@@ -111,11 +111,11 @@ describe("skillRootsOf", () => {
           },
         ],
         panes: [
-          { id: "bare" },
-          { id: "remote", location: { kind: "remote", endpoint: "ws://vps" } },
-          { id: "wt", team: { teamId: "team-a", role: "lead" } },
-          { id: "wt-again", team: { teamId: "team-a", role: "impl-1" } },
-          { id: "pending", team: { teamId: "team-b", role: "lead" } },
+          { id: "bare", agentType: "claude" },
+          { id: "remote", agentType: "claude", location: { kind: "remote", endpoint: "ws://vps" } },
+          { id: "wt", agentType: "claude", team: { teamId: "team-a", role: "lead" } },
+          { id: "wt-again", agentType: "claude", team: { teamId: "team-a", role: "impl-1" } },
+          { id: "pending", agentType: "claude", team: { teamId: "team-b", role: "lead" } },
         ],
       }),
     );

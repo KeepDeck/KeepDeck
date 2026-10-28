@@ -80,8 +80,14 @@ export interface AgentStatusTracker {
   };
   /** Register an agent's status normalizer; returns the unregister. A second
    * registration for the same id replaces the first (last plugin wins, the
-   * contribution-registry convention). */
-  registerNormalizer(agentId: string, normalizer: StatusNormalizer): () => void;
+   * contribution-registry convention). `eventOf` is the agent's own name for
+   * a hook report's event, for the log line (`attributedEvent`); without
+   * one a hook is logged as unreadable. */
+  registerNormalizer(
+    agentId: string,
+    normalizer: StatusNormalizer,
+    eventOf?: (payload: unknown) => string | null,
+  ): () => void;
   /** Apply one VERIFIED bridge report. Unknown agents and unrecognizable
    * payloads are dropped silently — reporters are best-effort by design. */
   report(paneId: string, payload: unknown, at?: number): void;
@@ -122,6 +128,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   const listeners = new Set<() => void>();
   const rebuilt = new Set<(paneId: string) => void>();
   const normalizers = new Map<string, StatusNormalizer>();
+  const eventNamers = new Map<string, (payload: unknown) => string | null>();
   const epochs = new Map<string, object>();
   const decoderStates = new Map<string, { normalize: StatusNormalizer; state: unknown }>();
 
@@ -247,8 +254,9 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     const normalizeAll = (reply?: string) => normalizeStatusBatch(
       normalize, payloads, at, stateNow(), reply, payload.contextOnly === true,
     );
+    const label = () => statusPayloadLabel(payload, eventNamers.get(agent)?.(payload) ?? null);
     if (payload.reconcile === true) {
-      return reconcile(paneId, previous, normalizeAll().events, statusPayloadLabel(payload));
+      return reconcile(paneId, previous, normalizeAll().events, label());
     }
     const initial = normalizeAll();
     const edges = initial.events;
@@ -283,18 +291,21 @@ export function createAgentStatusTracker(): AgentStatusTracker {
         const guarded = settled.events.map((edge): AgentStatusEvent =>
           current !== previous && edge.kind === "turn-start"
             ? { kind: "turn-observed", at: edge.at } : edge);
-        apply(paneId, guarded, statusPayloadLabel(payload));
+        apply(paneId, guarded, label());
       },
     };
   }
 
   return {
     prepare,
-    registerNormalizer(agentId, normalizer) {
+    registerNormalizer(agentId, normalizer, eventOf) {
       normalizers.set(agentId, normalizer);
+      if (eventOf) eventNamers.set(agentId, eventOf);
+      else eventNamers.delete(agentId);
       return () => {
         if (normalizers.get(agentId) === normalizer) {
           normalizers.delete(agentId);
+          eventNamers.delete(agentId);
         }
       };
     },

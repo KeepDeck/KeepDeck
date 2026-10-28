@@ -1,3 +1,5 @@
+import { isJsonRecord } from "../json.ts";
+import { hasUnsafeText } from "../manifest/text.ts";
 import type { Disposable } from "./disposable.ts";
 import type { WorkspaceRef } from "./snapshots.ts";
 import type { AgentStatus } from "./status.ts";
@@ -45,6 +47,10 @@ export interface AgentContribution {
    * itself from the pane's own process (API 61) — absent when the agent has
    * none. */
   companion?: AgentCompanion;
+  /** How the host shows this agent where its CLI's habits matter (API 70):
+   * decoration on its terminal titles, words for its own failure codes, its
+   * colour in charts. Absent = the generic presentation. */
+  presentation?: AgentPresentation;
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
@@ -58,6 +64,46 @@ export interface AgentContribution {
    * history method. Absent = the agent cannot say, and a refused resume
    * keeps its old meaning. */
   liveSessions?: AgentLiveSessions;
+}
+
+/** Static presentation data — values the host reads, never code. */
+export interface AgentPresentation {
+  /** Glyphs the CLI puts at the start of its terminal titles as decoration
+   * (each followed by whitespace). The host strips one from the pane's
+   * title; another agent's leading glyph is left alone. */
+  oscLeadingGlyphs?: readonly string[];
+  /** Words for this CLI's own failure codes, beside the shared ones the host
+   * already names (rate limits, overload, authentication). An unnamed code
+   * is shown as `Failed: <code>`. */
+  failureLabels?: Readonly<Record<string, string>>;
+  /** This agent's series colour in usage charts, `#RRGGBB`. Without one the
+   * host gives it a spare colour. */
+  chartColor?: string;
+}
+
+/** The limits a presentation must keep: it is shown as it is, so it must be
+ * small, plain text, and a colour the charts can draw. */
+const PRESENTATION_TEXT_MAX = 64;
+const CHART_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** Whether `value` is a well-formed presentation — what the host checks on
+ * every agent registration, in-process or across the external tier. */
+export function isAgentPresentation(value: unknown): value is AgentPresentation {
+  if (!isJsonRecord(value)) return false;
+  const { oscLeadingGlyphs, failureLabels, chartColor } = value;
+  const shortText = (text: unknown) =>
+    typeof text === "string" &&
+    text.length > 0 &&
+    text.length <= PRESENTATION_TEXT_MAX &&
+    !hasUnsafeText(text);
+  if (oscLeadingGlyphs !== undefined && !(Array.isArray(oscLeadingGlyphs) && oscLeadingGlyphs.every(shortText)))
+    return false;
+  if (
+    failureLabels !== undefined &&
+    !(isJsonRecord(failureLabels) && Object.entries(failureLabels).every(([code, label]) => shortText(code) && shortText(label)))
+  )
+    return false;
+  return chartColor === undefined || (typeof chartColor === "string" && CHART_COLOR.test(chartColor));
 }
 
 /** One session binding as the agent's reporter stated it. */
@@ -80,10 +126,15 @@ export interface AgentBindingReport {
  * teammates. Only the agent knows which one it is looking at.
  */
 export interface AgentBinding {
+  /** The CLI's words for a session that CONTINUES the pane's conversation
+   * (resumed, cleared, compacted, forked…) rather than starting one (API
+   * 70). A word not listed — or none at all — reads as a fresh start, the
+   * strict side: an unknown word can never overwrite a pane's identity. */
+  swapSources?: readonly string[];
   /** Whether this fresh session, from the pane's own process, is the user
    * starting a new conversation. Asked only for that case; the process rules
-   * are never the agent's to waive. */
-  restartsConversation(report: AgentBindingReport): boolean;
+   * are never the agent's to waive. Absent means not. */
+  restartsConversation?(report: AgentBindingReport): boolean;
 }
 
 /** Where a pane's agent should run. Absent = the pane's own machine (local),
@@ -151,6 +202,72 @@ export interface AgentHooks {
     input: SpawnPlanInput,
     output: SpawnPlanOutput,
   ): void | Promise<void>;
+  /** What this CLI needs planted in the pane's cwd before it starts (API 72)
+   * — for a CLI whose only door for something is a place in the directory it
+   * starts in. Called for every launch that produces a plan (a fresh spawn,
+   * a resume or fork that succeeded, the bare launch), never for one that
+   * threw, and never for a remote pane, whose agent's directory is on the
+   * remote host. `output.cwd` is the COMPLETE set: what an earlier launch
+   * planted and this one no longer declares is taken back. A hook that
+   * throws leaves the earlier set in place.
+   *
+   * The host plants, and owns everything that makes planting in a user's
+   * directory safe: nothing of the user's is written over or removed, a
+   * symlink points only into this plugin's workspace directory or the plan's
+   * `skills.dir`, git is kept blind to it, and it is taken back with the
+   * worktree. A path it would not plant is said to the user with the agent's
+   * name. */
+  "arm.plan"?(
+    input: SpawnPlanInput,
+    output: SpawnArmOutput,
+  ): void | Promise<void>;
+}
+
+/** One thing a plugin wants in the pane's cwd (API 72). `path` is relative
+ * to the cwd and stays inside it. */
+export type CwdArm =
+  /** A file, written whole; KeepDeck's marker beside it claims it. */
+  | { kind: "file"; path: string; content: string }
+  /** A symlink to `target` — inside this plugin's workspace directory or the
+   * plan's `skills.dir`, nowhere else. */
+  | { kind: "symlink"; path: string; target: string };
+
+/** What `arm.plan` fills: everything this plugin plants in this cwd. */
+export interface SpawnArmOutput {
+  cwd: CwdArm[];
+}
+
+/** How much one `arm.plan` may plant (API 73), in UTF-8 bytes: room for any
+ * CLI's few config files and links, and a bound on what a plugin's word
+ * writes into a user's directory. A set over `ENTRIES_MAX` or
+ * `TOTAL_CONTENT_MAX_BYTES` is refused whole; one entry over its own cap is
+ * refused alone. The native engine holds the same numbers — `armCaps.json`
+ * is the file both sides' tests pin them to. */
+export const ARM_CAPS = {
+  ENTRIES_MAX: 32,
+  PATH_MAX_BYTES: 1024,
+  TARGET_MAX_BYTES: 4096,
+  CONTENT_MAX_BYTES: 256 * 1024,
+  TOTAL_CONTENT_MAX_BYTES: 1024 * 1024,
+} as const;
+
+const utf8 = new TextEncoder();
+
+/** Whether a whole `arm.plan` answer fits {@link ARM_CAPS}. */
+export function fitsArmCaps(output: SpawnArmOutput): boolean {
+  if (output.cwd.length > ARM_CAPS.ENTRIES_MAX) return false;
+  let total = 0;
+  for (const arm of output.cwd) {
+    if (utf8.encode(arm.path).length > ARM_CAPS.PATH_MAX_BYTES) return false;
+    if (arm.kind === "symlink") {
+      if (utf8.encode(arm.target).length > ARM_CAPS.TARGET_MAX_BYTES) return false;
+      continue;
+    }
+    const bytes = utf8.encode(arm.content).length;
+    if (bytes > ARM_CAPS.CONTENT_MAX_BYTES) return false;
+    total += bytes;
+  }
+  return total <= ARM_CAPS.TOTAL_CONTENT_MAX_BYTES;
 }
 
 export interface SpawnPlanInput {
@@ -184,22 +301,26 @@ export interface SpawnPlanInput {
   cliVersion?: string;
 }
 
-/** One skills library rendered in each CLI's injection dialect — staged
- * directories under KeepDeck's own home (absolute paths), never the user's
- * dotfiles or repo. A hook reads the view its CLI understands. */
+/** One staged skill as text: its SKILL.md byte for byte (API 71). A plugin
+ * that builds its CLI's own layout writes it as it is, and reads it — when it
+ * must — with this package's SKILL.md codec. */
+export interface SpawnSkill {
+  name: string;
+  content: string;
+}
+
+/** The workspace's shared skills — staged under KeepDeck's own home
+ * (absolute paths), never the user's dotfiles or repo.
+ *
+ * A plugin points a CLI that takes a skills directory at `dir`, and builds
+ * any other layout its CLI reads from `skills`, in its own workspace
+ * directory (`ctx.workspaces`). */
 export interface SpawnSkillsInput {
-  /** Claude-plugin layout (`.claude-plugin/plugin.json` + `skills/`) —
-   * made for `claude --plugin-dir`. */
-  claudePluginDir: string;
-  /** OpenCode config-directory layout — made for the `OPENCODE_CONFIG_DIR`
-   * env var. Carries `skills/` AND a generated `command/` subdir (each
-   * skill's user-facing `/name` palette command); treat both as the host's
-   * to replace, everything else in the dir as opencode's own. */
-  opencodeConfigDir: string;
-  /** Bare standard layout (`<skill>/SKILL.md` at the top level) — kimi's
-   * `--skills-dir`; the shape codex's `.agents/skills` would take once its
-   * injection lands. */
-  skillsDir: string;
+  /** The bare standard layout: `<dir>/<name>/SKILL.md`. */
+  dir: string;
+  /** The same skills as text, alphabetical by name. Never empty: with no
+   * skill to hand out, `skills` itself is absent from the plan input. */
+  skills: SpawnSkill[];
 }
 
 /** The MCP servers to declare to one spawning agent.

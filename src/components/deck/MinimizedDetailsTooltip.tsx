@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { createPortal } from "react-dom";
-import type { ActivityBadge } from "../../domain/status";
+import type { ActivityBadge } from "../../presentation/activityBadge";
 import { GitBranchIcon, UsersIcon } from "../../ui/icons";
 import { teamBadgeTitle } from "../../ui/badges";
 import type { GitBadge } from "../../ui/gitBadge";

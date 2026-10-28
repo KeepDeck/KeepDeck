@@ -1,4 +1,5 @@
-import { paneAgentType, panesRunningIn } from "../domain/deck";
+import { panesRunningIn } from "../domain/deck";
+import { deliversMcpByCwd } from "../domain/agents";
 import { listApplications, openPath, openUrl } from "../ipc/app";
 import { readImageTempPath, readText, writeText } from "../ipc/clipboard";
 import { log } from "../ipc/log";
@@ -22,6 +23,7 @@ import { createAgentDoors } from "./agentDoors";
 import { createDeckActions } from "./deckActions";
 import { createDeckPersistence } from "./deckPersistence";
 import { createDeckStore } from "./deckStore";
+import { titleAgentOf } from "./titleAgent";
 import {
   DownloadManager,
   tauriDownloadBackend,
@@ -100,15 +102,12 @@ import {
 } from "./usageHistoryManager";
 import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
-import { skillRefusals } from "./skillRefusals";
+import { armRefusals } from "./armRefusals";
+import { createCwdArming } from "./cwdArming";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
-import {
-  createMcpPlanting,
-  createSkillsStaging,
-  createWorktreePlantings,
-} from "./worktreePlantings";
+import { createSkillsStaging, createWorktreePlantings } from "./worktreePlantings";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
@@ -128,7 +127,7 @@ function paneAgentTypeOf(
 ): string | null {
   for (const workspace of deck.getSnapshot().workspaces) {
     const pane = workspace.panes.find((candidate) => candidate.id === paneId);
-    if (pane) return paneAgentType(pane);
+    if (pane) return pane.agentType;
   }
   return null;
 }
@@ -158,7 +157,10 @@ export function createAppRuntime(
 ) {
   const downloads = new DownloadManager(downloadBackend);
   const plugins = createPluginManager(downloads);
-  const deckStore = createDeckStore();
+  /** How a pane reads, for anything that has to name one. Read per call — a
+   * plugin can be installed or removed while the deck is up. */
+  const agentLabels = () => plugins.pluginRegistries.agents.list().map(({ entry }) => titleAgentOf(entry));
+  const deckStore = createDeckStore(undefined, agentLabels);
   const deckActions = createDeckActions(deckStore);
   const paneInputFocus = createPaneInputFocusController();
   const paneViewActions = createPaneViewActions(deckStore, deckActions, paneInputFocus);
@@ -170,24 +172,14 @@ export function createAppRuntime(
       notify({ title: "Deck migrated", body, source: { type: "app" } });
     }
   });
-  /** How a pane reads, for anything that has to name one. Read per call — a
-   * plugin can be installed or removed while the deck is up. */
-  const agentLabels = () =>
-    plugins.pluginRegistries.agents
-      .list()
-      .map(({ entry }) => ({ id: entry.id, label: entry.label }));
   // The MCP feature: the transport service and the user's library, wired to
   // each other once behind one door.
   const mcp = createMcp({
     storage: ipcMcpStorage,
     registry,
     panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
-    // kimi's config lands in a pane's cwd, so the owner of those directories
-    // decides when it may. The closure exists only to break the construction
-    // cycle between the two owners — `worktrees` is built below and this is
-    // not called before a spawn, long after.
-    plant: (workspaceId, root, content) =>
-      worktrees.plantMcp(workspaceId, root, content),
+    // Whether an agent's servers land in its cwd is its plugin's declaration.
+    deliversByCwd: (agentType) => deliversMcpByCwd(plugins.agentFeatures(agentType)),
     identify: createPaneIdentity({
       workspaces: () => deckStore.getSnapshot().workspaces,
       paneOf: paneIdBySpawnSecret,
@@ -328,7 +320,8 @@ export function createAppRuntime(
     workspaces: () => deckStore.getSnapshot().workspaces,
     secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
     restartsConversation: (agentId, report) =>
-      agentEntry(agentId)?.binding?.restartsConversation(report) ?? false,
+      agentEntry(agentId)?.binding?.restartsConversation?.(report) ?? false,
+    swapSources: (agentId) => agentEntry(agentId)?.binding?.swapSources ?? [],
   });
   // The native side counts the children of a pane's pinned process as the
   // pane's own (opencode 2.x's MCP servers are its `serve`'s), so it is told
@@ -420,9 +413,9 @@ export function createAppRuntime(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
     (deck, inOrder) =>
       createWorktreePlantings(deck, inOrder, {
-        skills: (deck, inOrder) =>
-          createSkillsStaging(deck, inOrder, skillRefusals.publish),
-        mcp: createMcpPlanting,
+        skills: createSkillsStaging,
+        prunePluginDirs: plugins.workspaceDirs.prune,
+        onDisarmed: armRefusals.forget,
       }),
   );
   // The library takes only the staleness half of the worktree manager: a write
@@ -457,6 +450,7 @@ export function createAppRuntime(
     probe: probeWorktree,
     worktrees,
     mcpAccess: (target) => mcp.service.access(target),
+    armCwd: createCwdArming({ worktrees, refusals: armRefusals }),
     lifecycle,
     transcripts: sessionIndex,
     // Workspace deletion forgets what the backend keeps per workspace — its

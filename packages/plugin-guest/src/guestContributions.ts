@@ -162,6 +162,15 @@ export function createGuestContributions({
             ])
             .catch(noop);
         }
+        // A binding's words are data and cross; its restart callback would
+        // have to answer synchronously, which a realm cannot.
+        if (agent.binding?.restartsConversation !== undefined) {
+          void rpc
+            .call("log.warn", [
+              `agent "${agent.id}": binding.restartsConversation is not carried across the external tier yet — ignored`,
+            ])
+            .catch(noop);
+        }
         agentHooks.set(agent.id, agent.hooks);
         if (agent.history) agentHistories.set(agent.id, agent.history);
         // The wire flag must track the OBJECT, not optimism: a false
@@ -175,6 +184,9 @@ export function createGuestContributions({
             label: agent.label,
             icon: agent.icon,
             detect: agent.detect,
+            // Static data, carried as it is; the host checks its shape.
+            ...(agent.presentation !== undefined && { presentation: agent.presentation }),
+            ...(agent.binding?.swapSources !== undefined && { swapSources: agent.binding.swapSources }),
             hookNames: Object.keys(agent.hooks),
             ...(agent.history !== undefined && { hasHistory: true }),
             // Declared IFF the method really sits on the object — the

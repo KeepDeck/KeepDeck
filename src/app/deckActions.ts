@@ -2,6 +2,7 @@ import {
   findPane,
   findTeam,
   findWorkspace,
+  paneFrozenTitle,
   type DeckState,
   type Pane,
   type PaneSession,
@@ -49,6 +50,13 @@ export function createDeckActions(store: DeckStore): DeckActions {
 
 function buildDeckActions(store: DeckStore) {
   const dispatch = store.dispatch;
+  /** The title a pane's journal record would freeze with, if the transition
+   * seals one — what its header shows right now. */
+  const sealTitle = (wsId: string, paneId: string): { sealTitle?: string } => {
+    const pane = findPane(store.getSnapshot().workspaces, wsId, paneId);
+    const title = pane ? paneFrozenTitle(pane, store.titleAgents()) : undefined;
+    return title !== undefined ? { sealTitle: title } : {};
+  };
   return {
     /** Is this pane still in the deck? A read, not a transition — background
      * work that outlives the render which started it needs to know whether the
@@ -85,7 +93,7 @@ function buildDeckActions(store: DeckStore) {
     moveWorkspace: (id: string, toIndex: number) =>
       dispatch({ type: "moveWorkspace", id, toIndex }),
     closeAgent: (wsId: string, paneId: string) =>
-      dispatch({ type: "closeAgent", wsId, paneId, at: nowIso() }),
+      dispatch({ type: "closeAgent", wsId, paneId, at: nowIso(), ...sealTitle(wsId, paneId) }),
     closeWorkspace: (id: string) =>
       dispatch({ type: "closeWorkspace", id, at: nowIso() }),
     toggleFocus: (wsId: string, paneId: string) =>
@@ -149,6 +157,7 @@ function buildDeckActions(store: DeckStore) {
         session,
         ...(transcriptPath !== undefined && { transcriptPath }),
         at: nowIso(),
+        ...sealTitle(wsId, paneId),
       }),
     /** Is this team still in the deck? A read, like `hasPane`, for the
      * background create that outlives the render which started it. */

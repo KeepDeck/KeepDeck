@@ -1,3 +1,4 @@
+import type { JsonValue } from "../json.ts";
 import type { WatchHandle } from "./disposable.ts";
 import type { PluginDownloads } from "./downloads.ts";
 import type { PluginSessionStore } from "./sessionRead.ts";
@@ -16,6 +17,11 @@ export interface PluginServices {
    * same permission asked for a quieter shape: a plugin that may run a
    * command in a pane may run it without one. */
   readonly exec: PluginExec;
+  /** Call a method of a JSON-RPC server the plugin declared in `exec.servers`.
+   * The host keeps the child, performs its handshake, and carries only the
+   * declared methods; the gate checks the server and the method against the
+   * manifest on every call. */
+  readonly rpc: PluginRpc;
   readonly ports: PluginPorts;
   readonly opener: PluginOpener;
   readonly fs: PluginFs;
@@ -32,6 +38,11 @@ export interface PluginServices {
   readonly git: PluginGit;
   /** Generic host-managed network transfers into private plugin storage. */
   readonly downloads: PluginDownloads;
+  /** One bounded GET to a `net` domain, optionally signed with a token the
+   * host reads from a declared credential source. */
+  readonly http: PluginHttp;
+  /** The declared environment variables' values (capability: `env`). */
+  readonly env: PluginEnv;
   /** Microphone capture + local speech-to-text (capability: `mic`). */
   readonly speech: PluginSpeech;
   /** OS clipboard text, gated by `clipboardWrite` / `clipboardRead`. The host
@@ -100,6 +111,68 @@ export interface PluginExecOutcome {
   ok: boolean;
   /** The tail of what a failing run said; empty when it succeeded. */
   said: string;
+}
+
+/**
+ * A host-kept JSON-RPC child (see `RpcServerDeclaration`). One child per
+ * declared server, started on first use and reaped when idle or when the
+ * plugin goes away; a call that finds it cold waits for the start and the
+ * handshake. A server that sends the client a request is refused — the host
+ * answers none. Results come back opaque: the plugin parses its own.
+ */
+export interface PluginRpc {
+  request(call: RpcCall): Promise<RpcAnswer>;
+}
+
+export interface RpcCall {
+  /** A declared server's `id`. */
+  server: string;
+  /** One of that server's declared `methods`. */
+  method: string;
+  params?: JsonValue;
+}
+
+export interface RpcAnswer {
+  /** The JSON-RPC `result`, serialized. */
+  result: string;
+  /** Unix ms just before the request was written — after any cold start
+   * and handshake, so the earliest the server could have looked. */
+  sentAt: number;
+}
+
+/**
+ * One GET, bounded: 10 s, the body capped at 1 MiB (`truncated` says when it
+ * was cut), no redirect followed, no proxy. The URL must sit in a `net`
+ * domain. A `credential` names a declared source and a plain file name in
+ * its directory: the host reads the token there and sends it as
+ * `Authorization: Bearer` — only to the domains of the `net` entry that
+ * declares the source, and only over https (or http to a numeric loopback
+ * address). The token never reaches the plugin.
+ */
+export interface PluginHttp {
+  get(request: HttpGet): Promise<HttpAnswer>;
+}
+
+export interface HttpGet {
+  url: string;
+  credential?: { source: string; file: string };
+  /** The Accept header; `application/json` when absent. */
+  accept?: string;
+}
+
+export interface HttpAnswer {
+  /** Any status: a 401 is an answer, not a failure. */
+  status: number;
+  body: string;
+  truncated: boolean;
+  /** Unix ms just before the request went out. */
+  sentAt: number;
+}
+
+/** The app's own startup environment, by declared name only. */
+export interface PluginEnv {
+  /** The raw value, `""` included; null when unset or not declared. */
+  get(name: string): Promise<string | null>;
 }
 
 export interface PluginSessions {
@@ -175,9 +248,10 @@ export interface PluginFs {
 }
 
 /** Narrow WRITE surface over the manifest's declared `fsWrite` path
- * prefixes — the surgery side of session portability (fork/relocate). Every
- * call is containment-checked host-side against those prefixes, on both ends
- * of a copy; nothing here deletes. */
+ * prefixes and the plugin's own workspace directories (`ctx.workspaces`) —
+ * the surgery side of session portability (fork/relocate), and the layouts a
+ * plugin builds for its CLI. Every call is containment-checked host-side
+ * against those roots, on both ends of a copy or a move. */
 /** How a copy may differ from its source (API 60). */
 export interface FsCopyOptions {
   /** `[from, to]` pairs replaced everywhere in the copy, in order — the
@@ -203,6 +277,12 @@ export interface PluginFsWrite {
   /** Append one newline-terminated line — a single O_APPEND write. The line
    * itself must not contain a newline. */
   appendLine(path: string, line: string): Promise<void>;
+  /** Move a file or a directory (API 71) — how a layout built aside is
+   * published whole. An existing `dst` is replaced: renamed aside, then
+   * removed once the move landed, and put back if it did not. Missing `dst`
+   * parents are created; a symlink moves as a link. Both ends must sit
+   * inside the plugin's write roots, neither may be one. */
+  move(src: string, dst: string): Promise<void>;
 }
 
 /** A single parameterized SELECT against a declared store database, opened

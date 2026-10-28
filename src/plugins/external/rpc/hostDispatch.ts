@@ -4,7 +4,9 @@ import type {
   Disposable,
   PluginContext,
   SpeechCapture,
+  SpawnArmOutput,
   SpawnPlanOutput,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import {
   actionChannel,
@@ -33,6 +35,7 @@ import {
   sanitizeHistoryTranscript,
   sanitizeHistoryTranscriptPage,
   sanitizeLiveSessions,
+  sanitizeArmOutput,
   sanitizePlanOutput,
 } from "./hostSanitize";
 import {
@@ -122,6 +125,15 @@ export function createHostDispatch(
     Object.assign(output, mutated);
   }
 
+  /** `arm.plan` through the same channel, answered with plantings instead
+   * of a plan — rebuilt here, since they land in the user's directory. */
+  async function callArmHook(agentId: string, input: unknown, output: SpawnArmOutput): Promise<void> {
+    const call: WireHookCall = { agentId, hook: "arm.plan", input, output };
+    const planted = sanitizeArmOutput(await hooks.call(call, "arm.plan"));
+    if (!planted) throw new Error("arm.plan returned malformed plantings");
+    output.cwd = planted.cwd;
+  }
+
   function callHistory(
     agentId: string,
     method: WireAgentHistoryCall["method"],
@@ -178,18 +190,22 @@ export function createHostDispatch(
    * in-process plugin context. Old guests sent only `wsId`; rejecting that
    * shape makes the API-21 incompatibility explicit instead of silently
    * binding an operation to the wrong lifetime. */
-  function workspaceStorage(value: unknown) {
-    if (!isObjectLike(value))
-      throw new Error("workspace storage requires a workspace lifetime ref");
-    const id = str(value.id, "workspace storage id");
-    const instance = str(value.instance, "workspace storage instance");
+  function workspaceRef(value: unknown, what: string): WorkspaceRef {
+    if (!isObjectLike(value)) throw new Error(`${what} requires a workspace lifetime ref`);
+    const id = str(value.id, `${what} id`);
+    const instance = str(value.instance, `${what} instance`);
     if (id === "" || instance === "") {
-      throw new Error("workspace storage requires non-empty id and instance");
+      throw new Error(`${what} requires non-empty id and instance`);
     }
-    return ctx.storage.workspace({ id, instance });
+    return { id, instance };
+  }
+
+  function workspaceStorage(value: unknown) {
+    return ctx.storage.workspace(workspaceRef(value, "workspace storage"));
   }
 
   const handlers: Record<string, (args: unknown[]) => unknown> = {
+    "workspaces.dir": ([workspace]) => ctx.workspaces.dir(workspaceRef(workspace, "workspaces.dir")),
     // ---- storage: every operation carries the exact serializable lifetime
     // ref captured by the guest handle, never merely a reusable public id. ----
     "storage.workspace.get": ([workspace, key]) =>
@@ -316,6 +332,8 @@ export function createHostDispatch(
         hasTranscriptPage,
         hasLiveSessions,
         usage,
+        presentation,
+        swapSources,
       } = decodeWith(entry, isAgentRegistration, "agent registration");
       // Usage contributions cannot cross this boundary yet: the store calls
       // `normalize` SYNCHRONOUSLY per report, and a cross-realm proxy is
@@ -330,6 +348,10 @@ export function createHostDispatch(
       for (const name of hookNames ?? []) {
         // Only the contract's hook names become proxies — a made-up name
         // from a hostile realm never lands on the host object.
+        if (name === "arm.plan") {
+          hooks["arm.plan"] = (input, output) => callArmHook(id, input, output);
+          continue;
+        }
         if (
           name !== "spawn.plan" &&
           name !== "resume.plan" &&
@@ -417,6 +439,8 @@ export function createHostDispatch(
           hooks,
           ...(history && { history }),
           ...(liveSessions && { liveSessions }),
+          ...(presentation && { presentation }),
+          ...(swapSources && { binding: { swapSources } }),
         }),
       );
     },

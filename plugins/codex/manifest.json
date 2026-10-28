@@ -1,12 +1,28 @@
 {
   "id": "keepdeck.codex",
   "name": "Codex",
-  "version": "0.12.0",
-  "minApiVersion": 49,
+  "version": "0.13.0",
+  "minApiVersion": 73,
   "category": "cli",
   "description": "Teaches KeepDeck the Codex CLI: catalog identity and detection; spawn, resume and session identity move in next.",
   "capabilities": [
-    { "kind": "exec", "commands": ["codex"] },
+    {
+      "kind": "exec",
+      "commands": ["codex"],
+      "servers": [
+        {
+          "id": "app-server",
+          "command": "codex",
+          "args": ["app-server"],
+          "handshake": {
+            "method": "initialize",
+            "params": { "clientInfo": { "name": "keepdeck", "title": "KeepDeck" } },
+            "then": "initialized"
+          },
+          "methods": ["account/rateLimits/read"]
+        }
+      ]
+    },
     { "kind": "fs", "scope": "everywhere" }
   ],
   "contributes": {
@@ -52,6 +68,16 @@
             "label": "Remote targets",
             "group": "execution",
             "parameters": { "schemes": ["ws", "wss"] }
+          },
+          {
+            "id": "integration.mcp",
+            "label": "MCP servers from the library",
+            "group": "integration"
+          },
+          {
+            "id": "integration.skills",
+            "label": "Skills from the library",
+            "group": "integration"
           },
           {
             "id": "mail.turn-end",

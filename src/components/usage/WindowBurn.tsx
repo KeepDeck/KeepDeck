@@ -11,8 +11,8 @@ import {
   CHART_LABEL_INK,
   CHART_TOOLTIP_BG,
   CHART_TOOLTIP_BORDER,
-  OVERFLOW_COLOR,
 } from "../../domain/usage/chartPalette";
+import { OVERFLOW_COLOR } from "../../presentation/usagePalette";
 import type { BurnGeometry } from "../../domain/usage/windowBurn";
 import type { BurnEdge } from "../../domain/usage/windowForecast";
 import {

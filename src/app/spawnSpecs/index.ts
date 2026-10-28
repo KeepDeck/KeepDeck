@@ -8,7 +8,6 @@
 import type { ResumeOrigin } from "../../domain/agents";
 import type { SpawnPlan, SpawnPlanContext } from "./plans";
 import {
-  paneAgentType,
   paneHasProcess,
   type Pane,
   type Workspace,
@@ -53,6 +52,7 @@ export {
   subscribeSpawnSpecs,
 } from "./cache";
 export type {
+  CwdArmAsk,
   McpAccess,
   McpAccessAsk,
   McpAccessTarget,
@@ -177,13 +177,13 @@ export async function buildLivePaneSpec(
   ws: Workspace,
   pane: Pane,
   ctx: SpawnPlanContext,
-  asks: Pick<PaneSpawnFacts, "stagedSkills" | "mcpAccess">,
+  asks: Pick<PaneSpawnFacts, "stagedSkills" | "mcpAccess" | "armCwd">,
 ): Promise<boolean> {
   if (!paneHasProcess(ws, pane)) return false;
   if (hasPaneSpawnSpec(pane.id) || isPaneSpawnSpecPending(pane.id) || peekPanePlanError(pane.id)) {
     return false;
   }
-  const agent = findAgent(plugins, paneAgentType(pane));
+  const agent = findAgent(plugins, pane.agentType);
   if (!agent) return false;
   const endpoint = remoteEndpointOf(pane);
   // Where the pane runs, through the deck's one formula — null while its

@@ -7,7 +7,7 @@ import {
   windowLabel,
   type AccountUsage,
 } from "../../domain/usage";
-import { seriesColorFor } from "../../domain/usage/chartPalette";
+import { seriesColorFor } from "../../presentation/usagePalette";
 import { type WindowReport } from "../../domain/usage/reportJournal";
 import { windowBurn } from "../../domain/usage/windowBurn";
 import {

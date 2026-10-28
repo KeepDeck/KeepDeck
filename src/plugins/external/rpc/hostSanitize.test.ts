@@ -1,8 +1,32 @@
 import { describe, expect, it } from "vitest";
 import {
+  sanitizeArmOutput,
   sanitizeHistoryFacts,
   sanitizeHistoryTranscriptPage,
 } from "./hostSanitize";
+
+describe("arm.plan's answer across the boundary", () => {
+  it("is rebuilt from its strings alone — nothing else rides into the user's directory", () => {
+    const answer = {
+      cwd: [
+        { kind: "file", path: ".k/c", content: "{}", mode: 0o777 },
+        { kind: "symlink", path: ".a/s", target: "/t", extra: true },
+      ],
+      also: "dropped",
+    };
+    expect(sanitizeArmOutput(answer)).toEqual({
+      cwd: [
+        { kind: "file", path: ".k/c", content: "{}" },
+        { kind: "symlink", path: ".a/s", target: "/t" },
+      ],
+    });
+  });
+
+  it("refuses the whole answer for one planting off its shape", () => {
+    expect(sanitizeArmOutput({ cwd: [{ kind: "file", path: ".k/c", content: 7 }] })).toBeNull();
+    expect(sanitizeArmOutput({ cwd: "all" })).toBeNull();
+  });
+});
 
 /**
  * The shortfall's boundary rules. These matter more than they look: the seam

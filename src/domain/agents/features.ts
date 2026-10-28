@@ -26,6 +26,12 @@ export const AGENT_FEATURE = {
   accountUsage: "usage.account",
   yolo: "execution.yolo",
   remoteTarget: "target.remote",
+  /** The agent receives the library's MCP servers at its next session —
+   * through a file in its cwd when the declaration says `delivery: "cwd"`
+   * ([`deliversMcpByCwd`]). */
+  mcpServers: "integration.mcp",
+  /** The agent receives the library's skills at its next session. */
+  skills: "integration.skills",
 } as const;
 
 export function findAgentFeature(
@@ -40,4 +46,11 @@ export function hasAgentFeature(
   id: string,
 ): boolean {
   return findAgentFeature(features, id) !== null;
+}
+
+/** Whether an agent takes its MCP servers through a file in its cwd — what
+ * its plugin declares, never a name the host knows. Such a file is ONE per
+ * folder, so a folder two panes share cannot carry a per-pane secret. */
+export function deliversMcpByCwd(features: readonly AgentFeature[]): boolean {
+  return findAgentFeature(features, AGENT_FEATURE.mcpServers)?.parameters?.delivery === "cwd";
 }

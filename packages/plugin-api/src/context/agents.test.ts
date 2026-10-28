@@ -1,12 +1,46 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { API_VERSION } from "../manifest/version.ts";
 import {
+  ARM_CAPS,
+  fitsArmCaps,
   MCP_HTTP_API,
   mapMcpServers,
   mcpHttpHeaders,
+  type CwdArm,
   type McpHttpServerSpec,
   type McpServerSpec,
 } from "./agents.ts";
+import armCapsJson from "./armCaps.json";
+
+describe("ARM_CAPS", () => {
+  // The native engine asserts its constants against the SAME file: a bump on
+  // one side alone fails both suites.
+  it("equals armCaps.json, the file cwd_arm.rs pins its numbers to as well", () => {
+    expect(armCapsJson).toEqual(ARM_CAPS);
+  });
+
+  const file = (path: string, content: string): CwdArm => ({ kind: "file", path, content });
+  const fits = (...cwd: CwdArm[]) => fitsArmCaps({ cwd });
+
+  it("takes a set right at every cap and refuses one byte or one entry past it", () => {
+    const at = (bytes: number) => "x".repeat(bytes);
+    expect(fits(file(at(ARM_CAPS.PATH_MAX_BYTES), at(ARM_CAPS.CONTENT_MAX_BYTES)))).toBe(true);
+    expect(fits(file(at(ARM_CAPS.PATH_MAX_BYTES + 1), ""))).toBe(false);
+    expect(fits(file("a", at(ARM_CAPS.CONTENT_MAX_BYTES + 1)))).toBe(false);
+    expect(fits({ kind: "symlink", path: "a", target: at(ARM_CAPS.TARGET_MAX_BYTES + 1) })).toBe(false);
+    const many = (n: number) => Array.from({ length: n }, (_, i) => file(`f${i}`, ""));
+    expect(fits(...many(ARM_CAPS.ENTRIES_MAX))).toBe(true);
+    expect(fits(...many(ARM_CAPS.ENTRIES_MAX + 1))).toBe(false);
+    const quarter = at(ARM_CAPS.TOTAL_CONTENT_MAX_BYTES / 4);
+    expect(fits(file("a", quarter), file("b", quarter), file("c", quarter), file("d", quarter))).toBe(true);
+    expect(fits(file("a", quarter), file("b", quarter), file("c", quarter), file("d", quarter), file("e", "x"))).toBe(false);
+  });
+
+  it("counts UTF-8 bytes, the measure the native side uses, not characters", () => {
+    expect(fits(file("é".repeat(ARM_CAPS.PATH_MAX_BYTES / 2), ""))).toBe(true);
+    expect(fits(file("é".repeat(ARM_CAPS.PATH_MAX_BYTES / 2 + 1), ""))).toBe(false);
+  });
+});
 
 describe("MCP_HTTP_API", () => {
   it("names a revision the current contract includes, and never moves past it", () => {

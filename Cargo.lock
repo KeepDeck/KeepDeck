@@ -2743,7 +2743,6 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
- "toml 1.1.2+spec-1.1.0",
  "ureq 2.12.1",
  "url",
  "uuid",

@@ -86,6 +86,11 @@ describe("nextAgentType", () => {
     ).toBe("claude");
   });
 
+  it("names no agent when no plugin provides one, whatever the momentum or the preference", () => {
+    settings.current = { defaultAgent: "claude" };
+    expect(nextAgentType([], ws({ panes: [{ id: "p1", agentType: "codex" }] }))).toBeNull();
+  });
+
   it("reads the preference at the moment of asking, not at boot", () => {
     settings.current = { defaultAgent: "codex" };
     expect(nextAgentType(AGENTS, ws())).toBe("codex");
@@ -98,7 +103,9 @@ describe("nextAgentIndex", () => {
   it("is the pane's position, the input to its auto branch name", () => {
     expect(nextAgentIndex(ws())).toBe(1);
     expect(
-      nextAgentIndex(ws({ panes: [{ id: "a" }, { id: "b" }] })),
+      nextAgentIndex(
+        ws({ panes: [{ id: "a", agentType: "claude" }, { id: "b", agentType: "claude" }] }),
+      ),
     ).toBe(3);
   });
 });
@@ -113,7 +120,7 @@ describe("firstFreeTeamWorktreeFor", () => {
     const workspace = ws({
       worktreeBaseDir: "/wt",
       teams: [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/kd-deck-1" } }],
-      panes: [{ id: "p1", team: { teamId: "team-1", role: "lead" } }],
+      panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
     });
     expect(await firstFreeTeamWorktreeFor([workspace], workspace, 1)).toEqual({
       path: "/wt/kd-deck-2",

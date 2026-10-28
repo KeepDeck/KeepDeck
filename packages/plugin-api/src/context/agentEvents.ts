@@ -25,18 +25,20 @@ import { asNonEmptyString } from "./usage.ts";
 export type EventActor = "main" | "child" | "unknown";
 
 /**
- * The actor of a hook payload in the dialect claude and codex share: a
- * subagent's hook carries `agent_id`; the main agent's carries none, so a
- * hook with the session's own id and no agent id is the main agent's. A
- * payload the reporter reduced names nobody — the field that would tell is
- * the one the reduction dropped.
+ * The actor of a hook payload whose CLI names a subagent in one field and
+ * the session in another — the fields are the plugin's to name. A subagent's
+ * hook carries the child field; the main agent's carries none, so a hook
+ * with the session's id and no child id is the main agent's. A payload the
+ * reporter reduced names nobody — the field that would tell is the one the
+ * reduction dropped.
  */
-export function agentIdActor(
-  event: Record<string, unknown>,
+export function actorFromFields(
+  event: Readonly<Record<string, unknown>>,
   reduced: boolean,
+  fields: Readonly<{ childId: string; sessionId: string }>,
 ): EventActor {
-  if (asNonEmptyString(event.agent_id)) return "child";
-  return asNonEmptyString(event.session_id) && !reduced ? "main" : "unknown";
+  if (asNonEmptyString(event[fields.childId])) return "child";
+  return asNonEmptyString(event[fields.sessionId]) && !reduced ? "main" : "unknown";
 }
 
 /** A plugin's reading of one status payload. */

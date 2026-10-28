@@ -21,7 +21,7 @@ function render(events: readonly UsageEventV2[]) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root.render(createElement(Weeks, { events, now: NOW })));
+  act(() => root.render(createElement(Weeks, { events, colors: new Map(), now: NOW })));
   return host;
 }
 
@@ -158,7 +158,7 @@ describe("Weeks", () => {
     // an empty one.
     act(() =>
       root.render(
-        createElement(Weeks, { events: twelve.slice(0, 4), now: NOW }),
+        createElement(Weeks, { events: twelve.slice(0, 4), colors: new Map(), now: NOW }),
       ),
     );
     expect(host.querySelectorAll('[role="row"]')).toHaveLength(4);

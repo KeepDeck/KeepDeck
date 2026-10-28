@@ -1,6 +1,7 @@
-import { readManifest } from "@keepdeck/plugin-api";
+import { fitsArmCaps, isAgentPresentation, isJsonValue, readManifest } from "@keepdeck/plugin-api";
 import { isObjectLike } from "../../../domain/json";
 import type {
+  AgentPresentation,
   CommandArgSpec,
   CommandInfo,
   CommandResult,
@@ -24,12 +25,16 @@ import type {
   GitHistoryOptions,
   GitStatus,
   HostSettingsSnapshot,
+  HttpAnswer,
+  HttpGet,
   PluginExecOutcome,
   PluginExecRequest,
   PluginNotifyInput,
   PluginManifest,
   PluginSpawnOptions,
   ResumePlanInput,
+  RpcAnswer,
+  RpcCall,
   SettingsSectionContribution,
   SpawnPlanInput,
   SpeechCaptureOptions,
@@ -45,6 +50,7 @@ import type {
   HostToGuestMessage,
   WireAgentHistoryCall,
   WireAgentLiveSessionsCall,
+  WireArmOutput,
   WireHookCall,
   WireOpenCall,
   WireSessionEvent,
@@ -137,16 +143,45 @@ export function isWireSpawnPlanOutput(value: unknown): value is WireSpawnPlanOut
   return true;
 }
 
+/** `arm.plan`'s output: every planting a file or a symlink, all strings, the
+ * whole within `ARM_CAPS` — a larger answer is no answer, refused before it
+ * is carried on. */
+export function isWireArmOutput(value: unknown): value is WireArmOutput {
+  return isArmShape(value) && fitsArmCaps(value);
+}
+
+function isArmShape(value: unknown): value is WireArmOutput {
+  return (
+    isObjectLike(value) &&
+    Array.isArray(value.cwd) &&
+    value.cwd.every(
+      (arm) =>
+        isObjectLike(arm) &&
+        isString(arm.path) &&
+        ((arm.kind === "file" && isString(arm.content)) ||
+          (arm.kind === "symlink" && isString(arm.target))),
+    )
+  );
+}
+
+/** A hook call's output in the shape ITS hook fills. */
+function hookOutput(hook: string, value: unknown): WireSpawnPlanOutput | WireArmOutput {
+  if (hook === "arm.plan") {
+    if (isWireArmOutput(value)) return value;
+  } else if (isWireSpawnPlanOutput(value)) {
+    return value;
+  }
+  throw malformed("agent hook call output");
+}
+
 export function decodeHookCall(value: unknown): WireHookCall {
   const v = record(value, "agent hook call");
+  const hook = str(v.hook, "agent hook call hook");
   return {
     agentId: str(v.agentId, "agent hook call agentId"),
-    hook: str(v.hook, "agent hook call hook"),
+    hook,
     input: v.input,
-    output: (() => {
-      if (!isWireSpawnPlanOutput(v.output)) throw malformed("agent hook call output");
-      return v.output;
-    })(),
+    output: hookOutput(hook, v.output),
   };
 }
 
@@ -259,6 +294,45 @@ export function decodeHostMessage(value: unknown): HostToGuestMessage {
 }
 
 // ----------------------------------------------------------- service args
+
+export function decodeRpcCall(value: unknown): RpcCall {
+  const v = record(value, "rpc call");
+  if (v.params !== undefined && !isJsonValue(v.params)) throw malformed("rpc call params", "expected JSON");
+  return {
+    server: str(v.server, "rpc call server"),
+    method: str(v.method, "rpc call method"),
+    ...(v.params !== undefined ? { params: v.params } : {}),
+  };
+}
+
+export function isRpcAnswer(value: unknown): value is RpcAnswer {
+  return isObjectLike(value) && isString(value.result) && isNumber(value.sentAt);
+}
+
+export function decodeHttpGet(value: unknown): HttpGet {
+  const v = record(value, "http request");
+  let credential: HttpGet["credential"];
+  if (v.credential !== undefined) {
+    const c = record(v.credential, "http request credential");
+    credential = { source: str(c.source, "http request credential source"), file: str(c.file, "http request credential file") };
+  }
+  const accept = optStr(v.accept, "http request accept");
+  return {
+    url: str(v.url, "http request url"),
+    ...(credential ? { credential } : {}),
+    ...(accept !== undefined ? { accept } : {}),
+  };
+}
+
+export function isHttpAnswer(value: unknown): value is HttpAnswer {
+  return (
+    isObjectLike(value) &&
+    isNumber(value.status) &&
+    isString(value.body) &&
+    isBoolean(value.truncated) &&
+    isNumber(value.sentAt)
+  );
+}
 
 export function decodeExecRequest(value: unknown): PluginExecRequest {
   const v = record(value, "exec request");
@@ -461,12 +535,16 @@ export interface WireAgentRegistration {
   hasTranscriptPage?: boolean;
   hasLiveSessions?: boolean;
   usage?: unknown;
+  presentation?: AgentPresentation;
+  /** `binding.swapSources`, the binding's static half. */
+  swapSources?: string[];
 }
 
 export function isAgentRegistration(value: unknown): value is WireAgentRegistration {
   if (!isObjectLike(value) || !isString(value.id) || !isString(value.label)) return false;
   if (!isObjectLike(value.detect) || !isString(value.detect.bin)) return false;
-  for (const name of ["hookNames"] as const) {
+  if (value.presentation !== undefined && !isAgentPresentation(value.presentation)) return false;
+  for (const name of ["hookNames", "swapSources"] as const) {
     if (value[name] !== undefined && !isStringArray(value[name])) return false;
   }
   for (const name of ["hasHistory", "hasListing", "hasTranscriptPage", "hasLiveSessions"] as const) {
@@ -514,8 +592,12 @@ function assertSpawnPlanInput(value: unknown, what: string): asserts value is Sp
   if (v.yolo !== undefined) bool(v.yolo, `${what}.yolo`);
   if (v.skills !== undefined) {
     const skills = record(v.skills, `${what}.skills`);
-    for (const dir of ["claudePluginDir", "opencodeConfigDir", "skillsDir"] as const) {
-      str(skills[dir], `${what}.skills.${dir}`);
+    str(skills.dir, `${what}.skills.dir`);
+    if (!Array.isArray(skills.skills)) throw malformed(`${what}.skills.skills`, "expected an array");
+    for (const [index, skill] of skills.skills.entries()) {
+      const entry = record(skill, `${what}.skills.skills[${index}]`);
+      str(entry.name, `${what}.skills.skills[${index}].name`);
+      str(entry.content, `${what}.skills.skills[${index}].content`);
     }
   }
   if (v.mcp !== undefined) {

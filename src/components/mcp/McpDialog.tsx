@@ -4,6 +4,8 @@ import { McpEditor } from "./McpEditor";
 import { BUNDLED_NOTICE, BUNDLED_PENDING } from "./bundledTier";
 import { MCP_NAV_COPY, labelForMcpScope } from "./mcpGroups";
 import { useMcpEditor } from "./useMcpEditor";
+import { useAgents } from "../../app/useAgents";
+import { mcpReachHint } from "../../presentation/agentReachView";
 
 interface McpDialogProps {
   /** The active workspace, hosting the "This workspace" scope; `null` (no
@@ -27,6 +29,7 @@ interface McpDialogProps {
 export function McpDialog({ activeWs, onClose, canClose = true }: McpDialogProps) {
   const editor = useMcpEditor({ activeWs, onClose, canClose });
   const { error, groups, selection, form, verdicts, busy } = editor;
+  const { agents } = useAgents();
 
   return (
     <LibraryDialog
@@ -35,7 +38,7 @@ export function McpDialog({ activeWs, onClose, canClose = true }: McpDialogProps
       noun="server"
       placeholder={{
         title: "One server, every agent",
-        body: "Pick a server on the left or create one — it reaches Claude Code, Kimi, OpenCode and Codex panes at their next session",
+        body: mcpReachHint(agents),
       }}
       machine={{ ...editor, rows: editor.servers }}
       nav={

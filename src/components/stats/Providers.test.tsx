@@ -63,7 +63,7 @@ describe("Providers", () => {
   }) {
     act(() =>
       root.render(
-        createElement(Providers, { accounts, events, reportsByKey, now: NOW }),
+        createElement(Providers, { accounts, events, colors: new Map(), reportsByKey, now: NOW }),
       ),
     );
   }

@@ -69,9 +69,17 @@ pub fn owning_repo(path: &Path) -> io::Result<Option<OwningRepo>> {
     Ok(None)
 }
 
-/// Idempotently append `line` to the repo's `info/exclude`. The existing
-/// content is preserved byte-for-byte; only the new line (and a separating
-/// newline when the file didn't end with one) is added.
+/// The comment KeepDeck writes right above a pattern it added: the proof the
+/// pattern is ours to take out again. A pattern without it is the user's — or
+/// an older build's, which wrote none and so can never be told apart.
+pub const MANAGED: &str = "# keepdeck-managed";
+
+/// Idempotently add `line` to the repo's `info/exclude` as KeepDeck's own:
+/// [`MANAGED`] and the pattern, as one unit. When the file already has the
+/// pattern — ours, or the user's — nothing is added, so a pattern the user
+/// wrote stays theirs. The existing content is preserved byte-for-byte; only
+/// the unit (and a separating newline when the file didn't end with one) is
+/// added.
 pub fn ensure_line(common_dir: &Path, line: &str) -> io::Result<()> {
     let exclude = exclude_path(common_dir);
     let current = match fs::read_to_string(&exclude) {
@@ -83,12 +91,13 @@ pub fn ensure_line(common_dir: &Path, line: &str) -> io::Result<()> {
         return Ok(());
     }
     let sep = if current.is_empty() || current.ends_with('\n') { "" } else { "\n" };
-    write_atomic(&exclude, format!("{current}{sep}{line}\n").as_bytes())
+    write_atomic(&exclude, format!("{current}{sep}{MANAGED}\n{line}\n").as_bytes())
 }
 
-/// Remove exactly the line matching `line` (trimmed comparison). Every other
-/// byte survives untouched — a CRLF file keeps its CRLF endings, trailing
-/// blank lines and a missing final newline stay as they were.
+/// Remove `line` only where it sits right below [`MANAGED`] — both lines,
+/// trimmed comparison. The same pattern anywhere else is not ours and stays.
+/// Every other byte survives untouched — a CRLF file keeps its CRLF endings,
+/// trailing blank lines and a missing final newline stay as they were.
 pub fn remove_line(common_dir: &Path, line: &str) -> io::Result<()> {
     let exclude = exclude_path(common_dir);
     let current = match fs::read_to_string(&exclude) {
@@ -96,14 +105,21 @@ pub fn remove_line(common_dir: &Path, line: &str) -> io::Result<()> {
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
     };
+    let text = |segment: &str| segment.trim_end_matches(['\n', '\r']).trim().to_string();
+    let segments: Vec<&str> = current.split_inclusive('\n').collect();
     let mut kept = String::with_capacity(current.len());
     let mut removed = false;
-    for segment in current.split_inclusive('\n') {
-        if segment.trim_end_matches(['\n', '\r']).trim() == line {
+    let mut index = 0;
+    while index < segments.len() {
+        let ours = text(segments[index]) == MANAGED
+            && segments.get(index + 1).is_some_and(|next| text(next) == line);
+        if ours {
             removed = true;
+            index += 2;
             continue;
         }
-        kept.push_str(segment);
+        kept.push_str(segments[index]);
+        index += 1;
     }
     if !removed {
         return Ok(());
@@ -205,5 +221,29 @@ mod tests {
         // included — is byte-identical.
 
         remove_line(&common, "/.agents/").unwrap(); // absent is fine
+    }
+
+    #[test]
+    fn a_pattern_without_our_marker_is_the_users_and_is_never_taken_out() {
+        let dir = tmp();
+        let common = dir.path().join(".git");
+        let exclude = common.join("info").join("exclude");
+        fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+        fs::write(&exclude, "/.agents/\n").unwrap();
+
+        // Already there as theirs: nothing added, so nothing becomes ours.
+        ensure_line(&common, "/.agents/").unwrap();
+        assert_eq!(fs::read_to_string(&exclude).unwrap(), "/.agents/\n");
+        remove_line(&common, "/.agents/").unwrap();
+        assert_eq!(fs::read_to_string(&exclude).unwrap(), "/.agents/\n");
+
+        // Ours beside a copy of theirs: only our unit goes.
+        fs::write(&exclude, "").unwrap();
+        ensure_line(&common, "/.agents/").unwrap();
+        let ours = fs::read_to_string(&exclude).unwrap();
+        assert_eq!(ours, format!("{MANAGED}\n/.agents/\n"));
+        fs::write(&exclude, format!("{ours}/.agents/\n")).unwrap();
+        remove_line(&common, "/.agents/").unwrap();
+        assert_eq!(fs::read_to_string(&exclude).unwrap(), "/.agents/\n");
     }
 }

@@ -1,6 +1,8 @@
 import { useMemo, useState, type ReactElement } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
+import { useAgents } from "../../app/useAgents";
+import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
 import { PERIOD_LABELS, USAGE_PERIODS } from "../../domain/usage";
 import {
@@ -79,6 +81,10 @@ export function UsageStats({
   onSelectTab(tab: StatsTab): void;
 }) {
   const history = useUsageHistorySnapshot();
+  // One map for every tab, so the chart, the weeks and the provider cards
+  // can never disagree on a hue.
+  const { agents } = useAgents();
+  const seriesColors = useMemo(() => usageSeriesColors(history.events, agents), [history.events, agents]);
   const { accounts } = useUsage();
   const reports = useWindowReports();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
@@ -122,6 +128,7 @@ export function UsageStats({
         return (
           <Overview
             events={history.events}
+            colors={seriesColors}
             stats={stats}
             period={period}
             now={now}
@@ -132,6 +139,7 @@ export function UsageStats({
           <Providers
             accounts={accounts}
             events={history.events}
+            colors={seriesColors}
             reportsByKey={reports.byKey}
             now={now}
           />

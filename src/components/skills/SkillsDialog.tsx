@@ -2,9 +2,12 @@ import { SkillEditor } from "./SkillEditor";
 import { SkillsNav } from "./SkillsNav";
 import { BUNDLED_NOTICE } from "./bundledTier";
 import { labelForScope } from "./skillGroups";
-import { useSkillRefusals } from "../../app/useSkillRefusals";
+import { useArmRefusals } from "../../app/useArmRefusals";
+import { ARM_REFUSALS_TITLE, armRefusalLines } from "../../presentation/armRefusalsView";
 import { useSkillsEditor } from "./useSkillsEditor";
 import { LibraryDialog } from "../library/LibraryDialog";
+import { useAgents } from "../../app/useAgents";
+import { skillsReachHint } from "../../presentation/agentReachView";
 
 interface SkillsDialogProps {
   /** The active workspace, hosting the "This workspace" scope; `null` (no
@@ -36,12 +39,13 @@ export function SkillsDialog({
   canClose = true,
 }: SkillsDialogProps) {
   const editor = useSkillsEditor({ activeWs, onClose, canClose });
-  // Where a skill did NOT reach an agent, and why. Dismissless on
-  // purpose: it is not news to acknowledge but a condition that is
-  // true until the user moves their own file, and it disappears by
-  // itself when they do.
-  const refusals = useSkillRefusals();
   const { error, groups, selection, form, verdicts, busy } = editor;
+  const { agents } = useAgents();
+  // Where an agent could not be set up — skills not reaching it among the
+  // reasons — and why. Dismissless on purpose: it is not news to acknowledge
+  // but a condition that is true until the user moves their own file, and it
+  // disappears by itself when they do.
+  const refusals = armRefusalLines(useArmRefusals(), agents);
 
   return (
     <LibraryDialog
@@ -50,20 +54,17 @@ export function SkillsDialog({
       noun="skill"
       placeholder={{
         title: "One skill, every agent",
-        body: "Pick a skill on the left or create one — it reaches Claude Code, Kimi, OpenCode and Codex worktrees at their next session",
+        body: skillsReachHint(agents),
       }}
       machine={{ ...editor, rows: editor.skills }}
       banner={
         refusals.length > 0 && (
           <div className="library__refusals" role="status">
-            <span className="library__refusals-title">
-              Some directories kept their own <code>.agents</code>, so skills
-              were not planted there:
-            </span>
+            <span className="library__refusals-title">{ARM_REFUSALS_TITLE}</span>
             <ul>
-              {refusals.map((refusal) => (
-                <li key={refusal.root} className="kd-selectable">
-                  <code>{refusal.root}</code> — {refusal.reason}
+              {refusals.map((line) => (
+                <li key={line.key} className="kd-selectable">
+                  {line.text}
                 </li>
               ))}
             </ul>

@@ -2,6 +2,8 @@ import "./styles.css";
 import { kimiBinding } from "./binding";
 import { kimiForkPlan, type ForkPorts } from "./fork";
 import { kimiHistory, type HistoryPorts } from "./history";
+import { readKimiLimits, type LimitsPorts } from "./limits";
+import { kimiMcpArms } from "./mcp";
 import {
   launchPlans,
   sha256Hex,
@@ -22,6 +24,7 @@ import {
 } from "./companion";
 import { createKimiCompanionFleet } from "./fleet";
 import { icon } from "./icon";
+import { kimiPresentation } from "./presentation";
 import { createKimiCompanionManager } from "./manager";
 import { createKimiServerManager } from "./serverManager";
 import {
@@ -51,7 +54,7 @@ let activeController: ReturnType<typeof createKimiSetupController> | null = null
  * KeepDeck library instead of `~/.kimi`-style discovery. Revisit if kimi
  * grows an additive flag (its `extra_skill_dirs` is config-file-only). */
 const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
-  skills ? ["--skills-dir", skills.skillsDir] : [];
+  skills ? ["--skills-dir", skills.dir] : [];
 
 /** Everything a launch of kimi carries, whichever way the pane starts it —
  * fresh, resumed, or forked into a session it names.
@@ -100,7 +103,8 @@ export function setupNotification(state: SetupState): {
 
 /** What the plugin needs from the host — the parts of its context it uses. */
 export type KimiPorts = HistoryPorts &
-  ForkPorts & {
+  ForkPorts &
+  LimitsPorts & {
     agents: PluginAgents;
     resources: PluginResources;
     settings: Pick<PluginSettings, "registerSection">;
@@ -115,12 +119,13 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
     label: "Kimi Code",
     icon,
     detect: { bin: "kimi" },
+    presentation: kimiPresentation,
     // Tokens/context ride the tailed wire.jsonl; rate windows exist only
-    // behind the polled usages endpoint (kimi's own /usage queries it too).
+    // behind the usages endpoint (kimi's own /usage queries it too).
     usage: {
       normalize: normalizeKimiWire,
       tail: { watches: kimiUsageWatches },
-      limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
+      limits: { read: () => readKimiLimits(ctx), normalize: normalizeKimiUsages },
     },
     status: {
       normalize: normalizeKimiStatus,
@@ -132,11 +137,17 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
     // conversation rather than a second session (./binding.ts).
     binding: kimiBinding,
     history,
-    hooks: launchPlans({
-      stage: stageLaunch,
-      resume: (input) => ["--session", input.sessionId],
-      fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
-    }),
+    hooks: {
+      ...launchPlans({
+        stage: stageLaunch,
+        resume: (input) => ["--session", input.sessionId],
+        fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
+      }),
+      // The MCP servers reach kimi through its cwd, not argv (./mcp.ts).
+      "arm.plan": (input, output) => {
+        output.cwd.push(...kimiMcpArms(input.mcp));
+      },
+    },
   });
 
   // The RESOURCES ROOT, not one companion's folder: the fleet installs

@@ -296,6 +296,111 @@ describe("readManifest", () => {
     }
   });
 
+  describe("env and net references", () => {
+    const env = { kind: "env", names: ["TOOL_HOME", "TOOL_BASE_URL"] };
+    const net = {
+      kind: "net",
+      domains: ["api.tool.example", { env: "TOOL_BASE_URL", default: "https://api.tool.example/v1" }],
+      credentials: [
+        { id: "tool", dir: { env: "TOOL_HOME", default: "~/.tool", append: "credentials" }, tokenFields: ["access_token"] },
+      ],
+    };
+    const errorsOf = (capabilities: unknown[]) => {
+      const result = readManifest({ ...GOLDEN, capabilities });
+      return result.ok ? [] : result.errors;
+    };
+
+    it("keeps a declaration whole, wherever the env capability stands", () => {
+      for (const capabilities of [[env, net], [net, env]]) {
+        const result = readManifest({ ...GOLDEN, capabilities });
+        expect(result.ok && result.manifest.capabilities).toEqual(capabilities);
+      }
+    });
+
+    it("refuses a reference to a variable no env capability declares", () => {
+      expect(errorsOf([net]).join(" ")).toContain("TOOL_BASE_URL is referred to but no \"env\" capability declares it");
+      expect(errorsOf([{ kind: "env", names: ["TOOL_BASE_URL"] }, net]).join(" ")).toContain("TOOL_HOME is referred to");
+    });
+
+    it("refuses malformed env names, references, defaults, directories and sources", () => {
+      const cases: [unknown[], string][] = [
+        [[{ kind: "env", names: [] }], "non-empty"],
+        [[{ kind: "env", names: ["A*"] }], "identifiers"],
+        [[{ kind: "env", names: ["A=B"] }], "identifiers"],
+        [[{ kind: "env", names: ["A", "A"] }], "must not repeat"],
+        [[env, { ...net, domains: [{ env: "TOOL_BASE_URL", default: "api.tool.example" }] }], "http(s) URL"],
+        [[env, { ...net, domains: [{ env: "TOOL_BASE_URL", default: "https://x", extra: 1 }] }], "exactly { env, default"],
+        [[env, { ...net, domains: [{ env: "TOOL_BASE_URL" }] }], "exactly { env, default"],
+        [[env, { ...net, credentials: [{ id: "t", dir: "relative", tokenFields: ["a"] }] }], "absolute or ~/"],
+        [[env, { ...net, credentials: [{ id: "t", dir: "~/", tokenFields: ["a"] }] }], "not a root"],
+        [[env, { ...net, credentials: [{ id: "t", dir: { env: "TOOL_HOME", default: "/" }, tokenFields: ["a"] }] }], "not a root"],
+        [[env, { ...net, credentials: [{ id: "t", dir: { env: "TOOL_HOME", default: "~/.t", append: "../up" }, tokenFields: ["a"] }] }], '"append"'],
+        [[env, { ...net, credentials: [{ id: "t", dir: "~/.t", tokenFields: [] }] }], '"tokenFields"'],
+        [[env, { ...net, credentials: [{ id: "a b", dir: "~/.t", tokenFields: ["a"] }] }], "plain token"],
+        [[env, net, { ...net, domains: ["b.example"] }], 'credential source "tool" is declared twice'],
+      ];
+      for (const [capabilities, expected] of cases) {
+        expect(errorsOf(capabilities).join(" "), expected).toContain(expected);
+      }
+    });
+  });
+
+  describe("exec servers", () => {
+    const server = {
+      id: "app",
+      command: "tool",
+      args: ["serve"],
+      handshake: { method: "initialize", params: { client: { name: "deck" } }, then: "initialized" },
+      methods: ["read"],
+    };
+    const exec = (servers: unknown) => ({ kind: "exec", commands: ["tool"], servers });
+
+    it("keeps a declared server whole, and an exec without servers as it was", () => {
+      const result = readManifest({
+        ...GOLDEN,
+        capabilities: [exec([server]), { kind: "exec", commands: ["git"] }],
+      });
+      expect(result.ok && result.manifest.capabilities).toEqual([
+        { kind: "exec", commands: ["tool"], servers: [server] },
+        { kind: "exec", commands: ["git"] },
+      ]);
+    });
+
+    it("refuses a server the capability's commands do not cover, or one named by path", () => {
+      for (const command of ["other", "/usr/bin/tool"]) {
+        const result = readManifest({ ...GOLDEN, capabilities: [exec([{ ...server, command }])] });
+        expect(!result.ok && result.errors.join(" "), command).toContain("one of this capability's commands");
+      }
+    });
+
+    it("never lets the handshake be a callable method", () => {
+      for (const method of ["initialize", "initialized"]) {
+        const result = readManifest({
+          ...GOLDEN,
+          capabilities: [exec([{ ...server, methods: ["read", method] }])],
+        });
+        expect(!result.ok && result.errors.join(" "), method).toContain("handshake is the host's");
+      }
+    });
+
+    it("refuses the whole capability for any malformed server", () => {
+      const cases: [unknown, string][] = [
+        ["app", "must be an array"],
+        [[{ ...server, id: "a b" }], "plain token"],
+        [[server, server], "declared twice"],
+        [[{ ...server, args: "serve" }], '"args"'],
+        [[{ ...server, methods: [] }], '"methods"'],
+        [[{ ...server, handshake: { then: "x" } }], '"method"'],
+        [[{ ...server, handshake: { method: "init", then: "" } }], '"then"'],
+      ];
+      for (const [servers, expected] of cases) {
+        const result = readManifest({ ...GOLDEN, capabilities: [exec(servers)] });
+        expect(result.ok, expected).toBe(false);
+        expect(!result.ok && result.errors.join(" "), expected).toContain(expected);
+      }
+    });
+  });
+
   it("rejects a contribution id that isn't a path-safe token", () => {
     // A dock-tab id becomes `<id>.html` in the iframe URL — slashes, dots,
     // and whitespace could address a different path under the plugin origin.

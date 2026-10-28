@@ -55,10 +55,10 @@ export type UsageDisplay = "used" | "left";
 export const USAGE_DISPLAYS: readonly UsageDisplay[] = ["used", "left"];
 
 export interface Settings {
-  /** Agent preselected for new workspaces and panes. Always a concrete
-   * agent; if it isn't installed, the pickers snap to the first one that
-   * is ([F1]). */
-  defaultAgent: AgentType;
+  /** Agent preselected for new workspaces and panes, or null when the user
+   * never chose one — then the pickers take the first installed agent. A
+   * chosen agent that isn't installed snaps to the first one that is ([F1]). */
+  defaultAgent: AgentType | null;
   /** YOLO mode preselected wherever an agent is created — each dialog's
    * toggle starts here and overrides per spawn. Applies at creation only:
    * flipping it never touches existing panes. */

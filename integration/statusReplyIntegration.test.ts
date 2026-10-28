@@ -79,7 +79,7 @@ async function setup(dialect = dialects[0]) {
   let live = true;
   const channel = createAgentStatusChannel(deck, agents, tracker,
     { state: () => ({ kind: live ? "live" : "exited" }), subscribe: () => () => {} },
-    createPaneAttribution({ workspaces: () => deck.getSnapshot().workspaces, secretOf: () => "tok" }),
+    createPaneAttribution({ workspaces: () => deck.getSnapshot().workspaces, secretOf: () => "tok", swapSources: () => [] }),
     { subscribe: () => () => {} }, replies.answer, () => released);
   disposers.push(() => { channel.dispose(); manager.dispose(); });
   await Promise.resolve();

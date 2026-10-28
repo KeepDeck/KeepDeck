@@ -3,18 +3,15 @@
  * composite and one disarm home; feature factories receive the owner's single
  * queue and cannot accidentally construct a second ordering guard.
  */
-import { disarmSkills } from "../../ipc/skills";
-import { mcpDisarm } from "../../ipc/mcpArming";
+import { cwdArm, cwdDisarm } from "../../ipc/cwdArm";
 import type {
   WorktreeDeckView,
   WorktreePlantingFactories,
   WorktreePlantings,
 } from "../worktrees";
 import type { InOrder } from "../worktrees/queue";
-import { unclaimed } from "../worktrees/roots";
 import { createSweep } from "./sweep";
 
-export { createMcpPlanting } from "./mcpPlanting";
 export { createSkillsStaging } from "./skillsStaging";
 
 export function createWorktreePlantings(
@@ -22,25 +19,20 @@ export function createWorktreePlantings(
   inOrder: InOrder,
   factories: WorktreePlantingFactories,
 ): WorktreePlantings {
-  const skills = factories.skills(deck, inOrder);
-  const mcp = factories.mcp(inOrder);
+  const skills = factories.skills(inOrder);
 
-  async function disarm(roots: string[]): Promise<boolean> {
-    const departed = unclaimed(roots, deck.live());
-    const results = await Promise.all([
-      disarmSkills(departed),
-      mcpDisarm(departed),
-    ]);
-    const ok = results.every(Boolean);
-    skills.forgetStaged(roots);
-    return ok;
+  async function disarm(roots: string[]): Promise<string[] | null> {
+    const liveRoots = deck.live().flatMap((ws) => ws.roots);
+    const released = await cwdDisarm(roots, liveRoots);
+    if (released) factories.onDisarmed(released);
+    return released;
   }
 
   return {
     disarm,
     skillsFor: skills.skillsFor,
     invalidateSkills: skills.invalidateSkills,
-    plantMcp: mcp.plantMcp,
-    sweep: createSweep(deck, inOrder, disarm).sweep,
+    armCwd: (request) => inOrder(() => cwdArm(request)),
+    sweep: createSweep(deck, inOrder, disarm, factories.prunePluginDirs).sweep,
   };
 }

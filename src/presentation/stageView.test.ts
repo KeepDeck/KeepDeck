@@ -25,7 +25,7 @@ describe("stageContent — what goes over the grid", () => {
     // A pane outside every team (a legacy file) has no card to be reached
     // from; the stage says there is no team rather than showing nothing.
     expect(
-      stageContent(ws({ teams: [], panes: [{ id: "loose" }] }), undefined, 0),
+      stageContent(ws({ teams: [], panes: [{ id: "loose", agentType: "claude" }] }), undefined, 0),
     ).toEqual({ kind: "no-teams", word: NO_TEAMS_WORD });
   });
 

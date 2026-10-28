@@ -18,6 +18,7 @@ use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::paths;
+use crate::plugin_permissions::ensure_allowed_url;
 
 const CANCELLED: &str = "cancelled";
 const RECENT_IDS_LIMIT: usize = 4096;
@@ -876,28 +877,6 @@ fn validate_response_range(
         .total
         .ok_or("HTTP 206 Content-Range must declare the complete length")?;
     Ok(Some(total))
-}
-
-fn ensure_allowed_url(url: &Url, allowed_domains: Option<&[String]>) -> Result<(), String> {
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(format!("unsupported download URL scheme: {}", url.scheme()));
-    }
-    let Some(domains) = allowed_domains else {
-        return Ok(());
-    };
-    let host = url.host_str().ok_or("download URL has no host")?;
-    let authority = match url.port() {
-        Some(port) => format!("{host}:{port}"),
-        None => host.to_string(),
-    };
-    if domains
-        .iter()
-        .any(|domain| domain.eq_ignore_ascii_case(&authority))
-    {
-        Ok(())
-    } else {
-        Err(format!("download host is not allowed: {authority}"))
-    }
 }
 
 fn verify_integrity(

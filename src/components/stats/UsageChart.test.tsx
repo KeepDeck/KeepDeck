@@ -42,7 +42,7 @@ describe("UsageChart", () => {
   const clips = () => [...document.querySelectorAll("clipPath")].map((clip) => clip.id).filter((id) => id.includes("bar-stack"));
 
   it("rounds each column as one stack — its segments cut by one shape", () => {
-    act(() => root.render(createElement(UsageChart, { events, period: 7, now: TEST_NOW })));
+    act(() => root.render(createElement(UsageChart, { events, colors: new Map(), period: 7, now: TEST_NOW })));
     expect(document.querySelector(".recharts-bar-rectangle")).not.toBeNull();
     expect(clips().length).toBeGreaterThan(0);
     // The stack's shape: its two top corners arcs of the cap radius, its
@@ -57,8 +57,8 @@ describe("UsageChart", () => {
     act(() =>
       root.render(
         createElement("div", null, [
-          createElement(UsageChart, { key: "a", events, period: 7, now: TEST_NOW }),
-          createElement(UsageChart, { key: "b", events, period: 7, now: TEST_NOW }),
+          createElement(UsageChart, { key: "a", events, colors: new Map(), period: 7, now: TEST_NOW }),
+          createElement(UsageChart, { key: "b", events, colors: new Map(), period: 7, now: TEST_NOW }),
         ]),
       ),
     );

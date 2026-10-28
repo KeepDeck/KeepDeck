@@ -48,8 +48,10 @@ const ipc = vi.hoisted(() => ({
   onSessionBound: vi.fn(),
   watchSessionFile: vi.fn(),
   unwatchSessionFile: vi.fn(),
-  fetchCodexRateLimits: vi.fn(),
-  fetchKimiUsages: vi.fn(),
+  // What the codex contribution's own `limits.read` does — in the plugin
+  // that is a `services.rpc` call; the lane sees only the read.
+  readCodexLimits: vi.fn(),
+  readKimiLimits: vi.fn(),
   findCodexRollout: vi.fn(),
   readStoreCold: vi.fn(),
   loadUsageCache: vi.fn(),
@@ -65,8 +67,6 @@ vi.mock("../ipc/usage", () => ({
   onUsageReport: ipc.onUsageReport,
   watchSessionFile: ipc.watchSessionFile,
   unwatchSessionFile: ipc.unwatchSessionFile,
-  fetchCodexRateLimits: ipc.fetchCodexRateLimits,
-  fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
   readStoreCold: ipc.readStoreCold,
   loadUsageCache: ipc.loadUsageCache,
@@ -130,7 +130,7 @@ const carriedNormalizer: UsageNormalizer = (payload, at) => {
 /** A pane runs an agent, and a report is only believed from the agent its
  * pane runs — so an unnamed pane here is a claude pane, not an agentless
  * one, which no deck ever holds. */
-const deckWith = (panes: Pane[]): DeckState =>
+const deckWith = (panes: (Omit<Pane, "agentType"> & Partial<Pick<Pane, "agentType">>)[]): DeckState =>
   deckStateOf(panes.map((pane) => ({ agentType: "claude", ...pane })));
 
 /** The wire type itself, not a hand-copy: a local one drifted the moment
@@ -164,6 +164,7 @@ describe("createUsageChannel", () => {
       const attribution = createPaneAttribution({
         workspaces: () => deckStore.getSnapshot().workspaces,
         secretOf: (paneId) => ipc.peekPaneSpawnSpec(paneId)?.token,
+        swapSources: () => ["resume", "clear", "compact", "fork"],
       });
       bindings = createSessionBinding(
         deckStore,
@@ -189,6 +190,7 @@ describe("createUsageChannel", () => {
     deckListeners = new Set();
     deckStore = {
       getSnapshot: () => currentDeck,
+      titleAgents: () => [],
       subscribe(listener) {
         deckListeners.add(listener);
         return () => deckListeners.delete(listener);
@@ -222,7 +224,7 @@ describe("createUsageChannel", () => {
               sweep: () => Promise.resolve(["/newest.jsonl"]),
             },
             limits: {
-              poll: "codex-app-server",
+              read: () => ipc.readCodexLimits(),
               normalize: () => null,
             },
           },
@@ -260,10 +262,10 @@ describe("createUsageChannel", () => {
     });
     ipc.watchSessionFile.mockReset().mockResolvedValue(undefined);
     ipc.unwatchSessionFile.mockReset().mockResolvedValue(undefined);
-    ipc.fetchCodexRateLimits
+    ipc.readCodexLimits
       .mockReset()
       .mockResolvedValue({ body: "{}", sourceAt: Date.now() });
-    ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
+    ipc.readKimiLimits.mockReset().mockResolvedValue({ body: "{}" });
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
     ipc.readStoreCold.mockReset().mockResolvedValue(null);
     ipc.loadUsageCache.mockReset().mockResolvedValue(null);
@@ -581,7 +583,7 @@ describe("createUsageChannel", () => {
             normalize: (_p, at) => reported(at),
             tail: { watches: [] },
             limits: {
-              poll: "kimi-usages",
+              read: () => ipc.readKimiLimits(),
               normalize: (_body, at) => ({
                 kind: "reported",
                 windows: [],
@@ -606,7 +608,7 @@ describe("createUsageChannel", () => {
       ]),
     );
     await act(async () => {});
-    expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(1);
+    expect(ipc.readKimiLimits).toHaveBeenCalledTimes(1);
     expect(usage.getSnapshot().accounts.get("kimi")).toMatchObject({
       kind: "reported",
     });
@@ -615,10 +617,34 @@ describe("createUsageChannel", () => {
     // the boot fetch never repeats.
     await mount(deckWith([{ id: "pane-2", agentType: "kimi" }]));
     await act(async () => {});
-    expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(2);
+    expect(ipc.readKimiLimits).toHaveBeenCalledTimes(2);
   });
 
-  it("reads codex limits at boot through the shared app-server source", async () => {
+  it("reads ANY agent's limits through its own read — the lane knows no agent by name", async () => {
+    const read = vi.fn(async () => ({ body: "body", sourceAt: 7_000 }));
+    const normalize = vi.fn((_body: string, at: number) => ({
+      kind: "reported" as const,
+      windows: [],
+      reportedAt: at,
+      sourcePaneId: "",
+    }));
+    ipc.contributions = [
+      ...ipc.contributions,
+      {
+        pluginId: "dev.anything",
+        entry: { id: "anything", usage: { normalize: () => null, limits: { read, normalize } } },
+      },
+    ];
+
+    await mount(deckWith([]));
+    await act(async () => {});
+
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(normalize).toHaveBeenCalledWith("body", 7_000);
+    expect(usage.getSnapshot().accounts.get("anything")).toMatchObject({ reportedAt: 7_000 });
+  });
+
+  it("reads codex limits at boot through the contribution's own read", async () => {
     const codex = present(ipc.contributions.find((item) => item.entry.id === "codex"), "the Codex contribution");
     const codexLimits = present(
       present(codex.entry.usage, "the Codex usage config").limits,
@@ -633,7 +659,7 @@ describe("createUsageChannel", () => {
 
     await mount(deckWith([]));
     await act(async () => {});
-    expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+    expect(ipc.readCodexLimits).toHaveBeenCalledTimes(1);
     expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
       kind: "reported",
     });
@@ -642,7 +668,7 @@ describe("createUsageChannel", () => {
     // read stays once-per-run and the manager reuses its warm child.
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
     await act(async () => {});
-    expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
+    expect(ipc.readCodexLimits).toHaveBeenCalledTimes(2);
   });
 
   it("serializes reads and uses native post-initialization freshness", async () => {
@@ -660,7 +686,7 @@ describe("createUsageChannel", () => {
     let active = 0;
     let maxActive = 0;
     const resolves: ((read: { body: string; sourceAt: number }) => void)[] = [];
-    ipc.fetchCodexRateLimits.mockImplementation(
+    ipc.readCodexLimits.mockImplementation(
       () =>
         new Promise<{ body: string; sourceAt: number }>((resolve) => {
           active += 1;
@@ -677,10 +703,10 @@ describe("createUsageChannel", () => {
       // Boot owns the first in-flight read. Making Codex live queues exactly
       // one follow-up instead of starting a concurrent native request.
       await mount(deckWith([]));
-      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+      expect(ipc.readCodexLimits).toHaveBeenCalledTimes(1);
       now = 9_000;
       await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
-      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+      expect(ipc.readCodexLimits).toHaveBeenCalledTimes(1);
 
       // A rollout delivered during cold native initialization is older than
       // the actual JSON-RPC read. Native sourceAt, not the web trigger time,
@@ -693,7 +719,7 @@ describe("createUsageChannel", () => {
       await act(async () =>
         resolves[0]({ body: "boot", sourceAt: 8_000 }),
       );
-      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
+      expect(ipc.readCodexLimits).toHaveBeenCalledTimes(2);
       expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
         reportedAt: 8_000,
       });
@@ -704,11 +730,11 @@ describe("createUsageChannel", () => {
       now = 11_000;
       document.dispatchEvent(new Event("visibilitychange"));
       document.dispatchEvent(new Event("visibilitychange"));
-      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
+      expect(ipc.readCodexLimits).toHaveBeenCalledTimes(2);
       await act(async () =>
         resolves[1]({ body: "live", sourceAt: 10_000 }),
       );
-      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(3);
+      expect(ipc.readCodexLimits).toHaveBeenCalledTimes(3);
       expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
         reportedAt: 10_000,
       });

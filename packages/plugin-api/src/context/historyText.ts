@@ -39,24 +39,29 @@ export function textFromParts(content: unknown): string {
     .join("\n");
 }
 
-/** Injected preambles that must never NAME a conversation: XML-ish tags,
- * markdown instruction blobs, bracketed notices, skill bootstraps, claude's
- * local-command caveat. */
-const PREAMBLE = /^([<#[]|Base directory for this skill:|Caveat:)/;
+/** Injected markup that must never NAME a conversation, whatever the CLI:
+ * XML-ish tags, markdown instruction blobs, bracketed notices. Prose a CLI
+ * injects in front of a conversation is that CLI's to declare
+ * (`SessionDialect.titleSkipPrefixes`) — skipping it for every agent would
+ * throw away a real first prompt that happens to start the same way. */
+const MARKUP = /^[<#[]/;
 
 /** A leading `/` is a slash COMMAND only when the whole message is one
  * token (`/prime`) — a pasted absolute path ("/path/to/file — do X") is a
  * real user message and a perfectly good title. */
 const SLASH_COMMAND = /^\/\S*$/;
 
-/** A human title: the first REAL user turn — skipping preambles. */
+/** A human title: the first REAL user turn — skipping markup, slash
+ * commands, and the preambles this agent's dialect declares. */
 export function firstMeaningfulUserTurn(
   turns: readonly { role: string; text: string }[],
+  skipPrefixes: readonly string[],
 ): string | undefined {
   const real = turns.find(
     (t) =>
       t.role === "user" &&
-      !PREAMBLE.test(t.text) &&
+      !MARKUP.test(t.text) &&
+      !skipPrefixes.some((prefix) => t.text.startsWith(prefix)) &&
       !SLASH_COMMAND.test(t.text.trim()) &&
       t.text.length > 1,
   );

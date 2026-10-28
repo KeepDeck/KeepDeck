@@ -3,7 +3,6 @@ import {
   createFailed,
   createIsOut,
   membersOf,
-  paneAgentType,
   paneDisplayTitle,
   teamsOf,
   type Team,
@@ -64,7 +63,7 @@ export function registerWorkspaceCommands(
           panes: ws.panes.map((p, i) => ({
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
-            agentType: paneAgentType(p),
+            agentType: p.agentType,
             // Null when nothing reports — a pane that is provisioning,
             // stopped, or running a CLI with no status reporter. Absent
             // information, not an absent pane.

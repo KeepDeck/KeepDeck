@@ -105,6 +105,10 @@ const dialect: SessionDialect<ClaudeState, ClaudeRecord> = {
 
   // Claude completes a turn within one line, so nothing is ever held back.
   end: () => [],
+
+  // What claude injects as a user line ahead of a conversation: a skill's
+  // bootstrap and the caveat before a local command's output.
+  titleSkipPrefixes: ["Base directory for this skill:", "Caveat:"],
 };
 
 /** What the history reads through: the store's folders, the session reader
@@ -169,7 +173,8 @@ export function claudeHistory(ctx: HistoryPorts): AgentHistory {
       // would drift silently, into titles nobody could explain.
       const walked = await walk(ref, {
         until: (state, turns) =>
-          state.cwd !== undefined && firstMeaningfulUserTurn(turns) !== undefined,
+          state.cwd !== undefined &&
+          firstMeaningfulUserTurn(turns, dialect.titleSkipPrefixes ?? []) !== undefined,
       });
       return {
         cwd: walked.state.cwd ?? "",

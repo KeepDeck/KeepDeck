@@ -29,10 +29,10 @@ const LOOSE: Workspace = {
   ...workspace("ws-b", []),
   teams: [team("t-b")],
   panes: [
-    { id: "p5", name: "scout", team: { teamId: "t-b", role: "lead" } },
-    { id: "p6", idle: { reason: "suspended", at: "x" }, team: { teamId: "t-b", role: "impl-1" } },
+    { id: "p5", agentType: "claude", name: "scout", team: { teamId: "t-b", role: "lead" } },
+    { id: "p6", agentType: "claude", idle: { reason: "suspended", at: "x" }, team: { teamId: "t-b", role: "impl-1" } },
     // Legacy: a pane outside every team has no card to be reached from.
-    { id: "p7" },
+    { id: "p7", agentType: "claude" },
   ],
 };
 

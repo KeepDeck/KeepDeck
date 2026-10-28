@@ -1,4 +1,4 @@
-import type { AgentBinding } from "@keepdeck/plugin-api";
+import type { AgentBinding, AgentBindingReport } from "@keepdeck/plugin-api";
 
 /**
  * codex's `/new`, told apart from what the deck guards against (task-451).
@@ -19,10 +19,13 @@ import type { AgentBinding } from "@keepdeck/plugin-api";
  * Asked only about a fresh session from the pane's own, already bound
  * process; the process rules stay the deck's.
  */
-export const codexBinding: AgentBinding = {
-  restartsConversation: ({ source, facts }) =>
+export const codexBinding = {
+  // codex's SessionStart sources for a session that continues the
+  // conversation — the hook enum it shares with claude's.
+  swapSources: ["resume", "clear", "compact", "fork"],
+  restartsConversation: ({ source, facts }: AgentBindingReport) =>
     source === "startup" &&
     facts.originator === "codex-tui" &&
     facts.source === "cli" &&
     facts.thread_source === "user",
-};
+} satisfies AgentBinding;

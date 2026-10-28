@@ -25,6 +25,13 @@ const edgeOf: StatusNormalizer = (payload) => {
 };
 
 const hook = (name: string, edge: AgentStatusEvent) => ({ agent: "x", event: { hook_event_name: name }, edge });
+
+/** The fake agent's own reading of a hook's name, as its plugin's
+ * `attribute` would give it. */
+const eventOf = (payload: unknown) =>
+  isJsonRecord(payload) && isJsonRecord(payload.event) && typeof payload.event.hook_event_name === "string"
+    ? payload.event.hook_event_name
+    : null;
 const record = (edge: AgentStatusEvent, body: string) => ({ agent: "x", kind: "store.record", record: { body }, edge });
 
 describe("the tracker's account of a pane's status", () => {
@@ -34,7 +41,7 @@ describe("the tracker's account of a pane's status", () => {
 
   it("logs each transition with its edge, source time and cause — a few lines per turn, no record body", () => {
     const tracker = createAgentStatusTracker();
-    tracker.registerNormalizer("x", edgeOf);
+    tracker.registerNormalizer("x", edgeOf, eventOf);
     const start = new Date(2026, 9, 25, 18, 57, 13, 426).getTime();
     tracker.report("pane-1", hook("UserPromptSubmit", { kind: "turn-start", at: start }));
     tracker.report("pane-1", record({ kind: "turn-end", at: start + 407_890 }, "the private words of a reply"));

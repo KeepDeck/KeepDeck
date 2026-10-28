@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { execRunOnce } from "../ipc/exec";
+import { pluginRpcRequest, pluginRpcStop } from "../ipc/rpc";
 import { pluginsSqliteQuery } from "../ipc/history";
 import { workspaceDirectories } from "../domain/deck";
 import {
@@ -8,7 +9,12 @@ import {
   pluginsFsWriteRemove,
   pluginsFsWriteFile,
   pluginsFsWriteMkdir,
+  pluginsFsWriteMove,
 } from "../ipc/pluginsFsWrite";
+import { pluginWorkspaceDir, pluginWorkspacesPrune } from "../ipc/pluginWorkspaces";
+import { createPluginWorkspaceDirs } from "./pluginWorkspaceDirs";
+import { agentSummary } from "./agentSummary";
+import type { AgentFeature } from "../domain/agents";
 import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
   declaredAgentBins,
@@ -34,9 +40,15 @@ import { undeclaredStoredKeys } from "./pluginSettingsValues";
 import {
   createCapabilityGate,
   createPluginCommandsPort,
+  declaresPermissions,
+  NO_PERMISSIONS,
   type FsScope,
+  type ResolvedPermissions,
   type ServiceBackends,
 } from "../plugins/capabilities";
+import { pluginHttpGet } from "../ipc/http";
+import { forgetPluginPermissions, resolvePluginPermissions } from "../ipc/permissions";
+import { createPluginGrants } from "./pluginGrants";
 import {
   onProjectFsChange,
   projectFsReadDir,
@@ -254,6 +266,16 @@ export function createPluginManager(appDownloads: DownloadManager) {
       deckAccess.setPluginSlot(wsId, workspaceInstance, pluginId, value),
   };
 
+  /** Plugins' private per-workspace directories, handed out against the
+   * live deck and pruned by the worktrees sweep with every other leftover
+   * of a departed workspace. */
+  const workspaceDirs = createPluginWorkspaceDirs({
+    workspaces: () => liveDeckAccess.workspaces(),
+    create: pluginWorkspaceDir,
+    prune: pluginWorkspacesPrune,
+    warn: (message) => log.warn("web:plugins", message),
+  });
+
   /** The deck's UI actions, late-bound like `DeckAccess` but a SEPARATE port:
    * the KV factories consume DeckAccess as a storage port and must not be
    * handed UI powers they never use. */
@@ -385,6 +407,11 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * manifest); this backend turns that scope into concrete roots. */
   const serviceBackend: ServiceBackends = {
     exec: { runOnce: (request) => execRunOnce(request) },
+    rpc: {
+      request: (pluginId, server, method, params) =>
+        pluginRpcRequest(pluginId, server, method, params),
+      stop: (pluginId) => pluginRpcStop(pluginId),
+    },
     sessions: {
       async spawn(opts, onEvent) {
         return spawnSession(
@@ -407,6 +434,9 @@ export function createPluginManager(appDownloads: DownloadManager) {
       },
     },
     ports: { allocate: (key) => allocatePorts(key) },
+    http: {
+      get: (pluginId, request) => pluginHttpGet(pluginId, request),
+    },
     downloads: {
       start: (pluginId, request, allowedDomains, onTerminal) =>
         appDownloads.start(
@@ -448,6 +478,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
       remove: (path, roots) => pluginsFsWriteRemove(path, roots),
       writeFile: (path, text, roots) => pluginsFsWriteFile(path, text, roots),
       appendLine: (path, line, roots) => pluginsFsWriteAppend(path, line, roots),
+      move: (src, dst, roots) => pluginsFsWriteMove(src, dst, roots),
     },
     fs: {
       readDir: (path, scope) =>
@@ -530,13 +561,17 @@ export function createPluginManager(appDownloads: DownloadManager) {
         onPaneSelected: (cb) => paneSelected.on(cb),
         onDeckChanged: (cb) => deckChanged.on(cb),
       },
+      processes: { stop: (pluginId) => serviceBackend.rpc.stop(pluginId) },
       services: (manifest, source) =>
         createCapabilityGate(manifest, serviceBackend, {
           // Both tiers enforce the manifest. Built-ins additionally log a
           // diagnostic because a violation there is our own packaging bug.
           diagnostics: source === "external" ? "silent" : "log",
           log: loggerFor(manifest.id),
+          permissions: permissionsOf(manifest.id),
+          workspaceDirs: () => workspaceDirs.rootsOf(manifest.id),
         }),
+      workspaces: (pluginId) => workspaceDirs.forPlugin(pluginId),
       commands: (manifest) =>
         createPluginCommandsPort(
           manifest,
@@ -620,7 +655,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
           // so it drops back to off until the user consents again.
           if (stored !== true) return false;
           const consented = getSettings()?.plugins.consented[pluginId];
-          return consented === capabilityFingerprint(external.manifest);
+          const receipt = consentReceipt(external.manifest);
+          return receipt !== null && consented === receipt;
         }
         // Built-ins resolve through the default policy: cli agents ON unless
         // explicitly turned off, deck plugins opt-in (user decisions,
@@ -644,16 +680,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
           plugins: {
             ...plugins,
             enabled: { ...plugins.enabled, [pluginId]: enabled },
-            // Enabling an external plugin records consent for its CURRENT
-            // capabilities — that receipt is what a later update is checked
-            // against. Disabling leaves the old receipt untouched (harmless).
-            consented:
-              enabled && external
-                ? {
-                    ...plugins.consented,
-                    [pluginId]: capabilityFingerprint(external.manifest),
-                  }
-                : plugins.consented,
+            consented: consentedAfter(plugins.consented, pluginId, enabled ? external?.manifest : undefined),
           },
         });
       },
@@ -721,6 +748,16 @@ export function createPluginManager(appDownloads: DownloadManager) {
   }
 
   /** The bin of this agent the host may run to ask its version, or null. */
+  /** What an agent's plugin declares it does (its manifest `features`) — []
+   * when no installed plugin provides it. Read per call: a plugin can be
+   * installed, updated or removed while the deck is up. */
+  function agentFeatures(agentId: string): readonly AgentFeature[] {
+    const contribution = pluginRegistries.agents.list().find(({ entry }) => entry.id === agentId);
+    return contribution
+      ? agentSummary(pluginHost.getInstalled(), contribution.pluginId, contribution.entry).features
+      : [];
+  }
+
   function probeableBin(agentId: string): string | null {
     return probeableBinOfAgent(
       pluginRegistries.agents.list(),
@@ -762,9 +799,38 @@ export function createPluginManager(appDownloads: DownloadManager) {
   /** External-plugin facts the settings UI needs: whether an id is external
    * (its capabilities need consent) and whether it's a dev-folder install (a
    * badge). `undefined` for a built-in. */
-  function externalPluginInfo(pluginId: string): { dev: boolean } | undefined {
+  function externalPluginInfo(
+    pluginId: string,
+  ): { dev: boolean; permissions: ResolvedPermissions } | undefined {
     const entry = externalPlugins.get(pluginId);
-    return entry ? { dev: entry.dev } : undefined;
+    return entry ? { dev: entry.dev, permissions: permissionsOf(pluginId) } : undefined;
+  }
+
+  const grants = createPluginGrants({
+    resolve: resolvePluginPermissions,
+    forget: forgetPluginPermissions,
+    logger: loggerFor,
+  });
+  const permissionsOf = grants.permissionsOf;
+
+  /** Enabling an external plugin records consent for what it asks NOW —
+   * that receipt is what a later update is checked against. Disabling, or
+   * a declaration that did not resolve, leaves the old receipt untouched. */
+  function consentedAfter(
+    consented: Readonly<Record<string, string>>,
+    pluginId: string,
+    enabling: PluginManifest | undefined,
+  ): Readonly<Record<string, string>> {
+    const receipt = enabling ? consentReceipt(enabling) : null;
+    return receipt === null ? consented : { ...consented, [pluginId]: receipt };
+  }
+
+  /** The consent receipt for an external plugin, or null when its
+   * declaration did not resolve — nothing can be consented to then. */
+  function consentReceipt(manifest: PluginManifest): string | null {
+    const resolved = grants.resolved(manifest.id);
+    if (!resolved && declaresPermissions(manifest.capabilities)) return null;
+    return capabilityFingerprint(manifest, resolved ?? NO_PERMISSIONS);
   }
 
   function pluginSection(pluginId: string) {
@@ -835,7 +901,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
           install.manifest,
           loggerFor(install.manifest.id),
         );
-        pluginHost.install(install, "builtin");
+        pluginHost.install(await grants.prepare(install, "builtin"), "builtin");
       }
       await syncExternalPlugins();
       // One detection pass over every declared agent bin BEFORE the
@@ -935,6 +1001,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     for (const id of [...externalPlugins.keys()]) {
       if (!scanned.has(id)) {
         externalPlugins.delete(id);
+        await grants.drop(id);
         await pluginHost.uninstall(id);
         clearPluginCrashes(id);
         clearOverlayVisibility(id);
@@ -948,10 +1015,13 @@ export function createPluginManager(appDownloads: DownloadManager) {
       if (current) await pluginHost.uninstall(id); // changed — reload its code
       externalPlugins.set(id, next);
       pluginHost.install(
-        {
-          manifest: next.manifest,
-          load: async () => makeExternalPlugin(next.manifest),
-        },
+        await grants.prepare(
+          {
+            manifest: next.manifest,
+            load: async () => makeExternalPlugin(next.manifest),
+          },
+          "external",
+        ),
         "external",
       );
     }
@@ -1064,6 +1134,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
 
   return {
     pluginRegistries,
+    workspaceDirs,
     wireDeckAccess,
     wireDeckUi,
     revealPluginDockTab,
@@ -1074,6 +1145,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     rescanPlugins,
     restartPlugin,
     agentBinVersion,
+    agentFeatures,
     ensureAgentVersion,
     /**
      * What this agent's CLI answers to `--version` RIGHT NOW — asked anew for

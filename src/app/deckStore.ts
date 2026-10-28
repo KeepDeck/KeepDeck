@@ -3,6 +3,7 @@ import {
   initialDeckState,
   type DeckAction,
   type DeckState,
+  type TitleAgent,
 } from "../domain/deck";
 
 export interface DeckStore {
@@ -10,6 +11,9 @@ export interface DeckStore {
   subscribe(listener: () => void): () => void;
   /** Apply one domain transition synchronously and return its resulting state. */
   dispatch(action: DeckAction): DeckState;
+  /** What naming a pane needs from the agent catalog, read now — the deck's
+   * actions title a sealed journal record with it, as the header showed. */
+  titleAgents(): readonly TitleAgent[];
 }
 
 /** The store as wiring that only watches the deck sees it: what is there
@@ -28,12 +32,16 @@ export type DeckWatch = Pick<DeckStore, "getSnapshot" | "subscribe">;
  */
 export function createDeckStore(
   initialState: DeckState = initialDeckState,
+  /** The live agent catalog. A deck with none names panes by what their
+   * terminals said, undecorated by nothing — no glyph is stripped. */
+  titleAgents: () => readonly TitleAgent[] = () => [],
 ): DeckStore {
   let state = initialState;
   const listeners = new Set<() => void>();
 
   return {
     getSnapshot: () => state,
+    titleAgents,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

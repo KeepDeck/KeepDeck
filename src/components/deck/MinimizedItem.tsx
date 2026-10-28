@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import { activityBadge } from "../../domain/status";
+import { activityBadge } from "../../presentation/activityBadge";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { RestoreUpIcon } from "../../ui/icons";
 import { YoloBadge } from "../../ui/badges";
@@ -17,6 +17,8 @@ interface MinimizedItemProps {
   title: string;
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
+  /** The agent's own words for its failure codes, from the catalog. */
+  failureLabels?: Readonly<Record<string, string>>;
   /** The agent's live branch badge, when its cwd is a known git HEAD. */
   gitBadge?: GitBadge | null;
   /** The pane's place on a team, when it is on one — shown in the hover
@@ -108,6 +110,7 @@ export function MinimizedItem({
   paneId,
   title,
   icon,
+  failureLabels,
   gitBadge,
   team,
   yolo,
@@ -123,7 +126,7 @@ export function MinimizedItem({
   const frame = trayChipFrame(activity, Boolean(stopped));
   // The hover details spell out what the frame only colours: the same
   // settled badge the pane header renders (domain formats, views render).
-  const activityView = activity ? activityBadge(activity) : null;
+  const activityView = activity ? activityBadge(activity, failureLabels) : null;
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const focused = useRef(false);

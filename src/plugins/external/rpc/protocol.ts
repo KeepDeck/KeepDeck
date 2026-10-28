@@ -209,11 +209,20 @@ export interface WireSpawnPlanOutput {
 /** The payload of one `hook:<id>` push: which agent, which hook, and the
  * input/output pair (both plain data — the mutate-in-place contract crosses
  * the wire as "send both, return the mutated output"). */
+/** What `arm.plan` fills (plugin API 72): the cwd plantings, plain data. */
+export interface WireArmOutput {
+  cwd: (
+    | { kind: "file"; path: string; content: string }
+    | { kind: "symlink"; path: string; target: string }
+  )[];
+}
+
 export interface WireHookCall {
   agentId: string;
   hook: string;
   input: unknown;
-  output: WireSpawnPlanOutput;
+  /** A plan's output for the plan hooks, the plantings for `arm.plan`. */
+  output: WireSpawnPlanOutput | WireArmOutput;
 }
 
 /** One read-only call into an external agent's session history provider.

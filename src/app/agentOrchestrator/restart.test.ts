@@ -110,6 +110,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
         yolo: true,
         stagedSkills: expect.any(Function),
         mcpAccess: expect.any(Function),
+        armCwd: expect.any(Function),
       },
       ctx,
       "session-old",
@@ -124,10 +125,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     });
     const calls = vi.mocked(buildResumeSpec).mock.calls;
     await calls[calls.length - 1][2].stagedSkills?.();
-    expect(skillsAsked).toHaveBeenCalledWith(
-      { id: "ws-1", instance: deck.workspaces[0].instance },
-      undefined,
-    );
+    expect(skillsAsked).toHaveBeenCalledWith({ id: "ws-1", instance: deck.workspaces[0].instance });
   });
   it("starts fresh only on click, clearing the binding but keeping the worktree", async () => {
     seed();

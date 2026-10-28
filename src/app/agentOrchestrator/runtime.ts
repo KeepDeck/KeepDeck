@@ -3,7 +3,6 @@ import type { SpawnPlanContext } from "../spawnSpecs";
 import {
   findPane,
   findWorkspace,
-  paneAgentType,
   paneExecutionCwd,
   paneRunIntent,
   paneWakeOrigin,
@@ -80,12 +79,12 @@ export function createAgentOrchestratorRuntime(
   const inFlight = new Set<string>();
   let booted = false;
   let scheduled = false;
-  const { mcpAccess } = deps;
+  const { mcpAccess, armCwd } = deps;
   // Skills are resolved at plan mint: the staged view is frozen into the
   // hook's output for that spawn, so a later gate flip affects only the next
   // plan.
-  const skillsAsk: StagedSkillsAsk = (workspace, landing) => () =>
-    worktrees.skillsFor(workspace, landing);
+  const skillsAsk: StagedSkillsAsk = (workspace) => () =>
+    worktrees.skillsFor(workspace);
 
 
   /** Coalesce to one pass per turn: the sweep dispatches deck transitions of
@@ -222,6 +221,7 @@ export function createAgentOrchestratorRuntime(
     startOwed,
     skillsAsk,
     mcpAccess,
+    armCwd,
     schedule,
     lifecycle,
   });
@@ -234,6 +234,7 @@ export function createAgentOrchestratorRuntime(
     creation,
     skillsAsk,
     mcpAccess,
+    armCwd,
     worktrees,
   });
 
@@ -244,7 +245,7 @@ export function createAgentOrchestratorRuntime(
     dir: string,
     sessionId: string | null,
   ): Promise<void> {
-    const agentType = paneAgentType(pane);
+    const agentType = pane.agentType;
     // WHOSE resume this is decides what happens when the CLI rejects the id.
     // A boot restore takes the one-shot fall back to a fresh conversation —
     // nobody is watching, and an empty pane beats a dead one. A resume the
@@ -275,6 +276,7 @@ export function createAgentOrchestratorRuntime(
             yolo: pane.yolo,
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,
+            armCwd,
           },
           ctx,
           sessionId,
@@ -336,6 +338,7 @@ export function createAgentOrchestratorRuntime(
           {
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,
+            armCwd,
           },
         ).then((changed) => {
           if (!changed) return;
@@ -367,7 +370,7 @@ export function createAgentOrchestratorRuntime(
         // agent no plugin provides, a directory that is gone, a workspace
         // nobody has opened — and the reason it gives is the reason the card
         // shows.
-        const agentType = paneAgentType(pane);
+        const agentType = pane.agentType;
         // A restart owns this pane until it is finished, and that covers BOTH
         // halves of the sweep. Guarding only the spawn half left the wake half
         // open: a suspend during a restart's awaits marks the pane idle, a
@@ -546,7 +549,7 @@ export function createAgentOrchestratorRuntime(
       if (!workspace || !pane) return "gone";
       if (paneProvisioning(workspace, pane)) return "provisioning";
       if (!pane.idle) return "running";
-      if (!agents.commands().has(paneAgentType(pane))) return "unavailable";
+      if (!agents.commands().has(pane.agentType)) return "unavailable";
       if (runView.clearNotes(paneId)) publish();
       startOwed.add(paneId);
       actions.requestPaneWake(wsId, paneId);

@@ -14,6 +14,7 @@ export type {
   AgentBinding,
   AgentBindingReport,
   AgentCompanion,
+  AgentPresentation,
   CompanionCover,
   ForkDiscard,
   ForkPlanInput,
@@ -26,10 +27,20 @@ export type {
   McpServerSpec,
   McpStdioServerSpec,
   SpawnMcpInput,
+  SpawnSkill,
   SpawnSkillsInput,
+  CwdArm,
+  SpawnArmOutput,
   SpawnTarget,
 } from "./agents.ts";
-export { MCP_HTTP_API, mapMcpServers, mcpHttpHeaders } from "./agents.ts";
+export {
+  ARM_CAPS,
+  fitsArmCaps,
+  isAgentPresentation,
+  MCP_HTTP_API,
+  mapMcpServers,
+  mcpHttpHeaders,
+} from "./agents.ts";
 export type {
   AgentStatus,
   AgentStatusEvent,
@@ -45,7 +56,7 @@ export type {
 export {
   admitMail,
   admittedNormalizer,
-  agentIdActor,
+  actorFromFields,
   collectsAtTurnEnd,
   mailAskArgs,
   type AgentMail,
@@ -71,11 +82,12 @@ export type {
   AccountUsage,
   AgentUsage,
   ApiActivity,
+  AgentLimits,
   LimitsNormalizer,
+  LimitsRead,
   NormalizedUsage,
   PaneUsage,
   TokenCounts,
-  UsageLimitsSource,
   UsageNormalizer,
   UsageTail,
   UsageWindow,
@@ -113,7 +125,7 @@ export {
   type SessionStore,
   type TranscriptPage,
 } from "./sessionHistory.ts";
-export { isJsonRecord, keyList } from "../json.ts";
+export { isJsonRecord, isJsonValue, keyList, type JsonValue } from "../json.ts";
 export {
   firstMeaningfulUserTurn,
   textFromParts,
@@ -173,6 +185,13 @@ export type {
   PluginExec,
   PluginExecOutcome,
   PluginExecRequest,
+  PluginRpc,
+  RpcAnswer,
+  RpcCall,
+  PluginHttp,
+  HttpGet,
+  HttpAnswer,
+  PluginEnv,
   PluginSessions,
   PluginSpawnOptions,
 } from "./services.ts";
@@ -235,7 +254,26 @@ export type {
   WorkspaceSnapshot,
 } from "./snapshots.ts";
 export type { PluginResources } from "./resources.ts";
-export type { PluginKV, PluginStorage } from "./storage.ts";
+export type { PluginKV, PluginStorage, PluginWorkspaces } from "./storage.ts";
+export {
+  oneAtATime,
+  publishFiles,
+  type OneAtATime,
+  type PublishedFile,
+} from "./publish.ts";
+export {
+  composeSkillFile,
+  frontmatterLine,
+  frontmatterObstacle,
+  frontmatterTextOf,
+  hasUsableSkillDescription,
+  normalizeSkillDescription,
+  parseSkillFile,
+  renameSkillFile,
+  type ParsedSkill,
+  type SkillDraft,
+  type SkillFileRename,
+} from "./skill.ts";
 export type {
   DockTabContribution,
   DockTabProps,

@@ -8,7 +8,6 @@ import {
 } from "../domain/agents";
 import {
   findWorkspaceOfPane,
-  paneAgentType,
   type Workspace,
 } from "../domain/deck";
 import type { AgentBindingReport } from "@keepdeck/plugin-api";
@@ -74,36 +73,23 @@ export interface PaneAttribution {
 }
 
 /**
- * The words our agents actually report for a continued conversation, and the
- * one place they are translated into the deck's two.
- *
- * This lives HERE, not in the domain rule, because it is per-vendor protocol
- * vocabulary: it changes when a CLI changes, while the rule it feeds changes
- * when the deck's idea of identity does. Today the four agents agree — claude
- * defined the words, codex and kimi copied its hooks design, opencode's
- * reporter says `new` for its one mid-life case — so one set is the whole
- * translation. The moment two of them disagree, this is the seam that becomes
- * a per-agent contribution beside `usage.normalize` and `status.normalize`.
- */
-const SWAP_WORDS: ReadonlySet<string> = new Set([
-  "resume",
-  "clear",
-  "compact",
-  "fork",
-  "new",
-]);
-
-/**
- * The CLI's own word for why a session started, read as one bit.
+ * The CLI's own word for why a session started, read as one bit, against
+ * the words the pane's agent declares for a continued conversation
+ * (`AgentBinding.swapSources`) — per-CLI protocol vocabulary, so the
+ * agent's, never a set the host keeps for all of them.
  *
  * Anything unrecognised — a word from a newer CLI, a field the reporter could
- * not fill, a reporter too old to send one — reads as `startup`, the STRICT
- * side: an unrecognised binding can then only be refused as a second start,
- * never accepted as a continuation. Guessing the other way would hand every
- * unknown word the one verdict that overwrites the pane's identity.
+ * not fill, a reporter too old to send one, an agent that declared none —
+ * reads as `startup`, the STRICT side: an unrecognised binding can then only
+ * be refused as a second start, never accepted as a continuation. Guessing
+ * the other way would hand every unknown word the one verdict that
+ * overwrites the pane's identity.
  */
-export function bindingOrigin(source: string | undefined): BindingOrigin {
-  return source !== undefined && SWAP_WORDS.has(source) ? "swap" : "startup";
+export function bindingOrigin(
+  source: string | undefined,
+  swapSources: readonly string[],
+): BindingOrigin {
+  return source !== undefined && swapSources.includes(source) ? "swap" : "startup";
 }
 
 export interface PaneAttributionDeps {
@@ -117,6 +103,9 @@ export interface PaneAttributionDeps {
    * (`AgentContribution.binding`): its user's new conversation, or not.
    * Absent, or an agent with nothing to say, means not — the strict side. */
   restartsConversation?(agent: string, report: AgentBindingReport): boolean;
+  /** The agent's words for a continued conversation
+   * (`AgentBinding.swapSources`); none means every word is a fresh start. */
+  swapSources(agent: string): readonly string[];
 }
 
 export function createPaneAttribution(
@@ -152,7 +141,7 @@ export function createPaneAttribution(
     const pane = findWorkspaceOfPane(deps.workspaces(), paneId)?.panes.find(
       (candidate) => candidate.id === paneId,
     );
-    return pane ? paneAgentType(pane) : undefined;
+    return pane ? pane.agentType : undefined;
   };
 
   /** The pane's agent on this report, asked safely: its contribution is a
@@ -179,7 +168,7 @@ export function createPaneAttribution(
         reportedSecret: report.token,
         paneAgent,
         reportedAgent: report.agent,
-        origin: bindingOrigin(report.source),
+        origin: bindingOrigin(report.source, paneAgent ? deps.swapSources(paneAgent) : []),
         boundThisGeneration: bound.has(report.paneId),
         boundReporter: bound.get(report.paneId),
         reportedReporter: report.reporter,

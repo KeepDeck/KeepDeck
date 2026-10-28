@@ -36,9 +36,17 @@ nothing is installed on the user's side.
   root, and the ancestry used to tell a subagent's session from the main
   one.
 - MCP servers travel in the same `OPENCODE_CONFIG_CONTENT`.
-- Skills come through `OPENCODE_CONFIG_DIR` as an env default on 1.x;
-  `src/warm.ts` makes sure that directory's dependencies are installed.
-  On 2.x they come as `skills: [<staged skills dir>]` in
+- Skills come through `OPENCODE_CONFIG_DIR` as an env default on 1.x. The
+  plugin builds that directory itself in its own workspace directory
+  (`src/layout.ts`: `config/skills/<name>/SKILL.md` and a `/name` palette
+  command per skill under `config/command/`, each subtree published whole),
+  and `src/warm.ts` makes sure its dependencies are installed. The config
+  home builds before plugin API 73 made under the host's skills directory is
+  deleted once, at startup (`src-tauri/src/plantings_migration.rs`): opencode's
+  login and sessions live in `~/.local/share/opencode` and stay; what its own
+  plugins kept there is lost (a re-login for one that needs it), and the
+  install tree is rebuilt by the first warm-up. On 2.x they
+  come as `skills: [<the host's bare skills dir>]` in
   `OPENCODE_CONFIG_CONTENT` instead, with no config dir and no warming.
 - `KEEPDECK_OPENCODE_SKIPS_APPROVALS` is set for permission-skipping panes.
 - Remote panes use `opencode attach <endpoint>`.
@@ -47,7 +55,7 @@ nothing is installed on the user's side.
 shared `launchPlans`. A launch is one interface, `OpencodeLaunch`, with a
 whole launch per case composed from parts:
 - shared parts: KeepDeck's plugin, MCP servers, the permission mode;
-- 1.x: the staged config dir (skills, warm-up) and its flags;
+- 1.x: the plugin-built config dir (skills, warm-up) and its flags;
 - 2.x: the `skills` config key and `--standalone`;
 - remote: `attach <endpoint>` and nothing local.
 

@@ -47,6 +47,14 @@ export interface AgentIconPath {
 export interface AgentInfo {
   id: AgentType;
   label: string;
+  /** Glyphs this agent's CLI decorates its terminal titles with, stripped
+   * from what its panes are called (see `paneDisplayTitle`). */
+  titleGlyphs?: readonly string[];
+  /** This agent's own words for its failure codes (the shared ones are the
+   * host's). */
+  failureLabels?: Readonly<Record<string, string>>;
+  /** This agent's series colour in usage charts, `#RRGGBB`. */
+  chartColor?: string;
   /** The agent's brand mark, when its plugin ships one. */
   icon?: AgentIcon;
   /** CLI command to spawn (passed back to `session_spawn`). */
@@ -73,15 +81,22 @@ export function selectableAgents(agents: AgentInfo[]): AgentInfo[] {
   return installed.length > 0 ? installed : launchable;
 }
 
-/** Pick a sensible agent type from the selectable set: keep `preferred` if it's
- *  still selectable, else the first selectable, else `"claude"` (pre-load / empty). */
+/** The catalog's agents whose plugin declares `featureId`, in catalog order. */
+export function agentsDeclaring(agents: readonly AgentInfo[], featureId: string): AgentInfo[] {
+  return agents.filter((agent) => hasAgentFeature(agent.features, featureId));
+}
+
+/** Pick a sensible agent type from the selectable set: keep `preferred` if
+ *  it's still selectable, else the first selectable — or null when there is
+ *  none, while the catalog loads or with no agent plugin installed. No agent
+ *  is ever assumed: a pane created for one nobody provides is a phantom. */
 export function defaultAgentType(
   agents: AgentInfo[],
-  preferred?: AgentType,
-): AgentType {
+  preferred?: AgentType | null,
+): AgentType | null {
   const pool = selectableAgents(agents);
   if (preferred && pool.some((a) => a.id === preferred)) return preferred;
-  return pool[0]?.id ?? "claude";
+  return pool[0]?.id ?? null;
 }
 
 /** Whether `type`'s catalog entry declares YOLO support — the single gate
@@ -90,7 +105,7 @@ export function defaultAgentType(
  *  agent whose plugin can't honor it. */
 export function agentSupportsYolo(
   agents: AgentInfo[],
-  type: AgentType,
+  type: AgentType | null,
 ): boolean {
   return agentHasFeature(agents, type, AGENT_FEATURE.yolo);
 }
@@ -98,7 +113,7 @@ export function agentSupportsYolo(
 /** Whether `type` can create a fresh session. */
 export function agentSupportsNew(
   agents: AgentInfo[],
-  type: AgentType,
+  type: AgentType | null,
 ): boolean {
   return agentHasFeature(agents, type, AGENT_FEATURE.newSession);
 }
@@ -112,7 +127,7 @@ export interface AgentSessionCapabilities {
 /** Session actions supported by one catalog entry. */
 export function agentSessionCapabilities(
   agents: AgentInfo[],
-  type: AgentType,
+  type: AgentType | null,
 ): AgentSessionCapabilities {
   const agent = agents.find((entry) => entry.id === type);
   const features = agent?.features ?? [];
@@ -125,7 +140,7 @@ export function agentSessionCapabilities(
 
 export function agentHasFeature(
   agents: AgentInfo[],
-  type: AgentType,
+  type: AgentType | null,
   featureId: string,
 ): boolean {
   const agent = agents.find((entry) => entry.id === type);
@@ -141,7 +156,7 @@ export function agentHasFeature(
  *  "Where: Remote" option and constrains what endpoint it accepts. */
 export function agentRemoteSchemes(
   agents: AgentInfo[],
-  type: AgentType,
+  type: AgentType | null,
 ): readonly AgentRemoteScheme[] | null {
   const agent = agents.find((entry) => entry.id === type);
   if (!agent) return null;

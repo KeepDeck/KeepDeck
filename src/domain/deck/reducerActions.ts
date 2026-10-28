@@ -11,7 +11,10 @@ export type DeckAction =
   | { type: "addAgentPane"; id: string; pane: Pane }
   | { type: "renameWorkspace"; id: string; name: string }
   | { type: "moveWorkspace"; id: string; toIndex: number }
-  | { type: "closeAgent"; wsId: string; paneId: string; at: string }
+  /** `sealTitle` is the title the pane's journal record freezes with — what
+   * its header showed, named by the dispatcher, which can see the agent
+   * catalog the reducer cannot. Like `at`, minted at the dispatch boundary. */
+  | { type: "closeAgent"; wsId: string; paneId: string; at: string; sealTitle?: string }
   | { type: "closeWorkspace"; id: string; at: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
   | { type: "toggleMinimize"; wsId: string; paneId: string }
@@ -56,6 +59,8 @@ export type DeckAction =
       session: PaneSession | null;
       transcriptPath?: string;
       at: string;
+      /** The outgoing session's journal title, as for `closeAgent`. */
+      sealTitle?: string;
     }
   | {
       type: "setWorkspacePluginSlot";

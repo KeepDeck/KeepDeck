@@ -13,6 +13,42 @@ const workspace = (id: string): Workspace => ({
   panes: [],
 });
 
+describe("the sealed journal title", () => {
+  /** A deck with one bound pane whose terminal title is decorated. */
+  function boundDeck(titleAgents: () => { id: string; label: string; titleGlyphs?: string[] }[]) {
+    const store = createDeckStore(undefined, titleAgents);
+    const actions = createDeckActions(store);
+    store.dispatch({
+      type: "createWorkspace",
+      workspace: { ...workspace("ws-1"), panes: [{ id: "pane-1", agentType: "glyphs", autoTitle: "✶ fixing auth" }] },
+      at: "2026-01-01T00:00:00.000Z",
+    });
+    actions.setPaneSession("ws-1", "pane-1", { id: "s-1", boundAt: "2026-01-01T00:00:00.000Z" });
+    const sealedTitle = () =>
+      store.getSnapshot().journal.records["ws-1"].find((record) => record.sessionId === "s-1")?.title;
+    return { actions, sealedTitle };
+  }
+  const catalog = () => [{ id: "glyphs", label: "Glyphs", titleGlyphs: ["✶"] }];
+
+  it("is what the header showed when the pane closed — cleaned by the catalog the store reads", () => {
+    const { actions, sealedTitle } = boundDeck(catalog);
+    actions.closeAgent("ws-1", "pane-1");
+    expect(sealedTitle()).toBe("fixing auth");
+  });
+
+  it("is what the header showed when the session switched", () => {
+    const { actions, sealedTitle } = boundDeck(catalog);
+    actions.setPaneSession("ws-1", "pane-1", { id: "s-2", boundAt: "2026-01-01T00:00:01.000Z" });
+    expect(sealedTitle()).toBe("fixing auth");
+  });
+
+  it("keeps the decoration for an agent the catalog does not decorate", () => {
+    const { actions, sealedTitle } = boundDeck(() => []);
+    actions.closeAgent("ws-1", "pane-1");
+    expect(sealedTitle()).toBe("✶ fixing auth");
+  });
+});
+
 describe("DeckStore", () => {
   it("applies actions synchronously and publishes the resulting snapshot", () => {
     const store = createDeckStore();

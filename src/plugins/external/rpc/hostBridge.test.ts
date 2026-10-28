@@ -56,6 +56,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
     },
     agents: { register: () => disposable },
     resources: { path: async () => null },
+    workspaces: { dir: async () => "/plugin-workspaces/p/ws" },
     storage: {
       workspace: () => ({
         get: async () => undefined,
@@ -93,6 +94,9 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         readText: async () => "",
       },
       exec: { runOnce: async () => ({ ran: true, ok: true, said: "" }) },
+      rpc: { request: async () => ({ result: "{}", sentAt: 1 }) },
+      http: { get: async () => ({ status: 200, body: "{}", truncated: false, sentAt: 1 }) },
+      env: { get: async () => null },
       sessions: {
         spawn: async () => ({
           id: "s1",
@@ -127,6 +131,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         remove: async () => {},
         writeFile: async () => {},
         appendLine: async () => {},
+        move: async () => {},
       },
       git: {
         status: async () => ({

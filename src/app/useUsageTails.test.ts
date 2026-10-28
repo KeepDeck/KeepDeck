@@ -119,6 +119,7 @@ describe("usage tails — a suspended pane's watcher", () => {
     const attribution = createPaneAttribution({
       workspaces: () => store.getSnapshot().workspaces,
       secretOf: () => specs.token ?? undefined,
+      swapSources: () => ["resume", "clear", "compact", "fork"],
     });
     bindings = createSessionBinding(
       store,
@@ -227,6 +228,7 @@ describe("usage tails — a store search racing a binding", () => {
     const attribution = createPaneAttribution({
       workspaces: () => store.getSnapshot().workspaces,
       secretOf: () => specs.token ?? undefined,
+      swapSources: () => ["resume", "clear", "compact", "fork"],
     });
 
     let announce: ((bound: AcceptedBinding) => void) | null = null;
@@ -314,6 +316,7 @@ describe("usage tails — a pane whose process has a companion", () => {
     const attribution = createPaneAttribution({
       workspaces: () => store.getSnapshot().workspaces,
       secretOf: () => "token-1",
+      swapSources: () => ["resume", "clear", "compact", "fork"],
     });
     let announce!: (bound: AcceptedBinding) => void;
     const lane = createUsageTailsLane({

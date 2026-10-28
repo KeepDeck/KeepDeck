@@ -17,6 +17,13 @@
  */
 
 import type { FsEntry, FsFile, PluginFs } from "./context/services.ts";
+
+/** The SKILL.md shapes the codec must carry, and the ones it must refuse to
+ * re-author — one corpus for the codec's suite and every consumer's. */
+export {
+  CARRIED as CARRIED_SKILL_FILES,
+  REFUSED as REFUSED_SKILL_FILES,
+} from "./context/skill.testSupport.ts";
 import type { SpeechCapture, SpeechTranscript } from "./context/speech.ts";
 import type { SessionCursor } from "./context/sessionRead.ts";
 

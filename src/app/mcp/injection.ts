@@ -31,9 +31,7 @@
 import { errorMessage, type McpServerSpec } from "@keepdeck/plugin-api";
 import { acceptMcpServers } from "./servers";
 import { log } from "../../ipc/log";
-import type { McpArmReport } from "../../ipc/mcpArming";
 import type { BundledMcpContributor } from "./bundled";
-import { mcpFileRenderer } from "./kimi";
 
 /** The pane an injection is for: which CLI, and where it will run. */
 export interface McpInjectionTarget {
@@ -61,10 +59,10 @@ export interface McpServerSource {
 }
 
 /**
- * One pane's access to its MCP servers, in the two forms a CLI can take
- * delivery of them — and deliberately BOTH: a single answer that hid the
- * on-disk half behind a list of argv defs is what let a query write to a
- * spawning pane's working directory with no caller able to see it.
+ * One pane's access to its MCP servers. How they reach its CLI — argv, env,
+ * or a file in its cwd — is the agent's plugin's to render; a file goes
+ * through `arm.plan` and the host's cwd arming engine like anything else a
+ * plugin plants.
  */
 export interface McpAccess {
   /** The servers this pane gets, each with what its environment must carry.
@@ -72,20 +70,6 @@ export interface McpAccess {
    * file-fed CLI's children inherit the pane's environment exactly as an
    * argv-fed one's do. */
   entries: McpInjectable[];
-  /** Whether the specs ride the hook's ARGV. False for a CLI fed by a file
-   * the host plants: its hook is told nothing, and its entries' specs are in
-   * the file instead. */
-  throughArgv: boolean;
-  /**
-   * Put the file-delivered half on disk. A no-op for the argv CLIs.
-   *
-   * Split out of the answer, and called only once the plan is settled, so a
-   * plan that is REJECTED (a resume whose hook threw) plants nothing: a
-   * config naming a pane that will never spawn is a file the user never asked
-   * for in a directory they own. Never rejects — a delivery that failed
-   * leaves the pane serverless, never unspawned.
-   */
-  deliver(): Promise<void>;
 }
 
 /** Ask for one pane's access, at the moment its plan is built — never once
@@ -103,45 +87,22 @@ export interface McpInjectionDeps {
   /** The user's library. REQUIRED even when empty: a default here would make
    * "no library" the easy, silent form. */
   library: McpServerSource;
-  /** Plant a config in a pane's cwd. REQUIRED, not defaulted: the write must
-   * be ORDERED against worktree teardown, and REFUSED for a directory no live
-   * pane claims any more — both of which are the worktree owner's knowledge,
-   * not this module's. A default would be the unguarded call, i.e. the unsafe
-   * form would be the easy one. */
-  plant: (
-    workspaceId: string,
-    root: string,
-    content: string,
-  ) => Promise<McpArmReport>;
-  /** How many live panes run in this directory. A config is ONE file, so a
-   * directory shared by two panes cannot carry a per-pane secret — see
-   * [`McpInjection.access`]. Asked per call: panes come and go between
-   * spawns. */
+  /** How many live panes run in this directory. A config file in the cwd is
+   * ONE file, so a directory shared by two panes cannot carry a per-pane
+   * secret — see [`McpInjection.access`]. Asked per call: panes come and go
+   * between spawns. */
   panesIn: (cwd: string) => number;
-  /** Where a directory kept its own config instead. Reported rather than
-   * only logged: those panes are the only ones silently lacking what every
-   * other pane got, and the fix is the user's to make. */
-  onRefused?: (refusals: { root: string; reason: string }[]) => void;
-  /** Where the config DID land — so a refusal that no longer holds (the user
-   * moved their file away) stops being reported. */
-  onArmed?: (roots: string[]) => void;
+  /** Whether this agent takes its servers through a file in its cwd — its
+   * plugin's declaration (`integration.mcp` → `delivery: "cwd"`), never a
+   * name this module knows. */
+  deliversByCwd: (agentType: string) => boolean;
 }
-
-/** An argv-fed pane that gets nothing: no servers, nothing in its
- * environment, nothing to put on disk. */
-const NO_ACCESS: McpAccess = {
-  entries: [],
-  throughArgv: true,
-  deliver: () => Promise.resolve(),
-};
 
 export function createMcpInjection({
   contributors,
   library,
   panesIn,
-  plant,
-  onRefused = () => {},
-  onArmed = () => {},
+  deliversByCwd,
 }: McpInjectionDeps): McpInjection {
   /** The bundled tier's answers for one pane, in registry order. A member
    * that throws costs the pane that server, never the others — and never the
@@ -178,24 +139,8 @@ export function createMcpInjection({
     }
   }
 
-  /** kimi's half of a delivery: the config into the pane's cwd, and what came
-   * back reported. A cwd holding the user's own config refuses, and the
-   * refusal is surfaced rather than silently leaving that pane serverless. */
-  async function deliverFile(
-    target: McpInjectionTarget,
-    content: string,
-  ): Promise<void> {
-    const report = await plant(target.workspaceId, target.cwd, content);
-    for (const { root, reason } of report.refused) {
-      log.warn("web:mcp", `${root} could not take KeepDeck's MCP config: ${reason}`);
-    }
-    onArmed(report.armed);
-    onRefused(report.refused);
-  }
-
   return {
     async access(target) {
-      const render = mcpFileRenderer(target.agentType);
       // A shared directory gets no secret ON THE INVOCATION. File delivery is
       // one file per directory, so two panes running there would both announce
       // whichever secret was written last — and naming the wrong pane is worse
@@ -206,7 +151,7 @@ export function createMcpInjection({
       // which names that pane exactly. Before that, a file-fed pane sharing a
       // directory could not use a pane-scoped tool at all — mail refused it
       // with "this connection is not attached to a pane".
-      const shared = render !== null && panesIn(target.cwd) > 1;
+      const shared = deliversByCwd(target.agentType) && panesIn(target.cwd) > 1;
       const client = shared ? null : target.client;
       const [bundled, fromLibrary] = await Promise.all([
         bundledFor(target, client),
@@ -224,20 +169,7 @@ export function createMcpInjection({
       }
       // Only what was ACCEPTED goes on: an entry dropped for its name takes
       // its values with it — spec and env are one thing here.
-      const entries = candidates.filter((entry) => accepted.includes(entry.spec));
-      if (!render) {
-        return entries.length === 0
-          ? NO_ACCESS
-          : { entries, throughArgv: true, deliver: () => Promise.resolve() };
-      }
-      // A file-fed CLI takes nothing on argv, so its servers ride the delivery
-      // instead and the hook is told there is nothing to add. The content is
-      // rendered NOW, against the set this pane was answered with, and
-      // written later — an EMPTY set included: the file is the delivery, and
-      // yesterday's file left in place would keep serving a server the user
-      // has since deleted.
-      const content = render(accepted);
-      return { entries, throughArgv: false, deliver: () => deliverFile(target, content) };
+      return { entries: candidates.filter((entry) => accepted.includes(entry.spec)) };
     },
   };
 }

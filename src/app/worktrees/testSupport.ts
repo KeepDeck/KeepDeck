@@ -12,6 +12,12 @@ import { vi } from "vitest";
  * mocked module would load the real one before these registrations run.
  */
 
+/** The native disarm's guard, as the doubles answer it: a root a live
+ * workspace still runs a pane in is not released. */
+function releasedOf(roots: readonly string[], liveRoots: readonly string[]): string[] {
+  return [...new Set(roots)].filter((root) => !liveRoots.includes(root));
+}
+
 const worktreeIpc = vi.hoisted(() => ({
   inspectRepo: vi.fn(),
   createWorktree: vi.fn(),
@@ -22,24 +28,22 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 // The IPC wrappers report whether they got through — the owner only records a
 // sweep as done when they did — so the doubles answer `true` like the real ones.
 const skillsIpc = vi.hoisted(() => ({
+  fetchSkills: vi.fn(async () => [] as { scope: "global"; wsId: null; name: string; content: string }[]),
   stageSkills: vi.fn(),
-  armSkills: vi.fn(async () => ({ armed: [], refused: [] })),
-  disarmSkills: vi.fn(async (_roots: string[]) => true),
   pruneSkills: vi.fn(async (_liveWsIds: string[]) => true),
 }));
 vi.mock("../../ipc/skills", () => skillsIpc);
 
-// The MCP config is planted in the same directories by the same owner, so the
-// doubles answer like the real wrappers do.
-const mcpArmingIpc = vi.hoisted(() => ({
-  mcpArm: vi.fn(async () => ({
-    armed: [] as string[],
-    refused: [] as { root: string; reason: string }[],
-  })),
-  mcpDisarm: vi.fn(async (_roots: string[]) => true),
-  mcpPrune: vi.fn(async (_liveWsIds: string[]) => true),
+// What agents' plugins plant in a pane's cwd is taken back by the same pass.
+const cwdArmIpc = vi.hoisted(() => ({
+  cwdArm: vi.fn(async () => ({ armed: [] as string[], refused: [] as { path: string; reason: string }[] })),
+  cwdDisarm: vi.fn(
+    async (roots: readonly string[], liveRoots: readonly string[]): Promise<string[] | null> =>
+      releasedOf(roots, liveRoots),
+  ),
+  cwdArmPrune: vi.fn(async (_liveWsIds: readonly string[]) => true),
 }));
-vi.mock("../../ipc/mcpArming", () => mcpArmingIpc);
+vi.mock("../../ipc/cwdArm", () => cwdArmIpc);
 
 // The library's own sweep rides the same pass.
 const mcpLibraryIpc = vi.hoisted(() => ({
@@ -51,17 +55,15 @@ vi.mock("../../ipc/mcpLibrary", () => mcpLibraryIpc);
 // an export itself, and the suites need the doubles they assert on.
 export const worktree = worktreeIpc;
 export const skills = skillsIpc;
-export const mcpArming = mcpArmingIpc;
 export const mcpLibrary = mcpLibraryIpc;
+export const cwdArming = cwdArmIpc;
+/** Plugins' private directories, pruned by the same pass. */
+export const pluginDirs = { prune: vi.fn(async (_liveWsIds: readonly string[]) => true) };
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { WorkspaceInstance } from "../../domain/workspaceInstance";
 import type { ProvisionRequest } from "./index";
-import {
-  createMcpPlanting,
-  createSkillsStaging,
-  createWorktreePlantings,
-} from "../worktreePlantings";
+import { createSkillsStaging, createWorktreePlantings } from "../worktreePlantings";
 import {
   createWorktreeManager,
   deckViewOf,
@@ -111,9 +113,8 @@ export const ref = (id: string, instance = `${id}-life-1`): WorkspaceRef => ({
 });
 
 export const stagedFor = (wsId: string) => ({
-  claudePluginDir: `/staging/${wsId}/claude-plugin`,
-  opencodeConfigDir: `/staging/${wsId}/opencode`,
-  skillsDir: `/staging/${wsId}/skills`,
+  dir: `/staging/${wsId}/skills`,
+  skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
 });
 
 /** The deck view over a suite's mutable array, through the PRODUCTION
@@ -156,7 +157,8 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
 export function managerFor(read: () => DeckEntry[]): WorktreeManager {
   const factories: WorktreePlantingFactories = {
     skills: createSkillsStaging,
-    mcp: createMcpPlanting,
+    prunePluginDirs: pluginDirs.prune,
+    onDisarmed: () => {},
   };
   return createWorktreeManager(deckView(read), (deck, inOrder) =>
     createWorktreePlantings(deck, inOrder, factories),
@@ -170,12 +172,12 @@ export function managerFor(read: () => DeckEntry[]): WorktreeManager {
  * that costs is this — every double has to say again what the real wrapper
  * says, or the owner reads `undefined` as a failure and retries it forever. */
 export function armDoubles(): void {
+  skills.fetchSkills.mockResolvedValue([]);
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
-  skills.armSkills.mockResolvedValue({ armed: [], refused: [] });
-  skills.disarmSkills.mockResolvedValue(true);
   skills.pruneSkills.mockResolvedValue(true);
-  mcpArming.mcpArm.mockResolvedValue({ armed: [], refused: [] });
-  mcpArming.mcpDisarm.mockResolvedValue(true);
-  mcpArming.mcpPrune.mockResolvedValue(true);
   mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);
+  pluginDirs.prune.mockResolvedValue(true);
+  cwdArming.cwdArm.mockResolvedValue({ armed: [], refused: [] });
+  cwdArming.cwdDisarm.mockImplementation(async (roots, liveRoots) => releasedOf(roots, liveRoots));
+  cwdArming.cwdArmPrune.mockResolvedValue(true);
 }

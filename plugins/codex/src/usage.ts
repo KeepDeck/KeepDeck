@@ -12,7 +12,9 @@ import {
   reportedLimits,
   type AccountUsage,
   type LimitsNormalizer,
+  type LimitsRead,
   type PaneUsage,
+  type PluginRpc,
   type TailWatch,
   type TokenCounts,
   type UsageNormalizer,
@@ -137,6 +139,15 @@ function planAllowanceWindow(value: unknown): UsageWindow | null {
     resetsAt,
     windowMinutes: null,
   };
+}
+
+/** One read of the account's limits from codex's own app-server — the
+ * server and method this plugin's manifest declares (`exec.servers`). The
+ * host keeps the child and its handshake; codex reads its own credentials,
+ * and KeepDeck never touches them. */
+export async function readCodexLimits(rpc: PluginRpc): Promise<LimitsRead> {
+  const answer = await rpc.request({ server: "app-server", method: "account/rateLimits/read" });
+  return { body: answer.result, sourceAt: answer.sentAt };
 }
 
 /** Official `account/rateLimits/read` response → the same account domain

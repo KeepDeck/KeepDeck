@@ -115,6 +115,7 @@ function PaneUnderTest(
             : {},
           {
             id: props.paneId,
+            agentType: "claude",
             ...(props.provisioning ? { team: { teamId: "team-1", role: "lead" } } : {}),
             ...(props.idle ? { idle: props.idle } : {}),
           },

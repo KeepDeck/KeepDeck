@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { AgentContribution, SpawnPlanInput, SpawnPlanOutput } from "@keepdeck/plugin-api";
+import type {
+  AgentContribution,
+  PluginRpc,
+  SpawnArmOutput,
+  SpawnPlanInput,
+  SpawnPlanOutput,
+} from "@keepdeck/plugin-api";
+import { readManifest } from "@keepdeck/plugin-api";
+import manifestJson from "../manifest.json";
 import { registerCodex } from "./index";
 import { renderCodexMail, CODEX_MAIL_CHANNELS } from "./status";
 import { codexUsageWatches } from "./usage";
@@ -14,7 +22,7 @@ import { present } from "@keepdeck/plugin-api/testing";
  * or misspelling a resource name, left every test green while production
  * lost all status and all mail. Null means nothing resolves, as on a broken
  * install. */
-function activate(scriptPath: string | null): AgentContribution {
+function activate(scriptPath: string | null, rpc?: PluginRpc): AgentContribution {
   let agent: AgentContribution | undefined;
   const absent = (what: string) => async (): Promise<never> => {
     throw new Error(`${what} is not available here`);
@@ -29,6 +37,7 @@ function activate(scriptPath: string | null): AgentContribution {
     services: {
       fs: { readDir: absent("fs") },
       sessionStore: { read: absent("sessionStore") },
+      rpc: rpc ?? { request: absent("rpc") },
     },
   });
   if (!agent) throw new Error("plugin registered no agent");
@@ -46,6 +55,43 @@ const input = {
   workspace: { id: "ws-1", instance: "workspace-instance-1" },
   cwd: "/repo",
 };
+
+describe("codex account limits", () => {
+  it("are read from the app-server the manifest declares, dated by when the request went out", async () => {
+    const calls: unknown[] = [];
+    const rpc: PluginRpc = {
+      request: async (call) => {
+        calls.push(call);
+        return { result: '{"rateLimits":{}}', sentAt: 4_242 };
+      },
+    };
+    const limits = present(present(activate("/kd/hook.sh", rpc).usage, "usage").limits, "limits");
+
+    const read = await present(limits.read, "a limits read")();
+
+    expect(read).toEqual({ body: '{"rateLimits":{}}', sourceAt: 4_242 });
+    expect(calls).toEqual([{ server: "app-server", method: "account/rateLimits/read" }]);
+    // The server and the method the plugin calls are the ones it declared —
+    // the gate refuses anything else.
+    const parsed = readManifest(manifestJson);
+    if (!parsed.ok) throw new Error(parsed.errors.join("; "));
+    const exec = parsed.manifest.capabilities.find((capability) => capability.kind === "exec");
+    expect(exec?.kind === "exec" && exec.servers).toEqual([
+      {
+        id: "app-server",
+        command: "codex",
+        args: ["app-server"],
+        handshake: {
+          method: "initialize",
+          // No version: the host fills the manifest's own, written once.
+          params: { clientInfo: { name: "keepdeck", title: "KeepDeck" } },
+          then: "initialized",
+        },
+        methods: ["account/rateLimits/read"],
+      },
+    ]);
+  });
+});
 
 describe("codex plugin hooks", () => {
   it("injected MCP servers ride -c overrides on spawn AND resume", async () => {
@@ -423,6 +469,27 @@ describe("codex panes run their own process", () => {
   });
 });
 
+describe("codex plugin — what it plants in the pane's cwd", () => {
+  const skills = {
+    dir: "/kd/staging/ws-1/skills",
+    skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
+  };
+
+  it("links .agents/skills to the host's bare skills directory — codex's only door for them", async () => {
+    const arm = present(activate(null).hooks["arm.plan"], "the arm.plan hook");
+    const out: SpawnArmOutput = { cwd: [] };
+    await arm({ ...input, skills }, out);
+    expect(out.cwd).toEqual([{ kind: "symlink", path: ".agents/skills", target: "/kd/staging/ws-1/skills" }]);
+  });
+
+  it("declares nothing without skills, so an earlier link is taken back", async () => {
+    const arm = present(activate(null).hooks["arm.plan"], "the arm.plan hook");
+    const out: SpawnArmOutput = { cwd: [] };
+    await arm(input, out);
+    expect(out.cwd).toEqual([]);
+  });
+});
+
 describe("codex plugin identity", () => {
   it("ships the monochrome OpenAI mark, authored for evenodd", () => {
     const agent = activate(null);
@@ -432,13 +499,13 @@ describe("codex plugin identity", () => {
     expect(agent.icon?.paths[0].fillRule).toBe("evenodd");
   });
 
-  it("declares the shared app-server account-limits source", () => {
+  it("declares its usage watches, a boot sweep and its own limits read", () => {
     const agent = activate(null);
     expect(agent.usage?.tail?.watches).toEqual(codexUsageWatches);
     // A rollout records the ACCOUNT's limits, so codex asks to be swept at
     // boot — it is also run outside the deck, where quota is spent unseen.
     expect(agent.usage?.tail?.sweep).toBeTypeOf("function");
-    expect(agent.usage?.limits?.poll).toBe("codex-app-server");
+    expect(agent.usage?.limits?.read).toBeTypeOf("function");
   });
 
   it("contributes its mail renderer, which is what puts it on the labelled channel", () => {

@@ -240,7 +240,7 @@ fn refuse_pair(name: &str, value: &str) -> Option<String> {
 /// Anything with a separator would let a caller point at a binary of its
 /// own choosing while naming something innocuous — the capability it
 /// declared would then bound nothing at all.
-fn refuse_command(command: &str) -> Option<String> {
+pub(crate) fn refuse_command(command: &str) -> Option<String> {
     if command.is_empty() {
         return Some("an empty command".into());
     }

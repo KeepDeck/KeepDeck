@@ -16,7 +16,7 @@ describe("worktrees stays on infrastructure ports", () => {
       expect(
         source,
         `${name} must not construct a feature through a direct IPC import`,
-      ).not.toMatch(/from\s+["'](?:\.\.\/)+ipc\/(?:skills|mcpArming)["']/);
+      ).not.toMatch(/from\s+["'](?:\.\.\/)+ipc\/(?:skills|cwdArm)["']/);
     }
   });
 });

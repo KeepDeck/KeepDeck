@@ -1,13 +1,29 @@
 {
   "id": "keepdeck.kimi",
   "name": "Kimi Code",
-  "version": "0.10.1",
-  "minApiVersion": 49,
+  "version": "0.11.0",
+  "minApiVersion": 72,
   "category": "cli",
   "description": "Adds the Kimi Code CLI with exact session resume and an optional one-time setup for session persistence.",
   "capabilities": [
     { "kind": "exec", "commands": ["kimi", "/bin/sh"] },
+    { "kind": "env", "names": ["KIMI_CODE_HOME", "KIMI_CODE_BASE_URL"] },
     { "kind": "net", "domains": ["127.0.0.1"] },
+    {
+      "kind": "net",
+      "domains": [
+        "api.kimi.com",
+        "api.kimi.ai",
+        { "env": "KIMI_CODE_BASE_URL", "default": "https://api.kimi.com/coding/v1" }
+      ],
+      "credentials": [
+        {
+          "id": "kimi-code",
+          "dir": { "env": "KIMI_CODE_HOME", "default": "~/.kimi-code", "append": "credentials" },
+          "tokenFields": ["access_token", "accessToken"]
+        }
+      ]
+    },
     { "kind": "notifications" },
     { "kind": "fs", "scope": "everywhere" },
     { "kind": "fsWrite", "paths": ["~/.kimi-code"] }
@@ -49,6 +65,19 @@
             "id": "execution.yolo",
             "label": "YOLO mode",
             "group": "execution"
+          },
+          {
+            "id": "integration.mcp",
+            "label": "MCP servers from the library",
+            "group": "integration",
+            "parameters": {
+              "delivery": "cwd"
+            }
+          },
+          {
+            "id": "integration.skills",
+            "label": "Skills from the library",
+            "group": "integration"
           },
           {
             "id": "mail.turn-end",

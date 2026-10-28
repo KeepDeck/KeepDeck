@@ -12,6 +12,8 @@ import {
   decodeDownloadRequest,
   decodeDownloadTarget,
   decodeExecRequest,
+  decodeHttpGet,
+  decodeRpcCall,
   decodeGitDiffOptions,
   decodeGitHistoryOptions,
   decodeReadFileOptions,
@@ -63,6 +65,9 @@ export function createServiceHandlers({
   return {
     "services.exec.runOnce": ([request]) =>
       ctx.services.exec.runOnce(decodeExecRequest(request)),
+    "services.rpc.request": ([call]) => ctx.services.rpc.request(decodeRpcCall(call)),
+    "services.http.get": ([request]) => ctx.services.http.get(decodeHttpGet(request)),
+    "services.env.get": ([name]) => ctx.services.env.get(str(name, "env.get name")),
     "services.ports.allocate": ([key]) =>
       ctx.services.ports.allocate(str(key, "ports.allocate key")),
     "services.opener.openUrl": ([url]) =>
@@ -134,6 +139,8 @@ export function createServiceHandlers({
         str(path, "fsWrite.appendLine path"),
         str(line, "fsWrite.appendLine line"),
       ),
+    "services.fsWrite.move": ([src, dst]) =>
+      ctx.services.fsWrite.move(str(src, "fsWrite.move src"), str(dst, "fsWrite.move dst")),
     "services.fs.unwatch": ([id]) => {
       const key = num(id, "fs.unwatch id");
       watches.get(key)?.dispose();

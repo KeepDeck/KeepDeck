@@ -50,7 +50,7 @@ describe("Overview", () => {
   const render = (events: UsageEventV2[], period: UsageStatsPeriod = 7) => {
     const stats = queryUsageStats(events, period, NOW);
     act(() =>
-      root.render(createElement(Overview, { events, stats, period, now: NOW })),
+      root.render(createElement(Overview, { events, colors: new Map(), stats, period, now: NOW })),
     );
   };
 

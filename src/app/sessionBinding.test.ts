@@ -72,6 +72,7 @@ describe("createSessionBinding", () => {
     const store: DeckStore = {
       getSnapshot: () => state,
       subscribe: () => () => {},
+      titleAgents: () => [],
       dispatch,
     };
     // The REAL rule, over stub deps: a fake here would only assert that the
@@ -79,6 +80,8 @@ describe("createSessionBinding", () => {
     const attribution = createPaneAttribution({
       workspaces: () => state.workspaces,
       secretOf: () => "tok",
+      // The words a claude-like agent declares for a continued session.
+      swapSources: () => ["resume", "clear", "compact", "fork"],
     });
     return {
       binding: createSessionBinding(store, telemetry, attribution),

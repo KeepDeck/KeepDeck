@@ -10,6 +10,7 @@ import {
 } from "../../domain/settings";
 import { ArtifactsRows } from "./ArtifactsRows";
 import { McpServerRow } from "./McpServerRow";
+import { ArmRefusals } from "./ArmRefusals";
 import { TasksRows } from "./TasksRows";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 import { ON_OFF } from "../../presentation/choices";
@@ -72,7 +73,7 @@ export function GeneralSection() {
       <Segmented
         ariaLabel="Default agent"
         options={agentOptions.map((a) => ({ value: a.id, label: a.label }))}
-        value={defaultAgent}
+        value={defaultAgent ?? undefined}
         onChange={(id) => updateSettings({ defaultAgent: id })}
       />
       <span className="settings__hint">
@@ -137,6 +138,7 @@ export function GeneralSection() {
       <ArtifactsRows />
       <TasksRows />
       <McpServerRow />
+      <ArmRefusals />
     </>
   );
 }

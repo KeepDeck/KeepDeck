@@ -75,7 +75,7 @@ vi.mock("../../ipc/worktree", () => ({
 }));
 
 const hoistedSettingsState = vi.hoisted(() => ({
-  current: null as { defaultYolo?: boolean } | null,
+  current: null as { defaultYolo?: boolean; defaultAgent?: string | null } | null,
 }));
 export const settingsState = hoistedSettingsState;
 vi.mock("../settingsManager", () => ({

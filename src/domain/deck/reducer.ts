@@ -1,9 +1,4 @@
-import {
-  paneAgentType,
-  paneFrozenTitle,
-  type Pane,
-  type PaneSession,
-} from "./panes";
+import type { Pane, PaneSession } from "./panes";
 import {
   emptyJournal,
   flushJournalTail,
@@ -116,7 +111,7 @@ function boundEventFor(
     v: 1,
     wsId: ws.id,
     record: {
-      agent: paneAgentType(pane),
+      agent: pane.agentType,
       sessionId: session.id,
       // The journal attributes a session to a directory, and a session is
       // bound only once the pane has a process — so the formula never answers
@@ -253,7 +248,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
             v: 1,
             wsId,
             sessionId: closing.session.id,
-            title: paneFrozenTitle(closing),
+            title: action.sealTitle,
             at: action.at,
           })
         : state.journal;
@@ -551,7 +546,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           v: 1,
           wsId,
           sessionId: prev.id,
-          title: paneFrozenTitle(pane),
+          title: action.sealTitle,
           at: action.at,
         });
       }

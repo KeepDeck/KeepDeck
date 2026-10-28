@@ -59,7 +59,9 @@ function ctx(
   dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
   budget?: number,
+  kimiHome: string | null = null,
 ): HistoryPorts {
+  const homeVar = (name: string) => (name === "KIMI_CODE_HOME" ? kimiHome : null);
   // A wire is read a WINDOW at a time now, so the double has to serve
   // windows. It also refuses a missing path by throwing, which is kimi's own
   // shape — the other two answer with null text; only the ANSWER is shared,
@@ -86,6 +88,8 @@ function ctx(
         readFile: fs.readFile,
       },
       sessionStore,
+      // KIMI_CODE_HOME unset unless a test says otherwise.
+      env: { get: async (name: string) => homeVar(name) },
     },
   };
 }
@@ -104,6 +108,20 @@ describe("kimi history", () => {
     expect(await history.list()).toEqual([
       { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 9, size: 4 },
     ]);
+  });
+
+  it("lists the store under KIMI_CODE_HOME when it is set, and the default home when it is empty", async () => {
+    const store = (root: string) => ({
+      [`${root}/sessions`]: [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" as const }],
+      "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" as const }],
+      "/k/wd_a_1/session_s1/agents/main": [
+        { name: "wire.jsonl", path: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", kind: "file" as const, size: 4, mtime: 9 },
+      ],
+    });
+    const custom = kimiHistory(ctx({}, store("/elsewhere/kimi"), vi.fn(), undefined, "/elsewhere/kimi"));
+    expect(await custom.list()).toHaveLength(1);
+    const empty = kimiHistory(ctx({}, store("~/.kimi-code"), vi.fn(), undefined, ""));
+    expect(await empty.list()).toHaveLength(1);
   });
 
   it("an unreadable working-dir folder fails the list; a session without agents/main is skipped", async () => {

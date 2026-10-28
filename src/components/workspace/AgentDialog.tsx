@@ -32,6 +32,7 @@ import { Dropdown } from "../../ui/Dropdown";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { YoloField } from "../../ui/YoloField";
 import { forkPickLine, resumeBlockReason } from "../../presentation/sessionResumeView";
+import { agentPickView } from "../../presentation/agentPickView";
 import {
   SESSION_PICK_ESTIMATE_PX,
   SESSION_PICK_LIST_LABEL,
@@ -53,8 +54,9 @@ interface AgentDialogProps {
    * the roles it is open to and the address each pick takes. Data, so the
    * view decides nothing about roles itself. */
   roles: RoleChoice;
-  /** Pre-selected agent type. */
-  defaultAgentType: AgentType;
+  /** Pre-selected agent type — null while there is none to preselect (the
+   * catalog loading, or no agent installed). */
+  defaultAgentType: AgentType | null;
   /** A session the dialog opens with, already picked. */
   preset?: SessionPreset;
   /** The YOLO toggle's starting position (the global preference); shown only
@@ -157,7 +159,7 @@ export function AgentDialog({
   onConfirm,
   onCancel,
 }: AgentDialogProps) {
-  const [agentType, setAgentType] = useState<AgentType>(defaultAgentType);
+  const [agentType, setAgentType] = useState<AgentType | null>(defaultAgentType);
   const [name, setName] = useState("");
   // The new team's name, seeded with the deck's own suggestion so the field
   // opens filled rather than empty-and-complaining; cleared, the suggestion
@@ -201,8 +203,9 @@ export function AgentDialog({
   // while name === prefill the field is untouched and follows the picks,
   // an edit detaches it — SuggestedInput's state machine, hand-rolled.
   const prefillRef = useRef("");
-  const { agents } = useAgents();
+  const { agents, loading } = useAgents();
   const agentOptions = selectableAgents(agents);
+  const agentPick = agentPickView(agentOptions.length, loading, agentType);
   const supportsNew = agentSupportsNew(agents, agentType);
   const {
     resume: supportsResume,
@@ -271,7 +274,8 @@ export function AgentDialog({
   } = picker;
 
   // Snap the pre-selected type onto the installed set once detection resolves
-  // (the default may have been a not-installed fallback) ([F1]). The trigger
+  // (the default may have been a not-installed one, or none while the
+  // catalog was loading) ([F1]). The trigger
   // is the detected AGENTS; the current options/type are read through a ref so
   // a type change this effect causes does not re-run it.
   const snapRef = useRef({ agentOptions, agentType });
@@ -332,11 +336,10 @@ export function AgentDialog({
   // needs a valid endpoint — the Worktree + Start-from sections are hidden.
   // A member takes a role whatever it starts from — fresh, resumed or
   // forked, it is on the team under an address teammates can write to.
-  const roleOk = member ? roleAddress !== null : true;
   const valid = forTeam
     ? canCreateAgent(kind, location.branch, baseOk)
     : supportsNew &&
-      roleOk &&
+      roleAddress !== null &&
       (remote
         ? endpointOk
         : startMode === "resume"
@@ -402,21 +405,28 @@ export function AgentDialog({
             {/* A list, not a row of buttons: installed agents grow with the
                 plugins, and a row wraps into a wall where a list just gains
                 a line. */}
-            <Dropdown
-              className="form__agent-pick"
-              ariaLabel="Agent"
-              options={agentOptions.map((a) => ({
-                value: a.id,
-                label: (
-                  <span className="form__agent-option">
-                    <AgentGlyph icon={a.icon} />
-                    {a.label}
-                  </span>
-                ),
-              }))}
-              value={agentType}
-              onChange={setAgentType}
-            />
+            {agentPick.kind === "notice" && (
+              <span className="form__agent-notice" role="status">
+                {agentPick.text}
+              </span>
+            )}
+            {agentPick.kind === "pick" && (
+              <Dropdown
+                className="form__agent-pick"
+                ariaLabel="Agent"
+                options={agentOptions.map((a) => ({
+                  value: a.id,
+                  label: (
+                    <span className="form__agent-option">
+                      <AgentGlyph icon={a.icon} />
+                      {a.label}
+                    </span>
+                  ),
+                }))}
+                value={agentPick.value}
+                onChange={setAgentType}
+              />
+            )}
           </>
         )}
 

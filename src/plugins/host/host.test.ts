@@ -60,6 +60,9 @@ function fakeDeps() {
       readText: vi.fn(async () => ""),
     },
     exec: { runOnce: vi.fn(async () => ({ ran: true, ok: true, said: "" })) },
+    rpc: { request: vi.fn() },
+    http: { get: vi.fn() },
+    env: { get: vi.fn() },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
@@ -74,6 +77,7 @@ function fakeDeps() {
       remove: vi.fn(() => Promise.resolve()),
       writeFile: vi.fn(() => Promise.resolve()),
       appendLine: vi.fn(() => Promise.resolve()),
+      move: vi.fn(() => Promise.resolve()),
     },
     git: {
       status: vi.fn(),
@@ -94,6 +98,7 @@ function fakeDeps() {
   const onEnabledChanged = vi.fn();
   const deps: PluginHostDeps = {
     storage: vi.fn(() => storage),
+    workspaces: vi.fn(() => ({ dir: vi.fn(async () => "/plugin-workspaces/p/ws") })),
     settings: vi.fn(() => ({
       read: vi.fn(async () => ({})),
       write: vi.fn(async () => {}),
@@ -101,6 +106,7 @@ function fakeDeps() {
     })),
     events,
     services: vi.fn(() => services),
+    processes: { stop: vi.fn(async () => {}) },
     commands: vi.fn(() => ({
       register: vi.fn(spyDisposable),
       execute: vi.fn(async () => ({ ok: true, value: null }) as const),

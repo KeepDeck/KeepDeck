@@ -22,8 +22,8 @@ const ws: Workspace = {
   ],
   panes: [
     { id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
-    { id: "p2", autoTitle: "vitest --watch" },
-    { id: "p3", name: "Named", autoTitle: "ignored" },
+    { id: "p2", agentType: "codex", autoTitle: "vitest --watch" },
+    { id: "p3", agentType: "kimi", name: "Named", autoTitle: "ignored" },
   ],
 };
 
@@ -36,8 +36,8 @@ describe("toWorkspaceSnapshot", () => {
       cwd: "/repo",
       panes: [
         { id: "p1", name: "p1", cwd: "/repo/wt", branch: "kd/x", agentType: "claude", team: "team-1" },
-        { id: "p2", name: "vitest --watch", agentType: "unknown" },
-        { id: "p3", name: "Named", agentType: "unknown" },
+        { id: "p2", name: "vitest --watch", agentType: "codex" },
+        { id: "p3", name: "Named", agentType: "kimi" },
       ],
       teams: [
         { id: "team-1", name: "x", cwd: "/repo/wt", branch: "kd/x" },

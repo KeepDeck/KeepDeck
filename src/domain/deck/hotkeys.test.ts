@@ -5,6 +5,7 @@ import {
   maximizeHotkeyTarget,
   paneHotkeyTarget,
 } from "./hotkeys";
+import type { Pane } from "./panes";
 import type { Team } from "./teams";
 import type { Workspace } from "./workspaces";
 import { createWorkspaceInstance } from "../workspaceInstance";
@@ -20,6 +21,10 @@ const agents: AgentInfo[] = [
   },
 ];
 
+/** A pane literal as the cases write it: the agent defaults to claude here,
+ * once, rather than at every call site. */
+type PaneSeed = Omit<Pane, "agentType"> & Partial<Pick<Pane, "agentType">>;
+
 const team = (id: string): Team => ({
   id,
   name: id,
@@ -30,14 +35,14 @@ const team = (id: string): Team => ({
  * only ever targets a pane inside the open team, so that is where the
  * suite lives. A pane's role is its own id: unique, which is all that is
  * asked of it here. */
-const ws = (id: string, panes: Workspace["panes"], teams: Team[] = [team("team-1")]): Workspace => ({
+const ws = (id: string, panes: PaneSeed[], teams: Team[] = [team("team-1")]): Workspace => ({
   id,
   instance: createWorkspaceInstance(),
   name: id,
   cwd: "/tmp/repo",
   worktreeBaseDir: null,
   teams,
-  panes: panes.map((pane) => ({ ...pane, team: pane.team ?? { teamId: "team-1", role: pane.id } })),
+  panes: panes.map((pane) => ({ agentType: "claude" as const, ...pane, team: pane.team ?? { teamId: "team-1", role: pane.id } })),
 });
 
 /** ws-1's view with team-1 open, plus whatever the case sets. */

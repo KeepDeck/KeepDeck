@@ -8,7 +8,7 @@ import {
   windowLevel,
   type AccountUsage,
 } from "../../domain/usage";
-import { ledgerSeriesColors, seriesColorFor } from "../../domain/usage/chartPalette";
+import { seriesColorFor } from "../../presentation/usagePalette";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
   providerWindowGroups,
@@ -34,11 +34,14 @@ import { WindowBurn } from "../usage/WindowBurn";
 export function Providers({
   accounts,
   events,
+  colors,
   reportsByKey,
   now,
 }: {
   accounts: ReadonlyMap<string, AccountUsage>;
   events: readonly UsageEventV2[];
+  /** The dialog's series colours (presentation/usagePalette.ts). */
+  colors: ReadonlyMap<string, string>;
   /** The provider-report journal — the forecast's pace history. */
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
@@ -54,7 +57,6 @@ export function Providers({
     () => providerWindowGroups(accounts, events, reportsByKey, now),
     [accounts, events, reportsByKey, now],
   );
-  const colors = useMemo(() => ledgerSeriesColors(events), [events]);
   if (groups.length === 0) {
     return (
       <p className="stats__empty">

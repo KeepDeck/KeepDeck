@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { readManifest } from "@keepdeck/plugin-api";
+import { ARM_CAPS, readManifest } from "@keepdeck/plugin-api";
 import {
   decodeAgentHistoryCall,
   isGitBlobAnswer,
@@ -13,8 +13,12 @@ import {
   decodeGuestMessage,
   decodeHookCall,
   decodeHostMessage,
+  decodeHttpGet,
+  decodeRpcCall,
   decodeSessionEvent,
   decodeSpawnOptions,
+  isHttpAnswer,
+  isRpcAnswer,
 } from "./decode";
 
 describe("wire decoders", () => {
@@ -38,6 +42,25 @@ describe("wire decoders", () => {
         input: {},
         output: { command: "x", args: [1], env: [] },
       }),
+    ).toThrow("malformed agent hook call output");
+  });
+
+  it("reads arm.plan's output as plantings, and every other hook's as a plan", () => {
+    const arms = { cwd: [{ kind: "file", path: ".k/c", content: "{}" }, { kind: "symlink", path: ".a/s", target: "/t" }] };
+    expect(decodeHookCall({ agentId: "a", hook: "arm.plan", input: {}, output: arms }).output).toEqual(arms);
+    for (const output of [
+      { cwd: [{ kind: "file", path: ".k/c" }] },
+      { cwd: [{ kind: "socket", path: "x", target: "/t" }] },
+      { command: "x", args: [], env: [] },
+      // Well-formed, but more than KeepDeck plants.
+      { cwd: [{ kind: "file", path: ".k/c", content: "x".repeat(ARM_CAPS.CONTENT_MAX_BYTES + 1) }] },
+    ]) {
+      expect(() => decodeHookCall({ agentId: "a", hook: "arm.plan", input: {}, output })).toThrow(
+        "malformed agent hook call output",
+      );
+    }
+    expect(() =>
+      decodeHookCall({ agentId: "a", hook: "spawn.plan", input: {}, output: { cwd: [] } }),
     ).toThrow("malformed agent hook call output");
   });
 
@@ -67,6 +90,40 @@ describe("wire decoders", () => {
     expect(() =>
       decodeSessionEvent({ type: "output", bytes: [0, 256] }),
     ).toThrow("malformed session output bytes");
+  });
+
+  it("passes an rpc call whose params are JSON, and refuses one whose params are not", () => {
+    expect(decodeRpcCall({ server: "app", method: "read", params: { n: [1, "a", null] } })).toEqual({
+      server: "app",
+      method: "read",
+      params: { n: [1, "a", null] },
+    });
+    expect(decodeRpcCall({ server: "app", method: "read" })).toEqual({ server: "app", method: "read" });
+    // A structured clone carries what JSON cannot; the host would send it on.
+    for (const params of [new Date(0), new Map(), { n: Number.NaN }, [undefined]]) {
+      expect(() => decodeRpcCall({ server: "app", method: "read", params })).toThrow("malformed rpc call params");
+    }
+    expect(() => decodeRpcCall({ server: 1, method: "read" })).toThrow("malformed rpc call server");
+  });
+
+  it("decodes an http request whole and refuses a credential missing its file", () => {
+    expect(decodeHttpGet({ url: "https://a", credential: { source: "s", file: "f" }, accept: "text/plain" })).toEqual({
+      url: "https://a",
+      credential: { source: "s", file: "f" },
+      accept: "text/plain",
+    });
+    expect(decodeHttpGet({ url: "https://a" })).toEqual({ url: "https://a" });
+    expect(() => decodeHttpGet({ url: "https://a", credential: { source: "s" } })).toThrow(
+      "malformed http request credential file",
+    );
+    expect(isHttpAnswer({ status: 401, body: "", truncated: false, sentAt: 1 })).toBe(true);
+    expect(isHttpAnswer({ status: "401", body: "", truncated: false, sentAt: 1 })).toBe(false);
+  });
+
+  it("reads an rpc answer only with a string result and a number time", () => {
+    expect(isRpcAnswer({ result: "{}", sentAt: 1 })).toBe(true);
+    expect(isRpcAnswer({ result: {}, sentAt: 1 })).toBe(false);
+    expect(isRpcAnswer({ result: "{}" })).toBe(false);
   });
 });
 
@@ -127,7 +184,10 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
     workspace: { id: "ws-1", instance: "workspace-a-b-1" },
     cwd: "/w",
     yolo: true,
-    skills: { claudePluginDir: "/s/c", opencodeConfigDir: "/s/o", skillsDir: "/s/k" },
+    skills: {
+      dir: "/s/k",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
+    },
     mcp: { servers: [
       { name: "keepdeck", transport: "stdio", command: "/bin/kd", args: ["--mcp"], envPassthrough: ["KD"] },
       { name: "remote", transport: "http", url: "https://x", headers: { "X-A": "1" }, bearerTokenEnv: "TOKEN" },
@@ -147,7 +207,12 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
 
   it("refuses each nested part of a spawn input by its path", () => {
     const refused: [unknown, string][] = [
-      [{ ...spawn, skills: { ...spawn.skills, skillsDir: 7 } }, "spawn plan input.skills.skillsDir: expected a string"],
+      [{ ...spawn, skills: { ...spawn.skills, dir: 7 } }, "spawn plan input.skills.dir: expected a string"],
+      [{ ...spawn, skills: { ...spawn.skills, skills: "x" } }, "spawn plan input.skills.skills: expected an array"],
+      [
+        { ...spawn, skills: { ...spawn.skills, skills: [{ name: "a", content: 7 }] } },
+        "spawn plan input.skills.skills[0].content: expected a string",
+      ],
       [{ ...spawn, skills: "dir" }, "spawn plan input.skills: expected an object"],
       [{ ...spawn, mcp: { servers: "all" } }, "spawn plan input.mcp.servers: expected an array"],
       [{ ...spawn, mcp: { servers: [{ ...spawn.mcp.servers[0], args: "--mcp" }] } }, "spawn plan input.mcp.servers[0].args: expected an array of strings"],

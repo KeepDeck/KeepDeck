@@ -40,6 +40,8 @@ function activate(
   registerClaude({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     log: { info() {}, warn() {}, error() {} },
+    // The plugin's own directory per workspace — a path, nothing on disk.
+    workspaces: { dir: async (workspace) => `/pw/keepdeck.claude/${workspace.id}` },
     resources: { path: async (name: string) => resources?.[name] ?? null },
     settings: {
       registerSection: (section: SettingsSectionContribution) => (
@@ -62,6 +64,10 @@ function activate(
           copies.push([src, dst]);
         },
         remove: async () => {},
+        // What the skills plugin directory is built with; its bytes are
+        // skillsPlugin.test.ts's to pin.
+        writeFile: async () => {},
+        move: async () => {},
       },
       sessionStore: { read: absent("sessionStore") },
       sessions: { spawn: absent("sessions") },
@@ -287,29 +293,23 @@ describe("claude plugin hooks", () => {
     expect(bare.args).not.toContain("--mcp-config");
   });
 
-  it("staged skills load as a local plugin via --plugin-dir", async () => {
+  it("shared skills load as a local plugin it builds, via --plugin-dir", async () => {
     const agent = activate(SESSION_HOOK);
+    // The plugin's own directory, built from the skills as text — not the
+    // host's bare view.
+    const plugin = "/pw/keepdeck.claude/ws-1/plugin";
     const skills = {
-      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
-      opencodeConfigDir: "/kd/staging/ws-1/opencode",
-      skillsDir: "/kd/staging/ws-1/skills",
+      dir: "/kd/staging/ws-1/skills",
+      skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };
 
     const spawn = output();
     await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, skills }, spawn);
-    expect(spawn.args.slice(2)).toEqual([
-      "--plugin-dir",
-      "/kd/staging/ws-1/claude-plugin",
-    ]);
+    expect(spawn.args.slice(2)).toEqual(["--plugin-dir", plugin]);
 
     const resume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, skills, sessionId: "s" }, resume);
-    expect(resume.args.slice(2)).toEqual([
-      "--plugin-dir",
-      "/kd/staging/ws-1/claude-plugin",
-      "--resume",
-      "s",
-    ]);
+    expect(resume.args.slice(2)).toEqual(["--plugin-dir", plugin, "--resume", "s"]);
 
     // No skills staged — the flag must not appear at all.
     const bare = output();

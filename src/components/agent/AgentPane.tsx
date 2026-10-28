@@ -9,10 +9,10 @@ import {
   type TeamProvisioning,
 } from "../../domain/deck";
 import {
-  activityBadge,
   paneFrame,
   type PaneFramePlace,
 } from "../../domain/status";
+import { activityBadge } from "../../presentation/activityBadge";
 import { useWallClock } from "../../ui/useWallClock";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
@@ -37,6 +37,8 @@ export interface AgentPaneProps {
   /** Catalog label for the mark's tooltip — the title can be renamed away
    * from the agent's name, the mark still says who runs here. */
   agentLabel?: string;
+  /** The agent's own words for its failure codes, from the catalog. */
+  failureLabels?: Readonly<Record<string, string>>;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
   /** Extra CLI args for the program (session identity / resume, [F7]/[F8]). */
@@ -176,6 +178,7 @@ export function AgentPane({
   title,
   agentIcon,
   agentLabel,
+  failureLabels,
   command,
   args,
   env,
@@ -263,7 +266,7 @@ export function AgentPane({
   // here. "Activity describes a live process" has one home: the status
   // channel gates ingest on a live process and clears a pane the moment
   // its process dies, so whatever the store holds is current by contract.
-  const activityView = activity ? activityBadge(activity) : null;
+  const activityView = activity ? activityBadge(activity, failureLabels) : null;
   // The ONE frame this pane wears — the domain ladder ranks attention, the
   // full-bleed gate, selection and the activity tail. This view contributes
   // only facts: its live activity, and the place the stage stated.

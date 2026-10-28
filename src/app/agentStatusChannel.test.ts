@@ -46,6 +46,7 @@ const edgeNormalizer = (payload: unknown) =>
 const attribution = createPaneAttribution({
   workspaces: () => [],
   secretOf: () => undefined,
+  swapSources: () => [],
 });
 
 const deckWith = (...paneIds: string[]) => {
@@ -308,6 +309,7 @@ describe("createAgentStatusChannel", () => {
       createPaneAttribution({
         workspaces: () => deck.store.getSnapshot().workspaces,
         secretOf: () => "tok",
+        swapSources: () => [],
       }),
       keys.port,
     );
@@ -353,6 +355,7 @@ describe("createAgentStatusChannel", () => {
       createPaneAttribution({
         workspaces: () => deck.store.getSnapshot().workspaces,
         secretOf: () => "tok",
+        swapSources: () => [],
       }),
       keys.port,
       () => {

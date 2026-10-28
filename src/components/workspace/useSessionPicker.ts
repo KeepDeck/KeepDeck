@@ -29,7 +29,9 @@ import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearc
 import { useRuntimePart } from "../../app/runtimeContext";
 
 export function useSessionPicker(deps: {
-  agentType: AgentType;
+  /** The selected agent — null while none is there to pick (the catalog
+   * loading, or no agent installed): nothing to list, scan or ask. */
+  agentType: AgentType | null;
   startMode: SessionStartMode;
   /** The team a member would join, when the dialog is for one. */
   member: { cwd: string | null } | null;
@@ -70,7 +72,9 @@ export function useSessionPicker(deps: {
   const pagedSessions = usePagedSessionSearch<SessionPickRow>(
     useCallback(
       (query, limit, offset) =>
-        searchSessions(agentType, query, limit, offset),
+        agentType === null
+          ? Promise.resolve({ rows: [], total: 0 })
+          : searchSessions(agentType, query, limit, offset),
       [searchSessions, agentType],
     ),
   );
@@ -97,7 +101,7 @@ export function useSessionPicker(deps: {
   // switch; typing never rescans.
   const sessionIndex = useRuntimePart("sessionIndex");
   useEffect(() => {
-    sessionIndex.ensureFresh(agentType);
+    if (agentType !== null) sessionIndex.ensureFresh(agentType);
   }, [sessionIndex, agentType]);
 
   // The declared scan lands in BATCHES — the picker's listing re-reads its
@@ -153,7 +157,7 @@ export function useSessionPicker(deps: {
   const outsideRef = useRef(liveOutside);
   outsideRef.current = liveOutside;
   useEffect(() => {
-    if (startMode !== "resume") return;
+    if (startMode !== "resume" || agentType === null) return;
     let cancelled = false;
     setLiveOutsideIds("unknown");
     outsideRef.current(agentType).then((answer) => {

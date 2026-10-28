@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   armDoubles,
+  cwdArming,
   managerFor,
   provisionRequests,
   ref,
@@ -25,13 +26,11 @@ beforeEach(() => {
   manager = managerFor(() => deck);
 });
 
-describe("the ordering between arming and teardown", () => {
-  // The race this manager was built for: staging arms every live root with a
-  // `.agents/skills` symlink, and a removal deletes a root's directory. One
-  // landing inside the other leaves a husk git can no longer even name.
-  //
-  // A live workspace throughout: the armings below are the ones a real spawn
-  // performs, and a workspace the deck has dropped deliberately stages nothing.
+describe("the ordering between plantings and teardown", () => {
+  // The race this manager was built for: a planting lands in a pane's cwd, and
+  // a removal deletes that directory. One landing inside the other leaves a
+  // husk git can no longer even name. Staging rides the same queue, so it
+  // never rebuilds what a sweep in flight is pruning.
   beforeEach(() => {
     deck = [{ id: "ws-1", roots: ["/repo"] }];
   });
@@ -39,9 +38,9 @@ describe("the ordering between arming and teardown", () => {
     // The rollback used to call `removeWorktree` directly — off the queue and
     // with no disarm — so the owner had two teardowns with two guarantees.
     const order: string[] = [];
-    skills.disarmSkills.mockImplementation(async (roots) => {
+    cwdArming.cwdDisarm.mockImplementation(async (roots) => {
       order.push(`disarm:${roots.join(",")}`);
-      return true;
+      return [...roots];
     });
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
@@ -64,14 +63,26 @@ describe("the ordering between arming and teardown", () => {
     expect(order).toEqual(["disarm:/wt/team-1", "remove:/wt/team-1"]);
   });
 
-  it("keeps a root a live workspace still claims armed, even while deleting it", async () => {
+  it("keeps a root a live workspace still claims armed, and in place", async () => {
     // Two workspaces may share a spawn cwd, and the arming is keyed by path.
-    // Disarming on one workspace's behalf would strip the other's link.
+    // Disarming on one workspace's behalf would strip the other's link — and
+    // deleting the directory would pull it out from under the other's panes.
     deck = [{ id: "ws-2", roots: ["/wt/shared"] }];
 
-    await manager.remove([{ repo: "/r", path: "/wt/shared", branch: "b" }]);
+    const failures = await manager.remove([{ repo: "/r", path: "/wt/shared", branch: "b" }]);
 
-    expect(skills.disarmSkills).toHaveBeenCalledWith([]);
+    expect(cwdArming.cwdDisarm).toHaveBeenCalledWith(["/wt/shared"], ["/wt/shared"]);
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+    expect(failures).toEqual(["b: another workspace still works in this folder"]);
+  });
+
+  it("still removes the worktree when the disarm itself failed", async () => {
+    // A failed pass says nothing about who claims the folder; the removal the
+    // user asked for goes ahead, as it always did.
+    cwdArming.cwdDisarm.mockResolvedValue(null);
+
+    await manager.remove([{ repo: "/r", path: "/wt/1", branch: "b" }]);
+
     expect(worktree.removeWorktree).toHaveBeenCalledTimes(1);
   });
 
@@ -139,9 +150,9 @@ describe("the ordering between arming and teardown", () => {
 
   it("takes its own hooks out of a directory before git touches it", async () => {
     const order: string[] = [];
-    skills.disarmSkills.mockImplementation(async (roots) => {
+    cwdArming.cwdDisarm.mockImplementation(async (roots) => {
       order.push(`disarm:${roots.join(",")}`);
-      return true;
+      return [...roots];
     });
     worktree.removeWorktree.mockImplementation(async (_repo, path) => {
       order.push(`remove:${path}`);
@@ -170,41 +181,6 @@ describe("the ordering between arming and teardown", () => {
     await removing;
     await arming;
     expect(skills.stageSkills).toHaveBeenCalledTimes(1);
-  });
-
-  it("re-arms a root that left and came back — the memo must not outlive it", async () => {
-    // Deleting a pane frees its folder, and the next "+ Team" takes the same
-    // one back. The memo caches the RESULT of the call that armed it, so unless
-    // a teardown forgets that entry the returning worktree hits the cache and
-    // `stageSkills` — the only code that arms — never runs for it again.
-    deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }];
-    await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
-
-    await manager.remove([{ repo: "/r", path: "/wt/b", branch: "b" }]);
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
-    await manager.skillsFor(ref("ws-1"));
-
-    // The freed folder is taken again by a new pane: same roots, same key.
-    deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }];
-    await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
-    expect(skills.stageSkills).toHaveBeenCalledTimes(3);
-  });
-
-  it("forgets the stagings a SWEEP disarmed, not only a removal's", async () => {
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
-    await manager.sweep(true); // establishes the baseline
-    await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
-
-    deck = [{ id: "ws-1", roots: [] }]; // the pane closed, no delete asked for
-    await manager.sweep(true);
-    expect(skills.disarmSkills).toHaveBeenLastCalledWith(["/wt/a"]);
-
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }]; // and a new pane lands there
-    await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
   });
 
   it("a failed removal does not stall what is queued behind it", async () => {

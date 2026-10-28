@@ -9,6 +9,7 @@ import {
   type AgentContribution,
   type ForkPlanInput,
   type McpServerSpec,
+  type SpawnArmOutput,
   type SpawnPlanInput,
   type SpawnPlanOutput,
   errorMessage,
@@ -28,6 +29,7 @@ import { mintBridgeToken, mintMcpToken } from "../ids";
 import { postbackCount } from "../postbacks";
 import { peekPaneSpawnSpec } from "./cache";
 import type { SpawnPluginAccess } from "./index";
+import type { CwdArmRequest } from "../worktrees";
 
 /** The host facts this consumer needs from a spawning MCP feature. Structural
  * on purpose: the feature's richer object remains assignable without making
@@ -37,10 +39,6 @@ export interface McpAccess {
    * values its spec only NAMES, kept off argv by design. One entry, so that
    * dropping a server here drops its values with it. */
   entries: { spec: McpServerSpec; env: [string, string][] }[];
-  /** Whether the specs ride the hook's argv; false for a CLI the host feeds
-   * by file, whose hook is told nothing. */
-  throughArgv: boolean;
-  deliver(): Promise<void>;
 }
 
 export interface McpAccessTarget {
@@ -54,19 +52,16 @@ export type McpAccessAsk = (target: McpAccessTarget) => Promise<McpAccess>;
 
 /** The staged views this consumer needs from the worktree owner. */
 export interface StagedSkillsViews {
-  claudePluginDir: string;
-  opencodeConfigDir: string;
-  skillsDir: string;
+  dir: string;
+  skills: { name: string; content: string }[];
 }
 
 /** The pane-side facts a plan is built from — the hook input's shape minus
  * the resume session (that arrives with the resume request, not the pane). */
 export interface PaneSpawnFacts extends SpawnPlanInput {
   /** This workspace's staged shared skills, resolved by whoever owns the
-   * worktrees — asked for here, never computed here. A build path that worked
-   * out the arming set itself is how a directory being deleted got armed, so
-   * the set is deliberately not expressible in these facts. Absent = this
-   * build has no skills source and the hook input stays sparse.
+   * worktrees — asked for here, never computed here. Absent = this build has
+   * no skills source and the hook input stays sparse.
    *
    * Named apart from the hook input's own `skills` (which carries the resolved
    * views) because this is the QUESTION, not the answer. */
@@ -79,7 +74,16 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
    * delivery for a CLI that takes none — because only this build knows when
    * the plan is settled enough to write anything. */
   mcpAccess?: McpAccessAsk;
+  /** Where the plantings an agent's plugin declares for this cwd
+   * (`arm.plan`) are put — after the plan is settled, like the MCP delivery,
+   * and for the same reason. Absent = this build plants nothing. */
+  armCwd?: CwdArmAsk;
 }
+
+/** Plant one plugin's complete set in a pane's cwd, and say what could not
+ * be planted, under the agent's name. Never rejects: a planting that failed
+ * costs the pane what it was for, never its process. */
+export type CwdArmAsk = (agentId: string, request: CwdArmRequest) => Promise<void>;
 
 /**
  * One built plan, and the on-disk half it still owes.
@@ -93,9 +97,9 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
  */
 export interface BuiltPlan {
   plan: SpawnPlan;
-  /** Put the file-delivered half on disk. A no-op for the argv CLIs, and
-   * never rejects — a failed delivery leaves the pane serverless, never
-   * unspawned. */
+  /** Plant what the agent's plugin declared for the pane's cwd (`arm.plan`).
+   * Never rejects — a planting that failed costs the pane what it was for,
+   * never its process. */
   deliver(): Promise<void>;
   /** A fork plan's scaffolding, to be removed once the fork starts or once
    * it is clear it never will — absent when the plan declared none. */
@@ -255,9 +259,8 @@ export async function buildPlan(
   };
   // Staged shared skills are a host fact like the bridge — but delivered as
   // hook INPUT, because loading them is per-CLI dialect (a flag here, an env
-  // var there), and dialects are exactly what hooks own. WHICH skills, and
-  // which directories get armed for them, is the worktree manager's answer:
-  // this only asks.
+  // var there), and dialects are exactly what hooks own. WHICH skills is the
+  // worktree manager's answer: this only asks.
   const skills = facts.stagedSkills ? await facts.stagedSkills() : null;
   // Asked alongside the skills, and delivered the same way: WHICH servers is
   // the MCP owner's answer, and how a CLI is told about them is the hook's.
@@ -281,20 +284,17 @@ export async function buildPlan(
   // what the hook may be handed (the servers it can render) as well as what
   // it may answer (the command clamp below).
   const owner = plugins.installed(pluginId);
-  // The floor filter is about the PLUGIN's renderer, so it applies only to
-  // what the plugin renders: a file the host wrote carries every server, and
-  // withholding a token from a server that is in the file would break it.
-  const injected = access?.throughArgv
-    ? renderableBy(access.entries, owner, entry.id)
-    : (access?.entries ?? []);
-  const mcpServers = access?.throughArgv ? injected.map((item) => item.spec) : [];
+  // The plugin renders every server it is handed — on argv, or in a file it
+  // declares for the cwd — so its floor bounds what it is handed.
+  const injected = access ? renderableBy(access.entries, owner, entry.id) : [];
+  const mcpServers = injected.map((item) => item.spec);
   // Owed by every plan, the bare one included: a file-fed CLI reads its
   // servers from its cwd whatever argv it was given, and their values live
   // nowhere but here.
   const mcpEnv = injected.flatMap((item) => item.env);
   /** Owed by every exit that produces a plan, and by none that throws: a
    * rejected resume or fork must plant nothing. */
-  const deliver = () => access?.deliver() ?? Promise.resolve();
+  const deliver = () => armCwd();
   // Asked before the hook runs, because what it decides — argv — cannot be
   // corrected once the process has started (opencode 2.x needs a flag 1.x
   // does not have). Remembered per binary, so only an agent's first pane in
@@ -311,6 +311,29 @@ export async function buildPlan(
     ...(facts.target ? { target: facts.target } : {}),
     ...(cliVersion ? { cliVersion } : {}),
   };
+  /** What the agent's plugin plants in this cwd, asked once the plan is
+   * settled. Never for a REMOTE pane: its agent's directory is on the remote
+   * host, and a planting here would be a file nothing reads. A hook that
+   * throws plants nothing new and takes nothing back — the earlier set stays,
+   * which is the safer of the two wrongs. */
+  async function armCwd(): Promise<void> {
+    const hook = entry.hooks["arm.plan"];
+    if (facts.target || !facts.armCwd || typeof hook !== "function") return;
+    const arms: SpawnArmOutput = { cwd: [] };
+    try {
+      await hook(base, arms);
+    } catch (e) {
+      log.warn("web:agents", `${entry.id} arm.plan failed — the cwd keeps what it had: ${errorMessage(e)}`);
+      return;
+    }
+    await facts.armCwd(entry.id, {
+      pluginId,
+      workspaceId: facts.workspace.id,
+      cwd: facts.cwd,
+      arms: arms.cwd,
+      skillsDir: skills?.dir ?? null,
+    });
+  }
   if (
     variant.kind === "spawn" &&
     facts.target &&

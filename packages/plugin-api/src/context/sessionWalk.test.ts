@@ -101,6 +101,23 @@ describe("walkSession", () => {
     expect(walked.shortfall).toBeUndefined();
   });
 
+  it("titles by the dialect's own preambles", async () => {
+    const store = fakeStore([
+      { role: "user", text: "Bootstrap: load the skill" },
+      { role: "user", text: "fix the parser" },
+    ]);
+    const walk = (titleSkipPrefixes?: string[]) =>
+      walkSession({
+        store,
+        format: fakeFormat<unknown>(),
+        request: {},
+        dialect: { ...flat, ...(titleSkipPrefixes && { titleSkipPrefixes }) },
+      });
+
+    expect((await walk(["Bootstrap:"])).title).toBe("fix the parser");
+    expect((await walk()).title).toBe("Bootstrap: load the skill");
+  });
+
   it("flushes what the dialect still holds when the records run out", async () => {
     const store = fakeStore(["a", "b"]);
 

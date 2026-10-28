@@ -8,7 +8,8 @@
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::ErrorKind;
+use std::path::{Component, Path, PathBuf};
 
 /// The user's home as the environment names it — the ONE place this module
 /// reads the process's environment. The rules below take the home as a
@@ -98,6 +99,153 @@ pub fn resolve_within_from(
     }
 }
 
+/// `path` with its deepest existing ancestor canonicalized and the missing
+/// rest re-joined as written — the proof for a path that may not exist yet,
+/// and THE one copy of it (a write target, a credential directory).
+///
+/// Only a component that is genuinely not there is peeled. A dangling
+/// symlink also fails to canonicalize, but it exists: whatever is later
+/// created through it lands where it points, so it refuses. So does any
+/// other error (no permission, a file on the way) — it says nothing about
+/// what is missing. A `..` in the missing rest refuses too: nothing could
+/// say where it leads. Whether `..` may appear in the EXISTING part is the
+/// caller's policy, not this proof's.
+pub fn real_prefix(path: &Path) -> Result<PathBuf, String> {
+    let mut existing = path.to_path_buf();
+    let mut missing: Vec<OsString> = Vec::new();
+    loop {
+        match fs::canonicalize(&existing) {
+            Ok(real) => {
+                let mut out = real;
+                for part in missing.iter().rev() {
+                    out.push(part);
+                }
+                return Ok(out);
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                match fs::symlink_metadata(&existing) {
+                    Ok(_) => {
+                        return Err(format!(
+                            "path passes through a broken symlink: {}",
+                            existing.display()
+                        ))
+                    }
+                    Err(e) if e.kind() == ErrorKind::NotFound => {}
+                    Err(e) => return Err(format!("{}: {e}", existing.display())),
+                }
+                match existing.components().next_back() {
+                    Some(Component::Normal(name)) => missing.push(name.to_os_string()),
+                    Some(Component::ParentDir) => {
+                        return Err("path leaves a missing directory with ..".into())
+                    }
+                    _ => return Err("path has no existing ancestor".into()),
+                }
+                existing.pop();
+            }
+            Err(e) => return Err(format!("{}: {e}", existing.display())),
+        }
+    }
+}
+
+/// A token read on a plugin's behalf. Neither printable nor serializable:
+/// it leaves this process only as the `Authorization` header it was read for.
+pub struct SecretToken(String);
+
+impl SecretToken {
+    pub fn bearer(&self) -> String {
+        format!("Bearer {}", self.0)
+    }
+}
+
+/// A token file larger than this is not a token file.
+const MAX_TOKEN_FILE_BYTES: u64 = 64 * 1024;
+
+/// Read the first non-empty string among `fields` of the JSON file `file`
+/// directly inside `dir` — and nowhere else.
+///
+/// `dir` is an absolute path the host resolved and froze; `file` is one
+/// plain name. The walk opens every directory of `dir` from the root with
+/// no-follow and reads the file through the last directory's descriptor
+/// with no-follow too, checking what it opened, not a path it looked at
+/// first: a symlink anywhere on the way — the file itself included, even
+/// one pointing inside — is refused, and nothing can be swapped between a
+/// check and the open, because there is no separate check.
+#[cfg(unix)]
+pub fn read_confined_token(dir: &Path, file: &str, fields: &[String]) -> Result<SecretToken, String> {
+    use std::fs::File;
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+
+    if file.is_empty()
+        || file.starts_with('.')
+        || file.contains('/')
+        || file.contains('\\')
+        || file.contains('\0')
+    {
+        return Err("CREDENTIAL_FILE_REFUSED: not a plain file name".into());
+    }
+    if !dir.is_absolute() {
+        return Err("CREDENTIAL_DIR_INVALID".into());
+    }
+    let open_at = |parent: Option<&OwnedFd>, name: &OsStr, flags: libc::c_int| -> Result<OwnedFd, String> {
+        let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| "CREDENTIAL_DIR_INVALID")?;
+        let at = parent.map_or(libc::AT_FDCWD, AsRawFd::as_raw_fd);
+        // SAFETY: `name` is a valid C string and `at` a live descriptor (or
+        // AT_FDCWD); the returned descriptor is owned right below.
+        let fd = unsafe { libc::openat(at, name.as_ptr(), flags | libc::O_CLOEXEC) };
+        if fd < 0 {
+            return Err("CREDENTIAL_UNREADABLE".into());
+        }
+        // SAFETY: openat returned a fresh descriptor nothing else owns.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    };
+    let mut current = open_at(None, OsStr::new("/"), libc::O_RDONLY | libc::O_DIRECTORY)?;
+    for component in dir.components() {
+        match component {
+            std::path::Component::RootDir => {}
+            std::path::Component::Normal(name) => {
+                current = open_at(
+                    Some(&current),
+                    name,
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+                )?;
+            }
+            _ => return Err("CREDENTIAL_DIR_INVALID".into()),
+        }
+    }
+    let fd = open_at(
+        Some(&current),
+        OsStr::new(file),
+        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+    )?;
+    let mut opened = File::from(fd);
+    let meta = opened.metadata().map_err(|_| "CREDENTIAL_UNREADABLE")?;
+    if !meta.file_type().is_file() {
+        return Err("CREDENTIAL_FILE_REFUSED: not a regular file".into());
+    }
+    let mut bytes = Vec::new();
+    (&mut opened)
+        .take(MAX_TOKEN_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "CREDENTIAL_UNREADABLE")?;
+    if bytes.len() as u64 > MAX_TOKEN_FILE_BYTES {
+        return Err("CREDENTIAL_FILE_REFUSED: larger than 64 KiB".into());
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| "CREDENTIAL_FILE_REFUSED: not JSON")?;
+    fields
+        .iter()
+        .find_map(|field| value.get(field).and_then(|v| v.as_str()).filter(|v| !v.is_empty()))
+        .map(|token| SecretToken(token.to_string()))
+        .ok_or_else(|| "CREDENTIAL_TOKEN_ABSENT".to_string())
+}
+
+#[cfg(not(unix))]
+pub fn read_confined_token(_dir: &Path, _file: &str, _fields: &[String]) -> Result<SecretToken, String> {
+    Err("CREDENTIAL_UNREADABLE: unsupported platform".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +328,137 @@ mod tests {
         let err = resolve_within_from("~/x", &stand.root_of(&stand.home), false, None)
             .expect_err("no home to expand against");
         assert!(err.contains("no home directory"), "{err}");
+    }
+
+    #[cfg(unix)]
+    mod deepest_existing {
+        use super::*;
+        use std::os::unix::fs::symlink;
+
+        #[test]
+        fn a_missing_tail_is_rejoined_onto_the_real_existing_part() {
+            let stand = Stand::new();
+            let real = fs::canonicalize(&stand.home).unwrap();
+            assert_eq!(real_prefix(&stand.home.join("a/b")).unwrap(), real.join("a/b"));
+            assert_eq!(real_prefix(&stand.home).unwrap(), real);
+        }
+
+        #[test]
+        fn a_dangling_symlink_on_the_way_refuses_even_before_its_target_exists() {
+            let stand = Stand::new();
+            // home/dangling -> elsewhere/missing: today nothing is there, but
+            // whatever is created through it lands outside home.
+            symlink(stand.elsewhere.join("missing"), stand.home.join("dangling")).unwrap();
+            let err = real_prefix(&stand.home.join("dangling/leaf")).unwrap_err();
+            assert!(err.contains("broken symlink"), "{err}");
+        }
+
+        #[test]
+        fn dot_dot_in_the_missing_tail_refuses() {
+            let stand = Stand::new();
+            let err = real_prefix(&stand.home.join("missing/../../elsewhere")).unwrap_err();
+            assert!(err.contains(".."), "{err}");
+        }
+
+        #[test]
+        fn a_file_on_the_way_is_an_error_not_a_missing_directory() {
+            let stand = Stand::new();
+            fs::write(stand.home.join("file"), "x").unwrap();
+            assert!(real_prefix(&stand.home.join("file/below")).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    mod confined_token {
+        use super::*;
+        use std::os::unix::fs::symlink;
+
+        fn fields() -> Vec<String> {
+            vec!["access_token".into(), "accessToken".into()]
+        }
+
+        /// The credentials dir as the resolver would hand it over: canonical.
+        fn credentials(stand: &Stand) -> PathBuf {
+            let dir = stand.home.join(".tool/credentials");
+            fs::create_dir_all(&dir).unwrap();
+            fs::canonicalize(dir).unwrap()
+        }
+
+        fn read(dir: &Path, file: &str) -> Result<String, String> {
+            read_confined_token(dir, file, &fields()).map(|token| token.bearer())
+        }
+
+        #[test]
+        fn reads_the_first_present_field_of_a_file_inside() {
+            let stand = Stand::new();
+            let dir = credentials(&stand);
+            fs::write(dir.join("t.json"), r#"{"access_token":"","accessToken":"sentinel"}"#).unwrap();
+            assert_eq!(read(&dir, "t.json").unwrap(), "Bearer sentinel");
+        }
+
+        #[test]
+        fn refuses_any_name_that_is_not_one_plain_file() {
+            let stand = Stand::new();
+            let dir = credentials(&stand);
+            fs::write(stand.home.join(".tool/t.json"), r#"{"access_token":"x"}"#).unwrap();
+            for name in ["../t.json", "a/t.json", ".hidden", "", "a\\b", "/etc/passwd"] {
+                let error = read(&dir, name).unwrap_err();
+                assert!(error.contains("plain file name"), "{name}: {error}");
+            }
+        }
+
+        #[test]
+        fn refuses_a_symlinked_token_whether_it_points_out_or_in() {
+            let stand = Stand::new();
+            let dir = credentials(&stand);
+            let outside = stand.elsewhere.join("t.json");
+            fs::write(&outside, r#"{"access_token":"outside"}"#).unwrap();
+            symlink(&outside, dir.join("out.json")).unwrap();
+            fs::write(dir.join("real.json"), r#"{"access_token":"inside"}"#).unwrap();
+            symlink(dir.join("real.json"), dir.join("in.json")).unwrap();
+            assert_eq!(read(&dir, "out.json").unwrap_err(), "CREDENTIAL_UNREADABLE");
+            assert_eq!(read(&dir, "in.json").unwrap_err(), "CREDENTIAL_UNREADABLE");
+        }
+
+        #[test]
+        fn refuses_a_directory_on_the_way_swapped_for_a_symlink_after_resolution() {
+            let stand = Stand::new();
+            let dir = credentials(&stand);
+            fs::write(dir.join("t.json"), r#"{"access_token":"inside"}"#).unwrap();
+            // The frozen path stays; what sits at it is replaced by a link to
+            // a lookalike holding another token.
+            let lookalike = stand.elsewhere.join("credentials");
+            fs::create_dir_all(&lookalike).unwrap();
+            fs::write(lookalike.join("t.json"), r#"{"access_token":"swapped"}"#).unwrap();
+            fs::rename(&dir, stand.home.join(".tool/moved")).unwrap();
+            symlink(&lookalike, &dir).unwrap();
+            assert_eq!(read(&dir, "t.json").unwrap_err(), "CREDENTIAL_UNREADABLE");
+        }
+
+        #[test]
+        fn refuses_a_special_file_an_oversized_file_and_non_json() {
+            let stand = Stand::new();
+            let dir = credentials(&stand);
+            fs::create_dir(dir.join("adir")).unwrap();
+            assert!(read(&dir, "adir").unwrap_err().contains("not a regular file"));
+            let fifo = std::ffi::CString::new(dir.join("fifo").as_os_str().as_encoded_bytes()).unwrap();
+            // SAFETY: a valid C path; mkfifo makes a node, nothing else.
+            assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+            assert!(read(&dir, "fifo").unwrap_err().contains("not a regular file"));
+            let big = format!(r#"{{"access_token":"{}"}}"#, "x".repeat(70 * 1024));
+            fs::write(dir.join("big.json"), big).unwrap();
+            assert!(read(&dir, "big.json").unwrap_err().contains("64 KiB"));
+            fs::write(dir.join("text.json"), "token=abc").unwrap();
+            assert!(read(&dir, "text.json").unwrap_err().contains("not JSON"));
+            fs::write(dir.join("none.json"), r#"{"other":"x"}"#).unwrap();
+            assert_eq!(read(&dir, "none.json").unwrap_err(), "CREDENTIAL_TOKEN_ABSENT");
+        }
+
+        #[test]
+        fn a_missing_directory_authorizes_no_read() {
+            let stand = Stand::new();
+            let missing = fs::canonicalize(&stand.home).unwrap().join("not-yet/credentials");
+            assert_eq!(read(&missing, "t.json").unwrap_err(), "CREDENTIAL_UNREADABLE");
+        }
     }
 }

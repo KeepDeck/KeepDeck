@@ -37,7 +37,6 @@ import {
   closeHotkeyTarget,
   findWorkspace,
   maximizeHotkeyTarget,
-  paneAgentType,
   paneHasProcess,
   paneHotkeyTarget,
   openTeamOf,
@@ -105,7 +104,7 @@ export function useAppController(runtime: AppRuntime) {
     for (const ws of deck.workspaces) {
       for (const pane of ws.panes) {
         if (!paneHasProcess(ws, pane)) continue;
-        ids.add(paneAgentType(pane));
+        ids.add(pane.agentType);
       }
     }
     return ids;

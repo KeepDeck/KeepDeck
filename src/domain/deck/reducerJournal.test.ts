@@ -13,7 +13,7 @@ const journalWorkspace = (): Workspace => ({
   worktreeBaseDir: null,
   panes: [
     { id: "pane-1", agentType: "codex", name: "auth bug", yolo: true },
-    { id: "pane-2", team: { teamId: "team-1", role: "lead" } },
+    { id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
   ],
   teams: [{ id: "team-1", name: "wt", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/2" } }],
 });
@@ -83,13 +83,15 @@ describe("deckReducer journal", () => {
     expect(boundState().journal.records["ws-1"][0]).not.toHaveProperty("team");
   });
 
-  it("seals the previous session on rebind and opens the next one", () => {
+  it("seals the previous session on rebind, titled as the action says, and opens the next one", () => {
     const rebound = deckReducer(boundState(), {
       type: "setPaneSession",
       wsId: "ws-1",
       paneId: "pane-1",
       session: { id: "s-2", boundAt: AT },
       at: AT,
+      // The dispatcher names it from the catalog the reducer cannot see.
+      sealTitle: "auth bug",
     });
     const records = rebound.journal.records["ws-1"];
     expect(records.find((record) => record.sessionId === "s-1")).toMatchObject({
@@ -128,6 +130,7 @@ describe("deckReducer journal", () => {
       wsId: "ws-1",
       paneId: "pane-1",
       at: AT,
+      sealTitle: "auth bug",
     });
     expect(closed.journal.records["ws-1"][0]).toMatchObject({
       state: "closed",

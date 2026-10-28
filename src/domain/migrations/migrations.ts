@@ -77,8 +77,13 @@ export type MigrationOutcome =
  *       another team and back finds it as it was left. The floor stays at
  *       11: an older build reads no string there and opens the workspace
  *       with nothing maximized — it loses the spotlight, misreads nothing.
+ *  14 — every pane names its agent: a pane written before `agentType`
+ *       existed ran claude, the only agent there was, and is given it
+ *       here, once. From now on an agent is never assumed — a new pane
+ *       takes one from the catalog. The floor stays at 11: an older build
+ *       reads the field it already wrote.
  */
-export const DECK_STATE_VERSION = 13;
+export const DECK_STATE_VERSION = 14;
 /** The oldest reader that can still make sense of a current document. It was
  * held at 1 while every change was additive (v1→v4, v6→v10) or moved data an
  * old reader would merely lose rather than misread (v5's `run` retirement).
@@ -457,6 +462,32 @@ function migrateDeckFromV12toV13(doc: RawDoc): RawDoc {
   };
 }
 
+/** The agent every pane ran before panes named one — a fact of the deck
+ * file's history, and the only place the host names an agent. */
+const AGENT_OF_UNNAMED_PANES = "claude";
+
+/**
+ * v13 → v14: a pane without `agentType` is given the agent it ran. Only an
+ * ABSENT field is filled; a pane naming any agent — one whose plugin is gone
+ * included — keeps it.
+ */
+function migrateDeckFromV13toV14(doc: RawDoc): RawDoc {
+  const workspaces = doc.workspaces;
+  if (!Array.isArray(workspaces)) return doc;
+  return {
+    ...doc,
+    workspaces: workspaces.map((ws) => {
+      if (!isJsonRecord(ws) || !Array.isArray(ws.panes)) return ws;
+      return {
+        ...ws,
+        panes: ws.panes.map((pane) =>
+          isJsonRecord(pane) && pane.agentType === undefined ? { ...pane, agentType: AGENT_OF_UNNAMED_PANES } : pane,
+        ),
+      };
+    }),
+  };
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
@@ -470,6 +501,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
   10: migrateDeckFromV10toV11,
   11: migrateDeckFromV11toV12,
   12: migrateDeckFromV12toV13,
+  13: migrateDeckFromV13toV14,
 };
 
 /**

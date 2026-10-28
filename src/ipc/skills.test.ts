@@ -25,9 +25,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 import { sameSkillScope, skillScopeOf } from "../domain/skills";
 import { ipcSkillsStorage } from "./skillsStorage";
 import {
-  armSkills,
   deleteSkill,
-  disarmSkills,
   fetchSkills,
   pruneSkills,
   renameSkill,
@@ -97,15 +95,11 @@ describe("the skills invoke-key contract", () => {
       to: "new",
     });
 
-    await stageSkills("ws-1", ["/cwd/a"]);
+    const excluded = [{ scope: "global" as const, wsId: null, name: "bare" }];
+    await stageSkills("ws-1", excluded);
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_stage", {
       wsId: "ws-1",
-      roots: ["/cwd/a"],
-    });
-
-    await disarmSkills(["/cwd/a"]);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_disarm", {
-      roots: ["/cwd/a"],
+      excluded,
     });
 
     await pruneSkills(["ws-1"]);
@@ -114,11 +108,10 @@ describe("the skills invoke-key contract", () => {
     });
   });
 
-  it("stage degrades on a backend error; disarm and prune stay silent", async () => {
+  it("stage degrades on a backend error; prune stays silent and says so", async () => {
     tauri.invoke.mockRejectedValue(new Error("boom"));
     expect(await stageSkills("ws-1", [])).toBeNull();
-    await disarmSkills(["/x"]); // must not throw
-    await pruneSkills(["ws-1"]); // must not throw
+    expect(await pruneSkills(["ws-1"])).toBe(false);
   });
 
   it("the library read THROWS rather than degrading to an empty library", async () => {
@@ -137,11 +130,6 @@ describe("the skills invoke-key contract", () => {
     );
     await expect(deleteSkill({ kind: "global" }, "x")).rejects.toThrow("boom");
     await expect(renameSkill({ kind: "global" }, "a", "b")).rejects.toThrow("boom");
-  });
-
-  it("an empty disarm list never crosses the wire", async () => {
-    await disarmSkills([]);
-    expect(tauri.invoke).not.toHaveBeenCalled();
   });
 
   it("a scope survives the round trip through the wire, both kinds", async () => {
@@ -233,31 +221,16 @@ describe("the stage wire is untouched by refusals", () => {
     // field. So refusals ride their own command and never a byte of this
     // one: the seam is never asked to carry what it cannot.
     tauri.invoke.mockResolvedValueOnce({
-      claudePluginDir: "/c",
-      opencodeConfigDir: "/o",
-      skillsDir: "/s",
+      dir: "/s",
+      skills: [{ name: "a", content: "---\ndescription: a\n---\n" }],
     });
 
-    const views = await stageSkills("ws-1", ["/repo"]);
+    const views = await stageSkills("ws-1", []);
 
     expect(tauri.invoke).toHaveBeenCalledWith("skills_stage", {
       wsId: "ws-1",
-      roots: ["/repo"],
+      excluded: [],
     });
-    expect(views && Object.keys(views).sort()).toEqual([
-      "claudePluginDir",
-      "opencodeConfigDir",
-      "skillsDir",
-    ]);
-  });
-
-  it("a failed arming degrades to an empty report, never to no pane", async () => {
-    // Skills are an enhancement, not a prerequisite: a pane spawns
-    // unarmed rather than not at all.
-    tauri.invoke.mockRejectedValueOnce(new Error("busy"));
-    expect(await armSkills("ws-1", ["/repo"])).toEqual({
-      armed: [],
-      refused: [],
-    });
+    expect(views && Object.keys(views).sort()).toEqual(["dir", "skills"]);
   });
 });

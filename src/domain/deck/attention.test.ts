@@ -12,9 +12,9 @@ const B: Workspace = {
   ...workspace("b", []),
   teams: [team("tb")],
   panes: [
-    { id: "b1", team: { teamId: "tb", role: "lead" } },
-    { id: "b2", idle: { reason: "suspended", at: "x" }, team: { teamId: "tb", role: "r" } },
-    { id: "b3" },
+    { id: "b1", agentType: "claude", team: { teamId: "tb", role: "lead" } },
+    { id: "b2", agentType: "claude", idle: { reason: "suspended", at: "x" }, team: { teamId: "tb", role: "r" } },
+    { id: "b3", agentType: "claude" },
   ],
 };
 

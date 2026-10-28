@@ -9,7 +9,7 @@ export const workspace = (id: string, paneIds: string[]): Workspace => ({
   name: id,
   cwd: "/tmp",
   worktreeBaseDir: null,
-  panes: paneIds.map((paneId) => ({ id: paneId })),
+  panes: paneIds.map((paneId) => ({ id: paneId, agentType: "claude" })),
 });
 
 /** A team on the workspace root, named after its id. */
@@ -30,7 +30,11 @@ export const teamedWorkspace = (
 ): Workspace => ({
   ...workspace(id, paneIds),
   teams: [team(teamId)],
-  panes: paneIds.map((paneId) => ({ id: paneId, team: { teamId, role: paneId } })),
+  panes: paneIds.map((paneId) => ({
+    id: paneId,
+    agentType: "claude",
+    team: { teamId, role: paneId },
+  })),
 });
 
 export const deckState = (partial: Partial<DeckState>): DeckState => ({

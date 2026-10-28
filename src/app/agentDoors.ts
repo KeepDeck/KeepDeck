@@ -20,7 +20,9 @@ import type { SessionHandle } from "../domain/journal";
 import {
   findTeam,
   findWorkspaceByRef,
+  NO_AGENT_MESSAGE,
   paneFromAgentRequest,
+  placementFromAgentRequest,
   placementRefusalMessage,
   WORKSPACE_GONE_MESSAGE,
   type PaneRequest,
@@ -186,10 +188,12 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
       }
       // The request's directory, as the domain reads the dialog's location:
       // the root, an existing directory, or a create heading for one.
-      const asked = paneFromAgentRequest(request.agentId, result, ws, request.index);
       if (target.kind === "new-team") {
-        return makeTeam(workspace, result.teamName ?? target.suggestedName, asked.placement);
+        const placement = placementFromAgentRequest(result, ws, request.index);
+        return makeTeam(workspace, result.teamName ?? target.suggestedName, placement);
       }
+      const { agentType } = result;
+      if (agentType === null) return refused("member", NO_AGENT_MESSAGE);
 
       // A member runs where its team runs: a resume is offered only for a
       // session recorded in the team's directory, and a fork copies the
@@ -204,6 +208,7 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
       }
       // A fresh member: the pane the request describes, joining its team by
       // id — the directory is the team's, not the dialog's to choose.
+      const asked = paneFromAgentRequest(request.agentId, agentType, result, ws, request.index);
       const landed = orchestrator.createPane({
         workspace,
         pane: asked.pane,

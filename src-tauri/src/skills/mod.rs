@@ -10,33 +10,25 @@
 //!
 //! - [`library`] — what the user authored: listing, saving, renaming, and the
 //!   path-segment safety every name goes through
-//! - [`staging`] — the derived per-workspace views a spawning CLI is pointed
-//!   at, rebuilt from scratch on every request
-//! - [`opencode`] — the generated palette command that makes a staged skill
-//!   user-visible in opencode
-//! - [`arming`] — the `.agents/skills` symlink codex reads from a pane's cwd,
-//!   and the manifest that lets a crashed workspace be disarmed at boot
+//! - [`staging`] — the per-workspace skills a spawning agent is handed,
+//!   rebuilt from scratch on every request
 //!
-//! Frontmatter and schema knowledge stay in TS (`src/domain/skills`), next to
-//! the model; this adapter moves bytes — list, save, delete, stage — plus ONE
-//! pinned single-line exception in [`opencode`] (coupling pinned on both
-//! language sides).
+//! Frontmatter and schema knowledge stay in TS (the SKILL.md codec in
+//! plugin-api), next to the model; this adapter moves bytes — list, save,
+//! delete, stage. What a CLI needs built from the staged skills, or planted
+//! in a pane's cwd to find them, is its plugin's.
 
-mod arming;
 mod bundled;
 mod gates;
 mod library;
-mod opencode;
 mod staging;
 
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // Re-exported for the command signatures below and for `lib.rs`'s managed
 // state; each shape is DEFINED beside the code that produces it, so a change
 // to staging's views or the library's wire shape lands in one file rather
 // than reaching up into this router.
-pub use arming::SkillArmReport;
 pub use library::SkillDto;
 pub(crate) use library::require_safe;
 pub use staging::{SkillStagingDto, SkillsLocks};
@@ -156,65 +148,31 @@ pub fn skills_rename(
     library::rename(&dir, &from, &to).map_err(|e| e.to_string())
 }
 
-/// Rebuild and return the staged views for one workspace — `None` when the
+/// Rebuild and return the staging for one workspace — `None` when the
 /// library holds nothing for it (callers then inject no skills at all).
-/// `roots` are the workspace's pane spawn cwds: each gets the codex-facing
-/// `.agents/skills` symlink armed (or disarmed when empty).
+/// `excluded` are the rows the host judged to have no usable description:
+/// they stage nowhere, and never shadow a fit same-name row.
 #[tauri::command(async)]
 pub fn skills_stage(
     locks: tauri::State<'_, SkillsLocks>,
     gates: tauri::State<'_, GateRegistry>,
     ws_id: String,
-    roots: Vec<String>,
+    excluded: Vec<staging::ExcludedSource>,
 ) -> Result<Option<SkillStagingDto>, String> {
     let root = skills_root()?;
     library::require_safe(&ws_id, "workspace id")?;
     // The composition root owns the feature dependency; this command sees a
     // fresh bool from the registry and staging below stays artifacts-free.
     let claimed = gates.resolve(GateKey::Artifacts);
-    staging::stage(&locks, &root, &ws_id, &roots, BUNDLED, claimed)
+    staging::stage(&locks, &root, &ws_id, BUNDLED, claimed, &excluded)
         .map_err(|e| e.to_string())
 }
 
-/// Arm this workspace's spawn cwds against its staged views, and report
-/// which ones something of the USER's kept us out of.
-///
-/// Its own command, asked on every spawn rather than memoized with the
-/// views: a refusal is a standing condition the user can end at any
-/// moment, and one cached with the staging kept being reported after the
-/// fix. Cheap enough to ask every time — four syscalls per cwd.
-#[tauri::command(async)]
-pub fn skills_arm(
-    locks: tauri::State<'_, SkillsLocks>,
-    ws_id: String,
-    roots: Vec<String>,
-) -> Result<SkillArmReport, String> {
-    let root = skills_root()?;
-    library::require_safe(&ws_id, "workspace id")?;
-    Ok(staging::arm(&locks, &root, &ws_id, &roots))
-}
-
-/// Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds —
-/// a closing workspace's directories must not keep dangling links once its
-/// staging is pruned. Only provably-ours links are touched.
-#[tauri::command(async)]
-pub fn skills_disarm(roots: Vec<String>) -> Result<(), String> {
-    let root = skills_root()?;
-    arming::disarm_roots(&root, &roots).map_err(|e| e.to_string())
-}
-
-/// Drop what workspaces that no longer exist left behind: their derived
-/// views, and the cwds their armed manifests still record (the crash path —
-/// the deck no longer knows the workspace but its worktrees survived). The
-/// library is user content and is never touched here.
+/// Drop the stagings of workspaces that no longer exist. The library is user
+/// content and is never touched here.
 #[tauri::command(async)]
 pub fn skills_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
-    prune(&skills_root()?, &live_ws_ids).map_err(|e| e.to_string())
-}
-
-fn prune(root: &Path, live: &[String]) -> io::Result<()> {
-    staging::prune_views(root, live)?;
-    arming::prune_armed(root, live)
+    staging::prune_views(&skills_root()?, &live_ws_ids).map_err(|e| e.to_string())
 }
 
 fn skills_root() -> Result<PathBuf, String> {
@@ -224,7 +182,6 @@ fn skills_root() -> Result<PathBuf, String> {
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use std::fs;
     use std::path::{Path, PathBuf};
 
     /// A skills root inside a temp dir. The `TempDir` is returned so the
@@ -242,90 +199,21 @@ pub(crate) mod test_support {
     pub(crate) fn ws(root: &Path, id: &str) -> PathBuf {
         root.join("library").join("ws").join(id)
     }
-
-    /// A fake linked-worktree checkout: `main/.git/` (common dir) plus a
-    /// worktree whose `.git` FILE points at `main/.git/worktrees/wt` with a
-    /// `commondir` back-pointer — the layout `git worktree add` produces,
-    /// built by hand so the test needs no git binary.
-    pub(crate) fn fake_worktree(base: &Path) -> PathBuf {
-        let common = base.join("main").join(".git");
-        let gitdir = common.join("worktrees").join("wt");
-        fs::create_dir_all(&gitdir).unwrap();
-        fs::write(gitdir.join("commondir"), "../..\n").unwrap();
-        let wt = base.join("wt");
-        fs::create_dir_all(&wt).unwrap();
-        fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
-        wt
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::{fake_worktree, global, root};
+    use super::test_support::root;
     use super::*;
-    use crate::worktree_arm::armed_manifest;
-    use crate::skills::library::save;
-    use std::fs;
-
-    #[test]
-    fn prune_spares_a_cwd_a_surviving_workspace_still_claims() {
-        let (_tmp, root) = root();
-        let shared = root.parent().unwrap().join("shared-cwd");
-        fs::create_dir_all(&shared).unwrap();
-        save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
-        let roots = vec![shared.to_string_lossy().into_owned()];
-        let locks = SkillsLocks::default();
-        staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
-        staging::arm(&locks, &root, "ws-live", &roots);
-        staging::stage(&locks, &root, "ws-dead", &roots, &[], false).unwrap().unwrap();
-        staging::arm(&locks, &root, "ws-dead", &roots);
-
-        // ws-dead crashed; ws-live still runs panes in the shared cwd. The
-        // LINK survives (symlink_metadata, not exists(): the shared link
-        // last pointed at ws-dead's now-pruned staging, so it dangles until
-        // ws-live's next stage re-aims it — the documented staleness model).
-        prune(&root, &["ws-live".into()]).unwrap();
-        assert!(fs::symlink_metadata(shared.join(".agents").join("skills")).is_ok());
-        assert!(!armed_manifest(&root, "ws-dead").exists());
-        assert!(armed_manifest(&root, "ws-live").exists());
-
-        // And ws-live's next arming re-aims the surviving link at ITS view
-        // — the re-aim is arming's job, which is now its own pass.
-        let views = staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
-        staging::arm(&locks, &root, "ws-live", &roots);
-        assert_eq!(
-            fs::read_link(shared.join(".agents").join("skills")).unwrap(),
-            PathBuf::from(&views.skills_dir),
-        );
-    }
-
-    #[test]
-    fn prune_disarms_a_crashed_workspaces_recorded_cwds() {
-        let (_tmp, root) = root();
-        let wt = fake_worktree(root.parent().unwrap());
-        save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
-        let roots = vec![wt.to_string_lossy().into_owned()];
-        let locks = SkillsLocks::default();
-        staging::stage(&locks, &root, "ws-9", &roots, &[], false).unwrap().unwrap();
-        // Staging builds; the arming pass plants — and it is what records
-        // the manifest the prune below reads.
-        staging::arm(&locks, &root, "ws-9", &roots);
-        assert!(wt.join(".agents").join("skills").exists());
-
-        // Boot after a crash: ws-9 is not in the restored deck.
-        prune(&root, &["ws-1".into()]).unwrap();
-        assert!(!wt.join(".agents").exists());
-        assert!(!armed_manifest(&root, "ws-9").exists());
-    }
 
     #[test]
     fn prune_on_a_fresh_home_is_a_no_op() {
         let (_tmp, root) = root();
-        prune(&root, &["ws-1".into()]).unwrap();
+        staging::prune_views(&root, &["ws-1".into()]).unwrap();
     }
 
     // ---- the refusal rule's three arms (design §4) + the bundled
-    // staging half (both views AND the opencode command) ----
+    // staging half ----
     //
     // The arm tests call the real COMMANDS, which resolve skills_root()
     // through keepdeck_home() — a fresh tmp home per test by construction
@@ -335,60 +223,21 @@ mod tests {
     // create into a collision) is unreachable: this home is empty.
 
     #[test]
-    fn tier_entries_materialize_identically_command_included() {
-        // The F-R1 pin: a bundled skill produces ALL views AND the
-        // opencode palette command — identically to a library skill.
+    fn tier_entries_materialize_identically() {
+        // The F-R1 pin: a bundled skill stages exactly like a library skill —
+        // on disk and as text, byte for byte the constant.
         let (_tmp, root) = root();
         let tier = [crate::skills::bundled::BundledSkill {
             name: "probe",
             content: "---\nname: probe\ndescription: \"Probe: the tier\"\n---\nBody\n",
             gate: None,
         }];
-        let views = staging::stage(
-            &SkillsLocks::default(),
-            &root,
-            "ws-1",
-            &[],
-            &tier,
-            false,
-        )
-        .unwrap()
-        .unwrap();
-        // All three views carry the skill.
-        for dir in [
-            PathBuf::from(&views.claude_plugin_dir).join("skills"),
-            PathBuf::from(&views.skills_dir),
-            PathBuf::from(&views.opencode_config_dir).join("skills"),
-        ] {
-            assert!(dir.join("probe").join(library::SKILL_FILE).exists());
-        }
-        // The palette command exists and its description comes from the
-        // constant's frontmatter, pointing at the staged SKILL.md.
-        let command = std::fs::read_to_string(
-            PathBuf::from(&views.opencode_config_dir)
-                .join("command")
-                .join("probe.md"),
-        )
-        .unwrap();
-        assert!(
-            command.starts_with("---\ndescription: \"Probe: the tier\"\n---"),
-            "the command's description is the constant's own (frontmatter lifted verbatim, quoting intact): {command}"
-        );
-        assert!(command.contains("skills/probe/SKILL.md"));
-        // The byte pin: the staged SKILL.md IS the constant's bytes —
-        // drift between the tier and any view is a contract break.
-        for dir in [
-            PathBuf::from(&views.claude_plugin_dir).join("skills"),
-            PathBuf::from(&views.skills_dir),
-            PathBuf::from(&views.opencode_config_dir).join("skills"),
-        ] {
-            let staged = std::fs::read(dir.join("probe").join(library::SKILL_FILE)).unwrap();
-            assert_eq!(
-                staged,
-                tier[0].content.as_bytes(),
-                "staged bytes == constant bytes"
-            );
-        }
+        let views = staging::stage(&SkillsLocks::default(), &root, "ws-1", &tier, false, &[])
+            .unwrap()
+            .unwrap();
+        let staged = std::fs::read(PathBuf::from(&views.dir).join("probe").join(library::SKILL_FILE)).unwrap();
+        assert_eq!(staged, tier[0].content.as_bytes(), "staged bytes == constant bytes");
+        assert_eq!(views.skills[0].content, tier[0].content);
     }
 
     #[test]

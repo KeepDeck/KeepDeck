@@ -43,7 +43,7 @@ describe("mcp webview chain", () => {
           respond,
         },
         panesIn: () => 1,
-        plant: async () => ({ armed: [], refused: [] }),
+        deliversByCwd: () => false,
         library: { serversFor: async () => [] },
         identitySource: () =>
           Promise.resolve({ name: "KeepDeck", version: "1.0.0" }),

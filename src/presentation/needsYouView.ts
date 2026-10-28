@@ -8,8 +8,9 @@
  * here — the tiles and the tray already say them, and a list of everything
  * is a list of nothing.
  */
-import { blockedAgents, paneDisplayTitle, type Workspace } from "../domain/deck";
-import { activityBadge, type PaneActivity } from "../domain/status";
+import { blockedAgents, paneDisplayTitle, type TitleAgent, type Workspace } from "../domain/deck";
+import type { PaneActivity } from "../domain/status";
+import { activityBadge } from "./activityBadge";
 import { formatAge } from "../domain/usage";
 
 /** A row's state — one that needs a person (`needsPerson`). */
@@ -44,7 +45,7 @@ export interface BellTrigger {
 export function needsYouRows(
   workspaces: readonly Workspace[],
   activities: ReadonlyMap<string, PaneActivity>,
-  agents: readonly { id: string; label: string }[],
+  agents: readonly (TitleAgent & { failureLabels?: Readonly<Record<string, string>> })[],
 ): NeedsYouRow[] {
   return blockedAgents(workspaces, activities).map(({ ws, pane, index, team, activity, since }) => ({
     wsId: ws.id,
@@ -52,7 +53,7 @@ export function needsYouRows(
     tone: activity.state,
     title: paneDisplayTitle(pane, index, agents),
     where: [ws.name, team.name, pane.team?.role].filter(Boolean).join(" · "),
-    label: activityBadge(activity).label,
+    label: activityBadge(activity, agents.find((agent) => agent.id === pane.agentType)?.failureLabels).label,
     since,
   }));
 }

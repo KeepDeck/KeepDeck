@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPARE_SLOTS } from "../domain/usage/chartPalette";
+import { SPARE_SLOTS } from "../presentation/usagePalette";
 import { FALLBACK_GOLD } from "../components/stats/AchievementEmbers";
 import { readStyles } from "./testSupport";
 

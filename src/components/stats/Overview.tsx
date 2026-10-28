@@ -30,11 +30,14 @@ const UsageChart = lazy(() =>
  * that rule for every ledger-backed tab. */
 export function Overview({
   events,
+  colors,
   stats,
   period,
   now,
 }: {
   events: readonly UsageEventV2[];
+  /** The dialog's series colours (presentation/usagePalette.ts). */
+  colors: ReadonlyMap<string, string>;
   stats: UsageStats;
   period: UsageStatsPeriod;
   now: number;
@@ -76,7 +79,7 @@ export function Overview({
         }
       >
         <Suspense fallback={<ChartPlaceholder />}>
-          <UsageChart events={events} period={period} now={now} />
+          <UsageChart events={events} colors={colors} period={period} now={now} />
         </Suspense>
       </ErrorBoundary>
       {caption !== "" && <p className="stats__recap">{caption}</p>}
@@ -85,7 +88,7 @@ export function Overview({
       </p>
       {/* Period-independent by design: fixed UTC weeks under the rolling
           period's numbers, visible whatever range is selected. */}
-      <Weeks events={events} now={now} />
+      <Weeks events={events} colors={colors} now={now} />
     </>
   );
 }

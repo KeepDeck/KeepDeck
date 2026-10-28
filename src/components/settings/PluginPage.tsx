@@ -1,8 +1,5 @@
 import { useState } from "react";
-import type {
-  Capability,
-  SettingsSectionContribution,
-} from "@keepdeck/plugin-api";
+import type { SettingsSectionContribution } from "@keepdeck/plugin-api";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { Button } from "../../ui/Button";
 import { useRuntimePart } from "../../app/runtimeContext";
@@ -10,6 +7,7 @@ import { useSettings, useSettingsWrite } from "../../app/useSettings";
 import type { AgentFeature } from "../../domain/agents";
 import { DEFAULT_SETTINGS, withPluginMuted } from "../../domain/settings";
 import type { Contribution, InstalledPlugin } from "../../plugins";
+import { capabilitiesInWords } from "../../presentation/pluginCapabilities";
 import { AgentFeaturesSection } from "./AgentFeaturesSection";
 import { PluginSettingsSection } from "./PluginSettingsSection";
 
@@ -64,7 +62,7 @@ export function PluginPage({
             </span>
             {external && plugin.manifest.capabilities.length > 0 && (
               <span className="settings__hint">
-                Wants: {plugin.manifest.capabilities.map(describe).join(", ")}
+                Wants: {capabilitiesInWords(plugin.manifest.capabilities, external.permissions)}
               </span>
             )}
           </span>
@@ -203,42 +201,4 @@ export function RescanButton() {
       </span>
     </Button>
   );
-}
-
-/** A capability in plain words — what the user is consenting to. */
-function describe(cap: Capability): string {
-  switch (cap.kind) {
-    case "exec":
-      return `run ${cap.commands.join("/")}`;
-    case "fs":
-      return cap.scope === "everywhere"
-        ? "read any file"
-        : "read project files";
-    case "fsWrite":
-      return `write inside ${cap.paths.join(", ")}`;
-    case "sqliteReadonly":
-      return `query databases (read-only) inside ${cap.paths.join(", ")}`;
-    case "git":
-      return cap.scope === "everywhere"
-        ? "read git state of any repository"
-        : "read git state of project repositories";
-    case "net":
-      return `reach ${cap.domains.join("/")}`;
-    case "legacyDownloads":
-      return `adopt legacy downloads (${cap.migrations.map((migration) => migration.source).join(", ")})`;
-    case "ports":
-      return "allocate ports";
-    case "open":
-      return "open links & files";
-    case "commands":
-      return `drive the deck (${cap.execute.join(", ")})`;
-    case "mic":
-      return "use the microphone (local speech-to-text)";
-    case "notifications":
-      return "send notifications";
-    case "clipboardWrite":
-      return "copy text to the clipboard";
-    case "clipboardRead":
-      return "read the clipboard (sensitive — it can hold secrets)";
-  }
 }

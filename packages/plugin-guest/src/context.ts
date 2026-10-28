@@ -7,6 +7,8 @@ import type { GuestCaller } from "./rpc";
 import {
   decodeAgentHistoryCall,
   decodeHookCall,
+  isWireArmOutput,
+  isWireSpawnPlanOutput,
   decodeLiveSessionsCall,
   decodeOpenCall,
   decodeSessionEvent,
@@ -336,6 +338,13 @@ export function buildGuestContext(
       },
     },
 
+    workspaces: {
+      dir: ({ id, instance }) =>
+        rpc
+          .call("workspaces.dir", [{ id, instance }])
+          .then((value) => str(value, "workspaces.dir")),
+    },
+
     events: {
       onWorkspaceClosed: (cb) =>
         subscribeChannel(
@@ -421,30 +430,42 @@ export function buildGuestContext(
       const hooks = agentHooks.get(agentId);
       const missing = () => new Error(`no ${hook} hook for agent "${agentId}"`);
       // One case per hook: each takes its own input, and the input is wire
-      // data the host built for exactly that hook.
+      // data the host built for exactly that hook. The output's shape was
+      // checked against the hook's when the call was decoded.
+      const plan = () => {
+        if (!isWireSpawnPlanOutput(output)) throw new Error(`${hook}: the call carried no plan to fill`);
+        return output;
+      };
       switch (hook) {
         case "spawn.plan": {
           const fn = hooks?.["spawn.plan"];
           if (!fn) throw missing();
-          await fn(decodeSpawnPlanInput(input, "spawn plan input"), output);
+          await fn(decodeSpawnPlanInput(input, "spawn plan input"), plan());
           break;
         }
         case "resume.plan": {
           const fn = hooks?.["resume.plan"];
           if (!fn) throw missing();
-          await fn(decodeResumePlanInput(input, "resume plan input"), output);
+          await fn(decodeResumePlanInput(input, "resume plan input"), plan());
           break;
         }
         case "fork.plan": {
           const fn = hooks?.["fork.plan"];
           if (!fn) throw missing();
-          await fn(decodeForkPlanInput(input, "fork plan input"), output);
+          await fn(decodeForkPlanInput(input, "fork plan input"), plan());
           break;
         }
         case "bare.plan": {
           const fn = hooks?.["bare.plan"];
           if (!fn) throw missing();
-          await fn(decodeSpawnPlanInput(input, "bare plan input"), output);
+          await fn(decodeSpawnPlanInput(input, "bare plan input"), plan());
+          break;
+        }
+        case "arm.plan": {
+          const fn = hooks?.["arm.plan"];
+          if (!fn) throw missing();
+          if (!isWireArmOutput(output)) throw new Error("arm.plan: the call carried no plantings to fill");
+          await fn(decodeSpawnPlanInput(input, "arm plan input"), output);
           break;
         }
         default:

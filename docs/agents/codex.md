@@ -39,8 +39,10 @@ target.
   The same rule is the plugin's `bare.plan` floor, so a pane whose plan
   failed still launches with it.
 - **Skills:** Codex has no flag or env for them. It reads `.agents/skills`
-  from its starting directory, and the host symlinks the staged skills there
-  before the spawn.
+  from its starting directory, so the plugin's `arm.plan` declares a symlink
+  there to the host's bare skills directory, and the host's cwd arming engine
+  plants it before the spawn — leaving the user's own `.agents` alone and
+  taking the link back with the worktree.
 
 `-c`, `--no-daemon` and the other flags are global and must come before the `resume` or `fork`
 subcommand.
@@ -134,8 +136,11 @@ Fork uses Codex's own `codex fork <id>`.
 
 - Tokens, context and rate limits come from the rollout's `token_count`
   events.
-- Account limits are also read from a KeepDeck-owned `codex app-server`
-  (`account/rateLimits/read`).
+- Account limits are also read from `codex app-server`
+  (`account/rateLimits/read`). The plugin declares the server in its
+  manifest (`exec.servers`: the command, the `initialize`/`initialized`
+  handshake, and that one method); the host keeps the child for the plugin
+  and stops it when the plugin is disabled.
 - There is no dollar cost for ChatGPT-plan accounts. Per-thread cost
   (`account/usage/read {threadId}`) is returned only for enterprise
   workspaces; it was null on a regular plan, verified live.

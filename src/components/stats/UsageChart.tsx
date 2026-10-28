@@ -1,9 +1,8 @@
 import { useMemo } from "react";
 import { Bar, BarChart, BarStack, Legend, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { formatBucket, formatTokens, tokenSegments } from "../../domain/usage";
+import { seriesColorFor } from "../../presentation/usagePalette";
 import {
-  ledgerSeriesColors,
-  seriesColorFor,
   CHART_BAR_RADIUS,
   CHART_CURSOR_FILL,
   CHART_HEIGHT,
@@ -24,8 +23,9 @@ import type { UsageStatsPeriod } from "../../domain/usage/history/query";
  * Tokens over time, stacked by provider — wide flush columns, the stack's
  * cap rounded, no grid and no value axis: the shape is the reading, and the
  * exact numbers live in the hover card. Colors come from the domain's
- * roster-stable palette (see chartPalette.ts) — series AND chrome — keyed
- * on the FULL ledger roster so period switches never repaint a provider.
+ * roster-stable palette — series (presentation/usagePalette.ts, keyed on
+ * the agent catalog, so period switches never repaint a provider) and
+ * chrome (chartPalette.ts).
  * Buckets are rendered as-is; series read through accessor functions, so
  * an agent id can never collide with an axis field or be misread as a
  * lodash property path.
@@ -42,10 +42,13 @@ const TITLES: Record<Granularity, string> = {
 
 export function UsageChart({
   events,
+  colors,
   period,
   now,
 }: {
   events: readonly UsageEventV2[];
+  /** The dialog's series colours (presentation/usagePalette.ts). */
+  colors: ReadonlyMap<string, string>;
   period: UsageStatsPeriod;
   /** The dialog's shared wall clock — never a private Date.now(). */
   now: number;
@@ -54,7 +57,6 @@ export function UsageChart({
     () => usageTimeline(events, period, now),
     [events, period, now],
   );
-  const colors = useMemo(() => ledgerSeriesColors(events), [events]);
   // Nothing recorded, or recorded only in the leading sliver the full-bucket
   // axis excludes (agents lists the EMITTED buckets' roster) — an all-zero
   // plot with an empty legend reads as broken, not as quiet.

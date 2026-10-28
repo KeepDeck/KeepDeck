@@ -1,6 +1,5 @@
 import {
   findWorkspaceOfPane,
-  paneAgentType,
   paneHasProcess,
   paneWorktree,
 } from "../domain/deck";
@@ -94,7 +93,7 @@ export function createUsageTailsLane({
       for (const pane of workspace.panes) {
         if (
           paneHasProcess(workspace, pane) &&
-          usage.get(paneAgentType(pane))?.tail
+          usage.get(pane.agentType)?.tail
         ) {
           desired.add(pane.id);
         }
@@ -114,7 +113,7 @@ export function createUsageTailsLane({
           continue;
         }
         const paneId = pane.id;
-        const agentId = paneAgentType(pane);
+        const agentId = pane.agentType;
         const tail = usage.get(agentId)?.tail;
         if (!tail) continue;
         const token = peekPaneSpawnSpec(paneId)?.token;
@@ -214,7 +213,7 @@ export function createUsageTailsLane({
     );
     const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
     if (!pane) return;
-    const agentId = paneAgentType(pane);
+    const agentId = pane.agentType;
     const tail = declarations.current().get(agentId)?.tail;
     if (!tail) {
       log.debug(

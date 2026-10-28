@@ -173,9 +173,6 @@ export interface UsageTail {
   sweep?(): Promise<readonly string[]>;
 }
 
-/** Native polled limit sources the host offers. */
-export type UsageLimitsSource = "codex-app-server" | "kimi-usages";
-
 /** The usage half of an agent contribution.
  *
  * BUILT-IN (in-process) agents only for now: the external tier does not
@@ -189,10 +186,23 @@ export interface AgentUsage {
   /** Follow the session file named by this agent's bindings (the binding's
    * transcriptPath is the file), carrying the records this declares. */
   tail?: UsageTail;
-  /** Account limits live behind a native source: the host fetches the named
-   * source on a slow interval while one of this agent's panes is live; the
-   * plugin reads the opaque body. */
-  limits?: { poll: UsageLimitsSource; normalize: LimitsNormalizer };
+  /** Account limits: the host calls `read` on a slow interval while one of
+   * this agent's panes is live (and once at boot), and hands what came back
+   * to `normalize`. `read` is the plugin's own fetch, through its services —
+   * typically `rpc` or `http`. */
+  limits?: AgentLimits;
+}
+
+/** One limits read: the opaque body `normalize` parses, and when the source
+ * could first have seen it (unix ms) — the host dates the claim by it. */
+export interface LimitsRead {
+  body: string;
+  sourceAt?: number;
+}
+
+export interface AgentLimits {
+  read(): Promise<LimitsRead>;
+  normalize: LimitsNormalizer;
 }
 
 /* ---- Authoring helpers ----------------------------------------------- *

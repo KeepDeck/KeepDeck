@@ -70,6 +70,9 @@ function fakeDeps() {
       readText: vi.fn(async () => ""),
     },
     exec: { runOnce: vi.fn(async () => ({ ran: true, ok: true, said: "" })) },
+    rpc: { request: vi.fn() },
+    http: { get: vi.fn() },
+    env: { get: vi.fn() },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
@@ -84,6 +87,7 @@ function fakeDeps() {
       remove: vi.fn(() => Promise.resolve()),
       writeFile: vi.fn(() => Promise.resolve()),
       appendLine: vi.fn(() => Promise.resolve()),
+      move: vi.fn(() => Promise.resolve()),
     },
     git: {
       status: vi.fn(),
@@ -108,9 +112,11 @@ function fakeDeps() {
   };
   const deps: PluginHostDeps = {
     storage: vi.fn(() => storage),
+    workspaces: vi.fn(() => ({ dir: vi.fn(async () => "/plugin-workspaces/p/ws") })),
     settings: vi.fn(() => settingsView),
     events,
     services: vi.fn(() => services),
+    processes: { stop: vi.fn(async () => {}) },
     commands: vi.fn(() => commandsPort),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
     ui,
@@ -463,6 +469,47 @@ describe("buildPluginContext", () => {
     expect(gitWatch).toHaveBeenCalledTimes(1);
   });
 
+  it("disposeAll stops the processes the host keeps for a plugin that declares servers, once", () => {
+    const { deps } = fakeDeps();
+    const server = { id: "app", command: "tool", args: [], methods: ["read"] };
+    const withServers = buildPluginContext(
+      manifest("p", { capabilities: [{ kind: "exec", commands: ["tool"], servers: [server] }] }),
+      "builtin",
+      createContributionRegistries(),
+      deps,
+    );
+    const without = buildPluginContext(
+      manifest("q", { capabilities: [{ kind: "exec", commands: ["tool"] }] }),
+      "builtin",
+      createContributionRegistries(),
+      deps,
+    );
+
+    withServers.disposeAll();
+    withServers.disposeAll();
+    without.disposeAll();
+
+    expect(deps.processes.stop).toHaveBeenCalledTimes(1);
+    expect(deps.processes.stop).toHaveBeenCalledWith("p");
+  });
+
+  it("logs a failed stop instead of letting it escape the sweep", async () => {
+    const { deps, logger } = fakeDeps();
+    vi.mocked(deps.processes.stop).mockRejectedValueOnce(new Error("gone"));
+    const server = { id: "app", command: "tool", args: [], methods: ["read"] };
+    const { disposeAll } = buildPluginContext(
+      manifest("p", { capabilities: [{ kind: "exec", commands: ["tool"], servers: [server] }] }),
+      "builtin",
+      createContributionRegistries(),
+      deps,
+    );
+
+    disposeAll();
+    await vi.waitFor(() =>
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("stopping its processes failed: gone")),
+    );
+  });
+
   it("an early manual dispose retires the brace — disposeAll never runs it again", () => {
     const { deps, events } = fakeDeps();
     const { ctx, disposeAll } = buildPluginContext(
@@ -504,6 +551,47 @@ describe("buildPluginContext", () => {
     expect(boom.dispose).toHaveBeenCalledTimes(1);
     expect(ok.dispose).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an agent's presentation at registration", () => {
+  const register = (presentation: unknown) => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("cli", {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: ["tool"] }],
+        contributes: { agents: [{ id: "tool", label: "Tool", features: [] }] },
+      }),
+      "builtin",
+      registries,
+      deps,
+    );
+    const entry = { id: "tool", label: "Tool", detect: { bin: "tool" }, hooks: {} };
+    // Through `Reflect.set`, a value the contract type would refuse at
+    // compile time reaches the runtime check as an external realm's would.
+    Reflect.set(entry, "presentation", presentation);
+    ctx.agents.register(entry);
+    return registries;
+  };
+
+  it("accepts glyphs, labels and a #RRGGBB colour", () => {
+    const registries = register({ oscLeadingGlyphs: ["✶"], failureLabels: { e: "E" }, chartColor: "#3987e5" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("refuses a colour the charts cannot draw, empty or control text, or an array of labels", () => {
+    for (const presentation of [
+      { chartColor: "blue" },
+      { chartColor: "#12345" },
+      { oscLeadingGlyphs: [""] },
+      { oscLeadingGlyphs: ["\u001b[31m"] },
+      { failureLabels: { e: "x".repeat(65) } },
+      { failureLabels: ["E"] },
+    ]) {
+      expect(() => register(presentation), JSON.stringify(presentation)).toThrow("presentation is malformed");
+    }
   });
 });
 

@@ -22,7 +22,7 @@
  * globals that outlived a test's `clearAllMocks`, and a lifetime nobody owns is
  * exactly the shape of bug this module exists to prevent.
  */
-import type { WorkspaceRef } from "@keepdeck/plugin-api";
+import type { CwdArm, WorkspaceRef } from "@keepdeck/plugin-api";
 import {
   skillRootsOf,
   type Workspace,
@@ -70,26 +70,19 @@ export interface WorktreeDeckView {
   live(): LiveWorkspace[];
 }
 
-/** The three staged directory views the spawn hook may consume. Kept as this
- * infrastructure port rather than importing the skills feature's IPC DTO: the
- * manager owns the lifetime and ordering, while the feature owns the wire. */
+/** The staged skills the spawn hook consumes: the bare view and each skill as
+ * text. Kept as this infrastructure port rather than importing the skills
+ * feature's IPC DTO: the manager owns the lifetime and ordering, while the
+ * feature owns the wire. */
 export interface WorktreeSkillViews {
-  claudePluginDir: string;
-  opencodeConfigDir: string;
-  skillsDir: string;
-}
-
-/** The planting result the MCP feature reports through the infrastructure
- * port. Structural typing keeps the IPC DTO private to that feature. */
-export interface McpPlantingReport {
-  armed: string[];
-  refused: { root: string; reason: string }[];
+  dir: string;
+  skills: { name: string; content: string }[];
 }
 
 /**
  * What the pane lifecycle needs: creating worktrees, naming what landed, and
- * tearing them down again — plus the staged skills a spawn plan asks for, since
- * arming a directory and deleting it are the pair whose ORDER is the invariant.
+ * tearing them down again — plus the staged skills a spawn plan asks for,
+ * built in the same queue as the teardown and the sweep that prunes them.
  */
 export interface WorktreeProvisioner {
   /**
@@ -131,27 +124,19 @@ export interface WorktreeProvisioner {
   /** Forget an owner's post-provision step (the fork was abandoned before it ran). */
   clearPostProvision(ownerId: string): void;
   /**
-   * The workspace's staged shared skills, ready for a spawn plan — and, as a
-   * side effect, its live spawn roots armed with the codex-facing
-   * `.agents/skills` symlink. `null` = nothing to inject (an empty library, or
-   * a staging that failed and was degraded by the IPC layer): panes then spawn
-   * without skills rather than re-hitting a broken backend.
+   * The workspace's staged shared skills, ready for a spawn plan. `null` =
+   * nothing to inject (an empty library, or a staging that failed and was
+   * degraded by the IPC layer): panes then spawn without skills rather than
+   * re-hitting a broken backend.
    *
-   * The roots come from the deck, never from the caller: a build path that
-   * passed its own snapshot is how a directory being deleted got armed.
-   * `landing` is the one honest exception — a pane about to exist in a cwd the
-   * deck does not list yet — and it is a cwd, not a set.
-   *
-   * Memoized per workspace INSTANCE and root set: staging rebuilds the on-disk
-   * views from the library, so it runs once and every later pane spawn in that
-   * workspace reuses the promise. Ids may be reused after a close, instances
-   * never are, so a reborn id cannot be served a dead lifetime's promise (whose
-   * dirs the sweep may have deleted). The DISK key stays the durable id.
+   * Memoized per workspace INSTANCE: staging rebuilds the on-disk views from
+   * the library, so it runs once and every later pane spawn in that workspace
+   * reuses the promise until the library moves. Ids may be reused after a
+   * close, instances never are, so a reborn id cannot be served a dead
+   * lifetime's promise (whose dirs the sweep may have deleted). The DISK key
+   * stays the durable id.
    */
-  skillsFor(
-    workspace: WorkspaceRef,
-    landing?: string,
-  ): Promise<WorktreeSkillViews | null>;
+  skillsFor(workspace: WorkspaceRef): Promise<WorktreeSkillViews | null>;
   /**
    * Tear down each target's git worktree and branches when the close dialog's
    * delete checkbox was ticked. Always forced — the checkbox is explicit
@@ -167,9 +152,9 @@ export interface WorktreeProvisioner {
 /** What the deck's housekeeping needs — nothing else. */
 export interface WorktreeHousekeeping {
   /**
-   * Drop what no live workspace claims any more: the derived skill dirs of
-   * workspaces that are gone, and the `.agents/skills` arming of spawn cwds
-   * that left. Called on every deck transition, since any of them can shrink the
+   * Drop what no live workspace claims any more: the derived skill dirs and
+   * plugin directories of workspaces that are gone, and what was planted in
+   * spawn cwds that left. Called on every deck transition, since any of them can shrink the
    * live set, and once the deck has hydrated at boot (which catches whatever a
    * crash or an update left behind).
    *
@@ -191,29 +176,29 @@ export interface SkillsInvalidation {
   invalidateSkills(): void;
 }
 
-/**
- * The other thing KeepDeck plants in a pane's cwd: the MCP client config a
- * file-fed CLI reads instead of taking servers on argv.
- *
- * Its own role rather than a shared queue handle, because ordering against a
- * teardown is only HALF of what makes such a write safe — the other half is
- * refusing a directory no live pane claims any more, and both halves are this
- * owner's knowledge. Handing out the queue instead let the MCP path take the
- * ordering and skip the check.
- *
- * WHAT to write stays the MCP owner's business; this decides where it is
- * allowed to land, and when.
- */
-export interface McpPlanting {
-  /** Put `content` in `root` for `workspaceId`, once nothing else is touching
-   * that directory. Reports what landed and what refused (a cwd where the user
-   * keeps their own config, one that is gone, one it cannot write); never
-   * throws. */
-  plantMcp(
-    workspaceId: string,
-    root: string,
-    content: string,
-  ): Promise<McpPlantingReport>;
+/** One plugin's complete set of plantings for one cwd — the infrastructure
+ * port's own shape (the arming IPC's DTO stays that feature's). */
+export interface CwdArmRequest {
+  pluginId: string;
+  workspaceId: string;
+  cwd: string;
+  arms: readonly CwdArm[];
+  skillsDir: string | null;
+}
+
+/** What one arming pass planted, by path, and what it refused and why. */
+export interface CwdArmReport {
+  armed: string[];
+  refused: { path: string; reason: string }[];
+}
+
+/** Planting what an agent's plugin declares in a pane's cwd (`arm.plan`),
+ * ordered against worktree teardown — a planting landing between git's
+ * recursive delete and its final rmdir would leave a husk. Its own role
+ * rather than a shared queue handle, so the ordering cannot be skipped. */
+export interface CwdArming {
+  /** One plugin's complete set for one cwd; never throws. */
+  armCwd(request: CwdArmRequest): Promise<CwdArmReport>;
 }
 
 /**
@@ -225,32 +210,32 @@ export interface McpPlanting {
 export type WorktreeManager = WorktreeProvisioner &
   WorktreeHousekeeping &
   SkillsInvalidation &
-  McpPlanting;
+  CwdArming;
 
 /** The one composite passed into the manager. Its factories receive the
  * manager's queue, so every planting shares exactly one ordering guard. */
 export interface WorktreePlantingFactories {
-  skills(
-    deck: WorktreeDeckView,
-    inOrder: InOrder,
-  ): WorktreeSkillsPlanting;
-  mcp(inOrder: InOrder): McpPlanting;
+  skills(inOrder: InOrder): WorktreeSkillsPlanting;
+  /** Drop plugins' private directories of every workspace not in `liveWsIds`;
+   * false when that could not be done (the sweep tries again). */
+  prunePluginDirs(liveWsIds: readonly string[]): Promise<boolean>;
+  /** Folders taken back whole: whatever stood refused in them stands no
+   * more. */
+  onDisarmed(roots: readonly string[]): void;
 }
 
-export interface WorktreeSkillsPlanting
-  extends Pick<WorktreeProvisioner, "skillsFor">,
-    SkillsInvalidation {
-  /** Forget the stagings that armed any of `roots`. */
-  forgetStaged(roots: string[]): void;
-}
+export type WorktreeSkillsPlanting = Pick<WorktreeProvisioner, "skillsFor"> &
+  SkillsInvalidation;
 
 export interface WorktreePlantings
   extends Pick<WorktreeProvisioner, "skillsFor">,
-    McpPlanting,
+    CwdArming,
     WorktreeHousekeeping,
     SkillsInvalidation {
-  /** Teardown's single home for undoing both plantings. */
-  disarm(roots: string[]): Promise<boolean>;
+  /** Teardown's single home for taking back what was planted. Returns the
+   * roots released — a root a live workspace still runs a pane in is not —
+   * or null when the pass failed. */
+  disarm(roots: string[]): Promise<string[] | null>;
 }
 
 export type WorktreePlantingsFactory = (
@@ -300,7 +285,7 @@ export function createWorktreeManager(
     skillsFor: plantings.skillsFor,
     invalidateSkills: plantings.invalidateSkills,
     sweep: plantings.sweep,
-    plantMcp: plantings.plantMcp,
+    armCwd: plantings.armCwd,
     remove: teardown.remove,
   };
 }

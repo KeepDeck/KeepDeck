@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentDialogResult } from "../domain/agents";
 import {
+  NO_AGENT_MESSAGE,
   placementRefusalMessage,
   TEAM_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
@@ -264,6 +265,24 @@ describe("agent doors — a member", () => {
       door: "fork",
       message: "no clone",
     });
+  });
+
+  it("makes a team that names no agent — a team needs none", async () => {
+    const h = setup();
+    expect(await h.team({ agentType: null })).toEqual({ kind: "done" });
+    expect(h.createTeam).toHaveBeenCalledWith(
+      expect.objectContaining({ placement: { kind: "attached", cwd: "/repo" } }),
+    );
+  });
+
+  it("refuses a member that names no agent, rather than assume one", async () => {
+    const h = setup();
+    expect(await h.member({ agentType: null })).toEqual({
+      kind: "refused",
+      door: "member",
+      message: NO_AGENT_MESSAGE,
+    });
+    expect(h.createPane).not.toHaveBeenCalled();
   });
 
   it("refuses a workspace that is gone — or replaced under the same id — without touching the orchestrator", async () => {

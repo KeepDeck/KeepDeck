@@ -26,6 +26,8 @@ export interface MinimizedTrayEntry {
   title: string;
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
+  /** The agent's own words for its failure codes, from the catalog. */
+  failureLabels?: Readonly<Record<string, string>>;
   gitBadge?: GitBadge | null;
   /** The pane's place on a team, when it is on one — the hover details name
    * the team and role, since the chip itself is too small for the badge. */
@@ -263,6 +265,7 @@ function MinimizedOverflow({
             paneId={entry.id}
             title={entry.title}
             icon={entry.icon}
+            failureLabels={entry.failureLabels}
             gitBadge={entry.gitBadge}
             team={entry.team}
             yolo={entry.yolo}
@@ -393,6 +396,7 @@ export function MinimizedTray({
             paneId={entry.id}
             title={entry.title}
             icon={entry.icon}
+            failureLabels={entry.failureLabels}
             gitBadge={entry.gitBadge}
             team={entry.team}
             yolo={entry.yolo}

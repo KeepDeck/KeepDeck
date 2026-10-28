@@ -172,6 +172,26 @@ describe("agent.spawn", () => {
     }
   });
 
+  it("refuses when no agent is there to run, before anything lands — none is assumed", async () => {
+    const { registry, deck, createPane } = setup([workspace({ panes: [{ id: "p0", agentType: "claude" }] })]);
+    const catalog = AGENTS.splice(0);
+    settingsState.current = { defaultAgent: "claude" };
+    try {
+      const result = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: "failed",
+          message: "no agent available: install or enable an agent plugin, or pass agentType",
+        },
+      });
+    } finally {
+      AGENTS.push(...catalog);
+    }
+    expect(createPane).not.toHaveBeenCalled();
+    expect(deck.workspaces[0].panes).toHaveLength(1);
+  });
+
   it("does not attach a delayed spawn to a replacement with the same id", async () => {
     let finishInspect!: (value: {
       isRepo: boolean;

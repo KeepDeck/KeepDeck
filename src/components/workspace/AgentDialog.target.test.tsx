@@ -7,6 +7,7 @@ import { ROLE_WORDS, roleChoiceView } from "../../presentation/roleChoiceView";
 import { forkPickLine } from "../../presentation/sessionResumeView";
 import type { AgentDialogResult, AgentDialogTarget, PathProbe, SessionPreset } from "../../domain/agents";
 import { roleById } from "../../domain/mail";
+import { NO_AGENT_MESSAGE } from "../../domain/deck";
 import { present } from "@keepdeck/plugin-api/testing";
 
 // The same seams the main suite pins: the worktree ipc behind the resume
@@ -32,25 +33,23 @@ vi.mock("../../app/runtimeContext", async () =>
     sessionIndex,
     directoryProbe: worktreeIpc,
   }));
+const CLAUDE = {
+  id: "claude",
+  label: "Claude Code",
+  command: "claude",
+  features: [
+    { id: "session.new", label: "New sessions" },
+    { id: "session.resume", label: "Resume" },
+    { id: "session.fork", label: "Fork" },
+    { id: "session.history", label: "History" },
+  ],
+  installed: true,
+  path: null,
+};
+// The catalog the dialog reads — one agent, unless a test empties it.
+const catalog = vi.hoisted(() => ({ agents: [] as unknown[], loading: false }));
 vi.mock("../../app/useAgents", () => ({
-  useAgents: () => ({
-    agents: [
-      {
-        id: "claude",
-        label: "Claude Code",
-        command: "claude",
-        features: [
-          { id: "session.new", label: "New sessions" },
-          { id: "session.resume", label: "Resume" },
-          { id: "session.fork", label: "Fork" },
-          { id: "session.history", label: "History" },
-        ],
-        installed: true,
-        path: null,
-      },
-    ],
-    loading: false,
-  }),
+  useAgents: () => catalog,
   resetAgentsCache: () => {},
 }));
 
@@ -73,8 +72,12 @@ describe("AgentDialog targets", () => {
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(present(document.getElementById("host"), "element \"host\""));
     confirmed = [];
+    catalog.agents = [CLAUDE];
+    catalog.loading = false;
+    defaultAgentType = "claude";
   });
   afterEach(() => act(() => root.unmount()));
+  let defaultAgentType: AgentDialogResult["agentType"];
 
   const mount = (
     target: AgentDialogTarget,
@@ -88,7 +91,7 @@ describe("AgentDialog targets", () => {
           target,
           ...(preset && { preset }),
           roles: roleChoiceView(heldRoles),
-          defaultAgentType: "claude" as const,
+          defaultAgentType,
           remoteEnabled: false,
           defaultYolo: false,
           repo,
@@ -151,6 +154,45 @@ describe("AgentDialog targets", () => {
     submit();
     expect(confirmed[0]).toMatchObject({ teamName: "docs", location: { kind: "main" } });
     expect("role" in confirmed[0]).toBe(false);
+  });
+
+  it("a new team needs no agent: with none installed it is still made, naming none", async () => {
+    catalog.agents = [];
+    defaultAgentType = null;
+    await mount({ kind: "new-team", suggestedName: "Team 3" }, null);
+    expect(createBtn().disabled).toBe(false);
+    submit();
+    expect(confirmed[0]).toMatchObject({ agentType: null, teamName: "Team 3" });
+  });
+
+  it("a member with no agent installed says so in place of the list, and cannot be added", async () => {
+    catalog.agents = [];
+    defaultAgentType = null;
+    await mount(member(), null, ["lead"]);
+    pickRole(present(roleById("impl"), "roleById \"impl\"").label);
+    expect(text()).toContain(NO_AGENT_MESSAGE);
+    expect(document.querySelector(".form__agent-pick")).toBeNull();
+    expect(createBtn().disabled).toBe(true);
+    submit();
+    expect(confirmed).toEqual([]);
+  });
+
+  it("a member asked for while the catalog loads waits for it, then takes the first agent", async () => {
+    catalog.agents = [];
+    catalog.loading = true;
+    defaultAgentType = null;
+    await mount(member(), null, ["lead"]);
+    pickRole(present(roleById("impl"), "roleById \"impl\"").label);
+    expect(text()).toContain("Looking for installed agents…");
+    expect(createBtn().disabled).toBe(true);
+
+    catalog.agents = [CLAUDE];
+    catalog.loading = false;
+    await mount(member(), null, ["lead"]);
+    expect(document.querySelector(".form__agent-pick")).not.toBeNull();
+    expect(createBtn().disabled).toBe(false);
+    submit();
+    expect(confirmed[0]).toMatchObject({ agentType: "claude", role: "impl-1" });
   });
 
   it("a cleared team name falls back to the suggestion rather than an empty team", async () => {

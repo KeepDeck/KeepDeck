@@ -17,6 +17,7 @@ describe("listenPaneCompanions", () => {
     const attribution = createPaneAttribution({
       workspaces: () => deck.getSnapshot().workspaces,
       secretOf: () => "tok",
+      swapSources: () => [],
     });
     attribution.recordBinding("pane-1", "4021");
     let deliver!: (report: PaneReportEvent) => void;

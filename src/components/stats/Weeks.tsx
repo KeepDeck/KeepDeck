@@ -1,9 +1,6 @@
 import { useMemo, useState } from "react";
 import { displayProviderCost, formatTokens } from "../../domain/usage";
-import {
-  ledgerSeriesColors,
-  seriesColorFor,
-} from "../../domain/usage/chartPalette";
+import { seriesColorFor } from "../../presentation/usagePalette";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
   formatWeekLabel,
@@ -30,13 +27,15 @@ const WEEKS_PAGE = 8;
  * so this block adds none; the hover names each share exactly. */
 export function Weeks({
   events,
+  colors,
   now,
 }: {
   events: readonly UsageEventV2[];
+  /** The dialog's series colours (presentation/usagePalette.ts). */
+  colors: ReadonlyMap<string, string>;
   now: number;
 }) {
   const weeks = useMemo(() => usageWeeks(events, now), [events, now]);
-  const colors = useMemo(() => ledgerSeriesColors(events), [events]);
   const [page, setPage] = useState(0);
   if (weeks.length === 0) return null;
 

@@ -62,6 +62,8 @@ use tauri::utils::mime_type::MimeType;
 use tauri::{AppHandle, Manager as _, Runtime, Url};
 use zip::ZipArchive;
 
+use crate::plugin_permissions::{csp_connect_sources, host_environment};
+
 /// The external tier's URI scheme. Must match `EXTERNAL_PLUGIN_SCHEME` in
 /// `src/plugins/external/url.ts` — this is the single Rust source of the
 /// literal, mirrored there.
@@ -928,76 +930,22 @@ fn renders_as_document(content_type: &str) -> bool {
 
 /// The CSP for a document response — the Figma `networkAccess` model: the
 /// plugin realm's network reach is exactly what its manifest declared, no
-/// more. `connect-src` lists the manifest's `net` capability domains as both
-/// schemes (manifests declare bare hostnames, not scheme-qualified ones) —
-/// plus `'self'` — or nothing beyond `'self'` when the plugin declares no
-/// `net` capability at all.
+/// more. `connect-src` is `'self'` plus the sources the declaration resolves
+/// to (`plugin_permissions::csp_connect_sources`, the same resolution the
+/// HTTP service and downloads admit by): a literal domain as both schemes,
+/// an origin a declared variable chose as itself. A dev-folder manifest
+/// never passed TS validation, so whatever does not resolve — a value with
+/// a space, `;` or CR/LF included — is dropped, never spliced in.
 fn csp_for(manifest_json: &str) -> String {
     let mut connect_src = String::from("'self'");
-    for domain in net_domains(manifest_json) {
-        // A dev-folder manifest never passed TS validation, so re-check the
-        // hostname grammar HERE before splicing into the header — a value
-        // with a space/`;`/CR/LF would inject a CSP directive or break the
-        // header. Anything that isn't a bare hostname is dropped, not served.
-        if is_bare_hostname(&domain) {
-            connect_src.push_str(&format!(" https://{domain} http://{domain}"));
-        } else {
-            log::warn!("kdplugin: dropped a non-hostname net domain from CSP: {domain:?}");
-        }
+    for source in csp_connect_sources(manifest_json, host_environment()) {
+        connect_src.push(' ');
+        connect_src.push_str(&source);
     }
     format!(
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
          connect-src {connect_src}; img-src 'self' data:"
     )
-}
-
-/// Whether `s` is a bare hostname (dotted labels / `localhost` / IPv4) with
-/// an optional `:port` — the same shape the TS validator's `HOSTNAME` grammar
-/// enforces, re-stated here as the last line of defense before a domain is
-/// spliced into a CSP header (dev-folder manifests reach here unvalidated).
-fn is_bare_hostname(s: &str) -> bool {
-    if s.is_empty() || s.len() > 253 {
-        return false;
-    }
-    let (host, port) = match s.rsplit_once(':') {
-        Some((h, p)) => (h, Some(p)),
-        None => (s, None),
-    };
-    if let Some(p) = port {
-        if p.is_empty() || p.len() > 5 || !p.bytes().all(|b| b.is_ascii_digit()) {
-            return false;
-        }
-    }
-    !host.is_empty()
-        && host.split('.').all(|label| {
-            !label.is_empty()
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        })
-}
-
-/// Every domain listed under a `{"kind":"net","domains":[...]}` capability
-/// in the manifest's `capabilities` array. Unknown capability kinds, and any
-/// other manifest malformation, are silently ignored HERE — this is a
-/// best-effort allowlist for a header, not validation; `readManifest` on the
-/// TS side is what actually enforces the manifest is well-formed.
-fn net_domains(manifest_json: &str) -> Vec<String> {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(manifest_json) else {
-        return Vec::new();
-    };
-    let Some(capabilities) = value.get("capabilities").and_then(|c| c.as_array()) else {
-        return Vec::new();
-    };
-    capabilities
-        .iter()
-        .filter(|cap| cap.get("kind").and_then(|k| k.as_str()) == Some("net"))
-        .filter_map(|cap| cap.get("domains").and_then(|d| d.as_array()))
-        .flatten()
-        .filter_map(|d| d.as_str().map(str::to_string))
-        .collect()
 }
 
 /// The requesting webview's current origin (`scheme://host[:port]`), used as

@@ -1,8 +1,8 @@
 {
   "id": "keepdeck.claude",
   "name": "Claude Code",
-  "version": "0.15.2",
-  "minApiVersion": 61,
+  "version": "0.16.0",
+  "minApiVersion": 71,
   "category": "cli",
   "description": "Teaches KeepDeck the Claude Code CLI: catalog identity and detection; spawn, resume and session identity move in next.",
   "capabilities": [
@@ -47,6 +47,16 @@
             "id": "execution.yolo",
             "label": "YOLO mode",
             "group": "execution"
+          },
+          {
+            "id": "integration.mcp",
+            "label": "MCP servers from the library",
+            "group": "integration"
+          },
+          {
+            "id": "integration.skills",
+            "label": "Skills from the library",
+            "group": "integration"
           },
           {
             "id": "mail.turn-end",

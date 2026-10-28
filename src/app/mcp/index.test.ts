@@ -10,14 +10,6 @@ import { createMcpService, type McpServiceDeps } from ".";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** A pane whose CLI takes no servers on argv and reads a file instead. */
-const fileFed = {
-  agentType: "kimi",
-  cwd: "/repo",
-  workspaceId: "ws-1",
-  client: "s",
-};
-
 function harness() {
   let deliver: ((request: McpRequest) => void) | null = null;
   const respond = vi.fn((_id: number, _reply: string) => Promise.resolve());
@@ -36,7 +28,7 @@ function harness() {
     transport: { enable, disable },
     pumpPorts,
     panesIn: () => 1,
-    plant: async () => ({ armed: [], refused: [] }),
+    deliversByCwd: () => false,
     library: { serversFor: async () => [] },
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
@@ -83,20 +75,16 @@ describe("createMcpService", () => {
     const h = harness();
     const service = createMcpService(h.deps);
     const socketAndError = () => {
-      const { socket, error, refused } = service.status();
-      return { socket, error, refused };
+      const { socket, error } = service.status();
+      return { socket, error };
     };
     // Nothing is assumed before the backend answers.
-    expect(socketAndError()).toEqual({ socket: null, error: null, refused: [] });
+    expect(socketAndError()).toEqual({ socket: null, error: null });
 
     const seen: string[] = [];
     service.subscribe(() => seen.push(service.status().socket ?? "-"));
     await flush();
-    expect(socketAndError()).toEqual({
-      socket: "/home/mcp.sock",
-      error: null,
-      refused: [],
-    });
+    expect(socketAndError()).toEqual({ socket: "/home/mcp.sock", error: null });
     // One settled enable, plus the connect lookup that lands under it — the
     // socket it publishes is the same either way.
     expect(seen).toEqual(["/home/mcp.sock", "/home/mcp.sock"]);
@@ -173,59 +161,6 @@ describe("createMcpService", () => {
     service.refresh();
     await flush();
     expect(h.enable).toHaveBeenCalledTimes(1);
-  });
-
-  it("drops a refusal once no pane runs in that folder any more", async () => {
-    // Keyed by directory and cleared only by a later successful arming of the
-    // SAME directory — so without this it names folders whose pane closed
-    // hours ago, and grows for the life of the session.
-    const h = harness();
-    const live = new Set(["/repo"]);
-    h.deps.panesIn = (cwd) => (live.has(cwd) ? 1 : 0);
-    h.deps.plant = async (_ws, root) => ({
-      armed: [],
-      refused: [{ root, reason: "theirs" }],
-    });
-    const service = createMcpService(h.deps);
-    await flush();
-    const kimi = (cwd: string) => ({ ...fileFed, cwd });
-
-    await (await service.access(kimi("/repo"))).deliver();
-    expect(service.status().refused.map((r) => r.root)).toEqual(["/repo"]);
-
-    live.delete("/repo"); // the pane is closed
-    service.refresh();
-
-    expect(service.status().refused).toEqual([]);
-  });
-
-  it("keeps a refusal for a pane the deck has not counted yet", async () => {
-    // A resume and a fork both plant BEFORE their pane lands, so "no pane runs
-    // here" cannot mean the pane went away — and that refusal is the one that
-    // matters most: the pane silently has no servers, and this list is the
-    // only place saying so. Pruning by the live count alone dropped it the
-    // moment the user opened Settings, or any other pane armed anywhere.
-    const h = harness();
-    h.deps.panesIn = () => 0; // the fork's pane has not landed
-    h.deps.plant = async (_ws, root) => ({
-      armed: [],
-      refused: [{ root, reason: "theirs" }],
-    });
-    const service = createMcpService(h.deps);
-    await flush();
-
-    await (await service.access({ ...fileFed, cwd: "/fork" })).deliver();
-    expect(service.status().refused.map((r) => r.root)).toEqual(["/fork"]);
-
-    service.refresh();
-    expect(service.status().refused.map((r) => r.root)).toEqual(["/fork"]);
-
-    // Another pane arming elsewhere must not evict it either.
-    await (await service.access({ ...fileFed, cwd: "/other" })).deliver();
-    expect(service.status().refused.map((r) => r.root)).toEqual([
-      "/fork",
-      "/other",
-    ]);
   });
 
   it("says nothing more once disposed, even for an enable already in flight", async () => {
@@ -431,25 +366,6 @@ describe("createMcpService", () => {
       { client: "a-secret-nobody-holds", host: "pane-3" },
       { client: null, host: null },
     ]);
-  });
-
-  it("reports the folders that kept their own kimi config, and clears them", async () => {
-    // Those panes are the only ones silently lacking what every other pane
-    // got, so the status carries them to the settings page rather than the
-    // log — and a folder that later accepts must stop being reported.
-    const h = harness();
-    let report = { armed: [] as string[], refused: [{ root: "/repo", reason: "theirs" }] };
-    h.deps.plant = async () => report;
-    const service = createMcpService(h.deps);
-    await flush();
-    const kimi = { ...fileFed, cwd: "/repo" };
-
-    await (await service.access(kimi)).deliver();
-    expect(service.status().refused).toEqual([{ root: "/repo", reason: "theirs" }]);
-
-    report = { armed: ["/repo"], refused: [] };
-    await (await service.access(kimi)).deliver();
-    expect(service.status().refused).toEqual([]);
   });
 
   it("offers a server def only once the transport is CONFIRMED up", async () => {

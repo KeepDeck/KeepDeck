@@ -178,7 +178,10 @@ export interface SessionPickRow {
 
 /** What the agent dialog returns — for a new team, or for one new member. */
 export interface AgentDialogResult {
-  agentType: AgentType;
+  /** The agent picked — null only for a new team opened while no agent is
+   * installed: a team is a name and a directory and needs none. A member
+   * always has one (its Create waits for the catalog). */
+  agentType: AgentType | null;
   /** Optional custom display name; blank falls back to the derived title. */
   name: string;
   location: AgentLocation;

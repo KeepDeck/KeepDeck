@@ -1,5 +1,13 @@
-import { isJsonRecord } from "../json.ts";
-import { CAPABILITY_KINDS, type Capability } from "./capabilities.ts";
+import { isJsonRecord, isJsonValue } from "../json.ts";
+import {
+  CAPABILITY_KINDS,
+  type Capability,
+  type CredentialDirectory,
+  type CredentialSource,
+  type EnvDefault,
+  type NetDomain,
+  type RpcServerDeclaration,
+} from "./capabilities.ts";
 import { hasUnsafeText } from "./text.ts";
 import { isApiVersion, parseVersion } from "./version.ts";
 
@@ -347,7 +355,16 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
           errors.push(
             `${at}: exec "commands" must name programs — the "*" wildcard is not allowed`,
           );
-        else out.push({ kind: "exec", commands: cap.commands });
+        else {
+          const servers = readRpcServers(cap.servers, `${at}.servers`, cap.commands, errors);
+          if (servers !== null) {
+            out.push({
+              kind: "exec",
+              commands: cap.commands,
+              ...(servers.length > 0 ? { servers } : {}),
+            });
+          }
+        }
         return;
       case "fs":
         if (cap.scope !== "workspace" && cap.scope !== "everywhere")
@@ -394,18 +411,19 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
           errors.push(`${at}: git "scope" must be "workspace" or "everywhere"`);
         else out.push({ kind: "git", scope: cap.scope });
         return;
-      case "net":
-        if (!isStringArray(cap.domains) || cap.domains.length === 0)
-          errors.push(`${at}: net needs a non-empty "domains" string array`);
-        else if (cap.domains.some((d) => !HOSTNAME.test(d)))
-          // Strict hostname grammar: the domains are interpolated into the
-          // realm's CSP `connect-src` — a value carrying a space, `;`, or a
-          // CR/LF would inject a directive or break the header outright, so a
-          // non-hostname is a manifest ERROR, not a silently-passed string.
-          errors.push(
-            `${at}: net domains must be bare hostnames (optionally :port), no wildcards or separators`,
-          );
-        else out.push({ kind: "net", domains: cap.domains });
+      case "net": {
+        const net = readNet(cap, at, errors);
+        if (net) out.push(net);
+        return;
+      }
+      case "env":
+        if (!isStringArray(cap.names) || cap.names.length === 0)
+          errors.push(`${at}: env needs a non-empty "names" string array`);
+        else if (cap.names.some((name) => !ENV_NAME.test(name)))
+          errors.push(`${at}: env names must be identifiers like HOME_DIR — no "*", "=" or spaces`);
+        else if (new Set(cap.names).size !== cap.names.length)
+          errors.push(`${at}: env names must not repeat`);
+        else out.push({ kind: "env", names: cap.names });
         return;
       case "legacyDownloads":
         if (!Array.isArray(cap.migrations) || cap.migrations.length === 0) {
@@ -477,7 +495,214 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
         );
     }
   });
+  checkEnvReferences(out, errors);
   return out;
+}
+
+/** An environment variable name: what a shell would accept, nothing that
+ * could enumerate or assign. */
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+/** A `net` capability: literal hosts or variable-chosen origins, and the
+ * credential sources whose tokens only its own domains may receive. */
+function readNet(cap: Record<string, unknown>, at: string, errors: string[]): Capability | null {
+  const before = errors.length;
+  const domains = Array.isArray(cap.domains) && cap.domains.length > 0 ? cap.domains : null;
+  if (!domains) {
+    errors.push(`${at}: net needs a non-empty "domains" array`);
+    return null;
+  }
+  const read = domains.flatMap((domain): NetDomain[] => {
+    if (typeof domain === "string") {
+      // Strict hostname grammar: a literal is interpolated into the realm's
+      // CSP `connect-src` — a value carrying a space, `;`, or a CR/LF would
+      // inject a directive or break the header outright, so a non-hostname
+      // is a manifest ERROR, not a silently-passed string.
+      if (HOSTNAME.test(domain)) return [domain];
+      errors.push(
+        `${at}: net domains must be bare hostnames (optionally :port), no wildcards or separators`,
+      );
+      return [];
+    }
+    const reference = readEnvDefault(domain, `${at}.domains`, errors, ["env", "default"]);
+    if (reference && !HTTP_URL.test(reference.default)) {
+      errors.push(`${at}.domains: a variable's default must be an http(s) URL`);
+      return [];
+    }
+    return reference ? [reference] : [];
+  });
+  const credentials = readCredentials(cap.credentials, `${at}.credentials`, errors);
+  if (errors.length > before || credentials === null) return null;
+  return {
+    kind: "net",
+    domains: read,
+    ...(credentials.length > 0 ? { credentials } : {}),
+  };
+}
+
+/** An absolute http(s) URL with a host and nothing a header could split on. */
+const HTTP_URL = /^https?:\/\/[^\s/?#@]+(?:[/?#][^\s]*)?$/;
+
+function readEnvDefault(
+  value: unknown,
+  at: string,
+  errors: string[],
+  keys: readonly string[],
+): EnvDefault | null {
+  if (
+    !isJsonRecord(value) ||
+    typeof value.env !== "string" ||
+    !ENV_NAME.test(value.env) ||
+    typeof value.default !== "string" ||
+    value.default === "" ||
+    Object.keys(value).some((key) => !keys.includes(key))
+  ) {
+    errors.push(`${at}: a variable reference is exactly { env, default${keys.includes("append") ? ", append?" : ""} }`);
+    return null;
+  }
+  return { env: value.env, default: value.default };
+}
+
+/** A path a literal or a default may name: absolute or `~/`, never a root
+ * that bounds nothing. */
+function boundedAbsolute(path: string): boolean {
+  return (path.startsWith("/") || path.startsWith("~/")) && !UNBOUNDED_PATH.test(path);
+}
+
+function readCredentials(value: unknown, at: string, errors: string[]): CredentialSource[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    errors.push(`${at}: must be an array`);
+    return null;
+  }
+  const before = errors.length;
+  const sources = value.flatMap((raw, index): CredentialSource[] => {
+    const field = `${at}[${index}]`;
+    if (!isJsonRecord(raw) || typeof raw.id !== "string" || !CONTRIB_ID.test(raw.id)) {
+      errors.push(`${field}: needs an "id" that is a plain token`);
+      return [];
+    }
+    if (!isStringArray(raw.tokenFields) || raw.tokenFields.length === 0 || raw.tokenFields.includes("")) {
+      errors.push(`${field}: "tokenFields" must be a non-empty array of field names`);
+      return [];
+    }
+    const dir = readCredentialDirectory(raw.dir, `${field}.dir`, errors);
+    return dir === null ? [] : [{ id: raw.id, dir, tokenFields: raw.tokenFields }];
+  });
+  return errors.length > before ? null : sources;
+}
+
+function readCredentialDirectory(value: unknown, at: string, errors: string[]): CredentialDirectory | null {
+  if (typeof value === "string") {
+    if (boundedAbsolute(value)) return value;
+    errors.push(`${at}: must be an absolute or ~/ directory, not a root`);
+    return null;
+  }
+  const reference = readEnvDefault(value, at, errors, ["env", "default", "append"]);
+  if (!reference) return null;
+  if (!boundedAbsolute(reference.default)) {
+    errors.push(`${at}: the default must be an absolute or ~/ directory, not a root`);
+    return null;
+  }
+  const append = isJsonRecord(value) ? value.append : undefined;
+  if (append === undefined) return reference;
+  if (typeof append !== "string" || !safeRelativePath(append) || append.includes("\\")) {
+    errors.push(`${at}: "append" must be a plain relative path`);
+    return null;
+  }
+  return { ...reference, append };
+}
+
+/** Every variable a `net` entry refers to is one an `env` capability
+ * declares — wherever in the list either stands — and every credential
+ * source id is unique across the plugin. */
+function checkEnvReferences(capabilities: readonly Capability[], errors: string[]): void {
+  const declared = new Set(capabilities.flatMap((cap) => (cap.kind === "env" ? cap.names : [])));
+  const ids = new Set<string>();
+  for (const cap of capabilities) {
+    if (cap.kind !== "net") continue;
+    const references = [
+      ...cap.domains.flatMap((domain) => (typeof domain === "string" ? [] : [domain.env])),
+      ...(cap.credentials ?? []).flatMap((source) => (typeof source.dir === "string" ? [] : [source.dir.env])),
+    ];
+    for (const name of references.filter((name) => !declared.has(name)))
+      errors.push(`capabilities: ${name} is referred to but no "env" capability declares it`);
+    for (const source of cap.credentials ?? []) {
+      if (ids.has(source.id)) errors.push(`capabilities: credential source "${source.id}" is declared twice`);
+      ids.add(source.id);
+    }
+  }
+}
+
+/** An `exec` capability's `servers`: each runs one of the capability's own
+ * commands, by name, and names at least one callable method. The handshake
+ * is the host's, so it is never among the methods. `null` when any entry
+ * is wrong, so the capability is refused whole. */
+function readRpcServers(
+  value: unknown,
+  at: string,
+  commands: readonly string[],
+  errors: string[],
+): RpcServerDeclaration[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    errors.push(`${at}: must be an array`);
+    return null;
+  }
+  const before = errors.length;
+  const ids = new Set<string>();
+  const servers = value.flatMap((raw, index): RpcServerDeclaration[] => {
+    const field = `${at}[${index}]`;
+    if (!isJsonRecord(raw)) {
+      errors.push(`${field}: must be an object`);
+      return [];
+    }
+    const { id, command, args, methods, handshake } = raw;
+    if (typeof id !== "string" || !CONTRIB_ID.test(id)) {
+      errors.push(`${field}: "id" must be a plain token`);
+      return [];
+    }
+    if (ids.has(id)) errors.push(`${field}: "id" ${id} is declared twice`);
+    ids.add(id);
+    if (typeof command !== "string" || !commands.includes(command) || /[/\\]/.test(command))
+      errors.push(`${field}: "command" must be one of this capability's commands, by name`);
+    if (!isStringArray(args)) errors.push(`${field}: "args" must be a string array`);
+    if (!isStringArray(methods) || methods.length === 0 || methods.some((method) => method === ""))
+      errors.push(`${field}: "methods" must be a non-empty array of method names`);
+    const shake = readHandshake(handshake, `${field}.handshake`, errors);
+    if (shake && isStringArray(methods) && methods.some((m) => m === shake.method || m === shake.then))
+      errors.push(`${field}: the handshake is the host's — its methods cannot be callable`);
+    if (errors.length > before || typeof command !== "string" || !isStringArray(args) || !isStringArray(methods))
+      return [];
+    return [{ id, command, args, methods, ...(shake ? { handshake: shake } : {}) }];
+  });
+  return errors.length > before ? null : servers;
+}
+
+function readHandshake(
+  value: unknown,
+  at: string,
+  errors: string[],
+): RpcServerDeclaration["handshake"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isJsonRecord(value) || typeof value.method !== "string" || value.method === "") {
+    errors.push(`${at}: must be an object with a "method"`);
+    return undefined;
+  }
+  if (value.then !== undefined && (typeof value.then !== "string" || value.then === "")) {
+    errors.push(`${at}: "then" must be a method name`);
+    return undefined;
+  }
+  const { params } = value;
+  if (params !== undefined && !isJsonValue(params)) {
+    errors.push(`${at}: "params" must be JSON`);
+    return undefined;
+  }
+  return {
+    method: value.method,
+    ...(params !== undefined ? { params } : {}),
+    ...(typeof value.then === "string" ? { then: value.then } : {}),
+  };
 }
 
 /** `category` is optional in the source manifest — absent means `deck`, the

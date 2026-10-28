@@ -15,6 +15,20 @@ export interface PluginStorage {
   readonly global: PluginKV;
 }
 
+/**
+ * A private directory for this plugin and one workspace (API 71), outside
+ * every repository, so nothing in it needs a git exclude. Made on the first
+ * `dir()` call, never at activation; the plugin may write inside it through
+ * `services.fsWrite` without declaring a write capability, and nowhere else
+ * on its strength. It goes with the workspace. Ask each time rather than
+ * keeping the path: the host's home may move between launches.
+ */
+export interface PluginWorkspaces {
+  /** The directory, created when missing. Rejects a workspace the deck no
+   * longer holds. */
+  dir(workspace: WorkspaceRef): Promise<string>;
+}
+
 export interface PluginKV {
   /** Read one value through a guard the CALLER owns: a stored value the
    * guard refuses reads as `undefined`, exactly like a missing key. The

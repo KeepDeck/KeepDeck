@@ -24,7 +24,10 @@ import {
   isGitDiff,
   isGitHistory,
   isGitStatus,
+  isHttpAnswer,
+  isNullableString,
   isNumber,
+  isRpcAnswer,
   isSessionSpawn,
   isSpeechDevices,
   isSpeechEngines,
@@ -151,6 +154,7 @@ export function createGuestServices({
         rpc.call("services.fsWrite.writeFile", [path, text]).then(noop),
       appendLine: (path, line) =>
         rpc.call("services.fsWrite.appendLine", [path, line]).then(noop),
+      move: (src, dst) => rpc.call("services.fsWrite.move", [src, dst]).then(noop),
     },
     sqlite: {
       query: (dbPath, sql, params) =>
@@ -231,6 +235,24 @@ export function createGuestServices({
         rpc
           .call("services.exec.runOnce", [request])
           .then((value) => decodeWith(value, isExecOutcome, "exec outcome")),
+    },
+    rpc: {
+      request: (call) =>
+        rpc
+          .call("services.rpc.request", [call])
+          .then((value) => decodeWith(value, isRpcAnswer, "rpc answer")),
+    },
+    http: {
+      get: (request) =>
+        rpc
+          .call("services.http.get", [request])
+          .then((value) => decodeWith(value, isHttpAnswer, "http answer")),
+    },
+    env: {
+      get: (name) =>
+        rpc
+          .call("services.env.get", [name])
+          .then((value) => decodeWith(value, isNullableString, "env value")),
     },
     speech: {
       engines: () =>

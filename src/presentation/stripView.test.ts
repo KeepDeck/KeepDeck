@@ -10,9 +10,9 @@ const THREE_TEAMS_OF_ONE: Workspace = {
   ...workspace("ws-b", []),
   teams: [team("team-1"), team("team-2"), team("team-3")],
   panes: [
-    { id: "pane-4", team: { teamId: "team-1", role: "lead" } },
-    { id: "pane-5", team: { teamId: "team-2", role: "lead" } },
-    { id: "pane-6", team: { teamId: "team-3", role: "lead" } },
+    { id: "pane-4", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
+    { id: "pane-5", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
+    { id: "pane-6", agentType: "claude", team: { teamId: "team-3", role: "lead" } },
   ],
 };
 

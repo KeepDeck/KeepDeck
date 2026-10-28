@@ -7,6 +7,8 @@ import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { ExperimentalSection } from "./ExperimentalSection";
 import { present } from "@keepdeck/plugin-api/testing";
 
+vi.mock("../../app/useAgents", () => ({ useAgents: () => ({ agents: [], loading: false }) }));
+
 const settings = vi.hoisted(() => ({ current: null as Settings | null }));
 const settingsWrite = vi.hoisted(() => ({ updateSettings: vi.fn() }));
 vi.mock("../../app/useSettings", async () =>

@@ -4,7 +4,6 @@ mod app_updater;
 mod artifacts;
 mod bridge;
 mod clipboard;
-mod codex_app_server;
 mod containment;
 mod dnd;
 mod downloads;
@@ -13,7 +12,6 @@ mod fs_claim;
 mod fs_names;
 mod head_watch;
 mod http;
-mod kimi_usage;
 mod links;
 mod logging;
 mod mcp;
@@ -22,6 +20,11 @@ mod migration;
 #[cfg(target_os = "macos")]
 mod notify_identity;
 mod paths;
+mod plugin_http;
+mod plugin_permissions;
+mod plantings_migration;
+mod plugin_workspaces;
+mod cwd_arm;
 mod plugins_fs;
 mod plugins_fs_write;
 mod plugins_sqlite;
@@ -33,6 +36,7 @@ mod session_tail;
 mod session;
 mod sessions;
 mod roles;
+mod rpc_child;
 mod run_bounded;
 mod skills;
 mod tasks;
@@ -87,6 +91,9 @@ pub use mcp::shim::{run as run_mcp_shim, shim_mode as mcp_shim_mode};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The environment plugins' declarations resolve against is the one the
+    // app was launched with: taken now, before anything could change it.
+    plugin_permissions::host_environment();
     // Trim past runs' log files before the plugin opens this run's own.
     let collected = logging::collect_garbage();
     tauri::Builder::default()
@@ -115,7 +122,8 @@ pub fn run() {
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(session_tail::UsageTails::default())
-        .manage(codex_app_server::CodexAppServerManager::default())
+        .manage(rpc_child::RpcChildPool::default())
+        .manage(plugin_permissions::PluginGrants::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())
@@ -162,6 +170,10 @@ pub fn run() {
             // unadoptable forever. Setup runs to completion before the
             // webview gets the loop, which is what keeps the order.
             migration::run(app.handle());
+            // What builds before plugin API 73 planted in pane directories
+            // goes before the webview restores a pane: each one's plugin
+            // declares what it still needs the moment it starts.
+            plantings_migration::run();
             // The CLI bridge: agents report their session ids through this
             // run's inbox; the lock and watcher live as managed state for
             // the app's lifetime.
@@ -227,9 +239,6 @@ pub fn run() {
             mcp::mcp_disable,
             mcp::mcp_respond,
             mcp::mcp_connection_command,
-            mcp::arming::mcp_arm,
-            mcp::arming::mcp_disarm,
-            mcp::arming::mcp_prune,
             mcp::library::mcp_library_list,
             mcp::library::mcp_library_save,
             mcp::library::mcp_library_delete,
@@ -273,15 +282,19 @@ pub fn run() {
             plugins_fs_write::plugins_fs_write_file,
             plugins_fs_write::plugins_fs_write_append,
             plugins_fs_write::plugins_fs_write_remove,
+            plugins_fs_write::plugins_fs_write_move,
+            plugin_workspaces::plugin_workspace_dir,
+            plugin_workspaces::plugin_workspaces_prune,
+            cwd_arm::cwd_arm,
+            cwd_arm::cwd_disarm,
+            cwd_arm::cwd_arm_prune,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,
             skills::skills_rename,
             exec_once::exec_run_once,
             skills::skills_stage,
-            skills::skills_arm,
             skills::skills_prune,
-            skills::skills_disarm,
             roles::roles_list,
             roles::roles_save,
             roles::roles_delete,
@@ -319,8 +332,11 @@ pub fn run() {
             session_tail::usage_watch_session_file,
             session_tail::usage_unwatch_session_file,
             session_tail::usage_read_store_cold,
-            codex_app_server::codex_rate_limits_read,
-            kimi_usage::kimi_usages_fetch,
+            rpc_child::plugin_rpc_request,
+            rpc_child::plugin_rpc_stop,
+            plugin_permissions::plugin_permissions_resolve,
+            plugin_permissions::plugin_permissions_forget,
+            plugin_http::plugin_http_get,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

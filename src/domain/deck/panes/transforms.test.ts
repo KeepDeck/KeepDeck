@@ -46,7 +46,7 @@ describe("resetPaneSession", () => {
 
   it("returns the SAME array for an unknown pane or workspace", () => {
     const workspaces = [
-      ws([{ id: "pane-1", session: { id: "s-1", boundAt: "2026-07-07T00:00:00Z" } }]),
+      ws([{ id: "pane-1", agentType: "claude", session: { id: "s-1", boundAt: "2026-07-07T00:00:00Z" } }]),
     ];
     expect(resetPaneSession(workspaces, "ws-1", "pane-9")).toBe(workspaces);
     expect(resetPaneSession(workspaces, "ws-9", "pane-1")).toBe(workspaces);
@@ -55,19 +55,21 @@ describe("resetPaneSession", () => {
   it("keeps a remote endpoint and drops only the session", () => {
     const pane: Pane = {
       id: "pane-1",
+      agentType: "claude",
       location: { kind: "remote", endpoint: "wss://vps" },
       session: { id: "s-1", boundAt: "2026-07-07T00:00:00Z" },
     };
     const next = resetPaneSession([ws([pane])], "ws-1", "pane-1");
     expect(next[0].panes[0]).toEqual({
       id: "pane-1",
+      agentType: "claude",
       location: { kind: "remote", endpoint: "wss://vps" },
     });
   });
 
   it("touches only the named pane", () => {
-    const other: Pane = { id: "pane-2", session: { id: "s-2", boundAt: "t" } };
-    const target: Pane = { id: "pane-1", session: { id: "s-1", boundAt: "t" } };
+    const other: Pane = { id: "pane-2", agentType: "claude", session: { id: "s-2", boundAt: "t" } };
+    const target: Pane = { id: "pane-1", agentType: "claude", session: { id: "s-1", boundAt: "t" } };
     const next = resetPaneSession([ws([target, other])], "ws-1", "pane-1");
     expect(next[0].panes[1]).toBe(other);
   });

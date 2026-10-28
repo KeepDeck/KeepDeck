@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   admitMail,
   admittedNormalizer,
-  agentIdActor,
+  actorFromFields,
   collectsAtTurnEnd,
   mailAskArgs,
   type EventActor,
@@ -101,16 +101,22 @@ describe("mailAskArgs", () => {
   });
 });
 
-describe("agentIdActor", () => {
-  it("names a subagent by agent_id, the main agent by a session id without one", () => {
-    expect(agentIdActor({ session_id: "s", agent_id: "a" }, false)).toBe("child");
-    expect(agentIdActor({ session_id: "s" }, false)).toBe("main");
+describe("actorFromFields", () => {
+  const fields = { childId: "kid", sessionId: "sid" };
+
+  it("names a subagent by the child field, the main agent by a session id without one", () => {
+    expect(actorFromFields({ sid: "s", kid: "a" }, false, fields)).toBe("child");
+    expect(actorFromFields({ sid: "s" }, false, fields)).toBe("main");
+  });
+
+  it("reads only the fields it is given — another CLI's names mean nothing", () => {
+    expect(actorFromFields({ session_id: "s", agent_id: "a" }, false, fields)).toBe("unknown");
   });
 
   it("names nobody without a session id, or once the payload was reduced", () => {
-    expect(agentIdActor({}, false)).toBe("unknown");
-    expect(agentIdActor({ session_id: "s" }, true)).toBe("unknown");
+    expect(actorFromFields({}, false, fields)).toBe("unknown");
+    expect(actorFromFields({ sid: "s" }, true, fields)).toBe("unknown");
     // A subagent stays a subagent whatever else is missing.
-    expect(agentIdActor({ agent_id: "a" }, true)).toBe("child");
+    expect(actorFromFields({ kid: "a" }, true, fields)).toBe("child");
   });
 });

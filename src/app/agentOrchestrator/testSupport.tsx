@@ -174,9 +174,8 @@ const steps = vi.hoisted(() => ({
   clear: vi.fn(),
 }));
 /** Record the deferred staged-skill question carried by spawn facts. */
-const skillsAsked = vi.fn(
-  (_workspace: { id: string; instance: string }, _landing?: string) =>
-    Promise.resolve(null),
+const skillsAsked = vi.fn((_workspace: { id: string; instance: string }) =>
+  Promise.resolve(null),
 );
 vi.mock("../postbacks", () => ({ postbackCount: () => 0 }));
 
@@ -428,7 +427,8 @@ export function Probe() {
         // registry answers "no capability" — the legacy behavior.
         plugins: createSpawnPluginsFake().plugins,
         probe: ipc.probeWorktree,
-        mcpAccess: async () => ({ entries: [], throughArgv: true, deliver: async () => {} }),
+        mcpAccess: async () => ({ entries: [] }),
+        armCwd: async () => {},
         lifecycle,
         transcripts,
         workspaceForgetters: [forgetters.artifacts, forgetters.mcp],

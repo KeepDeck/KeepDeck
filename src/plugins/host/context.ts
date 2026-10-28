@@ -4,7 +4,7 @@ import type {
   PluginContext,
   PluginManifest,
 } from "@keepdeck/plugin-api";
-import { declaredKeys, errorMessage } from "@keepdeck/plugin-api";
+import { declaredKeys, errorMessage, isAgentPresentation } from "@keepdeck/plugin-api";
 import { execCovers } from "../capabilities/execCovers";
 import type { ContributionRegistries } from "../registries/contributions";
 import type { PluginSource } from "../model/installed";
@@ -65,6 +65,16 @@ export function buildPluginContext(
   function trackWatch(handle: WatchHandle): WatchHandle {
     const tracked = track(handle);
     return { ready: handle.ready, dispose: () => tracked.dispose() };
+  }
+
+  // The plugin's host-kept processes go with it. Registered once, here,
+  // rather than per call: a child outlives the call that started it.
+  if (manifest.capabilities.some((capability) => capability.kind === "exec" && capability.servers)) {
+    disposers.add(() => {
+      deps.processes.stop(pluginId).catch((error: unknown) => {
+        log.error(`stopping its processes failed: ${errorMessage(error)}`);
+      });
+    });
   }
 
   function disposeAll(): void {
@@ -252,6 +262,11 @@ export function buildPluginContext(
         validateAgentFeatureImplementations(declaredAgent, agent, {
           external: source === "external",
         });
+        // Presentation is shown as it is — a title glyph, a label, a chart
+        // colour — so a malformed one is refused here, both tiers.
+        if (agent.presentation !== undefined && !isAgentPresentation(agent.presentation)) {
+          throw new Error(`agent "${agent.id}": presentation is malformed (short plain text, #RRGGBB colour)`);
+        }
         // The agent's binary is what spawn plans fall back to — it must be
         // legitimate by declaration, both tiers, no exceptions.
         if (!execCovers(manifest.capabilities, agent.detect.bin)) {
@@ -285,6 +300,7 @@ export function buildPluginContext(
       },
     },
     storage: deps.storage(pluginId),
+    workspaces: deps.workspaces(pluginId),
     resources: deps.resources(manifest, source),
     events: {
       onWorkspaceClosed: (cb) => track(deps.events.onWorkspaceClosed(cb)),

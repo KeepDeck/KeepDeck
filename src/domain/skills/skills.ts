@@ -8,10 +8,11 @@
  * `skills` adapter moves the bytes); this module owns the RULES — where a skill
  * lives, what a draft is, and what makes a name or a description acceptable.
  *
- * Reading and writing the file itself is `skillFile.ts` next door: a format
- * change and a vocabulary change are different reasons to change, and only one
- * of them is pinned to the Rust side.
+ * Reading and writing the file itself is the plugin contract's SKILL.md codec
+ * (`@keepdeck/plugin-api`): a format change and a vocabulary change are
+ * different reasons to change.
  */
+import { hasUsableSkillDescription } from "@keepdeck/plugin-api";
 
 /** Where a skill lives — its distribution boundary. The third kind is the
  * BUNDLED tier: first-party skills shipped inside the app binary, read-only,
@@ -78,17 +79,6 @@ export const skillScopeKey = (scope: SkillScope): string =>
       ? "bundled"
       : `ws:${scope.wsId}`;
 
-/** A skill split into what the editor form works with. */
-export interface SkillDraft {
-  name: string;
-  description: string;
-  /** Markdown instructions below the frontmatter. */
-  body: string;
-  /** Frontmatter lines OTHER than name/description, kept verbatim so a
-   * form save round-trips hand-added keys (`allowed-tools`, `license`…). */
-  extraFrontmatter: string[];
-}
-
 /** The naming rule in words, for whoever has to explain a refusal. Here beside
  * the regex because three surfaces were each describing it from memory and all
  * three described a SUBSET: `my-skill-` is "lowercase letters, digits and
@@ -110,6 +100,15 @@ export function skillNameProblem(name: string): "empty" | "invalid" | null {
   return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name) ? null : "invalid";
 }
 
+/** The stored skills no agent may be handed: those whose description, as the
+ * shared codec lifts it, says nothing. They stay in the library — listed and
+ * editable, which is how they get fixed — and stage nowhere: agents choose a
+ * skill by its description, and one CLI refused its whole configuration over
+ * a skill without one. */
+export function skillsUnfitForAgents<T extends { content: string }>(rows: readonly T[]): T[] {
+  return rows.filter((row) => !hasUsableSkillDescription(row.content));
+}
+
 /** What is wrong with a description, or `null` when nothing is.
  *
  * ONE verdict rather than two predicates, because both conditions always apply
@@ -123,20 +122,12 @@ export function skillNameProblem(name: string): "empty" | "invalid" | null {
  * description, and some drop a skill that has none, so such a skill would save
  * and never take effect.
  *
- * COUPLING PIN on the multiline arm: the Rust side (`frontmatter_line` in
- * src-tauri/src/skills/opencode.rs) lifts the description as one verbatim line
- * when generating opencode command files; relaxing this to multi-line or block
- * scalars breaks that lift — change both sides together. */
+ * Single-line for every agent (user decision): a description is one line in
+ * every layout a skill is copied into, and the editor folds a pasted one
+ * (`normalizeSkillDescription`) before it gets here. */
 export function skillDescriptionProblem(
   description: string,
 ): "empty" | "multiline" | null {
   if (description.trim() === "") return "empty";
   return description.includes("\n") ? "multiline" : null;
-}
-
-/** Fold edited description text onto that one line: newline runs (and the
- * indentation around them) become single spaces, so a multi-line paste
- * lands as a valid scalar instead of tripping validation. */
-export function normalizeSkillDescription(description: string): string {
-  return description.replace(/[^\S\r\n]*[\r\n]+\s*/g, " ");
 }

@@ -91,10 +91,13 @@ describe("hydrateSettings", () => {
     expect(restore('{"defaultAgent":"gemini"}').settings.defaultAgent).toBe("gemini");
   });
 
-  it("a null defaultAgent (older document) degrades to the default", () => {
-    expect(restore('{"defaultAgent":null}').settings.defaultAgent).toBe(
-      DEFAULT_SETTINGS.defaultAgent,
-    );
+  it("reads a stored null defaultAgent as the no-choice it says", () => {
+    expect(restore('{"defaultAgent":null}').settings.defaultAgent).toBeNull();
+  });
+
+  it("chooses no default agent until the person does — the pickers take the first installed", () => {
+    expect(DEFAULT_SETTINGS.defaultAgent).toBeNull();
+    expect(restore("{}").settings.defaultAgent).toBeNull();
   });
 
   it("clamps scrollback into bounds and whole lines", () => {

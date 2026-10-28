@@ -38,7 +38,7 @@ function toPaneSnapshot(ws: Workspace, pane: Pane) {
     name: pane.name ?? pane.autoTitle ?? pane.id,
     ...(worktree !== null && { cwd: worktree.cwd }),
     ...(branch !== undefined && { branch }),
-    agentType: pane.agentType ?? "unknown",
+    agentType: pane.agentType,
     ...(pane.team !== undefined && { team: pane.team.teamId }),
   };
 }

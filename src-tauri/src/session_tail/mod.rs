@@ -110,8 +110,8 @@ impl Drop for TailPoller {
 /// some followed file did — so the deliverer can mark each event by ITS
 /// OWN file's fate. One batch-wide flag was tried and reverted: it stamped
 /// a fresh root interrupt catch-up whenever a subagent happened to rotate
-/// in the same tick, and the tail lane is claude's ONLY interrupt source —
-/// the Esc was simply lost (review finding).
+/// in the same tick, and for an agent whose interrupts reach the host only
+/// through its tail lane the Esc was simply lost (review finding).
 ///
 /// A ROOT rotation is a new session generation: the totals restart AND
 /// every subagent cursor rewinds, so the subagents' contributions re-fold

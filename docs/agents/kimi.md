@@ -50,7 +50,13 @@ and adds `--session <new id>`. The launch carries:
   `.mcp.json`), eagerly, before any session exists. That was accepted as a
   product decision.
 
-Kimi has no flag for injecting KeepDeck's MCP servers.
+Kimi has no flag for injecting KeepDeck's MCP servers. It reads them from
+`.kimi-code/mcp.json` in its cwd, so the plugin renders that file
+(`src/mcp.ts`) and declares it through `arm.plan`; the host plants it beside
+a `.keepdeck-managed` marker, refuses a folder whose file is the user's, and
+takes it back when no pane needs it. The manifest marks `integration.mcp`
+with `delivery: "cwd"`: one file per directory, so panes sharing a cwd get
+an anonymous keepdeck client rather than whichever secret was written last.
 
 Kimi starts every child detached on macOS and Linux (`detached ??
 !isWindows` in its host process service), MCP servers included, so its
@@ -183,4 +189,12 @@ modified. Verified live on 2.2.0.
   under `providers."managed:kimi-code"` (`base_url`, `oauth.key`). The values
   differ by login: a mainland-China login uses `api.kimi.com` and
   `kimi-code.json`, a global login uses `api.kimi.ai` and
-  `kimi-code-env-<hash>.json`. The code is in `src-tauri/src/kimi_usage.rs`.
+  `kimi-code-env-<hash>.json`. The code is in the plugin's `src/limits.ts`.
+  The plugin parses `config.toml` itself and asks for the usages through
+  `services.http`: the host reads the token, confined to the credentials
+  directory the manifest declares, and the plugin never sees it.
+- `KIMI_CODE_HOME` and `KIMI_CODE_BASE_URL` apply as they do for Kimi. The
+  manifest declares both (`env`); the credentials directory and the extra
+  origin are resolved from them once, at startup. History lists the store
+  under `KIMI_CODE_HOME` too. A fork of such a session is refused when it
+  writes, because writes stay limited to `~/.kimi-code`.

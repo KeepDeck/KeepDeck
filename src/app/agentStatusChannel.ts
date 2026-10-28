@@ -3,7 +3,7 @@ import { onAgentStatus } from "../ipc/status";
 import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
-import { paneAgentType } from "../domain/deck";
+import { attributedEvent } from "./statusPayloadLabel";
 import { isNavigationKey } from "../domain/terminal";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
@@ -105,7 +105,9 @@ export function createAgentStatusChannel(
       if (!entry.status) continue;
       current.add(entry.id);
       normalizerDisposers.push(
-        tracker.registerNormalizer(entry.id, admitted(entry.status)),
+        tracker.registerNormalizer(entry.id, admitted(entry.status), (payload) =>
+          attributedEvent(entry.status, payload),
+        ),
       );
     }
     // An agent that LOST its status voice (plugin disabled) can never
@@ -117,7 +119,7 @@ export function createAgentStatusChannel(
       if (current.has(agentId)) continue;
       for (const workspace of deck.getSnapshot().workspaces) {
         for (const pane of workspace.panes) {
-          if (paneAgentType(pane) === agentId) tracker.clear(pane.id);
+          if (pane.agentType === agentId) tracker.clear(pane.id);
         }
       }
     }

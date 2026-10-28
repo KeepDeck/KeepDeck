@@ -103,10 +103,16 @@ core" epic.
 | Fork | moving a session into another working directory |
 | Usage | token, context and rate-limit normalisers |
 | MCP | injecting KeepDeck's MCP servers per spawn |
+| Skills | pointing the CLI at the staged skills, or building the layout it reads from them in the plugin's own workspace directory |
+| Cwd | `arm.plan`: what the CLI needs planted in the pane's directory, for a CLI whose only door for something is a place there |
 
 KeepDeck never edits a CLI's global configuration. Everything it injects
-travels per spawn, through flags or env, or through a companion plugin that
-stays inert outside a KeepDeck pane.
+travels per spawn, through flags or env, through a companion plugin that
+stays inert outside a KeepDeck pane, or through what an agent's `arm.plan`
+declares — planted by one engine for every agent (`src-tauri/src/cwd_arm.rs`),
+which writes over nothing of the user's, keeps git blind to it and takes it
+back with the pane's directory. The host names no CLI: since plugin API 73
+the only CLI names in the core are migrations of what older builds wrote.
 
 ## Documents
 

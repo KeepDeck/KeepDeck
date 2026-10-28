@@ -17,12 +17,6 @@ import type { Workspace } from "../workspaces";
 type PlacementOwner = Pick<Workspace, "teams">;
 import { remoteEndpointOf, type Pane, type PaneIdle } from "./model";
 
-/** The agent a pane runs — panes minted before the field existed ran claude,
- *  so the default is part of the persisted format, not a UI convenience. */
-export function paneAgentType(pane: Pane): AgentType {
-  return pane.agentType ?? "claude";
-}
-
 /** Whether this pane is one that HAS a process — the durable half of the
  *  question, which is all the model can answer: whether the process is
  *  currently alive is the session registry's half.
@@ -116,7 +110,7 @@ export function paneBlock(
 ): PaneBlock | null {
   if (panePlacement(ws, pane).kind === "provisioning") return { kind: "provisioning" };
   if (!agentAvailable) {
-    return { kind: "agent-unavailable", agent: paneAgentType(pane) };
+    return { kind: "agent-unavailable", agent: pane.agentType };
   }
   return pane.idle ? { kind: "stopped", by: pane.idle } : null;
 }
@@ -263,7 +257,7 @@ export function paneSessionHandle(ws: Workspace, pane: Pane): SessionHandle | nu
   if (sessionId === null || cwd === null) return null;
   const branch = paneBranch(ws, pane);
   return {
-    agent: paneAgentType(pane),
+    agent: pane.agentType,
     sessionId,
     cwd,
     ...(branch !== undefined && { branch }),

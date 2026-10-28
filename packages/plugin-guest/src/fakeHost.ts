@@ -173,8 +173,9 @@ export function createFakeHost(
     };
   }
 
+  const ctxManifest = options.manifest ?? fakeManifest();
   const ctx: PluginContext = {
-    manifest: options.manifest ?? fakeManifest(),
+    manifest: ctxManifest,
     ui: {
       registerDockTab: (tab) => record(dockTabs, tab),
       registerTopBarAction: (action) => record(topBarActions, action),
@@ -235,6 +236,10 @@ export function createFakeHost(
         })),
     },
     resources: { path: async () => null },
+    workspaces: {
+      // A path, never a directory: the fake host writes nothing.
+      dir: async (workspace) => `/fake-home/plugin-workspaces/${ctxManifest.id}/${workspace.id}`,
+    },
     storage: {
       workspace: (workspace) => ({
         get: async <T>(
@@ -326,6 +331,12 @@ export function createFakeHost(
         readText: async () => "",
       },
       exec: { runOnce: async () => ({ ran: true, ok: true, said: "" }) },
+      // Echoes the params back as the result, so a round trip shows both
+      // directions crossed whole.
+      rpc: { request: async (call) => ({ result: JSON.stringify(call.params ?? null), sentAt: 1 }) },
+      // Echo the request back so a round trip shows it crossed whole.
+      http: { get: async (request) => ({ status: 200, body: JSON.stringify(request), truncated: false, sentAt: 1 }) },
+      env: { get: async (name) => (name === "FAKE_HOME" ? "/fake/home" : null) },
       sessions: {
         spawn: async (_opts, onEvent) => {
           const id = `s${sessions.length + 1}`;
@@ -362,6 +373,7 @@ export function createFakeHost(
         remove: async () => {},
         writeFile: async () => {},
         appendLine: async () => {},
+        move: async () => {},
       },
       git: {
         status: async () => ({

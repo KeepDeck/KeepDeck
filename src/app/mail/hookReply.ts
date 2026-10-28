@@ -26,7 +26,7 @@ import { isStandingContext, senderName, type Mail } from "../../domain/mail";
 import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
 import type { PaneActivity } from "../../domain/status";
-import { statusPayloadLabel } from "../statusPayloadLabel";
+import { attributedEvent, statusPayloadLabel } from "../statusPayloadLabel";
 
 export interface HookReplyDeps {
   /** The live mail owner, or null while the feature is off. Looked up per
@@ -120,11 +120,12 @@ function answerMailAsk(
   activity?: PaneActivity | null,
 ): void | Promise<string | undefined> {
   const manager = deps.mail();
-  // Named by whichever field this reporter's CLI uses (`statusPayloadLabel`):
-  // a hook by its event, a tail record by its transport. Getting this wrong
+  // Named by the agent's own reading of the event (`statusPayloadLabel`): a
+  // hook by its event, a tail record by its transport. Getting this wrong
   // costs the only window there is onto the labelled channel — "asked on
   // undefined" tells nobody anything.
-  const asking = statusPayloadLabel(payload);
+  const asker = isJsonRecord(payload) && typeof payload.agent === "string" ? deps.statusFor(payload.agent) : undefined;
+  const asking = statusPayloadLabel(payload, attributedEvent(asker, payload));
   // EVERY ask is logged, answered or not. This is the only window onto the
   // labelled channel: a briefing that never reaches an agent's context and a
   // hook that never asked look identical from outside, and the difference is
