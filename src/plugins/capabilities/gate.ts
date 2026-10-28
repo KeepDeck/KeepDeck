@@ -31,6 +31,7 @@ import type {
   SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore } from "@keepdeck/plugin-api";
+import { isObjectLike } from "../../domain/json";
 import { execCovers } from "./execCovers";
 import { allNetAllowances, type ResolvedPermissions } from "./permissions";
 
@@ -327,7 +328,12 @@ export function createCapabilityGate(
           server.methods.includes(call.method),
           `rpc.request: "${call.method}" is not a declared method of "${call.server}"`,
         );
-        return backend.rpc.request(manifest.id, server, call.method, call.params);
+        return backend.rpc.request(
+          manifest.id,
+          withClientVersion(server, manifest.version),
+          call.method,
+          call.params,
+        );
       },
     },
     ports: {
@@ -586,6 +592,17 @@ function rpcServer(capabilities: Capability[], id: string): RpcServerDeclaration
   return capabilities
     .flatMap((capability) => (capability.kind === "exec" ? (capability.servers ?? []) : []))
     .find((server) => server.id === id);
+}
+
+/** The handshake's `clientInfo` with the plugin's version filled in when it
+ * states none — the manifest's `version` is the one place it is written. */
+function withClientVersion(server: RpcServerDeclaration, version: string): RpcServerDeclaration {
+  const { handshake } = server;
+  const params = handshake?.params;
+  if (!handshake || !isObjectLike(params) || !isObjectLike(params.clientInfo)) return server;
+  if (params.clientInfo.version !== undefined) return server;
+  const clientInfo = { ...params.clientInfo, version };
+  return { ...server, handshake: { ...handshake, params: { ...params, clientInfo } } };
 }
 
 function hasPortsCapability(capabilities: Capability[]): boolean {

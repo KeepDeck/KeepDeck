@@ -83,7 +83,8 @@ describe("codex account limits", () => {
         args: ["app-server"],
         handshake: {
           method: "initialize",
-          params: { clientInfo: { name: "keepdeck", title: "KeepDeck", version: parsed.manifest.version } },
+          // No version: the host fills the manifest's own, written once.
+          params: { clientInfo: { name: "keepdeck", title: "KeepDeck" } },
           then: "initialized",
         },
         methods: ["account/rateLimits/read"],

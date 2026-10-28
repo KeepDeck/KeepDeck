@@ -1120,6 +1120,26 @@ describe("createCapabilityGate — rpc.request", () => {
     expect(backend.rpc.request).toHaveBeenCalledWith("p", server, "read", { n: 1 });
   });
 
+  it("fills a handshake's clientInfo version from the manifest, and keeps one the plugin states", async () => {
+    const shaking = (clientInfo: Record<string, string>) => ({
+      ...server,
+      handshake: { method: "init", params: { clientInfo } },
+    });
+    const unversioned = gateFor([{ kind: "exec", commands: ["tool"], servers: [shaking({ name: "kd" })] }]);
+    await unversioned.gate.rpc.request({ server: "app", method: "read" });
+    expect(unversioned.backend.rpc.request).toHaveBeenCalledWith(
+      "p",
+      shaking({ name: "kd", version: "1.0.0" }),
+      "read",
+      undefined,
+    );
+
+    const stated = shaking({ name: "kd", version: "9.9.9" });
+    const versioned = gateFor([{ kind: "exec", commands: ["tool"], servers: [stated] }]);
+    await versioned.gate.rpc.request({ server: "app", method: "read" });
+    expect(versioned.backend.rpc.request).toHaveBeenCalledWith("p", stated, "read", undefined);
+  });
+
   it("refuses an undeclared server, an undeclared method, and a server outside the exec commands", () => {
     const declared = gateFor([{ kind: "exec", commands: ["tool"], servers: [server] }]);
     expect(() => declared.gate.rpc.request({ server: "other", method: "read" })).toThrow(/not declared/);

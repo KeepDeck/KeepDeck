@@ -23,7 +23,9 @@ export interface RpcServerDeclaration {
   /** The fixed argument list. */
   args: string[];
   /** Run once per child, by the host: request `method`, then send the
-   * notification `then`. Neither is ever callable by the plugin. */
+   * notification `then`. Neither is ever callable by the plugin. A
+   * `params.clientInfo` object without a `version` gets the manifest's own
+   * (API 73), so the plugin's version is written once; one it states stays. */
   handshake?: { method: string; params?: JsonValue; then?: string };
   /** The ONLY methods a call may name. */
   methods: string[];

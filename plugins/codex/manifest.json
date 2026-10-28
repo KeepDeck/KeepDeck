@@ -2,7 +2,7 @@
   "id": "keepdeck.codex",
   "name": "Codex",
   "version": "0.13.0",
-  "minApiVersion": 72,
+  "minApiVersion": 73,
   "category": "cli",
   "description": "Teaches KeepDeck the Codex CLI: catalog identity and detection; spawn, resume and session identity move in next.",
   "capabilities": [
@@ -16,7 +16,7 @@
           "args": ["app-server"],
           "handshake": {
             "method": "initialize",
-            "params": { "clientInfo": { "name": "keepdeck", "title": "KeepDeck", "version": "0.13.0" } },
+            "params": { "clientInfo": { "name": "keepdeck", "title": "KeepDeck" } },
             "then": "initialized"
           },
           "methods": ["account/rateLimits/read"]
