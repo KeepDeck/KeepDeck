@@ -48,16 +48,20 @@ export async function cwdArm(request: CwdArmRequest): Promise<CwdArmReport> {
   }
 }
 
-/** Take back everything planted in these cwds. Says whether it got through:
- * a sweep must not record itself as done on a failed pass. */
-export async function cwdDisarm(roots: readonly string[]): Promise<boolean> {
-  if (roots.length === 0) return true;
+/** Take back everything planted in these cwds, except in one a live workspace
+ * still runs a pane in — the native side judges that, on real paths. Returns
+ * the cwds released, or null when the pass did not get through: a sweep must
+ * not record itself as done on a failed pass. */
+export async function cwdDisarm(
+  roots: readonly string[],
+  liveRoots: readonly string[],
+): Promise<string[] | null> {
+  if (roots.length === 0) return [];
   try {
-    await invoke("cwd_disarm", { roots });
-    return true;
+    return await invoke<string[]>("cwd_disarm", { roots, liveRoots });
   } catch (e) {
     log.warn("web:arming", `disarm failed: ${errorMessage(e)}`);
-    return false;
+    return null;
   }
 }
 

@@ -12,7 +12,7 @@
  */
 export const CLI_NAME_EXEMPTIONS = [
   // Frozen history: what an older build's files meant.
-  { file: "src-tauri/src/plantings_migration.rs", names: ["kimi", "opencode"], count: 3, reason: "retires the MCP config and the config homes builds before API 73 kept for these CLIs", until: null },
+  { file: "src-tauri/src/plantings_migration.rs", names: ["kimi", "opencode"], count: 3, reason: "retires the MCP config and deletes the config homes builds before API 73 kept for these CLIs", until: null },
   { file: "src/domain/migrations/migrations.ts", names: ["claude"], count: 1, reason: "deck v13 → v14: a pane stored without an agent was claude's", until: null },
   { file: "src/domain/usage/history/migrateV1.ts", names: ["claude"], count: 1, reason: "usage schema 1: claude's v1 counters were not cumulative", until: null },
 ];

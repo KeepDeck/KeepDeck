@@ -12,6 +12,12 @@ import { vi } from "vitest";
  * mocked module would load the real one before these registrations run.
  */
 
+/** The native disarm's guard, as the doubles answer it: a root a live
+ * workspace still runs a pane in is not released. */
+function releasedOf(roots: readonly string[], liveRoots: readonly string[]): string[] {
+  return [...new Set(roots)].filter((root) => !liveRoots.includes(root));
+}
+
 const worktreeIpc = vi.hoisted(() => ({
   inspectRepo: vi.fn(),
   createWorktree: vi.fn(),
@@ -31,7 +37,10 @@ vi.mock("../../ipc/skills", () => skillsIpc);
 // What agents' plugins plant in a pane's cwd is taken back by the same pass.
 const cwdArmIpc = vi.hoisted(() => ({
   cwdArm: vi.fn(async () => ({ armed: [] as string[], refused: [] as { path: string; reason: string }[] })),
-  cwdDisarm: vi.fn(async (_roots: readonly string[]) => true),
+  cwdDisarm: vi.fn(
+    async (roots: readonly string[], liveRoots: readonly string[]): Promise<string[] | null> =>
+      releasedOf(roots, liveRoots),
+  ),
   cwdArmPrune: vi.fn(async (_liveWsIds: readonly string[]) => true),
 }));
 vi.mock("../../ipc/cwdArm", () => cwdArmIpc);
@@ -169,6 +178,6 @@ export function armDoubles(): void {
   mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);
   pluginDirs.prune.mockResolvedValue(true);
   cwdArming.cwdArm.mockResolvedValue({ armed: [], refused: [] });
-  cwdArming.cwdDisarm.mockResolvedValue(true);
+  cwdArming.cwdDisarm.mockImplementation(async (roots, liveRoots) => releasedOf(roots, liveRoots));
   cwdArming.cwdArmPrune.mockResolvedValue(true);
 }

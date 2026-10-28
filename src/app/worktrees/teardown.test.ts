@@ -40,7 +40,7 @@ describe("the ordering between plantings and teardown", () => {
     const order: string[] = [];
     cwdArming.cwdDisarm.mockImplementation(async (roots) => {
       order.push(`disarm:${roots.join(",")}`);
-      return true;
+      return [...roots];
     });
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
@@ -63,14 +63,26 @@ describe("the ordering between plantings and teardown", () => {
     expect(order).toEqual(["disarm:/wt/team-1", "remove:/wt/team-1"]);
   });
 
-  it("keeps a root a live workspace still claims armed, even while deleting it", async () => {
+  it("keeps a root a live workspace still claims armed, and in place", async () => {
     // Two workspaces may share a spawn cwd, and the arming is keyed by path.
-    // Disarming on one workspace's behalf would strip the other's link.
+    // Disarming on one workspace's behalf would strip the other's link — and
+    // deleting the directory would pull it out from under the other's panes.
     deck = [{ id: "ws-2", roots: ["/wt/shared"] }];
 
-    await manager.remove([{ repo: "/r", path: "/wt/shared", branch: "b" }]);
+    const failures = await manager.remove([{ repo: "/r", path: "/wt/shared", branch: "b" }]);
 
-    expect(cwdArming.cwdDisarm).toHaveBeenCalledWith([]);
+    expect(cwdArming.cwdDisarm).toHaveBeenCalledWith(["/wt/shared"], ["/wt/shared"]);
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+    expect(failures).toEqual(["b: another workspace still works in this folder"]);
+  });
+
+  it("still removes the worktree when the disarm itself failed", async () => {
+    // A failed pass says nothing about who claims the folder; the removal the
+    // user asked for goes ahead, as it always did.
+    cwdArming.cwdDisarm.mockResolvedValue(null);
+
+    await manager.remove([{ repo: "/r", path: "/wt/1", branch: "b" }]);
+
     expect(worktree.removeWorktree).toHaveBeenCalledTimes(1);
   });
 
@@ -140,7 +152,7 @@ describe("the ordering between plantings and teardown", () => {
     const order: string[] = [];
     cwdArming.cwdDisarm.mockImplementation(async (roots) => {
       order.push(`disarm:${roots.join(",")}`);
-      return true;
+      return [...roots];
     });
     worktree.removeWorktree.mockImplementation(async (_repo, path) => {
       order.push(`remove:${path}`);

@@ -21,7 +21,7 @@ export type WorktreeTeardown = Pick<WorktreeProvisioner, "remove"> & {
 
 export function createWorktreeTeardown(
   inOrder: InOrder,
-  disarm: (roots: string[]) => Promise<boolean>,
+  disarm: (roots: string[]) => Promise<string[] | null>,
 ): WorktreeTeardown {
   /**
    * Tear ONE worktree down: our own hooks out of the directory, the stagings
@@ -45,8 +45,12 @@ export function createWorktreeTeardown(
     return inOrder(async () => {
       // A cwd another LIVE workspace still runs a pane in stays armed: two
       // workspaces may legitimately share a directory, and the arming is keyed
-      // by path, not by workspace. Same rule the sweep applies.
-      await disarm([target.path]);
+      // by path, not by workspace. Same rule the sweep applies — and the same
+      // rule keeps the directory itself: it is not deleted from under them.
+      const released = await disarm([target.path]);
+      if (released !== null && !released.includes(target.path)) {
+        return `${target.branch ?? target.path}: another workspace still works in this folder`;
+      }
       try {
         await removeWorktree(target.repo, target.path, {
           force: true,

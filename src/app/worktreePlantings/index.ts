@@ -10,7 +10,6 @@ import type {
   WorktreePlantings,
 } from "../worktrees";
 import type { InOrder } from "../worktrees/queue";
-import { unclaimed } from "../worktrees/roots";
 import { createSweep } from "./sweep";
 
 export { createSkillsStaging } from "./skillsStaging";
@@ -22,11 +21,11 @@ export function createWorktreePlantings(
 ): WorktreePlantings {
   const skills = factories.skills(inOrder);
 
-  async function disarm(roots: string[]): Promise<boolean> {
-    const departed = unclaimed(roots, deck.live());
-    const ok = await cwdDisarm(departed);
-    factories.onDisarmed(departed);
-    return ok;
+  async function disarm(roots: string[]): Promise<string[] | null> {
+    const liveRoots = deck.live().flatMap((ws) => ws.roots);
+    const released = await cwdDisarm(roots, liveRoots);
+    if (released) factories.onDisarmed(released);
+    return released;
   }
 
   return {

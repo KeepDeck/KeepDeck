@@ -232,8 +232,10 @@ export interface WorktreePlantings
     CwdArming,
     WorktreeHousekeeping,
     SkillsInvalidation {
-  /** Teardown's single home for taking back what was planted. */
-  disarm(roots: string[]): Promise<boolean>;
+  /** Teardown's single home for taking back what was planted. Returns the
+   * roots released — a root a live workspace still runs a pane in is not —
+   * or null when the pass failed. */
+  disarm(roots: string[]): Promise<string[] | null>;
 }
 
 export type WorktreePlantingsFactory = (

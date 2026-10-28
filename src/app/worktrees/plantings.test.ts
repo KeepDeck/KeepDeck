@@ -111,9 +111,9 @@ describe("what an agent's plugin plants in a pane's cwd", () => {
       order.push("planted");
       return { armed: [".agent/conf"], refused: [] };
     });
-    cwdArming.cwdDisarm.mockImplementation(async () => {
+    cwdArming.cwdDisarm.mockImplementation(async (roots) => {
       order.push("disarmed");
-      return true;
+      return [...roots];
     });
 
     const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
@@ -140,6 +140,12 @@ describe("what an agent's plugin plants in a pane's cwd", () => {
 });
 
 describe("sweep", () => {
+  /** What the last disarm released. */
+  function lastDisarm(): Promise<string[] | null> | undefined {
+    const { results } = cwdArming.cwdDisarm.mock;
+    return results[results.length - 1]?.value;
+  }
+
   it("refuses while the deck is still loading — it would read as empty", async () => {
     deck = [{ id: "ws-1", roots: ["/repo"] }];
     await manager.sweep(false);
@@ -158,7 +164,8 @@ describe("sweep", () => {
     deck = [{ id: "ws-1", roots: ["/repo"] }];
     await manager.sweep(true);
     expect(skills.pruneSkills).toHaveBeenLastCalledWith(["ws-1"]);
-    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/other"]);
+    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/repo", "/other"], ["/repo"]);
+    expect(await lastDisarm()).toEqual(["/other"]);
   });
 
   it("an empty hydrated deck sweeps everything", async () => {
@@ -176,7 +183,7 @@ describe("sweep", () => {
     // …and the close still disarms BOTH of the workspace's roots.
     deck = [];
     await manager.sweep(true);
-    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/wt/a", "/wt/b"]);
+    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/wt/a", "/wt/b"], []);
     expect(skills.pruneSkills).toHaveBeenLastCalledWith([]);
   });
 
@@ -191,9 +198,10 @@ describe("sweep", () => {
     deck = [{ id: "ws-1", roots: ["/repo"] }];
     await manager.sweep(true);
 
-    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/wt/a"]);
-    const disarmed = cwdArming.cwdDisarm.mock.calls.flatMap((call) => call[0]);
-    expect(disarmed).not.toContain("/repo");
+    // Every root the last sweep saw is put to the disarm, with the live ones
+    // beside it: the guard that keeps /repo armed is the disarm's own.
+    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/repo", "/wt/a"], ["/repo"]);
+    expect(await lastDisarm()).toEqual(["/wt/a"]);
   });
 
   it("prunes against the deck as it is NOW, not as it was one IPC ago", async () => {
@@ -204,13 +212,13 @@ describe("sweep", () => {
     await manager.sweep(true); // baseline: ws-1 known
 
     deck = [{ id: "ws-1", roots: [] }]; // a pane closed → something to disarm
-    cwdArming.cwdDisarm.mockImplementation(async (): Promise<boolean> => {
+    cwdArming.cwdDisarm.mockImplementation(async (roots) => {
       // A new workspace lands while the disarm is in flight.
       deck = [
         { id: "ws-1", roots: [] },
         { id: "ws-2", roots: ["/repo2"] },
       ];
-      return true;
+      return [...roots];
     });
 
     await manager.sweep(true);
