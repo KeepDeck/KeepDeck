@@ -10,14 +10,14 @@ import type {
 export function startDownload(
   request: DownloadRequest,
   onState: (state: DownloadState) => void,
-  constraints?: { allowedDomains?: readonly string[] },
+  constraints?: { pluginId?: string },
 ): Promise<void> {
   const channel = new Channel<DownloadState>();
   channel.onmessage = onState;
   return invoke("download_start", {
     request,
     onState: channel,
-    allowedDomains: constraints?.allowedDomains ?? null,
+    pluginId: constraints?.pluginId ?? null,
   });
 }
 

@@ -123,14 +123,15 @@ export function indexLookup(keys: IndexLookupKey[]): Promise<IndexLookupAnswer[]
   return invoke("index_lookup", { keys });
 }
 
-/** The `sqliteReadonly` capability's backend (containment-checked in Rust). */
+/** The `sqliteReadonly` capability's backend: one plugin's query,
+ * containment-checked in Rust against that plugin's declared prefixes. */
 export function pluginsSqliteQuery(
+  pluginId: string,
   dbPath: string,
   sql: string,
   params: string[],
-  roots: readonly string[],
 ): Promise<SqlAnswer> {
-  return invoke("plugins_sqlite_query", { dbPath, sql, params, roots });
+  return invoke("plugins_sqlite_query", { pluginId, dbPath, sql, params });
 }
 
 /** Every project agents have worked in, newest first — the welcome

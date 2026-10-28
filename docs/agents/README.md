@@ -78,8 +78,8 @@ Shared cores in `packages/plugin-api` so far:
   launch whole, as a remote attach does), and how resume and fork name the
   session. A resume may also name it in the environment, for a CLI whose
   reporter cannot read the arguments (opencode 2.x). A fork may also return a `discard`: the scaffolding its surgery
-  made that only the start needs. The host removes it, through the
-  plugin's own `fsWrite` prefixes, once the forked session reports its id,
+  made that only the start needs. The host removes it as the plugin, held
+  natively to the plugin's own write roots, once the forked session reports its id,
   and removes everything listed in `ifNeverStarted` when the pane goes
   first.
 - The fork's source transcript path is the host's to give: from the

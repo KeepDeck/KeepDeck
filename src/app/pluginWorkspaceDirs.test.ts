@@ -24,15 +24,11 @@ function setup(workspaces: Workspace[]) {
 }
 
 describe("createPluginWorkspaceDirs", () => {
-  it("hands a plugin its directory for a live workspace, and makes it its write root", async () => {
+  it("hands a plugin its directory for a live workspace, made natively under its own id", async () => {
     const one = workspace("ws-1");
     const { deps, dirs } = setup([one]);
-    expect(dirs.rootsOf("keepdeck.claude")).toEqual([]);
     expect(await dirs.forPlugin("keepdeck.claude").dir(refOf(one))).toBe("/home/plugin-workspaces/keepdeck.claude/ws-1");
     expect(deps.create).toHaveBeenCalledWith("keepdeck.claude", "ws-1");
-    expect(dirs.rootsOf("keepdeck.claude")).toEqual(["/home/plugin-workspaces/keepdeck.claude/ws-1"]);
-    // Another plugin holds nothing on that plugin's strength.
-    expect(dirs.rootsOf("keepdeck.codex")).toEqual([]);
   });
 
   it("refuses a workspace the deck does not hold under that lifetime", async () => {
@@ -42,18 +38,12 @@ describe("createPluginWorkspaceDirs", () => {
     await expect(dirs.forPlugin("p").dir(stale)).rejects.toThrow('workspace "ws-1" is gone');
     await expect(dirs.forPlugin("p").dir({ id: "ws-9", instance: "x" })).rejects.toThrow("gone");
     expect(deps.create).not.toHaveBeenCalled();
-    expect(dirs.rootsOf("p")).toEqual([]);
   });
 
-  it("prunes natively by the live ids and lets go of the roots of departed workspaces", async () => {
-    const one = workspace("ws-1");
-    const two = workspace("ws-2");
-    const { deps, dirs } = setup([one, two]);
-    await dirs.forPlugin("p").dir(refOf(one));
-    await dirs.forPlugin("p").dir(refOf(two));
+  it("prunes natively by the live ids", async () => {
+    const { deps, dirs } = setup([workspace("ws-1"), workspace("ws-2")]);
     expect(await dirs.prune(["ws-2"])).toBe(true);
     expect(deps.prune).toHaveBeenCalledWith(["ws-2"]);
-    expect(dirs.rootsOf("p")).toEqual(["/home/plugin-workspaces/p/ws-2"]);
   });
 
   it("says a failed native prune, so the sweep tries again", async () => {

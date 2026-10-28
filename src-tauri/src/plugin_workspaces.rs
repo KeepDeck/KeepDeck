@@ -12,22 +12,36 @@
 //! and the workspace id from its deck — never a plugin's words — and both are
 //! held to their grammars here all the same: this is the one place they turn
 //! into a path.
+//!
+//! A directory handed out joins the plugin's grant as a write root, and
+//! leaves it with its workspace — before the directory itself goes.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// The directory for `plugin_id` and `ws_id`, created when missing.
+use tauri::State;
+
+use crate::plugin_permissions::PluginGrants;
+
+/// The directory for `plugin_id` and `ws_id`, created when missing, and
+/// from now on one the plugin may write in.
 #[tauri::command(async)]
-pub fn plugin_workspace_dir(plugin_id: String, ws_id: String) -> Result<String, String> {
-    let dir = dir_for(&root()?, &plugin_id, &ws_id)?;
-    Ok(dir.to_string_lossy().into_owned())
+pub fn plugin_workspace_dir(
+    grants: State<'_, PluginGrants>,
+    plugin_id: String,
+    ws_id: String,
+) -> Result<String, String> {
+    let dir = dir_for(&root()?, &plugin_id, &ws_id)?.to_string_lossy().into_owned();
+    grants.hand_workspace(&plugin_id, &ws_id, dir.clone());
+    Ok(dir)
 }
 
 /// Drop every plugin's directory of a workspace the deck no longer holds.
 /// Best-effort per directory: one that cannot go must not keep the rest.
 #[tauri::command(async)]
-pub fn plugin_workspaces_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
+pub fn plugin_workspaces_prune(grants: State<'_, PluginGrants>, live_ws_ids: Vec<String>) -> Result<(), String> {
+    grants.release_workspaces(&live_ws_ids);
     prune(&root()?, &live_ws_ids).map_err(|e| e.to_string())
 }
 

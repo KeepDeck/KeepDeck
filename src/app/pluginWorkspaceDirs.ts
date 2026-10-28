@@ -3,10 +3,11 @@ import type { Workspace } from "../domain/deck";
 import { workspaceInstanceOf } from "../domain/workspaceInstance";
 
 /**
- * The owner of plugins' private per-workspace directories: it hands one out
- * (`ctx.workspaces.dir`), remembers which it handed to which plugin — those
- * are the write roots the plugin holds on their strength — and lets them go
- * with their workspaces.
+ * The owner of plugins' private per-workspace directories on this side: it
+ * hands one out (`ctx.workspaces.dir`) only for a workspace the deck holds,
+ * and lets them go with their workspaces. Which directories a plugin was
+ * handed — write roots it holds on their strength — is kept natively, in its
+ * grant, by the same calls.
  *
  * A directory is handed out only for a workspace the deck holds under the
  * exact lifetime the ref names: a stale ref cannot make a directory a later
@@ -15,12 +16,9 @@ import { workspaceInstanceOf } from "../domain/workspaceInstance";
 export interface PluginWorkspaceDirs {
   /** `ctx.workspaces` for one plugin. */
   forPlugin(pluginId: string): PluginWorkspaces;
-  /** The directories `pluginId` was handed — its write roots beside the
-   * manifest's declared ones. */
-  rootsOf(pluginId: string): readonly string[];
   /** Drop every plugin's directory of a workspace the deck no longer holds,
-   * and the roots that named them. False when the native prune failed (the
-   * sweep then tries again). */
+   * with the write roots that named them. False when the native prune
+   * failed (the sweep then tries again). */
   prune(liveWsIds: readonly string[]): Promise<boolean>;
 }
 
@@ -32,9 +30,6 @@ export interface PluginWorkspaceDirsDeps {
 }
 
 export function createPluginWorkspaceDirs(deps: PluginWorkspaceDirsDeps): PluginWorkspaceDirs {
-  /** pluginId → wsId → directory. */
-  const granted = new Map<string, Map<string, string>>();
-
   function live(ref: WorkspaceRef): Workspace | undefined {
     const instance = workspaceInstanceOf(ref.instance);
     return deps.workspaces().find((ws) => ws.id === ref.id && ws.instance === instance);
@@ -46,24 +41,13 @@ export function createPluginWorkspaceDirs(deps: PluginWorkspaceDirsDeps): Plugin
         async dir(ref) {
           const workspace = live(ref);
           if (!workspace) throw new Error(`workspace "${ref.id}" is gone`);
-          const dir = await deps.create(pluginId, workspace.id);
-          const dirs = granted.get(pluginId) ?? new Map<string, string>();
-          dirs.set(workspace.id, dir);
-          granted.set(pluginId, dirs);
-          return dir;
+          return deps.create(pluginId, workspace.id);
         },
       };
     },
-    rootsOf(pluginId) {
-      return [...(granted.get(pluginId)?.values() ?? [])];
-    },
     async prune(liveWsIds) {
-      const alive = new Set(liveWsIds);
-      for (const dirs of granted.values()) {
-        for (const wsId of [...dirs.keys()]) if (!alive.has(wsId)) dirs.delete(wsId);
-      }
       try {
-        await deps.prune([...alive]);
+        await deps.prune(liveWsIds);
         return true;
       } catch (e) {
         deps.warn(`plugin workspaces prune failed: ${errorMessage(e)}`);

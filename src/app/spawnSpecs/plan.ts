@@ -23,7 +23,6 @@ import {
 } from "./plans";
 import { log } from "../../ipc/log";
 import { execCovers } from "../../plugins/capabilities/execCovers";
-import { fsWritePaths } from "../../plugins/capabilities/gate";
 import { pluginsFsWriteRemove } from "../../ipc/pluginsFsWrite";
 import { mintBridgeToken, mintMcpToken } from "../ids";
 import { postbackCount } from "../postbacks";
@@ -112,13 +111,13 @@ export interface PlanDiscard {
   ifNeverStarted(): Promise<void>;
 }
 
-/** Remove what a fork plan declared, inside its plugin's own write
- * prefixes — the containment the plugin's own calls get. A failure is
- * logged, never thrown: a leftover is a defect to see, not a reason to fail
- * the pane that left it. */
+/** Remove what a fork plan declared, as its plugin — the containment the
+ * plugin's own calls get. A failure (a plugin with nowhere to write among
+ * them) is logged, never thrown: a leftover is a defect to see, not a reason
+ * to fail the pane that left it. */
 function planDiscard(
   agentId: string,
-  roots: readonly string[],
+  pluginId: string,
   declared: NonNullable<SpawnPlanOutput["discard"]>,
 ): PlanDiscard | undefined {
   const onceStarted = declared.onceStarted ?? [];
@@ -126,7 +125,7 @@ function planDiscard(
   if (onceStarted.length === 0 && ifNeverStarted.length === 0) return undefined;
   const removeAll = async (paths: readonly string[]) => {
     for (const path of paths) {
-      await pluginsFsWriteRemove(path, roots).catch((error: unknown) =>
+      await pluginsFsWriteRemove(pluginId, path).catch((error: unknown) =>
         log.warn(
           "web:agents",
           `${agentId}: fork scaffolding ${path} was not removed: ${errorMessage(error)}`,
@@ -450,21 +449,15 @@ export async function buildPlan(
         ]
       : [];
   const env = paneEnv(entry.id, mcpEnv, output.env, bridge);
-  // Only a fork's surgery leaves scaffolding, and only inside what its
-  // plugin may write: a spawn or resume that declared some is ignored, and so
-  // is a plugin with no write prefixes — the host must not grant by removal
-  // what the manifest never granted.
-  const roots = owner ? fsWritePaths(owner.manifest.capabilities) : [];
-  if (output.discard && (variant.kind !== "fork" || roots.length === 0)) {
-    log.warn(
-      "web:agents",
-      `${entry.id}: ignoring a discard declared outside a fork plan with write access`,
-    );
+  // Only a fork's surgery leaves scaffolding: a spawn or resume that declared
+  // some is ignored. Each removal is made as the plugin, held natively to
+  // its own write roots — the host grants by removal nothing the plugin was
+  // not granted.
+  if (output.discard && variant.kind !== "fork") {
+    log.warn("web:agents", `${entry.id}: ignoring a discard declared outside a fork plan`);
   }
   const discard =
-    variant.kind === "fork" && output.discard && roots.length > 0
-      ? planDiscard(entry.id, roots, output.discard)
-      : undefined;
+    variant.kind === "fork" && output.discard ? planDiscard(entry.id, pluginId, output.discard) : undefined;
   return {
     plan: {
       command: output.command,

@@ -40,8 +40,6 @@ import { undeclaredStoredKeys } from "./pluginSettingsValues";
 import {
   createCapabilityGate,
   createPluginCommandsPort,
-  declaresPermissions,
-  NO_PERMISSIONS,
   type FsScope,
   type ResolvedPermissions,
   type ServiceBackends,
@@ -438,14 +436,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
       get: (pluginId, request) => pluginHttpGet(pluginId, request),
     },
     downloads: {
-      start: (pluginId, request, allowedDomains, onTerminal) =>
-        appDownloads.start(
-          pluginRequest(pluginId, request),
-          {
-            allowedDomains,
-          },
-          { onTerminal },
-        ),
+      start: (pluginId, request, onTerminal) =>
+        appDownloads.start(pluginRequest(pluginId, request), { pluginId }, { onTerminal }),
       cancel: (id) => appDownloads.cancel(id),
       exists: (pluginId, target, integrity) =>
         appDownloads.exists(pluginTarget(pluginId, target), integrity),
@@ -467,18 +459,14 @@ export function createPluginManager(appDownloads: DownloadManager) {
       openPath: (path) => openPath(path),
       openPathWith: (path, application) => openPathWith(path, application),
     },
-    sqlite: {
-      query: (dbPath, sql, params, roots) =>
-        pluginsSqliteQuery(dbPath, sql, params, roots),
-    },
+    sqlite: { query: pluginsSqliteQuery },
     fsWrite: {
-      mkdir: (path, roots) => pluginsFsWriteMkdir(path, roots),
-      copyFile: (src, dst, roots, options) =>
-        pluginsFsWriteCopy(src, dst, roots, options?.replace),
-      remove: (path, roots) => pluginsFsWriteRemove(path, roots),
-      writeFile: (path, text, roots) => pluginsFsWriteFile(path, text, roots),
-      appendLine: (path, line, roots) => pluginsFsWriteAppend(path, line, roots),
-      move: (src, dst, roots) => pluginsFsWriteMove(src, dst, roots),
+      mkdir: pluginsFsWriteMkdir,
+      copyFile: (pluginId, src, dst, options) => pluginsFsWriteCopy(pluginId, src, dst, options?.replace),
+      remove: pluginsFsWriteRemove,
+      writeFile: pluginsFsWriteFile,
+      appendLine: pluginsFsWriteAppend,
+      move: pluginsFsWriteMove,
     },
     fs: {
       readDir: (path, scope) =>
@@ -569,7 +557,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
           diagnostics: source === "external" ? "silent" : "log",
           log: loggerFor(manifest.id),
           permissions: permissionsOf(manifest.id),
-          workspaceDirs: () => workspaceDirs.rootsOf(manifest.id),
         }),
       workspaces: (pluginId) => workspaceDirs.forPlugin(pluginId),
       commands: (manifest) =>
@@ -829,8 +816,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * declaration did not resolve — nothing can be consented to then. */
   function consentReceipt(manifest: PluginManifest): string | null {
     const resolved = grants.resolved(manifest.id);
-    if (!resolved && declaresPermissions(manifest.capabilities)) return null;
-    return capabilityFingerprint(manifest, resolved ?? NO_PERMISSIONS);
+    return resolved ? capabilityFingerprint(manifest, resolved) : null;
   }
 
   function pluginSection(pluginId: string) {

@@ -3,13 +3,17 @@
 //! single parameterized SELECT against it, containment-checked against the
 //! manifest-declared prefixes and opened read-only (the store cannot be
 //! mutated or locked up). The SQL text lives in the plugin — the schema
-//! knowledge is its; this command only enforces the boundary.
+//! knowledge is its; this command only enforces the boundary. The prefixes
+//! are the plugin's own, looked up by its id in its grant — never taken from
+//! the caller.
 
 use std::path::PathBuf;
 
 use serde::Serialize;
+use tauri::State;
 
 use crate::containment::{expand_home, is_unbounded_root, resolve_within};
+use crate::plugin_permissions::PluginGrants;
 
 /// One query's answer, as the plugin sees it.
 ///
@@ -35,11 +39,19 @@ pub struct SqlAnswer {
 
 #[tauri::command(async)]
 pub fn plugins_sqlite_query(
+    grants: State<'_, PluginGrants>,
+    plugin_id: String,
     db_path: String,
     sql: String,
     params: Vec<String>,
-    roots: Vec<String>,
 ) -> Result<SqlAnswer, String> {
+    let roots = grants
+        .sqlite_roots(&plugin_id)
+        .map_err(|why| format!("sqlite.query: \"{db_path}\": {why}"))?;
+    query(&db_path, &sql, &params, &roots)
+}
+
+fn query(db_path: &str, sql: &str, params: &[String], roots: &[String]) -> Result<SqlAnswer, String> {
     // Same rule as the write side: a declared root whose canonical form is
     // "/" or the whole home bounds nothing and authorizes nothing — the
     // parse guard refuses the literal spellings, the proof refuses the rest.
@@ -54,8 +66,8 @@ pub fn plugins_sqlite_query(
             !is_unbounded_root(&real)
         })
         .collect();
-    let db = resolve_within(&expand_home(&db_path)?, &expanded, false)?;
-    let read = keepdeck_index::query_readonly(&db, &sql, &params)?;
+    let db = resolve_within(&expand_home(db_path)?, &expanded, false)?;
+    let read = keepdeck_index::query_readonly(&db, sql, params)?;
     Ok(SqlAnswer {
         rows: read.rows,
         stopped: if read.short { "budget" } else { "exhausted" },

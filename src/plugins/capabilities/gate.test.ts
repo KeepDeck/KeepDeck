@@ -304,50 +304,19 @@ describe("createCapabilityGate — ports.allocate", () => {
   });
 });
 
-/** What a manifest's `net` entries resolved to, one allowance list each. */
-const allowing = (...entries: string[][]): ResolvedPermissions => ({
-  env: {},
-  net: entries.map((allow) => ({ allow, credentials: [] })),
-});
-
 describe("createCapabilityGate — downloads", () => {
-  it("hands the shared backend the reach every net entry resolved to — the native side judges each hop", () => {
+  it("names the plugin and hands over no reach — the native side holds every hop to its grant", () => {
     const { backend } = fakeBackend();
-    const gate = createCapabilityGate(
-      manifest([
-        { kind: "net", domains: ["files.example.com"] },
-        { kind: "net", domains: ["other.example.com"] },
-      ]),
-      backend,
-      {
-        diagnostics: "silent",
-        log: fakeLog(),
-        permissions: allowing(["files.example.com"], ["https://other.example.com:8443"]),
-      },
-    );
+    const gate = createCapabilityGate(manifest([{ kind: "net", domains: ["files.example.com"] }]), backend, {
+      diagnostics: "silent",
+      log: fakeLog(),
+      permissions: NO_PERMISSIONS,
+    });
     const request = downloadRequest();
 
     gate.downloads.start(request);
 
-    expect(backend.downloads.start).toHaveBeenCalledWith(
-      "p",
-      request,
-      ["files.example.com", "https://other.example.com:8443"],
-      expect.any(Function),
-    );
-  });
-
-  it("enforces network capabilities even for trusted warn-mode plugins", () => {
-    const { backend } = fakeBackend();
-    const gate = createCapabilityGate(manifest([]), backend, {
-      diagnostics: "log",
-      permissions: NO_PERMISSIONS,
-      log: fakeLog(),
-    });
-    expect(() => gate.downloads.start(downloadRequest())).toThrow(
-      'requires a "net" capability',
-    );
-    expect(backend.downloads.start).not.toHaveBeenCalled();
+    expect(backend.downloads.start).toHaveBeenCalledWith("p", request, expect.any(Function));
   });
 
   it("uses the job id alone and only cancels jobs started by this plugin", () => {
@@ -355,7 +324,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog(), permissions: allowing(["files.example.com"]) },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     gate.downloads.start(downloadRequest());
@@ -377,7 +346,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog(), permissions: allowing(["files.example.com"]) },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
     expect(() => gate.downloads.start(downloadRequest())).toThrow(
       "global id collision",
@@ -393,7 +362,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { diagnostics: "silent", log: fakeLog(), permissions: allowing(["files.example.com"]) },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
     for (let index = 0; index < 8; index++) {
       gate.downloads.start(downloadRequest(`job-${index}`));
@@ -888,14 +857,13 @@ describe("createCapabilityGate — git", () => {
 });
 
 describe("createCapabilityGate — fsWrite", () => {
-  it("forwards a declared call and injects the manifest's prefixes as roots", async () => {
+  it("names the plugin on every write and hands over no root — where it may write is its native grant's", async () => {
     const { backend } = fakeBackend();
-    const log = fakeLog();
-    const gate = createCapabilityGate(
-      manifest([{ kind: "fsWrite", paths: ["~/.claude/projects"] }]),
-      backend,
-      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
-    );
+    const gate = createCapabilityGate(manifest([{ kind: "fsWrite", paths: ["~/.claude/projects"] }]), backend, {
+      diagnostics: "silent",
+      log: fakeLog(),
+      permissions: NO_PERMISSIONS,
+    });
 
     await gate.fsWrite.mkdir("~/.claude/projects/-x");
     await gate.fsWrite.copyFile("/a", "/b");
@@ -903,126 +871,33 @@ describe("createCapabilityGate — fsWrite", () => {
     await gate.fsWrite.remove("/gone");
     await gate.fsWrite.writeFile("/p", "text");
     await gate.fsWrite.appendLine("/p", "line");
+    await gate.fsWrite.move("/built", "/live");
 
-    // The plugin never supplies the prefixes — the gate injects them.
-    expect(backend.fsWrite.mkdir).toHaveBeenCalledWith("~/.claude/projects/-x", [
-      "~/.claude/projects",
-    ]);
-    expect(backend.fsWrite.copyFile).toHaveBeenCalledWith(
-      "/a",
-      "/b",
-      ["~/.claude/projects"],
-      undefined,
-    );
-    // The replacements ride through whole; the roots are still the gate's.
-    expect(backend.fsWrite.copyFile).toHaveBeenCalledWith(
-      "/s",
-      "/d",
-      ["~/.claude/projects"],
-      { replace: [["/S/", "/F/"]] },
-    );
-    expect(backend.fsWrite.remove).toHaveBeenCalledWith("/gone", [
-      "~/.claude/projects",
-    ]);
-    expect(backend.fsWrite.writeFile).toHaveBeenCalledWith("/p", "text", [
-      "~/.claude/projects",
-    ]);
-    expect(backend.fsWrite.appendLine).toHaveBeenCalledWith("/p", "line", [
-      "~/.claude/projects",
-    ]);
-    expect(log.warn).not.toHaveBeenCalled();
-  });
-
-  it("missing fsWrite capability denies every write — fs (read) does not cover it", () => {
-    const { backend } = fakeBackend();
-    const log = fakeLog();
-    const gate = createCapabilityGate(
-      manifest([{ kind: "fs", scope: "everywhere" }]),
-      backend,
-      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
-    );
-    expect(() => gate.fsWrite.mkdir("/x")).toThrow('"fsWrite" capability');
-    expect(() => gate.fsWrite.copyFile("/a", "/b")).toThrow('"fsWrite" capability');
-    expect(() => gate.fsWrite.remove("/a")).toThrow('"fsWrite" capability');
-    expect(() => gate.fsWrite.writeFile("/p", "t")).toThrow('"fsWrite" capability');
-    expect(() => gate.fsWrite.appendLine("/p", "l")).toThrow('"fsWrite" capability');
-    expect(() => gate.fsWrite.move("/a", "/b")).toThrow('"fsWrite" capability');
-    expect(backend.fsWrite.mkdir).not.toHaveBeenCalled();
-    expect(backend.fsWrite.remove).not.toHaveBeenCalled();
-    expect(backend.fsWrite.move).not.toHaveBeenCalled();
-  });
-
-  it("writes into the workspace directories the host made for the plugin, declared or not", async () => {
-    const { backend } = fakeBackend();
-    let dirs: string[] = [];
-    const undeclared = createCapabilityGate(manifest([]), backend, {
-      diagnostics: "silent",
-      log: fakeLog(),
-      permissions: NO_PERMISSIONS,
-      workspaceDirs: () => dirs,
-    });
-    // None handed out yet: nothing to write into.
-    expect(() => undeclared.fsWrite.writeFile("/w/a", "t")).toThrow("ctx.workspaces");
-    dirs = ["/home/plugin-workspaces/p/ws-1"];
-    await undeclared.fsWrite.move("/home/plugin-workspaces/p/ws-1/tmp", "/home/plugin-workspaces/p/ws-1/out");
-    expect(backend.fsWrite.move).toHaveBeenCalledWith(
-      "/home/plugin-workspaces/p/ws-1/tmp",
-      "/home/plugin-workspaces/p/ws-1/out",
-      ["/home/plugin-workspaces/p/ws-1"],
-    );
-
-    // Beside a declared prefix, both are roots — read per call.
-    const declared = createCapabilityGate(manifest([{ kind: "fsWrite", paths: ["~/.store"] }]), backend, {
-      diagnostics: "silent",
-      log: fakeLog(),
-      permissions: NO_PERMISSIONS,
-      workspaceDirs: () => dirs,
-    });
-    await declared.fsWrite.mkdir("/x");
-    expect(backend.fsWrite.mkdir).toHaveBeenCalledWith("/x", ["~/.store", "/home/plugin-workspaces/p/ws-1"]);
+    expect(backend.fsWrite.mkdir).toHaveBeenCalledWith("p", "~/.claude/projects/-x");
+    expect(backend.fsWrite.copyFile).toHaveBeenCalledWith("p", "/a", "/b", undefined);
+    // The replacements ride through whole.
+    expect(backend.fsWrite.copyFile).toHaveBeenCalledWith("p", "/s", "/d", { replace: [["/S/", "/F/"]] });
+    expect(backend.fsWrite.remove).toHaveBeenCalledWith("p", "/gone");
+    expect(backend.fsWrite.writeFile).toHaveBeenCalledWith("p", "/p", "text");
+    expect(backend.fsWrite.appendLine).toHaveBeenCalledWith("p", "/p", "line");
+    expect(backend.fsWrite.move).toHaveBeenCalledWith("p", "/built", "/live");
   });
 });
 
 describe("createCapabilityGate — sqlite", () => {
-  it("forwards a declared query and injects the manifest's prefixes as roots", async () => {
+  it("names the plugin on a query and hands over no prefix", async () => {
     const { backend } = fakeBackend();
-    const log = fakeLog();
     const gate = createCapabilityGate(
       manifest([{ kind: "sqliteReadonly", paths: ["~/.local/share/opencode"] }]),
       backend,
-      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
+      { diagnostics: "silent", log: fakeLog(), permissions: NO_PERMISSIONS },
     );
 
     await gate.sqlite.query("~/.local/share/opencode/opencode.db", "SELECT 1", ["a"]);
-    expect(backend.sqlite.query).toHaveBeenCalledWith(
-      "~/.local/share/opencode/opencode.db",
-      "SELECT 1",
-      ["a"],
-      ["~/.local/share/opencode"],
-    );
+    expect(backend.sqlite.query).toHaveBeenCalledWith("p", "~/.local/share/opencode/opencode.db", "SELECT 1", ["a"]);
     // Omitted params normalize to an empty array before the backend.
     await gate.sqlite.query("/db", "SELECT 2");
-    expect(backend.sqlite.query).toHaveBeenLastCalledWith("/db", "SELECT 2", [], [
-      "~/.local/share/opencode",
-    ]);
-    expect(log.warn).not.toHaveBeenCalled();
-  });
-
-  it("missing sqliteReadonly denies the query — fs/fsWrite do not cover it", () => {
-    const { backend } = fakeBackend();
-    const log = fakeLog();
-    const gate = createCapabilityGate(
-      manifest([
-        { kind: "fs", scope: "everywhere" },
-        { kind: "fsWrite", paths: ["/x"] },
-      ]),
-      backend,
-      { diagnostics: "silent", log, permissions: NO_PERMISSIONS },
-    );
-    expect(() => gate.sqlite.query("/db", "SELECT 1")).toThrow(
-      '"sqliteReadonly" capability',
-    );
-    expect(backend.sqlite.query).not.toHaveBeenCalled();
+    expect(backend.sqlite.query).toHaveBeenLastCalledWith("p", "/db", "SELECT 2", []);
   });
 });
 
