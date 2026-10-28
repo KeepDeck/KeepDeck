@@ -155,11 +155,13 @@ pub fn plugins_fs_write_append(
 
 /// Move a file or a directory — how a layout built aside is PUBLISHED: the
 /// destination is either what it was or what was built, never half of each.
-/// An existing destination is renamed aside first and removed once the move
-/// landed; a move that fails puts it back. Both ends are proven by their
-/// PARENTS, like `remove`, so a symlink moves as a link and is never resolved
-/// to its target. Neither end may be a root itself, and a directory cannot
-/// move into itself.
+/// An existing destination is SWAPPED with the source in one atomic rename,
+/// and the old one, now at the source's path, is removed: a crash at any
+/// point leaves the destination whole and any leftover where the plugin built
+/// its layout — never a stray copy beside the destination. Both ends are
+/// proven by their PARENTS, like `remove`, so a symlink moves as a link and
+/// is never resolved to its target. Neither end may be a root itself, and a
+/// directory cannot move into itself.
 #[tauri::command(async)]
 pub fn plugins_fs_write_move(src: String, dst: String, roots: Vec<String>) -> Result<(), String> {
     let from = resolve_entry(&src, &roots, "move")?;
@@ -174,39 +176,73 @@ pub fn plugins_fs_write_move(src: String, dst: String, roots: Vec<String>) -> Re
     if let Some(dir) = to.path.parent() {
         create_dirs_owner_only(dir, &to.root)?;
     }
-    let aside = match fs::symlink_metadata(&to.path) {
+    match fs::symlink_metadata(&to.path) {
         Ok(_) => {
-            let aside = aside_of(&to.path);
-            fs::rename(&to.path, &aside).map_err(|e| e.to_string())?;
-            Some(aside)
+            swap(&from.path, &to.path).map_err(|e| format!("fsWrite.move: {e}"))?;
+            let old = match fs::symlink_metadata(&from.path) {
+                Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(&from.path),
+                _ => fs::remove_file(&from.path),
+            };
+            if let Err(e) = old {
+                log::warn!("fsWrite.move: the replaced {} was not removed: {e}", from.path.display());
+            }
+            Ok(())
         }
-        Err(e) if e.kind() == ErrorKind::NotFound => None,
-        Err(e) => return Err(e.to_string()),
-    };
-    if let Err(e) = fs::rename(&from.path, &to.path) {
-        if let Some(aside) = &aside {
-            let _ = fs::rename(aside, &to.path);
-        }
-        return Err(e.to_string());
+        Err(e) if e.kind() == ErrorKind::NotFound => fs::rename(&from.path, &to.path).map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
     }
-    if let Some(aside) = aside {
-        let gone = match fs::symlink_metadata(&aside) {
-            Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(&aside),
-            _ => fs::remove_file(&aside),
-        };
-        if let Err(e) = gone {
-            log::warn!("fsWrite.move: {} was replaced but not removed: {e}", aside.display());
-        }
-    }
-    Ok(())
 }
 
-/// A sibling name nothing else uses, for what a move replaces.
-fn aside_of(path: &Path) -> PathBuf {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-    path.with_file_name(format!(".{name}.old-{}-{n}", std::process::id()))
+/// Exchange two existing entries in one atomic rename.
+#[cfg(target_vendor = "apple")]
+fn swap(a: &Path, b: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let a = std::ffi::CString::new(a.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+    let b = std::ffi::CString::new(b.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+    // SAFETY: two NUL-terminated paths that outlive the call.
+    if unsafe { libc::renamex_np(a.as_ptr(), b.as_ptr(), libc::RENAME_SWAP) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Exchange two existing entries in one atomic rename.
+#[cfg(target_os = "linux")]
+fn swap(a: &Path, b: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let a = std::ffi::CString::new(a.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+    let b = std::ffi::CString::new(b.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+    // SAFETY: two NUL-terminated paths that outlive the call.
+    let done = unsafe {
+        libc::renameat2(libc::AT_FDCWD, a.as_ptr(), libc::AT_FDCWD, b.as_ptr(), libc::RENAME_EXCHANGE)
+    };
+    if done == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Where no atomic exchange exists: the destination goes aside under the
+/// source's own name once the source has moved out of the way, so a crash
+/// still leaves nothing beside the destination.
+#[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+fn swap(a: &Path, b: &Path) -> std::io::Result<()> {
+    let mut held = a.as_os_str().to_os_string();
+    held.push(".moving");
+    let held = PathBuf::from(held);
+    fs::rename(a, &held)?;
+    if let Err(e) = fs::rename(b, a) {
+        let _ = fs::rename(&held, a);
+        return Err(e);
+    }
+    if let Err(e) = fs::rename(&held, b) {
+        let _ = fs::rename(a, b);
+        let _ = fs::rename(&held, a);
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// An entry proven by its parent, the name re-joined: realizing the entry
@@ -749,6 +785,21 @@ mod tests {
         assert!(!built.exists());
         let leftovers: Vec<_> = fs::read_dir(dir.path()).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(leftovers, vec![std::ffi::OsString::from("plugin")], "no aside copy is left");
+    }
+
+    #[test]
+    fn move_swaps_a_file_over_a_file_and_takes_the_old_one_from_the_source() {
+        let (dir, roots) = root();
+        let (src, dst) = (dir.path().join("new.json"), dir.path().join("live.json"));
+        fs::write(&src, "new").unwrap();
+        fs::write(&dst, "old").unwrap();
+        swap(&src, &dst).unwrap();
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "new");
+        assert_eq!(fs::read_to_string(&src).unwrap(), "old", "a crash here leaves the old one at the source");
+        swap(&src, &dst).unwrap();
+        plugins_fs_write_move(s(&src), s(&dst), roots).unwrap();
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "new");
+        assert!(!src.exists());
     }
 
     #[test]
