@@ -41,14 +41,14 @@ import {
   createCapabilityGate,
   createPluginCommandsPort,
   declaresPermissions,
-  isResolvedPermissions,
   NO_PERMISSIONS,
   type FsScope,
   type ResolvedPermissions,
   type ServiceBackends,
 } from "../plugins/capabilities";
 import { pluginHttpGet } from "../ipc/http";
-import { resolvePluginPermissions } from "../ipc/permissions";
+import { forgetPluginPermissions, resolvePluginPermissions } from "../ipc/permissions";
+import { createPluginGrants } from "./pluginGrants";
 import {
   onProjectFsChange,
   projectFsReadDir,
@@ -435,7 +435,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     },
     ports: { allocate: (key) => allocatePorts(key) },
     http: {
-      get: (allowed, url, credential, accept) => pluginHttpGet(allowed, url, credential, accept),
+      get: (pluginId, request) => pluginHttpGet(pluginId, request),
     },
     downloads: {
       start: (pluginId, request, allowedDomains, onTerminal) =>
@@ -806,42 +806,12 @@ export function createPluginManager(appDownloads: DownloadManager) {
     return entry ? { dev: entry.dev, permissions: permissionsOf(pluginId) } : undefined;
   }
 
-  /** What each installed plugin's `env` and `net` resolved to, taken once
-   * before it was installed — the gate, consent and its words all read
-   * this. A plugin whose declaration did not resolve has no entry. */
-  const resolvedPermissions = new Map<string, ResolvedPermissions>();
-
-  function permissionsOf(pluginId: string): ResolvedPermissions {
-    return resolvedPermissions.get(pluginId) ?? NO_PERMISSIONS;
-  }
-
-  /** Resolve before install, and fail the plugin by name when its
-   * declaration cannot resolve — a variable holding a malformed URL, a
-   * credentials root that bounds nothing — instead of quietly widening or
-   * narrowing what it may reach. */
-  async function withResolvedPermissions(install: PluginInstall): Promise<PluginInstall> {
-    const { manifest } = install;
-    resolvedPermissions.delete(manifest.id);
-    if (!declaresPermissions(manifest.capabilities)) return install;
-    let failure: string;
-    try {
-      const resolved = await resolvePluginPermissions(manifest.capabilities);
-      if (isResolvedPermissions(resolved)) {
-        resolvedPermissions.set(manifest.id, resolved);
-        return install;
-      }
-      failure = "its environment and network declaration resolved to an unreadable answer";
-    } catch (error) {
-      failure = `its environment and network declaration did not resolve: ${errorMessage(error)}`;
-    }
-    loggerFor(manifest.id).error(failure);
-    return {
-      manifest,
-      load: async () => {
-        throw new Error(failure);
-      },
-    };
-  }
+  const grants = createPluginGrants({
+    resolve: resolvePluginPermissions,
+    forget: forgetPluginPermissions,
+    logger: loggerFor,
+  });
+  const permissionsOf = grants.permissionsOf;
 
   /** Enabling an external plugin records consent for what it asks NOW —
    * that receipt is what a later update is checked against. Disabling, or
@@ -858,7 +828,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
   /** The consent receipt for an external plugin, or null when its
    * declaration did not resolve — nothing can be consented to then. */
   function consentReceipt(manifest: PluginManifest): string | null {
-    const resolved = resolvedPermissions.get(manifest.id);
+    const resolved = grants.resolved(manifest.id);
     if (!resolved && declaresPermissions(manifest.capabilities)) return null;
     return capabilityFingerprint(manifest, resolved ?? NO_PERMISSIONS);
   }
@@ -931,7 +901,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
           install.manifest,
           loggerFor(install.manifest.id),
         );
-        pluginHost.install(await withResolvedPermissions(install), "builtin");
+        pluginHost.install(await grants.prepare(install, "builtin"), "builtin");
       }
       await syncExternalPlugins();
       // One detection pass over every declared agent bin BEFORE the
@@ -1031,6 +1001,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     for (const id of [...externalPlugins.keys()]) {
       if (!scanned.has(id)) {
         externalPlugins.delete(id);
+        await grants.drop(id);
         await pluginHost.uninstall(id);
         clearPluginCrashes(id);
         clearOverlayVisibility(id);
@@ -1044,10 +1015,13 @@ export function createPluginManager(appDownloads: DownloadManager) {
       if (current) await pluginHost.uninstall(id); // changed — reload its code
       externalPlugins.set(id, next);
       pluginHost.install(
-        await withResolvedPermissions({
-          manifest: next.manifest,
-          load: async () => makeExternalPlugin(next.manifest),
-        }),
+        await grants.prepare(
+          {
+            manifest: next.manifest,
+            load: async () => makeExternalPlugin(next.manifest),
+          },
+          "external",
+        ),
         "external",
       );
     }

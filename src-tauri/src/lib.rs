@@ -123,6 +123,7 @@ pub fn run() {
         .manage(head_watch::HeadWatchers::default())
         .manage(session_tail::UsageTails::default())
         .manage(rpc_child::RpcChildPool::default())
+        .manage(plugin_permissions::PluginGrants::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())
@@ -334,6 +335,7 @@ pub fn run() {
             rpc_child::plugin_rpc_request,
             rpc_child::plugin_rpc_stop,
             plugin_permissions::plugin_permissions_resolve,
+            plugin_permissions::plugin_permissions_forget,
             plugin_http::plugin_http_get,
         ])
         .build(tauri::generate_context!())

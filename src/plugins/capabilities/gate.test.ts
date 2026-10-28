@@ -433,34 +433,16 @@ describe("createCapabilityGate — env and http", () => {
     await expect(gate.env.get("SECRET")).resolves.toBeNull();
   });
 
-  it("signs a request only within the reach of the entry that declares the source", async () => {
+  it("hands a request over as the plugin's own, with nothing of its grant", async () => {
+    // The reach and the credential are looked up natively by plugin id: the
+    // gate holding a resolution must not pass any of it, or a caller could
+    // pass a wider one.
     const { backend, gate } = gateWith(declared, signed);
+    const request = { url: "https://custom.example:8443/usages", credential: { source: "tool", file: "t.json" } };
 
-    await gate.http.get({ url: "https://custom.example:8443/usages", credential: { source: "tool", file: "t.json" } });
+    await gate.http.get(request);
 
-    expect(backend.http.get).toHaveBeenCalledWith(
-      ["api.tool.example", "https://custom.example:8443"],
-      "https://custom.example:8443/usages",
-      { id: "tool", dir: "/custom/credentials", tokenFields: ["access_token"], file: "t.json" },
-      undefined,
-    );
-  });
-
-  it("gives an unsigned request every entry's reach, and refuses an undeclared source or no net at all", async () => {
-    const { backend, gate } = gateWith(declared, signed);
-    await gate.http.get({ url: "http://127.0.0.1:9/x", accept: "text/plain" });
-    expect(backend.http.get).toHaveBeenCalledWith(
-      ["127.0.0.1", "api.tool.example", "https://custom.example:8443"],
-      "http://127.0.0.1:9/x",
-      undefined,
-      "text/plain",
-    );
-    expect(() => gate.http.get({ url: "https://x", credential: { source: "other", file: "t" } })).toThrow(
-      'credential source "other" is not declared',
-    );
-    const bare = gateWith([], NO_PERMISSIONS);
-    expect(() => bare.gate.http.get({ url: "https://x" })).toThrow('requires a "net" capability');
-    expect(bare.backend.http.get).not.toHaveBeenCalled();
+    expect(backend.http.get).toHaveBeenCalledWith("p", request);
   });
 });
 

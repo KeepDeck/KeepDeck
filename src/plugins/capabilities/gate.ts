@@ -16,6 +16,7 @@ import type {
   GitHistoryOptions,
   GitStatus,
   HttpAnswer,
+  HttpGet,
   JsonValue,
   PluginLogger,
   PluginFs,
@@ -30,9 +31,8 @@ import type {
   SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore } from "@keepdeck/plugin-api";
-import type { HttpCredential } from "../../ipc/http";
 import { execCovers } from "./execCovers";
-import { allNetAllowances, credentialEntry, type ResolvedPermissions } from "./permissions";
+import { allNetAllowances, type ResolvedPermissions } from "./permissions";
 
 /** The two scopes the `fs` capability may declare, as the backend consumes
  * them: the gate DERIVES this from the manifest and passes it down; the backend
@@ -137,16 +137,11 @@ export interface ServiceBackends {
     stop(pluginId: string): Promise<void>;
   };
   ports: PluginPorts;
-  /** One bounded GET. The gate passes the reach the declaration resolved to
-   * and, for a signed request, the source's resolved directory and fields;
-   * the native side admits the URL and reads the token itself. */
+  /** One bounded GET on `pluginId`'s behalf. The native side looks up the
+   * reach and the credential source in that plugin's resolved grant, admits
+   * the URL and reads the token itself — nothing of the grant is passed. */
   http: {
-    get(
-      allowed: readonly string[],
-      url: string,
-      credential: HttpCredential | undefined,
-      accept: string | undefined,
-    ): Promise<HttpAnswer>;
+    get(pluginId: string, request: HttpGet): Promise<HttpAnswer>;
   };
   opener: PluginOpener;
   fs: FsBackend;
@@ -470,24 +465,9 @@ export function createCapabilityGate(
     },
     http: {
       get(request) {
-        // Which reach applies is decided here; whether the URL fits it is
-        // decided natively, once, by the rule downloads use too.
-        if (request.credential) {
-          const owner = credentialEntry(permissions, request.credential.source);
-          admit(
-            owner !== undefined,
-            `http.get: credential source "${request.credential.source}" is not declared`,
-          );
-          return backend.http.get(
-            owner.allow,
-            request.url,
-            { ...owner.credential, file: request.credential.file },
-            request.accept,
-          );
-        }
-        const allowed = allNetAllowances(permissions);
-        admit(allowed.length > 0, `http.get: "${request.url}" requires a "net" capability`);
-        return backend.http.get(allowed, request.url, undefined, request.accept);
+        // Which reach applies, and whether the URL fits it, is decided
+        // natively against this plugin's grant — the gate only names it.
+        return backend.http.get(manifest.id, request);
       },
     },
     downloads: {

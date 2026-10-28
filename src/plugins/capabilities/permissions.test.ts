@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   allNetAllowances,
-  credentialEntry,
   declaresPermissions,
   isResolvedPermissions,
   type ResolvedPermissions,
@@ -22,13 +21,8 @@ describe("resolved permissions", () => {
     expect(declaresPermissions([{ kind: "net", domains: ["a.example"] }])).toBe(true);
   });
 
-  it("gives an unsigned request every entry's reach, a signed one only its own entry's", () => {
+  it("gives a download every entry's reach", () => {
     expect(allNetAllowances(resolved)).toEqual(["127.0.0.1", "api.tool.example"]);
-    expect(credentialEntry(resolved, "tool")).toEqual({
-      allow: ["api.tool.example"],
-      credential: { id: "tool", dir: "/h/creds", tokenFields: ["t"] },
-    });
-    expect(credentialEntry(resolved, "other")).toBeUndefined();
   });
 
   it("accepts only the native answer's exact shape", () => {

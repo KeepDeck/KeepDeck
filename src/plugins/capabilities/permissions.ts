@@ -41,19 +41,6 @@ export function allNetAllowances(permissions: ResolvedPermissions): string[] {
   return permissions.net.flatMap((entry) => entry.allow);
 }
 
-/** The entry declaring credential source `id`: its own reach is the only
- * reach a request signed with that source may use. */
-export function credentialEntry(
-  permissions: ResolvedPermissions,
-  id: string,
-): { allow: readonly string[]; credential: ResolvedCredential } | undefined {
-  for (const entry of permissions.net) {
-    const credential = entry.credentials.find((source) => source.id === id);
-    if (credential) return { allow: entry.allow, credential };
-  }
-  return undefined;
-}
-
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
 

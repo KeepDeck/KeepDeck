@@ -9,14 +9,17 @@
 //! all read that one result — no second reading of the environment and no
 //! second rule for what a reference means.
 //!
-//! Like the other plugin services, nothing here keeps a manifest store: the
-//! trusted host passes the declaration in, and the result goes back to it.
+//! Nothing here keeps a manifest store: the trusted host passes the
+//! declaration in, and the result goes back to it. What it resolved to is
+//! also kept by plugin id ([`PluginGrants`]), for the one service that acts
+//! natively with a plugin's reach and a secret (`services.http`): it looks
+//! the grant up itself, so no caller can hand it a wider one.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use url::Url;
 
@@ -143,17 +146,86 @@ pub struct ResolvedCredential {
     id: String,
     /// Absolute, its existing prefix canonical. A directory that does not
     /// exist yet is a valid grant that authorizes no read until it does.
-    dir: String,
-    token_fields: Vec<String>,
+    pub(crate) dir: String,
+    pub(crate) token_fields: Vec<String>,
+}
+
+impl ResolvedPermissions {
+    /// The reach a request may use and the credential that signs it: a
+    /// signed request only the reach of the entry declaring its source, an
+    /// unsigned one every entry's.
+    pub(crate) fn reach(&self, source: Option<&str>) -> Result<(Vec<String>, Option<ResolvedCredential>), String> {
+        let Some(source) = source else {
+            let allow: Vec<String> = self.net.iter().flat_map(|entry| entry.allow.clone()).collect();
+            if allow.is_empty() {
+                return Err("NET_UNDECLARED: the plugin declares no \"net\" capability".into());
+            }
+            return Ok((allow, None));
+        };
+        self.net
+            .iter()
+            .find_map(|entry| {
+                let credential = entry.credentials.iter().find(|credential| credential.id == source)?;
+                Some((entry.allow.clone(), Some(credential.clone())))
+            })
+            .ok_or_else(|| format!("CREDENTIAL_UNDECLARED: credential source \"{source}\" is not declared"))
+    }
+}
+
+/// What each plugin's declaration resolved to, by plugin id: set by every
+/// resolution, taken away by a failed one and by [`plugin_permissions_forget`].
+#[derive(Default)]
+pub struct PluginGrants(Mutex<HashMap<String, ResolvedPermissions>>);
+
+impl PluginGrants {
+    fn set(&self, plugin_id: &str, grant: Option<ResolvedPermissions>) {
+        let mut grants = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match grant {
+            Some(grant) => grants.insert(plugin_id.to_string(), grant),
+            None => grants.remove(plugin_id),
+        };
+    }
+
+    /// The grant of `plugin_id`, or why there is none.
+    pub(crate) fn of(&self, plugin_id: &str) -> Result<ResolvedPermissions, String> {
+        let grants = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        grants
+            .get(plugin_id)
+            .cloned()
+            .ok_or_else(|| format!("NOT_GRANTED: no resolved declaration for {plugin_id}"))
+    }
 }
 
 /// Resolve a plugin's declaration (its manifest `capabilities`) against the
-/// startup environment.
+/// startup environment, and keep what it came to as that plugin's grant — a
+/// declaration that does not resolve leaves it none.
 #[tauri::command]
 pub fn plugin_permissions_resolve(
+    grants: tauri::State<'_, PluginGrants>,
+    plugin_id: String,
     capabilities: Vec<serde_json::Value>,
 ) -> Result<ResolvedPermissions, String> {
-    resolve(&capabilities, host_environment())
+    resolve_for(&grants, &plugin_id, &capabilities, host_environment())
+}
+
+/// Drop a plugin's grant: it declares nothing any more, or it is gone.
+#[tauri::command]
+pub fn plugin_permissions_forget(grants: tauri::State<'_, PluginGrants>, plugin_id: String) {
+    grants.set(&plugin_id, None);
+}
+
+pub(crate) fn resolve_for(
+    grants: &PluginGrants,
+    plugin_id: &str,
+    capabilities: &[serde_json::Value],
+    host: &HostEnvironment,
+) -> Result<ResolvedPermissions, String> {
+    if !crate::plugin_workspaces::is_plugin_id(plugin_id) {
+        return Err(format!("unsafe plugin id: {plugin_id:?}"));
+    }
+    let resolved = resolve(capabilities, host);
+    grants.set(plugin_id, resolved.as_ref().ok().cloned());
+    resolved
 }
 
 fn declarations(capabilities: &[serde_json::Value]) -> Result<Vec<Declared>, String> {
@@ -717,6 +789,24 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved.net[1].credentials[0].dir, real.join("credentials").to_string_lossy());
+    }
+
+    #[test]
+    fn a_resolution_is_kept_as_the_plugins_grant_and_a_failed_one_takes_it_away() {
+        let (_dir, home, cwd) = stand();
+        let grants = PluginGrants::default();
+        let env = host(&[], &home, &cwd);
+        resolve_for(&grants, "p.tool", &tool_capabilities(), &env).unwrap();
+        assert_eq!(grants.of("p.tool").unwrap(), resolve(&tool_capabilities(), &env).unwrap());
+
+        let malformed = host(&[("TOOL_BASE_URL", "not a url")], &home, &cwd);
+        assert!(resolve_for(&grants, "p.tool", &tool_capabilities(), &malformed).is_err());
+        assert!(grants.of("p.tool").unwrap_err().starts_with("NOT_GRANTED"));
+
+        resolve_for(&grants, "p.tool", &tool_capabilities(), &env).unwrap();
+        grants.set("p.tool", None);
+        assert!(grants.of("p.tool").is_err(), "forgotten");
+        assert!(resolve_for(&grants, "../x", &tool_capabilities(), &env).is_err());
     }
 
     #[cfg(unix)]

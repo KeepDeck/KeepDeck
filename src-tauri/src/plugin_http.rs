@@ -1,9 +1,10 @@
 //! One bounded GET on a plugin's behalf (`services.http`).
 //!
-//! The plugin gate hands over the reach the plugin's declaration resolved to
-//! (`plugin_permissions`) and, for a signed request, the credential source's
-//! frozen directory and fields; the plugin names only the URL and a file. A
-//! caller cannot exceed that shape: the URL is admitted against the reach
+//! The caller names the plugin, the URL and, for a signed request, the
+//! credential source and a file in it. The reach and the source's frozen
+//! directory and fields are looked up here, in the plugin's grant
+//! ([`PluginGrants`]) — never taken from the caller. A request cannot exceed
+//! that grant: the URL is admitted against the reach
 //! before anything is read or dialled, the token is read confined to its
 //! directory and goes nowhere but the `Authorization` header of this one
 //! request — over https, or plain http to a numeric loopback address — and
@@ -17,17 +18,24 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 use crate::containment::read_confined_token;
-use crate::plugin_permissions::{ensure_allowed_url, is_numeric_loopback};
+use crate::plugin_permissions::{ensure_allowed_url, is_numeric_loopback, PluginGrants};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 /// The most of a body handed back; past it the answer says `truncated`.
 const MAX_BODY_BYTES: u64 = 1024 * 1024;
 
-/// A credential source as resolved: where its tokens live, and which JSON
-/// fields hold one, in order.
+/// Which declared credential source signs a request, and the file in its
+/// directory the token is read from.
 #[derive(Debug, Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CredentialSpec {
+pub struct CredentialRequest {
+    source: String,
+    file: String,
+}
+
+/// A credential source as granted: where its tokens live, and which JSON
+/// fields hold one, in order — with the file a request named.
+#[derive(Debug, Clone)]
+struct CredentialSpec {
     dir: String,
     file: String,
     token_fields: Vec<String>,
@@ -46,16 +54,37 @@ pub struct HttpAnswer {
 
 #[tauri::command(async)]
 pub async fn plugin_http_get(
-    allowed: Vec<String>,
+    grants: tauri::State<'_, PluginGrants>,
+    plugin_id: String,
     url: String,
-    credential: Option<CredentialSpec>,
+    credential: Option<CredentialRequest>,
     accept: Option<String>,
 ) -> Result<HttpAnswer, String> {
+    let (allowed, credential) = granted(&grants, &plugin_id, credential)?;
     tauri::async_runtime::spawn_blocking(move || {
         get(&allowed, &url, credential.as_ref(), accept.as_deref(), TIMEOUT)
     })
     .await
     .map_err(|error| format!("http task failed: {error}"))?
+}
+
+/// The reach and the credential a request of `plugin_id` gets, from its
+/// grant alone.
+fn granted(
+    grants: &PluginGrants,
+    plugin_id: &str,
+    credential: Option<CredentialRequest>,
+) -> Result<(Vec<String>, Option<CredentialSpec>), String> {
+    let grant = grants.of(plugin_id).map_err(|why| format!("HTTP_{why}"))?;
+    let (allowed, source) = grant
+        .reach(credential.as_ref().map(|c| c.source.as_str()))
+        .map_err(|why| format!("HTTP_{why}"))?;
+    let spec = source.zip(credential).map(|(source, request)| CredentialSpec {
+        dir: source.dir,
+        file: request.file,
+        token_fields: source.token_fields,
+    });
+    Ok((allowed, spec))
 }
 
 /// What an error may say about a URL: never its query, which can carry a
@@ -266,6 +295,62 @@ mod tests {
             let error = get(&allowed, url, Some(&spec), None, TIMEOUT).unwrap_err();
             assert!(error.starts_with("HTTP_CREDENTIAL_NEEDS_HTTPS"), "{url}: {error}");
         }
+    }
+
+    /// A grant for `p.tool`: one entry reaching `signed` with credential
+    /// source `tool` in `dir`, one reaching `plain` with none.
+    fn grants(signed: &str, plain: &str, dir: &str) -> PluginGrants {
+        let grants = PluginGrants::default();
+        let capabilities = vec![
+            serde_json::json!({ "kind": "net", "domains": [signed],
+                "credentials": [{ "id": "tool", "dir": dir, "tokenFields": ["access_token"] }] }),
+            serde_json::json!({ "kind": "net", "domains": [plain] }),
+        ];
+        crate::plugin_permissions::resolve_for(
+            &grants,
+            "p.tool",
+            &capabilities,
+            crate::plugin_permissions::host_environment(),
+        )
+        .unwrap();
+        grants
+    }
+
+    #[test]
+    fn the_reach_and_the_token_come_from_the_plugins_grant_never_the_caller() {
+        let (_dir, spec) = credential("sentinel-token");
+        let grants = grants("api.example", "127.0.0.1:9", &spec.dir);
+        let request = |source: &str| Some(CredentialRequest { source: source.into(), file: "t.json".into() });
+
+        let (allowed, signed) = granted(&grants, "p.tool", request("tool")).unwrap();
+        assert_eq!(allowed, vec!["api.example"], "a signed request gets its own entry's reach only");
+        assert_eq!(signed.unwrap().dir, spec.dir);
+        let (allowed, unsigned) = granted(&grants, "p.tool", None).unwrap();
+        assert_eq!(allowed, vec!["api.example", "127.0.0.1:9"]);
+        assert!(unsigned.is_none());
+
+        let undeclared = granted(&grants, "p.tool", request("other")).unwrap_err();
+        assert!(undeclared.starts_with("HTTP_CREDENTIAL_UNDECLARED"), "{undeclared}");
+        let stranger = granted(&grants, "p.other", None).unwrap_err();
+        assert!(stranger.starts_with("HTTP_NOT_GRANTED"), "{stranger}");
+    }
+
+    #[test]
+    fn a_signed_request_beyond_its_sources_reach_is_refused_before_any_connection() {
+        let (authority, heads) = serve_once(ok("{}"));
+        let (_dir, spec) = credential("sentinel-token");
+        // The server sits in the UNSIGNED entry's reach; the token's entry
+        // reaches only api.example.
+        let grants = grants("api.example", &authority, &spec.dir);
+        let (allowed, signed) = granted(
+            &grants,
+            "p.tool",
+            Some(CredentialRequest { source: "tool".into(), file: "t.json".into() }),
+        )
+        .unwrap();
+        let error = get(&allowed, &format!("http://{authority}/"), signed.as_ref(), None, TIMEOUT).unwrap_err();
+        assert!(error.starts_with("HTTP_ORIGIN_NOT_ALLOWED"), "{error}");
+        assert!(heads.recv_timeout(Duration::from_millis(200)).is_err(), "nothing connected");
     }
 
     #[test]
