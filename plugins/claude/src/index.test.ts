@@ -295,13 +295,10 @@ describe("claude plugin hooks", () => {
 
   it("shared skills load as a local plugin it builds, via --plugin-dir", async () => {
     const agent = activate(SESSION_HOOK);
-    // The plugin's own directory — not the host's older view, whatever the
-    // input still carries.
+    // The plugin's own directory, built from the skills as text — not the
+    // host's bare view.
     const plugin = "/pw/keepdeck.claude/ws-1/plugin";
     const skills = {
-      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
-      opencodeConfigDir: "/kd/staging/ws-1/opencode",
-      skillsDir: "/kd/staging/ws-1/skills",
       dir: "/kd/staging/ws-1/skills",
       skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };

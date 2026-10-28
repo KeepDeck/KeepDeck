@@ -279,29 +279,15 @@ export interface SpawnSkill {
 /** The workspace's shared skills — staged under KeepDeck's own home
  * (absolute paths), never the user's dotfiles or repo.
  *
- * `dir` and `skills` are the generic source (API 71): a plugin points a CLI
- * that takes a skills directory at `dir`, and builds any other layout its CLI
- * reads from `skills`, in its own workspace directory (`ctx.workspaces`).
- * The three CLI-shaped views beside them are the host's older renderings,
- * kept until every agent builds its own. */
+ * A plugin points a CLI that takes a skills directory at `dir`, and builds
+ * any other layout its CLI reads from `skills`, in its own workspace
+ * directory (`ctx.workspaces`). */
 export interface SpawnSkillsInput {
   /** The bare standard layout: `<dir>/<name>/SKILL.md`. */
   dir: string;
   /** The same skills as text, alphabetical by name. Never empty: with no
    * skill to hand out, `skills` itself is absent from the plan input. */
   skills: SpawnSkill[];
-  /** Claude-plugin layout (`.claude-plugin/plugin.json` + `skills/`) —
-   * made for `claude --plugin-dir`. */
-  claudePluginDir: string;
-  /** OpenCode config-directory layout — made for the `OPENCODE_CONFIG_DIR`
-   * env var. Carries `skills/` AND a generated `command/` subdir (each
-   * skill's user-facing `/name` palette command); treat both as the host's
-   * to replace, everything else in the dir as opencode's own. */
-  opencodeConfigDir: string;
-  /** Bare standard layout (`<skill>/SKILL.md` at the top level) — kimi's
-   * `--skills-dir`; the shape codex's `.agents/skills` would take once its
-   * injection lands. */
-  skillsDir: string;
 }
 
 /** The MCP servers to declare to one spawning agent.

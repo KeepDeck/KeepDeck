@@ -70,21 +70,19 @@ export interface WorktreeDeckView {
   live(): LiveWorkspace[];
 }
 
-/** The three staged directory views the spawn hook may consume. Kept as this
- * infrastructure port rather than importing the skills feature's IPC DTO: the
- * manager owns the lifetime and ordering, while the feature owns the wire. */
+/** The staged skills the spawn hook consumes: the bare view and each skill as
+ * text. Kept as this infrastructure port rather than importing the skills
+ * feature's IPC DTO: the manager owns the lifetime and ordering, while the
+ * feature owns the wire. */
 export interface WorktreeSkillViews {
-  claudePluginDir: string;
-  opencodeConfigDir: string;
-  skillsDir: string;
   dir: string;
   skills: { name: string; content: string }[];
 }
 
 /**
  * What the pane lifecycle needs: creating worktrees, naming what landed, and
- * tearing them down again — plus the staged skills a spawn plan asks for, since
- * arming a directory and deleting it are the pair whose ORDER is the invariant.
+ * tearing them down again — plus the staged skills a spawn plan asks for,
+ * built in the same queue as the teardown and the sweep that prunes them.
  */
 export interface WorktreeProvisioner {
   /**
@@ -126,27 +124,19 @@ export interface WorktreeProvisioner {
   /** Forget an owner's post-provision step (the fork was abandoned before it ran). */
   clearPostProvision(ownerId: string): void;
   /**
-   * The workspace's staged shared skills, ready for a spawn plan — and, as a
-   * side effect, its live spawn roots armed with the codex-facing
-   * `.agents/skills` symlink. `null` = nothing to inject (an empty library, or
-   * a staging that failed and was degraded by the IPC layer): panes then spawn
-   * without skills rather than re-hitting a broken backend.
+   * The workspace's staged shared skills, ready for a spawn plan. `null` =
+   * nothing to inject (an empty library, or a staging that failed and was
+   * degraded by the IPC layer): panes then spawn without skills rather than
+   * re-hitting a broken backend.
    *
-   * The roots come from the deck, never from the caller: a build path that
-   * passed its own snapshot is how a directory being deleted got armed.
-   * `landing` is the one honest exception — a pane about to exist in a cwd the
-   * deck does not list yet — and it is a cwd, not a set.
-   *
-   * Memoized per workspace INSTANCE and root set: staging rebuilds the on-disk
-   * views from the library, so it runs once and every later pane spawn in that
-   * workspace reuses the promise. Ids may be reused after a close, instances
-   * never are, so a reborn id cannot be served a dead lifetime's promise (whose
-   * dirs the sweep may have deleted). The DISK key stays the durable id.
+   * Memoized per workspace INSTANCE: staging rebuilds the on-disk views from
+   * the library, so it runs once and every later pane spawn in that workspace
+   * reuses the promise until the library moves. Ids may be reused after a
+   * close, instances never are, so a reborn id cannot be served a dead
+   * lifetime's promise (whose dirs the sweep may have deleted). The DISK key
+   * stays the durable id.
    */
-  skillsFor(
-    workspace: WorkspaceRef,
-    landing?: string,
-  ): Promise<WorktreeSkillViews | null>;
+  skillsFor(workspace: WorkspaceRef): Promise<WorktreeSkillViews | null>;
   /**
    * Tear down each target's git worktree and branches when the close dialog's
    * delete checkbox was ticked. Always forced — the checkbox is explicit
@@ -162,9 +152,9 @@ export interface WorktreeProvisioner {
 /** What the deck's housekeeping needs — nothing else. */
 export interface WorktreeHousekeeping {
   /**
-   * Drop what no live workspace claims any more: the derived skill dirs of
-   * workspaces that are gone, and the `.agents/skills` arming of spawn cwds
-   * that left. Called on every deck transition, since any of them can shrink the
+   * Drop what no live workspace claims any more: the derived skill dirs and
+   * plugin directories of workspaces that are gone, and what was planted in
+   * spawn cwds that left. Called on every deck transition, since any of them can shrink the
    * live set, and once the deck has hydrated at boot (which catches whatever a
    * crash or an update left behind).
    *
@@ -225,10 +215,7 @@ export type WorktreeManager = WorktreeProvisioner &
 /** The one composite passed into the manager. Its factories receive the
  * manager's queue, so every planting shares exactly one ordering guard. */
 export interface WorktreePlantingFactories {
-  skills(
-    deck: WorktreeDeckView,
-    inOrder: InOrder,
-  ): WorktreeSkillsPlanting;
+  skills(inOrder: InOrder): WorktreeSkillsPlanting;
   /** Drop plugins' private directories of every workspace not in `liveWsIds`;
    * false when that could not be done (the sweep tries again). */
   prunePluginDirs(liveWsIds: readonly string[]): Promise<boolean>;
@@ -237,19 +224,15 @@ export interface WorktreePlantingFactories {
   onDisarmed(roots: readonly string[]): void;
 }
 
-export interface WorktreeSkillsPlanting
-  extends Pick<WorktreeProvisioner, "skillsFor">,
-    SkillsInvalidation {
-  /** Forget the stagings that armed any of `roots`. */
-  forgetStaged(roots: string[]): void;
-}
+export type WorktreeSkillsPlanting = Pick<WorktreeProvisioner, "skillsFor"> &
+  SkillsInvalidation;
 
 export interface WorktreePlantings
   extends Pick<WorktreeProvisioner, "skillsFor">,
     CwdArming,
     WorktreeHousekeeping,
     SkillsInvalidation {
-  /** Teardown's single home for undoing both plantings. */
+  /** Teardown's single home for taking back what was planted. */
   disarm(roots: string[]): Promise<boolean>;
 }
 

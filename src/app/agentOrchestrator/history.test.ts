@@ -410,16 +410,13 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(peekPaneSpawnSpec(minted)).toBeUndefined();
   });
 
-  it("asks about the recorded session's OWN directory as the landing cwd", async () => {
+  it("asks for the skills of the workspace the session lands in", async () => {
     await act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" }));
 
     const calls = vi.mocked(buildResumeSpec).mock.calls;
     const facts = calls[calls.length - 1][2];
     await facts.stagedSkills?.();
-    expect(skillsAsked).toHaveBeenCalledWith(
-      { id: "ws-1", instance: deck.workspaces[0].instance },
-      facts.cwd,
-    );
+    expect(skillsAsked).toHaveBeenCalledWith({ id: "ws-1", instance: deck.workspaces[0].instance });
   });
 
   it("a YOLO override reaches the pane AND the plan's facts", async () => {
@@ -490,10 +487,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     const call = vi.mocked(buildForkSpec).mock.calls[0];
     expect(call[2]).toMatchObject({ paneId: pane.id, cwd: "/elsewhere" });
     await call[2].stagedSkills?.();
-    expect(skillsAsked).toHaveBeenCalledWith(
-      { id: "ws-1", instance: deck.workspaces[0].instance },
-      "/elsewhere",
-    );
+    expect(skillsAsked).toHaveBeenCalledWith({ id: "ws-1", instance: deck.workspaces[0].instance });
     // Exact, not a subset: an extra or renamed field in the fork request is
     // as much a defect as a missing one.
     expect(call[4]).toEqual({

@@ -36,7 +36,7 @@ fn root() -> Result<PathBuf, String> {
     Ok(home.join("plugin-workspaces"))
 }
 
-fn dir_for(root: &Path, plugin_id: &str, ws_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn dir_for(root: &Path, plugin_id: &str, ws_id: &str) -> Result<PathBuf, String> {
     if !is_plugin_id(plugin_id) {
         return Err(format!("unsafe plugin id: {plugin_id:?}"));
     }

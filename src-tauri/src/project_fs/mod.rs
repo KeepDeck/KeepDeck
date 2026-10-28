@@ -36,7 +36,7 @@
 
 /// pub: the Tauri command macros must be reachable at the path the handler
 /// list names, and a re-export moves the function without the macro — so the
-/// registration says `project_fs::read::…`, the way `mcp::arming::…` does.
+/// registration says `project_fs::read::…`, the way `mcp::library::…` does.
 pub mod read;
 pub mod watch;
 

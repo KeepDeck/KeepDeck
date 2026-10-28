@@ -1,8 +1,7 @@
 /**
  * The skills feature's worktree adapter: it turns the manager's ordering port
- * and live-deck port into staged views. Construction belongs to the runtime
- * composition root; the infrastructure manager only receives the resulting
- * composite planting.
+ * into staged views. Construction belongs to the runtime composition root;
+ * the infrastructure manager only receives the resulting composite planting.
  *
  * It stages and nothing more: what an agent needs planted in a pane's cwd to
  * find the staged skills is that agent's plugin's to declare (`arm.plan`),
@@ -12,11 +11,7 @@ import { fetchSkills, stageSkills, type ExcludedSkill } from "../../ipc/skills";
 import { log } from "../../ipc/log";
 import { errorMessage } from "@keepdeck/plugin-api";
 import { skillsUnfitForAgents } from "../../domain/skills";
-import type {
-  WorktreeDeckView,
-  WorktreeSkillViews,
-  WorktreeSkillsPlanting,
-} from "../worktrees";
+import type { WorktreeSkillViews, WorktreeSkillsPlanting } from "../worktrees";
 import type { InOrder } from "../worktrees/queue";
 
 export type SkillsStaging = WorktreeSkillsPlanting;
@@ -33,57 +28,20 @@ async function unfitSkills(): Promise<ExcludedSkill[] | null> {
   }
 }
 
-export function createSkillsStaging(deck: WorktreeDeckView, inOrder: InOrder): SkillsStaging {
-  const staged = new Map<
-    string,
-    { roots: string[]; views: Promise<WorktreeSkillViews | null> }
-  >();
+export function createSkillsStaging(inOrder: InOrder): SkillsStaging {
+  const staged = new Map<string, Promise<WorktreeSkillViews | null>>();
 
   return {
-    forgetStaged(roots) {
-      if (roots.length === 0) return;
-      const dropped = new Set(roots);
-      for (const [key, entry] of staged) {
-        if (entry.roots.some((root) => dropped.has(root))) staged.delete(key);
-      }
-    },
-
-    skillsFor(workspace, landing) {
-      const keyFor = (roots: string[]) =>
-        JSON.stringify([workspace.instance, ...roots]);
-      const roots = [
-        ...new Set([...deck.rootsOf(workspace), ...(landing ? [landing] : [])]),
-      ].sort();
-      const key = keyFor(roots);
-      const memoized = staged.get(key);
-      if (memoized) return memoized.views;
-
-      // The staging below names this entry (a narrowed set is memoized under
-      // its own key), so the entry exists first; its `views` is replaced
-      // before this function returns, so nobody reads the placeholder.
-      const entry: {
-        roots: string[];
-        views: Promise<WorktreeSkillViews | null>;
-      } = { roots, views: Promise.resolve(null) };
-      entry.views = inOrder(() => {
-        const claimed = new Set(deck.rootsOf(workspace));
-        const armable = roots.filter(
-          (root) => claimed.has(root) || root === landing,
-        );
-        if (armable.length !== roots.length) {
-          staged.delete(key);
-          entry.roots = armable;
-          staged.set(keyFor(armable), entry);
-        }
-        if (armable.length === 0 && !deck.live().some((ws) => ws.id === workspace.id)) {
-          return Promise.resolve(null);
-        }
-        return unfitSkills().then((excluded) =>
-          excluded === null ? null : stageSkills(workspace.id, armable, excluded),
-        );
-      });
-      staged.set(key, entry);
-      return entry.views;
+    skillsFor(workspace) {
+      const memoized = staged.get(workspace.instance);
+      if (memoized) return memoized;
+      const views = inOrder(() =>
+        unfitSkills().then((excluded) =>
+          excluded === null ? null : stageSkills(workspace.id, excluded),
+        ),
+      );
+      staged.set(workspace.instance, views);
+      return views;
     },
 
     invalidateSkills() {

@@ -45,9 +45,6 @@ describe("cwd plantings through the plan", () => {
 
   it("plants what the plugin declares for a spawn, as one complete set for that cwd", async () => {
     skillsState.views = {
-      claudePluginDir: "/c",
-      opencodeConfigDir: "/o",
-      skillsDir: "/s",
       dir: "/staged/skills",
       skills: [{ name: "a", content: "---\ndescription: A\n---\n" }],
     };

@@ -40,7 +40,10 @@ nothing is installed on the user's side.
   plugin builds that directory itself in its own workspace directory
   (`src/layout.ts`: `config/skills/<name>/SKILL.md` and a `/name` palette
   command per skill under `config/command/`, each subtree published whole),
-  and `src/warm.ts` makes sure its dependencies are installed. On 2.x they
+  and `src/warm.ts` makes sure its dependencies are installed. What opencode
+  kept in the config home builds before plugin API 73 made under the host's
+  skills directory moves there once, at startup
+  (`src-tauri/src/plantings_migration.rs`). On 2.x they
   come as `skills: [<the host's bare skills dir>]` in
   `OPENCODE_CONFIG_CONTENT` instead, with no config dir and no warming.
 - `KEEPDECK_OPENCODE_SKIPS_APPROVALS` is set for permission-skipping panes.

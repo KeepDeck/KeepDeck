@@ -83,8 +83,8 @@ export function createAgentOrchestratorRuntime(
   // Skills are resolved at plan mint: the staged view is frozen into the
   // hook's output for that spawn, so a later gate flip affects only the next
   // plan.
-  const skillsAsk: StagedSkillsAsk = (workspace, landing) => () =>
-    worktrees.skillsFor(workspace, landing);
+  const skillsAsk: StagedSkillsAsk = (workspace) => () =>
+    worktrees.skillsFor(workspace);
 
 
   /** Coalesce to one pass per turn: the sweep dispatches deck transitions of

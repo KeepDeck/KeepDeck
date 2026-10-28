@@ -151,12 +151,8 @@ describe("Kimi CLI plugin", () => {
 
   it("staged skills add --skills-dir on spawn and resume, absent otherwise", async () => {
     const { agent } = await activate();
-    // The generic source only: kimi reads the bare view, whatever the host's
-    // older CLI-shaped fields say.
+    // Kimi reads the bare view as it is.
     const skills = {
-      claudePluginDir: "/elsewhere/claude-plugin",
-      opencodeConfigDir: "/elsewhere/opencode",
-      skillsDir: "/elsewhere/skills",
       dir: "/kd/staging/ws-1/skills",
       skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };

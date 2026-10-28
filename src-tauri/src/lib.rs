@@ -22,6 +22,7 @@ mod notify_identity;
 mod paths;
 mod plugin_http;
 mod plugin_permissions;
+mod plantings_migration;
 mod plugin_workspaces;
 mod cwd_arm;
 mod plugins_fs;
@@ -168,6 +169,10 @@ pub fn run() {
             // unadoptable forever. Setup runs to completion before the
             // webview gets the loop, which is what keeps the order.
             migration::run(app.handle());
+            // What builds before plugin API 73 planted in pane directories
+            // goes before the webview restores a pane: each one's plugin
+            // declares what it still needs the moment it starts.
+            plantings_migration::run();
             // The CLI bridge: agents report their session ids through this
             // run's inbox; the lock and watcher live as managed state for
             // the app's lifetime.
@@ -233,9 +238,6 @@ pub fn run() {
             mcp::mcp_disable,
             mcp::mcp_respond,
             mcp::mcp_connection_command,
-            mcp::arming::mcp_arm,
-            mcp::arming::mcp_disarm,
-            mcp::arming::mcp_prune,
             mcp::library::mcp_library_list,
             mcp::library::mcp_library_save,
             mcp::library::mcp_library_delete,
@@ -291,9 +293,7 @@ pub fn run() {
             skills::skills_rename,
             exec_once::exec_run_once,
             skills::skills_stage,
-            skills::skills_arm,
             skills::skills_prune,
-            skills::skills_disarm,
             roles::roles_list,
             roles::roles_save,
             roles::roles_delete,

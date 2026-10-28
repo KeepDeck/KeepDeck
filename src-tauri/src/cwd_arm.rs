@@ -542,7 +542,7 @@ fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use crate::skills::test_support::fake_worktree;
+    use crate::worktree_arm::test_support::fake_worktree;
 
     struct Scratch {
         _tmp: tempfile::TempDir,

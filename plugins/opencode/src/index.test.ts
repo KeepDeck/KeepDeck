@@ -201,9 +201,6 @@ describe("opencode plugin hooks", () => {
         ],
       },
       skills: {
-        claudePluginDir: "/staged/claude-plugin",
-        opencodeConfigDir: "/staged/opencode",
-        skillsDir: "/staged/skills",
         dir: "/staged/skills",
         skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
       },
@@ -283,13 +280,10 @@ describe("opencode plugin hooks", () => {
     const agent = activate("/App/resources", {
       fsWrite: { writeFile: noWrite, remove: noWrite, move: noWrite },
     });
-    // The plugin's own config dir, built in its workspace directory — not
-    // the host's older view, whatever the input still carries.
+    // The plugin's own config dir, built in its workspace directory from the
+    // skills as text — not the host's bare view.
     const config = `/pw/keepdeck.opencode/${input.workspace.id}/config`;
     const skills = {
-      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
-      opencodeConfigDir: "/kd/staging/ws-1/opencode",
-      skillsDir: "/kd/staging/ws-1/skills",
       dir: "/kd/staging/ws-1/skills",
       skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     };

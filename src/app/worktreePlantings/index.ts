@@ -3,8 +3,6 @@
  * composite and one disarm home; feature factories receive the owner's single
  * queue and cannot accidentally construct a second ordering guard.
  */
-import { disarmSkills } from "../../ipc/skills";
-import { mcpDisarm } from "../../ipc/mcpArming";
 import { cwdArm, cwdDisarm } from "../../ipc/cwdArm";
 import type {
   WorktreeDeckView,
@@ -22,18 +20,12 @@ export function createWorktreePlantings(
   inOrder: InOrder,
   factories: WorktreePlantingFactories,
 ): WorktreePlantings {
-  const skills = factories.skills(deck, inOrder);
+  const skills = factories.skills(inOrder);
 
   async function disarm(roots: string[]): Promise<boolean> {
     const departed = unclaimed(roots, deck.live());
-    const results = await Promise.all([
-      disarmSkills(departed),
-      mcpDisarm(departed),
-      cwdDisarm(departed),
-    ]);
-    const ok = results.every(Boolean);
+    const ok = await cwdDisarm(departed);
     factories.onDisarmed(departed);
-    skills.forgetStaged(roots);
     return ok;
   }
 

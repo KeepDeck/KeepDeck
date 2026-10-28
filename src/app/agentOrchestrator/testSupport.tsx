@@ -174,9 +174,8 @@ const steps = vi.hoisted(() => ({
   clear: vi.fn(),
 }));
 /** Record the deferred staged-skill question carried by spawn facts. */
-const skillsAsked = vi.fn(
-  (_workspace: { id: string; instance: string }, _landing?: string) =>
-    Promise.resolve(null),
+const skillsAsked = vi.fn((_workspace: { id: string; instance: string }) =>
+  Promise.resolve(null),
 );
 vi.mock("../postbacks", () => ({ postbackCount: () => 0 }));
 

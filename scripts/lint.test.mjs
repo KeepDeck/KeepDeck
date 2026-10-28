@@ -165,15 +165,15 @@ describe("the linter", () => {
 
   it("holds an exempt file to its listed count and drops a stale exemption", async () => {
     const eslint = new ESLint({ cwd: REPO });
-    // src/ipc/skills.ts is exempt for its claude and opencode views.
-    const filePath = join(REPO, "src/ipc/skills.ts");
+    // The deck migration is exempt for the one claude it names, for good.
+    const filePath = join(REPO, "src/domain/migrations/migrations.ts");
     const source = readFileSync(filePath, "utf8");
     const messages = async (text) =>
       (await eslint.lintText(text, { filePath }))[0].messages
         .filter((message) => message.ruleId === "keepdeck/no-cli-names")
         .map((message) => message.message);
     expect(await messages(source)).toEqual([]);
-    expect(await messages(`${source}\nexport const more = "opencode";\n`)).toEqual([
+    expect(await messages(`${source}\nexport const more = "claude";\n`)).toEqual([
       expect.stringContaining("the new one belongs in the CLI's plugin"),
     ]);
     expect(await messages(`${source}\nexport const other = "codex";\n`)).toEqual([

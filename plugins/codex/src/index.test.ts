@@ -470,9 +470,6 @@ describe("codex panes run their own process", () => {
 
 describe("codex plugin — what it plants in the pane's cwd", () => {
   const skills = {
-    claudePluginDir: "/elsewhere/claude-plugin",
-    opencodeConfigDir: "/elsewhere/opencode",
-    skillsDir: "/elsewhere/skills",
     dir: "/kd/staging/ws-1/skills",
     skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
   };

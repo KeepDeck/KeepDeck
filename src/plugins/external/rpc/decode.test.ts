@@ -183,9 +183,6 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
     cwd: "/w",
     yolo: true,
     skills: {
-      claudePluginDir: "/s/c",
-      opencodeConfigDir: "/s/o",
-      skillsDir: "/s/k",
       dir: "/s/k",
       skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     },
@@ -208,7 +205,6 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
 
   it("refuses each nested part of a spawn input by its path", () => {
     const refused: [unknown, string][] = [
-      [{ ...spawn, skills: { ...spawn.skills, skillsDir: 7 } }, "spawn plan input.skills.skillsDir: expected a string"],
       [{ ...spawn, skills: { ...spawn.skills, dir: 7 } }, "spawn plan input.skills.dir: expected a string"],
       [{ ...spawn, skills: { ...spawn.skills, skills: "x" } }, "spawn plan input.skills.skills: expected an array"],
       [

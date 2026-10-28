@@ -52,9 +52,6 @@ export type McpAccessAsk = (target: McpAccessTarget) => Promise<McpAccess>;
 
 /** The staged views this consumer needs from the worktree owner. */
 export interface StagedSkillsViews {
-  claudePluginDir: string;
-  opencodeConfigDir: string;
-  skillsDir: string;
   dir: string;
   skills: { name: string; content: string }[];
 }
@@ -63,10 +60,8 @@ export interface StagedSkillsViews {
  * the resume session (that arrives with the resume request, not the pane). */
 export interface PaneSpawnFacts extends SpawnPlanInput {
   /** This workspace's staged shared skills, resolved by whoever owns the
-   * worktrees — asked for here, never computed here. A build path that worked
-   * out the arming set itself is how a directory being deleted got armed, so
-   * the set is deliberately not expressible in these facts. Absent = this
-   * build has no skills source and the hook input stays sparse.
+   * worktrees — asked for here, never computed here. Absent = this build has
+   * no skills source and the hook input stays sparse.
    *
    * Named apart from the hook input's own `skills` (which carries the resolved
    * views) because this is the QUESTION, not the answer. */
@@ -264,9 +259,8 @@ export async function buildPlan(
   };
   // Staged shared skills are a host fact like the bridge — but delivered as
   // hook INPUT, because loading them is per-CLI dialect (a flag here, an env
-  // var there), and dialects are exactly what hooks own. WHICH skills, and
-  // which directories get armed for them, is the worktree manager's answer:
-  // this only asks.
+  // var there), and dialects are exactly what hooks own. WHICH skills is the
+  // worktree manager's answer: this only asks.
   const skills = facts.stagedSkills ? await facts.stagedSkills() : null;
   // Asked alongside the skills, and delivered the same way: WHICH servers is
   // the MCP owner's answer, and how a CLI is told about them is the hook's.

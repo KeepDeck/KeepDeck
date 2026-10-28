@@ -586,9 +586,7 @@ function assertSpawnPlanInput(value: unknown, what: string): asserts value is Sp
   if (v.yolo !== undefined) bool(v.yolo, `${what}.yolo`);
   if (v.skills !== undefined) {
     const skills = record(v.skills, `${what}.skills`);
-    for (const dir of ["claudePluginDir", "opencodeConfigDir", "skillsDir", "dir"] as const) {
-      str(skills[dir], `${what}.skills.${dir}`);
-    }
+    str(skills.dir, `${what}.skills.dir`);
     if (!Array.isArray(skills.skills)) throw malformed(`${what}.skills.skills`, "expected an array");
     for (const [index, skill] of skills.skills.entries()) {
       const entry = record(skill, `${what}.skills.skills[${index}]`);

@@ -112,10 +112,7 @@ describe("agent orchestrator —session policy", () => {
     );
     const calls = vi.mocked(buildResumeSpec).mock.calls;
     await calls[calls.length - 1][2].stagedSkills?.();
-    expect(skillsAsked).toHaveBeenCalledWith(
-      { id: "ws-1", instance: deck.workspaces[0].instance },
-      undefined,
-    );
+    expect(skillsAsked).toHaveBeenCalledWith({ id: "ws-1", instance: deck.workspaces[0].instance });
   });
 
   it("an unbound pane starts FRESH — never matched by directory", async () => {

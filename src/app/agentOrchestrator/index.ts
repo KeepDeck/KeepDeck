@@ -275,7 +275,6 @@ export { createRefusalMessage, type CreateRefusal } from "./refusals";
 /** Delay staged-skill lookup until a spawn plan is actually built. */
 export type StagedSkillsAsk = (
   workspace: WorkspaceRef,
-  landing?: string,
 ) => () => ReturnType<WorktreeProvisioner["skillsFor"]>;
 
 export interface AgentCatalogPort {

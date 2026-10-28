@@ -24,18 +24,9 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 const skillsIpc = vi.hoisted(() => ({
   fetchSkills: vi.fn(async () => [] as { scope: "global"; wsId: null; name: string; content: string }[]),
   stageSkills: vi.fn(),
-  disarmSkills: vi.fn(async (_roots: string[]) => true),
   pruneSkills: vi.fn(async (_liveWsIds: string[]) => true),
 }));
 vi.mock("../../ipc/skills", () => skillsIpc);
-
-// The MCP configs earlier builds planted are taken back by the same owner, so
-// the doubles answer like the real wrappers do.
-const mcpArmingIpc = vi.hoisted(() => ({
-  mcpDisarm: vi.fn(async (_roots: string[]) => true),
-  mcpPrune: vi.fn(async (_liveWsIds: string[]) => true),
-}));
-vi.mock("../../ipc/mcpArming", () => mcpArmingIpc);
 
 // What agents' plugins plant in a pane's cwd is taken back by the same pass.
 const cwdArmIpc = vi.hoisted(() => ({
@@ -55,7 +46,6 @@ vi.mock("../../ipc/mcpLibrary", () => mcpLibraryIpc);
 // an export itself, and the suites need the doubles they assert on.
 export const worktree = worktreeIpc;
 export const skills = skillsIpc;
-export const mcpArming = mcpArmingIpc;
 export const mcpLibrary = mcpLibraryIpc;
 export const cwdArming = cwdArmIpc;
 /** Plugins' private directories, pruned by the same pass. */
@@ -114,9 +104,6 @@ export const ref = (id: string, instance = `${id}-life-1`): WorkspaceRef => ({
 });
 
 export const stagedFor = (wsId: string) => ({
-  claudePluginDir: `/staging/${wsId}/claude-plugin`,
-  opencodeConfigDir: `/staging/${wsId}/opencode`,
-  skillsDir: `/staging/${wsId}/skills`,
   dir: `/staging/${wsId}/skills`,
   skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
 });
@@ -178,10 +165,7 @@ export function managerFor(read: () => DeckEntry[]): WorktreeManager {
 export function armDoubles(): void {
   skills.fetchSkills.mockResolvedValue([]);
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
-  skills.disarmSkills.mockResolvedValue(true);
   skills.pruneSkills.mockResolvedValue(true);
-  mcpArming.mcpDisarm.mockResolvedValue(true);
-  mcpArming.mcpPrune.mockResolvedValue(true);
   mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);
   pluginDirs.prune.mockResolvedValue(true);
   cwdArming.cwdArm.mockResolvedValue({ armed: [], refused: [] });

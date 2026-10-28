@@ -1,6 +1,5 @@
 /** The feature cleanup pass, composed beside the two planting adapters. */
 import { pruneSkills } from "../../ipc/skills";
-import { mcpPrune } from "../../ipc/mcpArming";
 import { pruneMcpLibrary } from "../../ipc/mcpLibrary";
 import { cwdArmPrune } from "../../ipc/cwdArm";
 import type {
@@ -36,7 +35,6 @@ export function createSweep(
         const liveIds = deck.live().map((ws) => ws.id).sort();
         const sweeps = await Promise.all([
           pruneSkills(liveIds),
-          mcpPrune(liveIds),
           pruneMcpLibrary(liveIds),
           cwdArmPrune(liveIds),
           prunePluginDirs(liveIds),
