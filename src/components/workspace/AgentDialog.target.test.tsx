@@ -8,7 +8,6 @@ import { forkPickLine } from "../../presentation/sessionResumeView";
 import type { AgentDialogResult, AgentDialogTarget, PathProbe, SessionPreset } from "../../domain/agents";
 import { roleById } from "../../domain/mail";
 import { NO_AGENT_MESSAGE } from "../../domain/deck";
-import { agentPickNotice } from "../../presentation/agentPickView";
 import { present } from "@keepdeck/plugin-api/testing";
 
 // The same seams the main suite pins: the worktree ipc behind the resume
@@ -184,7 +183,7 @@ describe("AgentDialog targets", () => {
     defaultAgentType = null;
     await mount(member(), null, ["lead"]);
     pickRole(present(roleById("impl"), "roleById \"impl\"").label);
-    expect(text()).toContain(agentPickNotice(0, true));
+    expect(text()).toContain("Looking for installed agents…");
     expect(createBtn().disabled).toBe(true);
 
     catalog.agents = [CLAUDE];

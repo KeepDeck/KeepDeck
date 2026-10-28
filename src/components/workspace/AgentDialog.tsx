@@ -32,7 +32,7 @@ import { Dropdown } from "../../ui/Dropdown";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { YoloField } from "../../ui/YoloField";
 import { forkPickLine, resumeBlockReason } from "../../presentation/sessionResumeView";
-import { agentPickNotice } from "../../presentation/agentPickView";
+import { agentPickView } from "../../presentation/agentPickView";
 import {
   SESSION_PICK_ESTIMATE_PX,
   SESSION_PICK_LIST_LABEL,
@@ -205,7 +205,7 @@ export function AgentDialog({
   const prefillRef = useRef("");
   const { agents, loading } = useAgents();
   const agentOptions = selectableAgents(agents);
-  const agentNotice = agentPickNotice(agentOptions.length, loading);
+  const agentPick = agentPickView(agentOptions.length, loading, agentType);
   const supportsNew = agentSupportsNew(agents, agentType);
   const {
     resume: supportsResume,
@@ -336,12 +336,10 @@ export function AgentDialog({
   // needs a valid endpoint — the Worktree + Start-from sections are hidden.
   // A member takes a role whatever it starts from — fresh, resumed or
   // forked, it is on the team under an address teammates can write to.
-  const roleOk = member ? roleAddress !== null : true;
   const valid = forTeam
     ? canCreateAgent(kind, location.branch, baseOk)
-    : agentType !== null &&
-      supportsNew &&
-      roleOk &&
+    : supportsNew &&
+      roleAddress !== null &&
       (remote
         ? endpointOk
         : startMode === "resume"
@@ -407,11 +405,12 @@ export function AgentDialog({
             {/* A list, not a row of buttons: installed agents grow with the
                 plugins, and a row wraps into a wall where a list just gains
                 a line. */}
-            {agentNotice !== null || agentType === null ? (
+            {agentPick.kind === "notice" && (
               <span className="form__agent-notice" role="status">
-                {agentNotice}
+                {agentPick.text}
               </span>
-            ) : (
+            )}
+            {agentPick.kind === "pick" && (
               <Dropdown
                 className="form__agent-pick"
                 ariaLabel="Agent"
@@ -424,7 +423,7 @@ export function AgentDialog({
                     </span>
                   ),
                 }))}
-                value={agentType}
+                value={agentPick.value}
                 onChange={setAgentType}
               />
             )}
