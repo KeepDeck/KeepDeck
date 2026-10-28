@@ -39,10 +39,6 @@ export interface McpAccess {
    * values its spec only NAMES, kept off argv by design. One entry, so that
    * dropping a server here drops its values with it. */
   entries: { spec: McpServerSpec; env: [string, string][] }[];
-  /** Whether the specs ride the hook's argv; false for a CLI the host feeds
-   * by file, whose hook is told nothing. */
-  throughArgv: boolean;
-  deliver(): Promise<void>;
 }
 
 export interface McpAccessTarget {
@@ -106,9 +102,9 @@ export type CwdArmAsk = (agentId: string, request: CwdArmRequest) => Promise<voi
  */
 export interface BuiltPlan {
   plan: SpawnPlan;
-  /** Put the file-delivered half on disk. A no-op for the argv CLIs, and
-   * never rejects — a failed delivery leaves the pane serverless, never
-   * unspawned. */
+  /** Plant what the agent's plugin declared for the pane's cwd (`arm.plan`).
+   * Never rejects — a planting that failed costs the pane what it was for,
+   * never its process. */
   deliver(): Promise<void>;
   /** A fork plan's scaffolding, to be removed once the fork starts or once
    * it is clear it never will — absent when the plan declared none. */
@@ -294,23 +290,17 @@ export async function buildPlan(
   // what the hook may be handed (the servers it can render) as well as what
   // it may answer (the command clamp below).
   const owner = plugins.installed(pluginId);
-  // The floor filter is about the PLUGIN's renderer, so it applies only to
-  // what the plugin renders: a file the host wrote carries every server, and
-  // withholding a token from a server that is in the file would break it.
-  const injected = access?.throughArgv
-    ? renderableBy(access.entries, owner, entry.id)
-    : (access?.entries ?? []);
-  const mcpServers = access?.throughArgv ? injected.map((item) => item.spec) : [];
+  // The plugin renders every server it is handed — on argv, or in a file it
+  // declares for the cwd — so its floor bounds what it is handed.
+  const injected = access ? renderableBy(access.entries, owner, entry.id) : [];
+  const mcpServers = injected.map((item) => item.spec);
   // Owed by every plan, the bare one included: a file-fed CLI reads its
   // servers from its cwd whatever argv it was given, and their values live
   // nowhere but here.
   const mcpEnv = injected.flatMap((item) => item.env);
   /** Owed by every exit that produces a plan, and by none that throws: a
    * rejected resume or fork must plant nothing. */
-  const deliver = async () => {
-    await (access?.deliver() ?? Promise.resolve());
-    await armCwd();
-  };
+  const deliver = () => armCwd();
   // Asked before the hook runs, because what it decides — argv — cannot be
   // corrected once the process has started (opencode 2.x needs a flag 1.x
   // does not have). Remembered per binary, so only an agent's first pane in

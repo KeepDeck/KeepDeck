@@ -2,45 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { log } from "./log";
 import { errorMessage } from "@keepdeck/plugin-api";
 
-/** One pane cwd and the MCP config it should carry. */
-export interface McpArmEntry {
-  root: string;
-  content: string;
-}
-
-/** What one arming pass did, and where it refused — with the reason, which is
- * the message the app puts in front of the user: a directory that keeps its
- * own config, one that is gone, one it cannot write. Those panes are the only
- * ones silently lacking what every other pane got, so none of it may be
- * reduced to a shrug. */
-export interface McpArmReport {
-  armed: string[];
-  refused: { root: string; reason: string }[];
-}
-
-/** Plant the config in each cwd. The pane spawns either way — a failure here
- * costs it KeepDeck's servers, never its process.
- *
- * A failure is reported as a REFUSAL of every cwd it was asked about, not as
- * an empty report: an empty report is exactly what a fully successful pass
- * with nothing to do looks like, so degrading to one made a dead backend
- * indistinguishable from a working one and left the pane's missing servers
- * with nowhere to surface. */
-export async function mcpArm(
-  wsId: string,
-  entries: McpArmEntry[],
-): Promise<McpArmReport> {
-  try {
-    return await invoke<McpArmReport>("mcp_arm", { wsId, entries });
-  } catch (e) {
-    const reason = errorMessage(e);
-    log.warn("web:mcp", `arming failed: ${reason}`);
-    return {
-      armed: [],
-      refused: entries.map(({ root }) => ({ root, reason })),
-    };
-  }
-}
+/**
+ * Taking back the MCP config files earlier builds planted in pane cwds —
+ * planting is the agent's plugin's (`arm.plan`) and the cwd arming engine's
+ * now; these take back only what was planted before it.
+ */
 
 /** Take KeepDeck's config back out of these cwds. Reports whether it got
  * through: a sweep must not record itself as done on a failed pass. */

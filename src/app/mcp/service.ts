@@ -40,26 +40,6 @@ import { errorMessage } from "@keepdeck/plugin-api";
 /** The transport every external call is journaled under. */
 const MCP_TRANSPORT = "mcp";
 
-/** Whether two refusal lists say the same thing. Content, not length: the
- * same directory can refuse for a different reason, and the reason is the
- * whole message the settings page carries. */
-function sameRefusals(
-  next: readonly { root: string; reason: string }[],
-  previous: readonly { root: string; reason: string }[],
-): boolean {
-  return (
-    next.length === previous.length &&
-    next.every((refusal, i) => {
-      const before = previous[i];
-      return (
-        before !== undefined &&
-        refusal.root === before.root &&
-        refusal.reason === before.reason
-      );
-    })
-  );
-}
-
 /** What the app knows about the transport as of the LAST SETTLED enable —
  * confirmed by the backend, not assumed, and not re-probed in between.
  * `socket` is the served path the backend confirmed, claimed once for the
@@ -81,12 +61,6 @@ export interface McpStatus {
   /** Why that lookup failed, when it did — the server IS serving, so this is
    * a message and never a silently missing row. */
   connectError: string | null;
-  /** Directories where the kimi config could not be planted because the user
-   * keeps their own there. Reported rather than logged: those panes are the
-   * ONLY ones that silently lack what every other pane got, and the fix
-   * (move or remove that file) is the user's to make. Keyed by directory —
-   * the same pane re-arming must not stack duplicates. */
-  refused: { root: string; reason: string }[];
 }
 
 /** A failure's detail, guaranteed to READ as a problem: an Error carrying
@@ -98,21 +72,19 @@ function problem(detail: string | null): string {
 
 /** The status after one settled enable. */
 function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus {
-  const refused = previous.refused;
   // Every settled enable invalidates the line naming the socket — the lookup
   // that follows is what fills it back in, against what is actually claimed.
   const blank = { connect: null, connectError: null };
   if (!transition.ok) {
-    return { ...previous, error: problem(transition.detail), refused, ...blank };
+    return { ...previous, error: problem(transition.detail), ...blank };
   }
   return transition.detail !== null
-    ? { socket: transition.detail, error: null, refused, ...blank }
+    ? { socket: transition.detail, error: null, ...blank }
     : // Defensive: mcp_enable's contract is a path string; a confirmation
       // without one must degrade LOUDLY, not into a blank served-less On.
       {
         socket: null,
         error: "the backend confirmed On without a socket path",
-        refused,
         ...blank,
       };
 }
@@ -130,16 +102,14 @@ export interface McpService {
   /**
    * Bring the status up to date with what a user is about to look at.
    *
-   * Three things go stale on their own and nothing else notices: a refused
+   * Two things go stale on their own and nothing else notices: a refused
    * enable (another instance held the socket — a retry is due, and there is
-   * no setting event to carry it), a refusal whose pane has since closed
-   * (the list is keyed by directory, and only a later successful arming of
-   * that same directory cleared it), and a connect lookup that never landed
+   * no setting event to carry it), and a connect lookup that never landed
    * (it fires once per settled enable, so a request that got lost stayed
    * lost).
    *
    * Idempotent and cheap. A settings surface calls it when it mounts — which
-   * is the moment all three become visible — WITHOUT reaching for IPC
+   * is the moment both become visible — WITHOUT reaching for IPC
    * itself; that is the whole point of it living here.
    */
   refresh(): void;
@@ -151,9 +121,9 @@ export interface McpService {
 export interface McpServiceDeps {
   /** How many live panes run in a directory — see [`McpInjectionDeps`]. */
   panesIn: McpInjectionDeps["panesIn"];
-  /** Plant kimi's config through the owner of the directories it lands in —
-   * see [`McpPlanting`]. */
-  plant: McpInjectionDeps["plant"];
+  /** Whether an agent takes its servers through a file in its cwd — see
+   * [`McpInjectionDeps`]. */
+  deliversByCwd: McpInjectionDeps["deliversByCwd"];
   /** The user's library of servers, resolved per workspace — see
    * [`McpServerSource`]. Required even when empty, so "no library" is a
    * statement the composition root makes, never a default it fell into. */
@@ -198,7 +168,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     error: null,
     connect: null,
     connectError: null,
-    refused: [],
   };
   const listeners = new Set<() => void>();
   const publish = (next: McpStatus) => {
@@ -209,9 +178,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
   // The identity is cosmetic (initialize's serverInfo) and must never gate
   // a request: the fetch fills it in when it lands; until then — or if it
   // never does — the fallback serves.
-  /** Directories the LAST pass planted in — a refusal there is stale and
-   * must clear (the user moved their file away). */
-  const armedRoots = new Set<string>();
   let identity: McpServerIdentity = { name: "KeepDeck", version: "unknown" };
   void (deps.identitySource ?? readAppInfo)()
     .then((info) => {
@@ -249,45 +215,7 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     contributors,
     library: deps.library,
     panesIn: deps.panesIn,
-    plant: deps.plant,
-    onRefused: (refusals) => {
-      // Replace by directory, keep the rest: an arming pass speaks only for
-      // the cwds it tried, and dropping the others would make a refusal
-      // vanish the moment another pane spawned somewhere else.
-      const byRoot = new Map(current.refused.map((r) => [r.root, r]));
-      // Armed first, refused second: a pass that both armed and refused the
-      // same directory is telling us about the refusal, and deleting after
-      // the merge would swallow it.
-      for (const root of armedRoots) byRoot.delete(root);
-      armedRoots.clear();
-      for (const refusal of refusals) {
-        byRoot.set(refusal.root, refusal);
-        // Noted AT RECORD TIME, because that is the only moment that tells
-        // the two cases apart: a fresh spawn's pane is already in the deck,
-        // a resume's or a fork's is not. Without it every refusal would look
-        // like the second and none would ever be prunable.
-        if (deps.panesIn(refusal.root) > 0) landed.add(refusal.root);
-      }
-      // Everything this pass did not speak for is judged by the same rule the
-      // settings surface applies — a refusal survives until its pane has been
-      // SEEN and then gone. THIS pass's roots skip even that: they were just
-      // refused, and a resume or fork plants before its pane lands.
-      const fresh = new Set(refusals.map((refusal) => refusal.root));
-      const refused = [...byRoot.values()].filter(
-        (refusal) => fresh.has(refusal.root) || worthShowing(refusal.root),
-      );
-      // Compared by CONTENT: a refusal whose reason changed — the user
-      // deleted their file but the directory is read-only now — keeps the
-      // list the same length while saying something else entirely.
-      if (!sameRefusals(refused, current.refused)) {
-        publish({ ...current, refused });
-      }
-    },
-    // Feeds the one-pass buffer that `onRefused` drains: a root whose config
-    // just landed has no standing refusal to keep.
-    onArmed: (roots) => {
-      for (const root of roots) armedRoots.add(root);
-    },
+    deliversByCwd: deps.deliversByCwd,
   });
   const pump = createMcpRequestPump(
     (line, caller) => handleMcpLine(port, () => identity, line, caller),
@@ -320,32 +248,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
       });
   }
 
-  /** Directories the deck has counted a pane in since we refused there. Until
-   * it has, "no pane runs here" cannot mean the pane went away — it means the
-   * pane has not LANDED. A resume or a fork plants before it does, and those
-   * refusals are the ones that matter most: the pane silently has no servers
-   * and this list is the only place that says so. */
-  const landed = new Set<string>();
-
-  /** Refusals worth still showing. The list is keyed by directory and cleared
-   * only by a later successful arming of that same directory, so without this
-   * it names folders whose pane closed hours ago and grows for the life of the
-   * session — but a refusal is dropped only once its pane has been seen, and
-   * then gone. */
-  function worthShowing(root: string): boolean {
-    if (deps.panesIn(root) > 0) {
-      landed.add(root);
-      return true;
-    }
-    return !landed.has(root);
-  }
-
-  function stillRunning(
-    refusals: readonly { root: string; reason: string }[],
-  ): { root: string; reason: string }[] {
-    return refusals.filter((refusal) => worthShowing(refusal.root));
-  }
-
   void pump.ready.then((registered) => {
     if (disposed) return;
     if (!registered) {
@@ -358,7 +260,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
         error: "the deck cannot receive MCP requests — the event channel failed",
         connect: null,
         connectError: null,
-        refused: [],
       });
       return;
     }
@@ -388,10 +289,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
       // another instance legitimately holds. Someone opening a settings
       // surface bounds it instead.
       policy?.ensure();
-      const refused = stillRunning(current.refused);
-      if (!sameRefusals(refused, current.refused)) {
-        publish({ ...current, refused });
-      }
       // Re-asked whenever the transport is up and we still have no line: the
       // first attempt errored, or never landed at all. A lookup genuinely in
       // flight is simply superseded — the sequence guard drops its reply — and

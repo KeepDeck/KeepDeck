@@ -5,7 +5,6 @@ import type {
 } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../domain/agents";
 import { detectBins, type BinStatus } from "../ipc/agents";
-import type { InstalledPlugin } from "../plugins";
 import type { PluginHost } from "../plugins/host/host";
 import {
   useContributions,
@@ -14,6 +13,7 @@ import {
 import type { ContributionRegistries } from "../plugins/registries/contributions";
 import { useRuntimePart } from "./runtimeContext";
 import { titleAgentOf } from "./titleAgent";
+import { agentSummary } from "./agentSummary";
 
 /** The plugin side as the catalog reads it: the one bootstrap to join, the
  * installed plugins (for each agent's declared summary), and the agents
@@ -118,24 +118,6 @@ function toAgentInfo(
   };
 }
 
-function agentSummary(
-  installed: readonly InstalledPlugin[],
-  pluginId: string,
-  implementation: AgentContribution,
-): AgentContributionSummary {
-  return (
-    installed
-      .find((plugin) => plugin.manifest.id === pluginId)
-      ?.manifest.contributes.agents?.find(
-        (summary) => summary.id === implementation.id,
-      ) ?? {
-      id: implementation.id,
-      label: implementation.label,
-      bin: implementation.detect.bin,
-      features: [],
-    }
-  );
-}
 
 /** Test hook: forget the cached detection. */
 export function resetAgentsCache(): void {

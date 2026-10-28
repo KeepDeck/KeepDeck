@@ -106,14 +106,10 @@ export const plugins = fake.plugins;
 export const skillsState = { views: null as SpawnSkillsInput | null };
 export const stagedSkills = () => Promise.resolve(skillsState.views);
 
-// MCP access is asked for the same way, and answers with BOTH halves: the
-// servers a hook puts on argv, and the on-disk delivery for a CLI that takes
-// none. `delivered` records when that write actually happened, which is the
-// whole point of it being separate from the answer.
+// MCP access is asked for the same way: the servers every agent's plugin is
+// handed, to render its own way.
 export const mcpState = {
   entries: [] as McpAccess["entries"],
-  throughArgv: true,
-  delivered: [] as string[],
 };
 /** A local server with nothing to carry, and a remote one carrying its token. */
 export const local = (
@@ -130,15 +126,8 @@ export const github: McpAccess["entries"][number] = {
   env: [GH_TOKEN],
 };
 export const specsOf = (entries: McpAccess["entries"]) => entries.map(({ spec }) => spec);
-export const mcpAccess = (target: { paneId?: string; cwd: string }) =>
-  Promise.resolve({
-    entries: mcpState.entries,
-    throughArgv: mcpState.throughArgv,
-    deliver: async () => {
-      mcpState.delivered.push(target.cwd);
-    },
-  } satisfies McpAccess);
-
+export const mcpAccess = (_target: { paneId?: string; cwd: string }) =>
+  Promise.resolve({ entries: mcpState.entries } satisfies McpAccess);
 
 /** What reached the cwd-arming port: the agent and its request, in order. */
 export const armState = { calls: [] as Parameters<CwdArmAsk>[] };
@@ -232,8 +221,6 @@ export function planHarness() {
       hostState.versions.clear();
       skillsState.views = null;
       mcpState.entries = [];
-      mcpState.throughArgv = true;
-      mcpState.delivered = [];
       armState.calls = [];
       harness.seen = {};
     },

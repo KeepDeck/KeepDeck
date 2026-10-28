@@ -1,4 +1,5 @@
 import { panesRunningIn } from "../domain/deck";
+import { deliversMcpByCwd } from "../domain/agents";
 import { listApplications, openPath, openUrl } from "../ipc/app";
 import { readImageTempPath, readText, writeText } from "../ipc/clipboard";
 import { log } from "../ipc/log";
@@ -106,11 +107,7 @@ import { createCwdArming } from "./cwdArming";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
-import {
-  createMcpPlanting,
-  createSkillsStaging,
-  createWorktreePlantings,
-} from "./worktreePlantings";
+import { createSkillsStaging, createWorktreePlantings } from "./worktreePlantings";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
@@ -181,12 +178,8 @@ export function createAppRuntime(
     storage: ipcMcpStorage,
     registry,
     panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
-    // kimi's config lands in a pane's cwd, so the owner of those directories
-    // decides when it may. The closure exists only to break the construction
-    // cycle between the two owners — `worktrees` is built below and this is
-    // not called before a spawn, long after.
-    plant: (workspaceId, root, content) =>
-      worktrees.plantMcp(workspaceId, root, content),
+    // Whether an agent's servers land in its cwd is its plugin's declaration.
+    deliversByCwd: (agentType) => deliversMcpByCwd(plugins.agentFeatures(agentType)),
     identify: createPaneIdentity({
       workspaces: () => deckStore.getSnapshot().workspaces,
       paneOf: paneIdBySpawnSecret,
@@ -420,9 +413,7 @@ export function createAppRuntime(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
     (deck, inOrder) =>
       createWorktreePlantings(deck, inOrder, {
-        skills: (deck, inOrder) =>
-          createSkillsStaging(deck, inOrder),
-        mcp: createMcpPlanting,
+        skills: createSkillsStaging,
         prunePluginDirs: plugins.workspaceDirs.prune,
         onDisarmed: armRefusals.forget,
       }),

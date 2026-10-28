@@ -21,9 +21,7 @@ export const CLI_NAME_EXEMPTIONS = [
   { file: "src-tauri/src/skills/opencode.rs", names: ["opencode"], count: 2, reason: "opencode's skill folder writer", until: "task-533" },
   { file: "src-tauri/src/skills/mod.rs", names: ["opencode"], count: 1, reason: "declares the opencode skill module", until: "task-533" },
 
-  // kimi's MCP file, rendered and armed by the core.
-  { file: "src/app/mcp/kimi.ts", names: ["kimi"], count: 6, reason: "renders kimi's .kimi-code/mcp.json", until: "task-532" },
-  { file: "src/app/mcp/injection.ts", names: ["kimi"], count: 1, reason: "calls the kimi MCP renderer", until: "task-532" },
+  // kimi's MCP file, armed by the core before the plugin declared it.
   { file: "src-tauri/src/mcp/arming.rs", names: ["kimi"], count: 8, reason: "arms kimi's MCP config dir", until: "task-533" },
   { file: "src-tauri/src/mcp/kimi.rs", names: ["kimi"], count: 2, reason: "kimi's MCP config writer", until: "task-533" },
   { file: "src-tauri/src/mcp/mod.rs", names: ["kimi"], count: 1, reason: "declares the kimi MCP module", until: "task-533" },
@@ -33,5 +31,4 @@ export const CLI_NAME_EXEMPTIONS = [
   { file: "src/domain/usage/history/migrateV1.ts", names: ["claude"], count: 1, reason: "usage schema 1: claude's v1 counters were not cumulative", until: null },
 
   // Presentation the core holds per CLI.
-  { file: "src/components/settings/McpServerRow.tsx", names: ["kimi"], count: 1, reason: "warning names kimi; goes with cwd arming", until: "task-530" },
 ];

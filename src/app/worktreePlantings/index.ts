@@ -15,7 +15,6 @@ import type { InOrder } from "../worktrees/queue";
 import { unclaimed } from "../worktrees/roots";
 import { createSweep } from "./sweep";
 
-export { createMcpPlanting } from "./mcpPlanting";
 export { createSkillsStaging } from "./skillsStaging";
 
 export function createWorktreePlantings(
@@ -24,7 +23,6 @@ export function createWorktreePlantings(
   factories: WorktreePlantingFactories,
 ): WorktreePlantings {
   const skills = factories.skills(deck, inOrder);
-  const mcp = factories.mcp(inOrder);
 
   async function disarm(roots: string[]): Promise<boolean> {
     const departed = unclaimed(roots, deck.live());
@@ -43,7 +41,6 @@ export function createWorktreePlantings(
     disarm,
     skillsFor: skills.skillsFor,
     invalidateSkills: skills.invalidateSkills,
-    plantMcp: mcp.plantMcp,
     armCwd: (request) => inOrder(() => cwdArm(request)),
     sweep: createSweep(deck, inOrder, disarm, factories.prunePluginDirs).sweep,
   };

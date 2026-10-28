@@ -27,7 +27,6 @@ vi.mock("../../app/mcp/useMcpStatus", () => ({
     error: null,
     connect: null,
     connectError: null,
-    refused: [],
   }),
 }));
 vi.mock("../../app/runtimeContext", async () =>

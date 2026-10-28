@@ -3,9 +3,11 @@ import type {
   AgentContribution,
   PluginSessionEvent,
   SettingsSectionContribution,
+  SpawnArmOutput,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin, { registerKimi, setupNotification, type KimiPorts } from "./index";
+import { kimiMcpConfig } from "./mcp";
 import { KIMI_MAIL_CHANNELS, renderKimiMail } from "./status";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -185,6 +187,22 @@ describe("Kimi CLI plugin", () => {
     const bareResume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...input, sessionId: "session_123" }, bareResume);
     expect(bareResume.args).toEqual(["--session", "session_123"]);
+  });
+
+  it("declares its MCP file for the pane's cwd through arm.plan", async () => {
+    // Kimi has no flag for MCP servers: the file in the cwd is the only way
+    // in, and the plugin — not the host — says what goes there.
+    const { agent } = await activate();
+    const arm = present(agent.hooks["arm.plan"], "the arm.plan hook");
+    const servers = [{ name: "keepdeck", transport: "stdio" as const, command: "/bin/keepdeck", args: [] }];
+
+    const out: SpawnArmOutput = { cwd: [] };
+    await arm({ ...input, mcp: { servers } }, out);
+    expect(out.cwd).toEqual([{ kind: "file", path: ".kimi-code/mcp.json", content: kimiMcpConfig(servers) }]);
+
+    const bare: SpawnArmOutput = { cwd: [] };
+    await arm(input, bare);
+    expect(bare.cwd).toEqual([]);
   });
 
   it("YOLO adds --yolo on spawn and resume alike", async () => {

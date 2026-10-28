@@ -2,7 +2,7 @@
   "id": "keepdeck.kimi",
   "name": "Kimi Code",
   "version": "0.11.0",
-  "minApiVersion": 71,
+  "minApiVersion": 72,
   "category": "cli",
   "description": "Adds the Kimi Code CLI with exact session resume and an optional one-time setup for session persistence.",
   "capabilities": [
@@ -69,7 +69,10 @@
           {
             "id": "integration.mcp",
             "label": "MCP servers from the library",
-            "group": "integration"
+            "group": "integration",
+            "parameters": {
+              "delivery": "cwd"
+            }
           },
           {
             "id": "integration.skills",

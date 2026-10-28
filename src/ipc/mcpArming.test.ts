@@ -6,7 +6,7 @@ vi.mock("./log", () => ({
   log: { warn: vi.fn() },
 }));
 
-import { mcpArm, mcpDisarm, mcpPrune } from "./mcpArming";
+import { mcpDisarm, mcpPrune } from "./mcpArming";
 
 beforeEach(() => {
   tauri.invoke.mockReset();
@@ -16,13 +16,6 @@ describe("the MCP arming wrappers", () => {
   it("names the backend commands and their argument shapes", async () => {
     // The wire is the whole job of this module: a renamed key fails only
     // here, at runtime, in a path no other test exercises.
-    tauri.invoke.mockResolvedValue({ armed: ["/repo"], refused: [] });
-    await mcpArm("ws-1", [{ root: "/repo", content: "{}" }]);
-    expect(tauri.invoke).toHaveBeenCalledWith("mcp_arm", {
-      wsId: "ws-1",
-      entries: [{ root: "/repo", content: "{}" }],
-    });
-
     tauri.invoke.mockResolvedValue(undefined);
     await mcpDisarm(["/repo"]);
     expect(tauri.invoke).toHaveBeenCalledWith("mcp_disarm", {
@@ -32,27 +25,6 @@ describe("the MCP arming wrappers", () => {
     await mcpPrune(["ws-1"]);
     expect(tauri.invoke).toHaveBeenCalledWith("mcp_prune", {
       liveWsIds: ["ws-1"],
-    });
-  });
-
-  it("reports a failed arming as a refusal of every cwd, not as an empty pass", async () => {
-    // The pane spawns either way — a failure costs it KeepDeck's servers,
-    // never its process. But an empty report is exactly what a fully
-    // successful pass with nothing to do looks like, so degrading to one made
-    // a dead backend indistinguishable from a working one and left the missing
-    // servers with nowhere to surface.
-    tauri.invoke.mockRejectedValue(new Error("no home directory"));
-    expect(
-      await mcpArm("ws-1", [
-        { root: "/repo", content: "{}" },
-        { root: "/wt/a", content: "{}" },
-      ]),
-    ).toEqual({
-      armed: [],
-      refused: [
-        { root: "/repo", reason: "no home directory" },
-        { root: "/wt/a", reason: "no home directory" },
-      ],
     });
   });
 

@@ -13,6 +13,8 @@ import {
 } from "../ipc/pluginsFsWrite";
 import { pluginWorkspaceDir, pluginWorkspacesPrune } from "../ipc/pluginWorkspaces";
 import { createPluginWorkspaceDirs } from "./pluginWorkspaceDirs";
+import { agentSummary } from "./agentSummary";
+import type { AgentFeature } from "../domain/agents";
 import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
   declaredAgentBins,
@@ -746,6 +748,16 @@ export function createPluginManager(appDownloads: DownloadManager) {
   }
 
   /** The bin of this agent the host may run to ask its version, or null. */
+  /** What an agent's plugin declares it does (its manifest `features`) — []
+   * when no installed plugin provides it. Read per call: a plugin can be
+   * installed, updated or removed while the deck is up. */
+  function agentFeatures(agentId: string): readonly AgentFeature[] {
+    const contribution = pluginRegistries.agents.list().find(({ entry }) => entry.id === agentId);
+    return contribution
+      ? agentSummary(pluginHost.getInstalled(), contribution.pluginId, contribution.entry).features
+      : [];
+  }
+
   function probeableBin(agentId: string): string | null {
     return probeableBinOfAgent(
       pluginRegistries.agents.list(),
@@ -1159,6 +1171,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     rescanPlugins,
     restartPlugin,
     agentBinVersion,
+    agentFeatures,
     ensureAgentVersion,
     /**
      * What this agent's CLI answers to `--version` RIGHT NOW — asked anew for

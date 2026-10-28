@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   armDoubles,
   managerFor,
-  mcpArming,
+  cwdArming,
   mcpLibrary,
   pluginDirs,
   ref,
@@ -206,18 +206,21 @@ describe("skillsFor", () => {
   });
 });
 
-describe("the MCP config planted in a pane's cwd", () => {
-  it("plants what it was handed, keyed by the workspace that owns the root", async () => {
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-    mcpArming.mcpArm.mockResolvedValue({ armed: ["/repo"], refused: [] });
+describe("what an agent's plugin plants in a pane's cwd", () => {
+  const request = (cwd: string) => ({
+    pluginId: "p",
+    workspaceId: "ws-1",
+    cwd,
+    arms: [{ kind: "file" as const, path: ".agent/conf", content: "{}" }],
+    skillsDir: null,
+  });
 
-    expect(await manager.plantMcp("ws-1", "/repo", "{config}")).toEqual({
-      armed: ["/repo"],
-      refused: [],
-    });
-    expect(mcpArming.mcpArm).toHaveBeenCalledWith("ws-1", [
-      { root: "/repo", content: "{config}" },
-    ]);
+  it("plants the request as it was handed, and answers what landed", async () => {
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    cwdArming.cwdArm.mockResolvedValue({ armed: [".agent/conf"], refused: [] });
+
+    expect(await manager.armCwd(request("/repo"))).toEqual({ armed: [".agent/conf"], refused: [] });
+    expect(cwdArming.cwdArm).toHaveBeenCalledWith(request("/repo"));
   });
 
   it("waits for a teardown in flight, like every other write into a cwd", async () => {
@@ -231,17 +234,17 @@ describe("the MCP config planted in a pane's cwd", () => {
     });
     worktree.removeWorktree.mockImplementation(async () => held);
     const order: string[] = [];
-    mcpArming.mcpArm.mockImplementation(async () => {
+    cwdArming.cwdArm.mockImplementation(async () => {
       order.push("planted");
-      return { armed: ["/wt/a"], refused: [] };
+      return { armed: [".agent/conf"], refused: [] };
     });
-    mcpArming.mcpDisarm.mockImplementation(async () => {
+    cwdArming.cwdDisarm.mockImplementation(async () => {
       order.push("disarmed");
       return true;
     });
 
     const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
-    const planting = manager.plantMcp("ws-1", "/wt/a", "{}");
+    const planting = manager.armCwd(request("/wt/a"));
     release();
     await removing;
     await planting;
@@ -256,15 +259,10 @@ describe("the MCP config planted in a pane's cwd", () => {
     // (as `skillsFor` must, because it arms a whole snapshotted SET) refused
     // exactly those three flows, silently.
     deck = [{ id: "ws-1", roots: [] }];
-    mcpArming.mcpArm.mockResolvedValue({ armed: ["/wt/landing"], refused: [] });
+    cwdArming.cwdArm.mockResolvedValue({ armed: [".agent/conf"], refused: [] });
 
-    expect(await manager.plantMcp("ws-1", "/wt/landing", "{}")).toEqual({
-      armed: ["/wt/landing"],
-      refused: [],
-    });
-    expect(mcpArming.mcpArm).toHaveBeenCalledWith("ws-1", [
-      { root: "/wt/landing", content: "{}" },
-    ]);
+    expect(await manager.armCwd(request("/wt/landing"))).toEqual({ armed: [".agent/conf"], refused: [] });
+    expect(cwdArming.cwdArm).toHaveBeenCalledWith(request("/wt/landing"));
   });
 });
 

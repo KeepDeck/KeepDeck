@@ -3,6 +3,7 @@ import { kimiBinding } from "./binding";
 import { kimiForkPlan, type ForkPorts } from "./fork";
 import { kimiHistory, type HistoryPorts } from "./history";
 import { readKimiLimits, type LimitsPorts } from "./limits";
+import { kimiMcpArms } from "./mcp";
 import {
   launchPlans,
   sha256Hex,
@@ -136,11 +137,17 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
     // conversation rather than a second session (./binding.ts).
     binding: kimiBinding,
     history,
-    hooks: launchPlans({
-      stage: stageLaunch,
-      resume: (input) => ["--session", input.sessionId],
-      fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
-    }),
+    hooks: {
+      ...launchPlans({
+        stage: stageLaunch,
+        resume: (input) => ["--session", input.sessionId],
+        fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
+      }),
+      // The MCP servers reach kimi through its cwd, not argv (./mcp.ts).
+      "arm.plan": (input, output) => {
+        output.cwd.push(...kimiMcpArms(input.mcp));
+      },
+    },
   });
 
   // The RESOURCES ROOT, not one companion's folder: the fleet installs

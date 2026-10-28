@@ -81,13 +81,6 @@ export interface WorktreeSkillViews {
   skills: { name: string; content: string }[];
 }
 
-/** The planting result the MCP feature reports through the infrastructure
- * port. Structural typing keeps the IPC DTO private to that feature. */
-export interface McpPlantingReport {
-  armed: string[];
-  refused: { root: string; reason: string }[];
-}
-
 /**
  * What the pane lifecycle needs: creating worktrees, naming what landed, and
  * tearing them down again — plus the staged skills a spawn plan asks for, since
@@ -193,34 +186,8 @@ export interface SkillsInvalidation {
   invalidateSkills(): void;
 }
 
-/**
- * The other thing KeepDeck plants in a pane's cwd: the MCP client config a
- * file-fed CLI reads instead of taking servers on argv.
- *
- * Its own role rather than a shared queue handle, because ordering against a
- * teardown is only HALF of what makes such a write safe — the other half is
- * refusing a directory no live pane claims any more, and both halves are this
- * owner's knowledge. Handing out the queue instead let the MCP path take the
- * ordering and skip the check.
- *
- * WHAT to write stays the MCP owner's business; this decides where it is
- * allowed to land, and when.
- */
-export interface McpPlanting {
-  /** Put `content` in `root` for `workspaceId`, once nothing else is touching
-   * that directory. Reports what landed and what refused (a cwd where the user
-   * keeps their own config, one that is gone, one it cannot write); never
-   * throws. */
-  plantMcp(
-    workspaceId: string,
-    root: string,
-    content: string,
-  ): Promise<McpPlantingReport>;
-}
-
 /** One plugin's complete set of plantings for one cwd — the infrastructure
- * port's own shape, like the MCP planting's (the arming IPC's DTO stays that
- * feature's). */
+ * port's own shape (the arming IPC's DTO stays that feature's). */
 export interface CwdArmRequest {
   pluginId: string;
   workspaceId: string;
@@ -236,7 +203,9 @@ export interface CwdArmReport {
 }
 
 /** Planting what an agent's plugin declares in a pane's cwd (`arm.plan`),
- * ordered against worktree teardown like every other planting. */
+ * ordered against worktree teardown — a planting landing between git's
+ * recursive delete and its final rmdir would leave a husk. Its own role
+ * rather than a shared queue handle, so the ordering cannot be skipped. */
 export interface CwdArming {
   /** One plugin's complete set for one cwd; never throws. */
   armCwd(request: CwdArmRequest): Promise<CwdArmReport>;
@@ -251,7 +220,6 @@ export interface CwdArming {
 export type WorktreeManager = WorktreeProvisioner &
   WorktreeHousekeeping &
   SkillsInvalidation &
-  McpPlanting &
   CwdArming;
 
 /** The one composite passed into the manager. Its factories receive the
@@ -261,7 +229,6 @@ export interface WorktreePlantingFactories {
     deck: WorktreeDeckView,
     inOrder: InOrder,
   ): WorktreeSkillsPlanting;
-  mcp(inOrder: InOrder): McpPlanting;
   /** Drop plugins' private directories of every workspace not in `liveWsIds`;
    * false when that could not be done (the sweep tries again). */
   prunePluginDirs(liveWsIds: readonly string[]): Promise<boolean>;
@@ -279,7 +246,6 @@ export interface WorktreeSkillsPlanting
 
 export interface WorktreePlantings
   extends Pick<WorktreeProvisioner, "skillsFor">,
-    McpPlanting,
     CwdArming,
     WorktreeHousekeeping,
     SkillsInvalidation {
@@ -334,7 +300,6 @@ export function createWorktreeManager(
     skillsFor: plantings.skillsFor,
     invalidateSkills: plantings.invalidateSkills,
     sweep: plantings.sweep,
-    plantMcp: plantings.plantMcp,
     armCwd: plantings.armCwd,
     remove: teardown.remove,
   };

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MCP_HTTP_API, type SpawnMcpInput } from "@keepdeck/plugin-api";
 import { log } from "../../ipc/log";
-import { buildResumeSpec, dropPaneSpawnSpec, peekPaneSpawnSpec, buildLivePaneSpec } from ".";
+import { buildResumeSpec, dropPaneSpawnSpec } from ".";
 import {
   hostState,
   stagedSkills,
@@ -104,23 +104,24 @@ describe("MCP servers through the plan", () => {
     expect(h.seen["pane-1"].env).toContainEqual(GH_TOKEN);
   });
 
-  it("a file-fed pane's hook hears of no server, and its values still reach the environment", async () => {
-    // The specs are in a file the host planted; the hook has nothing to put on
-    // argv. What the file only NAMES is owed to the pane all the same.
+  it("every agent's plugin is handed the servers — one fed by a file renders that file itself", async () => {
+    // The host renders no CLI's config: argv, env or a file in the cwd is
+    // the plugin's to make from the same list. What the specs only NAME is
+    // owed to the pane's environment all the same.
     mcpState.entries = [github];
-    mcpState.throughArgv = false;
     const inputs: Array<SpawnMcpInput | undefined> = [];
     h.register({
       ...adopting,
       hooks: {
-        "spawn.plan": (input) => {
+        "spawn.plan": () => {},
+        "arm.plan": (input) => {
           inputs.push(input.mcp);
         },
       },
     });
     await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
     await settle();
-    expect(inputs).toEqual([undefined]);
+    expect(inputs).toEqual([{ servers: [github.spec] }]);
     expect(h.seen["pane-1"].env).toContainEqual(GH_TOKEN);
   });
 
@@ -197,101 +198,4 @@ describe("MCP servers through the plan", () => {
     expect(inputs).toEqual([undefined]);
   });
 
-  it("takes the MCP delivery only AFTER the hook has run", async () => {
-    // The file-fed half is a WRITE into the user's working directory, so it
-    // waits for a plan that is going to be used. Asking is a question; the
-    // answer's delivery is the command, and only this build knows when the
-    // plan has settled enough to run it.
-    const at: string[] = [];
-    h.register({
-      ...adopting,
-      hooks: {
-        "spawn.plan": () => {
-          at.push(`hook, delivered=${mcpState.delivered.length}`);
-        },
-      },
-    });
-    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
-    await settle();
-
-    expect(at).toEqual(["hook, delivered=0"]);
-    expect(mcpState.delivered).toEqual(["/repo"]);
-  });
-
-  it("still delivers when a spawn hook threw and the pane degrades to bare", async () => {
-    // A bare spawn still RUNS the CLI, and a file-fed one reads its cwd
-    // whatever argv it was handed: skipping the write here would leave exactly
-    // the panes whose hook failed without any servers at all.
-    h.register({
-      ...adopting,
-      hooks: {
-        "spawn.plan": () => {
-          throw new Error("boom");
-        },
-      },
-    });
-    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]));
-    await settle();
-
-    expect(h.seen["pane-1"].args).toEqual([]);
-    expect(mcpState.delivered).toEqual(["/repo"]);
-  });
-
-  it("plants NOTHING when the build is discarded while it is in flight", async () => {
-    // "Is this plan settled?" has two halves: the hook did not throw, and the
-    // build's generation still holds. Only the cache knows the second, so the
-    // write has to wait for it — otherwise a suspend mid-build leaves a config
-    // in the user's directory naming a secret the cache never holds, and the
-    // pane it named is not coming back to overwrite it.
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    h.register({
-      ...adopting,
-      hooks: { "spawn.plan": async () => held },
-    });
-    const workspaces = ws([{ id: "pane-1", agentType: "claude" }]);
-
-    const building = buildLivePaneSpec(
-      plugins,
-      workspaces[0],
-      workspaces[0].panes[0],
-      ctx,
-      { stagedSkills, mcpAccess },
-    );
-    dropPaneSpawnSpec("pane-1"); // the user suspends the pane mid-build
-    release();
-
-    expect(await building).toBe(false);
-    expect(mcpState.delivered).toEqual([]);
-    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
-  });
-
-  it("plants NOTHING for a resume whose hook rejected the plan", async () => {
-    // A resume that throws propagates — no process will ever start — so a
-    // config naming that pane is a file in the user's repository that nothing
-    // asked for and nothing would take away.
-    h.register({
-      ...adopting,
-      hooks: {
-        "resume.plan": () => {
-          throw new Error("no such session");
-        },
-      },
-    });
-
-    await expect(
-      buildResumeSpec(
-        plugins,
-        "claude",
-        { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills, mcpAccess },
-        ctx,
-        "old-id",
-        "restore",
-      ),
-    ).rejects.toThrow("no such session");
-
-    expect(mcpState.delivered).toEqual([]);
-  });
 });

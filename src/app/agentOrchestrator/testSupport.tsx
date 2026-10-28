@@ -428,7 +428,7 @@ export function Probe() {
         // registry answers "no capability" — the legacy behavior.
         plugins: createSpawnPluginsFake().plugins,
         probe: ipc.probeWorktree,
-        mcpAccess: async () => ({ entries: [], throughArgv: true, deliver: async () => {} }),
+        mcpAccess: async () => ({ entries: [] }),
         armCwd: async () => {},
         lifecycle,
         transcripts,

@@ -29,13 +29,9 @@ const skillsIpc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/skills", () => skillsIpc);
 
-// The MCP config is planted in the same directories by the same owner, so the
-// doubles answer like the real wrappers do.
+// The MCP configs earlier builds planted are taken back by the same owner, so
+// the doubles answer like the real wrappers do.
 const mcpArmingIpc = vi.hoisted(() => ({
-  mcpArm: vi.fn(async () => ({
-    armed: [] as string[],
-    refused: [] as { root: string; reason: string }[],
-  })),
   mcpDisarm: vi.fn(async (_roots: string[]) => true),
   mcpPrune: vi.fn(async (_liveWsIds: string[]) => true),
 }));
@@ -68,11 +64,7 @@ export const pluginDirs = { prune: vi.fn(async (_liveWsIds: readonly string[]) =
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { WorkspaceInstance } from "../../domain/workspaceInstance";
 import type { ProvisionRequest } from "./index";
-import {
-  createMcpPlanting,
-  createSkillsStaging,
-  createWorktreePlantings,
-} from "../worktreePlantings";
+import { createSkillsStaging, createWorktreePlantings } from "../worktreePlantings";
 import {
   createWorktreeManager,
   deckViewOf,
@@ -169,7 +161,6 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
 export function managerFor(read: () => DeckEntry[]): WorktreeManager {
   const factories: WorktreePlantingFactories = {
     skills: createSkillsStaging,
-    mcp: createMcpPlanting,
     prunePluginDirs: pluginDirs.prune,
     onDisarmed: () => {},
   };
@@ -189,7 +180,6 @@ export function armDoubles(): void {
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
   skills.disarmSkills.mockResolvedValue(true);
   skills.pruneSkills.mockResolvedValue(true);
-  mcpArming.mcpArm.mockResolvedValue({ armed: [], refused: [] });
   mcpArming.mcpDisarm.mockResolvedValue(true);
   mcpArming.mcpPrune.mockResolvedValue(true);
   mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);

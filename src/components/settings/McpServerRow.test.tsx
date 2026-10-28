@@ -16,7 +16,6 @@ type Status = {
   error: string | null;
   connect: { command: string; args: string[] } | null;
   connectError: string | null;
-  refused: { root: string; reason: string }[];
 };
 const mcpStatus = vi.hoisted(() => ({
   current: {
@@ -24,7 +23,6 @@ const mcpStatus = vi.hoisted(() => ({
     error: null,
     connect: null,
     connectError: null,
-    refused: [],
   } as Status,
 }));
 vi.mock("../../app/mcp/useMcpStatus", () => ({
@@ -42,7 +40,6 @@ const down = (): Status => ({
   error: null,
   connect: null,
   connectError: null,
-  refused: [],
 });
 
 /** A confirmed-up transport, with whatever else the case is about. */
@@ -51,7 +48,6 @@ const up = (extra: Partial<Status> = {}): Status => ({
   error: null,
   connect: invocation,
   connectError: null,
-  refused: [],
   ...extra,
 });
 
@@ -193,40 +189,19 @@ describe("McpServerRow", () => {
     expect(connectLine()?.textContent).toContain("/home/other.sock");
   });
 
-  it("keeps the confirmation through a status change the row does not show", async () => {
+  it("keeps the confirmation through a new status object saying the same", async () => {
     // The reset keys on the rendered command, not on the status object: a
-    // refusal appearing elsewhere must not wipe the confirmation.
+    // republished status naming the same command must not wipe it.
     mcpStatus.current = up();
     mount();
     await settle();
     act(() => present(copyButton(), "copy button").click());
     await settle();
 
-    mcpStatus.current = up({
-      refused: [{ root: "/repo/api", reason: "theirs" }],
-    });
+    mcpStatus.current = { ...up() };
     mount();
     await settle();
 
     expect(host.textContent).toContain("Copied");
-  });
-
-  it("names each refused folder AND why, since the fix differs per reason", async () => {
-    // The fix is the user's to make and it is not the same fix: move your own
-    // config aside, or the folder is gone, or it could not be written. A
-    // single asserted reason sent people looking for a file that is not there.
-    mcpStatus.current = up({
-      refused: [
-        { root: "/repo/api", reason: ".kimi-code/mcp.json here is not KeepDeck's" },
-        { root: "/wt/gone", reason: "this directory no longer exists" },
-      ],
-    });
-    mount();
-    await settle();
-
-    expect(host.textContent).toContain("/repo/api");
-    expect(host.textContent).toContain("is not KeepDeck's");
-    expect(host.textContent).toContain("/wt/gone");
-    expect(host.textContent).toContain("no longer exists");
   });
 });

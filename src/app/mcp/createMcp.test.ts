@@ -24,7 +24,7 @@ function wired(storage: Partial<McpStorage> = {}) {
   const mcp = createMcp({
     storage: store,
     panesIn: () => 1,
-    plant: async () => ({ armed: [], refused: [] }),
+    deliversByCwd: () => false,
     transport: { enable: () => Promise.resolve("/sock"), disable },
     pumpPorts: { subscribe: () => Promise.resolve(() => {}), respond: () => Promise.resolve() },
     identitySource: () => Promise.resolve({ name: "KeepDeck", version: "0" }),

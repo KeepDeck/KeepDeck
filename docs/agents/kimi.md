@@ -50,7 +50,13 @@ and adds `--session <new id>`. The launch carries:
   `.mcp.json`), eagerly, before any session exists. That was accepted as a
   product decision.
 
-Kimi has no flag for injecting KeepDeck's MCP servers.
+Kimi has no flag for injecting KeepDeck's MCP servers. It reads them from
+`.kimi-code/mcp.json` in its cwd, so the plugin renders that file
+(`src/mcp.ts`) and declares it through `arm.plan`; the host plants it beside
+a `.keepdeck-managed` marker, refuses a folder whose file is the user's, and
+takes it back when no pane needs it. The manifest marks `integration.mcp`
+with `delivery: "cwd"`: one file per directory, so panes sharing a cwd get
+an anonymous keepdeck client rather than whichever secret was written last.
 
 Kimi starts every child detached on macOS and Linux (`detached ??
 !isWindows` in its host process service), MCP servers included, so its
