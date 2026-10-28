@@ -3,17 +3,23 @@
  * and live-deck port into staged views. Construction belongs to the runtime
  * composition root; the infrastructure manager only receives the resulting
  * composite planting.
+ *
+ * It stages and nothing more: what an agent needs planted in a pane's cwd to
+ * find the staged skills is that agent's plugin's to declare (`arm.plan`),
+ * and the cwd arming engine's to plant.
  */
-import {
-  armSkills,
-  fetchSkills,
-  stageSkills,
-  type ExcludedSkill,
-  type SkillArmRefusal,
-} from "../../ipc/skills";
+import { fetchSkills, stageSkills, type ExcludedSkill } from "../../ipc/skills";
 import { log } from "../../ipc/log";
 import { errorMessage } from "@keepdeck/plugin-api";
 import { skillsUnfitForAgents } from "../../domain/skills";
+import type {
+  WorktreeDeckView,
+  WorktreeSkillViews,
+  WorktreeSkillsPlanting,
+} from "../worktrees";
+import type { InOrder } from "../worktrees/queue";
+
+export type SkillsStaging = WorktreeSkillsPlanting;
 
 /** The library rows no agent may be handed, by the codec's judgement — or
  * null when the library could not be read: then nothing stages (a pane
@@ -26,47 +32,12 @@ async function unfitSkills(): Promise<ExcludedSkill[] | null> {
     return null;
   }
 }
-import type {
-  WorktreeDeckView,
-  WorktreeSkillViews,
-  WorktreeSkillsPlanting,
-} from "../worktrees";
-import type { InOrder } from "../worktrees/queue";
 
-export type SkillsStaging = WorktreeSkillsPlanting;
-
-export function createSkillsStaging(
-  deck: WorktreeDeckView,
-  inOrder: InOrder,
-  /** Where an arming pass reports what the user's own files kept it out
-   * of. Optional: non-app tests need not listen. */
-  onRefusals: (refusals: SkillArmRefusal[]) => void = () => {},
-): SkillsStaging {
+export function createSkillsStaging(deck: WorktreeDeckView, inOrder: InOrder): SkillsStaging {
   const staged = new Map<
     string,
     { roots: string[]; views: Promise<WorktreeSkillViews | null> }
   >();
-
-  /** Views from the memo, arming from scratch.
-   *
-   * THE SPLIT that makes a refusal honest: staging is expensive and
-   * cached, arming is four syscalls per cwd and is not. Folded together,
-   * the user moved their `.agents` file away and kept being told about it
-   * until something unrelated cleared the cache. Asked every time, the
-   * answer cannot be stale.
-   */
-  const armThen = (
-    wsId: string,
-    entry: { roots: string[]; views: Promise<WorktreeSkillViews | null> },
-  ): Promise<WorktreeSkillViews | null> =>
-    entry.views.then(async (views) => {
-      // Nothing staged, nothing to arm — and no refusal to report: the
-      // user has done nothing, there is simply no view.
-      if (!views) return views;
-      const report = await inOrder(() => armSkills(wsId, entry.roots));
-      onRefusals(report.refused);
-      return views;
-    });
 
   return {
     forgetStaged(roots) {
@@ -85,7 +56,7 @@ export function createSkillsStaging(
       ].sort();
       const key = keyFor(roots);
       const memoized = staged.get(key);
-      if (memoized) return armThen(workspace.id, memoized);
+      if (memoized) return memoized.views;
 
       // The staging below names this entry (a narrowed set is memoized under
       // its own key), so the entry exists first; its `views` is replaced
@@ -112,7 +83,7 @@ export function createSkillsStaging(
         );
       });
       staged.set(key, entry);
-      return armThen(workspace.id, entry);
+      return entry.views;
     },
 
     invalidateSkills() {

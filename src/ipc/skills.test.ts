@@ -25,7 +25,6 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 import { sameSkillScope, skillScopeOf } from "../domain/skills";
 import { ipcSkillsStorage } from "./skillsStorage";
 import {
-  armSkills,
   deleteSkill,
   disarmSkills,
   fetchSkills,
@@ -256,15 +255,5 @@ describe("the stage wire is untouched by refusals", () => {
       "skills",
       "skillsDir",
     ]);
-  });
-
-  it("a failed arming degrades to an empty report, never to no pane", async () => {
-    // Skills are an enhancement, not a prerequisite: a pane spawns
-    // unarmed rather than not at all.
-    tauri.invoke.mockRejectedValueOnce(new Error("busy"));
-    expect(await armSkills("ws-1", ["/repo"])).toEqual({
-      armed: [],
-      refused: [],
-    });
   });
 });

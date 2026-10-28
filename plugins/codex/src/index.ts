@@ -9,10 +9,12 @@ import {
   launchPlans,
   mailAskArgs,
   shellQuote,
+  type CwdArm,
   type KeepDeckPlugin,
   type PluginAgents,
   type PluginResources,
   type PluginRpc,
+  type SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { codexBinding } from "./binding";
 import { codexHistory, type HistoryPorts } from "./history";
@@ -146,13 +148,18 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
  * the `resume`/`fork` subcommand. */
 const disablePasteBurstArgs: string[] = ["-c", "disable_paste_burst=true"];
 
-// Shared skills need NO code here: codex has no flag/env/config door
-// (openai/codex#15149, #22869), but it reads `.agents/skills` from its
-// starting cwd at session start — and the host's staging arms every pane
-// spawn cwd with a symlink to the staged view before the spawn
-// (src-tauri/src/skills.rs, arm_roots). The filesystem is the delivery;
-// argv/env stay untouched. `input.skills` still arrives for the day codex
-// grows a real injection flag.
+/**
+ * Shared skills: codex has no flag, env or config door for them
+ * (openai/codex#15149, #22869), but it reads `.agents/skills` from its
+ * starting cwd at session start. So the pane's cwd gets a symlink there to
+ * the host's bare skills directory — declared here, planted by the host's
+ * arming engine, which keeps the user's own `.agents` untouched and git
+ * blind to ours. No skills: an empty set, so a link an earlier launch
+ * planted is taken back. argv and env stay untouched.
+ */
+export function codexArms(skills: SpawnSkillsInput | undefined): CwdArm[] {
+  return skills ? [{ kind: "symlink", path: ".agents/skills", target: skills.dir }] : [];
+}
 
 /** What the plugin needs from the host — the parts of its context it uses. */
 export type CodexPorts = HistoryPorts & {
@@ -226,6 +233,9 @@ export function registerCodex(ctx: CodexPorts): void {
       // the plan. The same rule as every staged launch, nothing else.
       "bare.plan": (input, output) => {
         output.args.push(...processArgs(input));
+      },
+      "arm.plan": (input, output) => {
+        output.cwd.push(...codexArms(input.skills));
       },
     },
   });

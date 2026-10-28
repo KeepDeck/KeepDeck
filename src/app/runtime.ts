@@ -101,7 +101,6 @@ import {
 } from "./usageHistoryManager";
 import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
-import { skillRefusals } from "./skillRefusals";
 import { armRefusals } from "./armRefusals";
 import { createCwdArming } from "./cwdArming";
 import { createSkillsLibrary } from "./skillsLibrary";
@@ -422,7 +421,7 @@ export function createAppRuntime(
     (deck, inOrder) =>
       createWorktreePlantings(deck, inOrder, {
         skills: (deck, inOrder) =>
-          createSkillsStaging(deck, inOrder, skillRefusals.publish),
+          createSkillsStaging(deck, inOrder),
         mcp: createMcpPlanting,
         prunePluginDirs: plugins.workspaceDirs.prune,
         onDisarmed: armRefusals.forget,

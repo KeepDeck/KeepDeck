@@ -24,7 +24,6 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 const skillsIpc = vi.hoisted(() => ({
   fetchSkills: vi.fn(async () => [] as { scope: "global"; wsId: null; name: string; content: string }[]),
   stageSkills: vi.fn(),
-  armSkills: vi.fn(async () => ({ armed: [], refused: [] })),
   disarmSkills: vi.fn(async (_roots: string[]) => true),
   pruneSkills: vi.fn(async (_liveWsIds: string[]) => true),
 }));
@@ -188,7 +187,6 @@ export function managerFor(read: () => DeckEntry[]): WorktreeManager {
 export function armDoubles(): void {
   skills.fetchSkills.mockResolvedValue([]);
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
-  skills.armSkills.mockResolvedValue({ armed: [], refused: [] });
   skills.disarmSkills.mockResolvedValue(true);
   skills.pruneSkills.mockResolvedValue(true);
   mcpArming.mcpArm.mockResolvedValue({ armed: [], refused: [] });

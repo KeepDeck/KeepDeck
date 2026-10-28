@@ -39,8 +39,10 @@ target.
   The same rule is the plugin's `bare.plan` floor, so a pane whose plan
   failed still launches with it.
 - **Skills:** Codex has no flag or env for them. It reads `.agents/skills`
-  from its starting directory, and the host symlinks the staged skills there
-  before the spawn.
+  from its starting directory, so the plugin's `arm.plan` declares a symlink
+  there to the host's bare skills directory, and the host's cwd arming engine
+  plants it before the spawn — leaving the user's own `.agents` alone and
+  taking the link back with the worktree.
 
 `-c`, `--no-daemon` and the other flags are global and must come before the `resume` or `fork`
 subcommand.

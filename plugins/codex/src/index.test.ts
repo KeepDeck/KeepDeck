@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { AgentContribution, PluginRpc, SpawnPlanInput, SpawnPlanOutput } from "@keepdeck/plugin-api";
+import type {
+  AgentContribution,
+  PluginRpc,
+  SpawnArmOutput,
+  SpawnPlanInput,
+  SpawnPlanOutput,
+} from "@keepdeck/plugin-api";
 import { readManifest } from "@keepdeck/plugin-api";
 import manifestJson from "../manifest.json";
 import { registerCodex } from "./index";
@@ -459,6 +465,30 @@ describe("codex panes run their own process", () => {
     expect((await floorOf({ cliVersion: "0.164.0", target: remote })).args).not.toContain(
       "--no-daemon",
     );
+  });
+});
+
+describe("codex plugin — what it plants in the pane's cwd", () => {
+  const skills = {
+    claudePluginDir: "/elsewhere/claude-plugin",
+    opencodeConfigDir: "/elsewhere/opencode",
+    skillsDir: "/elsewhere/skills",
+    dir: "/kd/staging/ws-1/skills",
+    skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
+  };
+
+  it("links .agents/skills to the host's bare skills directory — codex's only door for them", async () => {
+    const arm = present(activate(null).hooks["arm.plan"], "the arm.plan hook");
+    const out: SpawnArmOutput = { cwd: [] };
+    await arm({ ...input, skills }, out);
+    expect(out.cwd).toEqual([{ kind: "symlink", path: ".agents/skills", target: "/kd/staging/ws-1/skills" }]);
+  });
+
+  it("declares nothing without skills, so an earlier link is taken back", async () => {
+    const arm = present(activate(null).hooks["arm.plan"], "the arm.plan hook");
+    const out: SpawnArmOutput = { cwd: [] };
+    await arm(input, out);
+    expect(out.cwd).toEqual([]);
   });
 });
 
