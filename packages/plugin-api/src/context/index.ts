@@ -33,7 +33,14 @@ export type {
   SpawnArmOutput,
   SpawnTarget,
 } from "./agents.ts";
-export { isAgentPresentation, MCP_HTTP_API, mapMcpServers, mcpHttpHeaders } from "./agents.ts";
+export {
+  ARM_CAPS,
+  fitsArmCaps,
+  isAgentPresentation,
+  MCP_HTTP_API,
+  mapMcpServers,
+  mcpHttpHeaders,
+} from "./agents.ts";
 export type {
   AgentStatus,
   AgentStatusEvent,

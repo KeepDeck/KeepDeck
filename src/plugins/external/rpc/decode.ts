@@ -1,4 +1,4 @@
-import { isAgentPresentation, isJsonValue, readManifest } from "@keepdeck/plugin-api";
+import { fitsArmCaps, isAgentPresentation, isJsonValue, readManifest } from "@keepdeck/plugin-api";
 import { isObjectLike } from "../../../domain/json";
 import type {
   AgentPresentation,
@@ -143,8 +143,14 @@ export function isWireSpawnPlanOutput(value: unknown): value is WireSpawnPlanOut
   return true;
 }
 
-/** `arm.plan`'s output: every planting a file or a symlink, all strings. */
+/** `arm.plan`'s output: every planting a file or a symlink, all strings, the
+ * whole within `ARM_CAPS` — a larger answer is no answer, refused before it
+ * is carried on. */
 export function isWireArmOutput(value: unknown): value is WireArmOutput {
+  return isArmShape(value) && fitsArmCaps(value);
+}
+
+function isArmShape(value: unknown): value is WireArmOutput {
   return (
     isObjectLike(value) &&
     Array.isArray(value.cwd) &&

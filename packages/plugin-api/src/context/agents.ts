@@ -237,6 +237,39 @@ export interface SpawnArmOutput {
   cwd: CwdArm[];
 }
 
+/** How much one `arm.plan` may plant (API 73), in UTF-8 bytes: room for any
+ * CLI's few config files and links, and a bound on what a plugin's word
+ * writes into a user's directory. A set over `ENTRIES_MAX` or
+ * `TOTAL_CONTENT_MAX_BYTES` is refused whole; one entry over its own cap is
+ * refused alone. The native engine holds the same numbers — `armCaps.json`
+ * is the file both sides' tests pin them to. */
+export const ARM_CAPS = {
+  ENTRIES_MAX: 32,
+  PATH_MAX_BYTES: 1024,
+  TARGET_MAX_BYTES: 4096,
+  CONTENT_MAX_BYTES: 256 * 1024,
+  TOTAL_CONTENT_MAX_BYTES: 1024 * 1024,
+} as const;
+
+const utf8 = new TextEncoder();
+
+/** Whether a whole `arm.plan` answer fits {@link ARM_CAPS}. */
+export function fitsArmCaps(output: SpawnArmOutput): boolean {
+  if (output.cwd.length > ARM_CAPS.ENTRIES_MAX) return false;
+  let total = 0;
+  for (const arm of output.cwd) {
+    if (utf8.encode(arm.path).length > ARM_CAPS.PATH_MAX_BYTES) return false;
+    if (arm.kind === "symlink") {
+      if (utf8.encode(arm.target).length > ARM_CAPS.TARGET_MAX_BYTES) return false;
+      continue;
+    }
+    const bytes = utf8.encode(arm.content).length;
+    if (bytes > ARM_CAPS.CONTENT_MAX_BYTES) return false;
+    total += bytes;
+  }
+  return total <= ARM_CAPS.TOTAL_CONTENT_MAX_BYTES;
+}
+
 export interface SpawnPlanInput {
   paneId: string;
   workspace: WorkspaceRef;

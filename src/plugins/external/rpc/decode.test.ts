@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { readManifest } from "@keepdeck/plugin-api";
+import { ARM_CAPS, readManifest } from "@keepdeck/plugin-api";
 import {
   decodeAgentHistoryCall,
   isGitBlobAnswer,
@@ -52,6 +52,8 @@ describe("wire decoders", () => {
       { cwd: [{ kind: "file", path: ".k/c" }] },
       { cwd: [{ kind: "socket", path: "x", target: "/t" }] },
       { command: "x", args: [], env: [] },
+      // Well-formed, but more than KeepDeck plants.
+      { cwd: [{ kind: "file", path: ".k/c", content: "x".repeat(ARM_CAPS.CONTENT_MAX_BYTES + 1) }] },
     ]) {
       expect(() => decodeHookCall({ agentId: "a", hook: "arm.plan", input: {}, output })).toThrow(
         "malformed agent hook call output",

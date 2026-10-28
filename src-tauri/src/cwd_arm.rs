@@ -52,6 +52,15 @@ const MARKER_FILE: &str = ".keepdeck-managed";
 /// Manifest read-modify-writes, one at a time.
 static LOCK: Mutex<()> = Mutex::new(());
 
+/// How much one arming may plant, in UTF-8 bytes — the contract's `ARM_CAPS`
+/// (plugin API 73), pinned by both sides' tests to `armCaps.json`. A set past
+/// the count or the total is refused whole; one entry past its own cap alone.
+const ENTRIES_MAX: usize = 32;
+const PATH_MAX_BYTES: usize = 1024;
+const TARGET_MAX_BYTES: usize = 4096;
+const CONTENT_MAX_BYTES: usize = 256 * 1024;
+const TOTAL_CONTENT_MAX_BYTES: usize = 1024 * 1024;
+
 /// One thing a plugin wants in the pane's cwd (mirrors the TS `CwdArm`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -284,6 +293,16 @@ fn arm(
             .map(|arm| ArmRefusal { path: arm.path().to_string(), reason: reason.to_string() })
             .collect(),
     };
+    let content_bytes: usize = arms
+        .iter()
+        .map(|arm| match arm {
+            CwdArm::File { content, .. } => content.len(),
+            CwdArm::Symlink { .. } => 0,
+        })
+        .sum();
+    if arms.len() > ENTRIES_MAX || content_bytes > TOTAL_CONTENT_MAX_BYTES {
+        return refuse_all("this agent declares more than KeepDeck plants in one folder");
+    }
     let cwd = match fs::canonicalize(cwd) {
         Ok(real) if real.is_dir() => real.to_string_lossy().into_owned(),
         _ => return refuse_all("this directory no longer exists"),
@@ -379,6 +398,14 @@ fn admit(cwd: &str, plugin: &str, arm: &CwdArm, allowed: &[PathBuf]) -> Result<A
     let path = arm.path();
     if relative_parts(path).is_none() {
         return Err(format!("{path} is not a path inside this directory"));
+    }
+    let oversized = path.len() > PATH_MAX_BYTES
+        || match arm {
+            CwdArm::File { content, .. } => content.len() > CONTENT_MAX_BYTES,
+            CwdArm::Symlink { target, .. } => target.len() > TARGET_MAX_BYTES,
+        };
+    if oversized {
+        return Err(format!("{path} is larger than KeepDeck plants"));
     }
     let (kind, target) = match arm {
         CwdArm::File { .. } => (ArmKind::File, None),
@@ -1050,6 +1077,34 @@ mod tests {
         assert_eq!(report.refused[0].reason, ".k/c here is not KeepDeck's");
         assert!(!s.cwd.join(".k").join(MARKER_FILE).exists());
         assert!(!manifest(&s.root, "ws-1").exists(), "nor a record of it");
+    }
+
+    /// The cross-language mirror: the plugin API's test pins `ARM_CAPS` to
+    /// the same file, so a bump on one side alone fails both suites.
+    #[test]
+    fn the_caps_equal_the_contracts_arm_caps_json() {
+        let caps: std::collections::HashMap<String, usize> =
+            serde_json::from_str(include_str!("../../packages/plugin-api/src/context/armCaps.json")).unwrap();
+        assert_eq!(caps["ENTRIES_MAX"], ENTRIES_MAX);
+        assert_eq!(caps["PATH_MAX_BYTES"], PATH_MAX_BYTES);
+        assert_eq!(caps["TARGET_MAX_BYTES"], TARGET_MAX_BYTES);
+        assert_eq!(caps["CONTENT_MAX_BYTES"], CONTENT_MAX_BYTES);
+        assert_eq!(caps["TOTAL_CONTENT_MAX_BYTES"], TOTAL_CONTENT_MAX_BYTES);
+    }
+
+    #[test]
+    fn more_than_keepdeck_plants_is_refused_whole_and_one_oversized_entry_alone() {
+        let s = scratch();
+        let many: Vec<CwdArm> = (0..=ENTRIES_MAX).map(|i| file(&format!(".k/{i}"), "x")).collect();
+        let report = s.arm("p.filer", "ws-1", &many);
+        assert_eq!(report.refused.len(), ENTRIES_MAX + 1);
+        assert!(!s.cwd.join(".k").exists(), "nothing of the set was planted");
+
+        let big = "x".repeat(CONTENT_MAX_BYTES + 1);
+        let report = s.arm("p.filer", "ws-1", &[file(".k/big", &big), file(".k/small", "x")]);
+        assert_eq!(report.refused[0].reason, ".k/big is larger than KeepDeck plants");
+        assert_eq!(report.armed, vec![".k/small"]);
+        assert!(!s.cwd.join(".k/big").exists());
     }
 
     #[test]
