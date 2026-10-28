@@ -2,6 +2,7 @@
 import { pruneSkills } from "../../ipc/skills";
 import { mcpPrune } from "../../ipc/mcpArming";
 import { pruneMcpLibrary } from "../../ipc/mcpLibrary";
+import { cwdArmPrune } from "../../ipc/cwdArm";
 import type {
   LiveWorkspace,
   WorktreeDeckView,
@@ -37,6 +38,7 @@ export function createSweep(
           pruneSkills(liveIds),
           mcpPrune(liveIds),
           pruneMcpLibrary(liveIds),
+          cwdArmPrune(liveIds),
           prunePluginDirs(liveIds),
         ]);
         const pruned = sweeps.every(Boolean);

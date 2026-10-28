@@ -5,6 +5,7 @@
  */
 import { disarmSkills } from "../../ipc/skills";
 import { mcpDisarm } from "../../ipc/mcpArming";
+import { cwdArm, cwdDisarm } from "../../ipc/cwdArm";
 import type {
   WorktreeDeckView,
   WorktreePlantingFactories,
@@ -30,8 +31,10 @@ export function createWorktreePlantings(
     const results = await Promise.all([
       disarmSkills(departed),
       mcpDisarm(departed),
+      cwdDisarm(departed),
     ]);
     const ok = results.every(Boolean);
+    factories.onDisarmed(departed);
     skills.forgetStaged(roots);
     return ok;
   }
@@ -41,6 +44,7 @@ export function createWorktreePlantings(
     skillsFor: skills.skillsFor,
     invalidateSkills: skills.invalidateSkills,
     plantMcp: mcp.plantMcp,
+    armCwd: (request) => inOrder(() => cwdArm(request)),
     sweep: createSweep(deck, inOrder, disarm, factories.prunePluginDirs).sweep,
   };
 }

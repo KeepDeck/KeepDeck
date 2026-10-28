@@ -4,6 +4,7 @@ import type {
   Disposable,
   PluginContext,
   SpeechCapture,
+  SpawnArmOutput,
   SpawnPlanOutput,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
@@ -34,6 +35,7 @@ import {
   sanitizeHistoryTranscript,
   sanitizeHistoryTranscriptPage,
   sanitizeLiveSessions,
+  sanitizeArmOutput,
   sanitizePlanOutput,
 } from "./hostSanitize";
 import {
@@ -121,6 +123,15 @@ export function createHostDispatch(
     const mutated = sanitizePlanOutput(await hooks.call(call, hook));
     if (!mutated) throw new Error(`${hook} returned a malformed plan`);
     Object.assign(output, mutated);
+  }
+
+  /** `arm.plan` through the same channel, answered with plantings instead
+   * of a plan — rebuilt here, since they land in the user's directory. */
+  async function callArmHook(agentId: string, input: unknown, output: SpawnArmOutput): Promise<void> {
+    const call: WireHookCall = { agentId, hook: "arm.plan", input, output };
+    const planted = sanitizeArmOutput(await hooks.call(call, "arm.plan"));
+    if (!planted) throw new Error("arm.plan returned malformed plantings");
+    output.cwd = planted.cwd;
   }
 
   function callHistory(
@@ -337,6 +348,10 @@ export function createHostDispatch(
       for (const name of hookNames ?? []) {
         // Only the contract's hook names become proxies — a made-up name
         // from a hostile realm never lands on the host object.
+        if (name === "arm.plan") {
+          hooks["arm.plan"] = (input, output) => callArmHook(id, input, output);
+          continue;
+        }
         if (
           name !== "spawn.plan" &&
           name !== "resume.plan" &&

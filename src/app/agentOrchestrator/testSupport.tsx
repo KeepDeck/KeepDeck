@@ -429,6 +429,7 @@ export function Probe() {
         plugins: createSpawnPluginsFake().plugins,
         probe: ipc.probeWorktree,
         mcpAccess: async () => ({ entries: [], throughArgv: true, deliver: async () => {} }),
+        armCwd: async () => {},
         lifecycle,
         transcripts,
         workspaceForgetters: [forgetters.artifacts, forgetters.mcp],

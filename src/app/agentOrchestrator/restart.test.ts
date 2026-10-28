@@ -110,6 +110,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
         yolo: true,
         stagedSkills: expect.any(Function),
         mcpAccess: expect.any(Function),
+        armCwd: expect.any(Function),
       },
       ctx,
       "session-old",

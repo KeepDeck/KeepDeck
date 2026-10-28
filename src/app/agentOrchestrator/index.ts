@@ -1,5 +1,5 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
-import type { McpAccessAsk, SpawnPlan } from "../spawnSpecs";
+import type { CwdArmAsk, McpAccessAsk, SpawnPlan } from "../spawnSpecs";
 import type {
   Pane,
   PlacementRefusal,
@@ -269,7 +269,7 @@ export type ResumeRequest =
  * build, never once: the transport can go up or down between two spawns.
  * Owned by the MCP feature, and passed straight through to the spawn plan;
  * re-exported so the orchestrator's own deps read in one place. */
-export type { McpAccessAsk };
+export type { CwdArmAsk, McpAccessAsk };
 export { createRefusalMessage, type CreateRefusal } from "./refusals";
 
 /** Delay staged-skill lookup until a spawn plan is actually built. */
@@ -339,6 +339,8 @@ export interface AgentOrchestratorDeps {
   /** A spawning pane's MCP access — servers for its argv, and the on-disk
    * delivery for a CLI that takes none. Empty while the transport is down. */
   mcpAccess: McpAccessAsk;
+  /** Planting what an agent's plugin declares in a spawning pane's cwd. */
+  armCwd: CwdArmAsk;
   lifecycle: PaneLifecyclePort;
   transcripts: TranscriptLocatorPort;
   /** Forget what the backend keeps per workspace when one closes — Rust

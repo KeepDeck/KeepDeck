@@ -50,7 +50,7 @@ fn dir_for(root: &Path, plugin_id: &str, ws_id: &str) -> Result<PathBuf, String>
 
 /// The manifest's id grammar (`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`): dots
 /// only between parts, so never `.`, `..` or a hidden name.
-fn is_plugin_id(id: &str) -> bool {
+pub(crate) fn is_plugin_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && id.starts_with(|c: char| c.is_ascii_lowercase())

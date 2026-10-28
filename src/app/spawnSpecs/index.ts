@@ -52,6 +52,7 @@ export {
   subscribeSpawnSpecs,
 } from "./cache";
 export type {
+  CwdArmAsk,
   McpAccess,
   McpAccessAsk,
   McpAccessTarget,
@@ -176,7 +177,7 @@ export async function buildLivePaneSpec(
   ws: Workspace,
   pane: Pane,
   ctx: SpawnPlanContext,
-  asks: Pick<PaneSpawnFacts, "stagedSkills" | "mcpAccess">,
+  asks: Pick<PaneSpawnFacts, "stagedSkills" | "mcpAccess" | "armCwd">,
 ): Promise<boolean> {
   if (!paneHasProcess(ws, pane)) return false;
   if (hasPaneSpawnSpec(pane.id) || isPaneSpawnSpecPending(pane.id) || peekPanePlanError(pane.id)) {

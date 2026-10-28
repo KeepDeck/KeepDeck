@@ -79,7 +79,7 @@ export function createAgentOrchestratorRuntime(
   const inFlight = new Set<string>();
   let booted = false;
   let scheduled = false;
-  const { mcpAccess } = deps;
+  const { mcpAccess, armCwd } = deps;
   // Skills are resolved at plan mint: the staged view is frozen into the
   // hook's output for that spawn, so a later gate flip affects only the next
   // plan.
@@ -221,6 +221,7 @@ export function createAgentOrchestratorRuntime(
     startOwed,
     skillsAsk,
     mcpAccess,
+    armCwd,
     schedule,
     lifecycle,
   });
@@ -233,6 +234,7 @@ export function createAgentOrchestratorRuntime(
     creation,
     skillsAsk,
     mcpAccess,
+    armCwd,
     worktrees,
   });
 
@@ -274,6 +276,7 @@ export function createAgentOrchestratorRuntime(
             yolo: pane.yolo,
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,
+            armCwd,
           },
           ctx,
           sessionId,
@@ -335,6 +338,7 @@ export function createAgentOrchestratorRuntime(
           {
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,
+            armCwd,
           },
         ).then((changed) => {
           if (!changed) return;

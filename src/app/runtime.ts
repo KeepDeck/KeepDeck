@@ -102,6 +102,8 @@ import {
 import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
 import { skillRefusals } from "./skillRefusals";
+import { armRefusals } from "./armRefusals";
+import { createCwdArming } from "./cwdArming";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
@@ -423,6 +425,7 @@ export function createAppRuntime(
           createSkillsStaging(deck, inOrder, skillRefusals.publish),
         mcp: createMcpPlanting,
         prunePluginDirs: plugins.workspaceDirs.prune,
+        onDisarmed: armRefusals.forget,
       }),
   );
   // The library takes only the staleness half of the worktree manager: a write
@@ -457,6 +460,7 @@ export function createAppRuntime(
     probe: probeWorktree,
     worktrees,
     mcpAccess: (target) => mcp.service.access(target),
+    armCwd: createCwdArming({ worktrees, refusals: armRefusals }),
     lifecycle,
     transcripts: sessionIndex,
     // Workspace deletion forgets what the backend keeps per workspace — its

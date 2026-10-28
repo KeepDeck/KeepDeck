@@ -42,6 +42,14 @@ const mcpArmingIpc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/mcpArming", () => mcpArmingIpc);
 
+// What agents' plugins plant in a pane's cwd is taken back by the same pass.
+const cwdArmIpc = vi.hoisted(() => ({
+  cwdArm: vi.fn(async () => ({ armed: [] as string[], refused: [] as { path: string; reason: string }[] })),
+  cwdDisarm: vi.fn(async (_roots: readonly string[]) => true),
+  cwdArmPrune: vi.fn(async (_liveWsIds: readonly string[]) => true),
+}));
+vi.mock("../../ipc/cwdArm", () => cwdArmIpc);
+
 // The library's own sweep rides the same pass.
 const mcpLibraryIpc = vi.hoisted(() => ({
   pruneMcpLibrary: vi.fn(async (_liveWsIds: string[]) => true),
@@ -54,6 +62,7 @@ export const worktree = worktreeIpc;
 export const skills = skillsIpc;
 export const mcpArming = mcpArmingIpc;
 export const mcpLibrary = mcpLibraryIpc;
+export const cwdArming = cwdArmIpc;
 /** Plugins' private directories, pruned by the same pass. */
 export const pluginDirs = { prune: vi.fn(async (_liveWsIds: readonly string[]) => true) };
 
@@ -163,6 +172,7 @@ export function managerFor(read: () => DeckEntry[]): WorktreeManager {
     skills: createSkillsStaging,
     mcp: createMcpPlanting,
     prunePluginDirs: pluginDirs.prune,
+    onDisarmed: () => {},
   };
   return createWorktreeManager(deckView(read), (deck, inOrder) =>
     createWorktreePlantings(deck, inOrder, factories),
@@ -186,4 +196,7 @@ export function armDoubles(): void {
   mcpArming.mcpPrune.mockResolvedValue(true);
   mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);
   pluginDirs.prune.mockResolvedValue(true);
+  cwdArming.cwdArm.mockResolvedValue({ armed: [], refused: [] });
+  cwdArming.cwdDisarm.mockResolvedValue(true);
+  cwdArming.cwdArmPrune.mockResolvedValue(true);
 }

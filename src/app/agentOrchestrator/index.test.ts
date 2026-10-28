@@ -104,6 +104,7 @@ describe("agent orchestrator —session policy", () => {
         yolo: undefined,
         stagedSkills: expect.any(Function),
         mcpAccess: expect.any(Function),
+        armCwd: expect.any(Function),
       },
       expect.anything(),
       "old",

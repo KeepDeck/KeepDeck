@@ -9,6 +9,7 @@ import {
   type AgentContribution,
   type ForkPlanInput,
   type McpServerSpec,
+  type SpawnArmOutput,
   type SpawnPlanInput,
   type SpawnPlanOutput,
   errorMessage,
@@ -28,6 +29,7 @@ import { mintBridgeToken, mintMcpToken } from "../ids";
 import { postbackCount } from "../postbacks";
 import { peekPaneSpawnSpec } from "./cache";
 import type { SpawnPluginAccess } from "./index";
+import type { CwdArmRequest } from "../worktrees";
 
 /** The host facts this consumer needs from a spawning MCP feature. Structural
  * on purpose: the feature's richer object remains assignable without making
@@ -81,7 +83,16 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
    * delivery for a CLI that takes none — because only this build knows when
    * the plan is settled enough to write anything. */
   mcpAccess?: McpAccessAsk;
+  /** Where the plantings an agent's plugin declares for this cwd
+   * (`arm.plan`) are put — after the plan is settled, like the MCP delivery,
+   * and for the same reason. Absent = this build plants nothing. */
+  armCwd?: CwdArmAsk;
 }
+
+/** Plant one plugin's complete set in a pane's cwd, and say what could not
+ * be planted, under the agent's name. Never rejects: a planting that failed
+ * costs the pane what it was for, never its process. */
+export type CwdArmAsk = (agentId: string, request: CwdArmRequest) => Promise<void>;
 
 /**
  * One built plan, and the on-disk half it still owes.
@@ -296,7 +307,10 @@ export async function buildPlan(
   const mcpEnv = injected.flatMap((item) => item.env);
   /** Owed by every exit that produces a plan, and by none that throws: a
    * rejected resume or fork must plant nothing. */
-  const deliver = () => access?.deliver() ?? Promise.resolve();
+  const deliver = async () => {
+    await (access?.deliver() ?? Promise.resolve());
+    await armCwd();
+  };
   // Asked before the hook runs, because what it decides — argv — cannot be
   // corrected once the process has started (opencode 2.x needs a flag 1.x
   // does not have). Remembered per binary, so only an agent's first pane in
@@ -313,6 +327,29 @@ export async function buildPlan(
     ...(facts.target ? { target: facts.target } : {}),
     ...(cliVersion ? { cliVersion } : {}),
   };
+  /** What the agent's plugin plants in this cwd, asked once the plan is
+   * settled. Never for a REMOTE pane: its agent's directory is on the remote
+   * host, and a planting here would be a file nothing reads. A hook that
+   * throws plants nothing new and takes nothing back — the earlier set stays,
+   * which is the safer of the two wrongs. */
+  async function armCwd(): Promise<void> {
+    const hook = entry.hooks["arm.plan"];
+    if (facts.target || !facts.armCwd || typeof hook !== "function") return;
+    const arms: SpawnArmOutput = { cwd: [] };
+    try {
+      await hook(base, arms);
+    } catch (e) {
+      log.warn("web:agents", `${entry.id} arm.plan failed — the cwd keeps what it had: ${errorMessage(e)}`);
+      return;
+    }
+    await facts.armCwd(entry.id, {
+      pluginId,
+      workspaceId: facts.workspace.id,
+      cwd: facts.cwd,
+      arms: arms.cwd,
+      skillsDir: skills?.dir ?? null,
+    });
+  }
   if (
     variant.kind === "spawn" &&
     facts.target &&

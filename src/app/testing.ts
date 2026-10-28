@@ -34,6 +34,7 @@ export { getSettings, initSettings, resetSettingsManager, updateSettings } from 
 export { initRoleCatalog, resetRoleCatalogManager, saveStoredRole } from "./roleCatalogManager";
 export { initUpdates, resetUpdateManager } from "./updateManager";
 export { tasksEnableStatus } from "./tasks/enableStatus";
+export { armRefusals } from "./armRefusals";
 
 // Doubles.
 export { sharedOf } from "./browserShared.test-support";

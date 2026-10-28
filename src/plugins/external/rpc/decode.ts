@@ -50,6 +50,7 @@ import type {
   HostToGuestMessage,
   WireAgentHistoryCall,
   WireAgentLiveSessionsCall,
+  WireArmOutput,
   WireHookCall,
   WireOpenCall,
   WireSessionEvent,
@@ -142,16 +143,39 @@ export function isWireSpawnPlanOutput(value: unknown): value is WireSpawnPlanOut
   return true;
 }
 
+/** `arm.plan`'s output: every planting a file or a symlink, all strings. */
+export function isWireArmOutput(value: unknown): value is WireArmOutput {
+  return (
+    isObjectLike(value) &&
+    Array.isArray(value.cwd) &&
+    value.cwd.every(
+      (arm) =>
+        isObjectLike(arm) &&
+        isString(arm.path) &&
+        ((arm.kind === "file" && isString(arm.content)) ||
+          (arm.kind === "symlink" && isString(arm.target))),
+    )
+  );
+}
+
+/** A hook call's output in the shape ITS hook fills. */
+function hookOutput(hook: string, value: unknown): WireSpawnPlanOutput | WireArmOutput {
+  if (hook === "arm.plan") {
+    if (isWireArmOutput(value)) return value;
+  } else if (isWireSpawnPlanOutput(value)) {
+    return value;
+  }
+  throw malformed("agent hook call output");
+}
+
 export function decodeHookCall(value: unknown): WireHookCall {
   const v = record(value, "agent hook call");
+  const hook = str(v.hook, "agent hook call hook");
   return {
     agentId: str(v.agentId, "agent hook call agentId"),
-    hook: str(v.hook, "agent hook call hook"),
+    hook,
     input: v.input,
-    output: (() => {
-      if (!isWireSpawnPlanOutput(v.output)) throw malformed("agent hook call output");
-      return v.output;
-    })(),
+    output: hookOutput(hook, v.output),
   };
 }
 

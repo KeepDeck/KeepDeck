@@ -25,7 +25,7 @@ import {
   type ContributionRegistries,
 } from "../../plugins/registries/contributions";
 import { buildLivePaneSpec, peekPaneSpawnSpec, type SpawnPluginAccess } from ".";
-import type { McpAccess } from "./plan";
+import type { CwdArmAsk, McpAccess } from "./plan";
 // Straight from the module: the barrel deliberately does not carry it.
 import { resetPaneSpawnSpecs } from "./cache";
 
@@ -140,6 +140,12 @@ export const mcpAccess = (target: { paneId?: string; cwd: string }) =>
   } satisfies McpAccess);
 
 
+/** What reached the cwd-arming port: the agent and its request, in order. */
+export const armState = { calls: [] as Parameters<CwdArmAsk>[] };
+export const armCwd: CwdArmAsk = async (agentId, request) => {
+  armState.calls.push([agentId, request]);
+};
+
 /** A live bridge: the run root, plus the per-pane inbox the host creates
  * before each spawn. The pane's OWN directory is what reaches the agent. */
 export const ctx = {
@@ -208,6 +214,7 @@ export function planHarness() {
           await buildLivePaneSpec(plugins, workspace, pane, context, {
             stagedSkills,
             mcpAccess,
+            armCwd,
           });
         }
       }
@@ -227,6 +234,7 @@ export function planHarness() {
       mcpState.entries = [];
       mcpState.throughArgv = true;
       mcpState.delivered = [];
+      armState.calls = [];
       harness.seen = {};
     },
     teardown() {

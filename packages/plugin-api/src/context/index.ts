@@ -29,6 +29,8 @@ export type {
   SpawnMcpInput,
   SpawnSkill,
   SpawnSkillsInput,
+  CwdArm,
+  SpawnArmOutput,
   SpawnTarget,
 } from "./agents.ts";
 export { isAgentPresentation, MCP_HTTP_API, mapMcpServers, mcpHttpHeaders } from "./agents.ts";

@@ -10,6 +10,7 @@ import {
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import type {
+  CwdArmAsk,
   McpAccessAsk,
   AgentOrchestrator,
   StagedSkillsAsk,
@@ -40,6 +41,7 @@ interface ContinuationDeps {
   creation: AgentOrchestratorCreation;
   skillsAsk: StagedSkillsAsk;
   mcpAccess: McpAccessAsk;
+  armCwd: CwdArmAsk;
   worktrees: WorktreeProvisioner;
 }
 
@@ -61,6 +63,7 @@ export function createAgentOrchestratorContinuations({
   creation,
   skillsAsk,
   mcpAccess,
+  armCwd,
 }: ContinuationDeps): AgentOrchestratorContinuations {
   const resuming = new Set<string>();
   const forking = new Set<string>();
@@ -117,6 +120,7 @@ export function createAgentOrchestratorContinuations({
             record.cwd,
           ),
           mcpAccess,
+          armCwd,
         },
         context,
         record.sessionId,
@@ -197,6 +201,7 @@ export function createAgentOrchestratorContinuations({
             yolo,
             stagedSkills: skillsAsk(workspaceRef, cwd),
             mcpAccess,
+            armCwd,
           },
           context,
           {

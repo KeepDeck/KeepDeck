@@ -202,6 +202,39 @@ export interface AgentHooks {
     input: SpawnPlanInput,
     output: SpawnPlanOutput,
   ): void | Promise<void>;
+  /** What this CLI needs planted in the pane's cwd before it starts (API 72)
+   * — for a CLI whose only door for something is a place in the directory it
+   * starts in. Called for every launch that produces a plan (a fresh spawn,
+   * a resume or fork that succeeded, the bare launch), never for one that
+   * threw, and never for a remote pane, whose agent's directory is on the
+   * remote host. `output.cwd` is the COMPLETE set: what an earlier launch
+   * planted and this one no longer declares is taken back. A hook that
+   * throws leaves the earlier set in place.
+   *
+   * The host plants, and owns everything that makes planting in a user's
+   * directory safe: nothing of the user's is written over or removed, a
+   * symlink points only into this plugin's workspace directory or the plan's
+   * `skills.dir`, git is kept blind to it, and it is taken back with the
+   * worktree. A path it would not plant is said to the user with the agent's
+   * name. */
+  "arm.plan"?(
+    input: SpawnPlanInput,
+    output: SpawnArmOutput,
+  ): void | Promise<void>;
+}
+
+/** One thing a plugin wants in the pane's cwd (API 72). `path` is relative
+ * to the cwd and stays inside it. */
+export type CwdArm =
+  /** A file, written whole; KeepDeck's marker beside it claims it. */
+  | { kind: "file"; path: string; content: string }
+  /** A symlink to `target` — inside this plugin's workspace directory or the
+   * plan's `skills.dir`, nowhere else. */
+  | { kind: "symlink"; path: string; target: string };
+
+/** What `arm.plan` fills: everything this plugin plants in this cwd. */
+export interface SpawnArmOutput {
+  cwd: CwdArm[];
 }
 
 export interface SpawnPlanInput {

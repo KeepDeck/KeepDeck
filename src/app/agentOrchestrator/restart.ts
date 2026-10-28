@@ -10,6 +10,7 @@ import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { decideRejectedResume } from "../../domain/agents";
 import { log } from "../../ipc/log";
 import type {
+  CwdArmAsk,
   McpAccessAsk,
   AgentOrchestrator,
   OccupiedNote,
@@ -62,6 +63,7 @@ interface RestartDeps {
   startOwed: Set<string>;
   skillsAsk: StagedSkillsAsk;
   mcpAccess: McpAccessAsk;
+  armCwd: CwdArmAsk;
   schedule(): void;
   lifecycle: PaneLifecyclePort;
 }
@@ -99,6 +101,7 @@ export function createAgentOrchestratorRestart({
   startOwed,
   skillsAsk,
   mcpAccess,
+  armCwd,
   schedule,
   lifecycle,
 }: RestartDeps): AgentOrchestratorRestart {
@@ -171,6 +174,7 @@ export function createAgentOrchestratorRestart({
         yolo: target.yolo,
         stagedSkills: skillsAsk(target.workspace),
         mcpAccess,
+        armCwd,
       },
       context,
       target.sessionId,
@@ -312,6 +316,7 @@ export function createAgentOrchestratorRestart({
                 yolo: target.yolo,
                 stagedSkills: skillsAsk(target.workspace),
                 mcpAccess,
+                armCwd,
               },
               context,
               sessionId,

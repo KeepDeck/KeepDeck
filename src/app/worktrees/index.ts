@@ -22,7 +22,7 @@
  * globals that outlived a test's `clearAllMocks`, and a lifetime nobody owns is
  * exactly the shape of bug this module exists to prevent.
  */
-import type { WorkspaceRef } from "@keepdeck/plugin-api";
+import type { CwdArm, WorkspaceRef } from "@keepdeck/plugin-api";
 import {
   skillRootsOf,
   type Workspace,
@@ -218,6 +218,30 @@ export interface McpPlanting {
   ): Promise<McpPlantingReport>;
 }
 
+/** One plugin's complete set of plantings for one cwd — the infrastructure
+ * port's own shape, like the MCP planting's (the arming IPC's DTO stays that
+ * feature's). */
+export interface CwdArmRequest {
+  pluginId: string;
+  workspaceId: string;
+  cwd: string;
+  arms: readonly CwdArm[];
+  skillsDir: string | null;
+}
+
+/** What one arming pass planted, by path, and what it refused and why. */
+export interface CwdArmReport {
+  armed: string[];
+  refused: { path: string; reason: string }[];
+}
+
+/** Planting what an agent's plugin declares in a pane's cwd (`arm.plan`),
+ * ordered against worktree teardown like every other planting. */
+export interface CwdArming {
+  /** One plugin's complete set for one cwd; never throws. */
+  armCwd(request: CwdArmRequest): Promise<CwdArmReport>;
+}
+
 /**
  * The whole owner, as the composition root builds it. Consumers take the role
  * they need instead of this: the orchestrator has no business with `sweep`, the
@@ -227,7 +251,8 @@ export interface McpPlanting {
 export type WorktreeManager = WorktreeProvisioner &
   WorktreeHousekeeping &
   SkillsInvalidation &
-  McpPlanting;
+  McpPlanting &
+  CwdArming;
 
 /** The one composite passed into the manager. Its factories receive the
  * manager's queue, so every planting shares exactly one ordering guard. */
@@ -240,6 +265,9 @@ export interface WorktreePlantingFactories {
   /** Drop plugins' private directories of every workspace not in `liveWsIds`;
    * false when that could not be done (the sweep tries again). */
   prunePluginDirs(liveWsIds: readonly string[]): Promise<boolean>;
+  /** Folders taken back whole: whatever stood refused in them stands no
+   * more. */
+  onDisarmed(roots: readonly string[]): void;
 }
 
 export interface WorktreeSkillsPlanting
@@ -252,6 +280,7 @@ export interface WorktreeSkillsPlanting
 export interface WorktreePlantings
   extends Pick<WorktreeProvisioner, "skillsFor">,
     McpPlanting,
+    CwdArming,
     WorktreeHousekeeping,
     SkillsInvalidation {
   /** Teardown's single home for undoing both plantings. */
@@ -306,6 +335,7 @@ export function createWorktreeManager(
     invalidateSkills: plantings.invalidateSkills,
     sweep: plantings.sweep,
     plantMcp: plantings.plantMcp,
+    armCwd: plantings.armCwd,
     remove: teardown.remove,
   };
 }

@@ -45,6 +45,23 @@ describe("wire decoders", () => {
     ).toThrow("malformed agent hook call output");
   });
 
+  it("reads arm.plan's output as plantings, and every other hook's as a plan", () => {
+    const arms = { cwd: [{ kind: "file", path: ".k/c", content: "{}" }, { kind: "symlink", path: ".a/s", target: "/t" }] };
+    expect(decodeHookCall({ agentId: "a", hook: "arm.plan", input: {}, output: arms }).output).toEqual(arms);
+    for (const output of [
+      { cwd: [{ kind: "file", path: ".k/c" }] },
+      { cwd: [{ kind: "socket", path: "x", target: "/t" }] },
+      { command: "x", args: [], env: [] },
+    ]) {
+      expect(() => decodeHookCall({ agentId: "a", hook: "arm.plan", input: {}, output })).toThrow(
+        "malformed agent hook call output",
+      );
+    }
+    expect(() =>
+      decodeHookCall({ agentId: "a", hook: "spawn.plan", input: {}, output: { cwd: [] } }),
+    ).toThrow("malformed agent hook call output");
+  });
+
   it("refuses an unknown history method", () => {
     expect(() =>
       decodeAgentHistoryCall({ agentId: "a", method: "erase", args: [] }),

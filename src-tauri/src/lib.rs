@@ -23,6 +23,7 @@ mod paths;
 mod plugin_http;
 mod plugin_permissions;
 mod plugin_workspaces;
+mod cwd_arm;
 mod plugins_fs;
 mod plugins_fs_write;
 mod plugins_sqlite;
@@ -281,6 +282,9 @@ pub fn run() {
             plugins_fs_write::plugins_fs_write_move,
             plugin_workspaces::plugin_workspace_dir,
             plugin_workspaces::plugin_workspaces_prune,
+            cwd_arm::cwd_arm,
+            cwd_arm::cwd_disarm,
+            cwd_arm::cwd_arm_prune,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,

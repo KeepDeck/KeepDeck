@@ -10,6 +10,7 @@ import {
 } from "../../domain/settings";
 import { ArtifactsRows } from "./ArtifactsRows";
 import { McpServerRow } from "./McpServerRow";
+import { ArmRefusals } from "./ArmRefusals";
 import { TasksRows } from "./TasksRows";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 import { ON_OFF } from "../../presentation/choices";
@@ -137,6 +138,7 @@ export function GeneralSection() {
       <ArtifactsRows />
       <TasksRows />
       <McpServerRow />
+      <ArmRefusals />
     </>
   );
 }

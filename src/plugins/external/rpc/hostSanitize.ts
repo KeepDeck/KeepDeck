@@ -6,12 +6,13 @@ import type {
   AgentSessionStub,
   AgentTranscriptEntry,
   Shortfall,
+  SpawnArmOutput,
 } from "@keepdeck/plugin-api";
 import type {
   WireAgentHistoryCall,
   WireSpawnPlanOutput,
 } from "./protocol";
-import { isObjectLike } from "./decode";
+import { isObjectLike, isWireArmOutput } from "./decode";
 
 /**
  * The boundary's rebuild rules. Nothing a realm says is passed through: every
@@ -76,6 +77,19 @@ export function sanitizeAgentIcon(value: unknown): AgentIcon | undefined {
 
 /** Validate a realm-returned plan output down to plain strings; `null` when
  * anything is off-shape. */
+/** `arm.plan`'s answer, rebuilt from its strings alone — the realm's word
+ * plants files in a user's directory, so nothing else rides along. */
+export function sanitizeArmOutput(value: unknown): SpawnArmOutput | null {
+  if (!isWireArmOutput(value)) return null;
+  return {
+    cwd: value.cwd.map((arm) =>
+      arm.kind === "file"
+        ? { kind: "file", path: arm.path, content: arm.content }
+        : { kind: "symlink", path: arm.path, target: arm.target },
+    ),
+  };
+}
+
 export function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
   if (!isObjectLike(value)) return null;
   const v = value;
