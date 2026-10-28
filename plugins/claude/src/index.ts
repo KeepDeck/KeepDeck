@@ -16,16 +16,17 @@
  * theory that a rebind already clears the pane — no rebind happens.
  */
 import {
+  errorMessage,
   launchPlans,
   mailAskArgs,
   shellQuote,
   type KeepDeckPlugin,
   type PluginAgents,
+  type PluginLogger,
   type PluginResources,
   type PluginSettings,
   type SpawnPlanInput,
   type SpawnPlanOutput,
-  type SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { ARTIFACTS_FIELD, artifactsEnv } from "./artifacts";
 import { icon } from "./icon";
@@ -47,6 +48,7 @@ import {
 import { forkClaudeSession, type ClaudeForkStore } from "./fork";
 import { claudeHistory, type HistoryPorts } from "./history";
 import { claudeLiveSessions, type LiveSessionsPorts } from "./liveSessions";
+import { skillsPluginDirs, type SkillsPluginDirs, type SkillsPluginPorts } from "./skillsPlugin";
 
 /**
  * How long claude may let one of our hooks run, in seconds.
@@ -226,12 +228,21 @@ const MOD_PLUGIN_NAME = "keepdeck-reporter";
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-skip-permissions"] : [];
 
-/** The staged shared skills, loaded as a per-session LOCAL plugin —
- * `--plugin-dir` is additive next to the user's installed plugins and
- * writes nothing into `~/.claude` (probe-verified on 2.1.214: skills load
- * with no consent prompt, named `keepdeck-skills:<name>`). */
-const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
-  skills ? ["--plugin-dir", skills.claudePluginDir] : [];
+/** The shared skills, loaded as a per-session LOCAL plugin this plugin
+ * builds (skillsPlugin.ts). A directory that could not be built costs the
+ * pane its skills, not its launch. */
+async function skillsArgs(
+  ctx: { log: Pick<PluginLogger, "warn">; skillsPlugin: SkillsPluginDirs },
+  input: Pick<SpawnPlanInput, "skills" | "workspace">,
+): Promise<string[]> {
+  if (!input.skills) return [];
+  try {
+    return ["--plugin-dir", await ctx.skillsPlugin.build(input.workspace, input.skills.skills)];
+  } catch (e) {
+    ctx.log.warn(`skills plugin not built; launching without skills: ${errorMessage(e)}`);
+    return [];
+  }
+}
 
 /**
  * Everything a launch of this CLI carries before its own arguments are
@@ -252,15 +263,20 @@ const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
  * way — claude decides at startup.
  */
 async function stageLaunch(
-  ctx: { resources: PluginResources; settings: Pick<PluginSettings, "read"> },
-  input: Pick<SpawnPlanInput, "skills" | "mcp" | "yolo">,
+  ctx: {
+    resources: PluginResources;
+    settings: Pick<PluginSettings, "read">;
+    log: Pick<PluginLogger, "warn">;
+    skillsPlugin: SkillsPluginDirs;
+  },
+  input: Pick<SpawnPlanInput, "skills" | "mcp" | "yolo" | "workspace">,
   output: SpawnPlanOutput,
 ): Promise<void> {
   const mod = await modArgs(ctx.resources);
   output.args.push(
     ...(await hookArgs(ctx.resources, mod.length > 0)),
     ...mod,
-    ...skillsArgs(input.skills),
+    ...(await skillsArgs(ctx, input)),
     ...mcpArgs(input.mcp),
     ...yoloArgs(input.yolo),
   );
@@ -269,7 +285,8 @@ async function stageLaunch(
 
 /** What the plugin needs from the host — the parts of its context it uses. */
 export type ClaudePorts = HistoryPorts &
-  LiveSessionsPorts & {
+  LiveSessionsPorts &
+  SkillsPluginPorts & {
     agents: PluginAgents;
     resources: PluginResources;
     settings: Pick<PluginSettings, "registerSection" | "read">;
@@ -277,6 +294,7 @@ export type ClaudePorts = HistoryPorts &
   };
 
 export function registerClaude(ctx: ClaudePorts): void {
+  const launchPorts = { ...ctx, skillsPlugin: skillsPluginDirs(ctx) };
   ctx.agents.register({
     id: "claude",
     label: "Claude Code",
@@ -312,7 +330,7 @@ export function registerClaude(ctx: ClaudePorts): void {
     history: claudeHistory(ctx),
     liveSessions: claudeLiveSessions(ctx),
     hooks: launchPlans({
-      stage: (input, output) => stageLaunch(ctx, input, output),
+      stage: (input, output) => stageLaunch(launchPorts, input, output),
       resume: (input) => ["--resume", input.sessionId],
       fork: (input) =>
         forkClaudeSession(

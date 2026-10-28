@@ -19,6 +19,8 @@
  */
 import {
   frontmatterLine,
+  oneAtATime,
+  publishFiles,
   type PluginFsWrite,
   type PluginWorkspaces,
   type SpawnSkill,
@@ -50,42 +52,27 @@ export interface SkillsConfigDirs {
 
 export function skillsConfigDirs(ctx: LayoutPorts): SkillsConfigDirs {
   /** One build at a time per workspace: two panes starting together share
-   * the build-aside directories, and the loser's cleanup would delete the
-   * winner's half-built set. */
-  const inFlight = new Map<string, Promise<unknown>>();
+   * the build-aside directories. */
+  const serial = oneAtATime();
 
   async function build(workspace: WorkspaceRef, skills: readonly SpawnSkill[]): Promise<string> {
     const { fsWrite } = ctx.services;
     const config = `${await ctx.workspaces.dir(workspace)}/config`;
-    const subtrees = [
-      { tmp: `${config}/.skills-tmp`, live: `${config}/skills` },
-      { tmp: `${config}/.command-tmp`, live: `${config}/command` },
-    ] as const;
-    const [skillsTree, commandTree] = subtrees;
-    // A build an earlier launch left half-done is nothing to keep.
-    for (const { tmp } of subtrees) await fsWrite.remove(tmp);
-    for (const { name, content } of skills) {
-      await fsWrite.writeFile(`${skillsTree.tmp}/${name}/SKILL.md`, content);
-      await fsWrite.writeFile(
-        `${commandTree.tmp}/${name}.md`,
-        paletteCommand(name, content, `${skillsTree.live}/${name}/SKILL.md`),
-      );
-    }
-    for (const { tmp, live } of subtrees) await fsWrite.move(tmp, live);
+    await publishFiles(
+      fsWrite,
+      `${config}/skills`,
+      skills.map(({ name, content }) => ({ path: `${name}/SKILL.md`, text: content })),
+    );
+    await publishFiles(
+      fsWrite,
+      `${config}/command`,
+      skills.map(({ name, content }) => ({
+        path: `${name}.md`,
+        text: paletteCommand(name, content, `${config}/skills/${name}/SKILL.md`),
+      })),
+    );
     return config;
   }
 
-  return {
-    build(workspace, skills) {
-      const key = workspace.id;
-      const run = (inFlight.get(key) ?? Promise.resolve())
-        .catch(() => {})
-        .then(() => build(workspace, skills));
-      inFlight.set(key, run);
-      void run.finally(() => {
-        if (inFlight.get(key) === run) inFlight.delete(key);
-      }).catch(() => {});
-      return run;
-    },
-  };
+  return { build: (workspace, skills) => serial(workspace.id, () => build(workspace, skills)) };
 }

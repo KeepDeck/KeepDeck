@@ -76,18 +76,18 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
     const config = "/pw/keepdeck.opencode/ws-1/config";
     expect(dir).toBe(config);
     expect(w.calls).toEqual([
-      `remove ${config}/.skills-tmp`,
-      `remove ${config}/.command-tmp`,
-      `write ${config}/.skills-tmp/alpha/SKILL.md`,
-      `write ${config}/.command-tmp/alpha.md`,
-      `write ${config}/.skills-tmp/review/SKILL.md`,
-      `write ${config}/.command-tmp/review.md`,
-      `move ${config}/.skills-tmp -> ${config}/skills`,
-      `move ${config}/.command-tmp -> ${config}/command`,
+      `remove ${config}/skills.tmp`,
+      `write ${config}/skills.tmp/alpha/SKILL.md`,
+      `write ${config}/skills.tmp/review/SKILL.md`,
+      `move ${config}/skills.tmp -> ${config}/skills`,
+      `remove ${config}/command.tmp`,
+      `write ${config}/command.tmp/alpha.md`,
+      `write ${config}/command.tmp/review.md`,
+      `move ${config}/command.tmp -> ${config}/command`,
     ]);
     // The skill byte for byte; its command points at where the skill LANDS.
-    expect(w.files.get(`${config}/.skills-tmp/review/SKILL.md`)).toBe(skills[1].content);
-    expect(w.files.get(`${config}/.command-tmp/review.md`)).toContain(`read ${config}/skills/review/SKILL.md and`);
+    expect(w.files.get(`${config}/skills.tmp/review/SKILL.md`)).toBe(skills[1].content);
+    expect(w.files.get(`${config}/command.tmp/review.md`)).toContain(`read ${config}/skills/review/SKILL.md and`);
   });
 
   it("builds one workspace's directory at a time — two launches never share a half-built set", async () => {
@@ -108,7 +108,7 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
     const b = dirs.build(workspace, skills.slice(1));
     await new Promise((resolve) => setTimeout(resolve, 5));
     // The second build has not started: its cleanup would have run by now.
-    expect(w.calls.filter((call) => call.startsWith("remove"))).toHaveLength(2);
+    expect(w.calls.filter((call) => call.startsWith("remove"))).toHaveLength(1);
     release();
     await Promise.all([a, b]);
     expect(w.calls.filter((call) => call.startsWith("remove"))).toHaveLength(4);

@@ -247,6 +247,12 @@ export type {
 export type { PluginResources } from "./resources.ts";
 export type { PluginKV, PluginStorage, PluginWorkspaces } from "./storage.ts";
 export {
+  oneAtATime,
+  publishFiles,
+  type OneAtATime,
+  type PublishedFile,
+} from "./publish.ts";
+export {
   composeSkillFile,
   frontmatterLine,
   frontmatterObstacle,

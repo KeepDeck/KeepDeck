@@ -20,9 +20,11 @@ Nothing is written to `~/.claude`.
   The `statusLine` key does not merge, so KeepDeck takes it, and its
   reporter runs the user's own statusLine at runtime and passes its output
   through. `statusLine` takes no `args`, so it stays a shell string.
-- `--plugin-dir <dir>` loads KeepDeck's staged skills as a local plugin. It
-  is additive next to the user's installed plugins, and the skills appear as
-  `keepdeck-skills:<name>`.
+- `--plugin-dir <dir>` loads the shared skills as a local plugin. The plugin
+  builds that directory itself in its own workspace directory
+  (`src/skillsPlugin.ts`: `.claude-plugin/plugin.json` and
+  `skills/<name>/SKILL.md`, published whole). It is additive next to the
+  user's installed plugins, and the skills appear as `keepdeck-skills:<name>`.
 - A second `--plugin-dir` loads KeepDeck's Mod (`resources/keepdeck-mod`,
   plugin `keepdeck-reporter`), and the inline settings keep it on with
   `enabledPlugins: {"keepdeck-reporter@inline": true}` even where the user
