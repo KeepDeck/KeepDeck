@@ -30,12 +30,12 @@ import { resetPaneSpawnSpecs } from "./cache";
 import { present } from "@keepdeck/plugin-api/testing";
 
 
-// A fork's discard is the host removing paths inside the plugin's write
-// prefixes — recorded here instead of touching a disk.
-const removed = vi.hoisted(() => [] as Array<[string, readonly string[]]>);
+// A fork's discard is the host removing paths as the plugin, held natively to
+// its write roots — recorded here instead of touching a disk.
+const removed = vi.hoisted(() => [] as Array<[string, string]>);
 vi.mock("../../ipc/pluginsFsWrite", () => ({
-  pluginsFsWriteRemove: async (path: string, roots: readonly string[]) => {
-    removed.push([path, roots]);
+  pluginsFsWriteRemove: async (pluginId: string, path: string) => {
+    removed.push([pluginId, path]);
   },
 }));
 
@@ -238,14 +238,14 @@ describe("the plan builders — live pane, resume, fork", () => {
       removed.length = 0;
     });
 
-    it("removes what only the start needed once the fork binds, inside the plugin's prefixes", async () => {
+    it("removes what only the start needed once the fork binds, as the plugin", async () => {
       installed([WRITES]);
       forking({ onceStarted: ["/p/t/S.jsonl"], ifNeverStarted: ["/p/t/F"] });
       await fork("pane-a");
       expect(removed).toEqual([]);
       bindPaneSpawnSpecSession("pane-a", "F");
       await flushRemovals();
-      expect(removed).toEqual([["/p/t/S.jsonl", ["~/.claude/projects"]]]);
+      expect(removed).toEqual([["test-plugin", "/p/t/S.jsonl"]]);
       // Settled once: neither a second binding nor the pane going later
       // removes anything more — the fork's own files are not scaffolding.
       bindPaneSpawnSpecSession("pane-a", "later");
@@ -260,7 +260,7 @@ describe("the plan builders — live pane, resume, fork", () => {
       await fork("pane-b");
       dropPaneSpawnSpec("pane-b");
       await flushRemovals();
-      expect(removed.map(([path]) => path)).toEqual(["/p/t/S.jsonl", "/p/t/F"]);
+      expect(removed.map(([, path]) => path)).toEqual(["/p/t/S.jsonl", "/p/t/F"]);
     });
 
     it("a build discarded mid-flight removes what its surgery made", async () => {
@@ -282,14 +282,21 @@ describe("the plan builders — live pane, resume, fork", () => {
       release();
       await expect(building).resolves.toBe(false);
       await flushRemovals();
-      expect(removed.map(([path]) => path)).toEqual(["/p/t/F"]);
+      expect(removed.map(([, path]) => path)).toEqual(["/p/t/F"]);
     });
 
-    it("a plugin with no write prefixes gets nothing removed for it", async () => {
-      installed([{ kind: "fs", scope: "everywhere" }]);
-      forking({ onceStarted: ["/etc/passwd"], ifNeverStarted: ["/etc/passwd"] });
-      await fork("pane-d");
-      bindPaneSpawnSpecSession("pane-d", "F");
+    it("removes nothing a resume declared — only a fork leaves scaffolding", async () => {
+      installed([WRITES]);
+      register({
+        ...adopting,
+        hooks: {
+          ...adopting.hooks,
+          "resume.plan": (_input, output) => {
+            Object.assign(output, { discard: { ifNeverStarted: ["/p/t/F"] } });
+          },
+        },
+      });
+      await buildResumeSpec(plugins, "claude", { paneId: "pane-d", workspace: W1, cwd: "/target" }, ctx, "S", "restore");
       dropPaneSpawnSpec("pane-d");
       await flushRemovals();
       expect(removed).toEqual([]);

@@ -44,34 +44,42 @@ describe("plugin grants", () => {
     expect(grants.permissionsOf("p.agent")).toEqual(resolved);
   });
 
-  it("installs a built-in whose declaration did not resolve, with no reach, and names the variable", async () => {
-    const { grants, errors } = grantsWith(malformed);
+  it("installs a built-in whose declaration did not resolve, with no reach and its native prefixes kept", async () => {
+    const { grants, deps, errors } = grantsWith(malformed);
     const prepared = await grants.prepare(declaring, "builtin");
     // The same install: its agent stays in the catalog.
     expect(prepared).toBe(declaring);
     expect(grants.permissionsOf("p.agent")).toBe(NO_PERMISSIONS);
+    expect(deps.forget).not.toHaveBeenCalled();
     expect(errors[0]).toContain("KIMI_CODE_BASE_URL");
     expect(errors[0]).toContain("runs without its environment and network");
   });
 
-  it("fails an external plugin whose declaration did not resolve, by name", async () => {
-    const { grants, errors } = grantsWith(malformed);
+  it("fails an external plugin whose declaration did not resolve, by name, holding nothing", async () => {
+    const { grants, deps, errors } = grantsWith(malformed);
     const prepared = await grants.prepare(declaring, "external");
     await expect(prepared.load()).rejects.toThrow("KIMI_CODE_BASE_URL");
     expect(grants.resolved("p.agent")).toBeUndefined();
+    expect(deps.forget).toHaveBeenCalledTimes(1);
     expect(errors).toHaveLength(1);
   });
 
-  it("drops the native grant of a plugin that declares nothing any more, answers unreadably, or is gone", async () => {
-    const { grants, deps } = grantsWith(async () => resolved);
-    await grants.prepare(declaring, "external");
-    await grants.prepare(install([{ kind: "fs", scope: "workspace" }]), "external");
-    expect(deps.forget).toHaveBeenCalledTimes(1);
-    expect(grants.resolved("p.agent")).toBeUndefined();
+  it("resolves every plugin, so its native grant holds its prefixes without any env or net", async () => {
+    const { grants, deps } = grantsWith(async () => NO_PERMISSIONS);
+    const writing = install([{ kind: "fsWrite", paths: ["~/.store"] }]);
+    expect(await grants.prepare(writing, "external")).toBe(writing);
+    expect(deps.resolve).toHaveBeenCalledWith("p.agent", writing.manifest.capabilities);
+    expect(deps.forget).not.toHaveBeenCalled();
+    expect(grants.resolved("p.agent")).toEqual(NO_PERMISSIONS);
+  });
 
-    deps.resolve.mockResolvedValueOnce({ not: "a resolution" });
+  it("drops the native grant of a plugin that answers unreadably, once, or is gone", async () => {
+    const { grants, deps } = grantsWith(async () => ({ not: "a resolution" }));
     await grants.prepare(declaring, "external");
+    expect(deps.forget).toHaveBeenCalledTimes(1);
+    await grants.prepare(declaring, "builtin");
     expect(deps.forget).toHaveBeenCalledTimes(2);
+    expect(grants.resolved("p.agent")).toBeUndefined();
 
     deps.resolve.mockResolvedValueOnce(resolved);
     await grants.prepare(declaring, "external");

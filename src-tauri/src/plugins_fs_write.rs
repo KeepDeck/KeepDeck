@@ -12,15 +12,83 @@
 //! Containment is by DECLARED ROOTS, not a denylist — so nothing is
 //! special-cased, the artifacts root included: its own threat model
 //! treats `data_dir` as agent-writable and answers there.
+//!
+//! The roots are the PLUGIN'S, looked up here by its id in its grant
+//! ([`PluginGrants::write_roots`]: its declared prefixes and the workspace
+//! directories it was handed) — never taken from the caller.
 
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write as _};
 use std::path::{Component, Path, PathBuf};
 
+use tauri::State;
+
 use crate::containment::expand_home;
+use crate::plugin_permissions::PluginGrants;
 
 #[tauri::command(async)]
-pub fn plugins_fs_write_mkdir(path: String, roots: Vec<String>) -> Result<(), String> {
+pub fn plugins_fs_write_mkdir(grants: State<'_, PluginGrants>, plugin_id: String, path: String) -> Result<(), String> {
+    mkdir(path.clone(), roots_of(&grants, &plugin_id, "mkdir", &path)?)
+}
+
+#[tauri::command(async)]
+pub fn plugins_fs_write_copy(
+    grants: State<'_, PluginGrants>,
+    plugin_id: String,
+    src: String,
+    dst: String,
+    replace: Option<Vec<(String, String)>>,
+) -> Result<(), String> {
+    let roots = roots_of(&grants, &plugin_id, "copyFile", &dst)?;
+    copy(src, dst, roots, replace)
+}
+
+#[tauri::command(async)]
+pub fn plugins_fs_write_remove(grants: State<'_, PluginGrants>, plugin_id: String, path: String) -> Result<(), String> {
+    remove(path.clone(), roots_of(&grants, &plugin_id, "remove", &path)?)
+}
+
+#[tauri::command(async)]
+pub fn plugins_fs_write_file(
+    grants: State<'_, PluginGrants>,
+    plugin_id: String,
+    path: String,
+    text: String,
+) -> Result<(), String> {
+    let roots = roots_of(&grants, &plugin_id, "writeFile", &path)?;
+    write_file(path, text, roots)
+}
+
+#[tauri::command(async)]
+pub fn plugins_fs_write_append(
+    grants: State<'_, PluginGrants>,
+    plugin_id: String,
+    path: String,
+    line: String,
+) -> Result<(), String> {
+    let roots = roots_of(&grants, &plugin_id, "appendLine", &path)?;
+    append(path, line, roots)
+}
+
+#[tauri::command(async)]
+pub fn plugins_fs_write_move(
+    grants: State<'_, PluginGrants>,
+    plugin_id: String,
+    src: String,
+    dst: String,
+) -> Result<(), String> {
+    let roots = roots_of(&grants, &plugin_id, "move", &dst)?;
+    move_entry(src, dst, roots)
+}
+
+/// Where `plugin_id` may write, or a refusal naming the call.
+fn roots_of(grants: &PluginGrants, plugin_id: &str, op: &str, path: &str) -> Result<Vec<String>, String> {
+    grants
+        .write_roots(plugin_id)
+        .map_err(|why| format!("fsWrite.{op}: \"{path}\": {why}"))
+}
+
+fn mkdir(path: String, roots: Vec<String>) -> Result<(), String> {
     let target = resolve_write(&path, &roots)?;
     create_dirs_owner_only(&target.path, &target.root)
 }
@@ -29,8 +97,7 @@ pub fn plugins_fs_write_mkdir(path: String, roots: Vec<String>) -> Result<(), St
 /// each `(from, to)` pair replaced everywhere, in order. A fork moves a
 /// session to a new place, and the text of its transcript names the old
 /// one: a copy that cannot say where it now lives is half a move.
-#[tauri::command(async)]
-pub fn plugins_fs_write_copy(
+fn copy(
     src: String,
     dst: String,
     roots: Vec<String>,
@@ -88,8 +155,7 @@ pub fn plugins_fs_write_copy(
 /// what is gone is part of what is gone. A symlink is removed as a link,
 /// never followed; what is already gone is not an error (a cleanup may run
 /// twice); a declared root itself is never removed.
-#[tauri::command(async)]
-pub fn plugins_fs_write_remove(path: String, roots: Vec<String>) -> Result<(), String> {
+fn remove(path: String, roots: Vec<String>) -> Result<(), String> {
     let dir = resolve_entry(&path, &roots, "remove")?;
     let target = dir.path;
     match fs::symlink_metadata(&target) {
@@ -111,8 +177,7 @@ pub fn plugins_fs_write_remove(path: String, roots: Vec<String>) -> Result<(), S
     Ok(())
 }
 
-#[tauri::command(async)]
-pub fn plugins_fs_write_file(
+fn write_file(
     path: String,
     text: String,
     roots: Vec<String>,
@@ -125,8 +190,7 @@ pub fn plugins_fs_write_file(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command(async)]
-pub fn plugins_fs_write_append(
+fn append(
     path: String,
     line: String,
     roots: Vec<String>,
@@ -162,8 +226,7 @@ pub fn plugins_fs_write_append(
 /// proven by their PARENTS, like `remove`, so a symlink moves as a link and
 /// is never resolved to its target. Neither end may be a root itself, and a
 /// directory cannot move into itself.
-#[tauri::command(async)]
-pub fn plugins_fs_write_move(src: String, dst: String, roots: Vec<String>) -> Result<(), String> {
+fn move_entry(src: String, dst: String, roots: Vec<String>) -> Result<(), String> {
     let from = resolve_entry(&src, &roots, "move")?;
     let to = resolve_entry(&dst, &roots, "move")?;
     if from.path == to.path {
@@ -389,7 +452,7 @@ mod tests {
     fn writes_are_contained_to_the_declared_roots() {
         let (dir, roots) = root();
         let inside = dir.path().join("a/b/file.txt");
-        plugins_fs_write_file(
+        write_file(
             inside.to_string_lossy().into_owned(),
             "hi".into(),
             roots.clone(),
@@ -397,7 +460,7 @@ mod tests {
         .unwrap();
         assert_eq!(fs::read_to_string(&inside).unwrap(), "hi");
 
-        let err = plugins_fs_write_file("/tmp/elsewhere.txt".into(), "x".into(), roots)
+        let err = write_file("/tmp/elsewhere.txt".into(), "x".into(), roots)
             .unwrap_err();
         assert!(err.contains("outside"), "{err}");
     }
@@ -417,7 +480,7 @@ mod tests {
         // would leave it readable by every local user.
         let scratch = dir.path().join("scratch");
         let file = scratch.join("export.json");
-        plugins_fs_write_file(
+        write_file(
             file.to_string_lossy().into_owned(),
             "transcript".into(),
             roots.clone(),
@@ -427,7 +490,7 @@ mod tests {
         assert_eq!(mode_of(&file), FILE_MODE);
 
         let appended = scratch.join("log.txt");
-        plugins_fs_write_append(
+        append(
             appended.to_string_lossy().into_owned(),
             "line".into(),
             roots.clone(),
@@ -436,7 +499,7 @@ mod tests {
         assert_eq!(mode_of(&appended), FILE_MODE);
 
         let copied = scratch.join("copy.json");
-        plugins_fs_write_copy(
+        copy(
             file.to_string_lossy().into_owned(),
             copied.to_string_lossy().into_owned(),
             roots,
@@ -457,7 +520,7 @@ mod tests {
         let link = dir.path().join("notes.log");
         std::os::unix::fs::symlink(&outside, &link).unwrap();
 
-        let err = plugins_fs_write_append(
+        let err = append(
             link.to_string_lossy().into_owned(),
             "stolen line".into(),
             roots.clone(),
@@ -466,7 +529,7 @@ mod tests {
         assert!(err.contains("broken symlink"), "{err}");
         assert!(!outside.exists(), "the write followed the link");
 
-        let err = plugins_fs_write_file(
+        let err = write_file(
             link.to_string_lossy().into_owned(),
             "content".into(),
             roots,
@@ -493,7 +556,7 @@ mod tests {
         let declared = shared.join("kd-exports");
         let roots = vec![declared.to_string_lossy().into_owned()];
 
-        plugins_fs_write_file(
+        write_file(
             declared.join("deep/a.json").to_string_lossy().into_owned(),
             "x".into(),
             roots,
@@ -516,7 +579,7 @@ mod tests {
         let platform_mode = mode_of(&probe);
         let above = base.join("shared-missing");
         let declared = above.join("kd-exports");
-        plugins_fs_write_file(
+        write_file(
             declared.join("b.json").to_string_lossy().into_owned(),
             "x".into(),
             vec![declared.to_string_lossy().into_owned()],
@@ -539,7 +602,7 @@ mod tests {
         fs::create_dir_all(&store).unwrap();
         fs::set_permissions(&store, fs::Permissions::from_mode(0o755)).unwrap();
 
-        plugins_fs_write_file(
+        write_file(
             store.join("session.json").to_string_lossy().into_owned(),
             "{}".into(),
             roots,
@@ -561,7 +624,7 @@ mod tests {
         // have left the probe behind — the final assert must judge THIS run.
         let _ = fs::remove_file("/tmp/kd-unbounded-root-probe.txt");
         for root in ["/".to_string(), home.clone(), format!("{home}/../..")] {
-            let err = plugins_fs_write_file(
+            let err = write_file(
                 "/tmp/kd-unbounded-root-probe.txt".into(),
                 "x".into(),
                 vec![root.clone()],
@@ -576,7 +639,7 @@ mod tests {
     fn parent_dir_components_are_rejected() {
         let (dir, roots) = root();
         let sneaky = format!("{}/a/../../etc/x", dir.path().to_string_lossy());
-        assert!(plugins_fs_write_file(sneaky, "x".into(), roots).is_err());
+        assert!(write_file(sneaky, "x".into(), roots).is_err());
     }
 
     #[test]
@@ -586,7 +649,7 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(outside.path(), &link).unwrap();
         let through = link.join("file.txt");
-        let err = plugins_fs_write_file(
+        let err = write_file(
             through.to_string_lossy().into_owned(),
             "x".into(),
             roots,
@@ -601,7 +664,7 @@ mod tests {
         let src = dir.path().join("src.txt");
         fs::write(&src, "data").unwrap();
         let dst = dir.path().join("sub/dst.txt");
-        plugins_fs_write_copy(
+        copy(
             src.to_string_lossy().into_owned(),
             dst.to_string_lossy().into_owned(),
             roots.clone(),
@@ -614,7 +677,7 @@ mod tests {
         let foreign = tempfile::tempdir().unwrap();
         let outside_src = foreign.path().join("secret.txt");
         fs::write(&outside_src, "secret").unwrap();
-        assert!(plugins_fs_write_copy(
+        assert!(copy(
             outside_src.to_string_lossy().into_owned(),
             dir.path().join("stolen.txt").to_string_lossy().into_owned(),
             roots,
@@ -633,7 +696,7 @@ mod tests {
         let file = dir.path().join("s.jsonl");
         fs::write(&file, "line1\nline2\n").unwrap();
         let p = file.to_string_lossy().into_owned();
-        let err = plugins_fs_write_copy(p.clone(), p, roots, None).unwrap_err();
+        let err = copy(p.clone(), p, roots, None).unwrap_err();
         assert!(err.contains("same file"), "{err}");
         assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\n");
     }
@@ -643,10 +706,10 @@ mod tests {
         let (dir, roots) = root();
         let file = dir.path().join("index.jsonl");
         let p = file.to_string_lossy().into_owned();
-        plugins_fs_write_append(p.clone(), "{\"a\":1}".into(), roots.clone()).unwrap();
-        plugins_fs_write_append(p.clone(), "{\"b\":2}".into(), roots.clone()).unwrap();
+        append(p.clone(), "{\"a\":1}".into(), roots.clone()).unwrap();
+        append(p.clone(), "{\"b\":2}".into(), roots.clone()).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "{\"a\":1}\n{\"b\":2}\n");
-        assert!(plugins_fs_write_append(p, "a\nb".into(), roots).is_err());
+        assert!(append(p, "a\nb".into(), roots).is_err());
     }
 
     #[cfg(unix)]
@@ -656,7 +719,7 @@ mod tests {
         let src = dir.path().join("s.jsonl");
         fs::write(&src, "{\"p\":\"/a/S/x\"}\n{\"q\":\"/a/S/y /a/S/z\"}\n").unwrap();
         let dst = dir.path().join("t/F.jsonl");
-        plugins_fs_write_copy(
+        copy(
             src.to_string_lossy().into_owned(),
             dst.to_string_lossy().into_owned(),
             roots,
@@ -680,7 +743,7 @@ mod tests {
         fs::write(&src, [0xff, 0xfe, 0x00]).unwrap();
         let dst = dir.path().join("out");
         let ask = |pairs: Vec<(String, String)>| {
-            plugins_fs_write_copy(
+            copy(
                 src.to_string_lossy().into_owned(),
                 dst.to_string_lossy().into_owned(),
                 roots.clone(),
@@ -704,10 +767,10 @@ mod tests {
         fs::write(tree.join("subagents/agent-1.jsonl"), "y").unwrap();
         for target in [&file, &tree] {
             let p = target.to_string_lossy().into_owned();
-            plugins_fs_write_remove(p.clone(), roots.clone()).unwrap();
+            remove(p.clone(), roots.clone()).unwrap();
             assert!(fs::symlink_metadata(target).is_err());
             // Already gone is not an error: a cleanup may run twice.
-            plugins_fs_write_remove(p, roots.clone()).unwrap();
+            remove(p, roots.clone()).unwrap();
         }
         // Emptied by the last removal, `p` went with it; the root stays.
         assert!(!dir.path().join("p").exists());
@@ -724,12 +787,12 @@ mod tests {
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(file, "x").unwrap();
         }
-        plugins_fs_write_remove(
+        remove(
             dir.path().join("projects/-shared/F").to_string_lossy().into_owned(),
             roots.clone(),
         )
         .unwrap();
-        plugins_fs_write_remove(lone.to_string_lossy().into_owned(), roots).unwrap();
+        remove(lone.to_string_lossy().into_owned(), roots).unwrap();
         // A folder something else still uses stays; one that held only what
         // went goes too — but never past the declared root.
         assert!(kept.exists());
@@ -740,14 +803,14 @@ mod tests {
     #[test]
     fn remove_never_takes_a_root_or_anything_outside() {
         let (dir, roots) = root();
-        let err = plugins_fs_write_remove(dir.path().to_string_lossy().into_owned(), roots.clone())
+        let err = remove(dir.path().to_string_lossy().into_owned(), roots.clone())
             .unwrap_err();
         assert!(err.contains("outside") || err.contains("root"), "{err}");
         assert!(dir.path().is_dir());
         let foreign = tempfile::tempdir().unwrap();
         let victim = foreign.path().join("keep.txt");
         fs::write(&victim, "keep").unwrap();
-        assert!(plugins_fs_write_remove(victim.to_string_lossy().into_owned(), roots).is_err());
+        assert!(remove(victim.to_string_lossy().into_owned(), roots).is_err());
         assert!(victim.exists());
     }
 
@@ -761,7 +824,7 @@ mod tests {
         fs::write(target.join("keep.txt"), "keep").unwrap();
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&target, &link).unwrap();
-        plugins_fs_write_remove(link.to_string_lossy().into_owned(), roots).unwrap();
+        remove(link.to_string_lossy().into_owned(), roots).unwrap();
         assert!(fs::symlink_metadata(&link).is_err());
         assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "keep");
     }
@@ -779,7 +842,7 @@ mod tests {
         fs::write(built.join("skills/a/SKILL.md"), "new").unwrap();
         fs::create_dir_all(live.join("skills/gone")).unwrap();
         fs::write(live.join("skills/gone/SKILL.md"), "old").unwrap();
-        plugins_fs_write_move(s(&built), s(&live), roots).unwrap();
+        move_entry(s(&built), s(&live), roots).unwrap();
         assert_eq!(fs::read_to_string(live.join("skills/a/SKILL.md")).unwrap(), "new");
         assert!(!live.join("skills/gone").exists(), "nothing of the old layout survives");
         assert!(!built.exists());
@@ -797,7 +860,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&dst).unwrap(), "new");
         assert_eq!(fs::read_to_string(&src).unwrap(), "old", "a crash here leaves the old one at the source");
         swap(&src, &dst).unwrap();
-        plugins_fs_write_move(s(&src), s(&dst), roots).unwrap();
+        move_entry(s(&src), s(&dst), roots).unwrap();
         assert_eq!(fs::read_to_string(&dst).unwrap(), "new");
         assert!(!src.exists());
     }
@@ -808,7 +871,7 @@ mod tests {
         let src = dir.path().join("a.txt");
         fs::write(&src, "x").unwrap();
         let dst = dir.path().join("deep/er/b.txt");
-        plugins_fs_write_move(s(&src), s(&dst), roots).unwrap();
+        move_entry(s(&src), s(&dst), roots).unwrap();
         assert_eq!(fs::read_to_string(&dst).unwrap(), "x");
         assert!(!src.exists());
     }
@@ -821,10 +884,10 @@ mod tests {
         fs::write(&inside, "x").unwrap();
         let foreign = outside.path().join("out.txt");
         fs::write(&foreign, "y").unwrap();
-        assert!(plugins_fs_write_move(s(&foreign), s(&dir.path().join("got")), roots.clone()).is_err());
-        assert!(plugins_fs_write_move(s(&inside), s(&outside.path().join("leak")), roots.clone()).is_err());
-        assert!(plugins_fs_write_move(s(&inside), s(dir.path()), roots.clone()).is_err());
-        assert!(plugins_fs_write_move(s(dir.path()), s(&outside.path().join("all")), roots).is_err());
+        assert!(move_entry(s(&foreign), s(&dir.path().join("got")), roots.clone()).is_err());
+        assert!(move_entry(s(&inside), s(&outside.path().join("leak")), roots.clone()).is_err());
+        assert!(move_entry(s(&inside), s(dir.path()), roots.clone()).is_err());
+        assert!(move_entry(s(dir.path()), s(&outside.path().join("all")), roots).is_err());
         assert!(inside.exists() && foreign.exists(), "a refused move moves nothing");
     }
 
@@ -832,10 +895,10 @@ mod tests {
     fn move_refuses_a_missing_source_itself_and_into_itself() {
         let (dir, roots) = root();
         let src = dir.path().join("d");
-        assert!(plugins_fs_write_move(s(&src), s(&dir.path().join("e")), roots.clone()).is_err());
+        assert!(move_entry(s(&src), s(&dir.path().join("e")), roots.clone()).is_err());
         fs::create_dir(&src).unwrap();
-        assert!(plugins_fs_write_move(s(&src), s(&src), roots.clone()).is_err());
-        assert!(plugins_fs_write_move(s(&src), s(&src.join("inner")), roots).is_err());
+        assert!(move_entry(s(&src), s(&src), roots.clone()).is_err());
+        assert!(move_entry(s(&src), s(&src.join("inner")), roots).is_err());
         assert!(src.is_dir());
     }
 
@@ -846,8 +909,24 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(foreign.path(), &link).unwrap();
         let moved = dir.path().join("moved");
-        plugins_fs_write_move(s(&link), s(&moved), roots).unwrap();
+        move_entry(s(&link), s(&moved), roots).unwrap();
         assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
         assert!(foreign.path().is_dir(), "the target stays where it was");
+    }
+
+    #[test]
+    fn a_plugin_writes_inside_its_own_grant_and_nowhere_else() {
+        let mine = tempfile::tempdir().unwrap();
+        let theirs = tempfile::tempdir().unwrap();
+        let grants = PluginGrants::default();
+        grants.hand_workspace("p.mine", "ws-1", s(mine.path()));
+        grants.hand_workspace("p.theirs", "ws-1", s(theirs.path()));
+
+        let roots = roots_of(&grants, "p.mine", "writeFile", "x").unwrap();
+        assert!(write_file(s(&theirs.path().join("x")), "x".into(), roots.clone()).is_err());
+        write_file(s(&mine.path().join("x")), "x".into(), roots).unwrap();
+
+        let error = roots_of(&grants, "p.nobody", "writeFile", "/tmp/x").unwrap_err();
+        assert!(error.starts_with("fsWrite.writeFile: \"/tmp/x\": WRITE_UNDECLARED"), "{error}");
     }
 }

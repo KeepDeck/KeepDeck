@@ -10,10 +10,12 @@
 //! second rule for what a reference means.
 //!
 //! Nothing here keeps a manifest store: the trusted host passes the
-//! declaration in, and the result goes back to it. What it resolved to is
-//! also kept by plugin id ([`PluginGrants`]), for the one service that acts
-//! natively with a plugin's reach and a secret (`services.http`): it looks
-//! the grant up itself, so no caller can hand it a wider one.
+//! declaration in, and the result goes back to it. What a plugin holds is
+//! also kept by its id ([`PluginGrants`]) — its resolved reach, its declared
+//! write and database prefixes, and the workspace directories it was handed —
+//! for every service that acts natively on its behalf (HTTP, downloads,
+//! fsWrite, sqlite): each looks the grant up itself, so no caller can hand
+//! it a wider one.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
@@ -102,8 +104,9 @@ struct CredentialDeclaration {
     token_fields: Vec<String>,
 }
 
-/// One capability of a manifest, as far as this module cares: an `env`, a
-/// `net`, or anything else (ignored).
+/// One capability of a manifest, as far as this module cares: an `env` or a
+/// `net` to resolve, an `fsWrite` or a `sqliteReadonly` granting its prefixes
+/// as written, or anything else (ignored).
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(tag = "kind")]
 enum Declared {
@@ -115,6 +118,10 @@ enum Declared {
         #[serde(default)]
         credentials: Vec<CredentialDeclaration>,
     },
+    #[serde(rename = "fsWrite")]
+    FsWrite { paths: Vec<String> },
+    #[serde(rename = "sqliteReadonly")]
+    SqliteReadonly { paths: Vec<String> },
     #[serde(other)]
     Other,
 }
@@ -172,33 +179,117 @@ impl ResolvedPermissions {
     }
 }
 
-/// What each plugin's declaration resolved to, by plugin id: set by every
-/// resolution, taken away by a failed one and by [`plugin_permissions_forget`].
+/// What one plugin holds.
+#[derive(Debug, Default)]
+struct Grant {
+    /// What its `env` and `net` resolved to — none when they did not.
+    permissions: Option<ResolvedPermissions>,
+    /// Its declared `fsWrite` prefixes, as written.
+    write: Vec<String>,
+    /// Its declared `sqliteReadonly` prefixes, as written.
+    sqlite: Vec<String>,
+    /// The private directories `ctx.workspaces` handed it, by workspace id:
+    /// writable on that strength alone, without a declared prefix.
+    workspaces: BTreeMap<String, String>,
+}
+
+/// What each plugin holds, by plugin id: its declaration as last resolved —
+/// its prefixes kept even when its `env` and `net` did not resolve — and the
+/// directories handed to it, which outlive a re-resolution and go with their
+/// workspaces. [`plugin_permissions_forget`] takes all of it away.
 #[derive(Default)]
-pub struct PluginGrants(Mutex<HashMap<String, ResolvedPermissions>>);
+pub struct PluginGrants(Mutex<HashMap<String, Grant>>);
 
 impl PluginGrants {
-    fn set(&self, plugin_id: &str, grant: Option<ResolvedPermissions>) {
-        let mut grants = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        match grant {
-            Some(grant) => grants.insert(plugin_id.to_string(), grant),
-            None => grants.remove(plugin_id),
-        };
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Grant>> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// The grant of `plugin_id`, or why there is none.
+    fn declare(&self, plugin_id: &str, permissions: Option<ResolvedPermissions>, declared: &[Declared]) {
+        let mut grants = self.lock();
+        let grant = grants.entry(plugin_id.to_string()).or_default();
+        grant.permissions = permissions;
+        grant.write = declared
+            .iter()
+            .flat_map(|capability| match capability {
+                Declared::FsWrite { paths } => paths.clone(),
+                _ => Vec::new(),
+            })
+            .collect();
+        grant.sqlite = declared
+            .iter()
+            .flat_map(|capability| match capability {
+                Declared::SqliteReadonly { paths } => paths.clone(),
+                _ => Vec::new(),
+            })
+            .collect();
+    }
+
+    fn forget(&self, plugin_id: &str) {
+        self.lock().remove(plugin_id);
+    }
+
+    /// What `plugin_id`'s `env` and `net` resolved to, or why there is none.
     pub(crate) fn of(&self, plugin_id: &str) -> Result<ResolvedPermissions, String> {
-        let grants = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        grants
+        self.lock()
             .get(plugin_id)
-            .cloned()
+            .and_then(|grant| grant.permissions.clone())
             .ok_or_else(|| format!("NOT_GRANTED: no resolved declaration for {plugin_id}"))
+    }
+
+    /// Where a download on `plugin_id`'s behalf may go, every redirect
+    /// included: the reach of all its `net` entries.
+    pub(crate) fn download_reach(&self, plugin_id: &str) -> Result<Vec<String>, String> {
+        self.of(plugin_id)?.reach(None).map(|(allow, _)| allow)
+    }
+
+    /// Where `plugin_id` may write: its declared prefixes and the directories
+    /// it was handed. None at all is refused here, by name.
+    pub(crate) fn write_roots(&self, plugin_id: &str) -> Result<Vec<String>, String> {
+        let roots: Vec<String> = self
+            .lock()
+            .get(plugin_id)
+            .map(|grant| grant.write.iter().chain(grant.workspaces.values()).cloned().collect())
+            .unwrap_or_default();
+        if roots.is_empty() {
+            return Err(
+                "WRITE_UNDECLARED: the plugin declares no \"fsWrite\" capability and holds no directory from ctx.workspaces"
+                    .into(),
+            );
+        }
+        Ok(roots)
+    }
+
+    /// Which databases `plugin_id` may read: its declared prefixes.
+    pub(crate) fn sqlite_roots(&self, plugin_id: &str) -> Result<Vec<String>, String> {
+        let roots = self.lock().get(plugin_id).map(|grant| grant.sqlite.clone()).unwrap_or_default();
+        if roots.is_empty() {
+            return Err("SQLITE_UNDECLARED: the plugin declares no \"sqliteReadonly\" capability".into());
+        }
+        Ok(roots)
+    }
+
+    /// `dir` was handed to `plugin_id` for `ws_id`.
+    pub(crate) fn hand_workspace(&self, plugin_id: &str, ws_id: &str, dir: String) {
+        self.lock()
+            .entry(plugin_id.to_string())
+            .or_default()
+            .workspaces
+            .insert(ws_id.to_string(), dir);
+    }
+
+    /// Every plugin lets go of its directory of a workspace not in `live`.
+    pub(crate) fn release_workspaces(&self, live: &[String]) {
+        for grant in self.lock().values_mut() {
+            grant.workspaces.retain(|ws_id, _| live.contains(ws_id));
+        }
     }
 }
 
 /// Resolve a plugin's declaration (its manifest `capabilities`) against the
-/// startup environment, and keep what it came to as that plugin's grant — a
-/// declaration that does not resolve leaves it none.
+/// startup environment, and keep what it came to as that plugin's grant — an
+/// `env` or `net` that does not resolve leaves it no reach, its prefixes
+/// still standing.
 #[tauri::command]
 pub fn plugin_permissions_resolve(
     grants: tauri::State<'_, PluginGrants>,
@@ -208,10 +299,10 @@ pub fn plugin_permissions_resolve(
     resolve_for(&grants, &plugin_id, &capabilities, host_environment())
 }
 
-/// Drop a plugin's grant: it declares nothing any more, or it is gone.
+/// Drop everything a plugin holds: it is gone, or it may not run.
 #[tauri::command]
 pub fn plugin_permissions_forget(grants: tauri::State<'_, PluginGrants>, plugin_id: String) {
-    grants.set(&plugin_id, None);
+    grants.forget(&plugin_id);
 }
 
 pub(crate) fn resolve_for(
@@ -224,7 +315,10 @@ pub(crate) fn resolve_for(
         return Err(format!("unsafe plugin id: {plugin_id:?}"));
     }
     let resolved = resolve(capabilities, host);
-    grants.set(plugin_id, resolved.as_ref().ok().cloned());
+    // A declaration that does not parse grants nothing; one whose `env` or
+    // `net` does not resolve still grants its prefixes.
+    let declared = declarations(capabilities).unwrap_or_default();
+    grants.declare(plugin_id, resolved.as_ref().ok().cloned(), &declared);
     resolved
 }
 
@@ -792,7 +886,7 @@ mod tests {
     }
 
     #[test]
-    fn a_resolution_is_kept_as_the_plugins_grant_and_a_failed_one_takes_it_away() {
+    fn a_resolution_is_kept_as_the_plugins_grant_and_a_failed_one_takes_its_reach_away() {
         let (_dir, home, cwd) = stand();
         let grants = PluginGrants::default();
         let env = host(&[], &home, &cwd);
@@ -804,9 +898,72 @@ mod tests {
         assert!(grants.of("p.tool").unwrap_err().starts_with("NOT_GRANTED"));
 
         resolve_for(&grants, "p.tool", &tool_capabilities(), &env).unwrap();
-        grants.set("p.tool", None);
+        grants.forget("p.tool");
         assert!(grants.of("p.tool").is_err(), "forgotten");
         assert!(resolve_for(&grants, "../x", &tool_capabilities(), &env).is_err());
+    }
+
+    #[test]
+    fn a_grant_holds_every_declared_prefix_and_keeps_them_when_the_reach_does_not_resolve() {
+        let (_dir, home, cwd) = stand();
+        let grants = PluginGrants::default();
+        let mut capabilities = tool_capabilities();
+        capabilities.extend([
+            json!({ "kind": "fsWrite", "paths": ["~/.tool/sessions"] }),
+            json!({ "kind": "sqliteReadonly", "paths": ["~/.tool/db"] }),
+            json!({ "kind": "fsWrite", "paths": ["/tmp/tool-scratch"] }),
+        ]);
+        resolve_for(&grants, "p.tool", &capabilities, &host(&[], &home, &cwd)).unwrap();
+        assert_eq!(grants.write_roots("p.tool").unwrap(), ["~/.tool/sessions", "/tmp/tool-scratch"]);
+        assert_eq!(grants.sqlite_roots("p.tool").unwrap(), ["~/.tool/db"]);
+
+        let malformed = host(&[("TOOL_BASE_URL", "not a url")], &home, &cwd);
+        assert!(resolve_for(&grants, "p.tool", &capabilities, &malformed).is_err());
+        assert!(grants.of("p.tool").is_err(), "no reach");
+        assert_eq!(grants.write_roots("p.tool").unwrap(), ["~/.tool/sessions", "/tmp/tool-scratch"]);
+        assert_eq!(grants.sqlite_roots("p.tool").unwrap(), ["~/.tool/db"]);
+
+        let unparsable = [json!({ "kind": "fsWrite", "paths": "~/.tool" })];
+        assert!(resolve_for(&grants, "p.tool", &unparsable, &host(&[], &home, &cwd)).is_err());
+        assert!(grants.write_roots("p.tool").unwrap_err().starts_with("WRITE_UNDECLARED"));
+        assert!(grants.sqlite_roots("p.tool").unwrap_err().starts_with("SQLITE_UNDECLARED"));
+    }
+
+    #[test]
+    fn a_handed_directory_is_its_plugins_write_root_until_its_workspace_goes() {
+        let (_dir, home, cwd) = stand();
+        let grants = PluginGrants::default();
+        assert!(grants.write_roots("p.agent").unwrap_err().starts_with("WRITE_UNDECLARED"));
+
+        grants.hand_workspace("p.agent", "ws-1", "/kd/plugin-workspaces/p.agent/ws-1".into());
+        grants.hand_workspace("p.agent", "ws-2", "/kd/plugin-workspaces/p.agent/ws-2".into());
+        resolve_for(&grants, "p.agent", &[], &host(&[], &home, &cwd)).unwrap();
+        assert_eq!(
+            grants.write_roots("p.agent").unwrap(),
+            ["/kd/plugin-workspaces/p.agent/ws-1", "/kd/plugin-workspaces/p.agent/ws-2"],
+            "a re-resolution keeps what was handed"
+        );
+        assert!(grants.write_roots("p.other").is_err(), "one plugin's directory is no other's");
+
+        grants.release_workspaces(&["ws-2".to_string()]);
+        assert_eq!(grants.write_roots("p.agent").unwrap(), ["/kd/plugin-workspaces/p.agent/ws-2"]);
+        grants.forget("p.agent");
+        assert!(grants.write_roots("p.agent").is_err());
+    }
+
+    #[test]
+    fn a_download_reaches_every_net_entry_and_nowhere_without_one() {
+        let (_dir, home, cwd) = stand();
+        let grants = PluginGrants::default();
+        let env = host(&[], &home, &cwd);
+        resolve_for(&grants, "p.tool", &tool_capabilities(), &env).unwrap();
+        assert_eq!(
+            grants.download_reach("p.tool").unwrap(),
+            ["127.0.0.1", "api.tool.example", "https://api.tool.example:443"]
+        );
+        resolve_for(&grants, "p.quiet", &[], &env).unwrap();
+        assert!(grants.download_reach("p.quiet").unwrap_err().starts_with("NET_UNDECLARED"));
+        assert!(grants.download_reach("p.unknown").unwrap_err().starts_with("NOT_GRANTED"));
     }
 
     #[cfg(unix)]

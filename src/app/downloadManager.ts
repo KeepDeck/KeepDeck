@@ -30,7 +30,9 @@ export interface DownloadBackend {
 
 /** Host-only transfer constraints. They are not part of the plugin request. */
 export interface TransferConstraints {
-  allowedDomains?: readonly string[];
+  /** The plugin the transfer runs for: natively, its URL and every redirect
+   * are held to that plugin's `net` reach. Absent for the host's own. */
+  pluginId?: string;
 }
 
 export interface DownloadLifecycle {

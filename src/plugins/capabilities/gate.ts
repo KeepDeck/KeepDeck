@@ -33,7 +33,7 @@ import type {
 import { createSessionStore } from "@keepdeck/plugin-api";
 import { isObjectLike } from "../../domain/json";
 import { execCovers } from "./execCovers";
-import { allNetAllowances, type ResolvedPermissions } from "./permissions";
+import type { ResolvedPermissions } from "./permissions";
 
 /** The two scopes the `fs` capability may declare, as the backend consumes
  * them: the gate DERIVES this from the manifest and passes it down; the backend
@@ -54,33 +54,24 @@ export interface FsBackend {
   watch(path: string, scope: FsScope, onChange: () => void): WatchHandle;
 }
 
-/** The prefix-aware write backend the gate wraps: the gate passes the
- * manifest's DECLARED `fsWrite` prefixes and the workspace directories the
- * host made for the plugin with every call; the host enforces containment
- * against them (both ends of a copy or a move). The plugin never supplies
- * the roots. */
+/** The write backend the gate wraps: every call names the plugin it is
+ * made for, and the native side holds it — both ends of a copy or a move —
+ * to that plugin's own roots: its declared `fsWrite` prefixes and the
+ * workspace directories it was handed, looked up by its id. Neither the
+ * plugin nor the gate supplies a root. */
 export interface FsWriteBackend {
-  mkdir(path: string, roots: readonly string[]): Promise<void>;
-  copyFile(
-    src: string,
-    dst: string,
-    roots: readonly string[],
-    options?: FsCopyOptions,
-  ): Promise<void>;
-  remove(path: string, roots: readonly string[]): Promise<void>;
-  writeFile(path: string, text: string, roots: readonly string[]): Promise<void>;
-  appendLine(path: string, line: string, roots: readonly string[]): Promise<void>;
-  move(src: string, dst: string, roots: readonly string[]): Promise<void>;
+  mkdir(pluginId: string, path: string): Promise<void>;
+  copyFile(pluginId: string, src: string, dst: string, options?: FsCopyOptions): Promise<void>;
+  remove(pluginId: string, path: string): Promise<void>;
+  writeFile(pluginId: string, path: string, text: string): Promise<void>;
+  appendLine(pluginId: string, path: string, line: string): Promise<void>;
+  move(pluginId: string, src: string, dst: string): Promise<void>;
 }
 
-/** The prefix-aware read-only SQL backend, mirroring [`FsWriteBackend`]. */
+/** The read-only SQL backend, mirroring [`FsWriteBackend`]: held natively to
+ * the plugin's declared `sqliteReadonly` prefixes. */
 export interface SqliteBackend {
-  query(
-    dbPath: string,
-    sql: string,
-    params: string[],
-    roots: readonly string[],
-  ): Promise<SqlAnswer>;
+  query(pluginId: string, dbPath: string, sql: string, params: string[]): Promise<SqlAnswer>;
 }
 
 /** The scope-aware git backend, mirroring [`FsBackend`]: the gate derives the
@@ -149,11 +140,12 @@ export interface ServiceBackends {
   fsWrite: FsWriteBackend;
   sqlite: SqliteBackend;
   git: GitBackend;
+  /** `start` names the plugin a transfer runs for; the native side holds
+   * its URL and every redirect to that plugin's `net` reach. */
   downloads: {
     start(
       pluginId: string,
       request: DownloadRequest,
-      allowedDomains: readonly string[],
       onTerminal: () => void,
     ): AsyncIterable<import("@keepdeck/plugin-api").DownloadState>;
     cancel(id: string): Promise<void>;
@@ -202,8 +194,8 @@ export interface ServiceBackends {
  * the gate admits the call only if the manifest declares an `fs` capability and
  * passes the DECLARED SCOPE to the backend, which resolves scope into the roots
  * it enforces containment against — the plugin never supplies the scope.
- * `downloads` applies the declared `net` domains both before dispatch and in
- * the native transfer engine, including every redirect.
+ * `http`, `downloads`, `fsWrite` and `sqlite` only name the plugin: what it
+ * may reach, write or read is decided natively against its grant.
  */
 export type GateDiagnostics = "log" | "silent";
 
@@ -213,31 +205,12 @@ export function createCapabilityGate(
   opts: {
     diagnostics: GateDiagnostics;
     log: PluginLogger;
-    /** What this manifest's `env` and `net` resolved to — the only source
-     * of env values and network reach the gate hands out. */
+    /** What this manifest's `env` resolved to — the only source of env
+     * values the gate hands out. */
     permissions: ResolvedPermissions;
-    /** The workspace directories this plugin was handed (`ctx.workspaces`)
-     * — write roots it holds without declaring them. Read per call: one is
-     * handed out, or pruned, while the plugin runs. */
-    workspaceDirs?: () => readonly string[];
   },
 ): PluginServices {
   const { diagnostics, log, permissions } = opts;
-  /** Where this plugin may write: what its manifest declares, and the
-   * directories the host made for it. */
-  const writeRoots = (): readonly string[] => [
-    ...fsWritePaths(manifest.capabilities),
-    ...(opts.workspaceDirs?.() ?? []),
-  ];
-  /** The roots for one write, admitted only when there are any. */
-  function writableRoots(op: string, path: string): readonly string[] {
-    const roots = writeRoots();
-    admit(
-      roots.length > 0,
-      `fsWrite.${op}: "${path}" requires an "fsWrite" capability, which the manifest does not declare, or a directory from ctx.workspaces`,
-    );
-    return roots;
-  }
   const declaredEnv = new Set(
     manifest.capabilities.flatMap((capability) => (capability.kind === "env" ? capability.names : [])),
   );
@@ -371,28 +344,15 @@ export function createCapabilityGate(
     fs,
     sessionStore: createSessionStore(fs),
     fsWrite: {
-      mkdir: (path) => backend.fsWrite.mkdir(path, writableRoots("mkdir", path)),
-      copyFile: (src, dst, options) =>
-        backend.fsWrite.copyFile(src, dst, writableRoots("copyFile", dst), options),
-      remove: (path) => backend.fsWrite.remove(path, writableRoots("remove", path)),
-      writeFile: (path, text) => backend.fsWrite.writeFile(path, text, writableRoots("writeFile", path)),
-      appendLine: (path, line) =>
-        backend.fsWrite.appendLine(path, line, writableRoots("appendLine", path)),
-      move: (src, dst) => backend.fsWrite.move(src, dst, writableRoots("move", dst)),
+      mkdir: (path) => backend.fsWrite.mkdir(manifest.id, path),
+      copyFile: (src, dst, options) => backend.fsWrite.copyFile(manifest.id, src, dst, options),
+      remove: (path) => backend.fsWrite.remove(manifest.id, path),
+      writeFile: (path, text) => backend.fsWrite.writeFile(manifest.id, path, text),
+      appendLine: (path, line) => backend.fsWrite.appendLine(manifest.id, path, line),
+      move: (src, dst) => backend.fsWrite.move(manifest.id, src, dst),
     },
     sqlite: {
-      query(dbPath, sql, params) {
-        admit(
-          sqlitePaths(manifest.capabilities).length > 0,
-          `sqlite.query: "${dbPath}" requires a "sqliteReadonly" capability, which the manifest does not declare`,
-        );
-        return backend.sqlite.query(
-          dbPath,
-          sql,
-          params ?? [],
-          sqlitePaths(manifest.capabilities),
-        );
-      },
+      query: (dbPath, sql, params) => backend.sqlite.query(manifest.id, dbPath, sql, params ?? []),
     },
     git: {
       status(repo) {
@@ -478,11 +438,6 @@ export function createCapabilityGate(
     },
     downloads: {
       start(request) {
-        const allowed = allNetAllowances(permissions);
-        admit(
-          allowed.length > 0,
-          `downloads.start: "${request.source.url}" requires a "net" capability`,
-        );
         if (activeDownloadIds.size >= maxActiveDownloads) {
           throw new Error(
             `plugin has too many active downloads (limit ${maxActiveDownloads})`,
@@ -496,15 +451,10 @@ export function createCapabilityGate(
         // The backend can reject synchronously (for example a global id or
         // target collision). Ownership is granted only after it accepted.
         let terminal = false;
-        const stream = backend.downloads.start(
-          manifest.id,
-          request,
-          allowed,
-          () => {
-            terminal = true;
-            finishDownload(request.id);
-          },
-        );
+        const stream = backend.downloads.start(manifest.id, request, () => {
+          terminal = true;
+          finishDownload(request.id);
+        });
         if (!terminal) activeDownloadIds.add(request.id);
         return stream;
       },
@@ -619,22 +569,6 @@ function hasFsCapability(capabilities: Capability[]): boolean {
 
 function hasGitCapability(capabilities: Capability[]): boolean {
   return capabilities.some((capability) => capability.kind === "git");
-}
-
-/** The declared `fsWrite` prefixes — empty when the capability is absent
- * (which denies every call; there is no default prefix). Exported for the
- * one host-run write a plugin only declares: a fork plan's discard. */
-export function fsWritePaths(capabilities: Capability[]): string[] {
-  const cap = capabilities.find((capability) => capability.kind === "fsWrite");
-  return cap?.kind === "fsWrite" ? cap.paths : [];
-}
-
-/** The declared `sqliteReadonly` prefixes — same denial-by-default. */
-function sqlitePaths(capabilities: Capability[]): string[] {
-  const cap = capabilities.find(
-    (capability) => capability.kind === "sqliteReadonly",
-  );
-  return cap?.kind === "sqliteReadonly" ? cap.paths : [];
 }
 
 /** The scope the fs backend should enforce: the declared scope, defaulting to

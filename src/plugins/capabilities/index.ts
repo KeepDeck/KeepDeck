@@ -7,7 +7,6 @@ export {
 } from "./gate";
 export { execCovers } from "./execCovers";
 export {
-  declaresPermissions,
   isResolvedPermissions,
   NO_PERMISSIONS,
   type ResolvedPermissions,

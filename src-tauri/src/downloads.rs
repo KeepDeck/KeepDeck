@@ -18,7 +18,7 @@ use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::paths;
-use crate::plugin_permissions::ensure_allowed_url;
+use crate::plugin_permissions::{ensure_allowed_url, PluginGrants};
 
 const CANCELLED: &str = "cancelled";
 const RECENT_IDS_LIMIT: usize = 4096;
@@ -292,13 +292,18 @@ fn emit(
     });
 }
 
+/// `plugin_id` names the plugin a transfer runs for: its URL and every
+/// redirect are held to that plugin's `net` reach, looked up here. None is
+/// the host's own transfer (an app update), which any http(s) URL admits.
 #[tauri::command]
 pub async fn download_start(
     request: DownloadRequest,
     on_state: Channel<DownloadStateDto>,
-    allowed_domains: Option<Vec<String>>,
+    plugin_id: Option<String>,
     registry: tauri::State<'_, DownloadRegistry>,
+    grants: tauri::State<'_, PluginGrants>,
 ) -> Result<(), String> {
+    let allowed_domains = reach_of(&grants, plugin_id.as_deref())?;
     let target = target_path(request.target.path())?;
     let token = registry.begin(&request.id, target.clone())?;
     let id = request.id.clone();
@@ -1188,6 +1193,15 @@ fn write_unpacked_manifest(root: &Path, expected_files: &[String]) -> Result<(),
     fs::write(root.join(UNPACKED_MANIFEST), text).map_err(|e| e.to_string())
 }
 
+/// Where a transfer for `plugin_id` may go — that plugin's whole `net`
+/// reach — or `None` for the host's own.
+fn reach_of(grants: &PluginGrants, plugin_id: Option<&str>) -> Result<Option<Vec<String>>, String> {
+    plugin_id
+        .map(|plugin_id| grants.download_reach(plugin_id))
+        .transpose()
+        .map_err(|why| format!("downloads.start: {why}"))
+}
+
 pub(crate) fn target_path(relative: &str) -> Result<PathBuf, String> {
     let relative = safe_relative(relative)?;
     let root = paths::keepdeck_home()
@@ -1611,6 +1625,25 @@ mod tests {
             Some(&allowed),
         )
         .is_err());
+    }
+
+    #[test]
+    fn a_plugins_transfer_reaches_its_own_net_and_the_hosts_any_url() {
+        use crate::plugin_permissions::{host_environment, resolve_for};
+        let grants = PluginGrants::default();
+        let net = [serde_json::json!({ "kind": "net", "domains": ["files.example.com"] })];
+        resolve_for(&grants, "p.models", &net, host_environment()).unwrap();
+        resolve_for(&grants, "p.offline", &[], host_environment()).unwrap();
+
+        assert_eq!(
+            reach_of(&grants, Some("p.models")).unwrap(),
+            Some(vec!["files.example.com".to_string()])
+        );
+        assert_eq!(reach_of(&grants, None).unwrap(), None, "the host's own transfer");
+        let offline = reach_of(&grants, Some("p.offline")).unwrap_err();
+        assert!(offline.starts_with("downloads.start: NET_UNDECLARED"), "{offline}");
+        let unknown = reach_of(&grants, Some("p.unknown")).unwrap_err();
+        assert!(unknown.starts_with("downloads.start: NOT_GRANTED"), "{unknown}");
     }
 
     #[test]
