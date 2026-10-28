@@ -231,9 +231,12 @@ export function renameSkillFile(content: string, name: string): SkillFileRename 
  *
  * A LIFT, not a YAML reading: for a layout that copies the value into a file of
  * its own (a command a CLI generates from a skill), where the bytes the author
- * wrote are the ones that must arrive. It understands what [`parseSkillFile`]
- * TOLERATES, not merely what [`composeSkillFile`] writes: CRLF, a BOM, a fence
- * with trailing spaces or at end of file, and a folded or literal block scalar.
+ * wrote are the ones that must arrive. It reads only a plain `key:` at the
+ * start of a line — never a quoted key (`"description":`), a key with space
+ * before its colon, an alias, or anything else general YAML allows — so a key
+ * [`parseSkillFile`] finds this may not. On that layout it takes what
+ * [`composeSkillFile`] writes and more: CRLF, a BOM, a fence with trailing
+ * spaces or at end of file, and a folded or literal block scalar.
  * A block scalar's indented lines are folded onto one line and returned as a
  * double-quoted scalar, because the value is synthesized there and a plain one
  * holding `": "` or `" #"` would not read back as itself. LAST match wins, as
@@ -267,7 +270,9 @@ export function frontmatterLine(content: string, key: string): string | null {
 /** Whether a stored skill can be handed to an agent: its description, as
  * [`frontmatterLine`] lifts it, says something. Agents pick skills by their
  * description and some refuse a skill — or their whole configuration — without
- * one, so a skill that has none goes nowhere. */
+ * one, so a skill that has none goes nowhere. The same gate as the commands
+ * generated from skills, NOT "valid YAML": a description under a quoted key is
+ * one the lift cannot carry, so the skill counts as having none. */
 export function hasUsableSkillDescription(content: string): boolean {
   return (frontmatterLine(content, "description") ?? "").trim() !== "";
 }

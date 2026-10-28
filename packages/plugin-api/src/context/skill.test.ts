@@ -457,4 +457,14 @@ describe("hasUsableSkillDescription", () => {
       expect(hasUsableSkillDescription(content), content).toBe(false);
     }
   });
+
+  it("is the lift's gate, not YAML's: a description under a quoted key is valid YAML it cannot carry", () => {
+    // Deliberate, and pinned so a doc or a change cannot claim parity again:
+    // the generated command copies the author's bytes, and the lift reads
+    // only a plain `description:` line.
+    const quoted = "---\nname: x\n\"description\": Reviews\n---\nB\n";
+    expect(parseSkillFile(quoted).description).toBe("Reviews");
+    expect(frontmatterLine(quoted, "description")).toBeNull();
+    expect(hasUsableSkillDescription(quoted)).toBe(false);
+  });
 });
