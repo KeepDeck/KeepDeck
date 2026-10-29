@@ -6,6 +6,7 @@ import { workspaceDirectories } from "../domain/deck";
 import {
   pluginsFsWriteAppend,
   pluginsFsWriteCopy,
+  pluginsFsWriteCopyDir,
   pluginsFsWriteRemove,
   pluginsFsWriteFile,
   pluginsFsWriteMkdir,
@@ -467,6 +468,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
       writeFile: pluginsFsWriteFile,
       appendLine: pluginsFsWriteAppend,
       move: pluginsFsWriteMove,
+      copyDir: pluginsFsWriteCopyDir,
     },
     fs: {
       readDir: (path, scope) =>

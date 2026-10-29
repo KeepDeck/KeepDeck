@@ -38,9 +38,14 @@ nothing is installed on the user's side.
 - MCP servers travel in the same `OPENCODE_CONFIG_CONTENT`.
 - Skills come through `OPENCODE_CONFIG_DIR` as an env default on 1.x. The
   plugin builds that directory itself in its own workspace directory
-  (`src/layout.ts`: `config/skills/<name>/SKILL.md` and a `/name` palette
-  command per skill under `config/command/`, each subtree published whole),
-  and `src/warm.ts` makes sure its dependencies are installed. The config
+  (`src/layout.ts`: `config/skills/`, a copy of the host's staged skills
+  view made with `fsWrite.copyDir`, and a `/name` palette command per skill
+  under `config/command/`, each subtree published whole), and `src/warm.ts`
+  makes sure its dependencies are installed. The copy carries every file
+  beside each `SKILL.md`; between plugin API 73 and 74 the skills were
+  written from their text alone, and 1.x lost their references and scripts
+  (task-545). `skills.paths` would point 1.x at the view with no copy, but
+  1.0–1.2 do not know the key. The config
   home builds before plugin API 73 made under the host's skills directory is
   deleted once, at startup (`src-tauri/src/plantings_migration.rs`): opencode's
   login and sessions live in `~/.local/share/opencode` and stay; what its own

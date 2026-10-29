@@ -22,9 +22,15 @@ Nothing is written to `~/.claude`.
   through. `statusLine` takes no `args`, so it stays a shell string.
 - `--plugin-dir <dir>` loads the shared skills as a local plugin. The plugin
   builds that directory itself in its own workspace directory
-  (`src/skillsPlugin.ts`: `.claude-plugin/plugin.json` and
-  `skills/<name>/SKILL.md`, published whole). It is additive next to the
-  user's installed plugins, and the skills appear as `keepdeck-skills:<name>`.
+  (`src/skillsPlugin.ts`: `.claude-plugin/plugin.json` and `skills/`, a copy
+  of the host's staged skills view made with `fsWrite.copyDir`, published
+  whole). The copy carries every file beside each `SKILL.md`; between plugin
+  API 73 and 74 the directory was built from each `SKILL.md`'s text, and
+  claude lost a skill's references and scripts (task-545). A symlink to the
+  view would not do: claude 2.1.312's own check of a plugin folder does not
+  count a skill reached through one (read in the binary, not probed). It is
+  additive next to the user's installed plugins, and the skills appear as
+  `keepdeck-skills:<name>`.
 - A second `--plugin-dir` loads KeepDeck's Mod (`resources/keepdeck-mod`,
   plugin `keepdeck-reporter`), and the inline settings keep it on with
   `enabledPlugins: {"keepdeck-reporter@inline": true}` even where the user

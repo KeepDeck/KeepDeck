@@ -283,6 +283,7 @@ pub fn run() {
             plugins_fs_write::plugins_fs_write_append,
             plugins_fs_write::plugins_fs_write_remove,
             plugins_fs_write::plugins_fs_write_move,
+            plugins_fs_write::plugins_fs_write_copy_dir,
             plugin_workspaces::plugin_workspace_dir,
             plugin_workspaces::plugin_workspaces_prune,
             cwd_arm::cwd_arm,

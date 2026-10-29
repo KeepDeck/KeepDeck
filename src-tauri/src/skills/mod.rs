@@ -23,7 +23,7 @@ mod gates;
 mod library;
 mod staging;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Re-exported for the command signatures below and for `lib.rs`'s managed
 // state; each shape is DEFINED beside the code that produces it, so a change
@@ -173,6 +173,15 @@ pub fn skills_stage(
 #[tauri::command(async)]
 pub fn skills_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
     staging::prune_views(&skills_root()?, &live_ws_ids).map_err(|e| e.to_string())
+}
+
+/// Run `read` while the staged view holding `path` (a real path) stays whole
+/// and in place: no staging of its workspace swaps it meanwhile. `None` when
+/// `path` is inside no staged view.
+pub(crate) fn reading_staged_view<T>(locks: &SkillsLocks, path: &Path, read: impl FnOnce() -> T) -> Option<T> {
+    let staging = std::fs::canonicalize(skills_root().ok()?.join("staging")).ok()?;
+    let ws_id = staging::view_workspace(&staging, path)?;
+    Some(locks.holding(&ws_id, read))
 }
 
 fn skills_root() -> Result<PathBuf, String> {

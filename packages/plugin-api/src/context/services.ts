@@ -283,6 +283,14 @@ export interface PluginFsWrite {
    * parents are created; a symlink moves as a link. Both ends must sit
    * inside the plugin's write roots, neither may be one. */
   move(src: string, dst: string): Promise<void>;
+  /** Copy a directory tree to `dst`, which must not exist yet (API 74) — how
+   * a plugin builds its CLI's layout from the staged skills
+   * (`SpawnSkillsInput.dir`) with every file beside each SKILL.md, binary or
+   * not. `src` is a staged skills view or lies inside the plugin's write
+   * roots; `dst` lies inside them and is not one. The copy is owner-only, a
+   * runnable file stays runnable. A source holding a symlink, or
+   * more than 10 000 entries or 256 MiB, is refused with nothing written. */
+  copyDir(src: string, dst: string): Promise<void>;
 }
 
 /** A single parameterized SELECT against a declared store database, opened

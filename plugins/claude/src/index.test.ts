@@ -67,6 +67,7 @@ function activate(
         // What the skills plugin directory is built with; its bytes are
         // skillsPlugin.test.ts's to pin.
         writeFile: async () => {},
+        copyDir: async () => {},
         move: async () => {},
       },
       sessionStore: { read: absent("sessionStore") },
@@ -295,8 +296,8 @@ describe("claude plugin hooks", () => {
 
   it("shared skills load as a local plugin it builds, via --plugin-dir", async () => {
     const agent = activate(SESSION_HOOK);
-    // The plugin's own directory, built from the skills as text — not the
-    // host's bare view.
+    // The plugin's own directory, holding a copy of the host's bare view —
+    // not the view itself.
     const plugin = "/pw/keepdeck.claude/ws-1/plugin";
     const skills = {
       dir: "/kd/staging/ws-1/skills",

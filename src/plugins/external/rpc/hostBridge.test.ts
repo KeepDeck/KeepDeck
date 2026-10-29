@@ -132,6 +132,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         writeFile: async () => {},
         appendLine: async () => {},
         move: async () => {},
+        copyDir: async () => {},
       },
       git: {
         status: async () => ({

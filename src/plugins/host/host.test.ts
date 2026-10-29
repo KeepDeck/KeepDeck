@@ -78,6 +78,7 @@ function fakeDeps() {
       writeFile: vi.fn(() => Promise.resolve()),
       appendLine: vi.fn(() => Promise.resolve()),
       move: vi.fn(() => Promise.resolve()),
+      copyDir: vi.fn(() => Promise.resolve()),
     },
     git: {
       status: vi.fn(),

@@ -15,16 +15,19 @@
 //!
 //! The roots are the PLUGIN'S, looked up here by its id in its grant
 //! ([`PluginGrants::write_roots`]: its declared prefixes and the workspace
-//! directories it was handed) — never taken from the caller.
+//! directories it was handed) — never taken from the caller. A copy reads
+//! only inside them, except `copyDir`, which may also read the skills views
+//! the host staged: what a plugin builds its CLI's layout from.
 
 use std::fs::{self, OpenOptions};
-use std::io::{ErrorKind, Write as _};
+use std::io::{self, ErrorKind, Write as _};
 use std::path::{Component, Path, PathBuf};
 
 use tauri::State;
 
 use crate::containment::expand_home;
 use crate::plugin_permissions::PluginGrants;
+use crate::skills::SkillsLocks;
 
 #[tauri::command(async)]
 pub fn plugins_fs_write_mkdir(grants: State<'_, PluginGrants>, plugin_id: String, path: String) -> Result<(), String> {
@@ -79,6 +82,18 @@ pub fn plugins_fs_write_move(
 ) -> Result<(), String> {
     let roots = roots_of(&grants, &plugin_id, "move", &dst)?;
     move_entry(src, dst, roots)
+}
+
+#[tauri::command(async)]
+pub fn plugins_fs_write_copy_dir(
+    grants: State<'_, PluginGrants>,
+    locks: State<'_, SkillsLocks>,
+    plugin_id: String,
+    src: String,
+    dst: String,
+) -> Result<(), String> {
+    let roots = roots_of(&grants, &plugin_id, "copyDir", &dst)?;
+    copy_dir(&src, &dst, &roots, &locks)
 }
 
 /// Where `plugin_id` may write, or a refusal naming the call.
@@ -308,6 +323,119 @@ fn swap(a: &Path, b: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// How much one `copyDir` may copy: far above any skill library, low enough
+/// that one call cannot fill a disk.
+const COPY_MAX_ENTRIES: usize = 10_000;
+const COPY_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Copy a directory tree to a NEW entry — how a plugin builds its CLI's layout
+/// from the skills the host staged, with the files beside each SKILL.md and
+/// the scripts still runnable. The destination is proven like `move`'s and
+/// must not exist: a copy never merges into or writes over anything. The
+/// source is a staged skills view, read while no staging can swap it, or
+/// lies inside the plugin's own roots; nothing else is readable this way.
+fn copy_dir(src: &str, dst: &str, roots: &[String], locks: &SkillsLocks) -> Result<(), String> {
+    let to = resolve_entry(dst, roots, "copyDir")?;
+    let from = realize(&PathBuf::from(expand_home(src)?)).map_err(|e| format!("fsWrite.copyDir: {src}: {e}"))?;
+    if to.path.starts_with(&from) {
+        return Err(format!("fsWrite.copyDir: {} cannot be copied into itself", from.display()));
+    }
+    if let Some(copied) = crate::skills::reading_staged_view(locks, &from, || copy_tree(&from, &to)) {
+        return copied;
+    }
+    if resolve_write(src, roots).is_err() {
+        return Err(format!("fsWrite.copyDir: {src} is outside what this plugin may copy from"));
+    }
+    copy_tree(&from, &to)
+}
+
+/// The whole tree is surveyed before anything is written, so a source that
+/// holds a link, something that is neither a file nor a directory, or more
+/// than a copy may carry is refused with nothing written. What the copy
+/// makes is owner-only, and a runnable file stays runnable by its owner. A
+/// copy that fails halfway takes back what it wrote.
+fn copy_tree(from: &Path, to: &WriteTarget) -> Result<(), String> {
+    let entries = survey(from)?;
+    if let Some(dir) = to.path.parent() {
+        create_dirs_owner_only(dir, &to.root)?;
+    }
+    fs::create_dir(&to.path).map_err(|e| format!("fsWrite.copyDir: {}: {e}", to.path.display()))?;
+    restrict_dir(&to.path);
+    let copied = entries.iter().try_for_each(|entry| entry.place(from, &to.path));
+    if copied.is_err() {
+        let _ = fs::remove_dir_all(&to.path);
+    }
+    copied.map_err(|e| format!("fsWrite.copyDir: {e}"))
+}
+
+/// One entry of a copy, by its path inside the tree.
+struct CopiedEntry {
+    rel: PathBuf,
+    /// `None` for a directory, else the mode its copy is made with.
+    file_mode: Option<u32>,
+}
+
+impl CopiedEntry {
+    fn place(&self, from: &Path, to: &Path) -> Result<(), String> {
+        use std::os::unix::fs::OpenOptionsExt;
+        let (source, target) = (from.join(&self.rel), to.join(&self.rel));
+        let made = match self.file_mode {
+            None => fs::create_dir(&target).map(|()| restrict_dir(&target)),
+            // A link put in a file's place after the survey is refused, not
+            // read through.
+            Some(mode) => OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&source)
+                .and_then(|mut file| {
+                    let mut copy = OpenOptions::new().write(true).create_new(true).mode(mode).open(&target)?;
+                    io::copy(&mut file, &mut copy).map(|_| ())
+                }),
+        };
+        made.map_err(|e| format!("{}: {e}", source.display()))
+    }
+}
+
+/// Every entry under `from`, each directory before what it holds.
+fn survey(from: &Path) -> Result<Vec<CopiedEntry>, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let refuse = |path: &Path, why: &str| format!("fsWrite.copyDir: {} {why} — nothing was copied", path.display());
+    let root = fs::symlink_metadata(from).map_err(|e| format!("fsWrite.copyDir: {}: {e}", from.display()))?;
+    if !root.is_dir() {
+        return Err(refuse(from, "is not a directory"));
+    }
+    let (mut entries, mut bytes) = (Vec::new(), 0u64);
+    let mut pending = vec![PathBuf::new()];
+    while let Some(dir) = pending.pop() {
+        let listing = fs::read_dir(from.join(&dir)).map_err(|e| format!("fsWrite.copyDir: {}: {e}", from.join(&dir).display()))?;
+        for entry in listing {
+            let entry = entry.map_err(|e| format!("fsWrite.copyDir: {e}"))?;
+            let rel = dir.join(entry.file_name());
+            // A directory entry's metadata does not follow a link.
+            let meta = entry.metadata().map_err(|e| format!("fsWrite.copyDir: {}: {e}", entry.path().display()))?;
+            let file_mode = if meta.is_dir() {
+                pending.push(rel.clone());
+                None
+            } else if meta.is_file() {
+                bytes += meta.len();
+                Some(if meta.permissions().mode() & 0o111 != 0 { EXEC_FILE_MODE } else { FILE_MODE })
+            } else if meta.file_type().is_symlink() {
+                return Err(refuse(&entry.path(), "is a symbolic link"));
+            } else {
+                return Err(refuse(&entry.path(), "is neither a file nor a directory"));
+            };
+            entries.push(CopiedEntry { rel, file_mode });
+            if entries.len() > COPY_MAX_ENTRIES || bytes > COPY_MAX_BYTES {
+                return Err(refuse(
+                    from,
+                    &format!("holds more than a copy may carry ({COPY_MAX_ENTRIES} entries, {COPY_MAX_BYTES} bytes)"),
+                ));
+            }
+        }
+    }
+    Ok(entries)
+}
+
 /// An entry proven by its parent, the name re-joined: realizing the entry
 /// itself would resolve a symlink to its target. A root is no entry.
 fn resolve_entry(path: &str, roots: &[String], op: &str) -> Result<WriteTarget, String> {
@@ -333,6 +461,8 @@ fn resolve_entry(path: &str, roots: &[String], op: &str) -> Result<WriteTarget, 
 /// the export was readable by every local user until the OS reaped it.
 const DIR_MODE: u32 = 0o700;
 const FILE_MODE: u32 = 0o600;
+/// A copied file its source marked runnable: runnable, by its owner alone.
+const EXEC_FILE_MODE: u32 = 0o700;
 
 /// Create `dir` and its missing ancestors, restricting ONLY what this call
 /// creates AT OR BELOW the declared root.
@@ -912,6 +1042,112 @@ mod tests {
         move_entry(s(&link), s(&moved), roots).unwrap();
         assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
         assert!(foreign.path().is_dir(), "the target stays where it was");
+    }
+
+    /// A skill as a library holds one: its SKILL.md, a reference beside it, a
+    /// script anyone may run and a file that is not text.
+    fn skill_tree(at: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(at.join("references")).unwrap();
+        fs::create_dir_all(at.join("scripts")).unwrap();
+        fs::write(at.join("SKILL.md"), "---\ndescription: Reviews\n---\n").unwrap();
+        fs::write(at.join("references/design-patterns.md"), "patterns").unwrap();
+        fs::write(at.join("scripts/run.sh"), "#!/bin/sh\necho hi\n").unwrap();
+        fs::set_permissions(at.join("scripts/run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(at.join("logo.png"), [0x89, b'P', 0x00, 0xff]).unwrap();
+    }
+
+    #[test]
+    fn copy_dir_copies_a_tree_whole_owner_only_with_its_scripts_runnable() {
+        let (dir, roots) = root();
+        let src = dir.path().join("built/review");
+        skill_tree(&src);
+        let dst = dir.path().join("layout/skills/review");
+        copy_dir(&s(&src), &s(&dst), &roots, &SkillsLocks::default()).unwrap();
+        assert_eq!(fs::read_to_string(dst.join("references/design-patterns.md")).unwrap(), "patterns");
+        assert_eq!(fs::read(dst.join("logo.png")).unwrap(), [0x89, b'P', 0x00, 0xff]);
+        assert_eq!(mode_of(&dst.join("scripts/run.sh")), EXEC_FILE_MODE);
+        assert_eq!(mode_of(&dst.join("SKILL.md")), FILE_MODE);
+        for made in [dir.path().join("layout"), dst.clone(), dst.join("references"), dst.join("scripts")] {
+            assert_eq!(mode_of(&made), DIR_MODE, "{}", made.display());
+        }
+    }
+
+    #[test]
+    fn copy_dir_reads_a_staged_skills_view_and_nothing_else_outside_the_plugins_roots() {
+        let (dir, roots) = root();
+        let staging = crate::paths::keepdeck_home().unwrap().join("skills/staging");
+        let view = staging.join("ws-1/skills");
+        skill_tree(&view.join("review"));
+        let locks = SkillsLocks::default();
+        copy_dir(&s(&view), &s(&dir.path().join("plugin/skills")), &roots, &locks).unwrap();
+        assert!(dir.path().join("plugin/skills/review/references/design-patterns.md").is_file());
+
+        // A build-aside, the folder around a view, and any other place are
+        // not views.
+        skill_tree(&staging.join(".tmp-ws-1/skills/review"));
+        let foreign = tempfile::tempdir().unwrap();
+        skill_tree(foreign.path());
+        for source in [staging.join(".tmp-ws-1/skills"), staging.join("ws-1"), foreign.path().to_path_buf()] {
+            let dst = dir.path().join("stolen");
+            let err = copy_dir(&s(&source), &s(&dst), &roots, &locks).unwrap_err();
+            assert!(err.contains("outside what this plugin may copy from"), "{err}");
+            assert!(!dst.exists());
+        }
+    }
+
+    #[test]
+    fn copy_dir_refuses_a_link_anywhere_in_the_source_and_writes_nothing() {
+        let (dir, roots) = root();
+        let src = dir.path().join("src");
+        skill_tree(&src);
+        let foreign = tempfile::tempdir().unwrap();
+        fs::write(foreign.path().join("secret"), "secret").unwrap();
+        std::os::unix::fs::symlink(foreign.path().join("secret"), src.join("references/leak.md")).unwrap();
+        let dst = dir.path().join("dst");
+        let err = copy_dir(&s(&src), &s(&dst), &roots, &SkillsLocks::default()).unwrap_err();
+        assert!(err.contains("leak.md is a symbolic link — nothing was copied"), "{err}");
+        assert!(!dst.exists(), "nothing was written");
+    }
+
+    #[test]
+    fn copy_dir_writes_into_nothing_that_exists_nor_into_itself() {
+        let (dir, roots) = root();
+        let src = dir.path().join("src");
+        skill_tree(&src);
+        let taken = dir.path().join("taken");
+        fs::create_dir(&taken).unwrap();
+        fs::write(taken.join("mine.txt"), "mine").unwrap();
+        let locks = SkillsLocks::default();
+        let err = copy_dir(&s(&src), &s(&taken), &roots, &locks).unwrap_err();
+        assert!(err.contains("exists"), "{err}");
+        assert_eq!(fs::read_dir(&taken).unwrap().count(), 1, "the existing directory is left as it was");
+        let err = copy_dir(&s(&src), &s(&src.join("copy")), &roots, &locks).unwrap_err();
+        assert!(err.contains("into itself"), "{err}");
+        let err = copy_dir(&s(&src.join("SKILL.md")), &s(&dir.path().join("file")), &roots, &locks).unwrap_err();
+        assert!(err.contains("not a directory"), "{err}");
+        assert!(copy_dir(&s(&src), &s(dir.path()), &roots, &locks).is_err(), "a root is no destination");
+    }
+
+    #[test]
+    fn copy_dir_refuses_a_tree_larger_than_a_copy_may_carry() {
+        let (dir, roots) = root();
+        let locks = SkillsLocks::default();
+        let big = dir.path().join("big");
+        fs::create_dir(&big).unwrap();
+        // Sparse: as large as the limit says, without the disk it names.
+        fs::File::create(big.join("huge.bin")).unwrap().set_len(COPY_MAX_BYTES + 1).unwrap();
+        let many = dir.path().join("many");
+        fs::create_dir(&many).unwrap();
+        for n in 0..=COPY_MAX_ENTRIES {
+            fs::File::create(many.join(n.to_string())).unwrap();
+        }
+        for src in [big, many] {
+            let dst = dir.path().join("dst");
+            let err = copy_dir(&s(&src), &s(&dst), &roots, &locks).unwrap_err();
+            assert!(err.contains("more than a copy may carry"), "{err}");
+            assert!(!dst.exists());
+        }
     }
 
     #[test]

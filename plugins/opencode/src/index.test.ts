@@ -51,6 +51,7 @@ function activate(
       fs: { readFile: absent("fs"), readDir: absent("fs"), ...services.fs },
       fsWrite: {
         writeFile: absent("fsWrite"),
+        copyDir: absent("fsWrite"),
         remove: absent("fsWrite"),
         move: absent("fsWrite"),
         ...services.fsWrite,
@@ -278,10 +279,10 @@ describe("opencode plugin hooks", () => {
   it("staged skills ride OPENCODE_CONFIG_DIR as an env DEFAULT, never an override", async () => {
     const noWrite = async () => {};
     const agent = activate("/App/resources", {
-      fsWrite: { writeFile: noWrite, remove: noWrite, move: noWrite },
+      fsWrite: { writeFile: noWrite, copyDir: noWrite, remove: noWrite, move: noWrite },
     });
-    // The plugin's own config dir, built in its workspace directory from the
-    // skills as text — not the host's bare view.
+    // The plugin's own config dir, built in its workspace directory around a
+    // copy of the host's bare view — not the view itself.
     const config = `/pw/keepdeck.opencode/${input.workspace.id}/config`;
     const skills = {
       dir: "/kd/staging/ws-1/skills",
@@ -641,7 +642,12 @@ describe("opencode plugin — warming the config dir", () => {
           },
         },
         exec: { runOnce },
-        fsWrite: { writeFile: async () => {}, remove: async () => {}, move: async () => {} },
+        fsWrite: {
+          writeFile: async () => {},
+          copyDir: async () => {},
+          remove: async () => {},
+          move: async () => {},
+        },
       },
     };
   }

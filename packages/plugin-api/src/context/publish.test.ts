@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { oneAtATime, publishFiles } from "./publish.ts";
+import { oneAtATime, publishCopy, publishFiles } from "./publish.ts";
 
 function recording() {
   const calls: string[] = [];
@@ -7,6 +7,7 @@ function recording() {
     calls,
     fsWrite: {
       writeFile: async (path: string, text: string) => void calls.push(`write ${path} ${text}`),
+      copyDir: async (src: string, dst: string) => void calls.push(`copy ${src} -> ${dst}`),
       remove: async (path: string) => void calls.push(`remove ${path}`),
       move: async (src: string, dst: string) => void calls.push(`move ${src} -> ${dst}`),
     },
@@ -14,26 +15,40 @@ function recording() {
 }
 
 describe("publishFiles", () => {
-  it("clears a stale build, writes every file aside, then replaces the directory whole", async () => {
+  it("clears a stale build, writes every entry aside, then replaces the directory whole", async () => {
     const r = recording();
     await publishFiles(r.fsWrite, "/d/plugin", [
       { path: ".claude-plugin/plugin.json", text: "{}" },
-      { path: "skills/a/SKILL.md", text: "A" },
+      { path: "skills", from: "/staging/ws-1/skills" },
     ]);
     expect(r.calls).toEqual([
       "remove /d/plugin.tmp",
       "write /d/plugin.tmp/.claude-plugin/plugin.json {}",
-      "write /d/plugin.tmp/skills/a/SKILL.md A",
+      "copy /staging/ws-1/skills -> /d/plugin.tmp/skills",
       "move /d/plugin.tmp -> /d/plugin",
     ]);
   });
 
   it("refuses a path that would leave the directory, before anything is published", async () => {
-    for (const path of ["../escape", "a/../../b", "/abs", "a//b"]) {
-      const r = recording();
-      await expect(publishFiles(r.fsWrite, "/d/x", [{ path, text: "" }])).rejects.toThrow("not a path inside");
-      expect(r.calls.some((call) => call.startsWith("move"))).toBe(false);
+    for (const path of ["../escape", "a/../../b", "/abs", "a//b", ""]) {
+      for (const entry of [{ path, text: "" }, { path, from: "/staging/ws-1/skills" }]) {
+        const r = recording();
+        await expect(publishFiles(r.fsWrite, "/d/x", [entry])).rejects.toThrow("not a path inside");
+        expect(r.calls).toEqual(["remove /d/x.tmp"]);
+      }
     }
+  });
+});
+
+describe("publishCopy", () => {
+  it("publishes a directory that is one copy, built aside and moved over the old one", async () => {
+    const r = recording();
+    await publishCopy(r.fsWrite, "/d/config/skills", "/staging/ws-1/skills");
+    expect(r.calls).toEqual([
+      "remove /d/config/skills.tmp",
+      "copy /staging/ws-1/skills -> /d/config/skills.tmp",
+      "move /d/config/skills.tmp -> /d/config/skills",
+    ]);
   });
 });
 

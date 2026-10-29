@@ -38,6 +38,12 @@ export function pluginsFsWriteMove(pluginId: string, src: string, dst: string): 
   return invoke("plugins_fs_write_move", { pluginId, src, dst });
 }
 
+/** The source may also be a staged skills view — the one place outside its
+ * own roots a plugin may copy from. */
+export function pluginsFsWriteCopyDir(pluginId: string, src: string, dst: string): Promise<void> {
+  return invoke("plugins_fs_write_copy_dir", { pluginId, src, dst });
+}
+
 export function pluginsFsWriteAppend(pluginId: string, path: string, line: string): Promise<void> {
   return invoke("plugins_fs_write_append", { pluginId, path, line });
 }

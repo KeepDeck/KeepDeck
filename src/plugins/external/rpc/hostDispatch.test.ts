@@ -81,7 +81,7 @@ describe("workspace storage over the RPC seam", () => {
   });
 });
 
-describe("workspace directories and moves over the RPC seam", () => {
+describe("workspace directories, moves and copies over the RPC seam", () => {
   it("asks for a directory by the exact workspace lifetime, and refuses a bare id", async () => {
     const dir = vi.fn(async () => "/home/plugin-workspaces/p/ws-1");
     const dispatch = createHostDispatch(fakePluginContext({ workspaces: { dir } }), () => {});
@@ -99,6 +99,15 @@ describe("workspace directories and moves over the RPC seam", () => {
     expect(move).toHaveBeenCalledWith("/a", "/b");
     await expect(dispatch.call("services.fsWrite.move", ["/a", 7])).rejects.toThrow();
     expect(move).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries a directory copy's two paths, and only strings", async () => {
+    const copyDir = vi.fn(async () => {});
+    const dispatch = createHostDispatch(fakePluginContext({ services: { fsWrite: { copyDir } } }), () => {});
+    await dispatch.call("services.fsWrite.copyDir", ["/staged/skills", "/built/skills"]);
+    expect(copyDir).toHaveBeenCalledWith("/staged/skills", "/built/skills");
+    await expect(dispatch.call("services.fsWrite.copyDir", [7, "/built/skills"])).rejects.toThrow();
+    expect(copyDir).toHaveBeenCalledTimes(1);
   });
 });
 

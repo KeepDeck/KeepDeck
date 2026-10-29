@@ -237,7 +237,7 @@ async function skillsArgs(
 ): Promise<string[]> {
   if (!input.skills) return [];
   try {
-    return ["--plugin-dir", await ctx.skillsPlugin.build(input.workspace, input.skills.skills)];
+    return ["--plugin-dir", await ctx.skillsPlugin.build(input.workspace, input.skills.dir)];
   } catch (e) {
     ctx.log.warn(`skills plugin not built; launching without skills: ${errorMessage(e)}`);
     return [];

@@ -50,6 +50,9 @@ function recordingWrites() {
         calls.push(`write ${path}`);
         files.set(path, text);
       },
+      copyDir: async (src: string, dst: string) => {
+        calls.push(`copy ${src} -> ${dst}`);
+      },
       remove: async (path: string) => {
         calls.push(`remove ${path}`);
       },
@@ -65,28 +68,29 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
     workspaces: { dir: async (ws: { id: string }) => `/pw/keepdeck.opencode/${ws.id}` },
     services: { fsWrite },
   });
+  const dir = "/kd/skills/staging/ws-1/skills";
   const skills = [
     { name: "alpha", content: "---\ndescription: First\n---\nA\n" },
     { name: "review", content: "---\ndescription: Reviews\n---\nR\n" },
   ];
+  const staged = (picked = skills) => ({ dir, skills: picked });
 
   it("builds both subtrees aside in the plugin's own directory and publishes each whole", async () => {
     const w = recordingWrites();
-    const dir = await skillsConfigDirs(ports(w.fsWrite)).build(workspace, skills);
+    const built = await skillsConfigDirs(ports(w.fsWrite)).build(workspace, staged());
     const config = "/pw/keepdeck.opencode/ws-1/config";
-    expect(dir).toBe(config);
+    expect(built).toBe(config);
     expect(w.calls).toEqual([
       `remove ${config}/skills.tmp`,
-      `write ${config}/skills.tmp/alpha/SKILL.md`,
-      `write ${config}/skills.tmp/review/SKILL.md`,
+      // The staged view whole: every file beside each SKILL.md comes along.
+      `copy ${dir} -> ${config}/skills.tmp`,
       `move ${config}/skills.tmp -> ${config}/skills`,
       `remove ${config}/command.tmp`,
       `write ${config}/command.tmp/alpha.md`,
       `write ${config}/command.tmp/review.md`,
       `move ${config}/command.tmp -> ${config}/command`,
     ]);
-    // The skill byte for byte; its command points at where the skill LANDS.
-    expect(w.files.get(`${config}/skills.tmp/review/SKILL.md`)).toBe(skills[1].content);
+    // Each command points at where its skill LANDS.
     expect(w.files.get(`${config}/command.tmp/review.md`)).toContain(`read ${config}/skills/review/SKILL.md and`);
   });
 
@@ -104,8 +108,8 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
       return slowMove(src, dst);
     };
     const dirs = skillsConfigDirs(ports(w.fsWrite));
-    const a = dirs.build(workspace, skills.slice(0, 1));
-    const b = dirs.build(workspace, skills.slice(1));
+    const a = dirs.build(workspace, staged(skills.slice(0, 1)));
+    const b = dirs.build(workspace, staged(skills.slice(1)));
     await new Promise((resolve) => setTimeout(resolve, 5));
     // The second build has not started: its cleanup would have run by now.
     expect(w.calls.filter((call) => call.startsWith("remove"))).toHaveLength(1);
@@ -118,7 +122,7 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
     const w = recordingWrites();
     const failing = { ...w.fsWrite, move: async () => Promise.reject(new Error("disk full")) };
     const dirs = skillsConfigDirs({ ...ports(w.fsWrite), services: { fsWrite: failing } });
-    await expect(dirs.build(workspace, skills)).rejects.toThrow("disk full");
-    await expect(dirs.build(workspace, skills)).rejects.toThrow("disk full");
+    await expect(dirs.build(workspace, staged())).rejects.toThrow("disk full");
+    await expect(dirs.build(workspace, staged())).rejects.toThrow("disk full");
   });
 });

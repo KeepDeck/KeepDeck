@@ -6,7 +6,8 @@
 //! — the bare standard layout (`<skill>/SKILL.md` at top level) — and each
 //! staged SKILL.md as text beside it. A CLI that takes a skills directory is
 //! pointed at the view; any other layout a CLI reads is its plugin's to
-//! build, from the text, in the plugin's own workspace directory.
+//! build in its own workspace directory, from the text or from a copy of the
+//! view (`fsWrite.copyDir`, which reads it while no staging can swap it).
 
 use std::fs;
 use std::io::{self, ErrorKind};
@@ -48,6 +49,22 @@ impl SkillsLocks {
     fn acquire<'a>(&self, lock: &'a std::sync::Mutex<()>) -> std::sync::MutexGuard<'a, ()> {
         self.inner.acquire(lock)
     }
+
+    /// Run `read` while no staging of `ws_id` runs: its view stays whole and
+    /// in place until `read` is done.
+    pub(crate) fn holding<T>(&self, ws_id: &str, read: impl FnOnce() -> T) -> T {
+        let lock = self.for_ws(ws_id);
+        let _held = self.acquire(&lock);
+        read()
+    }
+}
+
+/// The workspace whose published view, `<staging>/<ws>/skills`, holds `path`
+/// (both real paths). A build-aside (`.tmp-<ws>`, `.old-<ws>`) is no view.
+pub(super) fn view_workspace(staging: &Path, path: &Path) -> Option<String> {
+    let mut parts = path.strip_prefix(staging).ok()?.components();
+    let ws_id = parts.next()?.as_os_str().to_str()?;
+    (parts.next()?.as_os_str() == "skills" && !ws_id.starts_with('.')).then(|| ws_id.to_string())
 }
 
 /// A workspace's staging (mirrors the TS `SkillsStagingViews`, camelCase):
@@ -410,6 +427,42 @@ mod tests {
             // Whatever the interleaving, the published staging is complete.
             let staged = root.join("staging").join("ws-1");
             assert!(staged.join("skills").join("review").join(SKILL_FILE).exists());
+        }
+    }
+
+    #[test]
+    fn a_held_view_is_not_swapped_until_its_reader_is_done() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("old")).unwrap();
+        let locks = SkillsLocks::default();
+        let skill = PathBuf::from(staged(&root, "ws-1", &[], false, &[]).unwrap().dir).join("review").join(SKILL_FILE);
+        save(&global(&root), "review", &fm("new")).unwrap();
+        let restage = locks.holding("ws-1", || {
+            let (root, locks) = (root.clone(), locks.clone());
+            let restage = std::thread::spawn(move || stage(&locks, &root, "ws-1", &[], false, &[]).unwrap());
+            // Unheld, the stage would have swapped the view by now.
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            assert_eq!(fs::read_to_string(&skill).unwrap(), fm("old"), "the view moved under its reader");
+            restage
+        });
+        restage.join().unwrap();
+        assert_eq!(fs::read_to_string(&skill).unwrap(), fm("new"));
+    }
+
+    #[test]
+    fn only_a_published_view_is_a_view() {
+        let staging = Path::new("/home/skills/staging");
+        assert_eq!(view_workspace(staging, &staging.join("ws-1/skills")), Some("ws-1".into()));
+        assert_eq!(view_workspace(staging, &staging.join("ws-1/skills/review/scripts")), Some("ws-1".into()));
+        for path in [
+            staging.join(".tmp-ws-1/skills"),
+            staging.join(".old-ws-1/skills/review"),
+            staging.join("ws-1"),
+            staging.join("ws-1/other"),
+            staging.to_path_buf(),
+            PathBuf::from("/elsewhere/ws-1/skills"),
+        ] {
+            assert_eq!(view_workspace(staging, &path), None, "{}", path.display());
         }
     }
 
