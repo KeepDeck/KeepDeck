@@ -808,6 +808,37 @@ mod tests {
         server.stop();
     }
 
+    /// Media a page embeds plays: `<audio>`/`<video>` from a `data:` uri,
+    /// or from a `blob:` a script built. With no `media-src` the browser
+    /// fell back to `default-src 'none'` and refused every embedded sample
+    /// (MediaError 4), while images and fonts, named explicitly, loaded.
+    /// Embedded only: apart from its own events endpoint, no source lets a
+    /// page reach a host. The export carries the same policy (the test
+    /// above), so a saved file plays its media too.
+    #[test]
+    fn embedded_media_plays_and_nothing_is_fetched() {
+        let (server, store, _root, _dir) = fixture("media");
+        let token = publish(&store, "samples", b"<body><audio controls></audio></body>");
+        let (_, headers, _) = get(server.port(), &format!("/a/{token}/samples"));
+
+        let mut served = served_policy(&headers);
+        assert_eq!(
+            served.get("media-src").map(String::as_str),
+            Some("data: blob:"),
+            "embedded media must load: {headers}",
+        );
+        served.remove("connect-src");
+        for (directive, sources) in &served {
+            for source in sources.split_whitespace() {
+                assert!(
+                    ["'none'", "'unsafe-inline'", "data:", "blob:"].contains(&source),
+                    "{directive} {source} lets the page reach beyond itself",
+                );
+            }
+        }
+        server.stop();
+    }
+
     #[test]
     fn sse_subscriber_gets_live_updates_and_no_unsolicited_version() {
         let (server, store, _root, _dir) = fixture("sse");

@@ -14,10 +14,11 @@ const MIME_HTML: &str = "text/html";
 /// tab, or saved to a file by export. ONE policy for both: they were two
 /// strings once and drifted, and a page that looked right in the tab
 /// broke in the file it was saved to. Everything a page shows rides
-/// inside it (inline script and style, `data:` resources); nothing is
-/// fetched from anywhere. The live page adds exactly one source on top —
-/// its own events endpoint ([`artifact_csp`]).
-const PAGE_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'";
+/// inside it (inline script and style, `data:` resources, and the `blob:`
+/// media a script builds from them); nothing is fetched from anywhere.
+/// The live page adds exactly one source on top — its own events
+/// endpoint ([`artifact_csp`]).
+const PAGE_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data: blob:; base-uri 'none'; form-action 'none'";
 
 /// The per-artifact serving CSP — PATH-PINNED: the artifact's own events
 /// endpoint is the one connectable URL (never `'self'` — artifact A's JS
