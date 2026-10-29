@@ -140,7 +140,7 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
   return {
     id: "artifact.publish",
     title:
-      "Publish a presentation artifact (an html page) that opens in the user's browser and refreshes live as you iterate. Reach for it when the user asks to show/diagram/visualize something, or when reviewing a design together — the terminal stays the default output channel. The page must be fully self-contained (inline CSS/JS, no external fetches, images as data URIs) because it renders under a strict CSP. Print BOTH urls from the result so the user's scrollback is a recovery surface.",
+      "Publish a presentation artifact (an html page) that opens in the user's browser and refreshes live as you iterate. Reach for it when the user asks to show/diagram/visualize something, or when reviewing a design together — the terminal stays the default output channel. The page must be fully self-contained (inline CSS/JS, no external fetches, images, fonts, audio and video as data URIs) because it renders under a strict CSP. Print BOTH urls from the result so the user's scrollback is a recovery surface.",
     args: [
       {
         name: "id",
