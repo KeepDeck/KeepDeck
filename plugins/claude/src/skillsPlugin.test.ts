@@ -1,3 +1,4 @@
+import { publishingTree } from "@keepdeck/plugin-api/testing";
 import { describe, expect, it } from "vitest";
 import { SKILLS_PLUGIN_MANIFEST, skillsPluginDirs } from "./skillsPlugin";
 
@@ -35,5 +36,28 @@ describe("the skills plugin directory", () => {
       `copy /kd/skills/staging/ws-1/skills -> ${dir}.tmp/skills`,
       `move ${dir}.tmp -> ${dir}`,
     ]);
+  });
+
+  it("holds every file of every staged skill, and nothing a removed skill left", async () => {
+    const view = "/kd/skills/staging/ws-1/skills";
+    const tree = publishingTree({
+      [`${view}/review/SKILL.md`]: "---\ndescription: Reviews\n---\n",
+      [`${view}/review/references/design-patterns.md`]: "patterns",
+      [`${view}/review/scripts/run.sh`]: "#!/bin/sh\n",
+      "/pw/keepdeck.claude/ws-1/plugin/skills/gone/SKILL.md": "removed from the library",
+    });
+    const dirs = skillsPluginDirs({
+      workspaces: { dir: async (ws) => `/pw/keepdeck.claude/${ws.id}` },
+      services: { fsWrite: tree.fsWrite },
+    });
+    const dir = await dirs.build({ id: "ws-1", instance: "i-1" }, view);
+
+    expect(tree.files(dir)).toEqual([
+      ".claude-plugin/plugin.json",
+      "skills/review/SKILL.md",
+      "skills/review/references/design-patterns.md",
+      "skills/review/scripts/run.sh",
+    ]);
+    expect(tree.read(`${dir}/skills/review/references/design-patterns.md`)).toBe("patterns");
   });
 });

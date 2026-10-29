@@ -20,7 +20,7 @@ export interface PublishedCopy {
    * `..`. */
   path: string;
   /** The directory copied (`fsWrite.copyDir`). */
-  from: string;
+  copyOf: string;
 }
 
 /** What publishing needs of `services.fsWrite`. */
@@ -44,7 +44,7 @@ export async function publishFiles(
         throw new Error(`publishFiles: "${entry.path}" is not a path inside the directory`);
       }
       const at = `${tmp}/${entry.path}`;
-      await ("text" in entry ? fsWrite.writeFile(at, entry.text) : fsWrite.copyDir(entry.from, at));
+      await ("text" in entry ? fsWrite.writeFile(at, entry.text) : fsWrite.copyDir(entry.copyOf, at));
     }
   });
 }

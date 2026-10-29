@@ -289,7 +289,9 @@ export interface PluginFsWrite {
    * not. `src` is a staged skills view or lies inside the plugin's write
    * roots; `dst` lies inside them and is not one. The copy is owner-only, a
    * runnable file stays runnable. A source holding a symlink, or
-   * more than 10 000 entries or 256 MiB, is refused with nothing written. */
+   * more than 10 000 entries or 256 MiB, is refused with nothing written;
+   * one that changes while it is copied can fail the copy, which is then
+   * taken back, but never widen it. */
   copyDir(src: string, dst: string): Promise<void>;
 }
 

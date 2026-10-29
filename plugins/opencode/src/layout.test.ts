@@ -1,3 +1,5 @@
+import type { PublishingFsWrite } from "@keepdeck/plugin-api";
+import { publishingTree } from "@keepdeck/plugin-api/testing";
 import { describe, expect, it } from "vitest";
 import { paletteCommand, skillsConfigDirs } from "./layout";
 
@@ -64,7 +66,7 @@ function recordingWrites() {
 }
 
 describe("skillsConfigDirs — the 1.x config directory", () => {
-  const ports = (fsWrite: ReturnType<typeof recordingWrites>["fsWrite"]) => ({
+  const ports = (fsWrite: PublishingFsWrite) => ({
     workspaces: { dir: async (ws: { id: string }) => `/pw/keepdeck.opencode/${ws.id}` },
     services: { fsWrite },
   });
@@ -92,6 +94,29 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
     ]);
     // Each command points at where its skill LANDS.
     expect(w.files.get(`${config}/command.tmp/review.md`)).toContain(`read ${config}/skills/review/SKILL.md and`);
+  });
+
+  it("holds every file of every staged skill beside what opencode keeps there, and nothing a removed skill left", async () => {
+    const config = "/pw/keepdeck.opencode/ws-1/config";
+    const tree = publishingTree({
+      [`${dir}/review/SKILL.md`]: skills[1].content,
+      [`${dir}/review/references/design-patterns.md`]: "patterns",
+      [`${dir}/review/scripts/run.sh`]: "#!/bin/sh\n",
+      [`${config}/node_modules/plugin/index.js`]: "opencode's own",
+      [`${config}/skills/gone/SKILL.md`]: "removed from the library",
+      [`${config}/command/gone.md`]: "removed from the library",
+    });
+    await skillsConfigDirs(ports(tree.fsWrite)).build(workspace, staged([skills[1]]));
+
+    expect(tree.files(config)).toEqual([
+      "command/review.md",
+      "node_modules/plugin/index.js",
+      "skills/review/SKILL.md",
+      "skills/review/references/design-patterns.md",
+      "skills/review/scripts/run.sh",
+    ]);
+    // The command names a file that is there.
+    expect(tree.read(`${config}/command/review.md`)).toContain(`read ${config}/skills/review/SKILL.md and`);
   });
 
   it("builds one workspace's directory at a time — two launches never share a half-built set", async () => {

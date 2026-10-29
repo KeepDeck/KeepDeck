@@ -19,7 +19,7 @@ describe("publishFiles", () => {
     const r = recording();
     await publishFiles(r.fsWrite, "/d/plugin", [
       { path: ".claude-plugin/plugin.json", text: "{}" },
-      { path: "skills", from: "/staging/ws-1/skills" },
+      { path: "skills", copyOf: "/staging/ws-1/skills" },
     ]);
     expect(r.calls).toEqual([
       "remove /d/plugin.tmp",
@@ -31,7 +31,7 @@ describe("publishFiles", () => {
 
   it("refuses a path that would leave the directory, before anything is published", async () => {
     for (const path of ["../escape", "a/../../b", "/abs", "a//b", ""]) {
-      for (const entry of [{ path, text: "" }, { path, from: "/staging/ws-1/skills" }]) {
+      for (const entry of [{ path, text: "" }, { path, copyOf: "/staging/ws-1/skills" }]) {
         const r = recording();
         await expect(publishFiles(r.fsWrite, "/d/x", [entry])).rejects.toThrow("not a path inside");
         expect(r.calls).toEqual(["remove /d/x.tmp"]);

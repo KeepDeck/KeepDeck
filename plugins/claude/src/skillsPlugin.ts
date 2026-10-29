@@ -48,7 +48,7 @@ export function skillsPluginDirs(ctx: SkillsPluginPorts): SkillsPluginDirs {
     const dir = `${await ctx.workspaces.dir(workspace)}/plugin`;
     await publishFiles(ctx.services.fsWrite, dir, [
       { path: ".claude-plugin/plugin.json", text: SKILLS_PLUGIN_MANIFEST },
-      { path: "skills", from: skillsDir },
+      { path: "skills", copyOf: skillsDir },
     ]);
     return dir;
   }

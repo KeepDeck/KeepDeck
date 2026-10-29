@@ -321,9 +321,11 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<bool> {
 /// Drop the stagings of workspaces that no longer exist. `.tmp-<id>` /
 /// `.old-<id>` build leftovers follow the same liveness rule as the dirs
 /// themselves, so an in-flight stage of a LIVE workspace can never lose its
-/// build-aside dir to a concurrent prune. The library is user content and is
-/// never touched.
-pub(super) fn prune_views(root: &Path, live: &[String]) -> io::Result<()> {
+/// build-aside dir to a concurrent prune. A view is removed under its
+/// workspace's lock, like a stage swaps it, so a reader holding the view
+/// ([`SkillsLocks::holding`]) finishes first. The library is user content and
+/// is never touched.
+pub(super) fn prune_views(locks: &SkillsLocks, root: &Path, live: &[String]) -> io::Result<()> {
     for dir in sorted_dirs(&root.join("staging"))? {
         let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
         let id = name
@@ -335,7 +337,7 @@ pub(super) fn prune_views(root: &Path, live: &[String]) -> io::Result<()> {
         }
         // Best-effort per dir: one stubborn/racing directory must not abort
         // the sweep.
-        if let Err(e) = fs::remove_dir_all(&dir) {
+        if let Err(e) = locks.holding(id, || fs::remove_dir_all(&dir)) {
             log::warn!("skills: pruning {} failed: {e}", dir.display());
         }
     }
@@ -430,6 +432,20 @@ mod tests {
         }
     }
 
+    /// Run `work` on another thread, answering on the returned channel when
+    /// it is done.
+    fn on_a_thread(work: impl FnOnce() + Send + 'static) -> std::sync::mpsc::Receiver<()> {
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            work();
+            done.send(()).unwrap();
+        });
+        finished
+    }
+
+    /// Long enough for an unheld stage or prune of a tiny tree to finish.
+    const UNHELD: std::time::Duration = std::time::Duration::from_millis(300);
+
     #[test]
     fn a_held_view_is_not_swapped_until_its_reader_is_done() {
         let (_tmp, root) = root();
@@ -437,16 +453,32 @@ mod tests {
         let locks = SkillsLocks::default();
         let skill = PathBuf::from(staged(&root, "ws-1", &[], false, &[]).unwrap().dir).join("review").join(SKILL_FILE);
         save(&global(&root), "review", &fm("new")).unwrap();
-        let restage = locks.holding("ws-1", || {
+        let restaged = locks.holding("ws-1", || {
             let (root, locks) = (root.clone(), locks.clone());
-            let restage = std::thread::spawn(move || stage(&locks, &root, "ws-1", &[], false, &[]).unwrap());
-            // Unheld, the stage would have swapped the view by now.
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            let restaged = on_a_thread(move || drop(stage(&locks, &root, "ws-1", &[], false, &[]).unwrap()));
+            assert!(restaged.recv_timeout(UNHELD).is_err(), "the stage ran while the view was held");
             assert_eq!(fs::read_to_string(&skill).unwrap(), fm("old"), "the view moved under its reader");
-            restage
+            restaged
         });
-        restage.join().unwrap();
+        restaged.recv().unwrap();
         assert_eq!(fs::read_to_string(&skill).unwrap(), fm("new"));
+    }
+
+    #[test]
+    fn a_held_view_is_not_pruned_until_its_reader_is_done() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("x")).unwrap();
+        let locks = SkillsLocks::default();
+        let view = PathBuf::from(staged(&root, "ws-gone", &[], false, &[]).unwrap().dir);
+        let pruned = locks.holding("ws-gone", || {
+            let (root, locks) = (root.clone(), locks.clone());
+            let pruned = on_a_thread(move || prune_views(&locks, &root, &[]).unwrap());
+            assert!(pruned.recv_timeout(UNHELD).is_err(), "the prune ran while the view was held");
+            assert!(view.join("review").join(SKILL_FILE).is_file(), "the view went under its reader");
+            pruned
+        });
+        pruned.recv().unwrap();
+        assert!(!view.exists());
     }
 
     #[test]
@@ -517,7 +549,7 @@ mod tests {
         // A crash leftover of a dead workspace's build.
         fs::create_dir_all(root.join("staging").join(".tmp-ws-dead")).unwrap();
 
-        prune_views(&root, &["ws-live".into()]).unwrap();
+        prune_views(&SkillsLocks::default(), &root, &["ws-live".into()]).unwrap();
 
         assert!(root.join("staging").join("ws-live").exists());
         assert!(!root.join("staging").join("ws-dead").exists());

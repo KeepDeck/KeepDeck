@@ -303,8 +303,10 @@ export interface SpawnPlanInput {
 
 /** One staged skill as text: its SKILL.md byte for byte (API 71), read — when
  * a plugin must — with this package's SKILL.md codec. The text is the SKILL.md
- * alone: a layout written from it loses every file beside it, so a layout is
- * built from a copy of `SpawnSkillsInput.dir`. */
+ * alone: a layout that carries the skills themselves, written from it, loses
+ * every file beside it, so that layout is a copy of `SpawnSkillsInput.dir`.
+ * What is made from a skill's words (a palette command's description) comes
+ * from here. */
 export interface SpawnSkill {
   name: string;
   content: string;

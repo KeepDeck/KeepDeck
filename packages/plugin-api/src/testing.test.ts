@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fsStore, present } from "./testing.ts";
+import { fsStore, present, publishingTree } from "./testing.ts";
 
 /**
  * The double against the host it stands in for.
@@ -204,5 +204,41 @@ describe("present", () => {
   it("fails by name when it is not", () => {
     expect(() => present(null, "the save button")).toThrow("expected the save button, found none");
     expect(() => present(undefined, "row 3")).toThrow("expected row 3, found none");
+  });
+});
+
+/** Each case mirrors a test in `src-tauri/src/plugins_fs_write.rs`, named
+ * beside it, for the same reason as `fsStore`'s. */
+describe("publishingTree mirrors plugins_fs_write", () => {
+  /** Rust: copy_dir_copies_a_tree_whole_owner_only_with_its_scripts_runnable */
+  it("copies a directory whole, and only the directory", async () => {
+    const tree = publishingTree({ "/v/a/SKILL.md": "A", "/v/a/refs/x.md": "X", "/v-other/b": "B" });
+    await tree.fsWrite.copyDir("/v", "/out/skills");
+    expect(tree.files("/out")).toEqual(["skills/a/SKILL.md", "skills/a/refs/x.md"]);
+    await expect(tree.fsWrite.copyDir("/v/a/SKILL.md", "/out/file")).rejects.toThrow("not a directory");
+  });
+
+  /** Rust: copy_dir_writes_into_nothing_that_exists_nor_into_itself */
+  it("copies onto nothing that exists", async () => {
+    const tree = publishingTree({ "/v/a": "A", "/out/mine.txt": "mine" });
+    await expect(tree.fsWrite.copyDir("/v", "/out")).rejects.toThrow("already exists");
+    expect(tree.files("/out")).toEqual(["mine.txt"]);
+  });
+
+  /** Rust: move_publishes_a_built_directory_in_place_of_the_old_one */
+  it("moves a directory over the old one, of which nothing survives", async () => {
+    const tree = publishingTree({ "/p.tmp/new": "N", "/p/gone": "G" });
+    await tree.fsWrite.move("/p.tmp", "/p");
+    expect(tree.files("/p")).toEqual(["new"]);
+    expect(tree.files("/p.tmp")).toEqual([]);
+  });
+
+  /** Rust: remove_takes_a_file_or_a_whole_directory_and_is_idempotent */
+  it("removes a whole subtree, and nothing twice is no error", async () => {
+    const tree = publishingTree({ "/p/a/b": "B", "/p/c": "C", "/pa/d": "D" });
+    await tree.fsWrite.remove("/p/a");
+    await tree.fsWrite.remove("/p/a");
+    expect(tree.files("/p")).toEqual(["c"]);
+    expect(tree.read("/pa/d")).toBe("D");
   });
 });

@@ -17,6 +17,7 @@
  */
 
 import type { FsEntry, FsFile, PluginFs } from "./context/services.ts";
+import type { PublishingFsWrite } from "./context/publish.ts";
 
 /** The SKILL.md shapes the codec must carry, and the ones it must refuse to
  * re-author — one corpus for the codec's suite and every consumer's. */
@@ -160,6 +161,55 @@ function decodeText(window: Uint8Array): string | null {
   } catch {
     return null;
   }
+}
+
+/** A tree of files in memory behind the publishing half of `fsWrite`. */
+export interface PublishingTree {
+  fsWrite: PublishingFsWrite;
+  /** Every file under `dir`, by its path inside it, sorted. */
+  files(dir: string): string[];
+  /** The text of the file at `path`, if there is one. */
+  read(path: string): string | undefined;
+}
+
+/**
+ * What a directory a plugin publishes ends up HOLDING, under the host's rules
+ * for each call: a copy lands only where nothing is, a move replaces its
+ * destination whole, a removal takes a whole subtree and is no error when
+ * nothing is there. Files only — a directory is what holds them.
+ *
+ * Here so the plugins that publish a layout assert the layout itself, not
+ * the calls that build it: a call list pins one way of building, and passes
+ * for a layout that lands in the wrong place.
+ */
+export function publishingTree(files: Record<string, string> = {}): PublishingTree {
+  const tree = new Map(Object.entries(files));
+  const under = (dir: string) => [...tree.keys()].filter((path) => path.startsWith(`${dir}/`));
+  const take = (path: string) => {
+    tree.delete(path);
+    for (const inside of under(path)) tree.delete(inside);
+  };
+  const exists = (path: string) => tree.has(path) || under(path).length > 0;
+  return {
+    fsWrite: {
+      writeFile: async (path, text) => void tree.set(path, text),
+      copyDir: async (src, dst) => {
+        if (under(src).length === 0) throw new Error(`fsWrite.copyDir: ${src} is not a directory`);
+        if (exists(dst)) throw new Error(`fsWrite.copyDir: ${dst} already exists`);
+        for (const path of under(src)) tree.set(`${dst}${path.slice(src.length)}`, tree.get(path) ?? "");
+      },
+      remove: async (path) => take(path),
+      move: async (src, dst) => {
+        if (!exists(src)) throw new Error(`fsWrite.move: ${src}: no such entry`);
+        const moved = [...(tree.has(src) ? [src] : []), ...under(src)].map((path) => [path, tree.get(path) ?? ""] as const);
+        take(src);
+        take(dst);
+        for (const [path, text] of moved) tree.set(`${dst}${path.slice(src.length)}`, text);
+      },
+    },
+    files: (dir) => under(dir).map((path) => path.slice(dir.length + 1)).sort(),
+    read: (path) => tree.get(path),
+  };
 }
 
 /**

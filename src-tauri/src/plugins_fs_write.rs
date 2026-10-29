@@ -340,32 +340,51 @@ fn copy_dir(src: &str, dst: &str, roots: &[String], locks: &SkillsLocks) -> Resu
     if to.path.starts_with(&from) {
         return Err(format!("fsWrite.copyDir: {} cannot be copied into itself", from.display()));
     }
-    if let Some(copied) = crate::skills::reading_staged_view(locks, &from, || copy_tree(&from, &to)) {
+    if fs::symlink_metadata(&to.path).is_ok() {
+        return Err(format!("fsWrite.copyDir: {} already exists", to.path.display()));
+    }
+    let copy = || copy_tree(&from, &to);
+    if let Some(copied) = crate::skills::reading_staged_view(locks, &from, copy) {
         return copied;
     }
     if resolve_write(src, roots).is_err() {
         return Err(format!("fsWrite.copyDir: {src} is outside what this plugin may copy from"));
     }
-    copy_tree(&from, &to)
+    copy()
 }
 
 /// The whole tree is surveyed before anything is written, so a source that
 /// holds a link, something that is neither a file nor a directory, or more
-/// than a copy may carry is refused with nothing written. What the copy
-/// makes is owner-only, and a runnable file stays runnable by its owner. A
-/// copy that fails halfway takes back what it wrote.
+/// than a copy may carry is refused with nothing written.
 fn copy_tree(from: &Path, to: &WriteTarget) -> Result<(), String> {
     let entries = survey(from)?;
+    make(from, to, &entries)
+}
+
+/// Make the copy `survey` planned. The source is read beneath one handle on
+/// its root, so what changed since the survey can refuse the copy but never
+/// widen it: no link is followed on the way to a file, a FIFO is not waited
+/// on, and no more is written than a copy may carry. What it makes is
+/// owner-only, and a runnable file stays runnable by its owner. A copy that
+/// fails halfway removes the tree it was making.
+fn make(from: &Path, to: &WriteTarget, entries: &[CopiedEntry]) -> Result<(), String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let source = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(from)
+        .map_err(|e| format!("fsWrite.copyDir: {}: {e}", from.display()))?;
     if let Some(dir) = to.path.parent() {
         create_dirs_owner_only(dir, &to.root)?;
     }
     fs::create_dir(&to.path).map_err(|e| format!("fsWrite.copyDir: {}: {e}", to.path.display()))?;
     restrict_dir(&to.path);
-    let copied = entries.iter().try_for_each(|entry| entry.place(from, &to.path));
-    if copied.is_err() {
+    let mut budget = COPY_MAX_BYTES;
+    let made = entries.iter().try_for_each(|entry| entry.place(&source, from, &to.path, &mut budget));
+    if made.is_err() {
         let _ = fs::remove_dir_all(&to.path);
     }
-    copied.map_err(|e| format!("fsWrite.copyDir: {e}"))
+    made.map_err(|e| format!("fsWrite.copyDir: {e}"))
 }
 
 /// One entry of a copy, by its path inside the tree.
@@ -376,24 +395,66 @@ struct CopiedEntry {
 }
 
 impl CopiedEntry {
-    fn place(&self, from: &Path, to: &Path) -> Result<(), String> {
-        use std::os::unix::fs::OpenOptionsExt;
-        let (source, target) = (from.join(&self.rel), to.join(&self.rel));
-        let made = match self.file_mode {
-            None => fs::create_dir(&target).map(|()| restrict_dir(&target)),
-            // A link put in a file's place after the survey is refused, not
-            // read through.
-            Some(mode) => OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&source)
-                .and_then(|mut file| {
-                    let mut copy = OpenOptions::new().write(true).create_new(true).mode(mode).open(&target)?;
-                    io::copy(&mut file, &mut copy).map(|_| ())
-                }),
+    /// Make this entry's copy under `to`, reading it beneath `source` (the
+    /// tree's root, at `from`) and taking what it writes from `budget`.
+    fn place(&self, source: &fs::File, from: &Path, to: &Path, budget: &mut u64) -> Result<(), String> {
+        use std::io::Read as _;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let target = to.join(&self.rel);
+        let Some(mode) = self.file_mode else {
+            return fs::create_dir(&target)
+                .map(|()| restrict_dir(&target))
+                .map_err(|e| format!("{}: {e}", target.display()));
         };
-        made.map_err(|e| format!("{}: {e}", source.display()))
+        let named = from.join(&self.rel);
+        let fail = |e: io::Error| format!("{}: {e}", named.display());
+        let mut file = open_beneath(source, &self.rel).map_err(fail)?;
+        let meta = file.metadata().map_err(fail)?;
+        if !meta.is_file() {
+            return Err(format!("{} is no longer a file", named.display()));
+        }
+        if meta.len() > *budget {
+            return Err(format!("{} grew past what a copy may carry", named.display()));
+        }
+        let mut copy = OpenOptions::new().write(true).create_new(true).mode(mode).open(&target).map_err(fail)?;
+        // `mode` above passes through the umask; this is the mode meant.
+        copy.set_permissions(fs::Permissions::from_mode(mode)).map_err(fail)?;
+        let written = io::copy(&mut (&mut file).take(*budget + 1), &mut copy).map_err(fail)?;
+        if written > *budget {
+            return Err(format!("{} grew past what a copy may carry", named.display()));
+        }
+        *budget -= written;
+        Ok(())
     }
+}
+
+/// Open the file at `rel` inside the directory `dir` one name at a time,
+/// following no link at any step: a directory replaced by a link refuses the
+/// open instead of leading out of the tree. Non-blocking, so a FIFO answers at
+/// once (and is then refused as no file) rather than waiting for a writer.
+fn open_beneath(dir: &fs::File, rel: &Path) -> io::Result<fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    let mut parts = rel.components().peekable();
+    let mut at: Option<fs::File> = None;
+    while let Some(part) = parts.next() {
+        let Component::Normal(name) = part else {
+            return Err(io::Error::new(ErrorKind::InvalidInput, "not a plain relative path"));
+        };
+        let name = CString::new(name.as_bytes()).map_err(io::Error::other)?;
+        let step = if parts.peek().is_some() { libc::O_DIRECTORY } else { libc::O_NONBLOCK };
+        let base = at.as_ref().unwrap_or(dir).as_raw_fd();
+        // SAFETY: a NUL-terminated name and an open directory, both alive for
+        // the call.
+        let fd = unsafe { libc::openat(base, name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | step) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: a descriptor this call just opened, owned by nothing else.
+        at = Some(unsafe { fs::File::from_raw_fd(fd) });
+    }
+    at.ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "an empty path"))
 }
 
 /// Every entry under `from`, each directory before what it holds.
@@ -1126,7 +1187,118 @@ mod tests {
         assert!(err.contains("into itself"), "{err}");
         let err = copy_dir(&s(&src.join("SKILL.md")), &s(&dir.path().join("file")), &roots, &locks).unwrap_err();
         assert!(err.contains("not a directory"), "{err}");
-        assert!(copy_dir(&s(&src), &s(dir.path()), &roots, &locks).is_err(), "a root is no destination");
+        let err = copy_dir(&s(&src), &s(dir.path()), &roots, &locks).unwrap_err();
+        assert!(err.contains("outside the declared write prefixes"), "a root is no destination: {err}");
+    }
+
+    #[test]
+    fn copy_dir_says_why_a_source_is_no_path_at_all() {
+        let (dir, roots) = root();
+        let locks = SkillsLocks::default();
+        let dst = s(&dir.path().join("dst"));
+        let err = copy_dir("relative/skills", &dst, &roots, &locks).unwrap_err();
+        assert!(err.contains("must be absolute"), "{err}");
+        let err = copy_dir(&format!("{}/a/../skills", s(dir.path())), &dst, &roots, &locks).unwrap_err();
+        assert!(err.contains("must not contain .."), "{err}");
+    }
+
+    #[test]
+    fn copy_dir_refuses_a_fifo_in_the_source_and_writes_nothing() {
+        let (dir, roots) = root();
+        let src = dir.path().join("src");
+        skill_tree(&src);
+        let fifo = std::ffi::CString::new(s(&src.join("scripts/pipe"))).unwrap();
+        // SAFETY: a NUL-terminated path alive for the call.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let dst = dir.path().join("dst");
+        let err = copy_dir(&s(&src), &s(&dst), &roots, &SkillsLocks::default()).unwrap_err();
+        assert!(err.contains("pipe is neither a file nor a directory — nothing was copied"), "{err}");
+        assert!(!dst.exists());
+    }
+
+    /// What `survey` planned, then `edit` applied to the source before the
+    /// copy is made — the window a racing writer has.
+    fn made_after(src: &Path, dst: &Path, roots: &[String], edit: impl FnOnce()) -> Result<(), String> {
+        let entries = survey(src).unwrap();
+        edit();
+        make(src, &resolve_entry(&s(dst), roots, "copyDir").unwrap(), &entries)
+    }
+
+    #[test]
+    fn a_directory_turned_into_a_link_after_the_survey_is_not_read_through() {
+        let (dir, roots) = root();
+        let src = dir.path().join("src");
+        skill_tree(&src);
+        let elsewhere = tempfile::tempdir().unwrap();
+        fs::write(elsewhere.path().join("design-patterns.md"), "secret").unwrap();
+        let dst = dir.path().join("dst");
+        let made = made_after(&src, &dst, &roots, || {
+            fs::rename(src.join("references"), dir.path().join("aside")).unwrap();
+            std::os::unix::fs::symlink(elsewhere.path(), src.join("references")).unwrap();
+        });
+        assert!(made.is_err());
+        assert!(!dst.exists(), "the copy that failed is taken back");
+    }
+
+    #[test]
+    fn a_file_turned_into_a_fifo_after_the_survey_is_refused_at_once() {
+        let (dir, roots) = root();
+        let src = dir.path().join("src");
+        skill_tree(&src);
+        let dst = dir.path().join("dst");
+        let (done, outcome) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let made = made_after(&src, &dst, &roots, || {
+                fs::remove_file(src.join("SKILL.md")).unwrap();
+                let fifo = std::ffi::CString::new(s(&src.join("SKILL.md"))).unwrap();
+                // SAFETY: a NUL-terminated path alive for the call.
+                assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+            });
+            done.send((made, dst.exists())).unwrap();
+        });
+        // A blocking open would wait for a writer that never comes.
+        let (made, left) = outcome.recv_timeout(std::time::Duration::from_secs(10)).expect("the copy waited on a FIFO");
+        assert!(made.unwrap_err().contains("SKILL.md is no longer a file"));
+        assert!(!left);
+        drop(dir);
+    }
+
+    #[test]
+    fn a_file_grown_past_the_limit_after_the_survey_is_not_copied() {
+        let (dir, roots) = root();
+        let src = dir.path().join("src");
+        skill_tree(&src);
+        let dst = dir.path().join("dst");
+        let made = made_after(&src, &dst, &roots, || {
+            // Sparse: as large as the limit says, without the disk it names.
+            fs::OpenOptions::new().write(true).open(src.join("logo.png")).unwrap().set_len(COPY_MAX_BYTES + 1).unwrap();
+        });
+        assert!(made.unwrap_err().contains("logo.png grew past what a copy may carry"));
+        assert!(!dst.exists());
+    }
+
+    #[test]
+    fn copy_dir_reads_a_staged_view_only_while_no_stage_holds_it() {
+        let (dir, roots) = root();
+        let locks = SkillsLocks::default();
+        let dst = dir.path().join("plugin/skills");
+        let (done, copied) = std::sync::mpsc::channel();
+        locks.holding("ws-1", || {
+            let (copier, into) = (locks.clone(), dst.clone());
+            // Its own thread has its own test home, so it stages its view there.
+            std::thread::spawn(move || {
+                let view = crate::paths::keepdeck_home().unwrap().join("skills/staging/ws-1/skills");
+                skill_tree(&view.join("review"));
+                done.send(copy_dir(&s(&view), &s(&into), &roots, &copier)).unwrap();
+            });
+            assert!(
+                copied.recv_timeout(std::time::Duration::from_millis(300)).is_err(),
+                "the view was copied while a stage held it"
+            );
+            assert!(!dst.exists());
+        });
+        copied.recv().unwrap().unwrap();
+        assert!(dst.join("review/references/design-patterns.md").is_file());
     }
 
     #[test]
