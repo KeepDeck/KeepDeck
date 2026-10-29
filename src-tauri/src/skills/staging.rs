@@ -7,7 +7,8 @@
 //! staged SKILL.md as text beside it. A CLI that takes a skills directory is
 //! pointed at the view; any other layout a CLI reads is its plugin's to
 //! build in its own workspace directory, from the text or from a copy of the
-//! view (`fsWrite.copyDir`, which reads it while no staging can swap it).
+//! view (`fsWrite.copyDir`, which reads it while no stage can swap it and no
+//! prune remove it).
 
 use std::fs;
 use std::io::{self, ErrorKind};
@@ -432,14 +433,17 @@ mod tests {
         }
     }
 
-    /// Run `work` on another thread, answering on the returned channel when
-    /// it is done.
+    /// Run `work` on another thread, returning once that thread is running
+    /// and about to start it, with a channel answered when it is done.
     fn on_a_thread(work: impl FnOnce() + Send + 'static) -> std::sync::mpsc::Receiver<()> {
         let (done, finished) = std::sync::mpsc::channel();
+        let (ready, started) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
+            ready.send(()).unwrap();
             work();
             done.send(()).unwrap();
         });
+        started.recv().unwrap();
         finished
     }
 

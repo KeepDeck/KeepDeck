@@ -194,7 +194,9 @@ export function publishingTree(files: Record<string, string> = {}): PublishingTr
     fsWrite: {
       writeFile: async (path, text) => void tree.set(path, text),
       copyDir: async (src, dst) => {
-        if (under(src).length === 0) throw new Error(`fsWrite.copyDir: ${src} is not a directory`);
+        // The host copies an empty directory too; this double knows a
+        // directory only by its files, and says so rather than call it none.
+        if (under(src).length === 0) throw new Error(`fsWrite.copyDir: ${src} holds no file this double knows of`);
         if (exists(dst)) throw new Error(`fsWrite.copyDir: ${dst} already exists`);
         for (const path of under(src)) tree.set(`${dst}${path.slice(src.length)}`, tree.get(path) ?? "");
       },

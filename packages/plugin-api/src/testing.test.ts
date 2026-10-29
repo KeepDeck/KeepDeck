@@ -215,7 +215,7 @@ describe("publishingTree mirrors plugins_fs_write", () => {
     const tree = publishingTree({ "/v/a/SKILL.md": "A", "/v/a/refs/x.md": "X", "/v-other/b": "B" });
     await tree.fsWrite.copyDir("/v", "/out/skills");
     expect(tree.files("/out")).toEqual(["skills/a/SKILL.md", "skills/a/refs/x.md"]);
-    await expect(tree.fsWrite.copyDir("/v/a/SKILL.md", "/out/file")).rejects.toThrow("not a directory");
+    await expect(tree.fsWrite.copyDir("/v/a/SKILL.md", "/out/file")).rejects.toThrow("holds no file");
   });
 
   /** Rust: copy_dir_writes_into_nothing_that_exists_nor_into_itself */

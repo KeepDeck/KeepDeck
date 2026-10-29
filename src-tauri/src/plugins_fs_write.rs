@@ -332,7 +332,8 @@ const COPY_MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// from the skills the host staged, with the files beside each SKILL.md and
 /// the scripts still runnable. The destination is proven like `move`'s and
 /// must not exist: a copy never merges into or writes over anything. The
-/// source is a staged skills view, read while no staging can swap it, or
+/// source is a staged skills view, read while no stage can swap it and no
+/// prune remove it, or
 /// lies inside the plugin's own roots; nothing else is readable this way.
 fn copy_dir(src: &str, dst: &str, roots: &[String], locks: &SkillsLocks) -> Result<(), String> {
     let to = resolve_entry(dst, roots, "copyDir")?;
@@ -1236,7 +1237,9 @@ mod tests {
             fs::rename(src.join("references"), dir.path().join("aside")).unwrap();
             std::os::unix::fs::symlink(elsewhere.path(), src.join("references")).unwrap();
         });
-        assert!(made.is_err());
+        // Refused at the walk to the file under the swapped directory.
+        let err = made.unwrap_err();
+        assert!(err.contains("references/design-patterns.md: "), "{err}");
         assert!(!dst.exists(), "the copy that failed is taken back");
     }
 
@@ -1283,14 +1286,17 @@ mod tests {
         let locks = SkillsLocks::default();
         let dst = dir.path().join("plugin/skills");
         let (done, copied) = std::sync::mpsc::channel();
+        let (ready, started) = std::sync::mpsc::channel();
         locks.holding("ws-1", || {
             let (copier, into) = (locks.clone(), dst.clone());
             // Its own thread has its own test home, so it stages its view there.
             std::thread::spawn(move || {
                 let view = crate::paths::keepdeck_home().unwrap().join("skills/staging/ws-1/skills");
                 skill_tree(&view.join("review"));
+                ready.send(()).unwrap();
                 done.send(copy_dir(&s(&view), &s(&into), &roots, &copier)).unwrap();
             });
+            started.recv().unwrap();
             assert!(
                 copied.recv_timeout(std::time::Duration::from_millis(300)).is_err(),
                 "the view was copied while a stage held it"
