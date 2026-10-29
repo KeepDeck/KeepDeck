@@ -666,16 +666,22 @@ mod tests {
     /// not the contract.
     type Policy = BTreeMap<String, BTreeSet<String>>;
 
+    /// A repeated directive is refused, not folded: the browser enforces
+    /// the FIRST and ignores the rest, so a map that kept the last would
+    /// pin a policy no browser runs (`connect-src 'none'; connect-src
+    /// <events>` reads as subscribed here and refuses every subscription
+    /// there).
     fn policy(csp: &str) -> Policy {
-        csp.split(';')
-            .map(str::trim)
-            .filter(|directive| !directive.is_empty())
-            .map(|directive| {
-                let mut words = directive.split_whitespace();
-                let name = words.next().expect("a directive has a name").to_string();
-                (name, words.map(str::to_string).collect())
-            })
-            .collect()
+        let mut policy = Policy::new();
+        for directive in csp.split(';').map(str::trim).filter(|d| !d.is_empty()) {
+            let mut words = directive.split_whitespace();
+            let name = words.next().expect("a directive has a name").to_string();
+            let repeated = policy
+                .insert(name.clone(), words.map(str::to_string).collect())
+                .is_some();
+            assert!(!repeated, "{name} is named twice, the browser keeps the first: {csp}");
+        }
+        policy
     }
 
     /// The policy a served page carries in its header.
