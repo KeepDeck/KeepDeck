@@ -660,13 +660,40 @@ mod tests {
         (status, headers, body.as_bytes().to_vec())
     }
 
+    /// A CSP as the browser reads it: each directive's name → its sources.
+    fn policy(csp: &str) -> std::collections::BTreeMap<String, String> {
+        csp.split(';')
+            .map(str::trim)
+            .filter(|directive| !directive.is_empty())
+            .map(|directive| {
+                let (name, sources) = directive.split_once(' ').unwrap_or((directive, ""));
+                (name.to_string(), sources.trim().to_string())
+            })
+            .collect()
+    }
+
+    /// The policy a served page carries in its header.
+    fn served_policy(headers: &str) -> std::collections::BTreeMap<String, String> {
+        let csp = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-security-policy: "))
+            .expect("a served page carries a CSP header");
+        policy(csp)
+    }
+
+    /// The policy an export carries in its byte-zero meta.
+    fn exported_policy(body: &str) -> std::collections::BTreeMap<String, String> {
+        let open = "<meta http-equiv=\"Content-Security-Policy\" content=\"";
+        let at = body.find(open).expect("an export carries a meta CSP") + open.len();
+        let len = body[at..].find('"').expect("the meta CSP closes its content");
+        policy(&body[at..at + len])
+    }
+
     /// The `connect-src` value, as the browser would read it.
     fn connect_src(headers: &str) -> String {
-        let at = headers
-            .find("connect-src ")
-            .expect("the served CSP names connect-src");
-        let rest = &headers[at + "connect-src ".len()..];
-        rest.split(';').next().unwrap_or("").trim().to_string()
+        served_policy(headers)
+            .remove("connect-src")
+            .expect("the served CSP names connect-src")
     }
 
     /// THE CSP PIN — a source-expression, not a spelling.
@@ -759,6 +786,25 @@ mod tests {
             &text[..80.min(text.len())]
         );
         assert!(text.ends_with("late head</body><head>x</head></html>"));
+        server.stop();
+    }
+
+    /// A saved page renders what the served page rendered: the export's
+    /// policy IS the served one, minus the single source only a live page
+    /// has — its own events endpoint. The two used to be separate strings
+    /// and drifted: the export lost fonts, `base-uri` and `form-action`, so
+    /// a page that looked right in the tab broke in the file it was saved to.
+    #[test]
+    fn export_renders_under_the_served_policy_minus_the_subscription() {
+        let (server, store, _root, _dir) = fixture("export-policy");
+        let token = publish(&store, "report", b"<body><h1>report</h1></body>");
+        let (_, headers, _) = get(server.port(), &format!("/a/{token}/report"));
+        let (_, _, body) = get(server.port(), &format!("/a/{token}/report/export"));
+
+        let mut served = served_policy(&headers);
+        served.remove("connect-src").expect("a served page subscribes");
+        let exported = exported_policy(&String::from_utf8_lossy(&body));
+        assert_eq!(exported, served, "the export must carry the served policy");
         server.stop();
     }
 
