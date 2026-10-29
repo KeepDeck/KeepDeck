@@ -301,9 +301,12 @@ export interface SpawnPlanInput {
   cliVersion?: string;
 }
 
-/** One staged skill as text: its SKILL.md byte for byte (API 71). A plugin
- * that builds its CLI's own layout writes it as it is, and reads it — when it
- * must — with this package's SKILL.md codec. */
+/** One staged skill as text: its SKILL.md byte for byte (API 71), read — when
+ * a plugin must — with this package's SKILL.md codec. The text is the SKILL.md
+ * alone: a layout that carries the skills themselves, written from it, loses
+ * every file beside it, so the part of a layout that carries them is built
+ * from a copy of `SpawnSkillsInput.dir`. What is made from a skill's words (a
+ * palette command's description) comes from here. */
 export interface SpawnSkill {
   name: string;
   content: string;
@@ -313,8 +316,9 @@ export interface SpawnSkill {
  * (absolute paths), never the user's dotfiles or repo.
  *
  * A plugin points a CLI that takes a skills directory at `dir`, and builds
- * any other layout its CLI reads from `skills`, in its own workspace
- * directory (`ctx.workspaces`). */
+ * any other layout its CLI reads in its own workspace directory
+ * (`ctx.workspaces`), around a copy of `dir` (`fsWrite.copyDir`, API 74)
+ * that carries each skill's references, scripts and other files. */
 export interface SpawnSkillsInput {
   /** The bare standard layout: `<dir>/<name>/SKILL.md`. */
   dir: string;

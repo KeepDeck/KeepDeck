@@ -257,9 +257,12 @@ export type { PluginResources } from "./resources.ts";
 export type { PluginKV, PluginStorage, PluginWorkspaces } from "./storage.ts";
 export {
   oneAtATime,
+  publishCopy,
   publishFiles,
   type OneAtATime,
+  type PublishedCopy,
   type PublishedFile,
+  type PublishingFsWrite,
 } from "./publish.ts";
 export {
   composeSkillFile,

@@ -113,6 +113,7 @@ export function fakePluginContext(fake: PluginContextFake = {}): PluginContext {
         writeFile: unfaked("services.fsWrite.writeFile"),
         appendLine: unfaked("services.fsWrite.appendLine"),
         move: unfaked("services.fsWrite.move"),
+        copyDir: unfaked("services.fsWrite.copyDir"),
         ...services.fsWrite,
       },
       sqlite: { query: unfaked("services.sqlite.query"), ...services.sqlite },

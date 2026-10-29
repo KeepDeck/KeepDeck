@@ -5,6 +5,12 @@
  * written into `~/.claude` (probe-verified on 2.1.214: the skills load with
  * no consent prompt, named `keepdeck-skills:<name>`).
  *
+ * Its `skills/` is a copy of the staged view, so every file beside each
+ * SKILL.md comes along — the references and scripts a skill points its agent
+ * at, binary or not. A symlink to the view would not do: claude's own check
+ * of a plugin folder does not count a skill reached through one (read in the
+ * 2.1.312 binary).
+ *
  * The directory is published whole ([`publishFiles`]), one build at a time
  * per workspace, so a pane starting mid-rebuild loads the old set or the new
  * one, and a skill removed from the library is gone with the old set.
@@ -12,9 +18,8 @@
 import {
   oneAtATime,
   publishFiles,
-  type PluginFsWrite,
   type PluginWorkspaces,
-  type SpawnSkill,
+  type PublishingFsWrite,
   type WorkspaceRef,
 } from "@keepdeck/plugin-api";
 
@@ -27,25 +32,26 @@ export const SKILLS_PLUGIN_MANIFEST =
 /** What building the directory needs from the host. */
 export interface SkillsPluginPorts {
   workspaces: PluginWorkspaces;
-  services: { fsWrite: Pick<PluginFsWrite, "writeFile" | "remove" | "move"> };
+  services: { fsWrite: PublishingFsWrite };
 }
 
 export interface SkillsPluginDirs {
-  /** The workspace's skills plugin directory, holding exactly `skills`. */
-  build(workspace: WorkspaceRef, skills: readonly SpawnSkill[]): Promise<string>;
+  /** The workspace's skills plugin directory, holding exactly the skills
+   * staged in `skillsDir` (`SpawnSkillsInput.dir`). */
+  build(workspace: WorkspaceRef, skillsDir: string): Promise<string>;
 }
 
 export function skillsPluginDirs(ctx: SkillsPluginPorts): SkillsPluginDirs {
   const serial = oneAtATime();
 
-  async function build(workspace: WorkspaceRef, skills: readonly SpawnSkill[]): Promise<string> {
+  async function build(workspace: WorkspaceRef, skillsDir: string): Promise<string> {
     const dir = `${await ctx.workspaces.dir(workspace)}/plugin`;
     await publishFiles(ctx.services.fsWrite, dir, [
       { path: ".claude-plugin/plugin.json", text: SKILLS_PLUGIN_MANIFEST },
-      ...skills.map(({ name, content }) => ({ path: `skills/${name}/SKILL.md`, text: content })),
+      { path: "skills", copyOf: skillsDir },
     ]);
     return dir;
   }
 
-  return { build: (workspace, skills) => serial(workspace.id, () => build(workspace, skills)) };
+  return { build: (workspace, skillsDir) => serial(workspace.id, () => build(workspace, skillsDir)) };
 }

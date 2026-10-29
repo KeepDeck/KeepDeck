@@ -90,6 +90,7 @@ function fakeBackend() {
       writeFile: vi.fn(() => Promise.resolve()),
       appendLine: vi.fn(() => Promise.resolve()),
       move: vi.fn(() => Promise.resolve()),
+      copyDir: vi.fn(() => Promise.resolve()),
     },
     git: {
       status: vi.fn(async () => ({
@@ -872,6 +873,7 @@ describe("createCapabilityGate — fsWrite", () => {
     await gate.fsWrite.writeFile("/p", "text");
     await gate.fsWrite.appendLine("/p", "line");
     await gate.fsWrite.move("/built", "/live");
+    await gate.fsWrite.copyDir("/staged/skills", "/built/skills");
 
     expect(backend.fsWrite.mkdir).toHaveBeenCalledWith("p", "~/.claude/projects/-x");
     expect(backend.fsWrite.copyFile).toHaveBeenCalledWith("p", "/a", "/b", undefined);
@@ -881,6 +883,7 @@ describe("createCapabilityGate — fsWrite", () => {
     expect(backend.fsWrite.writeFile).toHaveBeenCalledWith("p", "/p", "text");
     expect(backend.fsWrite.appendLine).toHaveBeenCalledWith("p", "/p", "line");
     expect(backend.fsWrite.move).toHaveBeenCalledWith("p", "/built", "/live");
+    expect(backend.fsWrite.copyDir).toHaveBeenCalledWith("p", "/staged/skills", "/built/skills");
   });
 });
 

@@ -66,6 +66,7 @@ export interface FsWriteBackend {
   writeFile(pluginId: string, path: string, text: string): Promise<void>;
   appendLine(pluginId: string, path: string, line: string): Promise<void>;
   move(pluginId: string, src: string, dst: string): Promise<void>;
+  copyDir(pluginId: string, src: string, dst: string): Promise<void>;
 }
 
 /** The read-only SQL backend, mirroring [`FsWriteBackend`]: held natively to
@@ -350,6 +351,7 @@ export function createCapabilityGate(
       writeFile: (path, text) => backend.fsWrite.writeFile(manifest.id, path, text),
       appendLine: (path, line) => backend.fsWrite.appendLine(manifest.id, path, line),
       move: (src, dst) => backend.fsWrite.move(manifest.id, src, dst),
+      copyDir: (src, dst) => backend.fsWrite.copyDir(manifest.id, src, dst),
     },
     sqlite: {
       query: (dbPath, sql, params) => backend.sqlite.query(manifest.id, dbPath, sql, params ?? []),

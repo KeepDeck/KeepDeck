@@ -374,6 +374,7 @@ export function createFakeHost(
         writeFile: async () => {},
         appendLine: async () => {},
         move: async () => {},
+        copyDir: async () => {},
       },
       git: {
         status: async () => ({

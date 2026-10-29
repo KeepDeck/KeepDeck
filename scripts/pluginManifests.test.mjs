@@ -68,16 +68,23 @@ describe("built-in plugin manifests", () => {
     //
     // Checked by SYMBOL rather than by a hand-kept list: a plugin that starts
     // using one of these fails here until its floor moves.
-    const MAIL_SURFACE = /\b(renderMail|frameTeammateMail|cliVersion|\.standing\b|wake:)/;
-    const MAIL_API = 37;
+    //
+    // A directory copy (API 74) is the same class: an agent built on an older
+    // host would load and launch with no skills at all.
+    const SURFACES = [
+      { contract: "mail", symbols: /\b(renderMail|frameTeammateMail|cliVersion|\.standing\b|wake:)/, api: 37 },
+      { contract: "directory copy", symbols: /\b(copyDir|publishCopy|copyOf)\b/, api: 74 },
+    ];
     for (const path of MANIFESTS) {
       const { id, minApiVersion } = JSON.parse(readFileSync(path, "utf8"));
-      const uses = pluginSources(path).some((text) => MAIL_SURFACE.test(text));
-      if (!uses) continue;
-      expect(
-        minApiVersion,
-        `${path} (${id}) uses the mail contract but declares minApiVersion ${minApiVersion}`,
-      ).toBeGreaterThanOrEqual(MAIL_API);
+      const sources = pluginSources(path);
+      for (const { contract, symbols, api } of SURFACES) {
+        if (!sources.some((text) => symbols.test(text))) continue;
+        expect(
+          minApiVersion,
+          `${path} (${id}) uses the ${contract} contract but declares minApiVersion ${minApiVersion}`,
+        ).toBeGreaterThanOrEqual(api);
+      }
     }
   });
 

@@ -23,7 +23,7 @@ mod gates;
 mod library;
 mod staging;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Re-exported for the command signatures below and for `lib.rs`'s managed
 // state; each shape is DEFINED beside the code that produces it, so a change
@@ -171,8 +171,17 @@ pub fn skills_stage(
 /// Drop the stagings of workspaces that no longer exist. The library is user
 /// content and is never touched here.
 #[tauri::command(async)]
-pub fn skills_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
-    staging::prune_views(&skills_root()?, &live_ws_ids).map_err(|e| e.to_string())
+pub fn skills_prune(locks: tauri::State<'_, SkillsLocks>, live_ws_ids: Vec<String>) -> Result<(), String> {
+    staging::prune_views(&locks, &skills_root()?, &live_ws_ids).map_err(|e| e.to_string())
+}
+
+/// Run `read` while the staged view holding `path` (a real path) stays whole
+/// and in place: no stage swaps it and no prune removes it meanwhile. `None`
+/// when `path` is inside no staged view.
+pub(crate) fn reading_staged_view<T>(locks: &SkillsLocks, path: &Path, read: impl FnOnce() -> T) -> Option<T> {
+    let staging = std::fs::canonicalize(skills_root().ok()?.join("staging")).ok()?;
+    let ws_id = staging::view_workspace(&staging, path)?;
+    Some(locks.holding(&ws_id, read))
 }
 
 fn skills_root() -> Result<PathBuf, String> {
@@ -209,7 +218,7 @@ mod tests {
     #[test]
     fn prune_on_a_fresh_home_is_a_no_op() {
         let (_tmp, root) = root();
-        staging::prune_views(&root, &["ws-1".into()]).unwrap();
+        staging::prune_views(&SkillsLocks::default(), &root, &["ws-1".into()]).unwrap();
     }
 
     // ---- the refusal rule's three arms (design §4) + the bundled

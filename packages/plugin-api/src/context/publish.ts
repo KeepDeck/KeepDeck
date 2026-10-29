@@ -13,26 +13,57 @@ export interface PublishedFile {
   text: string;
 }
 
+/** A directory copied whole into a published one (API 74) — the staged
+ * skills, with every file beside each SKILL.md. */
+export interface PublishedCopy {
+  /** Where the copy lands: relative to the directory, `/`-separated, never
+   * `..`. */
+  path: string;
+  /** The directory copied (`fsWrite.copyDir`). */
+  copyOf: string;
+}
+
+/** What publishing needs of `services.fsWrite`. */
+export type PublishingFsWrite = Pick<PluginFsWrite, "writeFile" | "copyDir" | "remove" | "move">;
+
 /**
- * Make `dir` hold exactly `files`: built in `<dir>.tmp`, then moved over
+ * Make `dir` hold exactly `entries`: built in `<dir>.tmp`, then moved over
  * `dir` (`fsWrite.move` replaces it whole). A build an earlier run left
  * half-done is cleared first. Callers that may publish the same directory
  * concurrently order themselves ([`oneAtATime`]): two builds share the
  * build-aside directory.
  */
 export async function publishFiles(
-  fsWrite: Pick<PluginFsWrite, "writeFile" | "remove" | "move">,
+  fsWrite: PublishingFsWrite,
   dir: string,
-  files: readonly PublishedFile[],
+  entries: readonly (PublishedFile | PublishedCopy)[],
+): Promise<void> {
+  await publishAside(fsWrite, dir, async (tmp) => {
+    for (const entry of entries) {
+      if (entry.path.split("/").some((part) => part === ".." || part === "")) {
+        throw new Error(`publishFiles: "${entry.path}" is not a path inside the directory`);
+      }
+      const at = `${tmp}/${entry.path}`;
+      await ("text" in entry ? fsWrite.writeFile(at, entry.text) : fsWrite.copyDir(entry.copyOf, at));
+    }
+  });
+}
+
+/** Make `dir` an exact copy of the directory `from` (API 74), published like
+ * [`publishFiles`]. */
+export async function publishCopy(fsWrite: PublishingFsWrite, dir: string, from: string): Promise<void> {
+  await publishAside(fsWrite, dir, (tmp) => fsWrite.copyDir(from, tmp));
+}
+
+/** Build `dir` aside with `build`, then move it over `dir`. */
+async function publishAside(
+  fsWrite: PublishingFsWrite,
+  dir: string,
+  build: (tmp: string) => Promise<void>,
 ): Promise<void> {
   const tmp = `${dir}.tmp`;
   await fsWrite.remove(tmp);
-  for (const file of files) {
-    if (file.path.split("/").some((part) => part === ".." || part === "")) {
-      throw new Error(`publishFiles: "${file.path}" is not a path inside the directory`);
-    }
-    await fsWrite.writeFile(`${tmp}/${file.path}`, file.text);
-  }
+  await build(tmp);
   await fsWrite.move(tmp, dir);
 }
 

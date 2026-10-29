@@ -142,7 +142,7 @@ const skillsConfigDir = (ctx: LaunchPorts): OpencodeLaunch => ({
     if (!input.skills) return;
     let dir: string;
     try {
-      dir = await ctx.configDirs.build(input.workspace, input.skills.skills);
+      dir = await ctx.configDirs.build(input.workspace, input.skills);
     } catch (e) {
       ctx.log.warn(`skills config dir not built; launching without skills: ${errorMessage(e)}`);
       return;

@@ -3,12 +3,13 @@
  * workspace directory (`ctx.workspaces`) — `<dir>/config/`, the directory a
  * 1.x pane gets as `OPENCODE_CONFIG_DIR`.
  *
- * Each skill is carried twice: `skills/<name>/SKILL.md` for the model's own
- * `skill` tool, and `command/<name>.md`, a palette command, because opencode
- * lists no skills and has no slash form of its own — a loaded skill would be
- * invisible in its UI. The command's description is the skill's own and its
- * body POINTS AT the staged SKILL.md rather than inlining it, so it cannot go
- * stale when the skill is edited.
+ * Each skill is carried twice: `skills/<name>/`, a copy of its staged
+ * directory with every file beside its SKILL.md, for the model's own `skill`
+ * tool, and `command/<name>.md`, a palette command, because opencode lists no
+ * skills and has no slash form of its own — a loaded skill would be invisible
+ * in its UI. The command's description is the skill's own and its body POINTS
+ * AT the copied SKILL.md rather than inlining it, so it cannot go stale when
+ * the skill is edited.
  *
  * Only those two subtrees are ours. opencode treats the directory as a
  * writable home — it installs its plugin `node_modules` and drops account
@@ -20,17 +21,18 @@
 import {
   frontmatterLine,
   oneAtATime,
+  publishCopy,
   publishFiles,
-  type PluginFsWrite,
   type PluginWorkspaces,
-  type SpawnSkill,
+  type PublishingFsWrite,
+  type SpawnSkillsInput,
   type WorkspaceRef,
 } from "@keepdeck/plugin-api";
 
 /** What building the directory needs from the host. */
 export interface LayoutPorts {
   workspaces: PluginWorkspaces;
-  services: { fsWrite: Pick<PluginFsWrite, "writeFile" | "remove" | "move"> };
+  services: { fsWrite: PublishingFsWrite };
 }
 
 /** The palette command generated for one skill. Its description is the
@@ -45,9 +47,9 @@ export function paletteCommand(name: string, content: string, stagedSkill: strin
 }
 
 export interface SkillsConfigDirs {
-  /** The workspace's config directory, holding exactly `skills` — rebuilt,
-   * one build at a time per workspace. */
-  build(workspace: WorkspaceRef, skills: readonly SpawnSkill[]): Promise<string>;
+  /** The workspace's config directory, holding exactly the staged `skills` —
+   * rebuilt, one build at a time per workspace. */
+  build(workspace: WorkspaceRef, skills: SpawnSkillsInput): Promise<string>;
 }
 
 export function skillsConfigDirs(ctx: LayoutPorts): SkillsConfigDirs {
@@ -55,14 +57,10 @@ export function skillsConfigDirs(ctx: LayoutPorts): SkillsConfigDirs {
    * the build-aside directories. */
   const serial = oneAtATime();
 
-  async function build(workspace: WorkspaceRef, skills: readonly SpawnSkill[]): Promise<string> {
+  async function build(workspace: WorkspaceRef, { dir, skills }: SpawnSkillsInput): Promise<string> {
     const { fsWrite } = ctx.services;
     const config = `${await ctx.workspaces.dir(workspace)}/config`;
-    await publishFiles(
-      fsWrite,
-      `${config}/skills`,
-      skills.map(({ name, content }) => ({ path: `${name}/SKILL.md`, text: content })),
-    );
+    await publishCopy(fsWrite, `${config}/skills`, dir);
     await publishFiles(
       fsWrite,
       `${config}/command`,
