@@ -540,6 +540,7 @@ mod tests {
     };
     // `Read` rides the file's own `use std::io::{...}` — no test re-import.
     use std::os::fd::AsRawFd as _;
+    use std::collections::{BTreeMap, BTreeSet};
 
     /// Wait until `count` subscribers are REGISTERED for (ws, slug).
     ///
@@ -660,20 +661,25 @@ mod tests {
         (status, headers, body.as_bytes().to_vec())
     }
 
-    /// A CSP as the browser reads it: each directive's name → its sources.
-    fn policy(csp: &str) -> std::collections::BTreeMap<String, String> {
+    /// A CSP as the browser reads it: each directive's name → its set of
+    /// source-expressions. A set, because order and spacing are spelling,
+    /// not the contract.
+    type Policy = BTreeMap<String, BTreeSet<String>>;
+
+    fn policy(csp: &str) -> Policy {
         csp.split(';')
             .map(str::trim)
             .filter(|directive| !directive.is_empty())
             .map(|directive| {
-                let (name, sources) = directive.split_once(' ').unwrap_or((directive, ""));
-                (name.to_string(), sources.trim().to_string())
+                let mut words = directive.split_whitespace();
+                let name = words.next().expect("a directive has a name").to_string();
+                (name, words.map(str::to_string).collect())
             })
             .collect()
     }
 
     /// The policy a served page carries in its header.
-    fn served_policy(headers: &str) -> std::collections::BTreeMap<String, String> {
+    fn served_policy(headers: &str) -> Policy {
         let csp = headers
             .lines()
             .find_map(|line| line.strip_prefix("content-security-policy: "))
@@ -681,19 +687,23 @@ mod tests {
         policy(csp)
     }
 
-    /// The policy an export carries in its byte-zero meta.
-    fn exported_policy(body: &str) -> std::collections::BTreeMap<String, String> {
+    /// The policy an export carries in its meta CSP. Where the meta sits,
+    /// byte zero, is `export_prepends_the_meta_csp_at_byte_zero`'s pin.
+    fn exported_policy(body: &str) -> Policy {
         let open = "<meta http-equiv=\"Content-Security-Policy\" content=\"";
         let at = body.find(open).expect("an export carries a meta CSP") + open.len();
         let len = body[at..].find('"').expect("the meta CSP closes its content");
         policy(&body[at..at + len])
     }
 
-    /// The `connect-src` value, as the browser would read it.
+    /// The `connect-src` source, as the browser would read it — exactly
+    /// one: the page's own events endpoint and nothing beside it.
     fn connect_src(headers: &str) -> String {
-        served_policy(headers)
+        let sources = served_policy(headers)
             .remove("connect-src")
-            .expect("the served CSP names connect-src")
+            .expect("the served CSP names connect-src");
+        assert_eq!(sources.len(), 1, "connect-src names one source: {sources:?}");
+        sources.into_iter().next().unwrap()
     }
 
     /// THE CSP PIN — a source-expression, not a spelling.
@@ -808,32 +818,52 @@ mod tests {
         server.stop();
     }
 
-    /// Media a page embeds plays: `<audio>`/`<video>` from a `data:` uri,
-    /// or from a `blob:` a script built. With no `media-src` the browser
-    /// fell back to `default-src 'none'` and refused every embedded sample
-    /// (MediaError 4), while images and fonts, named explicitly, loaded.
-    /// Embedded only: apart from its own events endpoint, no source lets a
-    /// page reach a host. The export carries the same policy (the test
-    /// above), so a saved file plays its media too.
+    /// What a page may load, pinned on BOTH surfaces: the served header and
+    /// the export's meta.
+    ///
+    /// Anything not named falls back to `default-src 'none'`, and that
+    /// fallback IS the fence, so it is pinned outright. Without it, a saved
+    /// file, which names no `connect-src`, could fetch and subscribe
+    /// anywhere.
+    ///
+    /// What a page needs is named, each directive only as wide as what
+    /// rides inside the page: inline script and style, `data:` images and
+    /// fonts, and `data:`/`blob:` media. With no `media-src`, every
+    /// embedded sample was refused (MediaError 4) while images and fonts,
+    /// named explicitly, loaded.
+    ///
+    /// No other source lets a page reach a host. The served page's own
+    /// events endpoint, its one exception, is pinned above.
     #[test]
-    fn embedded_media_plays_and_nothing_is_fetched() {
-        let (server, store, _root, _dir) = fixture("media");
+    fn a_page_loads_what_rides_inside_it_and_reaches_no_host() {
+        let (server, store, _root, _dir) = fixture("page-policy");
         let token = publish(&store, "samples", b"<body><audio controls></audio></body>");
         let (_, headers, _) = get(server.port(), &format!("/a/{token}/samples"));
+        let (_, _, body) = get(server.port(), &format!("/a/{token}/samples/export"));
 
         let mut served = served_policy(&headers);
-        assert_eq!(
-            served.get("media-src").map(String::as_str),
-            Some("data: blob:"),
-            "embedded media must load: {headers}",
-        );
-        served.remove("connect-src");
-        for (directive, sources) in &served {
-            for source in sources.split_whitespace() {
-                assert!(
-                    ["'none'", "'unsafe-inline'", "data:", "blob:"].contains(&source),
-                    "{directive} {source} lets the page reach beyond itself",
-                );
+        served.remove("connect-src").expect("a served page subscribes");
+        let exported = exported_policy(&String::from_utf8_lossy(&body));
+        let needed: [(&str, &[&str]); 6] = [
+            ("default-src", &["'none'"]),
+            ("script-src", &["'unsafe-inline'"]),
+            ("style-src", &["'unsafe-inline'"]),
+            ("img-src", &["data:"]),
+            ("font-src", &["data:"]),
+            ("media-src", &["data:", "blob:"]),
+        ];
+        for (surface, policy) in [("served", &served), ("exported", &exported)] {
+            for (directive, sources) in needed {
+                let expected: BTreeSet<String> = sources.iter().map(|s| s.to_string()).collect();
+                assert_eq!(policy.get(directive), Some(&expected), "{surface} {directive}");
+            }
+            for (directive, sources) in policy {
+                for source in sources {
+                    assert!(
+                        ["'none'", "'unsafe-inline'", "data:", "blob:"].contains(&source.as_str()),
+                        "{surface}: {directive} {source} lets the page reach beyond itself",
+                    );
+                }
             }
         }
         server.stop();
