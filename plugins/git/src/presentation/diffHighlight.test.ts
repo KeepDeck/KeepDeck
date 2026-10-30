@@ -73,7 +73,10 @@ describe("diffHighlightPlan", () => {
 });
 
 // The real engine, through the real client: the two diffs that painted code
-// as comment (task-497), reproduced from real `git diff` output.
+// as comment (task-497), reproduced from real `git diff` output. A real
+// grammar by design — what it checks is a comment's state carried across
+// lines, which no stand-in models (task-553) — so the budget is one cold
+// compile's, paid on this file's first tokenize.
 describe("diffHighlightPlan with the real highlighter", { timeout: 60_000 }, () => {
   const COMMENT = "#7F848E";
   const blanks = (n: number) => "\n".repeat(n);

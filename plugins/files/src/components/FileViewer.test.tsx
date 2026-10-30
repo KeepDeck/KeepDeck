@@ -1,14 +1,14 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FsFile } from "@keepdeck/plugin-api";
 import { setRuntime, type FilesPorts } from "../runtime";
 import { fsOf, inertPorts } from "../filesPorts.test-support";
 import { FileViewer } from "./FileViewer";
 import { present } from "@keepdeck/plugin-api/testing";
 import { recordOf } from "@keepdeck/plugin-api/testing";
-import { installTokenWorker, type TokenWorker } from "@keepdeck/code-kit/testing";
+import { installTokenWorker, type TokenRequest } from "@keepdeck/code-kit/testing";
 
 const TS_TEXT = 'const s = "hi" // note\n\nexport default s\n';
 
@@ -41,8 +41,9 @@ const rowTexts = () =>
 const styledSpans = () =>
   document.querySelectorAll(".files__linetext span[style]");
 
-/** Flush React until `ready`. The token worker answers on a microtask, so
- * colors land within a few flushes; no clock is involved. */
+/** Flush React until `ready`. A colored row is the token worker's microtask,
+ * the client's promise, the hook's state and one render — a few flushes,
+ * ten is room to spare; no clock is involved. */
 async function settle(ready: () => boolean, flushes = 10) {
   for (let flush = 0; !ready(); flush++) {
     if (flush === flushes) throw new Error(`settle: condition never held in ${flushes} flushes`);
@@ -55,11 +56,10 @@ describe("FileViewer", () => {
   let root: Root;
   // Colors are this viewer's input, not its subject: what a real grammar
   // makes of a text is code-kit's own suite.
-  let worker: TokenWorker;
-
-  beforeAll(() => {
-    worker = installTokenWorker();
-  });
+  let asked: readonly TokenRequest[];
+  let askedBefore: number;
+  /** What this test asked to be colored. */
+  const askedHere = () => asked.slice(askedBefore);
 
   const mount = async (path: string, files: Record<string, FsFile>) => {
     setRuntime(makeCtx(files));
@@ -73,6 +73,8 @@ describe("FileViewer", () => {
   };
 
   beforeEach(() => {
+    asked = installTokenWorker();
+    askedBefore = asked.length;
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -87,7 +89,7 @@ describe("FileViewer", () => {
     await mount(path, { [path]: fsFile(path, TS_TEXT) });
     await settle(() => styledSpans().length > 0);
 
-    expect(worker.asked).toContainEqual({ text: TS_TEXT, lang: "typescript" });
+    expect(askedHere()).toEqual([{ text: TS_TEXT, lang: "typescript" }]);
     // Coloring must not change a single visible character: each row reads
     // exactly as the plain path would render it (empty line = one space).
     expect(rowTexts()).toEqual(
@@ -98,7 +100,8 @@ describe("FileViewer", () => {
     for (const cell of document.querySelectorAll(".files__lineno")) {
       expect(cell.classList.contains("kd-inert")).toBe(true);
     }
-    // And it IS color: the keyword run differs from the string/comment runs.
+    // And the runs it was handed render as runs, each in its own color —
+    // which runs a grammar would draw is code-kit's to test.
     const firstRow = present(document.querySelector(".files__coderow"), "the .files__coderow element");
     const colors = new Set(
       [...firstRow.querySelectorAll<HTMLElement>("span[style]")].map(
@@ -110,12 +113,11 @@ describe("FileViewer", () => {
 
   it("keeps an unknown language plain — no spans ever arrive", async () => {
     const path = "/repo/NOTES";
-    const asked = worker.asked.length;
     await mount(path, { [path]: fsFile(path, "just words\nno grammar\n") });
     await settle(() => rowTexts().length > 0);
 
     // Not "no colors yet": nothing was asked to color it at all.
-    expect(worker.asked.slice(asked)).toEqual([]);
+    expect(askedHere()).toEqual([]);
     expect(styledSpans().length).toBe(0);
     expect(rowTexts()[0]).toBe("just words");
   });
@@ -169,7 +171,7 @@ describe("FileViewer", () => {
       () => document.querySelectorAll(".files__md pre span[style]").length > 0,
     );
     // In the fence's own language, as the fence names it.
-    expect(worker.asked).toContainEqual({ text: "const x = 1", lang: "ts" });
+    expect(askedHere()).toEqual([{ text: "const x = 1", lang: "ts" }]);
     expect(
       document.querySelector(".files__md pre code")?.textContent,
     ).toContain("const x = 1");
