@@ -20,12 +20,16 @@ import { describe, expect, it } from "vitest";
  */
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** A probe path in each tree eslint.config.js lints as TypeScript. */
+/** A probe path in each tree eslint.config.js lints as TypeScript — and in
+ * each component block, which replaces no-restricted-syntax with a copy of
+ * its own that must carry the cast bans along. */
 const TYPESCRIPT_PROBES = [
   "src/lint-probe.ts",
   "packages/code-kit/src/lint-probe.ts",
   "plugins/opencode/src/lint-probe.ts",
   "integration/lint-probe.ts",
+  "src/components/probe/LintProbe.tsx",
+  "src/components/probe/LintProbe.test.tsx",
 ];
 
 const eslint = new ESLint({
@@ -149,6 +153,36 @@ describe("the linter", () => {
     expect(componentTest.messages).toEqual([]);
   });
 
+  it("keeps the domain framework-free, depending on nothing outside it", async () => {
+    const [domain] = await eslint.lintText(
+      [
+        'import "react";',
+        'import "@tauri-apps/api/core";',
+        'import "../app/deckStore";',
+        'import "../presentation/deckView";',
+        'import "../../plugins/git/src/status";',
+        'import "../../integration/harness";',
+        "",
+      ].join("\n"),
+      { filePath: join(REPO, "src/domain/lint-probe.ts") },
+    );
+    expect(domain.messages.map((message) => [message.line, message.ruleId])).toEqual(
+      [1, 2, 3, 4, 5, 6].map((line) => [line, "no-restricted-imports"]),
+    );
+  });
+
+  it("keeps integration/ a leaf: the one place the host meets a real plugin, imported by neither", async () => {
+    for (const file of ["src/lint-probe.ts", "packages/code-kit/src/lint-probe.ts", "plugins/opencode/src/lint-probe.ts"]) {
+      const [leaf] = await eslint.lintText('import "../../integration/harness";\n', { filePath: join(REPO, file) });
+      expect([file, leaf.messages.map((message) => message.ruleId)]).toEqual([file, ["no-restricted-imports"]]);
+    }
+    const [meeting] = await eslint.lintText(
+      'import "../plugins/git/src/status";\nimport "../src/app/deckStore";\n',
+      { filePath: join(REPO, "integration/lint-probe.ts") },
+    );
+    expect(meeting.messages).toEqual([]);
+  });
+
   it("checks every plugin resource JS with @ts-check", () => {
     const files = [];
     const walk = (dir) => {
@@ -203,6 +237,9 @@ describe("the linter", () => {
     const rule = (result) => result.messages.filter((message) => message.ruleId === "keepdeck/no-cli-names");
     const [src] = await eslint.lintText(leak, { filePath: join(REPO, "src/lint-probe.ts") });
     expect(rule(src).map((message) => message.line)).toEqual([2, 3, 3, 5]);
+    // The shared packages are core too.
+    const [shared] = await eslint.lintText(leak, { filePath: join(REPO, "packages/code-kit/src/lint-probe.ts") });
+    expect(rule(shared).map((message) => message.line)).toEqual([2, 3, 3, 5]);
     // A block that redefines no-restricted-syntax does not drop it.
     const [component] = await eslint.lintText(leak, { filePath: join(REPO, "src/components/dock/lint-probe.ts") });
     expect(rule(component)).toHaveLength(4);
