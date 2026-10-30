@@ -81,7 +81,7 @@ Checks:
 
 ```sh
 pnpm test           # frontend unit tests (Vitest)
-pnpm lint           # ESLint over the whole tree, with types
+pnpm lint           # ESLint over the source tree (TypeScript typed)
 pnpm typecheck      # tsc --noEmit
 cargo test          # backend tests (Cargo workspace)
 ```

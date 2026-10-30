@@ -270,7 +270,8 @@ export default [
   /**
    * Components are views: they read and act through hooks and the runtime's
    * parts, never through the app's managers and services directly (task-472).
-   * The typed rule, so a type-only import passes — and a rule id of its own,
+   * The TypeScript variant, which tells a type-only import apart so one
+   * passes (from the syntax: it reads no types) — and a rule id of its own,
    * so it adds to the core `no-restricted-imports` blocks above rather than
    * replacing them for these files. A view test holds to the same surface
    * plus one door, app/testing: the real parts it builds, the singletons it

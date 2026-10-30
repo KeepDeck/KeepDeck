@@ -15,10 +15,18 @@ import { describe, expect, it } from "vitest";
  *
  * The probes are linted without the type program: no rule they exercise
  * reads a type, and building that program cold costs seconds — on a busy
- * machine, far past a test's budget. The one typed rule is pinned through
- * the config instead.
+ * machine, far past a test's budget. The one type-aware rule is pinned
+ * through the config instead.
  */
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** A probe path in each tree eslint.config.js lints as TypeScript. */
+const TYPESCRIPT_PROBES = [
+  "src/lint-probe.ts",
+  "packages/code-kit/src/lint-probe.ts",
+  "plugins/opencode/src/lint-probe.ts",
+  "integration/lint-probe.ts",
+];
 
 const eslint = new ESLint({
   cwd: REPO,
@@ -47,14 +55,51 @@ describe("the linter", () => {
     ]);
   });
 
-  it("type-checks every assertion in src and in a plugin", async () => {
+  it("turns the unchecked-assertion rule on, with its type program, in every TypeScript tree — the one rule that reads types", async () => {
     // How the rule reads a cast is typescript-eslint's to test; ours is that
-    // it is on, with the types it needs, wherever casts are written.
+    // it is on, with the types it needs, wherever casts are written. Being
+    // the only type-aware rule is what lets every probe here lint untyped.
     const typed = new ESLint({ cwd: REPO });
-    for (const file of ["src/lint-probe.ts", "plugins/opencode/src/lint-probe.ts"]) {
+    for (const file of TYPESCRIPT_PROBES) {
       const config = await typed.calculateConfigForFile(join(REPO, file));
-      expect(config.rules["@typescript-eslint/no-unsafe-type-assertion"]).toEqual([2]);
+      const typeAware = Object.entries(config.rules)
+        .filter(([id, [severity]]) => {
+          const at = id.lastIndexOf("/");
+          const rule = at < 0 ? undefined : config.plugins[id.slice(0, at)]?.rules?.[id.slice(at + 1)];
+          return severity > 0 && rule?.meta?.docs?.requiresTypeChecking === true;
+        })
+        .map(([id]) => id);
+      expect(typeAware).toEqual(["@typescript-eslint/no-unsafe-type-assertion"]);
       expect(config.languageOptions.parserOptions.projectService).toBe(true);
+    }
+  });
+
+  it("refuses `!`, the casts that switch the checker off, and broken hooks, in every TypeScript tree", async () => {
+    const source = [
+      'import { useEffect, useState } from "react";',
+      "declare const maybe: string | null;",
+      "export const sure: string = maybe!;",
+      "export const never = 1 as never;",
+      "const raw: unknown = 1;",
+      "export const forced = raw as unknown as string;",
+      "export function useProbe(on: boolean, value: number) {",
+      "  if (on) useState(0);",
+      "  useEffect(() => console.log(value), []);",
+      "}",
+      "",
+    ].join("\n");
+    for (const file of TYPESCRIPT_PROBES) {
+      const [result] = await eslint.lintText(source, { filePath: join(REPO, file) });
+      expect([file, result.messages.map((message) => [message.line, message.ruleId])]).toEqual([
+        file,
+        [
+          [3, "@typescript-eslint/no-non-null-assertion"],
+          [4, "no-restricted-syntax"],
+          [6, "no-restricted-syntax"],
+          [8, "react-hooks/rules-of-hooks"],
+          [9, "react-hooks/exhaustive-deps"],
+        ],
+      ]);
     }
   });
 
