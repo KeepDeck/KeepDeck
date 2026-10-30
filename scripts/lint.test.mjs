@@ -5,18 +5,31 @@ import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
 /**
- * The linter, as part of the test run.
+ * Where each of the linter's rules holds.
  *
  * eslint.config.js refuses casts that switch the type checker off, explicit
- * `any`, TypeScript suppression comments, a component reaching past
- * app's hooks, and a CLI named in the core. The build runs it too; running
- * it here means a plain `vitest run` fails on a new one.
+ * `any`, TypeScript suppression comments, a component reaching past app's
+ * hooks, and a CLI named in the core. `pnpm lint` holds the whole tree to
+ * them, and `pnpm build` starts with it; these tests pin each rule to the
+ * files it is for, on probes.
+ *
+ * The probes are linted without the type program: no rule they exercise
+ * reads a type, and building that program cold costs seconds — on a busy
+ * machine, far past a test's budget. The one typed rule is pinned through
+ * the config instead.
  */
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+const eslint = new ESLint({
+  cwd: REPO,
+  overrideConfig: {
+    languageOptions: { parserOptions: { projectService: false } },
+    rules: { "@typescript-eslint/no-unsafe-type-assertion": "off" },
+  },
+});
+
 describe("the linter", () => {
   it("catches suppressed checks in resource JS and explicit any in TypeScript", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const [resource] = await eslint.lintText(
       "// @ts-check\n// @ts-ignore\nconst value = 1;\n",
       { filePath: join(REPO, "plugins/opencode/resources/keepdeck-plugin/lint-probe.js") },
@@ -32,27 +45,20 @@ describe("the linter", () => {
       "@typescript-eslint/no-explicit-any",
       "@typescript-eslint/ban-ts-comment",
     ]);
-  }, 60_000);
+  });
 
-  it("catches an unchecked assertion in src and in a plugin", async () => {
-    const eslint = new ESLint({ cwd: REPO });
-    const source = 'const raw: unknown = "x";\nexport const text = raw as string;\n';
-    const [src] = await eslint.lintText(source, {
-      filePath: join(REPO, "src/lint-probe.ts"),
-    });
-    const [plugin] = await eslint.lintText(source, {
-      filePath: join(REPO, "plugins/opencode/src/lint-probe.ts"),
-    });
-    expect(src.messages.map((message) => message.ruleId)).toEqual([
-      "@typescript-eslint/no-unsafe-type-assertion",
-    ]);
-    expect(plugin.messages.map((message) => message.ruleId)).toEqual([
-      "@typescript-eslint/no-unsafe-type-assertion",
-    ]);
+  it("type-checks every assertion in src and in a plugin", async () => {
+    // How the rule reads a cast is typescript-eslint's to test; ours is that
+    // it is on, with the types it needs, wherever casts are written.
+    const typed = new ESLint({ cwd: REPO });
+    for (const file of ["src/lint-probe.ts", "plugins/opencode/src/lint-probe.ts"]) {
+      const config = await typed.calculateConfigForFile(join(REPO, file));
+      expect(config.rules["@typescript-eslint/no-unsafe-type-assertion"]).toEqual([2]);
+      expect(config.languageOptions.parserOptions.projectService).toBe(true);
+    }
   });
 
   it("keeps a component to app's hooks, runtime context and types, and its test to app/testing besides", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const source = [
       'import { updateSettings } from "../../app/settingsManager";',
       'import type { PluginCrash } from "../../app/pluginHealth";',
@@ -77,7 +83,6 @@ describe("the linter", () => {
   });
 
   it("keeps presentation inward and gives production components IPC through ports", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const [presentation] = await eslint.lintText(
       'import type { DeckStore } from "../app/deckStore";\nimport "../components/DeckStage";\nimport "../ipc/app";\nimport "../plugins/git/src/status";\n',
       { filePath: join(REPO, "src/presentation/lint-probe.ts") },
@@ -121,7 +126,6 @@ describe("the linter", () => {
   });
 
   it("holds a component test's run-time loads to its surface too", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const source = [
       'import { vi } from "vitest";',
       'vi.mock("../../app/settingsManager", () => ({}));',
@@ -143,7 +147,6 @@ describe("the linter", () => {
   });
 
   it("refuses a CLI named in the core, not in a plugin, a test or a comment", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const leak = [
       "// codex in a comment decides nothing",
       'export const home = "CODEX_HOME";',
@@ -164,7 +167,6 @@ describe("the linter", () => {
   });
 
   it("holds an exempt file to its listed count and drops a stale exemption", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     // The deck migration is exempt for the one claude it names, for good.
     const filePath = join(REPO, "src/domain/migrations/migrations.ts");
     const source = readFileSync(filePath, "utf8");
@@ -182,18 +184,4 @@ describe("the linter", () => {
     ]);
     expect(await messages("export const nothing = 1;\n")).toEqual([expect.stringContaining("delete its exemption")]);
   });
-
-  it("finds nothing in the source", async () => {
-    const eslint = new ESLint({ cwd: REPO });
-    const results = await eslint.lintFiles(["."]);
-    const problems = results.flatMap((file) =>
-      file.messages.map((m) => `${file.filePath.slice(REPO.length + 1)}:${m.line}: ${m.message}`),
-    );
-    // A run that read nothing proves nothing.
-    expect(results.length).toBeGreaterThan(500);
-    expect(problems).toEqual([]);
-    // Six seconds alone; well past two minutes on a machine running the rest
-    // of the suite and other work at once. The budget is for a hung linter,
-    // not a busy one.
-  }, 600_000);
 });

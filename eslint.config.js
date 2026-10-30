@@ -5,10 +5,10 @@ import reactHooks from "eslint-plugin-react-hooks";
 import { noCliNames } from "./scripts/lint/noCliNamesRule.mjs";
 
 /**
- * The patterns this codebase refuses, as rules that fail the build (`build`
- * starts with `eslint`) and the test run (scripts/lint.test.mjs) — nobody
- * has to remember to run them. Each rule here is a decision made once; the
- * code that broke it was fixed, not excused (task-468).
+ * The patterns this codebase refuses, as rules that fail `pnpm lint` and the
+ * build (`build` starts with `eslint`); scripts/lint.test.mjs pins each to
+ * the files it is for. Each rule here is a decision made once; the code
+ * that broke it was fixed, not excused (task-468).
  */
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -138,20 +138,7 @@ export default [
     languageOptions: {
       parser: tsParser,
       parserOptions: {
-        projectService: {
-          // Virtual probe files lintText hands the linter in scripts/lint.test.mjs.
-          // They have no on-disk project entry; naming them keeps the typed
-          // rules — including no-unsafe-type-assertion — running on the probe.
-          allowDefaultProject: [
-            "src/lint-probe.ts",
-            "plugins/opencode/src/lint-probe.ts",
-            "src/components/probe/LintProbe.tsx",
-            "src/components/probe/LintProbe.test.tsx",
-            "src/presentation/lint-probe.ts",
-            "src/components/dock/lint-probe.ts",
-            "src/components/dock/lint-probe.test.ts",
-          ],
-        },
+        projectService: true,
         tsconfigRootDir: ROOT,
       },
     },
