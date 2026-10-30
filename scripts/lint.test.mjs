@@ -171,7 +171,7 @@ describe("the linter", () => {
     );
   });
 
-  it("keeps integration/ a leaf: the one place the host meets a real plugin, imported by neither", async () => {
+  it("keeps integration/ a leaf: the one place the host meets a real plugin, imported by none of src, packages or plugins", async () => {
     for (const file of ["src/lint-probe.ts", "packages/code-kit/src/lint-probe.ts", "plugins/opencode/src/lint-probe.ts"]) {
       const [leaf] = await eslint.lintText('import "../../integration/harness";\n', { filePath: join(REPO, file) });
       expect([file, leaf.messages.map((message) => message.ruleId)]).toEqual([file, ["no-restricted-imports"]]);
