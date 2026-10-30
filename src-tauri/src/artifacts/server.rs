@@ -540,6 +540,7 @@ mod tests {
     };
     // `Read` rides the file's own `use std::io::{...}` — no test re-import.
     use std::os::fd::AsRawFd as _;
+    use std::collections::{BTreeMap, BTreeSet};
 
     /// Wait until `count` subscribers are REGISTERED for (ws, slug).
     ///
@@ -660,13 +661,55 @@ mod tests {
         (status, headers, body.as_bytes().to_vec())
     }
 
-    /// The `connect-src` value, as the browser would read it.
+    /// A CSP as the browser reads it: each directive's name → its set of
+    /// source-expressions. A set, because order and spacing are spelling,
+    /// not the contract.
+    type Policy = BTreeMap<String, BTreeSet<String>>;
+
+    /// A repeated directive is refused, not folded: the browser enforces
+    /// the FIRST and ignores the rest, so a map that kept the last would
+    /// pin a policy no browser runs (`connect-src 'none'; connect-src
+    /// <events>` reads as subscribed here and refuses every subscription
+    /// there).
+    fn policy(csp: &str) -> Policy {
+        let mut policy = Policy::new();
+        for directive in csp.split(';').map(str::trim).filter(|d| !d.is_empty()) {
+            let mut words = directive.split_whitespace();
+            let name = words.next().expect("a directive has a name").to_string();
+            let repeated = policy
+                .insert(name.clone(), words.map(str::to_string).collect())
+                .is_some();
+            assert!(!repeated, "{name} is named twice, the browser keeps the first: {csp}");
+        }
+        policy
+    }
+
+    /// The policy a served page carries in its header.
+    fn served_policy(headers: &str) -> Policy {
+        let csp = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-security-policy: "))
+            .expect("a served page carries a CSP header");
+        policy(csp)
+    }
+
+    /// The policy an export carries in its meta CSP. Where the meta sits,
+    /// byte zero, is `export_prepends_the_meta_csp_at_byte_zero`'s pin.
+    fn exported_policy(body: &str) -> Policy {
+        let open = "<meta http-equiv=\"Content-Security-Policy\" content=\"";
+        let at = body.find(open).expect("an export carries a meta CSP") + open.len();
+        let len = body[at..].find('"').expect("the meta CSP closes its content");
+        policy(&body[at..at + len])
+    }
+
+    /// The `connect-src` source, as the browser would read it — exactly
+    /// one: the page's own events endpoint and nothing beside it.
     fn connect_src(headers: &str) -> String {
-        let at = headers
-            .find("connect-src ")
+        let sources = served_policy(headers)
+            .remove("connect-src")
             .expect("the served CSP names connect-src");
-        let rest = &headers[at + "connect-src ".len()..];
-        rest.split(';').next().unwrap_or("").trim().to_string()
+        assert_eq!(sources.len(), 1, "connect-src names one source: {sources:?}");
+        sources.into_iter().next().unwrap()
     }
 
     /// THE CSP PIN — a source-expression, not a spelling.
@@ -759,6 +802,76 @@ mod tests {
             &text[..80.min(text.len())]
         );
         assert!(text.ends_with("late head</body><head>x</head></html>"));
+        server.stop();
+    }
+
+    /// A saved page renders what the served page rendered: the export's
+    /// policy IS the served one, minus the single source only a live page
+    /// has — its own events endpoint. The two used to be separate strings
+    /// and drifted: the export lost fonts, `base-uri` and `form-action`, so
+    /// a page that looked right in the tab broke in the file it was saved to.
+    #[test]
+    fn export_renders_under_the_served_policy_minus_the_subscription() {
+        let (server, store, _root, _dir) = fixture("export-policy");
+        let token = publish(&store, "report", b"<body><h1>report</h1></body>");
+        let (_, headers, _) = get(server.port(), &format!("/a/{token}/report"));
+        let (_, _, body) = get(server.port(), &format!("/a/{token}/report/export"));
+
+        let mut served = served_policy(&headers);
+        served.remove("connect-src").expect("a served page subscribes");
+        let exported = exported_policy(&String::from_utf8_lossy(&body));
+        assert_eq!(exported, served, "the export must carry the served policy");
+        server.stop();
+    }
+
+    /// What a page may load, pinned on BOTH surfaces: the served header and
+    /// the export's meta.
+    ///
+    /// Anything not named falls back to `default-src 'none'`, and that
+    /// fallback IS the fence, so it is pinned outright. Without it, a saved
+    /// file, which names no `connect-src`, could fetch and subscribe
+    /// anywhere.
+    ///
+    /// What a page needs is named, each directive only as wide as what
+    /// rides inside the page: inline script and style, `data:` images and
+    /// fonts, and `data:`/`blob:` media. With no `media-src`, every
+    /// embedded sample was refused (MediaError 4) while images and fonts,
+    /// named explicitly, loaded.
+    ///
+    /// No other source lets a page reach a host. The served page's own
+    /// events endpoint, its one exception, is pinned above.
+    #[test]
+    fn a_page_loads_what_rides_inside_it_and_reaches_no_host() {
+        let (server, store, _root, _dir) = fixture("page-policy");
+        let token = publish(&store, "samples", b"<body><audio controls></audio></body>");
+        let (_, headers, _) = get(server.port(), &format!("/a/{token}/samples"));
+        let (_, _, body) = get(server.port(), &format!("/a/{token}/samples/export"));
+
+        let mut served = served_policy(&headers);
+        served.remove("connect-src").expect("a served page subscribes");
+        let exported = exported_policy(&String::from_utf8_lossy(&body));
+        let needed: [(&str, &[&str]); 6] = [
+            ("default-src", &["'none'"]),
+            ("script-src", &["'unsafe-inline'"]),
+            ("style-src", &["'unsafe-inline'"]),
+            ("img-src", &["data:"]),
+            ("font-src", &["data:"]),
+            ("media-src", &["data:", "blob:"]),
+        ];
+        for (surface, policy) in [("served", &served), ("exported", &exported)] {
+            for (directive, sources) in needed {
+                let expected: BTreeSet<String> = sources.iter().map(|s| s.to_string()).collect();
+                assert_eq!(policy.get(directive), Some(&expected), "{surface} {directive}");
+            }
+            for (directive, sources) in policy {
+                for source in sources {
+                    assert!(
+                        ["'none'", "'unsafe-inline'", "data:", "blob:"].contains(&source.as_str()),
+                        "{surface}: {directive} {source} lets the page reach beyond itself",
+                    );
+                }
+            }
+        }
         server.stop();
     }
 

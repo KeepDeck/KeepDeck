@@ -10,6 +10,16 @@ use crate::artifacts::store::{read_version_bytes, ArtifactFormat, Manifest, stor
 
 const MIME_HTML: &str = "text/html";
 
+/// What an author's page may load, wherever it renders — served in the
+/// tab, or saved to a file by export. ONE policy for both: they were two
+/// strings once and drifted, and a page that looked right in the tab
+/// broke in the file it was saved to. Everything a page shows rides
+/// inside it (inline script and style, `data:` resources, and the `blob:`
+/// media a script builds from them); nothing is fetched from anywhere.
+/// The live page adds exactly one source on top — its own events
+/// endpoint ([`artifact_csp`]).
+const PAGE_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data: blob:; base-uri 'none'; form-action 'none'";
+
 /// The per-artifact serving CSP — PATH-PINNED: the artifact's own events
 /// endpoint is the one connectable URL (never `'self'` — artifact A's JS
 /// must not reach artifact B's endpoint even with a valid token).
@@ -21,9 +31,14 @@ const MIME_HTML: &str = "text/html";
 /// `connect-src /a/…/events` named nothing and blocked every
 /// subscription instead of pinning it.
 fn artifact_csp(events: &str) -> String {
-    format!(
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src {events}; base-uri 'none'; form-action 'none'"
-    )
+    format!("{PAGE_CSP}; connect-src {events}")
+}
+
+/// The export's policy, as the meta tag prepended at byte zero: the page
+/// policy and nothing else — no `connect-src`, so a saved file subscribes
+/// to no server.
+fn export_meta() -> String {
+    format!("<head><meta http-equiv=\"Content-Security-Policy\" content=\"{PAGE_CSP}\"></head>")
 }
 
 const INDEX_CSP: &str =
@@ -99,9 +114,9 @@ pub(super) fn serve_export(
         let _ = respond(stream, crate::http::Status::NotFound, MIME_HTML, b"version unavailable");
         return;
     };
-    let export_meta = EXPORT_META.trim_end_matches('\n');
-    let mut body = Vec::with_capacity(bytes.len() + export_meta.len());
-    body.extend_from_slice(export_meta.as_bytes());
+    let meta = export_meta();
+    let mut body = Vec::with_capacity(bytes.len() + meta.len());
+    body.extend_from_slice(meta.as_bytes());
     {
         let ArtifactFormat::Html = manifest.format;
         // Export drops the live-refresh script, and the note it would
@@ -273,7 +288,6 @@ fn strip_live_refresh(html: &str) -> String {
 }
 
 
-const EXPORT_META: &str = include_str!("export-meta.html");
 const INDEX_PAGE: &str = include_str!("index.html");
 const INDEX_ENTRIES: &str = "<!--KEEPDECK-INDEX-ENTRIES-->";
 

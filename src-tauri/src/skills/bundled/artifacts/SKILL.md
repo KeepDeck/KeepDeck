@@ -16,7 +16,7 @@ The terminal stays the DEFAULT output channel. An artifact is for when a page is
 
 One self-contained file. It renders under a strict Content-Security-Policy on a localhost server:
 
-- ALL CSS and JavaScript INLINE. No external scripts, styles, fonts, or images — external fetches are blocked. Embed images as data URIs.
+- ALL CSS and JavaScript INLINE. No external scripts, styles, fonts, images, audio or video — external fetches are blocked. Embed images, fonts, audio and video as data URIs (`<audio controls src="data:audio/mpeg;base64,…">` plays as is); media a script builds as a `blob:` URL plays too.
 - Real data over placeholders: use the actual numbers, names, and code you are presenting.
 - Diagrams: inline SVG, or a hand-rolled HTML/CSS diagram. No CDN libraries (they cannot load).
 - Keep it readable in a browser tab: system fonts, clear hierarchy, no framework boilerplate.
