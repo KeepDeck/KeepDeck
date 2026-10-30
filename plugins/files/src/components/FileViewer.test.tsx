@@ -1,14 +1,14 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FsFile } from "@keepdeck/plugin-api";
 import { setRuntime, type FilesPorts } from "../runtime";
 import { fsOf, inertPorts } from "../filesPorts.test-support";
 import { FileViewer } from "./FileViewer";
 import { present } from "@keepdeck/plugin-api/testing";
 import { recordOf } from "@keepdeck/plugin-api/testing";
-import { installInProcessWorker } from "@keepdeck/code-kit/testing";
+import { installTokenWorker, type TokenWorker } from "@keepdeck/code-kit/testing";
 
 const TS_TEXT = 'const s = "hi" // note\n\nexport default s\n';
 
@@ -41,24 +41,25 @@ const rowTexts = () =>
 const styledSpans = () =>
   document.querySelectorAll(".files__linetext span[style]");
 
-/** Poll inside act until `ready` — tokenization compiles real grammars, so its
- * latency is genuine work, not a missing flush. */
-async function settle(ready: () => boolean, timeoutMs = 10_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!ready()) {
-    if (Date.now() > deadline) throw new Error("settle: condition never held");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    });
+/** Flush React until `ready`. The token worker answers on a microtask, so
+ * colors land within a few flushes; no clock is involved. */
+async function settle(ready: () => boolean, flushes = 10) {
+  for (let flush = 0; !ready(); flush++) {
+    if (flush === flushes) throw new Error(`settle: condition never held in ${flushes} flushes`);
+    await act(async () => {});
   }
 }
 
-// Load-sensitive under a full parallel run (real git/tmpdirs or real-timer
-// polling); passes deterministically in isolation — retry absorbs runner
-// contention instead of reddening unrelated gates.
-describe("FileViewer", { retry: 2 }, () => {
+describe("FileViewer", () => {
   let host: HTMLElement;
   let root: Root;
+  // Colors are this viewer's input, not its subject: what a real grammar
+  // makes of a text is code-kit's own suite.
+  let worker: TokenWorker;
+
+  beforeAll(() => {
+    worker = installTokenWorker();
+  });
 
   const mount = async (path: string, files: Record<string, FsFile>) => {
     setRuntime(makeCtx(files));
@@ -72,8 +73,6 @@ describe("FileViewer", { retry: 2 }, () => {
   };
 
   beforeEach(() => {
-    // Real colors through the real client: the worker's handler, in-process.
-    installInProcessWorker();
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -88,6 +87,7 @@ describe("FileViewer", { retry: 2 }, () => {
     await mount(path, { [path]: fsFile(path, TS_TEXT) });
     await settle(() => styledSpans().length > 0);
 
+    expect(worker.asked).toContainEqual({ text: TS_TEXT, lang: "typescript" });
     // Coloring must not change a single visible character: each row reads
     // exactly as the plain path would render it (empty line = one space).
     expect(rowTexts()).toEqual(
@@ -110,13 +110,12 @@ describe("FileViewer", { retry: 2 }, () => {
 
   it("keeps an unknown language plain — no spans ever arrive", async () => {
     const path = "/repo/NOTES";
+    const asked = worker.asked.length;
     await mount(path, { [path]: fsFile(path, "just words\nno grammar\n") });
+    await settle(() => rowTexts().length > 0);
 
-    // Give any (wrong) tokenization ample time to land.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    });
-
+    // Not "no colors yet": nothing was asked to color it at all.
+    expect(worker.asked.slice(asked)).toEqual([]);
     expect(styledSpans().length).toBe(0);
     expect(rowTexts()[0]).toBe("just words");
   });
@@ -169,6 +168,8 @@ describe("FileViewer", { retry: 2 }, () => {
     await settle(
       () => document.querySelectorAll(".files__md pre span[style]").length > 0,
     );
+    // In the fence's own language, as the fence names it.
+    expect(worker.asked).toContainEqual({ text: "const x = 1", lang: "ts" });
     expect(
       document.querySelector(".files__md pre code")?.textContent,
     ).toContain("const x = 1");
