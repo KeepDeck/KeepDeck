@@ -6,7 +6,8 @@ import { rustWords } from "./lint/rustTokens.mjs";
 
 /**
  * The core names no CLI (task-514). The TypeScript half is the ESLint rule
- * `keepdeck/no-cli-names` (scripts/lint.test.mjs runs it); this is the Rust
+ * `keepdeck/no-cli-names` (`pnpm lint` runs it, scripts/lint.test.mjs pins
+ * where it holds); this is the Rust
  * half and the exemption list itself, judged by the same module.
  */
 

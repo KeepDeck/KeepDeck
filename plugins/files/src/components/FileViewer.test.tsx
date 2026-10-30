@@ -8,7 +8,7 @@ import { fsOf, inertPorts } from "../filesPorts.test-support";
 import { FileViewer } from "./FileViewer";
 import { present } from "@keepdeck/plugin-api/testing";
 import { recordOf } from "@keepdeck/plugin-api/testing";
-import { installInProcessWorker } from "@keepdeck/code-kit/testing";
+import { installTokenWorker, type TokenRequest } from "@keepdeck/code-kit/testing";
 
 const TS_TEXT = 'const s = "hi" // note\n\nexport default s\n';
 
@@ -41,24 +41,25 @@ const rowTexts = () =>
 const styledSpans = () =>
   document.querySelectorAll(".files__linetext span[style]");
 
-/** Poll inside act until `ready` — tokenization compiles real grammars, so its
- * latency is genuine work, not a missing flush. */
-async function settle(ready: () => boolean, timeoutMs = 10_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!ready()) {
-    if (Date.now() > deadline) throw new Error("settle: condition never held");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    });
+/** Flush React until `ready`. A colored row is the token worker's microtask,
+ * the client's promise, the hook's state and one render — a few flushes,
+ * ten is room to spare; no clock is involved. */
+async function settle(ready: () => boolean, flushes = 10) {
+  for (let flush = 0; !ready(); flush++) {
+    if (flush === flushes) throw new Error(`settle: condition never held in ${flushes} flushes`);
+    await act(async () => {});
   }
 }
 
-// Load-sensitive under a full parallel run (real git/tmpdirs or real-timer
-// polling); passes deterministically in isolation — retry absorbs runner
-// contention instead of reddening unrelated gates.
-describe("FileViewer", { retry: 2 }, () => {
+describe("FileViewer", () => {
   let host: HTMLElement;
   let root: Root;
+  // Colors are this viewer's input, not its subject: what a real grammar
+  // makes of a text is code-kit's own suite.
+  let asked: readonly TokenRequest[];
+  let askedBefore: number;
+  /** What this test asked to be colored. */
+  const askedHere = () => asked.slice(askedBefore);
 
   const mount = async (path: string, files: Record<string, FsFile>) => {
     setRuntime(makeCtx(files));
@@ -72,8 +73,8 @@ describe("FileViewer", { retry: 2 }, () => {
   };
 
   beforeEach(() => {
-    // Real colors through the real client: the worker's handler, in-process.
-    installInProcessWorker();
+    asked = installTokenWorker();
+    askedBefore = asked.length;
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -88,6 +89,7 @@ describe("FileViewer", { retry: 2 }, () => {
     await mount(path, { [path]: fsFile(path, TS_TEXT) });
     await settle(() => styledSpans().length > 0);
 
+    expect(askedHere()).toEqual([{ text: TS_TEXT, lang: "typescript" }]);
     // Coloring must not change a single visible character: each row reads
     // exactly as the plain path would render it (empty line = one space).
     expect(rowTexts()).toEqual(
@@ -98,7 +100,8 @@ describe("FileViewer", { retry: 2 }, () => {
     for (const cell of document.querySelectorAll(".files__lineno")) {
       expect(cell.classList.contains("kd-inert")).toBe(true);
     }
-    // And it IS color: the keyword run differs from the string/comment runs.
+    // And the runs it was handed render as runs, each in its own color —
+    // which runs a grammar would draw is code-kit's to test.
     const firstRow = present(document.querySelector(".files__coderow"), "the .files__coderow element");
     const colors = new Set(
       [...firstRow.querySelectorAll<HTMLElement>("span[style]")].map(
@@ -111,12 +114,10 @@ describe("FileViewer", { retry: 2 }, () => {
   it("keeps an unknown language plain — no spans ever arrive", async () => {
     const path = "/repo/NOTES";
     await mount(path, { [path]: fsFile(path, "just words\nno grammar\n") });
+    await settle(() => rowTexts().length > 0);
 
-    // Give any (wrong) tokenization ample time to land.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    });
-
+    // Not "no colors yet": nothing was asked to color it at all.
+    expect(askedHere()).toEqual([]);
     expect(styledSpans().length).toBe(0);
     expect(rowTexts()[0]).toBe("just words");
   });
@@ -169,6 +170,8 @@ describe("FileViewer", { retry: 2 }, () => {
     await settle(
       () => document.querySelectorAll(".files__md pre span[style]").length > 0,
     );
+    // In the fence's own language, as the fence names it.
+    expect(askedHere()).toEqual([{ text: "const x = 1", lang: "ts" }]);
     expect(
       document.querySelector(".files__md pre code")?.textContent,
     ).toContain("const x = 1");

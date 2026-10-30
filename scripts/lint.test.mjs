@@ -5,18 +5,43 @@ import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
 /**
- * The linter, as part of the test run.
+ * Where each of the linter's rules holds.
  *
  * eslint.config.js refuses casts that switch the type checker off, explicit
- * `any`, TypeScript suppression comments, a component reaching past
- * app's hooks, and a CLI named in the core. The build runs it too; running
- * it here means a plain `vitest run` fails on a new one.
+ * `any`, TypeScript suppression comments, a component reaching past app's
+ * hooks, and a CLI named in the core. `pnpm lint` holds the whole tree to
+ * them, and `pnpm build` starts with it; these tests pin each rule to the
+ * files it is for, on probes.
+ *
+ * The probes are linted without the type program: no rule they exercise
+ * reads a type, and building that program cold costs seconds — on a busy
+ * machine, far past a test's budget. The one type-aware rule is pinned
+ * through the config instead.
  */
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+/** A probe path in each tree eslint.config.js lints as TypeScript — and in
+ * each component block, which replaces no-restricted-syntax with a copy of
+ * its own that must carry the cast bans along. */
+const TYPESCRIPT_PROBES = [
+  "src/lint-probe.ts",
+  "packages/code-kit/src/lint-probe.ts",
+  "plugins/opencode/src/lint-probe.ts",
+  "integration/lint-probe.ts",
+  "src/components/probe/LintProbe.tsx",
+  "src/components/probe/LintProbe.test.tsx",
+];
+
+const eslint = new ESLint({
+  cwd: REPO,
+  overrideConfig: {
+    languageOptions: { parserOptions: { projectService: false } },
+    rules: { "@typescript-eslint/no-unsafe-type-assertion": "off" },
+  },
+});
+
 describe("the linter", () => {
   it("catches suppressed checks in resource JS and explicit any in TypeScript", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const [resource] = await eslint.lintText(
       "// @ts-check\n// @ts-ignore\nconst value = 1;\n",
       { filePath: join(REPO, "plugins/opencode/resources/keepdeck-plugin/lint-probe.js") },
@@ -32,27 +57,57 @@ describe("the linter", () => {
       "@typescript-eslint/no-explicit-any",
       "@typescript-eslint/ban-ts-comment",
     ]);
-  }, 60_000);
+  });
 
-  it("catches an unchecked assertion in src and in a plugin", async () => {
-    const eslint = new ESLint({ cwd: REPO });
-    const source = 'const raw: unknown = "x";\nexport const text = raw as string;\n';
-    const [src] = await eslint.lintText(source, {
-      filePath: join(REPO, "src/lint-probe.ts"),
-    });
-    const [plugin] = await eslint.lintText(source, {
-      filePath: join(REPO, "plugins/opencode/src/lint-probe.ts"),
-    });
-    expect(src.messages.map((message) => message.ruleId)).toEqual([
-      "@typescript-eslint/no-unsafe-type-assertion",
-    ]);
-    expect(plugin.messages.map((message) => message.ruleId)).toEqual([
-      "@typescript-eslint/no-unsafe-type-assertion",
-    ]);
+  it("turns the unchecked-assertion rule on, with its type program, in every TypeScript tree — the one rule that reads types", async () => {
+    // How the rule reads a cast is typescript-eslint's to test; ours is that
+    // it is on, with the types it needs, wherever casts are written. Being
+    // the only type-aware rule is what lets every probe here lint untyped.
+    const typed = new ESLint({ cwd: REPO });
+    for (const file of TYPESCRIPT_PROBES) {
+      const config = await typed.calculateConfigForFile(join(REPO, file));
+      const typeAware = Object.entries(config.rules)
+        .filter(([id, [severity]]) => {
+          const at = id.lastIndexOf("/");
+          const rule = at < 0 ? undefined : config.plugins[id.slice(0, at)]?.rules?.[id.slice(at + 1)];
+          return severity > 0 && rule?.meta?.docs?.requiresTypeChecking === true;
+        })
+        .map(([id]) => id);
+      expect(typeAware).toEqual(["@typescript-eslint/no-unsafe-type-assertion"]);
+      expect(config.languageOptions.parserOptions.projectService).toBe(true);
+    }
+  });
+
+  it("refuses `!`, the casts that switch the checker off, and broken hooks, in every TypeScript tree", async () => {
+    const source = [
+      'import { useEffect, useState } from "react";',
+      "declare const maybe: string | null;",
+      "export const sure: string = maybe!;",
+      "export const never = 1 as never;",
+      "const raw: unknown = 1;",
+      "export const forced = raw as unknown as string;",
+      "export function useProbe(on: boolean, value: number) {",
+      "  if (on) useState(0);",
+      "  useEffect(() => console.log(value), []);",
+      "}",
+      "",
+    ].join("\n");
+    for (const file of TYPESCRIPT_PROBES) {
+      const [result] = await eslint.lintText(source, { filePath: join(REPO, file) });
+      expect([file, result.messages.map((message) => [message.line, message.ruleId])]).toEqual([
+        file,
+        [
+          [3, "@typescript-eslint/no-non-null-assertion"],
+          [4, "no-restricted-syntax"],
+          [6, "no-restricted-syntax"],
+          [8, "react-hooks/rules-of-hooks"],
+          [9, "react-hooks/exhaustive-deps"],
+        ],
+      ]);
+    }
   });
 
   it("keeps a component to app's hooks, runtime context and types, and its test to app/testing besides", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const source = [
       'import { updateSettings } from "../../app/settingsManager";',
       'import type { PluginCrash } from "../../app/pluginHealth";',
@@ -77,7 +132,6 @@ describe("the linter", () => {
   });
 
   it("keeps presentation inward and gives production components IPC through ports", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const [presentation] = await eslint.lintText(
       'import type { DeckStore } from "../app/deckStore";\nimport "../components/DeckStage";\nimport "../ipc/app";\nimport "../plugins/git/src/status";\n',
       { filePath: join(REPO, "src/presentation/lint-probe.ts") },
@@ -97,6 +151,36 @@ describe("the linter", () => {
       Array(2).fill("no-restricted-imports"),
     );
     expect(componentTest.messages).toEqual([]);
+  });
+
+  it("keeps the domain framework-free, depending on nothing outside it", async () => {
+    const [domain] = await eslint.lintText(
+      [
+        'import "react";',
+        'import "@tauri-apps/api/core";',
+        'import "../app/deckStore";',
+        'import "../presentation/deckView";',
+        'import "../../plugins/git/src/status";',
+        'import "../../integration/harness";',
+        "",
+      ].join("\n"),
+      { filePath: join(REPO, "src/domain/lint-probe.ts") },
+    );
+    expect(domain.messages.map((message) => [message.line, message.ruleId])).toEqual(
+      [1, 2, 3, 4, 5, 6].map((line) => [line, "no-restricted-imports"]),
+    );
+  });
+
+  it("keeps integration/ a leaf: the one place the host meets a real plugin, imported by none of src, packages or plugins", async () => {
+    for (const file of ["src/lint-probe.ts", "packages/code-kit/src/lint-probe.ts", "plugins/opencode/src/lint-probe.ts"]) {
+      const [leaf] = await eslint.lintText('import "../../integration/harness";\n', { filePath: join(REPO, file) });
+      expect([file, leaf.messages.map((message) => message.ruleId)]).toEqual([file, ["no-restricted-imports"]]);
+    }
+    const [meeting] = await eslint.lintText(
+      'import "../plugins/git/src/status";\nimport "../src/app/deckStore";\n',
+      { filePath: join(REPO, "integration/lint-probe.ts") },
+    );
+    expect(meeting.messages).toEqual([]);
   });
 
   it("checks every plugin resource JS with @ts-check", () => {
@@ -121,7 +205,6 @@ describe("the linter", () => {
   });
 
   it("holds a component test's run-time loads to its surface too", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const source = [
       'import { vi } from "vitest";',
       'vi.mock("../../app/settingsManager", () => ({}));',
@@ -143,7 +226,6 @@ describe("the linter", () => {
   });
 
   it("refuses a CLI named in the core, not in a plugin, a test or a comment", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     const leak = [
       "// codex in a comment decides nothing",
       'export const home = "CODEX_HOME";',
@@ -155,6 +237,9 @@ describe("the linter", () => {
     const rule = (result) => result.messages.filter((message) => message.ruleId === "keepdeck/no-cli-names");
     const [src] = await eslint.lintText(leak, { filePath: join(REPO, "src/lint-probe.ts") });
     expect(rule(src).map((message) => message.line)).toEqual([2, 3, 3, 5]);
+    // The shared packages are core too.
+    const [shared] = await eslint.lintText(leak, { filePath: join(REPO, "packages/code-kit/src/lint-probe.ts") });
+    expect(rule(shared).map((message) => message.line)).toEqual([2, 3, 3, 5]);
     // A block that redefines no-restricted-syntax does not drop it.
     const [component] = await eslint.lintText(leak, { filePath: join(REPO, "src/components/dock/lint-probe.ts") });
     expect(rule(component)).toHaveLength(4);
@@ -164,7 +249,6 @@ describe("the linter", () => {
   });
 
   it("holds an exempt file to its listed count and drops a stale exemption", async () => {
-    const eslint = new ESLint({ cwd: REPO });
     // The deck migration is exempt for the one claude it names, for good.
     const filePath = join(REPO, "src/domain/migrations/migrations.ts");
     const source = readFileSync(filePath, "utf8");
@@ -182,18 +266,4 @@ describe("the linter", () => {
     ]);
     expect(await messages("export const nothing = 1;\n")).toEqual([expect.stringContaining("delete its exemption")]);
   });
-
-  it("finds nothing in the source", async () => {
-    const eslint = new ESLint({ cwd: REPO });
-    const results = await eslint.lintFiles(["."]);
-    const problems = results.flatMap((file) =>
-      file.messages.map((m) => `${file.filePath.slice(REPO.length + 1)}:${m.line}: ${m.message}`),
-    );
-    // A run that read nothing proves nothing.
-    expect(results.length).toBeGreaterThan(500);
-    expect(problems).toEqual([]);
-    // Six seconds alone; well past two minutes on a machine running the rest
-    // of the suite and other work at once. The budget is for a hung linter,
-    // not a busy one.
-  }, 600_000);
 });
