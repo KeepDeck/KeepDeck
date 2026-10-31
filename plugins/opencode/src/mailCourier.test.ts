@@ -246,6 +246,10 @@ describe("opencode mail courier", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // Each case's courier keeps its doorbell's watcher: opencode 1.x gives a
+  // plugin no cleanup, so the product drops the handle and the watcher lives
+  // as long as the process. It is unref'd, and watches a directory removed
+  // above.
   const start = () => courierPlugin({ client });
 
   /**
