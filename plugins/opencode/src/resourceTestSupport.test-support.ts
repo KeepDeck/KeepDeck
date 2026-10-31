@@ -19,7 +19,7 @@ export function sdkSection<M extends object>(methods: M): M {
         if (this !== section) {
           throw new TypeError(`${String(key)} called without its section: the generated client reads this._client`);
         }
-        return Reflect.apply(value, target, args);
+        return Reflect.apply(value, section, args);
       };
     },
   });

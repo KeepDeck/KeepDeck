@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
-import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
+import { requireHooks, sdkSection, type Armed } from "./resourceTestSupport.test-support";
 
 /**
  * The pane follows the TUI (task-435): the user opens another session, and
@@ -34,7 +34,7 @@ describe("the pane follows the session on screen", () => {
   let parents: Record<string, string | null | undefined>;
 
   const client = () => ({
-    session: {
+    session: sdkSection({
       get: async ({ path }: { path: { id: string } }) =>
         parents[path.id] === null
           ? { error: { name: "UnknownError" } }
@@ -59,8 +59,8 @@ describe("the pane follows the session on screen", () => {
       }),
       children: async () => ({ data: [] }),
       promptAsync: async () => ({ data: {} }),
-    },
-    config: { providers: async () => ({ data: { providers: [] } }) },
+    }),
+    config: sdkSection({ providers: async () => ({ data: { providers: [] } }) }),
   });
 
   beforeEach(async () => {

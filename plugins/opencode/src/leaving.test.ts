@@ -6,7 +6,7 @@ import { startDeck } from "../../../scripts/reporterHarness";
 import { SHOW_WAIT_MS } from "../resources/keepdeck-plugin/courier-policy.js";
 import { HEARTBEAT_MS } from "../resources/keepdeck-plugin/foreground.js";
 import { LET_GO_MS } from "../resources/keepdeck-plugin/leaving.js";
-import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
+import { requireHooks, sdkSection, type Armed } from "./resourceTestSupport.test-support";
 
 /**
  * Leaving a conversation, and mail on the home screen (opencode 1.x,
@@ -88,7 +88,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
   };
 
   const client = () => ({
-    session: {
+    session: sdkSection({
       get: async ({ path }: { path: { id: string } }) => ({ data: { id: path.id, parentID: parents[path.id] } }),
       messages: async ({ path }: { path: { id: string } }) => ({
         data:
@@ -119,15 +119,15 @@ describe("leaving a conversation, and mail on the home screen", () => {
         calls.prompts.push({ id: path.id, body });
         return { data: {} };
       },
-    },
-    tui: {
+    }),
+    tui: sdkSection({
       publish: async ({ body }: { body: { properties: { sessionID: string } } }) => {
         calls.select.push(body.properties.sessionID);
         onSelect?.(body.properties.sessionID);
         return { data: true };
       },
-    },
-    config: { providers: async () => ({ data: { providers: [] } }) },
+    }),
+    config: sdkSection({ providers: async () => ({ data: { providers: [] } }) }),
   });
 
   beforeEach(async () => {
