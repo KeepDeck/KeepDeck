@@ -14,6 +14,11 @@ const data = (text) => [`data ${Buffer.byteLength(text)}`, text];
  * Each step lands on main by its first parent: a commit, or with
  * `merge: true` a merge of a one-commit side branch. Either carries the
  * `files` it sets ({ path: text }). The caller removes the directory.
+ *
+ * By design a merge's tree is its first parent's plus those `files`, without
+ * the side commit's own file, and the `side` branch stays behind. The
+ * scripts read subjects, parents and the version files, never a merge's
+ * whole tree or the branch list.
  */
 export function gitRepo(history) {
   const stream = [];
