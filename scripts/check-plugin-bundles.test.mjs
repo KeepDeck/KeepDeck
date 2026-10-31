@@ -126,7 +126,7 @@ describe("linkPlugins", () => {
       }
     }`;
 
-  it("links every bundle through the import map, and refuses a specifier the map lacks or an export the target lacks", async () => {
+  it("links every bundle through the import map, and refuses a specifier the map lacks or an export the target lacks", async ({ signal }) => {
     const sound = join(root, "dist");
     const variant = (name, bundle) => {
       const dist = join(root, name);
@@ -141,11 +141,12 @@ describe("linkPlugins", () => {
     // bundle imports is not among the bridge's exports.
     const unexported = variant("unexported", 'import { useSyncExternalStore } from "react";\nexport default { useSyncExternalStore };\n');
 
-    // Asynchronous, so the test's own timeout still bounds a child that hangs.
+    // The test's own timeout bounds the child: its signal aborts there, and
+    // aborting kills the child rather than leaving it to outlive the test.
     const { stdout } = await promisify(execFile)(
       process.execPath,
       ["--experimental-vm-modules", "--disable-warning=ExperimentalWarning", "--input-type=module", "-e", DRIVER, sound, unmapped, unexported],
-      { encoding: "utf8" },
+      { encoding: "utf8", signal },
     );
 
     expect(stdout.trim().split("\n")).toEqual([
