@@ -29,7 +29,7 @@ type ReporterResult = Awaited<ReturnType<typeof import("../resources/keepdeck-pl
 type CourierResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier>>;
 let startReporter: (input?: unknown) => Promise<Armed<ReporterResult, "event">>;
 let startCourier: (input?: unknown) => Promise<Armed<CourierResult, "event" | "tool.execute.after">>;
-let follower: () => { start(dir?: string): void };
+let follower: () => { start(dir?: string): () => void };
 let writeForeground: (dir: string, route: Record<string, unknown>) => void;
 let paneSession: () => { root: string | undefined; left: string | undefined };
 let drained: () => Promise<void>;
@@ -75,6 +75,10 @@ describe("leaving a conversation, and mail on the home screen", () => {
   /** Fired between `session.create` being called and returning — the user
    * sending their own first prompt at that moment. */
   let duringCreate: (() => Promise<void>) | null;
+  /** The follower's own stop: its heartbeat and its directory watcher. (The
+   * 1.x courier's doorbell has none — opencode 1.x gives a plugin no
+   * cleanup, so it lives as long as the process.) */
+  let stopFollowing: () => void;
   let reporter: Armed<ReporterResult, "event">;
   let courier: Armed<CourierResult, "event" | "tool.execute.after">;
 
@@ -164,10 +168,11 @@ describe("leaving a conversation, and mail on the home screen", () => {
     const c = client();
     reporter = await startReporter({ client: c });
     courier = await startCourier({ client: c });
-    follower().start(dir);
+    stopFollowing = follower().start(dir);
   });
 
   afterEach(async () => {
+    stopFollowing();
     delete process.env.KEEPDECK_BRIDGE;
     // Nothing still on the wire when the deck goes: a post in flight would
     // land on a closed server.
@@ -230,7 +235,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
    * once would assert something the product does not promise.
    */
   const ringUntil = async (done: () => boolean) => {
-    for (let rings = 0; rings < 20 && !done(); rings++) {
+    for (let rings = 0; rings < 6 && !done(); rings++) {
       ring();
       await until(done, 500);
     }
@@ -406,11 +411,10 @@ describe("leaving a conversation, and mail on the home screen", () => {
     };
     pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
     await ringUntil(() => calls.create > 0);
-    // The made session never comes on screen within the wait: the courier
-    // gives it up — its last wait is gone from the clock — and asks nothing.
-    const waiting = vi.getTimerCount();
+    // The made session never comes on screen within the wait, and the
+    // courier asks nothing. That the wait then gives up is the policy's own
+    // rule, held where it lives (courierPolicy.test.ts).
     await advance(SHOW_WAIT_MS);
-    expect(vi.getTimerCount()).toBeLessThan(waiting);
     await deck.idle();
     expect(kinds()).not.toContain("mail.ask");
     expect(pending).toHaveLength(1);

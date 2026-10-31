@@ -710,9 +710,8 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       present(cleanup, "the cleanup")();
       // Every watcher closed — a ring or a screen would otherwise still be
       // followed — and nothing left on the plugin's clock: no heartbeat
-      // reads the screen again.
-      await new Promise((resolve) => setImmediate(resolve));
-      expect(watchers.closed).toHaveLength(watchers.opened.length);
+      // reads the screen again. A watcher says it closed on its own event.
+      await until(() => watchers.closed.length === watchers.opened.length);
       expect(watchers.closed).toEqual(expect.arrayContaining(watchers.opened));
       expect(vi.getTimerCount()).toBe(0);
       // And opencode's own events reach nobody.

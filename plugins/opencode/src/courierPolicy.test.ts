@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 // Resource JS — shipped to, and loaded by, the user's opencode.
 import { createCourierPolicy, visibleOn } from "../resources/keepdeck-plugin/courier-policy.js";
 
+/** The wire under the policy: what is still on it must be through before the
+ * next ask goes out. Drained at once unless a case holds it. */
+const wire = vi.hoisted(() => ({ drained: async (): Promise<void> => {} }));
+vi.mock("../resources/keepdeck-plugin/keepdeck-bridge.js", () => ({ drained: () => wire.drained() }));
+
 /**
  * Where the courier's mail may go (courier-policy.js), on its own, over a
  * fake pane, screen and generation adapter. leaving.test.ts and
@@ -123,6 +128,36 @@ describe("mail on the home screen after /new", () => {
     expect(on.adapter.selectionOf).toHaveBeenCalledWith("ses_a");
     expect(on.log).toEqual(["show ses_made", "ask root", 'deliver ses_made {"agent":"agent-of-ses_a"}']);
     expect(on.policy.ours("ses_made")).toBe(true);
+  });
+
+  it("asks only once the wire is clear — the new session's binding is through before its mail is asked for", async () => {
+    const pane = paneOf(undefined, "ses_a");
+    const on = setup(pane, { kind: "home" });
+    on.adapter.show.mockImplementation(async (id: string) => {
+      on.show({ kind: "session", sessionID: id });
+      pane.root = id;
+    });
+    let reached!: () => void;
+    const atTheWire = new Promise<void>((resolve) => (reached = resolve));
+    let clear!: () => void;
+    wire.drained = () => {
+      reached();
+      return new Promise<void>((resolve) => (clear = resolve));
+    };
+    try {
+      const collecting = on.policy.collect({ rung: true });
+      // Shown and bound, at the wire. Everything here is a microtask, so one
+      // turn of the event loop runs whatever the policy would do without
+      // waiting on it: nothing may be asked yet.
+      await atTheWire;
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(on.ask).not.toHaveBeenCalled();
+      clear();
+      await collecting;
+      expect(on.ask).toHaveBeenCalledOnce();
+    } finally {
+      wire.drained = async () => {};
+    }
   });
 
   it.each([

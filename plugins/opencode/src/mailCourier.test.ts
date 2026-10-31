@@ -259,7 +259,7 @@ describe("opencode mail courier", () => {
    * waited was asserting something the product does not promise.
    */
   const ringUntil = async (done: () => boolean) => {
-    for (let rings = 0; rings < 12 && !done(); rings++) {
+    for (let rings = 0; rings < 6 && !done(); rings++) {
       writeFileSync(join(dir, "mail.wake"), "");
       for (let tries = 0; tries < 100 && !done(); tries++) await sleep(5);
     }
@@ -627,12 +627,10 @@ describe("opencode mail courier", () => {
     // pane has adopted its own.
     let releaseAlien!: () => void;
     const alienHeld = new Promise<void>((resolve) => (releaseAlien = resolve));
-    let mineAsked!: () => void;
-    const mineLookedUp = new Promise<void>((resolve) => (mineAsked = resolve));
     session.get = async (call: Record<string, unknown>) => {
-      const id = stringOf(recordOf(call.path, "call path").id, "session id");
-      if (id.startsWith("ses_alien")) await alienHeld;
-      if (id === "ses_mine") mineAsked();
+      if (stringOf(recordOf(call.path, "call path").id, "session id").startsWith("ses_alien")) {
+        await alienHeld;
+      }
       return answer(call);
     };
 
@@ -643,9 +641,12 @@ describe("opencode mail courier", () => {
     // makes it the slower of the two.
     const alien = courier.event(idle("ses_alien_child"));
     const chat = courier["chat.message"]({ sessionID: "ses_mine" }, { parts: [] });
-    await mineLookedUp;
-    // Its answer is in and adopted before the alien's comes back.
-    await new Promise((resolve) => setImmediate(resolve));
+    // Mine is answered and adopted while the alien's answer is still held —
+    // the pane the courier binds says so — and only then does that one come
+    // back.
+    const { paneSession } = await import("../resources/keepdeck-plugin/pane-session.js");
+    for (let tries = 0; tries < 100 && paneSession().root !== "ses_mine"; tries++) await sleep(5);
+    expect(paneSession().root).toBe("ses_mine");
     releaseAlien();
     await chat;
     await alien;
