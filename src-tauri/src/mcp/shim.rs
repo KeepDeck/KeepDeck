@@ -369,10 +369,16 @@ mod tests {
         // The WHOLE reply, so the disable provably cuts a live session and
         // not the reply itself: the server writes a line's body and its
         // newline separately, and a disable between the two takes the
-        // newline with it (task-549). A pump that died first ends the wait.
+        // newline with it (task-549). A pump that died first ends the wait;
+        // the deadline is a fuse for a server that never ends its line, not
+        // a budget — a working one answers in microseconds.
         let mut reply = Vec::new();
         while !reply.ends_with(b"\n") {
-            reply.extend(written.recv().expect("the pump to hand over the reply"));
+            reply.extend(
+                written
+                    .recv_timeout(std::time::Duration::from_secs(10))
+                    .expect("the pump to hand over the whole reply line"),
+            );
         }
 
         server.disable();
