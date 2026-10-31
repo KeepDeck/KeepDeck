@@ -56,14 +56,16 @@ describe("Providers", () => {
     accounts,
     events = [usageEvent()],
     reportsByKey = new Map<string, readonly WindowReport[]>(),
+    now = NOW,
   }: {
     accounts: Map<string, AccountUsage>;
     events?: UsageEventV2[];
     reportsByKey?: Map<string, readonly WindowReport[]>;
+    now?: number;
   }) {
     act(() =>
       root.render(
-        createElement(Providers, { accounts, events, colors: new Map(), reportsByKey, now: NOW }),
+        createElement(Providers, { accounts, events, colors: new Map(), reportsByKey, now }),
       ),
     );
   }
@@ -209,6 +211,28 @@ describe("Providers", () => {
     // Live weekly window: joined despite the stale report.
     expect(windows[1].textContent).toContain("1.6k");
     expect(windows[1].className).not.toContain("stats__window--expired");
+  });
+
+  it("demotes a window on the card already drawn, the moment the now it is handed passes its reset", () => {
+    // The dialog's clock ticks on with no new report, event or journal
+    // entry: the very same inputs, only a later now. The WHOLE window
+    // demotes together — caption, dim and join in agreement — not what the
+    // card drew before.
+    const inputs = {
+      accounts: new Map([
+        ["codex", account([{ usedPct: 90, resetsAt: NOW + 10_000, windowMinutes: 300 }])],
+      ]),
+      events: [usageEvent()],
+      reportsByKey: new Map<string, readonly WindowReport[]>(),
+    };
+    render(inputs);
+    expect(host.querySelector(".stats__window--expired")).toBeNull();
+    expect(host.textContent).toContain("resets in");
+
+    render({ ...inputs, now: NOW + 31_000 });
+    expect(host.querySelector(".stats__window--expired")).not.toBeNull();
+    expect(host.textContent).toContain("reset passed");
+    expect(host.textContent).not.toContain("this window");
   });
 
   it("explains a reset percentage once per card, not once per window", () => {

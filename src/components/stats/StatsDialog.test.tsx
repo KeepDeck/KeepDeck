@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { act, createElement, useState } from "react";
+import { act, createElement, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 
 const history = vi.hoisted(() => ({
@@ -57,14 +57,60 @@ vi.mock("../../app/useWindowReports", () => ({
   useWindowReports: () => windowReports.snapshot,
 }));
 
+/** The panels, each a stand-in that records what the shell handed it: what
+ * a panel renders is its own suite's, so the shell's cases read props, not
+ * markup — and nothing here loads the chart. */
+const panels = vi.hoisted(() => ({
+  overview: vi.fn<(props: ComponentProps<typeof Overview>) => void>(),
+  providers: vi.fn<(props: ComponentProps<typeof Providers>) => void>(),
+  table: vi.fn<(props: ComponentProps<typeof StatsTable>) => void>(),
+  achievements: vi.fn<(props: ComponentProps<typeof Achievements>) => void>(),
+}));
+vi.mock("./Overview", () => ({
+  Overview: (props: ComponentProps<typeof Overview>) => {
+    panels.overview(props);
+    return null;
+  },
+}));
+vi.mock("./Providers", () => ({
+  Providers: (props: ComponentProps<typeof Providers>) => {
+    panels.providers(props);
+    return null;
+  },
+}));
+vi.mock("./StatsTable", () => ({
+  StatsTable: (props: ComponentProps<typeof StatsTable>) => {
+    panels.table(props);
+    return null;
+  },
+}));
+vi.mock("./Achievements", () => ({
+  Achievements: (props: ComponentProps<typeof Achievements>) => {
+    panels.achievements(props);
+    return null;
+  },
+}));
+
 import type { AccountUsage } from "../../domain/usage";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
 } from "../../domain/usage/history/event.testSupport";
+import type { Achievements } from "./Achievements";
+import type { Overview } from "./Overview";
+import type { Providers } from "./Providers";
+import type { StatsTable } from "./StatsTable";
 import { StatsDialog, UsageStats } from "./StatsDialog";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import { present } from "@keepdeck/plugin-api/testing";
+
+/** What the shell last handed a panel. */
+const handed = <P,>(panel: Mock<(props: P) => void>, name: string): P =>
+  present(panel.mock.lastCall, `${name}'s last render`)[0];
+const overview = () => handed(panels.overview, "Overview");
+const providers = () => handed(panels.providers, "Providers");
+const table = () => handed(panels.table, "StatsTable");
+const achievements = () => handed(panels.achievements, "Achievements");
 
 /** The dialog's tab is controlled by the app-layer owner; tests host that
  * ownership in a tiny stateful wrapper. */
@@ -80,9 +126,9 @@ function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
 
 const NOW = TEST_NOW;
 /** This file's personality over the shared builder: a costed codex session
- * with a human pane name — the dialog's cost cells and identity columns
- * assert on these, so the divergence is EXPLICIT here, not baked into a
- * private copy of the whole shape. */
+ * with a human pane name — the totals and rows the shell routes assert on
+ * these, so the divergence is EXPLICIT here, not baked into a private copy
+ * of the whole shape. */
 const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
   baseEvent({
     capturedAt: NOW,
@@ -104,12 +150,9 @@ const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
  * of them now has one — Overview, StatsTable, Providers, Achievements,
  * Weeks, StreakBadge — each mounted directly, with no tab to click first.
  * A case that reads a number out of a panel's markup is in the wrong file:
- * the boundary only holds while nothing crosses it. */
+ * the boundary only holds while nothing crosses it — so here every panel is
+ * a stand-in, and the shell's cases read what it handed them. */
 describe("UsageStats", () => {
-  // The chart's module (recharts) is heavy to load cold; its first load is
-  // the suite's, with room for a full parallel run, not the first test's.
-  beforeAll(() => import("./UsageChart"), 60_000);
-
   let root: Root;
   let host: HTMLElement;
 
@@ -118,6 +161,7 @@ describe("UsageStats", () => {
     history.snapshot = ledger([usageEvent()]);
     usage.snapshot = { accounts: new Map(), panes: new Map() };
     windowReports.snapshot = { ready: true, byKey: new Map() };
+    vi.clearAllMocks();
     document.body.innerHTML = "<div id='host'></div>";
     host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
@@ -135,16 +179,16 @@ describe("UsageStats", () => {
     act(() => tab.click());
   };
 
-  it("renders as its own global dialog, not a settings section", async () => {
+  const clickPeriod = (label: string) => {
+    const period = present([...host.querySelectorAll<HTMLButtonElement>(".stats__period button")].find(
+      (button) => button.textContent === label,
+    ), "the matching element");
+    act(() => period.click());
+  };
+
+  it("renders as its own global dialog, not a settings section", () => {
     const close = vi.fn();
-    // First render in the file: the lazy chart chunk resolves HERE, inside
-    // an async act, so the Suspense re-render is adopted instead of firing
-    // React's suspended-resource act warning in whichever later test the
-    // event loop happens to land it.
-    await act(async () => {
-      root.render(createElement(DialogHost, { onClose: close }));
-      await import("./UsageChart");
-    });
+    act(() => root.render(createElement(DialogHost, { onClose: close })));
 
     const dialog = present(document.body.querySelector('[role="dialog"]'), "the [role=\"dialog\"] element");
     expect(dialog.getAttribute("aria-label")).toBe("Statistics");
@@ -156,33 +200,26 @@ describe("UsageStats", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("shows period totals on Overview with model and session drill-down tabs", async () => {
+  it("hands Overview the period's totals, and the drill-down tabs their rows", () => {
     act(() => root.render(createElement(Host)));
 
-    expect(host.textContent).toContain("1.6k");
-    expect(host.textContent).toContain("≈$0.25");
-    expect(host.textContent).toContain("API estimates");
-    // The chart rides a lazy chunk — poll until the import lands. Each
-    // poll flushes the pending chunk resolution INSIDE act() (an empty
-    // async act adopts the Suspense re-render), then asserts on settled
-    // DOM: asserting alone trips React's act warnings on every run, and
-    // asserting inside one big act() never sees the flush at all.
-    await vi.waitFor(async () => {
-      await act(async () => {});
-      expect(host.querySelector('[aria-label="Daily tokens"]')).not.toBeNull();
-    });
+    expect(overview().period).toBe(7);
+    expect(overview().stats.totals).toMatchObject({ totalTokens: 1_600, providerCostUsd: 0.25 });
 
     clickTab("Models");
-    expect(host.textContent).toContain("gpt-5.6-terra");
+    expect(table()).toMatchObject({ title: "Models", mode: "model" });
+    expect(table().rows.map((row) => row.model)).toEqual(["gpt-5.6-terra"]);
 
     clickTab("Sessions");
-    expect(host.textContent).toContain("auth-refactor");
-    expect(host.textContent).toContain("KeepDeck · codex · session-…");
+    expect(table()).toMatchObject({ title: "Sessions", mode: "session" });
+    expect(table().rows.map((row) => [row.paneName, row.sessionId])).toEqual([
+      ["auth-refactor", "session-123456789"],
+    ]);
   });
 
-  it("shows a just-appended event immediately, not after the next clock tick", () => {
+  it("counts a just-appended event immediately, not after the next clock tick", () => {
     act(() => root.render(createElement(Host)));
-    expect(host.textContent).toContain("1.6k");
+    expect(overview().stats.totals.totalTokens).toBe(1_600);
 
     // An agent finishes a turn seconds AFTER the dialog's slow clock last
     // ticked: the appended event's instant is ahead of that clock, and the
@@ -197,25 +234,22 @@ describe("UsageStats", () => {
       }),
     ]);
     act(() => root.render(createElement(Host)));
-    expect(host.textContent).toContain("101.6k");
+    expect(overview().now).toBe(NOW + 5_000);
+    expect(overview().stats.totals.totalTokens).toBe(101_600);
   });
 
-  it("switches time ranges without remounting", () => {
-    history.snapshot = {
-      ...ledger([usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })]),
-    };
+  it("routes a new time range to Overview, which keeps the whole ledger for its weeks", () => {
+    history.snapshot = ledger([usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })]);
     act(() => root.render(createElement(Host)));
-    expect(host.textContent).toContain("gpt-5.6-terra"); // default 7d
+    expect(overview().stats.eventCount).toBe(1); // default 7d
 
-    const day = present([...host.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "24h",
-    ), "the matching element");
-    act(() => day.click());
-    // The period went empty, but Overview STAYS: zeroed cards over an
-    // intact Weeks history — an empty period must never hide the one
-    // period-independent block (review finding).
-    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("0");
-    expect(host.querySelector(".stats__weeks")).not.toBeNull();
+    clickPeriod("24h");
+    // The period went empty, but Overview STAYS, handed the whole ledger:
+    // an empty period must never hide the one period-independent block, its
+    // Weeks history (review finding; Overview's own suite draws it).
+    expect(overview().period).toBe(1);
+    expect(overview().stats.eventCount).toBe(0);
+    expect(overview().events).toBe(history.snapshot.events);
   });
 
   it("keeps Providers alive when the ledger failed to load", () => {
@@ -238,8 +272,8 @@ describe("UsageStats", () => {
     expect(host.textContent).toContain("Usage history is unavailable");
     clickTab("Providers");
     // …but Providers reads the independent account snapshot and renders.
-    expect(host.querySelector(".stats__provider")).not.toBeNull();
-    expect(host.textContent).toContain("34%");
+    expect(providers().accounts).toBe(usage.snapshot.accounts);
+    expect(providers().reportsByKey).toBe(windowReports.snapshot.byKey);
     expect(host.textContent).not.toContain("Usage history is unavailable");
   });
 
@@ -261,7 +295,7 @@ describe("UsageStats", () => {
     act(() =>
       root.render(createElement(Host, { initialTab: "achievements" })),
     );
-    expect(host.textContent).toContain("In progress");
+    expect(achievements().events).toBe(history.snapshot.events);
     expect(present(host.querySelector('[role="tab"][aria-selected="true"]'), "the [role=\"tab\"][aria-selected=\"true\"] element").textContent).toBe(
       "Achievements",
     );
@@ -284,7 +318,7 @@ describe("UsageStats", () => {
     expect(periodButton().disabled).toBe(false);
   });
 
-  it("demotes a window whose reset passes while the dialog stays open", () => {
+  it("ticks one shared clock past a reset while the dialog stays open", () => {
     // beforeEach mocked only the date; this test needs ticking timers too.
     vi.useRealTimers();
     vi.useFakeTimers();
@@ -297,18 +331,17 @@ describe("UsageStats", () => {
     };
     usage.snapshot = { accounts: new Map([["codex", account]]), panes: new Map() };
     act(() => root.render(createElement(Host, { initialTab: "providers" })));
+    expect(providers().now).toBe(NOW);
 
-    expect(host.querySelector(".stats__window--expired")).toBeNull();
-    expect(host.textContent).toContain("resets in");
-
-    // The reset passes with no new report; the shared wall clock ticks and
-    // the WHOLE card demotes together — caption, dim and join in agreement.
+    // The reset passes with no new report: the wall clock ticks, and the
+    // card is handed a now past it — the demotion it draws from that is
+    // Providers' own suite's. Every tab reads the same clock.
     act(() => {
       vi.advanceTimersByTime(31_000);
     });
-    expect(host.querySelector(".stats__window--expired")).not.toBeNull();
-    expect(host.textContent).toContain("reset passed");
-    expect(host.textContent).not.toContain("this window");
+    expect(providers().now).toBeGreaterThan(NOW + 10_000);
+    clickTab("Overview");
+    expect(overview().now).toBe(providers().now);
   });
 
   it("reaches arbitrarily old events through the All period", () => {
@@ -316,19 +349,17 @@ describe("UsageStats", () => {
       usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
     ]);
     act(() => root.render(createElement(Host)));
-    // Default 7d is empty: Overview keeps rendering (zero cards, Weeks
-    // history reachable), while the period-LEDGER tabs still gate.
-    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("0");
-    expect(host.querySelector(".stats__weeks")).not.toBeNull();
+    // Default 7d is empty: Overview keeps rendering, handed the whole ledger
+    // for its Weeks, while the period-LEDGER tabs still gate.
+    expect(overview().stats.eventCount).toBe(0);
+    expect(overview().events).toBe(history.snapshot.events);
     clickTab("Models");
     expect(host.textContent).toContain("No usage recorded");
     clickTab("Overview");
 
-    const all = present([...host.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "All",
-    ), "the matching element");
-    act(() => all.click());
-    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("1.6k");
+    clickPeriod("All");
+    expect(overview().period).toBe("all");
+    expect(overview().stats.totals.totalTokens).toBe(1_600);
   });
 
   it("hands each tab the same period the switcher is showing", () => {
@@ -341,11 +372,8 @@ describe("UsageStats", () => {
     clickTab("Models");
     expect(host.textContent).toContain("No usage recorded");
 
-    const all = present([...host.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "All",
-    ), "the matching element");
-    act(() => all.click());
+    clickPeriod("All");
     expect(host.textContent).not.toContain("No usage recorded");
-    expect(host.querySelector('[aria-label="Models"]')).not.toBeNull();
+    expect(table().rows.map((row) => row.model)).toEqual(["gpt-5.6-terra"]);
   });
 });
