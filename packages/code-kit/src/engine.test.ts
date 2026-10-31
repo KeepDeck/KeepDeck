@@ -73,6 +73,20 @@ describe("the engine's tokenize", () => {
     const comment = plain[0][0].color;
     expect(plain[1].find((run) => run.text === "export")?.color).not.toBe(comment);
   });
+
+  it("carries a block comment opened on one line onto the next, and ends it at its closer", async () => {
+    // A line's colors depend on the lines before it in the same text — what
+    // the token stand-in (testing.ts) models, and what a caller choosing
+    // which lines make one document is tested against.
+    const lines = present(
+      await tokenize("/* opened\nstill open */ const after = 1;", "typescript"),
+      "the highlighted lines",
+    );
+    const comment = lines[0].find((run) => run.text.includes("opened"))?.color;
+    expect(comment).toBeDefined();
+    expect(lines[1].find((run) => run.text.includes("still"))?.color).toBe(comment);
+    expect(lines[1].find((run) => run.text === "const")?.color).not.toBe(comment);
+  });
 });
 
 describe("the engine's warm", () => {

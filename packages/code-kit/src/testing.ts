@@ -1,31 +1,11 @@
 /**
- * Workers for a test realm, which has none — without one the client renders
- * plain. Install one before the first highlight: the client spawns its
- * worker on first use and keeps it for the module's life.
+ * A worker for a test realm, which has none — without one the client renders
+ * plain. Install it before the first highlight: the client spawns its worker
+ * on first use and keeps it for the module's life.
  */
 import { vi } from "vitest";
-import { serve } from "./serve";
 import { isHighlightRequest, type HighlightReply } from "./protocol";
 import type { LineTokens } from "./tokens";
-
-/**
- * For tests about the colors themselves — what a real grammar makes of a
- * text: a `Worker` that runs the worker's own handler (serve.ts) in-process,
- * on the next task. Its first request compiles real grammars on the test's
- * own thread.
- */
-class InProcessWorker extends EventTarget {
-  postMessage(data: unknown): void {
-    setTimeout(() => {
-      serve(data, (reply) => this.dispatchEvent(new MessageEvent("message", { data: reply })));
-    }, 0);
-  }
-  terminate(): void {}
-}
-
-export function installInProcessWorker(): void {
-  vi.stubGlobal("Worker", InProcessWorker);
-}
 
 /** One tokenize the token worker was asked. */
 export interface TokenRequest {
@@ -43,7 +23,7 @@ class TokenWorker extends EventTarget {
     if (!isHighlightRequest(data) || data.kind !== "tokenize") return;
     const { id, text, lang } = data;
     asked.push({ text, lang });
-    const reply: HighlightReply = { id, lines: text.split("\n").map(runs) };
+    const reply: HighlightReply = { id, lines: linesOf(text) };
     queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", { data: reply })));
   }
   terminate(): void {}
@@ -52,9 +32,11 @@ class TokenWorker extends EventTarget {
 /**
  * For tests of a surface that shows code, where colors are input rather than
  * the subject: a `Worker` that answers each tokenize on the next microtask,
- * every word and every gap a run of its own color. The real client, hook and
- * spans run around it; no grammar compiles, so a colored row costs a flush,
- * not a clock.
+ * every word and every gap a run of its own color, and everything from a
+ * `/*` to its `*\/` in `STAND_IN_COMMENT` — carried from line to line of one
+ * text, as a grammar carries it, so what a document READS AS can be tested
+ * without one. The real client, hook and spans run around it; no grammar
+ * compiles, so a colored row costs a flush, not a clock.
  *
  * Hands back the live record of what it was asked: what was colored, in
  * which language, is the one thing a stand-in that colors anything cannot
@@ -66,10 +48,25 @@ export function installTokenWorker(): readonly TokenRequest[] {
   return asked;
 }
 
-/** A line as runs — each word and each gap its own, colored by position. */
-function runs(line: string): LineTokens {
-  return line
-    .split(/(\s+)/)
-    .filter((text) => text !== "")
-    .map((text, index) => ({ text, color: `#${index.toString(16).padStart(6, "0")}` }));
+/** The color the stand-in paints a block comment in — one no word's
+ * positional color can be. */
+export const STAND_IN_COMMENT = "#7f848e";
+
+/** A text as lines of runs: each word and each gap its own, colored by its
+ * position in the line, and a block comment in `STAND_IN_COMMENT` — its state
+ * the one thing carried from a line to the next, within this text only. */
+function linesOf(text: string): LineTokens[] {
+  let inComment = false;
+  return text.split("\n").map((line) => {
+    const out: LineTokens = [];
+    for (const piece of line.split(/(\/\*|\*\/)/)) {
+      if (piece === "/*") inComment = true;
+      for (const run of inComment ? [piece] : piece.split(/(\s+)/)) {
+        if (run === "") continue;
+        out.push({ text: run, color: inComment ? STAND_IN_COMMENT : `#${out.length.toString(16).padStart(6, "0")}` });
+      }
+      if (piece === "*/") inComment = false;
+    }
+    return out;
+  });
 }
