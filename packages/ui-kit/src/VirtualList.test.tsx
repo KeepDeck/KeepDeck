@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FOLD_MOTION_MS } from "./useFoldMotion";
 import { VirtualList } from "./VirtualList";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -29,6 +30,28 @@ class FakeMediaQueryList extends EventTarget implements MediaQueryList {
     this.dispatchEvent(new MediaQueryListEvent("change", { matches, media: this.media }));
   }
 }
+
+/** A fold plays out on requestAnimationFrame, timed by its frames: on a faked
+ * clock a group's tests play it by time instead of sleeping through it. */
+function onFakeFrames() {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
+/** Frames of the clock, by time. */
+async function frames(ms: number) {
+  await act(async () => {
+    vi.advanceTimersByTime(ms);
+  });
+}
+
+/** A fold's whole play and a few frames over: a case that reads after it
+ * reads where the fold ENDS, not a moment of it. */
+const playedOut = () => frames(FOLD_MOTION_MS + 40);
 
 describe("VirtualList", () => {
   let root: Root;
@@ -186,6 +209,7 @@ describe("VirtualList", () => {
   });
 
   describe("a list that grows at its foot (followEnd)", () => {
+    onFakeFrames();
     const thread = Array.from({ length: 30 }, (_, i) => `row ${i}`);
     const renderThread = (list: readonly string[], easeKey?: unknown, followEnd = true) =>
       act(() =>
@@ -245,9 +269,7 @@ describe("VirtualList", () => {
       const grown = [...thread, "row 30", "row 31", "row 32", "row 33", "row 34", "row 35", "row 36", "row 37", "row 38", "row 39"];
       renderThread(grown, opened);
       // The fold plays out: the list grows under the view, no scroll event.
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 700));
-      });
+      await playedOut();
       const held = list().scrollTop;
       expect(list().scrollHeight).toBe(40 * ROW);
       renderThread([...grown], opened);
@@ -283,9 +305,9 @@ describe("VirtualList", () => {
       const open = {};
       const opened = [...once, ...Array.from({ length: 10 }, (_, i) => `row ${31 + i}`)];
       renderThread(opened, open);
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 700));
-      });
+      // Played out: mid-play the fold itself holds the view, and the row
+      // below would pass for the foot let go.
+      await playedOut();
       const reading = list().scrollTop;
       // A row arrives from someone else: the view stays on what they read.
       renderThread([...opened, "row 41"], open);
@@ -355,9 +377,7 @@ describe("VirtualList", () => {
       renderThread(grown, {});
       const seen = [list().scrollTop];
       for (const wait of [80, 160, 400]) {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, wait));
-        });
+        await frames(wait);
         seen.push(list().scrollTop);
       }
       expect(new Set(seen).size).toBe(1);
@@ -783,18 +803,7 @@ describe("VirtualList as a grouped list", () => {
   describe("the person's fold, played out by the list (useFoldMotion)", () => {
     const shut = new Set([9]);
     const box = () => host.querySelector<HTMLElement>(".list > div:not(:first-child) > div[style*='overflow: clip']");
-    /** Frames of the clock, by time. */
-    const frames = async (ms: number) => {
-      await act(async () => {
-        vi.advanceTimersByTime(ms);
-      });
-    };
-    beforeEach(() => {
-      vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout", "clearTimeout"] });
-    });
-    afterEach(() => {
-      vi.useRealTimers();
-    });
+    onFakeFrames();
 
     it("unrolls an opened group from under its heading — even with the next heading far off screen — and ends final", async () => {
       // Read near the top: group 9 is far below, its next heading further.
@@ -985,6 +994,8 @@ describe("VirtualList as a grouped list", () => {
   describe("the person's own fold (easeKey) holds the heading folded", () => {
     // Group 9 folded: its heading is item 99, at 99·H.
     const shut = new Set([9]);
+    // Each case reads where the fold ENDS: it plays it out before reading.
+    onFakeFrames();
 
     it("opens a group whose heading is scrolled up under the top edge BELOW it — the heading comes down to the top", async () => {
       render(grouped(30, shut), shut);
@@ -992,7 +1003,7 @@ describe("VirtualList as a grouped list", () => {
       await scrollTo(99 * H + 5);
       const open = new Set<number>();
       render(grouped(30), open);
-      await act(async () => {});
+      await playedOut();
       expect(top("head:9")).toBe(0);
       expect(top("g9r0")).toBe(H);
     });
@@ -1004,7 +1015,7 @@ describe("VirtualList as a grouped list", () => {
       const before = top("head:9");
       const open = new Set<number>();
       render(grouped(30), open);
-      await act(async () => {});
+      await playedOut();
       expect(top("head:9")).toBe(before);
       expect(top("g9r0")).toBe(before + H);
     });
@@ -1015,7 +1026,7 @@ describe("VirtualList as a grouped list", () => {
       await scrollTo(99 * H + 5 * H);
       await scrollTo(99 * H + 5 * H + 3);
       render(grouped(30, shut), shut);
-      await act(async () => {});
+      await playedOut();
       expect(top("head:9")).toBe(0);
       expect(top("head:10")).toBe(H);
     });
@@ -1025,19 +1036,19 @@ describe("VirtualList as a grouped list", () => {
       await scrollTo(99 * H + 5);
       const open = new Set<number>();
       render(grouped(30), open);
-      await act(async () => {});
+      await playedOut();
       await scrollTo(150 * H);
       await scrollTo(150 * H + 3);
       const before = top("g13r7");
       // The same rows again (a tick re-dated them), under the same token.
       render(grouped(30), open);
-      await act(async () => {});
+      await playedOut();
       expect(top("g13r7")).toBe(before);
       // An agent's move above, under the same token.
       const moved = grouped(30).filter((g) => g.key !== "g20r0");
       moved.splice(1, 0, { key: "g20r0", head: false, group: 0 });
       render(moved, open);
-      await act(async () => {});
+      await playedOut();
       expect(top("g13r7")).toBe(before);
     });
   });

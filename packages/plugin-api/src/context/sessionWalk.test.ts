@@ -1,51 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgentTranscriptEntry } from "./agents.ts";
-import type {
-  PluginSessionStore,
-  ReadOutcome,
-  ReadScope,
-  ReadStop,
-  SessionFormat,
-} from "./sessionRead.ts";
+import type { ReadScope, ReadStop, SessionFormat } from "./sessionRead.ts";
 import { CONTENT_CAP, walkSession, type SessionDialect } from "./sessionWalk.ts";
-import { cursorOf } from "../testing.ts";
-
-/** A store that hands over the records it was given and stops the way it was
- * told to — the walk's whole job is what it does with records and with the
- * reason a read ended, so both are the inputs here. */
-function fakeStore(
-  records: unknown[],
-  stopped: ReadStop = "exhausted",
-  sourceBytes?: number,
-  refused?: number,
-): PluginSessionStore & { reads: number } {
-  const store: PluginSessionStore & { reads: number } = {
-    reads: 0,
-    async read<Req, Item>(
-      _format: SessionFormat<Req, Item>,
-      _request: Req,
-      consume: (item: Item) => "more" | "enough",
-      _scope?: ReadScope,
-    ): Promise<ReadOutcome> {
-      store.reads += 1;
-      let items = 0;
-      for (const record of records) {
-        items += 1;
-        if (Reflect.apply(consume, undefined, [record]) === "enough") {
-          return {
-            payloadBytes: 10,
-            items,
-            stopped: "satisfied",
-            sourceBytes,
-            next: cursorOf("j1:10:20"),
-          };
-        }
-      }
-      return { payloadBytes: 10, items, ...(refused ? { refused } : {}), stopped, sourceBytes };
-    },
-  };
-  return store;
-}
+// The walk's whole job is what it does with records and with the reason a
+// read ended, so both are the store's inputs here.
+import { fakeSessionStore } from "../testing.ts";
 
 const fakeFormat = <Item>(): SessionFormat<Record<string, never>, Item> => ({
   id: "fake",
@@ -84,7 +43,7 @@ function buffering(): SessionDialect<{ held: string[] }, string> {
 
 describe("walkSession", () => {
   it("joins the dialect's turns into the content the index consumes", async () => {
-    const store = fakeStore([
+    const store = fakeSessionStore([
       { role: "user", text: "fix the parser" },
       { role: "assistant", text: "done" },
     ]);
@@ -102,7 +61,7 @@ describe("walkSession", () => {
   });
 
   it("titles by the dialect's own preambles", async () => {
-    const store = fakeStore([
+    const store = fakeSessionStore([
       { role: "user", text: "Bootstrap: load the skill" },
       { role: "user", text: "fix the parser" },
     ]);
@@ -119,7 +78,7 @@ describe("walkSession", () => {
   });
 
   it("flushes what the dialect still holds when the records run out", async () => {
-    const store = fakeStore(["a", "b"]);
+    const store = fakeSessionStore(["a", "b"]);
 
     const walked = await walkSession({
       store,
@@ -135,7 +94,7 @@ describe("walkSession", () => {
     // The silent loss this exists to prevent: a dialect holding a turn at a
     // budget stop drops it with no error and no shortfall — nothing but a
     // diff against the old output would ever show the turn missing.
-    const store = fakeStore(["a", "b"], "budget", 100);
+    const store = fakeSessionStore(["a", "b"], "budget", 100);
 
     const walked = await walkSession({
       store,
@@ -148,7 +107,7 @@ describe("walkSession", () => {
   });
 
   it("marks the content short when the read stopped on the budget", async () => {
-    const store = fakeStore([{ role: "user", text: "hi" }], "budget", 900);
+    const store = fakeSessionStore([{ role: "user", text: "hi" }], "budget", 900);
 
     const walked = await walkSession({
       store,
@@ -165,7 +124,7 @@ describe("walkSession", () => {
   it("marks the records the format refused, in either scope, beside a budget cut", async () => {
     const walk = (stopped: ReadStop, scope: ReadScope) =>
       walkSession({
-        store: fakeStore([{ role: "user", text: "hi" }], stopped, 900, 3),
+        store: fakeSessionStore([{ role: "user", text: "hi" }], stopped, 900, 3),
         format: fakeFormat<unknown>(),
         request: {},
         dialect: flat,
@@ -185,7 +144,7 @@ describe("walkSession", () => {
     // Marking it would put "partly shown" on most healthy sessions, and a
     // warning that fires on everything stops being read.
     const long = { role: "user", text: "x".repeat(CONTENT_CAP) };
-    const store = fakeStore([long, long, long], "exhausted", 9_000_000);
+    const store = fakeSessionStore([long, long, long], "exhausted", 9_000_000);
 
     const walked = await walkSession({
       store,
@@ -204,7 +163,7 @@ describe("walkSession", () => {
     // where the answer stops changing. A hundred records are on offer and
     // two are taken.
     const long = { role: "user", text: "x".repeat(CONTENT_CAP) };
-    const store = fakeStore(Array.from({ length: 100 }, () => long));
+    const store = fakeSessionStore(Array.from({ length: 100 }, () => long));
 
     const walked = await walkSession({
       store,
@@ -219,7 +178,7 @@ describe("walkSession", () => {
   it("re-reads once when the store moved under it, then gives up", async () => {
     // Splicing the halves of two different files would show a conversation
     // that never happened; re-reading forever would cost more of the same.
-    const store = fakeStore([{ role: "user", text: "hi" }], "changed", 50);
+    const store = fakeSessionStore([{ role: "user", text: "hi" }], "changed", 50);
 
     const walked = await walkSession({
       store,
@@ -238,7 +197,7 @@ describe("walkSession", () => {
       role: "user",
       text: `t${i}`,
     }));
-    const store = fakeStore(records);
+    const store = fakeSessionStore(records);
 
     const walked = await walkSession({
       store,
@@ -258,7 +217,7 @@ describe("walkSession", () => {
     // legitimate page out of a long conversation — the deeper the page, the
     // likelier the cut, which is exactly backwards.
     const long = { role: "user", text: "x".repeat(CONTENT_CAP) };
-    const store = fakeStore([long, long, long]);
+    const store = fakeSessionStore([long, long, long]);
 
     const walked = await walkSession({
       store,
@@ -272,7 +231,7 @@ describe("walkSession", () => {
   });
 
   it("a slice past the end of the conversation is empty and unmarked", async () => {
-    const store = fakeStore([{ role: "user", text: "only one" }]);
+    const store = fakeSessionStore([{ role: "user", text: "only one" }]);
 
     const walked = await walkSession({
       store,
@@ -297,7 +256,7 @@ describe("walkSession", () => {
       },
       end: () => [],
     };
-    const store = fakeStore(
+    const store = fakeSessionStore(
       Array.from({ length: 100 }, (_, i) => (i === 2 ? { cwd: "/repo" } : {})),
     );
 
@@ -324,7 +283,7 @@ describe("walkSession", () => {
       step: () => [],
       end: () => [],
     };
-    const store = fakeStore(Array.from({ length: 20 }, () => ({})));
+    const store = fakeSessionStore(Array.from({ length: 20 }, () => ({})));
 
     const walked = await walkSession({
       store,
@@ -343,7 +302,7 @@ describe("walkSession", () => {
     // the flush happens after the read stops. A slice that reaches that far
     // must contain it — the alternative is a page that silently ends one turn
     // early, with nothing anywhere saying so.
-    const store = fakeStore(["a", "FLUSH", "b", "c"]);
+    const store = fakeSessionStore(["a", "FLUSH", "b", "c"]);
 
     const walked = await walkSession({
       store,
@@ -359,7 +318,7 @@ describe("walkSession", () => {
   it("drops a turn from the end when the slice is already full", async () => {
     // The mirror of the case above, and the reason the flush cannot simply
     // append: a page must not come back longer than it asked for.
-    const store = fakeStore(["a", "FLUSH", "b", "FLUSH", "c"]);
+    const store = fakeSessionStore(["a", "FLUSH", "b", "FLUSH", "c"]);
 
     const walked = await walkSession({
       store,
@@ -376,7 +335,7 @@ describe("walkSession", () => {
     // It never meant to read the conversation, so stopping where the head
     // ends is the reading working as asked. A mark here would say "part of
     // this session is missing" about a session nobody was reading.
-    const store = fakeStore([{ role: "user", text: "hi" }], "budget", 9_000_000);
+    const store = fakeSessionStore([{ role: "user", text: "hi" }], "budget", 9_000_000);
 
     const walked = await walkSession({
       store,
@@ -391,7 +350,7 @@ describe("walkSession", () => {
   });
 
   it("a whole reading still reports it", async () => {
-    const store = fakeStore([{ role: "user", text: "hi" }], "budget", 9_000_000);
+    const store = fakeSessionStore([{ role: "user", text: "hi" }], "budget", 9_000_000);
 
     const walked = await walkSession({
       store,
@@ -404,13 +363,7 @@ describe("walkSession", () => {
   });
 
   it("hands the scope to the store, so the host can bound the reading", async () => {
-    const seen: (string | undefined)[] = [];
-    const store: PluginSessionStore = {
-      async read(_format, _request, _consume, scope) {
-        seen.push(scope);
-        return { payloadBytes: 0, items: 0, stopped: "exhausted" };
-      },
-    };
+    const store = fakeSessionStore([]);
 
     await walkSession({ store, format: fakeFormat<unknown>(), request: {}, dialect: flat });
     await walkSession({
@@ -421,7 +374,7 @@ describe("walkSession", () => {
       scope: "head",
     });
 
-    expect(seen).toEqual(["whole", "head"]);
+    expect(store.scopes).toEqual(["whole", "head"]);
   });
 
   it("hands back the dialect's state, so a plugin reads what it noticed", async () => {
@@ -436,7 +389,7 @@ describe("walkSession", () => {
       },
       end: () => [],
     };
-    const store = fakeStore([{ cwd: "/repo" }, { cwd: "/elsewhere" }]);
+    const store = fakeSessionStore([{ cwd: "/repo" }, { cwd: "/elsewhere" }]);
 
     const walked = await walkSession({
       store,

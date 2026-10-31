@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   chipWindows,
   contextLevel,
+  costCoverage,
   formatAge,
   formatBucket,
   formatElapsed,
@@ -290,6 +291,22 @@ describe("formatUsd", () => {
     expect(formatUsd(0.00004)).toBe("<$0.0001"); // toFixed(4) would say $0.0000
     expect(formatUsd(0.0004)).toBe("$0.0004");
     expect(formatUsd(0.25, { approx: true })).toBe("≈$0.25");
+  });
+});
+
+describe("costCoverage", () => {
+  it("names a fully costed period as API estimates, never as charges", () => {
+    expect(costCoverage(2, 2)).toBe("Provider-reported API estimates, not subscription charges.");
+  });
+
+  it("says which sessions a partly costed period leaves out", () => {
+    expect(costCoverage(1, 3)).toBe(
+      "Provider estimates available for 1 of 3 sessions; unreported sessions are excluded.",
+    );
+  });
+
+  it("keeps the tokens on offer when no CLI reported a cost", () => {
+    expect(costCoverage(0, 3)).toBe("No CLI reported a cost estimate. Token totals remain available.");
   });
 });
 

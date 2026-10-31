@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
+import { SHOW_WAIT_MS } from "../resources/keepdeck-plugin/courier-policy.js";
 import { HEARTBEAT_MS } from "../resources/keepdeck-plugin/foreground.js";
+import { LET_GO_MS } from "../resources/keepdeck-plugin/leaving.js";
 import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
 
 /**
@@ -15,28 +17,39 @@ import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
  *
  * The real reporter, courier and follower, against a stand-in deck, with
  * the screen written the way the TUI half writes it.
+ *
+ * Their clocks are the test's: the follower's heartbeat, the let-go's
+ * fallback and the wait for a made session to come on screen run on fake
+ * timers, which a case advances by the product's own constants. The
+ * directory watchers and the deck's HTTP stay real — a positive signal, not
+ * a sleep, is what a case waits for on them.
  */
-// Generous: a case waits on real timers (the follower, a 3 s fallback, the
-// stand-in deck), and under the whole suite's load those waits stretch well
-// past their nominal sum — a 15 s ceiling failed there while every case
-// passed alone.
-vi.setConfig({ testTimeout: 40_000 });
 
 type ReporterResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/session-reporter.js").startReporter>>;
 type CourierResult = Awaited<ReturnType<typeof import("../resources/keepdeck-plugin/mail-courier.js").startCourier>>;
 let startReporter: (input?: unknown) => Promise<Armed<ReporterResult, "event">>;
 let startCourier: (input?: unknown) => Promise<Armed<CourierResult, "event" | "tool.execute.after">>;
-let follower: () => { start(dir?: string): void };
+let follower: () => { start(dir?: string): () => void };
 let writeForeground: (dir: string, route: Record<string, unknown>) => void;
 let paneSession: () => { root: string | undefined; left: string | undefined };
+let drained: () => Promise<void>;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-/** Wait for `done`, up to `ms` of wall-clock time — counted by the clock,
- * not by sleeps: under a loaded run each sleep overshoots, and a count of
- * them waits far longer than it says. */
-const until = async (done: () => boolean, ms = 10_000) => {
+/** Taken before a case fakes timers: waiting on the real I/O is the test's,
+ * on real time. */
+const realSetTimeout = globalThis.setTimeout;
+/** Wait for `done` — something the real watchers or the deck bring — up to
+ * `ms` of wall-clock time. A ceiling that only a failure reaches, under the
+ * case's own timeout so the failure says what it waited for. */
+const until = async (done: () => boolean, ms = 4_000) => {
   const deadline = Date.now() + ms;
-  while (!done() && Date.now() < deadline) await sleep(5);
+  while (!done() && Date.now() < deadline) await new Promise((resolve) => realSetTimeout(resolve, 5));
+};
+
+/** Move the plugin's clock: run the timers due within `ms`, then one turn
+ * of the event loop for what they started. */
+const advance = async (ms: number) => {
+  await vi.advanceTimersByTimeAsync(ms);
+  await new Promise((resolve) => setImmediate(resolve));
 };
 
 const created = (id: string, parentID?: string) => ({
@@ -62,6 +75,10 @@ describe("leaving a conversation, and mail on the home screen", () => {
   /** Fired between `session.create` being called and returning — the user
    * sending their own first prompt at that moment. */
   let duringCreate: (() => Promise<void>) | null;
+  /** The follower's own stop: its heartbeat and its directory watcher. (The
+   * 1.x courier's doorbell has none — opencode 1.x gives a plugin no
+   * cleanup, so it lives as long as the process.) */
+  let stopFollowing: () => void;
   let reporter: Armed<ReporterResult, "event">;
   let courier: Armed<CourierResult, "event" | "tool.execute.after">;
 
@@ -115,6 +132,9 @@ describe("leaving a conversation, and mail on the home screen", () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    // The plugin's timers only — before the follower starts its heartbeat.
+    // Date stays real: the deck's arrival stamps and `until` read it.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
     const reporterResource = await import("../resources/keepdeck-plugin/session-reporter.js");
     const courierResource = await import("../resources/keepdeck-plugin/mail-courier.js");
     startReporter = async (input) => requireHooks(await reporterResource.startReporter(input), ["event"]);
@@ -122,6 +142,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
     ({ follower } = await import("../resources/keepdeck-plugin/follower.js"));
     ({ writeForeground } = await import("../resources/keepdeck-plugin/foreground.js"));
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
+    ({ drained } = await import("../resources/keepdeck-plugin/keepdeck-bridge.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-leave-"));
     pending = [];
     holdBound = undefined;
@@ -147,13 +168,19 @@ describe("leaving a conversation, and mail on the home screen", () => {
     const c = client();
     reporter = await startReporter({ client: c });
     courier = await startCourier({ client: c });
-    follower().start(dir);
+    stopFollowing = follower().start(dir);
   });
 
   afterEach(async () => {
+    stopFollowing();
     delete process.env.KEEPDECK_BRIDGE;
+    // Nothing still on the wire when the deck goes: a post in flight would
+    // land on a closed server.
+    await drained();
     await deck.close();
     rmSync(dir, { recursive: true, force: true });
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   /** How long the deck holds that binding's post open. */
@@ -172,20 +199,30 @@ describe("leaving a conversation, and mail on the home screen", () => {
     writeForeground(dir, { route: "session", sessionID: "ses_a" });
     await until(() => kinds().includes("session.bound"));
     // The follower has read the screen by its next heartbeat at the latest:
-    // under load the directory watcher can drop the write's event, and a
-    // home screen it never saw a session before is not a leaving.
-    await sleep(HEARTBEAT_MS + 100);
+    // the directory watcher can drop the write's event, and a home screen it
+    // never saw a session before is not a leaving.
+    await advance(HEARTBEAT_MS);
   };
 
-  /** The user pressed /new; opencode answers the abort with its ending. */
+  /** A screen the user moved to, as the follower reads it: at once from the
+   * watcher, and by the next heartbeat whatever the watcher did. */
+  const show = async (route: Record<string, unknown>) => {
+    writeForeground(dir, route);
+    await advance(HEARTBEAT_MS);
+  };
+
+  /** The user pressed /new; opencode answers the abort with its ending — or,
+   * with `answerAbort` false, never does, and the fallback lets go. */
   const newSession = async ({ answerAbort = true } = {}) => {
-    writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0, 8_000);
+    await show({ route: "home" });
+    await until(() => calls.abort.length > 0);
     if (answerAbort) {
       await both(aborted("ses_a"));
       await both(idle("ses_a"));
+    } else {
+      await advance(LET_GO_MS);
     }
-    await until(() => kinds().includes("session.unbound"), 8_000);
+    await until(() => kinds().includes("session.unbound"));
     expect(kinds()).toContain("session.unbound");
   };
 
@@ -198,7 +235,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
    * once would assert something the product does not promise.
    */
   const ringUntil = async (done: () => boolean) => {
-    for (let rings = 0; rings < 20 && !done(); rings++) {
+    for (let rings = 0; rings < 6 && !done(); rings++) {
       ring();
       await until(done, 500);
     }
@@ -231,17 +268,16 @@ describe("leaving a conversation, and mail on the home screen", () => {
   it("lets go at once on /new from an idle conversation — its abort's idle only repeats one", async () => {
     // The deck was already told the turn ended; the abort's idle is a repeat
     // the reporter does not forward, and it must still be what lets go —
-    // not the 3 s fallback (measured live, task-444).
+    // not the 3 s fallback (measured live, task-444). The fallback's clock
+    // never moves here, so only the idle can let go.
     await inA();
     await both(idle("ses_a"));
-    writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0, 8_000);
+    await show({ route: "home" });
+    await until(() => calls.abort.length > 0);
     expect(calls.abort).toEqual(["ses_a"]);
-    const asked = Date.now();
     await both(idle("ses_a"));
-    await until(() => kinds().includes("session.unbound"), 2_000);
+    await until(() => kinds().includes("session.unbound"));
     expect(kinds()).toContain("session.unbound");
-    expect(Date.now() - asked).toBeLessThan(1_000);
   });
 
   it("lets go even when the abort brings no ending", async () => {
@@ -259,7 +295,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await both(created("ses_sub", "ses_a"));
     await both({ event: { type: "session.status", properties: { sessionID: "ses_a", status: { type: "busy" } } } });
     await both(idle("ses_a"));
-    await sleep(100);
+    await deck.idle();
     expect(paneSession().root).toBeUndefined();
     expect(kinds()).not.toContain("session.bound");
     expect(kinds()).not.toContain("session.idle");
@@ -268,11 +304,9 @@ describe("leaving a conversation, and mail on the home screen", () => {
   it("aborts nothing when opencode merely STARTS on the home screen", async () => {
     // A fresh process shows home before `-s` opens; the native fork stays
     // there until its session exists. Neither is the user leaving.
-    writeForeground(dir, { route: "home" });
-    await sleep(150);
+    await show({ route: "home" });
     await both(created("ses_a"));
-    writeForeground(dir, { route: "session", sessionID: "ses_a" });
-    await sleep(150);
+    await show({ route: "session", sessionID: "ses_a" });
     expect(calls.abort).toEqual([]);
     expect(kinds()).not.toContain("session.unbound");
   });
@@ -283,8 +317,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
     // a move from anywhere.
     await both(created("ses_a"));
     await until(() => kinds().includes("session.bound"));
-    writeForeground(dir, { route: "home" });
-    await sleep(200);
+    await show({ route: "home" });
     expect(calls.abort).toEqual([]);
     expect(paneSession().root).toBe("ses_a");
   });
@@ -294,17 +327,18 @@ describe("leaving a conversation, and mail on the home screen", () => {
     // prompt from home made their own session. Letting go now would unbind
     // THEIR conversation.
     await inA();
-    writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0, 8_000);
+    await show({ route: "home" });
+    await until(() => calls.abort.length > 0);
     await both(created("ses_u"));
-    await sleep(3_300);
+    await advance(LET_GO_MS);
+    await deck.idle();
     expect(paneSession().root).toBe("ses_u");
     expect(kinds()).not.toContain("session.unbound");
   });
 
   it("aborts the conversation the user switches away from, and moves to the new one", async () => {
     await inA();
-    writeForeground(dir, { route: "session", sessionID: "ses_b" });
+    await show({ route: "session", sessionID: "ses_b" });
     await until(() => paneSession().root === "ses_b");
     expect(calls.abort).toEqual(["ses_a"]);
     expect(kinds()).not.toContain("session.unbound");
@@ -314,8 +348,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
     await inA();
     parents.ses_sub = "ses_a";
     await both(created("ses_sub", "ses_a"));
-    writeForeground(dir, { route: "session", sessionID: "ses_sub" });
-    await sleep(150);
+    await show({ route: "session", sessionID: "ses_sub" });
     expect(calls.abort).toEqual([]);
     expect(paneSession().root).toBe("ses_a");
   });
@@ -378,19 +411,23 @@ describe("leaving a conversation, and mail on the home screen", () => {
     };
     pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });
     await ringUntil(() => calls.create > 0);
-    await sleep(3_300);
+    // The made session never comes on screen within the wait, and the
+    // courier asks nothing. That the wait then gives up is the policy's own
+    // rule, held where it lives (courierPolicy.test.ts).
+    await advance(SHOW_WAIT_MS);
+    await deck.idle();
     expect(kinds()).not.toContain("mail.ask");
     expect(pending).toHaveLength(1);
-    // The deck rings again; nothing is tried until the screen changes.
-    ring();
-    await sleep(200);
+    // The deck rings again: the ring is taken, and nothing is tried until
+    // the screen changes.
+    await ringUntil(() => !existsSync(join(dir, "mail.wake")));
     expect(calls.create).toBe(1);
   });
 
   it("makes no session on the home screen when nothing rang — the user may have no mail at all", async () => {
     await inA();
     await newSession();
-    await sleep(200);
+    await advance(SHOW_WAIT_MS);
     expect(calls.create).toBe(0);
   });
 
@@ -416,8 +453,8 @@ describe("leaving a conversation, and mail on the home screen", () => {
 
   it("does not ride mail into the left conversation's still-running turn", async () => {
     await inA();
-    writeForeground(dir, { route: "home" });
-    await until(() => calls.abort.length > 0, 8_000);
+    await show({ route: "home" });
+    await until(() => calls.abort.length > 0);
     // Before its ending arrives, a tool call of the left turn returns.
     deck.envelopes.length = 0;
     pending.push({ v: 1, prompt: "<teammate-message>\n> do it\n</teammate-message>" });

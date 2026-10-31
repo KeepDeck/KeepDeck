@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { tokenizeLines, type LineTokens } from "@keepdeck/code-kit";
-import { installInProcessWorker } from "@keepdeck/code-kit/testing";
+import { installTokenWorker, STAND_IN_COMMENT as COMMENT } from "@keepdeck/code-kit/testing";
 import { parseDiff, newFileDiff } from "../domain/diff";
 import { diffHighlightPlan, lineTokens, type DiffHighlightPlan } from "./diffHighlight";
 
@@ -72,16 +72,16 @@ describe("diffHighlightPlan", () => {
   });
 });
 
-// The real engine, through the real client: the two diffs that painted code
-// as comment (task-497), reproduced from real `git diff` output. A real
-// grammar by design — what it checks is a comment's state carried across
-// lines, which no stand-in models (task-553) — so the budget is one cold
-// compile's, paid on this file's first tokenize.
-describe("diffHighlightPlan with the real highlighter", { timeout: 60_000 }, () => {
-  const COMMENT = "#7F848E";
+// Through the real client: the two diffs that painted code as comment
+// (task-497), reproduced from real `git diff` output. What is checked is the
+// documents the plan hands the highlighter — a comment opened in one must not
+// reach code that only another holds — so the stand-in carries a block
+// comment from line to line, as a grammar does; that a real grammar carries
+// it is the engine's own test (engine.test.ts).
+describe("diffHighlightPlan through the highlighter", () => {
   const blanks = (n: number) => "\n".repeat(n);
 
-  beforeAll(() => installInProcessWorker());
+  beforeAll(() => installTokenWorker());
 
   async function colorsOf(raw: string, sides: { old: string | null; new: string | null }) {
     const diff = parseDiff(raw);
@@ -89,11 +89,15 @@ describe("diffHighlightPlan with the real highlighter", { timeout: 60_000 }, () 
     const docs = await Promise.all(plan.texts.map((text) => tokenizeLines(text, "typescript")));
     const ready = docs.filter((doc) => doc !== null);
     expect(ready).toHaveLength(docs.length);
-    /** The color of the keyword at the start of the line reading `text`. */
+    /** The color of the keyword at the start of the line reading `text` —
+     * taken from that line's own runs, not from wherever the plan points. */
     return (text: string) => {
       for (const [h, hunk] of diff.hunks.entries()) {
         const i = hunk.lines.findIndex((line) => line.text === text);
-        if (i >= 0) return lineTokens(plan, ready, h, i)?.[0]?.color;
+        if (i < 0) continue;
+        const runs = lineTokens(plan, ready, h, i);
+        expect(runs?.map((run) => run.text).join("")).toBe(text);
+        return runs?.[0]?.color;
       }
       throw new Error(`no line reads ${text}`);
     };

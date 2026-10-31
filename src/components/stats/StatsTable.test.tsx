@@ -67,6 +67,15 @@ describe("StatsTable", () => {
     expect(text).toContain("1m ago");
   });
 
+  it("names a session row by its pane, then where it ran, by which CLI, in which session", () => {
+    render([row({ workspaceName: "KeepDeck", paneName: "auth-refactor", sessionId: "session-123456789" })], "session");
+    const identity = present(host.querySelector(".stats__identity"), "the .stats__identity element");
+    expect(present(identity.querySelector("b"), "the row's name").textContent).toBe("auth-refactor");
+    expect(present(identity.querySelector("small"), "the row's provenance").textContent).toBe(
+      "KeepDeck · codex · session-…",
+    );
+  });
+
   it("does not render an unreported cost as a fake zero", () => {
     // A row nobody priced is not a free row.
     render([row({ providerCostUsd: 0, costEvents: 0 })]);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { installTokenWorker } from "./testing";
+import { installTokenWorker, STAND_IN_COMMENT } from "./testing";
 import { tokenizeLines } from "./highlighter";
 
 /** The surface tests that color through the stand-in trust it to keep every
@@ -23,5 +23,20 @@ describe("installTokenWorker", () => {
     await tokenizeLines("after", "rust");
 
     expect(installTokenWorker().slice(before)).toEqual([{ text: "after", lang: "rust" }]);
+  });
+
+  it("carries a block comment from line to line of one text, and only of one", async () => {
+    installTokenWorker();
+    const text = "a /* b\nc\nd */ e";
+
+    const lines = await tokenizeLines(text, "typescript");
+    await tokenizeLines("left /* open", "typescript");
+    const next = await tokenizeLines("c", "typescript");
+
+    expect(lines?.map((line) => line.map((run) => run.text).join(""))).toEqual(text.split("\n"));
+    expect(lines?.[0][0].color).not.toBe(STAND_IN_COMMENT);
+    expect(lines?.[1]).toEqual([{ text: "c", color: STAND_IN_COMMENT }]);
+    expect(lines?.[2][lines[2].length - 1]?.color).not.toBe(STAND_IN_COMMENT);
+    expect(next?.[0][0].color).not.toBe(STAND_IN_COMMENT);
   });
 });

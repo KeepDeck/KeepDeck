@@ -14,6 +14,11 @@ import {
 import { Overview } from "./Overview";
 import { present } from "@keepdeck/plugin-api/testing";
 
+// The chart is its own suite's (UsageChart.test.tsx). Overview loads it
+// lazily, so a stand-in here keeps recharts out of this file, and each render
+// settles the lazy load inside its own act.
+vi.mock("./UsageChart", () => ({ UsageChart: () => null }));
+
 /** The Overview body: headline numbers, the recap sentence, the coverage
  * disclaimer and the period-independent Weeks block. It takes the queried
  * stats as a prop, so the cases here state a ledger and let the domain
@@ -47,17 +52,17 @@ describe("Overview", () => {
     vi.useRealTimers();
   });
 
-  const render = (events: UsageEventV2[], period: UsageStatsPeriod = 7) => {
+  const render = async (events: UsageEventV2[], period: UsageStatsPeriod = 7) => {
     const stats = queryUsageStats(events, period, NOW);
-    act(() =>
-      root.render(createElement(Overview, { events, colors: new Map(), stats, period, now: NOW })),
-    );
+    await act(async () => {
+      root.render(createElement(Overview, { events, colors: new Map(), stats, period, now: NOW }));
+    });
   };
 
   const cards = () => [...host.querySelectorAll(".stats__card")];
 
-  it("leads with the period's tokens, cost and session count", () => {
-    render([usageEvent(), usageEvent({ eventId: "b", sessionId: "other" })]);
+  it("leads with the period's tokens, cost and session count", async () => {
+    await render([usageEvent(), usageEvent({ eventId: "b", sessionId: "other" })]);
     const shown = cards().map((card) => card.textContent);
     // The headline carries what it is MADE of: a bare total hides the split
     // that explains the bill, and cache is usually most of it.
@@ -66,17 +71,28 @@ describe("Overview", () => {
     // a sum of them.
     expect(shown[1]).toBe("Cost≈$0.50");
     expect(shown[2]).toBe("Sessions2");
+    // Every session priced: the caption calls the sum what it is.
+    expect(host.textContent).toContain("Provider-reported API estimates, not subscription charges.");
   });
 
-  it("does not render an unknown cost as a fake zero", () => {
+  it("says which sessions the cost leaves out when only some were priced", async () => {
+    await render([
+      usageEvent(),
+      usageEvent({ eventId: "b", sessionId: "unpriced-1", costUsd: undefined, costSource: "unavailable" }),
+      usageEvent({ eventId: "c", sessionId: "unpriced-2", costUsd: undefined, costSource: "unavailable" }),
+    ]);
+    expect(host.textContent).toContain("Provider estimates available for 1 of 3 sessions");
+  });
+
+  it("does not render an unknown cost as a fake zero", async () => {
     // "$0.00" claims the run was free; the truth is that no CLI said.
-    render([usageEvent({ costUsd: undefined, costSource: "unavailable" })]);
+    await render([usageEvent({ costUsd: undefined, costSource: "unavailable" })]);
     expect(cards()[1].textContent).toBe("Cost—");
     expect(host.textContent).toContain("No CLI reported a cost estimate");
   });
 
-  it("compares the period against the one before it", () => {
-    render([
+  it("compares the period against the one before it", async () => {
+    await render([
       usageEvent(),
       usageEvent({
         eventId: "prior",
@@ -89,16 +105,16 @@ describe("Overview", () => {
     expect(recap.textContent).toContain("busiest day");
   });
 
-  it("keeps the fixed-week history visible when the period itself is empty", () => {
+  it("keeps the fixed-week history visible when the period itself is empty", async () => {
     // The rolling period and the UTC weeks answer different questions, so an
     // empty 7d must not hide a year of history sitting underneath it.
-    render([usageEvent({ occurredAt: NOW - 400 * DAY })]);
+    await render([usageEvent({ occurredAt: NOW - 400 * DAY })]);
     expect(cards()[0].textContent).toBe("Tokens0");
     expect(host.querySelector(".stats__weeks")).not.toBeNull();
   });
 
-  it("says nothing about a prior period when there is no history to compare", () => {
-    render([usageEvent()]);
+  it("says nothing about a prior period when there is no history to compare", async () => {
+    await render([usageEvent()]);
     // The recap must still be THERE — it has a busiest day to report. An
     // assertion that passed on a missing element would also pass on a recap
     // that stopped rendering altogether.

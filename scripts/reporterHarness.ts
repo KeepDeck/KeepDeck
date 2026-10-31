@@ -23,6 +23,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** The stand-in deck's own clock, taken before any suite fakes timers or the
+ * date: a suite that drives the PLUGIN's clock by hand must still get the
+ * deck's replies, and its wait for quiet, on real time. */
+const realSetTimeout = globalThis.setTimeout;
+const realNow = Date.now.bind(Date);
+
 /**
  * Start one. `answer` decides what to reply with, given the envelope just
  * received — default 204, which is what the deck says when a report needs
@@ -82,7 +88,7 @@ export async function startDeck(
         : {};
       // Held open briefly on purpose: a sender that queues cannot start the
       // next post inside this window, and one that does not, will.
-      setTimeout(() => {
+      realSetTimeout(() => {
         response.writeHead(reply.status, headers);
         response.end(reply.body ?? "");
         inFlight -= 1;
@@ -107,18 +113,18 @@ export async function startDeck(
      */
     idle: async () => {
       const quietFor = 30;
-      const deadline = Date.now() + 2000;
+      const deadline = realNow() + 2000;
       let seen = -1;
       let settledAt = 0;
       for (;;) {
         if (envelopes.length !== seen) {
           seen = envelopes.length;
-          settledAt = Date.now();
-        } else if (Date.now() - settledAt >= quietFor) {
+          settledAt = realNow();
+        } else if (realNow() - settledAt >= quietFor) {
           return;
         }
-        if (Date.now() > deadline) return;
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        if (realNow() > deadline) return;
+        await new Promise((resolve) => realSetTimeout(resolve, 5));
       }
     },
     /** The most posts open at once over this deck's life. One means the

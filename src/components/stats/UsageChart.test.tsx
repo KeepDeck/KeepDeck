@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cloneElement, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHART_BAR_RADIUS } from "../../domain/usage/chartPalette";
 import { TEST_NOW, usageEvent } from "../../domain/usage/history/event.testSupport";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -18,10 +18,7 @@ vi.mock("recharts", async (original) => {
   };
 });
 
-let UsageChart: typeof import("./UsageChart").UsageChart;
-beforeAll(async () => {
-  ({ UsageChart } = await import("./UsageChart"));
-}, 60_000);
+import { UsageChart } from "./UsageChart";
 
 const DAY = 24 * 60 * 60 * 1_000;
 const events = [
@@ -40,6 +37,11 @@ describe("UsageChart", () => {
   afterEach(() => act(() => root.unmount()));
 
   const clips = () => [...document.querySelectorAll("clipPath")].map((clip) => clip.id).filter((id) => id.includes("bar-stack"));
+
+  it("names itself by its buckets, for a screen reader", () => {
+    act(() => root.render(createElement(UsageChart, { events, colors: new Map(), period: 7, now: TEST_NOW })));
+    expect(document.querySelector('section[aria-label="Daily tokens"]')).not.toBeNull();
+  });
 
   it("rounds each column as one stack — its segments cut by one shape", () => {
     act(() => root.render(createElement(UsageChart, { events, colors: new Map(), period: 7, now: TEST_NOW })));

@@ -32,10 +32,7 @@ function listRow(subject: string) {
   return findButton(rig.host, ".git__secbody button.git__row", subject);
 }
 
-// Load-sensitive under a full parallel run (real git/tmpdirs or real-timer
-// polling); passes deterministically in isolation — retry absorbs runner
-// contention instead of reddening unrelated gates.
-describe("opening a working-tree change", { retry: 2 }, () => {
+describe("opening a working-tree change", () => {
   it("clicking a row opens the diff peek with the parsed hunk", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus({

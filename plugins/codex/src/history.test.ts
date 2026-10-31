@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSessionStore, type FsEntry } from "@keepdeck/plugin-api";
-import { present, fsStore } from "@keepdeck/plugin-api/testing";
+import { present, fsStore, fakeSessionStore } from "@keepdeck/plugin-api/testing";
 import { codexHistory, type HistoryPorts } from "./history";
 
 const META = JSON.stringify({
@@ -165,45 +165,31 @@ describe("codex history", () => {
     });
   });
 
-  // Its own time budget, not the suite's: the ~9 MB fixture has to exceed the
-  // host's 8 MiB read budget, and walking it is this test's own cost — on a
-  // machine running other suites at once it has taken 5–8 s and read as a
-  // flake. Twenty seconds names the cost; a page that never comes back still fails.
-  it("a page cut short by the budget says so in bytes", { timeout: 20_000 }, async () => {
-    // The flag has ridden in from Rust since before this stage and nobody read
-    // it — every plugin wrote `file.text ?? ""` and moved on. This is the
-    // assertion that the reading speaks about itself, in the measure a file
-    // has.
-    //
-    // The fixture has to be genuinely bigger than one read may pass through:
-    // the mark now comes from the walk hitting its budget, and a double that
-    // merely CLAIMED a large file would describe a world where the bytes
-    // between what it returned and what it claimed do not exist.
-    const line = JSON.stringify({
+  it("a page cut short by the budget says so in bytes", async () => {
+    // Where the budget stops a read, and the mark that stop leaves, are the
+    // host's (sessionRead.test.ts, sessionWalk.test.ts). This plugin's part:
+    // its page reads the whole conversation from where it was asked and
+    // hands the mark on — so the store here is one the budget cut short, at
+    // no cost of bytes.
+    const turn = (text: string) => ({
       type: "response_item",
-      payload: {
-        type: "message",
-        role: "user",
-        content: [{ type: "input_text", text: "x".repeat(2000) }],
-      },
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
     });
-    const big = `${line}\n`.repeat(4500);
-    const size = new TextEncoder().encode(big).length;
-    const history = codexHistory(ctx({ "/r.jsonl": big }, {}));
+    const store = fakeSessionStore([turn("t0"), turn("t1"), turn("t2")], "budget", 9_000_000);
+    const history = codexHistory({
+      log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+      services: { fs: { readDir: async () => [] }, sessionStore: store },
+    });
 
     const page = await present(history.transcriptPage, "the transcript page")("/r.jsonl", {
-      offset: 4400,
+      offset: 1,
       limit: 10,
     });
 
-    // The page sits past where the budget stops, so it comes back short —
-    // which is also how the viewer's pagination learns it reached the end.
-    expect(page.entries.length).toBeLessThan(10);
-    expect(page.shortfall).toHaveLength(1);
-    const [mark] = present(page.shortfall, "the shortfall of page");
-    expect(mark).toMatchObject({ kind: "bytes", size });
-    if (mark.kind !== "bytes") throw new Error("expected a byte shortfall");
-    expect(mark.readBytes).toBeLessThan(size);
+    // Short of the limit — how the viewer's pagination learns it reached the end.
+    expect(page.entries.map((entry) => entry.text)).toEqual(["t1", "t2"]);
+    expect(page.shortfall).toEqual([{ kind: "bytes", size: 9_000_000, readBytes: 10 }]);
+    expect(store.scopes).toEqual(["whole"]);
   });
 
   it("counts a line that is no rollout record, as a shortfall, and reads the rest as before", async () => {
