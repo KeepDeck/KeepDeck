@@ -11,7 +11,7 @@ import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
-import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
+import { requireHooks, sdkSection, type Armed } from "./resourceTestSupport.test-support";
 // The courier is resource JS — shipped to, and loaded by, the user's
 // opencode process, never bundled into the plugin. The pane's session it
 // shares is ONE object per module instance — which is the point of it — so
@@ -208,8 +208,10 @@ describe("opencode mail courier", () => {
     pending = [];
     asked = [];
     parents = {};
+    // Sections shaped as the generated client's: a method called bare throws
+    // here as it does in opencode (task-569).
     client = {
-      session: {
+      session: sdkSection({
         // How the courier asks whether a session is somebody's child before
         // adopting it as the pane's own conversation.
         get: async (call: Record<string, unknown>) =>
@@ -225,8 +227,8 @@ describe("opencode mail courier", () => {
             });
             return { data: {} };
           }),
-      },
-      tui: {
+      }),
+      tui: sdkSection({
         appendPrompt: async (call: Record<string, unknown>) =>
           rejectsFlat(call, () => {
             submitted.push(stringOf(recordOf(call.body, "prompt body").text, "prompt text"));
@@ -236,7 +238,7 @@ describe("opencode mail courier", () => {
           submitted.push("<submit>");
           return { data: true };
         },
-      },
+      }),
     };
   });
 
@@ -625,7 +627,7 @@ describe("opencode mail courier", () => {
     // conversation for the life of the process.
     parents.ses_alien_child = "ses_alien_root";
     const session = client.session;
-    const answer = session.get;
+    const answer = session.get.bind(session);
     // The alien's answer comes back LAST, deterministically — which is what
     // an extra hop up a chain buys it in practice: it is held until the
     // pane has adopted its own.

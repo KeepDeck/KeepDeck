@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { sdkSection } from "./resourceTestSupport.test-support";
 
 /** The pane's session, from a module loaded fresh for each test: it is ONE
  * object per module instance, and each test is a new process. Reached as a
@@ -7,11 +8,11 @@ let paneSession: (client?: unknown) => ReturnType<typeof import("../resources/ke
 
 /** A client that answers `session.get` from a parent table. */
 const clientWith = (parents: Record<string, string | undefined>) => ({
-  session: {
+  session: sdkSection({
     get: async ({ path }: { path: { id: string } }) => ({
       data: { id: path.id, parentID: parents[path.id] },
     }),
-  },
+  }),
 });
 
 describe("the pane's session", () => {
@@ -151,15 +152,27 @@ describe("the pane's session", () => {
   });
 
   describe("asking the server", () => {
+    /**
+     * The generated client's `session.get` reads `this._client`: called bare,
+     * it throws, every session reads as "unknown", and the deck refuses every
+     * mail ask that names one. That shipped (task-569) — a 1.x pane got no
+     * teammate mail at all, and a resumed one never bound to its session.
+     */
+    it("asks through the client's session, as the generated client must be called", async () => {
+      const pane = paneSession(clientWith({ ses_root: undefined, ses_child: "ses_root" }));
+      expect(await pane.classify("ses_root")).toBe("root");
+      expect(await pane.classify("ses_child")).toBe("child");
+    });
+
     it("asks once per session, however many events race on it", async () => {
       let asked = 0;
       const pane = paneSession({
-        session: {
+        session: sdkSection({
           get: async ({ path }: { path: { id: string } }) => {
             asked += 1;
             return { data: { id: path.id } };
           },
-        },
+        }),
       });
       await Promise.all([pane.classify("ses_a"), pane.classify("ses_a")]);
       expect(asked).toBe(1);
@@ -177,12 +190,12 @@ describe("the pane's session", () => {
     it("asks again about a session it could not get an answer for", async () => {
       let asked = 0;
       const pane = paneSession({
-        session: {
+        session: sdkSection({
           get: async () => {
             asked += 1;
             return { error: { name: "UnknownError" } };
           },
-        },
+        }),
       });
       expect(await pane.classify("ses_a")).toBe("unknown");
       expect(await pane.classify("ses_a")).toBe("unknown");

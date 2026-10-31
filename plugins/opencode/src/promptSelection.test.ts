@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { frameTeammateMail } from "@keepdeck/plugin-api";
+import { sdkSection } from "./resourceTestSupport.test-support";
 // Resource JS — shipped to, and loaded by, the user's opencode.
 import { MAIL_FRAME, promptSelection } from "../resources/keepdeck-plugin/prompt-selection.js";
 
@@ -25,7 +26,7 @@ const clientOver = (rows: Row[]) => {
   const messages = vi.fn(async (call: { path: { id: string }; query: { limit: number } }) => ({
     data: rows.slice(-call.query.limit),
   }));
-  return { client: { session: { messages } }, messages };
+  return { client: { session: sdkSection({ messages }) }, messages };
 };
 
 const COPIED = {
@@ -81,9 +82,9 @@ describe("the selection a delivery repeats", () => {
     // Fewer rows than the window asked for IS the whole session: no wider read.
     expect(short.messages).toHaveBeenCalledTimes(1);
     expect(await promptSelection(clientOver([]).client, "s")).toEqual({});
-    const failing = { session: { messages: async () => ({ error: { name: "UnknownError" } }) } };
+    const failing = { session: sdkSection({ messages: async () => ({ error: { name: "UnknownError" } }) }) };
     expect(await promptSelection(failing, "s")).toEqual({});
-    const throwing = { session: { messages: async () => { throw new Error("gone"); } } };
+    const throwing = { session: sdkSection({ messages: async () => { throw new Error("gone"); } }) };
     expect(await promptSelection(throwing, "s")).toEqual({});
     expect(await promptSelection({}, "s")).toEqual({});
   });
