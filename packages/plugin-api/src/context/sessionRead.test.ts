@@ -95,17 +95,16 @@ describe("jsonl reader", () => {
   it("stops on the budget and says the data is short", async () => {
     const text = store(200);
     const fs = fakeFs({ "/s.jsonl": text }, 64);
+    const budget: ReadBudget = { maxPayloadBytes: 500 };
 
-    const { seen, outcome } = await readAll(fs, "/s.jsonl", {
-      maxPayloadBytes: 500,
-    });
+    const { seen, outcome } = await readAll(fs, "/s.jsonl", budget);
 
     expect(outcome.stopped).toBe("budget");
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.length).toBeLessThan(200);
     // "Read X of Y", both in bytes: X is exactly the budget — the last window
     // trimmed to what was left, not overshot — and Y the whole store.
-    expect(outcome.payloadBytes).toBe(500);
+    expect(outcome.payloadBytes).toBe(budget.maxPayloadBytes);
     expect(outcome.sourceBytes).toBe(new TextEncoder().encode(text).length);
     expect(outcome.next).toBeDefined();
   });
