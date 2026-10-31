@@ -26,7 +26,14 @@ export {
   REFUSED as REFUSED_SKILL_FILES,
 } from "./context/skill.testSupport.ts";
 import type { SpeechCapture, SpeechTranscript } from "./context/speech.ts";
-import type { SessionCursor } from "./context/sessionRead.ts";
+import type {
+  PluginSessionStore,
+  ReadOutcome,
+  ReadScope,
+  ReadStop,
+  SessionCursor,
+  SessionFormat,
+} from "./context/sessionRead.ts";
 
 /**
  * One `readFile` answer, as the fs service would give it.
@@ -276,6 +283,60 @@ export function present<T>(value: T | null | undefined, what: string): T {
 export function cursorOf(value: string): SessionCursor;
 export function cursorOf(value: string): string {
   return value;
+}
+
+/** A session store as `fakeSessionStore` builds it: the service, the reads
+ * it served and the scope each one asked for. */
+export interface FakeSessionStore extends PluginSessionStore {
+  reads: number;
+  readonly scopes: (ReadScope | undefined)[];
+}
+
+/**
+ * A session store that hands over the records it was given and ends the way
+ * it was told to — for a test of what a reader DOES with records and with
+ * the reason a read ended (a walk, a plugin's history). The records are
+ * already decoded: a format and its windows are the reader's own suite.
+ *
+ * A read the consumer stops comes back `satisfied` with a cursor; one that
+ * runs out of records ends `stopped`, with `sourceBytes` when given — so a
+ * `budget` end over a large `sourceBytes` is a store the host's budget cut
+ * short, at no cost of bytes.
+ */
+export function fakeSessionStore(
+  records: unknown[],
+  stopped: ReadStop = "exhausted",
+  sourceBytes?: number,
+  refused?: number,
+): FakeSessionStore {
+  const store: FakeSessionStore = {
+    reads: 0,
+    scopes: [],
+    async read<Req, Item>(
+      _format: SessionFormat<Req, Item>,
+      _request: Req,
+      consume: (item: Item) => "more" | "enough",
+      scope?: ReadScope,
+    ): Promise<ReadOutcome> {
+      store.reads += 1;
+      store.scopes.push(scope);
+      let items = 0;
+      for (const record of records) {
+        items += 1;
+        if (Reflect.apply(consume, undefined, [record]) === "enough") {
+          return {
+            payloadBytes: 10,
+            items,
+            stopped: "satisfied",
+            sourceBytes,
+            next: cursorOf("j1:10:20"),
+          };
+        }
+      }
+      return { payloadBytes: 10, items, ...(refused ? { refused } : {}), stopped, sourceBytes };
+    },
+  };
+  return store;
 }
 
 // --------------------------------------------------------------- values

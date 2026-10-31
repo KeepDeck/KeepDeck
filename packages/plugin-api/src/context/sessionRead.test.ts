@@ -6,6 +6,7 @@ import {
   jsonl,
   type ReadBudget,
   type SessionCursor,
+  type SessionFormat,
 } from "./sessionRead.ts";
 import { createJsonlReader } from "./sessionReadJsonl.ts";
 import { isJsonRecord } from "../json.ts";
@@ -296,6 +297,30 @@ describe("session store", () => {
     const fs = fakeFs({ "/s.jsonl": store(3) });
     const outcome = await createSessionStore(fs).read(jsonl(isIndexed), { path: "/s.jsonl" }, () => "more");
     expect(outcome.refused).toBeUndefined();
+  });
+
+  it("bounds a whole reading at 8 MiB and a head reading at 256 KiB, and reads whole unless told", async () => {
+    // The host's own numbers, in the host's own suite: a plugin's test reads
+    // through a store double and never learns them. That a reader stops on
+    // the budget it is handed is the jsonl reader's case above.
+    const handed: ReadBudget[] = [];
+    const format: SessionFormat<Record<string, never>, unknown> = {
+      id: "budget-spy",
+      open: () => ({
+        pull: async (_request, budget) => {
+          handed.push(budget);
+          return { payloadBytes: 0, items: 0, stopped: "exhausted" };
+        },
+      }),
+    };
+    const store = createSessionStore(fakeFs({}));
+
+    await store.read(format, {}, () => "more");
+    await store.read(format, {}, () => "more", "whole");
+    await store.read(format, {}, () => "more", "head");
+
+    const whole = { maxPayloadBytes: 8 * 1024 * 1024 };
+    expect(handed).toEqual([whole, whole, { maxPayloadBytes: 256 * 1024 }]);
   });
 
   it("reads through the fs it was given, and no other", async () => {
