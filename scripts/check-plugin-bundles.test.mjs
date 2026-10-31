@@ -1,12 +1,20 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { checkLayout } from "./check-plugin-bundles.mjs";
 
 const CHECKER = new URL("./check-plugin-bundles.mjs", import.meta.url).href;
+/** The React the host ships, as a bundle that inlined it would carry it — so
+ * a React that renames what the check looks for turns that case red. */
+const INSTALLED_REACT = join(
+  dirname(createRequire(import.meta.url).resolve("react/package.json")),
+  "cjs/react.production.js",
+);
 
 // The check runs on the real dist/ as the last step of `pnpm build`. Here it
 // runs on a hand-laid one: two built-ins whose folders sort against their ids,
@@ -81,10 +89,12 @@ describe("checkLayout", () => {
       "'s at hook.sh"],
     ["a resource the source does not ship", () => write("dist/plugins/fixture.beta/resources/stale.js", ""),
       "'s at stale.js"],
-    ["a bundle that carries its own React", () => appendFileSync(join(root, "dist/plugins/fixture.beta/index.js"), 'Symbol.for("react.transitional.element");\n'),
+    ["a bundle that carries its own React", () => appendFileSync(join(root, "dist/plugins/fixture.beta/index.js"), readFileSync(INSTALLED_REACT)),
       "fixture.beta: index.js carries its own React"],
     ["a plugin without its bundle", () => remove("dist/plugins/fixture.beta/index.js"),
       "fixture.beta: no index.js"],
+    ["a built-in with no output at all", () => rmSync(join(root, "dist/plugins/fixture.beta"), { recursive: true }),
+      "fixture.beta: nothing at plugins/fixture.beta"],
   ])("refuses %s", (_, breakIt, problem) => {
     breakIt();
     expect(check).toThrow(problem);
@@ -116,7 +126,7 @@ describe("linkPlugins", () => {
       }
     }`;
 
-  it("links every bundle through the import map, and refuses a specifier the map lacks or an export the target lacks", () => {
+  it("links every bundle through the import map, and refuses a specifier the map lacks or an export the target lacks", async () => {
     const sound = join(root, "dist");
     const variant = (name, bundle) => {
       const dist = join(root, name);
@@ -131,13 +141,14 @@ describe("linkPlugins", () => {
     // bundle imports is not among the bridge's exports.
     const unexported = variant("unexported", 'import { useSyncExternalStore } from "react";\nexport default { useSyncExternalStore };\n');
 
-    const out = execFileSync(
+    // Asynchronous, so the test's own timeout still bounds a child that hangs.
+    const { stdout } = await promisify(execFile)(
       process.execPath,
       ["--experimental-vm-modules", "--disable-warning=ExperimentalWarning", "--input-type=module", "-e", DRIVER, sound, unmapped, unexported],
       { encoding: "utf8" },
     );
 
-    expect(out.trim().split("\n")).toEqual([
+    expect(stdout.trim().split("\n")).toEqual([
       JSON.stringify([ALPHA.id, BETA.id]),
       `${join(unmapped, "plugins/fixture.beta/index.js")}: no import-map entry for react-dom`,
       expect.stringContaining("does not provide an export named 'useSyncExternalStore'"),

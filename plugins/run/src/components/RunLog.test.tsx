@@ -45,6 +45,13 @@ vi.mock("@xterm/addon-fit", () => ({
     fit = vi.fn();
   },
 }));
+// xterm lays out its rows, cursor and input textarea with its OWN stylesheet,
+// and the plugin's index.css carries it only while the log imports it.
+const stylesheet = vi.hoisted(() => ({ imported: false }));
+vi.mock("@xterm/xterm/css/xterm.css", () => {
+  stylesheet.imported = true;
+  return {};
+});
 
 // The linker's own behavior is covered in @keepdeck/terminal-kit's own suite;
 // the log only has to hand it the terminal and the run's worktree. Mock ONLY
@@ -121,6 +128,10 @@ describe("RunLog", () => {
     setRuntime(null);
     vi.clearAllMocks();
     xterm.instances.length = 0;
+  });
+
+  it("brings xterm's own stylesheet", () => {
+    expect(stylesheet.imported).toBe(true);
   });
 
   it("opts the log back into selection — xterm's own selection lives inside it", async () => {

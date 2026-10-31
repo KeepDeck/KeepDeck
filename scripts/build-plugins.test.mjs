@@ -106,7 +106,7 @@ describe("validateManifest", () => {
 // What the real build of the host and every plugin produced is checked where
 // that build happens: the last step of `pnpm build` runs
 // scripts/check-plugin-bundles.mjs over dist/. Nothing here builds it again.
-describe("the script", () => {
+describe("the script, with no plugins to build", () => {
   let distRoot;
 
   beforeEach(() => {

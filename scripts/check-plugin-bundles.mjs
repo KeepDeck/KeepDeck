@@ -8,9 +8,10 @@
 // unit of work):
 // - index.json lists it under plugins/<id>, in id order, flagged `css` exactly
 //   where index.css landed: the loader links what the flag says;
-// - its directory holds index.js, its manifest, its stylesheet and its
-//   resources, nothing else: the host imports index.js alone, so a chunk
-//   emitted beside it (a worker imported without `&inline`) never loads;
+// - its directory holds index.js and its manifest, its stylesheet and
+//   resources when it has them, and nothing else: the host imports index.js
+//   alone, so a chunk emitted beside it (a worker imported without `&inline`)
+//   never loads;
 // - the manifest and every resource arrived byte for byte;
 // - index.js carries no React of its own: the host's bridges supply it, and a
 //   second copy breaks every hook that crosses the two;
@@ -26,10 +27,14 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { SourceTextModule, runInContext } from "node:vm";
+// Read off the module when linking: SourceTextModule exists only under
+// --experimental-vm-modules, and the file rules need no flag.
+import vm from "node:vm";
 import { findPluginDirs, validateManifest } from "./build-plugins.mjs";
 
-/** What a plugin's directory may hold — see the header. */
+/** What a plugin's directory may hold — see the header. This is
+ * build-plugins.mjs's output contract, restated on purpose: the check pins
+ * what the build writes, so it cannot read it from the build. */
 const PLUGIN_FILES = ["index.js", "index.css", "manifest.json", "resources"];
 /** React's element tag. Only React's own code spells it, so a bundle that
  * carries it inlined React instead of importing the host's. */
@@ -78,9 +83,17 @@ export function checkLayout(distRoot, pluginsRoot = "plugins") {
 
   for (const { id, dir, css } of plugins) {
     const source = sources.get(id);
+    // An entry that is no built-in is already named above.
+    if (!source) continue;
+    if (dir !== `plugins/${id}`) {
+      problems.push(`${id}: listed under ${dir}, not plugins/${id}`);
+      continue;
+    }
     const out = join(distRoot, dir);
-    if (dir !== `plugins/${id}`) problems.push(`${id}: listed under ${dir}, not plugins/${id}`);
-    if (!source || !existsSync(out)) continue;
+    if (!existsSync(out)) {
+      problems.push(`${id}: nothing at ${dir}`);
+      continue;
+    }
 
     const present = readdirSync(out);
     const strays = present.filter((name) => !PLUGIN_FILES.includes(name));
@@ -128,7 +141,7 @@ export async function linkPlugins(distRoot, context) {
 
   function moduleAt(path) {
     if (!modules.has(path)) {
-      modules.set(path, new SourceTextModule(readFileSync(path, "utf8"), { identifier: path, context }));
+      modules.set(path, new vm.SourceTextModule(readFileSync(path, "utf8"), { identifier: path, context }));
     }
     return modules.get(path);
   }
@@ -169,20 +182,20 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
   // The render alone needs a DOM, so only the build step loads one.
   const { Window } = await import("happy-dom");
-  const { checkGitRender } = await import("./render-git-plugin.test-support.mjs");
+  const { checkGitRender } = await import("./render-git-plugin.mjs");
   const window = new Window({ url: "http://keepdeck.test" });
   // Happy DOM exposes Node's Buffer on Window; the real webview does not.
   delete window.Buffer;
   try {
     for (const name of ["process", "Buffer", "require"]) {
-      assert.equal(runInContext(`typeof ${name}`, window), "undefined");
+      assert.equal(vm.runInContext(`typeof ${name}`, window), "undefined");
     }
     const realm = await linkPlugins(distRoot, window);
     for (const id of realm.linked) console.log(`Linked ${id}`);
 
     // Reuse the UI kit's layout stand in this realm; only test support is
     // stripped from TS. The plugin and all its dependencies stay built JS.
-    const geometry = new SourceTextModule(stripTypeScriptTypes(readFileSync(
+    const geometry = new vm.SourceTextModule(stripTypeScriptTypes(readFileSync(
       new URL("../packages/ui-kit/src/virtualGeometry.test-support.ts", import.meta.url),
       "utf8",
     )), { context: window });
