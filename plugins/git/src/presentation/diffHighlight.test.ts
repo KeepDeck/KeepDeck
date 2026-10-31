@@ -89,11 +89,15 @@ describe("diffHighlightPlan through the highlighter", () => {
     const docs = await Promise.all(plan.texts.map((text) => tokenizeLines(text, "typescript")));
     const ready = docs.filter((doc) => doc !== null);
     expect(ready).toHaveLength(docs.length);
-    /** The color of the keyword at the start of the line reading `text`. */
+    /** The color of the keyword at the start of the line reading `text` —
+     * taken from that line's own runs, not from wherever the plan points. */
     return (text: string) => {
       for (const [h, hunk] of diff.hunks.entries()) {
         const i = hunk.lines.findIndex((line) => line.text === text);
-        if (i >= 0) return lineTokens(plan, ready, h, i)?.[0]?.color;
+        if (i < 0) continue;
+        const runs = lineTokens(plan, ready, h, i);
+        expect(runs?.map((run) => run.text).join("")).toBe(text);
+        return runs?.[0]?.color;
       }
       throw new Error(`no line reads ${text}`);
     };

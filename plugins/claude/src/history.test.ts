@@ -322,22 +322,23 @@ describe("claude history", () => {
   it("a page cut short by the budget says so in bytes", async () => {
     // Where the budget stops a read, and the mark that stop leaves, are the
     // host's (sessionRead.test.ts, sessionWalk.test.ts). This plugin's part:
-    // its page reads the whole conversation and hands the mark on — so the
-    // store here is one the budget cut short, at no cost of bytes.
-    const turn = { type: "user", message: { role: "user", content: "x" } };
-    const store = fakeSessionStore([turn, turn, turn], "budget", 9_000_000);
+    // its page reads the whole conversation from where it was asked and
+    // hands the mark on — so the store here is one the budget cut short, at
+    // no cost of bytes.
+    const turn = (text: string) => ({ type: "user", message: { role: "user", content: text } });
+    const store = fakeSessionStore([turn("t0"), turn("t1"), turn("t2")], "budget", 9_000_000);
     const history = claudeHistory({
       log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
       services: { fs: { readDir: async () => [] }, sessionStore: store },
     });
 
     const page = await present(history.transcriptPage, "the transcript page")("/f.jsonl", {
-      offset: 0,
+      offset: 1,
       limit: 10,
     });
 
     // Short of the limit — how the viewer's pagination learns it reached the end.
-    expect(page.entries).toHaveLength(3);
+    expect(page.entries.map((entry) => entry.text)).toEqual(["t1", "t2"]);
     expect(page.shortfall).toEqual([{ kind: "bytes", size: 9_000_000, readBytes: 10 }]);
     expect(store.scopes).toEqual(["whole"]);
   });

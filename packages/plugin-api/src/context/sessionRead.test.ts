@@ -103,6 +103,9 @@ describe("jsonl reader", () => {
     expect(outcome.stopped).toBe("budget");
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.length).toBeLessThan(200);
+    // "Read X of Y", both in bytes: X is exactly the budget — the last window
+    // trimmed to what was left, not overshot — and Y the whole store.
+    expect(outcome.payloadBytes).toBe(500);
     expect(outcome.sourceBytes).toBe(new TextEncoder().encode(text).length);
     expect(outcome.next).toBeDefined();
   });

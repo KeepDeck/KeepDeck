@@ -54,7 +54,9 @@ export const STAND_IN_COMMENT = "#7f848e";
 
 /** A text as lines of runs: each word and each gap its own, colored by its
  * position in the line, and a block comment in `STAND_IN_COMMENT` — its state
- * the one thing carried from a line to the next, within this text only. */
+ * the one thing carried from a line to the next, within this text only.
+ * Textual, not a grammar: a `/*` inside a string or a `//` comment opens one
+ * here too, so a text that turns on that difference needs the engine. */
 function linesOf(text: string): LineTokens[] {
   let inComment = false;
   return text.split("\n").map((line) => {
