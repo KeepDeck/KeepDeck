@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startDeck } from "../../../scripts/reporterHarness";
 import { normalizeOpencodeStatus } from "./status";
-import { requireHooks, type Armed } from "./resourceTestSupport.test-support";
+import { requireHooks, sdkSection, type Armed } from "./resourceTestSupport.test-support";
 // The reporter, the pane's session and the wire are resource JS —
 // shipped to, and loaded by, the user's opencode process, never bundled into
 // the plugin. The pane's session and the wire are ONE object per module
@@ -198,14 +198,14 @@ describe("opencode session reporter", () => {
     const asked: unknown[] = [];
     const withParents = {
       ...client,
-      session: {
+      session: sdkSection({
         get: async (args: { path: { id: string } }) => {
           asked.push(args);
           return args.path.id === "ses_child"
             ? { data: { id: "ses_child", parentID: "ses_root" } }
             : { data: { id: args.path.id } };
         },
-      },
+      }),
     };
     const { event } = await reporter({ client: withParents });
     await event(assistantMessage({ sessionID: "ses_child" }));
@@ -232,12 +232,12 @@ describe("opencode session reporter", () => {
     // the case hydration cannot repair.
     const withParents = {
       ...client,
-      session: {
+      session: sdkSection({
         get: async (args: { path: { id: string } }) =>
           args.path.id === "ses_child"
             ? { data: { id: "ses_child", parentID: "ses_root" } }
             : { data: { id: args.path.id } },
-      },
+      }),
     };
     const { event } = await reporter({ client: withParents });
     // The binding turn, then a SECOND subagent turn — the one the cleared
@@ -264,11 +264,11 @@ describe("opencode session reporter", () => {
     };
     const deep = {
       ...client,
-      session: {
+      session: sdkSection({
         get: async (args: { path: { id: string } }) => ({
           data: { id: args.path.id, parentID: tree[args.path.id] },
         }),
-      },
+      }),
     };
     const { event } = await reporter({ client: deep });
     await event(assistantMessage({ sessionID: "ses_c2" }));
@@ -293,14 +293,14 @@ describe("opencode session reporter", () => {
     let failing = true;
     const flaky = {
       ...client,
-      session: {
+      session: sdkSection({
         get: async (args: { path: { id: string } }) => {
           asked.push(args.path.id);
           return failing
             ? { error: { name: "UnknownError" } }
             : { data: { id: args.path.id } };
         },
-      },
+      }),
     };
     const { event } = await reporter({ client: flaky });
     await event(assistantMessage({ sessionID: "ses_a" }));
@@ -323,7 +323,7 @@ describe("opencode session reporter", () => {
     // never reachable again.
     const refusing = {
       ...client,
-      session: { get: async () => ({ error: { name: "UnknownError" } }) },
+      session: sdkSection({ get: async () => ({ error: { name: "UnknownError" } }) }),
     };
     const { event } = await reporter({ client: refusing });
     await event(assistantMessage({ sessionID: "ses_resumed" }));
