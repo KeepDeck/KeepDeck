@@ -83,6 +83,7 @@ Checks:
 pnpm test           # frontend unit tests (Vitest)
 pnpm lint           # ESLint over the source tree (TypeScript typed)
 pnpm typecheck      # tsc --noEmit
+pnpm build          # the app and every plugin into dist/, then checks they load as the host loads them
 cargo test          # backend tests (Cargo workspace)
 ```
 

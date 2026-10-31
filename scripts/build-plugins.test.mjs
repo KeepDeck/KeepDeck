@@ -1,10 +1,8 @@
 import { execFileSync } from "node:child_process";
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -105,7 +103,10 @@ describe("validateManifest", () => {
   });
 });
 
-describe("build pipeline (e2e against the real host and plugins)", () => {
+// What the real build of the host and every plugin produced is checked where
+// that build happens: the last step of `pnpm build` runs
+// scripts/check-plugin-bundles.mjs over dist/. Nothing here builds it again.
+describe("the script", () => {
   let distRoot;
 
   beforeEach(() => {
@@ -114,229 +115,6 @@ describe("build pipeline (e2e against the real host and plugins)", () => {
 
   afterEach(() => {
     rmSync(distRoot, { recursive: true, force: true });
-  });
-
-  // Builds the host and every real plugin — well past vitest's 5s default on
-  // a cold 2-core CI runner, hence the explicit timeout.
-  it("builds and links plugins through the host import map and renders Git without Node globals", { timeout: 120_000 }, () => {
-    execFileSync(
-      process.execPath,
-      [
-        join(REPO_ROOT, "node_modules/vite/bin/vite.js"),
-        "build", "--outDir", distRoot, "--emptyOutDir", "--logLevel", "error",
-      ],
-      { cwd: REPO_ROOT, env: { ...process.env, NODE_ENV: "production" } },
-    );
-    const out = execFileSync(process.execPath, [SCRIPT, "--out-dir", distRoot], {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-    });
-    expect(out).toContain("built keepdeck.run");
-
-    const bundlePath = join(distRoot, "plugins", "keepdeck.run", "index.js");
-    const bundle = readFileSync(bundlePath, "utf8");
-
-    // The externals stayed bare specifiers — React and both ReactDOM entry
-    // points were NOT inlined; they resolve through the host's import map.
-    expect(bundle).toMatch(/from\s*["']react["']/);
-    expect(bundle).toMatch(/from\s*["']react\/jsx-runtime["']/);
-    expect(bundle).toMatch(/from\s*["']react-dom["']/);
-    // If externalization had failed, react's own hook implementation (which
-    // defines useState in terms of useReducer) would be inlined here; its
-    // complete absence is the signal that only a bare import landed.
-    expect(bundle).not.toMatch(/useReducer/);
-
-    // manifest.json copied byte-for-byte.
-    const copiedManifest = readFileSync(
-      join(distRoot, "plugins", "keepdeck.run", "manifest.json"),
-      "utf8",
-    );
-    const sourceManifest = readFileSync(
-      join(REPO_ROOT, "plugins", "run", "manifest.json"),
-      "utf8",
-    );
-    expect(copiedManifest).toBe(sourceManifest);
-
-    // index.json lists every built-in plugin, sorted by id, in the documented
-    // shape.
-    const index = JSON.parse(
-      readFileSync(join(distRoot, "plugins", "index.json"), "utf8"),
-    );
-    // Every built-in plugin, sorted by id (files before run) — this exact-match
-    // is the deterministic-shape tripwire: a new built-in updates it on purpose.
-    // `css: true` appears exactly where the build emitted an index.css; the
-    // cli plugins import no CSS and keep the bare shape.
-    expect(index).toEqual({
-      plugins: [
-        { id: "keepdeck.claude", dir: "plugins/keepdeck.claude" },
-        { id: "keepdeck.codex", dir: "plugins/keepdeck.codex" },
-        { id: "keepdeck.files", dir: "plugins/keepdeck.files", css: true },
-        { id: "keepdeck.git", dir: "plugins/keepdeck.git", css: true },
-        { id: "keepdeck.kimi", dir: "plugins/keepdeck.kimi", css: true },
-        { id: "keepdeck.opencode", dir: "plugins/keepdeck.opencode" },
-        { id: "keepdeck.run", dir: "plugins/keepdeck.run", css: true },
-        { id: "keepdeck.voice", dir: "plugins/keepdeck.voice", css: true },
-      ],
-    });
-
-    // Check both static linking and real rendering in a browser realm.
-    // Source tests bypass the bridges and have Node globals available.
-    const checked = execFileSync(
-      process.execPath,
-      [
-        "--experimental-vm-modules",
-        join(REPO_ROOT, "scripts/check-plugin-bundles.test-support.mjs"),
-        distRoot,
-      ],
-      { cwd: REPO_ROOT, encoding: "utf8", timeout: 30_000 },
-    );
-    expect(checked.trim().split("\n")).toEqual([
-      ...index.plugins.map(({ id }) => `Linked ${id}`),
-      "Rendered keepdeck.git changes and history without Node globals",
-    ]);
-
-    // The flag and the file agree, both ways: run's CSS (xterm's stylesheet,
-    // imported by its log renderer) landed under the fixed name the loader
-    // computes; a plugin without the flag shipped no stylesheet at all.
-    const runCss = readFileSync(
-      join(distRoot, "plugins", "keepdeck.run", "index.css"),
-      "utf8",
-    );
-    expect(runCss).toContain(".xterm");
-    expect(
-      existsSync(join(distRoot, "plugins", "keepdeck.claude", "index.css")),
-    ).toBe(false);
-
-    // A CLI plugin may own a nested companion package. The build copies the
-    // whole resources tree verbatim; Kimi's one-click setup installs this
-    // directory through Kimi's own management API.
-    const kimiCompanion = join(
-      distRoot,
-      "plugins",
-      "keepdeck.kimi",
-      "resources",
-      "keepdeck-session-reporter",
-    );
-    const sourceKimiCompanion = JSON.parse(
-      readFileSync(
-        join(
-          REPO_ROOT,
-          "plugins",
-          "kimi",
-          "resources",
-          "keepdeck-session-reporter",
-          "kimi.plugin.json",
-        ),
-        "utf8",
-      ),
-    );
-    expect(
-      JSON.parse(readFileSync(join(kimiCompanion, "kimi.plugin.json"), "utf8")),
-    ).toEqual(sourceKimiCompanion);
-    expect(
-      readFileSync(join(kimiCompanion, "kd-session-hook.sh"), "utf8"),
-    ).toContain('"type":"session.bound"');
-
-    // The SECOND companion, whose payload is a skill file rather than a
-    // script. A copy that shipped the manifest without the skill it names
-    // installs cleanly and injects nothing, which is the failure this
-    // catches: Kimi only warns about it in its own log.
-    const kimiTeams = join(
-      distRoot,
-      "plugins",
-      "keepdeck.kimi",
-      "resources",
-      "keepdeck-teams",
-    );
-    expect(
-      JSON.parse(readFileSync(join(kimiTeams, "kimi.plugin.json"), "utf8")).sessionStart,
-    ).toEqual({ skill: "keepdeck-team" });
-    expect(
-      readFileSync(join(kimiTeams, "skills", "keepdeck-team", "SKILL.md"), "utf8"),
-    ).toContain("mail.inbox");
-
-    // The plugins that show code carry their highlight worker INSIDE their
-    // one file: the host loads index.js alone, and a worker emitted beside it
-    // (a `?worker` import without `&inline`) would never load — every file
-    // and diff would quietly render plain.
-    for (const id of ["keepdeck.files", "keepdeck.git"]) {
-      const dir = join(distRoot, "plugins", id);
-      expect(readdirSync(dir).sort(), id).toEqual(["index.css", "index.js", "manifest.json"]);
-      const bundle = readFileSync(join(dir, "index.js"), "utf8");
-      expect(bundle, id).toContain("new Worker(");
-      expect(bundle, id).toContain("createObjectURL");
-    }
-
-    // opencode's plugin is a DIRECTORY loaded by absolute path: its index
-    // imports both components, and they import TWO siblings between them —
-    // the wire, and the pane's session. Shipping any of them without the rest
-    // gives an agent that loads and then throws on import, so all of them have
-    // to arrive and the imports have to still resolve where they land.
-    const opencodePlugin = join(
-      distRoot,
-      "plugins",
-      "keepdeck.opencode",
-      "resources",
-      "keepdeck-plugin",
-    );
-    for (const file of [
-      "index.js",
-      "opencode-v1.js",
-      "opencode-v2.js",
-      "session-reporter-v2.js",
-      "mail-courier-v2.js",
-      "mail-ask.js",
-      "prompt-selection.js",
-      "foreground.js",
-      "follower.js",
-      "leaving.js",
-      "courier-policy.js",
-      "show-request.js",
-      "tui.js",
-      "route-observer.js",
-      "tui-v1.json",
-      "doorbell.js",
-      "pane-report.js",
-      "components.js",
-      "keepdeck-wire.js",
-      "keepdeck-bridge.js",
-      "pane-session.js",
-      "mail-courier.js",
-      "session-reporter.js",
-    ]) {
-      expect(existsSync(join(opencodePlugin, file)), file).toBe(true);
-    }
-    const sourceOpencodePlugin = join(REPO_ROOT, "plugins", "opencode", "resources", "keepdeck-plugin");
-    const resourceFiles = readdirSync(sourceOpencodePlugin).sort();
-    expect(readdirSync(opencodePlugin).sort()).toEqual(resourceFiles);
-    for (const file of resourceFiles) {
-      expect(readFileSync(join(opencodePlugin, file))).toEqual(readFileSync(join(sourceOpencodePlugin, file)));
-    }
-    const entry = readFileSync(join(opencodePlugin, "index.js"), "utf8");
-    expect(entry).toContain('from "./mail-courier.js"');
-    expect(entry).toContain('from "./session-reporter.js"');
-    for (const file of ["mail-courier.js", "session-reporter.js"]) {
-      const body = readFileSync(join(opencodePlugin, file), "utf8");
-      expect(body).toContain('from "./keepdeck-bridge.js"');
-      expect(body).toContain('from "./pane-session.js"');
-    }
-    expect(readFileSync(join(opencodePlugin, "keepdeck-bridge.js"), "utf8"))
-      .toContain('from "./keepdeck-wire.js"');
-
-    // claude's Mod is a plugin directory claude loads with `--plugin-dir`:
-    // its manifest, its module list, the module and the wire it imports must
-    // all arrive, or claude loads a plugin that never says hello.
-    const claudeMod = join(distRoot, "plugins", "keepdeck.claude", "resources", "keepdeck-mod");
-    for (const file of [
-      ".claude-plugin/plugin.json",
-      "hooks/hooks.json",
-      "hooks/register.js",
-      "hooks/keepdeck-wire.js",
-    ]) {
-      expect(existsSync(join(claudeMod, file)), file).toBe(true);
-    }
-    expect(readFileSync(join(claudeMod, "hooks/register.js"), "utf8"))
-      .toContain('from "./keepdeck-wire.js"');
   });
 
   it("is a no-op that still writes an empty index.json when plugins/ has none", () => {

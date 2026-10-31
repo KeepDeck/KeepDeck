@@ -11,8 +11,8 @@
 
 /** A local copy of plugin-api/testing's guard, on purpose: this module is
  * also loaded into the built-bundle check's browser realm
- * (scripts/check-plugin-bundles.test-support.mjs), which resolves only the
- * app's import map — and test helpers are not in it. */
+ * (scripts/check-plugin-bundles.mjs, the last step of `pnpm build`), which
+ * resolves only the app's import map — and test helpers are not in it. */
 function instanceOf<T>(
   value: unknown,
   ctor: abstract new (...args: never[]) => T,

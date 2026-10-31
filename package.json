@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "eslint && tsc && vite build && node scripts/build-plugins.mjs",
+    "build": "eslint && tsc && vite build && node scripts/build-plugins.mjs && node --experimental-vm-modules --disable-warning=ExperimentalWarning scripts/check-plugin-bundles.mjs dist",
     "build:plugins": "node scripts/build-plugins.mjs",
     "preview": "vite preview",
     "test": "vitest run",
