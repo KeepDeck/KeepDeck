@@ -30,7 +30,7 @@
  */
 
 /** How long to wait for an interruption's ending before letting go. */
-const LET_GO_MS = 3_000;
+export const LET_GO_MS = 3_000;
 
 /** @typedef {{ root: string | undefined, detach: () => boolean }} PaneSession */
 /** @typedef {{ sessionID: string, done: () => void, timer: NodeJS.Timeout | undefined }} LeavingState */

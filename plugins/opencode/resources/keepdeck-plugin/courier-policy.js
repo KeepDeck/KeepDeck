@@ -22,7 +22,7 @@
 import { drained } from "./keepdeck-bridge.js";
 
 /** How long a session made for the mail may take to come on screen. */
-const SHOW_WAIT_MS = 3_000;
+export const SHOW_WAIT_MS = 3_000;
 
 /** @typedef {{ root: string | undefined, left: string | undefined, bound: boolean, rootOf: (id: string) => string, classify: (id: string) => Promise<string> }} PaneView */
 /** @typedef {{ kind: string, sessionID?: string }} Screen */

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, type FSWatcher } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { admitMail } from "@keepdeck/plugin-api";
@@ -8,6 +8,24 @@ import { HEARTBEAT_MS, writeForeground } from "../resources/keepdeck-plugin/fore
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent } from "./status";
 import { present } from "@keepdeck/plugin-api/testing";
+
+/** Every directory watcher the plugin opens, and those it closed. A watcher
+ * left running after cleanup shows nothing a test could wait for — it only
+ * follows a screen or a ring nobody makes — so the cleanup case counts them.
+ * The real `watch` underneath: what it watches still fires. */
+const watchers = vi.hoisted(() => ({ opened: [] as FSWatcher[], closed: [] as FSWatcher[] }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    watch: (path: string, listener: () => void) => {
+      const watcher = actual.watch(path, listener);
+      watchers.opened.push(watcher);
+      watcher.on("close", () => watchers.closed.push(watcher));
+      return watcher;
+    },
+  };
+});
 
 /**
  * KeepDeck's plugin on opencode 2.x, driven through a stand-in of the
@@ -103,7 +121,12 @@ function createContext(parents: Record<string, string | undefined> = {}) {
   return { context, bus, hooks, prompts, synthetics, writes, created, interrupted, onCreate };
 }
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+/** Taken before any case fakes timers: the test's own waiting is on real
+ * time, whatever clock the plugin runs on. */
+const realSetTimeout = globalThis.setTimeout;
+const realSetInterval = globalThis.setInterval;
+const realClearInterval = globalThis.clearInterval;
+const tick = () => new Promise((resolve) => realSetTimeout(resolve, 5));
 
 describe("KeepDeck's plugin on opencode 2.x", () => {
   let dir: string;
@@ -238,11 +261,17 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       pending.push({ v: 1, prompt: "do not drop me" });
       writeFileSync(join(dir, "mail.wake"), "");
       const { context, prompts } = createContext();
+      let lookedUp!: () => void;
+      const lookup = new Promise<void>((resolve) => (lookedUp = resolve));
       context.session.get = async () => {
+        lookedUp();
         throw new Error("Session not found: ses_gone");
       };
       await setup(context);
-      for (let round = 0; round < 60; round++) await tick();
+      // The plugin looked the session up and found it gone: whatever it does
+      // with the waiting mail follows from that, and is on the wire by now.
+      await lookup;
+      await reported();
 
       expect(asked).toEqual([]);
       expect(pending).toHaveLength(1);
@@ -493,12 +522,41 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   });
 
   describe("following the TUI's screen (task-436)", () => {
+    // The follower's heartbeat and the courier's wait for a shown session
+    // run on the test's clock here, advanced by the product's own constant.
+    // The screen's watcher and the deck stay real.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+      watchers.opened.length = 0;
+      watchers.closed.length = 0;
+    });
+    afterEach(() => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
+
     /** The 2.x TUI half's record: written by the TUI process, the plugin's
      * parent under `--standalone`. */
     const screen = (route: Record<string, unknown>, pid = process.ppid) =>
       writeForeground(dir, route, Date.now(), pid);
+    /** Move the plugin's clock: run the timers due within `ms`, then one
+     * turn of the event loop for what they started. */
+    const advance = async (ms: number) => {
+      await vi.advanceTimersByTimeAsync(ms);
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+    /** A screen the user moved to, as the follower reads it: at once from
+     * the watcher, and by the next heartbeat whatever the watcher did. */
+    const show = async (route: Record<string, unknown>, pid?: number) => {
+      screen(route, pid);
+      await advance(HEARTBEAT_MS);
+    };
+    /** Wait for `done` — something the real watcher or the deck brings. Its
+     * ceiling fails the case: a wait that runs it out is waiting for the
+     * wrong thing, and passing anyway would hide it. */
     const until = async (done: () => boolean, rounds = 400) => {
       for (let round = 0; round < rounds && !done(); round++) await tick();
+      if (!done()) throw new Error("until: waited out its ceiling for something that never came");
     };
     const posted = () => deck.envelopes.map((e) => (e.type === "agent.status" ? e.payload?.event?.type : e.type));
     const asks = () => asked.filter((a) => a.type === "mail.ask").length;
@@ -508,12 +566,11 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       const ctx = createContext();
       await setup(ctx.context);
       ctx.bus.push("session.created", { sessionID: "ses_a" });
-      screen({ route: "session", sessionID: "ses_a" });
-      await reported();
       // The follower has read the screen by its next heartbeat at the
-      // latest: under load the directory watcher can drop the write's event,
-      // and a home screen it never saw a session before is not a leaving.
-      await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_MS + 100));
+      // latest: the directory watcher can drop the write's event, and a home
+      // screen it never saw a session before is not a leaving.
+      await show({ route: "session", sessionID: "ses_a" });
+      await reported();
       deck.envelopes.length = 0;
       asked.length = 0;
       return ctx;
@@ -521,7 +578,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
     it("moves the pane to the session the user opens — the binding first, and stops nothing", async () => {
       const { bus, interrupted } = await onA();
-      screen({ route: "session", sessionID: "ses_b" });
+      await show({ route: "session", sessionID: "ses_b" });
       await until(() => posted().includes("session.bound"));
       bus.push("session.execution.started", { sessionID: "ses_b" });
       const all = await reported();
@@ -536,7 +593,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
     it("on /new lets the conversation go at once — the tab runs on, and no background tab takes the pane", async () => {
       const { bus, interrupted } = await onA();
-      screen({ route: "home" });
+      await show({ route: "home" });
       await until(() => posted().includes("session.unbound"));
       expect(posted()).toContain("session.unbound");
       expect(interrupted).toEqual([]);
@@ -560,10 +617,10 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
     it("binds a conversation again when the user comes back to it after /new", async () => {
       await onA();
-      screen({ route: "home" });
+      await show({ route: "home" });
       await until(() => posted().includes("session.unbound"));
       deck.envelopes.length = 0;
-      screen({ route: "session", sessionID: "ses_a" });
+      await show({ route: "session", sessionID: "ses_a" });
       await until(() => posted().includes("session.bound"));
       expect(ofType(await reported(), "session.bound").map(binding)).toEqual([{ sessionId: "ses_a", source: "resume" }]);
     });
@@ -571,7 +628,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
     it("reaches nobody where the user is not looking — not at a turn's end, not after a tool call", async () => {
       const { bus, hooks, prompts } = await onA();
       // A plugin's own page: no session on screen.
-      screen({ route: "other" });
+      await show({ route: "other" });
       await reported();
       pending.push({ v: 1, prompt: "should wait" });
       bus.push("session.execution.succeeded", { sessionID: "ses_a" });
@@ -583,24 +640,29 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       expect(prompts).toEqual([]);
       expect(call.result).toBe(result);
 
-      // Back on it, the waiting mail goes at the next boundary.
-      screen({ route: "session", sessionID: "ses_a" });
-      await until(() => asks() > 0);
+      // Back on it, the waiting mail goes at the next boundary — asked for
+      // then, not on the screen's change.
+      await show({ route: "session", sessionID: "ses_a" });
       bus.push("session.execution.succeeded", { sessionID: "ses_a" });
       await until(() => prompts.length > 0);
+      expect(asks()).toBe(1);
       expect(prompts).toEqual([{ sessionID: "ses_a", text: "should wait" }]);
     });
 
     it("after /new, a ring makes a session in the left one's agent and model, has the TUI show it, then delivers", async () => {
       const { created, prompts, synthetics } = await onA();
-      screen({ route: "home" });
+      await show({ route: "home" });
       await until(() => posted().includes("session.unbound"));
-      // The TUI half: shows what it is asked to while on the home screen.
-      const tui = setInterval(() => {
+      // The TUI half — its own process, on real time: shows what it is asked
+      // to while on the home screen.
+      let tuiShowed!: () => void;
+      const showed = new Promise<void>((resolve) => (tuiShowed = resolve));
+      const tui = realSetInterval(() => {
         try {
           const request = JSON.parse(readFileSync(join(dir, "show.json"), "utf8"));
           rmSync(join(dir, "show.json"));
           screen({ route: "session", sessionID: request.sessionID });
+          tuiShowed();
         } catch {
           // Nothing asked yet.
         }
@@ -608,9 +670,13 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
       try {
         pending.push({ v: 1, context: "brief", prompt: "after /new" });
         writeFileSync(join(dir, "mail.wake"), "");
-        await until(() => prompts.length > 0, 800);
+        // The courier waits on its own clock for the session to come on
+        // screen: once the TUI showed it, a heartbeat's time sees it there.
+        await showed;
+        await advance(HEARTBEAT_MS);
+        await until(() => prompts.length > 0);
       } finally {
-        clearInterval(tui);
+        realClearInterval(tui);
       }
       expect(created).toEqual([{ agent: "build", model: { providerID: "fixture", id: "probe" } }]);
       // Into the session made for it: the brief as context, the words as a turn.
@@ -625,28 +691,33 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
 
     it("trusts only its parent's record — its own pid's is not the TUI's", async () => {
       await onA();
-      screen({ route: "session", sessionID: "ses_b" }, process.pid);
-      await reported();
-      await new Promise((resolve) => setTimeout(resolve, 1_200));
-      expect(ofType(await reported(), "session.bound")).toEqual([]);
+      await show({ route: "session", sessionID: "ses_wrong" }, process.pid);
+      // Then the TUI's own record: it binds, so the follower has read past
+      // the wrong one — and that one must not have bound first.
+      await show({ route: "session", sessionID: "ses_b" });
+      await until(() => posted().includes("session.bound"));
+      expect(ofType(await reported(), "session.bound").map(binding)).toEqual([{ sessionId: "ses_b", source: "resume" }]);
     });
 
     it("stops everything when opencode cleans the plugin up", async () => {
       const { context, bus, prompts } = createContext();
       const cleanup = await setup(context);
       expect(typeof cleanup).toBe("function");
+      // The screen's follower and the courier's doorbell.
+      expect(watchers.opened).toHaveLength(2);
       bus.push("session.created", { sessionID: "ses_a" });
       await reported();
       present(cleanup, "the cleanup")();
+      // Every watcher closed — a ring or a screen would otherwise still be
+      // followed — and nothing left on the plugin's clock: no heartbeat
+      // reads the screen again.
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(watchers.closed).toHaveLength(watchers.opened.length);
+      expect(watchers.closed).toEqual(expect.arrayContaining(watchers.opened));
+      expect(vi.getTimerCount()).toBe(0);
+      // And opencode's own events reach nobody.
       deck.envelopes.length = 0;
       bus.push("session.execution.started", { sessionID: "ses_a" });
-      // Nobody watches the screen: a ring would be delivered into the pane.
-      pending.push({ v: 1, prompt: "nobody home" });
-      writeFileSync(join(dir, "mail.wake"), "");
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      // And a screen showing another session would move it.
-      screen({ route: "session", sessionID: "ses_b" });
-      await new Promise((resolve) => setTimeout(resolve, 1_200));
       await reported();
       expect(deck.envelopes).toEqual([]);
       expect(prompts).toEqual([]);

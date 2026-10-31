@@ -29,16 +29,15 @@ import { recordOf, stringOf } from "@keepdeck/plugin-api/testing";
  *
  * A doorbell ring travels through the filesystem and the ask that follows is
  * a real HTTP round trip to the stand-in deck below, so a single delivery
- * takes tens of milliseconds — and under the full parallel suite, more.
- * Nothing here is a latency assertion, so the ceiling is generous and the
- * waits below stay well inside it.
+ * takes tens of milliseconds. Nothing here is a latency assertion, and no
+ * wait below is a nap: each is for the delivery, the ask or the answer it
+ * names.
  *
- * It used to be far slower and this ceiling used to say why: the courier
- * polled a directory for its answer over a two-second window and the fake
- * deck was a polling loop of its own. Neither exists — the answer comes back
- * on the connection the question went out on.
+ * It used to be far slower, under a ceiling of its own: the courier polled a
+ * directory for its answer over a two-second window and the fake deck was a
+ * polling loop of its own. Neither exists — the answer comes back on the
+ * connection the question went out on.
  */
-vi.setConfig({ testTimeout: 10_000 });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const last = <T,>(items: T[]): T | undefined => items[items.length - 1];
@@ -624,11 +623,16 @@ describe("opencode mail courier", () => {
     const session = client.session;
     const answer = session.get;
     // The alien's answer comes back LAST, deterministically — which is what
-    // an extra hop up a chain buys it in practice.
+    // an extra hop up a chain buys it in practice: it is held until the
+    // pane has adopted its own.
+    let releaseAlien!: () => void;
+    const alienHeld = new Promise<void>((resolve) => (releaseAlien = resolve));
+    let mineAsked!: () => void;
+    const mineLookedUp = new Promise<void>((resolve) => (mineAsked = resolve));
     session.get = async (call: Record<string, unknown>) => {
-      if (stringOf(recordOf(call.path, "call path").id, "session id").startsWith("ses_alien")) {
-        await sleep(30);
-      }
+      const id = stringOf(recordOf(call.path, "call path").id, "session id");
+      if (id.startsWith("ses_alien")) await alienHeld;
+      if (id === "ses_mine") mineAsked();
       return answer(call);
     };
 
@@ -638,7 +642,12 @@ describe("opencode mail courier", () => {
     // is built. That is the pair that can overlap, and the alien's extra hop
     // makes it the slower of the two.
     const alien = courier.event(idle("ses_alien_child"));
-    await courier["chat.message"]({ sessionID: "ses_mine" }, { parts: [] });
+    const chat = courier["chat.message"]({ sessionID: "ses_mine" }, { parts: [] });
+    await mineLookedUp;
+    // Its answer is in and adopted before the alien's comes back.
+    await new Promise((resolve) => setImmediate(resolve));
+    releaseAlien();
+    await chat;
     await alien;
 
     // The pane kept the identity it bound first.
@@ -659,10 +668,13 @@ describe("opencode mail courier", () => {
   });
 
   it("names the TUI's own prompt the root when no session is bound yet", async () => {
-    const courier = await start();
-    await ringUntil(() => asked.length > 0);
+    // Rung before the courier started — a pane still booting when the deck
+    // rang: the ring is on disk, taken at once, with no watcher event to wait
+    // on.
+    writeFileSync(join(dir, "mail.wake"), "");
+    await start();
+    for (let tries = 0; tries < 100 && asked.length === 0; tries++) await sleep(5);
     expect(asked[0].payload.event.target).toBe("root");
-    void courier;
   });
 
   it("names nobody when the bound session could not be classified", async () => {
