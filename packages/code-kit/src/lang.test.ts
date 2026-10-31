@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
+import { GRAMMARS } from "./grammars";
 import { langFor } from "./lang";
+
+describe("the ids langFor can produce", () => {
+  it("each names a grammar the kit loads, by its name or an alias", () => {
+    // langFor's ids form a closed set; one the grammars do not name would
+    // silently cost a file type its color one day. Whether a named grammar
+    // then compiles is Shiki's to answer, not the kit's.
+    const named = new Set(GRAMMARS.flat().flatMap((grammar) => [grammar.name, ...(grammar.aliases ?? [])]));
+    const samples = [
+      "a.ts", "a.tsx", "a.js", "a.jsx", "a.json", "a.jsonc", "a.rs", "a.toml",
+      "a.yaml", "a.md", "a.html", "a.css", "a.scss", "a.less", "a.sh", "a.py",
+      "a.go", "a.java", "a.kt", "a.swift", "a.c", "a.cpp", "a.cs", "a.rb",
+      "a.php", "a.sql", "a.xml", "a.diff", "a.ini", "a.graphql", "a.lua",
+      "a.vue", "a.svelte", "a.m", "a.pl", "Dockerfile", "Makefile",
+    ];
+    for (const sample of samples) {
+      const lang = langFor(sample);
+      expect(lang, sample).not.toBeNull();
+      expect(named.has(lang ?? ""), `${sample} -> ${lang}`).toBe(true);
+    }
+  });
+});
 
 describe("langFor", () => {
   it("maps common extensions to their language ids", () => {
