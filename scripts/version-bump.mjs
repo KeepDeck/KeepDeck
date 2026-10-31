@@ -51,6 +51,20 @@ export function classifyMergeSubject(subject) {
   return subject.includes(MINOR_MARKER) ? "minor" : "patch";
 }
 
+/** One run's bump: the merges since the anchor in merge order, then the
+ * forced bump. Null when there is nothing to apply. A batch with a minor or
+ * major bump releases, and so does every forced bump. */
+export function planBump(current, subjects, forced) {
+  const kinds = subjects.map(classifyMergeSubject);
+  if (forced) kinds.push(forced);
+  if (kinds.length === 0) return null;
+  return {
+    next: computeNext(current, kinds),
+    kinds,
+    release: forced !== null || kinds.some((kind) => kind !== "patch"),
+  };
+}
+
 export function parseCargoVersion(toml) {
   // Only the [package] version sits at line start; dependency versions live
   // mid-line inside tables (`tauri = { version = "2", … }`) and never match.
@@ -109,7 +123,7 @@ function findAnchor() {
   return touched.at(-1) ?? null;
 }
 
-function readBumpArg(argv) {
+export function readBumpArg(argv) {
   const i = argv.indexOf("--bump");
   if (i === -1) return null;
   const kind = argv[i + 1];
@@ -139,14 +153,13 @@ export function main(argv = process.argv.slice(2)) {
         )
           .split("\n")
           .filter(Boolean);
-  const kinds = subjects.map(classifyMergeSubject);
-  if (forced) kinds.push(forced);
-  if (kinds.length === 0) {
+  const plan = planBump(current, subjects, forced);
+  if (plan === null) {
     console.log("No merges since the last version change; nothing to bump.");
     return null;
   }
 
-  const next = computeNext(current, kinds);
+  const { next, kinds, release } = plan;
   writeFileSync(CARGO_TOML, setCargoVersion(readFileSync(CARGO_TOML, "utf8"), next));
   writeFileSync(
     PACKAGE_JSON,
@@ -158,9 +171,8 @@ export function main(argv = process.argv.slice(2)) {
   );
   console.log(`Bump version to ${next} (${current} + ${kinds.join(", ")})`);
   if (process.env.GITHUB_OUTPUT) {
-    // Release classification: minor/major batches and every forced bump chain
-    // into the release workflow once the bump commit lands on main.
-    const release = forced !== null || kinds.some((kind) => kind !== "patch");
+    // A release (see planBump) chains into the release workflow once the bump
+    // commit lands on main.
     appendFileSync(
       process.env.GITHUB_OUTPUT,
       `version=${next}\nrelease=${release}\n`,

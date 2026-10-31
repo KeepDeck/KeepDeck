@@ -1,17 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { gitRepo } from "./gitRepo.test-support.mjs";
 import { buildNotes, changelogLine, parseArgs } from "./release-notes.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./release-notes.mjs", import.meta.url));
 
-// Load-sensitive under a full parallel run (real git/tmpdirs or real-timer
-// polling); passes deterministically in isolation — retry absorbs runner
-// contention instead of reddening unrelated gates.
-describe("parseArgs", { retry: 2 }, () => {
+describe("parseArgs", () => {
   it("parses everything and defaults previous to empty", () => {
     expect(
       parseArgs(["--version", "1.3.0", "--repo", "o/r", "--out", "notes.md"]),
@@ -74,94 +72,62 @@ describe("buildNotes", () => {
   });
 });
 
-// Real repositories, real git invocations: seconds per case, and more under
-// parallel load. Declared rather than left on the 5s default (see the same note
-// in version-bump.test.mjs).
-describe("end to end in a real repo", { timeout: 120_000 }, () => {
+/** Run the script in `dir` and read the notes it wrote. */
+function run(dir, args) {
+  const notes = join(dir, "notes.md");
+  rmSync(notes, { force: true });
+  execFileSync(process.execPath, [SCRIPT, ...args, "--repo", "o/r", "--out", "notes.md"], {
+    cwd: dir,
+    encoding: "utf8",
+  });
+  return readFileSync(notes, "utf8");
+}
+
+// One history serves every case: the script only reads it.
+describe("the script, run in a real repository", () => {
+  let repo;
+  beforeAll(() => {
+    repo = gitRepo([
+      { subject: "init" },
+      { subject: "Merge: already released", merge: true },
+      { subject: "Bump version to 1.2.0" },
+      { subject: "Merge: first change", merge: true },
+      { subject: "Merge: second change (minor)", merge: true },
+      { subject: "Bump version to 1.3.0" },
+    ]);
+  });
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("lists every merge since the previous version's bump commit, in merge order", () => {
+    const notes = run(repo, ["--version", "1.3.0", "--previous", "1.2.0"]);
+    expect(notes).toContain("Changes:\n- first change\n- second change\n\n");
+  });
+
+  it("has no changelog for a republish, though merges follow its bump", () => {
+    expect(run(repo, ["--version", "1.2.0", "--previous", "1.2.0"])).not.toContain("Changes:");
+  });
+
+  it("has no changelog for a first release", () => {
+    expect(run(repo, ["--version", "1.0.0"])).not.toContain("Changes:");
+  });
+
+  it("degrades to no changelog when the previous bump commit is missing", () => {
+    expect(run(repo, ["--version", "1.3.0", "--previous", "9.9.9"])).not.toContain("Changes:");
+  });
+});
+
+describe("the script, with no repository at all", () => {
   let dir;
   afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  function repo() {
+  it("writes rolling notes, which need no history", () => {
     dir = mkdtempSync(join(tmpdir(), "kd-notes-"));
-    const git = (...args) =>
-      execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
-    git("init", "-q", "-b", "main");
-    git("config", "user.name", "test");
-    git("config", "user.email", "test@example.com");
-    const commit = (msg) => {
-      writeFileSync(join(dir, "f.txt"), msg);
-      git("add", "f.txt");
-      git("commit", "-qm", msg);
-    };
-    const merge = (msg) => {
-      git("checkout", "-qb", "feat");
-      commit(`work for: ${msg}`);
-      git("checkout", "-q", "main");
-      git("merge", "--no-ff", "-q", "-m", msg, "feat");
-      git("branch", "-qD", "feat");
-    };
-    return { git, commit, merge };
-  }
-
-  function run(args) {
-    execFileSync(process.execPath, [SCRIPT, ...args], { cwd: dir, encoding: "utf8" });
-    return readFileSync(join(dir, "notes.md"), "utf8");
-  }
-
-  it("reports every merge since the previous version's bump commit", () => {
-    const { commit, merge } = repo();
-    commit("init");
-    commit("Bump version to 1.2.0");
-    merge("Merge: first change");
-    merge("Merge: second change (minor)");
-    commit("Bump version to 1.3.0");
-
-    const notes = run([
-      "--version", "1.3.0", "--previous", "1.2.0",
-      "--repo", "o/r", "--out", "notes.md",
-    ]);
-    expect(notes).toContain("- first change");
-    expect(notes).toContain("- second change");
-    expect(notes).not.toContain("(minor)");
-  });
-
-  it("degrades to no changelog for a first release or a republish", () => {
-    const { commit, merge } = repo();
-    commit("init");
-    merge("Merge: some change");
-
-    const first = run(["--version", "1.0.0", "--repo", "o/r", "--out", "notes.md"]);
-    expect(first).not.toContain("Changes:");
-
-    const republish = run([
-      "--version", "1.0.0", "--previous", "1.0.0",
-      "--repo", "o/r", "--out", "notes.md",
-    ]);
-    expect(republish).not.toContain("Changes:");
-  });
-
-  it("writes rolling notes without touching git at all", () => {
-    dir = mkdtempSync(join(tmpdir(), "kd-notes-"));
-    // No `git init`: rolling notes must not need history.
-    const notes = run([
-      "--version", "1.3.0", "--rolling",
-      "--repo", "o/r", "--out", "notes.md",
-    ]);
+    const notes = run(dir, ["--version", "1.3.0", "--rolling"]);
     expect(notes).toContain("Rolling release");
-    expect(notes).not.toContain("Changes:");
-  });
-
-  it("degrades gracefully when the previous bump commit is missing", () => {
-    const { commit, merge } = repo();
-    commit("init");
-    merge("Merge: some change");
-
-    const notes = run([
-      "--version", "1.3.0", "--previous", "9.9.9",
-      "--repo", "o/r", "--out", "notes.md",
-    ]);
     expect(notes).not.toContain("Changes:");
   });
 });

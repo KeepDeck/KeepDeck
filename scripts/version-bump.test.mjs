@@ -1,26 +1,25 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   bumpVersion,
   classifyMergeSubject,
   computeNext,
   parseCargoVersion,
+  planBump,
+  readBumpArg,
   setCargoVersion,
   setLockVersion,
   setPackageJsonVersion,
 } from "./version-bump.mjs";
+import { gitRepo } from "./gitRepo.test-support.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./version-bump.mjs", import.meta.url));
 
-// Load-sensitive under a full parallel run (real git/tmpdirs or real-timer
-// polling); passes deterministically in isolation — retry absorbs runner
-// contention instead of reddening unrelated gates.
-describe("bumpVersion", { retry: 2 }, () => {
+describe("bumpVersion", () => {
   it("bumps patch", () => {
     expect(bumpVersion("0.4.20", "patch")).toBe("0.4.21");
   });
@@ -68,6 +67,44 @@ describe("classifyMergeSubject", () => {
   it("defaults to patch, including legacy version-suffixed subjects", () => {
     expect(classifyMergeSubject("Merge: copy on Cmd+C (0.4.19)")).toBe("patch");
     expect(classifyMergeSubject("Merge branch 'feat/x'")).toBe("patch");
+  });
+});
+
+describe("planBump", () => {
+  it("applies the merges in merge order", () => {
+    // Patch then minor lands on 0.2.0; the other way round it would be 0.2.1.
+    expect(planBump("0.1.1", ["Merge: feature b", "Merge: stream done (minor)"], null)).toMatchObject({
+      next: "0.2.0",
+      kinds: ["patch", "minor"],
+    });
+  });
+
+  it("applies a forced bump after the merges still pending", () => {
+    expect(planBump("0.1.0", ["Merge: release boundary (minor)"], "patch").next).toBe("0.2.1");
+    expect(planBump("0.1.0", [], "major").next).toBe("1.0.0");
+  });
+
+  it("has nothing to do when no merge landed and nothing is forced", () => {
+    expect(planBump("0.1.0", [], null)).toBeNull();
+  });
+
+  it("releases a batch with a minor or major merge, and every forced bump — never a patch-only batch", () => {
+    expect(planBump("0.1.0", ["Merge: a", "Merge: b"], null).release).toBe(false);
+    expect(planBump("0.1.0", ["Merge: a", "Merge: b (minor)"], null).release).toBe(true);
+    expect(planBump("0.1.0", ["Merge: a (major)"], null).release).toBe(true);
+    expect(planBump("0.1.0", [], "patch").release).toBe(true);
+  });
+});
+
+describe("readBumpArg", () => {
+  it("reads the forced kind, or none without the flag", () => {
+    expect(readBumpArg(["--bump", "minor"])).toBe("minor");
+    expect(readBumpArg([])).toBeNull();
+  });
+
+  it("refuses anything but patch, minor or major", () => {
+    expect(() => readBumpArg(["--bump", "breaking"])).toThrow(/--bump expects/);
+    expect(() => readBumpArg(["--bump"])).toThrow(/got: \(nothing\)/);
   });
 });
 
@@ -136,34 +173,31 @@ version = "0.1.0"
   });
 });
 
-// Each case builds a throwaway repository and runs the real script over it, so
-// a case costs seconds, not milliseconds — and several seconds more when the
-// whole suite is running in parallel. Declared here rather than left on the 5s
-// default, which turned a slow-but-correct test into a failure that only
-// reproduced under load.
-describe("end-to-end against a real git repo", { timeout: 120_000 }, () => {
+// What only a real repository shows: which commit is the anchor, which merges
+// count from it, and the script's wiring — flags in, the three files and
+// GITHUB_OUTPUT out. The rules over those merges are planBump's, above.
+describe("the script, run in a real repository", () => {
   let repo;
 
-  const git = (...args) =>
-    execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+  const versionFiles = (version) => ({
+    "src-tauri/Cargo.toml": CARGO_TOML_FIXTURE.replace('version = "0.1.0"', `version = "${version}"`),
+    "package.json": `{\n  "name": "keepdeck",\n  "version": "${version}"\n}\n`,
+    "Cargo.lock": `[[package]]\nname = "infer"\nversion = "0.16.0"\n\n[[package]]\nname = "keepdeck"\nversion = "${version}"\n`,
+  });
+  const initial = { subject: "initial", files: versionFiles("0.1.0") };
 
-  const runScript = (...args) =>
-    execFileSync(process.execPath, [SCRIPT, ...args], {
+  /** Run the script in `repo`: what it printed, and what it appended to
+   * GITHUB_OUTPUT — a file under .git, out of the work tree it must leave
+   * clean when there is nothing to bump. */
+  const run = (...args) => {
+    const output = join(repo, ".git", "github-output");
+    writeFileSync(output, "");
+    const stdout = execFileSync(process.execPath, [SCRIPT, ...args], {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, GITHUB_OUTPUT: "" },
+      env: { ...process.env, GITHUB_OUTPUT: output },
     });
-
-  // Run with a real GITHUB_OUTPUT file and return what the script appended.
-  const runScriptCapturingOutput = (...args) => {
-    const outFile = join(repo, "gh-output.txt");
-    writeFileSync(outFile, "");
-    execFileSync(process.execPath, [SCRIPT, ...args], {
-      cwd: repo,
-      encoding: "utf8",
-      env: { ...process.env, GITHUB_OUTPUT: outFile },
-    });
-    return readFileSync(outFile, "utf8");
+    return { stdout, output: readFileSync(output, "utf8") };
   };
 
   const readVersions = () => ({
@@ -174,130 +208,44 @@ describe("end-to-end against a real git repo", { timeout: 120_000 }, () => {
     )[1],
   });
 
-  const writeVersionFiles = (version) => {
-    writeFileSync(
-      join(repo, "src-tauri/Cargo.toml"),
-      CARGO_TOML_FIXTURE.replace('version = "0.1.0"', `version = "${version}"`),
-    );
-    writeFileSync(
-      join(repo, "package.json"),
-      `{\n  "name": "keepdeck",\n  "version": "${version}"\n}\n`,
-    );
-    writeFileSync(
-      join(repo, "Cargo.lock"),
-      `[[package]]\nname = "infer"\nversion = "0.16.0"\n\n[[package]]\nname = "keepdeck"\nversion = "${version}"\n`,
-    );
-  };
-
-  const mergeFeature = (branch, subject, mutate) => {
-    git("checkout", "-q", "-b", branch);
-    if (mutate) {
-      mutate();
-    } else {
-      writeFileSync(join(repo, `${branch.replaceAll("/", "-")}.txt`), branch);
-    }
-    git("add", "-A");
-    git("commit", "-q", "-m", `work on ${branch}`);
-    git("checkout", "-q", "main");
-    git("merge", "-q", "--no-ff", "-m", subject, branch);
-  };
-
-  beforeEach(() => {
-    repo = mkdtempSync(join(tmpdir(), "version-bump-"));
-    git("init", "-q", "-b", "main");
-    git("config", "user.name", "test");
-    git("config", "user.email", "test@example.com");
-    mkdirSync(join(repo, "src-tauri"));
-    writeVersionFiles("0.1.0");
-    git("add", "-A");
-    git("commit", "-q", "-m", "initial");
-  });
-
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it("bumps patch once for a single merge (bootstrap: anchor is the root commit)", () => {
-    mergeFeature("feat/a", "Merge: feature a");
-    runScript();
+  it("counts every merge from the root while the version never changed", () => {
+    repo = gitRepo([initial, { subject: "Merge: feature a", merge: true }]);
+    expect(run().output).toBe("version=0.1.1\nrelease=false\n");
     expect(readVersions()).toEqual({ cargo: "0.1.1", pkg: "0.1.1", lock: "0.1.1" });
   });
 
-  it("covers several merges in one run, honoring (minor) in order", () => {
-    mergeFeature("feat/a", "Merge: feature a");
-    runScript();
-    git("commit", "-qam", "Bump version to 0.1.1");
-
-    mergeFeature("feat/b", "Merge: feature b");
-    mergeFeature("feat/c", "Merge: stream done (minor)");
-    runScript();
-    // 0.1.1 → patch → 0.1.2 → minor → 0.2.0
-    expect(readVersions().cargo).toBe("0.2.0");
+  it("counts from the newest commit that changed the version, in merge order", () => {
+    repo = gitRepo([
+      initial,
+      { subject: "Merge: already released (minor)", merge: true },
+      { subject: "Bump version to 0.2.0", files: versionFiles("0.2.0") },
+      { subject: "Merge: feature b", merge: true },
+      { subject: "Merge: stream done (minor)", merge: true },
+    ]);
+    run();
+    // 0.2.0, then patch, then minor. Counting from the root would add the
+    // released minor first (0.4.0); newest merge first would give 0.3.1.
+    expect(readVersions().cargo).toBe("0.3.0");
   });
 
-  it("honors an automatic (major) merge", () => {
-    mergeFeature("feat/api", "Merge: replace the plugin API (major)");
-    runScript();
-    expect(readVersions()).toEqual({ cargo: "1.0.0", pkg: "1.0.0", lock: "1.0.0" });
+  it("takes a merge that set the version itself as the anchor — it never counts twice", () => {
+    repo = gitRepo([
+      initial,
+      { subject: "Merge: legacy manual bump (0.2.0)", merge: true, files: versionFiles("0.2.0") },
+    ]);
+    const { stdout, output } = run();
+    expect(stdout).toContain("nothing to bump");
+    expect(output).toBe("");
+    expect(execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" })).toBe("");
   });
 
-  it("is a no-op when no merges landed since the last version change", () => {
-    mergeFeature("feat/a", "Merge: feature a");
-    runScript();
-    git("commit", "-qam", "Bump version to 0.1.1");
-
-    const out = runScript();
-    expect(out).toContain("nothing to bump");
-    expect(readVersions().cargo).toBe("0.1.1");
-    expect(git("status", "--porcelain")).toBe("");
-  });
-
-  it("respects a merge that already bumped the version manually", () => {
-    mergeFeature("feat/legacy", "Merge: legacy manual bump (0.2.0)", () =>
-      writeVersionFiles("0.2.0"),
-    );
-    const out = runScript();
-    expect(out).toContain("nothing to bump");
-    expect(readVersions().cargo).toBe("0.2.0");
-  });
-
-  it("applies exactly one forced bump when no merge bumps are pending", () => {
-    runScript("--bump", "minor");
-    expect(readVersions()).toEqual({ cargo: "0.2.0", pkg: "0.2.0", lock: "0.2.0" });
-  });
-
-  it("preserves pending merge bumps before a forced bump", () => {
-    mergeFeature("feat/release", "Merge: release boundary (minor)");
-    runScript("--bump", "patch");
+  it("applies --bump after the merges still pending, and releases it", () => {
+    repo = gitRepo([initial, { subject: "Merge: release boundary (minor)", merge: true }]);
+    expect(run("--bump", "patch").output).toBe("version=0.2.1\nrelease=true\n");
     expect(readVersions()).toEqual({ cargo: "0.2.1", pkg: "0.2.1", lock: "0.2.1" });
-  });
-
-  it("supports a forced major bump", () => {
-    runScript("--bump", "major");
-    expect(readVersions()).toEqual({ cargo: "1.0.0", pkg: "1.0.0", lock: "1.0.0" });
-  });
-
-  it("rejects an invalid --bump argument", () => {
-    expect(() => runScript("--bump", "breaking")).toThrow();
-  });
-
-  it("emits release=true when an automatic batch includes a (minor) merge", () => {
-    mergeFeature("feat/a", "Merge: stream done (minor)");
-    const out = runScriptCapturingOutput();
-    expect(out).toContain("version=0.2.0");
-    expect(out).toContain("release=true");
-  });
-
-  it("emits release=false for an automatic patch-only batch", () => {
-    mergeFeature("feat/a", "Merge: feature a");
-    const out = runScriptCapturingOutput();
-    expect(out).toContain("version=0.1.1");
-    expect(out).toContain("release=false");
-  });
-
-  it("emits release=true for a forced patch bump", () => {
-    const out = runScriptCapturingOutput("--bump", "patch");
-    expect(out).toContain("version=0.1.1");
-    expect(out).toContain("release=true");
   });
 });
