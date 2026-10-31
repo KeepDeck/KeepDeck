@@ -298,6 +298,19 @@ mod tests {
         }
     }
 
+    /// A Write that hands each chunk the pump writes to the test as it is
+    /// written — so the test waits on the bytes themselves, not a busy loop.
+    struct Chunks(std::sync::mpsc::Sender<Vec<u8>>);
+    impl Write for Chunks {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let _ = self.0.send(buf.to_vec());
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     /// A socket path in a directory THIS call created — the create is the
     /// claim, so a recycled pid can never hand a test an earlier run's
     /// leftovers (nothing here sweeps /tmp).
@@ -347,24 +360,32 @@ mod tests {
         // must end because the SERVER went away, not because input ran dry.
         let (input, input_feed) = UnixStream::pair().expect("pair");
         let socket = UnixStream::connect(&path).expect("connect");
-        let output = SharedBuf::default();
-        let pumped = {
-            let mut output = output.clone();
-            std::thread::spawn(move || pump(input, &mut output, socket))
-        };
+        let (chunks, written) = std::sync::mpsc::channel();
+        let pumped = std::thread::spawn(move || pump(input, &mut Chunks(chunks), socket));
         {
             let mut feed = &input_feed;
             writeln!(feed, "ping").expect("feed");
         }
-        // Wait for the round-trip so the disable provably cuts a LIVE session.
-        while output.0.lock().unwrap().is_empty() {
-            std::thread::yield_now();
+        // The WHOLE reply, so the disable provably cuts a live session and
+        // not the reply itself: the server writes a line's body and its
+        // newline separately, and a disable between the two takes the
+        // newline with it (task-549). A pump that died first ends the wait;
+        // the deadline is a fuse for a server that never ends its line, not
+        // a budget — a working one answers in microseconds.
+        let mut reply = Vec::new();
+        while !reply.ends_with(b"\n") {
+            reply.extend(
+                written
+                    .recv_timeout(std::time::Duration::from_secs(10))
+                    .expect("the pump to hand over the whole reply line"),
+            );
         }
 
         server.disable();
 
         pumped.join().unwrap().expect("pump ends cleanly");
-        assert_eq!(output.0.lock().unwrap().as_slice(), b"PING\n");
+        reply.extend(written.try_iter().flatten());
+        assert_eq!(reply, b"PING\n");
         drop(input_feed);
     }
 
