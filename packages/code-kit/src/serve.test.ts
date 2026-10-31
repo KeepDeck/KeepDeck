@@ -54,5 +54,9 @@ describe("serve", () => {
     expect(engine.warm).toHaveBeenCalledWith("rust");
     expect(engine.tokenize).not.toHaveBeenCalled();
     expect(reply).not.toHaveBeenCalled();
+
+    // A failed warm-up costs the next request nothing: it is answered.
+    engine.tokenize.mockResolvedValueOnce(null);
+    expect(await ask({ kind: "tokenize", id: 1, text: "fn main() {}", lang: "rust" })).toEqual({ id: 1, lines: null });
   });
 });

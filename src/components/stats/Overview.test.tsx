@@ -71,6 +71,17 @@ describe("Overview", () => {
     // a sum of them.
     expect(shown[1]).toBe("Cost≈$0.50");
     expect(shown[2]).toBe("Sessions2");
+    // Every session priced: the caption calls the sum what it is.
+    expect(host.textContent).toContain("Provider-reported API estimates, not subscription charges.");
+  });
+
+  it("says which sessions the cost leaves out when only some were priced", async () => {
+    await render([
+      usageEvent(),
+      usageEvent({ eventId: "b", sessionId: "unpriced-1", costUsd: undefined, costSource: "unavailable" }),
+      usageEvent({ eventId: "c", sessionId: "unpriced-2", costUsd: undefined, costSource: "unavailable" }),
+    ]);
+    expect(host.textContent).toContain("Provider estimates available for 1 of 3 sessions");
   });
 
   it("does not render an unknown cost as a fake zero", async () => {
