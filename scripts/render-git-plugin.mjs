@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 
-// The REAL bundled entry activates against fake host ports. React, its DOM
-// renderer, the tab and the virtualizer all execute inside the browser realm.
+// The render step of scripts/check-plugin-bundles.mjs, the last step of
+// `pnpm build`. The REAL bundled entry activates against fake host ports.
+// React, its DOM renderer, the tab and the virtualizer all execute inside the
+// browser realm.
 export async function checkGitRender({ window, plugin, react, reactDom, reactDomClient, geometry }) {
   const errors = [];
   let tab;
