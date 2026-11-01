@@ -399,6 +399,7 @@ export function createAppRuntime(
         onChanged: tasks.access.subscribe,
       },
       terminal: { wake: wakePaneForMail },
+      keys: { subscribe: (listener) => subscribePaneKeys((paneId) => listener(paneId)) },
       bridge: {
         reply: replyToBridgeHook,
         nudge: nudgeBridgePane,

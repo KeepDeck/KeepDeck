@@ -102,6 +102,12 @@ export interface MailServiceDeps {
   terminal: {
     wake(paneId: string): boolean;
   };
+  /** Every key a person presses in a pane — real key events only, never a
+   * paste or an agent's own terminal traffic (`paneKeys`). The deck's one
+   * witness that somebody is at that pane's keyboard. */
+  keys: {
+    subscribe(listener: (paneId: string) => void): () => void;
+  };
   bridge: {
     /** Answers whether the reply reached the waiting hook. False means those
      * messages went nowhere and are still the deck's to put back. */
@@ -149,8 +155,9 @@ export interface MailService {
    * A pane's companion took its doorbell down, and its agent would not start
    * the turn the ring asked for. The nudge goes again now, through the
    * terminal — unless the composer holds words, which the typed line would
-   * send along with itself: then the mail waits for the person, whose own
-   * prompt collects it.
+   * send along with itself, or a person pressed a key in the pane since the
+   * ring and may be writing some: then the mail waits for the person, whose
+   * own prompt collects it.
    */
   wakeDeclined(paneId: string, wake: DeclinedWake): void;
   dispose(): void;
@@ -160,6 +167,11 @@ export function createMailService(deps: MailServiceDeps): MailService {
   let disposed = false;
   /** Several hook correlations can be in flight for one pane. */
   const answering = new Map<string, number>();
+  /** Panes a person pressed a key in since their doorbell last rang. The
+   * companion reads the composer when its agent declines a ring, and a line
+   * typed after that reading lands on whatever was written since — so a key
+   * anywhere in that span counts, the reading's own moment unknowable here. */
+  const keyedSinceRing = new Set<string>();
 
   /** What THIS pane's agent contributes about mail. */
   const statusOfPane = (paneId: string): AgentStatus | undefined => {
@@ -286,7 +298,10 @@ export function createMailService(deps: MailServiceDeps): MailService {
       // is exactly where the hand-over is about to find it.
       throughTerminal: (paneId) =>
         answering.has(paneId) ? false : deps.terminal.wake(paneId),
-      throughBridge: deps.bridge.nudge,
+      throughBridge: (paneId) => {
+        keyedSinceRing.delete(paneId);
+        deps.bridge.nudge(paneId);
+      },
       hasCompanion: deps.bridge.hasCompanion,
     }),
     // A pane whose agent DECLARES a turn-end mail channel will come asking
@@ -307,10 +322,15 @@ export function createMailService(deps: MailServiceDeps): MailService {
   // Swept on every deck change rather than at close: a pane can also leave by
   // a workspace closing, and one sweep covers both.
   const unsubscribePanes = deps.deck.subscribe(() => {
-    manager.retain(livePaneIds());
+    const live = livePaneIds();
+    manager.retain(live);
+    for (const paneId of [...keyedSinceRing]) {
+      if (!live.has(paneId)) keyedSinceRing.delete(paneId);
+    }
     // A pane that just appeared may run an agent nobody has asked about.
     learnLiveVersions();
   });
+  const unsubscribeKeys = deps.keys.subscribe((paneId) => keyedSinceRing.add(paneId));
   // The registry is EMPTY while the deck hydrates, so the walk above finds
   // nothing to ask about — and without this the answer was only ever learned
   // by the coincidence that waking a restored pane happens to write to the
@@ -345,13 +365,20 @@ export function createMailService(deps: MailServiceDeps): MailService {
       };
     },
     wakeDeclined(paneId, { reason, draft }) {
-      if (draft) {
-        // Measured, not feared (task-589 probe, claude 2.1.316): the line
-        // lands at the cursor glued to the draft, and its Enter sends both —
-        // after an early Esc, the very prompt the person had just cancelled.
+      // Measured, not feared (task-589 probe, claude 2.1.316): a typed line
+      // lands at the cursor glued to whatever the composer holds, and its
+      // Enter sends both — after an early Esc, the very prompt the person
+      // had just cancelled. The companion's reading covers what was there;
+      // a key since the ring covers what may have been written after it.
+      const words = draft
+        ? "its composer holds unsent words"
+        : keyedSinceRing.has(paneId)
+          ? "a person pressed a key in it since the ring"
+          : null;
+      if (words !== null) {
         log.info(
           "web:mail",
-          `${paneId} started no turn for its doorbell (${reason}); its composer holds unsent words a typed line would send, so the mail waits for the person`,
+          `${paneId} started no turn for its doorbell (${reason}); ${words}, so a typed line could send them and the mail waits for the person`,
         );
         return;
       }
@@ -372,6 +399,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
       if (disposed) return;
       disposed = true;
       unsubscribePanes();
+      unsubscribeKeys();
       unsubscribeAgents();
       unregister();
       presence.dispose();

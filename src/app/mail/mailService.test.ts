@@ -45,6 +45,7 @@ function setup(
   const sessionListeners = new Set<(paneId: string) => void>();
   const learned: string[] = [];
   const agentListeners = new Set<() => void>();
+  const keyListeners = new Set<(paneId: string) => void>();
   const registry = createCommandRegistry();
 
   const workspaces = (): Workspace[] => [
@@ -107,6 +108,12 @@ function setup(
           return true;
         },
       },
+      keys: {
+        subscribe: (listener) => {
+          keyListeners.add(listener);
+          return () => keyListeners.delete(listener);
+        },
+      },
       bridge: {
         reply: (paneId, id, body) => {
           replies.push({ paneId, id, body });
@@ -127,6 +134,10 @@ function setup(
     rung,
     replies,
     learned,
+    /** A person pressed a key in this pane. */
+    presses(paneId: string) {
+      for (const listener of [...keyListeners]) listener(paneId);
+    },
     /** The plugin registry changed — a Rescan, an agent plugin arriving. */
     agentsChanged() {
       for (const listener of [...agentListeners]) listener();
@@ -381,6 +392,36 @@ describe("createMailService", () => {
     expect(h.woken).toEqual([]);
     // Still queued: the person's own prompt is the boundary that collects it.
     expect(h.bodiesFor("pane-2")).toEqual(["hi"]);
+  });
+
+  it("never types at a pane a person pressed a key in since the ring — they may be writing", () => {
+    // The companion read the composer empty, but that reading is older than
+    // the line the deck would type: words written in between would be sent
+    // with it (reviewer-2, task-589).
+    const companionWake: AgentStatus = { normalize: () => null, attribute: () => null, wake: "companion" };
+    const h = setup(() => companionWake, { companion: true });
+    // A key BEFORE the ring is no sign of anyone at the keyboard now.
+    h.presses("pane-2");
+    void h.send("hi");
+    expect(h.rung).toEqual(["pane-2"]);
+    h.presses("pane-2");
+    h.service.wakeDeclined("pane-2", { reason: "stopped", draft: false });
+    expect(h.woken).toEqual([]);
+    // A key in ANOTHER pane says nothing about this one.
+    const other = setup(() => companionWake, { companion: true });
+    void other.send("hi");
+    other.presses("pane-1");
+    other.service.wakeDeclined("pane-2", { reason: "stopped", draft: false });
+    expect(other.woken).toEqual(["pane-2"]);
+  });
+
+  it("forgets a key once the doorbell rings again", () => {
+    const companionWake: AgentStatus = { normalize: () => null, attribute: () => null, wake: "companion" };
+    const h = setup(() => companionWake, { companion: true });
+    h.presses("pane-2");
+    void h.send("hi");
+    h.service.wakeDeclined("pane-2", { reason: "stopped", draft: false });
+    expect(h.woken).toEqual(["pane-2"]);
   });
 });
 
