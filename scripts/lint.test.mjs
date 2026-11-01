@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -293,12 +294,29 @@ describe("the linter", () => {
     for (const file of [NODE, "eslint.config.js", BROWSER, NEUTRAL]) {
       // Code built from text, and a name nobody reads — with the one idiom
       // that only looks unused: a key taken out to leave the rest.
-      expect(await rules(file, "eval(\"1\");\nexport const f = new Function(\"return 1\");\n"), file).toEqual([
-        "no-eval",
-        "no-new-func",
-      ]);
+      expect(
+        await rules(
+          file,
+          "eval(\"1\");\nexport const f = new Function(\"return 1\");\nglobalThis.setTimeout(\"1\", 0);\n",
+        ),
+        file,
+      ).toEqual(["no-eval", "no-new-func", "no-implied-eval"]);
       expect(await rules(file, "const unused = 1;\n"), file).toEqual(["no-unused-vars"]);
       expect(await rules(file, "const { a: _a, ...rest } = { a: 1, b: 2 };\nexport { rest };\n"), file).toEqual([]);
     }
+  });
+
+  it("puts every tracked JavaScript file under some rule — a new file or folder cannot slip past unlinted", async () => {
+    const files = execFileSync("git", ["ls-files", "-z", "*.js", "*.mjs", "*.cjs"], { cwd: REPO, encoding: "utf8" })
+      .split("\0")
+      .filter(Boolean);
+    expect(files.length).toBeGreaterThan(0);
+    const unruled = [];
+    for (const file of files) {
+      const config = await eslint.calculateConfigForFile(join(REPO, file));
+      const on = Object.values(config?.rules ?? {}).some((entry) => (Array.isArray(entry) ? entry[0] : entry) > 0);
+      if (!on) unruled.push(file);
+    }
+    expect(unruled).toEqual([]);
   });
 });

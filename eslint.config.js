@@ -125,7 +125,7 @@ const COMPONENT_TEST_RUNTIME_SURFACE = [
 export default [
   // What this repo does not author: built bundles, dependencies and build
   // output. Everything else it writes is linted, JavaScript included.
-  { ignores: ["**/dist/**", "**/node_modules/**", "target/**", "src-tauri/gen/**"] },
+  { ignores: ["**/dist/**", "**/node_modules/**", "**/target/**", "src-tauri/gen/**"] },
 
   /**
    * The plain JavaScript: the language's recommended rules, with the
