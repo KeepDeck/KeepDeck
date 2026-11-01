@@ -26,7 +26,13 @@ target.
 - **`-c disable_paste_burst=true`.** It stops Codex collapsing fast typed
   input, such as voice dictation, into a non-editable paste placeholder.
 - **`--dangerously-bypass-approvals-and-sandbox`** for permission-skipping
-  panes.
+  panes. The pane's YOLO badge then follows the mode each turn really runs
+  in: the rollout's `turn_context` records the approval policy and the
+  sandbox AFTER managed requirements had their say, so a policy that
+  forbids the bypass shows as not YOLO from the first turn (`src/mode.ts`,
+  plugin API 77, task-577). YOLO is both halves: never asking, and no
+  sandbox. The hooks' `permission_mode` is not used — codex builds it from
+  the approval alone.
 - **`--remote <endpoint>`** for panes targeting a native server.
 - **`--no-daemon`** on every local spawn, resume and fork when the binary
   reports 0.156 or later (`src/process.ts`). From 0.157 a plain `codex`

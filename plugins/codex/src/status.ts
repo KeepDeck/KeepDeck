@@ -13,6 +13,7 @@ import {
 } from "@keepdeck/plugin-api";
 import { codexRecords } from "./tail";
 import { codexQuestionStatus } from "./questions";
+import { codexModeEdge } from "./mode";
 import { releasedSince } from "./version";
 
 /** The teammate framing both events below carry, worded once for every CLI
@@ -303,5 +304,8 @@ const readCodexStatus = (
 export const normalizeCodexStatus: StatusNormalizer = (payload, at, context) => {
   const decoded = decodeStatusPayload(payload);
   const record = decoded?.source === "record" ? decoded.record : null;
-  return codexQuestionStatus(context?.state, record, readCodexStatus(payload, at, context));
+  const reduction = codexQuestionStatus(context?.state, record, readCodexStatus(payload, at, context));
+  // A turn's settings also say the mode it runs in (mode.ts).
+  const mode = record ? codexModeEdge(record) : null;
+  return mode ? { ...reduction, events: [...reduction.events, mode] } : reduction;
 };

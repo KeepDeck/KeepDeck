@@ -23,10 +23,10 @@ function isDecoderState(value: unknown): value is DecoderState {
 
 // RequestUserInput itself is transient in 0.153.2. The direct function call is
 // persisted BEFORE executing/awaiting the tool, even with code mode enabled.
-// Only Plan mode blocks; Default and request_user_input_async do not.
+// Only Plan mode blocks; Default and request_user_input_async do not. The
+// collaboration mode it is read against rides the shared `turn_context`
+// watch (turnContext.ts).
 export const codexQuestionWatches: readonly TailWatch[] = [
-  { match: [{ key: "type", equals: "turn_context" }],
-    keep: ["type", "timestamp", "payload.collaboration_mode.mode"], lane: "status", replayContext: true },
   ...["request_user_input", "functions.request_user_input"].map((name): TailWatch => ({
     match: [{ key: "type", equals: "response_item" }, { key: "payload.type", equals: "function_call" },
       { key: "payload.name", equals: name }],
