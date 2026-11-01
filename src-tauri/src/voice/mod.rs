@@ -339,17 +339,15 @@ impl SilenceReasonDto {
         SilenceReasonDto::DeadSignal,
         SilenceReasonDto::NoSpeech,
     ];
-
-    #[cfg(test)]
-    #[allow(dead_code)]
-    fn listed_in_all(self) {
-        match self {
-            SilenceReasonDto::NoAudio
-            | SilenceReasonDto::DeadSignal
-            | SilenceReasonDto::NoSpeech => {}
-        }
-    }
 }
+
+/// The reminder `ALL` relies on: a new reason fails this match to compile
+/// until it is listed here, beside the list it belongs in. A check the
+/// compiler runs, so nothing calls it — and an unnamed const is not dead.
+#[cfg(test)]
+const _: fn(SilenceReasonDto) = |reason| match reason {
+    SilenceReasonDto::NoAudio | SilenceReasonDto::DeadSignal | SilenceReasonDto::NoSpeech => {}
+};
 
 impl From<SilenceReason> for SilenceReasonDto {
     fn from(r: SilenceReason) -> Self {

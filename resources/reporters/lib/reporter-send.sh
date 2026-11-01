@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Handing one envelope to the deck.
 #
 # One lane. There used to be two — this one, and dropping a file in a

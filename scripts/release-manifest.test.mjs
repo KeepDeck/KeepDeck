@@ -50,6 +50,7 @@ describe("buildManifest", () => {
   const now = () => new Date("2026-07-12T10:00:00Z");
 
   it("maps each platform to a tag-addressed URL and its trimmed signature", () => {
+    /** @param {string} path */
     const read = (path) => {
       expect(path).toBe("dist/KeepDeck-macos-arm64.app.tar.gz.sig");
       return "SIGNATURE\n";
@@ -85,6 +86,7 @@ describe("buildManifest", () => {
 });
 
 describe("end to end", () => {
+  /** @type {string | undefined} */
   let dir;
   afterEach(() => {
     if (dir) rmSync(dir, { recursive: true, force: true });

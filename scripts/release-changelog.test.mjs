@@ -77,6 +77,7 @@ describe("buildChangelog", () => {
   const now = () => new Date("2026-07-22T10:00:00Z");
 
   // The raw GitHub REST release-list shape (`gh api repos/:repo/releases`).
+  /** @param {import("./release-changelog.mjs").GithubRelease} fields */
   const rest = (fields) => ({
     draft: false,
     prerelease: false,
@@ -177,7 +178,9 @@ describe("buildChangelog", () => {
 
 describe("listReleases", () => {
   it("calls gh api repos/:repo/releases with per_page=100 (the contract that was broken once)", () => {
+    /** @type {unknown[][]} */
     const calls = [];
+    /** @param {...unknown} args */
     const exec = (...args) => {
       calls.push(args);
       return JSON.stringify([{ tag_name: "1.0.0", body: "x", published_at: "2026-07-20" }]);

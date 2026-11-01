@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +10,8 @@ import { describe, expect, it } from "vitest";
  *
  * eslint.config.js refuses casts that switch the type checker off, explicit
  * `any`, TypeScript suppression comments, a component reaching past app's
- * hooks, and a CLI named in the core. `pnpm lint` holds the whole tree to
+ * hooks, and a CLI named in the core; it holds plain JavaScript to the
+ * recommended rules and its runtime's globals. `pnpm lint` holds the whole tree to
  * them, and `pnpm build` starts with it; these tests pin each rule to the
  * files it is for, on probes.
  *
@@ -41,22 +43,26 @@ const eslint = new ESLint({
 });
 
 describe("the linter", () => {
-  it("catches suppressed checks in resource JS and explicit any in TypeScript", async () => {
+  it("catches suppressed checks in resource JS, and explicit any and suppressions in TypeScript — the root build configs included", async () => {
     const [resource] = await eslint.lintText(
       "// @ts-check\n// @ts-ignore\nconst value = 1;\n",
       { filePath: join(REPO, "plugins/opencode/resources/keepdeck-plugin/lint-probe.js") },
     );
-    const [typescript] = await eslint.lintText(
-      "const value: any = 1;\n// @ts-expect-error\nvalue();\n",
-      { filePath: join(REPO, "src/lint-probe.ts") },
-    );
     expect(resource.messages.map((message) => message.ruleId)).toEqual([
       "@typescript-eslint/ban-ts-comment",
     ]);
-    expect(typescript.messages.map((message) => message.ruleId)).toEqual([
-      "@typescript-eslint/no-explicit-any",
-      "@typescript-eslint/ban-ts-comment",
-    ]);
+    // A root config (vite.config.ts) is TypeScript outside the app's
+    // tsconfig: it takes the rules that need no types all the same.
+    for (const file of ["src/lint-probe.ts", "lint-probe.config.ts"]) {
+      const [typescript] = await eslint.lintText(
+        "const value: any = 1;\n// @ts-expect-error\nvalue();\n",
+        { filePath: join(REPO, file) },
+      );
+      expect(typescript.messages.map((message) => message.ruleId), file).toEqual([
+        "@typescript-eslint/no-explicit-any",
+        "@typescript-eslint/ban-ts-comment",
+      ]);
+    }
   });
 
   it("turns the unchecked-assertion rule on, with its type program, in every TypeScript tree — the one rule that reads types", async () => {
@@ -184,7 +190,9 @@ describe("the linter", () => {
   });
 
   it("checks every plugin resource JS with @ts-check", () => {
+    /** @type {string[]} */
     const files = [];
+    /** @param {string} dir */
     const walk = (dir) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);
@@ -234,6 +242,7 @@ describe("the linter", () => {
       "export const tail = /\\.kimi-code\\//;",
       "",
     ].join("\n");
+    /** @param {import("eslint").ESLint.LintResult} result */
     const rule = (result) => result.messages.filter((message) => message.ruleId === "keepdeck/no-cli-names");
     const [src] = await eslint.lintText(leak, { filePath: join(REPO, "src/lint-probe.ts") });
     expect(rule(src).map((message) => message.line)).toEqual([2, 3, 3, 5]);
@@ -252,6 +261,7 @@ describe("the linter", () => {
     // The deck migration is exempt for the one claude it names, for good.
     const filePath = join(REPO, "src/domain/migrations/migrations.ts");
     const source = readFileSync(filePath, "utf8");
+    /** @param {string} text */
     const messages = async (text) =>
       (await eslint.lintText(text, { filePath }))[0].messages
         .filter((message) => message.ruleId === "keepdeck/no-cli-names")
@@ -265,5 +275,48 @@ describe("the linter", () => {
       expect.stringContaining("the new one belongs in the CLI's plugin"),
     ]);
     expect(await messages("export const nothing = 1;\n")).toEqual([expect.stringContaining("delete its exemption")]);
+  });
+
+  it("holds every plain JavaScript file to the recommended rules and to the globals of the runtime it runs in", async () => {
+    /** @param {string} file @param {string} text */
+    const rules = async (file, text) =>
+      (await eslint.lintText(text, { filePath: join(REPO, file) }))[0].messages.map((m) => m.ruleId);
+    const NODE = "scripts/lint-probe.mjs";
+    const BROWSER = "src/plugins/bridges/lint-probe.js";
+    const NEUTRAL = "resources/reporters/lint-probe.js";
+    // A runtime the file does not run in is an undefined name; the
+    // reporters' wire runs in none it may name.
+    expect(await rules(NODE, "process.exitCode = 0;\nwindow.x = 1;\n")).toEqual(["no-undef"]);
+    expect(await rules(BROWSER, "window.x = 1;\nprocess.exitCode = 0;\n")).toEqual(["no-undef"]);
+    expect(await rules("src-tauri/src/artifacts/refresh.js", "process.exitCode = 0;\n")).toEqual(["no-undef"]);
+    expect(await rules(NEUTRAL, "window.x = 1;\nprocess.exitCode = 0;\n")).toEqual(["no-undef", "no-undef"]);
+    expect(await rules(NEUTRAL, "export const seen = new Map(JSON.parse(\"[]\"));\n")).toEqual([]);
+    for (const file of [NODE, "eslint.config.js", BROWSER, NEUTRAL]) {
+      // Code built from text, and a name nobody reads — with the one idiom
+      // that only looks unused: a key taken out to leave the rest.
+      expect(
+        await rules(
+          file,
+          "eval(\"1\");\nexport const f = new Function(\"return 1\");\nglobalThis.setTimeout(\"1\", 0);\n",
+        ),
+        file,
+      ).toEqual(["no-eval", "no-new-func", "no-implied-eval"]);
+      expect(await rules(file, "const unused = 1;\n"), file).toEqual(["no-unused-vars"]);
+      expect(await rules(file, "const { a: _a, ...rest } = { a: 1, b: 2 };\nexport { rest };\n"), file).toEqual([]);
+    }
+  });
+
+  it("puts every tracked JavaScript file under some rule — a new file or folder cannot slip past unlinted", async () => {
+    const files = execFileSync("git", ["ls-files", "-z", "*.js", "*.mjs", "*.cjs"], { cwd: REPO, encoding: "utf8" })
+      .split("\0")
+      .filter(Boolean);
+    expect(files.length).toBeGreaterThan(0);
+    const unruled = [];
+    for (const file of files) {
+      const config = await eslint.calculateConfigForFile(join(REPO, file));
+      const on = Object.values(config?.rules ?? {}).some((entry) => (Array.isArray(entry) ? entry[0] : entry) > 0);
+      if (!on) unruled.push(file);
+    }
+    expect(unruled).toEqual([]);
   });
 });

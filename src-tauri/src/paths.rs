@@ -73,7 +73,7 @@ pub fn keepdeck_home() -> Option<PathBuf> {
 fn test_home() -> PathBuf {
     use std::cell::RefCell;
     thread_local! {
-        static HOME: RefCell<Option<tempfile::TempDir>> = RefCell::new(None);
+        static HOME: RefCell<Option<tempfile::TempDir>> = const { RefCell::new(None) };
     }
     HOME.with(|cell| {
         if cell.borrow().is_none() {

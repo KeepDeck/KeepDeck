@@ -71,7 +71,9 @@ pub fn parse_log(out: &str) -> Vec<Commit> {
         tokens.pop();
     }
     tokens
-        .chunks_exact(FIELDS)
+        .as_chunks::<FIELDS>()
+        .0
+        .iter()
         .filter_map(|fields| {
             let sha = fields[0].trim();
             if sha.is_empty() {

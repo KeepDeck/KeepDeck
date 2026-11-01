@@ -99,9 +99,6 @@ pub(crate) fn open_at(dir: &File, name: &OsStr, flags: libc::c_int) -> io::Resul
 }
 
 /// What `name` inside `dir` is, the name itself and not what it points to.
-// stat's field types differ by platform (`st_dev` is i32 on macOS, u64 on
-// Linux): each cast is a no-op somewhere.
-#[allow(clippy::unnecessary_cast)]
 pub(crate) fn stat_at(dir: &File, name: &OsStr) -> io::Result<Stat> {
     let name = c_name(name)?;
     let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
@@ -118,10 +115,12 @@ pub(crate) fn stat_at(dir: &File, name: &OsStr) -> io::Result<Stat> {
         libc::S_IFLNK => Kind::Link,
         _ => Kind::Other,
     };
+    // Widened to what `stat_of` reads through std: `dev_t` is an i32 on
+    // macOS, `off_t` an i64, and `ino_t` a u64 already.
     Ok(Stat {
         kind,
         dev: st.st_dev as u64,
-        ino: st.st_ino as u64,
+        ino: st.st_ino,
         len: st.st_size as u64,
         runnable: u32::from(st.st_mode) & 0o111 != 0,
     })

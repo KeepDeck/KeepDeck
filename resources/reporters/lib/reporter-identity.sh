@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # WHICH process is reporting — the process GROUP of the hook's parent.
 #
 # The bridge secret proves only "something under this pane", so the deck needs

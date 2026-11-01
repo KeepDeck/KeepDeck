@@ -26,6 +26,7 @@ const MANIFEST = {
   contributes: { dockTabs: [{ id: "demo", label: "Demo" }] },
 };
 
+/** @type {string} */
 let dir;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "kdplugin-src-"));
@@ -37,7 +38,10 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-/** Unzip (the real tool — an independent reader) into a temp dir. */
+/** Unzip (the real tool — an independent reader) into a temp dir.
+ * @param {Buffer} bytes
+ * @returns {string}
+ */
 function unpack(bytes) {
   const zipPath = join(dir, "..", `kdplugin-${Date.now()}.kdplugin`);
   writeFileSync(zipPath, bytes);
@@ -69,7 +73,7 @@ describe("validatePluginDir", () => {
     try {
       validatePluginDir(dir);
     } catch (e) {
-      message = e.message;
+      message = e instanceof Error ? e.message : String(e);
     }
     expect(message).toContain("missing demo.html");
     expect(message).toContain("container.json: reserved");

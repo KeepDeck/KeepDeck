@@ -7,14 +7,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "eslint && tsc && vite build && node scripts/build-plugins.mjs && node --experimental-vm-modules --disable-warning=ExperimentalWarning scripts/check-plugin-bundles.mjs dist",
+    "build": "eslint && pnpm typecheck && vite build && node scripts/build-plugins.mjs && node --experimental-vm-modules --disable-warning=ExperimentalWarning scripts/check-plugin-bundles.mjs dist",
     "build:plugins": "node scripts/build-plugins.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:q1:diagnose": "node scripts/q1-diagnose.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.refresh.json && tsc -p tsconfig.scripts.json",
     "lint": "eslint",
+    "lint:shell": "git ls-files -z '*.sh' ':!:resources/reporters/lib/*.sh' | xargs -0 shellcheck -x",
     "tauri": "tauri",
     "build:macos": "./build-macos.sh"
   },
@@ -43,7 +44,9 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@tauri-apps/cli": "^2",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@typescript-eslint/eslint-plugin": "^8.72.0",
@@ -51,6 +54,7 @@
     "@vitejs/plugin-react": "^4.6.0",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^14.0.0",
     "happy-dom": "^20.10.6",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",

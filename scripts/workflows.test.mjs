@@ -5,14 +5,128 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { isRecord } from "./lib/guards.mjs";
 
+/** @typedef {{ name?: string, uses?: string, run?: string, if?: string, env?: unknown, with?: Record<string, unknown> }} Step */
+/** @typedef {{ if?: string, uses?: string, needs?: unknown, with?: Record<string, unknown>, outputs?: unknown, strategy?: unknown, "runs-on"?: unknown, steps?: Step[] }} Job */
+/** @typedef {{ on: Record<string, unknown>, jobs: Record<string, Job>, concurrency?: unknown, permissions?: unknown }} Workflow */
+
+
+/**
+ * @param {Record<string, unknown>} record
+ * @param {string[]} keys
+ */
+function stringsOrAbsent(record, keys) {
+  return keys.every((key) => record[key] === undefined || typeof record[key] === "string");
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Step}
+ */
+function isStep(value) {
+  return (
+    isRecord(value) &&
+    stringsOrAbsent(value, ["name", "uses", "run", "if"]) &&
+    (value.with === undefined || isRecord(value.with))
+  );
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Job}
+ */
+function isJob(value) {
+  return (
+    isRecord(value) &&
+    stringsOrAbsent(value, ["if", "uses"]) &&
+    (value.with === undefined || isRecord(value.with)) &&
+    (value.steps === undefined || (Array.isArray(value.steps) && value.steps.every(isStep)))
+  );
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Workflow}
+ */
+function isWorkflow(value) {
+  return isRecord(value) && isRecord(value.on) && isRecord(value.jobs) && Object.values(value.jobs).every(isJob);
+}
+
+/**
+ * @param {string} name
+ * @returns {Workflow}
+ */
 function workflow(name) {
-  return parse(
+  const parsed = parse(
     readFileSync(
       fileURLToPath(new URL(`../.github/workflows/${name}`, import.meta.url)),
       "utf8",
     ),
   );
+  if (!isWorkflow(parsed)) throw new Error(`${name} is not a workflow of jobs and steps`);
+  return parsed;
+}
+
+/**
+ * @template T
+ * @param {T | undefined} value
+ * @param {string} what
+ * @returns {T}
+ */
+function required(value, what) {
+  if (value === undefined) throw new Error(`no ${what}`);
+  return value;
+}
+
+/**
+ * What a nested YAML mapping holds at `path`; absent is a failure by name.
+ * @param {unknown} root
+ * @param {...string} path
+ * @returns {unknown}
+ */
+function at(root, ...path) {
+  let current = root;
+  for (const key of path) {
+    if (!isRecord(current) || !(key in current)) throw new Error(`no ${path.join(".")}`);
+    current = current[key];
+  }
+  return current;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} what
+ * @returns {string}
+ */
+function text(value, what) {
+  if (typeof value !== "string") throw new Error(`${what}: expected text`);
+  return value;
+}
+
+/**
+ * @param {Job} job
+ * @returns {Step[]}
+ */
+function stepsOf(job) {
+  return required(job.steps, "steps in the job");
+}
+
+/**
+ * @param {Job} job
+ * @param {string} name
+ * @returns {Step}
+ */
+function stepNamed(job, name) {
+  return required(stepsOf(job).find((step) => step.name === name), `step "${name}"`);
+}
+
+/**
+ * @param {Step} step
+ * @returns {string}
+ */
+function runOf(step) {
+  return required(step.run, `run script in step "${step.name}"`);
 }
 
 const packageManifest = JSON.parse(
@@ -30,17 +144,17 @@ describe("pnpm toolchain", () => {
     for (const name of ["ci.yml", "build-macos.yml"]) {
       const parsed = workflow(name);
       for (const [jobName, job] of Object.entries(parsed.jobs)) {
-        const installsDependencies = job.steps.some((step) =>
+        const installsDependencies = stepsOf(job).some((step) =>
           step.run?.includes("pnpm install --frozen-lockfile"),
         );
         if (!installsDependencies) continue;
 
-        const setup = job.steps.find(
+        const setup = stepsOf(job).find(
           (step) => step.uses === "pnpm/action-setup@v6",
         );
         expect(setup, `${name}/${jobName}`).toBeDefined();
         expect(
-          setup.with?.version,
+          setup?.with?.version,
           `${name}/${jobName} must not override packageManager`,
         ).toBeUndefined();
       }
@@ -52,32 +166,36 @@ describe("ci workflow", () => {
   const ci = workflow("ci.yml");
 
   it("runs on pushes to main and is reusable with a ref", () => {
-    expect(ci.on.push.branches).toEqual(["main"]);
-    expect(ci.on.workflow_call.inputs.ref.type).toBe("string");
-    expect(ci.on.workflow_call.inputs.ref.required).toBe(false);
+    expect(at(ci.on, "push", "branches")).toEqual(["main"]);
+    expect(at(ci.on, "workflow_call", "inputs", "ref", "type")).toBe("string");
+    expect(at(ci.on, "workflow_call", "inputs", "ref", "required")).toBe(false);
   });
 
   it("skips version bump commits and tests the requested ref in every job", () => {
     for (const job of Object.values(ci.jobs)) {
       expect(job.if).toBe(SKIP_BUMP_COMMITS);
-      expect(job.steps[0].with.ref).toBe(REF_OR_TRIGGER);
+      expect(stepsOf(job)[0].with?.ref).toBe(REF_OR_TRIGGER);
     }
   });
 
-  it("covers the js suite, the rust workspace and workflow linting", () => {
+  it("covers the js suite, the shell scripts, the rust workspace and workflow linting", () => {
     expect(Object.keys(ci.jobs).sort()).toEqual(["actionlint", "js", "rust"]);
 
-    const jsRuns = ci.jobs.js.steps.map((s) => s.run).filter(Boolean);
+    const jsRuns = stepsOf(ci.jobs.js).map((s) => s.run).filter(Boolean);
     expect(jsRuns).toContain("pnpm test");
+    expect(jsRuns).toContain("pnpm lint:shell");
     expect(jsRuns).toContain("pnpm build");
 
     // tauri::generate_context! embeds ../dist at compile time, so the rust
     // job must build the frontend before the workspace compiles.
-    const rustRuns = ci.jobs.rust.steps.map((s) => s.run).filter(Boolean);
+    const rustRuns = stepsOf(ci.jobs.rust).map((s) => s.run).filter(Boolean);
     const frontend = rustRuns.indexOf("pnpm build");
     const tests = rustRuns.indexOf("cargo test --workspace");
+    // Clippy compiles the workspace too, and any warning fails the job.
+    const clippy = rustRuns.indexOf("cargo clippy --workspace --all-targets -- -D warnings");
     expect(frontend).toBeGreaterThanOrEqual(0);
     expect(tests).toBeGreaterThan(frontend);
+    expect(clippy).toBeGreaterThan(frontend);
   });
 });
 
@@ -86,23 +204,24 @@ describe("build-macos workflow", () => {
 
   it("is call-only and builds the exact requested ref", () => {
     expect(Object.keys(build.on)).toEqual(["workflow_call"]);
-    expect(build.on.workflow_call.inputs.ref.required).toBe(true);
-    expect(build.jobs.build.steps[0].with.ref).toBe("${{ inputs.ref }}");
+    expect(at(build.on, "workflow_call", "inputs", "ref", "required")).toBe(true);
+    expect(stepsOf(build.jobs.build)[0].with?.ref).toBe("${{ inputs.ref }}");
   });
 
   it("builds Apple Silicon natively", () => {
-    expect(build.jobs.build.strategy["fail-fast"]).toBe(false);
-    expect(build.jobs.build.strategy.matrix.include).toEqual([
+    expect(at(build.jobs.build.strategy, "fail-fast")).toBe(false);
+    expect(at(build.jobs.build.strategy, "matrix", "include")).toEqual([
       { runner: "macos-latest", arch: "arm64" },
     ]);
   });
 
   it("signs updater payloads with the key from the caller's secrets", () => {
-    expect(build.on.workflow_call.secrets.TAURI_SIGNING_PRIVATE_KEY.required).toBe(
+    expect(at(build.on, "workflow_call", "secrets", "TAURI_SIGNING_PRIVATE_KEY", "required")).toBe(
       true,
     );
-    const step = build.jobs.build.steps.find((s) =>
-      s.name?.startsWith("Build and package"),
+    const step = required(
+      stepsOf(build.jobs.build).find((s) => s.name?.startsWith("Build and package")),
+      "Build and package step",
     );
     expect(step.env).toEqual({
       TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
@@ -113,14 +232,14 @@ describe("build-macos workflow", () => {
   });
 
   it("ships the zip, the updater payload and its signature per arch", () => {
-    const upload = build.jobs.build.steps.at(-1);
-    expect(upload.with.name).toBe("KeepDeck-macos-${{ matrix.arch }}");
-    expect(upload.with.path.trim().split("\n")).toEqual([
+    const upload = required(stepsOf(build.jobs.build).at(-1), "last build step");
+    expect(upload.with?.name).toBe("KeepDeck-macos-${{ matrix.arch }}");
+    expect(text(at(upload.with, "path"), "the upload step's path").trim().split("\n")).toEqual([
       "KeepDeck-macos-${{ matrix.arch }}.zip",
       "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz",
       "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz.sig",
     ]);
-    expect(upload.with["if-no-files-found"]).toBe("error");
+    expect(upload.with?.["if-no-files-found"]).toBe("error");
   });
 });
 
@@ -128,11 +247,11 @@ describe("release workflow", () => {
   const release = workflow("release.yml");
 
   it("is manually dispatchable, defaulting to a published build of main", () => {
-    expect(release.on.workflow_dispatch.inputs.ref).toMatchObject({
+    expect(at(release.on, "workflow_dispatch", "inputs", "ref")).toMatchObject({
       required: false,
       default: "main",
     });
-    expect(release.on.workflow_dispatch.inputs.publish).toMatchObject({
+    expect(at(release.on, "workflow_dispatch", "inputs", "publish")).toMatchObject({
       type: "boolean",
       required: false,
       default: true,
@@ -143,11 +262,11 @@ describe("release workflow", () => {
     // Without pinning, a manual run's "main" would re-resolve per job — a
     // push landing mid-run would hand tests and builds different code.
     const PINNED = "${{ needs.pin.outputs.sha }}";
-    expect(release.jobs.pin.outputs.sha).toBe("${{ steps.pin.outputs.sha }}");
+    expect(at(release.jobs.pin.outputs, "sha")).toBe("${{ steps.pin.outputs.sha }}");
     expect(release.jobs.test.needs).toBe("pin");
-    expect(release.jobs.test.with.ref).toBe(PINNED);
-    expect(release.jobs.build.with.ref).toBe(PINNED);
-    expect(release.jobs.publish.steps[0].with.ref).toBe(PINNED);
+    expect(release.jobs.test.with?.ref).toBe(PINNED);
+    expect(release.jobs.build.with?.ref).toBe(PINNED);
+    expect(stepsOf(release.jobs.publish)[0].with?.ref).toBe(PINNED);
   });
 
   it("gates the build on tests and the upload on the publish switch", () => {
@@ -164,20 +283,16 @@ describe("release workflow", () => {
     // BRANCH (version accounting). Moving the rolling `latest` tag is fine —
     // and must target exactly the pinned, released commit.
     expect(JSON.stringify(release)).not.toContain(":main");
-    const publish = release.jobs.publish.steps.find(
-      (s) => s.name === 'Publish the rolling "latest" release',
-    );
+    const publish = stepNamed(release.jobs.publish, 'Publish the rolling "latest" release');
     expect(publish.run).toContain(
       'git push --force origin "${{ needs.pin.outputs.sha }}:refs/tags/latest"',
     );
   });
 
   it("composes distinct notes: changelog for the archive, pointer for rolling", () => {
-    const checkout = release.jobs.publish.steps[0];
-    expect(checkout.with["fetch-depth"]).toBe(0);
-    const notes = release.jobs.publish.steps.find(
-      (s) => s.name === "Compose the release notes",
-    );
+    const checkout = stepsOf(release.jobs.publish)[0];
+    expect(checkout.with?.["fetch-depth"]).toBe(0);
+    const notes = stepNamed(release.jobs.publish, "Compose the release notes");
     expect(notes.run).toContain("releases/download/latest/latest.json");
     expect(notes.run).toContain("--out notes.md");
     expect(notes.run).toContain("--rolling");
@@ -185,9 +300,7 @@ describe("release workflow", () => {
 
     // Rolling entry: pointer notes and a title that cannot be mistaken for a
     // versioned release; the changelog lives on the archive alone.
-    const publish = release.jobs.publish.steps.find(
-      (s) => s.name === 'Publish the rolling "latest" release',
-    );
+    const publish = stepNamed(release.jobs.publish, 'Publish the rolling "latest" release');
     // Static title and notes — created once, never version-stamped, so the
     // entry sinks down the page as versioned releases stack above it.
     expect(publish.run).toContain('--title "KeepDeck latest"');
@@ -197,9 +310,7 @@ describe("release workflow", () => {
     // The "Latest" badge belongs to the versioned releases, never to rolling.
     expect(publish.run).toContain("--latest=false");
 
-    const archive = release.jobs.publish.steps.find(
-      (s) => s.name === "Archive this version as its own release",
-    );
+    const archive = stepNamed(release.jobs.publish, "Archive this version as its own release");
     expect(archive.run).toContain('--title "KeepDeck $VERSION"');
     expect(archive.run).toContain("--notes-file notes.md");
     expect(archive.run).toContain("--latest");
@@ -211,7 +322,7 @@ describe("release workflow", () => {
       'Publish the rolling "latest" release',
       "Archive this version as its own release",
     ]) {
-      const step = release.jobs.publish.steps.find((s) => s.name === name);
+      const step = stepNamed(release.jobs.publish, name);
       expect(step.run).toContain("scripts/github-release-state.mjs");
       expect(step.run).toContain('case "$release_state" in');
       expect(step.run).toContain("exists) ;;");
@@ -221,9 +332,7 @@ describe("release workflow", () => {
   });
 
   it("archives every version as its own release, badge and manifest stay rolling", () => {
-    const archive = release.jobs.publish.steps.find(
-      (s) => s.name === "Archive this version as its own release",
-    );
+    const archive = stepNamed(release.jobs.publish, "Archive this version as its own release");
     // The permanent history entry: same assets and notes...
     // Bare version, per the repo-wide no-v-prefix rule.
     expect(archive.run).toContain('gh release create "$VERSION"');
@@ -236,16 +345,14 @@ describe("release workflow", () => {
     // the "Latest" badge stays on the rolling release too.
     expect(archive.run).not.toContain("latest.json");
     // History must never delay what installs and updates consume.
-    const steps = release.jobs.publish.steps.map((s) => s.name);
+    const steps = stepsOf(release.jobs.publish).map((s) => s.name);
     expect(steps.indexOf("Archive this version as its own release")).toBeGreaterThan(
       steps.indexOf('Publish the rolling "latest" release'),
     );
   });
 
   it("builds the updater manifest for the Apple Silicon platform", () => {
-    const manifest = release.jobs.publish.steps.find(
-      (s) => s.name === "Build the updater manifest",
-    );
+    const manifest = stepNamed(release.jobs.publish, "Build the updater manifest");
     expect(manifest.run).toContain("scripts/release-manifest.mjs");
     expect(manifest.run).toContain(
       "--payload darwin-aarch64=assets/KeepDeck-macos-arm64.app.tar.gz",
@@ -254,10 +361,9 @@ describe("release workflow", () => {
 
   it("uploads payloads before the manifest, and the manifest last", () => {
     // By name, not position — the version archive step now follows it.
-    const publish = release.jobs.publish.steps.find(
-      (s) => s.name === 'Publish the rolling "latest" release',
-    );
-    const lines = publish.run.split("\n");
+    const publish = stepNamed(release.jobs.publish, 'Publish the rolling "latest" release');
+    const script = runOf(publish);
+    const lines = script.split("\n");
     const payloadUpload = lines.findIndex((l) =>
       l.includes("gh release upload latest \\"),
     );
@@ -267,7 +373,7 @@ describe("release workflow", () => {
     expect(payloadUpload).toBeGreaterThanOrEqual(0);
     expect(manifestUpload).toBeGreaterThan(payloadUpload);
     // Every asset the manifest points at is uploaded in the first batch.
-    const batch = publish.run.slice(0, publish.run.indexOf("latest.json"));
+    const batch = script.slice(0, script.indexOf("latest.json"));
     expect(batch).toContain("assets/KeepDeck-macos-arm64.zip");
     expect(batch).toContain("assets/KeepDeck-macos-arm64.app.tar.gz");
     expect(batch).toContain("assets/KeepDeck-macos-arm64.app.tar.gz.sig");
@@ -277,10 +383,8 @@ describe("release workflow", () => {
     // The changelog is derived from published versioned releases via
     // gh api repos/:repo/releases, so it must follow the archive step — and
     // it uploads to the rolling "latest" release, where the app fetches it.
-    const steps = release.jobs.publish.steps.map((s) => s.name);
-    const changelog = release.jobs.publish.steps.find(
-      (s) => s.name === "Build and upload the accumulated changelog",
-    );
+    const steps = stepsOf(release.jobs.publish).map((s) => s.name);
+    const changelog = stepNamed(release.jobs.publish, "Build and upload the accumulated changelog");
     expect(changelog.run).toContain("scripts/release-changelog.mjs");
     expect(changelog.run).toContain("gh release upload latest assets/changelog.json --clobber");
     expect(steps.indexOf("Build and upload the accumulated changelog")).toBeGreaterThan(
@@ -300,7 +404,7 @@ describe("version-bump workflow", () => {
 
   it("queues runs and exposes every manual bump kind", () => {
     expect(bump.concurrency).toEqual({ group: "version-bump", queue: "max" });
-    expect(bump.on.workflow_dispatch.inputs.bump.options).toEqual([
+    expect(at(bump.on, "workflow_dispatch", "inputs", "bump", "options")).toEqual([
       "patch",
       "minor",
       "major",
@@ -317,15 +421,11 @@ describe("version-bump workflow", () => {
     // Dispatching another workflow with GITHUB_TOKEN needs actions: write.
     expect(bump.permissions).toEqual({ contents: "write", actions: "write" });
 
-    const push = bump.jobs.bump.steps.find(
-      (s) => s.name === "Commit and push the bump",
-    );
+    const push = stepNamed(bump.jobs.bump, "Commit and push the bump");
     expect(push.if).toBe("steps.bump.outputs.version != ''");
     expect(push.run).toContain("git push origin HEAD:main");
 
-    const chain = bump.jobs.bump.steps.find(
-      (s) => s.name === "Start the release for this bump",
-    );
+    const chain = stepNamed(bump.jobs.bump, "Start the release for this bump");
     expect(chain.if).toBe("steps.bump.outputs.release == 'true'");
     // The release must build the exact bump commit, not whatever main is by
     // the time the release run starts.

@@ -9,6 +9,11 @@
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowJs": true,
+    // JS is checked like TS — its JSDoc is its types (task-585).
+    "checkJs": true,
+    // No ambient @types: the app is browser code, and a hoisted @types/node
+    // would hand it `process` and `Buffer` (tsconfig.scripts.json opts in).
+    "types": [],
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,

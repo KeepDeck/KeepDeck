@@ -17,6 +17,10 @@ const RUST_ROOTS = ["src-tauri/src", "src-tauri/build.rs", ...readdirSync(join(R
  * production file are dropped by the lexer (`#[cfg(test)]`). */
 const RUST_TEST_FILE = /(^|\/)(tests\/|tests\.rs$|[^/]*_tests\.rs$|test_support\.rs$)/;
 
+/**
+ * @param {string} path
+ * @returns {Generator<string>}
+ */
 function* rustFiles(path) {
   const full = join(REPO, path);
   if (!existsSync(full)) return;
@@ -59,7 +63,7 @@ describe("CLI names in the core", () => {
       "mod tests { fn t() { let gemini = 1; } }",
       "pub fn codex_home() {}",
     ].join("\n");
-    expect(rustWords(source).map(({ text, line }) => [line, text]).filter(([, text]) => cliNamesIn(text).length > 0)).toEqual([
+    expect(rustWords(source).filter(({ text }) => cliNamesIn(text).length > 0).map(({ text, line }) => [line, text])).toEqual([
       [5, 'a "quoted" .kimi-code'],
       [6, 'say \\"codex\\"'],
       [14, "codex_home"],
@@ -68,6 +72,7 @@ describe("CLI names in the core", () => {
 
   it("holds an exempt file to its count and names, and drops a stale entry", () => {
     const [entry] = CLI_NAME_EXEMPTIONS;
+    /** @param {string[]} names */
     const hit = (names) => ({ at: 1, names });
     const exact = Array.from({ length: entry.count }, () => hit([entry.names[0]]));
     expect(judge(entry.file, exact, 0)).toEqual([]);

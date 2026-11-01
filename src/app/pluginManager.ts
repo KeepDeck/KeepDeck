@@ -487,16 +487,13 @@ export function createPluginManager(appDownloads: DownloadManager) {
       status: (repo, scope) =>
         projectGitStatus(repo, fsRoots(scope), scope === "everywhere"),
       diffFile: (repo, file, scope, opts) =>
-        projectGitDiffFile(
-          repo,
-          fsRoots(scope),
-          scope === "everywhere",
+        projectGitDiffFile(repo, fsRoots(scope), scope === "everywhere", {
           file,
-          opts?.staged ?? false,
-          opts?.from,
-          opts?.to,
-          opts?.origPath,
-        ),
+          staged: opts?.staged ?? false,
+          from: opts?.from,
+          to: opts?.to,
+          origPath: opts?.origPath,
+        }),
       fileAt: (repo, file, rev, scope) =>
         projectGitFileAt(repo, fsRoots(scope), scope === "everywhere", file, rev),
       history: (repo, scope, opts) =>

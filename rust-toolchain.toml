@@ -1,0 +1,7 @@
+# The Rust every build and the CI clippy gate use. Pinned: macos-latest's
+# stable moves on its own, and a new release brings new lints — the gate
+# would go red with no change of ours. Move it deliberately, with the
+# warnings the new one finds fixed in the same change (task-584).
+[toolchain]
+channel = "1.99.0"
+components = ["clippy"]

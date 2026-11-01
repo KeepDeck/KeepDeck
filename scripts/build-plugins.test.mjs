@@ -93,9 +93,10 @@ describe("validateManifest", () => {
         throw new Error("expected validateManifest to throw");
       } catch (err) {
         // Every problem is listed in one shot — not just the first.
-        expect(err.message).toMatch(/name: required/);
-        expect(err.message).toMatch(/id: .* must be lowercase/);
-        expect(err.message).toMatch(/capabilities: must be an array/);
+        const message = err instanceof Error ? err.message : String(err);
+        expect(message).toMatch(/name: required/);
+        expect(message).toMatch(/id: .* must be lowercase/);
+        expect(message).toMatch(/capabilities: must be an array/);
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -107,6 +108,7 @@ describe("validateManifest", () => {
 // that build happens: the last step of `pnpm build` runs
 // scripts/check-plugin-bundles.mjs over dist/. Nothing here builds it again.
 describe("the script, with no plugins to build", () => {
+  /** @type {string} */
   let distRoot;
 
   beforeEach(() => {
@@ -140,6 +142,7 @@ describe("the script, with no plugins to build", () => {
 });
 
 describe("bridge exports for plugin bundles", () => {
+  /** @param {string} name */
   const bridgePath = (name) =>
     join(REPO_ROOT, "src", "plugins", "bridges", name);
 

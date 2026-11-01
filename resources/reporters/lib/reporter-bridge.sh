@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Reading what the deck told this pane about itself.
 #
 # One extractor, one set of names. It was written out three times before this

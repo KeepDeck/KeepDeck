@@ -26,35 +26,63 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
+/**
+ * @typedef {{ draft?: boolean, prerelease?: boolean, tag_name?: string | null, body?: string | null, published_at?: string | null }} GithubRelease
+ * @typedef {{ version: string, notes: string }} ChangelogHead
+ * @typedef {{ version: string, notes: string, date?: string }} ChangelogEntry
+ * @typedef {{ schema: number, generatedAt: string, releases: ChangelogEntry[] }} Changelog
+ */
+
 export const SCHEMA = 1;
 /** Releases beyond this tail length are dropped — nobody updates from a build
  *  old enough to need more, and the file stays small. */
 export const MAX_ENTRIES = 50;
 
+/**
+ * @typedef {{ repo: string, out: string } & (
+ *   { version: string, notes: string } | { version?: undefined, notes?: undefined }
+ * )} ChangelogArgs
+ */
+
+/**
+ * @param {string[]} argv
+ * @returns {ChangelogArgs}
+ */
 export function parseArgs(argv) {
-  const args = {};
+  /** @type {string | undefined} */
+  let repo;
+  /** @type {string | undefined} */
+  let out;
+  /** @type {string | undefined} */
+  let version;
+  /** @type {string | undefined} */
+  let notes;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    if (flag === "--repo") args.repo = argv[++i];
-    else if (flag === "--out") args.out = argv[++i];
-    else if (flag === "--version") args.version = argv[++i];
-    else if (flag === "--notes") args.notes = argv[++i];
+    if (flag === "--repo") repo = argv[++i];
+    else if (flag === "--out") out = argv[++i];
+    else if (flag === "--version") version = argv[++i];
+    else if (flag === "--notes") notes = argv[++i];
     else throw new Error(`unknown argument: ${flag}`);
   }
-  for (const key of ["repo", "out"]) {
-    if (!args[key]) throw new Error(`--${key} is required`);
-  }
+  if (!repo) throw new Error("--repo is required");
+  if (!out) throw new Error("--out is required");
   // The head entry needs both: a version to place it and a notes file to fill
   // it. One without the other is a mistake, not a partial head.
-  if ((args.version == null) !== (args.notes == null)) {
+  if ((version == null) !== (notes == null)) {
     throw new Error("--version and --notes must be given together");
   }
-  return args;
+  return version !== undefined && notes !== undefined
+    ? { repo, out, version, notes }
+    : { repo, out };
 }
 
 /** The version a release's tag names. KeepDeck tags are bare ("0.16.10"); a
  *  leading `v` is tolerated so a future convention change doesn't silently
- *  drop every entry. Non-version tags (e.g. "latest") yield null. */
+ *  drop every entry. Non-version tags (e.g. "latest") yield null.
+ * @param {string} tag
+ * @returns {string | null}
+ */
 export function versionFromTag(tag) {
   const bare = tag.replace(/^v/, "");
   return /^\d+\.\d+\.\d+$/.test(bare) ? bare : null;
@@ -62,7 +90,10 @@ export function versionFromTag(tag) {
 
 /** Strip the release-notes chrome (release-notes.mjs's header line and install
  *  footer) from a release body, leaving just the change content. Robust to a
- *  body that omits either piece (freeform notes, a future format). */
+ *  body that omits either piece (freeform notes, a future format).
+ * @param {string | null | undefined} body
+ * @returns {string}
+ */
 export function cleanNotes(body) {
   let notes = body ?? "";
   const footer = notes.indexOf("\nInstall:\n");
@@ -75,7 +106,11 @@ export function cleanNotes(body) {
  *  Mirrors src/domain/changelog.ts's compareVersions, deliberately not shared:
  *  that one runs in the bundled app (BigInt + a non-numeric fallback), this
  *  one in a zero-build Node script on validated inputs — change both if the
- *  version ranking rules ever move (e.g. prerelease ordering). */
+ *  version ranking rules ever move (e.g. prerelease ordering).
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
 function compareVersions(a, b) {
   const aa = a.split(".");
   const bb = b.split(".");
@@ -99,12 +134,18 @@ function compareVersions(a, b) {
  * and it is deduped against the list by version: the head wins, so a stale or
  * lagging list entry for the same version never doubles or overrides it. A head
  * whose version is not a valid tag is ignored (degrade to list-only), matching
- * this module's "fewer entries beats a crash" stance for a display-only file. */
+ * this module's "fewer entries beats a crash" stance for a display-only file.
+ * @param {GithubRelease[]} releases
+ * @param {ChangelogHead | null} [head]
+ * @param {() => Date} [now]
+ * @returns {Changelog}
+ */
 export function buildChangelog(releases, head = null, now = () => new Date()) {
+  /** @type {ChangelogEntry[]} */
   const entries = [];
   const seen = new Set();
-  const headVersion = head?.version ? versionFromTag(head.version) : null;
-  if (headVersion) {
+  const headVersion = head ? versionFromTag(head.version) : null;
+  if (head && headVersion) {
     entries.push({
       version: headVersion,
       notes: cleanNotes(head.notes ?? ""),
@@ -128,6 +169,39 @@ export function buildChangelog(releases, head = null, now = () => new Date()) {
   return { schema: SCHEMA, generatedAt: now().toISOString(), releases: entries.slice(0, MAX_ENTRIES) };
 }
 
+/**
+ * Narrow the untyped `gh api` JSON to the release fields this module reads.
+ * @param {unknown} value
+ * @returns {GithubRelease[]}
+ */
+function parseReleases(value) {
+  if (!Array.isArray(value)) throw new Error("gh api releases: expected an array");
+  return value.map((item) => {
+    if (typeof item !== "object" || item === null) {
+      throw new Error("gh api releases: expected release objects");
+    }
+    /** @type {GithubRelease} */
+    const release = {};
+    if ("draft" in item && typeof item.draft === "boolean") release.draft = item.draft;
+    if ("prerelease" in item && typeof item.prerelease === "boolean") {
+      release.prerelease = item.prerelease;
+    }
+    if ("tag_name" in item && (item.tag_name === null || typeof item.tag_name === "string")) {
+      release.tag_name = item.tag_name;
+    }
+    if ("body" in item && (item.body === null || typeof item.body === "string")) {
+      release.body = item.body;
+    }
+    if (
+      "published_at" in item &&
+      (item.published_at === null || typeof item.published_at === "string")
+    ) {
+      release.published_at = item.published_at;
+    }
+    return release;
+  });
+}
+
 /** List published releases via the GitHub REST endpoint. `body` is not a field
  *  `gh release list --json` exposes, and its default page is 30 — REST returns
  *  both in one call. per_page=100 is GitHub's max for this endpoint and covers
@@ -135,16 +209,24 @@ export function buildChangelog(releases, head = null, now = () => new Date()) {
  *  100 rather than silently truncating, since this call does not paginate.
  *  `exec` is injected (defaulting to execFileSync) so the contract can be
  *  tested without mocking a node builtin — mirrors release-manifest.mjs's
- *  `buildManifest(args, read, now)` DI shape. */
+ *  `buildManifest(args, read, now)` DI shape.
+ * @param {string} repo
+ * @param {(file: string, args: string[], options: { encoding: "utf8" }) => string} [exec]
+ * @returns {GithubRelease[]}
+ */
 export function listReleases(repo, exec = execFileSync) {
   const stdout = exec(
     "gh",
     ["api", `repos/${repo}/releases?per_page=100`],
     { encoding: "utf8" },
   );
-  return JSON.parse(stdout);
+  return parseReleases(JSON.parse(stdout));
 }
 
+/**
+ * @param {string[]} [argv]
+ * @returns {Changelog}
+ */
 export function main(argv = process.argv.slice(2)) {
   if (MAX_ENTRIES > 100) {
     throw new Error(

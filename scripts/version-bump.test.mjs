@@ -80,8 +80,8 @@ describe("planBump", () => {
   });
 
   it("applies a forced bump after the merges still pending", () => {
-    expect(planBump("0.1.0", ["Merge: release boundary (minor)"], "patch").next).toBe("0.2.1");
-    expect(planBump("0.1.0", [], "major").next).toBe("1.0.0");
+    expect(planBump("0.1.0", ["Merge: release boundary (minor)"], "patch")?.next).toBe("0.2.1");
+    expect(planBump("0.1.0", [], "major")?.next).toBe("1.0.0");
   });
 
   it("has nothing to do when no merge landed and nothing is forced", () => {
@@ -89,10 +89,10 @@ describe("planBump", () => {
   });
 
   it("releases a batch with a minor or major merge, and every forced bump — never a patch-only batch", () => {
-    expect(planBump("0.1.0", ["Merge: a", "Merge: b"], null).release).toBe(false);
-    expect(planBump("0.1.0", ["Merge: a", "Merge: b (minor)"], null).release).toBe(true);
-    expect(planBump("0.1.0", ["Merge: a (major)"], null).release).toBe(true);
-    expect(planBump("0.1.0", [], "patch").release).toBe(true);
+    expect(planBump("0.1.0", ["Merge: a", "Merge: b"], null)?.release).toBe(false);
+    expect(planBump("0.1.0", ["Merge: a", "Merge: b (minor)"], null)?.release).toBe(true);
+    expect(planBump("0.1.0", ["Merge: a (major)"], null)?.release).toBe(true);
+    expect(planBump("0.1.0", [], "patch")?.release).toBe(true);
   });
 });
 
@@ -177,8 +177,10 @@ version = "0.1.0"
 // count from it, and the script's wiring — flags in, the three files and
 // GITHUB_OUTPUT out. The rules over those merges are planBump's, above.
 describe("the script, run in a real repository", () => {
+  /** @type {string} */
   let repo;
 
+  /** @param {string} version */
   const versionFiles = (version) => ({
     "src-tauri/Cargo.toml": CARGO_TOML_FIXTURE.replace('version = "0.1.0"', `version = "${version}"`),
     "package.json": `{\n  "name": "keepdeck",\n  "version": "${version}"\n}\n`,
@@ -189,6 +191,7 @@ describe("the script, run in a real repository", () => {
   /** Run the script in `repo`: what it printed, and what it appended to
    * GITHUB_OUTPUT — a file under .git, out of the work tree it must leave
    * clean when there is nothing to bump. */
+  /** @param {...string} args */
   const run = (...args) => {
     const output = join(repo, ".git", "github-output");
     writeFileSync(output, "");
@@ -205,7 +208,7 @@ describe("the script, run in a real repository", () => {
     pkg: JSON.parse(readFileSync(join(repo, "package.json"), "utf8")).version,
     lock: readFileSync(join(repo, "Cargo.lock"), "utf8").match(
       /name = "keepdeck"\nversion = "([^"]+)"/,
-    )[1],
+    )?.[1],
   });
 
   afterEach(() => {

@@ -28,29 +28,39 @@ export function projectGitStatus(
   return invoke<GitStatus>("project_git_status", { path, roots, everywhere });
 }
 
-/** Unified diff text for one tracked repo-relative path — worktree vs index,
- * or index vs HEAD when `staged`. `origPath` is the file's pre-rename path:
- * with it the diff pairs both names instead of reading as a new file. The
- * text is capped Rust-side; `truncated` says when it was. */
+/** What one diff asks for, apart from where the repo is: a tracked
+ * repo-relative `file` and its two sides. Worktree vs index, index vs HEAD
+ * when `staged`, or a revision range from `from` (to `to`, or the working
+ * tree). `origPath` is the file's pre-rename path: with it the diff pairs
+ * both names instead of reading as a new file. Mirrors `DiffRequest` in
+ * src-tauri/src/project_git.rs. */
+export interface GitDiffRequest {
+  file: string;
+  staged: boolean;
+  from?: string;
+  to?: string;
+  origPath?: string;
+}
+
+/** Unified diff text for one file, as `request` asks for it. The text is
+ * capped Rust-side; `truncated` says when it was. */
 export function projectGitDiffFile(
   path: string,
   roots: string[],
   everywhere: boolean,
-  file: string,
-  staged: boolean,
-  from?: string,
-  to?: string,
-  origPath?: string,
+  request: GitDiffRequest,
 ): Promise<GitDiff> {
   return invoke<GitDiff>("project_git_diff_file", {
     path,
     roots,
     everywhere,
-    file,
-    staged,
-    from: from ?? null,
-    to: to ?? null,
-    origPath: origPath ?? null,
+    request: {
+      file: request.file,
+      staged: request.staged,
+      from: request.from ?? null,
+      to: request.to ?? null,
+      origPath: request.origPath ?? null,
+    },
   });
 }
 

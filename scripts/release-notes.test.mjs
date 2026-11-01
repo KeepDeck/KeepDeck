@@ -72,7 +72,11 @@ describe("buildNotes", () => {
   });
 });
 
-/** Run the script in `dir` and read the notes it wrote. */
+/** Run the script in `dir` and read the notes it wrote.
+ * @param {string} dir
+ * @param {string[]} args
+ * @returns {string}
+ */
 function run(dir, args) {
   const notes = join(dir, "notes.md");
   rmSync(notes, { force: true });
@@ -85,6 +89,7 @@ function run(dir, args) {
 
 // One history serves every case: the script only reads it.
 describe("the script, run in a real repository", () => {
+  /** @type {string} */
   let repo;
   beforeAll(() => {
     repo = gitRepo([
@@ -119,6 +124,7 @@ describe("the script, run in a real repository", () => {
 });
 
 describe("the script, with no repository at all", () => {
+  /** @type {string} */
   let dir;
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });

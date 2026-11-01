@@ -44,23 +44,23 @@ impl VoiceErrorKind {
         VoiceErrorKind::Engine,
         VoiceErrorKind::Internal,
     ];
-
-    #[cfg(test)]
-    #[allow(dead_code)]
-    fn listed_in_all(self) {
-        match self {
-            VoiceErrorKind::Permission
-            | VoiceErrorKind::NoDevice
-            | VoiceErrorKind::Device
-            | VoiceErrorKind::UnsupportedFormat
-            | VoiceErrorKind::Busy
-            | VoiceErrorKind::NoCapture
-            | VoiceErrorKind::ModelMissing
-            | VoiceErrorKind::Engine
-            | VoiceErrorKind::Internal => {}
-        }
-    }
 }
+
+/// The reminder `ALL` relies on: a new kind fails this match to compile
+/// until it is listed here, beside the list it belongs in. A check the
+/// compiler runs, so nothing calls it — and an unnamed const is not dead.
+#[cfg(test)]
+const _: fn(VoiceErrorKind) = |kind| match kind {
+    VoiceErrorKind::Permission
+    | VoiceErrorKind::NoDevice
+    | VoiceErrorKind::Device
+    | VoiceErrorKind::UnsupportedFormat
+    | VoiceErrorKind::Busy
+    | VoiceErrorKind::NoCapture
+    | VoiceErrorKind::ModelMissing
+    | VoiceErrorKind::Engine
+    | VoiceErrorKind::Internal => {}
+};
 
 /// The error every voice command rejects with: `{ kind, message }` on the
 /// wire.

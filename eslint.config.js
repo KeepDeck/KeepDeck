@@ -1,4 +1,6 @@
 import { fileURLToPath } from "node:url";
+import js from "@eslint/js";
+import globals from "globals";
 import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import reactHooks from "eslint-plugin-react-hooks";
@@ -47,6 +49,18 @@ const COMPONENT_TESTS = [
   "**/*.fake.{ts,tsx}",
 ];
 const RESOURCE_JS = ["plugins/*/resources/**/*.js"];
+/** The root build configs: TypeScript outside the app's own tsconfig (they
+ * are tsconfig.node.json's), so they take the rules that need no type
+ * information, the ban on suppressions among them. */
+const CONFIG_TS = ["*.config.ts"];
+/** The plain JavaScript this repo authors outside plugin resources, by the
+ * runtime it runs in — which decides the globals it may name (task-582). */
+const NODE_JS = ["scripts/**/*.mjs", "eslint.config.js"];
+const BROWSER_JS = ["src/plugins/bridges/**/*.js", "src-tauri/src/artifacts/refresh.js"];
+/** The reporters' shared wire, loaded inside agent CLIs: it may name no
+ * runtime at all (keepdeck-wire.js says why), so it gets the language's own
+ * globals and nothing else. */
+const NEUTRAL_JS = ["resources/reporters/**/*.js"];
 const BAN_TS_COMMENT = ["error", { "ts-expect-error": true, "ts-ignore": true, "ts-nocheck": true, "ts-check": false }];
 
 /**
@@ -109,12 +123,42 @@ const COMPONENT_TEST_RUNTIME_SURFACE = [
 ];
 
 export default [
-  // Only the TypeScript this repo authors: built bundles, generated plugin
-  // copies and plain JS outside plugin resources are not what these rules are about.
-  { ignores: ["**/*.{mjs,cjs}", "**/dist/**", "**/node_modules/**", "target/**", "src-tauri/**"] },
+  // What this repo does not author: built bundles, dependencies and build
+  // output. Everything else it writes is linted, JavaScript included.
+  { ignores: ["**/dist/**", "**/node_modules/**", "**/target/**", "src-tauri/gen/**"] },
+
+  /**
+   * The plain JavaScript: the language's recommended rules, with the
+   * globals of the runtime each file runs in — so `no-undef` catches a
+   * script naming `window`, a bridge naming `process`, and the reporters'
+   * wire naming either. Code that builds a function from text has no place
+   * in any of them.
+   */
+  ...[
+    [NODE_JS, globals.node],
+    [BROWSER_JS, globals.browser],
+    [NEUTRAL_JS, {}],
+  ].map(([files, runtime]) => ({
+    files,
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: { ...globals.es2021, ...runtime },
+    },
+    linterOptions: { noInlineConfig: true },
+    rules: {
+      ...js.configs.recommended.rules,
+      // A key destructured only to leave it out of the rest is the idiom
+      // for "everything but", not an unused variable.
+      "no-unused-vars": ["error", { ignoreRestSiblings: true }],
+      "no-eval": "error",
+      "no-implied-eval": "error",
+      "no-new-func": "error",
+    },
+  })),
 
   {
-    files: [...TYPESCRIPT, ...RESOURCE_JS],
+    files: [...TYPESCRIPT, ...RESOURCE_JS, ...CONFIG_TS],
     languageOptions: { parser: tsParser },
     plugins: { "@typescript-eslint": tsPlugin },
     linterOptions: { noInlineConfig: true },

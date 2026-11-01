@@ -236,7 +236,7 @@ impl ArtifactsStore {
                 Some(slug) => load_manifest(root, workspace_id, slug)?,
                 None => None,
             };
-            let slug = resolve_slug(existing.as_ref(), &request, root, &workspace_id)?;
+            let slug = resolve_slug(existing.as_ref(), &request, root, workspace_id)?;
             let slug = slug.as_str();
 
             let (outcome, mut manifest) = match existing {
@@ -266,7 +266,7 @@ impl ArtifactsStore {
                 }
             };
 
-            let dir = artifact_dir(root, &workspace_id, slug);
+            let dir = artifact_dir(root, workspace_id, slug);
             fs::create_dir_all(&dir).map_err(|e| StoreError::new(format!("creating artifact directory failed: {e}")))?;
             let file_name = format!("v{}.{ext}", outcome.version, ext = manifest.format.extension());
             write_atomic(&dir.join(&file_name), &bytes)

@@ -42,6 +42,12 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # Every tracked shell script but the reporters' lib fragments, which are
+      # checked where they run: inlined into each generated hook copy.
+      # shellcheck ships on the ubuntu runner.
+      - name: Shell scripts pass shellcheck
+        run: pnpm lint:shell
+
       # Runs tsc and vite build, so a separate typecheck step would be redundant.
       - name: Build the frontend and plugins
         run: pnpm build
@@ -75,6 +81,12 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      # Clippy's default lints, as errors: a warning is fixed at its cause,
+      # never allowed inline (scripts/rustLintLevels.test.mjs). The lint set
+      # moves only with rust-toolchain.toml.
+      - name: Clippy is clean
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       # The task store's generated code is committed: Diesel's schema.rs
       # (from the migrations) and the TS side of its wire types (ts-rs).

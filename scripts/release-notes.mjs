@@ -15,25 +15,43 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
+/**
+ * @typedef {{ version: string, repo: string, out: string, previous: string, rolling: boolean }} NotesArgs
+ */
+
+/**
+ * @param {string[]} argv
+ * @returns {NotesArgs}
+ */
 export function parseArgs(argv) {
-  const args = { previous: "", rolling: false };
+  /** @type {string | undefined} */
+  let version;
+  /** @type {string | undefined} */
+  let repo;
+  /** @type {string | undefined} */
+  let out;
+  let previous = "";
+  let rolling = false;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    if (flag === "--version") args.version = argv[++i];
-    else if (flag === "--previous") args.previous = argv[++i] ?? "";
-    else if (flag === "--repo") args.repo = argv[++i];
-    else if (flag === "--out") args.out = argv[++i];
-    else if (flag === "--rolling") args.rolling = true;
+    if (flag === "--version") version = argv[++i];
+    else if (flag === "--previous") previous = argv[++i] ?? "";
+    else if (flag === "--repo") repo = argv[++i];
+    else if (flag === "--out") out = argv[++i];
+    else if (flag === "--rolling") rolling = true;
     else throw new Error(`unknown argument: ${flag}`);
   }
-  for (const key of ["version", "repo", "out"]) {
-    if (!args[key]) throw new Error(`--${key} is required`);
-  }
-  return args;
+  if (!version) throw new Error("--version is required");
+  if (!repo) throw new Error("--repo is required");
+  if (!out) throw new Error("--out is required");
+  return { version, repo, out, previous, rolling };
 }
 
 /** A merge subject as a changelog line: the "Merge: " prefix and the release
- * markers are pipeline plumbing, not part of the change's story. */
+ * markers are pipeline plumbing, not part of the change's story.
+ * @param {string} subject
+ * @returns {string}
+ */
 export function changelogLine(subject) {
   return subject
     .replace(/^Merge:\s*/, "")
@@ -42,6 +60,10 @@ export function changelogLine(subject) {
     .trim();
 }
 
+/**
+ * @param {{ version: string, repo: string, changes: string[], rolling?: boolean }} options
+ * @returns {string}
+ */
 export function buildNotes({ version, repo, changes, rolling = false }) {
   // The rolling entry is infrastructure, not a release: the installer and
   // the in-app updater read it by its fixed tag. Its notes say exactly that
@@ -68,11 +90,18 @@ export function buildNotes({ version, repo, changes, rolling = false }) {
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * @param {...string} args
+ * @returns {string}
+ */
 function git(...args) {
   return execFileSync("git", args, { encoding: "utf8" }).trim();
 }
 
-/** The commit that put `previous` on main — the changelog window's floor. */
+/** The commit that put `previous` on main — the changelog window's floor.
+ * @param {string} previous
+ * @returns {string | null}
+ */
 function findPreviousBump(previous) {
   const wanted = `Bump version to ${previous}`;
   const log = git("log", "--first-parent", "--format=%H %s", "HEAD");
@@ -83,6 +112,11 @@ function findPreviousBump(previous) {
   return null;
 }
 
+/**
+ * @param {string} previous
+ * @param {string} version
+ * @returns {string[]}
+ */
 export function collectChanges(previous, version) {
   // A republish of the same version, or a first release with no prior
   // manifest: there is no window to report.
@@ -100,6 +134,10 @@ export function collectChanges(previous, version) {
   return subjects.split("\n").filter(Boolean).map(changelogLine);
 }
 
+/**
+ * @param {string[]} [argv]
+ * @returns {string}
+ */
 export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   // Rolling notes carry no changelog, so they need no git history either.
