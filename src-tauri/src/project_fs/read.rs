@@ -235,13 +235,21 @@ pub fn project_fs_read_file(
 /// quadratic: measured on a 24 MiB rollout, 8 MiB read in 256 KiB windows
 /// took ~52 ms against ~3 ms for the same text plain. The next window picks
 /// up the decoder where the last one left it. One is kept, for the file it
-/// was reading (its path, length and modification time) at the offset it
-/// stands at; any other read starts afresh.
+/// was reading (its path, length, modification time and frame header) at the
+/// offset the reader will ask for next; any other read starts afresh.
+///
+/// That offset is where the reader's TEXT ended, which is short of where the
+/// decoder stands when the window cut a multi-byte character: the stub went
+/// back to be read again. Kept as `pending`, it opens the next window, or a
+/// store in any language but English would decode from the start on every
+/// window that cut one.
 struct Resume {
     file: std::path::PathBuf,
     len: u64,
-    modified: Option<std::time::SystemTime>,
+    modified: std::time::SystemTime,
+    head: Vec<u8>,
     at: u64,
+    pending: Vec<u8>,
     decoder: zstd::stream::read::Decoder<'static, std::io::BufReader<std::io::Take<fs::File>>>,
 }
 
@@ -273,57 +281,67 @@ fn read_inflated(file: &std::path::Path, start: u64, cap: u64) -> Result<Option<
     };
     let known = zstd::zstd_safe::get_frame_content_size(&head).ok().flatten();
     let meta = fs::metadata(file).map_err(|e| format!("cannot stat: {e}"))?;
-    let (len, modified) = (meta.len(), meta.modified().ok());
-    // The decoder the last window left at exactly this point, if it did.
-    let kept = INFLATE_RESUME
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
-        .filter(|resume| resume.file == file && resume.len == len && resume.modified == modified && resume.at == start);
-    let fresh = kept.is_none();
-    let mut decoder = match kept {
-        Some(resume) => resume.decoder,
+    let len = meta.len();
+    // Without a modification time a rewrite cannot be told apart: nothing
+    // is kept, and nothing kept is used.
+    let modified = meta.modified().ok();
+    // The decoder the last window left for exactly this read, if it did.
+    let kept = INFLATE_RESUME.lock().ok().and_then(|mut slot| slot.take()).filter(|resume| {
+        Some(resume.modified) == modified
+            && resume.file == file
+            && resume.len == len
+            && resume.head == head
+            && resume.at == start
+            && resume.pending.len() as u64 <= cap
+    });
+    let (mut decoder, mut buf) = match kept {
+        Some(resume) => (resume.decoder, resume.pending),
         None => {
             let input = fs::File::open(file).map_err(|e| format!("cannot open: {e}"))?.take(INFLATE_INPUT_MAX);
             let Ok(mut decoder) = zstd::stream::read::Decoder::new(input) else {
                 return Ok(Some(not_text(known.unwrap_or(0))));
             };
-            if decoder.window_log_max(INFLATE_WINDOW_LOG_MAX).is_err() {
+            if decoder.window_log_max(INFLATE_WINDOW_LOG_MAX).is_err()
+                || std::io::copy(&mut (&mut decoder).take(start), &mut std::io::sink()).is_err()
+            {
                 return Ok(Some(not_text(known.unwrap_or(0))));
             }
-            decoder
+            (decoder, Vec::new())
         }
     };
-    let mut buf = Vec::new();
-    let skipped = if fresh {
-        std::io::copy(&mut (&mut decoder).take(start), &mut std::io::sink()).map(|_| ())
-    } else {
-        Ok(())
-    };
-    if skipped.and_then(|()| (&mut decoder).take(cap).read_to_end(&mut buf)).is_err() {
+    let wanted = cap - buf.len() as u64;
+    if (&mut decoder).take(wanted).read_to_end(&mut buf).is_err() {
         return Ok(Some(not_text(known.unwrap_or(0))));
     }
     let reached = start.saturating_add(buf.len() as u64);
     let size = match known {
-        // Kept for the next window, which starts where this one ended — a
-        // stream counted to its end has nothing left to keep.
-        Some(size) => {
-            if size > reached {
-                if let Ok(mut slot) = INFLATE_RESUME.lock() {
-                    *slot = Some(Resume { file: file.to_path_buf(), len, modified, at: reached, decoder });
-                }
-            }
-            size
-        }
+        Some(size) => size,
         None => {
-            let rest = std::io::copy(&mut (&mut decoder).take(INFLATE_REACH - reached.min(INFLATE_REACH)), &mut std::io::sink())
-                .unwrap_or(0);
+            // Counted to its end — and a stream that breaks on the way is
+            // not text, the same as one that breaks inside the window.
+            let Ok(rest) =
+                std::io::copy(&mut (&mut decoder).take(INFLATE_REACH - reached.min(INFLATE_REACH)), &mut std::io::sink())
+            else {
+                return Ok(Some(not_text(0)));
+            };
             reached + rest
         }
     };
-    let read_bytes = buf.len() as u64;
-    let truncated = size > start.saturating_add(read_bytes);
+    let truncated = size > reached;
+    // A cut character's stub, if the text drops one: the next window's
+    // first bytes, held by the decoder kept for it.
+    let tail_at = buf.len().saturating_sub(4);
+    let tail = buf[tail_at..].to_vec();
     let Decoded { text, is_binary, read_bytes } = decode_text(buf, truncated);
+    let consumed = start + read_bytes;
+    if let (Some(size), Some(modified)) = (known, modified) {
+        if size > consumed {
+            let pending = tail[(read_bytes as usize).saturating_sub(tail_at).min(tail.len())..].to_vec();
+            if let Ok(mut slot) = INFLATE_RESUME.lock() {
+                *slot = Some(Resume { file: file.to_path_buf(), len, modified, head, at: consumed, pending, decoder });
+            }
+        }
+    }
     Ok(Some(FsFile { path, text, is_binary, size, truncated, read_bytes }))
 }
 
@@ -506,6 +524,47 @@ mod tests {
         write_bytes(&root.join("a.zst"), &zstd::bulk::compress(c.as_bytes(), 3).unwrap());
         let after = inflated(&root, "a.zst", Some(1_000), Some(1_000)).unwrap();
         assert_eq!(after.text.as_deref(), Some(&c[1_000..2_000]));
+    }
+
+    #[test]
+    fn a_walk_over_a_store_in_another_alphabet_reassembles_it_across_every_cut_character() {
+        // Windows of an odd size cut two-byte characters again and again;
+        // the stub a window gives back opens the next one, from the decoder
+        // kept for it.
+        let root = temp_root();
+        let text: String = (0..400).map(|i| format!("{{\"i\":{i},\"t\":\"привет, мир — запись {i}\"}}\n")).collect();
+        write_bytes(&root.join("ru.zst"), &zstd::bulk::compress(text.as_bytes(), 3).unwrap());
+        assert_eq!(walk_inflated(&root, "ru.zst", 1_001), text);
+    }
+
+    #[test]
+    fn a_sizeless_stream_that_breaks_past_the_window_is_not_text() {
+        // Counting it to its end runs into the break: the window alone would
+        // read as a whole store that simply ended early.
+        let root = temp_root();
+        // Many blocks, so the first window decodes whole from the first and
+        // the break lies in the count past it.
+        let compressed = zstd::stream::encode_all(jsonl(60_000).as_bytes(), 3).unwrap();
+        write_bytes(&root.join("whole.zst"), &compressed);
+        write_bytes(&root.join("cut.zst"), &compressed[..compressed.len() / 2]);
+        assert!(inflated(&root, "whole.zst", Some(1_000), None).unwrap().text.is_some());
+        let file = inflated(&root, "cut.zst", Some(1_000), None).unwrap();
+        assert!(file.text.is_none());
+    }
+
+    #[test]
+    fn a_rewrite_that_keeps_the_modification_time_is_read_afresh() {
+        let root = temp_root();
+        let path = root.join("a.zst");
+        write_bytes(&path, &zstd::bulk::compress(jsonl(400).as_bytes(), 3).unwrap());
+        let stamp = fs::metadata(&path).unwrap().modified().unwrap();
+        let _ = inflated(&root, "a.zst", Some(1_000), Some(0)).unwrap();
+
+        let other: String = jsonl(300).replace("\"i\"", "\"k\"");
+        write_bytes(&path, &zstd::bulk::compress(other.as_bytes(), 3).unwrap());
+        fs::File::options().write(true).open(&path).unwrap().set_modified(stamp).unwrap();
+        let next = inflated(&root, "a.zst", Some(1_000), Some(1_000)).unwrap();
+        assert_eq!(next.text.as_deref(), Some(&other[1_000..2_000]));
     }
 
     #[test]
