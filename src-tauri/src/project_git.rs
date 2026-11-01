@@ -50,7 +50,7 @@ use std::time::{Duration, Instant};
 
 use keepdeck_git::{blob, diff, fork, head, log, repo, status};
 use notify::{Event, EventKind, RecommendedWatcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::containment::resolve_within;
@@ -140,11 +140,23 @@ pub fn project_git_status(
     status::status(&repo).map(GitStatus::from).map_err(|e| e.to_string())
 }
 
-/// Unified diff for one tracked path in the repo. Three shapes, one command:
-/// worktree vs index (default), index vs HEAD (`staged`), or across a
-/// revision range when `from` is given (`from..to`, or `from` against the
-/// working tree without `to`). `orig_path` is the file's pre-rename path:
-/// with it the diff pairs both names instead of reading as a new file.
+/// What one diff asks for, apart from where the repo is: the file and its
+/// two sides. Worktree vs index (default), index vs HEAD (`staged`), or
+/// across a revision range when `from` is given (`from..to`, or `from`
+/// against the working tree without `to`). `orig_path` is the file's
+/// pre-rename path: with it the diff pairs both names instead of reading as
+/// a new file.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffRequest {
+    pub file: String,
+    pub staged: bool,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub orig_path: Option<String>,
+}
+
+/// Unified diff for one tracked path in the repo, as `request` asks for it.
 /// Untracked files have no diff (the plugin renders their plain content via
 /// `services.fs` instead).
 #[tauri::command(async)]
@@ -152,13 +164,10 @@ pub fn project_git_diff_file(
     path: String,
     roots: Vec<String>,
     everywhere: bool,
-    file: String,
-    staged: bool,
-    from: Option<String>,
-    to: Option<String>,
-    orig_path: Option<String>,
+    request: DiffRequest,
 ) -> Result<GitDiff, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
+    let DiffRequest { file, staged, from, to, orig_path } = request;
     let orig = orig_path.as_deref();
     match from {
         Some(from) => {
@@ -820,11 +829,13 @@ mod tests {
             repo.to_string_lossy().into_owned(),
             roots(&repo),
             false,
-            "README.md".to_string(),
-            false,
-            None,
-            None,
-            None,
+            DiffRequest {
+                file: "README.md".to_string(),
+                staged: false,
+                from: None,
+                to: None,
+                orig_path: None,
+            },
         )
         .expect("diff");
         assert!(diff.text.contains("-hello"));
@@ -1408,16 +1419,42 @@ mod tests {
             repo.to_string_lossy().into_owned(),
             roots(&repo),
             false,
-            "README.md".to_string(),
-            false,
-            Some(format!("{head}^")),
-            Some(head),
-            None,
+            DiffRequest {
+                file: "README.md".to_string(),
+                staged: false,
+                from: Some(format!("{head}^")),
+                to: Some(head),
+                orig_path: None,
+            },
         )
         .expect("root-commit diff");
         assert!(diff.text.contains("+hello"), "{}", diff.text);
 
         fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn a_diff_request_reads_the_wire_the_host_sends() {
+        // The shape src/ipc/projectGit.ts sends under `request`: camelCase,
+        // an absent side as null.
+        let request: DiffRequest = serde_json::from_value(serde_json::json!({
+            "file": "src/a.ts",
+            "staged": true,
+            "from": null,
+            "to": null,
+            "origPath": "src/old.ts",
+        }))
+        .expect("the host's request");
+        assert_eq!(
+            request,
+            DiffRequest {
+                file: "src/a.ts".to_string(),
+                staged: true,
+                from: None,
+                to: None,
+                orig_path: Some("src/old.ts".to_string()),
+            }
+        );
     }
 
     // ---- event filters (pure) ----
