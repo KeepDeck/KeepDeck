@@ -9,13 +9,23 @@
 //! build in its own workspace directory, from the text or from a copy of the
 //! view (`fsWrite.copyDir`, which reads it while no stage can swap it and no
 //! prune remove it).
+//!
+//! What of a skill's folder comes along is [`super::tree`]'s rule; how much is
+//! this module's. The view as a whole is exactly what one copy may carry, so
+//! a plugin's copy of it is never refused for its size. Every skill first
+//! gets its place — its folder and SKILL.md — and then, in name order, its
+//! files, up to what one skill may carry and while the view has room. A skill
+//! whose files do not fit goes as its SKILL.md alone, and the stage says so,
+//! beside whatever it left out of a skill and why: the user's to fix.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use super::bundled::BundledSkill;
 use super::library::{sorted_dirs, SKILL_FILE};
+use super::tree::{self, Allowance, LeftOut, TreeCopy, Why, SKILL_MAX, VIEW_MAX};
 use crate::state::write_atomic;
 
 /// Per-workspace locks that serialize `stage()`. Tauri managed state, the
@@ -85,6 +95,93 @@ pub struct StagedSkill {
     pub content: String,
 }
 
+/// A stage's answer (mirrors the TS `SkillsStage`, camelCase): the view —
+/// none when nothing stages — and what it could not hand agents whole.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagingAnswer {
+    pub view: Option<SkillStagingDto>,
+    pub trims: Vec<StagingTrim>,
+}
+
+/// One skill staging could not hand out whole (mirrors the TS `StagingTrim`):
+/// its scope and name, what became of it, and — for something left out of
+/// it — the first such path inside the skill and how many there were.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagingTrim {
+    /// `global` | `workspace` | `bundled`, the skill's `StoredSkill` scope.
+    pub scope: &'static str,
+    pub skill: String,
+    pub kind: TrimKind,
+    pub path: Option<String>,
+    pub count: usize,
+}
+
+impl StagingTrim {
+    fn of(scope: &'static str, skill: &str, kind: TrimKind) -> Self {
+        Self { scope, skill: skill.to_string(), kind, path: None, count: 1 }
+    }
+}
+
+/// What became of a skill, or of something in it. A closed set: the words
+/// for each are the presentation's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrimKind {
+    /// Handed as its SKILL.md alone: its files are more than one skill may
+    /// carry.
+    TooLarge,
+    /// Handed as its SKILL.md alone: the skills before it filled the view.
+    NoRoom,
+    /// Not handed at all: not even its SKILL.md fits in the view.
+    Omitted,
+    /// Not handed at all: its SKILL.md is no small text file of its own.
+    SkillFileUnreadable,
+    /// Left out of it: a link leading out of the skill.
+    LinkOut,
+    /// Left out of it: a link pointing at nothing.
+    LinkDangles,
+    /// Left out of it: a link back into a folder it sits in, or one that
+    /// never ends.
+    LinkCycle,
+    /// Left out of it: neither a file nor a folder.
+    Special,
+    /// Left out of it: something that could not be read.
+    Unreadable,
+}
+
+impl From<Why> for TrimKind {
+    fn from(why: Why) -> Self {
+        match why {
+            Why::LinkOut => TrimKind::LinkOut,
+            Why::LinkDangles => TrimKind::LinkDangles,
+            Why::LinkCycle => TrimKind::LinkCycle,
+            Why::Special => TrimKind::Special,
+            Why::Unreadable => TrimKind::Unreadable,
+        }
+    }
+}
+
+/// What a copy left out of one skill, one line per kind: the first path of
+/// that kind, and how many.
+fn left_out_trims(scope: &'static str, skill: &str, left_out: &[LeftOut]) -> Vec<StagingTrim> {
+    let mut by_why: BTreeMap<Why, (&Path, usize)> = BTreeMap::new();
+    for entry in left_out {
+        by_why.entry(entry.why).or_insert((&entry.path, 0)).1 += 1;
+    }
+    by_why
+        .into_iter()
+        .map(|(why, (path, count))| StagingTrim {
+            scope,
+            skill: skill.to_string(),
+            kind: why.into(),
+            path: (!path.as_os_str().is_empty()).then(|| path.to_string_lossy().into_owned()),
+            count,
+        })
+        .collect()
+}
+
 /// A library or bundled row the host judged unfit to hand any agent (no
 /// usable description). The judgement is the host's TypeScript codec's —
 /// the one SKILL.md reader — so this side only skips what it is told,
@@ -111,7 +208,7 @@ pub(super) fn stage(
     tier: &[BundledSkill],
     claimed: bool,
     excluded: &[ExcludedSource],
-) -> io::Result<Option<SkillStagingDto>> {
+) -> io::Result<StagingAnswer> {
     let library = root.join("library");
     let final_dir = root.join("staging").join(ws_id);
 
@@ -121,7 +218,12 @@ pub(super) fn stage(
 
     // The registry result arrives as a plain bool from the tauri glue —
     // staging logic stays feature-free (the one-directional boundary).
-    let sources = collect_sources(&library, ws_id, tier, claimed, excluded);
+    let mut trims = Vec::new();
+    let mut sources = collect_sources(&library, ws_id, tier, claimed, excluded, &mut trims);
+    // Room is handed out in name order: the same library gets the same view
+    // on every stage, whatever order its folders were made in.
+    sources.sort_by(|a, b| a.0.cmp(&b.0));
+    let (sources, mut left) = reserve(sources, &mut trims);
 
     // Build aside, then swap: a pane spawning mid-rebuild reads either the
     // old complete view or the new one, never a half-copied one.
@@ -131,6 +233,9 @@ pub(super) fn stage(
         other => other?,
     }
     let view = tmp.join("skills");
+    if !sources.is_empty() {
+        fs::create_dir_all(&view)?;
+    }
     let mut staged: Vec<StagedSkill> = Vec::new();
     for (name, source) in &sources {
         // The two materialization contracts, enforced by the match arms:
@@ -140,15 +245,29 @@ pub(super) fn stage(
         // constant cannot vanish: the arm is UNCONDITIONAL.
         let dest = view.join(name);
         let content: &str = match source {
-            Source::Library { dir, content } => {
-                if !copy_dir(dir, &dest)? {
-                    let _ = fs::remove_dir_all(&dest);
-                    continue;
+            Source::Library { dir, content, scope } => {
+                // Its place is reserved; its files get what one skill may
+                // carry beside it, as far as the view still has room.
+                let own = SKILL_MAX.less(Allowance::bare(content));
+                let room = own.min(left);
+                match tree::copy_tree(dir, &dest, room)? {
+                    TreeCopy::Copied { used, left_out } => {
+                        left = left.less(used);
+                        trims.extend(left_out_trims(scope, name, &left_out));
+                    }
+                    TreeCopy::TooBig => {
+                        fs::create_dir(&dest)?;
+                        let kind = if room == own { TrimKind::TooLarge } else { TrimKind::NoRoom };
+                        trims.push(StagingTrim::of(scope, name, kind));
+                    }
+                    // Its reserved place stays unused: the view only ends up
+                    // smaller than it may be.
+                    TreeCopy::Gone => continue,
                 }
                 content
             }
             Source::Bundled(content) => {
-                fs::create_dir_all(&dest)?;
+                fs::create_dir(&dest)?;
                 content
             }
         };
@@ -158,39 +277,71 @@ pub(super) fn stage(
         write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
         staged.push(StagedSkill { name: name.clone(), content: content.to_string() });
     }
-    staged.sort_by(|a, b| a.name.cmp(&b.name));
     fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
     // An emptied library swaps in nothing, so yesterday's view goes with it.
     swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
-    if staged.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(SkillStagingDto {
+    let view = (!staged.is_empty()).then(|| SkillStagingDto {
         dir: final_dir.join("skills").to_string_lossy().into_owned(),
         skills: staged,
-    }))
+    });
+    Ok(StagingAnswer { view, trims })
 }
 
-/// The materialization source: a library skill carries its dir (copy_dir
-/// materializes assets) AND its collected content (the staged SKILL.md is
-/// written from the bytes read at collection); a bundled skill IS its
-/// constant — no dir, no vanish, unconditional.
+/// Every skill's place in the view before any skill's files: its folder and
+/// SKILL.md, in name order, while the view has room. A skill that finds none
+/// is omitted, and said; the rest share what is left for their files.
+fn reserve(sources: Vec<(String, Source)>, trims: &mut Vec<StagingTrim>) -> (Vec<(String, Source)>, Allowance) {
+    let mut left = VIEW_MAX;
+    let mut placed = Vec::with_capacity(sources.len());
+    for (name, source) in sources {
+        let bare = Allowance::bare(source.content());
+        if left.covers(bare) {
+            left = left.less(bare);
+            placed.push((name, source));
+        } else {
+            trims.push(StagingTrim::of(source.scope(), &name, TrimKind::Omitted));
+        }
+    }
+    (placed, left)
+}
+
+/// The materialization source: a library skill carries its dir (the tree
+/// copy materializes its files), its scope, AND its collected content (the
+/// staged SKILL.md is written from the bytes read at collection); a bundled
+/// skill IS its constant — no dir, no vanish, unconditional.
 pub(super) enum Source {
-    Library { dir: PathBuf, content: String },
+    Library { dir: PathBuf, content: String, scope: &'static str },
     Bundled(&'static str),
+}
+
+impl Source {
+    fn content(&self) -> &str {
+        match self {
+            Source::Library { content, .. } => content,
+            Source::Bundled(content) => content,
+        }
+    }
+
+    fn scope(&self) -> &'static str {
+        match self {
+            Source::Library { scope, .. } => scope,
+            Source::Bundled(_) => "bundled",
+        }
+    }
 }
 
 /// The workspace's effective skills — global first, workspace overrides by
 /// name — with each SKILL.md's content read up front. A skill whose file
-/// cannot be read (non-UTF-8, permissions) is SKIPPED with a warning, the
-/// same treatment `list()` gives it: one broken skill must not take the
-/// whole workspace's staging down.
+/// cannot be read (a link, no file, too large, non-UTF-8, permissions) is
+/// SKIPPED, the same treatment `list()` gives it, and said in `trims`: one
+/// broken skill must not take the whole workspace's staging down.
 fn collect_sources(
     library: &Path,
     ws_id: &str,
     tier: &[BundledSkill],
     claimed: bool,
     excluded: &[ExcludedSource],
+    trims: &mut Vec<StagingTrim>,
 ) -> Vec<(String, Source)> {
     let skip = |scope: &str, ws: Option<&str>, name: &str| {
         excluded.iter().any(|row| row.names(scope, ws, name))
@@ -241,14 +392,15 @@ fn collect_sources(
                 );
                 continue;
             }
-            let content = match fs::read_to_string(skill.join(SKILL_FILE)) {
-                Ok(content) => content,
-                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+            let content = match tree::read_skill_file(&skill) {
+                Ok(Some(content)) => content,
+                Ok(None) => continue,
                 Err(e) => {
                     log::warn!(
                         "skills: {} has an unreadable SKILL.md — skipped: {e}",
                         skill.display(),
                     );
+                    trims.push(StagingTrim::of(scope, &name, TrimKind::SkillFileUnreadable));
                     continue;
                 }
             };
@@ -258,6 +410,7 @@ fn collect_sources(
                 Source::Library {
                     dir: skill,
                     content,
+                    scope,
                 },
             ));
         }
@@ -284,39 +437,6 @@ fn swap_dir(tmp: &Path, final_dir: &Path, trash: &Path) -> io::Result<()> {
     }
     let _ = fs::remove_dir_all(trash);
     Ok(())
-}
-
-/// Copy a skill directory tree (assets included); `Ok(false)` = the whole
-/// source vanished mid-stage (a racing delete) and nothing was copied.
-/// Symlinks are followed — the library is KeepDeck-authored, a link is the
-/// author's own doing. `write_atomic`'s transient `SKILL.md.tmp` sibling is
-/// excluded, and an entry that vanishes mid-copy (that same transient being
-/// renamed away by a concurrent save) is skipped rather than failing the
-/// whole stage.
-fn copy_dir(from: &Path, to: &Path) -> io::Result<bool> {
-    fs::create_dir_all(to)?;
-    let entries = match fs::read_dir(from) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(e),
-    };
-    for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy() == "SKILL.md.tmp" {
-            continue;
-        }
-        let target = to.join(entry.file_name());
-        if entry.path().is_dir() {
-            let _ = copy_dir(&entry.path(), &target)?;
-        } else {
-            match fs::copy(entry.path(), &target) {
-                Err(e) if e.kind() == ErrorKind::NotFound => continue,
-                other => {
-                    other?;
-                }
-            }
-        }
-    }
-    Ok(true)
 }
 
 /// Drop the stagings of workspaces that no longer exist. `.tmp-<id>` /
@@ -366,7 +486,7 @@ mod tests {
         claimed: bool,
         excluded: &[ExcludedSource],
     ) -> Option<SkillStagingDto> {
-        stage(&SkillsLocks::default(), root, ws_id, tier, claimed, excluded).unwrap()
+        stage(&SkillsLocks::default(), root, ws_id, tier, claimed, excluded).unwrap().view
     }
 
     #[test]
@@ -423,8 +543,8 @@ mod tests {
             let a = std::sync::Arc::clone(&root);
             let b = std::sync::Arc::clone(&root);
             let (la, lb) = (locks.clone(), locks.clone());
-            let ta = std::thread::spawn(move || stage(&la, &a, "ws-1", &[], false, &[]).unwrap().unwrap());
-            let tb = std::thread::spawn(move || stage(&lb, &b, "ws-1", &[], false, &[]).unwrap().unwrap());
+            let ta = std::thread::spawn(move || stage(&la, &a, "ws-1", &[], false, &[]).unwrap().view.unwrap());
+            let tb = std::thread::spawn(move || stage(&lb, &b, "ws-1", &[], false, &[]).unwrap().view.unwrap());
             ta.join().unwrap();
             tb.join().unwrap();
             // Whatever the interleaving, the published staging is complete.
@@ -728,6 +848,180 @@ mod tests {
         let mut names: Vec<&str> = listed.iter().map(|s| s.name.as_str()).collect();
         names.sort();
         assert_eq!(names, vec!["broken", "fine"]);
+    }
+
+    // ---- what fits, and what is said ----
+
+    fn answer(root: &Path) -> StagingAnswer {
+        stage(&SkillsLocks::default(), root, "ws-1", &[], false, &[]).unwrap()
+    }
+
+    fn trim(scope: &'static str, skill: &str, kind: TrimKind) -> StagingTrim {
+        StagingTrim::of(scope, skill, kind)
+    }
+
+    /// A skill whose files take exactly what one skill may carry: its folder,
+    /// its SKILL.md and `SKILL_MAX.entries - 2` empty files.
+    fn full_skill(scope: &Path, name: &str) {
+        save(scope, name, &fm(name)).unwrap();
+        let files = scope.join(name).join("files");
+        fs::create_dir(&files).unwrap();
+        for n in 0..SKILL_MAX.entries - 3 {
+            fs::File::create(files.join(n.to_string())).unwrap();
+        }
+    }
+
+    /// Every directory and file under `dir`, the way a copy counts them.
+    fn entries_under(dir: &Path) -> usize {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                1 + if entry.file_type().unwrap().is_dir() { entries_under(&entry.path()) } else { 0 }
+            })
+            .sum()
+    }
+
+    #[test]
+    fn a_view_at_the_limit_of_a_copy_is_staged_whole() {
+        // Eight skills at their own limit fill a view to exactly what one
+        // copy may carry: nothing is trimmed, and a plugin's copy of it is
+        // not refused for its size.
+        let (_tmp, root) = root();
+        for n in 1..=8 {
+            full_skill(&global(&root), &format!("skill-{n}"));
+        }
+        let staged = answer(&root);
+        assert_eq!(staged.trims, vec![]);
+        let view = PathBuf::from(staged.view.unwrap().dir);
+        assert_eq!(entries_under(&view), crate::fs_beneath::COPY_MAX_ENTRIES);
+    }
+
+    #[test]
+    fn room_for_files_goes_in_name_order_and_the_one_it_runs_out_on_goes_bare() {
+        // Every skill's place is reserved first, so the late `z-small` still
+        // gets its file; the last full skill in NAME order — not in the order
+        // the scopes were read, workspace after global — finds the view full.
+        let (_tmp, root) = root();
+        full_skill(&ws(&root, "ws-1"), "a-workspace");
+        for n in 1..=7 {
+            full_skill(&global(&root), &format!("g-{n}"));
+        }
+        save(&global(&root), "z-small", &fm("small")).unwrap();
+        fs::write(global(&root).join("z-small").join("notes.txt"), "kept").unwrap();
+
+        let staged = answer(&root);
+
+        assert_eq!(staged.trims, vec![trim("global", "g-7", TrimKind::NoRoom)]);
+        let view = PathBuf::from(staged.view.unwrap().dir);
+        assert!(view.join("a-workspace").join("files").is_dir(), "the first in name order keeps its files");
+        assert!(view.join("g-6").join("files").is_dir());
+        assert!(!view.join("g-7").join("files").exists(), "the one the room ran out on goes bare");
+        assert!(view.join("g-7").join(SKILL_FILE).is_file());
+        assert_eq!(fs::read_to_string(view.join("z-small").join("notes.txt")).unwrap(), "kept");
+    }
+
+    #[test]
+    fn a_skill_larger_than_one_may_be_goes_as_its_skill_file_and_its_neighbours_keep_theirs() {
+        let (_tmp, root) = root();
+        save(&global(&root), "huge", &fm("huge")).unwrap();
+        fs::File::create(global(&root).join("huge").join("data.bin")).unwrap().set_len(SKILL_MAX.bytes).unwrap();
+        save(&global(&root), "small", &fm("small")).unwrap();
+        fs::write(global(&root).join("small").join("notes.txt"), "kept").unwrap();
+
+        let staged = answer(&root);
+
+        assert_eq!(staged.trims, vec![trim("global", "huge", TrimKind::TooLarge)]);
+        let view = PathBuf::from(staged.view.unwrap().dir);
+        assert_eq!(fs::read_to_string(view.join("huge").join(SKILL_FILE)).unwrap(), fm("huge"));
+        assert!(!view.join("huge").join("data.bin").exists());
+        assert_eq!(fs::read_to_string(view.join("small").join("notes.txt")).unwrap(), "kept");
+    }
+
+    #[test]
+    fn a_skill_with_no_room_even_for_its_skill_file_is_omitted_and_said() {
+        // Over five thousand bare skills cannot all have a place: the ones
+        // past the view's limit, in name order, are not handed at all — never
+        // handed a truncated SKILL.md.
+        let skills: Vec<(String, Source)> =
+            (0..=VIEW_MAX.entries / 2).map(|n| (format!("s{n:05}"), Source::Bundled("x"))).collect();
+        let mut trims = Vec::new();
+        let (placed, left) = reserve(skills, &mut trims);
+        assert_eq!(placed.len(), VIEW_MAX.entries / 2);
+        assert_eq!(left.entries, 0);
+        assert_eq!(trims, vec![trim("bundled", &format!("s{:05}", VIEW_MAX.entries / 2), TrimKind::Omitted)]);
+    }
+
+    #[test]
+    fn what_a_copy_left_out_of_a_skill_is_said_once_per_kind_with_the_first_path() {
+        let (tmp, root) = root();
+        save(&global(&root), "review", &fm("review")).unwrap();
+        let skill = global(&root).join("review");
+        std::os::unix::fs::symlink(tmp.path(), skill.join("a-out")).unwrap();
+        std::os::unix::fs::symlink("/etc", skill.join("b-out")).unwrap();
+        std::os::unix::fs::symlink("nowhere", skill.join("dangling")).unwrap();
+
+        let staged = answer(&root);
+
+        assert_eq!(
+            staged.trims,
+            vec![
+                StagingTrim { path: Some("a-out".into()), count: 2, ..trim("global", "review", TrimKind::LinkOut) },
+                StagingTrim { path: Some("dangling".into()), ..trim("global", "review", TrimKind::LinkDangles) },
+            ]
+        );
+        // The skill itself is handed out, without what was left out of it.
+        let view = PathBuf::from(staged.view.unwrap().dir);
+        assert!(view.join("review").join(SKILL_FILE).is_file());
+        assert!(!view.join("review").join("a-out").exists());
+    }
+
+    #[test]
+    fn a_skill_file_that_is_a_fifo_neither_hangs_the_list_nor_the_stage() {
+        let (_tmp, root) = root();
+        save(&global(&root), "fine", &fm("fine")).unwrap();
+        let piped = global(&root).join("piped");
+        fs::create_dir_all(&piped).unwrap();
+        let fifo = std::ffi::CString::new(piped.join(SKILL_FILE).as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a NUL-terminated path alive for the call.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+
+        let (done, finished) = std::sync::mpsc::channel();
+        let at = root.clone();
+        std::thread::spawn(move || done.send((list(&at, &[]).unwrap(), answer(&at))).unwrap());
+        let (listed, staged) = finished.recv_timeout(std::time::Duration::from_secs(5)).expect("a FIFO hung the read");
+
+        assert_eq!(listed.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["fine"]);
+        assert_eq!(staged.trims, vec![trim("global", "piped", TrimKind::SkillFileUnreadable)]);
+        let names: Vec<String> = staged.view.unwrap().skills.into_iter().map(|s| s.name).collect();
+        assert_eq!(names, ["fine"]);
+    }
+
+    #[test]
+    fn the_answer_on_the_wire_is_the_shape_the_webview_reads() {
+        let answer = StagingAnswer {
+            view: Some(SkillStagingDto { dir: "/v".into(), skills: vec![StagedSkill { name: "a".into(), content: "c".into() }] }),
+            trims: vec![
+                StagingTrim { path: Some("lib/x".into()), count: 2, ..trim("workspace", "a", TrimKind::LinkOut) },
+                trim("global", "b", TrimKind::SkillFileUnreadable),
+                trim("global", "c", TrimKind::TooLarge),
+                trim("global", "d", TrimKind::NoRoom),
+            ],
+        };
+        assert_eq!(
+            serde_json::to_value(&answer).unwrap(),
+            serde_json::json!({
+                "view": { "dir": "/v", "skills": [{ "name": "a", "content": "c" }] },
+                "trims": [
+                    { "scope": "workspace", "skill": "a", "kind": "link-out", "path": "lib/x", "count": 2 },
+                    { "scope": "global", "skill": "b", "kind": "skill-file-unreadable", "path": null, "count": 1 },
+                    { "scope": "global", "skill": "c", "kind": "too-large", "path": null, "count": 1 },
+                    { "scope": "global", "skill": "d", "kind": "no-room", "path": null, "count": 1 },
+                ],
+            })
+        );
+        let empty = StagingAnswer { view: None, trims: vec![] };
+        assert_eq!(serde_json::to_value(&empty).unwrap(), serde_json::json!({ "view": null, "trims": [] }));
     }
 
     #[test]

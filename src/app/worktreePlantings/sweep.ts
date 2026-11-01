@@ -1,5 +1,4 @@
 /** The feature cleanup pass, composed beside the two planting adapters. */
-import { pruneSkills } from "../../ipc/skills";
 import { pruneMcpLibrary } from "../../ipc/mcpLibrary";
 import { cwdArmPrune } from "../../ipc/cwdArm";
 import type {
@@ -13,6 +12,7 @@ export function createSweep(
   deck: WorktreeDeckView,
   inOrder: InOrder,
   disarm: (roots: string[]) => Promise<string[] | null>,
+  pruneSkills: (liveWsIds: string[]) => Promise<boolean>,
   prunePluginDirs: (liveWsIds: readonly string[]) => Promise<boolean>,
 ): WorktreeHousekeeping {
   let swept: LiveWorkspace[] | null = null;

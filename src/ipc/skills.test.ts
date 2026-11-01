@@ -108,9 +108,11 @@ describe("the skills invoke-key contract", () => {
     });
   });
 
-  it("stage degrades on a backend error; prune stays silent and says so", async () => {
+  it("a failed stage THROWS — it is not 'no skills'; prune stays silent and says so", async () => {
+    // Read as null, a failure looked like an empty library and was remembered
+    // as one until the user edited a skill (task-568).
     tauri.invoke.mockRejectedValue(new Error("boom"));
-    expect(await stageSkills("ws-1", [])).toBeNull();
+    await expect(stageSkills("ws-1", [])).rejects.toThrow("boom");
     expect(await pruneSkills(["ws-1"])).toBe(false);
   });
 
@@ -213,24 +215,28 @@ describe("the bundled scope at the IPC boundary", () => {
   });
 });
 
-describe("the stage wire is untouched by refusals", () => {
-  it("skills_stage still answers with VIEWS ONLY", async () => {
+describe("the stage wire keeps its views apart from its report", () => {
+  it("skills_stage answers the views, exactly their shape, beside what it trimmed", async () => {
     // THE SEAM PIN. `StagedSkillsViews` in spawnSpecs/plan.ts is a
-    // structural copy of this shape, and a structural copy does not break
-    // when the original grows — it just silently stops carrying the new
-    // field. So refusals ride their own command and never a byte of this
-    // one: the seam is never asked to carry what it cannot.
+    // structural copy of the views' shape, and a structural copy does not
+    // break when the original grows — it just silently stops carrying the
+    // new field. So the views keep exactly `dir` and `skills`, and what the
+    // stage could not hand out whole rides BESIDE them, never inside: the
+    // seam is never asked to carry what it cannot.
+    const trim = { scope: "global", skill: "a", kind: "link-out", path: "lib", count: 1 };
     tauri.invoke.mockResolvedValueOnce({
-      dir: "/s",
-      skills: [{ name: "a", content: "---\ndescription: a\n---\n" }],
+      view: { dir: "/s", skills: [{ name: "a", content: "---\ndescription: a\n---\n" }] },
+      trims: [trim],
     });
 
-    const views = await stageSkills("ws-1", []);
+    const stage = await stageSkills("ws-1", []);
 
     expect(tauri.invoke).toHaveBeenCalledWith("skills_stage", {
       wsId: "ws-1",
       excluded: [],
     });
-    expect(views && Object.keys(views).sort()).toEqual(["dir", "skills"]);
+    expect(Object.keys(stage).sort()).toEqual(["trims", "view"]);
+    expect(stage.view && Object.keys(stage.view).sort()).toEqual(["dir", "skills"]);
+    expect(stage.trims).toEqual([trim]);
   });
 });

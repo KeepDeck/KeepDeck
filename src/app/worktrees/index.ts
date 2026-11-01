@@ -125,16 +125,16 @@ export interface WorktreeProvisioner {
   clearPostProvision(ownerId: string): void;
   /**
    * The workspace's staged shared skills, ready for a spawn plan. `null` =
-   * nothing to inject (an empty library, or a staging that failed and was
-   * degraded by the IPC layer): panes then spawn without skills rather than
-   * re-hitting a broken backend.
+   * nothing to inject: an empty library, or a staging that failed — the pane
+   * then spawns without skills.
    *
    * Memoized per workspace INSTANCE: staging rebuilds the on-disk views from
    * the library, so it runs once and every later pane spawn in that workspace
-   * reuses the promise until the library moves. Ids may be reused after a
-   * close, instances never are, so a reborn id cannot be served a dead
-   * lifetime's promise (whose dirs the sweep may have deleted). The DISK key
-   * stays the durable id.
+   * reuses the promise until the library moves. A FAILED staging is not
+   * memoized: it says nothing about the library, so the next spawn stages
+   * again. Ids may be reused after a close, instances never are, so a reborn
+   * id cannot be served a dead lifetime's promise (whose dirs the sweep may
+   * have deleted). The DISK key stays the durable id.
    */
   skillsFor(workspace: WorkspaceRef): Promise<WorktreeSkillViews | null>;
   /**
@@ -225,7 +225,12 @@ export interface WorktreePlantingFactories {
 }
 
 export type WorktreeSkillsPlanting = Pick<WorktreeProvisioner, "skillsFor"> &
-  SkillsInvalidation;
+  SkillsInvalidation & {
+    /** Drop the staged views of every workspace not in `liveWsIds`, and what
+     * was said about them; false when the views could not be dropped (the
+     * sweep tries again). */
+    pruneSkills(liveWsIds: string[]): Promise<boolean>;
+  };
 
 export interface WorktreePlantings
   extends Pick<WorktreeProvisioner, "skillsFor">,

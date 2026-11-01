@@ -12,6 +12,7 @@ import {
   type DeckEntry,
   type WorktreeManager,
 } from "./testSupport";
+import { createStagingTrimStore, type StagingTrimStore } from "../stagingTrims";
 
 let deck: DeckEntry[] = [];
 let manager: WorktreeManager;
@@ -58,10 +59,34 @@ describe("skillsFor", () => {
     ]);
   });
 
-  it("stages nothing when the library cannot be read to judge it", async () => {
-    skills.fetchSkills.mockRejectedValue(new Error("unreadable"));
+  it("stages nothing when the library cannot be read to judge it — and asks again next time", async () => {
+    skills.fetchSkills.mockRejectedValueOnce(new Error("unreadable"));
     expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
     expect(skills.stageSkills).not.toHaveBeenCalled();
+
+    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not remember a failed stage: the next spawn stages again, and keeps what it gets", async () => {
+    // One transient error used to cost every later pane in the workspace its
+    // skills until the user happened to edit one (task-568).
+    skills.stageSkills.mockRejectedValueOnce(new Error("disk full"));
+    expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
+
+    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
+  });
+
+  it("concurrent callers of a stage that fails all get none, and the next one stages again", async () => {
+    skills.stageSkills.mockRejectedValueOnce(new Error("disk full"));
+    const [a, b] = await Promise.all([manager.skillsFor(ref("ws-1")), manager.skillsFor(ref("ws-1"))]);
+    expect([a, b]).toEqual([null, null]);
+    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
+
+    await manager.skillsFor(ref("ws-1"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
   });
 
   it("re-stages after a library edit invalidates the memo", async () => {
@@ -72,10 +97,71 @@ describe("skillsFor", () => {
   });
 
   it("remembers an empty result — panes must not re-stage per spawn", async () => {
-    skills.stageSkills.mockResolvedValue(null);
+    skills.stageSkills.mockResolvedValue({ view: null, trims: [] });
     expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
     expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
     expect(skills.stageSkills).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("what staging could not hand out whole", () => {
+  const linkOut = { scope: "global" as const, skill: "review", kind: "link-out" as const, path: "lib", count: 1 };
+  let trims: StagingTrimStore;
+
+  beforeEach(() => {
+    trims = createStagingTrimStore();
+    manager = managerFor(() => deck, trims);
+  });
+
+  it("is said under the workspace that staged it, and only beside the views", async () => {
+    skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
+    // The spawn is handed the views alone.
+    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+    expect(trims.get()).toEqual([{ ...linkOut, workspaceId: "ws-1", workspaceName: "name of ws-1" }]);
+  });
+
+  it("is replaced by the workspace's next stage — a fixed skill leaves the list", async () => {
+    skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
+    await manager.skillsFor(ref("ws-1"));
+    manager.invalidateSkills();
+    expect(trims.get()).toEqual([]);
+
+    await manager.skillsFor(ref("ws-1"));
+    expect(trims.get()).toEqual([]);
+  });
+
+  it("is not said by a stage asked for before the library moved", async () => {
+    let answer!: (value: unknown) => void;
+    skills.stageSkills.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    const staging = manager.skillsFor(ref("ws-1"));
+    await vi.waitFor(() => expect(skills.stageSkills).toHaveBeenCalled());
+
+    manager.invalidateSkills();
+    answer({ view: stagedFor("ws-1"), trims: [linkOut] });
+    await staging;
+
+    expect(trims.get()).toEqual([]);
+  });
+
+  it("survives a failed stage — a failure says nothing about the library", async () => {
+    skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
+    await manager.skillsFor(ref("ws-1", "life-1"));
+    skills.stageSkills.mockRejectedValueOnce(new Error("disk full"));
+    await manager.skillsFor(ref("ws-1", "life-2"));
+    expect(trims.get()).toHaveLength(1);
+  });
+
+  it("is forgotten with a workspace that is gone", async () => {
+    deck = [{ id: "ws-1", roots: ["/a"] }, { id: "ws-2", roots: ["/b"] }];
+    skills.stageSkills.mockImplementation(async (wsId: string) => ({ view: stagedFor(wsId), trims: [linkOut] }));
+    await manager.skillsFor(ref("ws-1"));
+    await manager.skillsFor(ref("ws-2"));
+    await manager.sweep(true);
+    expect(trims.get().map((trim) => trim.workspaceId)).toEqual(["ws-1", "ws-2"]);
+
+    deck = [{ id: "ws-2", roots: ["/b"] }];
+    await manager.sweep(true);
+    expect(trims.get().map((trim) => trim.workspaceId)).toEqual(["ws-2"]);
   });
 });
 
