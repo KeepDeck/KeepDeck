@@ -7,6 +7,18 @@ import {
 
 const BRIDGE = { dir: "/run/p-1", pane: "p-1", token: "secret", url: "http://127.0.0.1:9/envelope" };
 
+/**
+ * The next queued answer; a test that posts more than it queued fails here.
+ * @template T
+ * @param {T[]} queue
+ * @returns {T}
+ */
+function next(queue) {
+  const value = queue.shift();
+  if (value === undefined) throw new Error("more posts than answers queued");
+  return value;
+}
+
 describe("parseBridge", () => {
   it("reads the four fields a pane is armed with", () => {
     expect(parseBridge(JSON.stringify({ ...BRIDGE, v: 2 }))).toEqual(BRIDGE);
@@ -22,6 +34,7 @@ describe("parseBridge", () => {
 });
 
 describe("createWire", () => {
+  /** @param {import("../resources/reporters/keepdeck-wire.js").Post} post */
   const wireWith = (post) => createWire({ bridge: BRIDGE, agent: "claude", reporter: "42", post });
 
   it("addresses every envelope to the pane, with who is reporting", () => {
@@ -36,6 +49,7 @@ describe("createWire", () => {
   });
 
   it("answers only what a 200 carried, and whether the deck took it at all", async () => {
+    /** @type {[string, unknown][]} */
     const sent = [];
     const answers = [
       { status: 200, body: "mail" },
@@ -46,7 +60,7 @@ describe("createWire", () => {
     ];
     const wire = wireWith(async (url, body) => {
       sent.push([url, JSON.parse(body)]);
-      return answers.shift();
+      return next(answers);
     });
     const envelope = wire.makeEnvelope("agent.status", {});
     expect(await wire.send(envelope)).toEqual({ answer: "mail", accepted: true });
@@ -69,7 +83,7 @@ describe("createWire", () => {
 
   it("tells a publisher what its own envelope got, in its turn", async () => {
     const answers = [{ status: 403, body: "" }, { status: 204, body: "" }];
-    const wire = wireWith(async () => answers.shift());
+    const wire = wireWith(async () => next(answers));
     const first = wire.publish(wire.makeEnvelope("companion.hello", {}));
     const second = wire.publish(wire.makeEnvelope("agent.status", {}));
     expect(await first).toEqual({ answer: null, accepted: false });
@@ -77,7 +91,9 @@ describe("createWire", () => {
   });
 
   it("publishes facts one after another, in the order they were stated, past a failure", async () => {
+    /** @type {string[]} */
     const order = [];
+    /** @type {(() => void)[]} */
     const releases = [];
     const wire = wireWith(
       (_url, body) =>

@@ -64,13 +64,13 @@ describe("reporter shell scripts", () => {
     // any later comparison someone adds above it and silently start
     // asserting the wrong number.
     const threshold = script.match(/"\$bytes"\s+-gt\s+(\d+)/);
-    expect(threshold, "no byte threshold found in the reporter").not.toBeNull();
+    if (threshold === null) throw new Error("no byte threshold found in the reporter");
 
     // The cap lives with the composition that enforces it, not with the wire
     // types — see the split in src-tauri/src/bridge/.
     const bridge = readFileSync("src-tauri/src/bridge/mod.rs", "utf8");
     const cap = bridge.match(/MAX_ENVELOPE_BYTES[^=]*=\s*([0-9*\s]+);/);
-    expect(cap, "no MAX_ENVELOPE_BYTES found in the bridge").not.toBeNull();
+    if (cap === null) throw new Error("no MAX_ENVELOPE_BYTES found in the bridge");
     const capBytes = cap[1]
       .split("*")
       .reduce((product, part) => product * Number(part.trim()), 1);
@@ -126,18 +126,18 @@ describe("reporter shell scripts", () => {
     // Two asks, one per channel: the default at a turn's edges, and the one
     // after a tool call mid-turn. Each must be a name the renderer declares.
     const edge = asker.match(/async \(target, type = "([^"]+)"\)/);
-    expect(edge, "no default ask type in the courier").not.toBeNull();
+    if (edge === null) throw new Error("no default ask type in the courier");
     expect(renderer).toContain(`MAIL_ASK_EVENT = "${edge[1]}"`);
     const tool = courier.match(/"tool\.execute\.after"[\s\S]*?await ask\([^,]+, "([^"]+)"\)/);
-    expect(tool, "no ask after a tool call in the courier").not.toBeNull();
+    if (tool === null) throw new Error("no ask after a tool call in the courier");
     expect(renderer).toContain(`MAIL_TOOL_ASK_EVENT = "${tool[1]}"`);
 
     const courierVersion = asker.match(/REPLY_VERSION\s*=\s*(\d+)/);
-    expect(courierVersion, "no REPLY_VERSION in the courier").not.toBeNull();
+    if (courierVersion === null) throw new Error("no REPLY_VERSION in the courier");
     // Both numbers read out, then compared — a `toContain` on the rendered
     // text would pass with the courier at 1 and the renderer at 10.
     const rendererVersion = renderer.match(/MAIL_REPLY_VERSION\s*=\s*(\d+)/);
-    expect(rendererVersion, "no MAIL_REPLY_VERSION in the renderer").not.toBeNull();
+    if (rendererVersion === null) throw new Error("no MAIL_REPLY_VERSION in the renderer");
     expect(rendererVersion[1]).toBe(courierVersion[1]);
   });
 

@@ -29,7 +29,9 @@ const MANIFESTS = readdirSync(PLUGINS, { withFileTypes: true })
 
 /** What a cross-check reads of a plugin: every shipped `.ts`/`.tsx` under
  * its `src/`, as text, tests excluded — a test file mentioning a symbol is
- * not the plugin using it. One walk, because three checks each spelled it. */
+ * not the plugin using it. One walk, because three checks each spelled it.
+ * @param {string} manifestPath
+ * @returns {string[]} */
 function pluginSources(manifestPath) {
   const src = join(dirname(manifestPath), "src");
   return readdirSync(src, { withFileTypes: true, recursive: true })
@@ -108,7 +110,7 @@ describe("built-in plugin manifests", () => {
       const { id, contributes } = JSON.parse(readFileSync(path, "utf8"));
       const rendersMail = pluginSources(path).some((text) => MAIL_SURFACE.test(text));
       for (const agent of contributes?.agents ?? []) {
-        const ids = new Set((agent.features ?? []).map((feature) => feature.id));
+        const ids = new Set((agent.features ?? []).map((/** @type {{ id: string }} */ feature) => feature.id));
         expect(
           ids.has("mail.turn-end"),
           `${path} (${id}/${agent.id}) ${rendersMail ? "renders mail but does not declare mail.turn-end" : "declares mail.turn-end with no renderer"}`,

@@ -59,7 +59,9 @@ export const REPORTERS = [
 
 /** The banner a copy carries and the canonical file does not — it is the only
  * difference between them, and it is what a reader who opens the wrong file
- * needs to see first. Sits under the shebang, which must stay line 1. */
+ * needs to see first. Sits under the shebang, which must stay line 1.
+ * @param {string} name
+ * @param {string} comment the comment leader of the reporter's language */
 function banner(name, comment) {
   return [
     `${comment} GENERATED from resources/reporters/${name} — do not edit this copy.`,
@@ -77,6 +79,9 @@ function banner(name, comment) {
  * Expanding at generation time keeps ONE authored copy of a block three
  * reporters need — how a process names itself — without teaching the shipped
  * scripts a dependency they cannot resolve.
+ *
+ * @param {string} text
+ * @param {string} name
  */
 function expandIncludes(text, name) {
   return text.replace(/^# @include (\S+)[ \t]*$/gm, (_line, target) => {
@@ -87,7 +92,8 @@ function expandIncludes(text, name) {
   });
 }
 
-/** Exactly what each destination must contain. */
+/** Exactly what each destination must contain.
+ * @param {string} name */
 export function rendered(name) {
   const source = readFileSync(join(CANONICAL_DIR, name), "utf8");
   // A module has no interpreter line to protect and shares nothing by

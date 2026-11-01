@@ -3,7 +3,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** fast-import's `data` command: the exact byte count, then the bytes. */
+/**
+ * fast-import's `data` command: the exact byte count, then the bytes.
+ * @param {string} text
+ * @returns {[string, string]}
+ */
 const data = (text) => [`data ${Buffer.byteLength(text)}`, text];
 
 /**
@@ -19,10 +23,23 @@ const data = (text) => [`data ${Buffer.byteLength(text)}`, text];
  * the side commit's own file, and the `side` branch stays behind. The
  * scripts read subjects, parents and the version files, never a merge's
  * whole tree or the branch list.
+ *
+ * @typedef {{ subject: string, files?: Record<string, string>, merge?: boolean }} GitStep
+ * @param {GitStep[]} history
+ * @returns {string} the repository's directory
  */
 export function gitRepo(history) {
+  /** @type {string[]} */
   const stream = [];
   let mark = 0;
+  /**
+   * @param {string} ref
+   * @param {string} subject
+   * @param {Record<string, string>} files
+   * @param {number | null} [from] the mark of the first parent, if any
+   * @param {number | null} [merge] the mark of the merged side commit, if any
+   * @returns {number} this commit's mark
+   */
   const commit = (ref, subject, files, from, merge) => {
     mark += 1;
     stream.push(
@@ -39,6 +56,7 @@ export function gitRepo(history) {
     return mark;
   };
 
+  /** @type {number | null} */
   let main = null;
   for (const { subject, files = {}, merge = false } of history) {
     const side = merge

@@ -39,6 +39,7 @@ const REPORTER = "plugins/opencode/src/sessionReporter.test.ts";
 const seed = process.env.Q1_SEED ?? "85";
 const reps = Number(process.env.Q1_REPS ?? "20");
 const only = new Set(process.argv.slice(2).map((s) => s.toUpperCase()));
+/** @param {string} probe */
 const wants = (probe) => only.size === 0 || only.has(probe);
 
 const outDir = join(".agents", "q1", new Date().toISOString().replace(/[:.]/g, "-"));
@@ -49,7 +50,13 @@ console.log(
   `q1-diagnose · node ${process.version} · ${vitest} · seed ${seed} (shuffled cells only) · logs in ${outDir}`,
 );
 
-/** One vitest run; prints one line and keeps the whole output. */
+/**
+ * One vitest run; prints one line and keeps the whole output.
+ * @param {string} label
+ * @param {string[]} files
+ * @param {string[]} flags
+ * @returns {number | null} vitest's exit status
+ */
 function run(label, files, flags) {
   const argv = ["vitest", "run", ...files, ...flags];
   const started = Date.now();

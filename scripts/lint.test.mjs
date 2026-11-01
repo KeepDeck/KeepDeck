@@ -189,7 +189,9 @@ describe("the linter", () => {
   });
 
   it("checks every plugin resource JS with @ts-check", () => {
+    /** @type {string[]} */
     const files = [];
+    /** @param {string} dir */
     const walk = (dir) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);
@@ -239,6 +241,7 @@ describe("the linter", () => {
       "export const tail = /\\.kimi-code\\//;",
       "",
     ].join("\n");
+    /** @param {import("eslint").ESLint.LintResult} result */
     const rule = (result) => result.messages.filter((message) => message.ruleId === "keepdeck/no-cli-names");
     const [src] = await eslint.lintText(leak, { filePath: join(REPO, "src/lint-probe.ts") });
     expect(rule(src).map((message) => message.line)).toEqual([2, 3, 3, 5]);
@@ -257,6 +260,7 @@ describe("the linter", () => {
     // The deck migration is exempt for the one claude it names, for good.
     const filePath = join(REPO, "src/domain/migrations/migrations.ts");
     const source = readFileSync(filePath, "utf8");
+    /** @param {string} text */
     const messages = async (text) =>
       (await eslint.lintText(text, { filePath }))[0].messages
         .filter((message) => message.ruleId === "keepdeck/no-cli-names")
@@ -273,6 +277,7 @@ describe("the linter", () => {
   });
 
   it("holds every plain JavaScript file to the recommended rules and to the globals of the runtime it runs in", async () => {
+    /** @param {string} file @param {string} text */
     const rules = async (file, text) =>
       (await eslint.lintText(text, { filePath: join(REPO, file) }))[0].messages.map((m) => m.ruleId);
     const NODE = "scripts/lint-probe.mjs";

@@ -38,6 +38,10 @@ const ROOTS = [
 const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|rs|sh|css|json|md)$/;
 const SKIP = new Set(["node_modules", "dist", "target", "gen", ".git"]);
 
+/**
+ * @param {string} dir
+ * @returns {Generator<string>}
+ */
 function* sources(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (SKIP.has(entry.name)) continue;

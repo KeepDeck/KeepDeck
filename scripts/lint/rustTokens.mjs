@@ -63,6 +63,7 @@ function lex(source) {
   const tokens = [];
   let i = 0;
   let line = 1;
+  /** @param {number} to */
   const advance = (to) => {
     for (; i < to; i += 1) if (source[i] === "\n") line += 1;
   };
