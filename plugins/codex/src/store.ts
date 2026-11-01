@@ -152,18 +152,27 @@ export async function findRollout(
   ctx: StorePorts,
   sessionId: string,
 ): Promise<string | null> {
-  let found: string | null = null;
+  const found: { entry: FsEntry | null } = { entry: null };
   try {
     await walkRollouts(ctx, {
+      // The partition that first holds the session decides — the walk
+      // reaches the newest first — and within it, its newest file: a
+      // reverted thread's earlier segment sits beside the one being written.
       file: (entry, name) => {
-        if (name.sessionId === sessionId && !name.compressed && found === null) found = entry.path;
+        if (name.sessionId === sessionId && !name.compressed) found.entry = newerOf(found.entry, entry);
       },
-      stop: () => found !== null,
+      stop: () => found.entry !== null,
     });
   } catch {
     return null;
   }
-  return found;
+  return found.entry?.path ?? null;
+}
+
+/** Of two files of one session, the one written last — the session as it
+ * stands. One rule for the tail's lookup and the history's listing. */
+export function newerOf(held: FsEntry | null | undefined, entry: FsEntry): FsEntry {
+  return !held || (entry.mtime ?? 0) > (held.mtime ?? 0) ? entry : held;
 }
 
 /**

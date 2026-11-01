@@ -100,15 +100,18 @@ describe("codex history", () => {
     const old = `rollout-2026-07-01T10-00-00-${SID}.jsonl`;
     const reverted = `rollout-2026-07-19T16-27-47-${SID}_019f7af5-0000-7000-8000-000000000001.jsonl`;
     const compressed = `rollout-2026-07-02T10-00-00-${OLD}.jsonl.zst`;
+    const resumed = `rollout-2026-07-01T12-00-00-${SID}.jsonl`;
     const history = codexHistory(
       ctx({}, {
         "~/.codex/sessions": [{ name: "2026", path: "/s/2026", kind: "dir" }],
         "/s/2026": [{ name: "07", path: "/s/2026/07", kind: "dir" }],
         "/s/2026/07": [{ name: "01", path: "/s/2026/07/01", kind: "dir" }],
-        // The newest file listed FIRST: whichever comes last must not win.
+        // The newest file listed in the MIDDLE: neither first-wins nor
+        // last-wins picks it — only its mtime does.
         "/s/2026/07/01": [
-          { name: reverted, path: `/s/2026/07/01/${reverted}`, kind: "file", size: 5, mtime: 9 },
           { name: old, path: `/s/2026/07/01/${old}`, kind: "file", size: 3, mtime: 1 },
+          { name: reverted, path: `/s/2026/07/01/${reverted}`, kind: "file", size: 5, mtime: 9 },
+          { name: resumed, path: `/s/2026/07/01/${resumed}`, kind: "file", size: 4, mtime: 3 },
           { name: compressed, path: `/s/2026/07/01/${compressed}`, kind: "file", size: 2, mtime: 4 },
         ],
       }),

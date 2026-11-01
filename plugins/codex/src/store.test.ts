@@ -147,6 +147,19 @@ describe("findRollout", () => {
     await expect(findRollout(onlyCompressed, SID)).resolves.toBeNull();
   });
 
+  it("takes the session's newest file in its newest day — a reverted thread's live segment, not its earlier one", async () => {
+    const earlier = `rollout-2026-07-18T01-00-00-${SID}_019f7700-0000-7000-8000-00000000000e.jsonl`;
+    const live = `rollout-2026-07-18T05-00-00-${SID}_${SEGMENT}.jsonl`;
+    for (const listing of [[earlier, live], [live, earlier]]) {
+      const ctx = storeOf(
+        { [ROOT]: [], [`${ROOT}/2026`]: [], [`${ROOT}/2026/07`]: [], [`${ROOT}/2026/07/18`]: listing },
+        [],
+        { [earlier]: 1_000, [live]: 2_000 },
+      );
+      await expect(findRollout(ctx, SID), listing.join(", ")).resolves.toBe(`${ROOT}/2026/07/18/${live}`);
+    }
+  });
+
   it("answers null for a session that has written nothing yet", async () => {
     // Ordinary rather than an error: codex writes the rollout when the first
     // turn lands, so a pane that has reported its id but not worked has no

@@ -18,7 +18,7 @@ import {
   type SessionDialect,
 } from "@keepdeck/plugin-api";
 import { historyBaseOf, lineageOf, type HistoryBase } from "./lineage";
-import { findRolloutById, walkRollouts, type StorePorts } from "./store";
+import { findRolloutById, newerOf, walkRollouts, type StorePorts } from "./store";
 
 /**
  * Discovery over codex's store ([F8] browser): date-partitioned rollouts at
@@ -147,8 +147,7 @@ export function codexHistory(ctx: HistoryPorts): AgentHistory {
       const newest = new Map<string, FsEntry>();
       await walkRollouts(ctx, {
         file: (entry, name) => {
-          const held = newest.get(name.sessionId);
-          if (!held || (entry.mtime ?? 0) > (held.mtime ?? 0)) newest.set(name.sessionId, entry);
+          newest.set(name.sessionId, newerOf(newest.get(name.sessionId), entry));
         },
         unreadable,
       });
