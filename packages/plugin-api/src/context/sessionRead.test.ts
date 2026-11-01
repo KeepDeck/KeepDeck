@@ -241,6 +241,19 @@ describe("jsonl reader", () => {
     expect(outcome.stopped).toBe("changed");
   });
 
+  it("asks the host to inflate every window — a store an agent compressed is still its store", async () => {
+    // codex compresses old rollouts (task-418); the host reads a zstd file
+    // as the text it holds, and a plain one as it is.
+    const fs = fakeFs({ "/s.jsonl": store(3) });
+    const asked: unknown[] = [];
+    const spying: PluginFs = { ...fs, readFile: (path, opts) => (asked.push(opts), fs.readFile(path, opts)) };
+
+    await readAll(spying, "/s.jsonl");
+
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked).toEqual(asked.map(() => expect.objectContaining({ inflate: true })));
+  });
+
   it("reports a window that is not text as unreadable, not as the end", async () => {
     // `exhausted` would claim the conversation ended here; it did not — we
     // simply cannot read further.

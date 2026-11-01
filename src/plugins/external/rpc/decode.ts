@@ -371,6 +371,7 @@ export function decodeReadFileOptions(value: unknown): FsReadFileOptions | undef
   return {
     ...(v.maxBytes !== undefined ? { maxBytes: num(v.maxBytes, "read-file maxBytes") } : {}),
     ...(v.offset !== undefined ? { offset: num(v.offset, "read-file offset") } : {}),
+    ...(v.inflate !== undefined ? { inflate: bool(v.inflate, "read-file inflate") } : {}),
   };
 }
 

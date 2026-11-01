@@ -480,6 +480,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
           scope === "everywhere",
           opts?.maxBytes,
           opts?.offset,
+          opts?.inflate,
         ),
       watch: (path, scope, onChange) => watchProjectDir(path, scope, onChange),
     },

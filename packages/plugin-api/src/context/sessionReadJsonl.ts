@@ -149,6 +149,8 @@ export function createJsonlReader<Item>(
         const file = await fs.readFile(request.path, {
           maxBytes: Math.min(CHUNK_BYTES, left, (request.until ?? Infinity) - at),
           offset: at,
+          // A store an agent compressed is still its store (task-418).
+          inflate: true,
         });
         sourceBytes = request.until ?? file.size;
 

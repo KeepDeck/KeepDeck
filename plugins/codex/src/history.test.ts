@@ -191,10 +191,12 @@ describe("codex history", () => {
     });
   });
 
-  it("describes a compressed rollout as read NOTHING — so the index keeps what it knew", async () => {
-    // zstd's magic and a frame: not text, not a byte of it readable here.
-    // An empty describe would read as "a session with nothing in it"; the
-    // bytes mark at zero is what keeps the indexed facts (task-417).
+  it("describes a rollout it cannot read as read NOTHING — so the index keeps what it knew", async () => {
+    // A compressed rollout the host cannot inflate — a corrupt frame, a host
+    // that predates task-418 — is not text, and not a byte of it is read
+    // (this fake fs inflates nothing). An empty describe would read as "a
+    // session with nothing in it"; the bytes mark at zero is what keeps the
+    // indexed facts (task-417).
     const zst = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x58, 0x01, 0x00, 0x00, 0x7b]);
     const history = codexHistory(ctx({ "/r.jsonl.zst": zst }, {}));
     expect(await history.describe("/r.jsonl.zst")).toEqual({
