@@ -78,4 +78,19 @@ describe("lineageOf", () => {
     ]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("twice"));
   });
+
+  it("counts the session it starts from as seen — a loop back to it reads it once", async () => {
+    // A forked from B, B "forked" from A: without A counted, A's own file
+    // would be read twice and its inherited prefix shown twice.
+    const files = {
+      "/a.jsonl": meta(A, { thread_id: B, end_byte_offset: 5 }),
+      "/b.jsonl": meta(B, { thread_id: A, end_byte_offset: 5 }),
+    };
+    const { ports: p, warn } = ports(files);
+    expect(await lineageOf(p, "/a.jsonl", { rolloutId: B, endByte: 5 }, A)).toEqual([
+      { path: "/b.jsonl", until: 5 },
+      { path: "/a.jsonl" },
+    ]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("twice"));
+  });
 });

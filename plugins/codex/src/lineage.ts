@@ -58,12 +58,18 @@ async function baseAt(store: PluginSessionStore, path: string): Promise<HistoryB
  * `ref` itself opens with, already read.
  *
  * A source that is not on disk ends the chain there, as does one seen
- * before (codex guards the same cycle): what is left is still the
- * conversation, from that point on.
+ * before — `ref` itself included, by its own rollout id, as codex's
+ * resolver counts the start: what is left is still the conversation, from
+ * that point on.
  */
-export async function lineageOf(ports: LineagePorts, ref: string, base: HistoryBase): Promise<JsonlRequest[]> {
+export async function lineageOf(
+  ports: LineagePorts,
+  ref: string,
+  base: HistoryBase,
+  rolloutId?: string,
+): Promise<JsonlRequest[]> {
   const parts: JsonlRequest[] = [{ path: ref }];
-  const seen = new Set<string>();
+  const seen = new Set<string>(rolloutId === undefined ? [] : [rolloutId]);
   for (let next: HistoryBase | null = base; next !== null; ) {
     if (seen.has(next.rolloutId)) {
       ports.log.warn(`codex: ${ref} inherits from ${next.rolloutId} twice — read from there on`);
