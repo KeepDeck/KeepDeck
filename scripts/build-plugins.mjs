@@ -49,6 +49,9 @@ import {
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+/** @typedef {import("@keepdeck/plugin-api").PluginManifest} PluginManifest */
+/** @typedef {{ id: string, css: boolean }} BuiltPlugin What a plugin's build reports: its id, and whether it emitted a stylesheet. */
+
 const PLUGINS_ROOT = "plugins";
 const DEFAULT_DIST_ROOT = "dist";
 const ENTRY_NAMES = ["index.ts", "index.tsx"];
@@ -62,6 +65,11 @@ const EXTERNAL = [
   "@keepdeck/plugin-api",
 ];
 
+/**
+ * @param {string[]} [argv]
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string}
+ */
 export function resolveDistRoot(argv = process.argv.slice(2), env = process.env) {
   const i = argv.indexOf("--out-dir");
   if (i !== -1) {
@@ -75,7 +83,10 @@ export function resolveDistRoot(argv = process.argv.slice(2), env = process.env)
 /** Every plugins/<name> directory that carries a manifest.json — the
  * pipeline's unit of work. Sorted by directory name so build order (and
  * hence build log order) is stable; index.json's own order is sorted by
- * manifest id separately, since a folder name need not match its id. */
+ * manifest id separately, since a folder name need not match its id.
+ * @param {string} [pluginsRoot]
+ * @returns {string[]}
+ */
 export function findPluginDirs(pluginsRoot = PLUGINS_ROOT) {
   if (!existsSync(pluginsRoot)) return [];
   return readdirSync(pluginsRoot)
@@ -86,7 +97,10 @@ export function findPluginDirs(pluginsRoot = PLUGINS_ROOT) {
     .sort();
 }
 
-/** src/index.ts or src/index.tsx — whichever the plugin ships. */
+/** src/index.ts or src/index.tsx — whichever the plugin ships.
+ * @param {string} pluginDir
+ * @returns {string}
+ */
 export function findEntry(pluginDir) {
   for (const name of ENTRY_NAMES) {
     const entry = join(pluginDir, "src", name);
@@ -97,7 +111,10 @@ export function findEntry(pluginDir) {
 
 /** Read and validate a plugin's manifest with the host's own validator —
  * fails loudly, listing every problem, so a broken manifest never reaches a
- * real user as a silent runtime rejection. */
+ * real user as a silent runtime rejection.
+ * @param {string} pluginDir
+ * @returns {PluginManifest}
+ */
 export function validateManifest(pluginDir) {
   const manifestPath = join(pluginDir, "manifest.json");
   const raw = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -109,6 +126,11 @@ export function validateManifest(pluginDir) {
   return result.manifest;
 }
 
+/**
+ * @param {string} pluginDir
+ * @param {string} distRoot
+ * @returns {Promise<BuiltPlugin>}
+ */
 async function buildOne(pluginDir, distRoot) {
   const manifest = validateManifest(pluginDir);
   const entry = findEntry(pluginDir);
@@ -148,6 +170,10 @@ async function buildOne(pluginDir, distRoot) {
   return { id: manifest.id, css };
 }
 
+/**
+ * @param {string} entry
+ * @param {string} outDir
+ */
 async function buildPluginBundle(entry, outDir) {
   await build({
     root: process.cwd(),
@@ -178,6 +204,11 @@ async function buildPluginBundle(entry, outDir) {
   });
 }
 
+/**
+ * @param {string} distRoot
+ * @param {BuiltPlugin[]} built
+ * @returns {string}
+ */
 function writeIndex(distRoot, built) {
   const dir = join(distRoot, "plugins");
   mkdirSync(dir, { recursive: true });
@@ -194,6 +225,11 @@ function writeIndex(distRoot, built) {
   return join(dir, "index.json");
 }
 
+/**
+ * @param {string[]} [argv]
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {Promise<string[]>} the ids built
+ */
 export async function run(argv = process.argv.slice(2), env = process.env) {
   const distRoot = resolveDistRoot(argv, env);
   const pluginDirs = findPluginDirs();
@@ -205,6 +241,7 @@ export async function run(argv = process.argv.slice(2), env = process.env) {
   }
 
   console.log(`Building ${pluginDirs.length} plugin(s)...`);
+  /** @type {BuiltPlugin[]} */
   const built = [];
   for (const dir of pluginDirs) {
     built.push(await buildOne(dir, distRoot));

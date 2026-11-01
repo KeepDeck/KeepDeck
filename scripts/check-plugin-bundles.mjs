@@ -32,6 +32,9 @@ import { pathToFileURL } from "node:url";
 import vm from "node:vm";
 import { findPluginDirs, validateManifest } from "./build-plugins.mjs";
 
+/** @typedef {{ id: string, dir: string, css?: unknown }} IndexEntry One plugin as index.json lists it. */
+/** @typedef {{ identifier: string }} Referrer The module an import is resolved from. */
+
 /** What a plugin's directory may hold — see the header. This is
  * build-plugins.mjs's output contract, restated on purpose: the check pins
  * what the build writes, so it cannot read it from the build. */
@@ -40,11 +43,36 @@ const PLUGIN_FILES = ["index.js", "index.css", "manifest.json", "resources"];
  * carries it inlined React instead of importing the host's. */
 const OWN_REACT = "react.transitional.element";
 
-function readIndex(distRoot) {
-  return JSON.parse(readFileSync(join(distRoot, "plugins", "index.json"), "utf8")).plugins;
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Every file under `root`, by its path relative to it. */
+/**
+ * @param {string} distRoot
+ * @returns {IndexEntry[]}
+ */
+function readIndex(distRoot) {
+  const file = join(distRoot, "plugins", "index.json");
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  if (!isRecord(parsed) || !Array.isArray(parsed.plugins)) {
+    throw new Error(`${file}: expected { "plugins": [...] }`);
+  }
+  return parsed.plugins.map((entry, i) => {
+    if (!isRecord(entry) || typeof entry.id !== "string" || typeof entry.dir !== "string") {
+      throw new Error(`${file}: plugins[${i}] needs a string id and dir`);
+    }
+    return { id: entry.id, dir: entry.dir, ...("css" in entry ? { css: entry.css } : {}) };
+  });
+}
+
+/** Every file under `root`, by its path relative to it.
+ * @param {string} root
+ * @returns {string[]}
+ */
 function filesUnder(root) {
   if (!existsSync(root)) return [];
   return readdirSync(root, { recursive: true, withFileTypes: true })
@@ -52,11 +80,20 @@ function filesUnder(root) {
     .map((entry) => relative(root, join(entry.parentPath, entry.name)));
 }
 
+/**
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
 function sameBytes(a, b) {
   return existsSync(a) && existsSync(b) && readFileSync(a).equals(readFileSync(b));
 }
 
-/** The paths where two trees differ: missing from either, or changed. */
+/** The paths where two trees differ: missing from either, or changed.
+ * @param {string} source
+ * @param {string} built
+ * @returns {string[]}
+ */
 function treeDifferences(source, built) {
   return [...new Set([...filesUnder(source), ...filesUnder(built)])]
     .sort()
@@ -65,12 +102,17 @@ function treeDifferences(source, built) {
 
 /** Every rule but linking, read off the files. Collects EVERY problem, as the
  * manifest check does, so one failed build lists them all. Returns the
- * entries index.json lists. */
+ * entries index.json lists.
+ * @param {string} distRoot
+ * @param {string} [pluginsRoot]
+ * @returns {IndexEntry[]}
+ */
 export function checkLayout(distRoot, pluginsRoot = "plugins") {
   const sources = new Map(
     findPluginDirs(pluginsRoot).map((dir) => [validateManifest(dir).id, dir]),
   );
   const plugins = readIndex(distRoot);
+  /** @type {string[]} */
   const problems = [];
 
   const listed = plugins.map(({ id }) => id);
@@ -127,27 +169,58 @@ export function checkLayout(distRoot, pluginsRoot = "plugins") {
   return plugins;
 }
 
+/** The import map's `imports` table, from the built index.html's JSON.
+ * @param {string} json
+ * @returns {{ imports: Map<string, string> }}
+ */
+function parseImportMap(json) {
+  const parsed = JSON.parse(json);
+  if (!isRecord(parsed) || !isRecord(parsed.imports)) {
+    throw new Error('The built index.html import map needs an "imports" object');
+  }
+  /** @type {Map<string, string>} */
+  const imports = new Map();
+  for (const [specifier, target] of Object.entries(parsed.imports)) {
+    if (typeof target !== "string") {
+      throw new Error(`The built index.html import map: "${specifier}" must map to a string`);
+    }
+    imports.set(specifier, target);
+  }
+  return { imports };
+}
+
 /** Link every plugin index.json lists, in `context`, through the built
  * index.html's import map — the resolution the webview does. Linking checks
  * each import against the target's real exports and runs no plugin code.
  * Returns the ids linked, and a loader over the same modules for a caller that
- * goes on to evaluate them. */
+ * goes on to evaluate them.
+ * @param {string} distRoot
+ * @param {vm.Context} context
+ */
 export async function linkPlugins(distRoot, context) {
   const html = readFileSync(resolve(distRoot, "index.html"), "utf8");
   const importMap = html.match(/<script type="importmap">([\s\S]*?)<\/script>/);
   assert.ok(importMap, "Built index.html must contain the plugin import map");
-  const { imports } = JSON.parse(importMap[1]);
+  const { imports } = parseImportMap(importMap[1]);
+  /** @type {Map<string, vm.SourceTextModule>} */
   const modules = new Map();
 
+  /** @param {string} path */
   function moduleAt(path) {
-    if (!modules.has(path)) {
-      modules.set(path, new vm.SourceTextModule(readFileSync(path, "utf8"), { identifier: path, context }));
+    let module = modules.get(path);
+    if (!module) {
+      module = new vm.SourceTextModule(readFileSync(path, "utf8"), { identifier: path, context });
+      modules.set(path, module);
     }
-    return modules.get(path);
+    return module;
   }
 
+  /**
+   * @param {string} specifier
+   * @param {Referrer} referrer
+   */
   function link(specifier, referrer) {
-    const target = imports[specifier] ?? specifier;
+    const target = imports.get(specifier) ?? specifier;
     assert.ok(
       target.startsWith("/") || target.startsWith("."),
       `${referrer.identifier}: no import-map entry for ${specifier}`,
@@ -157,6 +230,7 @@ export async function linkPlugins(distRoot, context) {
       : resolve(dirname(referrer.identifier), target));
   }
 
+  /** @param {vm.SourceTextModule} module */
   async function evaluate(module) {
     if (module.status === "unlinked") await module.link(link);
     await module.evaluate();
@@ -171,7 +245,9 @@ export async function linkPlugins(distRoot, context) {
   return {
     linked,
     evaluate,
+    /** @param {string} id */
     plugin: (id) => evaluate(moduleAt(resolve(distRoot, "plugins", id, "index.js"))),
+    /** @param {string} specifier */
     bridge: (specifier) => evaluate(link(specifier, { identifier: resolve(distRoot, "index.html") })),
   };
 }
@@ -185,7 +261,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const { checkGitRender } = await import("./render-git-plugin.mjs");
   const window = new Window({ url: "http://keepdeck.test" });
   // Happy DOM exposes Node's Buffer on Window; the real webview does not.
-  delete window.Buffer;
+  Reflect.deleteProperty(window, "Buffer");
   try {
     for (const name of ["process", "Buffer", "require"]) {
       assert.equal(vm.runInContext(`typeof ${name}`, window), "undefined");
@@ -199,9 +275,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       new URL("../packages/ui-kit/src/virtualGeometry.test-support.ts", import.meta.url),
       "utf8",
     )), { context: window });
+    const pluginModule = await realm.plugin("keepdeck.git");
+    if (!("default" in pluginModule)) throw new Error("keepdeck.git: no default export");
     await checkGitRender({
       window,
-      plugin: (await realm.plugin("keepdeck.git")).default,
+      plugin: pluginModule.default,
       react: await realm.bridge("react"),
       reactDom: await realm.bridge("react-dom"),
       reactDomClient: await realm.bridge("react-dom/client"),

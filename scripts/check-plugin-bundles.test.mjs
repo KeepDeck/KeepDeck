@@ -20,17 +20,24 @@ const INSTALLED_REACT = join(
 // runs on a hand-laid one: two built-ins whose folders sort against their ids,
 // one with a stylesheet, one with resources a level deep, and the dist/ a sound
 // build writes for them. Each test breaks one thing and expects its problem.
+/** @type {string} */
 let root;
 
+/**
+ * @param {string} path
+ * @param {string} text
+ */
 function write(path, text) {
   mkdirSync(dirname(join(root, path)), { recursive: true });
   writeFileSync(join(root, path), text);
 }
 
+/** @param {string} id */
 const manifest = (id) =>
   JSON.stringify({ id, name: id, version: "0.0.1", minApiVersion: 1, capabilities: [] });
 const ALPHA = { id: "fixture.alpha", dir: "plugins/fixture.alpha", css: true };
 const BETA = { id: "fixture.beta", dir: "plugins/fixture.beta" };
+/** @param {import("./check-plugin-bundles.mjs").IndexEntry[]} plugins */
 const writeIndex = (plugins) => write("dist/plugins/index.json", JSON.stringify({ plugins }));
 
 function layOutSoundBuild() {
@@ -62,6 +69,7 @@ afterEach(() => {
 
 describe("checkLayout", () => {
   const check = () => checkLayout(join(root, "dist"), join(root, "plugins"));
+  /** @param {string} path */
   const remove = (path) => rmSync(join(root, path));
 
   it("passes a build that lays every built-in out as the host loads it", () => {
@@ -128,6 +136,10 @@ describe("linkPlugins", () => {
 
   it("links every bundle through the import map, and refuses a specifier the map lacks or an export the target lacks", async ({ signal }) => {
     const sound = join(root, "dist");
+    /**
+     * @param {string} name
+     * @param {string} bundle
+     */
     const variant = (name, bundle) => {
       const dist = join(root, name);
       write(`${name}/index.html`, readFileSync(join(sound, "index.html"), "utf8"));

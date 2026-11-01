@@ -32,6 +32,10 @@ export const MAX_ENTRIES = 1000;
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 
+/** @typedef {import("@keepdeck/plugin-api").PluginManifest} PluginManifest */
+/** @typedef {{ rel: string, size: number }} PackFile One file of the plugin tree. */
+/** @typedef {{ rel: string, data: Buffer }} ZipEntry One entry to write: its name and bytes. */
+
 /** Entry names the packer owns; a plugin tree must not carry its own. */
 const RESERVED = new Set(["container.json", "SIGNATURE"]);
 
@@ -39,13 +43,18 @@ const RESERVED = new Set(["container.json", "SIGNATURE"]);
  * Walk the plugin tree and validate it against the container rules. Returns
  * the manifest and the flat file list (paths relative, forward slashes,
  * sorted). Throws with EVERY problem listed — an author fixes one round.
+ * @param {string} dir
+ * @returns {{ manifest: PluginManifest, files: PackFile[] }}
  */
 export function validatePluginDir(dir) {
+  /** @type {string[]} */
   const problems = [];
+  /** @type {PackFile[]} */
   const files = [];
   walk(dir, "", files, problems);
 
   const manifestEntry = files.find((f) => f.rel === "manifest.json");
+  /** @type {PluginManifest | null} */
   let manifest = null;
   if (!manifestEntry) {
     problems.push("manifest.json: required at the plugin root");
@@ -55,7 +64,7 @@ export function validatePluginDir(dir) {
       if (result.ok) manifest = result.manifest;
       else problems.push(...result.errors.map((e) => `manifest.json: ${e}`));
     } catch (e) {
-      problems.push(`manifest.json: not valid JSON (${e.message})`);
+      problems.push(`manifest.json: not valid JSON (${e instanceof Error ? e.message : String(e)})`);
     }
   }
 
@@ -89,13 +98,20 @@ export function validatePluginDir(dir) {
     problems.push(`${files.length} files, over the ${MAX_ENTRIES}-entry cap`);
   }
 
-  if (problems.length > 0) {
+  // A missing manifest is always a problem above, so `!manifest` only narrows.
+  if (problems.length > 0 || !manifest) {
     throw new Error(`not a valid plugin tree:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   }
   files.sort((a, b) => (a.rel < b.rel ? -1 : 1));
   return { manifest, files };
 }
 
+/**
+ * @param {string} root
+ * @param {string} rel
+ * @param {PackFile[]} files
+ * @param {string[]} problems
+ */
 function walk(root, rel, files, problems) {
   for (const name of readdirSync(join(root, rel))) {
     // Dotfiles are tooling residue (.DS_Store, .git), never plugin content.
@@ -127,7 +143,11 @@ function walk(root, rel, files, problems) {
 }
 
 /** Build the container bytes: container.json first, then the tree, stored,
- * sorted, timestamps pinned — byte-identical for identical input. */
+ * sorted, timestamps pinned — byte-identical for identical input.
+ * @param {string} dir
+ * @param {PackFile[]} files
+ * @returns {Buffer}
+ */
 export function buildContainer(dir, files) {
   const entries = [
     {
@@ -139,6 +159,10 @@ export function buildContainer(dir, files) {
   return writeStoredZip(entries);
 }
 
+/**
+ * @param {string[]} [argv]
+ * @returns {Promise<string | null>} the written path, or null for --help
+ */
 export async function run(argv = process.argv.slice(2)) {
   if (argv.includes("--help") || argv.length === 0) {
     console.log(
@@ -163,7 +187,10 @@ export async function run(argv = process.argv.slice(2)) {
 }
 
 /** The default output name comes from the plugin's display name — cosmetic,
- * like install-folder names; identity stays inside the manifest. */
+ * like install-folder names; identity stays inside the manifest.
+ * @param {string} name
+ * @returns {string}
+ */
 function sanitizeFileName(name) {
   return name.replace(/[^\p{L}\p{N} _-]/gu, "").trim() || "plugin";
 }
@@ -176,6 +203,10 @@ function sanitizeFileName(name) {
 const DOS_TIME = 0; // 00:00:00
 const DOS_DATE = (2026 - 1980) << 9 | (1 << 5) | 1; // 2026-01-01, pinned
 
+/**
+ * @param {ZipEntry[]} entries
+ * @returns {Buffer}
+ */
 function writeStoredZip(entries) {
   const locals = [];
   const centrals = [];
@@ -236,6 +267,10 @@ const CRC_TABLE = (() => {
   return table;
 })();
 
+/**
+ * @param {Uint8Array} buf
+ * @returns {number}
+ */
 function crc32(buf) {
   let c = 0xffffffff;
   for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
