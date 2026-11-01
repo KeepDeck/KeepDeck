@@ -17,6 +17,10 @@
 //! files, up to what one skill may carry and while the view has room. A skill
 //! whose files do not fit goes as its SKILL.md alone, and the stage says so,
 //! beside whatever it left out of a skill and why: the user's to fix.
+//!
+//! A view's last file is its fingerprint ([`super::fingerprint`]): what it
+//! holds, said inside it, so every copy of it says the same of itself. Its
+//! place is the view's first reservation.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -24,6 +28,7 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use super::bundled::BundledSkill;
+use super::fingerprint::{self, FINGERPRINT_COST, FINGERPRINT_FILE};
 use super::library::{sorted_dirs, SKILL_FILE};
 use super::tree::{self, Allowance, LeftOut, TreeCopy, Why, SKILL_MAX, VIEW_MAX};
 use crate::state::write_atomic;
@@ -302,6 +307,10 @@ pub(super) fn stage(
         staged.push(StagedSkill { name: name.clone(), content: content.to_string() });
     }
     trims.extend(no_room.0);
+    if !sources.is_empty() {
+        let said = fingerprint::of_view(&view)?;
+        fs::write(view.join(FINGERPRINT_FILE), said)?;
+    }
     fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
     // An emptied library swaps in nothing, so yesterday's view goes with it.
     swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
@@ -317,7 +326,7 @@ pub(super) fn stage(
 /// none are omitted, and said once — the first by name, with how many; the
 /// rest share what is left for their files.
 fn reserve(sources: Vec<(String, Source)>, trims: &mut Vec<StagingTrim>) -> (Vec<(String, Source)>, Allowance) {
-    let mut left = VIEW_MAX;
+    let mut left = VIEW_MAX.less(FINGERPRINT_COST);
     let mut placed = Vec::with_capacity(sources.len());
     let mut omitted = Tally::default();
     for (name, source) in sources {
@@ -904,12 +913,17 @@ mod tests {
     }
 
     /// A skill whose files take exactly what one skill may carry: its folder,
-    /// its SKILL.md and `SKILL_MAX.entries - 2` empty files.
+    /// its SKILL.md, a `files` folder and `SKILL_MAX.entries - 3` empty files.
     fn full_skill(scope: &Path, name: &str) {
+        skill_of(scope, name, SKILL_MAX.entries);
+    }
+
+    /// A skill of `entries` entries, its folder and SKILL.md among them.
+    fn skill_of(scope: &Path, name: &str, entries: usize) {
         save(scope, name, &fm(name)).unwrap();
         let files = scope.join(name).join("files");
         fs::create_dir(&files).unwrap();
-        for n in 0..SKILL_MAX.entries - 3 {
+        for n in 0..entries - 3 {
             fs::File::create(files.join(n.to_string())).unwrap();
         }
     }
@@ -927,17 +941,53 @@ mod tests {
 
     #[test]
     fn a_view_at_the_limit_of_a_copy_is_staged_whole() {
-        // Eight skills at their own limit fill a view to exactly what one
-        // copy may carry: nothing is trimmed, and a plugin's copy of it is
-        // not refused for its size.
+        // Skills at their own limit, the last one entry short to leave the
+        // fingerprint its place, fill a view to exactly what one copy may
+        // carry: nothing is trimmed, and a plugin's copy of it is not refused
+        // for its size.
+        let (_tmp, root) = root();
+        for n in 1..=7 {
+            full_skill(&global(&root), &format!("skill-{n}"));
+        }
+        skill_of(&global(&root), "skill-8", SKILL_MAX.entries - FINGERPRINT_COST.entries);
+        let staged = answer(&root);
+        assert_eq!(staged.trims, vec![]);
+        let view = PathBuf::from(staged.view.unwrap().dir);
+        assert_eq!(entries_under(&view), crate::fs_beneath::COPY_MAX_ENTRIES);
+    }
+
+    #[test]
+    fn the_fingerprint_has_its_place_before_any_skill() {
+        // Eight skills at their own limit are one entry more than a view
+        // leaves them beside its fingerprint: the last by name goes bare.
         let (_tmp, root) = root();
         for n in 1..=8 {
             full_skill(&global(&root), &format!("skill-{n}"));
         }
         let staged = answer(&root);
-        assert_eq!(staged.trims, vec![]);
+        assert_eq!(staged.trims, vec![trim("global", "skill-8", TrimKind::NoRoom)]);
         let view = PathBuf::from(staged.view.unwrap().dir);
-        assert_eq!(entries_under(&view), crate::fs_beneath::COPY_MAX_ENTRIES);
+        assert!(entries_under(&view) <= crate::fs_beneath::COPY_MAX_ENTRIES);
+    }
+
+    #[test]
+    fn a_staged_view_says_what_it_holds_inside_it() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("review")).unwrap();
+        fs::write(global(&root).join("review").join("notes.txt"), "notes").unwrap();
+
+        let view = PathBuf::from(answer(&root).view.unwrap().dir);
+        let said = fs::read_to_string(view.join(FINGERPRINT_FILE)).unwrap();
+        assert_eq!(said, fingerprint::of_view(&view).unwrap());
+
+        // Staged again from the same library: the same words.
+        let again = PathBuf::from(answer(&root).view.unwrap().dir);
+        assert_eq!(fs::read_to_string(again.join(FINGERPRINT_FILE)).unwrap(), said);
+
+        // A file beside a SKILL.md edited: other words.
+        fs::write(global(&root).join("review").join("notes.txt"), "Notes").unwrap();
+        let edited = PathBuf::from(answer(&root).view.unwrap().dir);
+        assert_ne!(fs::read_to_string(edited.join(FINGERPRINT_FILE)).unwrap(), said);
     }
 
     #[test]
@@ -986,16 +1036,18 @@ mod tests {
 
     #[test]
     fn skills_with_no_room_even_for_their_skill_file_are_omitted_and_said_once() {
-        // Over five thousand bare skills cannot all have a place: the ones
-        // past the view's limit, in name order, are not handed at all — never
-        // handed a truncated SKILL.md — and are one line with how many.
-        let fits = VIEW_MAX.entries / 2;
+        // Five thousand bare skills cannot all have a place beside the view's
+        // fingerprint: the ones past the view's limit, in name order, are not
+        // handed at all — never handed a truncated SKILL.md — and are one line
+        // with how many.
+        let room = VIEW_MAX.less(FINGERPRINT_COST);
+        let fits = room.entries / 2;
         let skills: Vec<(String, Source)> =
             (0..fits + 3).map(|n| (format!("s{n:05}"), Source::Bundled("x"))).collect();
         let mut trims = Vec::new();
         let (placed, left) = reserve(skills, &mut trims);
         assert_eq!(placed.len(), fits);
-        assert_eq!(left.entries, 0);
+        assert_eq!(left.entries, room.entries % 2);
         assert_eq!(trims, vec![StagingTrim { count: 3, ..trim("bundled", &format!("s{fits:05}"), TrimKind::Omitted) }]);
     }
 

@@ -21,6 +21,7 @@
 //! in a pane's cwd to find them, is its plugin's.
 
 mod bundled;
+mod fingerprint;
 mod gates;
 mod library;
 mod staging;

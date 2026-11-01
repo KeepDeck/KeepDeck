@@ -1097,9 +1097,13 @@ mod tests {
         let staging = crate::paths::keepdeck_home().unwrap().join("skills/staging");
         let view = staging.join("ws-1/skills");
         skill_tree(&view.join("review"));
+        fs::write(view.join(".keepdeck-fingerprint"), "sha256:1").unwrap();
         let locks = SkillsLocks::default();
         copy_dir(&s(&view), &s(&dir.path().join("plugin/skills")), &roots, &locks).unwrap();
         assert!(dir.path().join("plugin/skills/review/references/design-patterns.md").is_file());
+        // The view's fingerprint comes along with what it describes: a copy
+        // says what it holds (plugin-api's publishing reads it there).
+        assert_eq!(fs::read_to_string(dir.path().join("plugin/skills/.keepdeck-fingerprint")).unwrap(), "sha256:1");
 
         // A build-aside, the folder around a view, and any other place are
         // not views.
