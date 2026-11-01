@@ -258,9 +258,10 @@ describe("useAgentDialog suggestions", () => {
     ]);
   });
 
-  it("tells the picker how each found session ran, as the dialog's workspace journal recorded it", async () => {
+  it("tells the picker how each found session ran, as the journal recorded it in any workspace", async () => {
     // The index knows sessions, not modes: a continuation's YOLO starts
-    // from the journal, and a session it never recorded stays unknown.
+    // from the journal — the search is global, and so is what it knows —
+    // and a session no journal recorded stays unknown.
     const hit = (sessionId: string): SearchHit => ({
       agent: "claude",
       sessionId,
@@ -287,16 +288,17 @@ describe("useAgentDialog suggestions", () => {
     const ws = withTeam();
     const deck = await mount(ws);
     deck.journal.records = {
+      // Recorded in another workspace too, as YOLO there: the dialog's own
+      // workspace answers first — listed second, so key order cannot.
+      "ws-2": [record("s-elsewhere", true), record("s-plain", true)],
       "ws-1": [record("s-yolo", true), record("s-plain", false)],
-      // Another workspace's journal is not this dialog's to read.
-      "ws-2": [record("s-elsewhere", true)],
     };
     await act(async () => flow.openFor(ws, MEMBER));
     const page = await flow.searchSessions("claude", "", 50, 0);
     expect(page.rows.map((row) => [row.handle.sessionId, row.ranYolo])).toEqual([
       ["s-yolo", true],
       ["s-plain", false],
-      ["s-elsewhere", undefined],
+      ["s-elsewhere", true],
       ["s-unknown", undefined],
     ]);
   });

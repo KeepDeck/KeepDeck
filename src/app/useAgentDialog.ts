@@ -437,10 +437,9 @@ export function useAgentDialog(
    * through the shared engine ([[usePagedSessionSearch]]); this maps one page
    * of hits into pick rows and forwards the full match count.
    *
-   * The index knows nothing of how a session ran; the dialog's workspace
-   * journal does, for the sessions KeepDeck ran there. That is what a
-   * continuation's YOLO starts from — the same journal the team's own
-   * sessions list reads.
+   * The index knows nothing of how a session ran; the journal does, for the
+   * sessions KeepDeck ran in any workspace, the dialog's own asked first.
+   * That is what a continuation's YOLO starts from.
    */
   const searchSessions = async (
     agent: AgentType,
@@ -449,11 +448,11 @@ export function useAgentDialog(
     offset: number,
   ): Promise<Page<SessionPickRow>> => {
     const page = await indexSearch(query, limit, offset, agent);
-    const records = dialog ? deckRef.current.journal.records[dialog.workspace.id] : undefined;
+    const journal = deckRef.current.journal.records;
     return {
       rows: page.hits.map((hit) => {
         const handle = handleFromHit(hit);
-        const ranYolo = recordedYolo(records, handle);
+        const ranYolo = dialog ? recordedYolo(journal, handle, dialog.workspace.id) : undefined;
         return { handle, mtime: hit.mtime, ...(ranYolo !== undefined && { ranYolo }) };
       }),
       total: page.total,

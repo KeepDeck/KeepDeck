@@ -10,6 +10,7 @@ import {
   withJournalEvent,
   type JournalEvent,
   type JournalRecords,
+  type SessionRecord,
   type SessionRecordBase,
 } from "./sessionLog";
 
@@ -36,24 +37,39 @@ const bound = (
 });
 
 describe("recordedYolo", () => {
-  const record = (sessionId: string, over: Partial<SessionRecordBase> = {}): SessionRecordBase => ({
+  const record = (sessionId: string, over: Partial<SessionRecordBase> = {}): SessionRecord => ({
     agent: "claude",
     sessionId,
     cwd: "/repo",
     boundAt: T0,
     ...over,
+    state: "closed",
+    endedAt: T1,
   });
-  const records = [record("s-yolo", { yolo: true }), record("s-plain")];
+  // `away` first: home answering first must be the rule, not key order.
+  const journal: JournalRecords = {
+    away: [record("s-away", { yolo: true }), record("s-both", { yolo: true })],
+    home: [record("s-yolo", { yolo: true }), record("s-plain"), record("s-both")],
+  };
+  const asked = (sessionId: string, agent = "claude") =>
+    recordedYolo(journal, { agent, sessionId }, "home");
 
   it("answers how a recorded session ran, absent meaning without", () => {
-    expect(recordedYolo(records, { agent: "claude", sessionId: "s-yolo" })).toBe(true);
-    expect(recordedYolo(records, { agent: "claude", sessionId: "s-plain" })).toBe(false);
+    expect(asked("s-yolo")).toBe(true);
+    expect(asked("s-plain")).toBe(false);
   });
 
-  it("does not know a session the journal never recorded — nor another agent's with the same id", () => {
-    expect(recordedYolo(records, { agent: "claude", sessionId: "s-other" })).toBeUndefined();
-    expect(recordedYolo(records, { agent: "codex", sessionId: "s-yolo" })).toBeUndefined();
-    expect(recordedYolo(undefined, { agent: "claude", sessionId: "s-yolo" })).toBeUndefined();
+  it("knows a session another workspace recorded, and asks the home workspace first", () => {
+    expect(asked("s-away")).toBe(true);
+    expect(asked("s-both")).toBe(false);
+    // A home with no journal of its own still finds it elsewhere.
+    expect(recordedYolo(journal, { agent: "claude", sessionId: "s-away" }, "new-ws")).toBe(true);
+  });
+
+  it("does not know a session no journal recorded — nor another agent's with the same id", () => {
+    expect(asked("s-other")).toBeUndefined();
+    expect(asked("s-yolo", "codex")).toBeUndefined();
+    expect(recordedYolo({}, { agent: "claude", sessionId: "s-yolo" }, "home")).toBeUndefined();
   });
 });
 
