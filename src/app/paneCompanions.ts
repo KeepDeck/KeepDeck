@@ -3,6 +3,7 @@ import { stripUnsafeText } from "@keepdeck/plugin-api/unsafe-text";
 import { log } from "../ipc/log";
 import { onCompanionDeclined, onCompanionHello } from "../ipc/companions";
 import type { DeckWatch } from "./deckStore";
+import type { DeclinedWake } from "./mail";
 import type { PaneAttribution } from "./paneAttribution";
 import {
   createVerifiedPaneReports,
@@ -56,12 +57,15 @@ const REASON_CHARS = 200;
  * (`MailService.wakeDeclined`), and this lane only admits it.
  *
  * The reason is the agent's own words, written by the pane's process, so it
- * reaches the log as one clean, short line or not at all.
+ * reaches the log as one clean, short line or not at all. The composer
+ * counts as empty only when the companion says so in as many words: a typed
+ * line would send whatever is there, and a malformed report must not be the
+ * thing that sends somebody's draft.
  */
 export function listenCompanionDeclines(
   deck: DeckWatch,
   attribution: PaneAttribution,
-  declined: (paneId: string, reason: string) => void,
+  declined: (paneId: string, wake: DeclinedWake) => void,
   subscribe: LaneSubscribe = onCompanionDeclined,
 ): VerifiedPaneReports {
   return createVerifiedPaneReports(deck, attribution, {
@@ -69,11 +73,10 @@ export function listenCompanionDeclines(
     subscribe,
     requireLiveProcess: true,
     apply(paneId, payload) {
+      const report = isJsonRecord(payload) ? payload : {};
       const reason =
-        isJsonRecord(payload) && typeof payload.reason === "string"
-          ? stripUnsafeText(payload.reason).slice(0, REASON_CHARS)
-          : "";
-      declined(paneId, reason || "no reason given");
+        typeof report.reason === "string" ? stripUnsafeText(report.reason).slice(0, REASON_CHARS) : "";
+      declined(paneId, { reason: reason || "no reason given", draft: report.draft !== false });
     },
   });
 }

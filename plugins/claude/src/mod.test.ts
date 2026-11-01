@@ -29,6 +29,8 @@ function loaded({
   const timers: { ms: number; tick: () => Promise<void> }[] = [];
   const submitted: string[] = [];
   let submitAnswer: unknown = { text: "ok" };
+  /** What `$.prompt.read` answers — claude's PromptBox, or an Error. */
+  let composer: unknown = { text: "", cursor: 0 };
   const $ = {
     clock: {
       every: (ms: number, tick: () => Promise<void>) => {
@@ -42,6 +44,10 @@ function loaded({
         submitted.push(text);
         if (submitAnswer instanceof Error) throw submitAnswer;
         return submitAnswer;
+      },
+      read: async () => {
+        if (composer instanceof Error) throw composer;
+        return composer;
       },
     },
     env: {
@@ -96,6 +102,13 @@ function loaded({
     submitted,
     ring,
     answerSubmit: (answer: unknown) => (submitAnswer = answer),
+    composerReads: (box: unknown) => (composer = box),
+    declines: async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      return posted
+        .filter(({ envelope }) => envelope.type === "companion.declined")
+        .map(({ envelope }) => envelope.payload);
+    },
   };
 }
 
@@ -301,15 +314,9 @@ describe("KeepDeck's claude Mod", () => {
     // so it can wake the pane the way claude still takes after an Esc.
     const mod = loaded();
     await mod.fire("session.start", {});
-    const declines = async () => {
-      for (let i = 0; i < 10; i++) await Promise.resolve();
-      return mod.posted
-        .filter(({ envelope }) => envelope.type === "companion.declined")
-        .map(({ envelope }) => envelope.payload);
-    };
     mod.answerSubmit({ text: "ok" });
     await mod.ring();
-    expect(await declines()).toEqual([]);
+    expect(await mod.declines()).toEqual([]);
     mod.answerSubmit({ drop: "the session was stopped and nobody has sent input since" });
     await mod.ring();
     mod.answerSubmit(new Error("engine gone"));
@@ -317,15 +324,37 @@ describe("KeepDeck's claude Mod", () => {
     // A drop with no words is still a drop.
     mod.answerSubmit({ drop: "" });
     await mod.ring();
-    expect(await declines()).toEqual([
-      { agent: "claude", reporter: "4021", reason: "the session was stopped and nobody has sent input since" },
-      { agent: "claude", reporter: "4021", reason: "engine gone" },
-      { agent: "claude", reporter: "4021", reason: "claude dropped the prompt" },
+    const declined = (reason: string) => ({ agent: "claude", reporter: "4021", reason, draft: false });
+    expect(await mod.declines()).toEqual([
+      declined("the session was stopped and nobody has sent input since"),
+      declined("engine gone"),
+      declined("claude dropped the prompt"),
     ]);
     expect(mod.submitted).toHaveLength(4);
     // Nothing rung: nothing declined, however the last submit went.
     for (const timer of mod.timers) await timer.tick();
-    expect(await declines()).toHaveLength(3);
+    expect(await mod.declines()).toHaveLength(3);
+  });
+
+  it("says the composer holds words whenever it cannot be sure it is empty", async () => {
+    // A line typed into the pane lands at the cursor, glued to whatever is
+    // there, and its Enter sends the lot: the person's draft, or the prompt
+    // claude put back after an Esc cancelled it. Only a composer READ as
+    // empty may be typed into.
+    const mod = loaded();
+    await mod.fire("session.start", {});
+    mod.answerSubmit({ drop: "stopped" });
+    for (const box of [
+      { text: "DRAFTBETA unsent words", cursor: 22 },
+      new Error("no prompt box"),
+      { cursor: 0 },
+      null,
+      { text: "  \n", cursor: 3 },
+    ]) {
+      mod.composerReads(box);
+      await mod.ring();
+    }
+    expect((await mod.declines()).map((payload) => payload.draft)).toEqual([true, true, true, true, false]);
   });
 
   it("watches no doorbell outside KeepDeck or without a name for its process", async () => {

@@ -26,7 +26,7 @@
  */
 import { createWire, parseBridge } from "./keepdeck-wire.js";
 
-/** @typedef {{ process: { run: (argv: string[], options?: { timeoutMs: number }) => Promise<{ stdout: string, exitCode: number }> }, http: { fetch: (url: string, init: { method: string, headers: Record<string, string>, body: string }) => Promise<{ status: number, text: string }> }, fs: { exists: (path: string) => Promise<boolean> }, prompt: { submit: (input: { text: string }) => Promise<unknown> }, env: { get: (name: string) => Promise<string | undefined> }, clock: { every: (ms: number, tick: () => Promise<void>) => unknown } }} ModContext */
+/** @typedef {{ process: { run: (argv: string[], options?: { timeoutMs: number }) => Promise<{ stdout: string, exitCode: number }> }, http: { fetch: (url: string, init: { method: string, headers: Record<string, string>, body: string }) => Promise<{ status: number, text: string }> }, fs: { exists: (path: string) => Promise<boolean> }, prompt: { submit: (input: { text: string }) => Promise<unknown>, read: () => Promise<unknown> }, env: { get: (name: string) => Promise<string | undefined> }, clock: { every: (ms: number, tick: () => Promise<void>) => unknown } }} ModContext */
 /** @typedef {{ reason?: string, turnId?: string, agentId?: string, door?: string, origin?: { kind?: string }, message?: { type?: string, isMeta?: boolean } }} ModEvent */
 /** @typedef {{ v: number, type: string, paneId: string, token: string, payload: Record<string, unknown> }} Envelope */
 /** @typedef {{ publish: (envelope: Envelope) => Promise<{ accepted: boolean }>, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope }} Wire */
@@ -127,9 +127,26 @@ function refusalOf(result) {
   return typeof drop === "string" && drop !== "" ? drop : "claude dropped the prompt";
 }
 
+/** Whether the composer holds words a line typed into the terminal would be
+ * sent WITH: the person's unsent draft, or the prompt claude puts back there
+ * when an Esc cancels it before any reply. A typed line lands at the cursor,
+ * glued on, and its Enter sends the lot (task-589 probe, 2.1.316). Not
+ * knowing counts as holding: a draft sent by mistake cannot be taken back.
+ * @param {ModContext} $
+ */
+async function composerHolds($) {
+  try {
+    const box = await $.prompt.read();
+    return !(box && typeof box === "object" && "text" in box && typeof box.text === "string" && box.text.trim() === "");
+  } catch {
+    return true;
+  }
+}
+
 /** Answer the deck's doorbell (`<pane dir>/mail.wake`, see
  * src-tauri/src/bridge/nudge.rs): take it down, then start a turn — or tell
- * the deck, through `declined`, that no turn started. Taking it down IS
+ * the deck, through `declined`, that no turn started, and whether the
+ * composer holds anything a typed line would carry along. Taking it down IS
  * reading it — the file carries nothing. One ring at a time, and one turn per
  * ring however many pollers look.
  *
@@ -140,7 +157,7 @@ function refusalOf(result) {
  * whose user had pressed Esc and walked away (task-589).
  * @param {ModContext} $
  * @param {string} dir
- * @param {(reason: string) => void} declined
+ * @param {(reason: string, draft: boolean) => void} declined
  */
 function watchDoorbell($, dir, declined) {
   const path = `${dir}/mail.wake`;
@@ -159,7 +176,7 @@ function watchDoorbell($, dir, declined) {
       } catch (error) {
         refusal = error instanceof Error && error.message ? error.message : "the submit failed";
       }
-      if (refusal !== null) declined(refusal);
+      if (refusal !== null) declined(refusal, await composerHolds($));
     } catch {
       // A doorbell that could not be looked at or taken down is still up:
       // the next tick looks again.
@@ -205,8 +222,8 @@ export function register(on) {
         wire = said;
         void said.publish(said.makeEnvelope("companion.hello", {})).then(({ accepted }) => {
           if (accepted) {
-            watchDoorbell($, bridge.dir, (reason) => {
-              void said.publish(said.makeEnvelope("companion.declined", { reason }));
+            watchDoorbell($, bridge.dir, (reason, draft) => {
+              void said.publish(said.makeEnvelope("companion.declined", { reason, draft }));
             });
           } else if (wire === said) wire = REFUSED;
         });

@@ -362,13 +362,25 @@ describe("createMailService", () => {
     void h.send("hi");
     expect(h.rung).toEqual(["pane-2"]);
     expect(h.woken).toEqual([]);
-    h.service.wakeDeclined("pane-2", "the session was stopped");
+    h.service.wakeDeclined("pane-2", { reason: "the session was stopped", draft: false });
     expect(h.woken).toEqual(["pane-2"]);
     expect(h.rung).toEqual(["pane-2"]);
     // A decline after the feature went down nudges nothing.
     h.service.dispose();
-    h.service.wakeDeclined("pane-2", "the session was stopped");
+    h.service.wakeDeclined("pane-2", { reason: "the session was stopped", draft: false });
     expect(h.woken).toEqual(["pane-2"]);
+  });
+
+  it("never types over words in the composer — the mail waits for the person instead", () => {
+    // The typed line would be glued to the draft and sent with it; after an
+    // early Esc, that draft is the prompt the person had just cancelled.
+    const companionWake: AgentStatus = { normalize: () => null, attribute: () => null, wake: "companion" };
+    const h = setup(() => companionWake, { companion: true });
+    void h.send("hi");
+    h.service.wakeDeclined("pane-2", { reason: "the session was stopped", draft: true });
+    expect(h.woken).toEqual([]);
+    // Still queued: the person's own prompt is the boundary that collects it.
+    expect(h.bodiesFor("pane-2")).toEqual(["hi"]);
   });
 });
 

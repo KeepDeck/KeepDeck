@@ -554,8 +554,8 @@ export function createAppRuntime(
       companionHellos ??= listenPaneCompanions(deckStore, attribution);
       // A companion that took the doorbell and could not start the turn:
       // mail nudges that pane again, the way its agent still takes.
-      companionDeclines ??= listenCompanionDeclines(deckStore, attribution, (paneId, reason) =>
-        mail.wakeDeclined(paneId, reason),
+      companionDeclines ??= listenCompanionDeclines(deckStore, attribution, (paneId, wake) =>
+        mail.wakeDeclined(paneId, wake),
       );
       paneUnbinds ??= listenPaneUnbinds(deckStore, attribution, lifecycle);
       statusChannel ??= createAgentStatusChannel(

@@ -112,6 +112,15 @@ export interface MailServiceDeps {
   };
 }
 
+/** A companion's word that its agent started no turn for a ring. */
+export interface DeclinedWake {
+  /** The agent's own words, already one clean short line. */
+  reason: string;
+  /** Whether the composer holds words a typed line would be sent WITH — the
+   * person's draft, or a prompt an Esc cancelled and claude put back. */
+  draft: boolean;
+}
+
 export interface MailService {
   /** The live manager, or null once disposed. The lifecycle owners (pane
    * retire, close) reach it through this rather than holding a reference
@@ -138,10 +147,12 @@ export interface MailService {
   expectAsk(paneId: string, payload: unknown): () => void;
   /**
    * A pane's companion took its doorbell down, and its agent would not start
-   * the turn the ring asked for — `reason` in the agent's words, already made
-   * safe for a log line. The nudge goes again now, through the terminal.
+   * the turn the ring asked for. The nudge goes again now, through the
+   * terminal — unless the composer holds words, which the typed line would
+   * send along with itself: then the mail waits for the person, whose own
+   * prompt collects it.
    */
-  wakeDeclined(paneId: string, reason: string): void;
+  wakeDeclined(paneId: string, wake: DeclinedWake): void;
   dispose(): void;
 }
 
@@ -333,7 +344,17 @@ export function createMailService(deps: MailServiceDeps): MailService {
         manager.reconsider();
       };
     },
-    wakeDeclined(paneId, reason) {
+    wakeDeclined(paneId, { reason, draft }) {
+      if (draft) {
+        // Measured, not feared (task-589 probe, claude 2.1.316): the line
+        // lands at the cursor glued to the draft, and its Enter sends both —
+        // after an early Esc, the very prompt the person had just cancelled.
+        log.info(
+          "web:mail",
+          `${paneId} started no turn for its doorbell (${reason}); its composer holds unsent words a typed line would send, so the mail waits for the person`,
+        );
+        return;
+      }
       log.info("web:mail", `${paneId} started no turn for its doorbell (${reason})`);
       manager.wakeLost(paneId);
     },

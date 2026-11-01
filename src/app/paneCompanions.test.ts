@@ -57,9 +57,9 @@ describe("listenCompanionDeclines", () => {
       swapSources: () => [],
     });
     attribution.recordBinding("pane-1", "4021");
-    const declined: [string, string][] = [];
+    const declined: [string, string, boolean][] = [];
     let deliver!: (report: PaneReportEvent) => void;
-    listenCompanionDeclines(deck, attribution, (paneId, reason) => declined.push([paneId, reason]), async (handler) => {
+    listenCompanionDeclines(deck, attribution, (paneId, wake) => declined.push([paneId, wake.reason, wake.draft]), async (handler) => {
       deliver = handler;
       return () => {};
     });
@@ -69,7 +69,7 @@ describe("listenCompanionDeclines", () => {
 
   it("hands on a decline from the pane's own process, its reason one clean short line", async () => {
     const { declined, deliver } = await lane();
-    const payload = (reason: unknown) => ({ agent: "claude", reporter: "4021", reason });
+    const payload = (reason: unknown) => ({ agent: "claude", reporter: "4021", reason, draft: false });
     deliver({ paneId: "pane-1", token: "tok", payload: payload("the session was stopped") });
     // The pane's process wrote it: no line breaks or bidi tricks reach the
     // log, and nothing longer than a reason.
@@ -77,11 +77,21 @@ describe("listenCompanionDeclines", () => {
     deliver({ paneId: "pane-1", token: "tok", payload: payload("x".repeat(500)) });
     deliver({ paneId: "pane-1", token: "tok", payload: payload(7) });
     expect(declined).toEqual([
-      ["pane-1", "the session was stopped"],
-      ["pane-1", "one line"],
-      ["pane-1", "x".repeat(200)],
-      ["pane-1", "no reason given"],
+      ["pane-1", "the session was stopped", false],
+      ["pane-1", "one line", false],
+      ["pane-1", "x".repeat(200), false],
+      ["pane-1", "no reason given", false],
     ]);
+  });
+
+  it("takes the composer for empty only when the companion says so in as many words", async () => {
+    // A typed line sends whatever the composer holds; a report that does not
+    // say "empty" plainly must not be the thing that sends a draft.
+    const { declined, deliver } = await lane();
+    for (const draft of [true, undefined, "false", 0, null]) {
+      deliver({ paneId: "pane-1", token: "tok", payload: { agent: "claude", reporter: "4021", reason: "r", draft } });
+    }
+    expect(declined.map(([, , draft]) => draft)).toEqual([true, true, true, true, true]);
   });
 
   it("drops a decline that carries another secret or comes from elsewhere", async () => {
