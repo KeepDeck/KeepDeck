@@ -4,6 +4,7 @@ import {
   type AgentType,
 } from "../domain/agents";
 import { firstFreeTeamWorktree, type Workspace } from "../domain/deck";
+import type { SessionHandle } from "../domain/journal";
 import { probeWorktree, suggestWorktree } from "../ipc/worktree";
 import { getSettings } from "./settingsManager";
 
@@ -16,6 +17,16 @@ import { getSettings } from "./settingsManager";
  * had spelled them out character-for-character. A rule with two homes is a
  * rule that changes in one of them.
  */
+
+/**
+ * Whether a new agent starts with YOLO on: a fork carries its source
+ * session's own mode — the person is copying THAT agent, prompts and all —
+ * and anything else starts from the global preference, read at the moment of
+ * asking.
+ */
+export function nextYolo(source?: Pick<SessionHandle, "yolo">): boolean {
+  return source ? source.yolo === true : (getSettings()?.defaultYolo ?? false);
+}
 
 /**
  * The agent type a new pane starts as: the workspace's own momentum (its last

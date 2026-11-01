@@ -791,6 +791,25 @@ describe("useAgentDialog targets", () => {
     expect(present(flow.dialog, "the open dialog").roles.addressFor("lead")).toBeNull();
   });
 
+  it("opens a Fork with YOLO as its source ran — the global default does not decide it", async () => {
+    // No settings store here: the global default reads as off. A fork of a
+    // YOLO pane must still open with YOLO on, and one of a plain pane off.
+    const ws = workspace({
+      teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/base/kd-KeepDeck-1" } }],
+      panes: [
+        { id: "p1", agentType: "codex", yolo: true, session: { id: "s-9", boundAt: "t" }, team: { teamId: "team-1", role: "lead" } },
+        { id: "p2", agentType: "codex", session: { id: "s-8", boundAt: "t" }, team: { teamId: "team-1", role: "impl-1" } },
+      ],
+    });
+    const deck = deckOf(ws);
+    await act(async () => mountHost(root, Host, deck));
+    await act(async () => flow.forkPaneSession("ws-1", "p1"));
+    expect(present(flow.dialog, "the open dialog").defaultYolo).toBe(true);
+    await act(async () => flow.cancel());
+    await act(async () => flow.forkPaneSession("ws-1", "p2"));
+    expect(present(flow.dialog, "the open dialog").defaultYolo).toBe(false);
+  });
+
   it("opens for a member with no location to ask about, and lands it on the team by id under the role picked", async () => {
     const ws = teamed();
     const deck = deckOf(ws);

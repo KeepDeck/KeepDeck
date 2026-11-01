@@ -38,6 +38,7 @@ import {
   firstFreeTeamWorktreeFor,
   nextAgentIndex,
   nextAgentType,
+  nextYolo,
 } from "./newAgentDefaults";
 import type { DirectoryHolder } from "./agentOrchestrator";
 import type {
@@ -202,7 +203,8 @@ export function useAgentDialog(
         // A preset session is one agent's: the dialog opens on that agent.
         defaultAgentType: opening.session?.handle.agent ?? defaultType,
         ...(opening.session && { preset: opening.session }),
-        defaultYolo: getSettings()?.defaultYolo ?? false,
+        // A fork runs as its source did unless the person changes it.
+        defaultYolo: nextYolo(opening.session?.handle),
         remoteEnabled: getSettings()?.remoteAgents === true,
         repo: null,
         suggestedPath: "",
@@ -258,7 +260,7 @@ export function useAgentDialog(
       // on it is what the data describes.
       roles: roleChoiceView([]),
       defaultAgentType: defaultType,
-      defaultYolo: getSettings()?.defaultYolo ?? false,
+      defaultYolo: nextYolo(),
       remoteEnabled: getSettings()?.remoteAgents === true,
       repo,
       suggestedPath,
