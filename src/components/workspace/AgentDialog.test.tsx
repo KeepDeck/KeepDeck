@@ -263,6 +263,7 @@ describe("AgentDialog worktree location flow", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -538,6 +539,7 @@ describe("AgentDialog agent picker", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -553,12 +555,14 @@ describe("AgentDialog YOLO toggle", () => {
   let host: HTMLElement;
   let root: Root;
   let confirmed: AgentDialogResult[];
+  let flips: boolean[];
 
   beforeEach(() => {
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     confirmed = [];
+    flips = [];
     catalog.supportsYolo = true;
   });
   afterEach(() => {
@@ -589,6 +593,7 @@ describe("AgentDialog YOLO toggle", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: (on: boolean) => flips.push(on),
         }),
       ),
     );
@@ -598,6 +603,13 @@ describe("AgentDialog YOLO toggle", () => {
 
   const checkbox = () =>
     document.querySelector<HTMLInputElement>(".form__yolo input");
+
+  it("tells its owner each flip of the toggle, in order", async () => {
+    await mount(true);
+    act(() => present(checkbox(), "agent checkbox").click());
+    act(() => present(checkbox(), "agent checkbox").click());
+    expect(flips).toEqual([false, true]);
+  });
 
   it("prefills from the global default and the result carries the choice", async () => {
     await mount(true);
@@ -706,6 +718,7 @@ describe("AgentDialog start-from session picker", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
           ...overrides,
         }),
       ),
@@ -1044,6 +1057,7 @@ describe("AgentDialog start-from paging", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1108,6 +1122,7 @@ describe("AgentDialog start-from paging", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1167,6 +1182,7 @@ describe("AgentDialog start-from paging", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1218,6 +1234,7 @@ describe("AgentDialog start-from paging", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1317,6 +1334,7 @@ describe("AgentDialog cross-agent pick guard", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1431,6 +1449,7 @@ describe("remote gating (Experimental setting)", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1484,6 +1503,7 @@ describe("remote gating (Experimental setting)", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1623,6 +1643,7 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );

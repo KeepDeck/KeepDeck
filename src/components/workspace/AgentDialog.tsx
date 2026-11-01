@@ -125,6 +125,9 @@ interface AgentDialogProps {
   ): Promise<{ ok: true; ids: ReadonlySet<string> } | { ok: false }>;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
+  /** The person flipped the YOLO toggle. Required, like `remoteEnabled`: a
+   * surface that forgot it would leave a hole in the toggle's log trail. */
+  onYoloChange(on: boolean): void;
 }
 
 /**
@@ -158,6 +161,7 @@ export function AgentDialog({
   liveOutside,
   onConfirm,
   onCancel,
+  onYoloChange,
 }: AgentDialogProps) {
   const [agentType, setAgentType] = useState<AgentType | null>(defaultAgentType);
   const [name, setName] = useState("");
@@ -176,6 +180,10 @@ export function AgentDialog({
   // The toggle's state survives switching through a non-supporting agent —
   // only the SUBMITTED value is gated (see `supportsYolo` below).
   const [yolo, setYolo] = useState(defaultYolo);
+  const flipYolo = (on: boolean) => {
+    setYolo(on);
+    onYoloChange(on);
+  };
   // WHERE the team runs — its own feature, with its own mind and its own
   // four async collaborators ([`useWorktreeLocation`]).
   const location = useWorktreeLocation({
@@ -591,7 +599,7 @@ export function AgentDialog({
           />
         )}
 
-        {member && supportsYolo && <YoloField checked={yolo} onChange={setYolo} />}
+        {member && supportsYolo && <YoloField checked={yolo} onChange={flipYolo} />}
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>

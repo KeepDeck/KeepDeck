@@ -188,7 +188,7 @@ export function useAgentDialog(
       // dialog at all.
       const team = findTeam(ws, opening.teamId);
       if (!team) return;
-      setDialog({
+      const spec: AgentDialogSpec = {
         workspace,
         agentId: paneId(seq),
         index,
@@ -209,7 +209,17 @@ export function useAgentDialog(
         repo: null,
         suggestedPath: "",
         suggestedBranch: "",
-      });
+      };
+      // The first line of the dialog's YOLO trail: where the toggle starts
+      // and what put it there. The person's flips and the confirm continue
+      // it, so a member that came up without the YOLO its person saw can be
+      // traced step by step (task-576).
+      log.info(
+        "web:agents",
+        `${spec.agentId}: member dialog opened — YOLO starts ${spec.defaultYolo ? "on" : "off"}, ` +
+          (opening.session ? "as its source session ran" : "the global default"),
+      );
+      setDialog(spec);
       return;
     }
     // Offer the worktree location only when the workspace cwd is a git repo.
@@ -326,13 +336,15 @@ export function useAgentDialog(
     // What the dialog asked for, in the log: the agent, and the YOLO it sent
     // beside whether that agent can take one at all — an agent that started
     // without the YOLO the person meant can then be traced to the toggle or
-    // to the agent (task-576).
-    const yolo = result.agentType === null
+    // to the agent (task-576). "+ Team" lands no agent, whatever its hidden
+    // picker holds, so it has no YOLO to report.
+    const landed = dlg.target.kind === "member" ? result.agentType : null;
+    const yolo = landed === null
       ? "n/a"
       : result.yolo
         ? "on"
-        : agentSupportsYolo(agents, result.agentType) ? "off" : "off (the agent declares no YOLO)";
-    log.info("web:agents", `${dlg.agentId}: ${dlg.target.kind} dialog confirmed — ${result.agentType ?? "no agent"}, YOLO ${yolo}`);
+        : agentSupportsYolo(agents, landed) ? "off" : "off (the agent declares no YOLO)";
+    log.info("web:agents", `${dlg.agentId}: ${dlg.target.kind} dialog confirmed — ${landed ?? "no agent"}, YOLO ${yolo}`);
     // Closed first, whatever the door answers: a refusal is a notice and a
     // question is its own dialog, and neither stacks on top of this one.
     setDialog(null);
@@ -459,6 +471,13 @@ export function useAgentDialog(
 
   const cancel = () => setDialog(null);
 
+  /** The person flipped the dialog's YOLO toggle: a step of the trail its
+   * opening starts and its confirm ends (task-576). */
+  const yoloToggled = (on: boolean) => {
+    if (!dialog) return;
+    log.info("web:agents", `${dialog.agentId}: YOLO toggled ${on ? "on" : "off"} in the dialog`);
+  };
+
   /** A busy or stalled card's Fork: the member dialog for the pane's team,
    * its bound session already picked to fork — the role still the person's
    * to choose. A pane on no team, or with nothing bound, has nothing to
@@ -494,6 +513,7 @@ export function useAgentDialog(
     openFor,
     confirm,
     cancel,
+    yoloToggled,
     continueSession,
     forkPaneSession,
     nextFree,

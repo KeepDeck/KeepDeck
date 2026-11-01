@@ -212,21 +212,87 @@ describe("useAgentDialog suggestions", () => {
     ]);
   });
 
-  it("says no YOLO either way for a dialog confirmed with no agent", async () => {
-    const ws = workspace({});
+  it("says no YOLO either way for a dialog that lands no agent", async () => {
+    // "+ Team" submits its hidden picker's agent and the YOLO default; it
+    // lands an empty team, so neither is what happened.
+    catalog = [
+      {
+        id: "claude",
+        label: "claude",
+        command: "claude",
+        features: [{ id: "execution.yolo", label: "YOLO mode" }],
+        installed: true,
+        path: null,
+      },
+    ];
+    const ws = withTeam();
     await mount(ws);
     await act(async () => flow.openFor(ws));
     await act(async () => {
       flow.confirm({
-        agentType: null,
+        agentType: "claude",
         name: "",
         location: { kind: "new", path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" },
-        yolo: false,
+        yolo: true,
         teamName: "docs",
       });
     });
+    // A member confirmed with no agent picked is refused: no YOLO either.
+    await act(async () => flow.openFor(ws, MEMBER));
+    await act(async () => {
+      flow.confirm({ agentType: null, name: "", location: { kind: "main" }, yolo: false });
+    });
     expect(logged.filter((line) => line.includes("dialog confirmed"))).toEqual([
       expect.stringMatching(/new-team dialog confirmed — no agent, YOLO n\/a$/),
+      expect.stringMatching(/member dialog confirmed — no agent, YOLO n\/a$/),
+    ]);
+  });
+
+  it("traces a member dialog's YOLO from where it started, through every flip, to what it sent", async () => {
+    catalog = [
+      {
+        id: "claude",
+        label: "claude",
+        command: "claude",
+        features: [{ id: "execution.yolo", label: "YOLO mode" }],
+        installed: true,
+        path: null,
+      },
+    ];
+    // The lead ran in YOLO, so its Fork opens on; a fresh member opens on
+    // the global default — off, with no settings store here.
+    const ws = withTeam({
+      panes: [
+        {
+          id: "p1",
+          agentType: "claude",
+          yolo: true,
+          session: { id: "s-9", boundAt: "t" },
+          team: { teamId: "team-1", role: "lead" },
+        },
+      ],
+    });
+    await mount(ws);
+    await act(async () => flow.openFor(ws, MEMBER));
+    act(() => flow.yoloToggled(true));
+    act(() => flow.yoloToggled(false));
+    act(() => flow.yoloToggled(true));
+    await act(async () => {
+      flow.confirm({ agentType: "claude", name: "", location: { kind: "main" }, yolo: true });
+    });
+    // A flip with no dialog open belongs to no trail.
+    act(() => flow.yoloToggled(false));
+    await act(async () => flow.forkPaneSession("ws-1", "p1"));
+
+    const fresh = offered().pane.id;
+    const fork = present(flow.dialog, "the fork dialog").agentId;
+    expect(logged.filter((line) => line.startsWith("web:agents "))).toEqual([
+      `web:agents ${fresh}: member dialog opened — YOLO starts off, the global default`,
+      `web:agents ${fresh}: YOLO toggled on in the dialog`,
+      `web:agents ${fresh}: YOLO toggled off in the dialog`,
+      `web:agents ${fresh}: YOLO toggled on in the dialog`,
+      `web:agents ${fresh}: member dialog confirmed — claude, YOLO on`,
+      `web:agents ${fork}: member dialog opened — YOLO starts on, as its source session ran`,
     ]);
   });
 
