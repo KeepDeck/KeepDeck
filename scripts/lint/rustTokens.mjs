@@ -12,6 +12,37 @@ export function rustWords(source) {
   return dropTestItems(lex(source)).filter((token) => token.kind !== "punct");
 }
 
+/**
+ * Every lint a source silences inline: an `allow(` or `expect(` inside an
+ * attribute — `#[…]` or `#![…]`, a `cfg_attr`'s included — with its line.
+ * Test items count: a suppression is one wherever it is written. Comments
+ * and strings are skipped, so prose about an attribute is not one
+ * (scripts/rustLintLevels.test.mjs, task-584).
+ * @param {string} source
+ * @returns {{ level: string, line: number }[]}
+ */
+export function inlineSuppressions(source) {
+  const tokens = lex(source);
+  const found = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (tokens[i].text !== "#") continue;
+    let j = tokens[i + 1]?.text === "!" ? i + 2 : i + 1;
+    if (tokens[j]?.text !== "[") continue;
+    for (let depth = 0; j < tokens.length; j += 1) {
+      const { kind, text, line } = tokens[j];
+      if (kind === "punct" && text === "[") depth += 1;
+      else if (kind === "punct" && text === "]") {
+        depth -= 1;
+        if (depth === 0) break;
+      } else if (kind === "ident" && (text === "allow" || text === "expect") && tokens[j + 1]?.text === "(") {
+        found.push({ level: text, line });
+      }
+    }
+    i = j;
+  }
+  return found;
+}
+
 /** Each pattern is tried at the current position, in this order. */
 const RAW_STRING = /b?r(#*)"/y;
 const STRING = /b?"((?:[^"\\]|\\[\s\S])*)"/y;

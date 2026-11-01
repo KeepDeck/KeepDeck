@@ -77,8 +77,11 @@ describe("ci workflow", () => {
     const rustRuns = ci.jobs.rust.steps.map((s) => s.run).filter(Boolean);
     const frontend = rustRuns.indexOf("pnpm build");
     const tests = rustRuns.indexOf("cargo test --workspace");
+    // Clippy compiles the workspace too, and any warning fails the job.
+    const clippy = rustRuns.indexOf("cargo clippy --workspace --all-targets -- -D warnings");
     expect(frontend).toBeGreaterThanOrEqual(0);
     expect(tests).toBeGreaterThan(frontend);
+    expect(clippy).toBeGreaterThan(frontend);
   });
 });
 
