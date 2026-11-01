@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { publishingTree } from "../testing.ts";
-import { oneAtATime, publishCopy, publishFiles, VIEW_FINGERPRINT_FILE } from "./publish.ts";
+import { oneAtATime, publishCopy, publishFiles, VIEW_FINGERPRINT_FILE, type PublishingRead } from "./publish.ts";
 
 function recording() {
   const calls: string[] = [];
@@ -131,6 +131,35 @@ describe("publishing with read: a directory already as asked is left as it is", 
     await mark(tree, "/d/plugin");
     const unreadable = { readFile: async () => Promise.reject(new Error("refused")) };
     await publishFiles(tree.fsWrite, "/d/plugin", entries(), unreadable);
+    expect(marked(tree, "/d/plugin")).toBe(false);
+  });
+
+  it("reads a stamp past the host's default read whole — thousands of skills' commands are still left as they are", async () => {
+    const commands = Array.from({ length: 4000 }, (_, n) => ({ path: `s${n}.md`, text: "x".repeat(400) }));
+    const tree = publishingTree();
+    await publishFiles(tree.fsWrite, "/d/command", commands, tree.fs);
+    expect(tree.read("/d/command/.keepdeck-published")?.length).toBeGreaterThan(1024 * 1024);
+    await mark(tree, "/d/command");
+
+    await publishFiles(tree.fsWrite, "/d/command", commands, tree.fs);
+
+    expect(marked(tree, "/d/command")).toBe(true);
+  });
+
+  it("never takes a stamp it did not read whole for the same", async () => {
+    const tree = publishingTree(viewSaying("sha256:1"));
+    await publishFiles(tree.fsWrite, "/d/plugin", entries(), tree.fs);
+    await mark(tree, "/d/plugin");
+    // The whole stamp, yet said to be cut short: no proof it ends there.
+    const cut: PublishingRead = {
+      readFile: async (path, opts) => {
+        const file = await tree.fs.readFile(path, opts);
+        return path.endsWith("/.keepdeck-published") ? { ...file, truncated: true } : file;
+      },
+    };
+
+    await publishFiles(tree.fsWrite, "/d/plugin", entries(), cut);
+
     expect(marked(tree, "/d/plugin")).toBe(false);
   });
 

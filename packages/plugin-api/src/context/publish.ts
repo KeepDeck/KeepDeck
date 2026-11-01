@@ -136,10 +136,13 @@ async function alreadyPublished(
 }
 
 /** A file's whole text; null for one that is not there, not text, or not
- * read whole — anything but a plain answer means publishing again. */
+ * read whole — anything but a plain answer means publishing again. Asked for
+ * whole, as far as the host reads one file at once: a stamp past its default
+ * read — a library of thousands of skills, each a command — is still read
+ * whole, not taken for different on every launch. */
 async function textOf(read: PublishingRead, path: string): Promise<string | null> {
   try {
-    const file = await read.readFile(path);
+    const file = await read.readFile(path, { maxBytes: Number.MAX_SAFE_INTEGER });
     return file.truncated ? null : file.text;
   } catch {
     return null;
