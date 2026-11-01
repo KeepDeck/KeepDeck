@@ -17,6 +17,9 @@ export interface StorePorts {
 
 /** codex's store root. Day-partitioned below this: `YYYY/MM/DD/`. */
 export const ROOT = "~/.codex/sessions";
+/** Where codex moves the sessions a person archives — not history to list,
+ * but still a fork's source to read (rollout/src/list.rs). */
+export const ARCHIVED_ROOT = "~/.codex/archived_sessions";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
@@ -28,20 +31,27 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
  * uuid is the session id, the only way to tie a file to a pane that
  * reported one.
  */
-const ROLLOUT_NAME = new RegExp(`^rollout-.*?-(${UUID})(?:_${UUID})?\\.jsonl(\\.zst)?$`);
+const ROLLOUT_NAME = new RegExp(`^rollout-.*?-(${UUID})(?:_(${UUID}))?\\.jsonl(\\.zst)?$`);
 
-/** What a rollout's file name says: whose session it is, and whether codex
- * has compressed it — a compressed file is old, never written to again
- * (codex makes it plain before it appends), and not readable as text. */
+/** What a rollout's file name says: whose session it is, which rollout it
+ * is, and whether codex has compressed it — a compressed file is old, never
+ * written to again (codex makes it plain before it appends), and not
+ * readable as text. */
 export interface RolloutName {
   sessionId: string;
+  /** The file's own id: what a fork's `history_base.thread_id` names. The
+   * segment's uuid where there is one, the session's where there is not
+   * (rollout/src/metadata.rs). */
+  rolloutId: string;
   compressed: boolean;
 }
 
 /** A rollout's name read, or null for anything else in the store. */
 export function rolloutName(name: string): RolloutName | null {
   const match = ROLLOUT_NAME.exec(name);
-  return match ? { sessionId: match[1], compressed: match[2] !== undefined } : null;
+  return match
+    ? { sessionId: match[1], rolloutId: match[2] ?? match[1], compressed: match[3] !== undefined }
+    : null;
 }
 
 /**
@@ -66,6 +76,7 @@ export async function walkRollouts(
     stop?(): boolean;
     unreadable?(part: string, error?: unknown): void;
   },
+  root: string = ROOT,
 ): Promise<void> {
   const walk = async (entries: FsEntry[]): Promise<void> => {
     const dirs: FsEntry[] = [];
@@ -92,7 +103,35 @@ export async function walkRollouts(
       if (children) await walk(children);
     }
   };
-  await walk(await ctx.services.fs.readDir(ROOT));
+  await walk(await ctx.services.fs.readDir(root));
+}
+
+/**
+ * The file a rollout id names — a fork's source, found by the id its
+ * `history_base` gives — in the store, then among the archived sessions,
+ * the order codex looks in. Null when neither holds it; an archive that is
+ * not there holds nothing.
+ */
+export async function findRolloutById(ctx: StorePorts, rolloutId: string): Promise<string | null> {
+  for (const root of [ROOT, ARCHIVED_ROOT]) {
+    let found: string | null = null;
+    try {
+      await walkRollouts(
+        ctx,
+        {
+          file: (entry, name) => {
+            if (name.rolloutId === rolloutId && found === null) found = entry.path;
+          },
+          stop: () => found !== null,
+        },
+        root,
+      );
+    } catch {
+      continue;
+    }
+    if (found !== null) return found;
+  }
+  return null;
 }
 
 /**

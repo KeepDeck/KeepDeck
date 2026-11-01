@@ -198,8 +198,10 @@ export type {
   PluginSpawnOptions,
 } from "./services.ts";
 export {
+  chained,
   createSessionStore,
   jsonl,
+  type ChainRequest,
   type JsonlRequest,
   type PluginSessionStore,
   type ReadBudget,

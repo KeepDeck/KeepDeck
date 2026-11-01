@@ -119,6 +119,75 @@ describe("codex history", () => {
     ]);
   });
 
+  describe("a fork's conversation (task-588)", () => {
+    // codex 0.163+ forks a paginated thread by REFERENCE: the fork's first
+    // record names its source and the byte its inherited prefix ends at.
+    const SOURCE = "11111111-1111-4111-8111-111111111111";
+    const FORK = "22222222-2222-4222-8222-222222222222";
+    const line = (record: unknown) => `${JSON.stringify(record)}\n`;
+    const said = (role: "user" | "assistant", text: string) => ({
+      type: "response_item",
+      payload: { type: "message", role, content: [{ type: role === "user" ? "input_text" : "output_text", text }] },
+    });
+    const inherited =
+      line({ type: "session_meta", payload: { id: SOURCE, cwd: "/repo" } }) +
+      line(said("user", "before the fork")) +
+      line(said("assistant", "answered"));
+    // Written to the source AFTER the fork: not the fork's history.
+    const source = inherited + line(said("user", "the source went on"));
+    const forkOf = (sourceId: string) =>
+      line({
+        type: "session_meta",
+        payload: {
+          id: FORK,
+          cwd: "/repo/wt",
+          history_base: {
+            thread_id: sourceId,
+            end_ordinal_exclusive: 3,
+            end_byte_offset: new TextEncoder().encode(inherited).length,
+          },
+        },
+      }) + line(said("user", "after the fork"));
+    const sourceName = `rollout-2026-01-01T00-00-00-${SOURCE}.jsonl`;
+    const forkName = `rollout-2026-01-02T00-00-00-${FORK}.jsonl`;
+    const store = (fork: string, withSource = true) =>
+      codexHistory(
+        ctx(
+          { ...(withSource ? { [`/s/${sourceName}`]: source } : {}), [`/s/${forkName}`]: fork },
+          {
+            "~/.codex/sessions": [
+              ...(withSource
+                ? [{ name: sourceName, path: `/s/${sourceName}`, kind: "file" as const, size: source.length, mtime: 1 }]
+                : []),
+              { name: forkName, path: `/s/${forkName}`, kind: "file" as const, size: fork.length, mtime: 2 },
+            ],
+          },
+        ),
+      );
+    const texts = async (history: ReturnType<typeof store>) =>
+      (await present(history.transcriptPage, "the transcript page")(`/s/${forkName}`, { offset: 0, limit: 50 })).entries.map(
+        (entry) => entry.text,
+      );
+
+    it("reads the source's inherited prefix, then the fork's own — and nothing the source said later", async () => {
+      const history = store(forkOf(SOURCE));
+      expect(await texts(history)).toEqual(["before the fork", "answered", "after the fork"]);
+      expect(await history.content(`/s/${forkName}`)).toContain("before the fork");
+      expect(await history.content(`/s/${forkName}`)).not.toContain("the source went on");
+    });
+
+    it("describes the fork by itself: where it runs, and what it was asked first", async () => {
+      expect(await store(forkOf(SOURCE)).describe(`/s/${forkName}`)).toMatchObject({
+        cwd: "/repo/wt",
+        title: "after the fork",
+      });
+    });
+
+    it("reads what it has when the source is gone", async () => {
+      expect(await texts(store(forkOf(SOURCE), false))).toEqual(["after the fork"]);
+    });
+  });
+
   it("describes a compressed rollout as read NOTHING — so the index keeps what it knew", async () => {
     // zstd's magic and a frame: not text, not a byte of it readable here.
     // An empty describe would read as "a session with nothing in it"; the

@@ -1,4 +1,5 @@
 import {
+  chained,
   isJsonRecord,
   fileStub,
   firstMeaningfulUserTurn,
@@ -16,7 +17,8 @@ import {
   type ReadScope,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
-import { walkRollouts, type StorePorts } from "./store";
+import { historyBaseOf, lineageOf, type HistoryBase } from "./lineage";
+import { findRolloutById, walkRollouts, type StorePorts } from "./store";
 
 /**
  * Discovery over codex's store ([F8] browser): date-partitioned rollouts at
@@ -46,6 +48,11 @@ function isCodexRecord(value: unknown): value is CodexRecord {
 /** What codex records in passing, on lines the walk goes through anyway. */
 interface CodexState {
   cwd?: string;
+  /** Whether the rollout's opening `session_meta` has been seen. */
+  opened?: boolean;
+  /** What that opening record says the session inherited — a fork's
+   * source, read before what the fork itself holds (task-588). */
+  base?: HistoryBase;
 }
 
 
@@ -60,7 +67,13 @@ const dialect: SessionDialect<CodexState, CodexRecord> = {
     // noticing it here is what replaces the separate read of the head. A
     // rollout can carry several (subagent threads) — the FIRST wins, which
     // is what parsing the first line always did.
-    if (record.type === "session_meta") state.cwd ??= trimmedText(record.payload?.cwd);
+    if (record.type === "session_meta") {
+      state.cwd ??= trimmedText(record.payload?.cwd);
+      // Only the OPENING record says what this rollout inherited; a
+      // subagent thread's later one speaks for that thread.
+      if (!state.opened) state.base = historyBaseOf(record) ?? undefined;
+      state.opened = true;
+    }
 
     if (record.type !== "response_item") return [];
     const payload = record.payload;
@@ -103,6 +116,27 @@ export function codexHistory(ctx: HistoryPorts): AgentHistory {
       dialect,
       ...extra,
     });
+
+  /** The rollout read as the whole conversation it belongs to. Most are
+   * whole on their own, and are read once. A fork names what it inherited
+   * in its first record, and is read again from its oldest source. Only
+   * forks pay for a second reading. */
+  const readConversation = async (ref: string, keep?: { offset: number; limit: number }) => {
+    const own = await readSession(ref, { ...(keep ? { keep } : {}) });
+    if (!own.state.base) return own;
+    const parts = await lineageOf(
+      { sessionStore: ctx.services.sessionStore, find: (id) => findRolloutById(ctx, id), log: ctx.log },
+      ref,
+      own.state.base,
+    );
+    return walkSession({
+      store: ctx.services.sessionStore,
+      format: chained(jsonl(isCodexRecord)),
+      request: { parts },
+      dialect,
+      ...(keep ? { keep } : {}),
+    });
+  };
 
   return sessionHistory("codex", ctx.log, {
     async enumerate(unreadable) {
@@ -147,8 +181,8 @@ export function codexHistory(ctx: HistoryPorts): AgentHistory {
       };
     },
     async content(ref) {
-      return (await readSession(ref)).content;
+      return (await readConversation(ref)).content;
     },
-    readPage: async (ref, page) => pageOfWalk(await readSession(ref, { keep: page })),
+    readPage: async (ref, page) => pageOfWalk(await readConversation(ref, page)),
   });
 }

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { FsEntry } from "@keepdeck/plugin-api";
-import { findRollout, newestRollouts, rolloutName, walkRollouts, type StorePorts } from "./store";
+import {
+  findRollout,
+  findRolloutById,
+  newestRollouts,
+  rolloutName,
+  walkRollouts,
+  type StorePorts,
+} from "./store";
 import { present } from "@keepdeck/plugin-api/testing";
 
 /** A store shaped like codex's: `YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl`. */
@@ -37,16 +44,26 @@ const SEGMENT = "019f7700-0000-7000-8000-000000000001";
 
 describe("rolloutName", () => {
   it("reads the session from either name codex gives a rollout, compressed or not", () => {
-    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}.jsonl`)).toEqual({ sessionId: SID, compressed: false });
-    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}.jsonl.zst`)).toEqual({ sessionId: SID, compressed: true });
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}.jsonl`)).toEqual({
+      sessionId: SID,
+      rolloutId: SID,
+      compressed: false,
+    });
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}.jsonl.zst`)).toEqual({
+      sessionId: SID,
+      rolloutId: SID,
+      compressed: true,
+    });
     // The FIRST uuid is the thread — the session; the second names the
-    // segment a revert started, and is nobody's session id.
+    // segment a revert started: the file's own id, which a fork's base names.
     expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl`)).toEqual({
       sessionId: SID,
+      rolloutId: SEGMENT,
       compressed: false,
     });
     expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl.zst`)).toEqual({
       sessionId: SID,
+      rolloutId: SEGMENT,
       compressed: true,
     });
   });
@@ -172,6 +189,35 @@ describe("findRollout", () => {
       [`${ROOT}/2026/07/18`]: [`rollout-2026-07-18T02-00-00-${SID}-copy.jsonl`],
     });
     await expect(findRollout(ctx, SID)).resolves.toBeNull();
+  });
+});
+
+describe("findRolloutById", () => {
+  it("finds a fork's source by its rollout id — a segment's own id — in the store, then the archive", async () => {
+    const ARCHIVED = "019f6000-0000-7000-8000-00000000000c";
+    const ctx = storeOf({
+      [ROOT]: [],
+      [`${ROOT}/2026`]: [],
+      [`${ROOT}/2026/07`]: [],
+      [`${ROOT}/2026/07/18`]: [`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl`],
+      "~/.codex/archived_sessions": [],
+      "~/.codex/archived_sessions/2026": [],
+      "~/.codex/archived_sessions/2026/06": [],
+      "~/.codex/archived_sessions/2026/06/01": [`rollout-2026-06-01T03-00-00-${ARCHIVED}.jsonl.zst`],
+    });
+    await expect(findRolloutById(ctx, SEGMENT)).resolves.toBe(
+      `${ROOT}/2026/07/18/rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl`,
+    );
+    // The thread's id is not the segment's: nothing names the file by it.
+    await expect(findRolloutById(ctx, SID)).resolves.toBeNull();
+    await expect(findRolloutById(ctx, ARCHIVED)).resolves.toBe(
+      `~/.codex/archived_sessions/2026/06/01/rollout-2026-06-01T03-00-00-${ARCHIVED}.jsonl.zst`,
+    );
+  });
+
+  it("is nothing without an archive to look in", async () => {
+    const ctx = storeOf({ [ROOT]: [] });
+    await expect(findRolloutById(ctx, SID)).resolves.toBeNull();
   });
 });
 
