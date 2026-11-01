@@ -41,22 +41,26 @@ const eslint = new ESLint({
 });
 
 describe("the linter", () => {
-  it("catches suppressed checks in resource JS and explicit any in TypeScript", async () => {
+  it("catches suppressed checks in resource JS, and explicit any and suppressions in TypeScript — the root build configs included", async () => {
     const [resource] = await eslint.lintText(
       "// @ts-check\n// @ts-ignore\nconst value = 1;\n",
       { filePath: join(REPO, "plugins/opencode/resources/keepdeck-plugin/lint-probe.js") },
     );
-    const [typescript] = await eslint.lintText(
-      "const value: any = 1;\n// @ts-expect-error\nvalue();\n",
-      { filePath: join(REPO, "src/lint-probe.ts") },
-    );
     expect(resource.messages.map((message) => message.ruleId)).toEqual([
       "@typescript-eslint/ban-ts-comment",
     ]);
-    expect(typescript.messages.map((message) => message.ruleId)).toEqual([
-      "@typescript-eslint/no-explicit-any",
-      "@typescript-eslint/ban-ts-comment",
-    ]);
+    // A root config (vite.config.ts) is TypeScript outside the app's
+    // tsconfig: it takes the rules that need no types all the same.
+    for (const file of ["src/lint-probe.ts", "lint-probe.config.ts"]) {
+      const [typescript] = await eslint.lintText(
+        "const value: any = 1;\n// @ts-expect-error\nvalue();\n",
+        { filePath: join(REPO, file) },
+      );
+      expect(typescript.messages.map((message) => message.ruleId), file).toEqual([
+        "@typescript-eslint/no-explicit-any",
+        "@typescript-eslint/ban-ts-comment",
+      ]);
+    }
   });
 
   it("turns the unchecked-assertion rule on, with its type program, in every TypeScript tree — the one rule that reads types", async () => {
