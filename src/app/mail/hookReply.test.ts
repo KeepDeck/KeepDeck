@@ -170,10 +170,24 @@ describe("answerMailAsk", () => {
     expect(body).not.toContain("take the parser");
     // Still the deck's, so it is nudged for and its sender told it waits.
     expect(h.manager.waiting("pane-2")).toBe(1);
-    expect(info.mock.calls.some(([, line]) => line.includes("1 still waiting"))).toBe(true);
+    expect(info.mock.calls.some(([, line]) => line.includes("1 left for a turn"))).toBe(true);
     // The turn's own hook then hands it over.
     h.channel.answer("pane-2", asking({ reply: "askDEF", event: { hook_event_name: "UserPromptSubmit" } }));
     expect(h.replies[1]?.body).toContain("take the parser");
+    info.mockRestore();
+  });
+
+  it("calls a briefing a prompt held by its name at a hook outside any turn — not one left for a turn", () => {
+    // A session start while the pane is parked on a permission prompt: the
+    // briefing waits for the prompt, and only work waits for a turn.
+    const info = vi.spyOn(log, "info");
+    const approving: PaneActivity = { state: "waiting", since: 1, reason: "permission" };
+    const h = setup({ activity: approving });
+    h.manager.announce("pane-2", "team", "you are analyst-1");
+    h.channel.answer("pane-2", asking({ event: { hook_event_name: "SessionStart" } }));
+    const lines = info.mock.calls.map(([, line]) => line);
+    expect(lines.some((line) => line.includes("1 held — the pane is at a prompt"))).toBe(true);
+    expect(lines.some((line) => line.includes("left for a turn"))).toBe(false);
     info.mockRestore();
   });
 

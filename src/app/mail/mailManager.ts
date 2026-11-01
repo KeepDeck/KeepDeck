@@ -213,6 +213,10 @@ export interface MailManager {
    * it ([`waitsForATurn`]); the rest stays queued for the next boundary.
    */
   takeAtTurnEnd(paneId: string, activity?: PaneActivity | null, door?: HookDoor): Mail[];
+  /** How many of this pane's queued messages a hook outside any turn leaves
+   * for a turn to act on ([`waitsForATurn`]) — said apart from what a
+   * prompt or the budget held, which are other reasons and other words. */
+  keptForATurn(paneId: string, activity?: PaneActivity | null): number;
   /** Put back messages taken at a turn boundary that could not be rendered
    * after all. They go to the FRONT, because they were the oldest waiting
    * and taking them must not cost them their place; their inbox entry is
@@ -799,10 +803,16 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * has usually taken some journal entries already, and the budget covers
    * the whole answer, not the queue's share of it.
    */
+  /** The pane's activity as a hand-over judges it: the one the asker passed
+   * (the event's own, previewed), else the tracker's. */
+  function activityAt(paneId: string, activity?: PaneActivity | null): PaneActivity | undefined {
+    return (activity === undefined ? deps.activityOf(paneId) : activity) ?? undefined;
+  }
+
   function drainQueue(paneId: string, collected: Mail[], door: MailDoor, activity?: PaneActivity | null): void {
     const queue = queues.get(paneId);
     if (!queue) return;
-    const pane = (activity === undefined ? deps.activityOf(paneId) : activity) ?? undefined;
+    const pane = activityAt(paneId, activity);
     let carried = collected.reduce((sum, mail) => sum + mail.body.length, 0);
     let index = 0;
     while (index < queue.length) {
@@ -900,6 +910,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // timer, and the queue just moved under it.
       drain();
       return taken;
+    },
+
+    keptForATurn(paneId, activity) {
+      const pane = activityAt(paneId, activity);
+      return (queues.get(paneId) ?? []).filter((mail) => waitsForATurn(mail, "outside-turn", pane)).length;
     },
 
     reconsider() {
