@@ -106,10 +106,14 @@ pub(super) fn list(root: &Path, tier: &[BundledSkill]) -> io::Result<Vec<SkillDt
 /// invisible while still being handed to their agents. The first is the lesser
 /// evil; making such a directory editable would mean relaxing `require_safe`,
 /// which is a path-safety rule and not up for it.
+///
+/// The SKILL.md is read the one way staging reads it ([`super::tree`]): one
+/// that is a link, no file, too large or not text is no skill here either, so
+/// the list never shows what staging would refuse, nor waits on a FIFO.
 fn scope_skills(dir: &Path) -> io::Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for skill in sorted_dirs(dir)? {
-        let Ok(content) = fs::read_to_string(skill.join(SKILL_FILE)) else {
+        let Ok(Some(content)) = super::tree::read_skill_file(&skill) else {
             continue;
         };
         let name = skill.file_name().unwrap_or_default().to_string_lossy().into_owned();

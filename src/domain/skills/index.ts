@@ -9,6 +9,7 @@
  * its reading.
  */
 export * from "./skills";
+export * from "./stagingTrims";
 export { skillDraftOf } from "./skillFile";
 export {
   composeSkillFile,

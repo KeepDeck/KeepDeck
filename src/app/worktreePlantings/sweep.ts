@@ -1,5 +1,4 @@
 /** The feature cleanup pass, composed beside the two planting adapters. */
-import { pruneSkills } from "../../ipc/skills";
 import { pruneMcpLibrary } from "../../ipc/mcpLibrary";
 import { cwdArmPrune } from "../../ipc/cwdArm";
 import type {
@@ -13,13 +12,17 @@ export function createSweep(
   deck: WorktreeDeckView,
   inOrder: InOrder,
   disarm: (roots: string[]) => Promise<string[] | null>,
+  pruneSkills: (live: readonly LiveWorkspace[]) => Promise<boolean>,
   prunePluginDirs: (liveWsIds: readonly string[]) => Promise<boolean>,
 ): WorktreeHousekeeping {
   let swept: LiveWorkspace[] | null = null;
 
+  /** What a pass acts on: which lifetimes hold which roots. A workspace
+   * reborn under the same id with the same roots is still a change — what
+   * the gone lifetime left standing is the pass's to drop. */
   function fingerprint(live: LiveWorkspace[]): string {
     return JSON.stringify(
-      live.map((ws) => [ws.id, [...ws.roots].sort()]).sort(),
+      live.map((ws) => [ws.id, ws.instance, [...ws.roots].sort()]).sort(),
     );
   }
 
@@ -34,9 +37,10 @@ export function createSweep(
         const disarmed = await disarm([
           ...new Set(swept?.flatMap((ws) => ws.roots) ?? []),
         ]);
-        const liveIds = deck.live().map((ws) => ws.id).sort();
+        const liveNow = deck.live();
+        const liveIds = liveNow.map((ws) => ws.id).sort();
         const sweeps = await Promise.all([
-          pruneSkills(liveIds),
+          pruneSkills(liveNow),
           pruneMcpLibrary(liveIds),
           cwdArmPrune(liveIds),
           prunePluginDirs(liveIds),

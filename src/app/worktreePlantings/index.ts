@@ -19,7 +19,7 @@ export function createWorktreePlantings(
   inOrder: InOrder,
   factories: WorktreePlantingFactories,
 ): WorktreePlantings {
-  const skills = factories.skills(inOrder);
+  const skills = factories.skills(inOrder, deck);
 
   async function disarm(roots: string[]): Promise<string[] | null> {
     const liveRoots = deck.live().flatMap((ws) => ws.roots);
@@ -33,6 +33,6 @@ export function createWorktreePlantings(
     skillsFor: skills.skillsFor,
     invalidateSkills: skills.invalidateSkills,
     armCwd: (request) => inOrder(() => cwdArm(request)),
-    sweep: createSweep(deck, inOrder, disarm, factories.prunePluginDirs).sweep,
+    sweep: createSweep(deck, inOrder, disarm, skills.pruneSkills, factories.prunePluginDirs).sweep,
   };
 }

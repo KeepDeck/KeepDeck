@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SkillScope } from "../domain/skills";
+import type { SkillScope, StagingTrim } from "../domain/skills";
 import { log } from "./log";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -24,6 +24,14 @@ export interface SkillsStagingViews {
    * each staged skill as text. */
   dir: string;
   skills: { name: string; content: string }[];
+}
+
+/** A stage's answer (mirrors the Rust `StagingAnswer`): the views — null when
+ * nothing stages — and what it could not hand agents whole. The views keep
+ * exactly their own shape: what a spawn is handed never carries the report. */
+export interface SkillsStage {
+  view: SkillsStagingViews | null;
+  trims: StagingTrim[];
 }
 
 /** A stored row the host judged unfit to hand any agent, in the wire's own
@@ -83,19 +91,14 @@ export async function renameSkill(scope: SkillScope, from: string, to: string): 
   await invoke("skills_rename", { ...wire(scope), from, to });
 }
 
-/** Rebuild and fetch a workspace's staged views; `null` = nothing to inject
- * (empty library, or staging failed — a pane spawns fine without skills).
- * `excluded` rows stage nowhere. */
+/** Rebuild and fetch a workspace's staging; `excluded` rows stage nowhere.
+ * THROWS when the stage failed: a failure is not "no skills", and what it
+ * costs is the caller's to decide. */
 export async function stageSkills(
   wsId: string,
   excluded: readonly ExcludedSkill[],
-): Promise<SkillsStagingViews | null> {
-  try {
-    return await invoke<SkillsStagingViews | null>("skills_stage", { wsId, excluded });
-  } catch (e) {
-    log.warn("web:skills", `skills_stage failed; spawning without skills: ${errorMessage(e)}`);
-    return null;
-  }
+): Promise<SkillsStage> {
+  return await invoke<SkillsStage>("skills_stage", { wsId, excluded });
 }
 
 /** Drop the derived dirs of workspaces not in `liveWsIds` (closed ones must

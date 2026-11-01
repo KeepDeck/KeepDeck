@@ -51,9 +51,11 @@ export interface ProvisionRequest {
 }
 
 /** One workspace as the sweep sees it: its durable id (the key its staged dirs
- * live under) and the spawn cwds currently claimed by its panes. */
+ * live under), the lifetime holding that id now, and the spawn cwds currently
+ * claimed by its panes. */
 export interface LiveWorkspace {
   id: string;
+  instance: string;
   roots: string[];
 }
 
@@ -66,6 +68,9 @@ export interface LiveWorkspace {
 export interface WorktreeDeckView {
   /** The workspace's live spawn roots; empty when it is gone. */
   rootsOf(workspace: WorkspaceRef): string[];
+  /** The workspace's name as the user sees it now; null once that lifetime
+   * is gone, even while a new workspace holds its id. */
+  nameOf(workspace: WorkspaceRef): string | null;
   /** Every live workspace with its roots. */
   live(): LiveWorkspace[];
 }
@@ -125,16 +130,16 @@ export interface WorktreeProvisioner {
   clearPostProvision(ownerId: string): void;
   /**
    * The workspace's staged shared skills, ready for a spawn plan. `null` =
-   * nothing to inject (an empty library, or a staging that failed and was
-   * degraded by the IPC layer): panes then spawn without skills rather than
-   * re-hitting a broken backend.
+   * nothing to inject: an empty library, or a staging that failed — the pane
+   * then spawns without skills.
    *
    * Memoized per workspace INSTANCE: staging rebuilds the on-disk views from
    * the library, so it runs once and every later pane spawn in that workspace
-   * reuses the promise until the library moves. Ids may be reused after a
-   * close, instances never are, so a reborn id cannot be served a dead
-   * lifetime's promise (whose dirs the sweep may have deleted). The DISK key
-   * stays the durable id.
+   * reuses the promise until the library moves. A FAILED staging is not
+   * memoized: it says nothing about the library, so the next spawn stages
+   * again. Ids may be reused after a close, instances never are, so a reborn
+   * id cannot be served a dead lifetime's promise (whose dirs the sweep may
+   * have deleted). The DISK key stays the durable id.
    */
   skillsFor(workspace: WorkspaceRef): Promise<WorktreeSkillViews | null>;
   /**
@@ -215,7 +220,7 @@ export type WorktreeManager = WorktreeProvisioner &
 /** The one composite passed into the manager. Its factories receive the
  * manager's queue, so every planting shares exactly one ordering guard. */
 export interface WorktreePlantingFactories {
-  skills(inOrder: InOrder): WorktreeSkillsPlanting;
+  skills(inOrder: InOrder, deck: WorktreeDeckView): WorktreeSkillsPlanting;
   /** Drop plugins' private directories of every workspace not in `liveWsIds`;
    * false when that could not be done (the sweep tries again). */
   prunePluginDirs(liveWsIds: readonly string[]): Promise<boolean>;
@@ -225,7 +230,12 @@ export interface WorktreePlantingFactories {
 }
 
 export type WorktreeSkillsPlanting = Pick<WorktreeProvisioner, "skillsFor"> &
-  SkillsInvalidation;
+  SkillsInvalidation & {
+    /** Drop the staged views of every workspace not in `live`, and what was
+     * said about any lifetime not in it; false when the views could not be
+     * dropped (the sweep tries again). */
+    pruneSkills(live: readonly LiveWorkspace[]): Promise<boolean>;
+  };
 
 export interface WorktreePlantings
   extends Pick<WorktreeProvisioner, "skillsFor">,
@@ -255,17 +265,22 @@ export type WorktreePlantingsFactory = (
  * nothing that runs.
  */
 export function deckViewOf(workspaces: () => Workspace[]): WorktreeDeckView {
+  /** The workspace living THIS lifetime, never merely holding its id. */
+  const lifetime = (ref: WorkspaceRef): Workspace | undefined =>
+    workspaces().find(
+      (candidate) =>
+        candidate.id === ref.id && candidate.instance === ref.instance,
+    );
   return {
     rootsOf: (ref) => {
-      const workspace = workspaces().find(
-        (candidate) =>
-          candidate.id === ref.id && candidate.instance === ref.instance,
-      );
+      const workspace = lifetime(ref);
       return workspace ? skillRootsOf(workspace) : [];
     },
+    nameOf: (ref) => lifetime(ref)?.name ?? null,
     live: () =>
       workspaces().map((workspace) => ({
         id: workspace.id,
+        instance: workspace.instance,
         roots: skillRootsOf(workspace),
       })),
   };

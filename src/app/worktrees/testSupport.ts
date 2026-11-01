@@ -64,6 +64,7 @@ import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { WorkspaceInstance } from "../../domain/workspaceInstance";
 import type { ProvisionRequest } from "./index";
 import { createSkillsStaging, createWorktreePlantings } from "../worktreePlantings";
+import { createStagingTrimStore, type StagingTrimStore } from "../stagingTrims";
 import {
   createWorktreeManager,
   deckViewOf,
@@ -91,11 +92,11 @@ export const provisionRequests = (count: number): ProvisionRequest[] =>
 /** The deck the manager reads, as a test double: what `live()` returns IS the
  * app's answer to which roots are claimed, and `rootsOf` answers from it.
  *
- * It carries the workspace INSTANCE, which `LiveWorkspace` does not: the
- * production adapter matches a workspace's LIFETIME and documents that as
- * load-bearing, and a double that knew only ids could not express the rule, let
- * alone cover it. Left off an entry, it follows [`ref`]'s default. */
-export type DeckEntry = LiveWorkspace & { instance?: string };
+ * Its INSTANCE is optional, where `LiveWorkspace`'s is not: the production
+ * adapter matches a workspace's LIFETIME and documents that as load-bearing,
+ * and the suites name one only where a lifetime matters. Left off an entry, it
+ * follows [`ref`]'s default. The deck view names each workspace by its id. */
+export type DeckEntry = Omit<LiveWorkspace, "instance"> & { instance?: string };
 
 const lifetimeOf = (ws: DeckEntry): string => ws.instance ?? `${ws.id}-life-1`;
 
@@ -116,6 +117,9 @@ export const stagedFor = (wsId: string) => ({
   dir: `/staging/${wsId}/skills`,
   skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
 });
+
+/** The native stage's whole answer: `stagedFor`'s views, and nothing trimmed. */
+export const stageAnswerFor = (wsId: string) => ({ view: stagedFor(wsId), trims: [] });
 
 /** The deck view over a suite's mutable array, through the PRODUCTION
  * projection — the lifetime match is load-bearing (ids are reusable,
@@ -153,10 +157,11 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
 }
 
 /** A fresh manager per test: its maps are per-instance precisely so no test —
- * and no workspace — inherits another's in-flight state. */
-export function managerFor(read: () => DeckEntry[]): WorktreeManager {
+ * and no workspace — inherits another's in-flight state. What staging could
+ * not hand out whole lands in `trims`, a fresh store unless a suite reads it. */
+export function managerFor(read: () => DeckEntry[], trims: StagingTrimStore = createStagingTrimStore()): WorktreeManager {
   const factories: WorktreePlantingFactories = {
-    skills: createSkillsStaging,
+    skills: (inOrder, deck) => createSkillsStaging(inOrder, deck, trims),
     prunePluginDirs: pluginDirs.prune,
     onDisarmed: () => {},
   };
@@ -173,7 +178,7 @@ export function managerFor(read: () => DeckEntry[]): WorktreeManager {
  * says, or the owner reads `undefined` as a failure and retries it forever. */
 export function armDoubles(): void {
   skills.fetchSkills.mockResolvedValue([]);
-  skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
+  skills.stageSkills.mockImplementation(async (wsId: string) => stageAnswerFor(wsId));
   skills.pruneSkills.mockResolvedValue(true);
   mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);
   pluginDirs.prune.mockResolvedValue(true);

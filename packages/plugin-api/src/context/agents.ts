@@ -320,7 +320,9 @@ export interface SpawnSkill {
  * (`ctx.workspaces`), around a copy of `dir` (`fsWrite.copyDir`, API 74)
  * that carries each skill's references, scripts and other files. */
 export interface SpawnSkillsInput {
-  /** The bare standard layout: `<dir>/<name>/SKILL.md`. */
+  /** The bare standard layout: `<dir>/<name>/SKILL.md`. At its top it also
+   * holds `VIEW_FINGERPRINT_FILE` (API 76), what the view holds in one line —
+   * which `publishFiles` / `publishCopy` read to leave a copy as it is. */
   dir: string;
   /** The same skills as text, alphabetical by name. Never empty: with no
    * skill to hand out, `skills` itself is absent from the plan input. */

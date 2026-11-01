@@ -11,7 +11,9 @@
 //! - [`library`] — what the user authored: listing, saving, renaming, and the
 //!   path-segment safety every name goes through
 //! - [`staging`] — the per-workspace skills a spawning agent is handed,
-//!   rebuilt from scratch on every request
+//!   rebuilt from scratch on every request, and how much of them fits
+//! - [`tree`] — what of a skill's folder an agent may be handed at all: read
+//!   beneath the folder, no link out of it, nothing waited on
 //!
 //! Frontmatter and schema knowledge stay in TS (the SKILL.md codec in
 //! plugin-api), next to the model; this adapter moves bytes — list, save,
@@ -19,9 +21,11 @@
 //! in a pane's cwd to find them, is its plugin's.
 
 mod bundled;
+mod fingerprint;
 mod gates;
 mod library;
 mod staging;
+mod tree;
 
 use std::path::{Path, PathBuf};
 
@@ -31,7 +35,7 @@ use std::path::{Path, PathBuf};
 // than reaching up into this router.
 pub use library::SkillDto;
 pub(crate) use library::require_safe;
-pub use staging::{SkillStagingDto, SkillsLocks};
+pub use staging::{SkillsLocks, StagingAnswer};
 pub(crate) use bundled::BUNDLED;
 pub(crate) use gates::{GateKey, GateRegistry};
 
@@ -148,17 +152,18 @@ pub fn skills_rename(
     library::rename(&dir, &from, &to).map_err(|e| e.to_string())
 }
 
-/// Rebuild and return the staging for one workspace — `None` when the
-/// library holds nothing for it (callers then inject no skills at all).
-/// `excluded` are the rows the host judged to have no usable description:
-/// they stage nowhere, and never shadow a fit same-name row.
+/// Rebuild and return the staging for one workspace — no view when the
+/// library holds nothing for it (callers then inject no skills at all) — and
+/// what it could not hand out whole. `excluded` are the rows the host judged
+/// to have no usable description: they stage nowhere, and never shadow a fit
+/// same-name row. An error is a stage that failed, never "no skills".
 #[tauri::command(async)]
 pub fn skills_stage(
     locks: tauri::State<'_, SkillsLocks>,
     gates: tauri::State<'_, GateRegistry>,
     ws_id: String,
     excluded: Vec<staging::ExcludedSource>,
-) -> Result<Option<SkillStagingDto>, String> {
+) -> Result<StagingAnswer, String> {
     let root = skills_root()?;
     library::require_safe(&ws_id, "workspace id")?;
     // The composition root owns the feature dependency; this command sees a
@@ -243,6 +248,7 @@ mod tests {
         }];
         let views = staging::stage(&SkillsLocks::default(), &root, "ws-1", &tier, false, &[])
             .unwrap()
+            .view
             .unwrap();
         let staged = std::fs::read(PathBuf::from(&views.dir).join("probe").join(library::SKILL_FILE)).unwrap();
         assert_eq!(staged, tier[0].content.as_bytes(), "staged bytes == constant bytes");

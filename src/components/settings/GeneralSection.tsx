@@ -11,6 +11,7 @@ import {
 import { ArtifactsRows } from "./ArtifactsRows";
 import { McpServerRow } from "./McpServerRow";
 import { ArmRefusals } from "./ArmRefusals";
+import { StagingTrims } from "./StagingTrims";
 import { TasksRows } from "./TasksRows";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 import { ON_OFF } from "../../presentation/choices";
@@ -139,6 +140,7 @@ export function GeneralSection() {
       <TasksRows />
       <McpServerRow />
       <ArmRefusals />
+      <StagingTrims />
     </>
   );
 }

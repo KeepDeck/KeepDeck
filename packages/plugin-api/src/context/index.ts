@@ -260,9 +260,11 @@ export {
   publishCopy,
   publishFiles,
   type OneAtATime,
+  VIEW_FINGERPRINT_FILE,
   type PublishedCopy,
   type PublishedFile,
   type PublishingFsWrite,
+  type PublishingRead,
 } from "./publish.ts";
 export {
   composeSkillFile,

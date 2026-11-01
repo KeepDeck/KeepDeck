@@ -26,6 +26,9 @@ use std::path::{Component, Path, PathBuf};
 use tauri::State;
 
 use crate::containment::expand_home;
+use crate::fs_beneath::{
+    copy_file, copy_mode, open_beneath, COPY_MAX_BYTES, COPY_MAX_ENTRIES, DIR_MODE, FILE_MODE,
+};
 use crate::plugin_permissions::PluginGrants;
 use crate::skills::SkillsLocks;
 
@@ -323,11 +326,6 @@ fn swap(a: &Path, b: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// How much one `copyDir` may copy: far above any skill library, low enough
-/// that one call cannot fill a disk.
-const COPY_MAX_ENTRIES: usize = 10_000;
-const COPY_MAX_BYTES: u64 = 256 * 1024 * 1024;
-
 /// Copy a directory tree to a NEW entry — how a plugin builds its CLI's layout
 /// from the skills the host staged, with the files beside each SKILL.md and
 /// the scripts still runnable. The destination is proven like `move`'s and
@@ -399,8 +397,6 @@ impl CopiedEntry {
     /// Make this entry's copy under `to`, reading it beneath `source` (the
     /// tree's root, at `from`) and taking what it writes from `budget`.
     fn place(&self, source: &fs::File, from: &Path, to: &Path, budget: &mut u64) -> Result<(), String> {
-        use std::io::Read as _;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         let target = to.join(&self.rel);
         let Some(mode) = self.file_mode else {
             return fs::create_dir(&target)
@@ -409,53 +405,16 @@ impl CopiedEntry {
         };
         let named = from.join(&self.rel);
         let fail = |e: io::Error| format!("{}: {e}", named.display());
-        let mut file = open_beneath(source, &self.rel).map_err(fail)?;
-        let meta = file.metadata().map_err(fail)?;
-        if !meta.is_file() {
+        let file = open_beneath(source, &self.rel).map_err(fail)?;
+        if !file.metadata().map_err(fail)?.is_file() {
             return Err(format!("{} is no longer a file", named.display()));
         }
-        if meta.len() > *budget {
+        let Some(written) = copy_file(&file, &target, mode, *budget).map_err(fail)? else {
             return Err(format!("{} grew past what a copy may carry", named.display()));
-        }
-        let mut copy = OpenOptions::new().write(true).create_new(true).mode(mode).open(&target).map_err(fail)?;
-        // `mode` above passes through the umask; this is the mode meant.
-        copy.set_permissions(fs::Permissions::from_mode(mode)).map_err(fail)?;
-        let written = io::copy(&mut (&mut file).take(*budget + 1), &mut copy).map_err(fail)?;
-        if written > *budget {
-            return Err(format!("{} grew past what a copy may carry", named.display()));
-        }
+        };
         *budget -= written;
         Ok(())
     }
-}
-
-/// Open the file at `rel` inside the directory `dir` one name at a time,
-/// following no link at any step: a directory replaced by a link refuses the
-/// open instead of leading out of the tree. Non-blocking, so a FIFO answers at
-/// once (and is then refused as no file) rather than waiting for a writer.
-fn open_beneath(dir: &fs::File, rel: &Path) -> io::Result<fs::File> {
-    use std::ffi::CString;
-    use std::os::fd::{AsRawFd, FromRawFd};
-    use std::os::unix::ffi::OsStrExt;
-    let mut parts = rel.components().peekable();
-    let mut at: Option<fs::File> = None;
-    while let Some(part) = parts.next() {
-        let Component::Normal(name) = part else {
-            return Err(io::Error::new(ErrorKind::InvalidInput, "not a plain relative path"));
-        };
-        let name = CString::new(name.as_bytes()).map_err(io::Error::other)?;
-        let step = if parts.peek().is_some() { libc::O_DIRECTORY } else { libc::O_NONBLOCK };
-        let base = at.as_ref().unwrap_or(dir).as_raw_fd();
-        // SAFETY: a NUL-terminated name and an open directory, both alive for
-        // the call.
-        let fd = unsafe { libc::openat(base, name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | step) };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: a descriptor this call just opened, owned by nothing else.
-        at = Some(unsafe { fs::File::from_raw_fd(fd) });
-    }
-    at.ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "an empty path"))
 }
 
 /// Every entry under `from`, each directory before what it holds.
@@ -480,7 +439,7 @@ fn survey(from: &Path) -> Result<Vec<CopiedEntry>, String> {
                 None
             } else if meta.is_file() {
                 bytes += meta.len();
-                Some(if meta.permissions().mode() & 0o111 != 0 { EXEC_FILE_MODE } else { FILE_MODE })
+                Some(copy_mode(meta.permissions().mode() & 0o111 != 0))
             } else if meta.file_type().is_symlink() {
                 return Err(refuse(&entry.path(), "is a symbolic link"));
             } else {
@@ -513,18 +472,14 @@ fn resolve_entry(path: &str, roots: &[String], op: &str) -> Result<WriteTarget, 
     Ok(WriteTarget { path: entry, root: dir.root })
 }
 
-/// Owner-only modes for what this capability CREATES.
-///
-/// The bridge inbox already restricts itself for the same reason
-/// (`bridge.rs`), but it lives inside the home, whose own mode is a
-/// backstop. A declared write root can leave the home entirely — opencode's
-/// fork writes a whole conversation export under `/tmp` — and there nothing
-/// else narrows it: `create_dir_all` yields 0755 and a fresh file 0644, so
-/// the export was readable by every local user until the OS reaped it.
-const DIR_MODE: u32 = 0o700;
-const FILE_MODE: u32 = 0o600;
-/// A copied file its source marked runnable: runnable, by its owner alone.
-const EXEC_FILE_MODE: u32 = 0o700;
+// Everything this capability CREATES is owner-only (`fs_beneath`'s modes).
+//
+// The bridge inbox already restricts itself for the same reason
+// (`bridge.rs`), but it lives inside the home, whose own mode is a
+// backstop. A declared write root can leave the home entirely — opencode's
+// fork writes a whole conversation export under `/tmp` — and there nothing
+// else narrows it: `create_dir_all` yields 0755 and a fresh file 0644, so
+// the export was readable by every local user until the OS reaped it.
 
 /// Create `dir` and its missing ancestors, restricting ONLY what this call
 /// creates AT OR BELOW the declared root.
@@ -633,6 +588,7 @@ fn resolve_write(path: &str, roots: &[String]) -> Result<WriteTarget, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fs_beneath::EXEC_FILE_MODE;
 
     fn root() -> (tempfile::TempDir, Vec<String>) {
         let dir = tempfile::tempdir().unwrap();
@@ -1141,9 +1097,13 @@ mod tests {
         let staging = crate::paths::keepdeck_home().unwrap().join("skills/staging");
         let view = staging.join("ws-1/skills");
         skill_tree(&view.join("review"));
+        fs::write(view.join(".keepdeck-fingerprint"), "sha256:1").unwrap();
         let locks = SkillsLocks::default();
         copy_dir(&s(&view), &s(&dir.path().join("plugin/skills")), &roots, &locks).unwrap();
         assert!(dir.path().join("plugin/skills/review/references/design-patterns.md").is_file());
+        // The view's fingerprint comes along with what it describes: a copy
+        // says what it holds (plugin-api's publishing reads it there).
+        assert_eq!(fs::read_to_string(dir.path().join("plugin/skills/.keepdeck-fingerprint")).unwrap(), "sha256:1");
 
         // A build-aside, the folder around a view, and any other place are
         // not views.

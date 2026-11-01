@@ -103,6 +103,7 @@ import {
 import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
 import { armRefusals } from "./armRefusals";
+import { stagingTrims } from "./stagingTrims";
 import { createCwdArming } from "./cwdArming";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
@@ -413,7 +414,7 @@ export function createAppRuntime(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
     (deck, inOrder) =>
       createWorktreePlantings(deck, inOrder, {
-        skills: createSkillsStaging,
+        skills: (queue, view) => createSkillsStaging(queue, view, stagingTrims),
         prunePluginDirs: plugins.workspaceDirs.prune,
         onDisarmed: armRefusals.forget,
       }),

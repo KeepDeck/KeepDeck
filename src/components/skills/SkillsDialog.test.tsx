@@ -8,6 +8,8 @@ import { lib, skill, skillsDialogHost } from "./skillsDialogTestSupport";
 import { row, button, buttonByTitle, input, textarea, type } from "../library/libraryTestDom";
 import { SkillsDialog } from "./SkillsDialog";
 import { present } from "@keepdeck/plugin-api/testing";
+import { stagingTrims } from "../../app/testing";
+import { STAGING_TRIMS_TITLE } from "../../presentation/stagingTrimsView";
 
 // The placeholder names the agents the catalog says take skills; its words
 // are agentReachView's to test, and these run without a runtime.
@@ -17,6 +19,21 @@ describe("SkillsDialog", () => {
   const host = skillsDialogHost(SkillsDialog);
   beforeEach(() => host.setup());
   afterEach(() => host.teardown());
+
+  it("lists above the library what staging could not hand agents whole, and drops it once fixed", async () => {
+    await host.mount();
+    expect(document.body.textContent).not.toContain(STAGING_TRIMS_TITLE);
+    act(() =>
+      stagingTrims.record({ id: "ws-1", instance: "life-1", name: "web" }, [
+        { scope: "global", skill: "review", kind: "too-large", path: null, count: 1 },
+      ]),
+    );
+    const banner = present(document.querySelector("[role='status']"), "the banner");
+    expect(banner.textContent).toContain(STAGING_TRIMS_TITLE);
+    expect(banner.textContent).toContain("review: larger than one skill may be — agents get its SKILL.md alone");
+    act(() => stagingTrims.clear());
+    expect(document.querySelector("[role='status']")).toBeNull();
+  });
 
   it("shows the loading placeholder until the first library read lands", async () => {
     lib.skills = null;
