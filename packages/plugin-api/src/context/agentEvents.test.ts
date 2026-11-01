@@ -34,9 +34,11 @@ const agent = (actor: EventActor, status = true) => ({
 });
 
 describe("admitMail", () => {
-  it("hands the renderer over only for the main agent, whole, on a declared channel", () => {
-    expect(admitMail(agent("main"), hook("Stop"))).toEqual({ render });
-    expect(admitMail(agent("main"), hook("UserPromptSubmit"))).toEqual({ render });
+  it("hands the renderer over only for the main agent, whole, on a declared channel — and names the channel", () => {
+    // The channel is what the deck reads to know which door the ask came
+    // through: one outside any turn is handed no work to sit on.
+    expect(admitMail(agent("main"), hook("Stop"))).toEqual({ render, channel: channels[1] });
+    expect(admitMail(agent("main"), hook("UserPromptSubmit"))).toEqual({ render, channel: channels[0] });
   });
 
   it("refuses a subagent and a caller nobody can name", () => {
@@ -65,7 +67,7 @@ describe("admitMail", () => {
   it("is independent of whether the report may move the pane", () => {
     // Status and mail are separate questions: a main-agent ask that moves
     // nothing still collects.
-    expect(admitMail(agent("main", false), hook("Stop"))).toEqual({ render });
+    expect(admitMail(agent("main", false), hook("Stop"))).toEqual({ render, channel: channels[1] });
   });
 });
 

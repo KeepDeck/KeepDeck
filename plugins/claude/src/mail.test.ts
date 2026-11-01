@@ -18,6 +18,17 @@ const render = (
   messages: Parameters<typeof renderClaudeMail>[0]["messages"] = MESSAGES,
 ) => renderClaudeMail({ event: { hook_event_name }, messages, cliVersion: null });
 
+describe("CLAUDE_MAIL_CHANNELS", () => {
+  it("declares the session start, and only it, as asking outside any turn", () => {
+    // claude 2.1.316 compacts an idle session on its own and fires
+    // SessionStart with no turn behind it: a task handed over there sat in a
+    // context nothing read (task-589). The other three run inside a turn.
+    expect(CLAUDE_MAIL_CHANNELS.filter((channel) => channel.outsideTurn === true).map((channel) => channel.event)).toEqual([
+      "SessionStart",
+    ]);
+  });
+});
+
 describe("renderClaudeMail", () => {
   it("hands the words over at Stop AND keeps the turn alive", () => {
     // The whole reason this event is worth asking on: without it the turn

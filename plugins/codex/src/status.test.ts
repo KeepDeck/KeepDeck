@@ -296,8 +296,10 @@ describe("attributeCodexEvent", () => {
   });
 
   it("asks for mail on its session start, turn boundaries and tool boundary", () => {
+    // The session start runs before any turn: it is handed the briefing, and
+    // work waits for the turn that acts on it.
     expect(CODEX_MAIL_CHANNELS).toEqual([
-      { event: "SessionStart", atTurnEnd: false },
+      { event: "SessionStart", atTurnEnd: false, outsideTurn: true },
       { event: "UserPromptSubmit", atTurnEnd: false },
       { event: "PostToolUse", atTurnEnd: false },
       { event: "Stop", atTurnEnd: true },

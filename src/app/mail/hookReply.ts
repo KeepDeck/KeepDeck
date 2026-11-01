@@ -164,7 +164,12 @@ function answerMailAsk(
   const render = admission.render;
   const event = isJsonRecord(payload.event) ? payload.event : null;
   if (!event) return answer("", "malformed payload");
-  const taken = manager.takeAtTurnEnd(paneId, activity);
+  const door = admission.channel.outsideTurn === true ? "outside-turn" : "turn-boundary";
+  const taken = manager.takeAtTurnEnd(paneId, activity, door);
+  // What a hook outside any turn left behind waits for a turn to act on it —
+  // said in the log line, or a session start that kept a task queued reads
+  // as an empty inbox.
+  const keptForATurn = door === "outside-turn" ? manager.waiting(paneId) : 0;
   if (taken.length === 0) {
     // "Nothing waiting" is only honest when nothing IS waiting. A hand-over
     // the door refused leaves the queue exactly as it was, and answering an
@@ -176,6 +181,7 @@ function answerMailAsk(
     // rather than stopping it, so what is left is the permission prompt.
     // The count was already being read a few lines below; it just was not
     // being asked before the answer.
+    if (keptForATurn > 0) return answer("", `${keptForATurn} left for a turn — this hook starts none`);
     const held = manager.waiting(paneId);
     return answer(
       "",
@@ -204,7 +210,7 @@ function answerMailAsk(
   said(
     `injecting ${taken.length} message(s), ${rendered.length} bytes: ${taken
       .map((mail) => `${mail.id}/${mail.kind}`)
-      .join(" ")}`,
+      .join(" ")}${keptForATurn > 0 ? `; ${keptForATurn} left for a turn` : ""}`,
   );
   // The one answer that CAN be lost — those messages left the queue to travel
   // in it — and so the one that is watched. Not with a timer and a guess, as

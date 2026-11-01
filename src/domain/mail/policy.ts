@@ -198,15 +198,23 @@ export type MailVerdict =
  * derived here. The difference shows the moment a third door arrives: it
  * takes a member, not a second flag beside the first.
  */
-export type MailDoor =
-  /** The agent's own hook, asked as a turn ends. The deck is answering, but
-   * the pane is still one the deck is pushing text AT — a hook's answer is
-   * printed into the session — so the prompt clause holds here. */
-  | "turn-boundary"
+export type MailDoor = HookDoor
   /** The agent called for its mail itself. The words travel back as that
    * call's own result, which is the one route that touches neither the
    * terminal nor the session's input. */
   | "explicit-read";
+
+/** The doors an agent's own hook comes through. */
+export type HookDoor =
+  /** The agent's own hook, asked as a turn ends. The deck is answering, but
+   * the pane is still one the deck is pushing text AT — a hook's answer is
+   * printed into the session — so the prompt clause holds here. */
+  | "turn-boundary"
+  /** The agent's own hook, asked OUTSIDE any turn of its own: a session
+   * starting, resuming, or compacted while it sat idle. What it is handed
+   * becomes context, and context is read only when a turn reads it — see
+   * [`waitsForATurn`]. The prompt clause holds as at a turn boundary. */
+  | "outside-turn";
 
 /**
  * Whether `mail` may be handed over, given how the agent came for it.
@@ -233,11 +241,44 @@ export function decideHandover(
   return parkedOnAPrompt(activity) ? "hold" : "hand";
 }
 
+/**
+ * Whether `mail` stays queued at this door, because nothing would act on it
+ * there — stepped over, not a stop: what is behind it may still go.
+ *
+ * A hook outside any turn puts what it is handed into the agent's context
+ * and starts nothing. Standing context belongs there whenever it arrives —
+ * it is what the agent should know, not something to do. Work is different:
+ * handed over to an idle session it is booked READ, so the deck stops
+ * nudging and the sender stops being told it waits, while no turn will ever
+ * act on it. claude 2.1.316 compacts an idle session before its prompt
+ * cache expires, and that SessionStart took a lead's task into a pane that
+ * then sat four hours without looking at it (task-589).
+ *
+ * A running turn is the exception: the session compacted mid-turn and the
+ * turn carries on with what it was handed. Kept, work leaves through the
+ * next boundary — a turn's own hook, or the turn the deck's nudge starts.
+ */
+export function waitsForATurn(
+  mail: Mail,
+  door: MailDoor,
+  activity: PaneActivity | undefined,
+): boolean {
+  if (door !== "outside-turn" || isStandingContext(mail.kind)) return false;
+  return activity?.state !== "working";
+}
+
 /** The door in the words a log line wants. Derived rather than passed beside
  * the door, because a caller free to name its own lane is a caller free to
  * name it something the door is not. */
 export function doorName(door: MailDoor): string {
-  return door === "turn-boundary" ? "the turn-end hook" : "an explicit read";
+  switch (door) {
+    case "turn-boundary":
+      return "the turn-end hook";
+    case "outside-turn":
+      return "a hook outside any turn";
+    case "explicit-read":
+      return "an explicit read";
+  }
 }
 
 /**

@@ -468,9 +468,15 @@ const turnEdge = (
  * dead code, and that event's mail falls back to a paid terminal nudge.
  * Both are silent. `PostToolBatch` is what reaches a RUNNING turn: it fires
  * between the tool results and the next model request.
+ *
+ * `SessionStart` fires outside any turn: at startup, on a resume or a clear,
+ * and on a compaction — which since 2.1.316 also runs on its own while the
+ * session sits idle, before its prompt cache expires. A task handed over
+ * there sat in a context no turn read (task-589), so it takes standing
+ * context only, and work only when a turn is running through a compaction.
  */
 export const CLAUDE_MAIL_CHANNELS: readonly MailChannel[] = [
-  { event: "SessionStart", atTurnEnd: false },
+  { event: "SessionStart", atTurnEnd: false, outsideTurn: true },
   { event: "UserPromptSubmit", atTurnEnd: false },
   { event: "PostToolBatch", atTurnEnd: false },
   { event: "Stop", atTurnEnd: true },

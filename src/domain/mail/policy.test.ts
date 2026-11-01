@@ -7,7 +7,9 @@ import {
   awaitsAnswer,
   decideDelivery,
   decideHandover,
+  doorName,
   sendRefusal,
+  waitsForATurn,
   droppedNotice,
   forgottenNotice,
   isOverdue,
@@ -225,7 +227,41 @@ describe("isOverdue", () => {
   });
 });
 
+describe("waitsForATurn", () => {
+  it("keeps work from a hook outside any turn unless a turn is running to act on it", () => {
+    // claude compacting an idle session: its SessionStart would take a task
+    // into a context nothing reads, booked read, nudged no more.
+    for (const kind of ["task", "question", "answer", "note"] as const) {
+      for (const activity of [done, failed, asking, undefined]) {
+        expect(waitsForATurn(mail({ kind }), "outside-turn", activity), `${kind} ${activity?.state}`).toBe(true);
+      }
+      // Compacted mid-turn: the turn carries on with what it was handed.
+      expect(waitsForATurn(mail({ kind }), "outside-turn", working), kind).toBe(false);
+    }
+  });
+
+  it("lets standing context through whenever it arrives, and every other door alone", () => {
+    // A briefing is what the agent should know, not something to do — the
+    // session start is the moment it was waiting for.
+    expect(waitsForATurn(mail({ kind: "team" }), "outside-turn", done)).toBe(false);
+    for (const door of ["turn-boundary", "explicit-read"] as const) {
+      for (const activity of [working, done, undefined]) {
+        expect(waitsForATurn(mail({ kind: "task" }), door, activity), `${door} ${activity?.state}`).toBe(false);
+      }
+    }
+  });
+
+  it("names each door in its own words", () => {
+    expect(new Set((["turn-boundary", "outside-turn", "explicit-read"] as const).map(doorName)).size).toBe(3);
+  });
+});
+
 describe("decideHandover", () => {
+  it("holds a pane at a prompt from a hook outside any turn, as at a turn boundary", () => {
+    expect(decideHandover(approving, "outside-turn")).toBe("hold");
+    expect(decideHandover(done, "outside-turn")).toBe("hand");
+  });
+
   it("shares the one clause it has with the terminal's verdict, rather than copying it", () => {
     // A pane parked on a permission prompt is unsafe to PUSH at, and a hook's
     // answer is printed into the session. Copied into the application owner

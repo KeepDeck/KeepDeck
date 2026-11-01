@@ -38,7 +38,9 @@ import {
   isStandingContext,
   overdueNotice,
   senderName,
+  waitsForATurn,
   type CancelOutcome,
+  type HookDoor,
   type Mail,
   type MailDoor,
   type MailKind,
@@ -206,8 +208,11 @@ export interface MailManager {
    * reported to their senders on the way, the same as any other pass, and
    * a message held for a permission prompt stays held: the prompt is about
    * the terminal, and the hook is not going to make it safe.
+   *
+   * `door`: a hook outside any turn takes only what needs no turn to act on
+   * it ([`waitsForATurn`]); the rest stays queued for the next boundary.
    */
-  takeAtTurnEnd(paneId: string, activity?: PaneActivity | null): Mail[];
+  takeAtTurnEnd(paneId: string, activity?: PaneActivity | null, door?: HookDoor): Mail[];
   /** Put back messages taken at a turn boundary that could not be rendered
    * after all. They go to the FRONT, because they were the oldest waiting
    * and taking them must not cost them their place; their inbox entry is
@@ -797,9 +802,18 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   function drainQueue(paneId: string, collected: Mail[], door: MailDoor, activity?: PaneActivity | null): void {
     const queue = queues.get(paneId);
     if (!queue) return;
+    const pane = (activity === undefined ? deps.activityOf(paneId) : activity) ?? undefined;
     let carried = collected.reduce((sum, mail) => sum + mail.body.length, 0);
-    while (queue.length > 0) {
-      const head = queue[0];
+    let index = 0;
+    while (index < queue.length) {
+      const head = queue[index];
+      // Nothing at this door would act on it: stepped over, keeping its
+      // place, so the context behind it still goes.
+      if (waitsForATurn(head, door, pane)) {
+        log.debug("web:mail", `kept from ${doorName(door)} for a turn to act on it: ${trace(head)}`);
+        index += 1;
+        continue;
+      }
       // Enough for this turn. The receiver pays for every character in its
       // next turn and the SENDER chooses how many there are, so a loop of
       // sends would otherwise arrive as one enormous injection. What is left
@@ -820,7 +834,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // the DOOR's question, and it is asked rather than answered here:
       // copied into this file once, it became a reason to hold that the
       // terminal honoured and the briefing path silently ignored.
-      if (decideHandover((activity === undefined ? deps.activityOf(paneId) : activity) ?? undefined, door) === "hold") {
+      if (decideHandover(pane, door) === "hold") {
         // Said out loud, because the alternative reading of a break here is
         // "the queue was empty", and those are opposite facts about a pane.
         log.debug(
@@ -829,7 +843,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         );
         break;
       }
-      queue.shift();
+      queue.splice(index, 1);
       // Asking for it IS reading it — the one moment the deck can witness
       // rather than assume.
       remember(paneId, head, "read");
@@ -879,9 +893,9 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       drain();
     },
 
-    takeAtTurnEnd(paneId, activity) {
+    takeAtTurnEnd(paneId, activity, door = "turn-boundary") {
       const taken: Mail[] = [];
-      drainQueue(paneId, taken, "turn-boundary", activity);
+      drainQueue(paneId, taken, door, activity);
       // Whatever is left (a held prompt, a fresh notice) still needs its
       // timer, and the queue just moved under it.
       drain();
