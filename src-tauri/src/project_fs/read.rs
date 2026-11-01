@@ -235,8 +235,13 @@ pub fn project_fs_read_file(
 /// quadratic: measured on a 24 MiB rollout, 8 MiB read in 256 KiB windows
 /// took ~52 ms against ~3 ms for the same text plain. The next window picks
 /// up the decoder where the last one left it. One is kept, for the file it
-/// was reading (its path, length, modification time and frame header) at the
-/// offset the reader will ask for next; any other read starts afresh.
+/// was reading (its path, length and modification time) at the offset the
+/// reader will ask for next; any other read starts afresh. Length and mtime
+/// are the whole guard against a file rewritten under the walk: a
+/// compressed store is written once (codex makes a new file rather than
+/// touching a `.zst`), and anything that writes one again moves its mtime.
+/// A rewrite to the same length that puts the old mtime back is not caught.
+/// Without an mtime at all, nothing is kept.
 ///
 /// That offset is where the reader's TEXT ended, which is short of where the
 /// decoder stands when the window cut a multi-byte character: the stub went
@@ -247,7 +252,6 @@ struct Resume {
     file: std::path::PathBuf,
     len: u64,
     modified: std::time::SystemTime,
-    head: Vec<u8>,
     at: u64,
     pending: Vec<u8>,
     decoder: zstd::stream::read::Decoder<'static, std::io::BufReader<std::io::Take<fs::File>>>,
@@ -290,7 +294,6 @@ fn read_inflated(file: &std::path::Path, start: u64, cap: u64) -> Result<Option<
         Some(resume.modified) == modified
             && resume.file == file
             && resume.len == len
-            && resume.head == head
             && resume.at == start
             && resume.pending.len() as u64 <= cap
     });
@@ -338,7 +341,7 @@ fn read_inflated(file: &std::path::Path, start: u64, cap: u64) -> Result<Option<
         if size > consumed {
             let pending = tail[(read_bytes as usize).saturating_sub(tail_at).min(tail.len())..].to_vec();
             if let Ok(mut slot) = INFLATE_RESUME.lock() {
-                *slot = Some(Resume { file: file.to_path_buf(), len, modified, head, at: consumed, pending, decoder });
+                *slot = Some(Resume { file: file.to_path_buf(), len, modified, at: consumed, pending, decoder });
             }
         }
     }
@@ -553,18 +556,36 @@ mod tests {
     }
 
     #[test]
-    fn a_rewrite_that_keeps_the_modification_time_is_read_afresh() {
+    fn a_rewrite_to_the_same_length_is_told_apart_by_its_modification_time() {
+        // Same compressed length, different text: only the mtime says the
+        // file changed, so it is what the kept decoder is checked against.
         let root = temp_root();
         let path = root.join("a.zst");
-        write_bytes(&path, &zstd::bulk::compress(jsonl(400).as_bytes(), 3).unwrap());
+        let variants: Vec<(String, Vec<u8>)> = ('a'..='z')
+            .map(|key| {
+                let text = jsonl(400).replace("\"i\"", &format!("\"{key}\""));
+                let compressed = zstd::bulk::compress(text.as_bytes(), 3).unwrap();
+                (text, compressed)
+            })
+            .collect();
+        let (first, second) = variants
+            .iter()
+            .enumerate()
+            .find_map(|(at, a)| variants[at + 1..].iter().find(|b| b.1.len() == a.1.len()).map(|b| (a, b)))
+            .expect("two variants that compress to one length");
+
+        write_bytes(&path, &first.1);
         let stamp = fs::metadata(&path).unwrap().modified().unwrap();
         let _ = inflated(&root, "a.zst", Some(1_000), Some(0)).unwrap();
-
-        let other: String = jsonl(300).replace("\"i\"", "\"k\"");
-        write_bytes(&path, &zstd::bulk::compress(other.as_bytes(), 3).unwrap());
-        fs::File::options().write(true).open(&path).unwrap().set_modified(stamp).unwrap();
+        write_bytes(&path, &second.1);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(stamp + std::time::Duration::from_secs(5))
+            .unwrap();
         let next = inflated(&root, "a.zst", Some(1_000), Some(1_000)).unwrap();
-        assert_eq!(next.text.as_deref(), Some(&other[1_000..2_000]));
+        assert_eq!(next.text.as_deref(), Some(&second.0[1_000..2_000]));
     }
 
     #[test]
