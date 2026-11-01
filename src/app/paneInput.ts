@@ -20,6 +20,8 @@
  * registers on mount and removes on unmount. Pane ids are unique across the
  * whole app (one global counter), so there are no collisions.
  */
+import { subscribePaneKeys } from "./paneKeys";
+
 export interface PaneInput {
   write: (text: string) => void;
   /** Optional: a TYPE-only registrant (e.g. a drag-drop test stub) omits
@@ -32,6 +34,33 @@ const entries = new Map<string, PaneInput>();
 /** When each pane's input was registered — see [`paneInputSettled`]. */
 const registeredAt = new Map<string, number>();
 const watchers = new Set<() => void>();
+/** Who to tell that text went into a pane's input — see
+ * [`subscribePaneComposerTouched`]. */
+const written = new Set<(paneId: string) => void>();
+
+/** Text went into this pane's input: a writer here, or a person's paste. */
+export function notePaneInputWritten(paneId: string): void {
+  for (const listener of [...written]) listener(paneId);
+}
+
+/**
+ * Tell me whenever something may have put words into a pane's composer —
+ * a key a person pressed ([`subscribePaneKeys`]), their paste, or text a
+ * writer here put in (a file drop, dictation, another agent's `pane.write`,
+ * a task delivery, the deck's own nudge).
+ *
+ * Not the PTY write path: that also carries xterm's answers to the
+ * program's own terminal queries, which put nothing in a composer. Every
+ * door here is one a draft can come through, named.
+ */
+export function subscribePaneComposerTouched(listener: (paneId: string) => void): () => void {
+  const keys = subscribePaneKeys((paneId) => listener(paneId));
+  written.add(listener);
+  return () => {
+    keys();
+    written.delete(listener);
+  };
+}
 
 /**
  * How long a freshly registered pane is given before anything is pushed at
@@ -127,6 +156,7 @@ export function writeRawToPane(id: string, text: string): boolean {
   const input = entries.get(id);
   if (!input) return false;
   input.write(text);
+  notePaneInputWritten(id);
   return true;
 }
 
@@ -137,6 +167,7 @@ export function pasteToPane(id: string, text: string): boolean {
   const input = entries.get(id);
   if (!input?.paste) return false;
   input.paste(text);
+  notePaneInputWritten(id);
   return true;
 }
 

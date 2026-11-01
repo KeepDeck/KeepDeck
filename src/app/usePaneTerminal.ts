@@ -1,4 +1,4 @@
-import { registerPaneInput, type PaneInput } from "./paneInput";
+import { notePaneInputWritten, registerPaneInput, type PaneInput } from "./paneInput";
 import { reportPaneKey } from "./paneKeys";
 import { attachPane, isPaneLaunched, resizePane, writePane, type PaneSink } from "./ptyManager";
 
@@ -17,6 +17,10 @@ export interface PaneTerminalPort {
   /** Make `input` the pane's delivery channel until the returned disposer. */
   registerInput(paneId: string, input: PaneInput): () => void;
   reportKey(paneId: string, key: string): void;
+  /** A person pasted into this pane — ⌘V or the Edit menu, which reach the
+   * terminal as a paste and never as keys. Words in the composer all the
+   * same, and a line typed after them would be sent with them. */
+  reportPaste(paneId: string): void;
 }
 
 const port: PaneTerminalPort = {
@@ -26,6 +30,7 @@ const port: PaneTerminalPort = {
   resize: (paneId, cols, rows) => resizePane(paneId, cols, rows),
   registerInput: (paneId, input) => registerPaneInput(paneId, input),
   reportKey: (paneId, key) => reportPaneKey(paneId, key),
+  reportPaste: (paneId) => notePaneInputWritten(paneId),
 };
 
 /** The pane terminal port. Stable across renders. */

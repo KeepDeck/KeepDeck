@@ -45,3 +45,20 @@ export function registerTerminalPaneInput(
 ): () => void {
   return terminal.registerInput(paneId, terminalPaneInput(term, writeRaw));
 }
+
+/**
+ * What a person's own paste (⌘V, the Edit menu) writes through: into the
+ * terminal, and said, because a paste never arrives as keys and leaves words
+ * in the composer all the same — words a line the deck typed after them
+ * would be sent with (task-589).
+ */
+export function handPasteWriter(
+  terminal: Pick<PaneTerminalPort, "reportPaste">,
+  paneId: string,
+  term: PasteTarget,
+): (text: string) => void {
+  return (text) => {
+    term.paste(text);
+    terminal.reportPaste(paneId);
+  };
+}

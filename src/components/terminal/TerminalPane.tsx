@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { usePaneTerminal } from "../../app/usePaneTerminal";
 import { registerTerminalPaneKeys } from "./paneKeyBinding";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
-import { registerTerminalPaneInput } from "./paneInputBinding";
+import { handPasteWriter, registerTerminalPaneInput } from "./paneInputBinding";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { formatElapsed } from "../../domain/usage/format";
@@ -256,9 +256,7 @@ export function TerminalPane({
     // image-only clipboard, a temp-PNG path — to xterm (which applies
     // bracketed paste itself). Capture phase so it wins over xterm's textarea
     // listener.
-    const onPaste = createPasteHandler(readText, readImageTempPath, (text) =>
-      term.paste(text),
-    );
+    const onPaste = createPasteHandler(readText, readImageTempPath, handPasteWriter(terminal, paneId, term));
     host.addEventListener("paste", onPaste, true);
 
     // OSC 52 ([F21]): a program inside the pane (tmux, vim, an agent TUI)

@@ -79,7 +79,7 @@ import {
   subscribeSessions,
 } from "./ptyManager";
 import { subscribePaneKeys } from "./paneKeys";
-import { subscribePaneInput } from "./paneInput";
+import { subscribePaneComposerTouched, subscribePaneInput } from "./paneInput";
 import {
   nudgeBridgePane,
   replyToBridgeHook,
@@ -399,7 +399,7 @@ export function createAppRuntime(
         onChanged: tasks.access.subscribe,
       },
       terminal: { wake: wakePaneForMail },
-      keys: { subscribe: (listener) => subscribePaneKeys((paneId) => listener(paneId)) },
+      composer: { subscribe: subscribePaneComposerTouched },
       bridge: {
         reply: replyToBridgeHook,
         nudge: nudgeBridgePane,

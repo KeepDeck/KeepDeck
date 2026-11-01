@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  notePaneInputWritten,
   paneInputReady,
   pasteToPane,
   registerPaneInput,
+  submitToPane,
+  subscribePaneComposerTouched,
   writeRawToPane,
 } from "./paneInput";
+import { reportPaneKey } from "./paneKeys";
 
 const entry = () => ({ write: vi.fn(), paste: vi.fn() });
 
@@ -63,5 +67,36 @@ describe("pane input registry", () => {
     // no-op'ing, so a caller can tell the pane cannot accept a paste.
     expect(pasteToPane("pane-5", "x")).toBe(false);
     off();
+  });
+});
+
+describe("subscribePaneComposerTouched", () => {
+  it("hears every door a draft can come through, naming the pane", () => {
+    // A key, a person's paste, and every writer here — a drop, dictation,
+    // another agent's pane.write, a task delivery: each can leave words in
+    // the composer that a typed line would be sent with (task-589).
+    const touched: string[] = [];
+    const off = subscribePaneComposerTouched((paneId) => touched.push(paneId));
+    const offInput = registerPaneInput("pane-6", entry());
+    reportPaneKey("pane-6", "a");
+    notePaneInputWritten("pane-6");
+    writeRawToPane("pane-6", "dropped");
+    pasteToPane("pane-6", "dictated");
+    submitToPane("pane-6", "delivered");
+    expect(touched).toEqual(["pane-6", "pane-6", "pane-6", "pane-6", "pane-6", "pane-6"]);
+    offInput();
+    off();
+  });
+
+  it("hears nothing a write that never landed, and nothing once unsubscribed", () => {
+    const touched: string[] = [];
+    const off = subscribePaneComposerTouched((paneId) => touched.push(paneId));
+    expect(writeRawToPane("pane-gone", "x")).toBe(false);
+    expect(pasteToPane("pane-gone", "x")).toBe(false);
+    expect(touched).toEqual([]);
+    off();
+    reportPaneKey("pane-6", "a");
+    notePaneInputWritten("pane-6");
+    expect(touched).toEqual([]);
   });
 });
