@@ -720,7 +720,7 @@ describe("DeckStage — agent identity on the pane header", () => {
     expect(slot.querySelector("svg polyline")).not.toBeNull();
   });
 
-  it("a YOLO pane wears the standing warning chip; a plain one doesn't", () => {
+  it("a pane launched in YOLO wears the standing warning chip; one asked for it but launched without, and a plain one, don't", () => {
     render({
       workspaces: [
         {
@@ -728,10 +728,18 @@ describe("DeckStage — agent identity on the pane header", () => {
           panes: [
             { id: "pane-1", agentType: "codex", yolo: true, ...on("team-1", "lead") },
             { id: "pane-2", agentType: "codex", ...on("team-1", "impl-1") },
+            { id: "pane-3", agentType: "codex", yolo: true, ...on("team-1", "impl-2") },
           ],
         },
       ],
+      specByPane: {
+        "pane-1": { command: "codex", args: [], env: [], yolo: true },
+        "pane-2": { command: "codex", args: [], env: [] },
+        // Asked for YOLO, but its plan started it without (a bare launch).
+        "pane-3": { command: "codex", args: [], env: [] },
+      },
     });
+    expect(document.querySelector("[data-pane-id='pane-3'] .pane__yolo")).toBeNull();
     const chip = present(document.querySelector<HTMLElement>(
       "[data-pane-id='pane-1'] .pane__yolo",
     ), "the [data-pane-id='pane-1'] .pane__yolo element");

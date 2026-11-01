@@ -18,6 +18,16 @@ import { getSettings } from "./settingsManager";
  */
 
 /**
+ * Whether a fresh agent starts with YOLO on: the global preference, read at
+ * the moment of asking. One that continues a session starts as that session
+ * ran instead ([`startingYolo`]), which only the surface holding the session
+ * can ask.
+ */
+export function nextYolo(): boolean {
+  return getSettings()?.defaultYolo ?? false;
+}
+
+/**
  * The agent type a new pane starts as: the workspace's own momentum (its last
  * pane's type, if that agent is still selectable) beats the global preference
  * ([F6]), which beats the first installed agent ([F1]).

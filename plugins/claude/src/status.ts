@@ -5,6 +5,7 @@ import {
   frameTeammateMail,
   isJsonRecord,
   turnFailedEvent,
+  type AgentPermissionMode,
   type AgentStatusEvent,
   type EventAttribution,
   type MailChannel,
@@ -229,10 +230,62 @@ function contextOverflowed(event: Record<string, unknown>): boolean {
 export const MOD_INTERRUPT_EVENT = "KeepDeckInterrupt";
 export const MOD_PROMPT_ACCEPTED_EVENT = "KeepDeckPromptAccepted";
 
-export const normalizeClaudeStatus: StatusNormalizer = (
-  payload,
-  at,
-  context,
+/**
+ * claude's status payloads → edges: the turn edge each one carries (below),
+ * and the mode claude says it runs in, when the main agent's hook says one.
+ */
+export const normalizeClaudeStatus: StatusNormalizer = (payload, at, context) => {
+  const edge = turnEdge(payload, at, context);
+  const mode = modeEdge(payload, at);
+  if (!mode) return edge;
+  // Both from one report: the turn first, then the mode it ran in. The
+  // decoder's checkpoint is not this dialect's to move.
+  return { kind: "status-reduction", state: context?.state, events: edge ? [edge, mode] : [mode] };
+};
+
+/**
+ * claude's own name for the mode it runs in → the host's. `permission_mode`
+ * rides on claude's hook input (UserPromptSubmit, Stop, PostToolUse, …; not
+ * SessionStart) and is the EFFECTIVE mode — a `--dangerously-skip-permissions`
+ * that settings disabled arrives as "auto" or "default", never as bypass
+ * (probe-verified on 2.1.316, task-577). A name this dialect does not know
+ * says nothing.
+ */
+export function claudePermissionMode(name: unknown): AgentPermissionMode | null {
+  switch (name) {
+    case "bypassPermissions":
+      return "yolo";
+    // `dontAsk` never asks either: what is not allowed already is refused
+    // rather than put to the user. Not YOLO — it refuses — but no prompt
+    // ever comes, so it is not `ask`.
+    case "auto":
+    case "dontAsk":
+      return "auto";
+    // `manual` is claude's accepted alias for `default`.
+    case "default":
+    case "manual":
+    case "acceptEdits":
+    case "plan":
+      return "ask";
+    default:
+      return null;
+  }
+}
+
+/** The mode a MAIN-agent hook says claude runs in. A subagent's hook carries
+ * its own mode, which is not the pane's. */
+function modeEdge(payload: unknown, at: number): AgentStatusEvent | null {
+  const decoded = decodeStatusPayload(payload);
+  if (decoded?.source !== "hook" || attributeClaudeEvent(payload)?.actor !== "main") return null;
+  const mode = claudePermissionMode(decoded.event.permission_mode);
+  return mode ? { kind: "permission-mode", at, mode } : null;
+}
+
+/** The turn edge one payload carries, if any. */
+const turnEdge = (
+  payload: unknown,
+  at: number,
+  context: Parameters<StatusNormalizer>[2],
 ): AgentStatusEvent | null => {
   const decoded = decodeStatusPayload(payload);
   if (!decoded) return null;

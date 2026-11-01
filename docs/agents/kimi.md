@@ -41,7 +41,13 @@ and adds `--session <new id>`. The launch carries:
 - `--skills-dir <dir>` when KeepDeck has staged skills. It **replaces** Kimi's
   own skill discovery rather than adding to it, so it is passed only when
   there is something to stage.
-- `--yolo` for permission-skipping panes.
+- `--auto` for permission-skipping panes: Kimi's never-ask mode, what YOLO
+  means for every agent. Kimi's own `--yolo` is "ask when needed" — it still
+  asks before dangerous commands, sensitive paths and the user's ask rules,
+  and the model may put questions; deny rules bind both, and since 2.4 a
+  plan still asks for review (task-577). The pane's YOLO badge follows the
+  main agent's `permission.set_mode` in `wire.jsonl`, mapped by meaning:
+  `auto`→yolo, `yolo`→auto, `manual`→ask.
 - `--session <id>` to resume or to open a fork.
 - `KIMI_CODE_TRUST_WORKSPACE=1` as an env **default**, so a value the user
   set wins. Since 2.2, Kimi stops every directory it has not seen on a

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attributeClaudeEvent,
+  claudePermissionMode,
   MOD_INTERRUPT_EVENT,
   MOD_PROMPT_ACCEPTED_EVENT,
   normalizeClaudeStatus,
@@ -8,6 +9,54 @@ import {
 
 /** Hook payloads as the reporter wraps them (event verbatim from stdin). */
 const wrap = (event: Record<string, unknown>) => ({ agent: "claude", event });
+
+describe("the mode claude says it runs in", () => {
+  it("maps claude's names onto the host's: only bypass is YOLO", () => {
+    expect(claudePermissionMode("bypassPermissions")).toBe("yolo");
+    // Neither ever puts a prompt to the user: `dontAsk` refuses instead.
+    for (const name of ["auto", "dontAsk"]) expect(claudePermissionMode(name), name).toBe("auto");
+    for (const name of ["default", "manual", "acceptEdits", "plan"]) {
+      expect(claudePermissionMode(name), name).toBe("ask");
+    }
+    for (const unknown of ["somethingNew", undefined, 3]) expect(claudePermissionMode(unknown)).toBeNull();
+  });
+
+  it("reports the main agent's mode beside the turn edge its hook carries", () => {
+    // The launch asked for bypass, settings disabled it: claude says "auto"
+    // on its very first prompt, and that is what the pane must show.
+    expect(
+      normalizeClaudeStatus(
+        wrap({ hook_event_name: "UserPromptSubmit", session_id: "s", permission_mode: "auto" }),
+        100,
+      ),
+    ).toEqual({
+      kind: "status-reduction",
+      state: undefined,
+      events: [
+        { kind: "turn-start", at: 100 },
+        { kind: "permission-mode", at: 100, mode: "auto" },
+      ],
+    });
+  });
+
+  it("reports the mode alone from a hook that carries no turn edge", () => {
+    expect(
+      normalizeClaudeStatus(
+        wrap({ hook_event_name: "PostToolBatch", session_id: "s", permission_mode: "bypassPermissions" }),
+        100,
+      ),
+    ).toEqual({ kind: "status-reduction", state: undefined, events: [{ kind: "permission-mode", at: 100, mode: "yolo" }] });
+  });
+
+  it("never takes a subagent's mode for the pane's", () => {
+    expect(
+      normalizeClaudeStatus(
+        wrap({ hook_event_name: "PostToolUse", session_id: "s", agent_id: "a-1", permission_mode: "default" }),
+        100,
+      ),
+    ).toEqual({ kind: "resumed", at: 100 });
+  });
+});
 
 describe("normalizeClaudeStatus", () => {
   it("only a valid delivered Stop continuation changes the ending", () => {

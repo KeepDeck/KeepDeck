@@ -58,6 +58,34 @@ function isArgs(launch: ForkLaunch | ResumeLaunch): launch is readonly string[] 
   return Array.isArray(launch);
 }
 
+/**
+ * A CLI's own YOLO switch for a launch that was asked for YOLO (API 77): the
+ * arguments to place wherever the CLI wants them — none when it was not
+ * asked — with the plan's word that it starts in YOLO set in the same breath,
+ * so no plan can carry the switch without saying so, nor say so without it.
+ */
+export function yoloSwitch(
+  input: Pick<SpawnPlanInput, "yolo">,
+  output: Pick<SpawnPlanOutput, "yolo">,
+  args: readonly string[],
+): string[] {
+  if (!input.yolo) return [];
+  output.yolo = true;
+  return [...args];
+}
+
+/**
+ * A `bare.plan` that carries the CLI's YOLO switch (API 77): the floor a
+ * launch keeps when its plan threw, so a pane asked for YOLO is not started
+ * without it — and says it starts in it, through [`yoloSwitch`]. A plugin
+ * whose floor carries more puts `yoloSwitch` into its own instead.
+ */
+export function yoloFloor(args: readonly string[]): NonNullable<AgentHooks["bare.plan"]> {
+  return (input, output) => {
+    output.args.push(...yoloSwitch(input, output, args));
+  };
+}
+
 /** The three plan hooks over one adapter. */
 export function launchPlans(
   adapter: LaunchAdapter,

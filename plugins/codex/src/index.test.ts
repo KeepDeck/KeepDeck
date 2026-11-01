@@ -300,6 +300,8 @@ describe("codex plugin hooks", () => {
       "disable_paste_burst=true",
       "--dangerously-bypass-approvals-and-sandbox",
     ]);
+    // ...and says the launch starts in it.
+    expect(spawn.yolo).toBe(true);
 
     const resume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")(
@@ -459,6 +461,11 @@ describe("codex panes run their own process", () => {
     expect(current.args).toEqual(["--no-daemon"]);
     expect(current.env).toEqual([]);
     expect(current.command).toBe("codex");
+    // ...and the YOLO it was asked for, so a plan that threw does not start
+    // the pane without it.
+    const yolo = await floorOf({ cliVersion: "0.164.0", yolo: true });
+    expect(yolo.args).toEqual(["--no-daemon", "--dangerously-bypass-approvals-and-sandbox"]);
+    expect(yolo.yolo).toBe(true);
     expect((await floorOf({ cliVersion: "0.155.0" })).args).toEqual([]);
     expect((await floorOf({})).args).toEqual([]);
     // The host never degrades a remote pane to bare, but the floor is the

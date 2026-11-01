@@ -14,7 +14,7 @@ import { icon } from "./icon";
 import { opencodeBinding } from "./binding";
 import { opencodePresentation } from "./presentation";
 import { opencodeHistory, type HistoryPorts } from "./history";
-import { stageLaunch, type LaunchPorts } from "./launch";
+import { bareFloor, stageLaunch, type LaunchPorts } from "./launch";
 import { skillsConfigDirs, type LayoutPorts } from "./layout";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { sessionOpening, type OpeningPorts } from "./opening";
@@ -72,15 +72,18 @@ export function registerOpencode(ctx: OpencodePorts): void {
       mail: { channels: OPENCODE_MAIL_CHANNELS, render: renderOpencodeMail },
       wake: "bridge",
     },
-    hooks: launchPlans({
-      stage: (input, output) => stageLaunch(launchPorts, input, output),
-      // Both ask the store first where the session lives, and refuse one
-      // this pane's opencode would open as something else (opening.ts).
-      // A fork copies the session INTO the pane's directory (fork.ts), or
-      // refuses. Remote never gets here: `stage` attached to the server.
-      resume: (input) => opening.resume(input),
-      fork: (input) => opening.fork(input),
-    }),
+    hooks: {
+      ...launchPlans({
+        stage: (input, output) => stageLaunch(launchPorts, input, output),
+        // Both ask the store first where the session lives, and refuse one
+        // this pane's opencode would open as something else (opening.ts).
+        // A fork copies the session INTO the pane's directory (fork.ts), or
+        // refuses. Remote never gets here: `stage` attached to the server.
+        resume: (input) => opening.resume(input),
+        fork: (input) => opening.fork(input),
+      }),
+      "bare.plan": bareFloor,
+    },
   });
 }
 

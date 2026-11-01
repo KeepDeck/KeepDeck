@@ -28,6 +28,7 @@ import {
 } from "@keepdeck/plugin-api";
 import { findRollout, type StorePorts } from "./store";
 import { codexQuestionWatches } from "./questions";
+import { turnContextWatch } from "./turnContext";
 
 /**
  * The carried record, as the watch below projects it.
@@ -74,7 +75,7 @@ export const codexRecords = {
     ],
     keep: ["timestamp", "payload.type", "payload.error"],
     lane: "status",
-  }, ...codexQuestionWatches],
+  }, turnContextWatch, ...codexQuestionWatches],
 
   read: (record: CarriedRollout) => {
     const at = parseInstant(record.timestamp);

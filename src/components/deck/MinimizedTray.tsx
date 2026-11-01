@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import type { GitBadge } from "../../ui/gitBadge";
 import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
+import type { PaneYoloStart } from "../../presentation/paneYolo";
 import { MinimizedItem, MinimizedItemMeasure } from "./MinimizedItem";
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
@@ -32,8 +33,9 @@ export interface MinimizedTrayEntry {
   /** The pane's place on a team, when it is on one — the hover details name
    * the team and role, since the chip itself is too small for the badge. */
   team?: { name: string; role: string } | null;
-  /** The pane runs in YOLO mode — the chip carries the bolt marker. */
-  yolo?: boolean;
+  /** How the pane was launched and asked to run — with the agent's own word,
+   * what decides the chip's bolt marker. */
+  yolo?: PaneYoloStart;
   /** The pane is stopped (suspended, or parked at launch). Without this the
    * chip claims a running agent that isn't there — the pane is minimized AND
    * has no process, and only the chip is on screen to say so. */

@@ -6,9 +6,12 @@ import {
   foldJournal,
   hydrateJournalSlice,
   journalRows,
+  recordedYolo,
   withJournalEvent,
   type JournalEvent,
   type JournalRecords,
+  type SessionRecord,
+  type SessionRecordBase,
 } from "./sessionLog";
 
 const T0 = "2026-07-19T10:00:00.000Z";
@@ -31,6 +34,43 @@ const bound = (
     paneId: "pane-1",
     ...over,
   },
+});
+
+describe("recordedYolo", () => {
+  const record = (sessionId: string, over: Partial<SessionRecordBase> = {}): SessionRecord => ({
+    agent: "claude",
+    sessionId,
+    cwd: "/repo",
+    boundAt: T0,
+    ...over,
+    state: "closed",
+    endedAt: T1,
+  });
+  // `away` first: home answering first must be the rule, not key order.
+  const journal: JournalRecords = {
+    away: [record("s-away", { yolo: true }), record("s-both", { yolo: true })],
+    home: [record("s-yolo", { yolo: true }), record("s-plain"), record("s-both")],
+  };
+  const asked = (sessionId: string, agent = "claude") =>
+    recordedYolo(journal, { agent, sessionId }, "home");
+
+  it("answers how a recorded session ran, absent meaning without", () => {
+    expect(asked("s-yolo")).toBe(true);
+    expect(asked("s-plain")).toBe(false);
+  });
+
+  it("knows a session another workspace recorded, and asks the home workspace first", () => {
+    expect(asked("s-away")).toBe(true);
+    expect(asked("s-both")).toBe(false);
+    // A home with no journal of its own still finds it elsewhere.
+    expect(recordedYolo(journal, { agent: "claude", sessionId: "s-away" }, "new-ws")).toBe(true);
+  });
+
+  it("does not know a session no journal recorded — nor another agent's with the same id", () => {
+    expect(asked("s-other")).toBeUndefined();
+    expect(asked("s-yolo", "codex")).toBeUndefined();
+    expect(recordedYolo({}, { agent: "claude", sessionId: "s-yolo" }, "home")).toBeUndefined();
+  });
 });
 
 describe("applyJournalEvent", () => {

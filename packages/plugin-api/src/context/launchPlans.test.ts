@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { launchPlans, type LaunchAdapter } from "./launchPlans";
+import { launchPlans, yoloFloor, yoloSwitch, type LaunchAdapter } from "./launchPlans";
 import type { ForkPlanInput, ResumePlanInput, SpawnPlanInput, SpawnPlanOutput } from "./agents";
 
 const input: SpawnPlanInput = { paneId: "p", workspace: { id: "w", instance: "i" }, cwd: "/repo" };
@@ -100,5 +100,33 @@ describe("launchPlans", () => {
     await expect(
       launchPlans(failing)["fork.plan"](forkInput, output()),
     ).rejects.toThrow("disk full");
+  });
+});
+
+describe("yoloSwitch", () => {
+  it("hands out the CLI's switch for a launch asked for YOLO, and says the plan starts in it", () => {
+    const out = output();
+    expect(yoloSwitch({ yolo: true }, out, ["--yolo"])).toEqual(["--yolo"]);
+    expect(out.yolo).toBe(true);
+  });
+
+  it("hands out nothing, and says nothing, for a launch not asked for it", () => {
+    const out = output();
+    expect(yoloSwitch({}, out, ["--yolo"])).toEqual([]);
+    expect(out.yolo).toBeUndefined();
+  });
+});
+
+describe("yoloFloor", () => {
+  it("is a bare floor that keeps the YOLO a launch was asked for, and says so", async () => {
+    const asked = output();
+    await yoloFloor(["--yolo"])({ ...input, yolo: true }, asked);
+    expect(asked.args).toEqual(["--yolo"]);
+    expect(asked.yolo).toBe(true);
+
+    const plain = output();
+    await yoloFloor(["--yolo"])(input, plain);
+    expect(plain.args).toEqual([]);
+    expect(plain.yolo).toBeUndefined();
   });
 });

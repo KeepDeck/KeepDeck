@@ -1,8 +1,8 @@
 {
   "id": "keepdeck.codex",
   "name": "Codex",
-  "version": "0.13.0",
-  "minApiVersion": 73,
+  "version": "0.13.1",
+  "minApiVersion": 77,
   "category": "cli",
   "description": "Teaches KeepDeck the Codex CLI: catalog identity and detection; spawn, resume and session identity move in next.",
   "capabilities": [

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const settings = vi.hoisted(() => ({
-  current: null as { defaultAgent?: string } | null,
+  current: null as { defaultAgent?: string; defaultYolo?: boolean } | null,
 }));
 vi.mock("./settingsManager", () => ({ getSettings: () => settings.current }));
 
@@ -18,6 +18,7 @@ import {
   firstFreeTeamWorktreeFor,
   nextAgentIndex,
   nextAgentType,
+  nextYolo,
 } from "./newAgentDefaults";
 
 const agent = (id: string): AgentInfo => ({
@@ -96,6 +97,14 @@ describe("nextAgentType", () => {
     expect(nextAgentType(AGENTS, ws())).toBe("codex");
     settings.current = { defaultAgent: "claude" };
     expect(nextAgentType(AGENTS, ws())).toBe("claude");
+  });
+});
+
+describe("nextYolo", () => {
+  it("starts a fresh agent from the global preference, read when asked", () => {
+    expect(nextYolo()).toBe(false);
+    settings.current = { defaultYolo: true };
+    expect(nextYolo()).toBe(true);
   });
 });
 

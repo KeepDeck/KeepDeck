@@ -76,6 +76,24 @@ export function handleFromHit(hit: {
   };
 }
 
+/** Whether a session ran in YOLO, as the journal remembers it, in any
+ * workspace: the session search is global, and so is what KeepDeck knows.
+ * The `home` workspace's record answers first if the session was recorded
+ * in several. Undefined when no journal has a record of it: a session found
+ * in an agent's own store only, whose mode KeepDeck never knew. On a record,
+ * an absent `yolo` means it ran without. */
+export function recordedYolo(
+  journal: JournalRecords,
+  session: Pick<SessionHandle, "agent" | "sessionId">,
+  home: string,
+): boolean | undefined {
+  const recordIn = (records: readonly SessionRecordBase[] | undefined) =>
+    records?.find((r) => r.sessionId === session.sessionId && r.agent === session.agent);
+  const record =
+    recordIn(journal[home]) ?? Object.values(journal).map(recordIn).find(Boolean);
+  return record && record.yolo === true;
+}
+
 /** Journal records per workspace id. Within one workspace, `sessionId` is the
  * record key — a rebind of the same session upserts its record. */
 export type JournalRecords = Record<string, SessionRecord[]>;

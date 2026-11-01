@@ -15,6 +15,8 @@ import {
 import { activityBadge } from "../../presentation/activityBadge";
 import { useWallClock } from "../../ui/useWallClock";
 import { usePaneActivity } from "../../app/usePaneActivity";
+import { usePaneRunsYolo } from "../../app/usePaneRunsYolo";
+import { NOT_ASKED_YOLO, type PaneYoloStart } from "../../presentation/paneYolo";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { usePaneSessionState } from "../../app/usePaneSessionState";
 import { TerminalPane } from "../terminal/TerminalPane";
@@ -48,9 +50,10 @@ export interface AgentPaneProps {
   envDefaults?: [string, string][];
   /** Working directory for the session. */
   cwd?: string | null;
-  /** The pane runs in YOLO mode — a standing warning chip in the header, so
-   * the disabled-prompts state stays visible for the pane's whole life. */
-  yolo?: boolean;
+  /** How the pane was launched and asked to run — with the agent's own word
+   * on its mode, what decides the header's standing YOLO chip, so the
+   * disabled-prompts state is visible exactly while it holds. */
+  yolo?: PaneYoloStart;
   /** The pane's place on a team, when it is on one — a settled fact handed
    * in, like every other badge here. Teams are formed through the deck's
    * commands (a lead assigns its members), so this is how the person
@@ -230,6 +233,9 @@ export function AgentPane({
   // What the agent is doing right now (working / waiting / done / failed) —
   // a settled fact from the status tracker; the view only renders it.
   const activity = usePaneActivity(paneId);
+  // Whether the header wears the YOLO chip — the agent's own word on its
+  // mode once it said one, else its launch, settled by the presentation.
+  const runsYolo = usePaneRunsYolo(paneId, yolo ?? NOT_ASKED_YOLO);
   const canResume = !!resumeSessionId;
   // Asked, not re-derived: the deck asks the same question about the same
   // pane for the tray's marker, and the two must not be able to disagree.
@@ -299,7 +305,7 @@ export function AgentPane({
           showTeamName,
         })}
         keyboardFocusEnabled={keyboardFocusEnabled}
-        yolo={yolo}
+        yolo={runsYolo}
         onRename={onRename}
         onMinimize={onMinimize}
         onToggleFocus={onToggleFocus}

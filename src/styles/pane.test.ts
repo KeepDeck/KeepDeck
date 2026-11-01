@@ -107,7 +107,7 @@ function renderStandIn(): void {
           paneId: "pane-1",
           title: "A deliberately long agent title that has to yield",
           gitBadge: { label: LONG_BRANCH, title: LONG_BRANCH },
-          yolo: true,
+          yolo: { launched: true, asked: true },
           label: "Restore the agent",
           active: true,
           onClick: () => {},

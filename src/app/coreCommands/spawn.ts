@@ -4,9 +4,8 @@ import { findTeam, findWorkspaceByRef, paneId, placementRefusalMessage, teamName
 import { sharedDirectoryRefusal } from "../sharedDirectoryMessage";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
-import { firstFreeTeamWorktreeFor, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
+import { firstFreeTeamWorktreeFor, nextAgentIndex, nextAgentType, nextYolo } from "../newAgentDefaults";
 import { mintAgentSeq } from "../ids";
-import { getSettings } from "../settingsManager";
 import { createRefusalMessage, type CreatePaneRequest } from "../agentOrchestrator";
 import type { CommandDeck } from ".";
 import { requiredStr, str } from "./args";
@@ -92,7 +91,7 @@ export function registerSpawnCommands(
     // a mode the agent does not have.
     const asked = args.yolo;
     const yolo =
-      (typeof asked === "boolean" ? asked : (getSettings()?.defaultYolo ?? false)) &&
+      (typeof asked === "boolean" ? asked : nextYolo()) &&
       agentSupportsYolo(agents, agentType);
     const pane: Pane = {
       id,

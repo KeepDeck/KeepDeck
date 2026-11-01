@@ -31,6 +31,7 @@ import type { JournalRecords, SessionHandle } from "../domain/journal";
 import type { BrowserSharedSeam } from "../app/useSessionsBrowser";
 import { stageContent } from "../presentation/stageView";
 import { startFreshRoles } from "../presentation/startFreshView";
+import { paneYoloStart } from "../presentation/paneYolo";
 import { TeamSessions } from "./deck/TeamSessions";
 import type { RestartOutcome } from "../app/agentOrchestrator";
 
@@ -378,7 +379,7 @@ export function DeckStage({
             failureLabels: agent?.failureLabels,
             gitBadge: badgeOf(pane),
             team,
-            yolo: pane.yolo,
+            yolo: paneYoloStart(pane.yolo, specByPane[pane.id]),
             stopped: stoppedById.get(pane.id) ?? false,
             label: team
               ? `${label} ${title}, ${team.role} on team ${team.name}`
@@ -444,7 +445,7 @@ export function DeckStage({
               body={body}
               onRetryPlan={() => onRetryPlanBuild(pane.id)}
               cwd={executionCwd}
-              yolo={pane.yolo}
+              yolo={paneYoloStart(pane.yolo, spec)}
               team={teamOf(ws, pane)}
               showTeamName={teamsHere > 1}
               visible={layout.visible}

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentStatusEvent } from "@keepdeck/plugin-api";
+import type { AgentStatusEvent, StatusNormalization } from "@keepdeck/plugin-api";
 import { createAgentStatusTracker } from "./agentStatusTracker";
 import { maybeRecord } from "../testing/values.test-support";
 
@@ -393,5 +393,83 @@ describe("agentStatusTracker", () => {
     tracker.answered("pane-1", 100);
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe("agentStatusTracker — the mode an agent says it runs in", () => {
+  /** `{ event: { kind: "start" } }` starts a turn; `{ event: { mode } }`
+   * is the agent saying its mode. */
+  const modeNormalizer = (payload: unknown, at: number, context?: { state?: unknown }): StatusNormalization => {
+    const event = maybeRecord(maybeRecord(payload)?.event);
+    const mode = event?.mode;
+    const said: AgentStatusEvent | null =
+      mode === "yolo" || mode === "auto" || mode === "ask" ? { kind: "permission-mode", at, mode } : null;
+    if (event?.kind === "start") {
+      // A prompt that also says the mode — claude's UserPromptSubmit.
+      return said ? { kind: "status-reduction", state: context?.state, events: [turnStart(at), said] } : turnStart(at);
+    }
+    if (event?.kind === "observed") return { kind: "turn-observed", at };
+    return said;
+  };
+  const setup = () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("test", modeNormalizer);
+    return tracker;
+  };
+  const say = (mode: string) => ({ agent: "test", event: { mode } });
+
+  it("keeps the latest mode per pane, beside an activity it leaves alone", () => {
+    const tracker = setup();
+    tracker.report("pane-1", { agent: "test", event: { kind: "start" } }, 1);
+    const activity = tracker.getSnapshot().panes.get("pane-1");
+    tracker.report("pane-1", say("yolo"), 2);
+    expect(tracker.getSnapshot().modes.get("pane-1")).toBe("yolo");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toBe(activity);
+    tracker.report("pane-1", say("auto"), 3);
+    expect(tracker.getSnapshot().modes.get("pane-1")).toBe("auto");
+  });
+
+  it("says nothing new for a mode said again", () => {
+    const tracker = setup();
+    tracker.report("pane-1", say("auto"), 1);
+    const listener = vi.fn();
+    tracker.subscribe(listener);
+    tracker.report("pane-1", say("auto"), 2);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("keeps the mode a held report says even when a newer turn overtakes it", () => {
+    // The prompt carrying the first mode is held while a mail ask is
+    // answered; the next report opens a newer turn before it finishes.
+    const tracker = setup();
+    const held = tracker.prepare("pane-1", { agent: "test", event: { kind: "start", mode: "auto" } }, 1);
+    tracker.report("pane-1", { agent: "test", event: { kind: "observed" } }, 2);
+    held.finish();
+    expect(tracker.getSnapshot().modes.get("pane-1")).toBe("auto");
+  });
+
+  it("never carries a held report's mode across a restart", () => {
+    const tracker = setup();
+    const held = tracker.prepare("pane-1", { agent: "test", event: { kind: "start", mode: "auto" } }, 1);
+    tracker.clear("pane-1");
+    // The next process has started and reported a turn of its own.
+    tracker.report("pane-1", { agent: "test", event: { kind: "start" } }, 2);
+    held.finish();
+    expect(tracker.getSnapshot().modes.has("pane-1")).toBe(false);
+  });
+
+  it("forgets the mode with the process: a restart starts from its launch again", () => {
+    const tracker = setup();
+    tracker.report("pane-1", say("auto"), 1);
+    tracker.clear("pane-1");
+    expect(tracker.getSnapshot().modes.has("pane-1")).toBe(false);
+  });
+
+  it("drops the mode of a pane that is gone", () => {
+    const tracker = setup();
+    tracker.report("pane-1", say("auto"), 1);
+    tracker.report("pane-2", say("yolo"), 1);
+    tracker.retain(new Set(["pane-2"]));
+    expect([...tracker.getSnapshot().modes]).toEqual([["pane-2", "yolo"]]);
   });
 });

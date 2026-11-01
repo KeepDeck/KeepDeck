@@ -6,6 +6,8 @@ import { readKimiLimits, type LimitsPorts } from "./limits";
 import { kimiMcpArms } from "./mcp";
 import {
   launchPlans,
+  yoloFloor,
+  yoloSwitch,
   sha256Hex,
   type KeepDeckPlugin,
   type PluginAgents,
@@ -56,6 +58,14 @@ let activeController: ReturnType<typeof createKimiSetupController> | null = null
 const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
   skills ? ["--skills-dir", skills.dir] : [];
 
+/** kimi's YOLO switch: `--auto`, its never-ask mode — what the deck's YOLO
+ * promises on every agent. kimi's own `--yolo` is "ask when needed": it still
+ * asks before a dangerous command, a sensitive path, the user's own ask rules,
+ * and lets the model put questions (kimi 2.4.1, task-577). Deny rules bind
+ * both, and since 2.4 a plan still asks for review. `--auto` exists since
+ * kimi 0.5; every kimi this plugin drives is far newer. */
+const YOLO_SWITCH = ["--auto"];
+
 /** Everything a launch of kimi carries, whichever way the pane starts it —
  * fresh, resumed, or forked into a session it names.
  *
@@ -70,9 +80,9 @@ const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
  * DEFAULT, so a user who set the variable themselves keeps their answer. */
 function stageLaunch(
   input: Pick<SpawnPlanInput, "skills" | "yolo">,
-  output: Pick<SpawnPlanOutput, "args" | "envDefaults">,
+  output: Pick<SpawnPlanOutput, "args" | "envDefaults" | "yolo">,
 ): void {
-  output.args.push(...skillsArgs(input.skills), ...(input.yolo ? ["--yolo"] : []));
+  output.args.push(...skillsArgs(input.skills), ...yoloSwitch(input, output, YOLO_SWITCH));
   (output.envDefaults ??= []).push(["KIMI_CODE_TRUST_WORKSPACE", "1"]);
 }
 
@@ -143,6 +153,8 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
         resume: (input) => ["--session", input.sessionId],
         fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
       }),
+      // A plan that threw still launches kimi: in YOLO, when it was asked.
+      "bare.plan": yoloFloor(YOLO_SWITCH),
       // The MCP servers reach kimi through its cwd, not argv (./mcp.ts).
       "arm.plan": (input, output) => {
         output.cwd.push(...kimiMcpArms(input.mcp));

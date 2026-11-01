@@ -108,6 +108,7 @@ describe("AgentDialog targets", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );

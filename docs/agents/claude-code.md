@@ -41,8 +41,16 @@ Nothing is written to `~/.claude`.
   Verified live. The user's `disableAllHooks` and simple and safe modes are
   left alone, and a managed policy wins.
 - `--mcp-config '<json>'` injects KeepDeck's MCP servers.
-- `--dangerously-skip-permissions` for permission-skipping panes.
+- `--dangerously-skip-permissions` for permission-skipping panes; the plan
+  says it starts in YOLO (`yoloSwitch`, plugin API 77).
 - `CLAUDE_CODE_DISABLE_ARTIFACT`, from a plugin setting, passed in env.
+
+The pane's YOLO badge follows the mode claude itself reports: every
+main-agent hook but `SessionStart` carries `permission_mode`, the EFFECTIVE
+mode. A flag that settings disabled (`disableBypassPermissionsMode`) arrives
+as `auto` or `default`, and a shift+tab switch shows at the next hook
+(probe-verified on 2.1.316, task-577). Until the first prompt the pane shows
+the launch.
 
 `stageLaunch` in `src/index.ts` is what every launch carries, through the
 shared `launchPlans`.

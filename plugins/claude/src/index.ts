@@ -18,6 +18,8 @@
 import {
   errorMessage,
   launchPlans,
+  yoloFloor,
+  yoloSwitch,
   mailAskArgs,
   shellQuote,
   type KeepDeckPlugin,
@@ -225,8 +227,7 @@ const MOD_PLUGIN_NAME = "keepdeck-reporter";
 
 /** claude's YOLO switch. First use shows claude's own one-time in-TUI
  * acceptance prompt — expected, it runs interactively in the pane. */
-const yoloArgs = (yolo: boolean | undefined): string[] =>
-  yolo ? ["--dangerously-skip-permissions"] : [];
+const YOLO_SWITCH = ["--dangerously-skip-permissions"];
 
 /** The shared skills, loaded as a per-session LOCAL plugin this plugin
  * builds (skillsPlugin.ts). A directory that could not be built costs the
@@ -278,7 +279,7 @@ async function stageLaunch(
     ...mod,
     ...(await skillsArgs(ctx, input)),
     ...mcpArgs(input.mcp),
-    ...yoloArgs(input.yolo),
+    ...yoloSwitch(input, output, YOLO_SWITCH),
   );
   output.env.push(...artifactsEnv(await ctx.settings.read()));
 }
@@ -329,15 +330,19 @@ export function registerClaude(ctx: ClaudePorts): void {
     },
     history: claudeHistory(ctx),
     liveSessions: claudeLiveSessions(ctx),
-    hooks: launchPlans({
-      stage: (input, output) => stageLaunch(launchPorts, input, output),
-      resume: (input) => ["--resume", input.sessionId],
-      fork: (input) =>
-        forkClaudeSession(
-          { fs: ctx.services.fs, fsWrite: ctx.services.fsWrite, newId: () => crypto.randomUUID() },
-          input,
-        ),
-    }),
+    hooks: {
+      ...launchPlans({
+        stage: (input, output) => stageLaunch(launchPorts, input, output),
+        resume: (input) => ["--resume", input.sessionId],
+        fork: (input) =>
+          forkClaudeSession(
+            { fs: ctx.services.fs, fsWrite: ctx.services.fsWrite, newId: () => crypto.randomUUID() },
+            input,
+          ),
+      }),
+      // A plan that threw still launches claude: in YOLO, when it was asked.
+      "bare.plan": yoloFloor(YOLO_SWITCH),
+    },
   });
   // The switch for claude's OWN artifacts ([`ARTIFACTS_FIELD`]). The label
   // never reaches the screen — the plugin's page is titled by the manifest

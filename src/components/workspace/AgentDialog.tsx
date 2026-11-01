@@ -7,6 +7,7 @@ import {
   canCreateAgent,
   remoteValid,
   canStartFromSession,
+  dialogStartingYolo,
   selectableAgents,
   defaultAgentType as pickDefaultAgentType,
   type AgentDialogResult,
@@ -59,8 +60,9 @@ interface AgentDialogProps {
   defaultAgentType: AgentType | null;
   /** A session the dialog opens with, already picked. */
   preset?: SessionPreset;
-  /** The YOLO toggle's starting position (the global preference); shown only
-   * while the selected agent's plugin declares YOLO support. */
+  /** The global YOLO preference: where the toggle starts for a fresh session.
+   * A continued one starts as it ran ([`dialogStartingYolo`]). The toggle is
+   * shown only while the selected agent's plugin declares YOLO support. */
   defaultYolo: boolean;
   /** Whether the Experimental "Remote agents" setting is on — the "Where:
    *  Remote" option is hidden entirely unless this is true, regardless of an
@@ -125,6 +127,9 @@ interface AgentDialogProps {
   ): Promise<{ ok: true; ids: ReadonlySet<string> } | { ok: false }>;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
+  /** The person flipped the YOLO toggle. Required, like `remoteEnabled`: a
+   * surface that forgot it would leave a hole in the toggle's log trail. */
+  onYoloChange(on: boolean): void;
 }
 
 /**
@@ -158,6 +163,7 @@ export function AgentDialog({
   liveOutside,
   onConfirm,
   onCancel,
+  onYoloChange,
 }: AgentDialogProps) {
   const [agentType, setAgentType] = useState<AgentType | null>(defaultAgentType);
   const [name, setName] = useState("");
@@ -173,9 +179,15 @@ export function AgentDialog({
   // answers, handed in as `roles`; the form only shows them.
   const [roleId, setRoleId] = useState(NO_ROLE);
   const roleAddress = roles.addressFor(roleId);
-  // The toggle's state survives switching through a non-supporting agent —
-  // only the SUBMITTED value is gated (see `supportsYolo` below).
-  const [yolo, setYolo] = useState(defaultYolo);
+  // The person's own flip of the YOLO toggle, once there is one: it then
+  // stands whatever is picked (see `yolo` below). It survives switching
+  // through a non-supporting agent — only the SUBMITTED value is gated (see
+  // `supportsYolo` below).
+  const [flippedYolo, setFlippedYolo] = useState<boolean | null>(null);
+  const flipYolo = (on: boolean) => {
+    setFlippedYolo(on);
+    onYoloChange(on);
+  };
   // WHERE the team runs — its own feature, with its own mind and its own
   // four async collaborators ([`useWorktreeLocation`]).
   const location = useWorktreeLocation({
@@ -256,7 +268,7 @@ export function AgentDialog({
   const picker = useSessionPicker({
     agentType,
     startMode,
-    preset: preset?.handle ?? null,
+    preset: preset ?? null,
     member,
     searchSessions,
     sessionClaim,
@@ -312,6 +324,7 @@ export function AgentDialog({
   const validPick =
     picked && picked.handle.agent === agentType ? picked : null;
   const pickedBlock = validPick ? resumeBlockOf(validPick) : null;
+  const yolo = flippedYolo ?? dialogStartingYolo(defaultYolo, startMode, validPick);
   // The sessions' ages read the app's one wall clock — a clock read in
   // render re-worded every row on every keystroke. Memoized: a keystroke
   // elsewhere in the dialog must not rebuild the list (and re-key the
@@ -591,7 +604,7 @@ export function AgentDialog({
           />
         )}
 
-        {member && supportsYolo && <YoloField checked={yolo} onChange={setYolo} />}
+        {member && supportsYolo && <YoloField checked={yolo} onChange={flipYolo} />}
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>

@@ -202,6 +202,8 @@ export interface WireSpawnPlanOutput {
   /** Env pairs applied only when not already inherited (plugin API 22) —
    * a guest hook's additions must survive the copy-back. */
   envDefaults?: [string, string][];
+  /** The plan starts its CLI in YOLO (plugin API 77). */
+  yolo?: boolean;
   /** A fork plan's scaffolding for the host to remove (plugin API 60). */
   discard?: { onceStarted?: string[]; ifNeverStarted?: string[] };
 }

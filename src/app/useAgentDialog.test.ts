@@ -2,13 +2,15 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { AgentDialogResult } from "../domain/agents";
+import { presetPick, type AgentDialogResult, type AgentInfo } from "../domain/agents";
 import {
   TEAM_FULL_MESSAGE,
   placementRefusalMessage,
   type Workspace,
 } from "../domain/deck";
+import type { JournalRecords } from "../domain/journal";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { indexSearch, type SearchHit } from "../ipc/history";
 import { inspectRepo } from "../ipc/worktree";
 import { createAgentDoors } from "./agentDoors";
 import { useAgentDialog } from "./useAgentDialog";
@@ -23,6 +25,23 @@ import { present } from "@keepdeck/plugin-api/testing";
 // Per-path disk probes for suggestion filtering: paths in the map probe as a
 // non-empty non-worktree dir (blocked); anything else as missing (free).
 const blockedDirs = vi.hoisted(() => new Set<string>());
+
+// The log lines the hook writes, to read what a confirmed dialog said.
+const logged = vi.hoisted((): string[] => []);
+vi.mock("../ipc/log", () => ({
+  log: {
+    info: (target: string, message: string) => logged.push(`${target} ${message}`),
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  },
+}));
+
+// The picker's session search: whatever page a case seeds.
+vi.mock("../ipc/history", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../ipc/history")>()),
+  indexSearch: vi.fn(async () => ({ hits: [], total: 0 })),
+}));
 
 // The hook reaches the backend for repo inspection, name suggestions and path
 // probes; pin all three (suggestions follow the real Rust naming:
@@ -90,10 +109,12 @@ const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(() =
  * whether it happened. */
 interface TestDeck {
   workspaces: Workspace[];
+  journal: { records: JournalRecords };
   openTeam: Mock<(wsId: string, teamId: string) => void>;
 }
 const deckOf = (...workspaces: Workspace[]): TestDeck => ({
   workspaces,
+  journal: { records: {} },
   openTeam: vi.fn(),
 });
 /** The deck the current Host was mounted with — what the doors owner reads
@@ -132,12 +153,14 @@ describe("useAgentDialog suggestions", () => {
   let host: HTMLElement;
   let root: Root;
   let flow: ReturnType<typeof useAgentDialog>;
+  /** The agent catalog the hook is handed; empty unless a case needs one. */
+  let catalog: AgentInfo[] = [];
 
   function Host({ deck }: { deck: TestDeck }) {
     // No settings store seeded here: the default-agent preference falls back
     // to "claude" — these tests cover suggestions, not the type picker.
     // No journal routing and no blocked panes: these tests cover suggestions.
-    flow = useAgentDialog(deck, [], notices, {}, doors);
+    flow = useAgentDialog(deck, catalog, notices, {}, doors);
     return null;
   }
 
@@ -146,6 +169,8 @@ describe("useAgentDialog suggestions", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     blockedDirs.clear();
+    catalog = [];
+    logged.length = 0;
     createPane.mockClear();
     createTeam.mockClear();
     notices.onCreateFailed.mockClear();
@@ -162,6 +187,191 @@ describe("useAgentDialog suggestions", () => {
     await act(async () => mountHost(root, Host, deck));
     return deck;
   };
+
+  it("says in the log what YOLO a confirmed member dialog sent, and why it may be off", async () => {
+    // An agent that came up without the YOLO its person meant (task-576):
+    // the line tells the toggle being off from the agent not taking one.
+    const agent = (id: string, yolo: boolean): AgentInfo => ({
+      id,
+      label: id,
+      command: id,
+      features: yolo ? [{ id: "execution.yolo", label: "YOLO mode" }] : [],
+      installed: true,
+      path: null,
+    });
+    catalog = [agent("claude", true), agent("plain", false)];
+    const ws = withTeam();
+    await mount(ws);
+    const confirm = async (agentType: string, yolo: boolean) => {
+      await act(async () => flow.openFor(ws, MEMBER));
+      await act(async () => {
+        flow.confirm({ agentType, name: "", location: { kind: "main" }, yolo });
+      });
+    };
+
+    await confirm("claude", true);
+    await confirm("claude", false);
+    await confirm("plain", false);
+
+    // Each line names the pane the trace hangs on — the one the dialog made.
+    const pane = (n: number) => createPane.mock.calls[n][0].pane.id;
+    expect(logged.filter((line) => line.includes("dialog confirmed"))).toEqual([
+      `web:agents ${pane(0)}: member dialog confirmed — claude, YOLO on`,
+      `web:agents ${pane(1)}: member dialog confirmed — claude, YOLO off`,
+      `web:agents ${pane(2)}: member dialog confirmed — plain, YOLO off (the agent declares no YOLO)`,
+    ]);
+  });
+
+  it("says no YOLO either way for a dialog that lands no agent", async () => {
+    // "+ Team" submits its hidden picker's agent and the YOLO default; it
+    // lands an empty team, so neither is what happened.
+    catalog = [
+      {
+        id: "claude",
+        label: "claude",
+        command: "claude",
+        features: [{ id: "execution.yolo", label: "YOLO mode" }],
+        installed: true,
+        path: null,
+      },
+    ];
+    const ws = withTeam();
+    await mount(ws);
+    await act(async () => flow.openFor(ws));
+    await act(async () => {
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "new", path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" },
+        yolo: true,
+        teamName: "docs",
+      });
+    });
+    // A member confirmed with no agent picked is refused: no YOLO either.
+    await act(async () => flow.openFor(ws, MEMBER));
+    await act(async () => {
+      flow.confirm({ agentType: null, name: "", location: { kind: "main" }, yolo: false });
+    });
+    expect(logged.filter((line) => line.includes("dialog confirmed"))).toEqual([
+      expect.stringMatching(/new-team dialog confirmed — no agent, YOLO n\/a$/),
+      expect.stringMatching(/member dialog confirmed — no agent, YOLO n\/a$/),
+    ]);
+  });
+
+  it("tells the picker how each found session ran, as the journal recorded it in any workspace", async () => {
+    // The index knows sessions, not modes: a continuation's YOLO starts
+    // from the journal — the search is global, and so is what it knows —
+    // and a session no journal recorded stays unknown.
+    const hit = (sessionId: string): SearchHit => ({
+      agent: "claude",
+      sessionId,
+      reference: sessionId,
+      cwd: "/repo",
+      title: null,
+      transcriptPath: null,
+      mtime: 1,
+      snippet: null,
+    });
+    const record = (sessionId: string, yolo: boolean) => ({
+      agent: "claude",
+      sessionId,
+      cwd: "/repo",
+      boundAt: "t",
+      state: "closed" as const,
+      endedAt: "t",
+      ...(yolo && { yolo: true }),
+    });
+    vi.mocked(indexSearch).mockResolvedValueOnce({
+      hits: [hit("s-yolo"), hit("s-plain"), hit("s-elsewhere"), hit("s-unknown")],
+      total: 4,
+    });
+    const ws = withTeam();
+    const deck = await mount(ws);
+    deck.journal.records = {
+      // Recorded in another workspace too, as YOLO there: the dialog's own
+      // workspace answers first — listed second, so key order cannot.
+      "ws-2": [record("s-elsewhere", true), record("s-plain", true)],
+      "ws-1": [record("s-yolo", true), record("s-plain", false)],
+    };
+    await act(async () => flow.openFor(ws, MEMBER));
+    const page = await flow.searchSessions("claude", "", 50, 0);
+    expect(page.rows.map((row) => [row.handle.sessionId, row.ranYolo])).toEqual([
+      ["s-yolo", true],
+      ["s-plain", false],
+      ["s-elsewhere", true],
+      ["s-unknown", undefined],
+    ]);
+  });
+
+  it("traces a member dialog's YOLO from where it started, through every flip, to what it sent", async () => {
+    catalog = [
+      {
+        id: "claude",
+        label: "claude",
+        command: "claude",
+        features: [{ id: "execution.yolo", label: "YOLO mode" }],
+        installed: true,
+        path: null,
+      },
+    ];
+    // The lead ran in YOLO, so its Fork opens on, and the implementer's
+    // opens off; a fresh member opens on the global default — off, with no
+    // settings store here.
+    const ws = withTeam({
+      panes: [
+        {
+          id: "p1",
+          agentType: "claude",
+          yolo: true,
+          session: { id: "s-9", boundAt: "t" },
+          team: { teamId: "team-1", role: "lead" },
+        },
+        {
+          id: "p2",
+          agentType: "claude",
+          session: { id: "s-8", boundAt: "t" },
+          team: { teamId: "team-1", role: "impl-1" },
+        },
+      ],
+    });
+    await mount(ws);
+    await act(async () => flow.openFor(ws, MEMBER));
+    act(() => flow.yoloToggled(true));
+    act(() => flow.yoloToggled(false));
+    act(() => flow.yoloToggled(true));
+    await act(async () => {
+      flow.confirm({ agentType: "claude", name: "", location: { kind: "main" }, yolo: true });
+    });
+    // A flip with no dialog open belongs to no trail.
+    act(() => flow.yoloToggled(false));
+    await act(async () => flow.forkPaneSession("ws-1", "p1"));
+    const fork = present(flow.dialog, "the fork dialog");
+    await act(async () => {
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: true,
+        session: { mode: "fork", handle: present(fork.preset, "the fork preset").handle },
+      });
+    });
+    await act(async () => flow.forkPaneSession("ws-1", "p2"));
+
+    const fresh = offered().pane.id;
+    const plainFork = present(flow.dialog, "the second fork dialog").agentId;
+    expect(logged.filter((line) => line.startsWith("web:agents "))).toEqual([
+      `web:agents ${fresh}: member dialog opened — YOLO starts off, the global default`,
+      `web:agents ${fresh}: YOLO toggled on in the dialog`,
+      `web:agents ${fresh}: YOLO toggled off in the dialog`,
+      `web:agents ${fresh}: YOLO toggled on in the dialog`,
+      `web:agents ${fresh}: member dialog confirmed — claude, YOLO on`,
+      `web:agents ${fork.agentId}: member dialog opened — YOLO starts on, as its source session ran`,
+      // What was continued is said beside the YOLO it sent: a start no flip
+      // explains is the session's own.
+      `web:agents ${fork.agentId}: member dialog confirmed — claude, fork of s-9, YOLO on`,
+      `web:agents ${plainFork}: member dialog opened — YOLO starts off, as its source session ran`,
+    ]);
+  });
 
   it("prefills the first suggestion NOT held by a team", async () => {
     // One pane → the naive suggestion is index 2, but a team already runs in
@@ -722,6 +932,31 @@ describe("useAgentDialog targets", () => {
       preset: { mode: "fork", handle: { agent: "codex", sessionId: "s-9", cwd: "/base/kd-KeepDeck-1" } },
     });
     expect(present(flow.dialog, "the open dialog").roles.addressFor("lead")).toBeNull();
+  });
+
+  it("opens a Fork carrying how its source pane ran — the toggle starts from that, not the global default", async () => {
+    // No settings store here: the global default reads as off. The spec
+    // says so; the preset says how the source ran, which is what the
+    // dialog's toggle starts from ([`presetPick`], `dialogStartingYolo`).
+    const ws = workspace({
+      teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/base/kd-KeepDeck-1" } }],
+      panes: [
+        { id: "p1", agentType: "codex", yolo: true, session: { id: "s-9", boundAt: "t" }, team: { teamId: "team-1", role: "lead" } },
+        { id: "p2", agentType: "codex", session: { id: "s-8", boundAt: "t" }, team: { teamId: "team-1", role: "impl-1" } },
+      ],
+    });
+    const deck = deckOf(ws);
+    await act(async () => mountHost(root, Host, deck));
+    const opensOn = () => {
+      const dialog = present(flow.dialog, "the open dialog");
+      expect(dialog.defaultYolo).toBe(false);
+      return presetPick(present(dialog.preset, "the fork preset")).ranYolo;
+    };
+    await act(async () => flow.forkPaneSession("ws-1", "p1"));
+    expect(opensOn()).toBe(true);
+    await act(async () => flow.cancel());
+    await act(async () => flow.forkPaneSession("ws-1", "p2"));
+    expect(opensOn()).toBe(false);
   });
 
   it("opens for a member with no location to ask about, and lands it on the team by id under the role picked", async () => {

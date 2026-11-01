@@ -263,6 +263,7 @@ describe("AgentDialog worktree location flow", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -538,6 +539,7 @@ describe("AgentDialog agent picker", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -553,12 +555,14 @@ describe("AgentDialog YOLO toggle", () => {
   let host: HTMLElement;
   let root: Root;
   let confirmed: AgentDialogResult[];
+  let flips: boolean[];
 
   beforeEach(() => {
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     confirmed = [];
+    flips = [];
     catalog.supportsYolo = true;
   });
   afterEach(() => {
@@ -589,6 +593,7 @@ describe("AgentDialog YOLO toggle", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: (on: boolean) => flips.push(on),
         }),
       ),
     );
@@ -598,6 +603,13 @@ describe("AgentDialog YOLO toggle", () => {
 
   const checkbox = () =>
     document.querySelector<HTMLInputElement>(".form__yolo input");
+
+  it("tells its owner each flip of the toggle, in order", async () => {
+    await mount(true);
+    act(() => present(checkbox(), "agent checkbox").click());
+    act(() => present(checkbox(), "agent checkbox").click());
+    expect(flips).toEqual([false, true]);
+  });
 
   it("prefills from the global default and the result carries the choice", async () => {
     await mount(true);
@@ -611,6 +623,14 @@ describe("AgentDialog YOLO toggle", () => {
     act(() => present(checkbox(), "agent checkbox").click());
     submit();
     expect(confirmed).toMatchObject([{ yolo: false }]);
+  });
+
+  it("ticking overrides it the other way", async () => {
+    await mount(false);
+    act(() => present(checkbox(), "agent checkbox").click());
+    expect(checkbox()?.checked).toBe(true);
+    submit();
+    expect(confirmed).toMatchObject([{ yolo: true }]);
   });
 
   it("hidden — and never true — for an agent without YOLO support", async () => {
@@ -706,6 +726,7 @@ describe("AgentDialog start-from session picker", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
           ...overrides,
         }),
       ),
@@ -757,6 +778,52 @@ describe("AgentDialog start-from session picker", () => {
         session: { mode: "resume", handle: { sessionId: "s-live" } },
       },
     ]);
+  });
+
+  const yoloBox = () =>
+    present(document.querySelector<HTMLInputElement>(".form__yolo input"), "the YOLO toggle");
+
+  it("starts the YOLO toggle as the picked session ran, until the person flips it", async () => {
+    // The global preference is ON here, so a session KeepDeck never ran
+    // (no `ranYolo`) is told apart from one known to have run without.
+    const [live, gone, claimed] = SESSIONS;
+    await mount({
+      defaultYolo: true,
+      searchSessions: async () => ({
+        rows: [{ ...live, ranYolo: true }, { ...gone, ranYolo: false }, claimed],
+        total: 3,
+      }),
+    });
+    expect(yoloBox().checked).toBe(true);
+    act(() => modeBtn("Fork").click());
+    await settleSessions();
+    // Nothing picked yet: the preference.
+    expect(yoloBox().checked).toBe(true);
+    act(() => rows()[1].click());
+    expect(yoloBox().checked).toBe(false);
+    act(() => rows()[0].click());
+    expect(yoloBox().checked).toBe(true);
+    act(() => rows()[2].click());
+    expect(yoloBox().checked).toBe(true);
+
+    // The person's own flip stands whatever is picked next.
+    act(() => yoloBox().click());
+    act(() => rows()[0].click());
+    expect(yoloBox().checked).toBe(false);
+    submit();
+    expect(confirmed).toMatchObject([
+      { yolo: false, session: { mode: "fork", handle: { sessionId: "s-live" } } },
+    ]);
+  });
+
+  it("opens a preset as its source ran, and a fresh start from it returns to the preference", async () => {
+    await mount({
+      defaultYolo: false,
+      preset: { mode: "fork", handle: { ...SESSIONS[0].handle, yolo: true } },
+    });
+    expect(yoloBox().checked).toBe(true);
+    act(() => modeBtn("New session").click());
+    expect(yoloBox().checked).toBe(false);
   });
 
   it("keeps the directory source array stable when the picker re-renders", async () => {
@@ -1044,6 +1111,7 @@ describe("AgentDialog start-from paging", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1108,6 +1176,7 @@ describe("AgentDialog start-from paging", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1167,6 +1236,7 @@ describe("AgentDialog start-from paging", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1218,6 +1288,7 @@ describe("AgentDialog start-from paging", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1317,6 +1388,7 @@ describe("AgentDialog cross-agent pick guard", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1431,6 +1503,7 @@ describe("remote gating (Experimental setting)", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1484,6 +1557,7 @@ describe("remote gating (Experimental setting)", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );
@@ -1623,6 +1697,7 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
+          onYoloChange: () => {},
         }),
       ),
     );

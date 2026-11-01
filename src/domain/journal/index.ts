@@ -6,6 +6,7 @@ export {
   handleFromHit,
   hydrateJournalSlice,
   journalRows,
+  recordedYolo,
   snapshotJournal,
   withJournalEvent,
   type JournalEvent,

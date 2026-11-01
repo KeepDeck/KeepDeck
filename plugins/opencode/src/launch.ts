@@ -16,6 +16,8 @@
  */
 import {
   errorMessage,
+  yoloFloor,
+  yoloSwitch,
   type PluginResources,
   type SpawnPlanInput,
   type SpawnPlanOutput,
@@ -47,6 +49,8 @@ export interface LaunchDraft {
   env: [string, string][];
   envDefaults: [string, string][];
   args: string[];
+  /** The launch carries opencode's YOLO switch ([`yoloSwitch`]). */
+  yolo?: boolean;
 }
 
 /** One way to prepare a launch: a whole generation's, or one part of it. */
@@ -118,8 +122,11 @@ const permissionMode = part((input, draft) => {
 
 /** opencode's YOLO switch: auto-allows every ask prompt while explicit deny
  * rules in the user's own config stay enforced. */
-const yoloArgs = (yolo: boolean | undefined): string[] =>
-  yolo ? ["--dangerously-skip-permissions"] : [];
+const YOLO_SWITCH = ["--dangerously-skip-permissions"];
+
+/** The floor of a launch whose plan threw: still in YOLO, when it was
+ * asked — the switch both lines take. */
+export const bareFloor = yoloFloor(YOLO_SWITCH);
 
 /**
  * 1.x: the shared skills as an EXTRA config directory — opencode loads
@@ -197,7 +204,7 @@ const skillsInConfig = part((input, draft) => {
 
 /** 1.x arguments. */
 const invocationV1 = part((input, draft) => {
-  draft.args.push(...yoloArgs(input.yolo));
+  draft.args.push(...yoloSwitch(input, draft, YOLO_SWITCH));
 });
 
 /**
@@ -209,7 +216,7 @@ const invocationV1 = part((input, draft) => {
  * 1.x has no such flag and EXITS on it (1.19.3, measured).
  */
 const invocationV2 = part((input, draft) => {
-  draft.args.push("--standalone", ...yoloArgs(input.yolo));
+  draft.args.push("--standalone", ...yoloSwitch(input, draft, YOLO_SWITCH));
 });
 
 /**
@@ -223,7 +230,7 @@ const invocationV2 = part((input, draft) => {
  */
 const remoteAttach = (endpoint: string) =>
   part((input, draft) => {
-    draft.args.push("attach", endpoint, ...yoloArgs(input.yolo));
+    draft.args.push("attach", endpoint, ...yoloSwitch(input, draft, YOLO_SWITCH));
   });
 
 /** Which launch this pane gets, and whether it settles the invocation whole
@@ -259,6 +266,7 @@ export function render(draft: LaunchDraft, output: SpawnPlanOutput): void {
   output.env.push(...draft.env);
   (output.envDefaults ??= []).push(...draft.envDefaults);
   output.args.push(...draft.args);
+  if (draft.yolo) output.yolo = true;
 }
 
 /** Everything a launch of this CLI carries before a session is named; true

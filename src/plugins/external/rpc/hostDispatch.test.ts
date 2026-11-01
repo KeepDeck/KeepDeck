@@ -249,6 +249,23 @@ describe("agent hooks over the RPC seam", () => {
     await expect(answer("rm -rf /")).rejects.toThrow("malformed");
   });
 
+  it("a plan's word that it starts in YOLO crosses as a boolean; anything else is malformed", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [1, entry]);
+    const input = { paneId: "pane-1", workspace: { id: "ws-1", instance: "workspace-instance-1" }, cwd: "/repo" };
+    const answer = async (yolo: unknown) => {
+      const out = output();
+      const running = present(h.agent().hooks["spawn.plan"], "the spawn.plan hook")(input, out);
+      const id = Number(h.pushes[h.pushes.length - 1].channel.slice("hook:".length));
+      await h.dispatch.call("agents.hookResult", [id, { ok: true, output: { command: "gemini", args: [], env: [], yolo } }]);
+      await running;
+      return out;
+    };
+    expect((await answer(true)).yolo).toBe(true);
+    expect((await answer(false)).yolo).toBeUndefined();
+    await expect(answer("yes")).rejects.toThrow("malformed");
+  });
+
   it("a malformed realm output rejects instead of reaching the spawn", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);

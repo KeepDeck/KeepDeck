@@ -110,6 +110,15 @@ export function agentSupportsYolo(
   return agentHasFeature(agents, type, AGENT_FEATURE.yolo);
 }
 
+/** Whether a new agent starts with YOLO on. One that continues a session
+ *  (resumed or forked) starts as that session ran, since the person is
+ *  carrying THAT agent on, prompts and all. Anything else starts as the
+ *  global preference says, including a continuation of a session KeepDeck
+ *  never ran, whose mode it cannot know (`ranYolo` undefined). */
+export function startingYolo(globalDefault: boolean, ranYolo?: boolean): boolean {
+  return ranYolo ?? globalDefault;
+}
+
 /** Whether `type` can create a fresh session. */
 export function agentSupportsNew(
   agents: AgentInfo[],

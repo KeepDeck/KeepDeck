@@ -6,6 +6,7 @@ import {
   remoteValid,
   selectableAgents,
   defaultAgentType,
+  startingYolo,
   type AgentInfo,
 } from "./agents";
 
@@ -106,6 +107,20 @@ describe("agentSupportsYolo", () => {
     // An absent agent (plugin gone, catalog loading) must never arm YOLO.
     expect(agentSupportsYolo(list, "gemini")).toBe(false);
     expect(agentSupportsYolo([], "claude")).toBe(false);
+  });
+});
+
+describe("startingYolo", () => {
+  it("starts a fresh agent, or one continuing a session KeepDeck never ran, as the global preference says", () => {
+    expect(startingYolo(true)).toBe(true);
+    expect(startingYolo(false, undefined)).toBe(false);
+  });
+
+  it("starts one continuing a session KeepDeck ran as that session ran, whatever the preference", () => {
+    expect(startingYolo(false, true)).toBe(true);
+    // Known to have run without YOLO is an answer, not "unknown, ask the
+    // preference".
+    expect(startingYolo(true, false)).toBe(false);
   });
 });
 

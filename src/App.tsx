@@ -300,6 +300,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
               liveOutside={liveOutside}
               onConfirm={agentFlow.confirm}
               onCancel={agentFlow.cancel}
+              onYoloChange={agentFlow.yoloToggled}
             />
           )}
           {agentFlow.sharedAsk && (

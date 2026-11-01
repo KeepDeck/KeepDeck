@@ -479,6 +479,8 @@ describe("opencode plugin hooks", () => {
     const spawn = output();
     await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(v2, spawn);
     expect(spawn.args).toEqual(["--standalone", "--dangerously-skip-permissions"]);
+    // ...and the plan says the launch starts in YOLO.
+    expect(spawn.yolo).toBe(true);
 
     const resume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...v2, sessionId: "ses_x" }, resume);
@@ -532,12 +534,21 @@ describe("opencode plugin hooks", () => {
     }
   });
 
+  it("a launch whose plan threw still starts in YOLO when it was asked", async () => {
+    const agent = activate("/App/resources");
+    const floor = output();
+    await present(agent.hooks["bare.plan"], "the bare.plan hook")({ ...input, yolo: true }, floor);
+    expect(floor.args).toEqual(["--dangerously-skip-permissions"]);
+    expect(floor.yolo).toBe(true);
+  });
+
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
     const agent = activate("/App/resources");
 
     const spawn = output();
     await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, spawn);
     expect(spawn.args).toEqual(["--dangerously-skip-permissions"]);
+    expect(spawn.yolo).toBe(true);
     // The reporter's env injection is independent of the mode.
     expect(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
 

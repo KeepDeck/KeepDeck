@@ -96,13 +96,34 @@ describe("MinimizedItem", () => {
       paneId: "pane-1",
       title: "Claude 1",
       label: "Restore Claude 1",
-      yolo: true,
+      yolo: { launched: true, asked: true },
       active: true,
       onClick,
     });
     const marker = present(document.querySelector<HTMLElement>(".minimized__yolo"), "the .minimized__yolo element");
     expect(marker.querySelector("svg")).not.toBeNull();
     expect(marker.title).toContain("without permission prompts");
+  });
+
+  it("drops the marker once the agent says it does not run in YOLO", () => {
+    // Launched with YOLO, but a policy took it away — or the user left it
+    // inside the CLI: the agent's own word is what the stand-in shows.
+    render({
+      paneId: "pane-1",
+      title: "Claude 1",
+      label: "Restore Claude 1",
+      yolo: { launched: true, asked: true },
+      active: true,
+      onClick,
+    });
+    expect(document.querySelector(".minimized__yolo")).not.toBeNull();
+    act(() =>
+      statusTracker.report("pane-1", {
+        agent: "claude",
+        edge: { kind: "permission-mode", at: Date.now(), mode: "auto" },
+      }),
+    );
+    expect(document.querySelector(".minimized__yolo")).toBeNull();
   });
 
   it("replaces native title bubbles with full details after hover intent", () => {
