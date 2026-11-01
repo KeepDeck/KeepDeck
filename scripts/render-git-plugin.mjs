@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isRecord } from "./lib/guards.mjs";
 
 // What the DOM realm hands back is module namespaces from vm: nothing types
 // them, so each one is checked for the members this step calls before use.
@@ -11,14 +12,6 @@ import assert from "node:assert/strict";
 /** @typedef {{ onUncaughtError(error: unknown): void, onRecoverableError(error: unknown): void }} RootOptions */
 /** @typedef {{ createRoot(host: Element, options: RootOptions): Root }} ReactDomClientBridge */
 /** @typedef {{ installResizeObserver(): void, pinListViewport(list: string, height: number, width?: number, rowHeight?: number): () => void }} Geometry */
-
-/**
- * @param {unknown} value
- * @returns {value is Record<string, unknown>}
- */
-function isRecord(value) {
-  return typeof value === "object" && value !== null;
-}
 
 /**
  * @param {unknown} value

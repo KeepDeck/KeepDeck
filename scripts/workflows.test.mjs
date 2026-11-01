@@ -5,18 +5,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { isRecord } from "./lib/guards.mjs";
 
 /** @typedef {{ name?: string, uses?: string, run?: string, if?: string, env?: unknown, with?: Record<string, unknown> }} Step */
 /** @typedef {{ if?: string, uses?: string, needs?: unknown, with?: Record<string, unknown>, outputs?: unknown, strategy?: unknown, "runs-on"?: unknown, steps?: Step[] }} Job */
 /** @typedef {{ on: Record<string, unknown>, jobs: Record<string, Job>, concurrency?: unknown, permissions?: unknown }} Workflow */
 
-/**
- * @param {unknown} value
- * @returns {value is Record<string, unknown>}
- */
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * @param {Record<string, unknown>} record
@@ -102,10 +96,11 @@ function at(root, ...path) {
 
 /**
  * @param {unknown} value
+ * @param {string} what
  * @returns {string}
  */
-function text(value) {
-  if (typeof value !== "string") throw new Error("expected text");
+function text(value, what) {
+  if (typeof value !== "string") throw new Error(`${what}: expected text`);
   return value;
 }
 
@@ -239,7 +234,7 @@ describe("build-macos workflow", () => {
   it("ships the zip, the updater payload and its signature per arch", () => {
     const upload = required(stepsOf(build.jobs.build).at(-1), "last build step");
     expect(upload.with?.name).toBe("KeepDeck-macos-${{ matrix.arch }}");
-    expect(text(at(upload.with, "path")).trim().split("\n")).toEqual([
+    expect(text(at(upload.with, "path"), "the upload step's path").trim().split("\n")).toEqual([
       "KeepDeck-macos-${{ matrix.arch }}.zip",
       "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz",
       "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz.sig",

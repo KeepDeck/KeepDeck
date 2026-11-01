@@ -31,6 +31,7 @@ import { pathToFileURL } from "node:url";
 // --experimental-vm-modules, and the file rules need no flag.
 import vm from "node:vm";
 import { findPluginDirs, validateManifest } from "./build-plugins.mjs";
+import { isRecord } from "./lib/guards.mjs";
 
 /** @typedef {{ id: string, dir: string, css?: unknown }} IndexEntry One plugin as index.json lists it. */
 /** @typedef {{ identifier: string }} Referrer The module an import is resolved from. */
@@ -43,13 +44,6 @@ const PLUGIN_FILES = ["index.js", "index.css", "manifest.json", "resources"];
  * carries it inlined React instead of importing the host's. */
 const OWN_REACT = "react.transitional.element";
 
-/**
- * @param {unknown} value
- * @returns {value is Record<string, unknown>}
- */
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * @param {string} distRoot

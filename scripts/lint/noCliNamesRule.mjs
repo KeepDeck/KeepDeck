@@ -36,7 +36,10 @@ export const noCliNames = {
      */
     const read = (node, text) => {
       if (typeof text !== "string") return;
-      const key = (node.range ?? []).join(":");
+      // ESLint's parsers always give a range; ESTree only types it optional.
+      // Without one, nodes would share a key and all but the first go unread.
+      if (!node.range) throw new Error(`no-cli-names: a ${node.type} node without a range`);
+      const key = node.range.join(":");
       if (seen.has(key)) return;
       seen.add(key);
       const names = cliNamesIn(text);
