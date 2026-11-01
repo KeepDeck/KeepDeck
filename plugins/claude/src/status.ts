@@ -255,12 +255,15 @@ export function claudePermissionMode(name: unknown): AgentPermissionMode | null 
   switch (name) {
     case "bypassPermissions":
       return "yolo";
+    // `dontAsk` never asks either: what is not allowed already is refused
+    // rather than put to the user. Not YOLO — it refuses — but no prompt
+    // ever comes, so it is not `ask`.
     case "auto":
-      return "auto";
-    // `dontAsk` never asks — it refuses what is not allowed already — so it
-    // is anything but autonomous.
     case "dontAsk":
+      return "auto";
+    // `manual` is claude's accepted alias for `default`.
     case "default":
+    case "manual":
     case "acceptEdits":
     case "plan":
       return "ask";

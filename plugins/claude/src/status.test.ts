@@ -13,8 +13,9 @@ const wrap = (event: Record<string, unknown>) => ({ agent: "claude", event });
 describe("the mode claude says it runs in", () => {
   it("maps claude's names onto the host's: only bypass is YOLO", () => {
     expect(claudePermissionMode("bypassPermissions")).toBe("yolo");
-    expect(claudePermissionMode("auto")).toBe("auto");
-    for (const name of ["default", "acceptEdits", "plan", "dontAsk"]) {
+    // Neither ever puts a prompt to the user: `dontAsk` refuses instead.
+    for (const name of ["auto", "dontAsk"]) expect(claudePermissionMode(name), name).toBe("auto");
+    for (const name of ["default", "manual", "acceptEdits", "plan"]) {
       expect(claudePermissionMode(name), name).toBe("ask");
     }
     for (const unknown of ["somethingNew", undefined, 3]) expect(claudePermissionMode(unknown)).toBeNull();
