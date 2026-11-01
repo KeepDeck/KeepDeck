@@ -9,7 +9,8 @@ import { describe, expect, it } from "vitest";
  *
  * eslint.config.js refuses casts that switch the type checker off, explicit
  * `any`, TypeScript suppression comments, a component reaching past app's
- * hooks, and a CLI named in the core. `pnpm lint` holds the whole tree to
+ * hooks, and a CLI named in the core; it holds plain JavaScript to the
+ * recommended rules and its runtime's globals. `pnpm lint` holds the whole tree to
  * them, and `pnpm build` starts with it; these tests pin each rule to the
  * files it is for, on probes.
  *
@@ -269,5 +270,30 @@ describe("the linter", () => {
       expect.stringContaining("the new one belongs in the CLI's plugin"),
     ]);
     expect(await messages("export const nothing = 1;\n")).toEqual([expect.stringContaining("delete its exemption")]);
+  });
+
+  it("holds every plain JavaScript file to the recommended rules and to the globals of the runtime it runs in", async () => {
+    const rules = async (file, text) =>
+      (await eslint.lintText(text, { filePath: join(REPO, file) }))[0].messages.map((m) => m.ruleId);
+    const NODE = "scripts/lint-probe.mjs";
+    const BROWSER = "src/plugins/bridges/lint-probe.js";
+    const NEUTRAL = "resources/reporters/lint-probe.js";
+    // A runtime the file does not run in is an undefined name; the
+    // reporters' wire runs in none it may name.
+    expect(await rules(NODE, "process.exitCode = 0;\nwindow.x = 1;\n")).toEqual(["no-undef"]);
+    expect(await rules(BROWSER, "window.x = 1;\nprocess.exitCode = 0;\n")).toEqual(["no-undef"]);
+    expect(await rules("src-tauri/src/artifacts/refresh.js", "process.exitCode = 0;\n")).toEqual(["no-undef"]);
+    expect(await rules(NEUTRAL, "window.x = 1;\nprocess.exitCode = 0;\n")).toEqual(["no-undef", "no-undef"]);
+    expect(await rules(NEUTRAL, "export const seen = new Map(JSON.parse(\"[]\"));\n")).toEqual([]);
+    for (const file of [NODE, "eslint.config.js", BROWSER, NEUTRAL]) {
+      // Code built from text, and a name nobody reads — with the one idiom
+      // that only looks unused: a key taken out to leave the rest.
+      expect(await rules(file, "eval(\"1\");\nexport const f = new Function(\"return 1\");\n"), file).toEqual([
+        "no-eval",
+        "no-new-func",
+      ]);
+      expect(await rules(file, "const unused = 1;\n"), file).toEqual(["no-unused-vars"]);
+      expect(await rules(file, "const { a: _a, ...rest } = { a: 1, b: 2 };\nexport { rest };\n"), file).toEqual([]);
+    }
   });
 });
