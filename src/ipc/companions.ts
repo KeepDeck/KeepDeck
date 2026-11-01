@@ -9,11 +9,27 @@ import type { AgentStatusReportEvent } from "./status";
  */
 export const COMPANION_HELLO_EVENT = "deck://companion/hello";
 
+/**
+ * Declined wakes: the companion took the pane's doorbell down and its agent
+ * would not start the turn the ring asked for. Mirrors
+ * `COMPANION_DECLINED_EVENT` in src-tauri/src/bridge/wire.rs.
+ */
+export const COMPANION_DECLINED_EVENT = "deck://companion/declined";
+
 /** Subscribe to companion hellos; resolves to the unlisten function. */
 export function onCompanionHello(
   handler: (report: AgentStatusReportEvent) => void,
 ): Promise<() => void> {
   return listen<AgentStatusReportEvent>(COMPANION_HELLO_EVENT, (event) =>
+    handler(event.payload),
+  );
+}
+
+/** Subscribe to declined wakes; resolves to the unlisten function. */
+export function onCompanionDeclined(
+  handler: (report: AgentStatusReportEvent) => void,
+): Promise<() => void> {
+  return listen<AgentStatusReportEvent>(COMPANION_DECLINED_EVENT, (event) =>
     handler(event.payload),
   );
 }

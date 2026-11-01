@@ -23,6 +23,7 @@
  * could enforce otherwise, because the collaborator was not its child.
  */
 import { collectsAtTurnEnd, type AgentStatus } from "@keepdeck/plugin-api";
+import { log } from "../../ipc/log";
 import type { CommandRegistry } from "../../domain/commands";
 import { membersOf, teamOfPane, type Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
@@ -135,6 +136,12 @@ export interface MailService {
    * leaves it.
    */
   expectAsk(paneId: string, payload: unknown): () => void;
+  /**
+   * A pane's companion took its doorbell down, and its agent would not start
+   * the turn the ring asked for — `reason` in the agent's words, already made
+   * safe for a log line. The nudge goes again now, through the terminal.
+   */
+  wakeDeclined(paneId: string, reason: string): void;
   dispose(): void;
 }
 
@@ -325,6 +332,10 @@ export function createMailService(deps: MailServiceDeps): MailService {
         // sit on an idle pane until something else happens to drive a pass.
         manager.reconsider();
       };
+    },
+    wakeDeclined(paneId, reason) {
+      log.info("web:mail", `${paneId} started no turn for its doorbell (${reason})`);
+      manager.wakeLost(paneId);
     },
     /**
      * Take the feature down, in the one order that is safe.

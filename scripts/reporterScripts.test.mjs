@@ -159,6 +159,10 @@ describe("reporter shell scripts", () => {
     const wire = readFileSync("src-tauri/src/bridge/wire.rs", "utf8");
     expect(wire).toContain('("companion.hello", COMPANION_HELLO_EVENT)');
     expect(mod).toContain('makeEnvelope("companion.hello"');
+    // And its word that a ring started no turn — unheard, the deck waits out
+    // its cadence and the pane its mail, as it did before there was a word.
+    expect(wire).toContain('("companion.declined", COMPANION_DECLINED_EVENT)');
+    expect(mod).toContain('makeEnvelope("companion.declined"');
     // The wake line it submits is the terminal's own, word for word: the
     // model reads the same sentence whichever way the pane was woken.
     const delivery = readFileSync("src/app/mail/ptyDelivery.ts", "utf8");
@@ -166,9 +170,11 @@ describe("reporter shell scripts", () => {
     expect(terminalLine, "no WAKE_LINE in ptyDelivery.ts").toBeTruthy();
     expect(mod).toContain(`"${terminalLine}"`);
     const ipc = readFileSync("src/ipc/companions.ts", "utf8");
-    const rustEvent = wire.match(/COMPANION_HELLO_EVENT: &str = "([^"]+)"/)?.[1];
-    expect(rustEvent).toBeTruthy();
-    expect(ipc).toContain(`COMPANION_HELLO_EVENT = "${rustEvent}"`);
+    for (const constant of ["COMPANION_HELLO_EVENT", "COMPANION_DECLINED_EVENT"]) {
+      const rustEvent = wire.match(new RegExp(`${constant}: &str = "([^"]+)"`))?.[1];
+      expect(rustEvent, `no ${constant} in wire.rs`).toBeTruthy();
+      expect(ipc).toContain(`${constant} = "${rustEvent}"`);
+    }
   });
 
   it("keeps the deck's patience shorter than every asker's, in every language", () => {

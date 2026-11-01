@@ -296,16 +296,36 @@ describe("KeepDeck's claude Mod", () => {
     expect(mod.submitted).toHaveLength(1);
   });
 
-  it("survives a refused or failing submit — the mail stays the deck's", async () => {
+  it("tells the deck when claude would not start the turn, and why — and only then", async () => {
+    // The mail stays the deck's either way; what the deck needs is to KNOW,
+    // so it can wake the pane the way claude still takes after an Esc.
     const mod = loaded();
     await mod.fire("session.start", {});
+    const declines = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      return mod.posted
+        .filter(({ envelope }) => envelope.type === "companion.declined")
+        .map(({ envelope }) => envelope.payload);
+    };
+    mod.answerSubmit({ text: "ok" });
+    await mod.ring();
+    expect(await declines()).toEqual([]);
     mod.answerSubmit({ drop: "the session was stopped and nobody has sent input since" });
     await mod.ring();
     mod.answerSubmit(new Error("engine gone"));
     await mod.ring();
-    mod.answerSubmit({ text: "ok" });
+    // A drop with no words is still a drop.
+    mod.answerSubmit({ drop: "" });
     await mod.ring();
-    expect(mod.submitted).toHaveLength(3);
+    expect(await declines()).toEqual([
+      { agent: "claude", reporter: "4021", reason: "the session was stopped and nobody has sent input since" },
+      { agent: "claude", reporter: "4021", reason: "engine gone" },
+      { agent: "claude", reporter: "4021", reason: "claude dropped the prompt" },
+    ]);
+    expect(mod.submitted).toHaveLength(4);
+    // Nothing rung: nothing declined, however the last submit went.
+    for (const timer of mod.timers) await timer.tick();
+    expect(await declines()).toHaveLength(3);
   });
 
   it("watches no doorbell outside KeepDeck or without a name for its process", async () => {

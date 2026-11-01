@@ -170,8 +170,12 @@ export interface MailManagerDeps {
    * thing the terminal does: the turn fires the hook, and the hook is what
    * carries the words — or, for an agent with no hook, the nudge tells it to
    * come and ask. False means the pane has no live input channel at this
-   * instant, which is a retry rather than a failure. */
-  wake(paneId: string): boolean;
+   * instant, which is a retry rather than a failure.
+   *
+   * `lost`: the nudge before this one is KNOWN to have started no turn —
+   * the pane's own side said so ([`MailManager.wakeLost`]) — so this one
+   * must not go the same way again. */
+  wake(paneId: string, lost: boolean): boolean;
   /** Whether this pane's agent asks the deck for its mail when a turn ends.
    * True means a running turn is worth waiting out — the answer given at
    * that boundary is labelled, and a paste is not. */
@@ -221,6 +225,17 @@ export interface MailManager {
    * else would come back for it — the refusal arms no timer.
    */
   reconsider(): void;
+  /**
+   * The last nudge for this pane started no turn, and the pane's own side
+   * SAID so — its agent turned the turn down. Try again now, rather than
+   * after the cadence that exists for a nudge nobody answered, and tell the
+   * channel the last way failed.
+   *
+   * Only the pass that runs here carries the word. A retry the channel
+   * cannot make at this instant falls back to the ordinary next attempt,
+   * which goes the usual way and, refused again, is reported again.
+   */
+  wakeLost(paneId: string): void;
   /**
    * Everything this pane has not been given yet, oldest first — and asking
    * is what makes it READ.
@@ -318,6 +333,9 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * produced no turn is worth repeating. Without it a pane whose hook never
    * answers would be prodded on every drain until its mail expired. */
   const lastWakeAt = new Map<string, number>();
+  /** Panes whose last nudge is known to have started no turn, for the one
+   * pass [`MailManager.wakeLost`] runs — never across passes. */
+  const lostWakes = new Set<string>();
 
   /** Queued messages whose sender has already been told they are waiting.
    * An id leaves when its message leaves the queue. */
@@ -703,7 +721,8 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         if (woken !== undefined && at - woken < RENUDGE_AFTER_MS) {
           return woken + RENUDGE_AFTER_MS;
         }
-        if (!deps.wake(paneId)) {
+        const lost = lostWakes.has(paneId);
+        if (!deps.wake(paneId, lost)) {
           // WHY it refused is said by the channel, which is the only side
           // that knows — this end gets a bool.
           log.debug("web:mail", `the channel refused the nudge: ${trace(head)}`);
@@ -721,7 +740,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         // already begun, which is the window `decideDelivery` cannot see.
         log.info(
           "web:mail",
-          `nudged the pane into a turn for: ${trace(head)} (pane was ${deps.activityOf(paneId)?.state ?? "silent"}, hook ${asksAtTurnEnd(paneId) ? "collects" : "does not collect"})`,
+          `nudged the pane into a turn for: ${trace(head)} (pane was ${deps.activityOf(paneId)?.state ?? "silent"}, hook ${asksAtTurnEnd(paneId) ? "collects" : "does not collect"}${lost ? ", the last nudge started no turn" : ""})`,
         );
         lastWakeAt.set(paneId, at);
         return at + RENUDGE_AFTER_MS;
@@ -871,6 +890,18 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
 
     reconsider() {
       drain();
+    },
+
+    wakeLost(paneId) {
+      // The cadence is for a nudge that MAY have gone missing. This one did,
+      // and waiting it out would only leave the pane deaf for its length.
+      lastWakeAt.delete(paneId);
+      lostWakes.add(paneId);
+      try {
+        drain();
+      } finally {
+        lostWakes.delete(paneId);
+      }
     },
 
     restore(messages) {

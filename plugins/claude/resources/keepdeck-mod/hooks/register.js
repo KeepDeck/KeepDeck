@@ -7,8 +7,9 @@
  * ending the main turn and a prompt the user typed or queued being taken
  * into the conversation (the deck used to read both from the transcript
  * after the fact); and answers the deck's doorbell by starting a turn from
- * inside (the deck used to type a line into the terminal). Everything the
- * hooks DO report stays with the hooks — the mail itself included.
+ * inside (the deck used to type a line into the terminal) — or says it could
+ * not, so the deck types the line after all. Everything the hooks DO report
+ * stays with the hooks — the mail itself included.
  *
  * One source per process: the Mod says hello once, naming this claude
  * process the way the hook reporters do, and from then the deck reads no
@@ -87,7 +88,7 @@ function acceptedPrompt(input, result) {
  * scripts/reporterScripts.test.mjs). It carries no mail: the turn it starts
  * fires UserPromptSubmit, whose hook asks the deck and gets the mail as
  * context — taken from the queue only then, so a prompt claude refuses
- * (after an Esc, until the user speaks) loses nothing. */
+ * loses nothing. */
 const WAKE_LINE =
   "[keepdeck] A teammate's message is waiting for you. This line is from KeepDeck, not from your user — read what is waiting with the keepdeck mail.inbox tool.";
 
@@ -111,14 +112,37 @@ async function takeDoorbell($, path) {
   return run.exitCode === 0;
 }
 
+/** Why claude would not start the turn, or null when it took the prompt.
+ *
+ * A refusal RESOLVES, as `{ drop: reason }` — it does not throw (task-405,
+ * verified live on 2.1.303) — so a settled submit is not a turn. claude drops
+ * the prompt after an Esc until the person writes in the composer, and when
+ * its queue gives the prompt up. Read off the shape, never the words: the
+ * reason is claude's prose and changes with its releases.
+ * @param {unknown} result
+ */
+function refusalOf(result) {
+  if (!result || typeof result !== "object" || !("drop" in result)) return null;
+  const { drop } = result;
+  return typeof drop === "string" && drop !== "" ? drop : "claude dropped the prompt";
+}
+
 /** Answer the deck's doorbell (`<pane dir>/mail.wake`, see
- * src-tauri/src/bridge/nudge.rs): take it down, then start a turn. Taking it
- * down IS reading it — the file carries nothing. One ring at a time, and one
- * turn per ring however many pollers look.
+ * src-tauri/src/bridge/nudge.rs): take it down, then start a turn — or tell
+ * the deck, through `declined`, that no turn started. Taking it down IS
+ * reading it — the file carries nothing. One ring at a time, and one turn per
+ * ring however many pollers look.
+ *
+ * The ring is THIS poller's once taken, so its outcome is said by this
+ * poller alone. Unsaid, a refused turn looks like a pane that is simply slow:
+ * the deck rings again on its cadence, the Mod takes each ring down, claude
+ * refuses each turn, and the mail sits — five hours of it once, on a pane
+ * whose user had pressed Esc and walked away (task-589).
  * @param {ModContext} $
  * @param {string} dir
+ * @param {(reason: string) => void} declined
  */
-function watchDoorbell($, dir) {
+function watchDoorbell($, dir, declined) {
   const path = `${dir}/mail.wake`;
   let answering = false;
   $.clock.every(DOORBELL_POLL_MS, async () => {
@@ -128,10 +152,17 @@ function watchDoorbell($, dir) {
       if (!(await $.fs.exists(path))) return;
       // The Mod's fs cannot delete or rename; a ring left up rings forever.
       if (!(await takeDoorbell($, path))) return;
-      await $.prompt.submit({ text: WAKE_LINE });
+      /** @type {string | null} */
+      let refusal;
+      try {
+        refusal = refusalOf(await $.prompt.submit({ text: WAKE_LINE }));
+      } catch (error) {
+        refusal = error instanceof Error && error.message ? error.message : "the submit failed";
+      }
+      if (refusal !== null) declined(refusal);
     } catch {
-      // A wake that could not be started leaves the mail queued; the next
-      // turn boundary collects it.
+      // A doorbell that could not be looked at or taken down is still up:
+      // the next tick looks again.
     } finally {
       answering = false;
     }
@@ -173,8 +204,11 @@ export function register(on) {
         const said = createWire({ bridge, agent: "claude", reporter, post: poster($) });
         wire = said;
         void said.publish(said.makeEnvelope("companion.hello", {})).then(({ accepted }) => {
-          if (accepted) watchDoorbell($, bridge.dir);
-          else if (wire === said) wire = REFUSED;
+          if (accepted) {
+            watchDoorbell($, bridge.dir, (reason) => {
+              void said.publish(said.makeEnvelope("companion.declined", { reason }));
+            });
+          } else if (wire === said) wire = REFUSED;
         });
       }
     }

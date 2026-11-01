@@ -17,7 +17,10 @@ const SENDER = {
   pane: { id: "pane-1", workspaceId: "ws-1", label: "Agent 1" },
 };
 
-function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => undefined) {
+function setup(
+  statusOf: (agentId: string) => AgentStatus | undefined = () => undefined,
+  { companion = false } = {},
+) {
   // pane-1 is on a team, so the standing-presence has something to re-state.
   let panes: Pane[] = [
     { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
@@ -36,6 +39,8 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
   const paneListeners = new Set<() => void>();
   const activityListeners = new Set<() => void>();
   const woken: string[] = [];
+  /** Doorbells rung — the companion's wake, as `woken` is the terminal's. */
+  const rung: string[] = [];
   const replies: { paneId: string; id: string; body: string }[] = [];
   const sessionListeners = new Set<(paneId: string) => void>();
   const learned: string[] = [];
@@ -107,8 +112,10 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
           replies.push({ paneId, id, body });
           return Promise.resolve(true);
         },
-        nudge: () => {},
-        hasCompanion: () => false,
+        nudge: (paneId) => {
+          rung.push(paneId);
+        },
+        hasCompanion: () => companion,
       },
     },
   );
@@ -117,6 +124,7 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
     service,
     registry,
     woken,
+    rung,
     replies,
     learned,
     /** The plugin registry changed — a Rescan, an agent plugin arriving. */
@@ -343,6 +351,23 @@ describe("createMailService", () => {
     first();
     expect(h.woken).toEqual([]);
     second();
+    expect(h.woken).toEqual(["pane-2"]);
+  });
+
+  it("types the nudge at once when the companion says its agent started no turn for the ring", () => {
+    // claude after an Esc: its Mod took the ring down and claude refused the
+    // turn until the user writes. A typed line is the user writing.
+    const companionWake: AgentStatus = { normalize: () => null, attribute: () => null, wake: "companion" };
+    const h = setup(() => companionWake, { companion: true });
+    void h.send("hi");
+    expect(h.rung).toEqual(["pane-2"]);
+    expect(h.woken).toEqual([]);
+    h.service.wakeDeclined("pane-2", "the session was stopped");
+    expect(h.woken).toEqual(["pane-2"]);
+    expect(h.rung).toEqual(["pane-2"]);
+    // A decline after the feature went down nudges nothing.
+    h.service.dispose();
+    h.service.wakeDeclined("pane-2", "the session was stopped");
     expect(h.woken).toEqual(["pane-2"]);
   });
 });

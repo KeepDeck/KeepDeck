@@ -43,6 +43,11 @@ pub const SESSION_UNBOUND_EVENT: &str = "deck://session/unbound";
 /// from inside the agent's own process.
 pub const COMPANION_HELLO_EVENT: &str = "deck://companion/hello";
 
+/// Event delivering one declined wake to the webview
+/// (`src/ipc/companions.ts`): a companion took the pane's doorbell down and
+/// its agent would not start the turn the ring asked for.
+pub const COMPANION_DECLINED_EVENT: &str = "deck://companion/declined";
+
 /// One message dropped into the inbox. Unknown fields are ignored so
 /// reporters may attach diagnostics.
 #[derive(Debug, Deserialize)]
@@ -141,6 +146,7 @@ const OPAQUE_CHANNELS: &[(&str, &str)] = &[
     ("usage.report", USAGE_REPORT_EVENT),
     ("agent.status", AGENT_STATUS_EVENT),
     ("companion.hello", COMPANION_HELLO_EVENT),
+    ("companion.declined", COMPANION_DECLINED_EVENT),
     ("session.unbound", SESSION_UNBOUND_EVENT),
 ];
 
@@ -426,6 +432,28 @@ pub(super) mod tests {
         let mut anonymous = envelope.clone();
         anonymous["payload"]["agent"] = "".into();
         assert!(interpret(&anonymous.to_string()).is_err());
+    }
+
+    // So does its word that a ring started no turn: the reason is the
+    // agent's, carried through for the log.
+    #[test]
+    fn interprets_a_declined_wake_like_any_opaque_report() {
+        let envelope = serde_json::json!({
+            "v": BRIDGE_PROTOCOL_VERSION,
+            "type": "companion.declined",
+            "paneId": "pane-7",
+            "token": "tok",
+            "payload": {"agent": "claude", "reporter": "4242", "reason": "stopped"},
+        });
+        let result = interpret(&envelope.to_string());
+        let Ok(Inbound::Opaque {
+            event: COMPANION_DECLINED_EVENT,
+            report,
+        }) = result
+        else {
+            panic!("expected a declined wake, got {result:?}");
+        };
+        assert_eq!(report.payload["reason"], "stopped");
     }
 
     // What a reporter adds about a session rides to the agent's own binding

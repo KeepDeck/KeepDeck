@@ -40,14 +40,22 @@ export interface WakeChannelDeps {
  * only add a second story to the one the mail already tells. A pane that
  * never comes to ask lets its message expire and the sender is told so, which
  * is the same ending a terminal nudge into a dead pane reaches.
+ *
+ * What CAN be observed is a reporter saying its agent turned the turn down,
+ * and then the nudge is `lost`: it goes through the terminal, the floor every
+ * CLI meets. claude refuses a turn its Mod asks for after the user's Esc,
+ * until the user writes — and a line typed into the pane is the user writing,
+ * as far as claude can tell. Before the Mod, that line was claude's only
+ * wake, and it woke a pane after an Esc like any other.
  */
 export function createMailWake(
   deps: WakeChannelDeps,
-): (paneId: string) => boolean {
-  return (paneId: string) => {
+): (paneId: string, lost: boolean) => boolean {
+  return (paneId, lost) => {
     const channel = deps.channelOf(paneId);
     const rings =
-      channel === "bridge" || (channel === "companion" && deps.hasCompanion(paneId));
+      !lost &&
+      (channel === "bridge" || (channel === "companion" && deps.hasCompanion(paneId)));
     if (!rings) return deps.throughTerminal(paneId);
     deps.throughBridge(paneId);
     return true;
