@@ -238,21 +238,93 @@ pub(crate) fn read_link_at(dir: &File, name: &OsStr) -> io::Result<OsString> {
 /// `mode`, writing no more than `budget` bytes. `None` when the file holds
 /// more than that — whether it said so up front or grew while it was read —
 /// and then nothing is left at `target`.
+///
+/// On macOS a large file is cloned where the volume can (the copy shares the
+/// source's blocks until either is written), and every copy keeps the
+/// source's extended attributes, as the `fs::copy` skills staging used to
+/// make did: whatever the system marked a downloaded file with stays the
+/// system's to act on.
 pub(crate) fn copy_file(file: &File, target: &Path, mode: u32, budget: u64) -> io::Result<Option<u64>> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    if file.metadata()?.len() > budget {
+    let len = file.metadata()?.len();
+    if len > budget {
         return Ok(None);
+    }
+    #[cfg(target_vendor = "apple")]
+    if len >= CLONE_FROM_BYTES {
+        match clone_file(file, target, mode, budget)? {
+            Cloned::Made(len) => return Ok(Some(len)),
+            Cloned::TooBig => return Ok(None),
+            Cloned::Unsupported => {}
+        }
     }
     let mut copy = OpenOptions::new().write(true).create_new(true).mode(mode).open(target)?;
     // `mode` above passes through the umask; this is the mode meant.
     copy.set_permissions(fs::Permissions::from_mode(mode))?;
-    let written = io::copy(&mut file.take(budget + 1), &mut copy)?;
+    let written = io::copy(&mut file.take(budget.saturating_add(1)), &mut copy)?;
     if written > budget {
         drop(copy);
         let _ = fs::remove_file(target);
         return Ok(None);
     }
+    #[cfg(target_vendor = "apple")]
+    keep_xattrs(file, &copy);
     Ok(Some(written))
+}
+
+/// From this size on a clone is cheaper than writing the bytes out; below
+/// it, a clone's per-file setup costs more than the copy it saves.
+#[cfg(target_vendor = "apple")]
+const CLONE_FROM_BYTES: u64 = 1024 * 1024;
+
+#[cfg(target_vendor = "apple")]
+enum Cloned {
+    Made(u64),
+    /// The clone held more than the budget, and was removed again.
+    TooBig,
+    /// This volume, or this pair of volumes, cannot clone.
+    Unsupported,
+}
+
+/// Clone the open `file` to the new `target`. The clone carries the data,
+/// the extended attributes and the source's mode — reset here to `mode` —
+/// but no ACL. It is the file as it was at one instant, so what it holds is
+/// what it costs.
+#[cfg(target_vendor = "apple")]
+fn clone_file(file: &File, target: &Path, mode: u32, budget: u64) -> io::Result<Cloned> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let path = CString::new(target.as_os_str().as_bytes()).map_err(io::Error::other)?;
+    // SAFETY: an open descriptor and a NUL-terminated path, both alive for the
+    // call.
+    if unsafe { libc::fclonefileat(file.as_raw_fd(), libc::AT_FDCWD, path.as_ptr(), 0) } != 0 {
+        let e = io::Error::last_os_error();
+        return match e.raw_os_error() {
+            Some(libc::ENOTSUP) | Some(libc::EXDEV) => Ok(Cloned::Unsupported),
+            // EEXIST among them: a copy never lands over anything, nor falls
+            // back to writing over it.
+            _ => Err(e),
+        };
+    }
+    let checked = (|| {
+        let copy = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(target)?;
+        if copy.metadata()?.len() > budget {
+            return Ok(Cloned::TooBig);
+        }
+        copy.set_permissions(fs::Permissions::from_mode(mode))?;
+        Ok(Cloned::Made(copy.metadata()?.len()))
+    })();
+    if !matches!(checked, Ok(Cloned::Made(_))) {
+        let _ = fs::remove_file(target);
+    }
+    checked
+}
+
+/// The source's extended attributes onto a written copy. Best effort: a
+/// volume that keeps none has nothing worth failing the copy for.
+#[cfg(target_vendor = "apple")]
+fn keep_xattrs(from: &File, to: &File) {
+    // SAFETY: two open descriptors; no copyfile state.
+    let _ = unsafe { libc::fcopyfile(from.as_raw_fd(), to.as_raw_fd(), std::ptr::null_mut(), libc::COPYFILE_XATTR) };
 }
 
 fn c_name(name: &OsStr) -> io::Result<CString> {
@@ -321,5 +393,58 @@ mod tests {
         let short = tmp.path().join("short");
         assert_eq!(copy_file(&src, &short, FILE_MODE, 11).unwrap(), None);
         assert!(!short.exists());
+    }
+
+    #[cfg(target_vendor = "apple")]
+    fn xattr(path: &Path, name: &str) -> Option<Vec<u8>> {
+        let (path, name) = (c_name(path.as_os_str()).unwrap(), std::ffi::CString::new(name).unwrap());
+        let mut value = vec![0u8; 256];
+        // SAFETY: NUL-terminated strings and a buffer of the length passed.
+        let n = unsafe { libc::getxattr(path.as_ptr(), name.as_ptr(), value.as_mut_ptr().cast(), value.len(), 0, 0) };
+        (n >= 0).then(|| {
+            value.truncate(n as usize);
+            value
+        })
+    }
+
+    #[cfg(target_vendor = "apple")]
+    fn set_xattr(path: &Path, name: &str, value: &[u8]) {
+        let (path, name) = (c_name(path.as_os_str()).unwrap(), std::ffi::CString::new(name).unwrap());
+        // SAFETY: NUL-terminated strings and a value of the length passed.
+        assert_eq!(unsafe { libc::setxattr(path.as_ptr(), name.as_ptr(), value.as_ptr().cast(), value.len(), 0, 0) }, 0);
+    }
+
+    #[test]
+    #[cfg(target_vendor = "apple")]
+    fn a_copy_keeps_the_sources_extended_attributes_and_takes_the_mode_meant_cloned_or_written() {
+        // Written (small) and cloned (large) alike: what the source carries
+        // comes along, and the source's mode does not.
+        let tmp = tempfile::tempdir().unwrap();
+        for size in [12, CLONE_FROM_BYTES as usize] {
+            let src = tmp.path().join(format!("src-{size}"));
+            fs::write(&src, vec![b'x'; size]).unwrap();
+            fs::set_permissions(&src, fs::Permissions::from_mode(0o644)).unwrap();
+            set_xattr(&src, "user.kd.test", b"kept");
+
+            let target = tmp.path().join(format!("copy-{size}"));
+            let copied = copy_file(&File::open(&src).unwrap(), &target, FILE_MODE, u64::MAX).unwrap();
+
+            assert_eq!(copied, Some(size as u64), "{size}");
+            assert_eq!(fs::read(&target).unwrap().len(), size);
+            assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, FILE_MODE, "{size}");
+            assert_eq!(xattr(&target, "user.kd.test").as_deref(), Some(&b"kept"[..]), "{size}");
+        }
+    }
+
+    #[test]
+    #[cfg(target_vendor = "apple")]
+    fn a_clone_never_lands_over_what_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        fs::write(&src, vec![b'x'; CLONE_FROM_BYTES as usize]).unwrap();
+        let target = tmp.path().join("taken");
+        fs::write(&target, "mine").unwrap();
+        assert!(copy_file(&File::open(&src).unwrap(), &target, FILE_MODE, u64::MAX).is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "mine");
     }
 }
