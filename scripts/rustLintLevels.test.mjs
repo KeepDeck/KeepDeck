@@ -36,6 +36,15 @@ describe("inline lint suppressions in Rust", () => {
     ]);
   });
 
+  it("lints with one exact Rust: the gate's lint set moves only when the pin does", () => {
+    // A channel like "stable" would hand CI whatever macos-latest ships,
+    // and a new release's lints would turn the gate red with no change of
+    // ours.
+    const toolchain = readFileSync(join(REPO, "rust-toolchain.toml"), "utf8");
+    expect(toolchain).toMatch(/^channel = "\d+\.\d+\.\d+"$/m);
+    expect(toolchain).toMatch(/^components = \[.*"clippy".*\]$/m);
+  });
+
   it("holds for every tracked Rust file", () => {
     const files = execFileSync("git", ["ls-files", "-z", "*.rs"], { cwd: REPO, encoding: "utf8" })
       .split("\0")
