@@ -2,6 +2,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { activityBadge } from "../../presentation/activityBadge";
 import { usePaneActivity } from "../../app/usePaneActivity";
+import { usePaneRunsYolo } from "../../app/usePaneRunsYolo";
+import { NOT_ASKED_YOLO, type PaneYoloStart } from "../../presentation/paneYolo";
 import { RestoreUpIcon } from "../../ui/icons";
 import { YoloBadge } from "../../ui/badges";
 import { trayChipFrame, trayChipStatus, type TrayChipStatus } from "../../presentation/trayView";
@@ -24,9 +26,10 @@ interface MinimizedItemProps {
   /** The pane's place on a team, when it is on one — shown in the hover
    * details; the compact chip itself carries no team badge. */
   team?: { name: string; role: string } | null;
-  /** The pane runs in YOLO mode — the header chip's warning must survive
-   * minimizing, so the stand-in carries a bolt marker too. */
-  yolo?: boolean;
+  /** How the pane was launched and asked to run — the header chip's warning
+   * must survive minimizing, so the stand-in carries a bolt marker too,
+   * decided the same way ([`usePaneRunsYolo`]). */
+  yolo?: PaneYoloStart;
   /** The pane behind this stand-in has no process ([`MinimizedTrayEntry`]). */
   stopped?: boolean;
   /** Accessible action label for the whole control, e.g. "Restore Claude 1". */
@@ -86,16 +89,17 @@ export function MinimizedItemMeasure({
   paneId: string;
   title: string;
   icon?: AgentGlyphIcon | null;
-  yolo?: boolean;
+  yolo?: PaneYoloStart;
 }) {
   const activity = usePaneActivity(paneId);
+  const runsYolo = usePaneRunsYolo(paneId, yolo ?? NOT_ASKED_YOLO);
   return (
     <span className="minimized minimized--chip minimized--measure">
       <MinimizedItemContent
         title={title}
         icon={icon}
         status={trayChipStatus(activity)}
-        yolo={yolo}
+        yolo={runsYolo}
       />
     </span>
   );
@@ -123,6 +127,7 @@ export function MinimizedItem({
   // The stand-in wears the pane's status frame — attention must survive
   // minimizing, and working/done stay worth a chip (`trayChipFrame`).
   const activity = usePaneActivity(paneId);
+  const runsYolo = usePaneRunsYolo(paneId, yolo ?? NOT_ASKED_YOLO);
   const frame = trayChipFrame(activity, Boolean(stopped));
   // The hover details spell out what the frame only colours: the same
   // settled badge the pane header renders (domain formats, views render).
@@ -189,7 +194,7 @@ export function MinimizedItem({
           title={title}
           icon={icon}
           status={trayChipStatus(activity)}
-          yolo={yolo}
+          yolo={runsYolo}
         />
       </button>
       {active && tooltipAnchor && (

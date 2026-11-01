@@ -383,6 +383,13 @@ export type McpServerSpec = McpStdioServerSpec | McpHttpServerSpec;
  * it names the revision the arm appeared in, and every later one includes it. */
 export const MCP_HTTP_API = 45;
 
+/** The contract revision that made a plan say whether it starts its CLI in
+ * YOLO (`SpawnPlanOutput.yolo`). A plugin whose floor predates it never set
+ * the field, so the host reads its launch as the YOLO it was asked for — what
+ * every pane showed before. A fact of history, never moved with
+ * `API_VERSION`. */
+export const PLAN_YOLO_API = 77;
+
 /**
  * Render each injected server by transport, in order.
  *
@@ -611,6 +618,12 @@ export interface SpawnPlanOutput {
    * overrides. Prefilled `[]` on hosts of API 23+; push via
    * `(output.envDefaults ??= []).push(...)` to stay safe on older hosts. */
   envDefaults?: [string, string][];
+  /** This plan starts its CLI in YOLO (API 77): set it when the plan carries
+   * the CLI's own switch for it — the host takes the pane's mode from here
+   * until the agent reports its own (`permission-mode`), so asking for YOLO
+   * (`input.yolo`) and starting with it are told apart. A `bare.plan` sets it
+   * too when its floor carries the switch. Absent = not in YOLO. */
+  yolo?: boolean;
   /** What a `fork.plan`'s surgery made that only the start needs (API 60):
    * paths the HOST removes through this plugin's `fsWrite` capability —
    * `onceStarted` when the forked session reports its id, `ifNeverStarted`

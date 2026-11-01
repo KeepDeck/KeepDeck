@@ -38,6 +38,7 @@ export {
   fitsArmCaps,
   isAgentPresentation,
   MCP_HTTP_API,
+  PLAN_YOLO_API,
   mapMcpServers,
   mcpHttpHeaders,
 } from "./agents.ts";
@@ -52,6 +53,7 @@ export type {
   StatusPayload,
   StatusReduction,
   StatusWaitReason,
+  AgentPermissionMode,
 } from "./status.ts";
 export {
   admitMail,
@@ -116,7 +118,7 @@ export type {
   PluginCommands,
 } from "./commands.ts";
 export { errorMessage, parseInstant, sha256Hex, shellQuote } from "./authoring.ts";
-export { launchPlans, type ForkLaunch, type LaunchAdapter, type ResumeLaunch } from "./launchPlans.ts";
+export { launchPlans, yoloSwitch, type ForkLaunch, type LaunchAdapter, type ResumeLaunch } from "./launchPlans.ts";
 export {
   fileStub,
   pageOfWalk,

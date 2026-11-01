@@ -135,6 +135,7 @@ export function isWireSpawnPlanOutput(value: unknown): value is WireSpawnPlanOut
   if (value.command !== null && !isString(value.command)) return false;
   if (!isStringArray(value.args) || !isPairs(value.env)) return false;
   if (value.envDefaults !== undefined && !isPairs(value.envDefaults)) return false;
+  if (value.yolo !== undefined && typeof value.yolo !== "boolean") return false;
   if (value.discard !== undefined) {
     if (!isObjectLike(value.discard)) return false;
     if (value.discard.onceStarted !== undefined && !isStringArray(value.discard.onceStarted)) return false;

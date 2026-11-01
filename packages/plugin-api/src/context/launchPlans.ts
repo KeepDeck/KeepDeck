@@ -58,6 +58,22 @@ function isArgs(launch: ForkLaunch | ResumeLaunch): launch is readonly string[] 
   return Array.isArray(launch);
 }
 
+/**
+ * A CLI's own YOLO switch for a launch that was asked for YOLO (API 77): the
+ * arguments to place wherever the CLI wants them — none when it was not
+ * asked — with the plan's word that it starts in YOLO set in the same breath,
+ * so no plan can carry the switch without saying so, nor say so without it.
+ */
+export function yoloSwitch(
+  input: Pick<SpawnPlanInput, "yolo">,
+  output: Pick<SpawnPlanOutput, "yolo">,
+  args: readonly string[],
+): string[] {
+  if (!input.yolo) return [];
+  output.yolo = true;
+  return [...args];
+}
+
 /** The three plan hooks over one adapter. */
 export function launchPlans(
   adapter: LaunchAdapter,

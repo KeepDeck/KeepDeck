@@ -1,12 +1,20 @@
-import { CARRIED_RECORD, type AgentStatusEvent, type StatusNormalizer, isJsonRecord } from "@keepdeck/plugin-api";
+import {
+  CARRIED_RECORD,
+  type AgentPermissionMode,
+  type AgentStatusEvent,
+  type StatusNormalizer,
+  isJsonRecord,
+} from "@keepdeck/plugin-api";
 import { normalizeStatusBatch } from "./statusNormalization";
 import {
   activityWord,
   answerResolves,
   endingVerdict,
   reconcileVerdict,
+  reduceMode,
   reduceStatus,
   type PaneActivity,
+  type PaneMode,
   type PaneStatus,
 } from "../domain/status";
 import { log } from "../ipc/log";
@@ -37,13 +45,10 @@ const REFUSAL_WORDS = {
 /** Whether two projections say the same thing. Per-pane `PaneActivity` is
  * already identity-stable — the fold returns its input untouched when an
  * edge moves nothing — so reference equality per key is the whole test. */
-function samePanes(
-  next: ReadonlyMap<string, PaneActivity>,
-  published: ReadonlyMap<string, PaneActivity>,
-): boolean {
+function samePanes<T>(next: ReadonlyMap<string, T>, published: ReadonlyMap<string, T>): boolean {
   if (next.size !== published.size) return false;
-  for (const [id, activity] of next) {
-    if (published.get(id) !== activity) return false;
+  for (const [id, value] of next) {
+    if (published.get(id) !== value) return false;
   }
   return true;
 }
@@ -69,6 +74,8 @@ function samePanes(
 
 export interface StatusSnapshot {
   panes: ReadonlyMap<string, PaneActivity>;
+  /** The mode each pane's agent last said it runs in — absent until it says. */
+  modes: ReadonlyMap<string, AgentPermissionMode>;
 }
 
 export interface AgentStatusTracker {
@@ -124,7 +131,10 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   // render. Decoder checkpoints may exist before the first activity, so
   // lifecycle cleanup must not use the published map as a process roster.
   let statuses: ReadonlyMap<string, PaneStatus> = new Map();
-  let snapshot: StatusSnapshot = { panes: new Map() };
+  // The mode each pane's agent last said, with when — the time stays here,
+  // only the mode reaches the snapshot.
+  let modes: ReadonlyMap<string, PaneMode> = new Map();
+  let snapshot: StatusSnapshot = { panes: new Map(), modes: new Map() };
   const listeners = new Set<() => void>();
   const rebuilt = new Set<(paneId: string) => void>();
   const normalizers = new Map<string, StatusNormalizer>();
@@ -140,12 +150,18 @@ export function createAgentStatusTracker(): AgentStatusTracker {
    * subscriber for a change nobody can see (a bracket opening) or, worse,
    * hides one they can.
    */
-  function commit(next: ReadonlyMap<string, PaneStatus>): void {
+  function commit(
+    next: ReadonlyMap<string, PaneStatus>,
+    nextModes: ReadonlyMap<string, PaneMode> = modes,
+  ): void {
     statuses = next;
+    modes = nextModes;
     const panes = new Map<string, PaneActivity>();
     for (const [id, status] of statuses) panes.set(id, status.activity);
-    if (samePanes(panes, snapshot.panes)) return;
-    snapshot = { panes };
+    const said = new Map<string, AgentPermissionMode>();
+    for (const [id, { mode }] of modes) said.set(id, mode);
+    if (samePanes(panes, snapshot.panes) && samePanes(said, snapshot.modes)) return;
+    snapshot = { panes, modes: said };
     for (const listener of [...listeners]) listener();
   }
 
@@ -159,17 +175,34 @@ export function createAgentStatusTracker(): AgentStatusTracker {
    */
   function apply(paneId: string, edges: readonly AgentStatusEvent[], cause: string): void {
     const previous = statuses.get(paneId) ?? null;
+    const modeBefore = modes.get(paneId) ?? null;
     let next = previous;
+    let mode = modeBefore;
     for (const edge of edges) {
+      // The mode has its own fold: it says nothing about what the pane does.
+      if (edge.kind === "permission-mode") {
+        mode = reduceMode(mode, edge);
+        continue;
+      }
       const before = next;
       next = reduceStatus(before, edge);
       explain(paneId, before, edge, next, cause);
     }
-    if (next === previous) return;
-    const panes = new Map(statuses);
-    if (next) panes.set(paneId, next);
-    else panes.delete(paneId);
-    commit(panes);
+    if (next === previous && mode === modeBefore) return;
+    if (mode && mode.mode !== modeBefore?.mode) {
+      log.info(
+        "web:status",
+        `${paneId}: mode ${modeBefore?.mode ?? "as launched"} → ${mode.mode} by permission-mode@${clock(mode.at)} (${cause})`,
+      );
+    }
+    let panes = statuses;
+    if (next !== previous) {
+      const changed = new Map(statuses);
+      if (next) changed.set(paneId, next);
+      else changed.delete(paneId);
+      panes = changed;
+    }
+    commit(panes, mode && mode !== modeBefore ? new Map(modes).set(paneId, mode) : modes);
   }
 
   /**
@@ -325,10 +358,14 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     clear(paneId) {
       epochs.delete(paneId);
       decoderStates.delete(paneId);
-      if (!statuses.has(paneId)) return;
+      // The mode goes with the activity: what the old process said of itself
+      // is no fact about the next one, which starts from its own launch.
+      if (!statuses.has(paneId) && !modes.has(paneId)) return;
       const next = new Map(statuses);
       next.delete(paneId);
-      commit(next);
+      const nextModes = new Map(modes);
+      nextModes.delete(paneId);
+      commit(next, nextModes);
     },
 
     retain(liveIds) {
@@ -338,12 +375,10 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       for (const id of epochs.keys()) {
         if (!liveIds.has(id)) epochs.delete(id);
       }
-      if (![...statuses.keys()].some((id) => !liveIds.has(id))) return;
-      const next = new Map<string, PaneStatus>();
-      for (const [id, status] of statuses) {
-        if (liveIds.has(id)) next.set(id, status);
-      }
-      commit(next);
+      if (![...statuses.keys(), ...modes.keys()].some((id) => !liveIds.has(id))) return;
+      const kept = <T,>(map: ReadonlyMap<string, T>) =>
+        new Map([...map].filter(([id]) => liveIds.has(id)));
+      commit(kept(statuses), kept(modes));
     },
 
     getSnapshot() {

@@ -64,6 +64,10 @@ export interface SpawnPlan {
   /** Env pairs applied only when the key is NOT already inherited — a
    * user-owned variable beats a plugin's default (see SpawnPlanOutput). */
   envDefaults?: [string, string][];
+  /** The plan starts the agent in YOLO, as its plugin says
+   * (`SpawnPlanOutput.yolo`) — what the pane runs in until the agent reports
+   * its own mode. Absent = not in YOLO. */
+  yolo?: boolean;
   /** The PER-PANE bridge secret — NOT per build. A reporter must echo it in
    * its postback; the binding hook refuses postbacks whose token doesn't
    * match — reaching the surface is not enough to bind a pane.

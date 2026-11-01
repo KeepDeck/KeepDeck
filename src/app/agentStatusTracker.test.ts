@@ -395,3 +395,55 @@ describe("agentStatusTracker", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 });
+
+describe("agentStatusTracker — the mode an agent says it runs in", () => {
+  /** `{ event: { kind: "start" } }` starts a turn; `{ event: { mode } }`
+   * is the agent saying its mode. */
+  const modeNormalizer = (payload: unknown, at: number): AgentStatusEvent | null => {
+    const event = maybeRecord(maybeRecord(payload)?.event);
+    if (event?.kind === "start") return turnStart(at);
+    const mode = event?.mode;
+    return mode === "yolo" || mode === "auto" || mode === "ask" ? { kind: "permission-mode", at, mode } : null;
+  };
+  const setup = () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("test", modeNormalizer);
+    return tracker;
+  };
+  const say = (mode: string) => ({ agent: "test", event: { mode } });
+
+  it("keeps the latest mode per pane, beside an activity it leaves alone", () => {
+    const tracker = setup();
+    tracker.report("pane-1", { agent: "test", event: { kind: "start" } }, 1);
+    const activity = tracker.getSnapshot().panes.get("pane-1");
+    tracker.report("pane-1", say("yolo"), 2);
+    expect(tracker.getSnapshot().modes.get("pane-1")).toBe("yolo");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toBe(activity);
+    tracker.report("pane-1", say("auto"), 3);
+    expect(tracker.getSnapshot().modes.get("pane-1")).toBe("auto");
+  });
+
+  it("says nothing new for a mode said again", () => {
+    const tracker = setup();
+    tracker.report("pane-1", say("auto"), 1);
+    const listener = vi.fn();
+    tracker.subscribe(listener);
+    tracker.report("pane-1", say("auto"), 2);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("forgets the mode with the process: a restart starts from its launch again", () => {
+    const tracker = setup();
+    tracker.report("pane-1", say("auto"), 1);
+    tracker.clear("pane-1");
+    expect(tracker.getSnapshot().modes.has("pane-1")).toBe(false);
+  });
+
+  it("drops the mode of a pane that is gone", () => {
+    const tracker = setup();
+    tracker.report("pane-1", say("auto"), 1);
+    tracker.report("pane-2", say("yolo"), 1);
+    tracker.retain(new Set(["pane-2"]));
+    expect([...tracker.getSnapshot().modes]).toEqual([["pane-2", "yolo"]]);
+  });
+});

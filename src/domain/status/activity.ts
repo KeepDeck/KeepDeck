@@ -88,6 +88,7 @@ type ActivityEdge = Exclude<
   | { kind: "agent-turn-start" }
   | { kind: "agent-turn-end" }
   | { kind: "agent-turns-cleared" }
+  | { kind: "permission-mode" }
 >;
 
 /** Whether an edge is one of the bracket kinds — the routing [`ActivityEdge`]
@@ -175,6 +176,9 @@ export function reduceStatus(
   current: PaneStatus | null,
   event: AgentStatusEvent,
 ): PaneStatus | null {
+  // The mode an agent runs in says nothing about what it is doing: the
+  // edge is the mode's own fold ([`reduceMode`]), never a phase here.
+  if (event.kind === "permission-mode") return current;
   if (event.kind === "turn-observed" && current !== null) {
     const activity = current.activity;
     const phaseAt = activity.state === "working" || activity.state === "waiting"

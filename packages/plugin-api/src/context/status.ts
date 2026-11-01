@@ -22,6 +22,17 @@ import type { AgentMail, EventAttribution } from "./agentEvents.ts";
  * prompt is up; `question` = the agent itself asked for input. */
 export type StatusWaitReason = "permission" | "question";
 
+/** How freely an agent acts, as the host shows it (API 77) — a closed set
+ * each plugin maps its own CLI's modes onto:
+ * - `yolo`: it acts without asking — every permission prompt is off;
+ * - `auto`: the CLI decides which actions need asking (claude's auto mode);
+ * - `ask`: it asks before the actions its permission rules guard.
+ *
+ * The mode the CLI itself says it runs in, never the one it was asked for:
+ * a policy that refuses YOLO, or the user switching modes inside the CLI,
+ * is exactly what the host has to show. */
+export type AgentPermissionMode = "yolo" | "auto" | "ask";
+
 /** One turn-lifecycle edge, as a normalizer reports it. `at` is unix
  * milliseconds — the host's receipt time for hook edges (reporters are
  * shell scripts with no clock discipline), OVERRIDDEN with the marker's
@@ -111,7 +122,13 @@ export type AgentStatusEvent =
    * event, so a turn minted here would have nothing left to close it. A
    * pane stuck on "Working" is the unrecoverable failure — a stale error
    * the user has already acted on is merely a loud one. */
-  | { kind: "context-compacted"; at: number };
+  | { kind: "context-compacted"; at: number }
+  /** The agent says which permission mode it runs in now (API 77) — its
+   * EFFECTIVE mode, a policy's downgrade and the user's own switch inside the
+   * CLI included. Raised by the main agent only. Bookkeeping, like the agent
+   * turn brackets: it moves no activity, and the host keeps the latest one
+   * per process, starting over when the process does. */
+  | { kind: "permission-mode"; at: number; mode: AgentPermissionMode };
 
 /** A plugin's immutable decoding checkpoint, scoped to one pane generation.
  * Correlating a tool result with its call or reading a mode set by an earlier

@@ -118,6 +118,8 @@ export function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
     );
   const envDefaults = v.envDefaults;
   if (envDefaults !== undefined && !pairs(envDefaults)) return null;
+  const yolo = v.yolo;
+  if (yolo !== undefined && typeof yolo !== "boolean") return null;
   const strings = (val: unknown): val is string[] =>
     Array.isArray(val) && val.every((x) => typeof x === "string");
   const rawDiscard = v.discard;
@@ -134,6 +136,7 @@ export function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
     args,
     env,
     ...(envDefaultsOk !== undefined ? { envDefaults: envDefaultsOk } : {}),
+    ...(yolo === true && { yolo }),
     ...(discard !== undefined && {
       discard: {
         ...(onceStarted !== undefined && { onceStarted }),

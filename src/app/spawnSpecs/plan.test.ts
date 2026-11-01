@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type AgentHooks, type SpawnSkillsInput } from "@keepdeck/plugin-api";
+import { PLAN_YOLO_API, type AgentHooks, type SpawnSkillsInput } from "@keepdeck/plugin-api";
 import { BRIDGE_PROTOCOL_VERSION } from "./plans";
 import {
   buildResumeSpec,
@@ -108,6 +108,76 @@ describe("building one plan through the agent hook", () => {
     // Armed pane spawns with it, plain pane WITHOUT it (absent, not false —
     // the wire shapes stay sparse), and a resume carries it the same way.
     expect(inputs.sort()).toEqual([true, true, undefined]);
+  });
+
+  describe("whether a launch starts in YOLO is its plan's word, not the request's", () => {
+    /** A plan that carries YOLO only when `honours` says it does. */
+    const planning = (honours: boolean): Parameters<typeof h.register>[0] => ({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input, output) => {
+          if (input.yolo && honours) output.yolo = true;
+        },
+      },
+    });
+
+    it("a plan that carries YOLO starts the pane in it", async () => {
+      h.register(planning(true));
+      await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }, { id: "pane-2", agentType: "claude" }]));
+      await settle();
+      expect(h.seen["pane-1"].yolo).toBe(true);
+      expect(h.seen["pane-2"].yolo).toBeUndefined();
+    });
+
+    it("a pane asked for YOLO whose plan does not carry it starts without it", async () => {
+      h.register(planning(false));
+      await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }]));
+      await settle();
+      expect(h.seen["pane-1"].yolo).toBeUndefined();
+    });
+
+    /** A plugin whose plan throws, and whose floor carries YOLO or not. */
+    const bare = (floorSays: boolean): Parameters<typeof h.register>[0] => ({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+        "bare.plan": (_input, output) => {
+          if (floorSays) output.yolo = true;
+        },
+      },
+    });
+
+    it("a bare launch starts in YOLO when its floor says so", async () => {
+      h.register(bare(true));
+      await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }]));
+      await settle();
+      expect(h.seen["pane-1"].yolo).toBe(true);
+    });
+
+    it("a bare launch whose floor does not say so starts without YOLO, asked or not", async () => {
+      h.register(bare(false));
+      await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }]));
+      await settle();
+      expect(h.seen["pane-1"].yolo).toBeUndefined();
+    });
+
+    it("an external plugin older than the field reads as the YOLO it was asked for", async () => {
+      hostState.installed = [installedPlugin({ source: "external", minApiVersion: PLAN_YOLO_API - 1 })];
+      h.register(planning(false));
+      await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }]));
+      await settle();
+      expect(h.seen["pane-1"].yolo).toBe(true);
+    });
+
+    it("an external plugin of the field's revision is read by its word", async () => {
+      hostState.installed = [installedPlugin({ source: "external", minApiVersion: PLAN_YOLO_API })];
+      h.register(planning(false));
+      await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }]));
+      await settle();
+      expect(h.seen["pane-1"].yolo).toBeUndefined();
+    });
   });
 
   it("hands the hook what the agent's CLI says its version is, on spawn AND resume", async () => {

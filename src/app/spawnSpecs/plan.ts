@@ -6,6 +6,7 @@
 import {
   isApiVersion,
   MCP_HTTP_API,
+  PLAN_YOLO_API,
   type AgentContribution,
   type ForkPlanInput,
   type McpServerSpec,
@@ -203,12 +204,13 @@ function paneEnv(
  * the plugin's knowledge; the host only applies them. A floor that throws is
  * logged and costs the launch its floor, not its pane.
  */
-async function bareArgs(
+async function bareFloor(
   entry: AgentContribution,
   input: SpawnPlanInput,
-): Promise<string[]> {
+): Promise<{ args: string[]; yolo: boolean }> {
+  const none = { args: [], yolo: false };
   const floor = entry.hooks["bare.plan"];
-  if (typeof floor !== "function") return [];
+  if (typeof floor !== "function") return none;
   const output: SpawnPlanOutput = { command: entry.detect.bin, args: [], env: [] };
   try {
     await floor(input, output);
@@ -217,9 +219,28 @@ async function bareArgs(
       "web:agents",
       `${entry.id} bare.plan failed — bare launch with no arguments: ${errorMessage(e)}`,
     );
-    return [];
+    return none;
   }
-  return output.args;
+  return { args: output.args, yolo: output.yolo === true };
+}
+
+/**
+ * Whether a launch starts its CLI in YOLO: what its plan — or its floor —
+ * says. A built-in moves with the host. An external plugin whose floor
+ * predates [`PLAN_YOLO_API`] never says, so its launch reads as the YOLO it
+ * was asked for, which is what every pane read before; one with no usable
+ * floor counts as old, like the manifest gate.
+ */
+function startsInYolo(
+  owner: Pick<InstalledPlugin, "source" | "manifest"> | undefined,
+  asked: boolean,
+  said: boolean | undefined,
+): boolean {
+  if (owner?.source === "external") {
+    const floor = owner.manifest.minApiVersion;
+    if (!isApiVersion(floor) || floor < PLAN_YOLO_API) return asked;
+  }
+  return said === true;
 }
 
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
@@ -376,12 +397,14 @@ export async function buildPlan(
     // would leave exactly the panes whose hook failed without servers. The
     // secret rides along for the same reason — the planted config names it,
     // and dropping it would resolve that pane's every call to nobody.
+    const floor = await bareFloor(entry, base);
     return {
       plan: {
         command: entry.detect.bin,
-        args: await bareArgs(entry, base),
+        args: floor.args,
         env: mcpEnv,
         mcpToken,
+        ...(startsInYolo(owner, base.yolo === true, floor.yolo) && { yolo: true }),
       },
       deliver,
     };
@@ -400,8 +423,10 @@ export async function buildPlan(
       `${entry.id}: plan command "${output.command}" is not exec-covered by ${pluginId}`,
     );
     if (owner.source === "external") {
+      const floor = await bareFloor(entry, base);
       output.command = entry.detect.bin;
-      output.args = await bareArgs(entry, base);
+      output.args = floor.args;
+      output.yolo = floor.yolo;
       output.env = [];
       output.envDefaults = [];
     }
@@ -464,6 +489,7 @@ export async function buildPlan(
       args: output.args,
       env,
       ...(output.envDefaults?.length ? { envDefaults: output.envDefaults } : {}),
+      ...(startsInYolo(owner, base.yolo === true, output.yolo) && { yolo: true }),
       ...(token ? { token } : {}),
       // Recorded whether or not anything was injected: kimi's servers are
       // delivered as a file, so the pane has a live client with no `mcp` key in
