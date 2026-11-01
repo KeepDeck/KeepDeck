@@ -14,6 +14,7 @@ import { sessionIds } from "../src/testing/values.test-support";
 vi.mock("../src/ipc/history", () => ({
   indexRefs: vi.fn(),
   indexUpsert: vi.fn(),
+  indexCarry: vi.fn(),
   indexPrune: vi.fn(),
   indexSearch: vi.fn(),
   pluginsSqliteQuery: vi.fn(),
@@ -32,6 +33,8 @@ const ops = (stored: { reference: string; mtime: number; size: number }[]) => {
     upsert: vi.fn(async (_agent, rows) => {
       upserts.push(...rows);
     }),
+    // Nothing these cases scan is unreadable; were it, nothing is held.
+    carry: vi.fn(async (_agent, rows) => rows.map(() => false)),
     prune: vi.fn(async (_agent, live) => {
       prunes.push(live);
       return [];

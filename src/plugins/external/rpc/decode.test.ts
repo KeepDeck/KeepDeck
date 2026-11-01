@@ -17,6 +17,7 @@ import {
   decodeRpcCall,
   decodeSessionEvent,
   decodeSpawnOptions,
+  decodeReadFileOptions,
   isHttpAnswer,
   isRpcAnswer,
 } from "./decode";
@@ -241,5 +242,16 @@ describe("isGitBlobAnswer", () => {
     expect(isGitBlobAnswer(undefined)).toBe(false);
     expect(isGitBlobAnswer({ text: "x", truncated: false })).toBe(false);
     expect(isGitBlobAnswer({ text: 1, isBinary: false, truncated: false })).toBe(false);
+  });
+
+  it("passes an external plugin's read options through — inflate included (API 78) — and refuses a malformed one", () => {
+    expect(decodeReadFileOptions(undefined)).toBeUndefined();
+    expect(decodeReadFileOptions({ maxBytes: 5, offset: 1, inflate: true })).toEqual({
+      maxBytes: 5,
+      offset: 1,
+      inflate: true,
+    });
+    expect(decodeReadFileOptions({ maxBytes: 5 })).toEqual({ maxBytes: 5 });
+    expect(() => decodeReadFileOptions({ inflate: "yes" })).toThrow(/inflate/);
   });
 });

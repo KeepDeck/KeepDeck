@@ -38,7 +38,9 @@ import {
   isStandingContext,
   overdueNotice,
   senderName,
+  waitsForATurn,
   type CancelOutcome,
+  type HookDoor,
   type Mail,
   type MailDoor,
   type MailKind,
@@ -170,8 +172,12 @@ export interface MailManagerDeps {
    * thing the terminal does: the turn fires the hook, and the hook is what
    * carries the words — or, for an agent with no hook, the nudge tells it to
    * come and ask. False means the pane has no live input channel at this
-   * instant, which is a retry rather than a failure. */
-  wake(paneId: string): boolean;
+   * instant, which is a retry rather than a failure.
+   *
+   * `lost`: the nudge before this one is KNOWN to have started no turn —
+   * the pane's own side said so ([`MailManager.wakeLost`]) — so this one
+   * must not go the same way again. */
+  wake(paneId: string, lost: boolean): boolean;
   /** Whether this pane's agent asks the deck for its mail when a turn ends.
    * True means a running turn is worth waiting out — the answer given at
    * that boundary is labelled, and a paste is not. */
@@ -202,8 +208,15 @@ export interface MailManager {
    * reported to their senders on the way, the same as any other pass, and
    * a message held for a permission prompt stays held: the prompt is about
    * the terminal, and the hook is not going to make it safe.
+   *
+   * `door`: a hook outside any turn takes only what needs no turn to act on
+   * it ([`waitsForATurn`]); the rest stays queued for the next boundary.
    */
-  takeAtTurnEnd(paneId: string, activity?: PaneActivity | null): Mail[];
+  takeAtTurnEnd(paneId: string, activity?: PaneActivity | null, door?: HookDoor): Mail[];
+  /** How many of this pane's queued messages a hook outside any turn leaves
+   * for a turn to act on ([`waitsForATurn`]) — said apart from what a
+   * prompt or the budget held, which are other reasons and other words. */
+  keptForATurn(paneId: string, activity?: PaneActivity | null): number;
   /** Put back messages taken at a turn boundary that could not be rendered
    * after all. They go to the FRONT, because they were the oldest waiting
    * and taking them must not cost them their place; their inbox entry is
@@ -221,6 +234,17 @@ export interface MailManager {
    * else would come back for it — the refusal arms no timer.
    */
   reconsider(): void;
+  /**
+   * The last nudge for this pane started no turn, and the pane's own side
+   * SAID so — its agent turned the turn down. Try again now, rather than
+   * after the cadence that exists for a nudge nobody answered, and tell the
+   * channel the last way failed.
+   *
+   * Only the pass that runs here carries the word. A retry the channel
+   * cannot make at this instant falls back to the ordinary next attempt,
+   * which goes the usual way and, refused again, is reported again.
+   */
+  wakeLost(paneId: string): void;
   /**
    * Everything this pane has not been given yet, oldest first — and asking
    * is what makes it READ.
@@ -318,6 +342,9 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * produced no turn is worth repeating. Without it a pane whose hook never
    * answers would be prodded on every drain until its mail expired. */
   const lastWakeAt = new Map<string, number>();
+  /** Panes whose last nudge is known to have started no turn, for the one
+   * pass [`MailManager.wakeLost`] runs — never across passes. */
+  const lostWakes = new Set<string>();
 
   /** Queued messages whose sender has already been told they are waiting.
    * An id leaves when its message leaves the queue. */
@@ -703,7 +730,8 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         if (woken !== undefined && at - woken < RENUDGE_AFTER_MS) {
           return woken + RENUDGE_AFTER_MS;
         }
-        if (!deps.wake(paneId)) {
+        const lost = lostWakes.has(paneId);
+        if (!deps.wake(paneId, lost)) {
           // WHY it refused is said by the channel, which is the only side
           // that knows — this end gets a bool.
           log.debug("web:mail", `the channel refused the nudge: ${trace(head)}`);
@@ -721,7 +749,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         // already begun, which is the window `decideDelivery` cannot see.
         log.info(
           "web:mail",
-          `nudged the pane into a turn for: ${trace(head)} (pane was ${deps.activityOf(paneId)?.state ?? "silent"}, hook ${asksAtTurnEnd(paneId) ? "collects" : "does not collect"})`,
+          `nudged the pane into a turn for: ${trace(head)} (pane was ${deps.activityOf(paneId)?.state ?? "silent"}, hook ${asksAtTurnEnd(paneId) ? "collects" : "does not collect"}${lost ? ", the last nudge started no turn" : ""})`,
         );
         lastWakeAt.set(paneId, at);
         return at + RENUDGE_AFTER_MS;
@@ -775,12 +803,27 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * has usually taken some journal entries already, and the budget covers
    * the whole answer, not the queue's share of it.
    */
+  /** The pane's activity as a hand-over judges it: the one the asker passed
+   * (the event's own, previewed), else the tracker's. */
+  function activityAt(paneId: string, activity?: PaneActivity | null): PaneActivity | undefined {
+    return (activity === undefined ? deps.activityOf(paneId) : activity) ?? undefined;
+  }
+
   function drainQueue(paneId: string, collected: Mail[], door: MailDoor, activity?: PaneActivity | null): void {
     const queue = queues.get(paneId);
     if (!queue) return;
+    const pane = activityAt(paneId, activity);
     let carried = collected.reduce((sum, mail) => sum + mail.body.length, 0);
-    while (queue.length > 0) {
-      const head = queue[0];
+    let index = 0;
+    while (index < queue.length) {
+      const head = queue[index];
+      // Nothing at this door would act on it: stepped over, keeping its
+      // place, so the context behind it still goes.
+      if (waitsForATurn(head, door, pane)) {
+        log.debug("web:mail", `kept from ${doorName(door)} for a turn to act on it: ${trace(head)}`);
+        index += 1;
+        continue;
+      }
       // Enough for this turn. The receiver pays for every character in its
       // next turn and the SENDER chooses how many there are, so a loop of
       // sends would otherwise arrive as one enormous injection. What is left
@@ -801,7 +844,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // the DOOR's question, and it is asked rather than answered here:
       // copied into this file once, it became a reason to hold that the
       // terminal honoured and the briefing path silently ignored.
-      if (decideHandover((activity === undefined ? deps.activityOf(paneId) : activity) ?? undefined, door) === "hold") {
+      if (decideHandover(pane, door) === "hold") {
         // Said out loud, because the alternative reading of a break here is
         // "the queue was empty", and those are opposite facts about a pane.
         log.debug(
@@ -810,7 +853,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         );
         break;
       }
-      queue.shift();
+      queue.splice(index, 1);
       // Asking for it IS reading it — the one moment the deck can witness
       // rather than assume.
       remember(paneId, head, "read");
@@ -860,17 +903,34 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       drain();
     },
 
-    takeAtTurnEnd(paneId, activity) {
+    takeAtTurnEnd(paneId, activity, door = "turn-boundary") {
       const taken: Mail[] = [];
-      drainQueue(paneId, taken, "turn-boundary", activity);
+      drainQueue(paneId, taken, door, activity);
       // Whatever is left (a held prompt, a fresh notice) still needs its
       // timer, and the queue just moved under it.
       drain();
       return taken;
     },
 
+    keptForATurn(paneId, activity) {
+      const pane = activityAt(paneId, activity);
+      return (queues.get(paneId) ?? []).filter((mail) => waitsForATurn(mail, "outside-turn", pane)).length;
+    },
+
     reconsider() {
       drain();
+    },
+
+    wakeLost(paneId) {
+      // The cadence is for a nudge that MAY have gone missing. This one did,
+      // and waiting it out would only leave the pane deaf for its length.
+      lastWakeAt.delete(paneId);
+      lostWakes.add(paneId);
+      try {
+        drain();
+      } finally {
+        lostWakes.delete(paneId);
+      }
     },
 
     restore(messages) {

@@ -91,6 +91,12 @@ export interface WalkedSession<State> {
  * Records the format refused are the other kind of loss, and a real one in
  * either scope: they are `parts` the reading went past without being able
  * to use.
+ *
+ * And a file that would not read as text at all is a loss in either scope
+ * too — a head that stopped there did not read the head, it read nothing.
+ * Its `bytes` mark is what tells the indexer the session is still there,
+ * just not readable (codex's compressed rollouts, task-417), rather than
+ * a session with nothing in it.
  */
 function shortfallOf(
   outcome: ReadOutcome,
@@ -102,12 +108,9 @@ function shortfallOf(
   if (outcome.refused !== undefined && outcome.refused > 0) {
     marks.push({ kind: "parts", unreadableParts: outcome.refused });
   }
-  if (
-    scope === "whole" &&
-    outcome.stopped !== "exhausted" &&
-    outcome.stopped !== "satisfied" &&
-    outcome.sourceBytes !== undefined
-  ) {
+  const cutShort =
+    scope === "whole" ? outcome.stopped !== "exhausted" && outcome.stopped !== "satisfied" : outcome.stopped === "unreadable";
+  if (cutShort && outcome.sourceBytes !== undefined) {
     marks.push({ kind: "bytes", size: outcome.sourceBytes, readBytes: outcome.payloadBytes });
   }
   return marks.length > 0 ? marks : undefined;

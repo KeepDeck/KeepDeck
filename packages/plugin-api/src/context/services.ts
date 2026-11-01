@@ -343,6 +343,13 @@ export interface FsReadFileOptions {
    * the two sides' arithmetic drift apart. Resume from a boundary you framed
    * yourself (the end of a line, of a record) and this never arises. */
   offset?: number;
+  /** Read a zstd-compressed file as the text it holds (API 78): `size`,
+   * `offset` and the window then count its decompressed bytes, so it walks
+   * like a plain file. A file that is not zstd reads as it is. The session
+   * reader asks for it, since an agent may compress the store it keeps
+   * (codex's `.jsonl.zst`). A code viewer should not: a `.zst` it opens is
+   * what is on disk. */
+  inflate?: boolean;
 }
 
 /** One directory child. `path` is absolute — pass it straight back into

@@ -273,6 +273,7 @@ pub fn run() {
             journal::journal_compact,
             history::index_refs,
             history::index_upsert,
+            history::index_carry,
             history::index_prune,
             history::index_search,
             history::index_lookup,

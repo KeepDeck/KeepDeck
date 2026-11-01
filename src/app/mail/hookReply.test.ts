@@ -35,6 +35,7 @@ const RENDER: MailReplyRenderer = ({ messages }) =>
 
 /** The asks this fake agent declares — the events of the tests below. */
 const CHANNELS: MailChannel[] = [
+  { event: "SessionStart", atTurnEnd: false, outsideTurn: true },
   { event: "UserPromptSubmit", atTurnEnd: false },
   { event: "PostToolUse", atTurnEnd: false },
   { event: "Stop", atTurnEnd: true },
@@ -152,6 +153,51 @@ describe("answerMailAsk", () => {
     ]);
     // Booked as handed to the hook, so nothing is left to give out twice.
     expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
+  });
+
+  it("hands a hook outside any turn the briefing, and keeps the work for a turn to act on", () => {
+    // claude compacting an idle session: its SessionStart takes what it is
+    // handed into a context no turn may read. The briefing belongs there;
+    // a task booked read there was a task nobody did (task-589).
+    const info = vi.spyOn(log, "info");
+    const idle: PaneActivity = { state: "done", at: 1, interrupted: false };
+    const h = setup({ activity: idle });
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    h.manager.announce("pane-2", "team", "you are analyst-1");
+    h.channel.answer("pane-2", asking({ event: { hook_event_name: "SessionStart" } }));
+    const body = h.replies[0]?.body ?? "";
+    expect(body).toContain("standing: you are analyst-1");
+    expect(body).not.toContain("take the parser");
+    // Still the deck's, so it is nudged for and its sender told it waits.
+    expect(h.manager.waiting("pane-2")).toBe(1);
+    expect(info.mock.calls.some(([, line]) => line.includes("1 left for a turn"))).toBe(true);
+    // The turn's own hook then hands it over.
+    h.channel.answer("pane-2", asking({ reply: "askDEF", event: { hook_event_name: "UserPromptSubmit" } }));
+    expect(h.replies[1]?.body).toContain("take the parser");
+    info.mockRestore();
+  });
+
+  it("calls a briefing a prompt held by its name at a hook outside any turn — not one left for a turn", () => {
+    // A session start while the pane is parked on a permission prompt: the
+    // briefing waits for the prompt, and only work waits for a turn.
+    const info = vi.spyOn(log, "info");
+    const approving: PaneActivity = { state: "waiting", since: 1, reason: "permission" };
+    const h = setup({ activity: approving });
+    h.manager.announce("pane-2", "team", "you are analyst-1");
+    h.channel.answer("pane-2", asking({ event: { hook_event_name: "SessionStart" } }));
+    const lines = info.mock.calls.map(([, line]) => line);
+    expect(lines.some((line) => line.includes("1 held — the pane is at a prompt"))).toBe(true);
+    expect(lines.some((line) => line.includes("left for a turn"))).toBe(false);
+    info.mockRestore();
+  });
+
+  it("hands work through a hook outside any turn while a turn is running through it", () => {
+    // Compacted mid-turn: the turn carries on with what it was handed.
+    const h = setup({ activity: WORKING });
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    h.channel.answer("pane-2", asking({ event: { hook_event_name: "SessionStart" } }));
+    expect(h.replies[0]?.body).toContain("take the parser");
+    expect(h.manager.waiting("pane-2")).toBe(0);
   });
 
   it("answers with nothing rather than leaving the hook to time out", () => {

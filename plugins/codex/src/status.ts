@@ -129,9 +129,12 @@ function renderLegacyCodexMail(
  * but not rendered burns the hook's whole wait on every fire and takes
  * messages out of the queue to put them straight back; rendered but not
  * armed leaves that event's mail to a paid terminal nudge. Both silent.
+ *
+ * `SessionStart` fires before any turn — a session starting or resumed — so
+ * it takes standing context, and leaves work to the turn that acts on it.
  */
 export const CODEX_MAIL_CHANNELS: readonly MailChannel[] = [
-  { event: "SessionStart", atTurnEnd: false },
+  { event: "SessionStart", atTurnEnd: false, outsideTurn: true },
   { event: "UserPromptSubmit", atTurnEnd: false },
   { event: "PostToolUse", atTurnEnd: false },
   { event: "Stop", atTurnEnd: true },

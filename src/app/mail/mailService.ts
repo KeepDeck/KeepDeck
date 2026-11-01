@@ -23,6 +23,7 @@
  * could enforce otherwise, because the collaborator was not its child.
  */
 import { collectsAtTurnEnd, type AgentStatus } from "@keepdeck/plugin-api";
+import { log } from "../../ipc/log";
 import type { CommandRegistry } from "../../domain/commands";
 import { membersOf, teamOfPane, type Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
@@ -101,6 +102,13 @@ export interface MailServiceDeps {
   terminal: {
     wake(paneId: string): boolean;
   };
+  /** Every time something may have put words into a pane's composer — a key,
+   * a paste, a drop, dictation, another agent's `pane.write`
+   * (`subscribePaneComposerTouched`); never the agent's own terminal
+   * traffic. */
+  composer: {
+    subscribe(listener: (paneId: string) => void): () => void;
+  };
   bridge: {
     /** Answers whether the reply reached the waiting hook. False means those
      * messages went nowhere and are still the deck's to put back. */
@@ -109,6 +117,15 @@ export interface MailServiceDeps {
     /** Whether the pane's process announced its agent's companion. */
     hasCompanion(paneId: string): boolean;
   };
+}
+
+/** A companion's word that its agent started no turn for a ring. */
+export interface DeclinedWake {
+  /** The agent's own words, already one clean short line. */
+  reason: string;
+  /** Whether the composer holds words a typed line would be sent WITH — the
+   * person's draft, or a prompt an Esc cancelled and claude put back. */
+  draft: boolean;
 }
 
 export interface MailService {
@@ -135,6 +152,15 @@ export interface MailService {
    * leaves it.
    */
   expectAsk(paneId: string, payload: unknown): () => void;
+  /**
+   * A pane's companion took its doorbell down, and its agent would not start
+   * the turn the ring asked for. The nudge goes again now, through the
+   * terminal — unless the composer holds words, which the typed line would
+   * send along with itself, or something went into it since the ring that
+   * the companion's reading may not have seen: then the mail waits for the
+   * person, whose own prompt collects it.
+   */
+  wakeDeclined(paneId: string, wake: DeclinedWake): void;
   dispose(): void;
 }
 
@@ -142,6 +168,11 @@ export function createMailService(deps: MailServiceDeps): MailService {
   let disposed = false;
   /** Several hook correlations can be in flight for one pane. */
   const answering = new Map<string, number>();
+  /** Panes whose composer was touched since their doorbell last rang. The
+   * companion reads the composer when its agent declines a ring, and a line
+   * typed after that reading lands on whatever went in since — so anything
+   * in that span counts, the reading's own moment unknowable here. */
+  const touchedSinceRing = new Set<string>();
 
   /** What THIS pane's agent contributes about mail. */
   const statusOfPane = (paneId: string): AgentStatus | undefined => {
@@ -268,7 +299,10 @@ export function createMailService(deps: MailServiceDeps): MailService {
       // is exactly where the hand-over is about to find it.
       throughTerminal: (paneId) =>
         answering.has(paneId) ? false : deps.terminal.wake(paneId),
-      throughBridge: deps.bridge.nudge,
+      throughBridge: (paneId) => {
+        touchedSinceRing.delete(paneId);
+        deps.bridge.nudge(paneId);
+      },
       hasCompanion: deps.bridge.hasCompanion,
     }),
     // A pane whose agent DECLARES a turn-end mail channel will come asking
@@ -289,10 +323,15 @@ export function createMailService(deps: MailServiceDeps): MailService {
   // Swept on every deck change rather than at close: a pane can also leave by
   // a workspace closing, and one sweep covers both.
   const unsubscribePanes = deps.deck.subscribe(() => {
-    manager.retain(livePaneIds());
+    const live = livePaneIds();
+    manager.retain(live);
+    for (const paneId of [...touchedSinceRing]) {
+      if (!live.has(paneId)) touchedSinceRing.delete(paneId);
+    }
     // A pane that just appeared may run an agent nobody has asked about.
     learnLiveVersions();
   });
+  const unsubscribeComposer = deps.composer.subscribe((paneId) => touchedSinceRing.add(paneId));
   // The registry is EMPTY while the deck hydrates, so the walk above finds
   // nothing to ask about — and without this the answer was only ever learned
   // by the coincidence that waking a restored pane happens to write to the
@@ -326,6 +365,27 @@ export function createMailService(deps: MailServiceDeps): MailService {
         manager.reconsider();
       };
     },
+    wakeDeclined(paneId, { reason, draft }) {
+      // Measured, not feared (task-589 probe, claude 2.1.316): a typed line
+      // lands at the cursor glued to whatever the composer holds, and its
+      // Enter sends both — after an early Esc, the very prompt the person
+      // had just cancelled. The companion's reading covers what was there;
+      // a touch since the ring covers what may have gone in after it.
+      const words = draft
+        ? "its composer holds unsent words"
+        : touchedSinceRing.has(paneId)
+          ? "its composer was touched since the ring"
+          : null;
+      if (words !== null) {
+        log.info(
+          "web:mail",
+          `${paneId} started no turn for its doorbell (${reason}); ${words}, so a typed line could send them and the mail waits for the person`,
+        );
+        return;
+      }
+      log.info("web:mail", `${paneId} started no turn for its doorbell (${reason})`);
+      manager.wakeLost(paneId);
+    },
     /**
      * Take the feature down, in the one order that is safe.
      *
@@ -340,6 +400,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
       if (disposed) return;
       disposed = true;
       unsubscribePanes();
+      unsubscribeComposer();
       unsubscribeAgents();
       unregister();
       presence.dispose();

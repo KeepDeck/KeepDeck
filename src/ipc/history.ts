@@ -49,6 +49,22 @@ export function indexUpsert(agent: string, rows: IndexRowInput[]): Promise<void>
   return invoke("index_upsert", { agent, rows });
 }
 
+/** A session's new ref, carried over without a re-read. */
+export interface CarriedRefInput {
+  sessionId: string;
+  reference: string;
+  transcriptPath: string | null;
+  mtime: number;
+  size: number;
+}
+
+/** Move indexed sessions to new refs, keeping what was read of them (a
+ * session its plugin can no longer read, task-417). Per row: whether the
+ * session was indexed — a miss changed nothing. */
+export function indexCarry(agent: string, rows: CarriedRefInput[]): Promise<boolean[]> {
+  return invoke("index_carry", { agent, rows });
+}
+
 /** A session the prune DROPPED — the key whose cached answers are stale
  * from this moment. */
 export interface PrunedKey {

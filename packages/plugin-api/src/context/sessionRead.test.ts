@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PluginFs } from "./services.ts";
 import { fsStore as fakeFs } from "../testing.ts";
 import {
+  chained,
   createSessionStore,
   jsonl,
   type ReadBudget,
@@ -240,6 +241,19 @@ describe("jsonl reader", () => {
     expect(outcome.stopped).toBe("changed");
   });
 
+  it("asks the host to inflate every window — a store an agent compressed is still its store", async () => {
+    // codex compresses old rollouts (task-418); the host reads a zstd file
+    // as the text it holds, and a plain one as it is.
+    const fs = fakeFs({ "/s.jsonl": store(3) });
+    const asked: unknown[] = [];
+    const spying: PluginFs = { ...fs, readFile: (path, opts) => (asked.push(opts), fs.readFile(path, opts)) };
+
+    await readAll(spying, "/s.jsonl");
+
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked).toEqual(asked.map(() => expect.objectContaining({ inflate: true })));
+  });
+
   it("reports a window that is not text as unreadable, not as the end", async () => {
     // `exhausted` would claim the conversation ended here; it did not — we
     // simply cannot read further.
@@ -249,6 +263,86 @@ describe("jsonl reader", () => {
     const { outcome } = await readAll(fs, "/s.jsonl");
 
     expect(outcome.stopped).toBe("unreadable");
+  });
+
+  it("reads a prefix as the whole store — up to the line boundary it was told, across windows", async () => {
+    // What a codex fork inherits: its source's first lines, as they stood
+    // when it forked — the lines the source wrote since are not its own.
+    // Long lines, so the prefix spans several 256 KiB windows in few records.
+    const text = store(1_000, "y".repeat(100));
+    const until = text.split("\n").slice(0, 900).join("\n").length + 1;
+    expect(until).toBeGreaterThan(2 * 256 * 1024);
+    const fs = fakeFs({ "/s.jsonl": text });
+    const seen: unknown[] = [];
+
+    const outcome = await createJsonlReader(fs, isIndexed).pull(
+      { path: "/s.jsonl", until },
+      { maxPayloadBytes: 8 * 1024 * 1024 },
+      (r) => {
+        seen.push(r);
+        return "more";
+      },
+    );
+
+    expect(seen).toHaveLength(900);
+    expect(seen[seen.length - 1]).toMatchObject({ i: 899 });
+    expect(outcome).toMatchObject({ stopped: "exhausted", payloadBytes: until, sourceBytes: until });
+  });
+
+  it("reports a file shorter than the prefix it was pointed into as changed", async () => {
+    const fs = fakeFs({ "/s.jsonl": store(2) });
+    const { stopped } = await createJsonlReader(fs, anyLine).pull({ path: "/s.jsonl", until: 10_000 }, NARROW, () => "more");
+    expect(stopped).toBe("changed");
+  });
+});
+
+describe("chained", () => {
+  const read = async (fs: PluginFs, parts: { path: string; until?: number }[]) => {
+    const seen: number[] = [];
+    const outcome = await createSessionStore(fs).read(chained(jsonl(isIndexed)), { parts }, (record) => {
+      seen.push(record.i);
+      return "more";
+    });
+    return { seen, outcome };
+  };
+
+  it("reads its parts as one store, in order — a prefix of the first, then the next", async () => {
+    const source = store(5);
+    const lineBytes = source.indexOf("\n") + 1;
+    const fs = fakeFs({ "/source.jsonl": source, "/fork.jsonl": store(2).split('"i":').join('"i":10') });
+
+    const { seen, outcome } = await read(fs, [
+      { path: "/source.jsonl", until: lineBytes * 3 },
+      { path: "/fork.jsonl" },
+    ]);
+
+    expect(seen).toEqual([0, 1, 2, 100, 101]);
+    expect(outcome.stopped).toBe("exhausted");
+  });
+
+  it("goes on past a part that will not read, and then says the reading fell short", async () => {
+    // A compressed or vanished ancestor: what the fork itself holds is still
+    // the conversation, and the reading is marked as partly done.
+    const fs = fakeFs({ "/old.jsonl.zst": new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0, 1]), "/fork.jsonl": store(2) });
+
+    const { seen, outcome } = await read(fs, [{ path: "/old.jsonl.zst" }, { path: "/fork.jsonl" }]);
+
+    expect(seen).toEqual([0, 1]);
+    expect(outcome.stopped).toBe("unreadable");
+  });
+
+  it("spends one budget across its parts", async () => {
+    const fs = fakeFs({ "/a.jsonl": store(3_000), "/b.jsonl": store(3_000) });
+    const seen: number[] = [];
+    const outcome = await chained(jsonl(isIndexed))
+      .open(fs)
+      .pull({ parts: [{ path: "/a.jsonl" }, { path: "/b.jsonl" }] }, NARROW, (record) => {
+        seen.push(record.i);
+        return "more";
+      });
+
+    expect(outcome.stopped).toBe("budget");
+    expect(outcome.payloadBytes).toBeLessThanOrEqual(NARROW.maxPayloadBytes);
   });
 });
 

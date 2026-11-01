@@ -31,6 +31,7 @@ export function projectFsReadFile(
   everywhere: boolean,
   maxBytes?: number,
   offset?: number,
+  inflate?: boolean,
 ): Promise<FsFile> {
   return invoke<FsFile>("project_fs_read_file", {
     path,
@@ -38,6 +39,7 @@ export function projectFsReadFile(
     everywhere,
     maxBytes: maxBytes ?? null,
     offset: offset ?? null,
+    inflate: inflate ?? null,
   });
 }
 

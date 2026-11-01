@@ -17,7 +17,10 @@ const SENDER = {
   pane: { id: "pane-1", workspaceId: "ws-1", label: "Agent 1" },
 };
 
-function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => undefined) {
+function setup(
+  statusOf: (agentId: string) => AgentStatus | undefined = () => undefined,
+  { companion = false } = {},
+) {
   // pane-1 is on a team, so the standing-presence has something to re-state.
   let panes: Pane[] = [
     { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
@@ -36,10 +39,13 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
   const paneListeners = new Set<() => void>();
   const activityListeners = new Set<() => void>();
   const woken: string[] = [];
+  /** Doorbells rung — the companion's wake, as `woken` is the terminal's. */
+  const rung: string[] = [];
   const replies: { paneId: string; id: string; body: string }[] = [];
   const sessionListeners = new Set<(paneId: string) => void>();
   const learned: string[] = [];
   const agentListeners = new Set<() => void>();
+  const composerListeners = new Set<(paneId: string) => void>();
   const registry = createCommandRegistry();
 
   const workspaces = (): Workspace[] => [
@@ -102,13 +108,21 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
           return true;
         },
       },
+      composer: {
+        subscribe: (listener) => {
+          composerListeners.add(listener);
+          return () => composerListeners.delete(listener);
+        },
+      },
       bridge: {
         reply: (paneId, id, body) => {
           replies.push({ paneId, id, body });
           return Promise.resolve(true);
         },
-        nudge: () => {},
-        hasCompanion: () => false,
+        nudge: (paneId) => {
+          rung.push(paneId);
+        },
+        hasCompanion: () => companion,
       },
     },
   );
@@ -117,8 +131,13 @@ function setup(statusOf: (agentId: string) => AgentStatus | undefined = () => un
     service,
     registry,
     woken,
+    rung,
     replies,
     learned,
+    /** Something went into this pane's composer — a key, a paste, a drop. */
+    touches(paneId: string) {
+      for (const listener of [...composerListeners]) listener(paneId);
+    },
     /** The plugin registry changed — a Rescan, an agent plugin arriving. */
     agentsChanged() {
       for (const listener of [...agentListeners]) listener();
@@ -343,6 +362,65 @@ describe("createMailService", () => {
     first();
     expect(h.woken).toEqual([]);
     second();
+    expect(h.woken).toEqual(["pane-2"]);
+  });
+
+  it("types the nudge at once when the companion says its agent started no turn for the ring", () => {
+    // claude after an Esc: its Mod took the ring down and claude refused the
+    // turn until the user writes. A typed line is the user writing.
+    const companionWake: AgentStatus = { normalize: () => null, attribute: () => null, wake: "companion" };
+    const h = setup(() => companionWake, { companion: true });
+    void h.send("hi");
+    expect(h.rung).toEqual(["pane-2"]);
+    expect(h.woken).toEqual([]);
+    h.service.wakeDeclined("pane-2", { reason: "the session was stopped", draft: false });
+    expect(h.woken).toEqual(["pane-2"]);
+    expect(h.rung).toEqual(["pane-2"]);
+    // A decline after the feature went down nudges nothing.
+    h.service.dispose();
+    h.service.wakeDeclined("pane-2", { reason: "the session was stopped", draft: false });
+    expect(h.woken).toEqual(["pane-2"]);
+  });
+
+  it("never types over words in the composer — the mail waits for the person instead", () => {
+    // The typed line would be glued to the draft and sent with it; after an
+    // early Esc, that draft is the prompt the person had just cancelled.
+    const companionWake: AgentStatus = { normalize: () => null, attribute: () => null, wake: "companion" };
+    const h = setup(() => companionWake, { companion: true });
+    void h.send("hi");
+    h.service.wakeDeclined("pane-2", { reason: "the session was stopped", draft: true });
+    expect(h.woken).toEqual([]);
+    // Still queued: the person's own prompt is the boundary that collects it.
+    expect(h.bodiesFor("pane-2")).toEqual(["hi"]);
+  });
+
+  it("never types at a pane whose composer was touched since the ring — the words may still be there", () => {
+    // The companion read the composer empty, but that reading is older than
+    // the line the deck would type: words put in between — typed, pasted,
+    // dropped — would be sent with it (reviewer-2, task-589).
+    const companionWake: AgentStatus = { normalize: () => null, attribute: () => null, wake: "companion" };
+    const h = setup(() => companionWake, { companion: true });
+    // A touch BEFORE the ring was seen by the companion's reading.
+    h.touches("pane-2");
+    void h.send("hi");
+    expect(h.rung).toEqual(["pane-2"]);
+    h.touches("pane-2");
+    h.service.wakeDeclined("pane-2", { reason: "stopped", draft: false });
+    expect(h.woken).toEqual([]);
+    // A touch in ANOTHER pane says nothing about this one.
+    const other = setup(() => companionWake, { companion: true });
+    void other.send("hi");
+    other.touches("pane-1");
+    other.service.wakeDeclined("pane-2", { reason: "stopped", draft: false });
+    expect(other.woken).toEqual(["pane-2"]);
+  });
+
+  it("forgets a touch once the doorbell rings again", () => {
+    const companionWake: AgentStatus = { normalize: () => null, attribute: () => null, wake: "companion" };
+    const h = setup(() => companionWake, { companion: true });
+    h.touches("pane-2");
+    void h.send("hi");
+    h.service.wakeDeclined("pane-2", { reason: "stopped", draft: false });
     expect(h.woken).toEqual(["pane-2"]);
   });
 });

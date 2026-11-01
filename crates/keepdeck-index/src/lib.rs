@@ -34,6 +34,18 @@ pub struct IndexRow {
     pub content: String,
 }
 
+/// A session's new place in its store, carried over without a re-read
+/// ([`SessionIndex::carry`]).
+#[derive(Debug, Clone)]
+pub struct CarriedRef {
+    pub agent: String,
+    pub session_id: String,
+    pub reference: String,
+    pub transcript_path: Option<String>,
+    pub mtime: i64,
+    pub size: i64,
+}
+
 /// A stored ref + change stamp — what incremental scans diff against.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedRef {
@@ -346,6 +358,36 @@ impl SessionIndex {
             .map_err(|e| e.to_string())?;
         }
         tx.commit().map_err(|e| e.to_string())
+    }
+
+    /// Move indexed sessions to a new ref without reading them again: the
+    /// same session, now stored where the plugin cannot read it (codex
+    /// compresses old rollouts, task-417). Only where it is and its stamp
+    /// change; its cwd, title and searchable text stay what was read before.
+    /// Answers, per row, whether the session was indexed: a miss changes
+    /// nothing, and the caller decides what an unread newcomer gets.
+    pub fn carry(&mut self, rows: &[CarriedRef]) -> Result<Vec<bool>, String> {
+        let tx = self.conn.transaction().map_err(|e| e.to_string())?;
+        let mut indexed = Vec::with_capacity(rows.len());
+        for row in rows {
+            let moved = tx
+                .execute(
+                    "UPDATE sessions SET ref = ?3, transcript_path = ?4, mtime = ?5, size = ?6
+                     WHERE agent = ?1 AND session_id = ?2",
+                    params![
+                        row.agent,
+                        row.session_id,
+                        row.reference,
+                        row.transcript_path,
+                        row.mtime,
+                        row.size
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+            indexed.push(moved > 0);
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(indexed)
     }
 
     /// Drop sessions of `agent` whose ref is NOT in `live` — gone from the
@@ -1000,6 +1042,36 @@ mod tests {
             size: 10,
             content: content.into(),
         }
+    }
+
+    #[test]
+    fn carry_moves_a_session_to_its_new_ref_and_keeps_what_was_read() {
+        // codex compressed the rollout (task-417): same session, new file,
+        // nothing readable in it — what the index read before must stay.
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        index.upsert(&[row("codex", "s1", 5, "remembered words")]).unwrap();
+        let carried = |id: &str, mtime: i64, size: i64| CarriedRef {
+            agent: "codex".into(),
+            session_id: id.into(),
+            reference: format!("/store/{id}.zst"),
+            transcript_path: Some(format!("/store/{id}.zst")),
+            mtime,
+            size,
+        };
+        let indexed = index.carry(&[carried("s1", 5, 3), carried("never", 1, 1)]).unwrap();
+        // A session the index never held is a miss, and gains no row here.
+        assert_eq!(indexed, vec![true, false]);
+        assert_eq!(
+            index.refs("codex").unwrap(),
+            vec![IndexedRef { reference: "/store/s1.zst".into(), mtime: 5, size: 3 }]
+        );
+        let hits = index.search("remembered", 10, 0, None, None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].title.as_deref(), Some("title s1"));
+        assert_eq!(hits[0].cwd, "/repo");
+        assert_eq!(hits[0].reference, "/store/s1.zst");
+        assert_eq!(hits[0].transcript_path.as_deref(), Some("/store/s1.zst"));
     }
 
     #[test]

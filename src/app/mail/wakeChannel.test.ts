@@ -25,7 +25,7 @@ describe("createMailWake", () => {
     // opting out of being woken — it is an agent whose reporter only runs
     // when its CLI runs it, which is every hook CLI there is.
     const h = harness(undefined);
-    expect(h.wake("pane-1")).toBe(true);
+    expect(h.wake("pane-1", false)).toBe(true);
     expect(h.throughTerminal).toHaveBeenCalledWith("pane-1");
     expect(h.throughBridge).not.toHaveBeenCalled();
   });
@@ -41,27 +41,27 @@ describe("createMailWake", () => {
       throughBridge: vi.fn(),
       hasCompanion: () => false,
     });
-    expect(wake("pane-1")).toBe(false);
+    expect(wake("pane-1", false)).toBe(false);
   });
 
   it("rings the doorbell for a bridge agent and never types at it", () => {
     // The whole point: an agent whose reporter lives inside its process is
     // never sent words through the terminal — not even a nudge.
     const h = harness("bridge");
-    expect(h.wake("pane-1")).toBe(true);
+    expect(h.wake("pane-1", false)).toBe(true);
     expect(h.throughBridge).toHaveBeenCalledWith("pane-1");
     expect(h.throughTerminal).not.toHaveBeenCalled();
   });
 
   it("rings for a companion agent only while the pane's process has one, else types", () => {
     const present = harness("companion", true);
-    expect(present.wake("pane-1")).toBe(true);
+    expect(present.wake("pane-1", false)).toBe(true);
     expect(present.throughBridge).toHaveBeenCalledWith("pane-1");
     expect(present.throughTerminal).not.toHaveBeenCalled();
     // No hello from this process — the Mod disabled, refused by policy, or
     // the conversation moved: the terminal is still the floor.
     const absent = harness("companion", false);
-    expect(absent.wake("pane-1")).toBe(true);
+    expect(absent.wake("pane-1", false)).toBe(true);
     expect(absent.throughTerminal).toHaveBeenCalledWith("pane-1");
     expect(absent.throughBridge).not.toHaveBeenCalled();
   });
@@ -79,10 +79,31 @@ describe("createMailWake", () => {
       throughBridge,
       hasCompanion: () => false,
     });
-    wake("pane-1");
+    wake("pane-1", false);
     channel = "terminal";
-    wake("pane-1");
+    wake("pane-1", false);
     expect(throughBridge).toHaveBeenCalledTimes(1);
     expect(throughTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it("types once a ring is known to have started no turn, whatever the agent's channel", () => {
+    // claude after an Esc: its Mod takes the ring and claude refuses the
+    // turn until the user writes. Ringing again would be refused again; a
+    // typed line is the user writing, and claude takes it.
+    for (const [channel, companion] of [["companion", true], ["bridge", false]] as const) {
+      const h = harness(channel, companion);
+      expect(h.wake("pane-1", true)).toBe(true);
+      expect(h.throughTerminal).toHaveBeenCalledWith("pane-1");
+      expect(h.throughBridge).not.toHaveBeenCalled();
+    }
+    // And says so when the terminal cannot take it this instant: a retry,
+    // not a wake to wait out.
+    const refusing = createMailWake({
+      channelOf: () => "companion",
+      throughTerminal: () => false,
+      throughBridge: vi.fn(),
+      hasCompanion: () => true,
+    });
+    expect(refusing("pane-1", true)).toBe(false);
   });
 });

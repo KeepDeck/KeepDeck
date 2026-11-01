@@ -44,7 +44,7 @@ const LINES = [
 ].join("\n");
 
 function ctx(
-  files: Record<string, string>,
+  files: Record<string, string | Uint8Array>,
   dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
 ): HistoryPorts {
@@ -88,6 +88,123 @@ describe("codex history", () => {
         size: 3,
       },
     ]);
+  });
+
+  it("lists ONE stub per session — its newest file, a compressed or reverted one included", async () => {
+    // A resumed session can leave an older file under its id, and a revert
+    // starts a `<thread>_<segment>` file; two stubs under one id would take
+    // turns as the index's single row. A session codex has compressed stays
+    // listed (its .zst), rather than reading as deleted and being pruned.
+    const SID = "019f7af4-f57f-7dc3-ac52-6e1bb90dceec";
+    const OLD = "019f7000-0000-7000-8000-00000000000a";
+    const old = `rollout-2026-07-01T10-00-00-${SID}.jsonl`;
+    const reverted = `rollout-2026-07-19T16-27-47-${SID}_019f7af5-0000-7000-8000-000000000001.jsonl`;
+    const compressed = `rollout-2026-07-02T10-00-00-${OLD}.jsonl.zst`;
+    const resumed = `rollout-2026-07-01T12-00-00-${SID}.jsonl`;
+    const history = codexHistory(
+      ctx({}, {
+        "~/.codex/sessions": [{ name: "2026", path: "/s/2026", kind: "dir" }],
+        "/s/2026": [{ name: "07", path: "/s/2026/07", kind: "dir" }],
+        "/s/2026/07": [{ name: "01", path: "/s/2026/07/01", kind: "dir" }],
+        // The newest file listed in the MIDDLE: neither first-wins nor
+        // last-wins picks it — only its mtime does.
+        "/s/2026/07/01": [
+          { name: old, path: `/s/2026/07/01/${old}`, kind: "file", size: 3, mtime: 1 },
+          { name: reverted, path: `/s/2026/07/01/${reverted}`, kind: "file", size: 5, mtime: 9 },
+          { name: resumed, path: `/s/2026/07/01/${resumed}`, kind: "file", size: 4, mtime: 3 },
+          { name: compressed, path: `/s/2026/07/01/${compressed}`, kind: "file", size: 2, mtime: 4 },
+        ],
+      }),
+    );
+    expect(await history.list()).toEqual([
+      { sessionId: SID, ref: `/s/2026/07/01/${reverted}`, mtime: 9, size: 5 },
+      { sessionId: OLD, ref: `/s/2026/07/01/${compressed}`, mtime: 4, size: 2 },
+    ]);
+  });
+
+  describe("a fork's conversation (task-588)", () => {
+    // codex 0.163+ forks a paginated thread by REFERENCE: the fork's first
+    // record names its source and the byte its inherited prefix ends at.
+    const SOURCE = "11111111-1111-4111-8111-111111111111";
+    const FORK = "22222222-2222-4222-8222-222222222222";
+    const line = (record: unknown) => `${JSON.stringify(record)}\n`;
+    const said = (role: "user" | "assistant", text: string) => ({
+      type: "response_item",
+      payload: { type: "message", role, content: [{ type: role === "user" ? "input_text" : "output_text", text }] },
+    });
+    const inherited =
+      line({ type: "session_meta", payload: { id: SOURCE, cwd: "/repo" } }) +
+      line(said("user", "before the fork")) +
+      line(said("assistant", "answered"));
+    // Written to the source AFTER the fork: not the fork's history.
+    const source = inherited + line(said("user", "the source went on"));
+    const forkOf = (sourceId: string) =>
+      line({
+        type: "session_meta",
+        payload: {
+          id: FORK,
+          cwd: "/repo/wt",
+          history_base: {
+            thread_id: sourceId,
+            end_ordinal_exclusive: 3,
+            end_byte_offset: new TextEncoder().encode(inherited).length,
+          },
+        },
+      }) + line(said("user", "after the fork"));
+    const sourceName = `rollout-2026-01-01T00-00-00-${SOURCE}.jsonl`;
+    const forkName = `rollout-2026-01-02T00-00-00-${FORK}.jsonl`;
+    const store = (fork: string, withSource = true) =>
+      codexHistory(
+        ctx(
+          { ...(withSource ? { [`/s/${sourceName}`]: source } : {}), [`/s/${forkName}`]: fork },
+          {
+            "~/.codex/sessions": [
+              ...(withSource
+                ? [{ name: sourceName, path: `/s/${sourceName}`, kind: "file" as const, size: source.length, mtime: 1 }]
+                : []),
+              { name: forkName, path: `/s/${forkName}`, kind: "file" as const, size: fork.length, mtime: 2 },
+            ],
+          },
+        ),
+      );
+    const texts = async (history: ReturnType<typeof store>) =>
+      (await present(history.transcriptPage, "the transcript page")(`/s/${forkName}`, { offset: 0, limit: 50 })).entries.map(
+        (entry) => entry.text,
+      );
+
+    it("reads the source's inherited prefix, then the fork's own — and nothing the source said later", async () => {
+      const history = store(forkOf(SOURCE));
+      expect(await texts(history)).toEqual(["before the fork", "answered", "after the fork"]);
+      expect(await history.content(`/s/${forkName}`)).toContain("before the fork");
+      expect(await history.content(`/s/${forkName}`)).not.toContain("the source went on");
+    });
+
+    it("describes the fork by itself: where it runs, and what it was asked first", async () => {
+      expect(await store(forkOf(SOURCE)).describe(`/s/${forkName}`)).toMatchObject({
+        cwd: "/repo/wt",
+        title: "after the fork",
+      });
+    });
+
+    it("reads what it has when the source is gone", async () => {
+      expect(await texts(store(forkOf(SOURCE), false))).toEqual(["after the fork"]);
+    });
+  });
+
+  it("describes a rollout it cannot read as read NOTHING — so the index keeps what it knew", async () => {
+    // A compressed rollout the host cannot inflate — a corrupt frame, a host
+    // that predates task-418 — is not text, and not a byte of it is read
+    // (this fake fs inflates nothing). An empty describe would read as "a
+    // session with nothing in it"; the bytes mark at zero is what keeps the
+    // indexed facts (task-417).
+    const zst = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x58, 0x01, 0x00, 0x00, 0x7b]);
+    const history = codexHistory(ctx({ "/r.jsonl.zst": zst }, {}));
+    expect(await history.describe("/r.jsonl.zst")).toEqual({
+      cwd: "",
+      title: undefined,
+      transcriptPath: "/r.jsonl.zst",
+      shortfall: [{ kind: "bytes", size: zst.length, readBytes: 0 }],
+    });
   });
 
   it("an unreadable date partition fails the walk — a partial answer prunes the index", async () => {

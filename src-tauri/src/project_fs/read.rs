@@ -27,6 +27,23 @@ const DEFAULT_MAX_FILE_BYTES: u64 = 1024 * 1024;
 /// leave headroom for a legitimately large source file.
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// How a zstd frame begins (RFC 8878) — what tells a compressed store from
+/// a plain one, file by file, since codex's holds both (task-418).
+const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
+/// The most a frame header takes; its content size sits inside it.
+const ZSTD_FRAME_HEADER_MAX: usize = 18;
+/// How far into a compressed store a read may reach, counted in its
+/// decompressed bytes. Every window decodes from the frame's start, so the
+/// offset a plugin names is how much the host decodes for it — bounded here,
+/// far past the session reader's 8 MiB, so no honest read meets it.
+const INFLATE_REACH: u64 = 64 * 1024 * 1024;
+/// The largest window a frame may make the decoder hold: 2^23, 8 MiB.
+/// codex writes 2 MiB; a crafted frame asking for gigabytes is refused.
+const INFLATE_WINDOW_LOG_MAX: u32 = 23;
+/// How much compressed input one read may consume. Padding or skippable
+/// frames would otherwise keep a decoder reading while producing nothing.
+const INFLATE_INPUT_MAX: u64 = 64 * 1024 * 1024;
+
 /// One directory child, as reported to the plugin. `path` is absolute so the
 /// plugin can pass it straight back to read that child (the tree's lazy
 /// expansion): no path arithmetic on the plugin side, and containment is
@@ -139,6 +156,12 @@ pub fn project_fs_read_dir(
 /// bytes that are not valid UTF-8 from their first one, and this reports that
 /// honestly as binary rather than guessing which bytes to discard. Callers that
 /// resume on a boundary they framed themselves (a line, a record) never meet it.
+///
+/// `inflate` reads a zstd-compressed file as the text it holds: size, offset
+/// and window all count its DECOMPRESSED bytes, so a reader walks it as it
+/// walks a plain one. A file that is not zstd reads exactly as without it.
+/// Opt-in rather than for every read: a code viewer opening a `.zst` should
+/// see what is on disk.
 #[tauri::command(async)]
 pub fn project_fs_read_file(
     path: String,
@@ -146,6 +169,7 @@ pub fn project_fs_read_file(
     everywhere: bool,
     max_bytes: Option<u64>,
     offset: Option<u64>,
+    inflate: Option<bool>,
 ) -> Result<FsFile, String> {
     let file = resolve_within(&path, &roots, everywhere)?;
     let meta = fs::metadata(&file).map_err(|e| format!("cannot stat: {e}"))?;
@@ -156,6 +180,11 @@ pub fn project_fs_read_file(
     let cap = max_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES).min(MAX_FILE_BYTES);
 
     let start = offset.unwrap_or(0);
+    if inflate == Some(true) {
+        if let Some(inflated) = read_inflated(&file, start, cap)? {
+            return Ok(inflated);
+        }
+    }
     let mut handle = fs::File::open(&file).map_err(|e| format!("cannot open: {e}"))?;
     if start > 0 {
         handle
@@ -188,6 +217,135 @@ pub fn project_fs_read_file(
         truncated,
         read_bytes,
     })
+}
+
+/// One window of a zstd-compressed file, in its decompressed bytes — or
+/// `None` when the file is not zstd at all, for the plain read to take.
+///
+/// Stateless, like every read here: the window decodes from the frame's
+/// start, skips `start` bytes, keeps `cap`. The size is the frame's own
+/// content size (codex always writes it); without one, the stream is
+/// counted to its end, within [`INFLATE_REACH`]. A stream that will not
+/// decode — corrupt, or a window past [`INFLATE_WINDOW_LOG_MAX`] — reads as
+/// what it is to a text reader: not text.
+/// A compressed file's decoder, kept between two windows of one walk.
+///
+/// A reader walks a file window by window, each starting where the last one
+/// ended. Decoding every window from the frame's start made that walk
+/// quadratic: measured on a 24 MiB rollout, 8 MiB read in 256 KiB windows
+/// took ~52 ms against ~3 ms for the same text plain. The next window picks
+/// up the decoder where the last one left it. One is kept, for the file it
+/// was reading (its path, length and modification time) at the offset the
+/// reader will ask for next; any other read starts afresh. Length and mtime
+/// are the whole guard against a file rewritten under the walk: a
+/// compressed store is written once (codex makes a new file rather than
+/// touching a `.zst`), and anything that writes one again moves its mtime.
+/// A rewrite to the same length that puts the old mtime back is not caught.
+/// Without an mtime at all, nothing is kept.
+///
+/// That offset is where the reader's TEXT ended, which is short of where the
+/// decoder stands when the window cut a multi-byte character: the stub went
+/// back to be read again. Kept as `pending`, it opens the next window, or a
+/// store in any language but English would decode from the start on every
+/// window that cut one.
+struct Resume {
+    file: std::path::PathBuf,
+    len: u64,
+    modified: std::time::SystemTime,
+    at: u64,
+    pending: Vec<u8>,
+    decoder: zstd::stream::read::Decoder<'static, std::io::BufReader<std::io::Take<fs::File>>>,
+}
+
+static INFLATE_RESUME: std::sync::Mutex<Option<Resume>> = std::sync::Mutex::new(None);
+
+fn read_inflated(file: &std::path::Path, start: u64, cap: u64) -> Result<Option<FsFile>, String> {
+    let mut head = Vec::with_capacity(ZSTD_FRAME_HEADER_MAX);
+    fs::File::open(file)
+        .map_err(|e| format!("cannot open: {e}"))?
+        .take(ZSTD_FRAME_HEADER_MAX as u64)
+        .read_to_end(&mut head)
+        .map_err(|e| format!("cannot read: {e}"))?;
+    if !head.starts_with(&ZSTD_MAGIC) {
+        return Ok(None);
+    }
+    if start.saturating_add(cap) > INFLATE_REACH {
+        return Err(format!(
+            "a compressed file is read within its first {INFLATE_REACH} bytes; {start}+{cap} reaches past them"
+        ));
+    }
+    let path = file.to_string_lossy().into_owned();
+    let not_text = |size: u64| FsFile {
+        path: path.clone(),
+        text: None,
+        is_binary: true,
+        size,
+        truncated: false,
+        read_bytes: 0,
+    };
+    let known = zstd::zstd_safe::get_frame_content_size(&head).ok().flatten();
+    let meta = fs::metadata(file).map_err(|e| format!("cannot stat: {e}"))?;
+    let len = meta.len();
+    // Without a modification time a rewrite cannot be told apart: nothing
+    // is kept, and nothing kept is used.
+    let modified = meta.modified().ok();
+    // The decoder the last window left for exactly this read, if it did.
+    let kept = INFLATE_RESUME.lock().ok().and_then(|mut slot| slot.take()).filter(|resume| {
+        Some(resume.modified) == modified
+            && resume.file == file
+            && resume.len == len
+            && resume.at == start
+            && resume.pending.len() as u64 <= cap
+    });
+    let (mut decoder, mut buf) = match kept {
+        Some(resume) => (resume.decoder, resume.pending),
+        None => {
+            let input = fs::File::open(file).map_err(|e| format!("cannot open: {e}"))?.take(INFLATE_INPUT_MAX);
+            let Ok(mut decoder) = zstd::stream::read::Decoder::new(input) else {
+                return Ok(Some(not_text(known.unwrap_or(0))));
+            };
+            if decoder.window_log_max(INFLATE_WINDOW_LOG_MAX).is_err()
+                || std::io::copy(&mut (&mut decoder).take(start), &mut std::io::sink()).is_err()
+            {
+                return Ok(Some(not_text(known.unwrap_or(0))));
+            }
+            (decoder, Vec::new())
+        }
+    };
+    let wanted = cap - buf.len() as u64;
+    if (&mut decoder).take(wanted).read_to_end(&mut buf).is_err() {
+        return Ok(Some(not_text(known.unwrap_or(0))));
+    }
+    let reached = start.saturating_add(buf.len() as u64);
+    let size = match known {
+        Some(size) => size,
+        None => {
+            // Counted to its end — and a stream that breaks on the way is
+            // not text, the same as one that breaks inside the window.
+            let Ok(rest) =
+                std::io::copy(&mut (&mut decoder).take(INFLATE_REACH - reached.min(INFLATE_REACH)), &mut std::io::sink())
+            else {
+                return Ok(Some(not_text(0)));
+            };
+            reached + rest
+        }
+    };
+    let truncated = size > reached;
+    // A cut character's stub, if the text drops one: the next window's
+    // first bytes, held by the decoder kept for it.
+    let tail_at = buf.len().saturating_sub(4);
+    let tail = buf[tail_at..].to_vec();
+    let Decoded { text, is_binary, read_bytes } = decode_text(buf, truncated);
+    let consumed = start + read_bytes;
+    if let (Some(size), Some(modified)) = (known, modified) {
+        if size > consumed {
+            let pending = tail[(read_bytes as usize).saturating_sub(tail_at).min(tail.len())..].to_vec();
+            if let Ok(mut slot) = INFLATE_RESUME.lock() {
+                *slot = Some(Resume { file: file.to_path_buf(), len, modified, at: consumed, pending, decoder });
+            }
+        }
+    }
+    Ok(Some(FsFile { path, text, is_binary, size, truncated, read_bytes }))
 }
 
 /// Bytes read from a file, as a reader receives them.
@@ -262,6 +420,224 @@ pub(crate) fn decode_text(buf: Vec<u8>, truncated: bool) -> Decoded {
 mod tests {
     use super::*;
     use crate::project_fs::testing::{roots, temp_root, write};
+
+    /// The read as every plain-file test here asks it: on disk as it is.
+    /// The compressed reads below name `inflate` themselves.
+    fn project_fs_read_file(
+        path: String,
+        roots: Vec<String>,
+        everywhere: bool,
+        max_bytes: Option<u64>,
+        offset: Option<u64>,
+    ) -> Result<FsFile, String> {
+        super::project_fs_read_file(path, roots, everywhere, max_bytes, offset, None)
+    }
+
+    /// A compressed read of `name` under `root`.
+    fn inflated(root: &std::path::Path, name: &str, max_bytes: Option<u64>, offset: Option<u64>) -> Result<FsFile, String> {
+        super::project_fs_read_file(
+            root.join(name).to_string_lossy().into_owned(),
+            roots(root),
+            false,
+            max_bytes,
+            offset,
+            Some(true),
+        )
+    }
+
+    fn write_bytes(path: &std::path::Path, bytes: &[u8]) {
+        fs::write(path, bytes).unwrap();
+    }
+
+    /// A rollout-shaped text: `lines` records, one per line.
+    fn jsonl(lines: usize) -> String {
+        (0..lines).map(|i| format!("{{\"i\":{i},\"pad\":\"{}\"}}\n", "x".repeat(40))).collect()
+    }
+
+    // ---- read_file, inflated (task-418) ----
+
+    #[test]
+    fn an_inflated_read_of_a_zstd_file_is_its_text_measured_in_decompressed_bytes() {
+        // Both frame shapes: with the content size in its header (codex writes
+        // it) and without (a stream encoder that was never told the size).
+        let root = temp_root();
+        let text = jsonl(200);
+        write_bytes(&root.join("sized.zst"), &zstd::bulk::compress(text.as_bytes(), 3).unwrap());
+        write_bytes(&root.join("unsized.zst"), &zstd::stream::encode_all(text.as_bytes(), 3).unwrap());
+
+        for name in ["sized.zst", "unsized.zst"] {
+            let file = inflated(&root, name, None, None).unwrap();
+            assert_eq!(file.text.as_deref(), Some(text.as_str()), "{name}");
+            assert_eq!(file.size, text.len() as u64, "{name}");
+            assert!(!file.truncated, "{name}");
+        }
+    }
+
+    /// Every window of `name` from offset zero, joined.
+    fn walk_inflated(root: &std::path::Path, name: &str, window: u64) -> String {
+        let mut at = 0;
+        let mut whole = String::new();
+        loop {
+            let read = inflated(root, name, Some(window), Some(at)).unwrap();
+            whole.push_str(read.text.as_deref().unwrap());
+            at += read.read_bytes;
+            if !read.truncated {
+                return whole;
+            }
+        }
+    }
+
+    #[test]
+    fn windows_of_a_zstd_file_reassemble_it_and_stop_at_its_end() {
+        let root = temp_root();
+        let text = jsonl(500);
+        write_bytes(&root.join("r.jsonl.zst"), &zstd::bulk::compress(text.as_bytes(), 3).unwrap());
+        write_bytes(&root.join("u.jsonl.zst"), &zstd::stream::encode_all(text.as_bytes(), 3).unwrap());
+
+        assert_eq!(walk_inflated(&root, "r.jsonl.zst", 4_096), text);
+        assert_eq!(walk_inflated(&root, "u.jsonl.zst", 4_096), text);
+        // Past the end: nothing, and nothing left to come back for.
+        let past = inflated(&root, "r.jsonl.zst", Some(10), Some(text.len() as u64 + 5)).unwrap();
+        assert_eq!((past.read_bytes, past.truncated), (0, false));
+    }
+
+    #[test]
+    fn a_kept_decoder_never_answers_a_read_it_does_not_stand_at() {
+        // A walk keeps its decoder between windows; a read elsewhere — an
+        // earlier window again, another file between two windows, a file
+        // rewritten under the walk — must read what is there, not continue.
+        let root = temp_root();
+        let a = jsonl(400);
+        let b: String = jsonl(400).replace("\"i\"", "\"j\"");
+        write_bytes(&root.join("a.zst"), &zstd::bulk::compress(a.as_bytes(), 3).unwrap());
+        write_bytes(&root.join("b.zst"), &zstd::bulk::compress(b.as_bytes(), 3).unwrap());
+
+        let first = inflated(&root, "a.zst", Some(1_000), Some(0)).unwrap();
+        let other = inflated(&root, "b.zst", Some(1_000), Some(0)).unwrap();
+        let next = inflated(&root, "a.zst", Some(1_000), Some(first.read_bytes)).unwrap();
+        let again = inflated(&root, "a.zst", Some(1_000), Some(0)).unwrap();
+        assert_eq!(first.text.as_deref(), Some(&a[..1_000]));
+        assert_eq!(other.text.as_deref(), Some(&b[..1_000]));
+        assert_eq!(next.text.as_deref(), Some(&a[1_000..2_000]));
+        assert_eq!(again.text.as_deref(), Some(&a[..1_000]));
+
+        // Rewritten between two windows: the next one reads the new file.
+        let _ = inflated(&root, "a.zst", Some(1_000), Some(0)).unwrap();
+        let c: String = jsonl(400).replace("\"i\"", "\"k\"");
+        write_bytes(&root.join("a.zst"), &zstd::bulk::compress(c.as_bytes(), 3).unwrap());
+        let after = inflated(&root, "a.zst", Some(1_000), Some(1_000)).unwrap();
+        assert_eq!(after.text.as_deref(), Some(&c[1_000..2_000]));
+    }
+
+    #[test]
+    fn a_walk_over_a_store_in_another_alphabet_reassembles_it_across_every_cut_character() {
+        // Windows of an odd size cut two-byte characters again and again;
+        // the stub a window gives back opens the next one, from the decoder
+        // kept for it.
+        let root = temp_root();
+        let text: String = (0..400).map(|i| format!("{{\"i\":{i},\"t\":\"привет, мир — запись {i}\"}}\n")).collect();
+        write_bytes(&root.join("ru.zst"), &zstd::bulk::compress(text.as_bytes(), 3).unwrap());
+        assert_eq!(walk_inflated(&root, "ru.zst", 1_001), text);
+    }
+
+    #[test]
+    fn a_sizeless_stream_that_breaks_past_the_window_is_not_text() {
+        // Counting it to its end runs into the break: the window alone would
+        // read as a whole store that simply ended early.
+        let root = temp_root();
+        // Many blocks, so the first window decodes whole from the first and
+        // the break lies in the count past it.
+        let compressed = zstd::stream::encode_all(jsonl(60_000).as_bytes(), 3).unwrap();
+        write_bytes(&root.join("whole.zst"), &compressed);
+        write_bytes(&root.join("cut.zst"), &compressed[..compressed.len() / 2]);
+        assert!(inflated(&root, "whole.zst", Some(1_000), None).unwrap().text.is_some());
+        let file = inflated(&root, "cut.zst", Some(1_000), None).unwrap();
+        assert!(file.text.is_none());
+    }
+
+    #[test]
+    fn a_rewrite_to_the_same_length_is_told_apart_by_its_modification_time() {
+        // Same compressed length, different text: only the mtime says the
+        // file changed, so it is what the kept decoder is checked against.
+        let root = temp_root();
+        let path = root.join("a.zst");
+        let variants: Vec<(String, Vec<u8>)> = ('a'..='z')
+            .map(|key| {
+                let text = jsonl(400).replace("\"i\"", &format!("\"{key}\""));
+                let compressed = zstd::bulk::compress(text.as_bytes(), 3).unwrap();
+                (text, compressed)
+            })
+            .collect();
+        let (first, second) = variants
+            .iter()
+            .enumerate()
+            .find_map(|(at, a)| variants[at + 1..].iter().find(|b| b.1.len() == a.1.len()).map(|b| (a, b)))
+            .expect("two variants that compress to one length");
+
+        write_bytes(&path, &first.1);
+        let stamp = fs::metadata(&path).unwrap().modified().unwrap();
+        let _ = inflated(&root, "a.zst", Some(1_000), Some(0)).unwrap();
+        write_bytes(&path, &second.1);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(stamp + std::time::Duration::from_secs(5))
+            .unwrap();
+        let next = inflated(&root, "a.zst", Some(1_000), Some(1_000)).unwrap();
+        assert_eq!(next.text.as_deref(), Some(&second.0[1_000..2_000]));
+    }
+
+    #[test]
+    fn a_file_that_is_not_zstd_reads_as_on_disk_even_when_asked_to_inflate() {
+        let root = temp_root();
+        write(&root.join("plain.jsonl"), "{\"a\":1}\n");
+        let file = inflated(&root, "plain.jsonl", None, None).unwrap();
+        assert_eq!(file.text.as_deref(), Some("{\"a\":1}\n"));
+        // And without asking, a .zst is the bytes on disk: not text.
+        write_bytes(&root.join("r.jsonl.zst"), &zstd::stream::encode_all(&b"{}\n"[..], 3).unwrap());
+        let raw = project_fs_read_file(
+            root.join("r.jsonl.zst").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(raw.text.is_none());
+    }
+
+    #[test]
+    fn a_bomb_is_read_a_window_at_a_time_and_never_past_its_reach() {
+        // 70 MiB of zeros compresses to a few KB: the window is capped on
+        // what comes OUT, and how deep a read may start is capped too.
+        let root = temp_root();
+        let zeros = vec![b'0'; 70 * 1024 * 1024];
+        write_bytes(&root.join("bomb.zst"), &zstd::stream::encode_all(&zeros[..], 3).unwrap());
+
+        let window = inflated(&root, "bomb.zst", Some(1024), None).unwrap();
+        assert_eq!((window.read_bytes, window.truncated), (1024, true));
+        assert!(inflated(&root, "bomb.zst", Some(1024), Some(INFLATE_REACH)).is_err());
+    }
+
+    #[test]
+    fn a_frame_that_wants_a_window_past_the_limit_is_not_text() {
+        // No content size, a 16 MiB window, and data to fill it: what a
+        // crafted frame demanding memory looks like.
+        let root = temp_root();
+        // TEXT, so a decoder that let the window through would read it as
+        // text — the refusal is what makes it not.
+        let data: Vec<u8> = (0..9 * 1024 * 1024u32).map(|i| b'a' + ((i.wrapping_mul(2654435761) >> 24) % 26) as u8).collect();
+        let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), 3).unwrap();
+        encoder.include_contentsize(false).unwrap();
+        encoder.window_log(24).unwrap();
+        std::io::Write::write_all(&mut encoder, &data).unwrap();
+        write_bytes(&root.join("wide.zst"), &encoder.finish().unwrap());
+
+        let file = inflated(&root, "wide.zst", Some(1024), None).unwrap();
+        assert!(file.text.is_none());
+        assert!(file.is_binary);
+    }
 
     // ---- read_dir ----
 

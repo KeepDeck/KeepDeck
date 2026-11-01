@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { FsEntry } from "@keepdeck/plugin-api";
-import { findRollout, newestRollouts, type StorePorts } from "./store";
+import {
+  findRollout,
+  findRolloutById,
+  newestRollouts,
+  rolloutName,
+  walkRollouts,
+  type StorePorts,
+} from "./store";
 import { present } from "@keepdeck/plugin-api/testing";
 
 /** A store shaped like codex's: `YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl`. */
@@ -32,6 +39,70 @@ function storeOf(
 
 const SID = "019f7683-d6f4-7b00-8e66-00c4694731be";
 const ROOT = "~/.codex/sessions";
+/** A reverted thread's new segment: `<thread>_<segment>`. */
+const SEGMENT = "019f7700-0000-7000-8000-000000000001";
+
+describe("rolloutName", () => {
+  it("reads the session from either name codex gives a rollout, compressed or not", () => {
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}.jsonl`)).toEqual({
+      sessionId: SID,
+      rolloutId: SID,
+      compressed: false,
+    });
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}.jsonl.zst`)).toEqual({
+      sessionId: SID,
+      rolloutId: SID,
+      compressed: true,
+    });
+    // The FIRST uuid is the thread — the session; the second names the
+    // segment a revert started: the file's own id, which a fork's base names.
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl`)).toEqual({
+      sessionId: SID,
+      rolloutId: SEGMENT,
+      compressed: false,
+    });
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl.zst`)).toEqual({
+      sessionId: SID,
+      rolloutId: SEGMENT,
+      compressed: true,
+    });
+  });
+
+  it("is nothing for a name that is not a rollout", () => {
+    for (const name of [
+      `${SID}.jsonl`,
+      `rollout-2026-07-18T03-00-00-${SID}.json`,
+      `rollout-2026-07-18T03-00-00-${SID}.jsonl.gz`,
+      "rollout-2026-07-18T03-00-00-other.jsonl",
+      `rollout-2026-07-18T03-00-00-${SID}.jsonl.zst.tmp`,
+    ]) {
+      expect(rolloutName(name), name).toBeNull();
+    }
+  });
+});
+
+describe("walkRollouts", () => {
+  const visited = async (ctx: StorePorts) => {
+    const names: string[] = [];
+    await walkRollouts(ctx, { file: (entry) => names.push(entry.name) });
+    return names;
+  };
+
+  it("visits one file per segment: the plain one, while codex has both on disk", async () => {
+    // Compressing, codex writes the .zst before it removes the plain file;
+    // making it plain again, the reverse — and it reads the plain one.
+    const plain = `rollout-2026-07-18T03-00-00-${SID}.jsonl`;
+    const compressedOnly = `rollout-2026-07-10T03-00-00-${SEGMENT}.jsonl.zst`;
+    const ctx = storeOf({
+      [ROOT]: [],
+      [`${ROOT}/2026`]: [],
+      [`${ROOT}/2026/07`]: [],
+      [`${ROOT}/2026/07/18`]: [plain, `${plain}.zst`],
+      [`${ROOT}/2026/07/10`]: [compressedOnly],
+    });
+    expect(await visited(ctx)).toEqual([plain, compressedOnly]);
+  });
+});
 
 describe("findRollout", () => {
   it("walks the day tree and prefers the NEWEST match", () => {
@@ -51,6 +122,42 @@ describe("findRollout", () => {
     return expect(findRollout(ctx, SID)).resolves.toBe(
       `${ROOT}/2026/07/18/rollout-2026-07-18T03-00-00-${SID}.jsonl`,
     );
+  });
+
+  it("finds only the plain file a live pane writes — never a compressed one", async () => {
+    // codex makes a compressed rollout plain before it appends, so the file
+    // a pane is writing is never a .zst; one found only compressed is not
+    // live yet, and the tail asks again.
+    const ctx = storeOf({
+      [ROOT]: [],
+      [`${ROOT}/2026`]: [],
+      [`${ROOT}/2026/07`]: [],
+      [`${ROOT}/2026/07/17`]: [`rollout-2026-07-17T01-00-00-${SID}.jsonl`],
+      [`${ROOT}/2026/07/18`]: [`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl.zst`],
+    });
+    await expect(findRollout(ctx, SID)).resolves.toBe(
+      `${ROOT}/2026/07/17/rollout-2026-07-17T01-00-00-${SID}.jsonl`,
+    );
+    const onlyCompressed = storeOf({
+      [ROOT]: [],
+      [`${ROOT}/2026`]: [],
+      [`${ROOT}/2026/07`]: [],
+      [`${ROOT}/2026/07/18`]: [`rollout-2026-07-18T03-00-00-${SID}.jsonl.zst`],
+    });
+    await expect(findRollout(onlyCompressed, SID)).resolves.toBeNull();
+  });
+
+  it("takes the session's newest file in its newest day — a reverted thread's live segment, not its earlier one", async () => {
+    const earlier = `rollout-2026-07-18T01-00-00-${SID}_019f7700-0000-7000-8000-00000000000e.jsonl`;
+    const live = `rollout-2026-07-18T05-00-00-${SID}_${SEGMENT}.jsonl`;
+    for (const listing of [[earlier, live], [live, earlier]]) {
+      const ctx = storeOf(
+        { [ROOT]: [], [`${ROOT}/2026`]: [], [`${ROOT}/2026/07`]: [], [`${ROOT}/2026/07/18`]: listing },
+        [],
+        { [earlier]: 1_000, [live]: 2_000 },
+      );
+      await expect(findRollout(ctx, SID), listing.join(", ")).resolves.toBe(`${ROOT}/2026/07/18/${live}`);
+    }
   });
 
   it("answers null for a session that has written nothing yet", async () => {
@@ -98,6 +205,35 @@ describe("findRollout", () => {
   });
 });
 
+describe("findRolloutById", () => {
+  it("finds a fork's source by its rollout id — a segment's own id — in the store, then the archive", async () => {
+    const ARCHIVED = "019f6000-0000-7000-8000-00000000000c";
+    const ctx = storeOf({
+      [ROOT]: [],
+      [`${ROOT}/2026`]: [],
+      [`${ROOT}/2026/07`]: [],
+      [`${ROOT}/2026/07/18`]: [`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl`],
+      "~/.codex/archived_sessions": [],
+      "~/.codex/archived_sessions/2026": [],
+      "~/.codex/archived_sessions/2026/06": [],
+      "~/.codex/archived_sessions/2026/06/01": [`rollout-2026-06-01T03-00-00-${ARCHIVED}.jsonl.zst`],
+    });
+    await expect(findRolloutById(ctx, SEGMENT)).resolves.toBe(
+      `${ROOT}/2026/07/18/rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl`,
+    );
+    // The thread's id is not the segment's: nothing names the file by it.
+    await expect(findRolloutById(ctx, SID)).resolves.toBeNull();
+    await expect(findRolloutById(ctx, ARCHIVED)).resolves.toBe(
+      `~/.codex/archived_sessions/2026/06/01/rollout-2026-06-01T03-00-00-${ARCHIVED}.jsonl.zst`,
+    );
+  });
+
+  it("is nothing without an archive to look in", async () => {
+    const ctx = storeOf({ [ROOT]: [] });
+    await expect(findRolloutById(ctx, SID)).resolves.toBeNull();
+  });
+});
+
 describe("newestRollouts", () => {
   const OTHER = "019f7683-d6f4-7b00-8e66-00c4694731bf";
 
@@ -115,12 +251,15 @@ describe("newestRollouts", () => {
         [`${ROOT}/2026/07/18`]: [
           `rollout-2026-07-18T02-00-00-${OTHER}.jsonl`,
           "notes.jsonl",
+          // Compressed: a week old at least, and not text to read limits from.
+          `rollout-2026-07-18T09-00-00-${SEGMENT}.jsonl.zst`,
         ],
       },
       [],
       {
         [`rollout-2026-07-17T01-00-00-${SID}.jsonl`]: 1_000,
         [`rollout-2026-07-18T02-00-00-${OTHER}.jsonl`]: 2_000,
+        [`rollout-2026-07-18T09-00-00-${SEGMENT}.jsonl.zst`]: 3_000,
       },
     );
 

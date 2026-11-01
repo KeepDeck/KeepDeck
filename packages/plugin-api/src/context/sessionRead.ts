@@ -66,6 +66,61 @@ export function jsonl<Record>(accepts: (value: unknown) => value is Record): Ses
 
 export type { JsonlRequest };
 
+/** The parts of one conversation stored apart, oldest first. */
+export interface ChainRequest<Req> {
+  parts: readonly Req[];
+}
+
+/**
+ * Several requests of one format read as ONE store, in order: a session
+ * whose history lives in more than one file — a codex fork reads the prefix
+ * of its source it inherited, then its own (task-588).
+ *
+ * One budget across all the parts, and one `consume`: to the caller it is a
+ * single conversation. A part that will not read (gone, rewritten, not
+ * text) is passed over and the reading goes on — what the other parts hold
+ * is still the conversation — and the reading then stops as that part did,
+ * so the caller marks it partly read. Not resumable: it reads a whole
+ * history, never a live tail.
+ */
+export function chained<Req, Item>(format: SessionFormat<Req, Item>): SessionFormat<ChainRequest<Req>, Item> {
+  return {
+    id: `chained:${format.id}`,
+    open(fs) {
+      const reader = format.open(fs);
+      return {
+        async pull(request, budget, consume) {
+          let payloadBytes = 0;
+          let items = 0;
+          let refused = 0;
+          let sourceBytes: number | undefined = 0;
+          /** The first way a part fell short, if one did. */
+          let fell: ReadStop | undefined;
+          const outcome = (stopped: ReadStop): ReadOutcome => ({
+            payloadBytes,
+            items,
+            ...(refused > 0 ? { refused } : {}),
+            stopped,
+            ...(sourceBytes !== undefined ? { sourceBytes } : {}),
+          });
+          for (const part of request.parts) {
+            const left = budget.maxPayloadBytes - payloadBytes;
+            if (left <= 0) return outcome("budget");
+            const read = await reader.pull(part, { maxPayloadBytes: left }, consume);
+            payloadBytes += read.payloadBytes;
+            items += read.items;
+            refused += read.refused ?? 0;
+            sourceBytes = sourceBytes !== undefined && read.sourceBytes !== undefined ? sourceBytes + read.sourceBytes : undefined;
+            if (read.stopped === "budget" || read.stopped === "satisfied") return outcome(read.stopped);
+            if (read.stopped !== "exhausted") fell ??= read.stopped;
+          }
+          return outcome(fell ?? "exhausted");
+        },
+      };
+    },
+  };
+}
+
 /** Why a read stopped. Four reasons rather than one `truncated` flag,
  * because they do not mean the same thing to the person at the other end:
  *

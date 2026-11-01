@@ -45,6 +45,8 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
   /** Panes nudged into a turn, in order. A wake carries nothing, so this is
    * the only trace of one — and the terminal's one job now. */
   const woken: string[] = [];
+  /** The nudges among those made after the last one was known lost. */
+  const lost: string[] = [];
   let timer: { at: number; fn: () => void } | null = null;
 
   const manager = createMailManager({
@@ -57,9 +59,10 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
       channelWatchers.add(listener);
       return () => channelWatchers.delete(listener);
     },
-    wake: (paneId) => {
+    wake: (paneId, afterLoss) => {
       if (!wakeable) return false;
       woken.push(paneId);
+      if (afterLoss) lost.push(paneId);
       return true;
     },
     asksAtTurnEnd: () => options.asksAtTurnEnd === true,
@@ -75,6 +78,7 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
   return {
     manager,
     woken,
+    lost,
     /** Set a pane's activity and tell the manager, as the tracker would. */
     reports(paneId: string, next: PaneActivity) {
       activity.set(paneId, next);
@@ -674,6 +678,37 @@ describe("createMailManager", () => {
     // collected: the first nudge evidently produced no turn.
     h.advance(PAST_RENUDGE);
     expect(h.woken).toEqual([B.paneId, B.paneId]);
+  });
+
+  it("nudges again at once, the other way, when the pane's side says the last nudge started no turn", () => {
+    // claude after an Esc: its Mod took the ring and claude refused the turn.
+    // The cadence is for a nudge that MAY have gone missing; this one did,
+    // and waiting the cadence out is how a pane sat deaf for five hours.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase" });
+    expect(h.woken).toEqual([B.paneId]);
+    h.advance(1_000);
+    h.manager.wakeLost(B.paneId);
+    expect(h.woken).toEqual([B.paneId, B.paneId]);
+    expect(h.lost).toEqual([B.paneId]);
+    // The word was for that attempt alone: the cadence's next one goes the
+    // usual way, and is reported again if it is refused again.
+    h.advance(PAST_RENUDGE);
+    expect(h.woken).toEqual([B.paneId, B.paneId, B.paneId]);
+    expect(h.lost).toEqual([B.paneId]);
+  });
+
+  it("a lost nudge wakes nobody once nothing is left to bring", () => {
+    // The person wrote in the meantime and the turn collected the mail: the
+    // word arrives about a nudge nobody needs any more.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase" });
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toHaveLength(1);
+    h.manager.wakeLost(B.paneId);
+    expect(h.woken).toEqual([B.paneId]);
+    expect(h.lost).toEqual([]);
   });
 
   it("keeps a permission prompt held even when asked at a turn boundary", () => {

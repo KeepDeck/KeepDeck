@@ -58,6 +58,12 @@ export interface MailChannel {
   /** Whether this channel runs as the agent's turn ends — what lets the deck
    * hold a message for a working pane instead of waking it. */
   readonly atTurnEnd: boolean;
+  /** Whether this channel fires outside any turn of the agent's own — a
+   * session starting, resuming, or compacted while idle — so what it is
+   * handed becomes context that no turn may ever act on. The deck hands it
+   * standing context only, and work only while a turn is running. Absent
+   * means false: the channel runs inside a turn. */
+  readonly outsideTurn?: boolean;
 }
 
 /** How an agent carries teammate mail: where it asks, and how its CLI must
@@ -79,10 +85,11 @@ export function admittedNormalizer(
       : null;
 }
 
-/** Whether mail may be handed out on this payload: the renderer, or why
- * not. Asked BEFORE anything is taken from the queue. */
+/** Whether mail may be handed out on this payload: the renderer and the
+ * channel the ask came through, or why not. Asked BEFORE anything is taken
+ * from the queue. */
 export type MailAdmission =
-  | { readonly render: MailReplyRenderer }
+  | { readonly render: MailReplyRenderer; readonly channel: MailChannel }
   | { readonly refused: string };
 
 export function admitMail(
@@ -102,13 +109,12 @@ export function admitMail(
   }
   // The reason is logged, and the event's name is whatever the pane's process
   // wrote: it stays out of the text.
-  if (!mail.channels.some((channel) => channel.event === attribution.event)) {
-    return { refused: "the event is not a mail channel" };
-  }
+  const channel = mail.channels.find((declared) => declared.event === attribution.event);
+  if (!channel) return { refused: "the event is not a mail channel" };
   if (attribution.actor !== "main") {
     return { refused: `raised by a ${attribution.actor === "child" ? "subagent" : "caller nobody can name"}` };
   }
-  return { render: mail.render };
+  return { render: mail.render, channel };
 }
 
 /** Whether this agent collects mail as its turn ends — so a message for a

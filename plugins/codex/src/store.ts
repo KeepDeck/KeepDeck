@@ -17,10 +17,42 @@ export interface StorePorts {
 
 /** codex's store root. Day-partitioned below this: `YYYY/MM/DD/`. */
 export const ROOT = "~/.codex/sessions";
+/** Where codex moves the sessions a person archives — not history to list,
+ * but still a fork's source to read (rollout/src/list.rs). */
+export const ARCHIVED_ROOT = "~/.codex/archived_sessions";
 
-/** `rollout-<stamp>-<uuid>.jsonl` — the uuid is the session id, which is the
- * only way to tie a file to a pane that reported one. */
-export const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
+/**
+ * The names codex gives a rollout (rollout/src/rollout_file_name.rs):
+ * `rollout-<stamp>-<thread>.jsonl`, or `rollout-<stamp>-<thread>_<segment>
+ * .jsonl` once a thread has been reverted onto a new segment — and either
+ * one followed by `.zst` once codex has compressed it (task-396). The FIRST
+ * uuid is the session id, the only way to tie a file to a pane that
+ * reported one.
+ */
+const ROLLOUT_NAME = new RegExp(`^rollout-.*?-(${UUID})(?:_(${UUID}))?\\.jsonl(\\.zst)?$`);
+
+/** What a rollout's file name says: whose session it is, which rollout it
+ * is, and whether codex has compressed it — a compressed file is old, never
+ * written to again (codex makes it plain before it appends), and not
+ * readable as text. */
+export interface RolloutName {
+  sessionId: string;
+  /** The file's own id: what a fork's `history_base.thread_id` names. The
+   * segment's uuid where there is one, the session's where there is not
+   * (rollout/src/metadata.rs). */
+  rolloutId: string;
+  compressed: boolean;
+}
+
+/** A rollout's name read, or null for anything else in the store. */
+export function rolloutName(name: string): RolloutName | null {
+  const match = ROLLOUT_NAME.exec(name);
+  return match
+    ? { sessionId: match[1], rolloutId: match[2] ?? match[1], compressed: match[3] !== undefined }
+    : null;
+}
 
 /**
  * Every rollout file in the store, NEWEST FIRST: a partition's files, then
@@ -32,23 +64,33 @@ export const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
  * or "unreadable store" itself. A partition that will not read is reported
  * to `unreadable` (ignored when absent) and skipped. `stop` is asked before
  * each sub-partition, so a search ends as soon as it has its answer.
+ *
+ * ONE file per segment: while codex is compressing a rollout, or making a
+ * compressed one plain again, both can stand side by side for a moment —
+ * and codex itself reads the plain one (compression.rs). So does this walk.
  */
 export async function walkRollouts(
   ctx: StorePorts,
   visit: {
-    file(entry: FsEntry, sessionId: string): void;
+    file(entry: FsEntry, name: RolloutName): void;
     stop?(): boolean;
     unreadable?(part: string, error?: unknown): void;
   },
+  root: string = ROOT,
 ): Promise<void> {
   const walk = async (entries: FsEntry[]): Promise<void> => {
     const dirs: FsEntry[] = [];
+    const files: { entry: FsEntry; name: RolloutName }[] = [];
     for (const entry of entries) {
       if (entry.kind === "dir") dirs.push(entry);
       else if (entry.kind === "file") {
-        const sessionId = FILE_UUID.exec(entry.name)?.[1];
-        if (sessionId) visit.file(entry, sessionId);
+        const name = rolloutName(entry.name);
+        if (name) files.push({ entry, name });
       }
+    }
+    const plain = new Set(files.filter((file) => !file.name.compressed).map((file) => file.entry.name));
+    for (const { entry, name } of files) {
+      if (!name.compressed || !plain.has(entry.name.slice(0, -".zst".length))) visit.file(entry, name);
     }
     dirs.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
     for (const dir of dirs) {
@@ -61,7 +103,35 @@ export async function walkRollouts(
       if (children) await walk(children);
     }
   };
-  await walk(await ctx.services.fs.readDir(ROOT));
+  await walk(await ctx.services.fs.readDir(root));
+}
+
+/**
+ * The file a rollout id names — a fork's source, found by the id its
+ * `history_base` gives — in the store, then among the archived sessions,
+ * the order codex looks in. Null when neither holds it; an archive that is
+ * not there holds nothing.
+ */
+export async function findRolloutById(ctx: StorePorts, rolloutId: string): Promise<string | null> {
+  for (const root of [ROOT, ARCHIVED_ROOT]) {
+    let found: string | null = null;
+    try {
+      await walkRollouts(
+        ctx,
+        {
+          file: (entry, name) => {
+            if (name.rolloutId === rolloutId && found === null) found = entry.path;
+          },
+          stop: () => found !== null,
+        },
+        root,
+      );
+    } catch {
+      continue;
+    }
+    if (found !== null) return found;
+  }
+  return null;
 }
 
 /**
@@ -73,23 +143,36 @@ export async function walkRollouts(
  * Absence is ordinary rather than an error. codex writes the rollout when
  * the session's first turn lands, so a pane that has reported its id but not
  * yet worked has no file — and the caller simply asks again later.
+ *
+ * PLAIN files only: this is the file a live pane is writing, and codex
+ * never writes to a compressed one — it makes it plain again first. A
+ * session found only compressed is not live yet, and is asked about again.
  */
 export async function findRollout(
   ctx: StorePorts,
   sessionId: string,
 ): Promise<string | null> {
-  let found: string | null = null;
+  const found: { entry: FsEntry | null } = { entry: null };
   try {
     await walkRollouts(ctx, {
-      file: (entry, id) => {
-        if (id === sessionId && found === null) found = entry.path;
+      // The partition that first holds the session decides — the walk
+      // reaches the newest first — and within it, its newest file: a
+      // reverted thread's earlier segment sits beside the one being written.
+      file: (entry, name) => {
+        if (name.sessionId === sessionId && !name.compressed) found.entry = newerOf(found.entry, entry);
       },
-      stop: () => found !== null,
+      stop: () => found.entry !== null,
     });
   } catch {
     return null;
   }
-  return found;
+  return found.entry?.path ?? null;
+}
+
+/** Of two files of one session, the one written last — the session as it
+ * stands. One rule for the tail's lookup and the history's listing. */
+export function newerOf(held: FsEntry | null | undefined, entry: FsEntry): FsEntry {
+  return !held || (entry.mtime ?? 0) > (held.mtime ?? 0) ? entry : held;
 }
 
 /**
@@ -100,6 +183,8 @@ export async function findRollout(
  * its rollout before any turn, though, so the newest file often carries no
  * limits at all and the real last word is one or two files back — hence a
  * LIST rather than an answer, read in order until one says something.
+ * Plain files only: a compressed rollout is a week old at least, and not
+ * readable as text.
  */
 export async function newestRollouts(
   ctx: StorePorts,
@@ -108,7 +193,9 @@ export async function newestRollouts(
   const found: { path: string; mtime: number }[] = [];
   try {
     await walkRollouts(ctx, {
-      file: (entry) => found.push({ path: entry.path, mtime: entry.mtime ?? 0 }),
+      file: (entry, name) => {
+        if (!name.compressed) found.push({ path: entry.path, mtime: entry.mtime ?? 0 });
+      },
       stop: () => found.length >= limit,
     });
   } catch {

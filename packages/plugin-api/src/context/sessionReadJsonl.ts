@@ -27,6 +27,10 @@ export interface JsonlRequest {
   path: string;
   /** Continue from where a previous read stopped; omitted = from the start. */
   from?: SessionCursor;
+  /** Read the file as if it ended at this byte — a line boundary another
+   * store points to: the prefix of its source a codex fork inherits
+   * (task-588). A file shorter than that is not the file pointed to. */
+  until?: number;
 }
 
 /** What a jsonl cursor holds: the byte to resume at — always a line boundary,
@@ -138,19 +142,24 @@ export function createJsonlReader<Item>(
         // in the answer, not in the mechanism. A record longer than the whole
         // budget stops here too, as a carry that never resolves.
         const left = budget.maxPayloadBytes - (at - start);
+        // A prefix read that has reached its end has read its whole store.
+        if (request.until !== undefined && at >= request.until) return outcome("exhausted");
         if (left <= 0) return outcome("budget");
 
         const file = await fs.readFile(request.path, {
-          maxBytes: Math.min(CHUNK_BYTES, left),
+          maxBytes: Math.min(CHUNK_BYTES, left, (request.until ?? Infinity) - at),
           offset: at,
+          // A store an agent compressed is still its store (task-418).
+          inflate: true,
         });
-        sourceBytes = file.size;
+        sourceBytes = request.until ?? file.size;
 
         // An append-only store cannot lose bytes it already wrote, so a file
         // shorter than the position we are reading from is a DIFFERENT file.
         // (Growth proves nothing either way and is the normal case — a live
-        // session appends between two reads.)
-        if (file.size < Math.max(resume.size, at)) return outcome("changed");
+        // session appends between two reads.) Nor can one hold less than the
+        // prefix another store points into.
+        if (file.size < Math.max(resume.size, at, request.until ?? 0)) return outcome("changed");
         // Not text at all: a store with a NUL byte or a broken encoding. The
         // conversation did not end here, and there is nothing to retry.
         if (file.text === null) return outcome("unreadable");
@@ -162,12 +171,15 @@ export function createJsonlReader<Item>(
         const buffer = carry + file.text;
         const bufferStart = at - carryBytes;
         at += file.readBytes;
+        // The window that reaches a prefix's end is its last, whatever the
+        // file holds past it.
+        const truncated = file.truncated && (request.until === undefined || at < request.until);
 
         const lines = buffer.split("\n");
         // A truncated window's last piece is an unfinished line; a final
         // window's last piece is a record that simply lacks its newline, and
         // dropping it would silently lose the newest turn of a live session.
-        const complete = file.truncated ? lines.length - 1 : lines.length;
+        const complete = truncated ? lines.length - 1 : lines.length;
         let chars = 0;
 
         for (let i = 0; i < complete; i++) {
@@ -205,7 +217,7 @@ export function createJsonlReader<Item>(
           if (consume(record) === "enough") return outcome("satisfied");
         }
 
-        if (!file.truncated) {
+        if (!truncated) {
           consumedEnd = bufferStart + utf8Length(buffer, chars);
           return outcome("exhausted");
         }

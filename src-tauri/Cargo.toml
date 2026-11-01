@@ -17,6 +17,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# Reading a session store an agent compressed (codex's `.jsonl.zst`,
+# task-418): the same library codex writes it with. No legacy formats and
+# no dictionary builder — decoding a stream is all it is here for.
+zstd = { version = "0.14", default-features = false }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"

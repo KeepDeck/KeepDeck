@@ -79,7 +79,7 @@ import {
   subscribeSessions,
 } from "./ptyManager";
 import { subscribePaneKeys } from "./paneKeys";
-import { subscribePaneInput } from "./paneInput";
+import { subscribePaneComposerTouched, subscribePaneInput } from "./paneInput";
 import {
   nudgeBridgePane,
   replyToBridgeHook,
@@ -89,7 +89,7 @@ import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
 import { createSessionIndexManager } from "./sessionIndexManager";
 import { createPaneLifecycle } from "./paneLifecycle";
-import { listenPaneCompanions } from "./paneCompanions";
+import { listenCompanionDeclines, listenPaneCompanions } from "./paneCompanions";
 import { listenPaneUnbinds } from "./paneUnbinding";
 import { subscribeRoleCatalogChanges } from "./roleCatalogManager";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
@@ -399,6 +399,7 @@ export function createAppRuntime(
         onChanged: tasks.access.subscribe,
       },
       terminal: { wake: wakePaneForMail },
+      composer: { subscribe: subscribePaneComposerTouched },
       bridge: {
         reply: replyToBridgeHook,
         nudge: nudgeBridgePane,
@@ -492,6 +493,7 @@ export function createAppRuntime(
   let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
   let statusChannel: ReturnType<typeof createAgentStatusChannel> | null = null;
   let companionHellos: ReturnType<typeof listenPaneCompanions> | null = null;
+  let companionDeclines: ReturnType<typeof listenCompanionDeclines> | null = null;
   let paneUnbinds: ReturnType<typeof listenPaneUnbinds> | null = null;
   let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
     null;
@@ -551,6 +553,11 @@ export function createAppRuntime(
       // Before the lanes that read it act on a hello: which source states a
       // pane's facts is decided per process, and the ledger is attribution's.
       companionHellos ??= listenPaneCompanions(deckStore, attribution);
+      // A companion that took the doorbell and could not start the turn:
+      // mail nudges that pane again, the way its agent still takes.
+      companionDeclines ??= listenCompanionDeclines(deckStore, attribution, (paneId, wake) =>
+        mail.wakeDeclined(paneId, wake),
+      );
       paneUnbinds ??= listenPaneUnbinds(deckStore, attribution, lifecycle);
       statusChannel ??= createAgentStatusChannel(
         deckStore,
@@ -598,6 +605,7 @@ export function createAppRuntime(
       usageChannel?.dispose();
       statusChannel?.dispose();
       companionHellos?.dispose();
+      companionDeclines?.dispose();
       paneUnbinds?.dispose();
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
