@@ -7,13 +7,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "eslint && tsc && vite build && node scripts/build-plugins.mjs && node --experimental-vm-modules --disable-warning=ExperimentalWarning scripts/check-plugin-bundles.mjs dist",
+    "build": "eslint && pnpm typecheck && vite build && node scripts/build-plugins.mjs && node --experimental-vm-modules --disable-warning=ExperimentalWarning scripts/check-plugin-bundles.mjs dist",
     "build:plugins": "node scripts/build-plugins.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:q1:diagnose": "node scripts/q1-diagnose.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint",
     "tauri": "tauri",
     "build:macos": "./build-macos.sh"

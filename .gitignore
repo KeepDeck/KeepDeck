@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+# tsc's incremental state: a composite project writes it even with --noEmit
+*.tsbuildinfo
 
 # Editor directories and files
 .vscode/*

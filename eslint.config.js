@@ -47,6 +47,10 @@ const COMPONENT_TESTS = [
   "**/*.fake.{ts,tsx}",
 ];
 const RESOURCE_JS = ["plugins/*/resources/**/*.js"];
+/** The root build configs: TypeScript outside the app's own tsconfig (they
+ * are tsconfig.node.json's), so they take the rules that need no type
+ * information, the ban on suppressions among them. */
+const CONFIG_TS = ["*.config.ts"];
 const BAN_TS_COMMENT = ["error", { "ts-expect-error": true, "ts-ignore": true, "ts-nocheck": true, "ts-check": false }];
 
 /**
@@ -114,7 +118,7 @@ export default [
   { ignores: ["**/*.{mjs,cjs}", "**/dist/**", "**/node_modules/**", "target/**", "src-tauri/**"] },
 
   {
-    files: [...TYPESCRIPT, ...RESOURCE_JS],
+    files: [...TYPESCRIPT, ...RESOURCE_JS, ...CONFIG_TS],
     languageOptions: { parser: tsParser },
     plugins: { "@typescript-eslint": tsPlugin },
     linterOptions: { noInlineConfig: true },
