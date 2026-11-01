@@ -122,19 +122,26 @@ describe("building one plan through the agent hook", () => {
       },
     });
 
-    it("a plan that carries YOLO starts the pane in it", async () => {
+    it("a plan that carries YOLO starts the pane in it — and the log says so", async () => {
+      const info = vi.spyOn(log, "info");
       h.register(planning(true));
       await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }, { id: "pane-2", agentType: "claude" }]));
       await settle();
       expect(h.seen["pane-1"].yolo).toBe(true);
       expect(h.seen["pane-2"].yolo).toBeUndefined();
+      expect(info).toHaveBeenCalledWith("web:agents", "pane-1: spawn plan for claude — YOLO asked, starts in it");
+      expect(info).toHaveBeenCalledWith("web:agents", "pane-2: spawn plan for claude — YOLO not asked, starts without it");
+      info.mockRestore();
     });
 
-    it("a pane asked for YOLO whose plan does not carry it starts without it", async () => {
+    it("a pane asked for YOLO whose plan does not carry it starts without it — the line a dropped YOLO is traced by", async () => {
+      const info = vi.spyOn(log, "info");
       h.register(planning(false));
       await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }]));
       await settle();
       expect(h.seen["pane-1"].yolo).toBeUndefined();
+      expect(info).toHaveBeenCalledWith("web:agents", "pane-1: spawn plan for claude — YOLO asked, starts without it");
+      info.mockRestore();
     });
 
     /** A plugin whose plan throws, and whose floor carries YOLO or not. */

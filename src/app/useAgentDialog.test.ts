@@ -28,7 +28,7 @@ const blockedDirs = vi.hoisted(() => new Set<string>());
 const logged = vi.hoisted((): string[] => []);
 vi.mock("../ipc/log", () => ({
   log: {
-    info: (_target: string, message: string) => logged.push(message),
+    info: (target: string, message: string) => logged.push(`${target} ${message}`),
     warn: () => {},
     error: () => {},
     debug: () => {},
@@ -203,11 +203,31 @@ describe("useAgentDialog suggestions", () => {
     await confirm("claude", false);
     await confirm("plain", false);
 
-    const said = logged.filter((line) => line.includes("dialog confirmed"));
-    expect(said).toHaveLength(3);
-    expect(said[0]).toMatch(/member dialog confirmed — claude, YOLO on$/);
-    expect(said[1]).toMatch(/member dialog confirmed — claude, YOLO off$/);
-    expect(said[2]).toMatch(/member dialog confirmed — plain, YOLO off \(the agent declares no YOLO\)$/);
+    // Each line names the pane the trace hangs on — the one the dialog made.
+    const pane = (n: number) => createPane.mock.calls[n][0].pane.id;
+    expect(logged.filter((line) => line.includes("dialog confirmed"))).toEqual([
+      `web:agents ${pane(0)}: member dialog confirmed — claude, YOLO on`,
+      `web:agents ${pane(1)}: member dialog confirmed — claude, YOLO off`,
+      `web:agents ${pane(2)}: member dialog confirmed — plain, YOLO off (the agent declares no YOLO)`,
+    ]);
+  });
+
+  it("says no YOLO either way for a dialog confirmed with no agent", async () => {
+    const ws = workspace({});
+    await mount(ws);
+    await act(async () => flow.openFor(ws));
+    await act(async () => {
+      flow.confirm({
+        agentType: null,
+        name: "",
+        location: { kind: "new", path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" },
+        yolo: false,
+        teamName: "docs",
+      });
+    });
+    expect(logged.filter((line) => line.includes("dialog confirmed"))).toEqual([
+      expect.stringMatching(/new-team dialog confirmed — no agent, YOLO n\/a$/),
+    ]);
   });
 
   it("prefills the first suggestion NOT held by a team", async () => {

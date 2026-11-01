@@ -325,9 +325,11 @@ export function useAgentDialog(
     // beside whether that agent can take one at all — an agent that started
     // without the YOLO the person meant can then be traced to the toggle or
     // to the agent (task-576).
-    const yolo = result.yolo
-      ? "on"
-      : agentSupportsYolo(agents, result.agentType) ? "off" : "off (the agent declares no YOLO)";
+    const yolo = result.agentType === null
+      ? "n/a"
+      : result.yolo
+        ? "on"
+        : agentSupportsYolo(agents, result.agentType) ? "off" : "off (the agent declares no YOLO)";
     log.info("web:agents", `${dlg.agentId}: ${dlg.target.kind} dialog confirmed — ${result.agentType ?? "no agent"}, YOLO ${yolo}`);
     // Closed first, whatever the door answers: a refusal is a notice and a
     // question is its own dialog, and neither stacks on top of this one.
