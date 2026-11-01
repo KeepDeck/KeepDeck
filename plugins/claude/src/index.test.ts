@@ -343,6 +343,12 @@ describe("claude plugin hooks", () => {
     const spawn = output();
     await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, spawn);
     expect(spawn.args).toEqual(["--dangerously-skip-permissions"]);
+    // ...and says the launch starts in it, which the pane shows until claude
+    // reports its own mode.
+    expect(spawn.yolo).toBe(true);
+    const plain = output();
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(input, plain);
+    expect(plain.yolo).toBeUndefined();
 
     const resume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")(

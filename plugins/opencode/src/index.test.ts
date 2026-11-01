@@ -479,6 +479,8 @@ describe("opencode plugin hooks", () => {
     const spawn = output();
     await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(v2, spawn);
     expect(spawn.args).toEqual(["--standalone", "--dangerously-skip-permissions"]);
+    // ...and the plan says the launch starts in YOLO.
+    expect(spawn.yolo).toBe(true);
 
     const resume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...v2, sessionId: "ses_x" }, resume);
@@ -538,6 +540,7 @@ describe("opencode plugin hooks", () => {
     const spawn = output();
     await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, spawn);
     expect(spawn.args).toEqual(["--dangerously-skip-permissions"]);
+    expect(spawn.yolo).toBe(true);
     // The reporter's env injection is independent of the mode.
     expect(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
 

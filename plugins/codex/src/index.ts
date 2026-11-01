@@ -7,6 +7,7 @@
  */
 import {
   launchPlans,
+  yoloSwitch,
   mailAskArgs,
   shellQuote,
   type CwdArm,
@@ -134,8 +135,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
 
 /** codex's YOLO switch (`--yolo` is its alias). Global like `-c`, so it
  * must precede the `resume` subcommand. */
-const yoloArgs = (yolo: boolean | undefined): string[] =>
-  yolo ? ["--dangerously-bypass-approvals-and-sandbox"] : [];
+const YOLO_SWITCH = ["--dangerously-bypass-approvals-and-sandbox"];
 
 /** codex's PasteBurst heuristic collapses fast UNBRACKETED input beyond
  * ~1000 chars into a non-editable [Pasted Content N chars] placeholder. It
@@ -218,7 +218,7 @@ export function registerCodex(ctx: CodexPorts): void {
             ...(await hookArgs(ctx.resources)),
             ...mcpArgs(input.mcp, ctx.log),
             ...disablePasteBurstArgs,
-            ...yoloArgs(input.yolo),
+            ...yoloSwitch(input, output, YOLO_SWITCH),
           );
         },
         resume: (input) => ["resume", input.sessionId],

@@ -18,6 +18,7 @@
 import {
   errorMessage,
   launchPlans,
+  yoloSwitch,
   mailAskArgs,
   shellQuote,
   type KeepDeckPlugin,
@@ -225,8 +226,7 @@ const MOD_PLUGIN_NAME = "keepdeck-reporter";
 
 /** claude's YOLO switch. First use shows claude's own one-time in-TUI
  * acceptance prompt — expected, it runs interactively in the pane. */
-const yoloArgs = (yolo: boolean | undefined): string[] =>
-  yolo ? ["--dangerously-skip-permissions"] : [];
+const YOLO_SWITCH = ["--dangerously-skip-permissions"];
 
 /** The shared skills, loaded as a per-session LOCAL plugin this plugin
  * builds (skillsPlugin.ts). A directory that could not be built costs the
@@ -278,7 +278,7 @@ async function stageLaunch(
     ...mod,
     ...(await skillsArgs(ctx, input)),
     ...mcpArgs(input.mcp),
-    ...yoloArgs(input.yolo),
+    ...yoloSwitch(input, output, YOLO_SWITCH),
   );
   output.env.push(...artifactsEnv(await ctx.settings.read()));
 }

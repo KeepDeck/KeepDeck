@@ -6,6 +6,7 @@ import { readKimiLimits, type LimitsPorts } from "./limits";
 import { kimiMcpArms } from "./mcp";
 import {
   launchPlans,
+  yoloSwitch,
   sha256Hex,
   type KeepDeckPlugin,
   type PluginAgents,
@@ -70,9 +71,9 @@ const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
  * DEFAULT, so a user who set the variable themselves keeps their answer. */
 function stageLaunch(
   input: Pick<SpawnPlanInput, "skills" | "yolo">,
-  output: Pick<SpawnPlanOutput, "args" | "envDefaults">,
+  output: Pick<SpawnPlanOutput, "args" | "envDefaults" | "yolo">,
 ): void {
-  output.args.push(...skillsArgs(input.skills), ...(input.yolo ? ["--yolo"] : []));
+  output.args.push(...skillsArgs(input.skills), ...yoloSwitch(input, output, ["--yolo"]));
   (output.envDefaults ??= []).push(["KIMI_CODE_TRUST_WORKSPACE", "1"]);
 }
 

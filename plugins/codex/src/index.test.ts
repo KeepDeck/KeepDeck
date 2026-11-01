@@ -300,6 +300,8 @@ describe("codex plugin hooks", () => {
       "disable_paste_burst=true",
       "--dangerously-bypass-approvals-and-sandbox",
     ]);
+    // ...and says the launch starts in it.
+    expect(spawn.yolo).toBe(true);
 
     const resume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")(

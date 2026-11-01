@@ -207,6 +207,8 @@ describe("Kimi CLI plugin", () => {
     const spawn = output();
     await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, yolo: true }, spawn);
     expect(spawn.args).toEqual(["--yolo"]);
+    // ...and says the launch starts in it.
+    expect(spawn.yolo).toBe(true);
 
     const resume = output();
     await present(agent.hooks["resume.plan"], "the resume.plan hook")(
