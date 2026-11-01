@@ -18,11 +18,16 @@
 //! granted" press asks and waits `ANSWER_WAIT` — a standing grant answers
 //! in time, a real prompt does not.
 
-use super::error::{VoiceError, VoiceErrorKind};
-use std::future::Future;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::sync::oneshot;
+use super::error::VoiceError;
+// What the decision and its channel need, built only where they are.
+#[cfg(any(target_os = "macos", test))]
+use {
+    super::error::VoiceErrorKind,
+    std::future::Future,
+    std::sync::{Arc, Mutex},
+    std::time::Duration,
+    tokio::sync::oneshot,
+};
 
 /// How long a press that read "not granted" waits for tccd's answer.
 ///
@@ -32,7 +37,7 @@ use tokio::sync::oneshot;
 /// the next press, the cache refreshed by then, records. The other edge is
 /// harmless — a human who allows the prompt within the second records at
 /// once, as they asked to.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg(target_os = "macos")]
 const ANSWER_WAIT: Duration = Duration::from_secs(1);
 
 /// `Ok` when the app may record; otherwise fires the OS prompt and fails
@@ -52,7 +57,8 @@ pub(super) async fn ensure_microphone() -> Result<(), VoiceError> {
 /// The decision, over the two platform calls: `cached` is the in-process
 /// status (may be stale), `request` asks tccd and answers on a channel.
 /// Only a grant that arrives within `wait` overturns a "not granted".
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+/// Built where it runs (macOS) and where it is tested (everywhere).
+#[cfg(any(target_os = "macos", test))]
 async fn ensure_with(
     cached: impl Future<Output = bool>,
     request: impl FnOnce() -> oneshot::Receiver<bool>,
@@ -81,8 +87,9 @@ async fn ensure_with(
 /// called any number of times, from any thread, and puts the FIRST answer
 /// on the receiver. Logged every time, so a granted/denied decision is
 /// visible without the Settings app; an answer nobody waits for any more
-/// (the wait timed out) is dropped.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+/// (the wait timed out) is dropped. Built where it runs (macOS) and where it
+/// is tested (everywhere).
+#[cfg(any(target_os = "macos", test))]
 fn answer_channel() -> (
     impl Fn(bool) + Clone + Send + Sync + 'static,
     oneshot::Receiver<bool>,
