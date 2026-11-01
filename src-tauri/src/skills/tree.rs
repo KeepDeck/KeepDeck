@@ -107,6 +107,11 @@ pub(super) enum Why {
     Special,
     /// Something that could not be read.
     Unreadable,
+    /// A name the copy holds already: another entry's, which the volume the
+    /// copy is made on takes for the same.
+    NameTaken,
+    /// A path too long for the volume the copy is made on.
+    PathTooLong,
 }
 
 /// Something a copy left out, by its path inside the skill's folder.
@@ -128,32 +133,32 @@ pub(super) enum TreeCopy {
 }
 
 /// Copy the skill folder `src` — all of it but its SKILL.md, which the caller
-/// writes from the text it read — into a new folder `dest`, within
-/// `allowance`.
+/// writes from the text it read — into `dest`, a folder the caller made new
+/// and empty for it, within `allowance`.
 pub(super) fn copy_tree(src: &Path, dest: &Path, allowance: Allowance) -> io::Result<TreeCopy> {
     let root = match fsb::open_dir(src) {
         Err(e) if gone(&e) => return Ok(TreeCopy::Gone),
         other => other?,
     };
     let top = fsb::stat_of(&root)?;
-    fs::create_dir(dest)?;
     let mut walk = Walk { root: &root, left: allowance, left_out: Vec::new(), ancestry: vec![(top.dev, top.ino)] };
     match walk.folder(&root, &[], dest, true) {
         Ok(()) => Ok(TreeCopy::Copied { used: allowance.less(walk.left), left_out: walk.left_out }),
-        Err(stop) => {
-            let _ = fs::remove_dir_all(dest);
-            match stop {
-                Stop::TooBig => Ok(TreeCopy::TooBig),
-                Stop::Failed(e) => Err(e),
-            }
+        Err(Stop::TooBig) => {
+            // Nothing of it stays behind: the folder is as empty as it came.
+            fs::remove_dir_all(dest)?;
+            fs::create_dir(dest)?;
+            Ok(TreeCopy::TooBig)
         }
+        Err(Stop::Failed(e)) => Err(e),
     }
 }
 
 /// Why a walk stopped short.
 enum Stop {
     TooBig,
-    /// Writing the copy failed: the view itself cannot be made.
+    /// Writing the copy failed, and not for any one entry's name: the view
+    /// itself cannot be made.
     Failed(io::Error),
 }
 
@@ -227,7 +232,7 @@ impl Walk<'_> {
                 },
                 Kind::Link => match self.resolve(real, &name) {
                     Ok(Target::Folder(sub, at)) => self.descend(sub, at, &target, real, &name)?,
-                    Ok(Target::File(file, stat)) => self.copy(&file, stat, &target)?,
+                    Ok(Target::File(file, stat)) => self.copy(&file, stat, &target, real, &name)?,
                     Ok(Target::Special) => self.leave(real, Some(&name), Why::Special),
                     Err(why) => self.leave(real, Some(&name), why),
                 },
@@ -247,7 +252,9 @@ impl Walk<'_> {
             self.leave(real, Some(name), Why::LinkCycle);
             return Ok(());
         }
-        fs::create_dir(target)?;
+        if let Err(e) = fs::create_dir(target) {
+            return self.unwritten(e, real, name);
+        }
         self.ancestry.push(id);
         let walked = self.folder(&sub, &at, target, false);
         self.ancestry.pop();
@@ -261,23 +268,45 @@ impl Walk<'_> {
             self.leave(real, Some(name), Why::Special);
             return Ok(());
         }
-        self.copy(file, stat, target)
+        self.copy(file, stat, target, real, name)
     }
 
-    fn copy(&mut self, file: &File, stat: Stat, target: &Path) -> Result<(), Stop> {
-        match fsb::copy_file(file, target, fsb::copy_mode(stat.runnable), self.left.bytes)? {
-            Some(written) => {
+    fn copy(&mut self, file: &File, stat: Stat, target: &Path, real: &[OsString], name: &OsStr) -> Result<(), Stop> {
+        match fsb::copy_file(file, target, fsb::copy_mode(stat.runnable), self.left.bytes) {
+            Ok(Some(written)) => {
                 self.left.bytes -= written;
                 Ok(())
             }
-            None => Err(Stop::TooBig),
+            Ok(None) => Err(Stop::TooBig),
+            Err(e) => self.unwritten(e, real, name),
         }
     }
 
+    /// The entry `name` in `real` could not be made in the copy. One the copy
+    /// cannot hold under its name is left out, as one broken entry loses only
+    /// itself; any other failure is the view's own.
+    fn unwritten(&mut self, e: io::Error, real: &[OsString], name: &OsStr) -> Result<(), Stop> {
+        let why = match e.raw_os_error() {
+            Some(libc::EEXIST) => Why::NameTaken,
+            Some(libc::ENAMETOOLONG) => Why::PathTooLong,
+            _ => return Err(Stop::Failed(e)),
+        };
+        self.leave(real, Some(name), why);
+        Ok(())
+    }
+
     /// Where the link `name` in the skill's folder `real` leads — followed
-    /// from the skill's own folder one name at a time, never out of it.
+    /// from the skill's own folder one name at a time, never out of it, each
+    /// folder on the way opened from the one before: one open per name,
+    /// however deep the skill.
     fn resolve(&self, real: &[OsString], name: &OsStr) -> Result<Target, Why> {
-        let mut at: Vec<OsString> = real.to_vec();
+        // What the names have led to so far, each open: folders, and — as
+        // the last name only — whatever else it is.
+        let mut way: Vec<(OsString, File)> = Vec::with_capacity(real.len());
+        for part in real {
+            let dir = fsb::open_at(here(self.root, &way), part, libc::O_DIRECTORY).map_err(|_| Why::LinkDangles)?;
+            way.push((part.clone(), dir));
+        }
         let mut pending: VecDeque<OsString> = VecDeque::from([name.to_os_string()]);
         let mut hops = 0;
         while let Some(part) = pending.pop_front() {
@@ -285,11 +314,11 @@ impl Walk<'_> {
                 continue;
             }
             if part == ".." {
-                at.pop().ok_or(Why::LinkOut)?;
+                way.pop().ok_or(Why::LinkOut)?;
                 continue;
             }
-            let dir = fsb::open_dir_beneath(self.root, &as_path(&at)).map_err(|_| Why::LinkDangles)?;
-            let stat = fsb::stat_at(&dir, &part).map_err(|e| {
+            let dir = here(self.root, &way);
+            let stat = fsb::stat_at(dir, &part).map_err(|e| {
                 if e.kind() == ErrorKind::NotFound { Why::LinkDangles } else { Why::Unreadable }
             })?;
             match stat.kind {
@@ -298,7 +327,7 @@ impl Walk<'_> {
                     if hops > MAX_HOPS {
                         return Err(Why::LinkCycle);
                     }
-                    let to = fsb::read_link_at(&dir, &part).map_err(|_| Why::Unreadable)?;
+                    let to = fsb::read_link_at(dir, &part).map_err(|_| Why::Unreadable)?;
                     let mut spliced = Vec::new();
                     for step in Path::new(&to).components() {
                         match step {
@@ -314,26 +343,29 @@ impl Walk<'_> {
                         pending.push_front(step);
                     }
                 }
-                Kind::Dir => at.push(part),
-                Kind::File | Kind::Other => {
-                    // A file named as a folder on the way.
-                    if !pending.is_empty() {
-                        return Err(Why::LinkDangles);
-                    }
-                    at.push(part);
+                // Never opened: nothing to copy, and nothing to wait on — or,
+                // named as a folder on the way, nowhere to go on to.
+                Kind::Other => {
+                    return if pending.is_empty() { Ok(Target::Special) } else { Err(Why::LinkDangles) };
+                }
+                // A file named as a folder on the way.
+                Kind::File if !pending.is_empty() => return Err(Why::LinkDangles),
+                Kind::Dir | Kind::File => {
+                    let flags = if stat.kind == Kind::Dir { libc::O_DIRECTORY } else { libc::O_NONBLOCK };
+                    // Opened following no link: anything swapped in since
+                    // refuses rather than leads out.
+                    let opened = fsb::open_at(dir, &part, flags).map_err(|_| Why::LinkDangles)?;
+                    way.push((part, opened));
                 }
             }
         }
-        // Open what the names led to, still following no link: anything
-        // swapped in since refuses rather than leads out.
-        let path = as_path(&at);
-        let opened = if at.is_empty() {
-            self.root.try_clone()
-        } else {
-            fsb::open_beneath(self.root, &path)
-        }
-        .map_err(|_| Why::LinkDangles)?;
+        let Some((last, opened)) = way.pop() else {
+            // The skill's own folder.
+            return self.root.try_clone().map(|root| Target::Folder(root, Vec::new())).map_err(|_| Why::Unreadable);
+        };
         let stat = fsb::stat_of(&opened).map_err(|_| Why::Unreadable)?;
+        let mut at: Vec<OsString> = way.into_iter().map(|(part, _)| part).collect();
+        at.push(last);
         Ok(match stat.kind {
             Kind::Dir => Target::Folder(opened, at),
             Kind::File => Target::File(opened, stat),
@@ -357,6 +389,12 @@ impl Walk<'_> {
         }
         self.left_out.push(LeftOut { path, why });
     }
+}
+
+/// The folder a link's names have led into: the last one opened on the way,
+/// or the skill's own.
+fn here<'d>(root: &'d File, way: &'d [(OsString, File)]) -> &'d File {
+    way.last().map_or(root, |(_, dir)| dir)
 }
 
 fn child(real: &[OsString], name: &OsStr) -> Vec<OsString> {
@@ -385,8 +423,14 @@ mod tests {
         (tmp, skill)
     }
 
+    /// Copy `src` into the new folder `dest`, made as the caller makes it.
+    fn copy_into(src: &Path, dest: &Path, allowance: Allowance) -> io::Result<TreeCopy> {
+        fs::create_dir(dest).unwrap();
+        copy_tree(src, dest, allowance)
+    }
+
     fn copied(src: &Path, dest: &Path, allowance: Allowance) -> (Allowance, Vec<LeftOut>) {
-        match copy_tree(src, dest, allowance).unwrap() {
+        match copy_into(src, dest, allowance).unwrap() {
             TreeCopy::Copied { used, left_out } => (used, left_out),
             other => panic!("not copied: {other:?}"),
         }
@@ -513,6 +557,7 @@ mod tests {
         assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
         let _socket = std::os::unix::net::UnixListener::bind(skill.join("sock")).unwrap();
         symlink("pipe", skill.join("to-pipe")).unwrap();
+        symlink("sock", skill.join("to-sock")).unwrap();
         let dest = tmp.path().join("copy");
 
         // A FIFO with no writer would block an ordinary open forever.
@@ -521,7 +566,93 @@ mod tests {
         std::thread::spawn(move || done.send(copied(&src, &to, PLENTY)).unwrap());
         let (_, left_out) = finished.recv_timeout(std::time::Duration::from_secs(5)).expect("the copy hung");
 
-        assert_eq!(left_out, vec![left("pipe", Why::Special), left("sock", Why::Special), left("to-pipe", Why::Special)]);
+        assert_eq!(
+            left_out,
+            vec![
+                left("pipe", Why::Special),
+                left("sock", Why::Special),
+                left("to-pipe", Why::Special),
+                left("to-sock", Why::Special),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_link_down_a_deep_skill_costs_one_open_per_name() {
+        // Every link here leads down the same deep chain of folders, to
+        // nothing at its bottom. Opened one from the other, a link costs as
+        // many opens as it has names; reopened from the skill's folder at
+        // every name, these took several times the wait below.
+        const DEPTH: usize = 120;
+        const LINKS: usize = 1000;
+        let (tmp, skill) = skill();
+        let deep: PathBuf = std::iter::repeat_n("d", DEPTH).collect();
+        fs::create_dir_all(skill.join(&deep)).unwrap();
+        for n in 0..LINKS {
+            symlink(deep.join("nowhere"), skill.join(format!("link-{n}"))).unwrap();
+        }
+        let dest = tmp.path().join("copy");
+
+        let (done, finished) = std::sync::mpsc::channel();
+        let (src, to) = (skill.clone(), dest.clone());
+        std::thread::spawn(move || done.send(copied(&src, &to, PLENTY)).unwrap());
+        let (_, left_out) =
+            finished.recv_timeout(std::time::Duration::from_secs(5)).expect("following the links took too long");
+
+        assert_eq!(left_out.len(), LINKS);
+        assert!(left_out.iter().all(|l| l.why == Why::LinkDangles), "{:?}", left_out[0]);
+    }
+
+    #[test]
+    fn an_entry_the_copy_cannot_hold_under_its_name_is_left_out_alone() {
+        let (tmp, skill) = skill();
+        fs::create_dir(skill.join("lib")).unwrap();
+        fs::write(skill.join("lib/inner"), "inner").unwrap();
+        fs::write(skill.join("notes.md"), "notes").unwrap();
+        fs::write(skill.join("other.md"), "other").unwrap();
+        // Where the copy is made, a folder and a file hold those two names
+        // already — what another entry the volume takes for the same leaves.
+        let dest = tmp.path().join("copy");
+        fs::create_dir_all(dest.join("lib")).unwrap();
+        fs::write(dest.join("notes.md"), "mine").unwrap();
+
+        let TreeCopy::Copied { left_out, .. } = copy_tree(&skill, &dest, PLENTY).unwrap() else {
+            panic!("the whole copy failed for two names");
+        };
+
+        assert_eq!(left_out, vec![left("lib", Why::NameTaken), left("notes.md", Why::NameTaken)]);
+        assert_eq!(fs::read_to_string(dest.join("other.md")).unwrap(), "other");
+        assert_eq!(fs::read_to_string(dest.join("notes.md")).unwrap(), "mine", "nothing lands over what is there");
+        assert!(!dest.join("lib/inner").exists());
+    }
+
+    #[test]
+    fn an_entry_whose_path_is_too_long_for_the_copy_is_left_out_alone() {
+        let (tmp, skill) = skill();
+        fs::create_dir(skill.join("deep")).unwrap();
+        fs::write(skill.join("deep/below"), "below").unwrap();
+        fs::write(skill.join("near"), "near").unwrap();
+        // A copy made so far down that `deep` and `near` still fit in it,
+        // and what is inside `deep` no longer does.
+        let max = libc::PATH_MAX as usize;
+        let want = max - 8 - "/c".len();
+        // Measured as the system walks it: macOS's temp folder sits behind
+        // a link (`/var` is `/private/var`), whose target counts too.
+        let mut parent = fs::canonicalize(tmp.path()).unwrap();
+        while want - parent.as_os_str().len() > 202 {
+            parent.push("x".repeat(200));
+        }
+        let pad = want - parent.as_os_str().len() - 1;
+        parent.push("y".repeat(pad));
+        fs::create_dir_all(&parent).unwrap();
+        let dest = parent.join("c");
+        assert!(dest.join("deep").as_os_str().len() < max);
+        assert!(dest.join("deep/below").as_os_str().len() >= max);
+
+        let (_, left_out) = copied(&skill, &dest, PLENTY);
+
+        assert_eq!(left_out, vec![left("deep/below", Why::PathTooLong)]);
+        assert_eq!(fs::read_to_string(dest.join("near")).unwrap(), "near");
     }
 
     #[test]
@@ -533,11 +664,12 @@ mod tests {
         let dest = tmp.path().join("copy");
         let exact = Allowance { entries: 3, bytes: 8 };
 
-        assert!(matches!(copy_tree(&skill, &dest, exact).unwrap(), TreeCopy::Copied { .. }));
+        assert!(matches!(copy_into(&skill, &dest, exact).unwrap(), TreeCopy::Copied { .. }));
         fs::remove_dir_all(&dest).unwrap();
         for short in [Allowance { entries: 2, bytes: 8 }, Allowance { entries: 3, bytes: 7 }] {
-            assert!(matches!(copy_tree(&skill, &dest, short).unwrap(), TreeCopy::TooBig), "{short:?}");
-            assert!(!dest.exists(), "{short:?} left a partial copy");
+            assert!(matches!(copy_into(&skill, &dest, short).unwrap(), TreeCopy::TooBig), "{short:?}");
+            assert_eq!(fs::read_dir(&dest).unwrap().count(), 0, "{short:?} left a partial copy");
+            fs::remove_dir(&dest).unwrap();
         }
     }
 
@@ -548,7 +680,7 @@ mod tests {
             symlink("nowhere", skill.join(format!("dangling-{n}"))).unwrap();
         }
         let dest = tmp.path().join("copy");
-        assert!(matches!(copy_tree(&skill, &dest, Allowance { entries: 4, bytes: 0 }).unwrap(), TreeCopy::TooBig));
+        assert!(matches!(copy_into(&skill, &dest, Allowance { entries: 4, bytes: 0 }).unwrap(), TreeCopy::TooBig));
     }
 
     #[test]

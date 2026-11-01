@@ -138,6 +138,9 @@ pub enum TrimKind {
     Omitted,
     /// Not handed at all: its SKILL.md is no small text file of its own.
     SkillFileUnreadable,
+    /// Not handed at all: another skill holds its name in the view, one the
+    /// volume takes for the same.
+    SkillNameTaken,
     /// Left out of it: a link leading out of the skill.
     LinkOut,
     /// Left out of it: a link pointing at nothing.
@@ -149,6 +152,11 @@ pub enum TrimKind {
     Special,
     /// Left out of it: something that could not be read.
     Unreadable,
+    /// Left out of it: another entry beside it holds its name in the copy,
+    /// one the volume takes for the same.
+    NameTaken,
+    /// Left out of it: a path too long for the copy.
+    PathTooLong,
 }
 
 impl From<Why> for TrimKind {
@@ -159,6 +167,8 @@ impl From<Why> for TrimKind {
             Why::LinkCycle => TrimKind::LinkCycle,
             Why::Special => TrimKind::Special,
             Why::Unreadable => TrimKind::Unreadable,
+            Why::NameTaken => TrimKind::NameTaken,
+            Why::PathTooLong => TrimKind::PathTooLong,
         }
     }
 }
@@ -245,6 +255,17 @@ pub(super) fn stage(
         // would resurrect a deleted skill for one stage). BUNDLED — a
         // constant cannot vanish: the arm is UNCONDITIONAL.
         let dest = view.join(name);
+        // Every skill's folder in the view is made here. A name the view
+        // holds already is another skill's that the volume takes for the
+        // same — one differing in case alone: that skill keeps it, and this
+        // one is said instead of failing the view.
+        match fs::create_dir(&dest) {
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                trims.push(StagingTrim::of(source.scope(), name, TrimKind::SkillNameTaken));
+                continue;
+            }
+            other => other?,
+        }
         let content: &str = match source {
             Source::Library { dir, content, scope } => {
                 // Its place is reserved; its files get what one skill may
@@ -257,23 +278,22 @@ pub(super) fn stage(
                         trims.extend(left_out_trims(scope, name, &left_out));
                     }
                     TreeCopy::TooBig => {
-                        fs::create_dir(&dest)?;
                         if room == own {
                             trims.push(StagingTrim::of(scope, name, TrimKind::TooLarge));
                         } else {
                             no_room.add(scope, name, TrimKind::NoRoom);
                         }
                     }
-                    // Its reserved place stays unused: the view only ends up
-                    // smaller than it may be.
-                    TreeCopy::Gone => continue,
+                    // Its folder goes, and its reserved place stays unused:
+                    // the view only ends up smaller than it may be.
+                    TreeCopy::Gone => {
+                        fs::remove_dir(&dest)?;
+                        continue;
+                    }
                 }
                 content
             }
-            Source::Bundled(content) => {
-                fs::create_dir(&dest)?;
-                content
-            }
+            Source::Bundled(content) => content,
         };
         // The staged SKILL.md is written from the content read at collection
         // time — the same bytes handed out as text below, so a save racing
@@ -1025,6 +1045,32 @@ mod tests {
     }
 
     #[test]
+    fn a_skill_whose_name_the_view_holds_already_is_said_and_the_view_still_stages() {
+        // A global skill and a workspace one differing in case alone are two
+        // skills to the library and one folder to a volume that folds case:
+        // the first by name keeps it, the other is said.
+        let (_tmp, root) = root();
+        save(&global(&root), "Review", &fm("upper")).unwrap();
+        save(&ws(&root, "ws-1"), "review", &fm("lower")).unwrap();
+        save(&global(&root), "other", &fm("other")).unwrap();
+        fs::write(root.join("probe"), "").unwrap();
+        let folds_case = root.join("PROBE").exists();
+
+        let staged = answer(&root);
+
+        let view = staged.view.unwrap();
+        let names: Vec<String> = view.skills.iter().map(|s| s.name.clone()).collect();
+        if !folds_case {
+            assert_eq!(staged.trims, vec![]);
+            assert_eq!(names, ["Review", "other", "review"]);
+            return;
+        }
+        assert_eq!(staged.trims, vec![trim("workspace", "review", TrimKind::SkillNameTaken)]);
+        assert_eq!(names, ["Review", "other"]);
+        assert_eq!(fs::read_to_string(Path::new(&view.dir).join("Review").join(SKILL_FILE)).unwrap(), fm("upper"));
+    }
+
+    #[test]
     fn the_answer_on_the_wire_is_the_shape_the_webview_reads() {
         let answer = StagingAnswer {
             view: Some(SkillStagingDto { dir: "/v".into(), skills: vec![StagedSkill { name: "a".into(), content: "c".into() }] }),
@@ -1033,6 +1079,9 @@ mod tests {
                 trim("global", "b", TrimKind::SkillFileUnreadable),
                 trim("global", "c", TrimKind::TooLarge),
                 trim("global", "d", TrimKind::NoRoom),
+                trim("workspace", "e", TrimKind::SkillNameTaken),
+                StagingTrim { path: Some("F.md".into()), ..trim("global", "f", TrimKind::NameTaken) },
+                StagingTrim { path: Some("g/h".into()), ..trim("global", "g", TrimKind::PathTooLong) },
             ],
         };
         assert_eq!(
@@ -1044,6 +1093,9 @@ mod tests {
                     { "scope": "global", "skill": "b", "kind": "skill-file-unreadable", "path": null, "count": 1 },
                     { "scope": "global", "skill": "c", "kind": "too-large", "path": null, "count": 1 },
                     { "scope": "global", "skill": "d", "kind": "no-room", "path": null, "count": 1 },
+                    { "scope": "workspace", "skill": "e", "kind": "skill-name-taken", "path": null, "count": 1 },
+                    { "scope": "global", "skill": "f", "kind": "name-taken", "path": "F.md", "count": 1 },
+                    { "scope": "global", "skill": "g", "kind": "path-too-long", "path": "g/h", "count": 1 },
                 ],
             })
         );

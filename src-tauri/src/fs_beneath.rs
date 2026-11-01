@@ -71,26 +71,13 @@ pub(crate) fn open_dir(path: &Path) -> io::Result<File> {
 /// open instead of leading out of the tree. Non-blocking, so a FIFO answers at
 /// once (and is then refused as no file) rather than waiting for a writer.
 pub(crate) fn open_beneath(dir: &File, rel: &Path) -> io::Result<File> {
-    walk_beneath(dir, rel, libc::O_NONBLOCK)
-}
-
-/// Open the DIRECTORY at `rel` inside `dir`, every step a directory and none
-/// a link; an empty `rel` is `dir` itself.
-pub(crate) fn open_dir_beneath(dir: &File, rel: &Path) -> io::Result<File> {
-    if rel.as_os_str().is_empty() {
-        return dir.try_clone();
-    }
-    walk_beneath(dir, rel, libc::O_DIRECTORY)
-}
-
-fn walk_beneath(dir: &File, rel: &Path, last: libc::c_int) -> io::Result<File> {
     let mut parts = rel.components().peekable();
     let mut at: Option<File> = None;
     while let Some(part) = parts.next() {
         let Component::Normal(name) = part else {
             return Err(io::Error::new(ErrorKind::InvalidInput, "not a plain relative path"));
         };
-        let step = if parts.peek().is_some() { libc::O_DIRECTORY } else { last };
+        let step = if parts.peek().is_some() { libc::O_DIRECTORY } else { libc::O_NONBLOCK };
         at = Some(open_at(at.as_ref().unwrap_or(dir), name, step)?);
     }
     at.ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "an empty path"))
@@ -245,31 +232,38 @@ pub(crate) fn read_link_at(dir: &File, name: &OsStr) -> io::Result<OsString> {
 /// make did: whatever the system marked a downloaded file with stays the
 /// system's to act on.
 pub(crate) fn copy_file(file: &File, target: &Path, mode: u32, budget: u64) -> io::Result<Option<u64>> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let len = file.metadata()?.len();
     if len > budget {
         return Ok(None);
     }
     #[cfg(target_vendor = "apple")]
-    if len >= CLONE_FROM_BYTES {
-        match clone_file(file, target, mode, budget)? {
-            Cloned::Made(len) => return Ok(Some(len)),
-            Cloned::TooBig => return Ok(None),
-            Cloned::Unsupported => {}
-        }
+    let cloned = if len >= CLONE_FROM_BYTES { clone_file(file, target, mode)? } else { None };
+    #[cfg(not(target_vendor = "apple"))]
+    let cloned = None;
+    let landed = match cloned {
+        Some(landed) => landed,
+        None => write_file(file, target, mode, budget)?,
+    };
+    // What landed is what it costs, cloned or written: a file that grew past
+    // the budget since it said its size leaves nothing behind.
+    if landed > budget {
+        let _ = fs::remove_file(target);
+        return Ok(None);
     }
+    Ok(Some(landed))
+}
+
+/// Write `file` out to the new `target`, never more than one byte past
+/// `budget`: how many bytes it holds.
+fn write_file(file: &File, target: &Path, mode: u32, budget: u64) -> io::Result<u64> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let mut copy = OpenOptions::new().write(true).create_new(true).mode(mode).open(target)?;
     // `mode` above passes through the umask; this is the mode meant.
     copy.set_permissions(fs::Permissions::from_mode(mode))?;
     let written = io::copy(&mut file.take(budget.saturating_add(1)), &mut copy)?;
-    if written > budget {
-        drop(copy);
-        let _ = fs::remove_file(target);
-        return Ok(None);
-    }
     #[cfg(target_vendor = "apple")]
     keep_xattrs(file, &copy);
-    Ok(Some(written))
+    Ok(written)
 }
 
 /// From this size on a clone is cheaper than writing the bytes out; below
@@ -277,21 +271,13 @@ pub(crate) fn copy_file(file: &File, target: &Path, mode: u32, budget: u64) -> i
 #[cfg(target_vendor = "apple")]
 const CLONE_FROM_BYTES: u64 = 1024 * 1024;
 
+/// Clone the open `file` to the new `target`: how many bytes the clone
+/// holds, or `None` where this volume — or this pair of volumes — cannot
+/// clone. The clone carries the data, the extended attributes and the
+/// source's mode — reset here to `mode` — but no ACL. It is the file as it
+/// was at one instant, so what it holds is what it costs.
 #[cfg(target_vendor = "apple")]
-enum Cloned {
-    Made(u64),
-    /// The clone held more than the budget, and was removed again.
-    TooBig,
-    /// This volume, or this pair of volumes, cannot clone.
-    Unsupported,
-}
-
-/// Clone the open `file` to the new `target`. The clone carries the data,
-/// the extended attributes and the source's mode — reset here to `mode` —
-/// but no ACL. It is the file as it was at one instant, so what it holds is
-/// what it costs.
-#[cfg(target_vendor = "apple")]
-fn clone_file(file: &File, target: &Path, mode: u32, budget: u64) -> io::Result<Cloned> {
+fn clone_file(file: &File, target: &Path, mode: u32) -> io::Result<Option<u64>> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let path = CString::new(target.as_os_str().as_bytes()).map_err(io::Error::other)?;
     // SAFETY: an open descriptor and a NUL-terminated path, both alive for the
@@ -299,24 +285,21 @@ fn clone_file(file: &File, target: &Path, mode: u32, budget: u64) -> io::Result<
     if unsafe { libc::fclonefileat(file.as_raw_fd(), libc::AT_FDCWD, path.as_ptr(), 0) } != 0 {
         let e = io::Error::last_os_error();
         return match e.raw_os_error() {
-            Some(libc::ENOTSUP) | Some(libc::EXDEV) => Ok(Cloned::Unsupported),
+            Some(libc::ENOTSUP) | Some(libc::EXDEV) => Ok(None),
             // EEXIST among them: a copy never lands over anything, nor falls
             // back to writing over it.
             _ => Err(e),
         };
     }
-    let checked = (|| {
+    let made = (|| {
         let copy = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(target)?;
-        if copy.metadata()?.len() > budget {
-            return Ok(Cloned::TooBig);
-        }
         copy.set_permissions(fs::Permissions::from_mode(mode))?;
-        Ok(Cloned::Made(copy.metadata()?.len()))
+        Ok(copy.metadata()?.len())
     })();
-    if !matches!(checked, Ok(Cloned::Made(_))) {
+    if made.is_err() {
         let _ = fs::remove_file(target);
     }
-    checked
+    made.map(Some)
 }
 
 /// The source's extended attributes onto a written copy. Best effort: a
@@ -363,8 +346,8 @@ mod tests {
         assert_eq!(stat_at(&dir, OsStr::new("link")).unwrap().kind, Kind::Link);
         assert_eq!(read_link_at(&dir, OsStr::new("link")).unwrap(), OsString::from("dir"));
         // Opening refuses the link instead of following it.
-        assert!(open_dir_beneath(&dir, Path::new("link")).is_err());
-        assert!(open_dir_beneath(&dir, Path::new("dir")).is_ok());
+        assert!(open_beneath(&dir, Path::new("link")).is_err());
+        assert!(open_beneath(&dir, Path::new("dir")).is_ok());
     }
 
     #[test]
@@ -393,6 +376,18 @@ mod tests {
         let short = tmp.path().join("short");
         assert_eq!(copy_file(&src, &short, FILE_MODE, 11).unwrap(), None);
         assert!(!short.exists());
+    }
+
+    #[test]
+    fn a_file_that_holds_more_than_it_said_leaves_nothing_behind() {
+        // What a file grown since its size was read looks like: it says
+        // nothing, and there is no end to it.
+        let endless = File::open("/dev/zero").unwrap();
+        assert_eq!(endless.metadata().unwrap().len(), 0);
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("copy");
+        assert_eq!(copy_file(&endless, &target, FILE_MODE, 64).unwrap(), None);
+        assert!(!target.exists());
     }
 
     #[cfg(target_vendor = "apple")]

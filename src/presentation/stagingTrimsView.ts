@@ -23,6 +23,8 @@ function verdict(kind: StagingTrimKind): string {
       return "no room is left even for its SKILL.md — agents do not get it";
     case "skill-file-unreadable":
       return "its SKILL.md is not a small text file of its own — agents do not get it";
+    case "skill-name-taken":
+      return "the disk takes another skill's name for the same one (they differ only in letter case or accents) — agents do not get it";
     case "link-out":
       return "links outside the skill — left out";
     case "link-dangles":
@@ -33,6 +35,10 @@ function verdict(kind: StagingTrimKind): string {
       return "is neither a file nor a folder — left out";
     case "unreadable":
       return "could not be read — left out";
+    case "name-taken":
+      return "the disk takes the name of another entry beside it for the same one (they differ only in letter case or accents) — left out";
+    case "path-too-long":
+      return "its path is too long to copy — left out";
   }
 }
 
