@@ -253,7 +253,7 @@ pub(super) fn forget_workspace(root: &Path, ws_id: &str) -> io::Result<()> {
 pub(super) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
     for dir in crate::fs_names::sorted_dirs(&root.join("ws"))? {
         let id = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        if live.iter().any(|l| *l == id) {
+        if live.contains(&id) {
             continue;
         }
         if let Err(e) = fs::remove_dir_all(&dir) {

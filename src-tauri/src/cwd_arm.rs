@@ -1033,7 +1033,7 @@ mod tests {
         assert!(s.cwd.join(".agent-conf/mcp.json").exists());
         // Armed through one spelling, disarmed through another: one cwd.
         let dotted = format!("{}/../repo", s.cwd());
-        assert_eq!(disarm(&s.root, &[dotted.clone()], &[]).unwrap(), vec![dotted]);
+        assert_eq!(disarm(&s.root, std::slice::from_ref(&dotted), &[]).unwrap(), vec![dotted]);
         assert!(!s.cwd.join(".agent-conf").exists());
     }
 

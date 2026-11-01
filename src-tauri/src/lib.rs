@@ -557,17 +557,18 @@ mod tests {
                     // setter test cannot live here because this scan reads
                     // its own source and would report that test as a finding.
                     for (idx, line) in src.lines().enumerate() {
-                        if line.contains("env::set_var")
-                            || line.contains("env::remove_var")
+                        // Kept on separate lines: this file is scanned
+                        // too, and one line naming both would be a finding.
+                        if (line.contains("env::set_var")
+                            || line.contains("env::remove_var"))
+                            && line.contains("KEEPDECK_HOME")
                         {
-                            if line.contains("KEEPDECK_HOME") {
-                                offenders.push(format!(
-                                    "{}:{}: {}",
-                                    path.file_name().unwrap().to_string_lossy(),
-                                    idx + 1,
-                                    line.trim()
-                                ));
-                            }
+                            offenders.push(format!(
+                                "{}:{}: {}",
+                                path.file_name().unwrap().to_string_lossy(),
+                                idx + 1,
+                                line.trim()
+                            ));
                         }
                     }
                 }

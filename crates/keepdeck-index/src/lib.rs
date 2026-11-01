@@ -785,29 +785,30 @@ impl SessionIndex {
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
-        // Both views of the answer: the exact (agent, id) row, and which
-        // agents hold an id at all.
+        // Both views of the answer: the exact (agent, id) row, already the
+        // hit it answers, and which agents hold an id at all.
         use std::collections::HashMap;
-        let mut exact: HashMap<(&str, &str), (&str, Option<&str>, i64, Option<&str>)> =
-            HashMap::new();
+        let mut exact: HashMap<(&str, &str), LookupKind> = HashMap::new();
         let mut holders: HashMap<&str, Vec<&str>> = HashMap::new();
         for (agent, session_id, reference, title, mtime, transcript_path) in &rows {
             exact.insert(
                 (agent.as_str(), session_id.as_str()),
-                (reference.as_str(), title.as_deref(), *mtime, transcript_path.as_deref()),
+                LookupKind::Hit {
+                    reference: reference.clone(),
+                    title: title.clone(),
+                    mtime: *mtime,
+                    transcript_path: transcript_path.clone(),
+                },
             );
             holders.entry(session_id.as_str()).or_default().push(agent.as_str());
         }
         Ok(keys
             .iter()
             .map(|(agent, session_id)| {
-                let kind = match exact.get(&(agent.as_str(), session_id.as_str())) {
-                    Some((reference, title, mtime, transcript_path)) => LookupKind::Hit {
-                        reference: reference.to_string(),
-                        title: title.map(str::to_string),
-                        mtime: *mtime,
-                        transcript_path: transcript_path.map(str::to_string),
-                    },
+                // Taken, not copied: the keys were refused above if any
+                // repeated, so no later key asks for this hit again.
+                let kind = match exact.remove(&(agent.as_str(), session_id.as_str())) {
+                    Some(hit) => hit,
                     None => match holders.get(session_id.as_str()) {
                         // The requester's own agent, if present, was matched by
                         // the exact arm above; whatever remains is foreign.
@@ -2213,7 +2214,7 @@ mod tests {
                 });
                 println!(
                     "width={width:>4} offset={offset:>4}: t_search={t_search:?} (page {rows}, {} top-up passes)",
-                    (rows + 49) / 50
+                    rows.div_ceil(50)
                 );
             }
             index
