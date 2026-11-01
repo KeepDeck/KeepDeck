@@ -5,7 +5,9 @@ import {
   type AgentSessionStub,
   errorMessage,
 } from "@keepdeck/plugin-api";
+import { readNothing } from "../domain/history/unread";
 import {
+  indexCarry,
   indexPrune,
   indexRefs,
   indexUpsert,
@@ -65,13 +67,61 @@ function nameShortfall(
 export interface ScanIndexOps {
   refs: typeof indexRefs;
   upsert: typeof indexUpsert;
+  carry: typeof indexCarry;
   prune: typeof indexPrune;
 }
 export const defaultScanOps: ScanIndexOps = {
   refs: indexRefs,
   upsert: indexUpsert,
+  carry: indexCarry,
   prune: indexPrune,
 };
+
+/** A changed session the scan has read: indexed from what it said, or
+ * nothing at all said, and indexed from what was known of it. */
+type Scanned =
+  | { kind: "read"; row: IndexRowInput }
+  | { kind: "unread"; stub: AgentSessionStub; facts: AgentSessionFacts };
+
+/**
+ * Index sessions the plugin could not read a byte of (task-417). One the
+ * index already holds keeps everything read of it before, and only moves to
+ * its new ref. One it has never held gets what its stub says and nothing
+ * more: listed, resumable, untitled until it reads again. Refusing it
+ * instead would stop the prune for as long as the file stays unreadable.
+ */
+async function indexUnread(
+  agentId: string,
+  unread: { stub: AgentSessionStub; facts: AgentSessionFacts }[],
+  ops: ScanIndexOps,
+): Promise<IndexRowInput[]> {
+  if (unread.length === 0) return [];
+  const indexed = await ops.carry(
+    agentId,
+    unread.map(({ stub, facts }) => ({
+      sessionId: stub.sessionId,
+      reference: stub.ref,
+      transcriptPath: facts.transcriptPath ?? null,
+      mtime: stub.mtime,
+      size: stub.size,
+    })),
+  );
+  const newcomers = unread.filter((_, at) => indexed[at] !== true);
+  log.info(
+    "web:history",
+    `${agentId}: ${unread.length} sessions not readable — ${unread.length - newcomers.length} kept what was indexed, ${newcomers.length} indexed by name only`,
+  );
+  return newcomers.map(({ stub, facts }) => ({
+    sessionId: stub.sessionId,
+    reference: stub.ref,
+    cwd: facts.cwd,
+    title: facts.title ?? null,
+    transcriptPath: facts.transcriptPath ?? null,
+    mtime: stub.mtime,
+    size: stub.size,
+    content: "",
+  }));
+}
 
 /** What one enumeration returned: the stubs read, whether the walk saw
  * the WHOLE store (prune asks `complete`), and whether the stubs came
@@ -151,24 +201,28 @@ export async function scanAgentHistories(
       let refusedSessions = 0;
       for (let at = 0; at < changed.length; at += BATCH) {
         const batch = changed.slice(at, at + BATCH);
-        const rows = await Promise.all(
-          batch.map(async (stub): Promise<IndexRowInput | null> => {
+        const scanned = await Promise.all(
+          batch.map(async (stub): Promise<Scanned | null> => {
             try {
               const facts = await history.describe(stub.ref);
+              if (readNothing(facts)) return { kind: "unread", stub, facts };
               nameShortfall(agentId, stub.sessionId, facts);
               const content = await history.content(stub.ref);
               return {
-                sessionId: stub.sessionId,
-                reference: stub.ref,
-                cwd: facts.cwd,
-                title: facts.title ?? null,
-                transcriptPath: facts.transcriptPath ?? null,
-                mtime: stub.mtime,
-                size: stub.size,
-                // The same cap the walk applies where the text is produced,
-                // re-applied where it lands: a plugin that derives its
-                // content some other way still cannot grow the index.
-                content: content.slice(0, CONTENT_CAP),
+                kind: "read",
+                row: {
+                  sessionId: stub.sessionId,
+                  reference: stub.ref,
+                  cwd: facts.cwd,
+                  title: facts.title ?? null,
+                  transcriptPath: facts.transcriptPath ?? null,
+                  mtime: stub.mtime,
+                  size: stub.size,
+                  // The same cap the walk applies where the text is produced,
+                  // re-applied where it lands: a plugin that derives its
+                  // content some other way still cannot grow the index.
+                  content: content.slice(0, CONTENT_CAP),
+                },
               };
             } catch (e) {
               refusedSessions += 1;
@@ -180,7 +234,14 @@ export async function scanAgentHistories(
             }
           }),
         );
-        const usable = rows.filter((row): row is IndexRowInput => row !== null);
+        const usable = [
+          ...scanned.flatMap((s) => (s?.kind === "read" ? [s.row] : [])),
+          ...(await indexUnread(
+            agentId,
+            scanned.flatMap((s) => (s?.kind === "unread" ? [s] : [])),
+            ops,
+          )),
+        ];
         if (usable.length > 0) {
           await ops.upsert(agentId, usable);
           onProgress?.();

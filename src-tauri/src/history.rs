@@ -7,7 +7,7 @@
 use std::sync::Mutex;
 
 use keepdeck_index::{
-    FolderScope, IndexRow, IndexedRef, KeyedAnswer, LookupKind, SearchHit,
+    CarriedRef, FolderScope, IndexRow, IndexedRef, KeyedAnswer, LookupKind, SearchHit,
     SessionIndex,
 };
 use serde::{Deserialize, Serialize};
@@ -105,6 +105,43 @@ pub fn index_upsert(
             })
             .collect();
         index.upsert(&rows)
+    })
+}
+
+/// A session's new ref, carried over without a re-read.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CarriedRefDto {
+    pub session_id: String,
+    pub reference: String,
+    #[serde(default)]
+    pub transcript_path: Option<String>,
+    pub mtime: i64,
+    pub size: i64,
+}
+
+/// Move indexed sessions to new refs, keeping what was read of them —
+/// for a session the plugin can no longer read (task-417). Answers, per
+/// row, whether the session was indexed.
+#[tauri::command(async)]
+pub fn index_carry(
+    state: State<'_, HistoryIndex>,
+    agent: String,
+    rows: Vec<CarriedRefDto>,
+) -> Result<Vec<bool>, String> {
+    with_index(&state, |index| {
+        let rows: Vec<CarriedRef> = rows
+            .into_iter()
+            .map(|r| CarriedRef {
+                agent: agent.clone(),
+                session_id: r.session_id,
+                reference: r.reference,
+                transcript_path: r.transcript_path,
+                mtime: r.mtime,
+                size: r.size,
+            })
+            .collect();
+        index.carry(&rows)
     })
 }
 

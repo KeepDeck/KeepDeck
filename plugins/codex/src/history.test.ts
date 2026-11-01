@@ -44,7 +44,7 @@ const LINES = [
 ].join("\n");
 
 function ctx(
-  files: Record<string, string>,
+  files: Record<string, string | Uint8Array>,
   dirs: Record<string, FsEntry[]>,
   warn: (message: string) => void = vi.fn(),
 ): HistoryPorts {
@@ -117,6 +117,20 @@ describe("codex history", () => {
       { sessionId: SID, ref: `/s/2026/07/01/${reverted}`, mtime: 9, size: 5 },
       { sessionId: OLD, ref: `/s/2026/07/01/${compressed}`, mtime: 4, size: 2 },
     ]);
+  });
+
+  it("describes a compressed rollout as read NOTHING — so the index keeps what it knew", async () => {
+    // zstd's magic and a frame: not text, not a byte of it readable here.
+    // An empty describe would read as "a session with nothing in it"; the
+    // bytes mark at zero is what keeps the indexed facts (task-417).
+    const zst = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x58, 0x01, 0x00, 0x00, 0x7b]);
+    const history = codexHistory(ctx({ "/r.jsonl.zst": zst }, {}));
+    expect(await history.describe("/r.jsonl.zst")).toEqual({
+      cwd: "",
+      title: undefined,
+      transcriptPath: "/r.jsonl.zst",
+      shortfall: [{ kind: "bytes", size: zst.length, readBytes: 0 }],
+    });
   });
 
   it("an unreadable date partition fails the walk — a partial answer prunes the index", async () => {

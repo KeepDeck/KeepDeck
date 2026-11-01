@@ -349,6 +349,22 @@ describe("walkSession", () => {
     expect(walked.shortfall).toBeUndefined();
   });
 
+  it("a head that would not read as text at all IS short — the session is there, unread", async () => {
+    // codex's compressed rollouts (task-417): the indexer must tell "nothing
+    // could be read" from "nothing was in it", or it overwrites what it knew.
+    const store = fakeSessionStore([], "unreadable", 4_096);
+
+    const walked = await walkSession({
+      store,
+      format: fakeFormat<unknown>(),
+      request: {},
+      dialect: flat,
+      scope: "head",
+    });
+
+    expect(walked.shortfall).toEqual([{ kind: "bytes", size: 4_096, readBytes: 10 }]);
+  });
+
   it("a whole reading still reports it", async () => {
     const store = fakeSessionStore([{ role: "user", text: "hi" }], "budget", 9_000_000);
 

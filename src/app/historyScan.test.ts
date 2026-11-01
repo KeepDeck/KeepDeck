@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import { scanAgentHistories, type ScanIndexOps } from "./historyScan";
+import type { CarriedRefInput } from "../ipc/history";
 import { log } from "../ipc/log";
 import { sessionIds } from "../testing/values.test-support";
 
 vi.mock("../ipc/history", () => ({
   indexRefs: vi.fn(),
   indexUpsert: vi.fn(),
+  indexCarry: vi.fn(),
   indexPrune: vi.fn(),
   indexSearch: vi.fn(),
   pluginsSqliteQuery: vi.fn(),
@@ -28,12 +30,19 @@ const history = (over: Partial<AgentHistory> = {}): AgentHistory => ({
 
 const ops = (stored: { reference: string; mtime: number; size: number }[]) => {
   const upserts: unknown[] = [];
+  const carries: unknown[] = [];
   const prunes: unknown[] = [];
   const dropped: Array<{ agent: string; sessionId: string }> = [];
+  // A stored ref's last segment is its session id here, as `stub` builds it.
+  const held = new Set(stored.map((r) => r.reference.slice(r.reference.lastIndexOf("/") + 1)));
   const mock: ScanIndexOps = {
     refs: vi.fn(async () => stored),
     upsert: vi.fn(async (_agent, rows) => {
       upserts.push(...rows);
+    }),
+    carry: vi.fn(async (_agent: string, rows: CarriedRefInput[]) => {
+      carries.push(...rows);
+      return rows.map((row) => held.has(row.sessionId));
     }),
     prune: vi.fn(async (agent: string, live: string[]) => {
       prunes.push(live);
@@ -48,7 +57,7 @@ const ops = (stored: { reference: string; mtime: number; size: number }[]) => {
         }));
     }),
   };
-  return { mock, upserts, prunes, dropped };
+  return { mock, upserts, carries, prunes, dropped };
 };
 
 const stub = (
@@ -60,6 +69,76 @@ const stub = (
   ref: `/s/${sessionId}`,
   mtime,
   size,
+});
+
+describe("scanAgentHistories — a session the plugin can no longer read (task-417)", () => {
+  // codex compresses an old rollout: the session moves to `<file>.zst`, and
+  // not a byte of it reads as text.
+  const unreadable = (over: Partial<AgentHistory> = {}) => {
+    const content = vi.fn(async () => "");
+    return {
+      content,
+      history: history({
+        list: async () => [{ sessionId: "a", ref: "/s/a.zst", mtime: 5, size: 4 }],
+        describe: async (ref) => ({
+          cwd: "",
+          transcriptPath: ref,
+          shortfall: [{ kind: "bytes", size: 4, readBytes: 0 }],
+        }),
+        content,
+        ...over,
+      }),
+    };
+  };
+
+  it("keeps everything indexed of it, and only moves it to its new ref", async () => {
+    const { mock, upserts, carries, prunes } = ops([{ reference: "/s/a", mtime: 5, size: 10 }]);
+    const { history: codex, content } = unreadable();
+    await scanAgentHistories([{ agentId: "codex", history: codex }], mock);
+
+    expect(carries).toEqual([
+      { sessionId: "a", reference: "/s/a.zst", transcriptPath: "/s/a.zst", mtime: 5, size: 4 },
+    ]);
+    // Nothing empty overwrites what was read before, and nothing is read
+    // that cannot be.
+    expect(upserts).toEqual([]);
+    expect(content).not.toHaveBeenCalled();
+    // Not a refusal: the prune runs, over the new ref.
+    expect(prunes).toEqual([["/s/a.zst"]]);
+  });
+
+  it("indexes one it never held by its name alone — listed and resumable, never a refusal", async () => {
+    const { mock, upserts, prunes } = ops([]);
+    await scanAgentHistories([{ agentId: "codex", history: unreadable().history }], mock);
+
+    expect(upserts).toEqual([
+      {
+        sessionId: "a",
+        reference: "/s/a.zst",
+        cwd: "",
+        title: null,
+        transcriptPath: "/s/a.zst",
+        mtime: 5,
+        size: 4,
+        content: "",
+      },
+    ]);
+    // A refusal would hold the prune off for as long as the file stays
+    // unreadable — every pass.
+    expect(prunes).toEqual([["/s/a.zst"]]);
+  });
+
+  it("indexes a session read part of the way from what it found, as before", async () => {
+    const { mock, upserts, carries } = ops([]);
+    const partial = history({
+      list: async () => [{ sessionId: "a", ref: "/s/a", mtime: 5, size: 900 }],
+      describe: async () => ({ cwd: "/repo", title: "t", shortfall: [{ kind: "bytes", size: 900, readBytes: 300 }] }),
+    });
+    await scanAgentHistories([{ agentId: "codex", history: partial }], mock);
+
+    expect(carries).toEqual([]);
+    expect(upserts).toMatchObject([{ sessionId: "a", cwd: "/repo", title: "t", content: "content of /s/a" }]);
+  });
 });
 
 describe("scanAgentHistories", () => {
