@@ -3,6 +3,7 @@ import { pasteToPane, registerPaneInput, subscribePaneComposerTouched } from "./
 import {
   handPasteWriter,
   registerTerminalPaneInput,
+  registerTerminalTextInput,
   terminalPaneInput,
 } from "../components/terminal/paneInputBinding";
 import { usePaneTerminal } from "./usePaneTerminal";
@@ -64,6 +65,26 @@ describe("handPasteWriter", () => {
     handPasteWriter(usePaneTerminal(), "pane-7", { paste })("my draft");
     expect(paste).toHaveBeenCalledWith("my draft");
     expect(touched).toEqual(["pane-7"]);
+    off();
+  });
+});
+
+describe("registerTerminalTextInput", () => {
+  it("says the composer was touched when the system writes into the terminal's textarea, until disposed", () => {
+    // macOS dictation and input methods insert into xterm's textarea and
+    // leave as data: no key, no write anyone here made — only the textarea's
+    // own `input` event sees them (reviewer-2, task-589).
+    const textarea = new EventTarget();
+    const touched: string[] = [];
+    const off = subscribePaneComposerTouched((paneId) => touched.push(paneId));
+    const dispose = registerTerminalTextInput(usePaneTerminal(), "pane-8", textarea);
+    textarea.dispatchEvent(new Event("input"));
+    expect(touched).toEqual(["pane-8"]);
+    dispose();
+    textarea.dispatchEvent(new Event("input"));
+    expect(touched).toEqual(["pane-8"]);
+    // No textarea yet: nothing to hear, nothing to dispose.
+    expect(() => registerTerminalTextInput(usePaneTerminal(), "pane-8", undefined)()).not.toThrow();
     off();
   });
 });

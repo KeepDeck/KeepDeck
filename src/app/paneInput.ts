@@ -38,16 +38,19 @@ const watchers = new Set<() => void>();
  * [`subscribePaneComposerTouched`]. */
 const written = new Set<(paneId: string) => void>();
 
-/** Text went into this pane's input: a writer here, or a person's paste. */
+/** Text went into this pane's input: a writer here, or a person's text that
+ * arrived as no key — a paste, the system's dictation, an input method. */
 export function notePaneInputWritten(paneId: string): void {
   for (const listener of [...written]) listener(paneId);
 }
 
 /**
  * Tell me whenever something may have put words into a pane's composer —
- * a key a person pressed ([`subscribePaneKeys`]), their paste, or text a
- * writer here put in (a file drop, dictation, another agent's `pane.write`,
- * a task delivery, the deck's own nudge).
+ * a key a person pressed ([`subscribePaneKeys`]); their paste, the system's
+ * dictation or an input method, which the terminal reports from its paste
+ * handler and its textarea's `input` event; or text a writer here put in (a
+ * file drop, the app's voice, another agent's `pane.write`, a task
+ * delivery, the deck's own nudge).
  *
  * Not the PTY write path: that also carries xterm's answers to the
  * program's own terminal queries, which put nothing in a composer. Every

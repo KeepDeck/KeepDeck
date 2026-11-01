@@ -17,10 +17,11 @@ export interface PaneTerminalPort {
   /** Make `input` the pane's delivery channel until the returned disposer. */
   registerInput(paneId: string, input: PaneInput): () => void;
   reportKey(paneId: string, key: string): void;
-  /** A person pasted into this pane — ⌘V or the Edit menu, which reach the
-   * terminal as a paste and never as keys. Words in the composer all the
-   * same, and a line typed after them would be sent with them. */
-  reportPaste(paneId: string): void;
+  /** Text a person put into this pane by a way that is not a key press — a
+   * paste (⌘V, the Edit menu), the system's dictation, an input method.
+   * Words in the composer all the same, and a line typed after them would be
+   * sent with them. */
+  reportTextInput(paneId: string): void;
 }
 
 const port: PaneTerminalPort = {
@@ -30,7 +31,7 @@ const port: PaneTerminalPort = {
   resize: (paneId, cols, rows) => resizePane(paneId, cols, rows),
   registerInput: (paneId, input) => registerPaneInput(paneId, input),
   reportKey: (paneId, key) => reportPaneKey(paneId, key),
-  reportPaste: (paneId) => notePaneInputWritten(paneId),
+  reportTextInput: (paneId) => notePaneInputWritten(paneId),
 };
 
 /** The pane terminal port. Stable across renders. */

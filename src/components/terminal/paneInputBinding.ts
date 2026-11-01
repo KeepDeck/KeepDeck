@@ -53,12 +53,30 @@ export function registerTerminalPaneInput(
  * would be sent with (task-589).
  */
 export function handPasteWriter(
-  terminal: Pick<PaneTerminalPort, "reportPaste">,
+  terminal: Pick<PaneTerminalPort, "reportTextInput">,
   paneId: string,
   term: PasteTarget,
 ): (text: string) => void {
   return (text) => {
     term.paste(text);
-    terminal.reportPaste(paneId);
+    terminal.reportTextInput(paneId);
   };
+}
+
+/**
+ * Report text the system puts into the terminal's textarea — dictation, an
+ * input method's composed words — which reaches the pane as neither a key
+ * nor a write anyone here made. The textarea's own `input` event is that
+ * door, and only it: xterm's answers to a program's terminal queries never
+ * touch the textarea. Returns the disposer.
+ */
+export function registerTerminalTextInput(
+  terminal: Pick<PaneTerminalPort, "reportTextInput">,
+  paneId: string,
+  textarea: Pick<EventTarget, "addEventListener" | "removeEventListener"> | undefined,
+): () => void {
+  if (!textarea) return () => {};
+  const onInput = () => terminal.reportTextInput(paneId);
+  textarea.addEventListener("input", onInput);
+  return () => textarea.removeEventListener("input", onInput);
 }

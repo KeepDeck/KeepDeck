@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { usePaneTerminal } from "../../app/usePaneTerminal";
 import { registerTerminalPaneKeys } from "./paneKeyBinding";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
-import { handPasteWriter, registerTerminalPaneInput } from "./paneInputBinding";
+import { handPasteWriter, registerTerminalPaneInput, registerTerminalTextInput } from "./paneInputBinding";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { formatElapsed } from "../../domain/usage/format";
@@ -285,6 +285,8 @@ export function TerminalPane({
       }
     };
     ta?.addEventListener("keydown", blockShiftEnterDefault, true);
+    // Dictation and input methods write into the textarea, not as keys.
+    const unregisterTextInput = registerTerminalTextInput(terminal, paneId, ta);
 
     // Register BOTH input channels for this session. TYPE (raw PTY bytes):
     // file drag-and-drop (shapes its own paste framing around image paths) and
@@ -408,6 +410,7 @@ export function TerminalPane({
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste, true);
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
+      unregisterTextInput();
       // Detach only — the session lives on in the manager. Closing a pane is
       // a deck action (useCloseFlow → closePane), never a render artifact.
       detach();
