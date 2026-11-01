@@ -3,28 +3,30 @@
  * larger than one may be, a link leading out of one, a SKILL.md nobody should
  * read. The user's to fix, in the skill's own folder.
  *
- * A STANDING CONDITION, not an event: each stage replaces what the last one
- * said about its workspace, an empty list included; a library edit drops
- * everything said, since the next stage says it again if it is still true;
- * and a workspace that is gone is forgotten with it. Nothing expires on a
- * timer.
+ * A STANDING CONDITION, not an event: each stage replaces what was said about
+ * its workspace before — by any lifetime that held its id — an empty list
+ * included; a library edit drops everything said, since the next stage says
+ * it again if it is still true; and a lifetime that is gone is forgotten with
+ * it. Nothing expires on a timer.
  */
 import type { StagingTrim } from "../domain/skills";
 
-/** A stage's verdict on one skill, with the workspace whose stage said it. */
+/** A stage's verdict on one skill, with the workspace lifetime whose stage
+ * said it, named as it was named then. */
 export interface WorkspaceTrim extends StagingTrim {
   workspaceId: string;
+  workspaceInstance: string;
   workspaceName: string;
 }
 
 export interface StagingTrimStore {
   get(): readonly WorkspaceTrim[];
   subscribe(listener: () => void): () => void;
-  /** One stage's word on one workspace: replaces what was said about it
+  /** One stage's word on one workspace: replaces what was said under its id
    * before, an empty list included. */
-  record(workspace: { id: string; name: string }, trims: readonly StagingTrim[]): void;
-  /** Workspaces gone: only what was said about the live ones stands. */
-  keep(liveWorkspaceIds: readonly string[]): void;
+  record(workspace: { id: string; instance: string; name: string }, trims: readonly StagingTrim[]): void;
+  /** Lifetimes gone: only what the live ones' stages said stands. */
+  keep(liveInstances: readonly string[]): void;
   /** The library moved: nothing said about it stands until a stage says it
    * again. */
   clear(): void;
@@ -32,6 +34,7 @@ export interface StagingTrimStore {
 
 const sameTrim = (a: WorkspaceTrim, b: WorkspaceTrim): boolean =>
   a.workspaceId === b.workspaceId &&
+  a.workspaceInstance === b.workspaceInstance &&
   a.workspaceName === b.workspaceName &&
   a.scope === b.scope &&
   a.skill === b.skill &&
@@ -58,12 +61,17 @@ export function createStagingTrimStore(): StagingTrimStore {
     record(workspace, trims) {
       publish([
         ...current.filter((trim) => trim.workspaceId !== workspace.id),
-        ...trims.map((trim) => ({ ...trim, workspaceId: workspace.id, workspaceName: workspace.name })),
+        ...trims.map((trim) => ({
+          ...trim,
+          workspaceId: workspace.id,
+          workspaceInstance: workspace.instance,
+          workspaceName: workspace.name,
+        })),
       ]);
     },
-    keep(liveWorkspaceIds) {
-      const live = new Set(liveWorkspaceIds);
-      publish(current.filter((trim) => live.has(trim.workspaceId)));
+    keep(liveInstances) {
+      const live = new Set(liveInstances);
+      publish(current.filter((trim) => live.has(trim.workspaceInstance)));
     },
     clear() {
       publish([]);

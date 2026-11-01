@@ -12,7 +12,7 @@ export function createSweep(
   deck: WorktreeDeckView,
   inOrder: InOrder,
   disarm: (roots: string[]) => Promise<string[] | null>,
-  pruneSkills: (liveWsIds: string[]) => Promise<boolean>,
+  pruneSkills: (live: readonly LiveWorkspace[]) => Promise<boolean>,
   prunePluginDirs: (liveWsIds: readonly string[]) => Promise<boolean>,
 ): WorktreeHousekeeping {
   let swept: LiveWorkspace[] | null = null;
@@ -34,9 +34,10 @@ export function createSweep(
         const disarmed = await disarm([
           ...new Set(swept?.flatMap((ws) => ws.roots) ?? []),
         ]);
-        const liveIds = deck.live().map((ws) => ws.id).sort();
+        const liveNow = deck.live();
+        const liveIds = liveNow.map((ws) => ws.id).sort();
         const sweeps = await Promise.all([
-          pruneSkills(liveIds),
+          pruneSkills(liveNow),
           pruneMcpLibrary(liveIds),
           cwdArmPrune(liveIds),
           prunePluginDirs(liveIds),

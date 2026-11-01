@@ -237,6 +237,7 @@ pub(super) fn stage(
         fs::create_dir_all(&view)?;
     }
     let mut staged: Vec<StagedSkill> = Vec::new();
+    let mut no_room = Tally::default();
     for (name, source) in &sources {
         // The two materialization contracts, enforced by the match arms:
         // LIBRARY — a source deleted between collection and here is
@@ -257,8 +258,11 @@ pub(super) fn stage(
                     }
                     TreeCopy::TooBig => {
                         fs::create_dir(&dest)?;
-                        let kind = if room == own { TrimKind::TooLarge } else { TrimKind::NoRoom };
-                        trims.push(StagingTrim::of(scope, name, kind));
+                        if room == own {
+                            trims.push(StagingTrim::of(scope, name, TrimKind::TooLarge));
+                        } else {
+                            no_room.add(scope, name, TrimKind::NoRoom);
+                        }
                     }
                     // Its reserved place stays unused: the view only ends up
                     // smaller than it may be.
@@ -277,6 +281,7 @@ pub(super) fn stage(
         write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
         staged.push(StagedSkill { name: name.clone(), content: content.to_string() });
     }
+    trims.extend(no_room.0);
     fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
     // An emptied library swaps in nothing, so yesterday's view goes with it.
     swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
@@ -288,21 +293,39 @@ pub(super) fn stage(
 }
 
 /// Every skill's place in the view before any skill's files: its folder and
-/// SKILL.md, in name order, while the view has room. A skill that finds none
-/// is omitted, and said; the rest share what is left for their files.
+/// SKILL.md, in name order, while the view has room. The skills that find
+/// none are omitted, and said once — the first by name, with how many; the
+/// rest share what is left for their files.
 fn reserve(sources: Vec<(String, Source)>, trims: &mut Vec<StagingTrim>) -> (Vec<(String, Source)>, Allowance) {
     let mut left = VIEW_MAX;
     let mut placed = Vec::with_capacity(sources.len());
+    let mut omitted = Tally::default();
     for (name, source) in sources {
         let bare = Allowance::bare(source.content());
         if left.covers(bare) {
             left = left.less(bare);
             placed.push((name, source));
         } else {
-            trims.push(StagingTrim::of(source.scope(), &name, TrimKind::Omitted));
+            omitted.add(source.scope(), &name, TrimKind::Omitted);
         }
     }
+    trims.extend(omitted.0);
     (placed, left)
+}
+
+/// One trim for every skill a view-wide limit turned away — a library of
+/// thousands is one line, not thousands: the first skill by name, and how
+/// many.
+#[derive(Default)]
+struct Tally(Option<StagingTrim>);
+
+impl Tally {
+    fn add(&mut self, scope: &'static str, skill: &str, kind: TrimKind) {
+        match &mut self.0 {
+            Some(trim) => trim.count += 1,
+            None => self.0 = Some(StagingTrim::of(scope, skill, kind)),
+        }
+    }
 }
 
 /// The materialization source: a library skill carries its dir (the tree
@@ -939,17 +962,18 @@ mod tests {
     }
 
     #[test]
-    fn a_skill_with_no_room_even_for_its_skill_file_is_omitted_and_said() {
+    fn skills_with_no_room_even_for_their_skill_file_are_omitted_and_said_once() {
         // Over five thousand bare skills cannot all have a place: the ones
         // past the view's limit, in name order, are not handed at all — never
-        // handed a truncated SKILL.md.
+        // handed a truncated SKILL.md — and are one line with how many.
+        let fits = VIEW_MAX.entries / 2;
         let skills: Vec<(String, Source)> =
-            (0..=VIEW_MAX.entries / 2).map(|n| (format!("s{n:05}"), Source::Bundled("x"))).collect();
+            (0..fits + 3).map(|n| (format!("s{n:05}"), Source::Bundled("x"))).collect();
         let mut trims = Vec::new();
         let (placed, left) = reserve(skills, &mut trims);
-        assert_eq!(placed.len(), VIEW_MAX.entries / 2);
+        assert_eq!(placed.len(), fits);
         assert_eq!(left.entries, 0);
-        assert_eq!(trims, vec![trim("bundled", &format!("s{:05}", VIEW_MAX.entries / 2), TrimKind::Omitted)]);
+        assert_eq!(trims, vec![StagingTrim { count: 3, ..trim("bundled", &format!("s{fits:05}"), TrimKind::Omitted) }]);
     }
 
     #[test]

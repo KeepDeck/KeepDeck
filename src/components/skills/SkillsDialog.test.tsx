@@ -24,7 +24,7 @@ describe("SkillsDialog", () => {
     await host.mount();
     expect(document.body.textContent).not.toContain(STAGING_TRIMS_TITLE);
     act(() =>
-      stagingTrims.record({ id: "ws-1", name: "web" }, [
+      stagingTrims.record({ id: "ws-1", instance: "life-1", name: "web" }, [
         { scope: "global", skill: "review", kind: "too-large", path: null, count: 1 },
       ]),
     );

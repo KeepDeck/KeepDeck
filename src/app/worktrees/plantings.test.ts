@@ -111,13 +111,37 @@ describe("what staging could not hand out whole", () => {
   beforeEach(() => {
     trims = createStagingTrimStore();
     manager = managerFor(() => deck, trims);
+    deck = [{ id: "ws-1", roots: [] }];
   });
 
-  it("is said under the workspace that staged it, and only beside the views", async () => {
+  it("is said under the workspace lifetime that staged it, and only beside the views", async () => {
     skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
     // The spawn is handed the views alone.
     expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
-    expect(trims.get()).toEqual([{ ...linkOut, workspaceId: "ws-1", workspaceName: "name of ws-1" }]);
+    expect(trims.get()).toEqual([
+      { ...linkOut, workspaceId: "ws-1", workspaceInstance: "ws-1-life-1", workspaceName: "ws-1" },
+    ]);
+  });
+
+  it("is not said by the stage of a lifetime that is gone, even once a new workspace holds its id", async () => {
+    // Closed while its stage was in flight, and the slot handed to a new
+    // workspace: that one has not staged yet, so nothing stands under it.
+    deck = [{ id: "ws-1", instance: "life-2", roots: [] }];
+    skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
+    await manager.skillsFor(ref("ws-1", "life-1"));
+    expect(trims.get()).toEqual([]);
+  });
+
+  it("is dropped by the sweep once its lifetime is gone, though a new one holds the id", async () => {
+    deck = [{ id: "ws-1", instance: "life-1", roots: ["/a"] }];
+    skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
+    await manager.skillsFor(ref("ws-1", "life-1"));
+    await manager.sweep(true);
+    expect(trims.get()).toHaveLength(1);
+
+    deck = [{ id: "ws-1", instance: "life-2", roots: ["/b"] }];
+    await manager.sweep(true);
+    expect(trims.get()).toEqual([]);
   });
 
   it("is replaced by the workspace's next stage — a fixed skill leaves the list", async () => {
@@ -145,9 +169,12 @@ describe("what staging could not hand out whole", () => {
 
   it("survives a failed stage — a failure says nothing about the library", async () => {
     skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
-    await manager.skillsFor(ref("ws-1", "life-1"));
+    await manager.skillsFor(ref("ws-1"));
+    // The same workspace re-staged after the library moved, and failing.
+    manager.invalidateSkills();
+    trims.record({ id: "ws-1", instance: "ws-1-life-1", name: "ws-1" }, [linkOut]);
     skills.stageSkills.mockRejectedValueOnce(new Error("disk full"));
-    await manager.skillsFor(ref("ws-1", "life-2"));
+    await manager.skillsFor(ref("ws-1"));
     expect(trims.get()).toHaveLength(1);
   });
 

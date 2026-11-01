@@ -1,4 +1,4 @@
-import { findWorkspace, panesRunningIn } from "../domain/deck";
+import { panesRunningIn } from "../domain/deck";
 import { deliversMcpByCwd } from "../domain/agents";
 import { listApplications, openPath, openUrl } from "../ipc/app";
 import { readImageTempPath, readText, writeText } from "../ipc/clipboard";
@@ -414,11 +414,7 @@ export function createAppRuntime(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
     (deck, inOrder) =>
       createWorktreePlantings(deck, inOrder, {
-        skills: (queue) =>
-          createSkillsStaging(queue, {
-            trims: stagingTrims,
-            nameOf: (id) => findWorkspace(deckStore.getSnapshot().workspaces, id)?.name ?? id,
-          }),
+        skills: (queue, view) => createSkillsStaging(queue, view, stagingTrims),
         prunePluginDirs: plugins.workspaceDirs.prune,
         onDisarmed: armRefusals.forget,
       }),

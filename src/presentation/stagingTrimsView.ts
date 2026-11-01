@@ -1,12 +1,11 @@
 import type { StagingTrim, StagingTrimKind } from "../domain/skills";
 
 /** One stage's verdict as this view reads it: the trim, and the workspace
- * whose stage said it. */
-type Trim = StagingTrim & { workspaceName: string };
+ * lifetime whose stage said it. */
+type Trim = StagingTrim & { workspaceInstance: string; workspaceName: string };
 
 /** What the list is titled. */
-export const STAGING_TRIMS_TITLE =
-  "Some skills do not reach agents whole — what is wrong is in the skill's own folder:";
+export const STAGING_TRIMS_TITLE = "Some skills do not reach agents whole:";
 
 export interface StagingTrimLine {
   key: string;
@@ -39,15 +38,18 @@ function verdict(kind: StagingTrimKind): string {
 
 /** One line per thing to fix: the skill, or the path inside it, a workspace
  * skill's workspace, and what became of it. A global or bundled skill stages
- * into every workspace alike, so what several stages said of it is one line. */
+ * into every workspace alike, so what several stages said of it is one line;
+ * a workspace skill is its own workspace's, however that workspace is named. */
 export function stagingTrimLines(trims: readonly Trim[]): StagingTrimLine[] {
   const lines = new Map<string, StagingTrimLine>();
   for (const trim of trims) {
     const at = trim.path === null ? trim.skill : `${trim.skill}/${trim.path}`;
-    const where = trim.scope === "workspace" ? ` (in ${trim.workspaceName})` : "";
+    const own = trim.scope === "workspace";
+    const where = own ? ` (in ${trim.workspaceName})` : "";
     const more = trim.count > 1 ? ` (and ${trim.count - 1} more like it)` : "";
     const text = `${at}${where}: ${verdict(trim.kind)}${more}`;
-    lines.set(text, { key: text, text });
+    const key = own ? `${trim.workspaceInstance}\0${text}` : text;
+    lines.set(key, { key, text });
   }
   return [...lines.values()];
 }

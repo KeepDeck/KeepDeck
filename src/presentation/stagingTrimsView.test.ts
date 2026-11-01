@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { STAGING_TRIM_KINDS, type StagingTrim } from "../domain/skills";
 import { stagingTrimLines } from "./stagingTrimsView";
 
-const trim = (over: Partial<StagingTrim & { workspaceName: string }>) => ({
+const trim = (over: Partial<StagingTrim & { workspaceInstance: string; workspaceName: string }>) => ({
   scope: "global" as const,
   skill: "review",
   kind: "link-out" as const,
   path: null,
   count: 1,
+  workspaceInstance: "life-web",
   workspaceName: "web",
   ...over,
 });
@@ -26,10 +27,10 @@ describe("stagingTrimLines", () => {
 
   it("names a workspace skill's workspace, and says a global one once however many stages said it", () => {
     const lines = stagingTrimLines([
-      trim({ workspaceName: "web" }),
-      trim({ workspaceName: "api" }),
-      trim({ scope: "workspace", skill: "mine", workspaceName: "web" }),
-      trim({ scope: "workspace", skill: "mine", workspaceName: "api" }),
+      trim({ workspaceInstance: "life-web", workspaceName: "web" }),
+      trim({ workspaceInstance: "life-api", workspaceName: "api" }),
+      trim({ scope: "workspace", skill: "mine", workspaceInstance: "life-web", workspaceName: "web" }),
+      trim({ scope: "workspace", skill: "mine", workspaceInstance: "life-api", workspaceName: "api" }),
     ]);
     expect(lines.map((line) => line.text)).toEqual([
       "review: links outside the skill — left out",
@@ -37,6 +38,15 @@ describe("stagingTrimLines", () => {
       "mine (in api): links outside the skill — left out",
     ]);
     expect(new Set(lines.map((line) => line.key)).size).toBe(lines.length);
+  });
+
+  it("keeps two workspaces' skills apart even when the workspaces share a name — two things to fix", () => {
+    const lines = stagingTrimLines([
+      trim({ scope: "workspace", skill: "mine", workspaceInstance: "life-1", workspaceName: "web" }),
+      trim({ scope: "workspace", skill: "mine", workspaceInstance: "life-2", workspaceName: "web" }),
+    ]);
+    expect(lines).toHaveLength(2);
+    expect(new Set(lines.map((line) => line.key)).size).toBe(2);
   });
 
   it("has words for every kind the stage can say", () => {

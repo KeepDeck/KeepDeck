@@ -19,7 +19,7 @@ export function createWorktreePlantings(
   inOrder: InOrder,
   factories: WorktreePlantingFactories,
 ): WorktreePlantings {
-  const skills = factories.skills(inOrder);
+  const skills = factories.skills(inOrder, deck);
 
   async function disarm(roots: string[]): Promise<string[] | null> {
     const liveRoots = deck.live().flatMap((ws) => ws.roots);

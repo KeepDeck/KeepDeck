@@ -12,18 +12,12 @@ import { fetchSkills, pruneSkills, stageSkills, type ExcludedSkill } from "../..
 import { log } from "../../ipc/log";
 import { errorMessage } from "@keepdeck/plugin-api";
 import { skillsUnfitForAgents } from "../../domain/skills";
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { StagingTrimStore } from "../stagingTrims";
-import type { WorktreeSkillViews, WorktreeSkillsPlanting } from "../worktrees";
+import type { WorktreeDeckView, WorktreeSkillViews, WorktreeSkillsPlanting } from "../worktrees";
 import type { InOrder } from "../worktrees/queue";
 
 export type SkillsStaging = WorktreeSkillsPlanting;
-
-/** What staging reports to, and how it names a workspace there. */
-export interface SkillsStagingDeps {
-  trims: Pick<StagingTrimStore, "record" | "keep" | "clear">;
-  /** The workspace's name as the user sees it now. */
-  nameOf(workspaceId: string): string;
-}
 
 /** The library rows no agent may be handed, by the codec's judgement — or
  * null when the library could not be read: then nothing stages, rather than
@@ -41,20 +35,35 @@ async function unfitSkills(): Promise<ExcludedSkill[] | null> {
  * which says nothing about the library. */
 type Staged = { ok: true; views: WorktreeSkillViews | null } | { ok: false };
 
-export function createSkillsStaging(inOrder: InOrder, deps: SkillsStagingDeps): SkillsStaging {
+/**
+ * `deck` names the workspace a stage reports under; `trims` is where it
+ * reports what it could not hand out whole.
+ */
+export function createSkillsStaging(
+  inOrder: InOrder,
+  deck: Pick<WorktreeDeckView, "nameOf">,
+  trims: Pick<StagingTrimStore, "record" | "keep" | "clear">,
+): SkillsStaging {
   const staged = new Map<string, Promise<WorktreeSkillViews | null>>();
   /** Bumped by every invalidation: a stage asked for before one speaks of a
    * library that is gone, and its report must not land over the clear. */
   let generation = 0;
 
-  async function stage(workspace: { id: string }, asked: number): Promise<Staged> {
+  /** Report a stage's trims under its workspace — unless the library moved
+   * since it was asked for, or the lifetime it staged is gone (a workspace
+   * now holding the same id has not staged yet). */
+  function report(workspace: WorkspaceRef, asked: number, said: Parameters<StagingTrimStore["record"]>[1]): void {
+    const name = deck.nameOf(workspace);
+    if (asked !== generation || name === null) return;
+    trims.record({ id: workspace.id, instance: workspace.instance, name }, said);
+  }
+
+  async function stage(workspace: WorkspaceRef, asked: number): Promise<Staged> {
     const excluded = await unfitSkills();
     if (excluded === null) return { ok: false };
     try {
       const answer = await stageSkills(workspace.id, excluded);
-      if (asked === generation) {
-        deps.trims.record({ id: workspace.id, name: deps.nameOf(workspace.id) }, answer.trims);
-      }
+      report(workspace, asked, answer.trims);
       return { ok: true, views: answer.view };
     } catch (e) {
       log.warn("web:skills", `skills_stage failed; spawning without skills: ${errorMessage(e)}`);
@@ -81,12 +90,12 @@ export function createSkillsStaging(inOrder: InOrder, deps: SkillsStagingDeps): 
     invalidateSkills() {
       generation += 1;
       staged.clear();
-      deps.trims.clear();
+      trims.clear();
     },
 
-    async pruneSkills(liveWsIds) {
-      const pruned = await pruneSkills(liveWsIds);
-      deps.trims.keep(liveWsIds);
+    async pruneSkills(live) {
+      const pruned = await pruneSkills(live.map((workspace) => workspace.id).sort());
+      trims.keep(live.map((workspace) => workspace.instance));
       return pruned;
     },
   };

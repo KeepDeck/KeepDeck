@@ -25,14 +25,13 @@ describe("StagingTrims", () => {
 
   it("says what a stage left out, and follows the store as the user fixes it", () => {
     act(() => root.render(createElement(StagingTrims)));
+    const web = { id: "ws-1", instance: "life-1", name: "web" };
     act(() =>
-      stagingTrims.record({ id: "ws-1", name: "web" }, [
-        { scope: "global", skill: "review", kind: "link-out", path: "lib", count: 1 },
-      ]),
+      stagingTrims.record(web, [{ scope: "global", skill: "review", kind: "link-out", path: "lib", count: 1 }]),
     );
     expect(document.body.textContent).toContain(STAGING_TRIMS_TITLE);
     expect(document.body.textContent).toContain("review/lib: links outside the skill — left out");
-    act(() => stagingTrims.record({ id: "ws-1", name: "web" }, []));
+    act(() => stagingTrims.record(web, []));
     expect(document.body.textContent).toBe("");
   });
 });
