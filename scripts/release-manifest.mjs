@@ -12,33 +12,54 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
+/**
+ * @typedef {{ version: string, repo: string, out: string, payloads: Record<string, string> }} ManifestArgs
+ */
+
+/**
+ * @param {string[]} argv
+ * @returns {ManifestArgs}
+ */
 export function parseArgs(argv) {
-  const args = { payloads: {} };
+  /** @type {string | undefined} */
+  let version;
+  /** @type {string | undefined} */
+  let repo;
+  /** @type {string | undefined} */
+  let out;
+  /** @type {Record<string, string>} */
+  const payloads = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    if (flag === "--version") args.version = argv[++i];
-    else if (flag === "--repo") args.repo = argv[++i];
-    else if (flag === "--out") args.out = argv[++i];
+    if (flag === "--version") version = argv[++i];
+    else if (flag === "--repo") repo = argv[++i];
+    else if (flag === "--out") out = argv[++i];
     else if (flag === "--payload") {
       const pair = argv[++i] ?? "";
       const eq = pair.indexOf("=");
       if (eq < 1) {
         throw new Error(`--payload expects <platform>=<file>, got: ${pair}`);
       }
-      args.payloads[pair.slice(0, eq)] = pair.slice(eq + 1);
+      payloads[pair.slice(0, eq)] = pair.slice(eq + 1);
     } else {
       throw new Error(`unknown argument: ${flag}`);
     }
   }
-  for (const key of ["version", "repo", "out"]) {
-    if (!args[key]) throw new Error(`--${key} is required`);
-  }
-  if (Object.keys(args.payloads).length === 0) {
+  if (!version) throw new Error("--version is required");
+  if (!repo) throw new Error("--repo is required");
+  if (!out) throw new Error("--out is required");
+  if (Object.keys(payloads).length === 0) {
     throw new Error("at least one --payload is required");
   }
-  return args;
+  return { version, repo, out, payloads };
 }
 
+/**
+ * @param {{ version: string, repo: string, payloads: Record<string, string> }} args
+ * @param {(path: string) => string} [read]
+ * @param {() => Date} [now]
+ * @returns {{ version: string, pub_date: string, platforms: Record<string, { signature: string, url: string }> }}
+ */
 export function buildManifest(
   { version, repo, payloads },
   read = (path) => readFileSync(path, "utf8"),
@@ -47,6 +68,7 @@ export function buildManifest(
   if (!/^\d+\.\d+\.\d+$/.test(version)) {
     throw new Error(`unsupported version format: ${version}`);
   }
+  /** @type {Record<string, { signature: string, url: string }>} */
   const platforms = {};
   for (const [platform, file] of Object.entries(payloads)) {
     const signature = read(`${file}.sig`).trim();
@@ -62,6 +84,9 @@ export function buildManifest(
   return { version, pub_date: now().toISOString(), platforms };
 }
 
+/**
+ * @param {string[]} [argv]
+ */
 export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const manifest = buildManifest(args);

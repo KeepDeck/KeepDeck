@@ -32,6 +32,15 @@ const LOCK_PACKAGE = "keepdeck";
 const MAJOR_MARKER = "(major)";
 const MINOR_MARKER = "(minor)";
 
+/**
+ * @typedef {"major" | "minor" | "patch"} BumpKind
+ */
+
+/**
+ * @param {string} version
+ * @param {string} kind
+ * @returns {string}
+ */
 export function bumpVersion(version, kind) {
   const m = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!m) throw new Error(`unsupported version format: ${version}`);
@@ -42,10 +51,19 @@ export function bumpVersion(version, kind) {
   throw new Error(`unknown bump kind: ${kind}`);
 }
 
+/**
+ * @param {string} current
+ * @param {string[]} kinds
+ * @returns {string}
+ */
 export function computeNext(current, kinds) {
   return kinds.reduce(bumpVersion, current);
 }
 
+/**
+ * @param {string} subject
+ * @returns {BumpKind}
+ */
 export function classifyMergeSubject(subject) {
   if (subject.includes(MAJOR_MARKER)) return "major";
   return subject.includes(MINOR_MARKER) ? "minor" : "patch";
@@ -53,7 +71,12 @@ export function classifyMergeSubject(subject) {
 
 /** One run's bump: the merges since the anchor in merge order, then the
  * forced bump. Null when there is nothing to apply. A batch with a minor or
- * major bump releases, and so does every forced bump. */
+ * major bump releases, and so does every forced bump.
+ * @param {string} current
+ * @param {string[]} subjects
+ * @param {BumpKind | null} forced
+ * @returns {{ next: string, kinds: BumpKind[], release: boolean } | null}
+ */
 export function planBump(current, subjects, forced) {
   const kinds = subjects.map(classifyMergeSubject);
   if (forced) kinds.push(forced);
@@ -65,6 +88,10 @@ export function planBump(current, subjects, forced) {
   };
 }
 
+/**
+ * @param {string} toml
+ * @returns {string}
+ */
 export function parseCargoVersion(toml) {
   // Only the [package] version sits at line start; dependency versions live
   // mid-line inside tables (`tauri = { version = "2", … }`) and never match.
@@ -73,17 +100,33 @@ export function parseCargoVersion(toml) {
   return m[1];
 }
 
+/**
+ * @param {string} toml
+ * @param {string} version
+ * @returns {string}
+ */
 export function setCargoVersion(toml, version) {
   parseCargoVersion(toml);
   return toml.replace(/^version\s*=\s*"[^"]+"/m, `version = "${version}"`);
 }
 
+/**
+ * @param {string} json
+ * @param {string} version
+ * @returns {string}
+ */
 export function setPackageJsonVersion(json, version) {
   const re = /("version"\s*:\s*")[^"]+(")/;
   if (!re.test(json)) throw new Error(`no version field found in ${PACKAGE_JSON}`);
   return json.replace(re, `$1${version}$2`);
 }
 
+/**
+ * @param {string} lock
+ * @param {string} name
+ * @param {string} version
+ * @returns {string}
+ */
 export function setLockVersion(lock, name, version) {
   const re = new RegExp(
     `(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = ")[^"]+(")`,
@@ -92,6 +135,10 @@ export function setLockVersion(lock, name, version) {
   return lock.replace(re, `$1${version}$2`);
 }
 
+/**
+ * @param {...string} args
+ * @returns {string}
+ */
 function git(...args) {
   // stderr stays piped (not inherited) so expected probe failures — e.g.
   // resolving `<root>^` in findAnchor — don't pollute CI logs.
@@ -101,6 +148,10 @@ function git(...args) {
   }).trim();
 }
 
+/**
+ * @param {string} ref
+ * @returns {string}
+ */
 function versionAt(ref) {
   return parseCargoVersion(git("show", `${ref}:${CARGO_TOML}`));
 }
@@ -123,6 +174,10 @@ function findAnchor() {
   return touched.at(-1) ?? null;
 }
 
+/**
+ * @param {string[]} argv
+ * @returns {BumpKind | null}
+ */
 export function readBumpArg(argv) {
   const i = argv.indexOf("--bump");
   if (i === -1) return null;
@@ -135,6 +190,10 @@ export function readBumpArg(argv) {
   return kind;
 }
 
+/**
+ * @param {string[]} [argv]
+ * @returns {string | null}
+ */
 export function main(argv = process.argv.slice(2)) {
   const forced = readBumpArg(argv);
   const current = parseCargoVersion(readFileSync(CARGO_TOML, "utf8"));

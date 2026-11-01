@@ -5,6 +5,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * @param {number} status
+ * @param {string} [body]
+ * @returns {Response}
+ */
 function response(status, body = "") {
   return new Response(body, { status });
 }
