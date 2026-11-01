@@ -40,7 +40,9 @@ nothing is installed on the user's side.
   plugin builds that directory itself in its own workspace directory
   (`src/layout.ts`: `config/skills/`, a copy of the host's staged skills
   view made with `fsWrite.copyDir`, and a `/name` palette command per skill
-  under `config/command/`, each subtree published whole), and `src/warm.ts`
+  under `config/command/`, each subtree published whole and left as it is
+  while it already holds what it would be made to hold — plugin API 76,
+  task-574), and `src/warm.ts`
   makes sure its dependencies are installed. The copy carries every file
   beside each `SKILL.md`; between plugin API 73 and 74 the skills were
   written from their text alone, and 1.x lost their references and scripts

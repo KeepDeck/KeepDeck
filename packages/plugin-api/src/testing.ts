@@ -17,7 +17,7 @@
  */
 
 import type { FsEntry, FsFile, PluginFs } from "./context/services.ts";
-import type { PublishingFsWrite } from "./context/publish.ts";
+import type { PublishingFsWrite, PublishingRead } from "./context/publish.ts";
 
 /** The SKILL.md shapes the codec must carry, and the ones it must refuse to
  * re-author — one corpus for the codec's suite and every consumer's. */
@@ -173,6 +173,8 @@ function decodeText(window: Uint8Array): string | null {
 /** A tree of files in memory behind the publishing half of `fsWrite`. */
 export interface PublishingTree {
   fsWrite: PublishingFsWrite;
+  /** What publishing reads, of the tree as it is at each read. */
+  fs: PublishingRead;
   /** Every file under `dir`, by its path inside it, sorted. */
   files(dir: string): string[];
   /** The text of the file at `path`, if there is one. */
@@ -216,6 +218,7 @@ export function publishingTree(files: Record<string, string> = {}): PublishingTr
         for (const [path, text] of moved) tree.set(`${dst}${path.slice(src.length)}`, text);
       },
     },
+    fs: { readFile: (path, opts) => fsStore(Object.fromEntries(tree)).readFile(path, opts) },
     files: (dir) => under(dir).map((path) => path.slice(dir.length + 1)).sort(),
     read: (path) => tree.get(path),
   };

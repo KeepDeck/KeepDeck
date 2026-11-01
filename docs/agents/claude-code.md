@@ -24,7 +24,10 @@ Nothing is written to `~/.claude`.
   builds that directory itself in its own workspace directory
   (`src/skillsPlugin.ts`: `.claude-plugin/plugin.json` and `skills/`, a copy
   of the host's staged skills view made with `fsWrite.copyDir`, published
-  whole). The copy carries every file beside each `SKILL.md`; between plugin
+  whole). A pane starting with unchanged skills copies nothing: the view's
+  fingerprint file comes along in the copy, and a directory whose stamp and
+  copied fingerprint match is left as it is (plugin API 76, task-574).
+  The copy carries every file beside each `SKILL.md`; between plugin
   API 73 and 74 the directory was built from each `SKILL.md`'s text, and
   claude lost a skill's references and scripts (task-545). A symlink to the
   view would not do: claude 2.1.312's own check of a plugin folder does not

@@ -1,4 +1,4 @@
-import type { PublishingFsWrite } from "@keepdeck/plugin-api";
+import { VIEW_FINGERPRINT_FILE, type PublishingFsWrite, type PublishingRead } from "@keepdeck/plugin-api";
 import { publishingTree } from "@keepdeck/plugin-api/testing";
 import { describe, expect, it } from "vitest";
 import { paletteCommand, skillsConfigDirs } from "./layout";
@@ -66,9 +66,11 @@ function recordingWrites() {
 }
 
 describe("skillsConfigDirs — the 1.x config directory", () => {
-  const ports = (fsWrite: PublishingFsWrite) => ({
+  /** Nothing published yet: every read finds nothing. */
+  const unread: PublishingRead = { readFile: async (path) => Promise.reject(new Error(`no such file: ${path}`)) };
+  const ports = (fsWrite: PublishingFsWrite, fs: PublishingRead = unread) => ({
     workspaces: { dir: async (ws: { id: string }) => `/pw/keepdeck.opencode/${ws.id}` },
-    services: { fsWrite },
+    services: { fsWrite, fs },
   });
   const dir = "/kd/skills/staging/ws-1/skills";
   const skills = [
@@ -86,10 +88,12 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
       `remove ${config}/skills.tmp`,
       // The staged view whole: every file beside each SKILL.md comes along.
       `copy ${dir} -> ${config}/skills.tmp`,
+      `write ${config}/skills.tmp/.keepdeck-published`,
       `move ${config}/skills.tmp -> ${config}/skills`,
       `remove ${config}/command.tmp`,
       `write ${config}/command.tmp/alpha.md`,
       `write ${config}/command.tmp/review.md`,
+      `write ${config}/command.tmp/.keepdeck-published`,
       `move ${config}/command.tmp -> ${config}/command`,
     ]);
     // Each command points at where its skill LANDS.
@@ -99,6 +103,7 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
   it("holds every file of every staged skill beside what opencode keeps there, and nothing a removed skill left", async () => {
     const config = "/pw/keepdeck.opencode/ws-1/config";
     const tree = publishingTree({
+      [`${dir}/${VIEW_FINGERPRINT_FILE}`]: "sha256:1",
       [`${dir}/review/SKILL.md`]: skills[1].content,
       [`${dir}/review/references/design-patterns.md`]: "patterns",
       [`${dir}/review/scripts/run.sh`]: "#!/bin/sh\n",
@@ -106,17 +111,49 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
       [`${config}/skills/gone/SKILL.md`]: "removed from the library",
       [`${config}/command/gone.md`]: "removed from the library",
     });
-    await skillsConfigDirs(ports(tree.fsWrite)).build(workspace, staged([skills[1]]));
+    await skillsConfigDirs(ports(tree.fsWrite, tree.fs)).build(workspace, staged([skills[1]]));
 
     expect(tree.files(config)).toEqual([
+      "command/.keepdeck-published",
       "command/review.md",
       "node_modules/plugin/index.js",
+      `skills/${VIEW_FINGERPRINT_FILE}`,
+      "skills/.keepdeck-published",
       "skills/review/SKILL.md",
       "skills/review/references/design-patterns.md",
       "skills/review/scripts/run.sh",
     ]);
     // The command names a file that is there.
     expect(tree.read(`${config}/command/review.md`)).toContain(`read ${config}/skills/review/SKILL.md and`);
+  });
+
+  it("writes nothing for a pane starting with the skills it already holds, and each subtree again once it moved", async () => {
+    const config = "/pw/keepdeck.opencode/ws-1/config";
+    const tree = publishingTree({
+      [`${dir}/${VIEW_FINGERPRINT_FILE}`]: "sha256:1",
+      [`${dir}/review/SKILL.md`]: skills[1].content,
+    });
+    const dirs = skillsConfigDirs(ports(tree.fsWrite, tree.fs));
+    await dirs.build(workspace, staged([skills[1]]));
+    // Nothing a build writes: each survives only a build that left its
+    // subtree as it was.
+    const mark = async () => {
+      await tree.fsWrite.writeFile(`${config}/skills/mark`, "");
+      await tree.fsWrite.writeFile(`${config}/command/mark`, "");
+    };
+    const marked = () => ["skills", "command"].filter((sub) => tree.files(`${config}/${sub}`).includes("mark"));
+    await mark();
+
+    await dirs.build(workspace, staged([skills[1]]));
+    expect(marked()).toEqual(["skills", "command"]);
+
+    // The skill's description changed in the view and in its text alike.
+    const edited = { name: "review", content: "---\ndescription: Reviews code\n---\nR\n" };
+    await tree.fsWrite.writeFile(`${dir}/review/SKILL.md`, edited.content);
+    await tree.fsWrite.writeFile(`${dir}/${VIEW_FINGERPRINT_FILE}`, "sha256:2");
+    await dirs.build(workspace, staged([edited]));
+    expect(marked()).toEqual([]);
+    expect(tree.read(`${config}/command/review.md`)).toContain("description: Reviews code");
   });
 
   it("builds one workspace's directory at a time — two launches never share a half-built set", async () => {
@@ -146,7 +183,7 @@ describe("skillsConfigDirs — the 1.x config directory", () => {
   it("a failed build does not stall the next one", async () => {
     const w = recordingWrites();
     const failing = { ...w.fsWrite, move: async () => Promise.reject(new Error("disk full")) };
-    const dirs = skillsConfigDirs({ ...ports(w.fsWrite), services: { fsWrite: failing } });
+    const dirs = skillsConfigDirs({ ...ports(w.fsWrite), services: { fsWrite: failing, fs: unread } });
     await expect(dirs.build(workspace, staged())).rejects.toThrow("disk full");
     await expect(dirs.build(workspace, staged())).rejects.toThrow("disk full");
   });

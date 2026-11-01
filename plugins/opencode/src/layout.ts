@@ -16,7 +16,9 @@
  * and state files there (field-verified on 1.18.3) — so everything else in it
  * survives every rebuild. Each subtree is built aside and published whole
  * (`fsWrite.move`): a pane starting mid-rebuild reads the old set or the new
- * one, never half of each.
+ * one, never half of each. A subtree already holding what it would be made
+ * to hold is left as it is: a pane starting with unchanged skills copies and
+ * writes nothing.
  */
 import {
   frontmatterLine,
@@ -25,6 +27,7 @@ import {
   publishFiles,
   type PluginWorkspaces,
   type PublishingFsWrite,
+  type PublishingRead,
   type SpawnSkillsInput,
   type WorkspaceRef,
 } from "@keepdeck/plugin-api";
@@ -32,7 +35,7 @@ import {
 /** What building the directory needs from the host. */
 export interface LayoutPorts {
   workspaces: PluginWorkspaces;
-  services: { fsWrite: PublishingFsWrite };
+  services: { fsWrite: PublishingFsWrite; fs: PublishingRead };
 }
 
 /** The palette command generated for one skill. Its description is the
@@ -58,9 +61,9 @@ export function skillsConfigDirs(ctx: LayoutPorts): SkillsConfigDirs {
   const serial = oneAtATime();
 
   async function build(workspace: WorkspaceRef, { dir, skills }: SpawnSkillsInput): Promise<string> {
-    const { fsWrite } = ctx.services;
+    const { fsWrite, fs } = ctx.services;
     const config = `${await ctx.workspaces.dir(workspace)}/config`;
-    await publishCopy(fsWrite, `${config}/skills`, dir);
+    await publishCopy(fsWrite, `${config}/skills`, dir, fs);
     await publishFiles(
       fsWrite,
       `${config}/command`,
@@ -68,6 +71,7 @@ export function skillsConfigDirs(ctx: LayoutPorts): SkillsConfigDirs {
         path: `${name}.md`,
         text: paletteCommand(name, content, `${config}/skills/${name}/SKILL.md`),
       })),
+      fs,
     );
     return config;
   }

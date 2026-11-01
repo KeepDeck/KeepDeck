@@ -52,6 +52,7 @@ function activate(
     services: {
       // A store holding the forked session's transcript and nothing else.
       fs: {
+        readFile: async (path) => Promise.reject(new Error(`no such file: ${path}`)),
         readDir: async (path) =>
           path === "/Users/u/.claude/projects/-old-worktree"
             ? [{ name: "uuid-1.jsonl", path: `${path}/uuid-1.jsonl`, kind: "file" }]

@@ -13,13 +13,16 @@
  *
  * The directory is published whole ([`publishFiles`]), one build at a time
  * per workspace, so a pane starting mid-rebuild loads the old set or the new
- * one, and a skill removed from the library is gone with the old set.
+ * one, and a skill removed from the library is gone with the old set. A
+ * directory already holding what the view holds now is left as it is: a
+ * pane starting with unchanged skills copies nothing.
  */
 import {
   oneAtATime,
   publishFiles,
   type PluginWorkspaces,
   type PublishingFsWrite,
+  type PublishingRead,
   type WorkspaceRef,
 } from "@keepdeck/plugin-api";
 
@@ -32,7 +35,7 @@ export const SKILLS_PLUGIN_MANIFEST =
 /** What building the directory needs from the host. */
 export interface SkillsPluginPorts {
   workspaces: PluginWorkspaces;
-  services: { fsWrite: PublishingFsWrite };
+  services: { fsWrite: PublishingFsWrite; fs: PublishingRead };
 }
 
 export interface SkillsPluginDirs {
@@ -46,10 +49,15 @@ export function skillsPluginDirs(ctx: SkillsPluginPorts): SkillsPluginDirs {
 
   async function build(workspace: WorkspaceRef, skillsDir: string): Promise<string> {
     const dir = `${await ctx.workspaces.dir(workspace)}/plugin`;
-    await publishFiles(ctx.services.fsWrite, dir, [
-      { path: ".claude-plugin/plugin.json", text: SKILLS_PLUGIN_MANIFEST },
-      { path: "skills", copyOf: skillsDir },
-    ]);
+    await publishFiles(
+      ctx.services.fsWrite,
+      dir,
+      [
+        { path: ".claude-plugin/plugin.json", text: SKILLS_PLUGIN_MANIFEST },
+        { path: "skills", copyOf: skillsDir },
+      ],
+      ctx.services.fs,
+    );
     return dir;
   }
 
