@@ -17,9 +17,12 @@ export function createSweep(
 ): WorktreeHousekeeping {
   let swept: LiveWorkspace[] | null = null;
 
+  /** What a pass acts on: which lifetimes hold which roots. A workspace
+   * reborn under the same id with the same roots is still a change — what
+   * the gone lifetime left standing is the pass's to drop. */
   function fingerprint(live: LiveWorkspace[]): string {
     return JSON.stringify(
-      live.map((ws) => [ws.id, [...ws.roots].sort()]).sort(),
+      live.map((ws) => [ws.id, ws.instance, [...ws.roots].sort()]).sort(),
     );
   }
 

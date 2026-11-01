@@ -144,6 +144,17 @@ describe("what staging could not hand out whole", () => {
     expect(trims.get()).toEqual([]);
   });
 
+  it("is dropped by the sweep even when the new lifetime holds the same id and the same roots", async () => {
+    deck = [{ id: "ws-1", instance: "life-1", roots: [] }];
+    skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
+    await manager.skillsFor(ref("ws-1", "life-1"));
+    await manager.sweep(true);
+
+    deck = [{ id: "ws-1", instance: "life-2", roots: [] }];
+    await manager.sweep(true);
+    expect(trims.get()).toEqual([]);
+  });
+
   it("is replaced by the workspace's next stage — a fixed skill leaves the list", async () => {
     skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
     await manager.skillsFor(ref("ws-1"));

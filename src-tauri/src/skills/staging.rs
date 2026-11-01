@@ -921,13 +921,14 @@ mod tests {
     }
 
     #[test]
-    fn room_for_files_goes_in_name_order_and_the_one_it_runs_out_on_goes_bare() {
+    fn room_for_files_goes_in_name_order_and_the_ones_it_runs_out_on_go_bare_said_once() {
         // Every skill's place is reserved first, so the late `z-small` still
-        // gets its file; the last full skill in NAME order — not in the order
-        // the scopes were read, workspace after global — finds the view full.
+        // gets its file; the full skills past the room in NAME order — not in
+        // the order the scopes were read, workspace after global — go bare,
+        // and are one line: the first of them, and how many.
         let (_tmp, root) = root();
         full_skill(&ws(&root, "ws-1"), "a-workspace");
-        for n in 1..=7 {
+        for n in 1..=9 {
             full_skill(&global(&root), &format!("g-{n}"));
         }
         save(&global(&root), "z-small", &fm("small")).unwrap();
@@ -935,12 +936,14 @@ mod tests {
 
         let staged = answer(&root);
 
-        assert_eq!(staged.trims, vec![trim("global", "g-7", TrimKind::NoRoom)]);
+        assert_eq!(staged.trims, vec![StagingTrim { count: 3, ..trim("global", "g-7", TrimKind::NoRoom) }]);
         let view = PathBuf::from(staged.view.unwrap().dir);
         assert!(view.join("a-workspace").join("files").is_dir(), "the first in name order keeps its files");
         assert!(view.join("g-6").join("files").is_dir());
-        assert!(!view.join("g-7").join("files").exists(), "the one the room ran out on goes bare");
-        assert!(view.join("g-7").join(SKILL_FILE).is_file());
+        for bare in ["g-7", "g-8", "g-9"] {
+            assert!(!view.join(bare).join("files").exists(), "{bare}: the room ran out, it goes bare");
+            assert!(view.join(bare).join(SKILL_FILE).is_file());
+        }
         assert_eq!(fs::read_to_string(view.join("z-small").join("notes.txt")).unwrap(), "kept");
     }
 
