@@ -1,12 +1,37 @@
 import { describe, expect, it, vi } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
-import { kimiRecords, kimiTail } from "./tail";
+import { kimiPermissionMode, kimiRecords, kimiTail } from "./tail";
+import { normalizeKimiStatus } from "./status";
 import { present } from "@keepdeck/plugin-api/testing";
 
 const project = (record: Record<string, unknown>) => {
   const watch = kimiRecords.watches.find((candidate) => watchMatches(candidate, record));
   return watch ? watchProject(watch, record) : null;
 };
+
+describe("the mode kimi's main agent says it runs in", () => {
+  it("maps kimi's names by meaning: its never-ask auto is YOLO, its ask-when-needed yolo is not", () => {
+    expect(kimiPermissionMode("auto")).toBe("yolo");
+    expect(kimiPermissionMode("yolo")).toBe("auto");
+    expect(kimiPermissionMode("manual")).toBe("ask");
+    expect(kimiPermissionMode("plan")).toBeNull();
+  });
+
+  it("carries the main agent's mode record and reads it at its own time; a child's is not the pane's", () => {
+    const record = project({ type: "permission.set_mode", agentId: "main", mode: "auto", time: 300 });
+    expect(record).toEqual({ type: "permission.set_mode", agentId: "main", mode: "auto", time: 300 });
+    expect(kimiRecords.read(present(record, "the record"))).toEqual({ kind: "permission-mode", at: 300, mode: "yolo" });
+    expect(project({ type: "permission.set_mode", agentId: "agent-1", mode: "manual", time: 300 })).toBeNull();
+  });
+
+  it("reaches the host as a mode edge through the status normalizer", () => {
+    const record = present(project({ type: "permission.set_mode", agentId: "main", mode: "manual", time: 300 }), "the record");
+    const normalized = normalizeKimiStatus({ agent: "kimi", kind: "store.record", record }, 999);
+    expect(normalized && "events" in normalized ? normalized.events : []).toEqual([
+      { kind: "permission-mode", at: 300, mode: "ask" },
+    ]);
+  });
+});
 
 describe("Kimi's main wire lifecycle", () => {
   it("carries only main-agent metadata, never prompts or task output", () => {

@@ -57,6 +57,14 @@ let activeController: ReturnType<typeof createKimiSetupController> | null = null
 const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
   skills ? ["--skills-dir", skills.dir] : [];
 
+/** kimi's YOLO switch: `--auto`, its never-ask mode — what the deck's YOLO
+ * promises on every agent. kimi's own `--yolo` is "ask when needed": it still
+ * asks before a dangerous command, a sensitive path, the user's own ask rules,
+ * and lets the model put questions (kimi 2.4.1, task-577). Deny rules bind
+ * both, and since 2.4 a plan still asks for review. `--auto` exists since
+ * kimi 0.5; every kimi this plugin drives is far newer. */
+const YOLO_SWITCH = ["--auto"];
+
 /** Everything a launch of kimi carries, whichever way the pane starts it —
  * fresh, resumed, or forked into a session it names.
  *
@@ -73,7 +81,7 @@ function stageLaunch(
   input: Pick<SpawnPlanInput, "skills" | "yolo">,
   output: Pick<SpawnPlanOutput, "args" | "envDefaults" | "yolo">,
 ): void {
-  output.args.push(...skillsArgs(input.skills), ...yoloSwitch(input, output, ["--yolo"]));
+  output.args.push(...skillsArgs(input.skills), ...yoloSwitch(input, output, YOLO_SWITCH));
   (output.envDefaults ??= []).push(["KIMI_CODE_TRUST_WORKSPACE", "1"]);
 }
 

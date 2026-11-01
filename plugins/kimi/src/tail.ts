@@ -4,6 +4,7 @@ import {
   jsonl,
   turnFailedEvent,
   type AgentHistory,
+  type AgentPermissionMode,
   type AgentStatusEvent,
   type JsonlRequest,
   type SessionTailDialect,
@@ -30,8 +31,33 @@ const watches: readonly TailWatch[] = [
     match: [{ key: "type", equals: type }, { key: "agentId", equals: "main" }],
     keep: ["type", "agentId", "time", "info.taskId", "info.detached"], lane: "status",
   })),
+  // The mode the main agent runs in, recorded when it is set and on every
+  // change — at once, not at the next turn. Live only: a resumed session's
+  // older records speak for an older process.
+  { match: [{ key: "type", equals: "permission.set_mode" }, { key: "agentId", equals: "main" }],
+    keep: ["type", "agentId", "time", "mode"], lane: "status" },
   ...kimiQuestionWatches,
 ];
+
+/**
+ * kimi's own mode name → the host's. Matched by MEANING, not by name: kimi's
+ * `auto` never asks, so it is the host's yolo; kimi's `yolo` is "ask when
+ * needed" — it decides itself what to put to the user — so it is the host's
+ * auto; `manual` asks (kimi 2.4.1, task-577). A name this dialect does not
+ * know says nothing.
+ */
+export function kimiPermissionMode(mode: unknown): AgentPermissionMode | null {
+  switch (mode) {
+    case "auto":
+      return "yolo";
+    case "yolo":
+      return "auto";
+    case "manual":
+      return "ask";
+    default:
+      return null;
+  }
+}
 
 export const kimiRecords = {
   watches,
@@ -55,6 +81,10 @@ export const kimiRecords = {
         const id = asNonEmptyString(record["info.taskId"]);
         if (!id || record["info.detached"] !== true) return null;
         return { kind: record.type === "task.started" ? "agent-turn-start" : "agent-turn-end", at, id };
+      }
+      case "permission.set_mode": {
+        const mode = kimiPermissionMode(record.mode);
+        return mode ? { kind: "permission-mode", at, mode } : null;
       }
       default: return null;
     }
