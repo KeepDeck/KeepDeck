@@ -69,6 +69,7 @@ reduced=""
 # not — so a window that is too short is now a delayed message rather than a
 # lost one.
 
+# shellcheck shell=sh
 # Reading what the deck told this pane about itself.
 #
 # One extractor, one set of names. It was written out three times before this
@@ -94,6 +95,7 @@ url=$(field url)
 # cutoff, and a pane whose deck published no address has nowhere to report.
 [ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
+# shellcheck shell=sh
 # WHICH process is reporting — the process GROUP of the hook's parent.
 #
 # The bridge secret proves only "something under this pane", so the deck needs
@@ -114,6 +116,7 @@ esac
 # than admitting there is none, since the deck reads a wrong one as a
 # DIFFERENT process and would lock a pane out of its own conversation.
 
+# shellcheck shell=sh
 # Handing one envelope to the deck.
 #
 # One lane. There used to be two — this one, and dropping a file in a

@@ -42,6 +42,12 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # Every tracked shell script but the reporters' lib fragments, which are
+      # checked where they run: inlined into each generated hook copy.
+      # shellcheck ships on the ubuntu runner.
+      - name: Shell scripts pass shellcheck
+        run: pnpm lint:shell
+
       # Runs tsc and vite build, so a separate typecheck step would be redundant.
       - name: Build the frontend and plugins
         run: pnpm build

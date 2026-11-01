@@ -64,11 +64,12 @@ describe("ci workflow", () => {
     }
   });
 
-  it("covers the js suite, the rust workspace and workflow linting", () => {
+  it("covers the js suite, the shell scripts, the rust workspace and workflow linting", () => {
     expect(Object.keys(ci.jobs).sort()).toEqual(["actionlint", "js", "rust"]);
 
     const jsRuns = ci.jobs.js.steps.map((s) => s.run).filter(Boolean);
     expect(jsRuns).toContain("pnpm test");
+    expect(jsRuns).toContain("pnpm lint:shell");
     expect(jsRuns).toContain("pnpm build");
 
     // tauri::generate_context! embeds ../dist at compile time, so the rust

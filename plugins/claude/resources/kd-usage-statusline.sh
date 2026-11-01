@@ -48,6 +48,7 @@ esac
 # already published this very payload, and a second envelope would double the
 # same reading.
 if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
+# shellcheck shell=sh
 # Reading what the deck told this pane about itself.
 #
 # One extractor, one set of names. It was written out three times before this
@@ -69,6 +70,7 @@ token=$(field token)
 # `dir` is still in the env, but it now holds nothing but a doorbell, which
 # only an in-process reporter watches.
 url=$(field url)
+# shellcheck shell=sh
 # WHICH process is reporting — the process GROUP of the hook's parent.
 #
 # The bridge secret proves only "something under this pane", so the deck needs
@@ -89,6 +91,7 @@ esac
 # than admitting there is none, since the deck reads a wrong one as a
 # DIFFERENT process and would lock a pane out of its own conversation.
 
+# shellcheck shell=sh
 # Handing one envelope to the deck.
 #
 # One lane. There used to be two — this one, and dropping a file in a
