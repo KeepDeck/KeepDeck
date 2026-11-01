@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { AgentDialogResult } from "../domain/agents";
+import type { AgentDialogResult, AgentInfo } from "../domain/agents";
 import {
   TEAM_FULL_MESSAGE,
   placementRefusalMessage,
@@ -23,6 +23,17 @@ import { present } from "@keepdeck/plugin-api/testing";
 // Per-path disk probes for suggestion filtering: paths in the map probe as a
 // non-empty non-worktree dir (blocked); anything else as missing (free).
 const blockedDirs = vi.hoisted(() => new Set<string>());
+
+// The log lines the hook writes, to read what a confirmed dialog said.
+const logged = vi.hoisted((): string[] => []);
+vi.mock("../ipc/log", () => ({
+  log: {
+    info: (_target: string, message: string) => logged.push(message),
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  },
+}));
 
 // The hook reaches the backend for repo inspection, name suggestions and path
 // probes; pin all three (suggestions follow the real Rust naming:
@@ -132,12 +143,14 @@ describe("useAgentDialog suggestions", () => {
   let host: HTMLElement;
   let root: Root;
   let flow: ReturnType<typeof useAgentDialog>;
+  /** The agent catalog the hook is handed; empty unless a case needs one. */
+  let catalog: AgentInfo[] = [];
 
   function Host({ deck }: { deck: TestDeck }) {
     // No settings store seeded here: the default-agent preference falls back
     // to "claude" — these tests cover suggestions, not the type picker.
     // No journal routing and no blocked panes: these tests cover suggestions.
-    flow = useAgentDialog(deck, [], notices, {}, doors);
+    flow = useAgentDialog(deck, catalog, notices, {}, doors);
     return null;
   }
 
@@ -146,6 +159,8 @@ describe("useAgentDialog suggestions", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     blockedDirs.clear();
+    catalog = [];
+    logged.length = 0;
     createPane.mockClear();
     createTeam.mockClear();
     notices.onCreateFailed.mockClear();
@@ -162,6 +177,38 @@ describe("useAgentDialog suggestions", () => {
     await act(async () => mountHost(root, Host, deck));
     return deck;
   };
+
+  it("says in the log what YOLO a confirmed member dialog sent, and why it may be off", async () => {
+    // An agent that came up without the YOLO its person meant (task-576):
+    // the line tells the toggle being off from the agent not taking one.
+    const agent = (id: string, yolo: boolean): AgentInfo => ({
+      id,
+      label: id,
+      command: id,
+      features: yolo ? [{ id: "execution.yolo", label: "YOLO mode" }] : [],
+      installed: true,
+      path: null,
+    });
+    catalog = [agent("claude", true), agent("plain", false)];
+    const ws = withTeam();
+    await mount(ws);
+    const confirm = async (agentType: string, yolo: boolean) => {
+      await act(async () => flow.openFor(ws, MEMBER));
+      await act(async () => {
+        flow.confirm({ agentType, name: "", location: { kind: "main" }, yolo });
+      });
+    };
+
+    await confirm("claude", true);
+    await confirm("claude", false);
+    await confirm("plain", false);
+
+    const said = logged.filter((line) => line.includes("dialog confirmed"));
+    expect(said).toHaveLength(3);
+    expect(said[0]).toMatch(/member dialog confirmed — claude, YOLO on$/);
+    expect(said[1]).toMatch(/member dialog confirmed — claude, YOLO off$/);
+    expect(said[2]).toMatch(/member dialog confirmed — plain, YOLO off \(the agent declares no YOLO\)$/);
+  });
 
   it("prefills the first suggestion NOT held by a team", async () => {
     // One pane → the naive suggestion is index 2, but a team already runs in

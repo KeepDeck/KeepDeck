@@ -245,6 +245,16 @@ function startsInYolo(
   return said === true;
 }
 
+/** One line per launch: whether it was asked for YOLO and whether it starts
+ * in it — so a pane that came up without the YOLO its request carried is
+ * found in the log by the launch that dropped it (task-576). */
+function logLaunchYolo(paneId: string, agentId: string, kind: string, asked: boolean, started: boolean): void {
+  log.info(
+    "web:agents",
+    `${paneId}: ${kind} plan for ${agentId} — YOLO ${asked ? "asked" : "not asked"}, ${started ? "starts in it" : "starts without it"}`,
+  );
+}
+
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
  * their session facts; the hook that runs is the variant's. */
 type PlanVariant =
@@ -400,13 +410,15 @@ export async function buildPlan(
     // secret rides along for the same reason — the planted config names it,
     // and dropping it would resolve that pane's every call to nobody.
     const floor = await bareFloor(entry, base);
+    const bareYolo = startsInYolo(owner, base.yolo === true, floor.yolo);
+    logLaunchYolo(paneId, entry.id, "bare", base.yolo === true, bareYolo);
     return {
       plan: {
         command: entry.detect.bin,
         args: floor.args,
         env: mcpEnv,
         mcpToken,
-        ...(startsInYolo(owner, base.yolo === true, floor.yolo) && { yolo: true }),
+        ...(bareYolo && { yolo: true }),
       },
       deliver,
     };
@@ -485,13 +497,15 @@ export async function buildPlan(
   }
   const discard =
     variant.kind === "fork" && output.discard ? planDiscard(entry.id, pluginId, output.discard) : undefined;
+  const yolo = startsInYolo(owner, base.yolo === true, output.yolo);
+  logLaunchYolo(paneId, entry.id, variant.kind, base.yolo === true, yolo);
   return {
     plan: {
       command: output.command,
       args: output.args,
       env,
       ...(output.envDefaults?.length ? { envDefaults: output.envDefaults } : {}),
-      ...(startsInYolo(owner, base.yolo === true, output.yolo) && { yolo: true }),
+      ...(yolo && { yolo: true }),
       ...(token ? { token } : {}),
       // Recorded whether or not anything was injected: kimi's servers are
       // delivered as a file, so the pane has a live client with no `mcp` key in

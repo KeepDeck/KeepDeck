@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { log } from "../../ipc/log";
 import { PLAN_YOLO_API, type AgentHooks, type SpawnSkillsInput } from "@keepdeck/plugin-api";
 import { BRIDGE_PROTOCOL_VERSION } from "./plans";
 import {
@@ -156,11 +157,15 @@ describe("building one plan through the agent hook", () => {
       expect(h.seen["pane-1"].yolo).toBe(true);
     });
 
-    it("a bare launch whose floor does not say so starts without YOLO, asked or not", async () => {
+    it("a bare launch whose floor does not say so starts without YOLO, asked or not — and the log says which", async () => {
+      const info = vi.spyOn(log, "info");
       h.register(bare(false));
       await h.mount(ws([{ id: "pane-1", agentType: "claude", yolo: true }]));
       await settle();
       expect(h.seen["pane-1"].yolo).toBeUndefined();
+      // The line a dropped YOLO is traced by (task-576).
+      expect(info).toHaveBeenCalledWith("web:agents", "pane-1: bare plan for claude — YOLO asked, starts without it");
+      info.mockRestore();
     });
 
     it("an external plugin older than the field reads as the YOLO it was asked for", async () => {
