@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FsEntry } from "@keepdeck/plugin-api";
-import { findRollout, newestRollouts, type StorePorts } from "./store";
+import { findRollout, newestRollouts, rolloutName, walkRollouts, type StorePorts } from "./store";
 import { present } from "@keepdeck/plugin-api/testing";
 
 /** A store shaped like codex's: `YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl`. */
@@ -32,6 +32,60 @@ function storeOf(
 
 const SID = "019f7683-d6f4-7b00-8e66-00c4694731be";
 const ROOT = "~/.codex/sessions";
+/** A reverted thread's new segment: `<thread>_<segment>`. */
+const SEGMENT = "019f7700-0000-7000-8000-000000000001";
+
+describe("rolloutName", () => {
+  it("reads the session from either name codex gives a rollout, compressed or not", () => {
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}.jsonl`)).toEqual({ sessionId: SID, compressed: false });
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}.jsonl.zst`)).toEqual({ sessionId: SID, compressed: true });
+    // The FIRST uuid is the thread — the session; the second names the
+    // segment a revert started, and is nobody's session id.
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl`)).toEqual({
+      sessionId: SID,
+      compressed: false,
+    });
+    expect(rolloutName(`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl.zst`)).toEqual({
+      sessionId: SID,
+      compressed: true,
+    });
+  });
+
+  it("is nothing for a name that is not a rollout", () => {
+    for (const name of [
+      `${SID}.jsonl`,
+      `rollout-2026-07-18T03-00-00-${SID}.json`,
+      `rollout-2026-07-18T03-00-00-${SID}.jsonl.gz`,
+      "rollout-2026-07-18T03-00-00-other.jsonl",
+      `rollout-2026-07-18T03-00-00-${SID}.jsonl.zst.tmp`,
+    ]) {
+      expect(rolloutName(name), name).toBeNull();
+    }
+  });
+});
+
+describe("walkRollouts", () => {
+  const visited = async (ctx: StorePorts) => {
+    const names: string[] = [];
+    await walkRollouts(ctx, { file: (entry) => names.push(entry.name) });
+    return names;
+  };
+
+  it("visits one file per segment: the plain one, while codex has both on disk", async () => {
+    // Compressing, codex writes the .zst before it removes the plain file;
+    // making it plain again, the reverse — and it reads the plain one.
+    const plain = `rollout-2026-07-18T03-00-00-${SID}.jsonl`;
+    const compressedOnly = `rollout-2026-07-10T03-00-00-${SEGMENT}.jsonl.zst`;
+    const ctx = storeOf({
+      [ROOT]: [],
+      [`${ROOT}/2026`]: [],
+      [`${ROOT}/2026/07`]: [],
+      [`${ROOT}/2026/07/18`]: [plain, `${plain}.zst`],
+      [`${ROOT}/2026/07/10`]: [compressedOnly],
+    });
+    expect(await visited(ctx)).toEqual([plain, compressedOnly]);
+  });
+});
 
 describe("findRollout", () => {
   it("walks the day tree and prefers the NEWEST match", () => {
@@ -51,6 +105,29 @@ describe("findRollout", () => {
     return expect(findRollout(ctx, SID)).resolves.toBe(
       `${ROOT}/2026/07/18/rollout-2026-07-18T03-00-00-${SID}.jsonl`,
     );
+  });
+
+  it("finds only the plain file a live pane writes — never a compressed one", async () => {
+    // codex makes a compressed rollout plain before it appends, so the file
+    // a pane is writing is never a .zst; one found only compressed is not
+    // live yet, and the tail asks again.
+    const ctx = storeOf({
+      [ROOT]: [],
+      [`${ROOT}/2026`]: [],
+      [`${ROOT}/2026/07`]: [],
+      [`${ROOT}/2026/07/17`]: [`rollout-2026-07-17T01-00-00-${SID}.jsonl`],
+      [`${ROOT}/2026/07/18`]: [`rollout-2026-07-18T03-00-00-${SID}_${SEGMENT}.jsonl.zst`],
+    });
+    await expect(findRollout(ctx, SID)).resolves.toBe(
+      `${ROOT}/2026/07/17/rollout-2026-07-17T01-00-00-${SID}.jsonl`,
+    );
+    const onlyCompressed = storeOf({
+      [ROOT]: [],
+      [`${ROOT}/2026`]: [],
+      [`${ROOT}/2026/07`]: [],
+      [`${ROOT}/2026/07/18`]: [`rollout-2026-07-18T03-00-00-${SID}.jsonl.zst`],
+    });
+    await expect(findRollout(onlyCompressed, SID)).resolves.toBeNull();
   });
 
   it("answers null for a session that has written nothing yet", async () => {
@@ -115,12 +192,15 @@ describe("newestRollouts", () => {
         [`${ROOT}/2026/07/18`]: [
           `rollout-2026-07-18T02-00-00-${OTHER}.jsonl`,
           "notes.jsonl",
+          // Compressed: a week old at least, and not text to read limits from.
+          `rollout-2026-07-18T09-00-00-${SEGMENT}.jsonl.zst`,
         ],
       },
       [],
       {
         [`rollout-2026-07-17T01-00-00-${SID}.jsonl`]: 1_000,
         [`rollout-2026-07-18T02-00-00-${OTHER}.jsonl`]: 2_000,
+        [`rollout-2026-07-18T09-00-00-${SEGMENT}.jsonl.zst`]: 3_000,
       },
     );
 

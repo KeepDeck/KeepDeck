@@ -9,8 +9,8 @@ import {
   trimmedText,
   walkSession,
   type AgentHistory,
-  type AgentSessionStub,
   type AgentTranscriptEntry,
+  type FsEntry,
   type PluginLogger,
   type PluginSessionStore,
   type ReadScope,
@@ -106,12 +106,19 @@ export function codexHistory(ctx: HistoryPorts): AgentHistory {
 
   return sessionHistory("codex", ctx.log, {
     async enumerate(unreadable) {
-      const stubs: AgentSessionStub[] = [];
+      // ONE stub per session, its newest file. A resumed session can leave
+      // an older file under its id, and a reverted thread leaves its earlier
+      // segments behind (the newer one refers back to them, task-588); two
+      // stubs under one id would take turns as the index's single row.
+      const newest = new Map<string, FsEntry>();
       await walkRollouts(ctx, {
-        file: (entry, sessionId) => stubs.push(fileStub(sessionId, entry)),
+        file: (entry, name) => {
+          const held = newest.get(name.sessionId);
+          if (!held || (entry.mtime ?? 0) > (held.mtime ?? 0)) newest.set(name.sessionId, entry);
+        },
         unreadable,
       });
-      return stubs;
+      return [...newest].map(([sessionId, entry]) => fileStub(sessionId, entry));
     },
     async describe(ref) {
       // Both facts a describe wants sit at the rollout's start: the working

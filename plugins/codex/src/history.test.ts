@@ -90,6 +90,35 @@ describe("codex history", () => {
     ]);
   });
 
+  it("lists ONE stub per session — its newest file, a compressed or reverted one included", async () => {
+    // A resumed session can leave an older file under its id, and a revert
+    // starts a `<thread>_<segment>` file; two stubs under one id would take
+    // turns as the index's single row. A session codex has compressed stays
+    // listed (its .zst), rather than reading as deleted and being pruned.
+    const SID = "019f7af4-f57f-7dc3-ac52-6e1bb90dceec";
+    const OLD = "019f7000-0000-7000-8000-00000000000a";
+    const old = `rollout-2026-07-01T10-00-00-${SID}.jsonl`;
+    const reverted = `rollout-2026-07-19T16-27-47-${SID}_019f7af5-0000-7000-8000-000000000001.jsonl`;
+    const compressed = `rollout-2026-07-02T10-00-00-${OLD}.jsonl.zst`;
+    const history = codexHistory(
+      ctx({}, {
+        "~/.codex/sessions": [{ name: "2026", path: "/s/2026", kind: "dir" }],
+        "/s/2026": [{ name: "07", path: "/s/2026/07", kind: "dir" }],
+        "/s/2026/07": [{ name: "01", path: "/s/2026/07/01", kind: "dir" }],
+        // The newest file listed FIRST: whichever comes last must not win.
+        "/s/2026/07/01": [
+          { name: reverted, path: `/s/2026/07/01/${reverted}`, kind: "file", size: 5, mtime: 9 },
+          { name: old, path: `/s/2026/07/01/${old}`, kind: "file", size: 3, mtime: 1 },
+          { name: compressed, path: `/s/2026/07/01/${compressed}`, kind: "file", size: 2, mtime: 4 },
+        ],
+      }),
+    );
+    expect(await history.list()).toEqual([
+      { sessionId: SID, ref: `/s/2026/07/01/${reverted}`, mtime: 9, size: 5 },
+      { sessionId: OLD, ref: `/s/2026/07/01/${compressed}`, mtime: 4, size: 2 },
+    ]);
+  });
+
   it("an unreadable date partition fails the walk — a partial answer prunes the index", async () => {
     const history = codexHistory(
       ctx({}, {
