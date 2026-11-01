@@ -1,0 +1,53 @@
+import type { StagingTrim, StagingTrimKind } from "../domain/skills";
+
+/** One stage's verdict as this view reads it: the trim, and the workspace
+ * whose stage said it. */
+type Trim = StagingTrim & { workspaceName: string };
+
+/** What the list is titled. */
+export const STAGING_TRIMS_TITLE =
+  "Some skills do not reach agents whole — what is wrong is in the skill's own folder:";
+
+export interface StagingTrimLine {
+  key: string;
+  text: string;
+}
+
+/** What became of the skill, or of what was left out of it. */
+function verdict(kind: StagingTrimKind): string {
+  switch (kind) {
+    case "too-large":
+      return "larger than one skill may be — agents get its SKILL.md alone";
+    case "no-room":
+      return "the skills together are more than agents can be given — this one goes as its SKILL.md alone";
+    case "omitted":
+      return "no room is left even for its SKILL.md — agents do not get it";
+    case "skill-file-unreadable":
+      return "its SKILL.md is not a small text file of its own — agents do not get it";
+    case "link-out":
+      return "links outside the skill — left out";
+    case "link-dangles":
+      return "links to nothing — left out";
+    case "link-cycle":
+      return "links back into itself — left out";
+    case "special":
+      return "is neither a file nor a folder — left out";
+    case "unreadable":
+      return "could not be read — left out";
+  }
+}
+
+/** One line per thing to fix: the skill, or the path inside it, a workspace
+ * skill's workspace, and what became of it. A global or bundled skill stages
+ * into every workspace alike, so what several stages said of it is one line. */
+export function stagingTrimLines(trims: readonly Trim[]): StagingTrimLine[] {
+  const lines = new Map<string, StagingTrimLine>();
+  for (const trim of trims) {
+    const at = trim.path === null ? trim.skill : `${trim.skill}/${trim.path}`;
+    const where = trim.scope === "workspace" ? ` (in ${trim.workspaceName})` : "";
+    const more = trim.count > 1 ? ` (and ${trim.count - 1} more like it)` : "";
+    const text = `${at}${where}: ${verdict(trim.kind)}${more}`;
+    lines.set(text, { key: text, text });
+  }
+  return [...lines.values()];
+}

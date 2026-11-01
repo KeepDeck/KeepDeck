@@ -12,6 +12,7 @@ import {
 } from "../../domain/mail";
 
 import { noAutoCorrect } from "../../ui/inputProps";
+import { HintList } from "./HintList";
 import { Segmented } from "@keepdeck/ui-kit/Segmented";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -189,18 +190,12 @@ export function TeamRolesSection() {
         as equals and nobody assigns.
       </span>
 
-      {catalog.problems.length > 0 && (
-        // The person reading this is the one who can fix the file, so the
-        // refusals arrive verbatim — the same words the merge produced.
-        <span className="settings__hint kd-selectable">
-          Problems with the stored role files:
-          {catalog.problems.map((refusal) => (
-            <span key={refusal} className="settings__refusal">
-              {refusal}
-            </span>
-          ))}
-        </span>
-      )}
+      {/* The person reading this is the one who can fix the file, so the
+          refusals arrive verbatim — the same words the merge produced. */}
+      <HintList
+        title="Problems with the stored role files:"
+        lines={catalog.problems.map((refusal) => ({ key: refusal, text: refusal }))}
+      />
 
       <ul className="roles__list">
         {roles.map((role) => (

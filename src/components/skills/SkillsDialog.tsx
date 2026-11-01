@@ -3,11 +3,31 @@ import { SkillsNav } from "./SkillsNav";
 import { BUNDLED_NOTICE } from "./bundledTier";
 import { labelForScope } from "./skillGroups";
 import { useArmRefusals } from "../../app/useArmRefusals";
+import { useStagingTrims } from "../../app/useStagingTrims";
 import { ARM_REFUSALS_TITLE, armRefusalLines } from "../../presentation/armRefusalsView";
+import { STAGING_TRIMS_TITLE, stagingTrimLines } from "../../presentation/stagingTrimsView";
 import { useSkillsEditor } from "./useSkillsEditor";
 import { LibraryDialog } from "../library/LibraryDialog";
 import { useAgents } from "../../app/useAgents";
 import { skillsReachHint } from "../../presentation/agentReachView";
+
+/** A titled list of standing conditions above the library. Nothing while there
+ * is none. */
+function BannerList({ title, lines }: { title: string; lines: readonly { key: string; text: string }[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <div className="library__refusals" role="status">
+      <span className="library__refusals-title">{title}</span>
+      <ul>
+        {lines.map((line) => (
+          <li key={line.key} className="kd-selectable">
+            {line.text}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 interface SkillsDialogProps {
   /** The active workspace, hosting the "This workspace" scope; `null` (no
@@ -42,10 +62,12 @@ export function SkillsDialog({
   const { error, groups, selection, form, verdicts, busy } = editor;
   const { agents } = useAgents();
   // Where an agent could not be set up — skills not reaching it among the
-  // reasons — and why. Dismissless on purpose: it is not news to acknowledge
-  // but a condition that is true until the user moves their own file, and it
+  // reasons — and what of the skills themselves could not be handed out, and
+  // why. Dismissless on purpose: neither is news to acknowledge but a
+  // condition that is true until the user fixes their own file, and it
   // disappears by itself when they do.
   const refusals = armRefusalLines(useArmRefusals(), agents);
+  const trims = stagingTrimLines(useStagingTrims());
 
   return (
     <LibraryDialog
@@ -58,18 +80,10 @@ export function SkillsDialog({
       }}
       machine={{ ...editor, rows: editor.skills }}
       banner={
-        refusals.length > 0 && (
-          <div className="library__refusals" role="status">
-            <span className="library__refusals-title">{ARM_REFUSALS_TITLE}</span>
-            <ul>
-              {refusals.map((line) => (
-                <li key={line.key} className="kd-selectable">
-                  {line.text}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )
+        <>
+          <BannerList title={ARM_REFUSALS_TITLE} lines={refusals} />
+          <BannerList title={STAGING_TRIMS_TITLE} lines={trims} />
+        </>
       }
       nav={
         <SkillsNav
