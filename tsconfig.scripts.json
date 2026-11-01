@@ -1,0 +1,14 @@
+{
+  // The repo's Node scripts (build, release, lint, their tests) and the
+  // ESLint config: plain JS, checked by their JSDoc under the app's
+  // strictness, in the runtime they run in (task-585).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.mjs", "eslint.config.js"]
+}

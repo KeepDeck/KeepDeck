@@ -1,0 +1,7 @@
+{
+  // The live-refresh script served into artifact pages (include_str! in
+  // src-tauri/src/artifacts/serve.rs): browser JS outside the app, checked
+  // on its own so its one global stays out of the app's Window (task-585).
+  "extends": "./tsconfig.json",
+  "include": ["src-tauri/src/artifacts/refresh.js", "src-tauri/src/artifacts/refresh.d.ts"]
+}

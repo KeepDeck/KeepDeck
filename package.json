@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:q1:diagnose": "node scripts/q1-diagnose.mjs",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.refresh.json",
     "lint": "eslint",
     "lint:shell": "git ls-files -z '*.sh' ':!:resources/reporters/lib/*.sh' | xargs -0 shellcheck -x",
     "tauri": "tauri",
@@ -46,6 +46,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@tauri-apps/cli": "^2",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@typescript-eslint/eslint-plugin": "^8.72.0",
