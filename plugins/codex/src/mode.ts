@@ -35,7 +35,10 @@ export function codexPermissionMode(
     case "on-request":
       return "ask";
     case "never": {
-      if (sandbox === "danger-full-access" || profile === "disabled") return "yolo";
+      // The profile is the newer model, and where it is written it decides
+      // the sandbox half: the older field never overrules it toward YOLO.
+      const unsandboxed = asNonEmptyString(profile) ? profile === "disabled" : sandbox === "danger-full-access";
+      if (unsandboxed) return "yolo";
       return asNonEmptyString(sandbox) || asNonEmptyString(profile) ? "auto" : null;
     }
     default:

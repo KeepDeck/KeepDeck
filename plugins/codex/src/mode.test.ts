@@ -27,6 +27,13 @@ describe("codexPermissionMode", () => {
     expect(codexPermissionMode("never", "read-only", undefined)).toBe("auto");
   });
 
+  it("lets the newer profile decide the sandbox where it is written", () => {
+    // A restricted profile beside a legacy field saying full access: the
+    // profile stands, so the turn is not YOLO.
+    expect(codexPermissionMode("never", "danger-full-access", "managed")).toBe("auto");
+    expect(codexPermissionMode("never", "workspace-write", "disabled")).toBe("yolo");
+  });
+
   it("says nothing it cannot tell", () => {
     expect(codexPermissionMode("never", undefined, undefined)).toBeNull();
     expect(codexPermissionMode({ reject: {} }, "read-only", undefined)).toBeNull();
