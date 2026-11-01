@@ -201,6 +201,14 @@ describe("Kimi CLI plugin", () => {
     expect(bare.cwd).toEqual([]);
   });
 
+  it("a launch whose plan threw still starts in YOLO when it was asked", async () => {
+    const { agent } = await activate();
+    const floor = output();
+    await present(agent.hooks["bare.plan"], "the bare.plan hook")({ ...input, yolo: true }, floor);
+    expect(floor.args).toEqual(["--auto"]);
+    expect(floor.yolo).toBe(true);
+  });
+
   it("YOLO is kimi's never-ask --auto, on spawn and resume alike — not its ask-when-needed --yolo", async () => {
     const { agent } = await activate();
 

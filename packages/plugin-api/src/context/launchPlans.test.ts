@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { launchPlans, yoloSwitch, type LaunchAdapter } from "./launchPlans";
+import { launchPlans, yoloFloor, yoloSwitch, type LaunchAdapter } from "./launchPlans";
 import type { ForkPlanInput, ResumePlanInput, SpawnPlanInput, SpawnPlanOutput } from "./agents";
 
 const input: SpawnPlanInput = { paneId: "p", workspace: { id: "w", instance: "i" }, cwd: "/repo" };
@@ -114,5 +114,19 @@ describe("yoloSwitch", () => {
     const out = output();
     expect(yoloSwitch({}, out, ["--yolo"])).toEqual([]);
     expect(out.yolo).toBeUndefined();
+  });
+});
+
+describe("yoloFloor", () => {
+  it("is a bare floor that keeps the YOLO a launch was asked for, and says so", async () => {
+    const asked = output();
+    await yoloFloor(["--yolo"])({ ...input, yolo: true }, asked);
+    expect(asked.args).toEqual(["--yolo"]);
+    expect(asked.yolo).toBe(true);
+
+    const plain = output();
+    await yoloFloor(["--yolo"])(input, plain);
+    expect(plain.args).toEqual([]);
+    expect(plain.yolo).toBeUndefined();
   });
 });

@@ -74,6 +74,18 @@ export function yoloSwitch(
   return [...args];
 }
 
+/**
+ * A `bare.plan` that carries the CLI's YOLO switch (API 77): the floor a
+ * launch keeps when its plan threw, so a pane asked for YOLO is not started
+ * without it — and says it starts in it, through [`yoloSwitch`]. A plugin
+ * whose floor carries more puts `yoloSwitch` into its own instead.
+ */
+export function yoloFloor(args: readonly string[]): NonNullable<AgentHooks["bare.plan"]> {
+  return (input, output) => {
+    output.args.push(...yoloSwitch(input, output, args));
+  };
+}
+
 /** The three plan hooks over one adapter. */
 export function launchPlans(
   adapter: LaunchAdapter,

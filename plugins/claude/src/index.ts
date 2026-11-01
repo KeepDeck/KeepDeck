@@ -18,6 +18,7 @@
 import {
   errorMessage,
   launchPlans,
+  yoloFloor,
   yoloSwitch,
   mailAskArgs,
   shellQuote,
@@ -329,15 +330,19 @@ export function registerClaude(ctx: ClaudePorts): void {
     },
     history: claudeHistory(ctx),
     liveSessions: claudeLiveSessions(ctx),
-    hooks: launchPlans({
-      stage: (input, output) => stageLaunch(launchPorts, input, output),
-      resume: (input) => ["--resume", input.sessionId],
-      fork: (input) =>
-        forkClaudeSession(
-          { fs: ctx.services.fs, fsWrite: ctx.services.fsWrite, newId: () => crypto.randomUUID() },
-          input,
-        ),
-    }),
+    hooks: {
+      ...launchPlans({
+        stage: (input, output) => stageLaunch(launchPorts, input, output),
+        resume: (input) => ["--resume", input.sessionId],
+        fork: (input) =>
+          forkClaudeSession(
+            { fs: ctx.services.fs, fsWrite: ctx.services.fsWrite, newId: () => crypto.randomUUID() },
+            input,
+          ),
+      }),
+      // A plan that threw still launches claude: in YOLO, when it was asked.
+      "bare.plan": yoloFloor(YOLO_SWITCH),
+    },
   });
   // The switch for claude's OWN artifacts ([`ARTIFACTS_FIELD`]). The label
   // never reaches the screen — the plugin's page is titled by the manifest

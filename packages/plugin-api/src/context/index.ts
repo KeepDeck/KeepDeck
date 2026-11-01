@@ -118,7 +118,7 @@ export type {
   PluginCommands,
 } from "./commands.ts";
 export { errorMessage, parseInstant, sha256Hex, shellQuote } from "./authoring.ts";
-export { launchPlans, yoloSwitch, type ForkLaunch, type LaunchAdapter, type ResumeLaunch } from "./launchPlans.ts";
+export { launchPlans, yoloFloor, yoloSwitch, type ForkLaunch, type LaunchAdapter, type ResumeLaunch } from "./launchPlans.ts";
 export {
   fileStub,
   pageOfWalk,

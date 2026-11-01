@@ -16,6 +16,7 @@
  */
 import {
   errorMessage,
+  yoloFloor,
   yoloSwitch,
   type PluginResources,
   type SpawnPlanInput,
@@ -122,6 +123,10 @@ const permissionMode = part((input, draft) => {
 /** opencode's YOLO switch: auto-allows every ask prompt while explicit deny
  * rules in the user's own config stay enforced. */
 const YOLO_SWITCH = ["--dangerously-skip-permissions"];
+
+/** The floor of a launch whose plan threw: still in YOLO, when it was
+ * asked — the switch both lines take. */
+export const bareFloor = yoloFloor(YOLO_SWITCH);
 
 /**
  * 1.x: the shared skills as an EXTRA config directory — opencode loads

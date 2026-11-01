@@ -534,6 +534,14 @@ describe("opencode plugin hooks", () => {
     }
   });
 
+  it("a launch whose plan threw still starts in YOLO when it was asked", async () => {
+    const agent = activate("/App/resources");
+    const floor = output();
+    await present(agent.hooks["bare.plan"], "the bare.plan hook")({ ...input, yolo: true }, floor);
+    expect(floor.args).toEqual(["--dangerously-skip-permissions"]);
+    expect(floor.yolo).toBe(true);
+  });
+
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
     const agent = activate("/App/resources");
 

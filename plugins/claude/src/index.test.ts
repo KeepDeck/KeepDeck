@@ -337,6 +337,14 @@ describe("claude plugin hooks", () => {
     expect(out.args).toEqual([]);
   });
 
+  it("a launch whose plan threw still starts in YOLO when it was asked", async () => {
+    const agent = activate(null);
+    const floor = output();
+    await present(agent.hooks["bare.plan"], "the bare.plan hook")({ ...input, yolo: true }, floor);
+    expect(floor.args).toEqual(["--dangerously-skip-permissions"]);
+    expect(floor.yolo).toBe(true);
+  });
+
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
     const agent = activate(null);
 

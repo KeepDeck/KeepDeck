@@ -6,6 +6,7 @@ import { readKimiLimits, type LimitsPorts } from "./limits";
 import { kimiMcpArms } from "./mcp";
 import {
   launchPlans,
+  yoloFloor,
   yoloSwitch,
   sha256Hex,
   type KeepDeckPlugin,
@@ -152,6 +153,8 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
         resume: (input) => ["--session", input.sessionId],
         fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
       }),
+      // A plan that threw still launches kimi: in YOLO, when it was asked.
+      "bare.plan": yoloFloor(YOLO_SWITCH),
       // The MCP servers reach kimi through its cwd, not argv (./mcp.ts).
       "arm.plan": (input, output) => {
         output.cwd.push(...kimiMcpArms(input.mcp));

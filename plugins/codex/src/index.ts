@@ -232,7 +232,9 @@ export function registerCodex(ctx: CodexPorts): void {
       // would run on the user's daemon: the `-c` that kept it off went with
       // the plan. The same rule as every staged launch, nothing else.
       "bare.plan": (input, output) => {
-        output.args.push(...processArgs(input));
+        // ...and in YOLO, when it was asked: a plan that threw must not
+        // start the pane without it.
+        output.args.push(...processArgs(input), ...yoloSwitch(input, output, YOLO_SWITCH));
       },
       "arm.plan": (input, output) => {
         output.cwd.push(...codexArms(input.skills));
