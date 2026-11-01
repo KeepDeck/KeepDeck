@@ -194,10 +194,14 @@ export interface AgentHooks {
    * carry when the host starts it without a plan — because `spawn.plan`
    * threw, or because an external plugin's plan named a program its `exec`
    * capability does not cover and the host clamped it to the agent's own
-   * binary. Only `output.args` is read — a bare launch runs that binary with
-   * nothing else of a plan — and the hook gets the same input the unused
-   * plan did, so a floor can depend on the release (`cliVersion`). Keep it to what a launch cannot go without; a floor that
-   * throws, or is absent, leaves the launch with no arguments at all. */
+   * binary. Only `output.args` is read, and from API 77 `output.yolo`
+   * ([`yoloFloor`] sets both). Its env and env defaults are dropped:
+   * a bare launch runs that binary with nothing else of a plan and its bridge
+   * unarmed, so no reporter of this plugin runs in it to read them. The hook
+   * gets the same input the unused plan did, so a floor can depend on the
+   * release (`cliVersion`). Keep it to what a launch cannot go without; a
+   * floor that throws, or is absent, leaves the launch with no arguments at
+   * all. */
   "bare.plan"?(
     input: SpawnPlanInput,
     output: SpawnPlanOutput,

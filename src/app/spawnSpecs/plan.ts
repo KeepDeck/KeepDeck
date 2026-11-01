@@ -201,7 +201,9 @@ function paneEnv(
  * external plugin's plan named a program its manifest does not cover. Both
  * are the same launch, so both carry what the plugin declared as its floor
  * (`bare.plan`), and nothing when it declared none. Which flags those are is
- * the plugin's knowledge; the host only applies them. A floor that throws is
+ * the plugin's knowledge; the host only applies them — its arguments and
+ * whether they start the CLI in YOLO, nothing else of what the floor wrote
+ * (the contract says why). A floor that throws is
  * logged and costs the launch its floor, not its pane.
  */
 async function bareFloor(
