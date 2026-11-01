@@ -170,7 +170,7 @@ describe("answerMailAsk", () => {
     expect(body).not.toContain("take the parser");
     // Still the deck's, so it is nudged for and its sender told it waits.
     expect(h.manager.waiting("pane-2")).toBe(1);
-    expect(info.mock.calls.some(([, line]) => line.includes("1 left for a turn"))).toBe(true);
+    expect(info.mock.calls.some(([, line]) => line.includes("1 still waiting"))).toBe(true);
     // The turn's own hook then hands it over.
     h.channel.answer("pane-2", asking({ reply: "askDEF", event: { hook_event_name: "UserPromptSubmit" } }));
     expect(h.replies[1]?.body).toContain("take the parser");
