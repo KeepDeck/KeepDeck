@@ -16,13 +16,14 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type {
-  AgentType,
-  ResumeBlock,
-  SessionPickRow,
-  SessionStartMode,
+import {
+  presetPick,
+  type AgentType,
+  type ResumeBlock,
+  type SessionPickRow,
+  type SessionPreset,
+  type SessionStartMode,
 } from "../../domain/agents";
-import type { SessionHandle } from "../../domain/journal";
 import { resumeBlock } from "../../domain/deck";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
@@ -36,7 +37,7 @@ export function useSessionPicker(deps: {
   /** The team a member would join, when the dialog is for one. */
   member: { cwd: string | null } | null;
   /** A session the picker opens on, already picked. */
-  preset: SessionHandle | null;
+  preset: SessionPreset | null;
   searchSessions(
     agent: AgentType,
     query: string,
@@ -62,7 +63,7 @@ export function useSessionPicker(deps: {
   } = deps;
   const [sessionQuery, setSessionQuery] = useState("");
   const [picked, setPicked] = useState<SessionPickRow | null>(
-    preset ? { handle: preset, mtime: 0 } : null,
+    preset ? presetPick(preset) : null,
   );
 
   // The picker's options, paged through the SAME engine as the global browser

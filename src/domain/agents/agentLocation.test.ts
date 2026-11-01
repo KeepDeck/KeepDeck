@@ -3,8 +3,11 @@ import {
   canCreateAgent,
   canStartFromSession,
   classifyLocation,
+  dialogStartingYolo,
   isKnownBaseBranch,
+  presetPick,
   type PathProbe,
+  type SessionPickRow,
 } from "./agentLocation";
 
 const probe = (p: Partial<PathProbe>): PathProbe => ({
@@ -144,6 +147,36 @@ describe("what the deck says outranks the probe", () => {
 
   it("an occupied path can never be created", () => {
     expect(canCreateAgent("occupied", "some-branch")).toBe(false);
+  });
+});
+
+describe("presetPick", () => {
+  const handle = { agent: "claude", sessionId: "s-1", cwd: "/repo" };
+
+  it("knows how a preset ran — it is a pane's own session, absent YOLO meaning off", () => {
+    expect(presetPick({ mode: "fork", handle: { ...handle, yolo: true } }).ranYolo).toBe(true);
+    expect(presetPick({ mode: "fork", handle }).ranYolo).toBe(false);
+  });
+});
+
+describe("dialogStartingYolo", () => {
+  const pick = (ranYolo?: boolean): SessionPickRow => ({
+    handle: { agent: "claude", sessionId: "s-1", cwd: "/repo" },
+    mtime: 1,
+    ...(ranYolo !== undefined && { ranYolo }),
+  });
+
+  it("stands as the continued session ran, resumed or forked", () => {
+    expect(dialogStartingYolo(false, "fork", pick(true))).toBe(true);
+    expect(dialogStartingYolo(true, "resume", pick(false))).toBe(false);
+  });
+
+  it("stands at the preference starting fresh, with nothing picked, or on a session KeepDeck never ran", () => {
+    // A pick left over from a continuation mode is not what a fresh
+    // session starts from.
+    expect(dialogStartingYolo(false, "new", pick(true))).toBe(false);
+    expect(dialogStartingYolo(true, "fork", null)).toBe(true);
+    expect(dialogStartingYolo(true, "resume", pick())).toBe(true);
   });
 });
 

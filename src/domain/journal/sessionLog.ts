@@ -76,6 +76,20 @@ export function handleFromHit(hit: {
   };
 }
 
+/** Whether a session ran in YOLO, as a workspace's journal remembers it.
+ * Undefined when the journal has no record of it: a session found in an
+ * agent's own store only, whose mode KeepDeck never knew. On a record, an
+ * absent `yolo` means it ran without. */
+export function recordedYolo(
+  records: readonly SessionRecordBase[] | undefined,
+  session: Pick<SessionHandle, "agent" | "sessionId">,
+): boolean | undefined {
+  const record = records?.find(
+    (r) => r.sessionId === session.sessionId && r.agent === session.agent,
+  );
+  return record && record.yolo === true;
+}
+
 /** Journal records per workspace id. Within one workspace, `sessionId` is the
  * record key — a rebind of the same session upserts its record. */
 export type JournalRecords = Record<string, SessionRecord[]>;

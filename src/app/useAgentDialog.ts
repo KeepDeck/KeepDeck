@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import {
   agentSupportsYolo,
+  dialogStartingYolo,
+  presetPick,
   type AgentDialogResult,
   type AgentDialogTarget,
   type AgentInfo,
@@ -25,7 +27,7 @@ import {
   teamOfPane,
   type Workspace,
 } from "../domain/deck";
-import { handleFromHit } from "../domain/journal";
+import { handleFromHit, recordedYolo } from "../domain/journal";
 import { rolesOnTeam } from "../domain/mail";
 
 import { indexSearch } from "../ipc/history";
@@ -88,7 +90,10 @@ export interface SharedDirectoryAsk {
 /** The deck as the dialog reads it: the workspaces its suggestions and its
  * checks are taken against. Everything the dialog CHANGES goes through the
  * doors, so the deck's actions are not its to hold. */
-export type AgentDialogDeck = Pick<Deck, "workspaces">;
+export type AgentDialogDeck = Pick<Deck, "workspaces"> & {
+  /** What the picker learns about a found session: how it ran. */
+  journal: Pick<Deck["journal"], "records">;
+};
 
 /** What the dialog is opened FOR, as the caller says it: a new team, or a
  * member of the team `teamId`. */
@@ -116,7 +121,8 @@ export interface AgentDialogSpec {
   defaultAgentType: AgentType | null;
   /** A session the dialog opens with, already picked. */
   preset?: SessionPreset;
-  /** The YOLO toggle's starting position ([F6] global preference). */
+  /** The global YOLO preference ([F6]): where the toggle starts for a fresh
+   * session; a continued one starts as it ran ([`dialogStartingYolo`]). */
   defaultYolo: boolean;
   /** Whether the Experimental “Remote agents” setting is on — gates the
    *  dialog's "Where: Remote" option regardless of an agent's capability. */
@@ -203,8 +209,7 @@ export function useAgentDialog(
         // A preset session is one agent's: the dialog opens on that agent.
         defaultAgentType: opening.session?.handle.agent ?? defaultType,
         ...(opening.session && { preset: opening.session }),
-        // A fork runs as its source did unless the person changes it.
-        defaultYolo: nextYolo(opening.session?.handle),
+        defaultYolo: nextYolo(),
         remoteEnabled: getSettings()?.remoteAgents === true,
         repo: null,
         suggestedPath: "",
@@ -213,11 +218,15 @@ export function useAgentDialog(
       // The first line of the dialog's YOLO trail: where the toggle starts
       // and what put it there. The person's flips and the confirm continue
       // it, so a member that came up without the YOLO its person saw can be
-      // traced step by step (task-576).
+      // traced step by step (task-576). Asked the way the dialog itself
+      // will ask it, so the line cannot claim a start the toggle does not
+      // show.
+      const pick = opening.session ? presetPick(opening.session) : null;
+      const starts = dialogStartingYolo(spec.defaultYolo, opening.session?.mode ?? "new", pick);
       log.info(
         "web:agents",
-        `${spec.agentId}: member dialog opened — YOLO starts ${spec.defaultYolo ? "on" : "off"}, ` +
-          (opening.session ? "as its source session ran" : "the global default"),
+        `${spec.agentId}: member dialog opened — YOLO starts ${starts ? "on" : "off"}, ` +
+          (pick?.ranYolo === undefined ? "the global default" : "as its source session ran"),
       );
       setDialog(spec);
       return;
@@ -337,14 +346,18 @@ export function useAgentDialog(
     // beside whether that agent can take one at all — an agent that started
     // without the YOLO the person meant can then be traced to the toggle or
     // to the agent (task-576). "+ Team" lands no agent, whatever its hidden
-    // picker holds, so it has no YOLO to report.
+    // picker holds, so it has no YOLO to report. A continued session is
+    // named: the toggle starts as that session ran, which no flip shows.
     const landed = dlg.target.kind === "member" ? result.agentType : null;
     const yolo = landed === null
       ? "n/a"
       : result.yolo
         ? "on"
         : agentSupportsYolo(agents, landed) ? "off" : "off (the agent declares no YOLO)";
-    log.info("web:agents", `${dlg.agentId}: ${dlg.target.kind} dialog confirmed — ${landed ?? "no agent"}, YOLO ${yolo}`);
+    const continued = landed !== null && result.session
+      ? `, ${result.session.mode} of ${result.session.handle.sessionId}`
+      : "";
+    log.info("web:agents", `${dlg.agentId}: ${dlg.target.kind} dialog confirmed — ${landed ?? "no agent"}${continued}, YOLO ${yolo}`);
     // Closed first, whatever the door answers: a refusal is a notice and a
     // question is its own dialog, and neither stacks on top of this one.
     setDialog(null);
@@ -423,6 +436,11 @@ export function useAgentDialog(
    * (FTS — the same engine as the global browser). The dialog drives paging
    * through the shared engine ([[usePagedSessionSearch]]); this maps one page
    * of hits into pick rows and forwards the full match count.
+   *
+   * The index knows nothing of how a session ran; the dialog's workspace
+   * journal does, for the sessions KeepDeck ran there. That is what a
+   * continuation's YOLO starts from — the same journal the team's own
+   * sessions list reads.
    */
   const searchSessions = async (
     agent: AgentType,
@@ -431,11 +449,13 @@ export function useAgentDialog(
     offset: number,
   ): Promise<Page<SessionPickRow>> => {
     const page = await indexSearch(query, limit, offset, agent);
+    const records = dialog ? deckRef.current.journal.records[dialog.workspace.id] : undefined;
     return {
-      rows: page.hits.map((hit) => ({
-        handle: handleFromHit(hit),
-        mtime: hit.mtime,
-      })),
+      rows: page.hits.map((hit) => {
+        const handle = handleFromHit(hit);
+        const ranYolo = recordedYolo(records, handle);
+        return { handle, mtime: hit.mtime, ...(ranYolo !== undefined && { ranYolo }) };
+      }),
       total: page.total,
     };
   };

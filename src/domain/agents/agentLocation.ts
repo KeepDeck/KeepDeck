@@ -1,4 +1,4 @@
-import type { AgentType } from "./agents";
+import { startingYolo, type AgentType } from "./agents";
 import type { SessionHandle } from "../journal";
 
 /** Backend probe of a candidate worktree path (mirrors the Rust `PathProbe`). */
@@ -174,6 +174,30 @@ export interface SessionPickRow {
   handle: SessionHandle;
   /** Store mtime (ms) — the row's recency stamp. */
   mtime: number;
+  /** Whether the session ran in YOLO, when KeepDeck ran it; undefined for
+   * a session only the agent's own store knows. A row of its own, not the
+   * handle's sparse `yolo`, whose absence means "ran without" on a journal
+   * record and "never heard of" on a search hit. */
+  ranYolo?: boolean;
+}
+
+/** The pick a dialog opened with a preset starts on. A preset is always a
+ * pane's own session, so how it ran is known: its handle's `yolo`, absent
+ * meaning off. */
+export function presetPick(preset: SessionPreset): SessionPickRow {
+  return { handle: preset.handle, mtime: 0, ranYolo: preset.handle.yolo === true };
+}
+
+/** Where the dialog's YOLO toggle stands until the person flips it. With a
+ * session picked to continue, it stands as that session ran. Starting fresh,
+ * with nothing picked yet, or on a session KeepDeck never ran, it stands at
+ * the global preference ([`startingYolo`]). */
+export function dialogStartingYolo(
+  globalDefault: boolean,
+  mode: SessionStartMode,
+  pick: SessionPickRow | null,
+): boolean {
+  return startingYolo(globalDefault, mode === "new" ? undefined : pick?.ranYolo);
 }
 
 /** What the agent dialog returns — for a new team, or for one new member. */

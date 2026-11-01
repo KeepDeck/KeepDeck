@@ -2,13 +2,15 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { AgentDialogResult, AgentInfo } from "../domain/agents";
+import { presetPick, type AgentDialogResult, type AgentInfo } from "../domain/agents";
 import {
   TEAM_FULL_MESSAGE,
   placementRefusalMessage,
   type Workspace,
 } from "../domain/deck";
+import type { JournalRecords } from "../domain/journal";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { indexSearch, type SearchHit } from "../ipc/history";
 import { inspectRepo } from "../ipc/worktree";
 import { createAgentDoors } from "./agentDoors";
 import { useAgentDialog } from "./useAgentDialog";
@@ -33,6 +35,12 @@ vi.mock("../ipc/log", () => ({
     error: () => {},
     debug: () => {},
   },
+}));
+
+// The picker's session search: whatever page a case seeds.
+vi.mock("../ipc/history", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../ipc/history")>()),
+  indexSearch: vi.fn(async () => ({ hits: [], total: 0 })),
 }));
 
 // The hook reaches the backend for repo inspection, name suggestions and path
@@ -101,10 +109,12 @@ const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(() =
  * whether it happened. */
 interface TestDeck {
   workspaces: Workspace[];
+  journal: { records: JournalRecords };
   openTeam: Mock<(wsId: string, teamId: string) => void>;
 }
 const deckOf = (...workspaces: Workspace[]): TestDeck => ({
   workspaces,
+  journal: { records: {} },
   openTeam: vi.fn(),
 });
 /** The deck the current Host was mounted with — what the doors owner reads
@@ -248,6 +258,49 @@ describe("useAgentDialog suggestions", () => {
     ]);
   });
 
+  it("tells the picker how each found session ran, as the dialog's workspace journal recorded it", async () => {
+    // The index knows sessions, not modes: a continuation's YOLO starts
+    // from the journal, and a session it never recorded stays unknown.
+    const hit = (sessionId: string): SearchHit => ({
+      agent: "claude",
+      sessionId,
+      reference: sessionId,
+      cwd: "/repo",
+      title: null,
+      transcriptPath: null,
+      mtime: 1,
+      snippet: null,
+    });
+    const record = (sessionId: string, yolo: boolean) => ({
+      agent: "claude",
+      sessionId,
+      cwd: "/repo",
+      boundAt: "t",
+      state: "closed" as const,
+      endedAt: "t",
+      ...(yolo && { yolo: true }),
+    });
+    vi.mocked(indexSearch).mockResolvedValueOnce({
+      hits: [hit("s-yolo"), hit("s-plain"), hit("s-elsewhere"), hit("s-unknown")],
+      total: 4,
+    });
+    const ws = withTeam();
+    const deck = await mount(ws);
+    deck.journal.records = {
+      "ws-1": [record("s-yolo", true), record("s-plain", false)],
+      // Another workspace's journal is not this dialog's to read.
+      "ws-2": [record("s-elsewhere", true)],
+    };
+    await act(async () => flow.openFor(ws, MEMBER));
+    const page = await flow.searchSessions("claude", "", 50, 0);
+    expect(page.rows.map((row) => [row.handle.sessionId, row.ranYolo])).toEqual([
+      ["s-yolo", true],
+      ["s-plain", false],
+      ["s-elsewhere", undefined],
+      ["s-unknown", undefined],
+    ]);
+  });
+
   it("traces a member dialog's YOLO from where it started, through every flip, to what it sent", async () => {
     catalog = [
       {
@@ -259,8 +312,9 @@ describe("useAgentDialog suggestions", () => {
         path: null,
       },
     ];
-    // The lead ran in YOLO, so its Fork opens on; a fresh member opens on
-    // the global default — off, with no settings store here.
+    // The lead ran in YOLO, so its Fork opens on, and the implementer's
+    // opens off; a fresh member opens on the global default — off, with no
+    // settings store here.
     const ws = withTeam({
       panes: [
         {
@@ -269,6 +323,12 @@ describe("useAgentDialog suggestions", () => {
           yolo: true,
           session: { id: "s-9", boundAt: "t" },
           team: { teamId: "team-1", role: "lead" },
+        },
+        {
+          id: "p2",
+          agentType: "claude",
+          session: { id: "s-8", boundAt: "t" },
+          team: { teamId: "team-1", role: "impl-1" },
         },
       ],
     });
@@ -283,16 +343,31 @@ describe("useAgentDialog suggestions", () => {
     // A flip with no dialog open belongs to no trail.
     act(() => flow.yoloToggled(false));
     await act(async () => flow.forkPaneSession("ws-1", "p1"));
+    const fork = present(flow.dialog, "the fork dialog");
+    await act(async () => {
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: true,
+        session: { mode: "fork", handle: present(fork.preset, "the fork preset").handle },
+      });
+    });
+    await act(async () => flow.forkPaneSession("ws-1", "p2"));
 
     const fresh = offered().pane.id;
-    const fork = present(flow.dialog, "the fork dialog").agentId;
+    const plainFork = present(flow.dialog, "the second fork dialog").agentId;
     expect(logged.filter((line) => line.startsWith("web:agents "))).toEqual([
       `web:agents ${fresh}: member dialog opened — YOLO starts off, the global default`,
       `web:agents ${fresh}: YOLO toggled on in the dialog`,
       `web:agents ${fresh}: YOLO toggled off in the dialog`,
       `web:agents ${fresh}: YOLO toggled on in the dialog`,
       `web:agents ${fresh}: member dialog confirmed — claude, YOLO on`,
-      `web:agents ${fork}: member dialog opened — YOLO starts on, as its source session ran`,
+      `web:agents ${fork.agentId}: member dialog opened — YOLO starts on, as its source session ran`,
+      // What was continued is said beside the YOLO it sent: a start no flip
+      // explains is the session's own.
+      `web:agents ${fork.agentId}: member dialog confirmed — claude, fork of s-9, YOLO on`,
+      `web:agents ${plainFork}: member dialog opened — YOLO starts off, as its source session ran`,
     ]);
   });
 
@@ -857,9 +932,10 @@ describe("useAgentDialog targets", () => {
     expect(present(flow.dialog, "the open dialog").roles.addressFor("lead")).toBeNull();
   });
 
-  it("opens a Fork with YOLO as its source ran — the global default does not decide it", async () => {
-    // No settings store here: the global default reads as off. A fork of a
-    // YOLO pane must still open with YOLO on, and one of a plain pane off.
+  it("opens a Fork carrying how its source pane ran — the toggle starts from that, not the global default", async () => {
+    // No settings store here: the global default reads as off. The spec
+    // says so; the preset says how the source ran, which is what the
+    // dialog's toggle starts from ([`presetPick`], `dialogStartingYolo`).
     const ws = workspace({
       teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/base/kd-KeepDeck-1" } }],
       panes: [
@@ -869,11 +945,16 @@ describe("useAgentDialog targets", () => {
     });
     const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
+    const opensOn = () => {
+      const dialog = present(flow.dialog, "the open dialog");
+      expect(dialog.defaultYolo).toBe(false);
+      return presetPick(present(dialog.preset, "the fork preset")).ranYolo;
+    };
     await act(async () => flow.forkPaneSession("ws-1", "p1"));
-    expect(present(flow.dialog, "the open dialog").defaultYolo).toBe(true);
+    expect(opensOn()).toBe(true);
     await act(async () => flow.cancel());
     await act(async () => flow.forkPaneSession("ws-1", "p2"));
-    expect(present(flow.dialog, "the open dialog").defaultYolo).toBe(false);
+    expect(opensOn()).toBe(false);
   });
 
   it("opens for a member with no location to ask about, and lands it on the team by id under the role picked", async () => {

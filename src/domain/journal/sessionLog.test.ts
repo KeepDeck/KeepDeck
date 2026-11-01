@@ -6,9 +6,11 @@ import {
   foldJournal,
   hydrateJournalSlice,
   journalRows,
+  recordedYolo,
   withJournalEvent,
   type JournalEvent,
   type JournalRecords,
+  type SessionRecordBase,
 } from "./sessionLog";
 
 const T0 = "2026-07-19T10:00:00.000Z";
@@ -31,6 +33,28 @@ const bound = (
     paneId: "pane-1",
     ...over,
   },
+});
+
+describe("recordedYolo", () => {
+  const record = (sessionId: string, over: Partial<SessionRecordBase> = {}): SessionRecordBase => ({
+    agent: "claude",
+    sessionId,
+    cwd: "/repo",
+    boundAt: T0,
+    ...over,
+  });
+  const records = [record("s-yolo", { yolo: true }), record("s-plain")];
+
+  it("answers how a recorded session ran, absent meaning without", () => {
+    expect(recordedYolo(records, { agent: "claude", sessionId: "s-yolo" })).toBe(true);
+    expect(recordedYolo(records, { agent: "claude", sessionId: "s-plain" })).toBe(false);
+  });
+
+  it("does not know a session the journal never recorded — nor another agent's with the same id", () => {
+    expect(recordedYolo(records, { agent: "claude", sessionId: "s-other" })).toBeUndefined();
+    expect(recordedYolo(records, { agent: "codex", sessionId: "s-yolo" })).toBeUndefined();
+    expect(recordedYolo(undefined, { agent: "claude", sessionId: "s-yolo" })).toBeUndefined();
+  });
 });
 
 describe("applyJournalEvent", () => {

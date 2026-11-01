@@ -101,21 +101,10 @@ describe("nextAgentType", () => {
 });
 
 describe("nextYolo", () => {
-  beforeEach(() => {
-    settings.current = null;
-  });
-
   it("starts a fresh agent from the global preference, read when asked", () => {
     expect(nextYolo()).toBe(false);
     settings.current = { defaultYolo: true };
     expect(nextYolo()).toBe(true);
-  });
-
-  it("starts a fork as its source ran, whatever the preference says", () => {
-    settings.current = { defaultYolo: false };
-    expect(nextYolo({ yolo: true })).toBe(true);
-    settings.current = { defaultYolo: true };
-    expect(nextYolo({})).toBe(false);
   });
 });
 

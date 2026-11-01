@@ -4,7 +4,6 @@ import {
   type AgentType,
 } from "../domain/agents";
 import { firstFreeTeamWorktree, type Workspace } from "../domain/deck";
-import type { SessionHandle } from "../domain/journal";
 import { probeWorktree, suggestWorktree } from "../ipc/worktree";
 import { getSettings } from "./settingsManager";
 
@@ -19,13 +18,13 @@ import { getSettings } from "./settingsManager";
  */
 
 /**
- * Whether a new agent starts with YOLO on: a fork carries its source
- * session's own mode — the person is copying THAT agent, prompts and all —
- * and anything else starts from the global preference, read at the moment of
- * asking.
+ * Whether a fresh agent starts with YOLO on: the global preference, read at
+ * the moment of asking. One that continues a session starts as that session
+ * ran instead ([`startingYolo`]), which only the surface holding the session
+ * can ask.
  */
-export function nextYolo(source?: Pick<SessionHandle, "yolo">): boolean {
-  return source ? source.yolo === true : (getSettings()?.defaultYolo ?? false);
+export function nextYolo(): boolean {
+  return getSettings()?.defaultYolo ?? false;
 }
 
 /**
