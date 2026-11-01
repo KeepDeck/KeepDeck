@@ -140,6 +140,10 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   const normalizers = new Map<string, StatusNormalizer>();
   const eventNamers = new Map<string, (payload: unknown) => string | null>();
   const epochs = new Map<string, object>();
+  // One per process behind a pane: replaced only when the process is
+  // retired (clear, retain), never by a new turn — so a report held across a
+  // restart is told apart from one a newer turn of its own process overtook.
+  const lifetimes = new Map<string, object>();
   const decoderStates = new Map<string, { normalize: StatusNormalizer; state: unknown }>();
 
   /**
@@ -306,13 +310,24 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       epochs.set(paneId, {});
     }
     const epoch = epochs.get(paneId);
+    if (!lifetimes.has(paneId)) lifetimes.set(paneId, {});
+    const lifetime = lifetimes.get(paneId);
     let finished = false;
     return {
       activity: preview?.activity ?? null,
       finish(reply?: string) {
         if (finished) return;
         finished = true;
-        if (epochs.get(paneId) !== epoch || normalizers.get(agent) !== normalize) return;
+        if (lifetimes.get(paneId) !== lifetime || normalizers.get(agent) !== normalize) return;
+        if (epochs.get(paneId) !== epoch) {
+          // A newer turn overtook this report, so what it says about the
+          // turn is stale. The mode it says is still this process's own
+          // word, and the mode's fold refuses one older than the word in
+          // hand — the first mode a held prompt reported is not lost.
+          const modes = normalizeAll(reply).events.filter((edge) => edge.kind === "permission-mode");
+          if (modes.length > 0) apply(paneId, modes, label());
+          return;
+        }
         // Rebase decoding on the latest committed checkpoint: metadata can
         // arrive while a hook reply is in flight. Preview never consumed it.
         const settled = normalizeAll(reply);
@@ -357,6 +372,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
 
     clear(paneId) {
       epochs.delete(paneId);
+      lifetimes.delete(paneId);
       decoderStates.delete(paneId);
       // The mode goes with the activity: what the old process said of itself
       // is no fact about the next one, which starts from its own launch.
@@ -374,6 +390,9 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       }
       for (const id of epochs.keys()) {
         if (!liveIds.has(id)) epochs.delete(id);
+      }
+      for (const id of lifetimes.keys()) {
+        if (!liveIds.has(id)) lifetimes.delete(id);
       }
       if (![...statuses.keys(), ...modes.keys()].some((id) => !liveIds.has(id))) return;
       const kept = <T,>(map: ReadonlyMap<string, T>) =>

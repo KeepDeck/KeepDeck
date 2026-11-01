@@ -226,10 +226,12 @@ async function bareFloor(
 
 /**
  * Whether a launch starts its CLI in YOLO: what its plan — or its floor —
- * says. A built-in moves with the host. An external plugin whose floor
- * predates [`PLAN_YOLO_API`] never says, so its launch reads as the YOLO it
- * was asked for, which is what every pane read before; one with no usable
- * floor counts as old, like the manifest gate.
+ * says. A built-in moves with the host, and so is read by its word — as is a
+ * contribution with no installed record, which only a built-in can be. An
+ * external plugin whose floor predates [`PLAN_YOLO_API`] never says, so its
+ * launch reads as the YOLO it was asked for, which is what every pane read
+ * before; an external one with no usable floor counts as old, like the
+ * manifest gate.
  */
 function startsInYolo(
   owner: Pick<InstalledPlugin, "source" | "manifest"> | undefined,
