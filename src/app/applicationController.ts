@@ -31,7 +31,7 @@ export type ApplicationPlugins = Pick<
 /** The landings the controller and its commands go through. */
 export type ApplicationOrchestrator = Pick<
   AgentOrchestrator,
-  "suspend" | "resume" | "createPane" | "createTeam" | "retryProvisioning" | "createWorkspace"
+  "suspend" | "resume" | "createPane" | "createTeam" | "retryProvisioning" | "createWorkspace" | "reachOf"
 >;
 
 export interface ApplicationUi {
@@ -143,6 +143,7 @@ export function createApplicationController({
         deck: () => readDeck(deck),
         agents: () => ui?.agents() ?? [],
         activityOf,
+        reachOf: orchestrator.reachOf,
         activatePane,
         requestCloseAgent: (wsId, paneId, label) =>
           requireUi().requestCloseAgent(wsId, paneId, label),

@@ -23,6 +23,8 @@ import {
   findWorkspaceOfPane,
   membersOf,
   teamOfPane,
+  type AgentDown,
+  type AgentReach,
   type Pane,
   type Workspace,
 } from "../../domain/deck";
@@ -61,6 +63,9 @@ export interface MailCommandDeps {
   agents(): readonly { id: string; label: string }[];
   /** Write a team's settled roster — name and every role — as one change. */
   settleRoster: TeamSetupDeps["settleRoster"];
+  /** Whether a pane's agent would read something sent to it now — the
+   * orchestrator's answer, which owns that question. */
+  reachOf(paneId: string): AgentReach | null;
 }
 
 /**
@@ -174,7 +179,7 @@ export function registerMailCommands(
     registry.register({
       id: "mail.send",
       title:
-        "Send a message to another agent. Answers status: delivered, or queued — queued means accepted and waiting for the recipient's next turn boundary, which is normal and needs nothing from you",
+        "Send a message to another agent. Answers status: delivered, or queued — queued means accepted and waiting for the recipient's next turn boundary, which is normal and needs nothing from you. A recipient whose agent is not running (suspended, exited, never started — workspace.list shows which) is refused, and nothing is sent",
       args: [
         {
           name: "to",
@@ -237,6 +242,12 @@ export function registerMailCommands(
           str(args, "to") ?? "",
         );
         if (!resolved.ok) throw new Error(resolved.message);
+        // An agent that is down would not read it, and a queued message would
+        // sit there while the deck told the sender it would land on its own —
+        // the suspended team nobody noticed (task-557). Refused, so the sender
+        // knows now and decides what to do.
+        const reach = deps.reachOf(resolved.value.id);
+        if (reach?.kind === "down") throw new Error(unreachableText(str(args, "to") ?? "", reach.why));
         // The registry has refused a missing or wrong-typed body already.
         const body = args.body;
         if (typeof body !== "string") throw new Error("body must be a string");
@@ -453,6 +464,30 @@ export function registerMailCommands(
   return () => {
     for (const dispose of disposers) dispose();
   };
+}
+
+/** Why a message to `to` was not sent: its agent is down, in words that say
+ * what would bring it back. Nothing is queued — the sender decides. */
+export function unreachableText(to: string, why: AgentDown): string {
+  const state = ((): string => {
+    switch (why) {
+      case "suspended":
+        return "is suspended by the user";
+      case "parked":
+        return "was restored without starting";
+      case "agent-unavailable":
+        return "runs an agent no installed plugin provides";
+      case "worktree-missing":
+        return "has lost its directory";
+      case "workspace-closed":
+        return "has not started — its workspace is not open";
+      case "exited":
+        return "has exited";
+      case "failed-to-start":
+        return "could not be started";
+    }
+  })();
+  return `not sent: ${to} ${state}, so its agent is not running and would not read it — ask your user to start it, or write to somebody else`;
 }
 
 /** Why the deck would not take a message, said to the agent that tried.

@@ -72,6 +72,7 @@ function setup(
         restoring: () => false,
         settleRoster: () => {},
         agentTypeOf: (paneId: string) => agentTypes[paneId] ?? "claude",
+        reachOf: () => ({ kind: "running" }),
       },
       agents: {
         labels: () => [{ id: "claude", label: "Claude" }],

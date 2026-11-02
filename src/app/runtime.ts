@@ -361,6 +361,9 @@ export function createAppRuntime(
         settleRoster: (workspaceId, teamId, name, members) =>
           deckActions.settleRoster(workspaceId, teamId, name, members),
         agentTypeOf: (paneId) => paneAgentTypeOf(deckStore, paneId),
+        // The orchestrator owns the run question and is built below — mail
+        // asks it per send, so the forward reference is never read early.
+        reachOf: (paneId) => orchestrator.reachOf(paneId),
       },
       agents: {
         labels: agentLabels,

@@ -53,6 +53,8 @@ export interface MailServiceDeps {
     settleRoster: MailCommandDeps["settleRoster"];
     /** Which CLI a pane runs, or null when the deck no longer holds it. */
     agentTypeOf(paneId: string): string | null;
+    /** Whether a pane's agent would read something sent to it now. */
+    reachOf: MailCommandDeps["reachOf"];
   };
   agents: {
     /** How a pane reads, for anything that has to name one. */
@@ -315,6 +317,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
     workspaces: deps.deck.workspaces,
     agents: deps.agents.labels,
     settleRoster: deps.deck.settleRoster,
+    reachOf: deps.deck.reachOf,
     mail: manager,
   });
   const presence = startPresence();

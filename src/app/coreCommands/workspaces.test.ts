@@ -156,6 +156,39 @@ describe("workspace commands", () => {
     }
   });
 
+  it("says when an agent is not running, and why, where it would say what it is doing", async () => {
+    // A lead reads here that a teammate's team is suspended before writing
+    // to it — the roster said null for it, and so for a pane merely quiet.
+    const { registry, activityOf, reachOf } = setup([
+      workspace({
+        panes: [
+          { id: "p1", agentType: "claude" },
+          { id: "p2", agentType: "claude" },
+          { id: "p3", agentType: "claude" },
+        ],
+      }),
+    ]);
+    // A stale report from before the suspend must not read as current.
+    activityOf.mockImplementation(() => ({ state: "done", at: 1, interrupted: false }));
+    reachOf.mockImplementation((paneId) =>
+      paneId === "p1"
+        ? { kind: "down", why: "suspended" }
+        : paneId === "p2"
+          ? { kind: "starting" }
+          : { kind: "running" },
+    );
+    const result = await registry.execute("workspace.list", {}, HOST);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const panes = recordsOf(recordsOf(result.value, "workspaces")[0].panes, "panes");
+      expect(panes.map((pane) => pane.activity)).toEqual([
+        { state: "suspended" },
+        { state: "starting" },
+        { state: "done", at: 1, interrupted: false },
+      ]);
+    }
+  });
+
   it("reports a pane nothing speaks for as unknown, not as idle", async () => {
     // Provisioning, stopped, or a CLI with no status reporter. Absent
     // information about a live pane, which is a different thing from a pane

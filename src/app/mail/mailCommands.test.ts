@@ -5,10 +5,10 @@ import {
   type CommandRegistry,
   type CommandSource,
 } from "../../domain/commands";
-import { renameTeam, settleRoster, type Pane, type Team, type Workspace } from "../../domain/deck";
+import { renameTeam, settleRoster, type AgentDown, type AgentReach, type Pane, type Team, type Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { PaneActivity } from "../../domain/status";
-import { registerMailCommands } from "./mailCommands";
+import { registerMailCommands, unreachableText } from "./mailCommands";
 import { createMailManager } from "./mailManager";
 import { present } from "@keepdeck/plugin-api/testing";
 import { recordsOf, recordOf, stringOf } from "../../testing/values.test-support";
@@ -61,6 +61,9 @@ function from(paneId: string, workspaceId: string, label: string): CommandSource
 const ANONYMOUS: CommandSource = { kind: "external", client: "mcp" };
 
 function setup(teamed = false) {
+  /** What the orchestrator would answer for each pane; running unless a test
+   * says otherwise. */
+  const reach = new Map<string, AgentReach>();
   const workspaces = teamed
     ? [
         workspace(
@@ -108,8 +111,9 @@ function setup(teamed = false) {
     workspaces: () => workspaces,
     agents: () => [{ id: "claude", label: "Claude" }],
     settleRoster: settle,
+    reachOf: (paneId) => reach.get(paneId) ?? { kind: "running" },
   });
-  return { registry, mail, dispose, workspaces };
+  return { registry, mail, dispose, workspaces, reach };
 }
 
 async function run(
@@ -138,6 +142,52 @@ describe("mail.send", () => {
     // queue for pane-2 to come and ask.
     const [m] = mail.takeAtTurnEnd("pane-2");
     expect(m.toPaneId).toBe("pane-2");
+  });
+
+  it("refuses a message to a pane whose agent is down, and queues nothing", async () => {
+    // A member of a suspended team: the message used to be answered
+    // "queued — it will land on its own" and then sat unread (task-557).
+    const { registry, mail, reach } = setup();
+    reach.set("pane-2", { kind: "down", why: "suspended" });
+    const result = await run(
+      registry,
+      "mail.send",
+      { to: "pane-2", kind: "question", body: "which port?" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result).toEqual({ ok: false, error: { code: "failed", message: unreachableText("pane-2", "suspended") } });
+    expect(mail.waiting("pane-2")).toBe(0);
+  });
+
+  it("takes a message for an agent on its way up — it will read it without anybody acting", async () => {
+    const { registry, reach } = setup();
+    reach.set("pane-2", { kind: "starting" });
+    const result = await run(
+      registry,
+      "mail.send",
+      { to: "pane-2", kind: "note", body: "when you are up" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result).toMatchObject({ ok: true, value: { status: "queued" } });
+  });
+
+  it("says, for every way an agent is down, that nothing was sent and who can start it", () => {
+    const reasons: AgentDown[] = [
+      "suspended",
+      "parked",
+      "agent-unavailable",
+      "worktree-missing",
+      "workspace-closed",
+      "exited",
+      "failed-to-start",
+    ];
+    const texts = reasons.map((why) => unreachableText("analyst-1", why));
+    for (const text of texts) {
+      expect(text).toMatch(/^not sent: analyst-1 /);
+      expect(text).toContain("ask your user to start it");
+    }
+    // Each reason in its own words.
+    expect(new Set(texts).size).toBe(reasons.length);
   });
 
   it("calls an undelivered message QUEUED, and says it needs nothing", async () => {
@@ -789,6 +839,7 @@ describe("mail between workspaces", () => {
       workspaces: () => workspaces,
       agents: () => [{ id: "claude", label: "Claude" }],
       settleRoster: () => {},
+      reachOf: () => ({ kind: "running" }),
     });
     return { registry, mail };
   };
