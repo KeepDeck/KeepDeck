@@ -20,6 +20,8 @@ on:
 jobs:
   js:
     runs-on: ubuntu-latest
+    # Slowest of 21 green runs: 4.0 min.
+    timeout-minutes: 15
     if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
       - uses: actions/checkout@v7
@@ -55,6 +57,9 @@ jobs:
   rust:
     # The app's only target platform; free on a public repository.
     runs-on: macos-latest
+    # Slowest of 18 green runs: 11.7 min — a cold Rust cache, diesel_cli
+    # built from source.
+    timeout-minutes: 35
     if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
       - uses: actions/checkout@v7
@@ -112,6 +117,8 @@ jobs:
 
   actionlint:
     runs-on: ubuntu-latest
+    # Slowest of 21 green runs: 1.6 min.
+    timeout-minutes: 5
     if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
       - uses: actions/checkout@v7
