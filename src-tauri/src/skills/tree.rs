@@ -140,8 +140,7 @@ pub(super) fn copy_tree(src: &Path, dest: &Path, allowance: Allowance) -> io::Re
         Err(e) if gone(&e) => return Ok(TreeCopy::Gone),
         other => other?,
     };
-    let top = fsb::stat_of(&root)?;
-    let mut walk = Walk { root: &root, left: allowance, left_out: Vec::new(), ancestry: vec![(top.dev, top.ino)] };
+    let mut walk = Walk::new(&root, allowance, fsb::open_at)?;
     match walk.folder(&root, &[], dest, true) {
         Ok(()) => Ok(TreeCopy::Copied { used: allowance.less(walk.left), left_out: walk.left_out }),
         Err(Stop::TooBig) => {
@@ -182,9 +181,15 @@ enum Target {
     Special,
 }
 
+/// How a walk opens a name inside a folder it holds open, never following it.
+type OpenAt = fn(&File, &OsStr, libc::c_int) -> io::Result<File>;
+
 struct Walk<'a> {
     /// The skill's own folder: every read happens beneath it.
     root: &'a File,
+    /// Every open the walk makes goes through here — [`fsb::open_at`] — so
+    /// its cost is one count: opens, one per name it walks.
+    open: OpenAt,
     left: Allowance,
     left_out: Vec<LeftOut>,
     /// The folders being copied, outermost first, by identity: a link to one
@@ -192,7 +197,12 @@ struct Walk<'a> {
     ancestry: Vec<(u64, u64)>,
 }
 
-impl Walk<'_> {
+impl<'a> Walk<'a> {
+    fn new(root: &'a File, allowance: Allowance, open: OpenAt) -> io::Result<Self> {
+        let top = fsb::stat_of(root)?;
+        Ok(Self { root, open, left: allowance, left_out: Vec::new(), ancestry: vec![(top.dev, top.ino)] })
+    }
+
     /// Copy what the open folder `dir` — the skill's own, at `real` inside it —
     /// holds into `dest`.
     fn folder(&mut self, dir: &File, real: &[OsString], dest: &Path, top: bool) -> Result<(), Stop> {
@@ -220,12 +230,12 @@ impl Walk<'_> {
             };
             let target = dest.join(&name);
             match stat.kind {
-                Kind::Dir => match fsb::open_at(dir, &name, libc::O_DIRECTORY) {
+                Kind::Dir => match (self.open)(dir, &name, libc::O_DIRECTORY) {
                     Ok(sub) => self.descend(sub, child(real, &name), &target, real, &name)?,
                     Err(e) if gone(&e) => {}
                     Err(_) => self.leave(real, Some(&name), Why::Unreadable),
                 },
-                Kind::File => match fsb::open_at(dir, &name, libc::O_NONBLOCK) {
+                Kind::File => match (self.open)(dir, &name, libc::O_NONBLOCK) {
                     Ok(file) => self.file(&file, real, &name, &target)?,
                     Err(e) if gone(&e) => {}
                     Err(_) => self.leave(real, Some(&name), Why::Unreadable),
@@ -304,7 +314,7 @@ impl Walk<'_> {
         // the last name only — whatever else it is.
         let mut way: Vec<(OsString, File)> = Vec::with_capacity(real.len());
         for part in real {
-            let dir = fsb::open_at(here(self.root, &way), part, libc::O_DIRECTORY).map_err(|_| Why::LinkDangles)?;
+            let dir = (self.open)(here(self.root, &way), part, libc::O_DIRECTORY).map_err(|_| Why::LinkDangles)?;
             way.push((part.clone(), dir));
         }
         let mut pending: VecDeque<OsString> = VecDeque::from([name.to_os_string()]);
@@ -354,7 +364,7 @@ impl Walk<'_> {
                     let flags = if stat.kind == Kind::Dir { libc::O_DIRECTORY } else { libc::O_NONBLOCK };
                     // Opened following no link: anything swapped in since
                     // refuses rather than leads out.
-                    let opened = fsb::open_at(dir, &part, flags).map_err(|_| Why::LinkDangles)?;
+                    let opened = (self.open)(dir, &part, flags).map_err(|_| Why::LinkDangles)?;
                     way.push((part, opened));
                 }
             }
@@ -577,30 +587,49 @@ mod tests {
         );
     }
 
+    thread_local! {
+        /// The opens a walk on this test's thread made.
+        static OPENS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// [`fsb::open_at`], counted.
+    fn counted_open(dir: &File, name: &OsStr, flags: libc::c_int) -> io::Result<File> {
+        OPENS.with(|n| n.set(n.get() + 1));
+        fsb::open_at(dir, name, flags)
+    }
+
+    /// How many opens following the link `name` in the skill's folder `real`
+    /// took, and whether it dangled.
+    fn opens_to_follow(skill: &Path, real: &[&str], name: &str) -> (usize, bool) {
+        let root = fsb::open_dir(skill).unwrap();
+        let walk = Walk::new(&root, PLENTY, counted_open).unwrap();
+        let real: Vec<OsString> = real.iter().map(OsString::from).collect();
+        OPENS.with(|n| n.set(0));
+        let dangled = matches!(walk.resolve(&real, OsStr::new(name)), Err(Why::LinkDangles));
+        (OPENS.with(std::cell::Cell::get), dangled)
+    }
+
     #[test]
     fn a_link_down_a_deep_skill_costs_one_open_per_name() {
-        // Every link here leads down the same deep chain of folders, to
-        // nothing at its bottom. Opened one from the other, a link costs as
-        // many opens as it has names; reopened from the skill's folder at
-        // every name, these took several times the wait below.
-        const DEPTH: usize = 120;
-        const LINKS: usize = 1000;
-        let (tmp, skill) = skill();
+        // Each link leads down a chain of folders to nothing at its bottom.
+        // Opened one from the other, the way costs one open per folder on it;
+        // reopened from the skill's folder at every name, it cost the square
+        // of its depth. Counted, not timed: the count is the property, and a
+        // clock measures the machine.
+        const DEPTH: usize = 8;
+        let (_tmp, skill) = skill();
         let deep: PathBuf = std::iter::repeat_n("d", DEPTH).collect();
         fs::create_dir_all(skill.join(&deep)).unwrap();
-        for n in 0..LINKS {
-            symlink(deep.join("nowhere"), skill.join(format!("link-{n}"))).unwrap();
-        }
-        let dest = tmp.path().join("copy");
+        symlink(deep.join("nowhere"), skill.join("down")).unwrap();
+        // From the bottom of the chain all the way up, and down it again: the
+        // link's own folder is reached one name at a time too, and a `..`
+        // costs no open.
+        let up: PathBuf = std::iter::repeat_n("..", DEPTH).collect();
+        symlink(up.join(&deep).join("nowhere"), skill.join(&deep).join("round")).unwrap();
+        let bottom = vec!["d"; DEPTH];
 
-        let (done, finished) = std::sync::mpsc::channel();
-        let (src, to) = (skill.clone(), dest.clone());
-        std::thread::spawn(move || done.send(copied(&src, &to, PLENTY)).unwrap());
-        let (_, left_out) =
-            finished.recv_timeout(std::time::Duration::from_secs(5)).expect("following the links took too long");
-
-        assert_eq!(left_out.len(), LINKS);
-        assert!(left_out.iter().all(|l| l.why == Why::LinkDangles), "{:?}", left_out[0]);
+        assert_eq!(opens_to_follow(&skill, &[], "down"), (DEPTH, true));
+        assert_eq!(opens_to_follow(&skill, &bottom, "round"), (2 * DEPTH, true));
     }
 
     #[test]
