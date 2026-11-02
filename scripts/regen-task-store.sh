@@ -9,6 +9,13 @@
 #   cargo install diesel_cli --version '=2.3.13' --no-default-features --features sqlite-bundled --locked
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+# diesel formats schema.rs through rustfmt and, when it cannot run it, writes
+# the schema unformatted without a word — a diff that reads as drift. Asked
+# from the crate, so it is the rustfmt of the toolchain diesel will get.
+if ! (cd "$root/crates/keepdeck-tasks" && rustfmt --version) >/dev/null 2>&1; then
+  echo "error: rustfmt does not run here, and diesel print-schema would write schema.rs unformatted — add rustfmt to the toolchain (rust-toolchain.toml lists it)" >&2
+  exit 1
+fi
 db="$(mktemp -d)/schema.db"
 (
   cd "$root/crates/keepdeck-tasks"
