@@ -7,6 +7,7 @@ mod clipboard;
 mod containment;
 mod dnd;
 mod downloads;
+mod fd_limit;
 mod fswatch;
 mod fs_beneath;
 mod fs_claim;
@@ -92,6 +93,10 @@ pub use mcp::shim::{run as run_mcp_shim, shim_mode as mcp_shim_mode};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // First, before any thread or terminal exists: every terminal, socket and
+    // watcher shares this budget, and every agent spawned inherits it. Said
+    // in the log once the log is up, in `setup`.
+    let open_files = fd_limit::raise();
     // The environment plugins' declarations resolve against is the one the
     // app was launched with: taken now, before anything could change it.
     plugin_permissions::host_environment();
@@ -160,6 +165,7 @@ pub fn run() {
             if collected > 0 {
                 log::info!("log gc: removed {collected} old file(s)");
             }
+            open_files.log();
             // Image pastes leave temp PNGs a pane's CLI reads asynchronously —
             // they can only be reaped at the NEXT startup, here.
             clipboard::sweep_stale_clipboard_files();
