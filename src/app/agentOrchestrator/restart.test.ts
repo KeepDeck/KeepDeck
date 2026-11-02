@@ -451,6 +451,21 @@ describe("agent orchestrator —restarting an exited agent", () => {
     // No process was ever started for a failed-plan pane — nothing to close.
     expect(pty.closed).toEqual([]);
   });
+  it("reads a pane whose plan could not be built as down — nothing comes up until a retry", async () => {
+    // What `reachOf` adds to the run decision: an agent whose start failed
+    // would not read a message, so none is queued for it (task-557).
+    plans.failed.add("pane-1");
+    try {
+      seed();
+      await settle();
+      // The cache tells its readers a build ended, as the real one does.
+      act(() => plans.notify());
+      expect(pty.live.has("pane-1")).toBe(false);
+      expect(agentRun.reachOf("pane-1")).toEqual({ kind: "down", why: "failed-to-start" });
+    } finally {
+      plans.failed.delete("pane-1");
+    }
+  });
   it("publishes a failed build as the error tile, and clears it on retry", async () => {
     // The tile is what a pane whose plan could not be built shows instead of
     // hanging on "Waking up…" forever, and the retry is the only way off it.

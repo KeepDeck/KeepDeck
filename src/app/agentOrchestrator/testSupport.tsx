@@ -97,7 +97,8 @@ vi.mock("../spawnSpecs", () => {
     // covered in spawnSpecs.test.ts.
     buildLivePaneSpec: vi.fn(
       async (_plugins: unknown, _ws: unknown, pane: { id: string; idle?: unknown }) => {
-        if (pane.idle || specs.has(pane.id)) return false;
+        // A build that failed leaves no plan, as the real one does.
+        if (pane.idle || specs.has(pane.id) || plans.failed.has(pane.id)) return false;
         specs.set(pane.id, { command: "claude", args: [], env: [] });
         notify();
         return true;
