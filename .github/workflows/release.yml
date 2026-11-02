@@ -35,6 +35,8 @@ jobs:
   # the builds different code.
   pin:
     runs-on: ubuntu-latest
+    # Not measured yet: a checkout and one rev-parse.
+    timeout-minutes: 5
     outputs:
       sha: ${{ steps.pin.outputs.sha }}
     steps:
@@ -63,6 +65,9 @@ jobs:
     needs: [pin, build]
     if: inputs.publish
     runs-on: ubuntu-latest
+    # Not measured yet: the full history, the notes, and the app's assets
+    # down from the build and up to the release.
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}

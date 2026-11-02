@@ -27,6 +27,9 @@ jobs:
           - runner: macos-latest # Apple Silicon
             arch: arm64
     runs-on: ${{ matrix.runner }}
+    # Not measured yet: a release build of the whole app, possibly from a
+    # cold Rust cache.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:

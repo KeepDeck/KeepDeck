@@ -1,14 +1,14 @@
 // Contract tests for the CI/release pipeline: parse the workflow YAML and
 // pin the invariants that keep the pipeline safe — what each workflow may and
 // may not do — so a refactor that breaks the wiring fails here, not on main.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { isRecord } from "./lib/guards.mjs";
 
 /** @typedef {{ name?: string, uses?: string, run?: string, if?: string, env?: unknown, with?: Record<string, unknown> }} Step */
-/** @typedef {{ if?: string, uses?: string, needs?: unknown, with?: Record<string, unknown>, outputs?: unknown, strategy?: unknown, "runs-on"?: unknown, steps?: Step[] }} Job */
+/** @typedef {{ if?: string, uses?: string, needs?: unknown, with?: Record<string, unknown>, outputs?: unknown, strategy?: unknown, "runs-on"?: unknown, "timeout-minutes"?: unknown, steps?: Step[] }} Job */
 /** @typedef {{ on: Record<string, unknown>, jobs: Record<string, Job>, concurrency?: unknown, permissions?: unknown }} Workflow */
 
 
@@ -136,6 +136,33 @@ const packageManifest = JSON.parse(
 const SKIP_BUMP_COMMITS =
   "github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')";
 const REF_OR_TRIGGER = "${{ inputs.ref || github.sha }}";
+
+describe("every workflow", () => {
+  it("bounds each job that runs steps, so a hang fails instead of running for six hours", () => {
+    // Without timeout-minutes GitHub lets a job run for 360 minutes. The
+    // bound belongs to the job, not to a test inside it: a step that hangs —
+    // the bundle check's render waiting on a timer that never ends — is
+    // turned into a failure. Each job's is about three times its slowest
+    // green run — room for a cold cache, nowhere near six hours — or, where
+    // none has been measured yet, a generous bound for its work; the comment
+    // beside it says which. A job that only calls a reusable workflow takes
+    // no bound of its own (GitHub refuses one there); the jobs it calls carry
+    // theirs, and they are checked here as well.
+    const names = readdirSync(fileURLToPath(new URL("../.github/workflows", import.meta.url)))
+      .filter((name) => name.endsWith(".yml"));
+    expect(names.length).toBeGreaterThan(0);
+    const unbounded = names.flatMap((name) =>
+      Object.entries(workflow(name).jobs)
+        .filter(([, job]) => job.steps !== undefined)
+        .filter(([, job]) => {
+          const minutes = job["timeout-minutes"];
+          return !(typeof minutes === "number" && Number.isInteger(minutes) && minutes > 0 && minutes < 360);
+        })
+        .map(([id]) => `${name}/${id}`),
+    );
+    expect(unbounded).toEqual([]);
+  });
+});
 
 describe("pnpm toolchain", () => {
   it("uses the packageManager pin in every dependency-installing workflow", () => {

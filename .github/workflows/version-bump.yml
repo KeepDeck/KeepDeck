@@ -38,6 +38,8 @@ concurrency:
 jobs:
   bump:
     runs-on: ubuntu-latest
+    # Not measured yet: a checkout with history, a node script and a push.
+    timeout-minutes: 10
     # Belt and braces for pushes made with credentials other than GITHUB_TOKEN.
     if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
