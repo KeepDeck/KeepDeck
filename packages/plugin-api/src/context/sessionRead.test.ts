@@ -268,9 +268,11 @@ describe("jsonl reader", () => {
   it("reads a prefix as the whole store — up to the line boundary it was told, across windows", async () => {
     // What a codex fork inherits: its source's first lines, as they stood
     // when it forked — the lines the source wrote since are not its own.
-    // Long lines, so the prefix spans several 256 KiB windows in few records.
-    const text = store(1_000, "y".repeat(100));
-    const until = text.split("\n").slice(0, 900).join("\n").length + 1;
+    // Long lines, so the prefix spans several 256 KiB windows in few records:
+    // the reader's cost grows with the records in a window (task-565), and
+    // what is under test here is the windows and the boundary, not the count.
+    const text = store(120, "y".repeat(1_000));
+    const until = text.split("\n").slice(0, 100).join("\n").length + 1;
     expect(until).toBeGreaterThan(2 * 256 * 1024);
     const fs = fakeFs({ "/s.jsonl": text });
     const seen: unknown[] = [];
@@ -284,8 +286,8 @@ describe("jsonl reader", () => {
       },
     );
 
-    expect(seen).toHaveLength(900);
-    expect(seen[seen.length - 1]).toMatchObject({ i: 899 });
+    expect(seen).toHaveLength(100);
+    expect(seen[seen.length - 1]).toMatchObject({ i: 99 });
     expect(outcome).toMatchObject({ stopped: "exhausted", payloadBytes: until, sourceBytes: until });
   });
 
@@ -332,7 +334,12 @@ describe("chained", () => {
   });
 
   it("spends one budget across its parts", async () => {
-    const fs = fakeFs({ "/a.jsonl": store(3_000), "/b.jsonl": store(3_000) });
+    // Each part fits the budget on its own and the two together do not: a
+    // budget per part would read both whole.
+    const part = store(70, "x".repeat(100));
+    expect(part.length).toBeLessThan(NARROW.maxPayloadBytes);
+    expect(2 * part.length).toBeGreaterThan(NARROW.maxPayloadBytes);
+    const fs = fakeFs({ "/a.jsonl": part, "/b.jsonl": part });
     const seen: number[] = [];
     const outcome = await chained(jsonl(isIndexed))
       .open(fs)
@@ -343,6 +350,9 @@ describe("chained", () => {
 
     expect(outcome.stopped).toBe("budget");
     expect(outcome.payloadBytes).toBeLessThanOrEqual(NARROW.maxPayloadBytes);
+    // All of the first part, and only some of the second.
+    expect(seen.length).toBeGreaterThan(70);
+    expect(seen.length).toBeLessThan(140);
   });
 });
 
