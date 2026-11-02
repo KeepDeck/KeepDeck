@@ -79,7 +79,15 @@ describe("paneRunIntent — reasons to stay down", () => {
   it("holds a member of a team still creating its directory: nowhere to run in yet", () => {
     expect(paneRunIntent(creating, pane(member), env())).toEqual({
       kind: "hold",
-      reason: { kind: "provisioning" },
+      reason: { kind: "provisioning", failed: false },
+    });
+  });
+
+  it("says when that create FAILED and waits for Retry, rather than still running", () => {
+    const failed = { teams: [{ ...creating.teams[0], location: { ...creating.teams[0].location, error: "git said no" } }] };
+    expect(paneRunIntent(failed, pane(member), env())).toEqual({
+      kind: "hold",
+      reason: { kind: "provisioning", failed: true },
     });
   });
 
@@ -248,7 +256,7 @@ describe("paneRunIntent — precedence", () => {
         pane({ ...member, idle: { reason: "suspended", at: "2026-07-26T10:00:00.000Z" } }),
         env({ agentAvailable: false, missingDir: "/gone" }),
       ),
-    ).toEqual({ kind: "hold", reason: { kind: "provisioning" } });
+    ).toEqual({ kind: "hold", reason: { kind: "provisioning", failed: false } });
   });
 
   it("an absent agent outranks a stopped marker, matching the card ladder", () => {
@@ -307,9 +315,15 @@ describe("agentReach — would its agent read something sent now", () => {
     }
   });
 
-  it("reads a member of a team still creating its directory as starting", () => {
+  it("reads a member of a team still creating its directory as starting — and as down once that create failed", () => {
     const provisioning = paneRunIntent(creating, pane(member), env());
     expect(agentReach(provisioning, "none", false)).toEqual({ kind: "starting" });
+    // Nothing brings it up until somebody hits Retry (reviewer-1, task-557).
+    const failed = { teams: [{ ...creating.teams[0], location: { ...creating.teams[0].location, error: "git said no" } }] };
+    expect(agentReach(paneRunIntent(failed, pane(member), env()), "none", false)).toEqual({
+      kind: "down",
+      why: "provisioning-failed",
+    });
   });
 
   it("reads a pane off screen as down only when it has no process — one running there keeps running", () => {

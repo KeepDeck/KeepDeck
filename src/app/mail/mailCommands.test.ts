@@ -171,10 +171,11 @@ describe("mail.send", () => {
     expect(result).toMatchObject({ ok: true, value: { status: "queued" } });
   });
 
-  it("says, for every way an agent is down, that nothing was sent and who can start it", () => {
+  it("says, for every way an agent is down, that nothing was sent, why, and its own remedy", () => {
     const reasons: AgentDown[] = [
       "suspended",
       "parked",
+      "provisioning-failed",
       "agent-unavailable",
       "worktree-missing",
       "workspace-closed",
@@ -183,11 +184,13 @@ describe("mail.send", () => {
     ];
     const texts = reasons.map((why) => unreachableText("analyst-1", why));
     for (const text of texts) {
-      expect(text).toMatch(/^not sent: analyst-1 /);
-      expect(text).toContain("ask your user to start it");
+      expect(text).toMatch(/^not sent: analyst-1 .*, or write to somebody else$/);
     }
-    // Each reason in its own words.
+    // Each reason in its own words — the remedy included: "start it" is not
+    // what an agent no plugin provides needs (reviewer-1, task-557).
     expect(new Set(texts).size).toBe(reasons.length);
+    expect(unreachableText("x", "agent-unavailable")).not.toContain("ask your user to start it");
+    expect(unreachableText("x", "worktree-missing")).toContain("relocate");
   });
 
   it("calls an undelivered message QUEUED, and says it needs nothing", async () => {

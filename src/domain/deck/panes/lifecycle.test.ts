@@ -293,7 +293,7 @@ describe("paneBlock — the head both ladders share", () => {
   it("puts provisioning first — nothing else can be acted on", () => {
     expect(
       paneBlock(creating, { ...creatingMember, id: "p1", idle: { reason: "parked" } }, false),
-    ).toEqual({ kind: "provisioning" });
+    ).toEqual({ kind: "provisioning", failed: false });
   });
 
   it("names an absent agent over a stopped marker", () => {

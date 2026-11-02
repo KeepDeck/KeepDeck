@@ -466,28 +466,32 @@ export function registerMailCommands(
   };
 }
 
-/** Why a message to `to` was not sent: its agent is down, in words that say
- * what would bring it back. Nothing is queued — the sender decides. */
+/** Why a message to `to` was not sent: its agent is down, and what would
+ * bring it back — each reason its own remedy, because asking the user to
+ * "start" an agent no plugin provides sends them after the wrong thing.
+ * Nothing is queued — the sender decides. */
 export function unreachableText(to: string, why: AgentDown): string {
-  const state = ((): string => {
+  const [state, remedy] = ((): [string, string] => {
     switch (why) {
       case "suspended":
-        return "is suspended by the user";
+        return ["is suspended by the user", "ask your user to resume it"];
       case "parked":
-        return "was restored without starting";
+        return ["was restored without starting", "ask your user to start it"];
+      case "provisioning-failed":
+        return ["has no directory — its team's could not be created", "ask your user to retry it on the team's card"];
       case "agent-unavailable":
-        return "runs an agent no installed plugin provides";
+        return ["runs an agent no installed plugin provides", "it cannot start until a plugin provides that agent"];
       case "worktree-missing":
-        return "has lost its directory";
+        return ["has lost its directory", "ask your user to relocate it"];
       case "workspace-closed":
-        return "has not started — its workspace is not open";
+        return ["has not started — its workspace is not open", "it starts when your user opens that workspace"];
       case "exited":
-        return "has exited";
+        return ["has exited", "ask your user to restart it"];
       case "failed-to-start":
-        return "could not be started";
+        return ["could not be started", "ask your user to retry it"];
     }
   })();
-  return `not sent: ${to} ${state}, so its agent is not running and would not read it — ask your user to start it, or write to somebody else`;
+  return `not sent: ${to} ${state}, so its agent is not running and would not read it — ${remedy}, or write to somebody else`;
 }
 
 /** Why the deck would not take a message, said to the agent that tried.

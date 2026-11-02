@@ -43,8 +43,9 @@ export interface PaneResume {
 
 export type PaneHoldReason =
   /** Its worktree is still being created (or failed): there is no directory to
-   * run in yet, and spawning would land in somebody else's. */
-  | { kind: "provisioning" }
+   * run in yet, and spawning would land in somebody else's. `failed` says
+   * the create is waiting for Retry rather than still running. */
+  | { kind: "provisioning"; failed: boolean }
   /** No installed plugin provides this pane's agent. Spawning would run the
    * bare agent id as a command, and the session-presence check would answer
    * "absent" for a store it cannot read and wipe a binding that resumes fine
@@ -184,6 +185,8 @@ export type AgentDown =
   /** Down by a decision: the user's (alone or with its team), or the launch
    * policy's. */
   | PaneStopped["reason"]
+  /** Its team's directory could not be created; the create waits for Retry. */
+  | "provisioning-failed"
   /** No installed plugin provides its agent. */
   | "agent-unavailable"
   /** Its directory is gone. */
@@ -206,7 +209,7 @@ export function agentReach(
     const reason = intent.reason;
     switch (reason.kind) {
       case "provisioning":
-        return STARTING;
+        return reason.failed ? down("provisioning-failed") : STARTING;
       case "agent-unavailable":
       case "worktree-missing":
         return down(reason.kind);
