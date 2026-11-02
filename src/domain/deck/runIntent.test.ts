@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paneRunIntent, type PaneRunEnv } from "./runIntent";
+import { agentReach, paneRunIntent, type PaneProcess, type PaneRunEnv } from "./runIntent";
 import type { Pane } from "./panes";
 
 const pane = (over: Partial<Pane> = {}): Pane => ({
@@ -273,5 +273,49 @@ describe("paneRunIntent — precedence", () => {
       kind: "hold",
       reason: { kind: "stopped", by: { reason: "parked" } },
     });
+  });
+});
+
+describe("agentReach — would its agent read something sent now", () => {
+  const run = paneRunIntent({}, pane(), env());
+  const reach = (process: PaneProcess, planFailed = false) => agentReach(run, process, planFailed);
+
+  it("reads a live process as running, and one coming up as starting", () => {
+    expect(reach("live")).toEqual({ kind: "running" });
+    expect(reach("starting")).toEqual({ kind: "starting" });
+    // No process yet and nothing failed: its plan is on the way.
+    expect(reach("none")).toEqual({ kind: "starting" });
+  });
+
+  it("reads an agent that ended or never came up as down", () => {
+    expect(reach("exited")).toEqual({ kind: "down", why: "exited" });
+    expect(reach("failed")).toEqual({ kind: "down", why: "failed-to-start" });
+    expect(reach("none", true)).toEqual({ kind: "down", why: "failed-to-start" });
+  });
+
+  it("reads a pane held by a decision or a fault as down, whatever its process says", () => {
+    // A suspended team's member: the case that started this (task-557).
+    const suspended = paneRunIntent({}, pane({ idle: { reason: "suspended", at: "2026-11-02" } }), env());
+    const parked = paneRunIntent({}, pane({ idle: { reason: "parked" } }), env());
+    const unavailable = paneRunIntent({}, pane(), env({ agentAvailable: false }));
+    const gone = paneRunIntent({}, pane({ idle: waking }), env({ missingDir: "/gone" }));
+    for (const process of ["none", "live"] as PaneProcess[]) {
+      expect(agentReach(suspended, process, false), process).toEqual({ kind: "down", why: "suspended" });
+      expect(agentReach(parked, process, false), process).toEqual({ kind: "down", why: "parked" });
+      expect(agentReach(unavailable, process, false), process).toEqual({ kind: "down", why: "agent-unavailable" });
+      expect(agentReach(gone, process, false), process).toEqual({ kind: "down", why: "worktree-missing" });
+    }
+  });
+
+  it("reads a member of a team still creating its directory as starting", () => {
+    const provisioning = paneRunIntent(creating, pane(member), env());
+    expect(agentReach(provisioning, "none", false)).toEqual({ kind: "starting" });
+  });
+
+  it("reads a pane off screen as down only when it has no process — one running there keeps running", () => {
+    const offScreen = paneRunIntent({}, pane(), env({ workspaceActive: false }));
+    expect(agentReach(offScreen, "none", false)).toEqual({ kind: "down", why: "workspace-closed" });
+    expect(agentReach(offScreen, "live", false)).toEqual({ kind: "running" });
+    expect(agentReach(offScreen, "exited", false)).toEqual({ kind: "down", why: "exited" });
   });
 });

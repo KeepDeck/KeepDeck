@@ -1,12 +1,14 @@
 import type { ResumeOrigin } from "../../domain/agents";
 import type { SpawnPlanContext } from "../spawnSpecs";
 import {
+  agentReach,
   findPane,
   findWorkspace,
   paneExecutionCwd,
   paneRunIntent,
   paneWakeOrigin,
   type Pane,
+  type PaneRunIntent,
   type Workspace,
   paneBranch,
   paneProvisioning,
@@ -352,6 +354,28 @@ export function createAgentOrchestratorRuntime(
     }
   }
 
+  /** The run decision for one pane, from the facts this owner holds — the ONE
+   * place they are gathered, for the sweep and for `reachOf` alike, so the
+   * pane a send is refused for is the pane the sweep holds down.
+   *
+   * A catalog that has not loaded yet is not one that lacks the agent: the
+   * sweep waits for it, and an answer asked before it must not call every
+   * pane's plugin missing. */
+  function intentOf(
+    ws: Workspace,
+    pane: Pane,
+    activeId: string | null,
+    commands: ReadonlyMap<string, string>,
+  ): PaneRunIntent {
+    return paneRunIntent(ws, pane, {
+      agentAvailable: !booted || commands.has(pane.agentType),
+      missingDir: runView.blockedDir(pane.id),
+      workspaceActive: ws.id === activeId,
+      parkOnLaunch: launchPolicy.parkOnLaunch(),
+      startOwed: startOwed.has(pane.id),
+    });
+  }
+
   function reconcile(): void {
     if (reap()) publish();
     // Wait for the spawn context (a resume plan built without it would miss
@@ -380,13 +404,7 @@ export function createAgentOrchestratorRuntime(
         // drops, and replaces with a fresh conversation. The restart schedules
         // another pass when it is done.
         if (restart.owns(pane.id)) continue;
-        const intent = paneRunIntent(ws, pane, {
-          agentAvailable: commands.has(agentType),
-          missingDir: runView.blockedDir(pane.id),
-          workspaceActive: ws.id === active.id,
-          parkOnLaunch: launchPolicy.parkOnLaunch(),
-          startOwed: startOwed.has(pane.id),
-        });
+        const intent = intentOf(ws, pane, active.id, commands);
         if (intent.kind === "run" && !pane.idle) {
           // A pane with no marker: it should run, and the only question left
           // is whether it already does and whether there is anything to run.
@@ -500,6 +518,19 @@ export function createAgentOrchestratorRuntime(
   return {
     getView: runView.get,
     subscribe: runView.subscribe,
+    reachOf(paneId) {
+      const state = deck.getSnapshot();
+      for (const ws of state.workspaces) {
+        const pane = ws.panes.find((candidate) => candidate.id === paneId);
+        if (!pane) continue;
+        return agentReach(
+          intentOf(ws, pane, state.activeId, agents.commands()),
+          sessions.state(paneId).kind,
+          runView.get().planFailed.has(paneId),
+        );
+      }
+      return null;
+    },
     createPane: creation.landPane,
     createTeam: creation.createTeam,
     createWorkspace: creation.createWorkspace,

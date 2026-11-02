@@ -1,6 +1,7 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { CwdArmAsk, McpAccessAsk, SpawnPlan } from "../spawnSpecs";
 import type {
+  AgentReach,
   Pane,
   PlacementRefusal,
   SpawnConfig,
@@ -30,6 +31,10 @@ export interface AgentOrchestrator {
   /** Stable render snapshot for panes that are not running. */
   getView(): AgentRunView;
   subscribe(listener: () => void): () => void;
+  /** Whether this pane's agent would read something sent to it now — the
+   * run decision the sweep makes, met with its process — or null for a pane
+   * the deck does not hold. */
+  reachOf(paneId: string): AgentReach | null;
   /** Land and provision a pane through the common creation sequence. */
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
   /** Make a team that holds a directory and nobody yet — the "+ Team"

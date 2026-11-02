@@ -265,3 +265,70 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
     expect(pane().session).toEqual({ id: "s-1", boundAt: "t" });
   });
 });
+
+describe("agent orchestrator — whether a pane's agent would read something sent now", () => {
+  let root: Root;
+
+  /** ws-1 on screen; each pane in its own workspace when `split`. */
+  const panes = (list: { id: string; agentType?: string; idle?: PaneIdle; ws?: string }[]): DeckState => ({
+    workspaces: ["ws-1", "ws-2"].map((wsId) => ({
+      id: wsId,
+      instance: createWorkspaceInstance(),
+      name: wsId,
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: list
+        .filter((p) => (p.ws ?? "ws-1") === wsId)
+        .map((p) => ({ id: p.id, agentType: p.agentType ?? "claude", ...(p.idle && { idle: p.idle }) })),
+    })),
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  });
+
+  const mount = (ready: boolean) => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({ exists: true, isWorktree: false, empty: false, branch: null });
+    catalog.ready = ready;
+    catalog.parkOnLaunch = false;
+    pty.reset();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(present(document.getElementById("host"), "the host element"));
+    act(() => root.render(createElement(Probe)));
+  };
+
+  afterEach(() => {
+    act(() => root.unmount());
+    catalog.ready = true;
+  });
+
+  it("answers from the same facts the sweep acts on", async () => {
+    mount(true);
+    act(() =>
+      deck.hydrate(
+        panes([
+          { id: "running" },
+          { id: "suspended", idle: { reason: "suspended", at: "2026-11-02" } },
+          { id: "orphan", agentType: "kimi" },
+          { id: "unopened", ws: "ws-2" },
+        ]),
+      ),
+    );
+    await settle();
+
+    expect(agentRun.reachOf("running")).toEqual({ kind: "running" });
+    // The member of a suspended team: the case that started this (task-557).
+    expect(agentRun.reachOf("suspended")).toEqual({ kind: "down", why: "suspended" });
+    expect(agentRun.reachOf("orphan")).toEqual({ kind: "down", why: "agent-unavailable" });
+    expect(agentRun.reachOf("unopened")).toEqual({ kind: "down", why: "workspace-closed" });
+    expect(agentRun.reachOf("no-such-pane")).toBeNull();
+  });
+
+  it("does not call a pane's plugin missing before the catalog has loaded", async () => {
+    mount(false);
+    act(() => deck.hydrate(panes([{ id: "orphan", agentType: "kimi" }])));
+    await settle();
+
+    expect(agentRun.reachOf("orphan")).toEqual({ kind: "starting" });
+  });
+});

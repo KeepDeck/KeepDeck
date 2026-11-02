@@ -334,6 +334,7 @@ export let deck: Deck;
 export let agentRun: AgentRunView &
   Pick<
     AgentOrchestrator,
+    | "reachOf"
     | "resume"
     | "startFresh"
     | "createPane"
@@ -461,6 +462,7 @@ export function Probe() {
   discards = wiring.discarded;
   agentRun = {
     ...useAgentRunView(wiring.orchestrator),
+    reachOf: wiring.orchestrator.reachOf,
     resume: wiring.orchestrator.resume,
     startFresh: wiring.orchestrator.startFresh,
     createPane: wiring.orchestrator.createPane,
