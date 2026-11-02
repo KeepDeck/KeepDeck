@@ -2,6 +2,12 @@
 # stable moves on its own, and a new release brings new lints — the gate
 # would go red with no change of ours. Move it deliberately, with the
 # warnings the new one finds fixed in the same change (task-584).
+#
+# rustfmt is not for style: `diesel print-schema` formats schema.rs through
+# it, and without it writes the same schema unformatted — CI's "Generated
+# code is current" then fails on a diff nobody made. A runner installs a
+# pinned toolchain with the minimal profile, so only what is listed here
+# arrives.
 [toolchain]
 channel = "1.99.0"
-components = ["clippy"]
+components = ["clippy", "rustfmt"]
