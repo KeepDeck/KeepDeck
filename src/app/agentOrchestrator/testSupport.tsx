@@ -97,7 +97,8 @@ vi.mock("../spawnSpecs", () => {
     // covered in spawnSpecs.test.ts.
     buildLivePaneSpec: vi.fn(
       async (_plugins: unknown, _ws: unknown, pane: { id: string; idle?: unknown }) => {
-        if (pane.idle || specs.has(pane.id)) return false;
+        // A build that failed leaves no plan, as the real one does.
+        if (pane.idle || specs.has(pane.id) || plans.failed.has(pane.id)) return false;
         specs.set(pane.id, { command: "claude", args: [], env: [] });
         notify();
         return true;
@@ -334,6 +335,7 @@ export let deck: Deck;
 export let agentRun: AgentRunView &
   Pick<
     AgentOrchestrator,
+    | "reachOf"
     | "resume"
     | "startFresh"
     | "createPane"
@@ -461,6 +463,7 @@ export function Probe() {
   discards = wiring.discarded;
   agentRun = {
     ...useAgentRunView(wiring.orchestrator),
+    reachOf: wiring.orchestrator.reachOf,
     resume: wiring.orchestrator.resume,
     startFresh: wiring.orchestrator.startFresh,
     createPane: wiring.orchestrator.createPane,

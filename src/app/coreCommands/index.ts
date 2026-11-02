@@ -1,6 +1,7 @@
 import type { AgentInfo } from "../../domain/agents";
 import type { CommandRegistry } from "../../domain/commands";
 import type { PaneActivity } from "../../domain/status";
+import type { AgentReach } from "../../domain/deck";
 import type { CreatePaneOutcome, CreatePaneRequest, CreateTeamOutcome, CreateTeamRequest, ResumeRequest } from "../agentOrchestrator";
 import type { McpLibrary } from "../mcpLibrary";
 import type { SkillsLibrary } from "../skillsLibrary";
@@ -42,6 +43,10 @@ export interface CoreCommandDeps {
    * every question the host can already answer belongs in the answer it
    * gives for free. */
   activityOf(paneId: string): PaneActivity | undefined;
+  /** Whether a pane's agent is running at all — the orchestrator's answer.
+   * `activityOf` speaks only for a running one; a pane whose agent is down
+   * reported nothing, and the roster said nothing about why. */
+  reachOf(paneId: string): AgentReach | null;
   /** Select a pane and hand keyboard input to its live terminal. */
   activatePane(wsId: string, paneId: string): void;
   /** Open the close-confirm flow — voice/MCP closes go through the same

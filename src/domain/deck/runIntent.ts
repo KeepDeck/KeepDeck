@@ -43,8 +43,9 @@ export interface PaneResume {
 
 export type PaneHoldReason =
   /** Its worktree is still being created (or failed): there is no directory to
-   * run in yet, and spawning would land in somebody else's. */
-  | { kind: "provisioning" }
+   * run in yet, and spawning would land in somebody else's. `failed` says
+   * the create is waiting for Retry rather than still running. */
+  | { kind: "provisioning"; failed: boolean }
   /** No installed plugin provides this pane's agent. Spawning would run the
    * bare agent id as a command, and the session-presence check would answer
    * "absent" for a store it cannot read and wipe a binding that resumes fine
@@ -156,3 +157,85 @@ export function paneRunIntent(
 function hold(reason: PaneHoldReason): PaneRunIntent {
   return { kind: "hold", reason };
 }
+
+/** What the pane's process is doing, as the pty layer knows it — the half of
+ * "is its agent there" that the deck's record cannot answer. */
+export type PaneProcess = "none" | "starting" | "live" | "exited" | "failed";
+
+/**
+ * Whether the pane's agent would read something sent to it now — the run
+ * decision above, met with what the process is actually doing (task-557).
+ *
+ * Asked by every surface that hands an agent something to act on: a message
+ * used to be answered "queued — it will land on its own" for a pane its user
+ * had suspended with its team, and nothing landed until a person noticed.
+ * Three answers, because the sender does three different things next: a
+ * running agent reads; one on its way up will, with nobody acting; one that
+ * is down will not until somebody does.
+ */
+export type AgentReach =
+  | { kind: "running" }
+  /** On its way up by itself: a directory being created, a process
+   * spawning, a plan being built. */
+  | { kind: "starting" }
+  | { kind: "down"; why: AgentDown };
+
+/** Why an agent is down — each a different thing for somebody to do. */
+export type AgentDown =
+  /** Down by a decision: the user's (alone or with its team), or the launch
+   * policy's. */
+  | PaneStopped["reason"]
+  /** Its team's directory could not be created; the create waits for Retry. */
+  | "provisioning-failed"
+  /** No installed plugin provides its agent. */
+  | "agent-unavailable"
+  /** Its directory is gone. */
+  | "worktree-missing"
+  /** Its workspace is not open, and it has no process: nothing starts it
+   * until somebody opens that workspace. */
+  | "workspace-closed"
+  /** Its process ended. */
+  | "exited"
+  /** Its spawn, or the plan for it, failed. */
+  | "failed-to-start";
+
+export function agentReach(
+  intent: PaneRunIntent,
+  process: PaneProcess,
+  /** Its last plan build failed, and waits for a retry. */
+  planFailed: boolean,
+): AgentReach {
+  if (intent.kind === "hold") {
+    const reason = intent.reason;
+    switch (reason.kind) {
+      case "provisioning":
+        return reason.failed ? down("provisioning-failed") : STARTING;
+      case "agent-unavailable":
+      case "worktree-missing":
+        return down(reason.kind);
+      case "stopped":
+        return down(reason.by.reason);
+      case "workspace-inactive":
+        // No reason to END anything: a pane already running off screen keeps
+        // running. Only one without a process waits on that workspace.
+        if (process === "none") return down("workspace-closed");
+        break;
+    }
+  }
+  switch (process) {
+    case "live":
+      return RUNNING;
+    case "starting":
+      return STARTING;
+    case "exited":
+      return down("exited");
+    case "failed":
+      return down("failed-to-start");
+    case "none":
+      return planFailed ? down("failed-to-start") : STARTING;
+  }
+}
+
+const RUNNING: AgentReach = { kind: "running" };
+const STARTING: AgentReach = { kind: "starting" };
+const down = (why: AgentDown): AgentReach => ({ kind: "down", why });

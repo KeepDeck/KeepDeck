@@ -18,6 +18,7 @@ import {
   teamHeldPath,
   teamIdsOf,
   teamNameTaken,
+  type AgentReach,
   type Workspace,
 } from "../../domain/deck";
 import { testTeamId } from "../../domain/deck/teams/testSupport";
@@ -238,10 +239,13 @@ export function setup(workspaces: Workspace[]) {
   const activityOf = vi.fn<(paneId: string) => PaneActivity | undefined>(
     () => undefined,
   );
+  /** Every agent running unless a test says otherwise. */
+  const reachOf = vi.fn<(paneId: string) => AgentReach | null>(() => ({ kind: "running" }));
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
     activityOf,
+    reachOf,
     activatePane,
     requestCloseAgent,
     suspendAgent,
@@ -262,6 +266,7 @@ export function setup(workspaces: Workspace[]) {
     skills,
     mcpLibrary,
     activityOf,
+    reachOf,
     activatePane,
     requestCloseAgent,
     suspendAgent,

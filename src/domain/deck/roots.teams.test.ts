@@ -118,7 +118,7 @@ describe("every placement question reads the team", () => {
     expect(paneProvisioning(workspace, pane)).toEqual(creating.location);
     expect(paneHasProcess(workspace, pane)).toBe(false);
     expect(paneSuspendBlock(workspace, pane, false)).toBe("provisioning");
-    expect(paneBlock(workspace, pane, true)).toEqual({ kind: "provisioning" });
+    expect(paneBlock(workspace, pane, true)).toEqual({ kind: "provisioning", failed: false });
     // The same pane on a team that owns its directory is an ordinary pane.
     const landed = ws({ teams: [owner] });
     expect(paneProvisioning(landed, member("team-1"))).toBeNull();

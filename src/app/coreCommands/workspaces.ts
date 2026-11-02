@@ -5,12 +5,28 @@ import {
   membersOf,
   paneDisplayTitle,
   teamsOf,
+  type AgentDown,
+  type AgentReach,
   type Team,
 } from "../../domain/deck";
+import type { PaneActivity } from "../../domain/status";
 import { teamOf } from "../../domain/mail";
 import { requiredStr } from "./args";
 import type { CoreCommandDeps } from ".";
 import { targetWorkspace } from "./targets";
+
+/** What the roster says a pane's agent is doing: the turn status while its
+ * agent runs, and why not when it does not — `starting` on its way up by
+ * itself, or the reason it is down (`suspended`, `exited`, …). Null is what
+ * it always was: a running agent nothing has reported for yet. */
+export function rosterActivity(
+  reach: AgentReach | null,
+  activity: PaneActivity | undefined,
+): PaneActivity | { state: "starting" | AgentDown } | null {
+  if (reach?.kind === "down") return { state: reach.why };
+  if (reach?.kind === "starting") return { state: "starting" };
+  return activity ?? null;
+}
 
 /** A team's state, folded to one word for a roster reader: its worktree
  * still being created, the create failed (Retry is on offer), or ready —
@@ -27,7 +43,7 @@ function teamStatus(team: Team): "creating" | "failed" | "ready" {
  */
 export function registerWorkspaceCommands(
   registry: CommandRegistry,
-  deps: Pick<CoreCommandDeps, "deck" | "agents" | "activityOf">,
+  deps: Pick<CoreCommandDeps, "deck" | "agents" | "activityOf" | "reachOf">,
 ): (() => void)[] {
   return [
     registry.register({
@@ -64,10 +80,11 @@ export function registerWorkspaceCommands(
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
             agentType: p.agentType,
-            // Null when nothing reports — a pane that is provisioning,
-            // stopped, or running a CLI with no status reporter. Absent
-            // information, not an absent pane.
-            activity: deps.activityOf(p.id) ?? null,
+            // The turn status of a running agent; why not, for one that is
+            // not running — a lead reads here that a teammate is suspended
+            // before writing to it. Null only for a running agent nothing
+            // has reported for yet: absent information, not an absent pane.
+            activity: rosterActivity(deps.reachOf(p.id), deps.activityOf(p.id)),
             // Who this agent is on the team, when it is on one. The roster
             // is where an agent learns the roles it may write to, so the
             // field is here rather than behind a command of its own.

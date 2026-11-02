@@ -49,6 +49,7 @@ function dependencies() {
       ok: true,
       workspace: workspace(),
     })),
+    reachOf: vi.fn<ApplicationOrchestrator["reachOf"]>(() => ({ kind: "running" })),
   } satisfies ApplicationOrchestrator;
   return { plugins, orchestrator };
 }

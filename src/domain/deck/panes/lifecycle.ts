@@ -10,6 +10,7 @@
 import type { AgentType, ResumeOrigin } from "../../agents";
 import type { SessionHandle } from "../../journal";
 import { paneBranch, paneExecutionCwd, panePlacement } from "../roots";
+import { createFailed } from "../teams/lifecycle";
 import type { Workspace } from "../workspaces";
 
 /** The half of the workspace a placement question reads: its teams, whose
@@ -99,7 +100,9 @@ export function paneSuspendBlock(
  * background pane needs opposite answers), so only the head is shared.
  */
 export type PaneBlock =
-  | { kind: "provisioning" }
+  /** `failed`: its team's create failed and waits for Retry — nothing brings
+   * this pane up on its own, where one still in flight comes up by itself. */
+  | { kind: "provisioning"; failed: boolean }
   | { kind: "agent-unavailable"; agent: AgentType }
   | { kind: "stopped"; by: PaneIdle };
 
@@ -108,7 +111,8 @@ export function paneBlock(
   pane: Pane,
   agentAvailable: boolean,
 ): PaneBlock | null {
-  if (panePlacement(ws, pane).kind === "provisioning") return { kind: "provisioning" };
+  const placement = panePlacement(ws, pane);
+  if (placement.kind === "provisioning") return { kind: "provisioning", failed: createFailed(placement) };
   if (!agentAvailable) {
     return { kind: "agent-unavailable", agent: pane.agentType };
   }
