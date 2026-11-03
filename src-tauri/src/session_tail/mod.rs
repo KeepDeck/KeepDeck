@@ -48,7 +48,9 @@ use tauri::{AppHandle, Emitter, State};
 use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
-use dialects::{last_of_each, last_status_of_each, sibling_paths, TailWatch, TailedEvent};
+use dialects::{
+    drop_superseded, last_of_each, last_status_of_each, sibling_paths, TailWatch, TailedEvent,
+};
 use reader::{drain_file, TailCursor};
 use route::{batch_status, route, wrap, Routed};
 use totals::Folds;
@@ -249,7 +251,7 @@ fn spawn_tailer(
                     Vec::new()
                 };
                 let mut status = Vec::new();
-                for event in events {
+                for event in drop_superseded(events, &s.watches) {
                     // A subagent transcript's turn edges are the subagent's
                     // own story: pane-level status reads only ROOT markers.
                     // Its NUMBERS still count, which is why this drops the
@@ -1202,6 +1204,38 @@ mod tests {
             "append from a still-open handle must deliver"
         );
         drop(file);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn tailer_delivers_one_report_for_a_message_written_as_several_lines() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        fs::write(&path, "").unwrap();
+        let mut state = tail(path.clone());
+        state.watches = summing_watch();
+        let state = Arc::new(Mutex::new(state));
+        let (tx, rx) = mpsc::channel::<Report>();
+        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
+            let _ = tx.send(r);
+        })
+        .expect("watch");
+
+        // Three lines in one write, so one tick drains them together.
+        fs::write(
+            &path,
+            format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n"),
+        )
+        .unwrap();
+        let report = rx.recv_timeout(Duration::from_secs(10)).expect("a report");
+        assert_eq!(
+            report.payload["event"]["record"]["sessionTotals"]["inputOther"], 3600,
+            "the one report carries all three"
+        );
+        assert!(
+            rx.recv_timeout(Duration::from_millis(600)).is_err(),
+            "and is the only one"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 
