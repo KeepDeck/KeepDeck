@@ -424,7 +424,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
           },
           (event) => {
             if (event.type === "output") {
-              onEvent({ type: "output", bytes: new Uint8Array(event.bytes) });
+              onEvent({ type: "output", bytes: event.bytes });
             } else {
               onEvent({ type: "exit", code: event.code });
             }

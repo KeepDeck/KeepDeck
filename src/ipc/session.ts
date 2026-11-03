@@ -1,9 +1,26 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { bytesFromBase64 } from "../domain/terminal/base64";
 
-/** Mirrors the Rust `SessionEvent` (serde `tag = "type"`, camelCase). */
+/** An event of a live session, as the page uses it. */
 export type SessionEvent =
-  | { type: "output"; bytes: number[] }
+  | { type: "output"; bytes: Uint8Array }
   | { type: "exit"; success: boolean; code: number | null };
+
+/** Mirrors the Rust `SessionEvent` (serde `tag = "type"`, camelCase). Output
+ * crosses as base64: as a JSON array of numbers every terminal byte cost the
+ * page 13–18 bytes of garbage, and a large chunk overflowed into a queue in
+ * the core with no bound (see `OUTPUT_MESSAGE_BYTES` in session.rs). */
+type WireSessionEvent =
+  | { type: "output"; data: string }
+  | { type: "exit"; success: boolean; code: number | null };
+
+/** The one place a wire event turns into the page's: output is decoded here,
+ * once, so no consumer converts bytes itself. */
+function fromWire(event: WireSessionEvent): SessionEvent {
+  return event.type === "output"
+    ? { type: "output", bytes: bytesFromBase64(event.data) }
+    : event;
+}
 
 export interface SpawnOptions {
   /** Program to run; omit/null to use the user's shell. */
@@ -43,8 +60,8 @@ export async function spawnSession(
   opts: SpawnOptions,
   onEvent: (event: SessionEvent) => void,
 ): Promise<Session> {
-  const channel = new Channel<SessionEvent>();
-  channel.onmessage = onEvent;
+  const channel = new Channel<WireSessionEvent>();
+  channel.onmessage = (event) => onEvent(fromWire(event));
 
   const id = await invoke<string>("session_spawn", {
     spec: {

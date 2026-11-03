@@ -228,7 +228,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     (event) => {
       if (entry.closed) return;
       if (event.type === "output") {
-        const bytes = new Uint8Array(event.bytes);
+        const { bytes } = event;
         // First byte from the process: the CLI has painted. The flag is set
         // BEFORE the view is touched — a sink that throws must not be able to
         // leave the pane "not launched" forever while its process is alive and
