@@ -3,6 +3,7 @@ import { deliversMcpByCwd } from "../domain/agents";
 import { listApplications, openPath, openUrl } from "../ipc/app";
 import { readImageTempPath, readText, writeText } from "../ipc/clipboard";
 import { log } from "../ipc/log";
+import { pendingIpcCallbacks } from "../ipc/ipcCallbacks";
 import { ensureNotificationPermission, notificationPermissionGranted } from "../ipc/notify";
 import { pointerInWindow, pointerOnWindow } from "../ipc/window";
 import { vouchPaneProcess } from "../ipc/session";
@@ -13,6 +14,7 @@ import {
 } from "../ipc/achievements";
 import { createAchievementNotifier } from "./achievementNotifier";
 import { createActivityWitness } from "./activityWitness";
+import { createIpcHealthLog } from "./ipcHealthLog";
 import {
   createAgentOrchestrator,
   type AgentCatalogPort,
@@ -503,6 +505,7 @@ export function createAppRuntime(
   let exhaustionNotifier: ReturnType<
     typeof createWindowExhaustionNotifier
   > | null = null;
+  let ipcHealth: ReturnType<typeof createIpcHealthLog> | null = null;
   let disposed = false;
 
   return {
@@ -591,6 +594,11 @@ export function createAppRuntime(
         },
         usage: { getSnapshot: usageManager.getSnapshot },
       });
+      ipcHealth ??= createIpcHealthLog({
+        pendingCallbacks: pendingIpcCallbacks,
+        uptimeSeconds: () => performance.now() / 1000,
+        info: (message) => log.info("web:ipc", message),
+      });
       windowReportJournal.start();
       application.start();
     },
@@ -603,6 +611,7 @@ export function createAppRuntime(
       paneInputFocus.dispose();
       activityWitness.dispose();
       exhaustionNotifier?.dispose();
+      ipcHealth?.dispose();
       windowReportJournal.dispose();
       achievementNotifier?.dispose();
       usageChannel?.dispose();
