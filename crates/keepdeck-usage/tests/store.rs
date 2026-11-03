@@ -1,6 +1,8 @@
-use keepdeck_usage::model::{CaptureContext, CostSource, SessionOrigin, TokenCounts, UsageReport};
+use keepdeck_usage::model::{
+    CaptureContext, CostSource, SessionOrigin, TokenCounts, UsageReport, Worktree,
+};
 use keepdeck_usage::store::{BUCKET_MS, RAW_WINDOW_MS};
-use keepdeck_usage::{import_jsonl, RecordOutcome, UsageStore};
+use keepdeck_usage::{import_jsonl, LedgerRow, UsageStore};
 
 const HOUR: f64 = 3_600_000.0;
 /// A quarter-hour boundary, so tests can place events inside one bucket.
@@ -43,25 +45,35 @@ fn report(tokens: Option<f64>, cost: Option<f64>, at: f64) -> UsageReport {
     }
 }
 
-fn appended(outcome: RecordOutcome) -> keepdeck_usage::LedgerRow {
-    match outcome {
-        RecordOutcome::Appended(row) => row,
-        other => panic!("expected an appended event, got {other:?}"),
-    }
+fn booked(row: Option<LedgerRow>) -> LedgerRow {
+    row.expect("the report books a row")
+}
+
+/// Input tokens, cost, events, calls and priced events over some rows.
+fn totals(rows: &[LedgerRow]) -> (f64, f64, u32, u32, u32) {
+    rows.iter().fold((0.0, 0.0, 0, 0, 0), |sum, row| {
+        (
+            sum.0 + row.tokens.input.unwrap_or(0.0),
+            sum.1 + row.cost_usd.unwrap_or(0.0),
+            sum.2 + row.count,
+            sum.3 + row.calls,
+            sum.4 + row.cost_events,
+        )
+    })
 }
 
 #[test]
 fn a_fresh_session_books_its_first_report_and_every_delta_after() {
     let (_dir, mut store) = store();
     let fresh = context(SessionOrigin::Fresh);
-    let first = appended(
+    let first = booked(
         store
             .record(&report(Some(100.0), Some(1.0), NOW), &fresh, NOW)
             .unwrap(),
     );
     assert_eq!(first.tokens, input(100.0));
     assert_eq!(first.cost_usd, Some(1.0));
-    let second = appended(
+    let second = booked(
         store
             .record(
                 &report(Some(150.0), Some(1.5), NOW + 60_000.0),
@@ -75,6 +87,33 @@ fn a_fresh_session_books_its_first_report_and_every_delta_after() {
 }
 
 #[test]
+fn a_recent_event_is_served_back_as_it_was_booked() {
+    let (_dir, mut store) = store();
+    let in_worktree = CaptureContext {
+        worktree: Some(Worktree {
+            path: "/repo/.worktrees/fix".into(),
+            branch: Some("fix".into()),
+            repo: "/repo".into(),
+        }),
+        ..context(SessionOrigin::Fresh)
+    };
+    let booked = booked(
+        store
+            .record(
+                &report(Some(100.0), Some(1.0), NOW),
+                &in_worktree,
+                NOW + 5.0,
+            )
+            .unwrap(),
+    );
+    assert_eq!(booked.pane_name, "agent");
+    assert_eq!(booked.worktree, in_worktree.worktree);
+    // Read back from disk: the same row, the place it was captured in included.
+    let ledger = store.ledger(NOW + 60_000.0).unwrap();
+    assert_eq!(ledger.rows, vec![booked]);
+}
+
+#[test]
 fn a_repeated_report_books_nothing() {
     let (_dir, mut store) = store();
     let fresh = context(SessionOrigin::Fresh);
@@ -85,7 +124,7 @@ fn a_repeated_report_books_nothing() {
         store
             .record(&report(Some(100.0), None, NOW + 1.0), &fresh, NOW + 1.0)
             .unwrap(),
-        RecordOutcome::Nothing
+        None
     );
 }
 
@@ -97,9 +136,9 @@ fn a_resumed_session_seeds_its_base_and_books_only_what_follows() {
         store
             .record(&report(Some(10_000.0), None, NOW), &resumed, NOW)
             .unwrap(),
-        RecordOutcome::Nothing
+        None
     );
-    let next = appended(
+    let next = booked(
         store
             .record(
                 &report(Some(10_040.0), None, NOW + 1.0),
@@ -112,14 +151,14 @@ fn a_resumed_session_seeds_its_base_and_books_only_what_follows() {
 }
 
 #[test]
-fn a_call_reported_in_two_halves_becomes_one_event() {
+fn a_call_reported_in_two_halves_is_served_as_one_event() {
     let (_dir, mut store) = store();
     let fresh = context(SessionOrigin::Fresh);
     store
         .record(&report(Some(100.0), Some(1.0), NOW), &fresh, NOW)
         .unwrap();
     // The statusline prices the call first…
-    let priced = appended(
+    let priced = booked(
         store
             .record(
                 &report(Some(100.0), Some(1.25), NOW + 5_000.0),
@@ -129,24 +168,68 @@ fn a_call_reported_in_two_halves_becomes_one_event() {
             .unwrap(),
     );
     assert!(priced.tokens.is_empty());
-    // …and the transcript counts it 1.6 s later.
-    let whole = match store
-        .record(
-            &report(Some(180.0), Some(1.25), NOW + 6_600.0),
-            &fresh,
-            NOW + 6_600.0,
-        )
-        .unwrap()
-    {
-        RecordOutcome::Completed(row) => row,
-        other => panic!("expected the call to be completed, got {other:?}"),
-    };
-    assert_eq!(whole.event_id, priced.event_id, "the call keeps its id");
-    assert_eq!(whole.tokens, input(80.0));
-    assert_eq!(whole.cost_usd, Some(0.25));
+    // …and the transcript counts it 1.6 s later: a row that brings the
+    // count to the call already booked, and is no call of its own.
+    let counted = booked(
+        store
+            .record(
+                &report(Some(180.0), Some(1.25), NOW + 6_600.0),
+                &fresh,
+                NOW + 6_600.0,
+            )
+            .unwrap(),
+    );
+    assert_eq!(counted.tokens, input(80.0));
+    assert_eq!(counted.cost_usd, None);
+    assert_eq!(
+        (counted.count, counted.calls, counted.cost_events),
+        (0, 0, 0)
+    );
+    assert_eq!(
+        counted.occurred_at, priced.occurred_at,
+        "placed in its call"
+    );
+    assert_ne!(counted.event_id, priced.event_id);
 
     let ledger = store.ledger(NOW + 10_000.0).unwrap();
     assert_eq!(ledger.rows.len(), 2, "the first report and the one call");
+    let call = &ledger.rows[1];
+    assert_eq!(call.event_id, priced.event_id, "the call keeps its id");
+    assert_eq!(call.tokens, input(80.0));
+    assert_eq!(call.cost_usd, Some(0.25));
+    assert_eq!((call.count, call.calls, call.cost_events), (1, 1, 1));
+}
+
+#[test]
+fn what_was_served_plus_what_was_booked_since_sums_to_the_ledger() {
+    let (_dir, mut store) = store();
+    let fresh = context(SessionOrigin::Fresh);
+    store
+        .record(&report(Some(100.0), Some(1.0), NOW), &fresh, NOW)
+        .unwrap();
+    let served = store.ledger(NOW + 1.0).unwrap().rows;
+    let mut held = served.clone();
+    // A call priced then counted, and one counted then priced.
+    for (tokens, cost, at) in [
+        (100.0, 1.25, 5_000.0),
+        (180.0, 1.25, 6_600.0),
+        (260.0, 1.25, 20_000.0),
+        (260.0, 1.75, 21_000.0),
+    ] {
+        held.push(booked(
+            store
+                .record(
+                    &report(Some(tokens), Some(cost), NOW + at),
+                    &fresh,
+                    NOW + at,
+                )
+                .unwrap(),
+        ));
+    }
+    let now = store.ledger(NOW + 30_000.0).unwrap().rows;
+    assert_eq!(now.len(), 3, "the first report and two whole calls");
+    assert_eq!(totals(&held), totals(&now));
+    assert_eq!(totals(&now), (260.0, 1.75, 3, 3, 3));
 }
 
 #[test]
@@ -163,7 +246,7 @@ fn halves_further_apart_than_the_pair_window_stay_two_events() {
             NOW + 5_000.0,
         )
         .unwrap();
-    appended(
+    booked(
         store
             .record(
                 &report(Some(180.0), Some(1.25), NOW + 9_000.0),

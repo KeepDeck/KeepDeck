@@ -15,4 +15,4 @@ pub mod store;
 
 pub use import::{import_jsonl, ImportReport};
 pub use model::{CaptureContext, LedgerRow, UsageReport};
-pub use store::{Ledger, RecordOutcome, UsageStore};
+pub use store::{Ledger, UsageStore};

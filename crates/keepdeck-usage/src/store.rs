@@ -60,18 +60,6 @@ fn seeds_baseline(origin: SessionOrigin, complete: bool) -> bool {
     }
 }
 
-/// What a record did.
-#[derive(Debug, Clone, PartialEq)]
-pub enum RecordOutcome {
-    /// Nothing to book (no movement, a duplicate, or a base being set).
-    Nothing,
-    /// A new event.
-    Appended(LedgerRow),
-    /// The report completed the session's last event (one provider call
-    /// reported in two halves); the row replaces the one with the same id.
-    Completed(LedgerRow),
-}
-
 /// The ledger as the webview loads it.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,18 +159,27 @@ impl UsageStore {
             .map_err(|e| e.to_string())
     }
 
-    /// Book one cumulative report from a pane.
+    /// Book one cumulative report from a pane, and answer the row the
+    /// booking adds to the ledger — `None` when there was nothing to book
+    /// (no movement, a duplicate, or a base being set).
+    ///
+    /// A report that completes a call reported in halves adds a row with no
+    /// count and no calls: the call is already in the ledger as its first
+    /// half, and the row brings only what that half lacked. So the rows a
+    /// reader was served, plus every row booked since, always sum to the
+    /// ledger the store would serve now — a reader only ever appends, and
+    /// never rewrites a row it has already folded.
     pub fn record(
         &mut self,
         report: &UsageReport,
         context: &CaptureContext,
         captured_at: f64,
-    ) -> Result<RecordOutcome, String> {
+    ) -> Result<Option<LedgerRow>, String> {
         let complete = self.complete()?;
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
-        let outcome = record_in(&tx, report, context, captured_at, complete)?;
+        let row = record_in(&tx, report, context, captured_at, complete)?;
         tx.commit().map_err(|e| e.to_string())?;
-        Ok(outcome)
+        Ok(row)
     }
 
     /// The ledger as of `now`: buckets for history older than the raw window,
@@ -236,21 +233,21 @@ impl UsageStore {
             .map_err(|e| e.to_string())?;
         let events = stmt
             .query_map([cutoff], |r| {
-                Ok(EventRow {
+                Ok(RecordedEvent {
                     agent: r.get(0)?,
                     session_id: r.get(1)?,
                     event_id: r.get(2)?,
                     occurred_at: r.get(3)?,
                     captured_at: r.get(4)?,
                     model: r.get(5)?,
-                    place: r.get(6)?,
-                    tokens: r.get(7)?,
+                    place: json_column(r, 6)?,
+                    tokens: json_column(r, 7)?,
                     cost_usd: r.get(8)?,
                 })
             })
             .map_err(|e| e.to_string())?;
         for event in events {
-            rows.push(event.map_err(|e| e.to_string())?.into_row()?);
+            rows.push(event.map_err(|e| e.to_string())?.into_row());
         }
         Ok(Ledger {
             rows,
@@ -373,6 +370,17 @@ fn from_json<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, String> {
     serde_json::from_str(text).map_err(|e| e.to_string())
 }
 
+/// A JSON text column, decoded where the row is read.
+fn json_column<T: serde::de::DeserializeOwned>(
+    row: &rusqlite::Row,
+    index: usize,
+) -> rusqlite::Result<T> {
+    let text: String = row.get(index)?;
+    serde_json::from_str(&text).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(e))
+    })
+}
+
 fn upsert_session(
     tx: &Transaction<'_>,
     agent: &str,
@@ -465,7 +473,7 @@ pub(crate) fn record_in(
     context: &CaptureContext,
     captured_at: f64,
     complete: bool,
-) -> Result<RecordOutcome, String> {
+) -> Result<Option<LedgerRow>, String> {
     let agent = report.agent.as_str();
     let session_id = context.session_id.as_str();
     let previous = session_base(tx, agent, session_id)?;
@@ -477,7 +485,7 @@ pub(crate) fn record_in(
     );
     let session = upsert_session(tx, agent, session_id, &delta.observation)?;
     if delta.is_empty() {
-        return Ok(RecordOutcome::Nothing);
+        return Ok(None);
     }
     let id = event_id(
         &session_key(agent, session_id),
@@ -491,10 +499,11 @@ pub(crate) fn record_in(
         .map_err(|e| e.to_string())?
         .is_some();
     if known {
-        return Ok(RecordOutcome::Nothing);
+        return Ok(None);
     }
     let occurred_at = clamp_occurred_at(report.reported_at, captured_at);
-    let place = to_json(&Place::of(context))?;
+    let place = Place::of(context);
+    let place_json = to_json(&place)?;
     let cost = delta_cost(&delta);
 
     if let Some(last) = last_event(tx, session)?.filter(|last| completes(last, &delta, occurred_at))
@@ -506,7 +515,7 @@ pub(crate) fn record_in(
         let model = last.model.clone().or_else(|| report.model.clone());
         tx.execute(
             "UPDATE event SET tokens = ?2, cost_usd = ?3, model = ?4, place = ?5 WHERE event_id = ?1",
-            params![last.event_id, to_json(&tokens)?, cost_usd, model, place],
+            params![last.event_id, to_json(&tokens)?, cost_usd, model, place_json],
         )
         .map_err(|e| e.to_string())?;
         // Move the call's figures to the bucket of its whole: out of the
@@ -518,7 +527,14 @@ pub(crate) fn record_in(
             calls: 1,
             occurred_at: last.occurred_at,
         };
-        add_to_bucket(tx, session, last.model.as_deref(), &first_half, -1, &place)?;
+        add_to_bucket(
+            tx,
+            session,
+            last.model.as_deref(),
+            &first_half,
+            -1,
+            &place_json,
+        )?;
         let whole = Contribution {
             tokens: &tokens,
             cost_usd,
@@ -526,19 +542,23 @@ pub(crate) fn record_in(
             calls: 1,
             occurred_at: last.occurred_at,
         };
-        add_to_bucket(tx, session, model.as_deref(), &whole, 1, &place)?;
-        let row = event_row(
-            agent,
-            session_id,
-            &last.event_id,
-            last.occurred_at,
+        add_to_bucket(tx, session, model.as_deref(), &whole, 1, &place_json)?;
+        // This half, placed in its call: same instant, the call's model.
+        let mut row = RecordedEvent {
+            agent: agent.to_string(),
+            session_id: session_id.to_string(),
+            event_id: id,
+            occurred_at: last.occurred_at,
             captured_at,
             model,
-            context,
-            tokens,
-            cost_usd,
-        );
-        return Ok(RecordOutcome::Completed(row));
+            place,
+            tokens: delta.tokens,
+            cost_usd: cost,
+        }
+        .into_row();
+        row.count = 0;
+        row.calls = 0;
+        return Ok(Some(row));
     }
 
     tx.execute(
@@ -550,7 +570,7 @@ pub(crate) fn record_in(
             occurred_at,
             captured_at,
             report.model,
-            place,
+            place_json,
             to_json(&delta.tokens)?,
             cost
         ],
@@ -569,20 +589,20 @@ pub(crate) fn record_in(
         report.model.as_deref(),
         &contribution,
         1,
-        &place,
+        &place_json,
     )?;
-    let row = event_row(
-        agent,
-        session_id,
-        &id,
+    let row = RecordedEvent {
+        agent: agent.to_string(),
+        session_id: session_id.to_string(),
+        event_id: id,
         occurred_at,
         captured_at,
-        report.model.clone(),
-        context,
-        delta.tokens,
-        cost,
-    );
-    Ok(RecordOutcome::Appended(row))
+        model: report.model.clone(),
+        place,
+        tokens: delta.tokens,
+        cost_usd: cost,
+    };
+    Ok(Some(row.into_row()))
 }
 
 fn to_pico(usd: f64) -> i64 {
@@ -713,45 +733,6 @@ fn add_to_bucket(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn event_row(
-    agent: &str,
-    session_id: &str,
-    event_id: &str,
-    occurred_at: f64,
-    captured_at: f64,
-    model: Option<String>,
-    context: &CaptureContext,
-    tokens: TokenCounts,
-    cost_usd: Option<f64>,
-) -> LedgerRow {
-    LedgerRow {
-        event_id: event_id.to_string(),
-        occurred_at,
-        captured_at,
-        agent: agent.to_string(),
-        model,
-        workspace_id: context.workspace_id.clone(),
-        workspace_name: context.workspace_name.clone(),
-        workspace_cwd: context.workspace_cwd.clone(),
-        pane_id: context.pane_id.clone(),
-        pane_name: context.pane_name.clone(),
-        session_id: session_id.to_string(),
-        root_session_id: session_id.to_string(),
-        worktree: context.worktree.clone(),
-        tokens,
-        cost_source: if cost_usd.is_some() {
-            CostSource::Provider
-        } else {
-            CostSource::Unavailable
-        },
-        cost_usd,
-        count: 1,
-        calls: 1,
-        cost_events: u32::from(cost_usd.is_some()),
-    }
-}
-
 struct BucketRow {
     agent: String,
     session_id: String,
@@ -788,11 +769,7 @@ impl BucketRow {
             session_id: self.session_id,
             worktree: place.worktree,
             tokens: from_json(&self.tokens)?,
-            cost_source: if cost_usd.is_some() {
-                CostSource::Provider
-            } else {
-                CostSource::Unavailable
-            },
+            cost_source: CostSource::of(cost_usd),
             cost_usd,
             count: u32::try_from(self.count).unwrap_or(u32::MAX),
             calls: u32::try_from(self.calls).unwrap_or(u32::MAX),
@@ -801,41 +778,43 @@ impl BucketRow {
     }
 }
 
-struct EventRow {
+/// One recorded event: its facts and the place it was captured in. The one
+/// mapping from an event to the row the ledger serves, for an event just
+/// booked and one read back alike.
+struct RecordedEvent {
     agent: String,
     session_id: String,
     event_id: String,
     occurred_at: f64,
     captured_at: f64,
     model: Option<String>,
-    place: String,
-    tokens: String,
+    place: Place,
+    tokens: TokenCounts,
     cost_usd: Option<f64>,
 }
 
-impl EventRow {
-    fn into_row(self) -> Result<LedgerRow, String> {
-        let place: Place = from_json(&self.place)?;
-        let context = CaptureContext {
-            workspace_id: place.workspace_id,
-            workspace_name: place.workspace_name,
-            workspace_cwd: place.workspace_cwd,
-            pane_id: place.pane_id,
-            pane_name: place.pane_name,
-            session_id: self.session_id.clone(),
-            origin: SessionOrigin::Fresh,
-            worktree: place.worktree,
-        };
-        Ok(event_row(
-            &self.agent,
-            &self.session_id,
-            &self.event_id,
-            self.occurred_at,
-            self.captured_at,
-            self.model,
-            &context,
-            from_json(&self.tokens)?,
-            self.cost_usd,
-        ))
+impl RecordedEvent {
+    fn into_row(self) -> LedgerRow {
+        LedgerRow {
+            event_id: self.event_id,
+            occurred_at: self.occurred_at,
+            captured_at: self.captured_at,
+            agent: self.agent,
+            model: self.model,
+            workspace_id: self.place.workspace_id,
+            workspace_name: self.place.workspace_name,
+            workspace_cwd: self.place.workspace_cwd,
+            pane_id: self.place.pane_id,
+            pane_name: self.place.pane_name,
+            root_session_id: self.session_id.clone(),
+            session_id: self.session_id,
+            worktree: self.place.worktree,
+            tokens: self.tokens,
+            cost_source: CostSource::of(self.cost_usd),
+            cost_usd: self.cost_usd,
+            count: 1,
+            calls: 1,
+            cost_events: u32::from(self.cost_usd.is_some()),
+        }
     }
 }

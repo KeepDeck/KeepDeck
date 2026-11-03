@@ -183,3 +183,14 @@ pub enum CostSource {
     Provider,
     Unavailable,
 }
+
+impl CostSource {
+    /// A row is provider-priced exactly when it carries a cost.
+    pub fn of(cost_usd: Option<f64>) -> Self {
+        if cost_usd.is_some() {
+            CostSource::Provider
+        } else {
+            CostSource::Unavailable
+        }
+    }
+}
