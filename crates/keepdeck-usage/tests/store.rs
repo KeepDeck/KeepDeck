@@ -333,6 +333,49 @@ fn line(at: f64, delta: &str, cost: Option<f64>, observation: &str) -> String {
 }
 
 #[test]
+fn an_import_cut_short_leaves_nothing_behind_to_book_twice() {
+    // A resumed session, one token a line — more lines than any batch an
+    // import might be tempted to commit on its own.
+    let t = NOW - 240.0 * HOUR;
+    let lines: Vec<String> = (1..=10_050u32)
+        .map(|i| {
+            line(
+                t + f64::from(i) * 1_000.0,
+                r#"{"input":1}"#,
+                None,
+                &format!(r#"{{"tokens":{{"input":{}}}}}"#, 10_000 + i),
+            )
+        })
+        .collect();
+    let whole = lines.join("\n");
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("usage-history.jsonl");
+
+    // Cut short after its last good line — here by a line it cannot read.
+    let mut torn = whole.clone().into_bytes();
+    torn.extend_from_slice(b"\n\xff\xfe\n");
+    std::fs::write(&file, &torn).unwrap();
+    let (_dir, mut store) = store();
+    assert!(import_jsonl(&mut store, &file, NOW).is_err());
+    assert!(
+        store.ledger(NOW).unwrap().rows.is_empty(),
+        "the store is as it was"
+    );
+
+    // The next start imports the file again, and books what a clean one does.
+    std::fs::write(&file, &whole).unwrap();
+    import_jsonl(&mut store, &file, NOW).unwrap();
+    let clean_file = dir.path().join("clean.jsonl");
+    std::fs::write(&clean_file, &whole).unwrap();
+    let (_clean_dir, mut clean) = self::store();
+    import_jsonl(&mut clean, &clean_file, NOW).unwrap();
+    let rows = store.ledger(NOW).unwrap().rows;
+    assert_eq!(rows, clean.ledger(NOW).unwrap().rows);
+    let booked: f64 = rows.iter().filter_map(|row| row.tokens.input).sum();
+    assert_eq!(booked, 10_050.0, "one token a line, each line once");
+}
+
+#[test]
 fn the_import_replays_the_old_ledger_and_corrects_what_it_got_wrong() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("usage-history.jsonl");

@@ -281,14 +281,17 @@ impl UsageStore {
 
     /// Record that `withheld` lines of a newer schema were left out of an
     /// import (they stay in the imported file), and that `source` was taken.
-    pub(crate) fn mark_imported(&mut self, source: &str, withheld: u64) -> Result<(), String> {
-        self.conn
-            .execute(
-                "INSERT INTO meta (key, value) VALUES ('imported_from', ?1), ('withheld', ?2)
+    pub(crate) fn mark_imported_in(
+        tx: &Transaction<'_>,
+        source: &str,
+        withheld: u64,
+    ) -> Result<(), String> {
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES ('imported_from', ?1), ('withheld', ?2)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                params![source, withheld.to_string()],
-            )
-            .map_err(|e| e.to_string())?;
+            params![source, withheld.to_string()],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
