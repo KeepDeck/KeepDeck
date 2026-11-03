@@ -1,7 +1,7 @@
 import {
   addTokenCounts,
   tokenTotal,
-  type UsageEventV2,
+  type UsageRow,
 } from "./history/event";
 import { periodCutoff, type UsageStatsPeriod } from "./history/query";
 import { DAY_MS, HOUR_MS } from "./time";
@@ -76,14 +76,14 @@ export function bucketShares(
 /** Every agent the ledger has EVER seen, sorted — the stable roster that
  * keys chart colors. Period-filtered agent lists must never key colors:
  * that is how a period switch repaints a provider. */
-export function usageAgents(events: readonly UsageEventV2[]): string[] {
+export function usageAgents(events: readonly UsageRow[]): string[] {
   const agents = new Set<string>();
   for (const event of events) agents.add(event.agent);
   return [...agents].sort();
 }
 
 export function usageTimeline(
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   period: UsageStatsPeriod,
   now: number,
 ): UsageTimeline {

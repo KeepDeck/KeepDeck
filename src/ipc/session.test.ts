@@ -9,12 +9,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * This pins the exact spec shape the webview sends; the Rust side pins the
  * same shape in session.rs's deserialization test.
  */
-const tauri = vi.hoisted(() => ({
-  invoke: vi.fn(async (_command: string, _args: { spec: object }): Promise<unknown> => "session-1"),
-  channel: class {
-    onmessage: unknown;
-  },
-}));
+const tauri = vi.hoisted(() => {
+  const channels: { onmessage: ((event: unknown) => void) | null }[] = [];
+  return {
+    invoke: vi.fn(async (_command: string, _args: { spec: object }): Promise<unknown> => "session-1"),
+    channels,
+    channel: class {
+      onmessage: ((event: unknown) => void) | null = null;
+      constructor() {
+        channels.push(this);
+      }
+    },
+  };
+});
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauri.invoke,
   Channel: tauri.channel,
@@ -71,5 +78,20 @@ describe("the session_spawn wire contract", () => {
       rows: 1,
       pane: null,
     });
+  });
+});
+
+describe("a session's output on the wire", () => {
+  it("arrives as base64 and reaches the consumer as the bytes it encodes", async () => {
+    const seen: unknown[] = [];
+    await spawnSession({ cols: 80, rows: 24 }, (event) => seen.push(event));
+    const deliver = tauri.channels[tauri.channels.length - 1]?.onmessage;
+    if (!deliver) throw new Error("spawnSession opened no channel");
+    deliver({ type: "output", data: btoa("\u001b[31mhi") });
+    deliver({ type: "exit", success: true, code: 0 });
+    expect(seen).toEqual([
+      { type: "output", bytes: Uint8Array.from([0x1b, 0x5b, 0x33, 0x31, 0x6d, 0x68, 0x69]) },
+      { type: "exit", success: true, code: 0 },
+    ]);
   });
 });

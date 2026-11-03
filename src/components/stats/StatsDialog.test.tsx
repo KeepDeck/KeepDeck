@@ -2,12 +2,12 @@
 import { act, createElement, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageRow } from "../../domain/usage/history/event";
 
 const history = vi.hoisted(() => ({
   snapshot: {
     ready: true,
-    events: [] as UsageEventV2[],
+    ledger: { events: [] as readonly UsageRow[], version: 0 },
     error: null as string | null,
     complete: true,
   },
@@ -15,9 +15,9 @@ const history = vi.hoisted(() => ({
 
 /** A ready snapshot of the whole ledger — the healthy case these cases mean
  * whenever they do not say otherwise. */
-const ledger = (events: UsageEventV2[]) => ({
+const ledger = (events: UsageRow[]) => ({
   ready: true,
-  events,
+  ledger: { events, version: 1 },
   error: null as string | null,
   complete: true,
 });
@@ -129,7 +129,7 @@ const NOW = TEST_NOW;
  * with a human pane name — the totals and rows the shell routes assert on
  * these, so the divergence is EXPLICIT here, not baked into a private copy
  * of the whole shape. */
-const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
+const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     paneName: "auth-refactor",
@@ -249,13 +249,13 @@ describe("UsageStats", () => {
     // Weeks history (review finding; Overview's own suite draws it).
     expect(overview().period).toBe(1);
     expect(overview().stats.eventCount).toBe(0);
-    expect(overview().events).toBe(history.snapshot.events);
+    expect(overview().ledger).toBe(history.snapshot.ledger);
   });
 
   it("keeps Providers alive when the ledger failed to load", () => {
     history.snapshot = {
       ready: true,
-      events: [],
+      ledger: { events: [], version: 0 },
       error: "ledger read failed",
       complete: false,
     };
@@ -295,7 +295,7 @@ describe("UsageStats", () => {
     act(() =>
       root.render(createElement(Host, { initialTab: "achievements" })),
     );
-    expect(achievements().events).toBe(history.snapshot.events);
+    expect(achievements().ledger).toBe(history.snapshot.ledger);
     expect(present(host.querySelector('[role="tab"][aria-selected="true"]'), "the [role=\"tab\"][aria-selected=\"true\"] element").textContent).toBe(
       "Achievements",
     );
@@ -352,7 +352,7 @@ describe("UsageStats", () => {
     // Default 7d is empty: Overview keeps rendering, handed the whole ledger
     // for its Weeks, while the period-LEDGER tabs still gate.
     expect(overview().stats.eventCount).toBe(0);
-    expect(overview().events).toBe(history.snapshot.events);
+    expect(overview().ledger).toBe(history.snapshot.ledger);
     clickTab("Models");
     expect(host.textContent).toContain("No usage recorded");
     clickTab("Overview");

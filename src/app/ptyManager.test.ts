@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const harness = vi.hoisted(() => {
   interface FakeSpawn {
     opts: { command?: string | null; cwd?: string | null };
-    onEvent: (event: { type: string; bytes?: number[]; code?: number | null }) => void;
+    onEvent: (event: { type: string; bytes?: Uint8Array; code?: number | null }) => void;
     resolve: (session: unknown) => void;
     reject: (err: unknown) => void;
   }
@@ -62,7 +62,7 @@ function makeSink() {
 const settle = () => new Promise<void>((r) => setTimeout(r, 0));
 
 function output(index: number, ...bytes: number[]) {
-  harness.spawns[index].onEvent({ type: "output", bytes });
+  harness.spawns[index].onEvent({ type: "output", bytes: Uint8Array.from(bytes) });
 }
 
 beforeEach(() => {
@@ -277,15 +277,15 @@ describe("attachPane", () => {
     const half = 512 * 1024;
     harness.spawns[0].onEvent({
       type: "output",
-      bytes: Array.from(new Uint8Array(half).fill(1)),
+      bytes: new Uint8Array(half).fill(1),
     });
     harness.spawns[0].onEvent({
       type: "output",
-      bytes: Array.from(new Uint8Array(half).fill(2)),
+      bytes: new Uint8Array(half).fill(2),
     });
     harness.spawns[0].onEvent({
       type: "output",
-      bytes: Array.from(new Uint8Array(half).fill(3)),
+      bytes: new Uint8Array(half).fill(3),
     });
     const sink = makeSink();
     attachPane("pane-1", sink);

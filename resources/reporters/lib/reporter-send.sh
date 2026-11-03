@@ -47,8 +47,12 @@ send_envelope() {
   send_answer=$(printf '%s' "$send_body" \
     | curl -s --max-time "$SEND_MAX" -w '\n%{http_code}' \
         -X POST --data-binary @- "$url" 2>/dev/null)
-  case "$(printf '%s' "$send_answer" | tail -n 1)" in
-    200) printf '%s' "$send_answer" | sed '$d' ;;
+  # The status is the last line curl wrote and the body everything before
+  # it — cut apart in place, the body printed as `sed '$d'` printed it.
+  case ${send_answer##*"
+"} in
+    200) printf '%s\n' "${send_answer%"
+"*}" ;;
   esac
   return 0
 }

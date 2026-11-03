@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cloneElement, createElement, type ReactElement } from "react";
+import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHART_BAR_RADIUS } from "../../domain/usage/chartPalette";
@@ -39,12 +40,12 @@ describe("UsageChart", () => {
   const clips = () => [...document.querySelectorAll("clipPath")].map((clip) => clip.id).filter((id) => id.includes("bar-stack"));
 
   it("names itself by its buckets, for a screen reader", () => {
-    act(() => root.render(createElement(UsageChart, { events, colors: new Map(), period: 7, now: TEST_NOW })));
+    act(() => root.render(createElement(UsageChart, { ledger: ledgerOf(events), colors: new Map(), period: 7, now: TEST_NOW })));
     expect(document.querySelector('section[aria-label="Daily tokens"]')).not.toBeNull();
   });
 
   it("rounds each column as one stack — its segments cut by one shape", () => {
-    act(() => root.render(createElement(UsageChart, { events, colors: new Map(), period: 7, now: TEST_NOW })));
+    act(() => root.render(createElement(UsageChart, { ledger: ledgerOf(events), colors: new Map(), period: 7, now: TEST_NOW })));
     expect(document.querySelector(".recharts-bar-rectangle")).not.toBeNull();
     expect(clips().length).toBeGreaterThan(0);
     // The stack's shape: its two top corners arcs of the cap radius, its
@@ -59,8 +60,8 @@ describe("UsageChart", () => {
     act(() =>
       root.render(
         createElement("div", null, [
-          createElement(UsageChart, { key: "a", events, colors: new Map(), period: 7, now: TEST_NOW }),
-          createElement(UsageChart, { key: "b", events, colors: new Map(), period: 7, now: TEST_NOW }),
+          createElement(UsageChart, { key: "a", ledger: ledgerOf(events), colors: new Map(), period: 7, now: TEST_NOW }),
+          createElement(UsageChart, { key: "b", ledger: ledgerOf(events), colors: new Map(), period: 7, now: TEST_NOW }),
         ]),
       ),
     );

@@ -34,6 +34,7 @@ keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
 keepdeck-index = { path = "../crates/keepdeck-index" }
 keepdeck-tasks = { path = "../crates/keepdeck-tasks" }
+keepdeck-usage = { path = "../crates/keepdeck-usage" }
 keepdeck-env = { path = "../crates/keepdeck-env" }
 notify = "6"
 libc = "0.2"

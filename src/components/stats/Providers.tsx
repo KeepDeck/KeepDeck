@@ -9,7 +9,7 @@ import {
   type AccountUsage,
 } from "../../domain/usage";
 import { seriesColorFor } from "../../presentation/usagePalette";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageLedger } from "../../domain/usage/history/ledger";
 import {
   providerWindowGroups,
   type ProviderWindowLedger,
@@ -33,13 +33,14 @@ import { WindowBurn } from "../usage/WindowBurn";
  * range. */
 export function Providers({
   accounts,
-  events,
+  ledger,
   colors,
   reportsByKey,
   now,
 }: {
   accounts: ReadonlyMap<string, AccountUsage>;
-  events: readonly UsageEventV2[];
+  /** The ledger view — derived values are keyed on it, not on its array. */
+  ledger: UsageLedger;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
   /** The provider-report journal — the forecast's pace history. */
@@ -54,8 +55,8 @@ export function Providers({
   // lands in the same flush as the accounts change that caused it — a
   // dependency this memo already carried.
   const groups = useMemo(
-    () => providerWindowGroups(accounts, events, reportsByKey, now),
-    [accounts, events, reportsByKey, now],
+    () => providerWindowGroups(accounts, ledger.events, reportsByKey, now),
+    [accounts, ledger, reportsByKey, now],
   );
   if (groups.length === 0) {
     return (

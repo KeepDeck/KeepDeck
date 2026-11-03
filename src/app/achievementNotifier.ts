@@ -7,7 +7,7 @@ import {
   RECALIBRATED_IDS_V2,
 } from "../domain/usage/achievements/catalog";
 import { createAchievementEngine } from "../domain/usage/achievements/engine";
-import type { UsageEventV2 } from "../domain/usage/history/event";
+import type { UsageRow } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 import { isJsonRecord } from "@keepdeck/plugin-api";
@@ -79,7 +79,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
    * Length alone cannot detect a same-or-longer replacement with different
    * content; the array is append-only in production, but correctness must
    * not rest on an invariant nothing here asserts. */
-  let firstFolded: UsageEventV2 | undefined;
+  let firstFolded: UsageRow | undefined;
   /** Null until the persisted baseline loads; checks wait for it. */
   let congratulated: Set<string> | null = null;
   /** The version the file was READ at, so a write never lowers it. */
@@ -139,22 +139,23 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     if (disposed || congratulated === null) return;
     const snapshot = deps.history.getSnapshot();
     if (!snapshot.ready) return;
+    const { events } = snapshot.ledger;
     if (
-      snapshot.events.length < processed ||
-      (processed > 0 && snapshot.events[0] !== firstFolded)
+      events.length < processed ||
+      (processed > 0 && events[0] !== firstFolded)
     ) {
       // The array was replaced wholesale — refold from scratch.
       engine = createAchievementEngine();
       processed = 0;
       firstFolded = undefined;
     }
-    for (let index = processed; index < snapshot.events.length; index += 1) {
-      engine.ingest(snapshot.events[index]);
+    for (let index = processed; index < events.length; index += 1) {
+      engine.ingest(events[index]);
     }
-    if (processed === 0 && snapshot.events.length > 0) {
-      firstFolded = snapshot.events[0];
+    if (processed === 0 && events.length > 0) {
+      firstFolded = events[0];
     }
-    processed = snapshot.events.length;
+    processed = events.length;
 
     const earned = engine.earnedIds();
     let dirty = false;

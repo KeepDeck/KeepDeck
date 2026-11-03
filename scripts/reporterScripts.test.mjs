@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -288,6 +289,26 @@ describe("reporter shell scripts", () => {
     // it would pass by finding nothing to check.
     expect(senders.length, "no senders found to check").toBeGreaterThan(0);
     expect(uncovered, "a sender answers to no protocol version").toEqual([]);
+  });
+
+  it("reads the bridge fields the deck minted, and nothing that is not one", () => {
+    // Read by parameter expansion now, not `printf | sed | head` — so what the
+    // pipeline used to settle by matching is pinned here, case by case.
+    /** @param {string | null} bridge */
+    const read = (bridge) =>
+      execFileSync(
+        "/bin/sh",
+        ["-c", `. "${join(CANONICAL_DIR, "lib/reporter-bridge.sh")}"; printf '%s|%s|%s' "$pane" "$token" "$url"`],
+        { env: { PATH: process.env.PATH, ...(bridge === null ? {} : { KEEPDECK_BRIDGE: bridge }) } },
+      ).toString();
+    const minted = JSON.stringify({ v: 2, dir: "/run/d", pane: "pane-3", token: "f00d", url: "http://127.0.0.1:4/r" });
+    expect(read(minted)).toBe("pane-3|f00d|http://127.0.0.1:4/r");
+    expect(read('{"pane" : "pane-3",\t"token":\t"f00d"}')).toBe("pane-3|f00d|");
+    expect(read('{"pane":5,"token":"f00d","url":null}'), "not a string").toBe("|f00d|");
+    expect(read('{"pane":"old","pane":"pane-3"}'), "the last one").toBe("pane-3||");
+    expect(read('{"pane"}')).toBe("||");
+    expect(read(""), "a deck that published nothing").toBe("||");
+    expect(read(null), "a pane the deck did not spawn").toBe("||");
   });
 
   it("leaves no reporter writing into the run directory", () => {

@@ -7,7 +7,7 @@ import {
   providerCostOf,
   tokenTotal,
   usageSessionKey,
-  type UsageEventV2,
+  type UsageRow,
 } from "./event";
 
 /**
@@ -59,7 +59,7 @@ export function periodCutoff(period: UsageStatsPeriod, now: number): number {
  * wall clock's `atLeast`, so a just-appended event clears the queries'
  * `occurredAt <= now` upper bound immediately instead of hiding until the
  * next slow tick. */
-export function latestOccurredAt(events: readonly UsageEventV2[]): number {
+export function latestOccurredAt(events: readonly UsageRow[]): number {
   let latest = 0;
   for (const event of events) latest = Math.max(latest, event.occurredAt);
   return latest;
@@ -68,7 +68,7 @@ export function latestOccurredAt(events: readonly UsageEventV2[]): number {
 /** Aggregate immutable deltas for the Stats screen. `now` is injected so
  * period boundaries and tests stay deterministic. */
 export function queryUsageStats(
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   period: UsageStatsPeriod,
   now = Date.now(),
 ): UsageStats {
@@ -105,7 +105,7 @@ export function queryUsageStats(
     );
   return {
     period,
-    eventCount: selected.length,
+    eventCount: selected.reduce((sum, row) => sum + row.count, 0),
     sessionCount: sessionRows.size,
     costSessionCount: [...sessionRows.values()].filter(
       (row) => row.costEvents > 0,
@@ -128,7 +128,7 @@ function emptyTotals(): UsageStatsTotals {
 function rowFor(
   rows: Map<string, UsageStatsRow>,
   key: string,
-  event: UsageEventV2,
+  event: UsageRow,
 ): UsageStatsRow {
   let row = rows.get(key);
   if (!row) {
@@ -149,15 +149,15 @@ function rowFor(
 
 function addEvent(
   target: UsageStatsTotals & { lastOccurredAt?: number },
-  event: UsageEventV2,
+  event: UsageRow,
 ) {
   addTokenCounts(target.tokens, event.tokens);
   target.totalTokens += tokenTotal(event.tokens);
   const cost = providerCostOf(event);
   if (cost !== null) {
     target.providerCostUsd = addMoney(target.providerCostUsd, cost);
-    target.costEvents += 1;
   }
+  target.costEvents += event.costEvents;
   if ("lastOccurredAt" in target) {
     target.lastOccurredAt = Math.max(target.lastOccurredAt ?? 0, event.occurredAt);
   }

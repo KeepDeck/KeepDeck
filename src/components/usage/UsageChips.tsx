@@ -7,10 +7,9 @@ import {
 import { DEFAULT_SETTINGS, type UsageDisplay } from "../../domain/settings";
 import { latestReportedAt, type AccountUsage } from "../../domain/usage";
 import { usageRingView } from "../../presentation/usageRingView";
-import { usageSeriesColors } from "../../presentation/usagePalette";
+import { catalogSeriesColors } from "../../presentation/usagePalette";
 import { useUsagePanelAnchor } from "./useUsagePanelAnchor";
 import { useSettings } from "../../app/useSettings";
-import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useUsage } from "../../app/useUsage";
 import { useWindowReports } from "../../app/useWindowReports";
 import { UsagePanel } from "./UsagePanel";
@@ -99,9 +98,9 @@ export function UsageChips({
   const journal = useWindowReports();
   // The SAME palette the Stats surfaces draw with — memoized here (the
   // owner), so the panel stays prop-driven and an agent wears one hue
-  // everywhere.
-  const history = useUsageHistorySnapshot();
-  const seriesColors = useMemo(() => usageSeriesColors(history.events, agents), [history.events, agents]);
+  // everywhere. The catalog alone decides every hue the panel can look up
+  // (see catalogSeriesColors), so the chips never read the ledger.
+  const seriesColors = useMemo(() => catalogSeriesColors(agents), [agents]);
   const settings = useSettings();
   const display = settings?.usageDisplay ?? DEFAULT_SETTINGS.usageDisplay;
   // The open PANEL is per provider — a chip opens ITS agent's details.

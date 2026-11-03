@@ -4,7 +4,7 @@ import {
   providerCostOf,
   tokenTotal,
   usageSessionKey,
-  type UsageEventV2,
+  type UsageRow,
 } from "./history/event";
 import { addMoney } from "./money";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
@@ -74,7 +74,7 @@ export interface ProviderWindowGroup {
  * users already know from the chip popover). */
 export function providerWindowGroups(
   accounts: ReadonlyMap<string, AccountUsage>,
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   byKey: ReadonlyMap<string, readonly WindowReport[]>,
   now: number,
 ): ProviderWindowGroup[] {
@@ -125,7 +125,7 @@ export function providerWindowGroups(
 function windowLedger(
   agent: string,
   window: UsageWindow,
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   now: number,
 ): ProviderWindowLedger | null {
   if (window.scope !== undefined) return null;
@@ -143,8 +143,8 @@ function windowLedger(
     const cost = providerCostOf(event);
     if (cost !== null) {
       providerCostUsd = addMoney(providerCostUsd, cost);
-      costEvents += 1;
     }
+    costEvents += event.costEvents;
     sessions.add(usageSessionKey(event));
   }
   return {

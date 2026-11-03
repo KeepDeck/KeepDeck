@@ -7,6 +7,7 @@ import {
   hydrateUsageCache,
   mergePaneReplay,
   mergePaneUsage,
+  samePaneUsage,
   serializeUsageCache,
   windowExpired,
   type AccountUsage,
@@ -136,6 +137,41 @@ describe("gateAccountClaim", () => {
         { catchUp: true, receivedAt: 900 },
       ),
     ).toEqual({ baseline: witness(1), account: null });
+  });
+});
+
+describe("samePaneUsage", () => {
+  const reading = {
+    agent: "claude",
+    sessionId: "s-1",
+    model: "Opus",
+    context: { usedPct: 40, windowTokens: 200_000 },
+    totalTokens: { input: 100, cacheRead: 5 },
+    costUsd: 1.5,
+    reportedAt: 7,
+  };
+
+  it("holds for a reading restated as a new object, an undefined field as an absent one", () => {
+    expect(
+      samePaneUsage(reading, {
+        ...reading,
+        context: { ...reading.context },
+        totalTokens: { ...reading.totalTokens, output: undefined },
+      }),
+    ).toBe(true);
+  });
+
+  it("fails on any field, however deep", () => {
+    for (const changed of [
+      { ...reading, reportedAt: 8 },
+      { ...reading, costUsd: 1.75 },
+      { ...reading, context: { ...reading.context, usedPct: 41 } },
+      { ...reading, totalTokens: { ...reading.totalTokens, output: 1 } },
+      { ...reading, lastTurnTokens: { input: 1 } },
+    ]) {
+      expect(samePaneUsage(reading, changed)).toBe(false);
+      expect(samePaneUsage(changed, reading)).toBe(false);
+    }
   });
 });
 

@@ -3,15 +3,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../app/useUsageHistorySnapshot", () => ({
-  useUsageHistorySnapshot: () => ({
-    ready: true,
-    events: [],
-    error: null,
-    complete: true,
-  }),
-}));
-
 vi.mock("../../app/useSettings", async () =>
   (await import("../../app/testing")).settingsHooksOver({ current: null }, vi.fn()),
 );

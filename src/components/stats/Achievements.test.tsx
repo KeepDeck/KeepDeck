@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
+import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageRow } from "../../domain/usage/history/event";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
@@ -17,7 +18,7 @@ import { elementOf } from "../../testing/values.test-support";
  * between the assertion and the thing asserted. */
 
 const NOW = TEST_NOW;
-const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
+const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     tokens: { input: 1_000, output: 100, cacheRead: 500 },
@@ -47,8 +48,8 @@ describe("Achievements", () => {
 
   /** One million tokens and a quarter of a dollar: the first tokens tier is
    * won, its successor is under way, and everything above is locked. */
-  const render = (events: UsageEventV2[] = [usageEvent({ tokens: { input: 2_000_000 } })]) =>
-    act(() => root.render(createElement(Achievements, { events })));
+  const render = (events: UsageRow[] = [usageEvent({ tokens: { input: 2_000_000 } })]) =>
+    act(() => root.render(createElement(Achievements, { ledger: ledgerOf(events) })));
 
   const cards = () => [...host.querySelectorAll(".stats__achievement")];
   const card = (text: string) =>

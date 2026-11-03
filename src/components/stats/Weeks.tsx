@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { displayProviderCost, formatTokens } from "../../domain/usage";
 import { seriesColorFor } from "../../presentation/usagePalette";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageLedger } from "../../domain/usage/history/ledger";
 import {
   formatWeekLabel,
   usageWeeks,
@@ -26,16 +26,17 @@ const WEEKS_PAGE = 8;
  * the same series colors as the chart above — which also LEGENDS them,
  * so this block adds none; the hover names each share exactly. */
 export function Weeks({
-  events,
+  ledger,
   colors,
   now,
 }: {
-  events: readonly UsageEventV2[];
+  /** The ledger view — derived values are keyed on it, not on its array. */
+  ledger: UsageLedger;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
   now: number;
 }) {
-  const weeks = useMemo(() => usageWeeks(events, now), [events, now]);
+  const weeks = useMemo(() => usageWeeks(ledger.events, now), [ledger, now]);
   const [page, setPage] = useState(0);
   if (weeks.length === 0) return null;
 

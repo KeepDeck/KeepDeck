@@ -1,4 +1,4 @@
-import type { UsageEventV2 } from "../history/event";
+import type { UsageRow } from "../history/event";
 import {
   catalogEntry,
   earnedTierCount,
@@ -36,7 +36,7 @@ export interface UsageAchievementLadder {
  * The batch view: sorts chronologically so each crossing is dated at the
  * exact event that crossed it — the ONLY place chronology matters. */
 export function usageAchievementLadders(
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
 ): UsageAchievementLadder[] {
   const ordered = [...events].sort((a, b) => a.occurredAt - b.occurredAt);
   const engine = createAchievementEngine();

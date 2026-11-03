@@ -11,7 +11,10 @@
 #
 # Best-effort like everything else: a `ps` that cannot answer yields no field,
 # and the deck falls back to the rules that do not need one.
-reporter=$(ps -o pgid= -p "$PPID" 2>/dev/null | tr -d ' ')
+reporter=$(ps -o pgid= -p "$PPID" 2>/dev/null)
+# `ps` pads the column; trimmed in place rather than by one more process.
+reporter=${reporter#"${reporter%%[![:space:]]*}"}
+reporter=${reporter%"${reporter##*[![:space:]]}"}
 case $reporter in
   '' | *[!0-9]*) reporter="" ;;
 esac

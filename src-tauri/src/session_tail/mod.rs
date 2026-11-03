@@ -48,7 +48,9 @@ use tauri::{AppHandle, Emitter, State};
 use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
-use dialects::{last_of_each, last_status_of_each, sibling_paths, TailWatch, TailedEvent};
+use dialects::{
+    drop_superseded, last_of_each, last_status_of_each, sibling_paths, TailWatch, TailedEvent,
+};
 use reader::{drain_file, TailCursor};
 use route::{batch_status, route, wrap, Routed};
 use totals::Folds;
@@ -81,6 +83,30 @@ struct TailState {
     folds: Folds,
 }
 
+impl TailState {
+    /// Carry `watches` from here on, without reading again what was read:
+    /// every cursor stays where it stands, and so do the running totals.
+    ///
+    /// Refused — `false`, nothing changed — when a watch that keeps a total
+    /// would change or move: its total covers what was already read, and
+    /// only a re-read can make it right. Adding or dropping watches that
+    /// keep none (the status lane, which the contract lists after the
+    /// numbers) always goes through.
+    fn retarget(&mut self, watches: Vec<TailWatch>) -> bool {
+        fn summing(list: &[TailWatch]) -> Vec<(usize, &TailWatch)> {
+            list.iter()
+                .enumerate()
+                .filter(|(_, watch)| watch.sum.is_some())
+                .collect()
+        }
+        if summing(&self.watches) != summing(&watches) {
+            return false;
+        }
+        self.watches = watches;
+        true
+    }
+}
+
 /// The live session-file tails, keyed by pane id — a shared
 /// [`fswatch::WatchRegistry`] like every other watcher family
 /// (`HeadWatchers`, `ProjectFsWatchers`), over [`TailPoller`] (see the
@@ -97,6 +123,16 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// remove) raises the stop flag; the thread exits within one interval.
 pub struct TailPoller {
     stop: Arc<AtomicBool>,
+    state: Arc<Mutex<TailState>>,
+}
+
+impl TailPoller {
+    fn retarget(&self, watches: Vec<TailWatch>) -> bool {
+        self.state
+            .lock()
+            .expect("tail state poisoned")
+            .retarget(watches)
+    }
 }
 
 impl Drop for TailPoller {
@@ -194,6 +230,7 @@ fn spawn_tailer(
 ) -> Result<TailPoller, String> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
+    let shared = state.clone();
     thread::Builder::new()
         .name("keepdeck usage tail".to_string())
         .spawn(move || {
@@ -214,7 +251,7 @@ fn spawn_tailer(
                     Vec::new()
                 };
                 let mut status = Vec::new();
-                for event in events {
+                for event in drop_superseded(events, &s.watches) {
                     // A subagent transcript's turn edges are the subagent's
                     // own story: pane-level status reads only ROOT markers.
                     // Its NUMBERS still count, which is why this drops the
@@ -254,7 +291,10 @@ fn spawn_tailer(
             }
         })
         .map_err(|e| format!("usage tail thread failed to start: {e}"))?;
-    Ok(TailPoller { stop })
+    Ok(TailPoller {
+        stop,
+        state: shared,
+    })
 }
 
 /// Everything the webview says about one tail as it arms it.
@@ -355,6 +395,22 @@ pub fn usage_watch_session_file(
     );
     tails.0.insert(pane_id, watcher);
     Ok(())
+}
+
+/// Change what a pane's armed tail carries, from where it stands — the
+/// session file is not read again. `false` when there is no tail to change
+/// (an arm still on its way holds the watches it was sent) or the tail
+/// refused (see [`TailState::retarget`]): the caller arms afresh.
+#[tauri::command]
+pub fn usage_retarget_session_file(
+    tails: State<UsageTails>,
+    pane_id: String,
+    watches: Vec<TailWatch>,
+) -> bool {
+    tails
+        .0
+        .with(&pane_id, |tail| tail.retarget(watches))
+        .unwrap_or(false)
 }
 
 /// Stop following a pane's session file (pane closed / rebind cleanup).
@@ -703,6 +759,45 @@ mod tests {
         assert_eq!(totals_of(events.last().unwrap())["inputOther"], 1200);
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_retarget_reads_on_from_the_cursor_with_the_running_total() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        let mut state = tail(path.clone());
+        state.watches = summing_watch();
+        state.watches.push(marker_watch());
+        fs::write(&path, format!("{USAGE_RECORD_LINE}\n")).unwrap();
+        assert_eq!(drain(&mut state).len(), 1);
+
+        // The status lane leaves; the numbers stay where they were.
+        assert!(state.retarget(summing_watch()));
+        assert_eq!(state.watches, summing_watch());
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file, "{USAGE_RECORD_LINE}").unwrap();
+        let events = drain(&mut state);
+        assert_eq!(events.len(), 1, "only the appended line is read");
+        assert_eq!(
+            totals_of(&events[0])["inputOther"],
+            2400,
+            "the total runs on"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_retarget_that_would_change_a_running_total_is_refused() {
+        let mut state = tail(PathBuf::from("/nowhere.jsonl"));
+        state.watches = summing_watch();
+        // A total moved to another slot — and a total that is gone.
+        let mut moved = vec![marker_watch()];
+        moved.extend(summing_watch());
+        for watches in [moved, vec![marker_watch()]] {
+            assert!(!state.retarget(watches));
+            assert_eq!(state.watches, summing_watch(), "nothing changed");
+        }
     }
 
     #[test]
@@ -1109,6 +1204,38 @@ mod tests {
             "append from a still-open handle must deliver"
         );
         drop(file);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn tailer_delivers_one_report_for_a_message_written_as_several_lines() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        fs::write(&path, "").unwrap();
+        let mut state = tail(path.clone());
+        state.watches = summing_watch();
+        let state = Arc::new(Mutex::new(state));
+        let (tx, rx) = mpsc::channel::<Report>();
+        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
+            let _ = tx.send(r);
+        })
+        .expect("watch");
+
+        // Three lines in one write, so one tick drains them together.
+        fs::write(
+            &path,
+            format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n"),
+        )
+        .unwrap();
+        let report = rx.recv_timeout(Duration::from_secs(10)).expect("a report");
+        assert_eq!(
+            report.payload["event"]["record"]["sessionTotals"]["inputOther"], 3600,
+            "the one report carries all three"
+        );
+        assert!(
+            rx.recv_timeout(Duration::from_millis(600)).is_err(),
+            "and is the only one"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 

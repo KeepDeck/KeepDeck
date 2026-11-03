@@ -9,6 +9,7 @@
  * alongside the xterm link provider that consumes it (`detectLinks`,
  * `logicalLineAt`, `mapRange` and friends now live there).
  */
+export * from "./base64";
 export * from "./clipboard";
 export * from "./droppedPaths";
 export * from "./keymap";

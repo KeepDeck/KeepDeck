@@ -1,5 +1,5 @@
 import { formatTokens, formatUtcDay, modelLabel, PERIOD_LABELS } from "./format";
-import { tokenTotal, type UsageEventV2 } from "./history/event";
+import { tokenTotal, type UsageRow } from "./history/event";
 import {
   periodCutoff,
   queryUsageStats,
@@ -33,7 +33,7 @@ export interface UsageRecap {
  * potentially different clock) would let "+12%" talk about a total the
  * user is not looking at, and would triple the full-ledger scans. */
 export function usageRecap(
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   period: UsageStatsPeriod,
   now: number,
   current: UsageStats,
@@ -78,7 +78,7 @@ export function recapCaption(
 }
 
 function tokensDeltaPct(
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   period: UsageStatsPeriod,
   now: number,
   current: UsageStats,
@@ -116,7 +116,7 @@ function topModel(current: UsageStats): UsageRecap["topModel"] {
  * making the caption contradict its own top-model line, and for the 24h
  * period it discarded almost the whole window.) */
 function busiestDay(
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   period: UsageStatsPeriod,
   now: number,
 ): UsageRecap["busiestDay"] {

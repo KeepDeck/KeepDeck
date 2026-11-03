@@ -92,6 +92,11 @@ impl<W> WatchRegistry<W> {
         self.lock().remove(key);
     }
 
+    /// Run `f` on the watcher under `key`, if there is one.
+    pub fn with<T>(&self, key: &str, f: impl FnOnce(&W) -> T) -> Option<T> {
+        self.lock().get(key).map(f)
+    }
+
     fn lock(&self) -> MutexGuard<'_, HashMap<String, W>> {
         self.inner.lock().expect("watch registry poisoned")
     }
@@ -168,5 +173,13 @@ mod tests {
         registry.remove("k");
         registry.remove("k"); // unknown key now — no panic
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn registry_reaches_the_watcher_under_a_key_and_only_that_one() {
+        let registry: WatchRegistry<u32> = WatchRegistry::default();
+        registry.insert("k".to_string(), 7);
+        assert_eq!(registry.with("k", |watcher| watcher + 1), Some(8));
+        assert_eq!(registry.with("other", |watcher| watcher + 1), None);
     }
 }

@@ -5,7 +5,11 @@ import {
 } from "../domain/deck";
 import { tailWatches, type TailWatch } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
-import { unwatchSessionFile, watchSessionFile } from "../ipc/usage";
+import {
+  retargetSessionFile,
+  unwatchSessionFile,
+  watchSessionFile,
+} from "../ipc/usage";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
@@ -241,22 +245,44 @@ export function createUsageTailsLane({
       });
   });
 
+  /** Arm a pane afresh with what it is read for now: the follower re-reads
+   * the store from its start. */
+  const rearm = (paneId: string, armed: { path: string; token: string; agentId: string }) =>
+    unwatchSessionFile(paneId)
+      .then(() => arm(paneId, armed.path, armed.token, armed.agentId))
+      .then(() => settleArm(paneId));
+
+  /** A companion now states the pane's status facts: the tail stops carrying
+   * the store's status records from where it stands. Nothing it already read
+   * is owed again, so the store — a resumed session's can run to hundreds of
+   * megabytes — is not re-read. A tail that is not there yet, or refuses,
+   * is armed afresh. */
+  const narrow = async (paneId: string, armed: { path: string; token: string; agentId: string }) => {
+    armedWith.set(paneId, { ...armed, covered: true });
+    if (await retargetSessionFile(paneId, watchesFor(paneId, armed.agentId))) return;
+    if (disposed || !tailed.has(paneId)) return;
+    await rearm(paneId, armed);
+  };
+
   // A companion that says hello after the pane armed — or a process that
-  // retired with one — changes what the store is read for. Re-armed only on
-  // an actual change: the follower re-reads the store from its start.
+  // retired with one — changes what the store is read for; nothing else
+  // does. Status coming BACK to the store is a fresh arm: the latest turn
+  // edges in it are what lets a turn the companion left running end.
   const unsubscribeCompanions = attribution.subscribeCompanions((paneId) => {
     if (disposed || !tailed.has(paneId)) return;
     const armed = armedWith.get(paneId);
-    if (!armed || armed.covered === statusCovered(paneId, armed.agentId)) return;
-    log.debug("web:usage", `${paneId}: companion changed what its tail reads — re-arming`);
-    void unwatchSessionFile(paneId)
-      .then(() => arm(paneId, armed.path, armed.token, armed.agentId))
-      .then(() => settleArm(paneId))
-      .catch((error) => {
-        tailed.delete(paneId);
-        armedWith.delete(paneId);
-        log.warn("web:usage", `session-file re-arm for ${paneId} failed: ${error}`);
-      });
+    if (!armed) return;
+    const covered = statusCovered(paneId, armed.agentId);
+    if (armed.covered === covered) return;
+    log.debug(
+      "web:usage",
+      `${paneId}: companion changed what its tail reads — ${covered ? "narrowing" : "re-arming"}`,
+    );
+    void (covered ? narrow(paneId, armed) : rearm(paneId, armed)).catch((error) => {
+      tailed.delete(paneId);
+      armedWith.delete(paneId);
+      log.warn("web:usage", `session-file re-arm for ${paneId} failed: ${error}`);
+    });
   });
   const unsubscribeDeck = deck.subscribe(reconcile);
   const unsubscribeDeclarations = declarations.subscribe(reconcile);

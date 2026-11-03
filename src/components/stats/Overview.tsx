@@ -6,7 +6,7 @@ import {
   tokenBreakdown,
 } from "../../domain/usage";
 import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type {
   UsageStats,
   UsageStatsPeriod,
@@ -29,13 +29,14 @@ const UsageChart = lazy(() =>
  * it. Empty/dead-ledger gating stays with the tab switchboard, which owns
  * that rule for every ledger-backed tab. */
 export function Overview({
-  events,
+  ledger,
   colors,
   stats,
   period,
   now,
 }: {
-  events: readonly UsageEventV2[];
+  /** The ledger view — derived values are keyed on it, not on its array. */
+  ledger: UsageLedger;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
   stats: UsageStats;
@@ -45,8 +46,8 @@ export function Overview({
   // The recap and its sentence are both domain calls — the component only
   // decides WHEN to compute (mounted means the Overview tab is selected).
   const caption = useMemo(
-    () => recapCaption(usageRecap(events, period, now, stats), period),
-    [events, period, now, stats],
+    () => recapCaption(usageRecap(ledger.events, period, now, stats), period),
+    [ledger, period, now, stats],
   );
   return (
     <>
@@ -79,7 +80,7 @@ export function Overview({
         }
       >
         <Suspense fallback={<ChartPlaceholder />}>
-          <UsageChart events={events} colors={colors} period={period} now={now} />
+          <UsageChart ledger={ledger} colors={colors} period={period} now={now} />
         </Suspense>
       </ErrorBoundary>
       {caption !== "" && <p className="stats__recap">{caption}</p>}
@@ -88,7 +89,7 @@ export function Overview({
       </p>
       {/* Period-independent by design: fixed UTC weeks under the rolling
           period's numbers, visible whatever range is selected. */}
-      <Weeks events={events} colors={colors} now={now} />
+      <Weeks ledger={ledger} colors={colors} now={now} />
     </>
   );
 }

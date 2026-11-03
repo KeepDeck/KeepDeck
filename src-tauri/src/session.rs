@@ -14,7 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use keepdeck_pty::{PtyEvent, PtySession, PtySpec, TermSize};
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
+use keepdeck_pty::{Consumer, ExitInfo, PtyEvent, PtySession, PtySpec, TermSize};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
@@ -49,22 +51,127 @@ pub struct SpawnSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SessionEvent {
-    /// Raw output bytes from the PTY.
-    Output { bytes: Vec<u8> },
+    /// Output bytes from the PTY, base64 — at most [`OUTPUT_MESSAGE_BYTES`]
+    /// of them per message. As a JSON array of numbers every terminal byte
+    /// cost the page 13–18 bytes of garbage; as base64, 3–5.
+    Output { data: String },
     /// The session's child process exited.
     Exit { success: bool, code: Option<u32> },
 }
 
-impl From<PtyEvent> for SessionEvent {
-    fn from(event: PtyEvent) -> Self {
-        match event {
-            PtyEvent::Output(bytes) => SessionEvent::Output { bytes },
-            PtyEvent::Exited(info) => SessionEvent::Exit {
-                success: info.success,
-                code: info.code,
-            },
+impl SessionEvent {
+    fn exit(info: ExitInfo) -> Self {
+        SessionEvent::Exit {
+            success: info.success,
+            code: info.code,
         }
     }
+}
+
+/// Largest slice of terminal output one channel message carries.
+///
+/// Tauri runs a channel message whose JSON is under 8192 bytes straight in the
+/// page, and parks anything bigger in a queue in this process — one with no
+/// bound, emptied only when the page fetches each entry back
+/// (`ChannelDataIpcQueue`). 5 632 bytes encode to 7 512 base64 characters,
+/// which with the event's framing stays under that line, so terminal output
+/// never takes the queued path: a larger run is split across messages.
+const OUTPUT_MESSAGE_BYTES: usize = 5632;
+
+/// How long delivery holds output for more before sending it. A repaint
+/// arrives as a burst of small reads; sent as one message instead of one per
+/// read, its bytes cost the page about half the garbage (~5 bytes per byte in
+/// a 512-byte message, ~2.7 in a 4 KB one). Eight milliseconds is half a
+/// frame, under what a keystroke's echo can be felt to lag by.
+const OUTPUT_COALESCE: Duration = Duration::from_millis(8);
+
+/// The messages one run of output crosses as.
+fn output_messages(bytes: &[u8]) -> impl Iterator<Item = SessionEvent> + '_ {
+    bytes
+        .chunks(OUTPUT_MESSAGE_BYTES)
+        .map(|chunk| SessionEvent::Output {
+            data: BASE64.encode(chunk),
+        })
+}
+
+/// Why a session's delivery stopped.
+#[derive(Debug, PartialEq, Eq)]
+enum DeliveryEnd {
+    /// The child exited; its exit was the last event sent.
+    Exited,
+    /// The page dropped the channel (reload, close).
+    ChannelGone,
+    /// The process layer closed without reporting an exit.
+    ProducerGone,
+}
+
+/// Forward a session's events to `send` until it ends.
+///
+/// Output is held for up to [`OUTPUT_COALESCE`] from its first byte, or until
+/// a message's worth has gathered, then sent as [`output_messages`]; whatever
+/// is held goes out before the exit, so output always precedes it. `send`
+/// answers `false` once the channel is gone. The drop marker is read per
+/// chunk as the queue hands it over — it travels as a chunk of its own there —
+/// before any merging.
+fn deliver(
+    events: &Consumer,
+    session_id: &str,
+    mut send: impl FnMut(SessionEvent) -> bool,
+) -> DeliveryEnd {
+    let mut held: Vec<u8> = Vec::new();
+    let mut held_since = Instant::now();
+    loop {
+        let next = if held.is_empty() {
+            events.recv()
+        } else {
+            match OUTPUT_COALESCE.checked_sub(held_since.elapsed()) {
+                Some(left) if !left.is_zero() => events.recv_timeout(left),
+                _ => None,
+            }
+        };
+        match next {
+            Some(PtyEvent::Output(bytes)) => {
+                // The queue marks output it had to drop; this is the one place
+                // that reads the mark, so a stall long enough to lose bytes
+                // leaves a trace in the log and not only on the screen. It
+                // arrives when the mark is finally drained — i.e. once
+                // delivery is moving again.
+                if let Some(lost) = keepdeck_pty::parse_drop_marker(&bytes) {
+                    log::warn!(
+                        "session {session_id}: output dropped — {lost} bytes lost to a stalled consumer"
+                    );
+                }
+                if held.is_empty() {
+                    held_since = Instant::now();
+                }
+                held.extend_from_slice(&bytes);
+                if held.len() >= OUTPUT_MESSAGE_BYTES && !send_held(&mut held, &mut send) {
+                    return DeliveryEnd::ChannelGone;
+                }
+            }
+            Some(PtyEvent::Exited(info)) => {
+                if !send_held(&mut held, &mut send) || !send(SessionEvent::exit(info)) {
+                    return DeliveryEnd::ChannelGone;
+                }
+                return DeliveryEnd::Exited;
+            }
+            // Nothing held means `recv` waited and the producer is gone.
+            None if held.is_empty() => return DeliveryEnd::ProducerGone,
+            // The window closed (or the producer left — the next `recv` says).
+            None => {
+                if !send_held(&mut held, &mut send) {
+                    return DeliveryEnd::ChannelGone;
+                }
+            }
+        }
+    }
+}
+
+/// Send what delivery holds and empty it; `false` once the channel is gone.
+fn send_held(held: &mut Vec<u8>, send: &mut impl FnMut(SessionEvent) -> bool) -> bool {
+    let delivered = output_messages(held).all(send);
+    held.clear();
+    delivered
 }
 
 /// Registry of live sessions keyed by a minted string id. Tauri managed state.
@@ -282,30 +389,13 @@ pub fn session_spawn(
     let session_id = id.clone();
     std::thread::spawn(move || {
         let registry = app.state::<SessionRegistry>();
-        while let Some(event) = events.recv() {
-            let is_exit = matches!(event, PtyEvent::Exited(_));
-            // The queue marks output it had to drop; this is the one place that
-            // reads the mark, so a stall long enough to lose bytes leaves a
-            // trace in the log and not only on the screen. It arrives when the
-            // mark is finally drained — i.e. once delivery is moving again.
-            if let PtyEvent::Output(bytes) = &event {
-                if let Some(lost) = keepdeck_pty::parse_drop_marker(bytes) {
-                    log::warn!(
-                        "session {session_id}: output dropped — {lost} bytes lost to a stalled consumer"
-                    );
-                }
-            }
-            if on_event.send(SessionEvent::from(event)).is_err() {
-                // Webview dropped the channel (reload/close). Kill the child so
-                // its reader/reaper thread sees EOF and exits — otherwise we leak
-                // an orphan process + a permanently blocked reaper thread.
-                log::debug!("session {session_id}: webview dropped channel, killing child");
-                let _ = registry.kill(&session_id);
-                break;
-            }
-            if is_exit {
-                break;
-            }
+        let end = deliver(&events, &session_id, |event| on_event.send(event).is_ok());
+        if end == DeliveryEnd::ChannelGone {
+            // Webview dropped the channel (reload/close). Kill the child so its
+            // reader/reaper thread sees EOF and exits — otherwise we leak an
+            // orphan process + a permanently blocked reaper thread.
+            log::debug!("session {session_id}: webview dropped channel, killing child");
+            let _ = registry.kill(&session_id);
         }
         registry.remove(&session_id);
     });
@@ -354,7 +444,6 @@ pub fn session_close(registry: State<SessionRegistry>, id: String) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keepdeck_pty::{Consumer, ExitInfo};
 
     /// A real session running `script`. The reading end is handed back and MUST
     /// be held: the pump thread kills its child the moment nobody is listening,
@@ -613,23 +702,123 @@ mod tests {
         assert_eq!(resolve_command(None, Some("".into())), "/bin/sh");
     }
 
+    fn decoded(events: &[SessionEvent]) -> Vec<u8> {
+        events
+            .iter()
+            .flat_map(|event| match event {
+                SessionEvent::Output { data } => BASE64.decode(data).expect("base64 output"),
+                SessionEvent::Exit { .. } => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// The most the output queue ever hands over in one chunk is 64 KiB.
     #[test]
-    fn maps_pty_events_to_dtos() {
+    fn no_output_message_reaches_the_channel_queue_threshold() {
+        let run: Vec<u8> = (0..64 * 1024).map(|i| (i % 251) as u8).collect();
+        let messages: Vec<SessionEvent> = output_messages(&run).collect();
+        assert!(messages.len() > 1, "a long run is split");
+        for message in &messages {
+            let json = serde_json::to_string(message).expect("serialises");
+            assert!(
+                json.len() < 8192,
+                "a {}-byte message would be queued",
+                json.len()
+            );
+        }
         assert_eq!(
-            SessionEvent::from(PtyEvent::Output(vec![1, 2, 3])),
-            SessionEvent::Output {
-                bytes: vec![1, 2, 3]
-            }
+            decoded(&messages),
+            run,
+            "splitting loses and reorders nothing"
         );
+    }
+
+    #[test]
+    fn output_crosses_as_base64() {
+        let json = serde_json::to_string(&output_messages(b"hi").next().unwrap()).unwrap();
+        assert_eq!(json, r#"{"type":"output","data":"aGk="}"#);
+    }
+
+    fn queue_of(events: Vec<PtyEvent>) -> Consumer {
+        let (producer, consumer) = keepdeck_pty::OutputQueue::new(1 << 20).split();
+        for event in events {
+            producer.push(event);
+        }
+        consumer
+    }
+
+    #[test]
+    fn held_output_goes_out_before_the_exit() {
+        let consumer = queue_of(vec![
+            PtyEvent::Output(b"a".to_vec()),
+            PtyEvent::Output(b"b".to_vec()),
+            PtyEvent::Exited(ExitInfo {
+                success: true,
+                code: Some(0),
+            }),
+        ]);
+        let mut sent = Vec::new();
+        let end = deliver(&consumer, "s", |event| {
+            sent.push(event);
+            true
+        });
+        assert_eq!(end, DeliveryEnd::Exited);
+        assert_eq!(decoded(&sent), b"ab");
         assert_eq!(
-            SessionEvent::from(PtyEvent::Exited(ExitInfo {
+            sent.last(),
+            Some(&SessionEvent::Exit {
                 success: true,
                 code: Some(0)
-            })),
-            SessionEvent::Exit {
-                success: true,
-                code: Some(0)
-            }
+            })
         );
+    }
+
+    #[test]
+    fn output_held_when_the_producer_leaves_is_still_sent() {
+        let consumer = queue_of(vec![PtyEvent::Output(b"tail".to_vec())]);
+        let mut sent = Vec::new();
+        let end = deliver(&consumer, "s", |event| {
+            sent.push(event);
+            true
+        });
+        assert_eq!(end, DeliveryEnd::ProducerGone);
+        assert_eq!(decoded(&sent), b"tail");
+    }
+
+    #[test]
+    fn a_gone_channel_ends_delivery() {
+        let consumer = queue_of(vec![
+            PtyEvent::Output(b"x".to_vec()),
+            PtyEvent::Exited(ExitInfo {
+                success: true,
+                code: Some(0),
+            }),
+        ]);
+        let mut attempts = 0;
+        let end = deliver(&consumer, "s", |_| {
+            attempts += 1;
+            false
+        });
+        assert_eq!(end, DeliveryEnd::ChannelGone);
+        assert_eq!(attempts, 1, "nothing is sent after the channel is gone");
+    }
+
+    #[test]
+    fn output_apart_by_more_than_the_window_goes_as_separate_messages() {
+        let (producer, consumer) = keepdeck_pty::OutputQueue::new(1 << 20).split();
+        let writer = thread::spawn(move || {
+            producer.push(PtyEvent::Output(b"first".to_vec()));
+            thread::sleep(OUTPUT_COALESCE * 12);
+            producer.push(PtyEvent::Output(b"second".to_vec()));
+        });
+        let mut sent = Vec::new();
+        let end = deliver(&consumer, "s", |event| {
+            sent.push(event);
+            true
+        });
+        writer.join().unwrap();
+        assert_eq!(end, DeliveryEnd::ProducerGone);
+        assert_eq!(sent.len(), 2, "the first burst did not wait for the second");
+        assert_eq!(decoded(&sent), b"firstsecond");
     }
 }

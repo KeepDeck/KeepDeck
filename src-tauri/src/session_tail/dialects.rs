@@ -282,20 +282,6 @@ pub(super) fn sibling_paths(directory: &std::path::Path) -> Vec<PathBuf> {
     paths
 }
 
-/// The catch-up summary: of everything drained from an existing file, only
-/// the LAST record of each watch matters.
-///
-/// Collapsing on the WATCH rather than on a record kind, because every
-/// carried record now travels under one type and there is nothing else left
-/// to tell two of them apart. The watch list's own order is the order they
-/// come back in, which is load-bearing: a dialect declares the watch
-/// carrying its model and context window BEFORE the one carrying its
-/// numbers, so the window lands before the counts it qualifies.
-///
-/// Status-lane activity records are not part of this summary: they leave as
-/// a reconcile ([`last_status_of_each`]), which the tracker may use only to
-/// END a turn still shown as running — never to start one. Explicit
-/// context-only metadata keeps its latest value to seed the decoder.
 /// The status half of a catch-up: of the ROOT file's status-lane records,
 /// the last of each watch, in FILE order — what a reconcile reads to tell
 /// whether the latest turn the file records has ended. Context-only
@@ -322,6 +308,20 @@ pub(super) fn last_status_of_each(events: &[TailedEvent], watches: &[TailWatch])
     kept.into_iter().map(|(_, event)| event.clone()).collect()
 }
 
+/// The catch-up summary: of everything drained from an existing file, only
+/// the LAST record of each watch matters.
+///
+/// Collapsing on the WATCH rather than on a record kind, because every
+/// carried record now travels under one type and there is nothing else left
+/// to tell two of them apart. The watch list's own order is the order they
+/// come back in, which is load-bearing: a dialect declares the watch
+/// carrying its model and context window BEFORE the one carrying its
+/// numbers, so the window lands before the counts it qualifies.
+///
+/// Status-lane activity records are not part of this summary: they leave as
+/// a reconcile ([`last_status_of_each`]), which the tracker may use only to
+/// END a turn still shown as running — never to start one. Explicit
+/// context-only metadata keeps its latest value to seed the decoder.
 pub(super) fn last_of_each(events: Vec<TailedEvent>, watches: &[TailWatch]) -> Vec<TailedEvent> {
     let mut last: Vec<Option<TailedEvent>> = (0..watches.len()).map(|_| None).collect();
     for event in events {
@@ -335,6 +335,44 @@ pub(super) fn last_of_each(events: Vec<TailedEvent>, watches: &[TailWatch]) -> V
         last[slot] = Some(event);
     }
     last.into_iter().flatten().collect()
+}
+
+/// A live tick's records, each unbroken run of one usage watch collapsed to
+/// its last record.
+///
+/// A store can write one message as several lines — a claude transcript
+/// writes each content block of an assistant message as a line of its own,
+/// restating the message's usage — and every line was delivered, to be
+/// normalized, merged and booked in turn. The next record of the same usage
+/// watch supersedes the one before it: a summed watch stamps the running
+/// total on each, and every other usage record states the latest reading.
+///
+/// Only a run is collapsed. A record of any other watch between two keeps
+/// both, so no record moves past one that qualifies it: a model switch
+/// between two turns still lands between them. A run does not cross from
+/// the root file into a subagent's, status records are never collapsed (each
+/// is an edge of its own), and neither is anything this side minted.
+pub(super) fn drop_superseded(events: Vec<TailedEvent>, watches: &[TailWatch]) -> Vec<TailedEvent> {
+    let usage_slot = |event: &TailedEvent| {
+        event.slot.filter(|slot| {
+            watches
+                .get(*slot)
+                .is_some_and(|watch| watch.lane == TailLane::Usage)
+        })
+    };
+    let mut kept: Vec<TailedEvent> = Vec::with_capacity(events.len());
+    for event in events {
+        let superseded = kept.last().is_some_and(|previous| {
+            usage_slot(&event).is_some()
+                && usage_slot(previous) == usage_slot(&event)
+                && previous.root == event.root
+        });
+        if superseded {
+            kept.pop();
+        }
+        kept.push(event);
+    }
+    kept
 }
 
 #[cfg(test)]
@@ -401,6 +439,43 @@ mod tests {
             .map(|event| event.payload["record"]["n"].as_i64().unwrap())
             .collect();
         assert_eq!(kept, vec![5, 6], "end 5 before start 6, as written");
+    }
+
+    // One message written as several lines is one report: each unbroken run
+    // of a usage watch keeps its last record, and nothing moves past another.
+    #[test]
+    fn a_live_tick_keeps_the_last_of_each_run_of_a_usage_watch() {
+        let watch =
+            |kind: &str, lane: TailLane| declare(vec![equals("type", kind)], &["type", "n"], lane);
+        let watches = vec![
+            watch("model", TailLane::Usage),
+            watch("usage", TailLane::Usage),
+            watch("end", TailLane::Status),
+        ];
+        let lines: [&[u8]; 9] = [
+            br#"{"type":"usage","n":1}"#,
+            br#"{"type":"usage","n":2}"#,
+            br#"{"type":"usage","n":3}"#,
+            br#"{"type":"end","n":4}"#,
+            br#"{"type":"end","n":5}"#,
+            br#"{"type":"usage","n":6}"#,
+            br#"{"type":"model","n":7}"#,
+            br#"{"type":"usage","n":8}"#,
+            br#"{"type":"usage","n":9}"#,
+        ];
+        let mut events: Vec<TailedEvent> = lines
+            .iter()
+            .filter_map(|line| carried(line, &watches))
+            .collect();
+        // A subagent's record never folds into the root's run before it.
+        let mut child = carried(br#"{"type":"usage","n":10}"#, &watches).unwrap();
+        child.root = false;
+        events.push(child);
+        let kept: Vec<i64> = drop_superseded(events, &watches)
+            .iter()
+            .map(|event| event.payload["record"]["n"].as_i64().unwrap())
+            .collect();
+        assert_eq!(kept, vec![3, 4, 5, 6, 7, 9, 10]);
     }
 
     /// A status record from a subagent file — which a reconcile must skip.

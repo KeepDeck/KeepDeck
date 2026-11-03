@@ -3,6 +3,7 @@ import {
   gateAccountClaim,
   mergePaneReplay,
   mergePaneUsage,
+  samePaneUsage,
   type AccountUsage,
   type ApiActivity,
   type PaneUsage,
@@ -159,9 +160,12 @@ export function createUsageManager(): UsageManager {
         if (!catchUp) livePanes.add(paneId);
         // Merged, not replaced: codex splits model and numbers across
         // events; Claude splits live cost/limits from transcript token
-        // cumulatives.
-        panes = new Map(panes).set(paneId, next);
-        changed = true;
+        // cumulatives. A merge that restates the pane is no change: the
+        // pane keeps its object, and nobody is told.
+        if (!current || !samePaneUsage(current, next)) {
+          panes = new Map(panes).set(paneId, next);
+          changed = true;
+        }
       }
       if (changed) emit();
     },

@@ -1,3 +1,5 @@
+import { bytesFromBase64 } from "./base64";
+
 /**
  * Pure helpers for owning terminal copy ourselves.
  *
@@ -57,7 +59,7 @@ export function osc52Text(data: string): string | null {
   const payload = data.slice(sep + 1);
   if (payload === "?") return null;
   try {
-    const bytes = Uint8Array.from(atob(payload), (ch) => ch.charCodeAt(0));
+    const bytes = bytesFromBase64(payload);
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return text.length > 0 ? text : null;
   } catch {

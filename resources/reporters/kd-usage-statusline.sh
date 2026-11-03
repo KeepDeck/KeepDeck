@@ -236,13 +236,26 @@ fi
 # Display-only, so sed is enough here — a missed field costs a character of
 # footer, not a wrong decision. `display_name` appears once; `used_percentage`
 # is matched inside the flat prefix of the context_window object (it precedes
-# the nested current_usage).
-model=$(printf '%s' "$payload" \
-  | sed -n 's/.*"display_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-  | head -n 1)
-ctx=$(printf '%s' "$payload" \
-  | sed -n 's/.*"context_window"[[:space:]]*:[[:space:]]*{[^{}]*"used_percentage"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
-  | head -n 1)
+# the nested current_usage). ONE sed reads both, each match tagged, and the
+# first of each is taken here: this runs on every status update.
+found=$(sed -n \
+  -e 'h' \
+  -e 's/.*"display_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/m \1/p' \
+  -e 'g' \
+  -e 's/.*"context_window"[[:space:]]*:[[:space:]]*{[^{}]*"used_percentage"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/c \1/p' \
+  <<EOF
+$payload
+EOF
+)
+model="" model_seen="" ctx="" ctx_seen=""
+while IFS= read -r line; do
+  case $line in
+    "m "*) [ -z "$model_seen" ] && model=${line#m } && model_seen=1 ;;
+    "c "*) [ -z "$ctx_seen" ] && ctx=${line#c } && ctx_seen=1 ;;
+  esac
+done <<EOF
+$found
+EOF
 if [ -n "$model" ] && [ -n "$ctx" ]; then
   printf '%s · ctx %s%%\n' "$model" "$ctx"
 elif [ -n "$model" ]; then

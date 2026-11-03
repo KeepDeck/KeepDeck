@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
+import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatMoment, type AccountUsage, type UsageWindow } from "../../domain/usage";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageRow } from "../../domain/usage/history/event";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
@@ -23,7 +24,7 @@ const NOW = TEST_NOW;
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
-const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
+const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     paneName: "auth-refactor",
@@ -59,13 +60,13 @@ describe("Providers", () => {
     now = NOW,
   }: {
     accounts: Map<string, AccountUsage>;
-    events?: UsageEventV2[];
+    events?: UsageRow[];
     reportsByKey?: Map<string, readonly WindowReport[]>;
     now?: number;
   }) {
     act(() =>
       root.render(
-        createElement(Providers, { accounts, events, colors: new Map(), reportsByKey, now }),
+        createElement(Providers, { accounts, ledger: ledgerOf(events), colors: new Map(), reportsByKey, now }),
       ),
     );
   }
