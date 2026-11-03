@@ -7,7 +7,7 @@ import {
   TEST_NOW,
   usageEvent as event,
 } from "../../domain/usage/history/event.testSupport";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageRow } from "../../domain/usage/history/event";
 import { WEEK_MS } from "../../domain/usage/time";
 import { Weeks } from "./Weeks";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -18,7 +18,7 @@ const NOW = TEST_NOW; // Wednesday; the current week opened Mon Jul 20
 let root: Root;
 afterEach(() => act(() => root.unmount()));
 
-function render(events: readonly UsageEventV2[]) {
+function render(events: readonly UsageRow[]) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -168,7 +168,7 @@ describe("Weeks", () => {
 
   it("re-derives when handed a new view over the same, appended array", () => {
     // The history manager appends in place; only the view changes.
-    const events: UsageEventV2[] = [
+    const events: UsageRow[] = [
       event({ occurredAt: NOW - 2 * WEEK_MS, tokens: { input: 100 } }),
     ];
     const host = render(events);

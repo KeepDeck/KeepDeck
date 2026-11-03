@@ -2,12 +2,12 @@
 import { act, createElement, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageRow } from "../../domain/usage/history/event";
 
 const history = vi.hoisted(() => ({
   snapshot: {
     ready: true,
-    ledger: { events: [] as readonly UsageEventV2[], version: 0 },
+    ledger: { events: [] as readonly UsageRow[], version: 0 },
     error: null as string | null,
     complete: true,
   },
@@ -15,7 +15,7 @@ const history = vi.hoisted(() => ({
 
 /** A ready snapshot of the whole ledger — the healthy case these cases mean
  * whenever they do not say otherwise. */
-const ledger = (events: UsageEventV2[]) => ({
+const ledger = (events: UsageRow[]) => ({
   ready: true,
   ledger: { events, version: 1 },
   error: null as string | null,
@@ -129,7 +129,7 @@ const NOW = TEST_NOW;
  * with a human pane name — the totals and rows the shell routes assert on
  * these, so the divergence is EXPLICIT here, not baked into a private copy
  * of the whole shape. */
-const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
+const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     paneName: "auth-refactor",

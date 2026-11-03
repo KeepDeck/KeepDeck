@@ -1,157 +1,27 @@
 import { describe, expect, it } from "vitest";
-import {
-  decodeUsageEventLine,
-  encodeUsageEvent,
-  isFutureSchemaLine,
-  tokenTotal,
-  type UsageEventV2,
-} from "./event";
-import { present } from "@keepdeck/plugin-api/testing";
+import { addTokenCounts, providerCostOf, tokenTotal, usageSessionKey } from "./event";
+import { usageEvent } from "./event.testSupport";
 
-/** Test-local shorthand — production always decodes through
- * decodeUsageEventLine, because `migrated` drives compaction healing. */
-const decodeUsageEvent = (line: string): UsageEventV2 | null =>
-  decodeUsageEventLine(line)?.event ?? null;
-
-describe("usage event codec", () => {
-  const event: UsageEventV2 = {
-    schemaVersion: 2,
-    eventId: "event-1",
-    occurredAt: 10,
-    capturedAt: 11,
-    agent: "opencode",
-    model: "claude-sonnet",
-    workspaceId: "ws-1",
-    workspaceName: "KeepDeck",
-    workspaceCwd: "/repo",
-    paneId: "pane-1",
-    paneName: "Agent 1",
-    sessionId: "ses-1",
-    rootSessionId: "ses-1",
-    tokens: { input: 10, output: 2 },
-    costUsd: 0.1,
-    costSource: "provider",
-    observation: { tokens: { input: 50, output: 8 }, costUsd: 0.4 },
-  };
-
-  it("rejects a line whose capture instant is itself epoch", () => {
-    // The clamp heals TOWARD capturedAt; a zero capture would launder an
-    // epoch observation straight past it and poison every all-time view.
-    expect(
-      decodeUsageEventLine(
-        JSON.stringify({ ...event, occurredAt: 0, capturedAt: 0 }),
-      ),
-    ).toBeNull();
-  });
-
-  it("clamps epoch and future occurredAt to capturedAt, marking the line for compaction", () => {
-    const epoch = JSON.stringify({ ...event, occurredAt: 0 });
-    const decodedEpoch = present(decodeUsageEventLine(epoch), "the decoded epoch event");
-    expect(decodedEpoch.event.occurredAt).toBe(event.capturedAt);
-    expect(decodedEpoch.migrated).toBe(true); // heals on the next compaction
-
-    const future = JSON.stringify({ ...event, occurredAt: event.capturedAt + 5 });
-    const decodedFuture = present(decodeUsageEventLine(future), "the decoded future event");
-    expect(decodedFuture.event.occurredAt).toBe(event.capturedAt);
-    expect(decodedFuture.migrated).toBe(true);
-
-    // A legitimately old instant (a replay with a real source time) passes.
-    const old = JSON.stringify({ ...event, occurredAt: 3 });
-    const decodedOld = present(decodeUsageEventLine(old), "the decoded old event");
-    expect(decodedOld.event.occurredAt).toBe(3);
-    expect(decodedOld.migrated).toBe(false);
-  });
-
-  it("round-trips a valid line and rejects malformed or future lines", () => {
-    expect(decodeUsageEvent(encodeUsageEvent(event))).toEqual(event);
-    expect(decodeUsageEvent("{")).toBeNull();
-    expect(decodeUsageEvent(JSON.stringify({ ...event, schemaVersion: 3 }))).toBeNull();
-    expect(decodeUsageEvent(JSON.stringify({ ...event, tokens: { input: -1 } }))).toBeNull();
-    expect(
-      decodeUsageEvent(
-        JSON.stringify({ ...event, costSource: "provider", costUsd: undefined }),
-      ),
-    ).toBeNull();
-    expect(
-      decodeUsageEvent(
-        JSON.stringify({ ...event, costSource: "unavailable", costUsd: 0.1 }),
-      ),
-    ).toBeNull();
-  });
-
-  it("migrates v1 without retaining local estimates or bad Claude tokens", () => {
-    const v1 = { ...event, schemaVersion: 1 };
-    expect(
-      decodeUsageEvent(
-        JSON.stringify({
-          ...v1,
-          costSource: "reported",
-          costUsd: 0.1,
-          pricingVersion: undefined,
-        }),
-      ),
-    ).toMatchObject({
-      schemaVersion: 2,
-      tokens: { input: 10, output: 2 },
-      costSource: "provider",
-      costUsd: 0.1,
-    });
-    const estimated = decodeUsageEvent(
-      JSON.stringify({
-        ...v1,
-        costSource: "estimated",
-        pricingVersion: "old-local-table",
-      }),
-    );
-    expect(estimated).toMatchObject({
-      schemaVersion: 2,
-      tokens: { input: 10, output: 2 },
-      costSource: "unavailable",
-    });
-    expect(estimated).not.toHaveProperty("costUsd");
-
-    expect(
-      decodeUsageEvent(
-        JSON.stringify({
-          ...v1,
-          agent: "claude",
-          costSource: "estimated",
-        }),
-      ),
-    ).toBeNull();
-    expect(
-      decodeUsageEvent(
-        JSON.stringify({
-          ...v1,
-          agent: "claude",
-          costSource: "reported",
-          costUsd: 0.1,
-        }),
-      ),
-    ).toMatchObject({
-      schemaVersion: 2,
-      agent: "claude",
-      tokens: {},
-      costSource: "provider",
-      costUsd: 0.1,
-      observation: { tokens: {} },
-    });
-  });
-
-  it("recognizes future-schema lines so compaction can preserve them", () => {
-    expect(isFutureSchemaLine(JSON.stringify({ ...event, schemaVersion: 3 }))).toBe(
-      true,
-    );
-    expect(isFutureSchemaLine(encodeUsageEvent(event))).toBe(false);
-    expect(isFutureSchemaLine(JSON.stringify({ ...event, schemaVersion: 1 }))).toBe(
-      false,
-    );
-    expect(isFutureSchemaLine("torn{")).toBe(false);
-    expect(isFutureSchemaLine("null")).toBe(false);
-  });
-
+describe("usage row helpers", () => {
   it("uses a source total when present and otherwise sums buckets", () => {
     expect(tokenTotal({ input: 10, output: 2, cacheRead: 4 })).toBe(16);
     expect(tokenTotal({ total: 99, input: 10 })).toBe(99);
+  });
+
+  it("adds counts field by field, leaving a field nobody reported absent", () => {
+    const into = { input: 1 };
+    addTokenCounts(into, { input: 2, cacheRead: 3 });
+    expect(into).toEqual({ input: 3, cacheRead: 3 });
+  });
+
+  it("prices a row only from a provider-reported cost", () => {
+    expect(providerCostOf(usageEvent({ costSource: "provider", costUsd: 0.5 }))).toBe(0.5);
+    expect(providerCostOf(usageEvent({ costSource: "unavailable" }))).toBeNull();
+  });
+
+  it("keys a session by agent and session id together", () => {
+    expect(usageSessionKey({ agent: "claude", sessionId: "s" })).not.toBe(
+      usageSessionKey({ agent: "codex", sessionId: "s" }),
+    );
   });
 });

@@ -2,7 +2,7 @@ import { formatUtcDay, modelLabel } from "./format";
 import {
   providerCostOf,
   tokenTotal,
-  type UsageEventV2,
+  type UsageRow,
 } from "./history/event";
 import { addMoney } from "./money";
 import { DAY_MS, utcWeekStart, WEEK_MS } from "./time";
@@ -54,7 +54,7 @@ interface WeekFold {
  * The empty week in progress stays too; the VIEW gives it an honest
  * empty-state line instead of zero-and-dash furniture (field finding). */
 export function usageWeeks(
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   now: number,
 ): UsageWeek[] {
   const folds = new Map<number, WeekFold>();
@@ -89,8 +89,8 @@ export function usageWeeks(
     const cost = providerCostOf(event);
     if (cost !== null) {
       fold.providerCostUsd = addMoney(fold.providerCostUsd, cost);
-      fold.costEvents += 1;
     }
+    fold.costEvents += event.costEvents;
   }
   if (folds.size === 0) return [];
 

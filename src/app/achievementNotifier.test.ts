@@ -9,7 +9,7 @@ import {
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 
-import type { UsageEventV2 } from "../domain/usage/history/event";
+import type { UsageRow } from "../domain/usage/history/event";
 import { usageEvent as event } from "../domain/usage/history/event.testSupport";
 import { listOf, numberOf, recordOf, stringOf } from "../testing/values.test-support";
 
@@ -22,7 +22,7 @@ const richEvents = () => [
 
 /** A ready snapshot of the WHOLE ledger — what a healthy load publishes, and
  * the only state in which the notifier is allowed to delete anything. */
-const ledger = (events: UsageEventV2[]): UsageHistorySnapshot => ({
+const ledger = (events: UsageRow[]): UsageHistorySnapshot => ({
   ready: true,
   ledger: ledgerOf(events),
   error: null,

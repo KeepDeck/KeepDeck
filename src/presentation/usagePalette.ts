@@ -1,5 +1,5 @@
 import { usageAgents } from "../domain/usage/daily";
-import type { UsageEventV2 } from "../domain/usage/history/event";
+import type { UsageRow } from "../domain/usage/history/event";
 
 /**
  * The usage charts' series colours — one map every surface shares (the
@@ -48,7 +48,7 @@ export function catalogSeriesColors(
 /** Colours for every agent of the ledger and of the catalog — for a surface
  * that iterates the map itself (a chart legend over every agent ever seen). */
 export function usageSeriesColors(
-  events: readonly UsageEventV2[],
+  events: readonly UsageRow[],
   catalog: readonly PaletteAgent[],
 ): Map<string, string> {
   const colors = catalogSeriesColors(catalog);

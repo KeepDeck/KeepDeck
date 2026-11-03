@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { UsageEventV2 } from "./event";
+import type { UsageRow } from "./event";
 import { queryUsageStats } from "./query";
 
 describe("queryUsageStats", () => {
-  const base: UsageEventV2 = {
-    schemaVersion: 2,
+  const base: UsageRow = {
     eventId: "event-base",
     occurredAt: 1_000,
     capturedAt: 1_000,
@@ -20,7 +19,9 @@ describe("queryUsageStats", () => {
     tokens: { input: 100, output: 10 },
     costUsd: 0.2,
     costSource: "provider",
-    observation: { tokens: { input: 100, output: 10 } },
+    count: 1,
+    calls: 1,
+    costEvents: 1,
   };
 
   it("filters the period and groups model and session deltas", () => {
@@ -82,7 +83,7 @@ describe("queryUsageStats", () => {
 
   it("does not treat unavailable provider cost as zero", () => {
     const stats = queryUsageStats(
-      [{ ...base, costUsd: undefined, costSource: "unavailable" }],
+      [{ ...base, costUsd: undefined, costSource: "unavailable", costEvents: 0 }],
       90,
       2_000,
     );
@@ -90,5 +91,21 @@ describe("queryUsageStats", () => {
       providerCostUsd: 0,
       costEvents: 0,
     });
+  });
+
+  it("counts a compacted row by the events it stands for, not as one", () => {
+    const bucket: UsageRow = {
+      ...base,
+      eventId: "bucket",
+      count: 5,
+      calls: 4,
+      costEvents: 3,
+      tokens: { input: 500 },
+      costUsd: 0.9,
+    };
+    const stats = queryUsageStats([base, bucket], "all", 2_000);
+    expect(stats.eventCount).toBe(6);
+    expect(stats.totals.costEvents).toBe(4);
+    expect(stats.totals.providerCostUsd).toBeCloseTo(1.1);
   });
 });

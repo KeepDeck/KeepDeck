@@ -8,10 +8,8 @@ import {
   spawnPlanInheritsSession,
   spawnPlanNeedsUsageBaseline,
 } from "./spawnSpecs";
-import {
-  recordPaneUsage,
-  type UsageSessionOrigin,
-} from "./usageHistoryManager";
+import type { UsageSessionOrigin } from "../domain/usage/history/capture";
+import { recordPaneUsage } from "./usageHistoryManager";
 import { usageSourceTimestamp } from "./usageProvenance";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 

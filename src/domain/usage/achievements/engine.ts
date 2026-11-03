@@ -1,7 +1,7 @@
 import {
   tokenTotal,
   usageSessionKey,
-  type UsageEventV2,
+  type UsageRow,
   providerCostOf,
 } from "../history/event";
 import { addMoney } from "../money";
@@ -51,7 +51,7 @@ function createStreakTracker() {
  * only crossing DATES need chronology, and only the batch view in
  * `./ladders` tracks those. */
 export interface AchievementEngine {
-  ingest(event: UsageEventV2): void;
+  ingest(event: UsageRow): void;
   value(metric: AchievementMetric): number;
   /** Every tier id the current values meet. */
   earnedIds(): Set<string>;
@@ -135,7 +135,7 @@ export function createAchievementEngine(): AchievementEngine {
       const sessionTokens = (sessionTokenTotals.get(key) ?? 0) + eventTokens;
       sessionTokenTotals.set(key, sessionTokens);
       maxSessionTokens = Math.max(maxSessionTokens, sessionTokens);
-      const sessionTurns = (sessionTurnCounts.get(key) ?? 0) + 1;
+      const sessionTurns = (sessionTurnCounts.get(key) ?? 0) + event.calls;
       sessionTurnCounts.set(key, sessionTurns);
       maxSessionTurns = Math.max(maxSessionTurns, sessionTurns);
       const minAt = Math.min(sessionMinAt.get(key) ?? Infinity, event.occurredAt);

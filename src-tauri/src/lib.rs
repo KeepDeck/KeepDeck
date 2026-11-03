@@ -49,7 +49,7 @@ mod exec_once;
 mod keyed_locks;
 mod state;
 mod jsonl_log;
-mod usage_history;
+mod usage_ledger;
 mod usage_reports;
 mod worktree;
 mod worktree_arm;
@@ -115,6 +115,7 @@ pub fn run() {
         .menu(menu::build)
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(history::HistoryIndex::default())
+        .manage(usage_ledger::UsageLedgerState::default())
         .manage(session::SessionRegistry::default())
         .manage(artifacts::ArtifactsState::new())
         .manage(tasks::TasksState::new())
@@ -262,9 +263,8 @@ pub fn run() {
             state::usage_cache_save,
             state::achievements_load,
             state::achievements_save,
-            usage_history::usage_history_load,
-            usage_history::usage_history_append,
-            usage_history::usage_history_compact,
+            usage_ledger::usage_ledger,
+            usage_ledger::usage_record,
             usage_reports::usage_reports_load,
             usage_reports::usage_reports_append,
             usage_reports::usage_reports_compact,

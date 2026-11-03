@@ -1,4 +1,4 @@
-import type { UsageEventV2 } from "../domain/usage/history/event";
+import type { UsageRow } from "../domain/usage/history/event";
 import { localDayNumber, type LocalDayNumber } from "../domain/usage/time";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 import type { UsageSnapshot } from "./usageManager";
@@ -98,7 +98,7 @@ export function createActivityWitness(
    * length alone cannot detect a same-or-longer replacement with different
    * content (a compaction rewrite). */
   let processed = 0;
-  let firstFolded: UsageEventV2 | undefined;
+  let firstFolded: UsageRow | undefined;
   let disposed = false;
 
   function emit(): void {

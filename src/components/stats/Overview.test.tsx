@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageRow } from "../../domain/usage/history/event";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
@@ -28,7 +28,7 @@ vi.mock("./UsageChart", () => ({ UsageChart: () => null }));
 const NOW = TEST_NOW;
 const DAY = 24 * 60 * 60 * 1_000;
 
-const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
+const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     tokens: { input: 1_000, output: 100, cacheRead: 500 },
@@ -53,7 +53,7 @@ describe("Overview", () => {
     vi.useRealTimers();
   });
 
-  const render = async (events: UsageEventV2[], period: UsageStatsPeriod = 7) => {
+  const render = async (events: UsageRow[], period: UsageStatsPeriod = 7) => {
     const stats = queryUsageStats(events, period, NOW);
     await act(async () => {
       root.render(createElement(Overview, { ledger: ledgerOf(events), colors: new Map(), stats, period, now: NOW }));

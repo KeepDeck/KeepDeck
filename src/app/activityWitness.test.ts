@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ledgerOf } from "../domain/usage/history/ledger.testSupport";
 import type { PaneUsage } from "@keepdeck/plugin-api";
-import type { UsageEventV2 } from "../domain/usage/history/event";
+import type { UsageRow } from "../domain/usage/history/event";
 import {
   TEST_NOW,
   usageEvent,
@@ -28,7 +28,7 @@ const noon = () => {
   return date.getTime();
 };
 
-const ledger = (events: UsageEventV2[]): UsageHistorySnapshot => ({
+const ledger = (events: UsageRow[]): UsageHistorySnapshot => ({
   ready: true,
   ledger: ledgerOf(events),
   error: null,
@@ -43,7 +43,7 @@ const pane = (reportedAt: number): PaneUsage => ({
   reportedAt,
 });
 
-function fakes(initial: UsageEventV2[] = []) {
+function fakes(initial: UsageRow[] = []) {
   let historySnapshot = ledger(initial);
   let usageSnapshot: UsageSnapshot = {
     accounts: new Map(),
@@ -66,11 +66,11 @@ function fakes(initial: UsageEventV2[] = []) {
         return () => usageListeners.delete(listener);
       },
     },
-    appendEvents(events: UsageEventV2[]) {
+    appendEvents(events: UsageRow[]) {
       historySnapshot = ledger([...historySnapshot.ledger.events, ...events]);
       for (const listener of [...historyListeners]) listener();
     },
-    replaceLedger(events: UsageEventV2[]) {
+    replaceLedger(events: UsageRow[]) {
       historySnapshot = ledger(events);
       for (const listener of [...historyListeners]) listener();
     },

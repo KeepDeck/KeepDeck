@@ -1,4 +1,4 @@
-import type { UsageEventV2 } from "./event";
+import type { UsageRow } from "./event";
 
 /** The usage ledger as a reader sees it at one moment.
  *
@@ -10,6 +10,6 @@ import type { UsageEventV2 } from "./event";
  * reader that caches anything derived from the events keys the cache on the
  * view, never on `events`. */
 export interface UsageLedger {
-  readonly events: readonly UsageEventV2[];
+  readonly events: readonly UsageRow[];
   readonly version: number;
 }

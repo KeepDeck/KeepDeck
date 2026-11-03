@@ -7,7 +7,7 @@ import {
   RECALIBRATED_IDS_V2,
 } from "../domain/usage/achievements/catalog";
 import { createAchievementEngine } from "../domain/usage/achievements/engine";
-import type { UsageEventV2 } from "../domain/usage/history/event";
+import type { UsageRow } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 import { isJsonRecord } from "@keepdeck/plugin-api";
@@ -79,7 +79,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
    * Length alone cannot detect a same-or-longer replacement with different
    * content; the array is append-only in production, but correctness must
    * not rest on an invariant nothing here asserts. */
-  let firstFolded: UsageEventV2 | undefined;
+  let firstFolded: UsageRow | undefined;
   /** Null until the persisted baseline loads; checks wait for it. */
   let congratulated: Set<string> | null = null;
   /** The version the file was READ at, so a write never lowers it. */
