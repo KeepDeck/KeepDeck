@@ -394,6 +394,30 @@ describe("usage tails — a pane whose process has a companion", () => {
     }
   });
 
+  it("narrows a tail whose arm is still draining once it lands, without arming again", async () => {
+    const { attribution, lane, bind, settle } = setup(["status-records"]);
+    let land: () => void = () => {};
+    ipc.watchSessionFile.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (land = resolve)),
+    );
+    try {
+      attribution.recordBinding("pane-1", "100");
+      await bind();
+      // The hello arrives while the first arm is still reading the store.
+      attribution.recordCompanion("pane-1", "100");
+      await settle();
+      expect(ipc.retargetSessionFile).not.toHaveBeenCalled();
+
+      land();
+      await settle();
+      expect(ipc.retargetSessionFile).toHaveBeenCalledWith("pane-1", [USAGE_WATCH]);
+      expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
+      expect(ipc.unwatchSessionFile).not.toHaveBeenCalled();
+    } finally {
+      lane.dispose();
+    }
+  });
+
   it("arms afresh when the tail cannot narrow where it stands", async () => {
     const { attribution, lane, bind, settle } = setup(["status-records"]);
     ipc.retargetSessionFile.mockResolvedValue(false);
