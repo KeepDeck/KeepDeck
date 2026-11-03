@@ -89,6 +89,22 @@ describe("usage history capture", () => {
     }
   });
 
+  it("books a pane again when its booking failed", async () => {
+    const { deck, lane, report, bookedPanes } = setup();
+    try {
+      deck.setPaneSession("ws-1", "pane-1", { id: "s-1", boundAt: BOUND_AT });
+      recordPaneUsage.mockRejectedValueOnce(new Error("store unreadable"));
+      report("pane-1", 100);
+      await vi.waitFor(() => expect(recordPaneUsage).toHaveBeenCalledTimes(1));
+      await Promise.resolve();
+
+      report("pane-2", 40);
+      expect(bookedPanes()).toEqual(["pane-1", "pane-1", "pane-2"]);
+    } finally {
+      lane.dispose();
+    }
+  });
+
   it("books a pane that had no session yet once a later capture finds one", () => {
     const { deck, lane, report, bookedPanes } = setup();
     try {

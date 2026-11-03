@@ -100,7 +100,7 @@ export function createUsageMaintenanceLane({
   /** Each pane's usage as it was last booked. A pane keeps its object until
    * its usage changes, so a capture books only the panes that did — one IPC
    * each — instead of every pane on every report. */
-  let booked: ReadonlyMap<string, PaneUsage> = new Map();
+  let booked = new Map<string, PaneUsage>();
 
   const captureHistory = () => {
     const current = deck.getSnapshot();
@@ -157,12 +157,15 @@ export function createUsageMaintenanceLane({
               },
             }
           : {}),
-      }).catch((error) =>
+      }).catch((error) => {
+        // Not booked after all: the next capture sends it again, unless the
+        // pane has moved on and its newer reading went out instead.
+        if (booked.get(paneId) === paneUsage) booked.delete(paneId);
         log.warn(
           "web:usage",
           `usage history append failed: ${errorMessage(error)}`,
-        ),
-      );
+        );
+      });
     }
     booked = next;
   };
