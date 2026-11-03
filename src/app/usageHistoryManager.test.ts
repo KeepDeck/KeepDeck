@@ -91,7 +91,30 @@ describe("usageHistoryManager", () => {
       costSource: "provider",
       observation: { tokens: { input: 130, output: 15 }, costUsd: 1.4 },
     });
-    expect(getUsageHistorySnapshot().events).toHaveLength(2);
+    expect(getUsageHistorySnapshot().ledger.events).toHaveLength(2);
+  });
+
+  it("appends in place and mints a new ledger view for every change", async () => {
+    await initUsageHistory();
+    const before = getUsageHistorySnapshot().ledger;
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 100 },
+        reportedAt: NOW,
+      },
+      context,
+      NOW,
+    );
+    const after = getUsageHistorySnapshot().ledger;
+
+    // The array is the same one — an append never copies half a million
+    // events — and the view is what tells a reader the ledger changed.
+    expect(after.events).toBe(before.events);
+    expect(after).not.toBe(before);
+    expect(after.version).toBe(before.version + 1);
+    expect(after.events).toHaveLength(1);
   });
 
   it("does not recount a replayed cumulative snapshot after reload", async () => {
@@ -292,7 +315,7 @@ describe("usageHistoryManager", () => {
 
     await initUsageHistory();
 
-    expect(getUsageHistorySnapshot().events.map((item) => item.eventId)).toEqual([
+    expect(getUsageHistorySnapshot().ledger.events.map((item) => item.eventId)).toEqual([
       "old-older",
       "old-latest",
       "current",
@@ -323,7 +346,7 @@ describe("usageHistoryManager", () => {
 
     // Unreadable-by-age is not damage: the line stays out of the snapshot
     // but rides the rewrite verbatim for the build that wrote it.
-    expect(getUsageHistorySnapshot().events.map((e) => e.eventId)).toEqual([
+    expect(getUsageHistorySnapshot().ledger.events.map((e) => e.eventId)).toEqual([
       "current",
     ]);
     expect(ipc.compactUsageHistory.mock.calls[0][0]).toContain(futureLine);
@@ -368,7 +391,7 @@ describe("usageHistoryManager", () => {
     // Ready, error-free, and missing history — the state that looks healthy
     // from the outside and is not.
     expect(snapshot).toMatchObject({ ready: true, error: null, complete: false });
-    expect(snapshot.events).toHaveLength(1);
+    expect(snapshot.ledger.events).toHaveLength(1);
   });
 
   it("is not complete when the load failed outright", async () => {
@@ -377,7 +400,7 @@ describe("usageHistoryManager", () => {
     expect(getUsageHistorySnapshot()).toMatchObject({
       ready: true,
       complete: false,
-      events: [],
+      ledger: { events: [] },
     });
     expect(getUsageHistorySnapshot().error).toContain("EACCES");
   });
@@ -410,7 +433,7 @@ describe("usageHistoryManager", () => {
     await report({ input: 130, output: 15 });
     const snapshot = getUsageHistorySnapshot();
     expect(snapshot.error).toBeNull();
-    expect(snapshot.events.length).toBeGreaterThan(0);
+    expect(snapshot.ledger.events.length).toBeGreaterThan(0);
     expect(snapshot.complete).toBe(false);
   });
 
@@ -560,8 +583,8 @@ describe("usageHistoryManager", () => {
 
     await initUsageHistory();
 
-    expect(getUsageHistorySnapshot().events).toHaveLength(1);
-    expect(getUsageHistorySnapshot().events[0]).toMatchObject({
+    expect(getUsageHistorySnapshot().ledger.events).toHaveLength(1);
+    expect(getUsageHistorySnapshot().ledger.events[0]).toMatchObject({
       schemaVersion: 2,
       eventId: "legacy",
       tokens: { input: 10 },

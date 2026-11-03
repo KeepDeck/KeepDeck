@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ledgerOf } from "../domain/usage/history/ledger.testSupport";
 import {
   createAchievementNotifier,
   migrateFrom,
@@ -23,7 +24,7 @@ const richEvents = () => [
  * the only state in which the notifier is allowed to delete anything. */
 const ledger = (events: UsageEventV2[]): UsageHistorySnapshot => ({
   ready: true,
-  events,
+  ledger: ledgerOf(events),
   error: null,
   complete: true,
 });
@@ -159,7 +160,7 @@ describe("createAchievementNotifier", () => {
     const { deps, notify, history } = fakeDeps({
       loadNotified: async () => null,
     });
-    history.set({ ready: false, events: [], error: null, complete: false });
+    history.set({ ready: false, ledger: ledgerOf([]), error: null, complete: false });
     const notifier = createAchievementNotifier(deps);
     await settle();
     expect(notify).not.toHaveBeenCalled();
@@ -506,7 +507,7 @@ describe("reconciling a congratulated set against the ledger", () => {
           notified: ["tokens-1000000", "spendUsd-10"],
         }),
     });
-    history.set({ ready: true, events: [], error: "EACCES", complete: false });
+    history.set({ ready: true, ledger: ledgerOf([]), error: "EACCES", complete: false });
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
@@ -529,7 +530,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     history.set({
       ready: true,
       // The remnant this build could read: nowhere near 25M tokens or $100.
-      events: [event({ tokens: { input: 1_100_000 }, costSource: "provider", costUsd: 11 })],
+      ledger: ledgerOf([event({ tokens: { input: 1_100_000 }, costSource: "provider", costUsd: 11 })]),
       error: null,
       complete: false,
     });
@@ -629,7 +630,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     });
     history.set({
       ready: true,
-      events: [event({ costSource: "provider", costUsd: 60 })],
+      ledger: ledgerOf([event({ costSource: "provider", costUsd: 60 })]),
       error: null,
       complete: false,
     });

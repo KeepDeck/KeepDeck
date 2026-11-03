@@ -16,7 +16,7 @@ import {
   type TimelineBucket,
   type UsageTimeline,
 } from "../../domain/usage/daily";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { UsageStatsPeriod } from "../../domain/usage/history/query";
 
 /**
@@ -41,12 +41,13 @@ const TITLES: Record<Granularity, string> = {
 };
 
 export function UsageChart({
-  events,
+  ledger,
   colors,
   period,
   now,
 }: {
-  events: readonly UsageEventV2[];
+  /** The ledger view — derived values are keyed on it, not on its array. */
+  ledger: UsageLedger;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
   period: UsageStatsPeriod;
@@ -54,8 +55,8 @@ export function UsageChart({
   now: number;
 }) {
   const timeline = useMemo(
-    () => usageTimeline(events, period, now),
-    [events, period, now],
+    () => usageTimeline(ledger.events, period, now),
+    [ledger, period, now],
   );
   // Nothing recorded, or recorded only in the leading sliver the full-bucket
   // axis excludes (agents lists the EMITTED buckets' roster) — an all-zero

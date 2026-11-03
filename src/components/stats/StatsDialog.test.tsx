@@ -7,7 +7,7 @@ import type { UsageEventV2 } from "../../domain/usage/history/event";
 const history = vi.hoisted(() => ({
   snapshot: {
     ready: true,
-    events: [] as UsageEventV2[],
+    ledger: { events: [] as readonly UsageEventV2[], version: 0 },
     error: null as string | null,
     complete: true,
   },
@@ -17,7 +17,7 @@ const history = vi.hoisted(() => ({
  * whenever they do not say otherwise. */
 const ledger = (events: UsageEventV2[]) => ({
   ready: true,
-  events,
+  ledger: { events, version: 1 },
   error: null as string | null,
   complete: true,
 });
@@ -249,13 +249,13 @@ describe("UsageStats", () => {
     // Weeks history (review finding; Overview's own suite draws it).
     expect(overview().period).toBe(1);
     expect(overview().stats.eventCount).toBe(0);
-    expect(overview().events).toBe(history.snapshot.events);
+    expect(overview().ledger).toBe(history.snapshot.ledger);
   });
 
   it("keeps Providers alive when the ledger failed to load", () => {
     history.snapshot = {
       ready: true,
-      events: [],
+      ledger: { events: [], version: 0 },
       error: "ledger read failed",
       complete: false,
     };
@@ -295,7 +295,7 @@ describe("UsageStats", () => {
     act(() =>
       root.render(createElement(Host, { initialTab: "achievements" })),
     );
-    expect(achievements().events).toBe(history.snapshot.events);
+    expect(achievements().ledger).toBe(history.snapshot.ledger);
     expect(present(host.querySelector('[role="tab"][aria-selected="true"]'), "the [role=\"tab\"][aria-selected=\"true\"] element").textContent).toBe(
       "Achievements",
     );
@@ -352,7 +352,7 @@ describe("UsageStats", () => {
     // Default 7d is empty: Overview keeps rendering, handed the whole ledger
     // for its Weeks, while the period-LEDGER tabs still gate.
     expect(overview().stats.eventCount).toBe(0);
-    expect(overview().events).toBe(history.snapshot.events);
+    expect(overview().ledger).toBe(history.snapshot.ledger);
     clickTab("Models");
     expect(host.textContent).toContain("No usage recorded");
     clickTab("Overview");

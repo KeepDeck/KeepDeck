@@ -15,7 +15,7 @@ import {
   usageAchievementLadders,
 } from "../../domain/usage/achievements/ladders";
 import { formatUtcDay } from "../../domain/usage";
-import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageLedger } from "../../domain/usage/history/ledger";
 import { Tooltip } from "../../ui/Tooltip";
 import { AchievementEmbers } from "./AchievementEmbers";
 
@@ -23,8 +23,8 @@ import { AchievementEmbers } from "./AchievementEmbers";
  * (one per ladder, with progress) first — they are the pull; the trophy
  * case of earned badges (freshest first); and the locked tail — every tier
  * still ahead, visible but inert until its predecessor is won. */
-export function Achievements({ events }: { events: readonly UsageEventV2[] }) {
-  const ladders = useMemo(() => usageAchievementLadders(events), [events]);
+export function Achievements({ ledger }: { ledger: UsageLedger }) {
+  const ladders = useMemo(() => usageAchievementLadders(ledger.events), [ledger]);
   const inProgress = nextAchievements(ladders);
   const earned = earnedAchievements(ladders);
   const locked = lockedAchievements(ladders);

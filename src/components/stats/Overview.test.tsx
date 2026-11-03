@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
+import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
@@ -55,7 +56,7 @@ describe("Overview", () => {
   const render = async (events: UsageEventV2[], period: UsageStatsPeriod = 7) => {
     const stats = queryUsageStats(events, period, NOW);
     await act(async () => {
-      root.render(createElement(Overview, { events, colors: new Map(), stats, period, now: NOW }));
+      root.render(createElement(Overview, { ledger: ledgerOf(events), colors: new Map(), stats, period, now: NOW }));
     });
   };
 

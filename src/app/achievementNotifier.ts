@@ -139,22 +139,23 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     if (disposed || congratulated === null) return;
     const snapshot = deps.history.getSnapshot();
     if (!snapshot.ready) return;
+    const { events } = snapshot.ledger;
     if (
-      snapshot.events.length < processed ||
-      (processed > 0 && snapshot.events[0] !== firstFolded)
+      events.length < processed ||
+      (processed > 0 && events[0] !== firstFolded)
     ) {
       // The array was replaced wholesale — refold from scratch.
       engine = createAchievementEngine();
       processed = 0;
       firstFolded = undefined;
     }
-    for (let index = processed; index < snapshot.events.length; index += 1) {
-      engine.ingest(snapshot.events[index]);
+    for (let index = processed; index < events.length; index += 1) {
+      engine.ingest(events[index]);
     }
-    if (processed === 0 && snapshot.events.length > 0) {
-      firstFolded = snapshot.events[0];
+    if (processed === 0 && events.length > 0) {
+      firstFolded = events[0];
     }
-    processed = snapshot.events.length;
+    processed = events.length;
 
     const earned = engine.earnedIds();
     let dirty = false;

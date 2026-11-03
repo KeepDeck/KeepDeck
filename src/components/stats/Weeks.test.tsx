@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
+import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -21,7 +22,7 @@ function render(events: readonly UsageEventV2[]) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root.render(createElement(Weeks, { events, colors: new Map(), now: NOW })));
+  act(() => root.render(createElement(Weeks, { ledger: ledgerOf(events), colors: new Map(), now: NOW })));
   return host;
 }
 
@@ -158,11 +159,25 @@ describe("Weeks", () => {
     // an empty one.
     act(() =>
       root.render(
-        createElement(Weeks, { events: twelve.slice(0, 4), colors: new Map(), now: NOW }),
+        createElement(Weeks, { ledger: ledgerOf(twelve.slice(0, 4)), colors: new Map(), now: NOW }),
       ),
     );
     expect(host.querySelectorAll('[role="row"]')).toHaveLength(4);
     expect(host.querySelector(".stats__weeks-pager")).toBeNull();
+  });
+
+  it("re-derives when handed a new view over the same, appended array", () => {
+    // The history manager appends in place; only the view changes.
+    const events: UsageEventV2[] = [
+      event({ occurredAt: NOW - 2 * WEEK_MS, tokens: { input: 100 } }),
+    ];
+    const host = render(events);
+    const before = host.querySelectorAll('[role="row"]').length;
+    events.push(event({ occurredAt: NOW - 5 * WEEK_MS, tokens: { input: 50 } }));
+    act(() =>
+      root.render(createElement(Weeks, { ledger: ledgerOf(events, 2), colors: new Map(), now: NOW })),
+    );
+    expect(host.querySelectorAll('[role="row"]').length).toBeGreaterThan(before);
   });
 
   it("dashes the model of a finished zero week", () => {

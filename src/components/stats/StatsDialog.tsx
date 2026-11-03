@@ -84,7 +84,8 @@ export function UsageStats({
   // One map for every tab, so the chart, the weeks and the provider cards
   // can never disagree on a hue.
   const { agents } = useAgents();
-  const seriesColors = useMemo(() => usageSeriesColors(history.events, agents), [history.events, agents]);
+  const { ledger } = history;
+  const seriesColors = useMemo(() => usageSeriesColors(ledger.events, agents), [ledger, agents]);
   const { accounts } = useUsage();
   const reports = useWindowReports();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
@@ -94,18 +95,18 @@ export function UsageStats({
   // ledger's newest instant floors it, so an append seconds after a tick is
   // inside the queries' `<= now` bound immediately.
   const latest = useMemo(
-    () => latestOccurredAt(history.events),
-    [history.events],
+    () => latestOccurredAt(ledger.events),
+    [ledger],
   );
   const now = useWallClock(latest);
   const stats = useMemo(
-    () => queryUsageStats(history.events, period, now),
-    [history.events, period, now],
+    () => queryUsageStats(ledger.events, period, now),
+    [ledger, period, now],
   );
   const periodless = PERIODLESS_TABS.includes(tab);
   /** A dead ledger blocks only the tabs that read it — Providers renders
    * from the independent account snapshot regardless. */
-  const historyDead = history.error !== null && history.events.length === 0;
+  const historyDead = history.error !== null && ledger.events.length === 0;
 
   /** The tab body, driven entirely by the TAB_SPECS policy table: the two
    * gates read the spec's data field (never a hand-listed tab check), and
@@ -127,7 +128,7 @@ export function UsageStats({
       case "overview":
         return (
           <Overview
-            events={history.events}
+            ledger={ledger}
             colors={seriesColors}
             stats={stats}
             period={period}
@@ -138,7 +139,7 @@ export function UsageStats({
         return (
           <Providers
             accounts={accounts}
-            events={history.events}
+            ledger={ledger}
             colors={seriesColors}
             reportsByKey={reports.byKey}
             now={now}
@@ -151,7 +152,7 @@ export function UsageStats({
           <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />
         );
       case "achievements":
-        return <Achievements events={history.events} />;
+        return <Achievements ledger={ledger} />;
     }
   };
 

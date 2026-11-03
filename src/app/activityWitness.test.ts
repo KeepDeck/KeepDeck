@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ledgerOf } from "../domain/usage/history/ledger.testSupport";
 import type { PaneUsage } from "@keepdeck/plugin-api";
 import type { UsageEventV2 } from "../domain/usage/history/event";
 import {
@@ -29,7 +30,7 @@ const noon = () => {
 
 const ledger = (events: UsageEventV2[]): UsageHistorySnapshot => ({
   ready: true,
-  events,
+  ledger: ledgerOf(events),
   error: null,
   complete: true,
 });
@@ -66,7 +67,7 @@ function fakes(initial: UsageEventV2[] = []) {
       },
     },
     appendEvents(events: UsageEventV2[]) {
-      historySnapshot = ledger([...historySnapshot.events, ...events]);
+      historySnapshot = ledger([...historySnapshot.ledger.events, ...events]);
       for (const listener of [...historyListeners]) listener();
     },
     replaceLedger(events: UsageEventV2[]) {

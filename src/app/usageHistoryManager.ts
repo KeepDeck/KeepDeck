@@ -10,6 +10,7 @@ import {
   type UsageEventV2,
   type UsageObservation,
 } from "../domain/usage/history/event";
+import type { UsageLedger } from "../domain/usage/history/ledger";
 import {
   appendUsageHistory,
   compactUsageHistory,
@@ -89,19 +90,22 @@ function seedsBaseline(
 
 export interface UsageHistorySnapshot {
   ready: boolean;
-  events: readonly UsageEventV2[];
+  /** The events, and the view a derived value is keyed on (see
+   * {@link UsageLedger}): a new view per change of the events, never an
+   * array copy. */
+  ledger: UsageLedger;
   error: string | null;
   /**
-   * Whether `events` is everything the FILE holds. `ready` only means the
+   * Whether `ledger.events` is everything the FILE holds. `ready` only means the
    * load has finished; it says nothing about what the load could read. Two
    * states publish a ready snapshot over history that is still on disk:
    *
-   * - the load FAILED, and `events` is the initial empty array;
+   * - the load FAILED, and `ledger.events` is the initial empty array;
    * - the file holds lines from a NEWER build, preserved on disk and
    *   deliberately kept out of the snapshot (see `init`).
    *
    * Neither is the same question as "is there an error right now". An append
-   * after a failed load succeeds and clears the error while `events` still
+   * after a failed load succeeds and clears the error while `ledger.events` still
    * holds nothing the file contains — which is why this is derived from
    * whether the read happened, not from the current error.
    *
@@ -130,7 +134,10 @@ export interface UsageHistoryIpc {
  * globals): each instance owns its whole state, so tests construct fresh
  * ones — there is no reset hook because there is nothing shared to reset. */
 export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
-  let events: readonly UsageEventV2[] = [];
+  /** Appended in place — see {@link UsageLedger} for why it is never
+   * copied, and why readers key on `ledger` instead. */
+  let events: UsageEventV2[] = [];
+  let ledger: UsageLedger = { events, version: 0 };
   /** Whether the ledger was READ — set once, on the load path, and never
    * cleared. Not the same question as "is there an error right now": an
    * append after a failed load succeeds and clears the error, while `events`
@@ -141,7 +148,7 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   let withheld = 0;
   let snapshot: UsageHistorySnapshot = {
     ready: false,
-    events,
+    ledger,
     error: null,
     complete: false,
   };
@@ -152,10 +159,16 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   const baselines = new Map<string, UsageObservation>();
   const eventIds = new Set<string>();
 
+  /** The events changed (replaced on load, or appended): mint the view a
+   * reader keys its derived values on. */
+  function eventsChanged(): void {
+    ledger = { events, version: ledger.version + 1 };
+  }
+
   function emit(error: string | null = snapshot.error): void {
     snapshot = {
       ready: true,
-      events,
+      ledger,
       error,
       complete: loaded && withheld === 0,
     };
@@ -203,6 +216,7 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
         }
 
         events = decoded;
+        eventsChanged();
         loaded = true;
         withheld = preserved.length;
         if (needsCompact) {
@@ -287,7 +301,8 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
       await ipc.appendUsageHistory([encodeUsageEvent(event)]);
       eventIds.add(event.eventId);
       baselines.set(key, delta.observation);
-      events = [...events, event];
+      events.push(event);
+      eventsChanged();
       emit(null);
     };
     const result = writeQueue.catch(() => {}).then(run);

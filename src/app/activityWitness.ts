@@ -127,7 +127,8 @@ export function createActivityWitness(
 
   function foldHistory(): void {
     if (disposed) return;
-    const { ready, events } = deps.history.getSnapshot();
+    const { ready, ledger } = deps.history.getSnapshot();
+    const { events } = ledger;
     if (!ready) return;
     if (events.length < processed || (processed > 0 && events[0] !== firstFolded)) {
       // Replaced wholesale. Re-admit from the start rather than rebuilding:

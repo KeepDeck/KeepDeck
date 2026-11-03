@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
+import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatMoment, type AccountUsage, type UsageWindow } from "../../domain/usage";
@@ -65,7 +66,7 @@ describe("Providers", () => {
   }) {
     act(() =>
       root.render(
-        createElement(Providers, { accounts, events, colors: new Map(), reportsByKey, now }),
+        createElement(Providers, { accounts, ledger: ledgerOf(events), colors: new Map(), reportsByKey, now }),
       ),
     );
   }
