@@ -26,6 +26,9 @@ const ipc = vi.hoisted(() => ({
     ) => Promise<void>
   >(() => Promise.resolve()),
   unwatchSessionFile: vi.fn(() => Promise.resolve()),
+  retargetSessionFile: vi.fn<(paneId: string, watches: readonly TailWatch[]) => Promise<boolean>>(
+    () => Promise.resolve(true),
+  ),
   findCodexRollout: vi.fn<(sessionId: string) => Promise<string | null>>(() =>
     Promise.resolve("/rollout.jsonl"),
   ),
@@ -34,6 +37,7 @@ const ipc = vi.hoisted(() => ({
 vi.mock("../ipc/usage", () => ({
   watchSessionFile: ipc.watchSessionFile,
   unwatchSessionFile: ipc.unwatchSessionFile,
+  retargetSessionFile: ipc.retargetSessionFile,
   findCodexRollout: ipc.findCodexRollout,
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
@@ -363,9 +367,10 @@ describe("usage tails — a pane whose process has a companion", () => {
   beforeEach(() => {
     ipc.watchSessionFile.mockClear();
     ipc.unwatchSessionFile.mockClear();
+    ipc.retargetSessionFile.mockReset().mockResolvedValue(true);
   });
 
-  it("reads the status records until the pinned process says hello, then only usage", async () => {
+  it("reads the status records until the pinned process says hello, then only usage — without a re-read", async () => {
     const { attribution, lane, bind, settle } = setup(["status-records"]);
     try {
       attribution.recordBinding("pane-1", "100");
@@ -374,14 +379,32 @@ describe("usage tails — a pane whose process has a companion", () => {
 
       attribution.recordCompanion("pane-1", "100");
       await settle();
-      expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
-      expect(lastWatches()).toEqual([USAGE_WATCH]);
-      expect(ipc.watchSessionFile).toHaveBeenCalledTimes(2);
+      // The live tail narrows where it stands; the store is not read again.
+      expect(ipc.retargetSessionFile).toHaveBeenCalledWith("pane-1", [USAGE_WATCH]);
+      expect(ipc.unwatchSessionFile).not.toHaveBeenCalled();
+      expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
 
-      // The same hello again changes nothing: no second re-arm.
+      // The same hello again changes nothing.
       attribution.recordCompanion("pane-1", "100");
       await settle();
+      expect(ipc.retargetSessionFile).toHaveBeenCalledTimes(1);
+      expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
+    } finally {
+      lane.dispose();
+    }
+  });
+
+  it("arms afresh when the tail cannot narrow where it stands", async () => {
+    const { attribution, lane, bind, settle } = setup(["status-records"]);
+    ipc.retargetSessionFile.mockResolvedValue(false);
+    try {
+      attribution.recordBinding("pane-1", "100");
+      await bind();
+      attribution.recordCompanion("pane-1", "100");
+      await settle();
+      expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
       expect(ipc.watchSessionFile).toHaveBeenCalledTimes(2);
+      expect(lastWatches()).toEqual([USAGE_WATCH]);
     } finally {
       lane.dispose();
     }
@@ -429,6 +452,9 @@ describe("usage tails — a pane whose process has a companion", () => {
       expect(lastWatches()).toEqual([USAGE_WATCH]);
       attribution.retire("pane-1");
       await settle();
+      // Re-read, not narrowed: the store's latest turn edges are owed now.
+      expect(ipc.retargetSessionFile).not.toHaveBeenCalled();
+      expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
       expect(lastWatches()).toEqual([USAGE_WATCH, STATUS_WATCH]);
     } finally {
       lane.dispose();

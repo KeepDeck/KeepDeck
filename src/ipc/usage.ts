@@ -62,6 +62,17 @@ export function watchSessionFile(
   });
 }
 
+/** Change what a pane's armed tail carries, from where it stands: the file
+ * is not read again. `false` when there was no tail to change, or the tail
+ * refused because a running total would change — then only a fresh arm,
+ * which re-reads the file, can be right. */
+export function retargetSessionFile(
+  paneId: string,
+  watches: readonly TailWatch[],
+): Promise<boolean> {
+  return invoke<boolean>("usage_retarget_session_file", { paneId, watches });
+}
+
 /** Stop following a pane's session file (pane closed / workspace gone). */
 export function unwatchSessionFile(paneId: string): Promise<void> {
   return invoke("usage_unwatch_session_file", { paneId });
