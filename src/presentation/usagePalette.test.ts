@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { usageEvent as event } from "../domain/usage/history/event.testSupport";
-import { OVERFLOW_COLOR, SPARE_SLOTS, seriesColorFor, usageSeriesColors, type PaletteAgent } from "./usagePalette";
+import {
+  catalogSeriesColors,
+  OVERFLOW_COLOR,
+  SPARE_SLOTS,
+  seriesColorFor,
+  usageSeriesColors,
+  type PaletteAgent,
+} from "./usagePalette";
 
 /** The built-in four, as their plugins declare them. */
 const BUILT_INS: PaletteAgent[] = [
@@ -46,5 +53,23 @@ describe("usageSeriesColors", () => {
 
   it("answers gray for an id the map does not hold", () => {
     expect(seriesColorFor(new Map([["claude", "#3987e5"]]), "toString")).toBe(OVERFLOW_COLOR);
+  });
+});
+
+describe("catalogSeriesColors", () => {
+  it("assigns the catalog exactly the hues the full palette gives it", () => {
+    const catalog = [...BUILT_INS, { id: "zeta" }];
+    const full = usageSeriesColors(ledger("claude", "zeta", "retired"), catalog);
+    const fromCatalog = catalogSeriesColors(catalog);
+    for (const [agent, colour] of fromCatalog) expect(full.get(agent)).toBe(colour);
+  });
+
+  it("answers every lookup the way the full palette does, an agent only the ledger knows included", () => {
+    const catalog = [...BUILT_INS, { id: "zeta" }];
+    const full = usageSeriesColors(ledger("retired", "claude"), catalog);
+    const fromCatalog = catalogSeriesColors(catalog);
+    for (const agent of ["claude", "zeta", "retired", "never-seen"]) {
+      expect(seriesColorFor(fromCatalog, agent)).toBe(seriesColorFor(full, agent));
+    }
   });
 });

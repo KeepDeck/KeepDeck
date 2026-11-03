@@ -25,9 +25,13 @@ export interface PaletteAgent {
   chartColor?: string;
 }
 
-/** Colours for every agent of the ledger and of the catalog. */
-export function usageSeriesColors(
-  events: readonly UsageEventV2[],
+/** Colours for every agent of the catalog. Every hue the palette assigns is
+ * decided here: the ledger can only ADD agents the catalog lacks, and those
+ * are always {@link OVERFLOW_COLOR} — the same answer {@link seriesColorFor}
+ * gives for an id the map does not hold. So a surface that only ever looks
+ * colours up through `seriesColorFor` needs this map alone, and does not
+ * have to read the ledger at all. */
+export function catalogSeriesColors(
   catalog: readonly PaletteAgent[],
 ): Map<string, string> {
   const unhinted = catalog
@@ -38,6 +42,16 @@ export function usageSeriesColors(
   for (const agent of catalog) {
     colors.set(agent.id, agent.chartColor ?? SPARE_SLOTS[unhinted.indexOf(agent.id)] ?? OVERFLOW_COLOR);
   }
+  return colors;
+}
+
+/** Colours for every agent of the ledger and of the catalog — for a surface
+ * that iterates the map itself (a chart legend over every agent ever seen). */
+export function usageSeriesColors(
+  events: readonly UsageEventV2[],
+  catalog: readonly PaletteAgent[],
+): Map<string, string> {
+  const colors = catalogSeriesColors(catalog);
   for (const agent of usageAgents(events)) {
     if (!colors.has(agent)) colors.set(agent, OVERFLOW_COLOR);
   }
