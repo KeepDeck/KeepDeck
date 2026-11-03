@@ -376,6 +376,33 @@ fn an_import_cut_short_leaves_nothing_behind_to_book_twice() {
 }
 
 #[test]
+fn an_import_leaves_no_write_ahead_log_behind() {
+    let t = NOW - 240.0 * HOUR;
+    let lines: Vec<String> = (1..=500u32)
+        .map(|i| {
+            line(
+                t + f64::from(i) * 1_000.0,
+                r#"{"input":1}"#,
+                None,
+                &format!(r#"{{"tokens":{{"input":{}}}}}"#, 10_000 + i),
+            )
+        })
+        .collect();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("usage-history.jsonl");
+    std::fs::write(&file, lines.join("\n")).unwrap();
+    let path = dir.path().join("usage.sqlite");
+    let mut store = UsageStore::open(&path).unwrap();
+    import_jsonl(&mut store, &file, NOW).unwrap();
+    let log = std::fs::metadata(dir.path().join("usage.sqlite-wal")).unwrap();
+    assert_eq!(
+        log.len(),
+        0,
+        "everything the import wrote is in the database"
+    );
+}
+
+#[test]
 fn the_import_replays_the_old_ledger_and_corrects_what_it_got_wrong() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("usage-history.jsonl");

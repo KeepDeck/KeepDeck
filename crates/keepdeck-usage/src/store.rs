@@ -271,11 +271,18 @@ impl UsageStore {
     }
 
     /// Prune, then give the freed pages back to the file system — after an
-    /// import that wrote half a million raw rows only to fold them.
+    /// import that wrote half a million raw rows only to fold them. The
+    /// vacuum rewrites the whole database through the write-ahead log, and a
+    /// log is reused but never shrunk while the store is open: emptied
+    /// after it, or the import's 176 MB of it sat on disk for the whole run
+    /// though every page was already in the database.
     pub(crate) fn compact(&self, now: f64) -> Result<(), String> {
         self.prune(now)?;
         self.conn
             .execute_batch("VACUUM;")
+            .map_err(|e| e.to_string())?;
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
             .map_err(|e| e.to_string())
     }
 

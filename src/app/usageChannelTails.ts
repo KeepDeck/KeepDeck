@@ -65,6 +65,12 @@ export function createUsageTailsLane({
     { path: string; token: string; agentId: string; covered: boolean }
   >();
 
+  /** Each pane's arm still on its way. The core registers a tail only once
+   * its catch-up has drained the store, so a narrowing that lands in the
+   * meantime finds nothing to retarget — it waits for this instead of
+   * arming, and draining the store, a second time. */
+  const arming = new Map<string, Promise<void>>();
+
   /** Arm one pane's follower; `false` when there is nothing left to read. */
   const arm = (paneId: string, path: string, token: string, agentId: string) => {
     const watches = watchesFor(paneId, agentId);
@@ -74,7 +80,7 @@ export function createUsageTailsLane({
       agentId,
       covered: statusCovered(paneId, agentId),
     });
-    return watchSessionFile(
+    const pending = watchSessionFile(
       paneId,
       path,
       token,
@@ -82,6 +88,12 @@ export function createUsageTailsLane({
       watches,
       declarations.current().get(agentId)?.tail?.siblings?.(path) ?? null,
     );
+    arming.set(paneId, pending);
+    const settled = () => {
+      if (arming.get(paneId) === pending) arming.delete(paneId);
+    };
+    pending.then(settled, settled);
+    return pending;
   };
 
   const settleArm = (paneId: string) => {
@@ -259,6 +271,8 @@ export function createUsageTailsLane({
    * is armed afresh. */
   const narrow = async (paneId: string, armed: { path: string; token: string; agentId: string }) => {
     armedWith.set(paneId, { ...armed, covered: true });
+    // Its outcome is the arm's own path's to handle; here it only has to end.
+    await arming.get(paneId)?.catch(() => {});
     if (await retargetSessionFile(paneId, watchesFor(paneId, armed.agentId))) return;
     if (disposed || !tailed.has(paneId)) return;
     await rearm(paneId, armed);
