@@ -1,4 +1,4 @@
-import { errorMessage, type TailWatch, type UsageNormalizer } from "@keepdeck/plugin-api";
+import { errorMessage, type PaneUsage, type TailWatch, type UsageNormalizer } from "@keepdeck/plugin-api";
 import { paneWorktree } from "../domain/deck";
 import { log } from "../ipc/log";
 import { readStoreCold } from "../ipc/usage";
@@ -97,9 +97,19 @@ export function createUsageMaintenanceLane({
     attribution.forget(live);
   };
 
+  /** Each pane's usage as it was last booked. A pane keeps its object until
+   * its usage changes, so a capture books only the panes that did — one IPC
+   * each — instead of every pane on every report. */
+  let booked: ReadonlyMap<string, PaneUsage> = new Map();
+
   const captureHistory = () => {
     const current = deck.getSnapshot();
+    const next = new Map<string, PaneUsage>();
     for (const [paneId, paneUsage] of usage.getSnapshot().panes) {
+      if (booked.get(paneId) === paneUsage) {
+        next.set(paneId, paneUsage);
+        continue;
+      }
       const workspace = current.workspaces.find((candidate) =>
         candidate.panes.some((pane) => pane.id === paneId),
       );
@@ -127,6 +137,9 @@ export function createUsageMaintenanceLane({
           : "unknown";
       const index = workspace.panes.indexOf(pane);
       const worktree = paneWorktree(workspace, pane);
+      // Booked once it is sent: a pane that could not be booked yet (no
+      // session known) is tried again on the next capture.
+      next.set(paneId, paneUsage);
       void recordPaneUsage(paneUsage, {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
@@ -151,6 +164,7 @@ export function createUsageMaintenanceLane({
         ),
       );
     }
+    booked = next;
   };
 
   const unsubscribeDeck = deck.subscribe(retainLivePanes);

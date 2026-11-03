@@ -1,5 +1,5 @@
 import { isObjectLike } from "../json";
-import { reportedLimits, type AccountUsage, type ApiActivity, type NormalizedUsage, type PaneUsage, type UsageWindow } from "@keepdeck/plugin-api";
+import { isJsonRecord, reportedLimits, type AccountUsage, type ApiActivity, type NormalizedUsage, type PaneUsage, type UsageWindow } from "@keepdeck/plugin-api";
 
 /**
  * Usage domain — the host-side rules over the usage contract. The TYPES and
@@ -150,6 +150,24 @@ export function mergePaneUsage(
     return current;
   }
   return mergePaneFields(current, incoming);
+}
+
+/** Whether two readings of a pane say the same thing, field by field. A
+ * report that only restates what the pane already holds changes nothing,
+ * and nothing downstream — the chips, the history capture — should hear of
+ * it. An absent field and one set to undefined are the same absence. */
+export function samePaneUsage(left: PaneUsage, right: PaneUsage): boolean {
+  return sameValue(left, right);
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!isJsonRecord(left) || !isJsonRecord(right)) return false;
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) {
+    if (!sameValue(left[key], right[key])) return false;
+  }
+  return true;
 }
 
 /** Fill gaps from a replay without allowing stale disk state to overwrite a

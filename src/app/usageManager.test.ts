@@ -85,6 +85,21 @@ describe("report", () => {
     expect(usage.getSnapshot()).toBe(before);
   });
 
+  it("tells nobody of a report that restates the pane, and keeps its object", () => {
+    fake({
+      account: null,
+      pane: { agent: "fake", model: "m-1", context: { usedTokens: 42 }, reportedAt: 1 },
+    });
+    usage.report("pane-1", { agent: "fake" });
+    const before = usage.getSnapshot();
+    const listener = vi.fn();
+    const unsubscribe = usage.subscribe(listener);
+    usage.report("pane-1", { agent: "fake" });
+    expect(listener).not.toHaveBeenCalled();
+    expect(usage.getSnapshot()).toBe(before);
+    unsubscribe();
+  });
+
   it("notifies subscribers once per applied report", () => {
     const dispose = fake(reported(1));
     const listener = vi.fn();
