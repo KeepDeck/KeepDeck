@@ -52,7 +52,7 @@ describe("normalizeClaudeStatusline", () => {
     expect(result?.pane).toEqual({
       agent: "claude",
       sessionId: "abc-123",
-      model: "Opus",
+      model: "claude-opus-4-8",
       context: { usedPct: 8, windowTokens: 200_000 },
       costUsd: 0.01234,
       lastTurnTokens: {
@@ -114,40 +114,63 @@ describe("normalizeClaudeStatusline", () => {
     });
   });
 
-  it("maps transcript-tail cumulatives into durable token totals", () => {
-    const result = normalizeClaudeStatusline(
-      {
-        agent: "claude",
-        event: {
-          type: CARRIED_RECORD,
-          lane: "usage",
-          // The ONLY thing a transcript record carries out: the total the
-          // host folded from the sum this plugin declared. `keep` is empty,
-          // so nothing of the conversation travels beside it.
-          record: {
-            sessionTotals: {
-              input_tokens: 10,
-              output_tokens: 20,
-              cache_read_input_tokens: 300,
-              cache_creation_input_tokens: 40,
-            },
+  it("books the session under the model's id, its context suffix dropped", () => {
+    const model = (id: unknown, name: unknown) =>
+      normalizeClaudeStatusline(report({ ...FULL, model: { id, display_name: name } }), AT)?.pane?.model;
+    // The id the transcript names the same model by.
+    expect(model("claude-opus-5-5[1m]", "Opus 5.5 (1M context)")).toBe("claude-opus-5-5");
+    expect(model("claude-sonnet-5-5", "Sonnet 5.5")).toBe("claude-sonnet-5-5");
+    // With no id to go by, the name is all there is.
+    expect(model(undefined, "Opus 5.5")).toBe("Opus 5.5");
+  });
+
+  it("maps transcript-tail cumulatives into each model's tokens and calls", () => {
+    const tailed = (sessionTotals: unknown) =>
+      normalizeClaudeStatusline(
+        {
+          agent: "claude",
+          event: {
+            type: CARRIED_RECORD,
+            lane: "usage",
+            // The ONLY thing a transcript record carries out: the totals the
+            // host folded from the sum this plugin declared. `keep` is empty,
+            // so nothing of the conversation travels beside them.
+            record: { sessionTotals },
           },
         },
-      },
-      AT,
-    );
-    expect(result).toEqual({
+        AT,
+      );
+    expect(
+      tailed({
+        "claude-opus-5-5": {
+          input_tokens: 10,
+          output_tokens: 20,
+          cache_read_input_tokens: 300,
+          cache_creation_input_tokens: 40,
+          messages: 3,
+        },
+        "claude-haiku-5": { input_tokens: 5, output_tokens: 1, messages: 2 },
+        // Messages claude wrote itself: no model answered them.
+        "<synthetic>": { input_tokens: 0, output_tokens: 0, messages: 4 },
+      }),
+    ).toEqual({
       account: null,
       pane: {
         agent: "claude",
-        totalTokens: {
-          input: 10,
-          output: 20,
-          cacheRead: 300,
-          cacheWrite: 40,
+        byModel: {
+          "claude-opus-5-5": {
+            totalTokens: { input: 10, output: 20, cacheRead: 300, cacheWrite: 40 },
+            calls: 3,
+          },
+          "claude-haiku-5": { totalTokens: { input: 5, output: 1 }, calls: 2 },
         },
         reportedAt: AT,
       },
+    });
+    // Nothing a model answered yet: no claim about the session at all.
+    expect(tailed({ "<synthetic>": { input_tokens: 0, messages: 1 } })).toEqual({
+      account: null,
+      pane: null,
     });
   });
 
@@ -168,6 +191,12 @@ describe("normalizeClaudeStatusline", () => {
     );
     expect(watch).toBeDefined();
     expect(watchProject(present(watch, "the watcher"), row)).toEqual({});
+    // Totalled per model, each message counted once.
+    expect(watch?.sum).toMatchObject({
+      dedupBy: "message.id",
+      groupBy: "message.model",
+      countAs: "messages",
+    });
     // And a row with no counts at all is not carried.
     expect(
       claudeUsageWatches.some((candidate) =>

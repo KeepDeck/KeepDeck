@@ -34,7 +34,7 @@ fn with_store<T>(
     let mut guard = state.0.lock().map_err(|_| "usage ledger lock poisoned")?;
     if guard.is_none() {
         let home = crate::paths::keepdeck_home().ok_or("no home directory for app state")?;
-        let mut store = UsageStore::open(&home.join(STORE_FILE))?;
+        let mut store = UsageStore::open(&home.join(STORE_FILE), now_ms())?;
         let imported = import_jsonl(&mut store, &home.join(OLD_LEDGER_FILE), now_ms())?;
         if let Some(kept) = &imported.kept_as {
             log::info!(
@@ -65,13 +65,13 @@ pub struct RecordEntry {
     captured_at: f64,
 }
 
-/// Book one pane report: the row it adds to the ledger, or null when there
+/// Book one pane report: the rows it adds to the ledger, none when there
 /// was nothing to book.
 #[tauri::command(async)]
 pub fn usage_record(
     state: State<'_, UsageLedgerState>,
     entry: RecordEntry,
-) -> Result<Option<LedgerRow>, String> {
+) -> Result<Vec<LedgerRow>, String> {
     with_store(&state, |store| {
         store.record(&entry.report, &entry.context, entry.captured_at)
     })
@@ -85,7 +85,8 @@ mod tests {
     fn a_record_entry_reads_the_webviews_camel_case_wire() {
         let entry: RecordEntry = serde_json::from_str(
             r#"{"report":{"agent":"claude","model":"Opus","totalTokens":{"input":5,"cacheRead":2},
-                "costUsd":0.1,"reportedAt":10,"sequence":3},
+                "costUsd":0.1,"byModel":{"claude-opus-5-5":{"totalTokens":{"input":5},"calls":2}},
+                "reportedAt":10,"sequence":3},
                "context":{"workspaceId":"ws-1","workspaceName":"Deck","workspaceCwd":"/r",
                 "paneId":"p","paneName":"n","sessionId":"s","origin":"inherited",
                 "worktree":{"path":"/w","branch":"b","repo":"/r"}},
@@ -93,6 +94,9 @@ mod tests {
         )
         .expect("the wire the webview sends");
         assert_eq!(entry.report.total_tokens.unwrap().cache_read, Some(2.0));
+        let by_model = entry.report.by_model.expect("the per-model counts");
+        assert_eq!(by_model["claude-opus-5-5"].calls, Some(2.0));
+        assert_eq!(by_model["claude-opus-5-5"].total_tokens.input, Some(5.0));
         assert_eq!(
             entry.context.origin,
             keepdeck_usage::model::SessionOrigin::Inherited

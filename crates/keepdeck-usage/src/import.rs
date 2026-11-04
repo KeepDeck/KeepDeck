@@ -5,8 +5,7 @@
 //! where it stood before the line it first appears in. So the import books exactly
 //! what the file booked — except where the file was wrong, which the record
 //! path now corrects the same way it does live: a provider's recount dip is
-//! no longer counted as a reset, and a call reported in two halves becomes
-//! one event.
+//! no longer counted as a reset.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -72,7 +71,11 @@ fn base_before(line: &Line) -> Observation {
         .observation
         .cost_usd
         .map(|seen| (seen - line.cost_usd.unwrap_or(0.0)).max(0.0));
-    Observation { tokens, cost_usd }
+    Observation {
+        tokens,
+        cost_usd,
+        ..Observation::default()
+    }
 }
 
 /// Import `path` into `store` unless it was already done, then keep the
@@ -129,6 +132,7 @@ pub fn import_jsonl(store: &mut UsageStore, path: &Path, now: f64) -> Result<Imp
             model: line.model.clone(),
             total_tokens: Some(line.observation.tokens.clone()),
             cost_usd: line.observation.cost_usd,
+            by_model: None,
             reported_at: line.occurred_at,
             sequence: None,
         };

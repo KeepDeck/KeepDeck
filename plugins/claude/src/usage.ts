@@ -9,6 +9,7 @@ import {
   reportedLimits,
   type AccountUsage,
   type ApiActivity,
+  type ModelUsage,
   type PaneUsage,
   type TailWatch,
   type UsageNormalizer,
@@ -51,6 +52,11 @@ export function claudeSubagentDirectory(store: string): string {
  * message as several rows — one per content or tool block — each restating
  * the message's counts so far. Added plainly, a turn would cost as many
  * times as it had blocks; held at each bucket's maximum, it costs once.
+ *
+ * `groupBy` keeps one total per model: a subagent may run on another model
+ * than the session's, and its rows say so. `countAs` counts each total's
+ * messages — one assistant message is one call to its model, the
+ * subagents' included.
  */
 export const claudeUsageWatches: readonly TailWatch[] = [
   {
@@ -69,10 +75,51 @@ export const claudeUsageWatches: readonly TailWatch[] = [
         cache_creation_input_tokens: "message.usage.cache_creation_input_tokens",
       },
       dedupBy: "message.id",
+      groupBy: "message.model",
+      countAs: "messages",
       stampAs: "sessionTotals",
     },
   },
 ];
+
+/** The model claude names on a message it wrote itself — an API error, an
+ * interruption — rather than one a model answered: no call was made. */
+const SYNTHETIC_MODEL = "<synthetic>";
+
+/** The transcript totals, per model, as the deck books them. */
+function transcriptModels(totals: unknown): Record<string, ModelUsage> | undefined {
+  if (!isJsonRecord(totals)) return undefined;
+  const byModel: Record<string, ModelUsage> = {};
+  for (const [model, counts] of Object.entries(totals)) {
+    if (model === SYNTHETIC_MODEL || !isJsonRecord(counts)) continue;
+    const calls = asFiniteNumber(counts.messages);
+    const totalTokens = collectTokenCounts({
+      input: counts.input_tokens,
+      output: counts.output_tokens,
+      cacheRead: counts.cache_read_input_tokens,
+      cacheWrite: counts.cache_creation_input_tokens,
+      reasoning: undefined,
+      total: undefined,
+    });
+    if (calls === undefined || !totalTokens) continue;
+    byModel[model] = { totalTokens, calls };
+  }
+  return Object.keys(byModel).length > 0 ? byModel : undefined;
+}
+
+/**
+ * The model the statusline names, by the id a transcript names it by.
+ *
+ * The statusline gives the model claude was asked for: `claude-opus-5-5`, or
+ * `claude-opus-5-5[1m]` for its one-million-token context. The transcript
+ * gives the model that answered, with no such suffix. Booked under one id,
+ * a session's price and the tokens that cost it fall under the same model;
+ * the display name ("Opus 5.5 (1M context)") is no key a catalogue of
+ * models can match.
+ */
+function claudeModelId(id: string): string {
+  return id.replace(/\[[^\]]*\]$/, "");
+}
 
 const WINDOW_MINUTES: Record<string, number> = {
   five_hour: 300,
@@ -109,25 +156,13 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   if (!isJsonRecord(payload)) return null;
   const tailed = carriedUsageRecord(payload);
   if (tailed) {
-    const totals = isJsonRecord(tailed.sessionTotals)
-      ? tailed.sessionTotals
-      : undefined;
-    const totalTokens = totals
-      ? collectTokenCounts({
-          input: totals.input_tokens,
-          output: totals.output_tokens,
-          cacheRead: totals.cache_read_input_tokens,
-          cacheWrite: totals.cache_creation_input_tokens,
-          reasoning: undefined,
-          total: undefined,
-        })
-      : undefined;
-    if (!totalTokens) return { account: null, pane: null };
+    const byModel = transcriptModels(tailed.sessionTotals);
+    if (!byModel) return { account: null, pane: null };
     return {
       account: null,
       pane: {
         agent: "claude",
-        totalTokens,
+        byModel,
         reportedAt: at,
       },
     };
@@ -161,9 +196,12 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   const sessionId = asNonEmptyString(line.session_id);
 
   const model = isJsonRecord(line.model) ? line.model : undefined;
-  const modelName = model
-    ? (asNonEmptyString(model.display_name) ?? asNonEmptyString(model.id))
-    : undefined;
+  const modelId = model ? asNonEmptyString(model.id) : undefined;
+  const modelName = modelId
+    ? claudeModelId(modelId)
+    : model
+      ? asNonEmptyString(model.display_name)
+      : undefined;
   const context = isJsonRecord(line.context_window)
     ? line.context_window
     : undefined;

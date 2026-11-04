@@ -27,6 +27,7 @@ const ledger = (events: UsageRow[]): UsageHistorySnapshot => ({
   ledger: ledgerOf(events),
   error: null,
   complete: true,
+  perModelSince: null,
 });
 
 /** A controllable in-memory history the notifier subscribes to. */
@@ -160,7 +161,7 @@ describe("createAchievementNotifier", () => {
     const { deps, notify, history } = fakeDeps({
       loadNotified: async () => null,
     });
-    history.set({ ready: false, ledger: ledgerOf([]), error: null, complete: false });
+    history.set({ ready: false, ledger: ledgerOf([]), error: null, complete: false, perModelSince: null });
     const notifier = createAchievementNotifier(deps);
     await settle();
     expect(notify).not.toHaveBeenCalled();
@@ -507,7 +508,7 @@ describe("reconciling a congratulated set against the ledger", () => {
           notified: ["tokens-1000000", "spendUsd-10"],
         }),
     });
-    history.set({ ready: true, ledger: ledgerOf([]), error: "EACCES", complete: false });
+    history.set({ ready: true, ledger: ledgerOf([]), error: "EACCES", complete: false, perModelSince: null });
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
@@ -533,6 +534,7 @@ describe("reconciling a congratulated set against the ledger", () => {
       ledger: ledgerOf([event({ tokens: { input: 1_100_000 }, costSource: "provider", costUsd: 11 })]),
       error: null,
       complete: false,
+      perModelSince: null,
     });
     const notifier = createAchievementNotifier(deps);
     await settle();
@@ -633,6 +635,7 @@ describe("reconciling a congratulated set against the ledger", () => {
       ledger: ledgerOf([event({ costSource: "provider", costUsd: 60 })]),
       error: null,
       complete: false,
+      perModelSince: null,
     });
     const notifier = createAchievementNotifier(deps);
     await settle();

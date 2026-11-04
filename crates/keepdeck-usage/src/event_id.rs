@@ -35,6 +35,7 @@ mod tests {
                 ..TokenCounts::default()
             },
             cost_usd: None,
+            ..Observation::default()
         }
     }
 

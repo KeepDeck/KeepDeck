@@ -10,6 +10,7 @@ const history = vi.hoisted(() => ({
     ledger: { events: [] as readonly UsageRow[], version: 0 },
     error: null as string | null,
     complete: true,
+    perModelSince: null as number | null,
   },
 }));
 
@@ -20,6 +21,7 @@ const ledger = (events: UsageRow[]) => ({
   ledger: { events, version: 1 },
   error: null as string | null,
   complete: true,
+  perModelSince: null as number | null,
 });
 vi.mock("../../app/useUsageHistorySnapshot", () => ({
   useUsageHistorySnapshot: () => history.snapshot,
@@ -258,6 +260,7 @@ describe("UsageStats", () => {
       ledger: { events: [], version: 0 },
       error: "ledger read failed",
       complete: false,
+      perModelSince: null as number | null,
     };
     const account: AccountUsage = {
       kind: "reported",
@@ -360,6 +363,24 @@ describe("UsageStats", () => {
     clickPeriod("All");
     expect(overview().period).toBe("all");
     expect(overview().stats.totals.totalTokens).toBe(1_600);
+  });
+
+  it("notes the switch to model ids under Models while the period reaches past it", () => {
+    const since = NOW - 2 * 24 * 60 * 60 * 1_000;
+    history.snapshot = {
+      ...ledger([
+        usageEvent({ occurredAt: since - 60_000 }),
+        usageEvent({ eventId: "e-new", occurredAt: NOW - 60_000 }),
+      ]),
+      perModelSince: since,
+    };
+    act(() => root.render(createElement(Host)));
+    clickTab("Models");
+    expect(host.textContent).toContain("listed by model id");
+
+    // A day back the period holds only rows booked per model.
+    clickPeriod("24h");
+    expect(host.textContent).not.toContain("listed by model id");
   });
 
   it("hands each tab the same period the switcher is showing", () => {

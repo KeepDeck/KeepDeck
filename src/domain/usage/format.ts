@@ -329,6 +329,23 @@ export function costCoverage(costSessions: number, sessionCount: number): string
   return `Provider estimates available for ${costSessions} of ${sessionCount} sessions; unreported sessions are excluded.`;
 }
 
+/** The note under the Models list when the period reaches back past the
+ * ledger's switch to booking per model, or null when it does not: rows on
+ * either side of it name models differently, so one model can be listed
+ * twice. */
+export function perModelNote(
+  perModelSince: number | null,
+  firstOccurredAt: number | null,
+): string | null {
+  if (perModelSince === null || firstOccurredAt === null) return null;
+  if (firstOccurredAt >= perModelSince) return null;
+  return (
+    `Since ${formatUtcDay(perModelSince, true)}, an agent that reports each model's own ` +
+    "tokens is listed by model id, and a session's cost under the model it ran on. " +
+    "Earlier usage keeps the model names shown at the time."
+  );
+}
+
 /** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,
  * cents while they matter, whole grouped dollars once they don't. `approx`
  * prefixes "≈" — provider costs are estimates, not invoices. The display

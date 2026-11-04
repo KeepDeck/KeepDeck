@@ -31,13 +31,16 @@ export interface UsageHistorySnapshot {
    * see what they did".
    */
   complete: boolean;
+  /** When the ledger began booking per model (see {@link StoredUsageLedger});
+   * null until a load said. */
+  perModelSince: number | null;
 }
 
 /** The ledger the manager reads and books through — injected, so tests
  * build an instance over fakes instead of mocking modules. */
 export interface UsageHistoryIpc {
   loadUsageLedger(): Promise<StoredUsageLedger>;
-  recordUsage(entry: UsageRecordEntry): Promise<UsageRow | null>;
+  recordUsage(entry: UsageRecordEntry): Promise<UsageRow[]>;
 }
 
 /** How many recorded events the page appends to its copy before it reloads
@@ -62,12 +65,14 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   /** Whether a load ever succeeded, and what it said about completeness. */
   let loaded = false;
   let storeComplete = false;
+  let perModelSince: number | null = null;
   let appendedSinceLoad = 0;
   let snapshot: UsageHistorySnapshot = {
     ready: false,
     ledger,
     error: null,
     complete: false,
+    perModelSince,
   };
   let initialization: Promise<void> | null = null;
   /** Loads and records, in order: a reload replaces the rows, and an
@@ -87,6 +92,7 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
       ledger,
       error,
       complete: loaded && storeComplete,
+      perModelSince,
     };
     for (const listener of [...listeners]) listener();
   }
@@ -103,6 +109,7 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
       events = stored.rows;
       loaded = true;
       storeComplete = stored.complete;
+      perModelSince = stored.perModelSince;
       appendedSinceLoad = 0;
       eventsChanged();
       emit(null);
@@ -126,21 +133,22 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   ): Promise<void> {
     void init();
     return enqueue(async () => {
-      const row = await ipc.recordUsage({
+      const rows = await ipc.recordUsage({
         report: {
           agent: usage.agent,
           model: usage.model,
           totalTokens: usage.totalTokens,
           costUsd: usage.costUsd,
+          byModel: usage.byModel,
           reportedAt: usage.reportedAt,
           sequence: usage.sequence,
         },
         context,
         capturedAt,
       });
-      if (row === null) return;
-      events.push(row);
-      appendedSinceLoad += 1;
+      if (rows.length === 0) return;
+      events.push(...rows);
+      appendedSinceLoad += rows.length;
       eventsChanged();
       emit(null);
       if (appendedSinceLoad >= RELOAD_AFTER_APPENDS) await load();

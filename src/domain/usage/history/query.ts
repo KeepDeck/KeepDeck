@@ -41,6 +41,8 @@ export interface UsageStatsRow extends UsageStatsTotals {
 export interface UsageStats {
   period: UsageStatsPeriod;
   eventCount: number;
+  /** The period's earliest row, null when it has none. */
+  firstOccurredAt: number | null;
   sessionCount: number;
   /** Sessions with at least one provider-reported cost event — the cost
    * coverage the disclaimer under the cards is phrased from. */
@@ -106,6 +108,10 @@ export function queryUsageStats(
   return {
     period,
     eventCount: selected.reduce((sum, row) => sum + row.count, 0),
+    firstOccurredAt: selected.reduce<number | null>(
+      (first, row) => (first === null ? row.occurredAt : Math.min(first, row.occurredAt)),
+      null,
+    ),
     sessionCount: sessionRows.size,
     costSessionCount: [...sessionRows.values()].filter(
       (row) => row.costEvents > 0,

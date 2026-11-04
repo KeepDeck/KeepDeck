@@ -218,5 +218,17 @@ does not use it.
   and last-turn tokens, both on events and on a timer.
 - Session token totals come from the transcript (assistant records,
   de-duplicated by message id), including subagent transcripts in
-  `<transcript>/subagents/`.
-- Claude reports cost itself, so KeepDeck shows it.
+  `<transcript>/subagents/`. They are kept per model (`message.model`),
+  with a count of messages: one assistant message is one call, a
+  subagent's included. Messages claude writes itself (model `<synthetic>`:
+  an API error, an interruption) are no call and are left out.
+- Usage is booked under the model's id: the transcript's, and the
+  statusline's `model.id` without its context suffix (`[1m]`), so a
+  session's price and the tokens that cost it fall under one model. Before
+  plugin API 80 the ledger booked under the statusline's display name
+  ("Opus 5.5 (1M context)"), so older history is listed under those names,
+  and its calls were counted per report rather than per message.
+- Claude reports cost itself, so KeepDeck shows it. The cost is the
+  session's running total and names no model; each rise is booked under
+  the model the statusline names at the time, a subagent's share included.
+  Cost per model is therefore approximate; tokens per model are exact.

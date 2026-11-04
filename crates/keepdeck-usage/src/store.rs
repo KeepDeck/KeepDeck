@@ -17,7 +17,7 @@ use crate::model::{
 };
 
 /// The schema this build writes. Raised by a migration, never by a wipe.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// The width of a compacted bucket. A quarter hour divides every hour and
 /// day boundary, and every real timezone offset is a multiple of it, so a
@@ -29,12 +29,6 @@ pub const BUCKET_MS: f64 = 15.0 * 60.0 * 1000.0;
 /// is five hours, and its gauge sums usage from an arbitrary minute — raw
 /// events keep that edge exact. Older history is served as buckets.
 pub const RAW_WINDOW_MS: f64 = 6.0 * 60.0 * 60.0 * 1000.0;
-
-/// How close a priced-only report and a counted-only report of the same
-/// session must be to be one provider call. Claude reports a call's cost
-/// (statusline) and its tokens (transcript) separately, about 1.5 s apart at
-/// the median; as two events every call was booked twice.
-pub const PAIR_WINDOW_MS: f64 = 3_000.0;
 
 /// An observation instant must be positive and can never postdate its
 /// capture; anything else is the capture instant.
@@ -68,6 +62,10 @@ pub struct Ledger {
     /// Whether the store holds everything the ledger ever recorded: false
     /// when an import met lines of a newer schema and left them out.
     pub complete: bool,
+    /// When this store began booking reports per model: when this build
+    /// created it, or migrated an older build's. Rows from before it counted
+    /// every session as one sum, under the model name its agent showed.
+    pub per_model_since: Option<f64>,
 }
 
 pub struct UsageStore {
@@ -78,22 +76,22 @@ pub struct UsageStore {
 struct Contribution<'a> {
     tokens: &'a TokenCounts,
     cost_usd: Option<f64>,
-    count: i64,
     calls: i64,
     occurred_at: f64,
 }
 
 impl UsageStore {
-    /// Open (or create) the store at `path`.
-    pub fn open(path: &Path) -> Result<Self, String> {
+    /// Open (or create) the store at `path`. `now` is when a store this
+    /// build creates or migrates began booking per model.
+    pub fn open(path: &Path, now: f64) -> Result<Self, String> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        Self::init(conn)
+        Self::init(conn, now)
     }
 
-    fn init(conn: Connection) -> Result<Self, String> {
+    fn init(conn: Connection, now: f64) -> Result<Self, String> {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
@@ -104,8 +102,11 @@ impl UsageStore {
         }
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
             .map_err(|e| e.to_string())?;
-        if version == 0 {
-            conn.execute_batch(&format!(
+        // Each schema is reached from the one before it, a new store
+        // included: there is one way to every column, and it is the
+        // migration a store of an older build takes.
+        if version < 1 {
+            conn.execute_batch(
                 "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                  CREATE TABLE session (
                      id INTEGER PRIMARY KEY,
@@ -140,9 +141,23 @@ impl UsageStore {
                      place TEXT NOT NULL,
                      PRIMARY KEY (session, start, model)
                  );
-                 PRAGMA user_version = {SCHEMA_VERSION};"
-            ))
+                 PRAGMA user_version = 1;",
+            )
             .map_err(|e| e.to_string())?;
+        }
+        if version < 2 {
+            // An event's provider calls. Every event an older build booked
+            // was one call: it paired a call's two reported halves into one
+            // event, and booked each report as a call.
+            conn.execute_batch("ALTER TABLE event ADD COLUMN calls INTEGER NOT NULL DEFAULT 1;")
+                .map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+                params![PER_MODEL_SINCE, now.to_string()],
+            )
+            .map_err(|e| e.to_string())?;
+            conn.execute_batch("PRAGMA user_version = 2;")
+                .map_err(|e| e.to_string())?;
         }
         Ok(Self { conn })
     }
@@ -159,27 +174,26 @@ impl UsageStore {
             .map_err(|e| e.to_string())
     }
 
-    /// Book one cumulative report from a pane, and answer the row the
-    /// booking adds to the ledger — `None` when there was nothing to book
-    /// (no movement, a duplicate, or a base being set).
+    /// Book one cumulative report from a pane, and answer the rows the
+    /// booking adds to the ledger — none when there was nothing to book (no
+    /// movement, a duplicate, or a base being set). See [`bookings`] for how
+    /// many one report makes.
     ///
-    /// A report that completes a call reported in halves adds a row with no
-    /// count and no calls: the call is already in the ledger as its first
-    /// half, and the row brings only what that half lacked. So the rows a
-    /// reader was served, plus every row booked since, always sum to the
-    /// ledger the store would serve now — a reader only ever appends, and
-    /// never rewrites a row it has already folded.
+    /// A booking only ever adds rows, so the rows a reader was served, plus
+    /// every row booked since, always sum to the ledger the store would
+    /// serve now — a reader only ever appends, and never rewrites a row it
+    /// has already folded.
     pub fn record(
         &mut self,
         report: &UsageReport,
         context: &CaptureContext,
         captured_at: f64,
-    ) -> Result<Option<LedgerRow>, String> {
+    ) -> Result<Vec<LedgerRow>, String> {
         let complete = self.complete()?;
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
-        let row = record_in(&tx, report, context, captured_at, complete)?;
+        let rows = record_in(&tx, report, context, captured_at, complete)?;
         tx.commit().map_err(|e| e.to_string())?;
-        Ok(row)
+        Ok(rows)
     }
 
     /// The ledger as of `now`: buckets for history older than the raw window,
@@ -225,7 +239,7 @@ impl UsageStore {
             .conn
             .prepare(
                 "SELECT s.agent, s.session_id, e.event_id, e.occurred_at, e.captured_at,
-                        e.model, e.place, e.tokens, e.cost_usd
+                        e.model, e.place, e.tokens, e.cost_usd, e.calls
                    FROM event e JOIN session s ON s.id = e.session
                   WHERE e.occurred_at >= ?1
                   ORDER BY e.occurred_at",
@@ -243,6 +257,7 @@ impl UsageStore {
                     place: json_column(r, 6)?,
                     tokens: json_column(r, 7)?,
                     cost_usd: r.get(8)?,
+                    calls: r.get(9)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -252,20 +267,18 @@ impl UsageStore {
         Ok(Ledger {
             rows,
             complete: self.complete()?,
+            per_model_since: self
+                .meta(PER_MODEL_SINCE)?
+                .and_then(|value| value.parse().ok()),
         })
     }
 
     /// Drop raw events that have aged out of the raw window — their buckets
-    /// already hold them. One bucket's width of raw history is kept past the
-    /// window, so a call's second half can still find its first. Answers
-    /// where the raw window begins.
+    /// already hold them. Answers where the raw window begins.
     fn prune(&self, now: f64) -> Result<f64, String> {
         let cutoff = raw_cutoff(now);
         self.conn
-            .execute(
-                "DELETE FROM event WHERE occurred_at < ?1",
-                [cutoff - BUCKET_MS],
-            )
+            .execute("DELETE FROM event WHERE occurred_at < ?1", [cutoff])
             .map_err(|e| e.to_string())?;
         Ok(cutoff)
     }
@@ -340,6 +353,9 @@ impl UsageStore {
     }
 }
 
+/// The meta key [`Ledger::per_model_since`] is kept under.
+const PER_MODEL_SINCE: &str = "per_model_since";
+
 /// The first instant served raw.
 fn raw_cutoff(now: f64) -> f64 {
     ((now - RAW_WINDOW_MS) / BUCKET_MS).floor() * BUCKET_MS
@@ -347,7 +363,7 @@ fn raw_cutoff(now: f64) -> f64 {
 
 /// The facts about where an event happened, kept as one JSON value: they are
 /// read back whole, never queried.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Place {
     workspace_id: String,
@@ -423,41 +439,6 @@ fn session_base(
     text.map(|text| from_json(&text)).transpose()
 }
 
-/// The session's latest event, when it is still held raw.
-struct LastEvent {
-    event_id: String,
-    occurred_at: f64,
-    model: Option<String>,
-    tokens: TokenCounts,
-    cost_usd: Option<f64>,
-}
-
-fn last_event(tx: &Transaction<'_>, session: i64) -> Result<Option<LastEvent>, String> {
-    let row = tx
-        .query_row(
-            "SELECT event_id, occurred_at, model, tokens, cost_usd FROM event
-              WHERE session = ?1 ORDER BY occurred_at DESC, rowid DESC LIMIT 1",
-            [session],
-            |r| {
-                let last = LastEvent {
-                    event_id: r.get(0)?,
-                    occurred_at: r.get(1)?,
-                    model: r.get(2)?,
-                    tokens: TokenCounts::default(),
-                    cost_usd: r.get(4)?,
-                };
-                Ok((last, r.get::<_, String>(3)?))
-            },
-        )
-        .optional()
-        .map_err(|e| e.to_string())?;
-    row.map(|(mut last, tokens)| {
-        last.tokens = from_json(&tokens)?;
-        Ok(last)
-    })
-    .transpose()
-}
-
 fn delta_cost(delta: &Delta) -> Option<f64> {
     match delta.cost {
         DeltaCost::Provider(usd) => Some(usd),
@@ -465,16 +446,71 @@ fn delta_cost(delta: &Delta) -> Option<f64> {
     }
 }
 
-/// Whether `delta` is the other half of `last`: one of them only priced,
-/// the other only counted.
-fn completes(last: &LastEvent, delta: &Delta, occurred_at: f64) -> bool {
-    let priced_only = |tokens: &TokenCounts, cost: Option<f64>| tokens.is_empty() && cost.is_some();
-    let counted_only =
-        |tokens: &TokenCounts, cost: Option<f64>| !tokens.is_empty() && cost.is_none();
-    let cost = delta_cost(delta);
-    (occurred_at - last.occurred_at).abs() <= PAIR_WINDOW_MS
-        && ((priced_only(&last.tokens, last.cost_usd) && counted_only(&delta.tokens, cost))
-            || (counted_only(&last.tokens, last.cost_usd) && priced_only(&delta.tokens, cost)))
+/// One row a report books, and the model it is booked under.
+struct Booking {
+    /// Tells a report's rows apart in their event ids; `None` for a report
+    /// that books one row.
+    part: Option<String>,
+    model: Option<String>,
+    tokens: TokenCounts,
+    cost_usd: Option<f64>,
+    calls: i64,
+}
+
+/// The rows one report books.
+///
+/// A report counting the session as one sum books one row: one call when
+/// it counted tokens, none when it only priced — a price is not a call.
+/// A report counting per model books one row per model that moved — its
+/// tokens, and its new messages as its calls — and its cost as a row of its
+/// own, under the model the report names: the provider prices the session,
+/// never a model, so the cost follows whichever model the session runs on.
+/// On the report that switches a session an older build counted as one sum
+/// over, what its models gained past that sum is a row of its own under the
+/// same model; those messages are already in the models' base, so the row
+/// is no calls.
+fn bookings(report: &UsageReport, delta: Delta) -> Vec<Booking> {
+    let cost_usd = delta_cost(&delta);
+    if report.by_model.is_none() {
+        let calls = i64::from(!delta.tokens.is_empty());
+        return vec![Booking {
+            part: None,
+            model: report.model.clone(),
+            tokens: delta.tokens,
+            cost_usd,
+            calls,
+        }];
+    }
+    let mut rows: Vec<Booking> = delta
+        .models
+        .into_iter()
+        .map(|(model, moved)| Booking {
+            part: Some(format!("model\0{model}")),
+            model: (!model.is_empty()).then_some(model),
+            tokens: moved.tokens,
+            cost_usd: None,
+            calls: moved.calls.round() as i64,
+        })
+        .collect();
+    if !delta.tokens.is_empty() {
+        rows.push(Booking {
+            part: Some("sum".to_string()),
+            model: report.model.clone(),
+            tokens: delta.tokens,
+            cost_usd: None,
+            calls: 0,
+        });
+    }
+    if cost_usd.is_some() {
+        rows.push(Booking {
+            part: Some("cost".to_string()),
+            model: report.model.clone(),
+            tokens: TokenCounts::default(),
+            cost_usd,
+            calls: 0,
+        });
+    }
+    rows
 }
 
 pub(crate) fn record_in(
@@ -483,148 +519,91 @@ pub(crate) fn record_in(
     context: &CaptureContext,
     captured_at: f64,
     complete: bool,
-) -> Result<Option<LedgerRow>, String> {
+) -> Result<Vec<LedgerRow>, String> {
     let agent = report.agent.as_str();
     let session_id = context.session_id.as_str();
     let previous = session_base(tx, agent, session_id)?;
     let delta = usage_delta(
         report.total_tokens.as_ref(),
         report.cost_usd,
+        report.by_model.as_ref(),
         previous.as_ref(),
         seeds_baseline(context.origin, complete),
     );
     let session = upsert_session(tx, agent, session_id, &delta.observation)?;
-    if delta.is_empty() {
-        return Ok(None);
-    }
-    let id = event_id(
-        &session_key(agent, session_id),
-        previous.as_ref(),
-        &delta.observation,
-        report.sequence.unwrap_or(report.reported_at),
-    );
-    let known: bool = tx
-        .query_row("SELECT 1 FROM event WHERE event_id = ?1", [&id], |_| Ok(()))
-        .optional()
-        .map_err(|e| e.to_string())?
-        .is_some();
-    if known {
-        return Ok(None);
-    }
     let occurred_at = clamp_occurred_at(report.reported_at, captured_at);
+    if delta.is_empty() {
+        return Ok(Vec::new());
+    }
+    let key = session_key(agent, session_id);
+    let sequence = report.sequence.unwrap_or(report.reported_at);
+    let observation = delta.observation.clone();
     let place = Place::of(context);
     let place_json = to_json(&place)?;
-    let cost = delta_cost(&delta);
 
-    if let Some(last) = last_event(tx, session)?.filter(|last| completes(last, &delta, occurred_at))
-    {
-        // One call, reported in halves: the last event becomes the whole call.
-        let mut tokens = last.tokens.clone();
-        tokens.add(&delta.tokens);
-        let cost_usd = last.cost_usd.or(cost);
-        let model = last.model.clone().or_else(|| report.model.clone());
+    let mut rows = Vec::new();
+    for booking in bookings(report, delta) {
+        let material = match &booking.part {
+            None => key.clone(),
+            Some(part) => format!("{key}\0{part}"),
+        };
+        let id = event_id(&material, previous.as_ref(), &observation, sequence);
+        let known: bool = tx
+            .query_row("SELECT 1 FROM event WHERE event_id = ?1", [&id], |_| Ok(()))
+            .optional()
+            .map_err(|e| e.to_string())?
+            .is_some();
+        if known {
+            continue;
+        }
         tx.execute(
-            "UPDATE event SET tokens = ?2, cost_usd = ?3, model = ?4, place = ?5 WHERE event_id = ?1",
-            params![last.event_id, to_json(&tokens)?, cost_usd, model, place_json],
+            "INSERT INTO event (event_id, session, occurred_at, captured_at, model, place, tokens, cost_usd, calls)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                session,
+                occurred_at,
+                captured_at,
+                booking.model,
+                place_json,
+                to_json(&booking.tokens)?,
+                booking.cost_usd,
+                booking.calls
+            ],
         )
         .map_err(|e| e.to_string())?;
-        // Move the call's figures to the bucket of its whole: out of the
-        // first half's model bucket, in under the call's model.
-        let first_half = Contribution {
-            tokens: &last.tokens,
-            cost_usd: last.cost_usd,
-            count: 1,
-            calls: 1,
-            occurred_at: last.occurred_at,
+        let contribution = Contribution {
+            tokens: &booking.tokens,
+            cost_usd: booking.cost_usd,
+            calls: booking.calls,
+            occurred_at,
         };
         add_to_bucket(
             tx,
             session,
-            last.model.as_deref(),
-            &first_half,
-            -1,
+            booking.model.as_deref(),
+            &contribution,
             &place_json,
         )?;
-        let whole = Contribution {
-            tokens: &tokens,
-            cost_usd,
-            count: 1,
-            calls: 1,
-            occurred_at: last.occurred_at,
-        };
-        add_to_bucket(tx, session, model.as_deref(), &whole, 1, &place_json)?;
-        // This half, placed in its call: same instant, the call's model.
-        let mut row = RecordedEvent {
+        let row = RecordedEvent {
             agent: agent.to_string(),
             session_id: session_id.to_string(),
             event_id: id,
-            occurred_at: last.occurred_at,
-            captured_at,
-            model,
-            place,
-            tokens: delta.tokens,
-            cost_usd: cost,
-        }
-        .into_row();
-        row.count = 0;
-        row.calls = 0;
-        return Ok(Some(row));
-    }
-
-    tx.execute(
-        "INSERT INTO event (event_id, session, occurred_at, captured_at, model, place, tokens, cost_usd)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            id,
-            session,
             occurred_at,
             captured_at,
-            report.model,
-            place_json,
-            to_json(&delta.tokens)?,
-            cost
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    let contribution = Contribution {
-        tokens: &delta.tokens,
-        cost_usd: cost,
-        count: 1,
-        calls: 1,
-        occurred_at,
-    };
-    add_to_bucket(
-        tx,
-        session,
-        report.model.as_deref(),
-        &contribution,
-        1,
-        &place_json,
-    )?;
-    let row = RecordedEvent {
-        agent: agent.to_string(),
-        session_id: session_id.to_string(),
-        event_id: id,
-        occurred_at,
-        captured_at,
-        model: report.model.clone(),
-        place,
-        tokens: delta.tokens,
-        cost_usd: cost,
-    };
-    Ok(Some(row.into_row()))
+            model: booking.model,
+            place: place.clone(),
+            tokens: booking.tokens,
+            cost_usd: booking.cost_usd,
+            calls: booking.calls,
+        };
+        rows.push(row.into_row());
+    }
+    Ok(rows)
 }
 
 fn to_pico(usd: f64) -> i64 {
     (usd * 1e12).round() as i64
-}
-
-fn scaled(tokens: &TokenCounts, sign: i64) -> TokenCounts {
-    let mut out = TokenCounts::default();
-    for kind in TOKEN_KINDS {
-        out.set(kind, tokens.get(kind).map(|v| v * sign as f64));
-    }
-    out
 }
 
 /// A bucket's running figures beside its token sums.
@@ -637,13 +616,12 @@ struct BucketFigures {
     last_at: f64,
 }
 
-/// Add (`sign` 1) or take back (`sign` -1) one event's figures in its bucket.
+/// Add one event's figures to its bucket.
 fn add_to_bucket(
     tx: &Transaction<'_>,
     session: i64,
     model: Option<&str>,
     contribution: &Contribution<'_>,
-    sign: i64,
     place: &str,
 ) -> Result<(), String> {
     let start = (contribution.occurred_at / BUCKET_MS).floor() * BUCKET_MS;
@@ -691,31 +669,15 @@ fn add_to_bucket(
         mut first_at,
         mut last_at,
     } = figures;
-    tokens.add(&scaled(contribution.tokens, sign));
+    tokens.add(contribution.tokens);
     if let Some(usd) = contribution.cost_usd {
-        pico += sign * to_pico(usd);
-        cost_events += sign;
+        pico += to_pico(usd);
+        cost_events += 1;
     }
-    count += sign * contribution.count;
-    calls += sign * contribution.calls;
-    if count <= 0 {
-        tx.execute(
-            "DELETE FROM bucket WHERE session = ?1 AND start = ?2 AND model = ?3",
-            params![session, start, model],
-        )
-        .map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-    if sign > 0 {
-        first_at = first_at.min(contribution.occurred_at);
-        last_at = last_at.max(contribution.occurred_at);
-    }
-    // A kind that added up to nothing is absent, as it would be on an event.
-    for kind in TOKEN_KINDS {
-        if tokens.get(kind) == Some(0.0) {
-            tokens.set(kind, None);
-        }
-    }
+    count += 1;
+    calls += contribution.calls;
+    first_at = first_at.min(contribution.occurred_at);
+    last_at = last_at.max(contribution.occurred_at);
     tx.execute(
         "INSERT INTO bucket (session, start, model, tokens, cost_pico, cost_events, count, calls, first_at, last_at, place)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
@@ -736,7 +698,7 @@ fn add_to_bucket(
             first_at,
             last_at,
             place,
-            sign > 0 && contribution.occurred_at >= last_at
+            contribution.occurred_at >= last_at
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -801,6 +763,7 @@ struct RecordedEvent {
     place: Place,
     tokens: TokenCounts,
     cost_usd: Option<f64>,
+    calls: i64,
 }
 
 impl RecordedEvent {
@@ -823,7 +786,7 @@ impl RecordedEvent {
             cost_source: CostSource::of(self.cost_usd),
             cost_usd: self.cost_usd,
             count: 1,
-            calls: 1,
+            calls: u32::try_from(self.calls).unwrap_or(0),
             cost_events: u32::from(self.cost_usd.is_some()),
         }
     }

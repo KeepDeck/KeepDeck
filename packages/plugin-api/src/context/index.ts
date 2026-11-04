@@ -88,6 +88,7 @@ export type {
   LimitsNormalizer,
   LimitsRead,
   NormalizedUsage,
+  ModelUsage,
   PaneUsage,
   TokenCounts,
   UsageNormalizer,

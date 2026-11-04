@@ -1,5 +1,7 @@
 //! The ledger's vocabulary, shaped as the webview speaks it (camelCase).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Token counters, by kind. Each one is optional: a provider reports the
@@ -80,8 +82,23 @@ impl TokenCounts {
     }
 }
 
+/// One model's cumulative counters in a session: its tokens, and how many
+/// provider calls it has made.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCounters {
+    #[serde(default)]
+    pub total_tokens: TokenCounts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calls: Option<f64>,
+}
+
 /// The cumulative counters a session last reported — the base the next
 /// report's delta is taken against.
+///
+/// `tokens` is the session counted as one sum; `models` is the session
+/// counted per model, by a provider that reports so. The cost is the
+/// session's either way: no provider prices a session per model.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Observation {
@@ -89,6 +106,8 @@ pub struct Observation {
     pub tokens: TokenCounts,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<String, ModelCounters>,
 }
 
 /// One cumulative report from a pane: what its provider says the session has
@@ -103,6 +122,12 @@ pub struct UsageReport {
     pub total_tokens: Option<TokenCounts>,
     #[serde(default)]
     pub cost_usd: Option<f64>,
+    /// The session counted per model, keyed by the model's id, when the
+    /// provider can say which model used what. Present, it is what the
+    /// report's tokens and calls are booked from; `total_tokens` is the same
+    /// tokens summed, there for whoever shows the session as one number.
+    #[serde(default)]
+    pub by_model: Option<BTreeMap<String, ModelCounters>>,
     pub reported_at: f64,
     /// The provider's own ordering of its reports, when it has one.
     #[serde(default)]
