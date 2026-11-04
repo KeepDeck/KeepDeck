@@ -437,33 +437,43 @@ fn what_was_served_plus_what_was_booked_since_sums_to_the_ledger_per_model() {
 }
 
 #[test]
-fn a_session_an_older_build_counted_as_one_sum_books_no_tokens_twice() {
+fn a_session_an_older_build_counted_as_one_sum_books_no_tokens_twice_and_loses_none() {
     let (_dir, mut store) = store();
     let restored = context(SessionOrigin::Unknown);
     store
         .record(&report(Some(10_000.0), Some(4.0), NOW), &restored, NOW)
         .unwrap();
-    // The new build's first count of the same session, per model.
-    assert!(store
-        .record(
-            &per_model(
-                "opus",
-                Some(4.0),
-                &[("opus", 9_000.0, 30.0), ("haiku", 1_000.0, 9.0)],
-                NOW + 1_000.0
-            ),
-            &restored,
-            NOW + 1_000.0,
-        )
-        .unwrap()
-        .is_empty());
+    // The new build's first count of the same session, per model: 30 tokens
+    // arrived after the older build last booked it.
+    let switched = booked(
+        store
+            .record(
+                &per_model(
+                    "opus",
+                    Some(4.0),
+                    &[("opus", 9_000.0, 30.0), ("haiku", 1_030.0, 9.0)],
+                    NOW + 1_000.0,
+                ),
+                &restored,
+                NOW + 1_000.0,
+            )
+            .unwrap(),
+    );
+    assert_eq!(
+        (
+            switched.tokens.clone(),
+            switched.calls,
+            switched.model.as_deref()
+        ),
+        (input(30.0), 0, Some("opus"))
+    );
     let next = booked(
         store
             .record(
                 &per_model(
                     "opus",
                     Some(4.0),
-                    &[("opus", 9_050.0, 31.0), ("haiku", 1_000.0, 9.0)],
+                    &[("opus", 9_050.0, 31.0), ("haiku", 1_030.0, 9.0)],
                     NOW + 2_000.0,
                 ),
                 &restored,
@@ -472,6 +482,17 @@ fn a_session_an_older_build_counted_as_one_sum_books_no_tokens_twice() {
             .unwrap(),
     );
     assert_eq!((next.tokens.clone(), next.calls), (input(50.0), 1));
+    let booked_in_all: f64 = store
+        .ledger(NOW + 3_000.0)
+        .unwrap()
+        .rows
+        .iter()
+        .filter_map(|row| row.tokens.input)
+        .sum();
+    assert_eq!(
+        booked_in_all, 10_080.0,
+        "every token the session spent, once"
+    );
 }
 
 #[test]

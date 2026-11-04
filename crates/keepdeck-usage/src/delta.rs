@@ -38,7 +38,9 @@ pub struct ModelDelta {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Delta {
-    /// What a report counting the session as one sum adds.
+    /// What a report counting the session as one sum adds — or, on the
+    /// first per-model report of a session an older build counted as one
+    /// sum, what its models gained past that sum.
     pub tokens: TokenCounts,
     pub cost: DeltaCost,
     /// What each model's counters add, for a report counting per model.
@@ -112,9 +114,12 @@ fn advance_tokens(base: &mut TokenCounts, current: &TokenCounts, seed: bool) -> 
 /// one-sum `total_tokens` — the same tokens again — is not booked at all.
 /// Its models start as a base, booking nothing, when the session has no
 /// model counted yet and either it is resumed, or an older build already
-/// counted its tokens as one sum: those tokens are in the ledger. Once a
-/// session counts per model, a model it has not seen is new usage, counted
-/// from nothing — a subagent starting on another model.
+/// counted its tokens as one sum. Those tokens are in the ledger up to that
+/// sum, so what the models hold past it — messages that arrived after the
+/// older build's last booking — is booked once, as one sum, before the
+/// models take over. Once a session counts per model, a model it has not
+/// seen is new usage, counted from nothing — a subagent starting on
+/// another model.
 ///
 /// The cost stays the session's whatever model it is reported under: kept
 /// per model, a switch of model would book the whole running cost again.
@@ -146,8 +151,16 @@ pub fn usage_delta(
             }
         }
         Some(by_model) => {
-            let seed =
-                observation.models.is_empty() && (baseline_only || !observation.tokens.is_empty());
+            let first = observation.models.is_empty();
+            let counted_as_one = first && !observation.tokens.is_empty();
+            if counted_as_one {
+                let mut sum = TokenCounts::default();
+                for current in by_model.values() {
+                    sum.add(&current.total_tokens);
+                }
+                tokens = advance_tokens(&mut observation.tokens, &sum, false);
+            }
+            let seed = first && (baseline_only || counted_as_one);
             for (model, current) in by_model {
                 let base = observation.models.entry(model.clone()).or_default();
                 let moved = ModelDelta {
@@ -455,6 +468,11 @@ mod tests {
         assert!(
             first.models.is_empty(),
             "those tokens are in the ledger already"
+        );
+        assert_eq!(
+            first.tokens,
+            tokens(&[(Input, 20.0)]),
+            "what the models gained past the older build's sum is booked once"
         );
         assert_eq!(first.cost, DeltaCost::Provider(0.5), "the cost carries on");
         let next = usage_delta(

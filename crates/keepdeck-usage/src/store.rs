@@ -465,6 +465,10 @@ struct Booking {
 /// tokens, and its new messages as its calls — and its cost as a row of its
 /// own, under the model the report names: the provider prices the session,
 /// never a model, so the cost follows whichever model the session runs on.
+/// On the report that switches a session an older build counted as one sum
+/// over, what its models gained past that sum is a row of its own under the
+/// same model; those messages are already in the models' base, so the row
+/// is no calls.
 fn bookings(report: &UsageReport, delta: Delta) -> Vec<Booking> {
     let cost_usd = delta_cost(&delta);
     if report.by_model.is_none() {
@@ -488,6 +492,15 @@ fn bookings(report: &UsageReport, delta: Delta) -> Vec<Booking> {
             calls: moved.calls.round() as i64,
         })
         .collect();
+    if !delta.tokens.is_empty() {
+        rows.push(Booking {
+            part: Some("sum".to_string()),
+            model: report.model.clone(),
+            tokens: delta.tokens,
+            cost_usd: None,
+            calls: 0,
+        });
+    }
     if cost_usd.is_some() {
         rows.push(Booking {
             part: Some("cost".to_string()),
