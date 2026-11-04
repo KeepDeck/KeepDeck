@@ -4,7 +4,7 @@ import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useAgents } from "../../app/useAgents";
 import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
-import { PERIOD_LABELS, USAGE_PERIODS } from "../../domain/usage";
+import { PERIOD_LABELS, USAGE_PERIODS, perModelNote } from "../../domain/usage";
 import {
   latestOccurredAt,
   queryUsageStats,
@@ -145,8 +145,15 @@ export function UsageStats({
             now={now}
           />
         );
-      case "models":
-        return <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />;
+      case "models": {
+        const note = perModelNote(history.perModelSince, stats.firstOccurredAt);
+        return (
+          <>
+            <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
+            {note !== null && <p className="stats__coverage">{note}</p>}
+          </>
+        );
+      }
       case "sessions":
         return (
           <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />

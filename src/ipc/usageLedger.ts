@@ -9,6 +9,9 @@ export interface StoredUsageLedger {
   rows: UsageRow[];
   /** False when the store left out history it could not read. */
   complete: boolean;
+  /** When the core began booking reports per model; rows before it count
+   * every session as one sum, under the model name its agent showed. */
+  perModelSince: number | null;
 }
 
 /** One pane report for the core to book. */

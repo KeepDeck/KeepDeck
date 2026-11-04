@@ -34,7 +34,7 @@ fn with_store<T>(
     let mut guard = state.0.lock().map_err(|_| "usage ledger lock poisoned")?;
     if guard.is_none() {
         let home = crate::paths::keepdeck_home().ok_or("no home directory for app state")?;
-        let mut store = UsageStore::open(&home.join(STORE_FILE))?;
+        let mut store = UsageStore::open(&home.join(STORE_FILE), now_ms())?;
         let imported = import_jsonl(&mut store, &home.join(OLD_LEDGER_FILE), now_ms())?;
         if let Some(kept) = &imported.kept_as {
             log::info!(

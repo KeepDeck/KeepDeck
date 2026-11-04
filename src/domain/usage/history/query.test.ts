@@ -24,6 +24,10 @@ describe("queryUsageStats", () => {
     costEvents: 1,
   };
 
+  it("has no first row in a period with none", () => {
+    expect(queryUsageStats([base], 1, 10 * 24 * 60 * 60 * 1_000).firstOccurredAt).toBeNull();
+  });
+
   it("filters the period and groups model and session deltas", () => {
     const stats = queryUsageStats(
       [
@@ -48,6 +52,7 @@ describe("queryUsageStats", () => {
     );
 
     expect(stats.eventCount).toBe(2);
+    expect(stats.firstOccurredAt).toBe(1_000);
     expect(stats.sessionCount).toBe(1);
     expect(stats.totals).toMatchObject({
       tokens: { input: 150, output: 10, cacheRead: 20 },

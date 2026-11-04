@@ -3,6 +3,7 @@ import {
   chipWindows,
   contextLevel,
   costCoverage,
+  perModelNote,
   formatAge,
   formatBucket,
   formatElapsed,
@@ -291,6 +292,25 @@ describe("formatUsd", () => {
     expect(formatUsd(0.00004)).toBe("<$0.0001"); // toFixed(4) would say $0.0000
     expect(formatUsd(0.0004)).toBe("$0.0004");
     expect(formatUsd(0.25, { approx: true })).toBe("≈$0.25");
+  });
+});
+
+describe("perModelNote", () => {
+  const SINCE = Date.UTC(2026, 10, 4, 18);
+
+  it("speaks only when the period reaches back past the switch", () => {
+    expect(perModelNote(SINCE, SINCE - 1)).toBe(
+      "Since Nov 4, 2026, an agent that reports each model's own tokens is listed by " +
+        "model id, and a session's cost under the model it ran on. Earlier usage keeps " +
+        "the model names shown at the time.",
+    );
+    expect(perModelNote(SINCE, SINCE)).toBeNull();
+    expect(perModelNote(SINCE, SINCE + 1)).toBeNull();
+  });
+
+  it("is silent for a ledger that never switched, or a period with no rows", () => {
+    expect(perModelNote(null, SINCE - 1)).toBeNull();
+    expect(perModelNote(SINCE, null)).toBeNull();
   });
 });
 

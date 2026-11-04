@@ -33,6 +33,7 @@ const ledger = (events: UsageRow[]): UsageHistorySnapshot => ({
   ledger: ledgerOf(events),
   error: null,
   complete: true,
+  perModelSince: null,
 });
 
 const spend = (occurredAt: number, eventId = `e-${occurredAt}`) =>

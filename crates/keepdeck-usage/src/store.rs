@@ -62,6 +62,10 @@ pub struct Ledger {
     /// Whether the store holds everything the ledger ever recorded: false
     /// when an import met lines of a newer schema and left them out.
     pub complete: bool,
+    /// When this store began booking reports per model: when this build
+    /// created it, or migrated an older build's. Rows from before it counted
+    /// every session as one sum, under the model name its agent showed.
+    pub per_model_since: Option<f64>,
 }
 
 pub struct UsageStore {
@@ -77,16 +81,17 @@ struct Contribution<'a> {
 }
 
 impl UsageStore {
-    /// Open (or create) the store at `path`.
-    pub fn open(path: &Path) -> Result<Self, String> {
+    /// Open (or create) the store at `path`. `now` is when a store this
+    /// build creates or migrates began booking per model.
+    pub fn open(path: &Path, now: f64) -> Result<Self, String> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        Self::init(conn)
+        Self::init(conn, now)
     }
 
-    fn init(conn: Connection) -> Result<Self, String> {
+    fn init(conn: Connection, now: f64) -> Result<Self, String> {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
@@ -144,11 +149,15 @@ impl UsageStore {
             // An event's provider calls. Every event an older build booked
             // was one call: it paired a call's two reported halves into one
             // event, and booked each report as a call.
-            conn.execute_batch(
-                "ALTER TABLE event ADD COLUMN calls INTEGER NOT NULL DEFAULT 1;
-                 PRAGMA user_version = 2;",
+            conn.execute_batch("ALTER TABLE event ADD COLUMN calls INTEGER NOT NULL DEFAULT 1;")
+                .map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+                params![PER_MODEL_SINCE, now.to_string()],
             )
             .map_err(|e| e.to_string())?;
+            conn.execute_batch("PRAGMA user_version = 2;")
+                .map_err(|e| e.to_string())?;
         }
         Ok(Self { conn })
     }
@@ -258,6 +267,9 @@ impl UsageStore {
         Ok(Ledger {
             rows,
             complete: self.complete()?,
+            per_model_since: self
+                .meta(PER_MODEL_SINCE)?
+                .and_then(|value| value.parse().ok()),
         })
     }
 
@@ -340,6 +352,9 @@ impl UsageStore {
         Ok(())
     }
 }
+
+/// The meta key [`Ledger::per_model_since`] is kept under.
+const PER_MODEL_SINCE: &str = "per_model_since";
 
 /// The first instant served raw.
 fn raw_cutoff(now: f64) -> f64 {
@@ -503,13 +518,13 @@ pub(crate) fn record_in(
         seeds_baseline(context.origin, complete),
     );
     let session = upsert_session(tx, agent, session_id, &delta.observation)?;
+    let occurred_at = clamp_occurred_at(report.reported_at, captured_at);
     if delta.is_empty() {
         return Ok(Vec::new());
     }
     let key = session_key(agent, session_id);
     let sequence = report.sequence.unwrap_or(report.reported_at);
     let observation = delta.observation.clone();
-    let occurred_at = clamp_occurred_at(report.reported_at, captured_at);
     let place = Place::of(context);
     let place_json = to_json(&place)?;
 

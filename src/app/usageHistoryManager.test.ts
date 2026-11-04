@@ -29,10 +29,10 @@ const usage = (input: number): PaneUsage => ({
   sequence: 7,
 });
 
-function harness(stored: StoredUsageLedger = { rows: [], complete: true }) {
+function harness(stored: StoredUsageLedger = { rows: [], complete: true, perModelSince: null }) {
   // A fresh answer per load, as the IPC gives: the manager appends in place
   // to the rows it was handed.
-  const loadUsageLedger = vi.fn(async () => ({ rows: [...stored.rows], complete: stored.complete }));
+  const loadUsageLedger = vi.fn(async (): Promise<StoredUsageLedger> => ({ ...stored, rows: [...stored.rows] }));
   // The rows the core books for each report, in order; past them it books
   // nothing.
   const answers: UsageRow[][] = [];
@@ -46,7 +46,7 @@ function harness(stored: StoredUsageLedger = { rows: [], complete: true }) {
 describe("usageHistoryManager", () => {
   it("loads the core's ledger once and publishes it", async () => {
     const row = usageEvent({ eventId: "bucket-1", count: 4 });
-    const { manager, loadUsageLedger } = harness({ rows: [row], complete: true });
+    const { manager, loadUsageLedger } = harness({ rows: [row], complete: true, perModelSince: null });
     await manager.init();
     await manager.init();
     expect(loadUsageLedger).toHaveBeenCalledTimes(1);
@@ -63,8 +63,15 @@ describe("usageHistoryManager", () => {
     expect(manager.getSnapshot().error).toContain("store unreadable");
   });
 
+  it("says when the ledger began booking per model, once a load has told it", async () => {
+    const { manager } = harness({ rows: [], complete: true, perModelSince: NOW - 60_000 });
+    expect(manager.getSnapshot().perModelSince).toBeNull();
+    await manager.init();
+    expect(manager.getSnapshot().perModelSince).toBe(NOW - 60_000);
+  });
+
   it("is incomplete when the store left history out", async () => {
-    const { manager } = harness({ rows: [], complete: false });
+    const { manager } = harness({ rows: [], complete: false, perModelSince: null });
     await manager.init();
     expect(manager.getSnapshot().complete).toBe(false);
   });
@@ -105,7 +112,7 @@ describe("usageHistoryManager", () => {
 
   it("appends every row one booking adds, after the rows it already held", async () => {
     const held = usageEvent({ eventId: "held", tokens: { input: 5 } });
-    const { manager, answers } = harness({ rows: [held], complete: true });
+    const { manager, answers } = harness({ rows: [held], complete: true, perModelSince: null });
     await manager.init();
     const before = manager.getSnapshot().ledger;
     // A report counting per model: a row per model that moved, and its price.

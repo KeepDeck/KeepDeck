@@ -12,7 +12,7 @@ const NOW: f64 = 1_790_000_100_000.0 - (1_790_000_100_000.0 % BUCKET_MS);
 
 fn store() -> (tempfile::TempDir, UsageStore) {
     let dir = tempfile::tempdir().unwrap();
-    let store = UsageStore::open(&dir.path().join("usage.sqlite")).unwrap();
+    let store = UsageStore::open(&dir.path().join("usage.sqlite"), NOW).unwrap();
     (dir, store)
 }
 
@@ -506,11 +506,23 @@ fn a_store_of_the_previous_schema_is_migrated_and_its_events_are_one_call_each()
         )
         .unwrap();
     }
-    let store = UsageStore::open(&path).unwrap();
-    let rows = store.ledger(NOW + 1.0).unwrap().rows;
-    assert_eq!(rows.len(), 1);
-    assert_eq!((rows[0].count, rows[0].calls), (1, 1));
+    let store = UsageStore::open(&path, NOW).unwrap();
+    let ledger = store.ledger(NOW + 1.0).unwrap();
+    assert_eq!(ledger.rows.len(), 1);
+    assert_eq!((ledger.rows[0].count, ledger.rows[0].calls), (1, 1));
+    assert_eq!(
+        ledger.per_model_since,
+        Some(NOW),
+        "the rows before it are the older build's"
+    );
     drop(store);
+    // Opened again later, it is the same store: the instant stays.
+    let reopened = UsageStore::open(&path, NOW + HOUR).unwrap();
+    assert_eq!(
+        reopened.ledger(NOW + HOUR).unwrap().per_model_since,
+        Some(NOW)
+    );
+    drop(reopened);
     let version: i64 = rusqlite::Connection::open(&path)
         .unwrap()
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -570,12 +582,12 @@ fn history_older_than_the_raw_window_is_served_as_buckets_and_counted_once() {
 fn a_store_of_a_newer_schema_is_refused_and_left_alone() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("usage.sqlite");
-    drop(UsageStore::open(&path).unwrap());
+    drop(UsageStore::open(&path, NOW).unwrap());
     rusqlite::Connection::open(&path)
         .unwrap()
         .execute_batch("PRAGMA user_version = 99;")
         .unwrap();
-    assert!(UsageStore::open(&path).is_err());
+    assert!(UsageStore::open(&path, NOW).is_err());
     let version: i64 = rusqlite::Connection::open(&path)
         .unwrap()
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -653,7 +665,7 @@ fn an_import_leaves_no_write_ahead_log_behind() {
     let file = dir.path().join("usage-history.jsonl");
     std::fs::write(&file, lines.join("\n")).unwrap();
     let path = dir.path().join("usage.sqlite");
-    let mut store = UsageStore::open(&path).unwrap();
+    let mut store = UsageStore::open(&path, NOW).unwrap();
     import_jsonl(&mut store, &file, NOW).unwrap();
     let log = std::fs::metadata(dir.path().join("usage.sqlite-wal")).unwrap();
     assert_eq!(
@@ -728,4 +740,14 @@ fn the_import_replays_the_old_ledger_and_corrects_what_it_got_wrong() {
 
     // Once imported, never again.
     assert_eq!(import_jsonl(&mut store, &file, NOW).unwrap().lines, 0);
+}
+
+#[test]
+fn the_ledger_says_when_it_began_booking_per_model() {
+    let (_dir, store) = store();
+    assert_eq!(
+        store.ledger(NOW + HOUR).unwrap().per_model_since,
+        Some(NOW),
+        "a store this build creates books per model from the start"
+    );
 }

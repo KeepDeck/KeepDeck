@@ -31,6 +31,9 @@ export interface UsageHistorySnapshot {
    * see what they did".
    */
   complete: boolean;
+  /** When the ledger began booking per model (see {@link StoredUsageLedger});
+   * null until a load said. */
+  perModelSince: number | null;
 }
 
 /** The ledger the manager reads and books through — injected, so tests
@@ -62,12 +65,14 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   /** Whether a load ever succeeded, and what it said about completeness. */
   let loaded = false;
   let storeComplete = false;
+  let perModelSince: number | null = null;
   let appendedSinceLoad = 0;
   let snapshot: UsageHistorySnapshot = {
     ready: false,
     ledger,
     error: null,
     complete: false,
+    perModelSince,
   };
   let initialization: Promise<void> | null = null;
   /** Loads and records, in order: a reload replaces the rows, and an
@@ -87,6 +92,7 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
       ledger,
       error,
       complete: loaded && storeComplete,
+      perModelSince,
     };
     for (const listener of [...listeners]) listener();
   }
@@ -103,6 +109,7 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
       events = stored.rows;
       loaded = true;
       storeComplete = stored.complete;
+      perModelSince = stored.perModelSince;
       appendedSinceLoad = 0;
       eventsChanged();
       emit(null);
