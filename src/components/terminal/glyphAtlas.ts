@@ -2,7 +2,9 @@ import type { CanvasAddon } from "@xterm/addon-canvas";
 
 /** How many 512×512 pages (1 MB each) the glyph atlas may hold before it is
  * cleared. Comfortably above what the agents' palettes fill in a working
- * day, so a clear is the exception, not a rhythm. */
+ * day, so a clear is the exception, not a rhythm. A cleared atlas keeps its
+ * pages, so the next clear waits until every one of them has filled again —
+ * thousands of new glyphs, never one per frame. */
 export const GLYPH_ATLAS_PAGES_KEPT = 16;
 
 /**
