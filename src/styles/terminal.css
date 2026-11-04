@@ -12,6 +12,18 @@
   overflow: hidden;
 }
 
+/* A terminal nobody can see — its workspace is in the background, or its
+   pane is off the grid — takes its renderer out of layout, and only its
+   renderer. The host keeps its box, so the terminal still fits the tile it
+   would show in and the PTY keeps the size its program draws for. Left laid
+   out (a background workspace is only `visibility: hidden`), every canvas
+   inside costs WebKit a second, compositing copy of its pixels, and xterm —
+   whose IntersectionObserver ignores visibility — keeps painting them. Out of
+   layout it pauses, and repaints in full when it is shown again. */
+.terminal-pane--offscreen .terminal-pane__host > .xterm {
+  display: none;
+}
+
 /* Launch overlay: covers the freshly-mounted (still blank) terminal from spawn
    until the program prints its first frame, so opening any pane animates — not
    only worktree creation. Opaque in the terminal's own background so the empty

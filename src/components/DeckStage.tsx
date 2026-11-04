@@ -251,12 +251,8 @@ export function DeckStage({
           return (
             <div
               key={ws.id}
-              className="deck__setup"
+              className={`deck__setup${isActive ? "" : " deck__workspace--hidden"}`}
               aria-hidden={!isActive}
-              style={{
-                visibility: isActive ? "visible" : "hidden",
-                pointerEvents: isActive ? "auto" : "none",
-              }}
             >
               <div className="deck__grid-empty" role="status">
                 <span className="deck__grid-empty-title">{word.title}</span>

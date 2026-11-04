@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 /**
- * Pins the KeepDeck patch on @xterm/addon-canvas (patches/): glyphs are drawn
- * from the atlas page canvases, never from ImageBitmap copies of them.
+ * Pins the KeepDeck patch on @xterm/addon-canvas (patches/), both halves:
+ * glyphs are drawn from the atlas page canvases, never from ImageBitmap copies
+ * of them; and a cleared atlas page forgets the glyphs it held.
  *
  * Upstream skips the bitmaps only when it sniffs Safari, and WKWebView's
  * user agent carries no "Safari" token — so without the patch the canvas
@@ -10,48 +11,17 @@
  * suite runs the real terminal + addon over a recording 2D context, under a
  * non-Safari user agent (happy-dom's, like Tauri's), and fails if the patch
  * is ever lost — an addon upgrade, a dropped patchedDependencies entry.
+ *
+ * The second half is what makes clearing the atlas (glyphAtlas.ts) give
+ * memory back: upstream's page clear wipes the pixels but keeps the page's
+ * list of every glyph ever placed on it, so each clear would leave a page's
+ * worth of glyph records behind for good. That list is internal and nothing
+ * public reads it, so the pin reads it where it lives.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/xterm";
 import { CanvasAddon } from "@xterm/addon-canvas";
-import { stubCanvasContext } from "../canvasContext.test-support";
-
-/** A 2D context that accepts every call: enough surface for xterm to lay out
- * cells, rasterize glyphs and paint rows, recording the images it draws. */
-function recordingContext(canvas: unknown, drawn: unknown[]) {
-  const state: Record<string | symbol, unknown> = {};
-  const methods: Record<string, (...args: unknown[]) => unknown> = {
-    measureText: () => ({
-      width: 8,
-      actualBoundingBoxAscent: 10,
-      actualBoundingBoxDescent: 3,
-      fontBoundingBoxAscent: 12,
-      fontBoundingBoxDescent: 4,
-    }),
-    getImageData: (_x, _y, w, h) => ({
-      width: w,
-      height: h,
-      // Opaque ink everywhere, so glyph trimming finds something to keep.
-      data: new Uint8ClampedArray(Math.max(1, Number(w) * Number(h)) * 4).fill(255),
-    }),
-    createLinearGradient: () => ({ addColorStop: () => {} }),
-    drawImage: (image) => {
-      drawn.push(image);
-    },
-  };
-  return new Proxy(state, {
-    get(target, key) {
-      if (key === "canvas") return canvas;
-      if (typeof key === "string" && key in methods) return methods[key];
-      if (key in target) return target[key];
-      return () => {};
-    },
-    set(target, key, value) {
-      target[key] = value;
-      return true;
-    },
-  });
-}
+import { recordingContext2d, stubCanvasContext } from "../canvasContext.test-support";
 
 let drawn: unknown[];
 let createImageBitmap: ReturnType<typeof vi.fn>;
@@ -60,14 +30,14 @@ let restoreCanvas: () => void;
 beforeEach(() => {
   vi.useFakeTimers();
   drawn = [];
-  restoreCanvas = stubCanvasContext((canvas) => recordingContext(canvas, drawn));
+  restoreCanvas = stubCanvasContext((canvas) => recordingContext2d(canvas, drawn));
   // xterm measures its cell off an OffscreenCanvas; happy-dom's has no 2D
   // context, and a zero cell renders nothing.
   vi.stubGlobal(
     "OffscreenCanvas",
     class {
       getContext() {
-        return recordingContext(this, drawn);
+        return recordingContext2d(this, drawn);
       }
     },
   );
@@ -105,4 +75,32 @@ describe("canvas renderer glyph source (patched @xterm/addon-canvas)", () => {
     expect(createImageBitmap).not.toHaveBeenCalled();
     term.dispose();
   });
+
+  it("forgets a page's glyphs when the atlas is cleared", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const term = new Terminal({ cols: 40, rows: 5 });
+    term.open(host);
+    const addon = new CanvasAddon();
+    term.loadAddon(addon);
+    term.write("\x1b[32mglyphs in green\x1b[0m\r\n");
+    await vi.advanceTimersByTimeAsync(250);
+    const placed = () => glyphsOnFirstPage(term);
+    expect(placed()).toBeGreaterThan(0);
+
+    addon.clearTextureAtlas();
+    expect(placed()).toBe(0);
+    term.dispose();
+  });
 });
+
+/** How many glyph records the shared atlas's first page holds — reached
+ * through xterm's internals, the only place the list lives. */
+function glyphsOnFirstPage(term: Terminal): number {
+  let at: unknown = term;
+  for (const key of ["_core", "_renderService", "_renderer", "value", "_renderLayers", "0", "_charAtlas", "pages", "0", "glyphs"]) {
+    at = typeof at === "object" && at !== null ? Reflect.get(at, key) : undefined;
+  }
+  if (!Array.isArray(at)) throw new Error("the atlas's first page has no glyph list where the pin looks");
+  return at.length;
+}

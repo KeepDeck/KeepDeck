@@ -259,6 +259,21 @@ button.deck__ws-name--up:hover {
   pointer-events: none;
 }
 
+/* Nothing in a background workspace animates. Hidden is not idle: an
+   infinite status animation keeps running under `visibility: hidden`,
+   restyling its element every frame and raising an event at every
+   iteration, for a layer nobody can see. Paused, it picks up where it was
+   when the workspace comes back — a one-shot animation too, which therefore
+   ends only once its workspace is shown: nothing in a background layer may
+   wait on `animationend`. `!important` because every animation is set by a
+   shorthand on a more specific selector, and a shorthand resets the play
+   state. */
+.deck__workspace--hidden *,
+.deck__workspace--hidden *::before,
+.deck__workspace--hidden *::after {
+  animation-play-state: paused !important;
+}
+
 /* Holds the absolutely-filled grid so a minimized-agents zone can sit beneath
    it as a normal-flow sibling. */
 .deck__gridwrap {

@@ -19,6 +19,7 @@ import type { SettingsWrite } from "./useSettings";
 // Runtime parts, built for real.
 export { createAgentStatusTracker, type AgentStatusTracker } from "./agentStatusTracker";
 export { createUsageManager, type UsageManager } from "./usageManager";
+export { createFileOpenManager, type FileOpenManager } from "./fileOpenManager";
 export { createNotificationCenter, type NotificationCenter, type NotifyInput } from "./notificationCenter";
 export {
   createSessionIndexManager,

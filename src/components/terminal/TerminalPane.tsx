@@ -28,6 +28,7 @@ import {
   TERMINAL_THEME,
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
+import { capGlyphAtlas } from "./glyphAtlas";
 import { useRuntimePart } from "../../app/runtimeContext";
 import {
   usePaneInputFocus,
@@ -445,7 +446,7 @@ export function TerminalPane({
   // xterm owns every DOM node inside the host div, so the hint is a SIBLING of
   // the host (React must not reconcile children xterm appended).
   return (
-    <div className="terminal-pane">
+    <div className={`terminal-pane${visible ? "" : " terminal-pane--offscreen"}`}>
       <div className="terminal-pane__host" ref={hostRef} />
       {launching && (
         <div
@@ -507,7 +508,9 @@ function ElapsedSeconds({ since, className }: { since: number; className?: strin
  */
 function loadCanvasRenderer(term: Terminal): void {
   try {
-    term.loadAddon(new CanvasAddon());
+    const renderer = new CanvasAddon();
+    term.loadAddon(renderer);
+    capGlyphAtlas(renderer);
   } catch {
     // Canvas unavailable — xterm's DOM renderer is used.
   }

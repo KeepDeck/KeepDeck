@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  PLUGIN_CRASHES_KEPT,
   clearPluginCrashes,
   pluginCrashes,
   reportPluginCrash,
@@ -39,6 +40,20 @@ describe("pluginHealth", () => {
     const snapshot = pluginCrashes();
     clearPluginCrashes("a");
     expect(pluginCrashes()).toBe(snapshot);
+  });
+
+  it("keeps a looping plugin's newest crashes only, and never a neighbour's out", () => {
+    reportPluginCrash("b", "tab", "t", "the neighbour's one crash");
+    for (let i = 0; i < PLUGIN_CRASHES_KEPT + 5; i++) {
+      reportPluginCrash("a", "tab", "t", `crash ${i}`);
+    }
+    const looping = pluginCrashes().filter((c) => c.pluginId === "a").map((c) => c.detail);
+    expect(looping).toHaveLength(PLUGIN_CRASHES_KEPT);
+    expect(looping[0]).toBe("crash 5");
+    expect(looping[looping.length - 1]).toBe(`crash ${PLUGIN_CRASHES_KEPT + 4}`);
+    expect(pluginCrashes().filter((c) => c.pluginId === "b").map((c) => c.detail)).toEqual([
+      "the neighbour's one crash",
+    ]);
   });
 
   it("notifies subscribers on report and clear, stops after unsubscribe", () => {

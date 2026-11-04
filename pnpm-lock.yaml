@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@xterm/addon-canvas@0.7.0':
-    hash: ae766fd1e9fc38fa2ccfba69db8d8c4f5a9fcabb585adb349df4b8046ee93235
+    hash: 8f00277ccccbc6b0595e8da9f825cbc2831c5e9786b6247938ccd900cf5aa1a4
     path: patches/@xterm__addon-canvas@0.7.0.patch
   '@xterm/xterm@5.5.0':
     hash: 363c79acb0ebc53da706258ff706096e8f7d17de3f2239ae3ce9ecde6c3095b3
@@ -57,7 +57,7 @@ importers:
         version: 2.10.1
       '@xterm/addon-canvas':
         specifier: ^0.7.0
-        version: 0.7.0(patch_hash=ae766fd1e9fc38fa2ccfba69db8d8c4f5a9fcabb585adb349df4b8046ee93235)(@xterm/xterm@5.5.0(patch_hash=363c79acb0ebc53da706258ff706096e8f7d17de3f2239ae3ce9ecde6c3095b3))
+        version: 0.7.0(patch_hash=8f00277ccccbc6b0595e8da9f825cbc2831c5e9786b6247938ccd900cf5aa1a4)(@xterm/xterm@5.5.0(patch_hash=363c79acb0ebc53da706258ff706096e8f7d17de3f2239ae3ce9ecde6c3095b3))
       '@xterm/addon-fit':
         specifier: ^0.10.0
         version: 0.10.0(@xterm/xterm@5.5.0(patch_hash=363c79acb0ebc53da706258ff706096e8f7d17de3f2239ae3ce9ecde6c3095b3))
@@ -2920,7 +2920,7 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
-  '@xterm/addon-canvas@0.7.0(patch_hash=ae766fd1e9fc38fa2ccfba69db8d8c4f5a9fcabb585adb349df4b8046ee93235)(@xterm/xterm@5.5.0(patch_hash=363c79acb0ebc53da706258ff706096e8f7d17de3f2239ae3ce9ecde6c3095b3))':
+  '@xterm/addon-canvas@0.7.0(patch_hash=8f00277ccccbc6b0595e8da9f825cbc2831c5e9786b6247938ccd900cf5aa1a4)(@xterm/xterm@5.5.0(patch_hash=363c79acb0ebc53da706258ff706096e8f7d17de3f2239ae3ce9ecde6c3095b3))':
     dependencies:
       '@xterm/xterm': 5.5.0(patch_hash=363c79acb0ebc53da706258ff706096e8f7d17de3f2239ae3ce9ecde6c3095b3)
 

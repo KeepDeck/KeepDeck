@@ -1,0 +1,96 @@
+// @vitest-environment happy-dom
+/**
+ * The real terminal, mounted: what its markup says about whether anyone can
+ * see it. `src/styles/terminal.test.ts` reads the cascade over this markup —
+ * the class the root wears while the terminal is off screen, and xterm's own
+ * element directly inside the host — so the two cannot drift apart.
+ */
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { present } from "@keepdeck/plugin-api/testing";
+import { AppRuntimeProvider } from "../../app/runtimeContext";
+import { createFileOpenManager } from "../../app/testing";
+import { createPaneInputFocusController } from "../../presentation/paneInputFocusController";
+import { recordingContext2d, stubCanvasContext } from "../canvasContext.test-support";
+
+vi.mock("../../app/usePaneTerminal", () => {
+  const port = {
+    isLaunched: () => true,
+    attach: () => () => {},
+    write: () => {},
+    resize: () => {},
+    registerInput: () => () => {},
+    reportKey: () => {},
+    reportTextInput: () => {},
+  };
+  return { usePaneTerminal: () => port };
+});
+
+import { TerminalPane } from "./TerminalPane";
+
+const runtime = {
+  fileOpen: createFileOpenManager(() => [], () => Promise.resolve(), () => {}),
+  paneInputFocus: createPaneInputFocusController(),
+  clipboard: {
+    writeText: () => Promise.resolve(),
+    readText: () => Promise.resolve(""),
+    readImageTempPath: () => Promise.resolve(null),
+  },
+  shell: {
+    openUrl: () => Promise.resolve(),
+    listApplications: () => Promise.resolve([]),
+  },
+};
+
+let root: Root;
+let restoreCanvas: () => void;
+
+beforeEach(() => {
+  const drawn: unknown[] = [];
+  restoreCanvas = stubCanvasContext((canvas) => recordingContext2d(canvas, drawn));
+  vi.stubGlobal(
+    "OffscreenCanvas",
+    class {
+      getContext() {
+        return recordingContext2d(this, drawn);
+      }
+    },
+  );
+  document.body.innerHTML = "<div id='host'></div>";
+  root = createRoot(present(document.getElementById("host"), "the host element"));
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  restoreCanvas();
+  vi.unstubAllGlobals();
+  document.body.innerHTML = "";
+});
+
+function render(visible: boolean): HTMLElement {
+  act(() =>
+    root.render(
+      createElement(
+        AppRuntimeProvider,
+        { runtime },
+        createElement(TerminalPane, { paneId: "pane-1", command: "claude", cwd: "/repo", visible }),
+      ),
+    ),
+  );
+  return present(document.querySelector<HTMLElement>(".terminal-pane"), "the terminal root");
+}
+
+describe("a terminal's markup, on screen and off", () => {
+  it("wears the offscreen mark exactly while it is not visible", () => {
+    expect(render(false).classList.contains("terminal-pane--offscreen")).toBe(true);
+    expect(render(true).classList.contains("terminal-pane--offscreen")).toBe(false);
+    expect(render(false).classList.contains("terminal-pane--offscreen")).toBe(true);
+  });
+
+  it("puts xterm's own element directly inside the host, the box the fit measures", () => {
+    const pane = render(false);
+    const host = present(pane.querySelector(".terminal-pane__host"), "the host");
+    expect(host.querySelector(":scope > .xterm")).not.toBeNull();
+  });
+});
