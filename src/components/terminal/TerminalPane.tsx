@@ -28,6 +28,7 @@ import {
   TERMINAL_THEME,
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
+import { capGlyphAtlas } from "./glyphAtlas";
 import { useRuntimePart } from "../../app/runtimeContext";
 import {
   usePaneInputFocus,
@@ -507,7 +508,9 @@ function ElapsedSeconds({ since, className }: { since: number; className?: strin
  */
 function loadCanvasRenderer(term: Terminal): void {
   try {
-    term.loadAddon(new CanvasAddon());
+    const renderer = new CanvasAddon();
+    term.loadAddon(renderer);
+    capGlyphAtlas(renderer);
   } catch {
     // Canvas unavailable — xterm's DOM renderer is used.
   }
