@@ -14,44 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/xterm";
 import { CanvasAddon } from "@xterm/addon-canvas";
-import { stubCanvasContext } from "../canvasContext.test-support";
-
-/** A 2D context that accepts every call: enough surface for xterm to lay out
- * cells, rasterize glyphs and paint rows, recording the images it draws. */
-function recordingContext(canvas: unknown, drawn: unknown[]) {
-  const state: Record<string | symbol, unknown> = {};
-  const methods: Record<string, (...args: unknown[]) => unknown> = {
-    measureText: () => ({
-      width: 8,
-      actualBoundingBoxAscent: 10,
-      actualBoundingBoxDescent: 3,
-      fontBoundingBoxAscent: 12,
-      fontBoundingBoxDescent: 4,
-    }),
-    getImageData: (_x, _y, w, h) => ({
-      width: w,
-      height: h,
-      // Opaque ink everywhere, so glyph trimming finds something to keep.
-      data: new Uint8ClampedArray(Math.max(1, Number(w) * Number(h)) * 4).fill(255),
-    }),
-    createLinearGradient: () => ({ addColorStop: () => {} }),
-    drawImage: (image) => {
-      drawn.push(image);
-    },
-  };
-  return new Proxy(state, {
-    get(target, key) {
-      if (key === "canvas") return canvas;
-      if (typeof key === "string" && key in methods) return methods[key];
-      if (key in target) return target[key];
-      return () => {};
-    },
-    set(target, key, value) {
-      target[key] = value;
-      return true;
-    },
-  });
-}
+import { recordingContext2d, stubCanvasContext } from "../canvasContext.test-support";
 
 let drawn: unknown[];
 let createImageBitmap: ReturnType<typeof vi.fn>;
@@ -60,14 +23,14 @@ let restoreCanvas: () => void;
 beforeEach(() => {
   vi.useFakeTimers();
   drawn = [];
-  restoreCanvas = stubCanvasContext((canvas) => recordingContext(canvas, drawn));
+  restoreCanvas = stubCanvasContext((canvas) => recordingContext2d(canvas, drawn));
   // xterm measures its cell off an OffscreenCanvas; happy-dom's has no 2D
   // context, and a zero cell renders nothing.
   vi.stubGlobal(
     "OffscreenCanvas",
     class {
       getContext() {
-        return recordingContext(this, drawn);
+        return recordingContext2d(this, drawn);
       }
     },
   );

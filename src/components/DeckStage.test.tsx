@@ -595,6 +595,17 @@ describe("DeckStage — the teams level", () => {
     expect(teamSessions.props).toBeNull();
   });
 
+  it("hides a background workspace with no team the way it hides every background workspace", () => {
+    render({
+      workspaces: [workspaces[0], { ...workspaces[0], id: "ws-2", teams: [], panes: [] }],
+      specByPane: {},
+      activeId: "ws-1",
+    });
+    const setup = present(document.querySelector<HTMLElement>(".deck__setup"), "the no-team layer");
+    expect(setup.classList.contains("deck__workspace--hidden")).toBe(true);
+    expect(setup.style.visibility).toBe("");
+  });
+
   it("lists an open empty team's sessions in its directory, and continues them onto THAT team", () => {
     teamSessions.props = null;
     render({ workspaces: [{ ...workspaces[0], panes: [] }], specByPane: {} });
