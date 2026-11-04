@@ -20,6 +20,14 @@ export interface PluginCrash {
   detail: string;
 }
 
+/** How many crashes one plugin's journal keeps: the newest. The failure
+ * panel shows them as its log, and nothing but a Restart clears them, so a
+ * plugin crashing in a loop would otherwise grow its journal — copied whole
+ * into the snapshot at every crash — for as long as the app runs. Counted per
+ * plugin, so one plugin's loop never pushes a neighbour's crash, and the badge
+ * it earns, out of the journal. */
+export const PLUGIN_CRASHES_KEPT = 20;
+
 const records: PluginCrash[] = [];
 let snapshot: readonly PluginCrash[] = [];
 const listeners = new Set<() => void>();
@@ -36,6 +44,9 @@ export function reportPluginCrash(
   error: unknown,
 ): void {
   records.push({ pluginId, surfaceKind, surfaceId, detail: detailOf(error) });
+  if (records.filter((crash) => crash.pluginId === pluginId).length > PLUGIN_CRASHES_KEPT) {
+    records.splice(records.findIndex((crash) => crash.pluginId === pluginId), 1);
+  }
   notify();
 }
 
