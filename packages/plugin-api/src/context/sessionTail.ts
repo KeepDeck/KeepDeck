@@ -246,6 +246,23 @@ export interface TailSum {
    * every row is its own event.
    */
   readonly dedupBy?: string;
+  /**
+   * The field whose value splits the total into one per value, when a store
+   * mixes things that must not be added together. A claude session's rows
+   * come from more than one model (a subagent may run on another), and one
+   * total would put all of them under whichever model the pane names.
+   *
+   * Present, the stamp is an object of totals keyed by that value; a row
+   * without one is totalled under the empty name. A partition qualifies
+   * under the rule above: which total a row joins does not depend on order.
+   */
+  readonly groupBy?: string;
+  /**
+   * The name each total also counts its messages under: the distinct
+   * identities when `dedupBy` is set (a message restated in several rows is
+   * one), the rows otherwise. Omit when nobody needs the count.
+   */
+  readonly countAs?: string;
   /** The key the running total is stamped under on each carried record. */
   readonly stampAs: string;
 }

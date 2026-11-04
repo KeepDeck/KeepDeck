@@ -102,6 +102,16 @@ pub struct TailSum {
     /// row is its own event and simply adds.
     #[serde(default)]
     pub dedup_by: Option<String>,
+    /// The field whose value splits the total into one per value. Present,
+    /// the stamp is an object of totals keyed by that value; a row without
+    /// one is totalled under the empty name. Absent, there is one total.
+    #[serde(default)]
+    pub group_by: Option<String>,
+    /// The name each total also counts its messages under: the distinct
+    /// identities when `dedup_by` is set, the rows otherwise. Absent, no
+    /// count is stamped.
+    #[serde(default)]
+    pub count_as: Option<String>,
     /// The key the running total is stamped under on the carried record.
     pub stamp_as: String,
 }
@@ -614,6 +624,8 @@ mod tests {
         watch.sum = Some(TailSum {
             buckets: BTreeMap::from([("output".to_string(), "usage.output".to_string())]),
             dedup_by: None,
+            group_by: None,
+            count_as: None,
             stamp_as: "sessionTotals".to_string(),
         });
         let watches = std::slice::from_ref(&watch);
@@ -631,6 +643,21 @@ mod tests {
             .next()
             .unwrap();
         assert_eq!(second.payload["record"]["sessionTotals"]["output"], 600);
+    }
+
+    #[test]
+    fn a_sum_reads_the_plugins_camel_case_wire() {
+        let sum: TailSum = serde_json::from_str(
+            r#"{"buckets":{"input":"message.usage.input_tokens"},"dedupBy":"message.id",
+                "groupBy":"message.model","countAs":"messages","stampAs":"sessionTotals"}"#,
+        )
+        .expect("the wire a plugin declares");
+        assert_eq!(sum.group_by.as_deref(), Some("message.model"));
+        assert_eq!(sum.count_as.as_deref(), Some("messages"));
+        // A plugin that declares neither is read as one total, uncounted.
+        let plain: TailSum =
+            serde_json::from_str(r#"{"buckets":{},"stampAs":"sessionTotals"}"#).unwrap();
+        assert_eq!((plain.group_by, plain.count_as), (None, None));
     }
 
     // Two ways a store says when: an ISO stamp, or unix milliseconds.

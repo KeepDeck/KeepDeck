@@ -522,6 +522,8 @@ mod tests {
                     ("output".to_string(), "usage.output".to_string()),
                 ]),
                 dedup_by: None,
+                group_by: None,
+                count_as: None,
                 stamp_as: "sessionTotals".to_string(),
             }),
         }]
@@ -551,6 +553,8 @@ mod tests {
                     ),
                 ]),
                 dedup_by: Some("message.id".to_string()),
+                group_by: None,
+                count_as: None,
                 stamp_as: "sessionTotals".to_string(),
             }),
         }]
