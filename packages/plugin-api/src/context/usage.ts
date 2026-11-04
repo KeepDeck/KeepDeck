@@ -74,7 +74,9 @@ export interface PaneUsage {
   /** Monotonic within one reporter session generation; lets the host reject an
    * older async/file delivery after a newer snapshot. */
   sequence?: number;
-  /** Human model name ("Opus") when the CLI offers one; else the raw id. */
+  /** The model the session runs on, as the usage history books it. Its id
+   * when the CLI reports one — a model catalogue matches ids, not the name
+   * a CLI shows; else the name. */
   model?: string;
   context?: {
     usedPct?: number;
@@ -87,8 +89,8 @@ export interface PaneUsage {
    * The session so far, per model — keyed by the model's id — when the CLI
    * can say which model used what (a subagent may run on another). The
    * usage history books tokens and calls from this when it is present, and
-   * `totalTokens` (the same tokens summed) stays what a chip shows. Without
-   * it, a report is the session as one sum, each report a call.
+   * never `totalTokens` beside it. Without it, a report is the session as
+   * one sum, a call each time its tokens move.
    */
   byModel?: Readonly<Record<string, ModelUsage>>;
   lastTurnTokens?: TokenCounts;
