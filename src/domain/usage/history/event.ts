@@ -33,7 +33,9 @@ interface UsageRowBase {
   tokens: TokenCounts;
   /** Recorded events the row stands for — 1 for an event. */
   count: number;
-  /** Provider calls: an event is one call, its two reported halves joined. */
+  /** Provider calls: a model's new messages, for a report that counts per
+   * model; one for a report counting the session as one sum — none for a
+   * row that only carries a price. */
   calls: number;
   /** Events among them that carried a provider price. */
   costEvents: number;

@@ -58,6 +58,13 @@ export interface TokenCounts {
   total?: number;
 }
 
+/** One model's share of a session so far: its tokens, and how many provider
+ * calls (messages) it has made. */
+export interface ModelUsage {
+  totalTokens: TokenCounts;
+  calls: number;
+}
+
 /** One pane's live session usage. The context bag speaks whichever terms
  * the CLI does — a ready-made percentage, or tokens against a window size
  * that may arrive in a SEPARATE report; the host merges bags field-wise. */
@@ -76,6 +83,14 @@ export interface PaneUsage {
   };
   costUsd?: number;
   totalTokens?: TokenCounts;
+  /**
+   * The session so far, per model — keyed by the model's id — when the CLI
+   * can say which model used what (a subagent may run on another). The
+   * usage history books tokens and calls from this when it is present, and
+   * `totalTokens` (the same tokens summed) stays what a chip shows. Without
+   * it, a report is the session as one sum, each report a call.
+   */
+  byModel?: Readonly<Record<string, ModelUsage>>;
   lastTurnTokens?: TokenCounts;
   reportedAt: number;
 }

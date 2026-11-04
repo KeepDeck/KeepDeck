@@ -13,7 +13,10 @@ export interface StoredUsageLedger {
 
 /** One pane report for the core to book. */
 export interface UsageRecordEntry {
-  report: Pick<PaneUsage, "agent" | "model" | "totalTokens" | "costUsd" | "reportedAt" | "sequence">;
+  report: Pick<
+    PaneUsage,
+    "agent" | "model" | "totalTokens" | "costUsd" | "byModel" | "reportedAt" | "sequence"
+  >;
   context: UsageCaptureContext;
   capturedAt: number;
 }
@@ -22,10 +25,10 @@ export function loadUsageLedger(): Promise<StoredUsageLedger> {
   return invoke<StoredUsageLedger>("usage_ledger");
 }
 
-/** Book one report: the row it adds to the ledger, null when there was
- * nothing to book. A report completing a call reported in halves adds a row
- * with no count and no calls of its own — appending every answer keeps the
- * page's rows summing to the core's ledger. */
-export function recordUsage(entry: UsageRecordEntry): Promise<UsageRow | null> {
-  return invoke<UsageRow | null>("usage_record", { entry });
+/** Book one report: the rows it adds to the ledger — none when there was
+ * nothing to book, one per model that moved and one for its price when it
+ * counts per model. A booking only adds rows, so appending every answer
+ * keeps the page's rows summing to the core's ledger. */
+export function recordUsage(entry: UsageRecordEntry): Promise<UsageRow[]> {
+  return invoke<UsageRow[]>("usage_record", { entry });
 }
