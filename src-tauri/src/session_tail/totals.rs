@@ -18,6 +18,11 @@ use super::dialects::{at, TailSum};
 /// One total: the sum of each bucket, how many messages went into it, and —
 /// for a store that writes one message as several rows — what each message
 /// has already contributed.
+///
+/// A message's contribution is held in the total of its group, so a message
+/// is assumed to stay in one group: rows restating it under another value of
+/// the grouping field would count it in each. Claude's restated rows carry
+/// the message's model unchanged.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Total {
     sums: BTreeMap<String, u64>,
