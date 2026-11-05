@@ -18,10 +18,11 @@ import type { AgentStatusEvent, StatusWaitReason } from "@keepdeck/plugin-api";
  *
  * - The TIME compare (`at < since`) catches only slow-channel edges — a
  *   tail marker trails the hook lane by up to a poll interval and carries
- *   its own honest time. Hook edges are stamped at APPLY time, so their
- *   `at` is monotonic in processing order and the compare is inert for
- *   them; it becomes load-bearing for `waiting` too the moment any lane
- *   mints a wait with a source time.
+ *   its own honest time. Hook edges are stamped at receipt, by a clock the
+ *   tracker keeps from running backwards (the wall clock does step back —
+ *   `receivedNow`), so their `at` is monotonic in processing order and the
+ *   compare is inert for them; it becomes load-bearing for `waiting` too
+ *   the moment any lane mints a wait with a source time.
  * - The STATE absorbs (done/failed stand) catch reordered HOOK envelopes,
  *   which a receipt-stamped time cannot see its own reordering in.
  *
