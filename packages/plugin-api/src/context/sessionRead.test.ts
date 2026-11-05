@@ -45,6 +45,9 @@ function store(count: number, pad = "x", trailingNewline = true): string {
   return lines.join("\n") + (trailingNewline ? "\n" : "");
 }
 
+/** How many bytes `text` takes in the file. */
+const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length;
+
 describe("jsonl reader", () => {
   it("delivers a record the window boundary cut in half", async () => {
     // A seven-byte ceiling puts a boundary inside almost every record.
@@ -106,7 +109,7 @@ describe("jsonl reader", () => {
     // "Read X of Y", both in bytes: X is exactly the budget — the last window
     // trimmed to what was left, not overshot — and Y the whole store.
     expect(outcome.payloadBytes).toBe(budget.maxPayloadBytes);
-    expect(outcome.sourceBytes).toBe(new TextEncoder().encode(text).length);
+    expect(outcome.sourceBytes).toBe(utf8Bytes(text));
     expect(outcome.next).toBeDefined();
   });
 
@@ -165,6 +168,38 @@ describe("jsonl reader", () => {
 
     expect([...first, ...rest]).toEqual((await readAll(fs, "/s.jsonl")).seen);
     expect(outcome.stopped).toBe("exhausted");
+  });
+
+  it("names where it stopped in bytes, each line's newline included — not in characters", async () => {
+    // Three-byte characters in seven-byte windows. A cursor counted in
+    // characters, or one short of the newline a line ended on, lands inside
+    // a line — and a read resumed there skips the half line and still looks
+    // whole, so only the cursor itself can tell (task-565).
+    const text = store(40, "日");
+    const fs = fakeFs({ "/s.jsonl": text }, 7);
+    let taken = 0;
+
+    const head = await createJsonlReader(fs, anyLine).pull({ path: "/s.jsonl" }, NARROW, () =>
+      ++taken === 9 ? "enough" : "more",
+    );
+
+    const nine = text.split("\n").slice(0, 9).map((line) => `${line}\n`).join("");
+    expect(head.next).toBe(cursorOf(`j1:${utf8Bytes(nine)}:${utf8Bytes(text)}`));
+  });
+
+  it("looks at each character of a window once, however many records it holds", async () => {
+    // Counted, not timed (task-565). Measuring from the window's start at
+    // every record looked at the first record's characters once per record:
+    // these 200 short records in one window cost 490 385 looks instead of
+    // 4 690.
+    const text = store(200);
+    const looks = vi.spyOn(String.prototype, "charCodeAt");
+    try {
+      await readAll(fakeFs({ "/s.jsonl": text }), "/s.jsonl");
+      expect(looks.mock.calls.length).toBeLessThanOrEqual(text.length);
+    } finally {
+      looks.mockRestore();
+    }
   });
 
   it("offers no cursor once the store is exhausted", async () => {
@@ -269,7 +304,6 @@ describe("jsonl reader", () => {
     // What a codex fork inherits: its source's first lines, as they stood
     // when it forked — the lines the source wrote since are not its own.
     // Long lines, so the prefix spans several 256 KiB windows in few records:
-    // the reader's cost grows with the records in a window (task-565), and
     // what is under test here is the windows and the boundary, not the count.
     const text = store(120, "y".repeat(1_000));
     const until = text.split("\n").slice(0, 100).join("\n").length + 1;
