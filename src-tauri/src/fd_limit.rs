@@ -5,15 +5,17 @@
 //! (task-575): with a few dozen panes the main process already held 161. Every
 //! terminal, socket, watcher and log shares that budget, and running out
 //! fails a spawn or a skills stage with EMFILE. So the soft limit is raised
-//! once, first thing at startup, to the most the system allows; the agents and
-//! shells the app spawns inherit it.
+//! once, first thing at startup, to `OPEN_MAX` (or the hard limit, if that is
+//! lower); the agents and shells the app spawns inherit it.
 
 use std::io;
 
 /// The most the soft limit is raised to: macOS's `OPEN_MAX`
-/// (`<sys/syslimits.h>`), which setrlimit(2) names as the ceiling for an open
-/// files `rlim_cur` — "use rlim_cur = min(OPEN_MAX, rlim_max)". Forty times
-/// what the app held with dozens of panes open.
+/// (`<sys/syslimits.h>`), the value setrlimit(2) tells callers to use for an
+/// open files `rlim_cur` — "use rlim_cur = min(OPEN_MAX, rlim_max)". Not the
+/// kernel's own ceiling (a terminal shell may already run far above it, and
+/// that is left alone); forty times what the app held with dozens of panes
+/// open.
 const OPEN_MAX: libc::rlim_t = 10_240;
 
 /// What raising the limit did, said in the log once the log is up.
@@ -21,7 +23,7 @@ const OPEN_MAX: libc::rlim_t = 10_240;
 pub(crate) enum Raised {
     /// From the inherited soft limit to the new one.
     To { from: libc::rlim_t, to: libc::rlim_t },
-    /// The soft limit was already as high as it goes.
+    /// The soft limit was already at or past what it would be raised to.
     Already(libc::rlim_t),
     /// It could not be read or set: the app runs with what it inherited.
     Failed(io::Error),
@@ -39,8 +41,8 @@ impl Raised {
     }
 }
 
-/// Raise this process's soft limit on open files to the most the system
-/// allows. Called once, before any thread or terminal exists.
+/// Raise this process's soft limit on open files to `OPEN_MAX`, or the hard
+/// limit if that is lower. Called once, before any thread or terminal exists.
 pub(crate) fn raise() -> Raised {
     let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: a valid pointer to an rlimit, alive for the call.
@@ -59,7 +61,7 @@ pub(crate) fn raise() -> Raised {
     Raised::To { from, to }
 }
 
-/// The soft limit to set, or None when it is already as high as it goes. It
+/// The soft limit to set, or None when it is already there or past it. It
 /// never lowers one: a limit somebody raised past the ceiling stays.
 fn target(soft: libc::rlim_t, hard: libc::rlim_t) -> Option<libc::rlim_t> {
     let most = hard.min(OPEN_MAX);
@@ -85,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    fn raising_leaves_the_process_at_the_most_it_may_hold_and_a_second_raise_finds_it_there() {
+    fn raising_leaves_the_process_at_or_past_the_ceiling_and_a_second_raise_finds_it_there() {
         let raised = raise();
         assert!(matches!(raised, Raised::To { .. } | Raised::Already(_)), "{raised:?}");
         let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
