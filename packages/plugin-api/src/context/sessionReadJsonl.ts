@@ -72,17 +72,18 @@ function resumeOf(text: string): JsonlResume | null {
   return { byte, size };
 }
 
-/** UTF-8 length of `text` up to `end` characters, without building the
- * substring — the reader needs byte positions in a file while holding
- * JavaScript strings, and the conversion happens once per stop rather than
- * once per record. */
-function utf8Length(text: string, end: number): number {
+/** UTF-8 length of `text`, without encoding it — the reader needs byte
+ * positions in a file while holding JavaScript strings. The walk measures each
+ * line once, as it passes it, and adds the lengths up: measuring from the
+ * window's start at every record made a window's cost its bytes times its
+ * records (task-565). */
+function utf8Length(text: string): number {
   let bytes = 0;
-  for (let i = 0; i < end; i++) {
+  for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
     if (code < 0x80) bytes += 1;
     else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code < 0xdc00 && i + 1 < end) {
+    else if (code >= 0xd800 && code < 0xdc00 && i + 1 < text.length) {
       // A surrogate PAIR is one four-byte character; its second half is
       // consumed here so it is not counted twice.
       bytes += 4;
@@ -180,13 +181,14 @@ export function createJsonlReader<Item>(
         // window's last piece is a record that simply lacks its newline, and
         // dropping it would silently lose the newest turn of a live session.
         const complete = truncated ? lines.length - 1 : lines.length;
-        let chars = 0;
+        /** The bytes of the lines walked so far in this buffer. */
+        let bytes = 0;
 
         for (let i = 0; i < complete; i++) {
           const line = lines[i];
-          // The separator `split` removed, except after the very last piece,
-          // which had none.
-          chars += line.length + (i < lines.length - 1 ? 1 : 0);
+          // The separator `split` removed — one byte — except after the very
+          // last piece, which had none.
+          bytes += utf8Length(line) + (i < lines.length - 1 ? 1 : 0);
 
           // A blank line, and a line the store wrote half of before dying,
           // are both skipped rather than fatal: one damaged record must not
@@ -205,24 +207,24 @@ export function createJsonlReader<Item>(
             refused += 1;
             // Past it for good: a read resumed after this line must not
             // count it a second time.
-            consumedEnd = bufferStart + utf8Length(buffer, chars);
+            consumedEnd = bufferStart + bytes;
             continue;
           }
 
           // The position advances BEFORE the record is handed over, so a
           // caller that says "enough" gets a cursor pointing past what it
           // already has rather than at it.
-          consumedEnd = bufferStart + utf8Length(buffer, chars);
+          consumedEnd = bufferStart + bytes;
           items += 1;
           if (consume(record) === "enough") return outcome("satisfied");
         }
 
         if (!truncated) {
-          consumedEnd = bufferStart + utf8Length(buffer, chars);
+          consumedEnd = bufferStart + bytes;
           return outcome("exhausted");
         }
         carry = lines[lines.length - 1];
-        carryBytes = utf8Length(carry, carry.length);
+        carryBytes = utf8Length(carry);
       }
     },
   };
