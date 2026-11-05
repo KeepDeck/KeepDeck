@@ -55,7 +55,7 @@ import { AppRuntimeProvider } from "../../app/runtimeContext";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";
 import { present } from "@keepdeck/plugin-api/testing";
-import { usageResult, statusEdge } from "../../testing/values.test-support";
+import { edgeTimes, usageResult, statusEdge } from "../../testing/values.test-support";
 
 /** The runtime slice AgentPane actually reads (its activity and ctx%
  * selectors). Fresh stores per test — the factories' whole point. */
@@ -362,8 +362,10 @@ describe("AgentPane — header badges", () => {
 describe("AgentPane — activity badge", () => {
   let host: HTMLElement;
   let root: Root;
+  let edgeAt: () => number;
 
   beforeEach(() => {
+    edgeAt = edgeTimes();
     document.body.innerHTML = "";
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -384,7 +386,7 @@ describe("AgentPane — activity badge", () => {
 
   it("shows a quiet working dot — no words, no rim; the label rides the tooltip", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
-    reportEdge({ kind: "turn-start", at: Date.now() });
+    reportEdge({ kind: "turn-start", at: edgeAt() });
 
     const badge = document.querySelector<HTMLElement>(".pane__status");
     expect(badge).not.toBeNull();
@@ -395,7 +397,7 @@ describe("AgentPane — activity badge", () => {
 
   it("says the attention states in words beside the dot, and rims the pane", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
-    reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
+    reportEdge({ kind: "waiting", at: edgeAt(), reason: "permission" });
 
     let badge = document.querySelector<HTMLElement>(".pane__status");
     // The tone class alone carries the hue (status.css owns the palette).
@@ -407,7 +409,7 @@ describe("AgentPane — activity badge", () => {
 
     reportEdge({
       kind: "turn-failed",
-      at: Date.now(),
+      at: edgeAt(),
       error: "rate_limit",
       detail: "Weekly limit reached",
     });
@@ -434,13 +436,13 @@ describe("AgentPane — activity badge", () => {
     let pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).toContain("pane--frame-selected");
 
-    reportEdge({ kind: "waiting", at: Date.now(), reason: "question" });
+    reportEdge({ kind: "waiting", at: edgeAt(), reason: "question" });
     pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).toContain("pane--frame-waiting");
     expect(present(pane, "the pane").className).not.toContain("pane--frame-selected");
 
     // Done yields to selection on the selected pane…
-    reportEdge({ kind: "turn-end", at: Date.now() });
+    reportEdge({ kind: "turn-end", at: edgeAt() });
     pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).toContain("pane--frame-selected");
 
@@ -450,7 +452,7 @@ describe("AgentPane — activity badge", () => {
     expect(present(pane, "the pane").className).toContain("pane--frame-done");
 
     // Working frames on its own rung…
-    reportEdge({ kind: "turn-start", at: Date.now() });
+    reportEdge({ kind: "turn-start", at: edgeAt() });
     pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).toContain("pane--frame-working");
 
@@ -471,17 +473,17 @@ describe("AgentPane — activity badge", () => {
     // A stage-filling pane: attention still frames…
     const fillsStage = { ...baseProps, framePlace: { selected: false, fullBleed: true } };
     act(() => root.render(createElement(PaneUnderTest, fillsStage)));
-    reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
+    reportEdge({ kind: "waiting", at: edgeAt(), reason: "permission" });
     let pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).toContain("pane--frame-waiting");
 
     // …but done and working don't — the pane's own header spells them out
     // in place, and a rim repeating them at the screen's edge is noise.
-    reportEdge({ kind: "turn-end", at: Date.now() });
+    reportEdge({ kind: "turn-end", at: edgeAt() });
     pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).not.toContain("pane--frame-done");
 
-    reportEdge({ kind: "turn-start", at: Date.now() });
+    reportEdge({ kind: "turn-start", at: edgeAt() });
     pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).not.toContain("pane--frame-working");
 
@@ -500,7 +502,7 @@ describe("AgentPane — activity badge", () => {
     // Attention pierces that rim exactly the same way.
     reportEdge({
       kind: "turn-failed",
-      at: Date.now(),
+      at: edgeAt(),
       error: "rate_limit",
       detail: "Weekly limit reached",
     });
@@ -514,11 +516,11 @@ describe("AgentPane — activity badge", () => {
     // Told it does not, the pane keeps the frames a gridded pane wears.
     const row = { ...baseProps, solo: true };
     act(() => root.render(createElement(PaneUnderTest, row)));
-    reportEdge({ kind: "turn-start", at: Date.now() });
+    reportEdge({ kind: "turn-start", at: edgeAt() });
     let pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).toContain("pane--frame-working");
 
-    reportEdge({ kind: "turn-end", at: Date.now() });
+    reportEdge({ kind: "turn-end", at: edgeAt() });
     pane = document.querySelector<HTMLElement>(".pane");
     expect(present(pane, "the pane").className).toContain("pane--frame-done");
   });

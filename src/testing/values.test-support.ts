@@ -46,3 +46,13 @@ export function statusEdge(payload: unknown): AgentStatusEvent | null {
   const edge = maybeRecord(payload)?.edge;
   return isAgentStatusEvent(edge) ? edge : null;
 }
+
+/** Times for the edges a test reports, in the order it reports them: one
+ * reading of the wall clock, then a millisecond apart. Never a second
+ * reading — the clock steps back by up to ~120 ms several times a day, and
+ * an ending stamped before the wait it ends is refused as the turn before it
+ * (task-567). Near now, so an age a view shows reads "now". */
+export function edgeTimes(): () => number {
+  let at = Date.now();
+  return () => at++;
+}

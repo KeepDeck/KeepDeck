@@ -394,6 +394,50 @@ describe("agentStatusTracker", () => {
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
     expect(listener).not.toHaveBeenCalled();
   });
+
+  describe("across a step back of the wall clock", () => {
+    // macOS's timed steps the clock back by up to ~120 ms, several times a
+    // day. An edge received across a step would read as older than the
+    // phase it follows — the turn BEFORE it — and be refused (task-567).
+    const wall = () => vi.spyOn(Date, "now");
+
+    it("an ending received after a wait still ends the turn", () => {
+      const tracker = createAgentStatusTracker();
+      tracker.registerNormalizer("claude", literal);
+      const clock = wall();
+      try {
+        clock.mockReturnValue(1_000);
+        tracker.report("pane-1", { agent: "claude", event: { kind: "wait" } });
+        clock.mockReturnValue(900);
+        tracker.prepare("pane-1", { agent: "claude", event: { kind: "end" } }).finish();
+      } finally {
+        clock.mockRestore();
+      }
+      expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+        state: "done",
+        at: 1_000,
+        interrupted: false,
+      });
+    });
+
+    it("an answer still resolves the wait it follows", () => {
+      const tracker = createAgentStatusTracker();
+      tracker.registerNormalizer("codex", literal);
+      const clock = wall();
+      try {
+        clock.mockReturnValue(1_000);
+        tracker.report("pane-1", { agent: "codex", event: { kind: "wait" } });
+        clock.mockReturnValue(900);
+        tracker.answered("pane-1");
+      } finally {
+        clock.mockRestore();
+      }
+      expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+        state: "working",
+        since: 1_000,
+      });
+    });
+  });
 });
 
 describe("agentStatusTracker — the mode an agent says it runs in", () => {

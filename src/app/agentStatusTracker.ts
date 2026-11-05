@@ -145,6 +145,23 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   // restart is told apart from one a newer turn of its own process overtook.
   const lifetimes = new Map<string, object>();
   const decoderStates = new Map<string, { normalize: StatusNormalizer; state: unknown }>();
+  let lastReceived = -Infinity;
+
+  /**
+   * The time this tracker stamps on what it receives itself — a hook's
+   * report, the user's answer: never earlier than the last stamp it handed
+   * out. The fold reads an ending older than the phase it would end as the
+   * turn BEFORE that phase, and a receipt time is safe to compare only while
+   * it runs forward in the order edges arrive. The wall clock does not:
+   * macOS's timed steps it, backwards too — by 59 to 122 ms, five times in
+   * one day on the machine where a turn-end landing across one left a pane
+   * on "waiting" (task-567). Across a step back the stamps hold still until
+   * the clock catches up.
+   */
+  function receivedNow(): number {
+    lastReceived = Math.max(lastReceived, Date.now());
+    return lastReceived;
+  }
 
   /**
    * The ONE way this store moves: adopt the next state, project it, and
@@ -270,7 +287,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     };
   }
 
-  function prepare(paneId: string, payload: unknown, at = Date.now()) {
+  function prepare(paneId: string, payload: unknown, at = receivedNow()) {
     const previous = statuses.get(paneId) ?? null;
     const ignored = { activity: previous?.activity ?? null, finish() {} };
     if (!isJsonRecord(payload) || typeof payload.agent !== "string") return ignored;
@@ -358,11 +375,11 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       };
     },
 
-    report(paneId, payload, at = Date.now()) {
+    report(paneId, payload, at = receivedNow()) {
       prepare(paneId, payload, at).finish();
     },
 
-    answered(paneId, at = Date.now()) {
+    answered(paneId, at = receivedNow()) {
       // What an answer may resolve is the domain's call, next to the fold
       // that reads the same edge from an agent — asking it here in a second
       // spelling is how the two readings drift apart.
