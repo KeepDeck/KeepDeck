@@ -395,6 +395,22 @@ describe("AgentPane — activity badge", () => {
     expect(document.querySelector(".pane__state")).toBeNull();
   });
 
+  it("says, where its dot would be, that an agent launched without KeepDeck's setup cannot report", () => {
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, {
+          ...baseProps,
+          unconnected: { cause: "plan-failed", error: "boom" },
+        }),
+      ),
+    );
+    const badge = present(document.querySelector<HTMLElement>(".pane__status"), "the badge");
+    expect(badge.className).toContain("pane__status--unconnected");
+    expect(badge.getAttribute("aria-label")).toBe("Not connected to KeepDeck");
+    expect(badge.title).toContain("KeepDeck could not set this agent up: boom.");
+    expect(document.querySelector(".pane__state")).toBeNull();
+  });
+
   it("says the attention states in words beside the dot, and rims the pane", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
     reportEdge({ kind: "waiting", at: edgeAt(), reason: "permission" });

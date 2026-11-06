@@ -11,6 +11,8 @@ import {
   type PaneActivity,
 } from "../domain/status";
 import { activityBadge } from "../presentation/activityBadge";
+import { unconnectedLaunchView } from "../presentation/unconnectedLaunchView";
+import type { SpawnPlan } from "./spawnSpecs";
 import { workspaceInstanceOf } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import type { AgentStatusTracker } from "./agentStatusTracker";
@@ -110,6 +112,49 @@ export function notifyAgentSpawnFailed(
     source: { type: "pane", workspace: ctx.workspace, paneId },
     tag: `pane:${paneId}:spawn`,
   });
+}
+
+/** The slice of the plan cache the launch notices read: when any pane's plan
+ * changes, and a pane's current one. */
+export interface PanePlansPort {
+  subscribe(listener: () => void): () => void;
+  peek(paneId: string): Pick<SpawnPlan, "unconnected"> | undefined;
+}
+
+/**
+ * Announce a pane whose agent was launched without KeepDeck's setup
+ * (task-572) — once per launch: the plan is the launch, so one plan is one
+ * entry, and a restart that fails the same way replaces it (one tag per
+ * pane) rather than stacking a second. The pane's own dot carries the state
+ * for as long as it lasts; this is the moment it began.
+ */
+export function initUnconnectedLaunchNotifications(
+  plans: PanePlansPort,
+  read: () => { workspaces: Workspace[]; agents: AgentInfo[] },
+): () => void {
+  const announced = new WeakSet<object>();
+  const sweep = () => {
+    const { workspaces, agents } = read();
+    for (const ws of workspaces) {
+      for (const pane of ws.panes) {
+        const plan = plans.peek(pane.id);
+        if (!plan?.unconnected || announced.has(plan)) continue;
+        announced.add(plan);
+        const ctx = paneContext(workspaces, ws.id, pane.id, agents);
+        if (!ctx) continue;
+        const view = unconnectedLaunchView(plan.unconnected);
+        notify({
+          title: `${ctx.title} — ${view.sentence}`,
+          body: `${view.reason} · ${ctx.wsName}`,
+          severity: "error",
+          source: { type: "pane", workspace: ctx.workspace, paneId: pane.id },
+          tag: `pane:${pane.id}:unconnected`,
+        });
+      }
+    }
+  };
+  sweep();
+  return plans.subscribe(sweep);
 }
 
 /** [`paneContext`] when only the pane id is known (the status tracker keys

@@ -7,7 +7,8 @@ const badge = (tone: ActivityBadge["tone"], label: string, detail?: string): Act
   tone, label, sentence: label.toLowerCase(), detail, at: NOW - 3 * 60_000,
 });
 const input = (over: Partial<PaneHeaderInput> = {}): PaneHeaderInput => ({
-  activity: null, now: NOW, ctxPct: undefined, paneLive: true, team: null, showTeamName: false, ...over,
+  activity: null, unconnected: undefined, now: NOW, ctxPct: undefined, paneLive: true, team: null,
+  showTeamName: false, ...over,
 });
 
 describe("paneHeaderView", () => {
@@ -27,6 +28,22 @@ describe("paneHeaderView", () => {
     const view = paneHeaderView(input({ activity: badge("failed", "Rate limited", "resets 18:40") }));
     expect(view.status).toEqual({ tone: "failed", label: "Rate limited", tooltip: "Rate limited — resets 18:40 · 3m ago" });
     expect(paneHeaderView(input()).status).toBeNull();
+  });
+
+  it("says why an agent launched without KeepDeck's setup reports nothing, where its dot would be", () => {
+    const view = paneHeaderView(input({ unconnected: { cause: "plan-failed", error: "boom" } }));
+    expect(view.status).toEqual({
+      tone: "unconnected",
+      label: "Not connected to KeepDeck",
+      tooltip: "Not connected to KeepDeck — KeepDeck could not set this agent up: boom. Status, mail and resume won't work until the agent restarts.",
+    });
+    // Never words beside the controls: the dot carries it.
+    expect(view.stateWord).toBeNull();
+    // The agent's own word, were one ever to come, is the fresher fact.
+    expect(paneHeaderView(input({
+      activity: badge("working", "Working"),
+      unconnected: { cause: "plan-failed", error: "boom" },
+    })).status?.tone).toBe("working");
   });
 
   it("names the teammate by role, adding the team only where the deck runs several", () => {

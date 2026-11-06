@@ -3,7 +3,9 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance, UNMINTED_INSTANCE } from "../domain/workspaceInstance";
 import {
   initActivityNotifications,
+  initUnconnectedLaunchNotifications,
   initUpdateNotifications,
+  type PanePlansPort,
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
   pluginNotificationSource,
@@ -81,6 +83,61 @@ function deckWith(paneName?: string): Workspace[] {
     },
   ];
 }
+
+describe("unconnected launch notices", () => {
+  beforeEach(() => center.notify.mockClear());
+
+  /** A plan cache the test writes: one plan per pane, announced on change. */
+  const plansOf = () => {
+    const listeners = new Set<() => void>();
+    const plans = new Map<string, ReturnType<PanePlansPort["peek"]>>();
+    const port: PanePlansPort = {
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      peek: (paneId) => plans.get(paneId),
+    };
+    const set = (paneId: string, plan: ReturnType<PanePlansPort["peek"]>) => {
+      plans.set(paneId, plan);
+      for (const listener of [...listeners]) listener();
+    };
+    return { port, set };
+  };
+
+  it("announces a launch without KeepDeck's setup once, with its cause, tagged by the pane", () => {
+    const { port, set } = plansOf();
+    const stop = initUnconnectedLaunchNotifications(port, () => ({ workspaces: deckWith(), agents }));
+    const bare = { unconnected: { cause: "plan-failed", error: "boom" } } as const;
+    set("pane-1", bare);
+    set("pane-1", bare);
+    expect(center.notify).toHaveBeenCalledTimes(1);
+    expect(center.notify).toHaveBeenCalledWith({
+      title: "Claude 1 — not connected to KeepDeck",
+      body: "KeepDeck could not set this agent up: boom. Status, mail and resume won't work until the agent restarts. · Alpha",
+      severity: "error",
+      source: {
+        type: "pane",
+        workspace: { id: "ws-1", instance: workspaceInstance },
+        paneId: "pane-1",
+      },
+      tag: "pane:pane-1:unconnected",
+    });
+    // A restart that fails the same way is a new launch: announced again,
+    // and its tag replaces the entry rather than stacking a second.
+    set("pane-1", { unconnected: { cause: "plan-failed", error: "boom" } });
+    expect(center.notify).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it("says nothing for a connected launch", () => {
+    const { port, set } = plansOf();
+    const stop = initUnconnectedLaunchNotifications(port, () => ({ workspaces: deckWith(), agents }));
+    set("pane-1", {});
+    expect(center.notify).not.toHaveBeenCalled();
+    stop();
+  });
+});
 
 describe("pane producers", () => {
   beforeEach(() => center.notify.mockClear());

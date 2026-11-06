@@ -39,7 +39,7 @@ import { createMailService, wakePaneForMail } from "./mail";
 import { createMcp } from "./mcp";
 import { ipcMcpStorage } from "../ipc/mcpLibraryStorage";
 import { createPaneIdentity } from "./mcp/paneIdentity";
-import { paneIdBySpawnSecret, peekPaneSpawnSpec, spawnPluginAccess } from "./spawnSpecs";
+import { paneIdBySpawnSecret, peekPaneSpawnSpec, planReports, spawnPluginAccess } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
 import { registerArtifactCommands } from "./artifacts/artifactCommands";
 import { artifactChanges } from "./artifacts/changes";
@@ -569,7 +569,11 @@ export function createAppRuntime(
         deckStore,
         plugins.pluginRegistries.agents,
         statusTracker,
-        { subscribe: subscribeSessions, state: paneSessionState },
+        {
+          subscribe: subscribeSessions,
+          state: paneSessionState,
+          canReport: (paneId) => planReports(peekPaneSpawnSpec(paneId)),
+        },
         attribution,
         { subscribe: subscribePaneKeys },
         mail.answerAsk,

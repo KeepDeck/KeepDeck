@@ -96,6 +96,8 @@ describe("createAgentStatusChannel", () => {
   let tracker: AgentStatusTracker;
   let sessionListeners: Set<() => void>;
   let kinds: Map<string, string>;
+  /** Panes launched bare — their plans armed no bridge. */
+  let bare: Set<string>;
   let sessions: SessionLivenessPort;
   let keys: { port: PaneKeyPort; press: (paneId: string, data: string) => void };
 
@@ -108,12 +110,14 @@ describe("createAgentStatusChannel", () => {
     tracker = createAgentStatusTracker();
     sessionListeners = new Set();
     kinds = new Map();
+    bare = new Set();
     sessions = {
       subscribe(listener) {
         sessionListeners.add(listener);
         return () => sessionListeners.delete(listener);
       },
       state: (paneId) => ({ kind: kinds.get(paneId) ?? "live" }),
+      canReport: (paneId) => !bare.has(paneId),
     };
     const keyListeners = new Set<(paneId: string, data: string) => void>();
     keys = {
@@ -518,6 +522,15 @@ describe("createAgentStatusChannel", () => {
     kinds.set("pane-3", "live");
     for (const listener of [...sessionListeners]) listener();
     expect(panes().get("pane-3")?.state).toBe("started");
+  });
+
+  it("a process launched bare reads nothing — it can never report a turn to end the Started", () => {
+    // task-572: its plan armed no bridge; the header says why instead.
+    bare.add("pane-1");
+    createAgentStatusChannel(deckWith("pane-1", "pane-2").store, agentsWith().registry,
+      tracker, sessions, attribution, keys.port);
+    expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
+    expect(tracker.getSnapshot().panes.get("pane-2")?.state).toBe("started");
   });
 
   it("an agent gaining its status voice: its live panes read started", () => {

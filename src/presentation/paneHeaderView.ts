@@ -1,13 +1,17 @@
 import { needsPerson } from "../domain/status";
+import type { UnconnectedLaunch } from "../domain/agents";
 import type { ActivityBadge, ActivityTone } from "./activityBadge";
+import { unconnectedLaunchView } from "./unconnectedLaunchView";
 import { contextLevel, formatAge, type UsageLevel } from "../domain/usage";
 import { teamBadgeTitle } from "@keepdeck/ui-kit/teamWords";
 
 /** What a pane's header shows, settled — the header maps it and decides
  * nothing. */
 export interface PaneHeaderView {
-  /** The status dot, or null while nothing is known about the agent. */
-  status: { tone: ActivityTone; label: string; tooltip: string } | null;
+  /** The status dot, or null while nothing is known about the agent. A pane
+   * whose agent runs without KeepDeck's setup wears `unconnected` — it can
+   * report nothing, so the dot says why instead. */
+  status: { tone: ActivityTone | "unconnected"; label: string; tooltip: string } | null;
   /** The state in words, beside the controls — only while the agent needs
    * a person (waiting) or has stopped short (failed). Working and done are
    * the dot's to say; words for them would be the header talking all day. */
@@ -21,6 +25,8 @@ export interface PaneHeaderView {
 
 export interface PaneHeaderInput {
   activity: ActivityBadge | null;
+  /** Why the pane's agent runs without KeepDeck's setup, when it does. */
+  unconnected: UnconnectedLaunch | undefined;
   /** The minute clock the tooltip ages against. */
   now: number;
   ctxPct: number | undefined;
@@ -30,14 +36,30 @@ export interface PaneHeaderInput {
 }
 
 
-export function paneHeaderView(input: PaneHeaderInput): PaneHeaderView {
-  const { activity, now, ctxPct, paneLive, team, showTeamName } = input;
-  return {
-    status: activity && {
+/** The dot: what the agent said, else why it can say nothing. An unconnected
+ * agent has no lane to report on, so the two never compete in practice —
+ * the agent's word still goes first, being the fresher fact. */
+function headerStatus(
+  activity: ActivityBadge | null,
+  unconnected: UnconnectedLaunch | undefined,
+  now: number,
+): PaneHeaderView["status"] {
+  if (activity) {
+    return {
       tone: activity.tone,
       label: activity.label,
       tooltip: `${activity.label}${activity.detail ? ` — ${activity.detail}` : ""} · ${formatAge(activity.at, now)}`,
-    },
+    };
+  }
+  if (!unconnected) return null;
+  const view = unconnectedLaunchView(unconnected);
+  return { tone: "unconnected", label: view.label, tooltip: `${view.label} — ${view.reason}` };
+}
+
+export function paneHeaderView(input: PaneHeaderInput): PaneHeaderView {
+  const { activity, unconnected, now, ctxPct, paneLive, team, showTeamName } = input;
+  return {
+    status: headerStatus(activity, unconnected, now),
     stateWord: activity && needsPerson(activity.tone) ? activity.label : null,
     role: team
       ? {

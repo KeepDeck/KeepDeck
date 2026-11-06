@@ -16,7 +16,7 @@
  * different conversation, which is a product rule that survives replacing the
  * UI with a CLI.
  */
-import type { ResumeOrigin } from "../../domain/agents";
+import type { ResumeOrigin, UnconnectedLaunch } from "../../domain/agents";
 
 /** Bridge protocol version this app speaks — a plain change counter over the
  * env schema AND the envelope schema.
@@ -114,6 +114,22 @@ export interface SpawnPlan {
    * was built. An exit with the count still here means the resume never
    * became a session (see [`resumeDiedSilently`]). */
   postbackMark?: number;
+  /** Why this plan runs its agent without KeepDeck's setup — set only on a
+   * launch that fell back to the bare floor (the plugin's plan threw, or an
+   * external plan named a program it may not run). Absent = connected. */
+  unconnected?: UnconnectedLaunch;
+}
+
+/** The variable a pane's reporters read the deck's address and secret from —
+ * the bridge, as a plan arms it. */
+export const BRIDGE_ENV = "KEEPDECK_BRIDGE";
+
+/** Whether a plan's process can report to the deck at all: its environment
+ * carries the bridge. A bare launch (task-572) does not, and neither does a
+ * plan whose pane directory could not be made — a token alone is no lane.
+ * Beside the shape it reads, like [`resumeDiedSilently`]. */
+export function planReports(plan: SpawnPlan | undefined): boolean {
+  return plan?.env.some(([key]) => key === BRIDGE_ENV) ?? false;
 }
 
 /** Whether a pane's boot-restoration RESUME died before ever becoming a

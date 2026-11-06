@@ -1,6 +1,6 @@
 import { useRestart } from "./useRestart";
 import type { RoleChoice } from "../../presentation/roleChoiceView";
-import type { AgentRestartMode } from "../../domain/agents";
+import type { AgentRestartMode, UnconnectedLaunch } from "../../domain/agents";
 import type { RestartOutcome } from "../../app/agentOrchestrator";
 import {
   idleReadsAsStopped,
@@ -41,6 +41,8 @@ export interface AgentPaneProps {
   agentLabel?: string;
   /** The agent's own words for its failure codes, from the catalog. */
   failureLabels?: Readonly<Record<string, string>>;
+  /** Why the pane's agent runs without KeepDeck's setup, from its plan. */
+  unconnected?: UnconnectedLaunch;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
   /** Extra CLI args for the program (session identity / resume, [F7]/[F8]). */
@@ -182,6 +184,7 @@ export function AgentPane({
   agentIcon,
   agentLabel,
   failureLabels,
+  unconnected,
   command,
   args,
   env,
@@ -298,6 +301,7 @@ export function AgentPane({
         solo={solo}
         view={paneHeaderView({
           activity: activityView,
+          unconnected,
           now,
           ctxPct,
           paneLive,

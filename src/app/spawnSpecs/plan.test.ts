@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { log } from "../../ipc/log";
 import { PLAN_YOLO_API, type AgentHooks, type SpawnSkillsInput } from "@keepdeck/plugin-api";
-import { BRIDGE_PROTOCOL_VERSION } from "./plans";
+import { BRIDGE_ENV, BRIDGE_PROTOCOL_VERSION, planReports } from "./plans";
 import {
   buildResumeSpec,
   clearPanePlanError,
@@ -363,12 +363,14 @@ describe("building one plan through the agent hook", () => {
 
     // Bare, but not anonymous: a kimi pane's config is planted before a hook
     // can throw and names this secret, so dropping it would lose the pane's
-    // identity rather than degrade its spawn.
+    // identity rather than degrade its spawn. And not silent: the plan says
+    // why the deck cannot hear this agent (task-572).
     expect(h.seen["pane-1"]).toEqual({
       command: "claude",
       args: [],
       env: [],
       mcpToken: expect.any(String),
+      unconnected: { cause: "plan-failed", error: "boom" },
     });
   });
 
@@ -404,6 +406,7 @@ describe("building one plan through the agent hook", () => {
       args: ["--floor", "/repo"],
       env: [],
       mcpToken: expect.any(String),
+      unconnected: { cause: "plan-failed", error: "boom" },
     });
   });
 
@@ -530,6 +533,12 @@ describe("building one plan through the agent hook", () => {
 
     expect(h.seen["pane-1"].command).toBe("claude"); // detect.bin, declared
     expect(h.seen["pane-1"].args).toEqual([]);
+    // Its plan's setup is gone with the command, and the plan says so.
+    expect(h.seen["pane-1"].unconnected).toEqual({
+      cause: "command-refused",
+      pluginId: expect.any(String),
+      command: "curl",
+    });
   });
 
   /** An external plugin whose plans all name an uncovered program, and that
@@ -619,5 +628,19 @@ describe("building one plan through the agent hook", () => {
     await settle();
     expect(asked).toBe(0);
     expect(h.seen["pane-1"].args).toEqual(["kept"]);
+    // It keeps its plan, so nothing was lost to say.
+    expect(h.seen["pane-1"].unconnected).toBeUndefined();
+  });
+});
+
+describe("planReports", () => {
+  it("is the bridge in the plan's environment — a token without one is no lane", () => {
+    const plan = (env: [string, string][], token?: string) => ({ args: [], env, ...(token ? { token } : {}) });
+    expect(planReports(plan([[BRIDGE_ENV, "{}"]], "t"))).toBe(true);
+    // The pane directory could not be made: the token was minted, the
+    // bridge never armed.
+    expect(planReports(plan([["OTHER", "1"]], "t"))).toBe(false);
+    expect(planReports(plan([]))).toBe(false);
+    expect(planReports(undefined)).toBe(false);
   });
 });
