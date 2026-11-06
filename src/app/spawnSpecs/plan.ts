@@ -15,9 +15,10 @@ import {
   type SpawnPlanOutput,
   errorMessage,
 } from "@keepdeck/plugin-api";
-import type { ResumeOrigin } from "../../domain/agents";
+import type { ResumeOrigin, UnconnectedLaunch } from "../../domain/agents";
 import type { InstalledPlugin } from "../../plugins/model/installed";
 import {
+  BRIDGE_ENV,
   BRIDGE_PROTOCOL_VERSION,
   type SpawnPlan,
   type SpawnPlanContext,
@@ -402,10 +403,8 @@ export async function buildPlan(
     // LOCALLY (silently dropping the endpoint), a wrong-target execution the
     // user couldn't tell apart from a working remote pane. Surface it instead.
     if (variant.kind !== "spawn" || facts.target) throw e;
-    log.warn(
-      "web:agents",
-      `${entry.id} spawn.plan failed — bare spawn: ${errorMessage(e)}`,
-    );
+    const error = errorMessage(e);
+    log.warn("web:agents", `${entry.id} spawn.plan failed — bare spawn: ${error}`);
     // A bare spawn still RUNS the CLI, so the file-fed half is still owed:
     // kimi reads its cwd whatever argv it was given, and skipping the write
     // would leave exactly the panes whose hook failed without servers. The
@@ -421,6 +420,9 @@ export async function buildPlan(
         env: mcpEnv,
         mcpToken,
         ...(bareYolo && { yolo: true }),
+        // The pane runs, and the deck cannot hear or reach it: said so on
+        // the plan, which the pane's status and the bell read.
+        unconnected: { cause: "plan-failed", error },
       },
       deliver,
     };
@@ -430,6 +432,7 @@ export async function buildPlan(
   // (falling back to the agent's own binary, which the registration gate
   // proved covered): a sandboxed plugin must not pick the program. The
   // clamped launch is the bare one, so it carries the same declared floor.
+  let unconnected: UnconnectedLaunch | undefined;
   if (
     owner &&
     !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")
@@ -439,6 +442,7 @@ export async function buildPlan(
       `${entry.id}: plan command "${output.command}" is not exec-covered by ${pluginId}`,
     );
     if (owner.source === "external") {
+      unconnected = { cause: "command-refused", pluginId, command: output.command ?? "$SHELL" };
       const floor = await bareFloor(entry, base);
       output.command = entry.detect.bin;
       output.args = floor.args;
@@ -478,7 +482,7 @@ export async function buildPlan(
     token && paneDir && ctx.bridgeUrl
       ? [
           [
-            "KEEPDECK_BRIDGE",
+            BRIDGE_ENV,
             JSON.stringify({
               v: BRIDGE_PROTOCOL_VERSION,
               dir: paneDir,
@@ -523,6 +527,7 @@ export async function buildPlan(
         : variant.kind === "fork"
           ? { forkOf: variant.sessionId }
           : {}),
+      ...(unconnected ? { unconnected } : {}),
     },
     deliver,
     ...(discard && { discard }),

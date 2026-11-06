@@ -22,10 +22,14 @@ export interface StatusDeclarationsPort {
 }
 
 /** The slice of the session registry the channel needs: when processes
- * change, and whether one is dead. */
+ * change, whether one is dead — and whether it can speak at all. */
 export interface SessionLivenessPort {
   subscribe(listener: () => void): () => void;
   state(paneId: string): { kind: string };
+  /** Whether the pane's process was launched able to report: its plan armed
+   * the bridge (`planReports`). A bare launch (task-572) was not, and says
+   * nothing ever. */
+  canReport(paneId: string): boolean;
 }
 
 /** The user's own keystrokes, per pane — the host's only evidence that a
@@ -182,10 +186,11 @@ export function createAgentStatusChannel(
   // rung it would render forever. The orchestrator's own retire owns the
   // deliberate teardowns (suspend, close, restart).
   //
-  // A live one is a fact too: the agent is up. Said only for an agent with
-  // a status voice — `started` promises that a turn, when one comes, will
-  // report itself, and an agent that reports nothing would read "Started"
-  // through every turn it ever ran.
+  // A live one is a fact too: the agent is up. Said only where a voice can
+  // reach the deck — an agent with a status contribution, in a process its
+  // plan armed to report. `started` promises that a turn, when one comes,
+  // will report itself, and an agent that reports nothing would read
+  // "Started" through every turn it ever ran.
   function syncProcesses(): void {
     // Metadata can exist before a published activity. Sweep the pane roster,
     // not the activity snapshot, or a restarted pane inherits the old mode.
@@ -193,7 +198,9 @@ export function createAgentStatusChannel(
       for (const { id, agentType } of workspace.panes) {
         const kind = sessions.state(id).kind;
         if (kind === "exited" || kind === "failed") tracker.clear(id);
-        else if (kind === "live" && declaring.has(agentType)) tracker.started(id);
+        else if (kind === "live" && declaring.has(agentType) && sessions.canReport(id)) {
+          tracker.started(id);
+        }
       }
     }
   }
