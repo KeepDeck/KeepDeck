@@ -25,6 +25,9 @@
    failed's 1s alarm. The calm pair has a dot and no frame (frame.ts). */
 .pane__status--started { color: var(--status-started); }
 .pane__status--ready { color: var(--status-ready); }
+/* An agent running without KeepDeck's setup reports nothing: its dot is the
+   failed hue, held still — a standing fault, not an event to pulse for. */
+.pane__status--unconnected { color: var(--status-failed); }
 .pane__status--working {
   color: var(--status-working);
   animation: status-dot-working 1.6s ease-in-out infinite;

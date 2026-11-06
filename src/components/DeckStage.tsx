@@ -434,6 +434,7 @@ export function DeckStage({
               agentIcon={agentInfo?.icon ?? null}
               agentLabel={agentInfo?.label ?? agentType}
               failureLabels={agentInfo?.failureLabels}
+              unconnected={spec?.unconnected}
               command={command}
               args={spec?.args}
               env={spec?.env}

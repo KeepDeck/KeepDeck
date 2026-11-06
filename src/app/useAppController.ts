@@ -20,6 +20,7 @@ import { useModalRouter } from "./useModalRouter";
 import { markNotificationsReadWhere, setSourceVisibilityProbe } from "./notificationCenter";
 import { useBoardSeen } from "./tasks/useBoardSeen";
 import { useActivityNotifications } from "./useActivityNotifications";
+import { useUnconnectedLaunchNotifications } from "./useUnconnectedLaunchNotifications";
 import { usePaneActivities } from "./usePaneActivities";
 import { workspaceForNotification } from "./notificationNavigation";
 import { usePaneDrag } from "./usePaneDrag";
@@ -309,6 +310,8 @@ export function useAppController(runtime: AppRuntime) {
   // Announce the transitions worth leaving the app for: needs-you, finished,
   // failed.
   useActivityNotifications(deck.workspaces, agents);
+  // And the launch that left an agent unable to report at all.
+  useUnconnectedLaunchNotifications(deck.workspaces, agents);
   // One subscription for the whole strip; what the activity MEANS for a mark
   // is `stripView`'s.
   const paneActivities = usePaneActivities(runtime.statusTracker);
