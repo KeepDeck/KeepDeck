@@ -7,6 +7,8 @@ const waiting: PaneActivity = { state: "waiting", since: 1, reason: "permission"
 const done: PaneActivity = { state: "done", at: 1, interrupted: false };
 const interrupted: PaneActivity = { state: "done", at: 1, interrupted: true };
 const failed: PaneActivity = { state: "failed", at: 1, error: "rate_limit" };
+const started: PaneActivity = { state: "started", since: 1 };
+const ready: PaneActivity = { state: "ready", since: 1 };
 
 /** The facts of an ordinary gridded pane — the shape every caller fills. */
 function grid(
@@ -74,6 +76,14 @@ describe("paneFrame", () => {
     expect(paneFrame(grid(undefined, true))).toBe("selected");
     expect(paneFrame(grid(undefined, false))).toBe("none");
   });
+
+  it("an agent up at its prompt wears what a pane nothing is known about wears — the deck at rest", () => {
+    for (const calm of [started, ready]) {
+      expect(paneFrame(grid(calm, true)), calm.state).toBe("selected");
+      expect(paneFrame(grid(calm, false)), calm.state).toBe("none");
+      expect(paneFrame(fullBleed(calm)), calm.state).toBe("none");
+    }
+  });
 });
 
 describe("foldFrame", () => {
@@ -92,12 +102,18 @@ describe("foldFrame", () => {
     expect(foldFrame([undefined])).toBe("none");
     expect(foldFrame([])).toBe("none");
   });
+
+  it("a team at rest folds to none, and any finished turn outranks it", () => {
+    expect(foldFrame([ready.state, started.state])).toBe("none");
+    expect(foldFrame([ready.state, done.state, started.state])).toBe("done");
+  });
 });
 
 describe("needsPerson and bySeverity", () => {
   it("name the attention states and rank the ladder as a sort", () => {
-    expect((["failed", "waiting", "working", "done"] as const).filter(needsPerson)).toEqual(["failed", "waiting"]);
-    expect((["done", "waiting", "working", "failed"] as const).slice().sort(bySeverity)).toEqual([
+    const states = ["ready", "failed", "waiting", "started", "working", "done"] as const;
+    expect(states.filter(needsPerson)).toEqual(["failed", "waiting"]);
+    expect(states.slice().sort(bySeverity).slice(0, 4)).toEqual([
       "failed",
       "waiting",
       "working",

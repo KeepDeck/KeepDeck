@@ -198,7 +198,9 @@ function announceActivity(
         source,
       });
       return;
-    default:
+    // Named, not `default`: a state the transition table lets through by
+    // mistake must say nothing rather than call itself "finished".
+    case "done":
       notify({
         title: `${c.title} finished`,
         body: c.wsName,

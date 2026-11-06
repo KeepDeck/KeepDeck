@@ -16,6 +16,11 @@ describe("paneHeaderView", () => {
     expect(paneHeaderView(input({ activity: badge("failed", "Rate limited") })).stateWord).toBe("Rate limited");
     expect(paneHeaderView(input({ activity: badge("working", "Working") })).stateWord).toBeNull();
     expect(paneHeaderView(input({ activity: badge("done", "Done") })).stateWord).toBeNull();
+    // An agent up at its prompt is the deck at rest: a dot, never words.
+    const ready = paneHeaderView(input({ activity: badge("ready", "Ready") }));
+    expect(ready.stateWord).toBeNull();
+    expect(ready.status).toEqual({ tone: "ready", label: "Ready", tooltip: "Ready · 3m ago" });
+    expect(paneHeaderView(input({ activity: badge("started", "Started") })).stateWord).toBeNull();
   });
 
   it("keeps the dot for every state, with the words and the age in its tooltip", () => {

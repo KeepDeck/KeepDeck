@@ -195,4 +195,11 @@ describe("trayChipFrame", () => {
     expect(trayChipFrame(undefined, true)).toBe("stopped");
     expect(trayChipFrame(undefined, false)).toBe("none");
   });
+
+  it("leaves an agent up at its prompt bare, with no word — a minimized pane at rest is no news", () => {
+    for (const state of ["started", "ready"] as const) {
+      expect(trayChipFrame({ state }, false), state).toBe("none");
+      expect(trayChipStatus({ state }), state).toEqual({ tone: state, word: null });
+    }
+  });
 });

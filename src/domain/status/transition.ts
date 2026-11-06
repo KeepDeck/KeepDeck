@@ -30,6 +30,11 @@ export function activityTransition(
       return "announce";
     case "working":
       return "none";
+    // Nobody needs telling that an agent came up or is at its prompt: the
+    // header says so to whoever looks, and a bell per launch is noise.
+    case "started":
+    case "ready":
+      return "none";
     case "done":
       if (after.interrupted) {
         return "none";

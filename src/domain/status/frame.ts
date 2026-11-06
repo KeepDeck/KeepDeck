@@ -22,12 +22,27 @@ export type StatusFrame =
  * on purpose: a new activity state fails to compile until it takes its
  * number here, and that one number decides the workspace fold, whether
  * the state outranks selection, and whether it may wear the full-bleed
- * rim — the three can never rank it differently. */
+ * rim — the three can never rank it differently. The calm pair ranks
+ * below everything: an agent up at its prompt is the deck at rest. */
 const SEVERITY: Record<PaneActivity["state"], number> = {
   failed: 4,
   waiting: 3,
   working: 2,
   done: 1,
+  ready: 0,
+  started: 0,
+};
+
+/** The rung each state wears when nothing outranks it. The calm pair wears
+ * none: a rim on every pane sitting at its prompt would frame the whole deck
+ * at rest, and say nothing a dot in the header does not. */
+const RUNG: Record<PaneActivity["state"], Exclude<StatusFrame, "selected">> = {
+  failed: "failed",
+  waiting: "waiting",
+  working: "working",
+  done: "done",
+  ready: "none",
+  started: "none",
 };
 
 /** States at or above this severity are ATTENTION — they take the frame
@@ -114,11 +129,11 @@ export type PaneFramePlace = Pick<PaneFrameFacts, "selected" | "fullBleed">;
 export function paneFrame(facts: PaneFrameFacts): StatusFrame {
   const { activity, selected, fullBleed } = facts;
   if (activity && needsPerson(activity.state)) {
-    return activity.state;
+    return RUNG[activity.state];
   }
   if (fullBleed) return "none";
   if (selected) return "selected";
-  if (activity) return activity.state;
+  if (activity) return RUNG[activity.state];
   return "none";
 }
 

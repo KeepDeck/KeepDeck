@@ -28,8 +28,24 @@ import type { AgentStatusEvent, StatusWaitReason } from "@keepdeck/plugin-api";
  *
  * Only a fresh `turn-start` wins unconditionally — it is the one edge that
  * says a NEW turn began, so nothing the old one left behind may survive it.
+ *
+ * Two states have no turn behind them — CALM ([`isCalm`]): the agent is up
+ * and nothing is running. They are what a pane reads before its first turn,
+ * and again when its agent changes conversations (task-570).
  */
 export type PaneActivity =
+  /** The pane's agent process is up, and its agent has said nothing yet —
+   * no turn, and no word that it sits at its prompt. Minted by the host
+   * from what it SEES ([`processStarted`], [`acrossSessionChange`]), never
+   * by a plugin, and it claims nothing about the agent: every edge folds
+   * over it as over silence. `since` is when the host saw it — the process
+   * coming up, or the conversation changing. */
+  | { state: "started"; since: number }
+  /** The agent said it is at its prompt with nothing running: a
+   * conversation began or was taken up (claude's and kimi's SessionStart,
+   * opencode's plugin load). `since` is when it said so, and an edge
+   * stamped before that belongs to before it. */
+  | { state: "ready"; since: number }
   /** A turn is running. `since` is when THIS running phase began — a wait
    * that resolves starts a new phase, so the age answers "how long since
    * you could have walked away". */
@@ -57,10 +73,12 @@ export type PaneActivity =
  * idle or not. A bracket around each agent's own turn can answer it, and the
  * one question it settles is whether a closing turn is an ENDING.
  *
- * There is no "nothing reported yet" VALUE of this type — that state is the
- * absence of the pane, which the tracker's map already models. Keeping it
- * unrepresentable is what lets the published snapshot be the full roster
- * rather than a filtered view of one.
+ * "Nothing known" is the absence of the pane, which the tracker's map
+ * already models: no process the deck has seen come up, or an agent with no
+ * status voice. A live process whose agent has said nothing is `started` —
+ * a fact the host saw, not a report. Keeping "nothing known" unrepresentable
+ * is what lets the published snapshot be the full roster rather than a
+ * filtered view of one.
  */
 export interface PaneStatus {
   readonly activity: PaneActivity;
@@ -75,6 +93,65 @@ export interface PaneStatus {
 }
 
 const NO_TURNS: ReadonlySet<string> = new Set();
+
+/** The two activities with no turn behind them. */
+type CalmActivity = Extract<PaneActivity, { state: "started" | "ready" }>;
+
+/** Whether the agent is up with nothing running — no turn known, and none
+ * recorded as just over. The one test for "no phase out of nothing"
+ * ([`answerResolves`]) and for "fold as over silence" ([`reduceStatus`]). */
+export function isCalm(activity: PaneActivity): activity is CalmActivity {
+  return activity.state === "started" || activity.state === "ready";
+}
+
+/** A pane holding nothing but a calm state: no brackets, no held ending. */
+function calmStatus(activity: CalmActivity): PaneStatus {
+  return { activity, openAgentTurns: NO_TURNS, heldEnd: null };
+}
+
+/**
+ * The pane once the host sees its agent's process come up: `started`, unless
+ * the agent already spoke — a hook can beat the spawn's own settling, and
+ * the agent's word outranks the host's sighting. The caller asks only for a
+ * pane whose agent has a status voice: `started` promises that a turn, when
+ * one comes, will say so.
+ */
+export function processStarted(current: PaneStatus | null, at: number): PaneStatus {
+  return current ?? calmStatus({ state: "started", since: at });
+}
+
+/**
+ * The pane once its agent changes conversations — `/clear`, `/new`, a
+ * session picked inside the CLI, a rollout born at a prompt.
+ *
+ * A conversation changes AT THE PROMPT: claude's and kimi's are local
+ * commands, and a rollout born with its first prompt (codex) is a turn that
+ * announces itself. So `ready` carries over: it is as true of the new
+ * conversation as of the old, and when it raced ahead of the binding it IS
+ * the new one's. Everything else was the old conversation's — its turn, its
+ * ending, its failure, the brackets of its agents: last generation's
+ * telemetry, which must not survive into this one (a `/clear` once left a
+ * pane wearing the dead conversation's "Rate limited"). The process is
+ * still up, so the pane reads `started` until the new conversation speaks.
+ *
+ * A pane nothing was known about stays unknown: no status voice, no claim.
+ */
+export function acrossSessionChange(
+  current: PaneStatus | null,
+  at: number,
+): PaneStatus | null {
+  if (current === null) return null;
+  return calmStatus(
+    current.activity.state === "ready" ? current.activity : { state: "started", since: at },
+  );
+}
+
+/** Whether an edge the agent sent BEFORE it changed conversations, and the
+ * deck settled after, may still land — [`acrossSessionChange`]'s rule for a
+ * held report: only `ready`, which the change leaves true. */
+export function survivesSessionChange(edge: AgentStatusEvent): boolean {
+  return edge.kind === "ready";
+}
 
 /** The edges that describe the pane's own turn. The agent-turn brackets are
  * NOT among them: they carry no claim about what the pane is doing, and
@@ -180,10 +257,12 @@ export function reduceStatus(
   // The mode an agent runs in says nothing about what it is doing: the
   // edge is the mode's own fold ([`reduceMode`]), never a phase here.
   if (event.kind === "permission-mode") return current;
+  if (current !== null && isCalm(current.activity)) {
+    return reduceCalm(current, current.activity, event);
+  }
   if (event.kind === "turn-observed" && current !== null) {
     const activity = current.activity;
-    const phaseAt = activity.state === "working" || activity.state === "waiting"
-      ? activity.since : activity.at;
+    const phaseAt = "since" in activity ? activity.since : activity.at;
     const latest = Math.max(phaseAt, current.heldEnd?.at ?? -Infinity);
     // Guard the WHOLE fold: an old observation must not release a held end.
     // Equal millisecond stamps still have file order: a new execution can
@@ -287,6 +366,36 @@ export function reduceStatus(
   return { activity, openAgentTurns: open, heldEnd };
 }
 
+/**
+ * Fold one edge into a pane that is up with nothing running.
+ *
+ * A calm state contradicts no edge: it says only that no turn is known. So
+ * an edge folds as it would over silence — a turn starting is working, a
+ * wait is waiting, an agent turn opening is in-flight work, an ending is an
+ * ending — and where it settles nothing (an agent turn closing, a
+ * compaction) the calm state stands.
+ *
+ * Two things the silence does not have. A `ready` is a phase the agent
+ * itself stated, so an edge stamped before it belongs to before it — a
+ * store's late marker of the conversation it left — and only a fresh
+ * `turn-start` wins over that, as it wins everywhere. And a `ready` said
+ * again keeps its phase start and identity: opencode loads its plugin twice,
+ * and the second load is the same prompt, not a new one.
+ */
+function reduceCalm(
+  current: PaneStatus,
+  calm: CalmActivity,
+  event: AgentStatusEvent,
+): PaneStatus {
+  if (event.kind === "ready") {
+    return calm.state === "ready" ? current : calmStatus({ state: "ready", since: event.at });
+  }
+  if (calm.state === "ready" && event.kind !== "turn-start" && event.at < calm.since) {
+    return current;
+  }
+  return reduceStatus(null, event) ?? current;
+}
+
 /** The open-bracket set. Returns the SAME set when nothing moved, so an
  * edge that changes nothing survives as an identity all the way out. */
 function reduceOpenTurns(
@@ -337,6 +446,9 @@ function reduceHeldEnd(
     case "waiting":
     case "resumed":
     case "parked":
+    // A ready never lands on the turn a held ending belongs to (the fold
+    // absorbs it there); it must not drop the ending on its way through.
+    case "ready":
       return held;
     default:
       return null;
@@ -350,7 +462,9 @@ function reduceHeldEnd(
  * phase out of nothing. A `resumed` from an agent's report legitimately does
  * — a tool completed, so something IS running — but at a pane nobody has
  * reported on, a keystroke is just someone typing at a shell, and minting
- * "Working" there would advertise a turn that is not happening.
+ * "Working" there would advertise a turn that is not happening. The same
+ * holds at a calm pane ([`isCalm`]): an agent up at its prompt is being
+ * typed at, and what it is typed is a prompt, which reports itself.
  *
  * A question also refuses keystrokes: only its tool/interaction result says
  * the whole answer was submitted. WHICH activities a resume actually moves stays the fold's own call, so
@@ -361,7 +475,8 @@ function reduceHeldEnd(
 export function answerResolves(activity: PaneActivity | null): boolean {
   // Typing part of a free-text answer is not submitting it. Questions have
   // an authoritative tool/interaction resolution; keep waiting until that.
-  return activity !== null && !(activity.state === "waiting" && activity.reason === "question");
+  return activity !== null && !isCalm(activity) &&
+    !(activity.state === "waiting" && activity.reason === "question");
 }
 
 /**
@@ -460,6 +575,18 @@ function reduceActivity(
         error: event.error,
         ...(event.detail !== undefined ? { detail: event.detail } : {}),
       };
+    case "ready":
+      // Reached only over silence or a turn: a calm pane is [`reduceCalm`]'s.
+      // A ready never ends a turn — the turn's own ending says when it is
+      // over, and opencode's plugin can finish loading after a prompt given
+      // at spawn has started one. After a finished turn it is the next
+      // conversation's (`/clear` once the turn is done), unless it is
+      // stamped before that turn ended.
+      if (current === null) return { state: "ready", since: event.at };
+      if ((current.state === "done" || current.state === "failed") && event.at >= current.at) {
+        return { state: "ready", since: event.at };
+      }
+      return current;
     case "context-compacted":
       // Reached ONLY for a `failed` activity: [`reduceStatus`] returns the
       // pane untouched for every other state, absence included, so there is

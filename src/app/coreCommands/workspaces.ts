@@ -17,8 +17,10 @@ import { targetWorkspace } from "./targets";
 
 /** What the roster says a pane's agent is doing: the turn status while its
  * agent runs, and why not when it does not — `starting` on its way up by
- * itself, or the reason it is down (`suspended`, `exited`, …). Null is what
- * it always was: a running agent nothing has reported for yet. */
+ * itself, or the reason it is down (`suspended`, `exited`, …). Before its
+ * first turn a running agent reads `started` (up, said nothing) or `ready`
+ * (said it is at its prompt). Null: a running agent the deck has no status
+ * voice for. */
 export function rosterActivity(
   reach: AgentReach | null,
   activity: PaneActivity | undefined,
@@ -82,8 +84,8 @@ export function registerWorkspaceCommands(
             agentType: p.agentType,
             // The turn status of a running agent; why not, for one that is
             // not running — a lead reads here that a teammate is suspended
-            // before writing to it. Null only for a running agent nothing
-            // has reported for yet: absent information, not an absent pane.
+            // before writing to it. Null only for a running agent the deck
+            // has no status voice for: absent information, not an absent pane.
             activity: rosterActivity(deps.reachOf(p.id), deps.activityOf(p.id)),
             // Who this agent is on the team, when it is on one. The roster
             // is where an agent learns the roles it may write to, so the
