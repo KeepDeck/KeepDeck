@@ -75,6 +75,25 @@ describe("normalizeKimiStatus", () => {
     expect(admitted(wrap({ hook_event_name, agent_id: "main" }), 500)).not.toBeNull();
   });
 
+  it("reads a root session opened at the prompt as ready, through the admission the host runs", () => {
+    // `--session` resume and `/sessions` say `resume`; `/new`, `/clear` and
+    // a fresh launch's first message say `startup` (2.5.1, task-618).
+    const admitted = admittedNormalizer({ normalize, attribute: attributeKimiEvent });
+    const edgeOf = (payload: unknown) => {
+      const result = admitted(payload, 100);
+      return result?.kind === "status-reduction" ? (result.events[0] ?? null) : result;
+    };
+    for (const source of ["startup", "resume"]) {
+      expect(edgeOf(wrap({ hook_event_name: "SessionStart", source, session_id: "s" })), source)
+        .toEqual({ kind: "ready", at: 100 });
+    }
+    // A source kimi does not send today claims nothing.
+    expect(edgeOf(wrap({ hook_event_name: "SessionStart", source: "compact" }))).toBeNull();
+    // Cut down past the bridge's limit, it can no longer say whose it is.
+    expect(edgeOf({ ...wrap({ hook_event_name: "SessionStart", source: "resume" }), reduced: true }))
+      .toBeNull();
+  });
+
   it("drops untracked events and garbage", () => {
     expect(
       normalizeKimiStatus(wrap({ hook_event_name: "SessionStart" }), 100),

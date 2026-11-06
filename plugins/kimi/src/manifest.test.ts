@@ -39,6 +39,17 @@ describe("kimi companion manifest", () => {
     }
   });
 
+  it("reports a session start twice over: who the session is, and that it sits at its prompt", () => {
+    // The identity hook binds the pane; the status hook is what makes a
+    // resumed or `/new` pane read Ready before its first turn (task-570).
+    // Neither asks: a session start hands kimi nothing it would read.
+    const sessionStart = manifest.hooks.filter((hook) => hook.event === "SessionStart").map((hook) => hook.command);
+    expect(sessionStart).toEqual([
+      "/bin/sh ./kd-session-hook.sh kimi",
+      "/bin/sh ./kd-status-hook.sh kimi",
+    ]);
+  });
+
   it("arms exactly the events its renderer can answer", () => {
     // kimi declares its arming in a shipped JSON and its rendering in code,
     // so the two can only be held together from outside. Armed but

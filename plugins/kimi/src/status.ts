@@ -71,6 +71,9 @@ export const KIMI_MAIL_CHANNELS: readonly MailChannel[] = reporterManifest.hooks
  *
  * - `UserPromptSubmit` runs only for prompts of origin `user` — never a
  *   subagent's — so it is the main agent's.
+ * - `SessionStart` is a ROOT session's: a subagent reports `SubagentStart`
+ *   instead, foreground or background (2.3.0 and 2.5.1, measured — see
+ *   binding.ts).
  * - The permission pair carries `agent_id`, `"main"` for the main agent.
  * - `Stop`, `Interrupt` and `StopFailure` carry no agent identity and fire for
  *   subagents too: nobody can say whose they are, and the main wire reports
@@ -85,7 +88,7 @@ export const attributeKimiEvent = (payload: unknown): EventAttribution | null =>
   if (!event) return null;
   let actor: EventActor = "unknown";
   if (!decoded.reduced) {
-    if (event === "UserPromptSubmit") actor = "main";
+    if (event === "UserPromptSubmit" || event === "SessionStart") actor = "main";
     else if (event === "PermissionRequest" || event === "PermissionResult") {
       const agentId = asNonEmptyString(decoded.event.agent_id);
       actor = agentId === "main" ? "main" : agentId ? "child" : "unknown";
@@ -114,6 +117,19 @@ const readKimiStatus = (
   if (decoded.source === "record") return kimiRecords.read(decoded.record);
   const event = decoded.event;
   switch (event.hook_event_name) {
+    case "SessionStart":
+      // A conversation opened at the prompt, nothing running (API 81). Only
+      // two sources reach a hook, and both fire while idle (2.5.1, measured;
+      // task-618, task-619): `resume` for `--session`/`-c` at launch,
+      // `/reload`, a session picked in `/sessions` and a fork; `startup` for
+      // `/new`, `/clear`, and a fresh launch — whose session is made by its
+      // first message, or by a command that needs one (`/title`), with the
+      // first turn's start only after kimi has waited out this hook. A
+      // command typed during a turn is queued as text, never run, and no
+      // compaction, subagent or `/btw` fires one.
+      return event.source === "startup" || event.source === "resume"
+        ? { kind: "ready", at }
+        : null;
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
