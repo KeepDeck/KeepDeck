@@ -12,18 +12,17 @@
  *
  * Said once per start, and opencode starts a plugin twice: the deck folds the
  * repeat into the state the first one left. A prompt given at spawn may
- * already be running when this lands, and the deck keeps that turn.
+ * already be running when this lands, and the deck keeps that turn. A 2.x
+ * plugin reload starts it again, and over a finished turn the pane then reads
+ * Ready: the agent is at its prompt either way, and the turn's notification
+ * stands.
  *
  * Its own component, beside the reporter and the courier rather than inside
  * either: the reporter forwards the bus and answers only whose an event is,
  * the courier carries mail, and this states one fact that is neither.
  */
+import { READY_EVENT } from "./events.js";
 import { makeEnvelope, publish, readBridge } from "./keepdeck-bridge.js";
-
-/** The one event this component states — under `keepdeck.`, so no event of
- * opencode's own can ever share its name. Mirrored by READY_EVENT in
- * src/status.ts. */
-export const READY_EVENT = "keepdeck.ready";
 
 /** Say the agent is at its prompt. Inert outside a KeepDeck pane; adds no
  * hooks. */

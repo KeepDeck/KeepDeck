@@ -580,8 +580,10 @@ function reduceActivity(
       // A ready never ends a turn — the turn's own ending says when it is
       // over, and opencode's plugin can finish loading after a prompt given
       // at spawn has started one. After a finished turn it is the next
-      // conversation's (`/clear` once the turn is done), unless it is
-      // stamped before that turn ended.
+      // conversation's (`/clear` once the turn is done) — or the same one
+      // taken up again (kimi's `/reload`, an opencode plugin reload), the
+      // agent at its prompt either way, and the turn's notification stands —
+      // unless it is stamped before that turn ended.
       if (current === null) return { state: "ready", since: event.at };
       if ((current.state === "done" || current.state === "failed") && event.at >= current.at) {
         return { state: "ready", since: event.at };

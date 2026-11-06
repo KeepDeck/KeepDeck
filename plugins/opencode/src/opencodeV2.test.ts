@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
 import { HEARTBEAT_MS, writeForeground } from "../resources/keepdeck-plugin/foreground.js";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
-import { attributeOpencodeEvent, normalizeOpencodeStatus, READY_EVENT } from "./status";
+import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
+import { READY_EVENT } from "../resources/keepdeck-plugin/events.js";
 import { present } from "@keepdeck/plugin-api/testing";
 
 /** Every directory watcher the plugin opens, and those it closed. A watcher

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startDeck } from "../../../scripts/reporterHarness";
-import { normalizeOpencodeStatus, READY_EVENT } from "./status";
+import { normalizeOpencodeStatus } from "./status";
 
 // Resource JS — shipped to, and loaded by, the user's opencode process; loaded
 // fresh per case, as a new pane's process would load it (the wire is one
@@ -38,10 +38,6 @@ describe("the plugin saying its agent is at its prompt", () => {
     const [envelope] = envelopes;
     expect(envelope).toMatchObject({ type: "agent.status", paneId: "pane-3", token: "tok" });
     expect(normalizeOpencodeStatus(envelope.payload, 5)).toEqual({ kind: "ready", at: 5 });
-  });
-
-  it("is named the same on both sides of the process boundary", () => {
-    expect(resource.READY_EVENT).toBe(READY_EVENT);
   });
 
   it("says nothing outside a KeepDeck pane", async () => {
