@@ -25,7 +25,8 @@ export interface PaneLifecycle {
    * rollout): last generation's telemetry must not survive into this one.
    * Call on an actual generation change — the usage half keeps a
    * same-session report that merely overtook its binding, and the activity
-   * half starts blank either way. */
+   * half keeps only what a change of conversation leaves true (the agent at
+   * its prompt — `acrossSessionChange`). */
   beginSession(paneId: string, sessionId: string): void;
   /** The pane's agent left its conversation for NONE yet (opencode's `/new`
    * before the first prompt): the old generation's telemetry is no fact
@@ -37,7 +38,7 @@ export interface PaneLifecycle {
 /** What each holder is asked when a pane starts over — exactly that, so a
  * holder gaining a duty here shows in every place that stands one in. */
 export type LifecycleUsage = Pick<UsageManager, "clearPane" | "beginPaneSession">;
-export type LifecycleTracker = Pick<AgentStatusTracker, "clear">;
+export type LifecycleTracker = Pick<AgentStatusTracker, "clear" | "sessionChanged">;
 export type LifecycleAttribution = Pick<PaneAttribution, "retire">;
 
 export function createPaneLifecycle(
@@ -65,12 +66,12 @@ export function createPaneLifecycle(
     },
     beginSession(paneId, sessionId) {
       usage.beginPaneSession(paneId, sessionId);
-      tracker.clear(paneId);
+      tracker.sessionChanged(paneId);
       onSessionBegan(paneId);
     },
     endSession(paneId) {
       usage.clearPane(paneId);
-      tracker.clear(paneId);
+      tracker.sessionChanged(paneId);
       // Told now, not at the next binding: a binding after none has no
       // previous session to differ from, and would say nothing.
       onSessionBegan(paneId);

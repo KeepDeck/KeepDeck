@@ -204,15 +204,17 @@ describe("a session that outgrew its context window", () => {
     ).toEqual({ state: "done", at: 300, interrupted: false });
   });
 
-  it("ignores the session events that merely announce a prompt", () => {
-    // A boot and a resume both fire SessionStart. Reading either as a
-    // compaction would retire a failure nobody addressed.
+  it("reads the session events that open a conversation as ready, never as a rebuild", () => {
+    // A boot, a resume, `/clear` and a fork all fire SessionStart. Reading
+    // one as a compaction would retire the failure as an interrupted turn;
+    // it opens a conversation at the prompt instead (task-570), which the
+    // failure was not about.
     //
     // Driven from `failed` ON PURPOSE. Against a running pane this case
     // proves nothing: the fold leaves a live turn alone for EVERY
-    // `context-compacted`, so it would pass just as green with the
-    // normalizer's `source` check deleted. `failed` is the one state the
-    // edge moves, which makes the assertion discriminating.
+    // `context-compacted` and every `ready`, so it would pass just as green
+    // with the normalizer's `source` switch swapped. `failed` is a state
+    // both edges move, and to different places.
     const failed = receive(
       null,
       { ...SESSION, hook_event_name: "StopFailure", error: "server_error" },
@@ -224,9 +226,9 @@ describe("a session that outgrew its context window", () => {
           failed,
           { ...SESSION, hook_event_name: "SessionStart", source },
           200,
-        ),
+        )?.activity,
         source,
-      ).toBe(failed);
+      ).toEqual({ state: "ready", since: 200 });
     }
   });
 });

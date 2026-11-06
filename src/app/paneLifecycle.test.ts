@@ -11,7 +11,10 @@ const usage = {
   beginPaneSession: vi.fn<LifecycleUsage["beginPaneSession"]>(),
 } satisfies LifecycleUsage;
 
-const tracker = { clear: vi.fn<LifecycleTracker["clear"]>() } satisfies LifecycleTracker;
+const tracker = {
+  clear: vi.fn<LifecycleTracker["clear"]>(),
+  sessionChanged: vi.fn<LifecycleTracker["sessionChanged"]>(),
+} satisfies LifecycleTracker;
 
 const attribution = {
   retire: vi.fn<LifecycleAttribution["retire"]>(),
@@ -24,16 +27,20 @@ describe("paneLifecycle", () => {
     createPaneLifecycle(usage, tracker, attribution).retire("pane-1");
     expect(usage.clearPane).toHaveBeenCalledWith("pane-1");
     expect(tracker.clear).toHaveBeenCalledWith("pane-1");
+    expect(tracker.sessionChanged).not.toHaveBeenCalled();
     expect(attribution.retire).toHaveBeenCalledWith("pane-1");
   });
 
-  it("a new session generation restarts both telemetry stores", () => {
+  it("a new session generation restarts both telemetry stores — the activity as a change of conversation, not a retire", () => {
+    // A retire drops every held report with the process; a change of
+    // conversation keeps the process, and with it a held `ready`.
     createPaneLifecycle(usage, tracker, attribution).beginSession(
       "pane-1",
       "session-2",
     );
     expect(usage.beginPaneSession).toHaveBeenCalledWith("pane-1", "session-2");
-    expect(tracker.clear).toHaveBeenCalledWith("pane-1");
+    expect(tracker.sessionChanged).toHaveBeenCalledWith("pane-1");
+    expect(tracker.clear).not.toHaveBeenCalled();
   });
 
   it("keeps attribution out of a session generation change", () => {
@@ -55,7 +62,8 @@ describe("paneLifecycle", () => {
     const began = vi.fn();
     createPaneLifecycle(usage, tracker, attribution, () => null, began).endSession("pane-1");
     expect(usage.clearPane).toHaveBeenCalledWith("pane-1");
-    expect(tracker.clear).toHaveBeenCalledWith("pane-1");
+    expect(tracker.sessionChanged).toHaveBeenCalledWith("pane-1");
+    expect(tracker.clear).not.toHaveBeenCalled();
     expect(began).toHaveBeenCalledWith("pane-1");
     expect(attribution.retire).not.toHaveBeenCalled();
   });

@@ -42,6 +42,17 @@ describe("activityTransition", () => {
     expect(activityTransition(undefined, failed)).toBe("announce");
   });
 
+  it("an agent coming up, or sitting at its prompt, announces nothing", () => {
+    const started: PaneActivity = { state: "started", since: 1 };
+    const ready: PaneActivity = { state: "ready", since: 2 };
+    expect(activityTransition(undefined, started)).toBe("none");
+    expect(activityTransition(started, ready)).toBe("none");
+    // `/clear` after a finished turn: the finish was announced already.
+    expect(activityTransition(done, ready)).toBe("none");
+    // A turn the pane missed the start of ends with no running phase here.
+    expect(activityTransition(ready, done)).toBe("none");
+  });
+
   it("working from anything but a wait is quiet", () => {
     expect(activityTransition(undefined, working)).toBe("none");
     expect(activityTransition(done, working)).toBe("none");

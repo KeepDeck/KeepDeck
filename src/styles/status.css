@@ -11,12 +11,18 @@
   --status-waiting: var(--kd-warn);
   --status-failed: var(--kd-err);
   --status-done: var(--kd-ok);
+  /* The calm pair — up, nothing running — in greys: ready a step brighter
+     (the agent said it), started dimmer (only the host saw it). */
+  --status-ready: var(--kd-text-2);
+  --status-started: var(--kd-text-4);
 }
 
-/* The header's dot and its state word take the SAME four names as the
-   frames, so "change the waiting colour" is one edit. Working's dot keeps
-   its own soft 1.6s pulse — alive, never mistaken for waiting's 2s breathe
-   or failed's 1s alarm. */
+/* The header's dot and its state word take the SAME names as the frames,
+   so "change the waiting colour" is one edit. Working's dot keeps its own
+   soft 1.6s pulse — alive, never mistaken for waiting's 2s breathe or
+   failed's 1s alarm. The calm pair has a dot and no frame (frame.ts). */
+.pane__status--started { color: var(--status-started); }
+.pane__status--ready { color: var(--status-ready); }
 .pane__status--working {
   color: var(--status-working);
   animation: status-dot-working 1.6s ease-in-out infinite;

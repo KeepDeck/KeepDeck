@@ -101,11 +101,11 @@ describe("kd-status-hook.sh", () => {
     });
 
     // And the sibling source that must NOT read as one — a pane boots far
-    // more often than it compacts.
+    // more often than it compacts, and a boot is the agent at its prompt.
     await run(
       JSON.stringify({ hook_event_name: "SessionStart", source: "startup" }),
     );
-    expect(normalizeClaudeStatus(envelopeEvent(1), 100)).toBeNull();
+    expect(normalizeClaudeStatus(envelopeEvent(1), 100)).toEqual({ kind: "ready", at: 100 });
   });
 
   it("reduces only past the bridge's own limit, measured in BYTES", async () => {

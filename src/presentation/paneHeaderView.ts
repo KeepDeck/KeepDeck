@@ -6,7 +6,7 @@ import { teamBadgeTitle } from "@keepdeck/ui-kit/teamWords";
 /** What a pane's header shows, settled — the header maps it and decides
  * nothing. */
 export interface PaneHeaderView {
-  /** The status dot, or null before the agent reports a turn. */
+  /** The status dot, or null while nothing is known about the agent. */
   status: { tone: ActivityTone; label: string; tooltip: string } | null;
   /** The state in words, beside the controls — only while the agent needs
    * a person (waiting) or has stopped short (failed). Working and done are

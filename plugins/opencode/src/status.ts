@@ -8,6 +8,9 @@ import {
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
 import { isMailAsk } from "./mail";
+// What the plugin's own ready.js states as it starts — named once, in the
+// plugin's dependency-free events module, for both sides of the process.
+import { READY_EVENT } from "../resources/keepdeck-plugin/events.js";
 
 /**
  * Whose report this is. The reporter forwards only the pane's own lifecycle
@@ -64,6 +67,12 @@ export const normalizeOpencodeStatus: StatusNormalizer = (
   const event = decoded.event;
   const properties = isJsonRecord(event.properties) ? event.properties : {};
   switch (event.type) {
+    case READY_EVENT:
+      // Not an opencode event — opencode says nothing before a conversation
+      // exists. The plugin's own word that the process is up and the TUI
+      // waits for a prompt: both generations, fresh and resumed alike, the
+      // only word a pane gets before its first turn (API 81).
+      return { kind: "ready", at };
     case "session.status":
       return sessionStatusEdge(properties.status, at);
     case "session.idle":

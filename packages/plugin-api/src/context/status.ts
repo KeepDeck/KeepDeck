@@ -40,6 +40,19 @@ export type AgentPermissionMode = "yolo" | "auto" | "ask";
  * up to a poll interval, and only its honest age lets the reducer drop one
  * that predates the turn it would end. */
 export type AgentStatusEvent =
+  /** The agent is at its prompt with nothing running (API 81): a
+   * conversation began or was taken up — a launch, a resume, `/clear`, a
+   * session picked inside the CLI. Emit it only where the CLI itself says
+   * so, never on a guess: the host shows a pane that has said nothing as
+   * merely started, and that is the honest answer for an agent with no such
+   * event.
+   *
+   * It moves no running turn: a ready that lands on a turn in flight (a
+   * plugin that loads after a prompt given at spawn) is absorbed, and the
+   * turn's own ending says when it is over. Never carded, never announced —
+   * an agent coming up needs nobody. Never from a context rebuild either:
+   * an automatic one runs inside a turn (`context-compacted` is that edge). */
+  | { kind: "ready"; at: number }
   /** The user submitted a prompt — the turn is running. */
   | { kind: "turn-start"; at: number }
   /** A store confirms that a new request entered execution. Unlike a prompt

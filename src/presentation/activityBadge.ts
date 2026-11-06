@@ -2,7 +2,7 @@ import type { PaneActivity } from "../domain/status";
 
 /** The tone a surface renders an activity in — a closed set so the CSS
  * ladder is exhaustive and a new state is a compile error at the view. */
-export type ActivityTone = "working" | "waiting" | "done" | "failed";
+export type ActivityTone = "started" | "ready" | "working" | "waiting" | "done" | "failed";
 
 /** Everything a view shows for one activity — settled here so the view
  * renders and nothing else ([`rule/no-logic-in-views`]). */
@@ -37,6 +37,20 @@ export function activityBadge(
   failureLabels: Readonly<Record<string, string>> | undefined,
 ): ActivityBadge {
   switch (activity.state) {
+    case "started":
+      return {
+        tone: "started",
+        label: "Started",
+        sentence: "started",
+        at: activity.since,
+      };
+    case "ready":
+      return {
+        tone: "ready",
+        label: "Ready",
+        sentence: "ready",
+        at: activity.since,
+      };
     case "working":
       return {
         tone: "working",

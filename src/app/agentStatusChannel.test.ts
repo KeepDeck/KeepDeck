@@ -139,7 +139,8 @@ describe("createAgentStatusChannel", () => {
     createAgentStatusChannel(deckWith("pane-1").store, agents.registry,
       tracker, sessions, attribution, keys.port);
     tracker.report("pane-1", { agent: "claude", seed: true }, 100);
-    expect(tracker.getSnapshot().panes.size).toBe(0);
+    // The seed published nothing: the pane reads only what the host saw.
+    expect(tracker.getSnapshot().panes.get("pane-1")?.state).toBe("started");
     exit("pane-1");
     kinds.set("pane-1", "live");
     tracker.report("pane-1", { agent: "claude" }, 200);
@@ -493,7 +494,40 @@ describe("createAgentStatusChannel", () => {
     // from THIS side too.
     keys.press("pane-1", "l");
     keys.press("shell-pane", "s");
-    expect(tracker.getSnapshot().panes.size).toBe(0);
+    expect(tracker.getSnapshot().panes.get("pane-1")?.state).toBe("started");
+    expect(tracker.getSnapshot().panes.has("shell-pane")).toBe(false);
+  });
+
+  it("a live process of an agent with a status voice reads started — no other pane does", () => {
+    const deck: DeckWatch = {
+      getSnapshot: () => deckStateOf([
+        { id: "pane-1", agentType: "claude" },
+        { id: "pane-2", agentType: "voiceless" },
+        { id: "pane-3", agentType: "claude" },
+      ]),
+      subscribe: () => () => {},
+    };
+    kinds.set("pane-3", "starting");
+    createAgentStatusChannel(deck, agentsWith().registry, tracker, sessions, attribution, keys.port);
+    const panes = () => tracker.getSnapshot().panes;
+    expect(panes().get("pane-1")?.state).toBe("started");
+    // An agent that reports nothing would read "Started" through every turn.
+    expect(panes().has("pane-2")).toBe(false);
+    // Still on its way up.
+    expect(panes().has("pane-3")).toBe(false);
+    kinds.set("pane-3", "live");
+    for (const listener of [...sessionListeners]) listener();
+    expect(panes().get("pane-3")?.state).toBe("started");
+  });
+
+  it("an agent gaining its status voice: its live panes read started", () => {
+    const agents = agentsWith();
+    agents.replace([]);
+    createAgentStatusChannel(deckWith("pane-1").store, agents.registry,
+      tracker, sessions, attribution, keys.port);
+    expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
+    agents.replace([{ entry: { id: "claude", status: { normalize: edgeNormalizer, attribute: mainAgent } } }]);
+    expect(tracker.getSnapshot().panes.get("pane-1")?.state).toBe("started");
   });
 
   it("a key pressed before the session is live answers nothing", () => {

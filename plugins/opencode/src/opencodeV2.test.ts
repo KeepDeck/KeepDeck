@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
 import { HEARTBEAT_MS, writeForeground } from "../resources/keepdeck-plugin/foreground.js";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
-import { attributeOpencodeEvent } from "./status";
+import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
+import { READY_EVENT } from "../resources/keepdeck-plugin/events.js";
 import { present } from "@keepdeck/plugin-api/testing";
 
 /** Every directory watcher the plugin opens, and those it closed. A watcher
@@ -189,13 +190,21 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  /** What the plugin posted, once everything pushed so far was handled. */
-  const reported = async () => {
+  /** Every envelope the plugin posted, once everything pushed so far was
+   * handled. */
+  const posted = async () => {
     for (let round = 0; round < 6; round++) await tick();
     await drained();
     await deck.idle();
-    return deck.envelopes.filter((envelope) => envelope?.payload?.event?.type?.startsWith?.("mail.") !== true);
+    return deck.envelopes;
   };
+  /** What the plugin reported of the bus — the courier's asks and the
+   * startup's own word that the agent is at its prompt set aside. */
+  const reported = async () =>
+    (await posted()).filter((envelope) => {
+      const type = envelope?.payload?.event?.type;
+      return type?.startsWith?.("mail.") !== true && type !== READY_EVENT;
+    });
   const ofType = (all: typeof deck.envelopes, type: string) => all.filter((envelope) => envelope.type === type);
   const lastOf = (all: typeof deck.envelopes) => all[all.length - 1];
   const binding = (envelope: (typeof deck.envelopes)[number]) => ({
@@ -288,6 +297,17 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   });
 
   describe("status", () => {
+    it("says the agent is at its prompt as the plugin starts — a resumed pane too, before any event", async () => {
+      // 2.x binds a resumed root at startup and says nothing else until it
+      // works; this is the pane's only word before its first turn.
+      process.env.KEEPDECK_OPENCODE_SESSION = "ses_r";
+      const { context } = createContext();
+      await setup(context);
+      const statuses = ofType(await posted(), "agent.status");
+      expect(statuses.map((e) => e.payload.event.type)).toEqual([READY_EVENT]);
+      expect(normalizeOpencodeStatus(statuses[0].payload, 9)).toEqual({ kind: "ready", at: 9 });
+    });
+
     it("forwards the pane's turn events whole, its data as properties", async () => {
       const { context, bus } = createContext();
       await setup(context);

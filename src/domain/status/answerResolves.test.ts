@@ -17,6 +17,15 @@ describe("answerResolves", () => {
     });
   });
 
+  it("refuses an agent up at its prompt — a keystroke there is a prompt being typed", () => {
+    // The fold reads an agent's own `resumed` over a calm pane as a turn it
+    // missed the start of; the user typing at the prompt is no such turn,
+    // and the prompt they send reports itself.
+    for (const calm of [{ state: "started", since: 1 }, { state: "ready", since: 1 }] as const) {
+      expect(answerResolves(calm), calm.state).toBe(false);
+    }
+  });
+
   it("leaves WHICH activities a resume moves to the fold", () => {
     // Every reported activity passes: the predicate answers "may this be
     // folded at all", not "what does it do". Deciding the second question

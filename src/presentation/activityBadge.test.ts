@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { activityBadge } from "./activityBadge";
 
 describe("activityBadge", () => {
+  it("tells the host's sighting from the agent's own word — before any turn", () => {
+    expect(activityBadge({ state: "started", since: 50 }, undefined)).toEqual({
+      tone: "started",
+      label: "Started",
+      sentence: "started",
+      at: 50,
+    });
+    expect(activityBadge({ state: "ready", since: 60 }, undefined)).toEqual({
+      tone: "ready",
+      label: "Ready",
+      sentence: "ready",
+      at: 60,
+    });
+  });
+
   it("labels each state and ages from its own instant", () => {
     expect(activityBadge({ state: "working", since: 100 }, undefined)).toEqual({
       tone: "working",
