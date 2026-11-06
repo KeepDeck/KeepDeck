@@ -12,12 +12,14 @@
  *        plugin given as a FILE path, which is why this is a directory.
  *        Its adapter is opencode-v2.js
  *
- * ONE ENTRY, TWO COMPONENTS. The reporter and the courier stay separate
- * modules for the reasons in their headers, but they must not be two plugin
- * entries: they agree on the pane's conversation through ONE `pane-session.js`
- * and state facts through ONE wire (`keepdeck-bridge.js`), and opencode 2.x
- * gives each plugin entry its own copy of a sibling module. Loaded from here,
- * there is one module graph and one copy, on either generation.
+ * ONE ENTRY, ITS COMPONENTS. The reporter and the courier stay separate
+ * modules for the reasons in their headers — and so does ready.js, which
+ * says the agent is at its prompt as the plugin starts — but they must not be
+ * plugin entries of their own: they agree on the pane's conversation through
+ * ONE `pane-session.js` and state facts through ONE wire
+ * (`keepdeck-bridge.js`), and opencode 2.x gives each plugin entry its own
+ * copy of a sibling module. Loaded from here, there is one module graph and
+ * one copy, on either generation.
  *
  * What being two plugins used to give for free is kept here instead: a
  * component that fails to start, or whose handler throws, takes nothing else
@@ -29,6 +31,7 @@ import { startComponents } from "./components.js";
 import { follower } from "./follower.js";
 import { isRecord } from "./guards.js";
 import { setupV2 } from "./opencode-v2.js";
+import { announceReady } from "./ready.js";
 import { startReporter } from "./session-reporter.js";
 
 /**
@@ -69,7 +72,7 @@ export default {
   /** opencode 1.x. */
   /** @param {unknown} input */
   server: async (input) => {
-    const hooks = composeHooks(await startComponents([startReporter, startCourier], input));
+    const hooks = composeHooks(await startComponents([startReporter, startCourier, announceReady], input));
     // Both components have joined the follower by now (follower.js).
     follower().start();
     return hooks;

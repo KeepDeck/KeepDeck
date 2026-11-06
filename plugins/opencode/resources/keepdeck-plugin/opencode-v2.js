@@ -20,6 +20,7 @@ import { isRecord } from "./guards.js";
 import { readBridge } from "./keepdeck-bridge.js";
 import { startCourierV2 } from "./mail-courier-v2.js";
 import { paneSession } from "./pane-session.js";
+import { announceReady } from "./ready.js";
 import { startReporterV2 } from "./session-reporter-v2.js";
 
 /** @typedef {{ content?: unknown, output?: unknown }} ToolResult */
@@ -79,7 +80,7 @@ export async function setupV2(context) {
   // no lookup is needed — and none is made while opencode is still loading.
   const resumed = resumedSession();
   if (resumed) pane.bindFromChain(resumed);
-  const components = await startComponents([startReporterV2, startCourierV2], {
+  const components = await startComponents([startReporterV2, startCourierV2, announceReady], {
     context,
     bridge,
     pane,

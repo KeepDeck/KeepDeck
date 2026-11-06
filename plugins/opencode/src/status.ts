@@ -9,6 +9,12 @@ import {
 } from "@keepdeck/plugin-api";
 import { isMailAsk } from "./mail";
 
+/** What the plugin's own ready.js states as it starts: the process is up and
+ * the TUI waits for a prompt. Not an opencode event — opencode says nothing
+ * before a conversation exists. Mirrors READY_EVENT in
+ * resources/keepdeck-plugin/ready.js. */
+export const READY_EVENT = "keepdeck.ready";
+
 /**
  * Whose report this is. The reporter forwards only the pane's own lifecycle
  * (its root's, and the dialogs that block the pane whoever raised them), so
@@ -64,6 +70,10 @@ export const normalizeOpencodeStatus: StatusNormalizer = (
   const event = decoded.event;
   const properties = isJsonRecord(event.properties) ? event.properties : {};
   switch (event.type) {
+    case READY_EVENT:
+      // Both generations, fresh and resumed alike: the only word a pane gets
+      // before its first turn (API 81).
+      return { kind: "ready", at };
     case "session.status":
       return sessionStatusEdge(properties.status, at);
     case "session.idle":
