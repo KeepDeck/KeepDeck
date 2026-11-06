@@ -50,12 +50,14 @@ export interface PaneKeyPort {
  *   requirement: activity is a claim about a running process, and a hook
  *   envelope that outlives its process (a Stop racing a crash) must not
  *   paint "finished" over the crash;
- * - tracker hygiene as panes close — and as PROCESSES die. "Activity
- *   describes a live process" is enforced here, at the store's edge, in
- *   both directions (ingest gate + death sweep), so no render surface has
- *   to re-derive liveness its own way. The registry flips to `exited`
- *   before any terminal sink hears about it, so the sweep also catches an
- *   exit whose TerminalPane happens to be unmounted.
+ * - tracker hygiene as panes close — and as PROCESSES die or come up.
+ *   "Activity describes a live process" is enforced here, at the store's
+ *   edge, in both directions (ingest gate + death sweep), so no render
+ *   surface has to re-derive liveness its own way. The registry flips to
+ *   `exited` before any terminal sink hears about it, so the sweep also
+ *   catches an exit whose TerminalPane happens to be unmounted. The same
+ *   sweep tells the tracker a process is up, which a pane whose agent has
+ *   said nothing yet reads as `started`.
  */
 export function createAgentStatusChannel(
   deck: DeckWatch,
@@ -127,7 +129,10 @@ export function createAgentStatusChannel(
   };
   registerNormalizers();
   const unsubscribeAgents = agents.subscribe(() => {
-    if (!disposed) registerNormalizers();
+    if (disposed) return;
+    registerNormalizers();
+    // An agent that gained its voice has live panes nothing was said for.
+    syncProcesses();
   });
 
   const reports = createVerifiedPaneReports(deck, attribution, {
@@ -167,6 +172,8 @@ export function createAgentStatusChannel(
   const unsubscribeDeck = deck.subscribe(retainLivePanes);
   retainLivePanes();
 
+  // What a pane's process tells the tracker, in both directions.
+  //
   // A dead process's activity is no longer a fact about the pane — clear
   // it the moment the registry says so. `exited` is the process that ran
   // and died; `failed` is the spawn that never made it — ingest accepts
@@ -174,18 +181,24 @@ export function createAgentStatusChannel(
   // rejected spawn can leave accepted activity behind, and without this
   // rung it would render forever. The orchestrator's own retire owns the
   // deliberate teardowns (suspend, close, restart).
-  const clearDeadPanes = () => {
+  //
+  // A live one is a fact too: the agent is up. Said only for an agent with
+  // a status voice — `started` promises that a turn, when one comes, will
+  // report itself, and an agent that reports nothing would read "Started"
+  // through every turn it ever ran.
+  function syncProcesses(): void {
     // Metadata can exist before a published activity. Sweep the pane roster,
     // not the activity snapshot, or a restarted pane inherits the old mode.
     for (const workspace of deck.getSnapshot().workspaces) {
-      for (const { id } of workspace.panes) {
+      for (const { id, agentType } of workspace.panes) {
         const kind = sessions.state(id).kind;
         if (kind === "exited" || kind === "failed") tracker.clear(id);
+        else if (kind === "live" && declaring.has(agentType)) tracker.started(id);
       }
     }
-  };
-  const unsubscribeSessions = sessions.subscribe(clearDeadPanes);
-  clearDeadPanes();
+  }
+  const unsubscribeSessions = sessions.subscribe(syncProcesses);
+  syncProcesses();
 
   // The user's own approval answer. Some CLIs report the prompt but not
   // its resolution — measured on codex 0.146, the next hook after its approval

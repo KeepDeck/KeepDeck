@@ -74,10 +74,90 @@ const literal = (payload: unknown, at: number): AgentStatusEvent | null => {
       return { kind: "agent-turns-cleared", at };
     case "interrupt":
       return { kind: "interrupted", at };
+    case "ready":
+      return { kind: "ready", at };
     default:
       return null;
   }
 };
+
+describe("agentStatusTracker — before the first turn, and across a change of conversation", () => {
+  const payload = (kind: string) => ({ agent: "test", event: { kind } });
+  const setup = () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("test", literal);
+    return tracker;
+  };
+  const activity = (tracker: ReturnType<typeof setup>) => tracker.getSnapshot().panes.get("pane");
+
+  it("a process the host saw come up reads started, until its agent speaks", () => {
+    const tracker = setup();
+    tracker.started("pane", 100);
+    expect(activity(tracker)).toEqual({ state: "started", since: 100 });
+    tracker.report("pane", payload("ready"), 200);
+    expect(activity(tracker)).toEqual({ state: "ready", since: 200 });
+  });
+
+  it("the agent's word stands when the host sees the process only afterwards", () => {
+    // A hook can beat the spawn's own settling.
+    const tracker = setup();
+    tracker.report("pane", payload("start"), 100);
+    const changed = vi.fn();
+    tracker.subscribe(changed);
+    tracker.started("pane", 200);
+    expect(activity(tracker)).toEqual({ state: "working", since: 100 });
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("a change of conversation keeps ready, and reads anything else as started", () => {
+    const tracker = setup();
+    tracker.report("pane", payload("ready"), 100);
+    tracker.sessionChanged("pane", 200);
+    expect(activity(tracker)).toEqual({ state: "ready", since: 100 });
+    tracker.report("pane", payload("start"), 300);
+    tracker.report("pane", payload("end"), 400);
+    tracker.sessionChanged("pane", 500);
+    expect(activity(tracker)).toEqual({ state: "started", since: 500 });
+  });
+
+  it("a change of conversation drops the mode its agent said", () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("test", () => ({ kind: "permission-mode", at: 1, mode: "yolo" }));
+    tracker.report("pane", { agent: "test" }, 1);
+    expect(tracker.getSnapshot().modes.get("pane")).toBe("yolo");
+    tracker.sessionChanged("pane", 2);
+    expect(tracker.getSnapshot().modes.has("pane")).toBe(false);
+  });
+
+  it("a ready held for its answer across the change still lands — it is the new conversation's", () => {
+    // claude's SessionStart asks for mail, and the binding of the
+    // conversation it opened can land while the answer is on its way.
+    const tracker = setup();
+    tracker.report("pane", payload("start"), 100);
+    tracker.report("pane", payload("end"), 200);
+    const held = tracker.prepare("pane", payload("ready"), 300);
+    tracker.sessionChanged("pane", 310);
+    held.finish();
+    expect(activity(tracker)).toEqual({ state: "ready", since: 300 });
+  });
+
+  it("anything else held across the change was the old conversation's, and lands nowhere", () => {
+    const tracker = setup();
+    tracker.report("pane", payload("start"), 100);
+    const held = tracker.prepare("pane", payload("end"), 200);
+    tracker.sessionChanged("pane", 210);
+    held.finish();
+    expect(activity(tracker)).toEqual({ state: "started", since: 210 });
+  });
+
+  it("a retire drops even a held ready — the next process says its own", () => {
+    const tracker = setup();
+    const held = tracker.prepare("pane", payload("ready"), 100);
+    tracker.clear("pane");
+    held.finish();
+    expect(activity(tracker)).toBeUndefined();
+  });
+});
 
 describe("agentStatusTracker — context rebuilds", () => {
   const rebuildNormalizer = (payload: unknown, at: number): AgentStatusEvent | null => {

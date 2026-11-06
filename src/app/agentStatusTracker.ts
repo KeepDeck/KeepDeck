@@ -7,12 +7,15 @@ import {
 } from "@keepdeck/plugin-api";
 import { normalizeStatusBatch } from "./statusNormalization";
 import {
+  acrossSessionChange,
   activityWord,
   answerResolves,
   endingVerdict,
+  processStarted,
   reconcileVerdict,
   reduceMode,
   reduceStatus,
+  survivesSessionChange,
   type PaneActivity,
   type PaneMode,
   type PaneStatus,
@@ -108,6 +111,16 @@ export interface AgentStatusTracker {
    * fact about the pane. The orchestrator calls this at the same points it
    * clears usage; the tracker never reaches back into the orchestrator. */
   clear(paneId: string): void;
+  /** The host saw this pane's agent process come up. What that makes of the
+   * pane is [`processStarted`]'s call: `started`, unless the agent already
+   * spoke. Ask it only for an agent with a status voice. */
+  started(paneId: string, at?: number): void;
+  /** The pane's agent changed conversations in the same process (`/clear`,
+   * `/new`, a session picked inside the CLI). What survives is
+   * [`acrossSessionChange`]'s call — for the state the pane holds, and for
+   * a report held across the change ([`survivesSessionChange`]). The mode
+   * goes, as with [`clear`]. */
+  sessionChanged(paneId: string, at?: number): void;
   /** Drop activity for panes that no longer exist. */
   retain(liveIds: ReadonlySet<string>): void;
   /** The live snapshot (stable between changes — the `useSyncExternalStore`
@@ -144,6 +157,11 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   // retired (clear, retain), never by a new turn — so a report held across a
   // restart is told apart from one a newer turn of its own process overtook.
   const lifetimes = new Map<string, object>();
+  // One per conversation of that process: replaced when its agent changes
+  // conversations, and with the process. A report held across a change
+  // speaks for the conversation it left, of which only `ready` is still
+  // true ([`survivesSessionChange`]).
+  const generations = new Map<string, object>();
   const decoderStates = new Map<string, { normalize: StatusNormalizer; state: unknown }>();
   let lastReceived = -Infinity;
 
@@ -329,6 +347,8 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     const epoch = epochs.get(paneId);
     if (!lifetimes.has(paneId)) lifetimes.set(paneId, {});
     const lifetime = lifetimes.get(paneId);
+    if (!generations.has(paneId)) generations.set(paneId, {});
+    const generation = generations.get(paneId);
     let finished = false;
     return {
       activity: preview?.activity ?? null,
@@ -336,6 +356,16 @@ export function createAgentStatusTracker(): AgentStatusTracker {
         if (finished) return;
         finished = true;
         if (lifetimes.get(paneId) !== lifetime || normalizers.get(agent) !== normalize) return;
+        if (generations.get(paneId) !== generation) {
+          // The agent changed conversations while this report was held for
+          // its answer — claude's SessionStart asks for mail, and the binding
+          // of the conversation it opened can land first. What it says of a
+          // turn is the old conversation's; that the agent is at its prompt
+          // is true of the new one too.
+          const kept = normalizeAll(reply).events.filter(survivesSessionChange);
+          if (kept.length > 0) apply(paneId, kept, label());
+          return;
+        }
         if (epochs.get(paneId) !== epoch) {
           // A newer turn overtook this report, so what it says about the
           // turn is stale. The mode it says is still this process's own
@@ -390,6 +420,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     clear(paneId) {
       epochs.delete(paneId);
       lifetimes.delete(paneId);
+      generations.delete(paneId);
       decoderStates.delete(paneId);
       // The mode goes with the activity: what the old process said of itself
       // is no fact about the next one, which starts from its own launch.
@@ -401,6 +432,36 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       commit(next, nextModes);
     },
 
+    started(paneId, at = receivedNow()) {
+      const previous = statuses.get(paneId) ?? null;
+      const next = processStarted(previous, at);
+      if (next === previous) return;
+      log.info("web:status", `${paneId}: ${activityWord(previous?.activity)} → ${activityWord(next.activity)} — the process is up`);
+      commit(new Map(statuses).set(paneId, next));
+    },
+
+    sessionChanged(paneId, at = receivedNow()) {
+      // The process lives on: a report held from before is told apart by its
+      // generation, not dropped with a lifetime.
+      epochs.delete(paneId);
+      generations.delete(paneId);
+      decoderStates.delete(paneId);
+      const previous = statuses.get(paneId) ?? null;
+      const next = acrossSessionChange(previous, at);
+      if (next === previous && !modes.has(paneId)) return;
+      if (next?.activity !== previous?.activity) {
+        log.info("web:status", `${paneId}: ${activityWord(previous?.activity)} → ${activityWord(next?.activity)} — a new conversation`);
+      }
+      const panes = new Map(statuses);
+      if (next) panes.set(paneId, next);
+      else panes.delete(paneId);
+      // The mode, as at a retire: what the old conversation's agent said of
+      // itself is restated by the new one.
+      const nextModes = new Map(modes);
+      nextModes.delete(paneId);
+      commit(panes, nextModes);
+    },
+
     retain(liveIds) {
       for (const id of decoderStates.keys()) {
         if (!liveIds.has(id)) decoderStates.delete(id);
@@ -410,6 +471,9 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       }
       for (const id of lifetimes.keys()) {
         if (!liveIds.has(id)) lifetimes.delete(id);
+      }
+      for (const id of generations.keys()) {
+        if (!liveIds.has(id)) generations.delete(id);
       }
       if (![...statuses.keys(), ...modes.keys()].some((id) => !liveIds.has(id))) return;
       const kept = <T,>(map: ReadonlyMap<string, T>) =>
