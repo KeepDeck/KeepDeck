@@ -12,9 +12,11 @@
   --status-failed: var(--kd-err);
   --status-done: var(--kd-ok);
   /* The calm pair — up, nothing running — in greys: ready a step brighter
-     (the agent said it), started dimmer (only the host saw it). */
+     (the agent said it), started dimmer (only the host saw it). Both paint
+     words too (the tray's hover line), so neither goes below the reading
+     floor, --kd-text-3 (textFloor.test.ts). */
   --status-ready: var(--kd-text-2);
-  --status-started: var(--kd-text-4);
+  --status-started: var(--kd-text-3);
 }
 
 /* The header's dot and its state word take the SAME names as the frames,
