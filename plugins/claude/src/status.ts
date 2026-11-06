@@ -394,23 +394,41 @@ const turnEdge = (
       return turnFailedEvent(at, event.error, event.error_details);
     case "SessionStart":
       // `source` is a CLOSED enum — `startup`, `resume`, `clear`, `compact`,
-      // `fork` (read out of 2.1.222's own hook schema) — and only one of
-      // them is a turn-lifecycle fact. A compaction rebuilds the context a
-      // recorded failure was about, which retires it — the readable oversize
-      // request that motivated this edge no longer cards at all, so what it
-      // now retires is the one too damaged to recognise, and any other
-      // failure the user answers by compacting. The other four announce a
-      // session sitting at its prompt with nothing running, and minting
-      // anything for them would card every pane the moment it boots.
+      // `fork` (read out of 2.1.222's own hook schema) — and it splits two
+      // ways.
       //
-      // This event is the ONLY report a manual `/compact` produces. It is a
-      // local command, so it runs through no turn: no `UserPromptSubmit`
-      // before it and no `Stop` after (both probe-verified on 2.1.222).
-      // The automatic compaction reports it too, from inside a live turn,
-      // where the host's fold leaves the turn untouched.
-      return event.source === "compact"
-        ? { kind: "context-compacted", at }
-        : null;
+      // A compaction rebuilds the context a recorded failure was about,
+      // which retires it — the readable oversize request that motivated
+      // this edge no longer cards at all, so what it now retires is the one
+      // too damaged to recognise, and any other failure the user answers by
+      // compacting. This event is the ONLY report a manual `/compact`
+      // produces. It is a local command, so it runs through no turn: no
+      // `UserPromptSubmit` before it and no `Stop` after (both
+      // probe-verified on 2.1.222). The automatic compaction reports it
+      // too, from inside a live turn, where the host's fold leaves the turn
+      // untouched — which is why a compaction is never `ready`.
+      //
+      // The other four open a conversation at the prompt with nothing
+      // running — a launch, a resume, `/clear`, a fork — and say so before
+      // any turn: never at the first prompt (measured on 2.1.318: one
+      // SessionStart at boot, none with the first UserPromptSubmit). That is
+      // `ready` (API 81), which the host never cards — the reason these
+      // four used to mint nothing. A folder claude does not trust yet holds
+      // the event until the user answers its dialog, and the pane reads
+      // "Started" until then, which is what it is.
+      switch (event.source) {
+        case "compact":
+          return { kind: "context-compacted", at };
+        case "startup":
+        case "resume":
+        case "clear":
+        case "fork":
+          return { kind: "ready", at };
+        default:
+          // A source the enum grows past us, or one a reporter could not
+          // fill: no claim either way.
+          return null;
+      }
     case "Notification":
       switch (event.notification_type) {
         case "permission_prompt":

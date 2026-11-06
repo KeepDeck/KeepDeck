@@ -162,11 +162,11 @@ describe("normalizeClaudeStatus", () => {
     }
   });
 
-  it("reads a compaction off SessionStart, and only a compaction", () => {
+  it("reads SessionStart as a rebuild or as a conversation opened at the prompt", () => {
     // `source` is a closed enum in claude's own hook schema (2.1.222):
-    // startup / resume / clear / compact / fork. Only the rebuild is a
-    // turn-lifecycle fact — the other four describe a session sitting at
-    // its prompt, and an edge for those would card every pane on boot.
+    // startup / resume / clear / compact / fork. The rebuild may run inside
+    // a turn, so it is only ever a compaction; the other four open a
+    // conversation with nothing running — ready.
     expect(
       normalizeClaudeStatus(
         wrap({ hook_event_name: "SessionStart", source: "compact" }),
@@ -181,13 +181,16 @@ describe("normalizeClaudeStatus", () => {
           400,
         ),
         source,
-      ).toBeNull();
+      ).toEqual({ kind: "ready", at: 400 });
     }
     // A source the enum grows past us, or one a reporter could not fill,
-    // reads as "not a compaction" — the direction that adds no state.
-    expect(
-      normalizeClaudeStatus(wrap({ hook_event_name: "SessionStart" }), 400),
-    ).toBeNull();
+    // claims nothing — the direction that adds no state.
+    for (const source of [undefined, "reload"]) {
+      expect(
+        normalizeClaudeStatus(wrap({ hook_event_name: "SessionStart", source }), 400),
+        String(source),
+      ).toBeNull();
+    }
   });
 
   it("parks the turn while claude reports background work in flight", () => {
