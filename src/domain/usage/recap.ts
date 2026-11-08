@@ -45,7 +45,6 @@ export function usageRecap(
   };
 }
 
-
 function tokensDeltaPct(
   events: readonly UsageRow[],
   period: UsageStatsPeriod,
