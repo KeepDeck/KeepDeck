@@ -29,6 +29,14 @@ const MAKERS_JSON: &str = include_str!("../../../resources/pricing/makers.json")
 /// The seed format this build reads.
 pub const SEED_VERSION: u64 = 1;
 
+/// The price history this build ships, built by `scripts/price-history.mjs`.
+const SEED_JSON: &str = include_str!("../../../resources/pricing/model-prices.seed.json");
+
+/// The price rows of the history this build ships.
+pub fn seed() -> Result<Vec<PriceRow>, String> {
+    parse_seed(SEED_JSON)
+}
+
 /// The models.dev providers that make models and publish their own list
 /// price, in resolve preference order.
 pub fn makers() -> &'static [String] {

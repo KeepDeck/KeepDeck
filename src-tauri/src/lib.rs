@@ -50,6 +50,7 @@ mod exec_once;
 mod keyed_locks;
 mod state;
 mod jsonl_log;
+mod price_catalogue;
 mod usage_ledger;
 mod usage_reports;
 mod worktree;
@@ -187,6 +188,9 @@ pub fn run() {
             // the app's lifetime.
             let bridge = bridge::start(app.handle())?;
             app.manage(bridge);
+            // Model prices: the journal the usage ledger is priced from asks
+            // the catalogue once a day, off the main thread.
+            price_catalogue::start(app.handle());
             let gate_app = app.handle().clone();
             app.manage(skills::GateRegistry::new(move || {
                 gate_app
@@ -270,7 +274,8 @@ pub fn run() {
             state::achievements_load,
             state::achievements_save,
             usage_ledger::usage_ledger,
-            usage_ledger::usage_record,
+            usage_ledger::usage_book_calls,
+            usage_ledger::usage_since,
             usage_reports::usage_reports_load,
             usage_reports::usage_reports_append,
             usage_reports::usage_reports_compact,
