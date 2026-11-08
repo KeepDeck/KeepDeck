@@ -50,11 +50,11 @@ describe("usageAchievementLadders", () => {
     });
   });
 
-  it("accumulates provider-reported spend toward the dollar ladder", () => {
+  it("accumulates priced spend toward the dollar ladder, and nothing for an unpriced row", () => {
     const ladders = usageAchievementLadders([
-      event({ costSource: "provider", costUsd: 6 }),
-      event({ costSource: "unavailable", costUsd: undefined }),
-      event({ occurredAt: NOW - 500, costSource: "provider", costUsd: 6 }),
+      event({ costUsd: 6 }),
+      event({ costBasis: "unpriced", costUsd: undefined }),
+      event({ occurredAt: NOW - 500, costBasis: "approximate", costUsd: 6 }),
     ]);
     const spend = ladder(ladders, "spendUsd").tiers;
     expect(spend[0]).toMatchObject({

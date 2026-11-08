@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { displayProviderCost, formatTokens } from "../../domain/usage";
+import { displayCost, formatTokens } from "../../domain/usage";
 import { seriesColorFor } from "../../presentation/usagePalette";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import {
@@ -103,7 +103,7 @@ export function Weeks({
                   )}
                 </span>
                 <span className="stats__week-cost" role="cell">
-                  {displayProviderCost(week.providerCostUsd, week.costEvents)}
+                  {displayCost(week)}
                 </span>
               </>
             )}

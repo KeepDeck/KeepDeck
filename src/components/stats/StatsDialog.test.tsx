@@ -97,6 +97,7 @@ import type { AccountUsage } from "../../domain/usage";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
+  type UsageRowOverrides,
 } from "../../domain/usage/history/event.testSupport";
 import type { Achievements } from "./Achievements";
 import type { Overview } from "./Overview";
@@ -131,16 +132,14 @@ const NOW = TEST_NOW;
  * with a human pane name — the totals and rows the shell routes assert on
  * these, so the divergence is EXPLICIT here, not baked into a private copy
  * of the whole shape. */
-const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
+const usageEvent = (over: UsageRowOverrides = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     paneName: "auth-refactor",
     sessionId: "session-123456789",
     rootSessionId: "session-123456789",
     tokens: { input: 1_000, output: 100, cacheRead: 500 },
-    observation: { tokens: { input: 1_000, output: 100, cacheRead: 500 } },
     costUsd: 0.25,
-    costSource: "provider",
     ...over,
   });
 
@@ -206,7 +205,7 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(Host)));
 
     expect(overview().period).toBe(7);
-    expect(overview().stats.totals).toMatchObject({ totalTokens: 1_600, providerCostUsd: 0.25 });
+    expect(overview().stats.totals).toMatchObject({ totalTokens: 1_600, costUsd: 0.25 });
 
     clickTab("Models");
     expect(table()).toMatchObject({ title: "Models", mode: "model" });
@@ -232,7 +231,6 @@ describe("UsageStats", () => {
         occurredAt: NOW + 5_000,
         capturedAt: NOW + 5_000,
         tokens: { input: 100_000 },
-        observation: { tokens: { input: 100_000 } },
       }),
     ]);
     act(() => root.render(createElement(Host)));

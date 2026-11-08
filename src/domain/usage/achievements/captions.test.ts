@@ -24,7 +24,7 @@ const tier = (over: Partial<UsageAchievement>): UsageAchievement => ({
 describe("captions", () => {
   it("phrases requirements and progress per metric", () => {
     const spend = tier({ metric: "spendUsd", threshold: 1, progress: 0.25 });
-    expect(achievementRequirement(spend)).toBe("$1 provider-reported spend");
+    expect(achievementRequirement(spend)).toBe("$1 estimated spend");
     expect(achievementProgress(spend)).toBe("$0.25 / $1");
     const streak = tier({ metric: "streakDays", threshold: 3, progress: 1 });
     expect(achievementRequirement(streak)).toBe("3 active days in a row");

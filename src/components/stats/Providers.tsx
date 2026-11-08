@@ -1,10 +1,9 @@
 import { Fragment, useMemo } from "react";
 import {
-  displayProviderCost,
   formatAge,
   formatPct,
-  formatTokens,
   windowLabel,
+  windowLedgerCaption,
   windowLevel,
   type AccountUsage,
 } from "../../domain/usage";
@@ -12,7 +11,6 @@ import { seriesColorFor } from "../../presentation/usagePalette";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import {
   providerWindowGroups,
-  type ProviderWindowLedger,
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
 import type { WindowReport } from "../../domain/usage/reportJournal";
@@ -149,25 +147,7 @@ function ProviderWindow({
             </Fragment>
           ))}
         </small>
-      {row.ledger && (
-        <small>
-          {row.ledger.sessionCount > 0
-            ? `${formatTokens(row.ledger.totalTokens)} · ${ledgerCaption(
-                row.ledger,
-              )} this window`
-            : "no usage this window"}
-        </small>
-      )}
+      {row.ledger && <small>{windowLedgerCaption(row.ledger)}</small>}
     </div>
   );
-}
-
-function ledgerCaption(ledger: ProviderWindowLedger): string {
-  const sessions = `${ledger.sessionCount} session${
-    ledger.sessionCount === 1 ? "" : "s"
-  }`;
-  // Branch on the FACT the caller holds, never on the formatter's sentinel
-  // string — a reworded "no data" dash must not silently change layout.
-  if (ledger.costEvents === 0) return sessions;
-  return `${sessions} · ${displayProviderCost(ledger.providerCostUsd, ledger.costEvents)}`;
 }

@@ -1,10 +1,11 @@
 import { formatUtcDay, modelLabel } from "./format";
 import {
-  providerCostOf,
+  addCost,
+  emptyCostTally,
   tokenTotal,
+  type CostTally,
   type UsageRow,
 } from "./history/event";
-import { addMoney } from "./money";
 import { DAY_MS, utcWeekStart, WEEK_MS } from "./time";
 
 /**
@@ -18,7 +19,7 @@ import { DAY_MS, utcWeekStart, WEEK_MS } from "./time";
  * the same one `WEEK_MS` already states. */
 const DAYS_PER_WEEK = WEEK_MS / DAY_MS;
 
-export interface UsageWeek {
+export interface UsageWeek extends CostTally {
   /** The week's UTC Monday 00:00. */
   start: number;
   totalTokens: number;
@@ -29,8 +30,6 @@ export interface UsageWeek {
   /** The week's heaviest model by TOKENS — same crown rule as the recap:
    * cost-ranking would crown a costed model over a bigger uncosted one. */
   topModel: { model: string; totalTokens: number } | null;
-  providerCostUsd: number;
-  costEvents: number;
   /** Whole-percent change vs the previous calendar week; null when that
    * week has no usage to compare against — and always null for the
    * CURRENT week: a week in progress is not comparable to a finished one,
@@ -44,8 +43,7 @@ interface WeekFold {
   totalTokens: number;
   byAgent: Map<string, number>;
   models: Map<string, { model: string; totalTokens: number }>;
-  providerCostUsd: number;
-  costEvents: number;
+  cost: CostTally;
 }
 
 /** Every calendar week from the current one back to the oldest event's,
@@ -70,27 +68,21 @@ export function usageWeeks(
         totalTokens: 0,
         byAgent: new Map(),
         models: new Map(),
-        providerCostUsd: 0,
-        costEvents: 0,
+        cost: emptyCostTally(),
       };
       folds.set(start, fold);
     }
     const tokens = tokenTotal(event.tokens);
     fold.totalTokens += tokens;
     fold.byAgent.set(event.agent, (fold.byAgent.get(event.agent) ?? 0) + tokens);
-    const label = modelLabel(event.model);
-    const modelKey = `${event.agent}\0${label}`;
+    const modelKey = `${event.agent}\0${modelLabel(event.model)}`;
     const model = fold.models.get(modelKey);
     if (model) {
       model.totalTokens += tokens;
     } else {
-      fold.models.set(modelKey, { model: label, totalTokens: tokens });
+      fold.models.set(modelKey, { model: modelLabel(event.model, event.modelName), totalTokens: tokens });
     }
-    const cost = providerCostOf(event);
-    if (cost !== null) {
-      fold.providerCostUsd = addMoney(fold.providerCostUsd, cost);
-    }
-    fold.costEvents += event.costEvents;
+    addCost(fold.cost, event);
   }
   if (folds.size === 0) return [];
 
@@ -105,8 +97,7 @@ export function usageWeeks(
       totalTokens: total,
       segments: segments(fold),
       topModel: topModel(fold),
-      providerCostUsd: fold?.providerCostUsd ?? 0,
-      costEvents: fold?.costEvents ?? 0,
+      ...(fold?.cost ?? emptyCostTally()),
       deltaPct:
         start !== currentStart && prev !== undefined && prev.totalTokens > 0
           ? Math.round(((total - prev.totalTokens) / prev.totalTokens) * 100)
@@ -181,10 +172,10 @@ export function weekDeltaCaption(deltaPct: number | null): string {
 }
 
 /** Is this the still-empty week in progress? Empty means NOTHING landed —
- * tokens or provider cost alike: a cost-only week is real usage and must
- * render as a row, not as this placeholder (review finding). */
+ * tokens or a priced event alike: a week with usage renders as a row, not
+ * as this placeholder (review finding). */
 export function weekAwaitingUsage(week: UsageWeek): boolean {
-  return week.current && week.totalTokens === 0 && week.costEvents === 0;
+  return week.current && week.totalTokens === 0 && week.pricedEvents === 0;
 }
 
 /** The empty in-progress row's line — domain-owned like its delta

@@ -167,8 +167,8 @@ export function UsageStats({
     <div className="stats">
       <div className="stats__head">
         <p className="stats__intro">
-          Local token history and provider-reported cost estimates across every CLI
-          and workspace.
+          Local token history and cost estimated from model prices across every
+          CLI and workspace.
         </p>
         <div
           className={`stats__period${periodless ? " stats__period--idle" : ""}`}

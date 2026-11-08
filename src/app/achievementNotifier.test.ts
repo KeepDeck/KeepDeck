@@ -17,7 +17,7 @@ import { listOf, numberOf, recordOf, stringOf } from "../testing/values.test-sup
 // 2M tokens + provider cost earns: First Million, Warm Afternoon,
 // Hello Agent, Day One, First Tenner — five fresh awards.
 const richEvents = () => [
-  event({ tokens: { input: 2_000_000 }, costSource: "provider", costUsd: 15 }),
+  event({ tokens: { input: 2_000_000 }, costUsd: 15 }),
 ];
 
 /** A ready snapshot of the WHOLE ledger — what a healthy load publishes, and
@@ -119,7 +119,7 @@ describe("createAchievementNotifier", () => {
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][0]).toMatchObject({
       title: "Achievement unlocked: First Tenner",
-      body: "$10 provider-reported spend",
+      body: "$10 estimated spend",
       tag: "achievement:spendUsd-10",
     });
     notifier.dispose();
@@ -213,7 +213,7 @@ describe("createAchievementNotifier", () => {
   it("refolds on a same-or-longer wholesale replacement, not just a shrink", async () => {
     const { deps, notify, history } = fakeDeps();
     // $9 folded — just short of First Tenner.
-    history.set(ledger([event({ costSource: "provider", costUsd: 9 })]));
+    history.set(ledger([event({ costUsd: 9 })]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     const titles = () =>
@@ -225,8 +225,8 @@ describe("createAchievementNotifier", () => {
     // $2 → a false First Tenner; the head-identity guard refolds.
     history.set(
       ledger([
-        event({ costSource: "provider", costUsd: 0.5 }),
-        event({ costSource: "provider", costUsd: 2 }),
+        event({ costUsd: 0.5 }),
+        event({ costUsd: 2 }),
       ]),
     );
     await settle();
@@ -471,7 +471,7 @@ describe("reconciling a congratulated set against the ledger", () => {
       loadNotified: async () =>
         JSON.stringify({ version: 1, notified: ["spendUsd-1", "spendUsd-10"] }),
     });
-    upgrade.history.set(ledger([event({ costSource: "provider", costUsd: 60 })]));
+    upgrade.history.set(ledger([event({ costUsd: 60 })]));
     const first = createAchievementNotifier(upgrade.deps);
     await settle();
     await settle();
@@ -484,7 +484,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     // would swallow this banner instead.
     const crossing = fakeDeps({ loadNotified: async () => carried });
     crossing.history.set(
-      ledger([event({ costSource: "provider", costUsd: 120 })]),
+      ledger([event({ costUsd: 120 })]),
     );
     const second = createAchievementNotifier(crossing.deps);
     await settle();
@@ -531,7 +531,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     history.set({
       ready: true,
       // The remnant this build could read: nowhere near 25M tokens or $100.
-      ledger: ledgerOf([event({ tokens: { input: 1_100_000 }, costSource: "provider", costUsd: 11 })]),
+      ledger: ledgerOf([event({ tokens: { input: 1_100_000 }, costUsd: 11 })]),
       error: null,
       complete: false,
       perModelSince: null,
@@ -568,7 +568,7 @@ describe("reconciling a congratulated set against the ledger", () => {
         }),
     });
     // One day of spend: neither a 14-day streak nor $500 is supported here.
-    history.set(ledger([event({ costSource: "provider", costUsd: 60 })]));
+    history.set(ledger([event({ costUsd: 60 })]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
@@ -632,7 +632,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     });
     history.set({
       ready: true,
-      ledger: ledgerOf([event({ costSource: "provider", costUsd: 60 })]),
+      ledger: ledgerOf([event({ costUsd: 60 })]),
       error: null,
       complete: false,
       perModelSince: null,
@@ -655,7 +655,7 @@ describe("reconciling a congratulated set against the ledger", () => {
       loadNotified: async () =>
         JSON.stringify({ version: 1, notified: ["spendUsd-10"] }),
     });
-    history.set(ledger([event({ costSource: "provider", costUsd: 60 })]));
+    history.set(ledger([event({ costUsd: 60 })]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();

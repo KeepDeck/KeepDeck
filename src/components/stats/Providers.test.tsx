@@ -8,6 +8,7 @@ import type { UsageRow } from "../../domain/usage/history/event";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
+  type UsageRowOverrides,
 } from "../../domain/usage/history/event.testSupport";
 import { accountWindowKeys } from "../../domain/usage/reportJournal";
 import type { WindowReport } from "../../domain/usage/reportJournal";
@@ -24,16 +25,14 @@ const NOW = TEST_NOW;
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
-const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
+const usageEvent = (over: UsageRowOverrides = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     paneName: "auth-refactor",
     sessionId: "session-123456789",
     rootSessionId: "session-123456789",
     tokens: { input: 1_000, output: 100, cacheRead: 500 },
-    observation: { tokens: { input: 1_000, output: 100, cacheRead: 500 } },
     costUsd: 0.25,
-    costSource: "provider",
     ...over,
   });
 

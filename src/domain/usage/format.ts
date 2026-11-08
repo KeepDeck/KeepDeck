@@ -1,3 +1,4 @@
+import type { CostTally } from "./history/event";
 import type { UsageStatsPeriod } from "./history/query";
 import { DAY_MS } from "./time";
 import {
@@ -221,11 +222,15 @@ export function formatTimestamp(at: number, now: number): string {
 }
 
 /** THE display name of a model field — one fallback for every surface
- * (the weeks rows, the recap, the Models table). Missing and EMPTY are
+ * (the weeks rows, the recap, the Models table): the price catalogue's name
+ * for it when it has one, else the booked model key. Missing and EMPTY are
  * the same unknown: two spellings (`??` vs `||`) had already diverged,
  * rendering one ledger event two different ways inside one dialog. */
-export function modelLabel(model: string | null | undefined): string {
-  return model ? model : "Unknown model";
+export function modelLabel(
+  model: string | null | undefined,
+  name?: string | null,
+): string {
+  return name || model || "Unknown model";
 }
 
 /** "Jul 22" / "Jul 22, 2026" — labeled in UTC because every stats day
@@ -317,17 +322,30 @@ export const PERIOD_LABELS: Record<UsageStatsPeriod, string> = {
 };
 
 /** The cost-provenance disclaimer under the Overview cards — the one text
- * in the app that distinguishes provider API estimates from subscription
- * charges, so it lives with the other money captions, not in a view. */
-export function costCoverage(costSessions: number, sessionCount: number): string {
-  if (costSessions === 0) {
-    return "No CLI reported a cost estimate. Token totals remain available.";
+ * in the app that says where the money figures come from and how much of
+ * the usage they cover, so it lives with the other money captions, not in
+ * a view. */
+export function costCoverage(totals: CostTally & { totalTokens: number }): string {
+  if (totals.pricedEvents === 0) {
+    return totals.totalTokens === 0
+      ? COST_SOURCE
+      : "No model in this period has a known price. Token totals remain available.";
   }
-  if (costSessions === sessionCount) {
-    return "Provider-reported API estimates, not subscription charges.";
+  const notes = [COST_SOURCE];
+  if (totals.approximateEvents > 0) {
+    notes.push("Some are approximate, priced by the nearest known rate.");
   }
-  return `Provider estimates available for ${costSessions} of ${sessionCount} sessions; unreported sessions are excluded.`;
+  if (totals.unpricedTokens > 0) {
+    const share = (totals.unpricedTokens / totals.totalTokens) * 100;
+    notes.push(
+      `${share < 1 ? "<1" : Math.round(share)}% of tokens ran on models without a known price and are not counted.`,
+    );
+  }
+  return notes.join(" ");
 }
+
+const COST_SOURCE =
+  "Costs are estimated from each model maker's list price at the time of the call (models.dev), not subscription charges.";
 
 /** The note under the Models list when the period reaches back past the
  * ledger's switch to booking per model, or null when it does not: rows on
@@ -348,7 +366,7 @@ export function perModelNote(
 
 /** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,
  * cents while they matter, whole grouped dollars once they don't. `approx`
- * prefixes "≈" — provider costs are estimates, not invoices. The display
+ * prefixes "≈" — costs are estimates, not invoices. The display
  * value is rounded BEFORE its format branch is chosen: toFixed can promote
  * 999.995 across the grouping boundary the branch is gated on, rendering
  * an ungrouped "1000.00". A positive amount too small for four decimals
@@ -367,10 +385,26 @@ export function formatUsd(value: number, opts: { approx?: boolean } = {}): strin
     : `${prefix}$${Math.round(value).toLocaleString("en-US")}`;
 }
 
-/** A provider-cost aggregate: "—" until at least one event carried a cost —
- * zero-with-no-reports must never read as "free". */
-export function displayProviderCost(value: number, costEvents: number): string {
-  return costEvents === 0 ? "—" : formatUsd(value, { approx: true });
+/** A cost aggregate: "—" until at least one event carried a price —
+ * nothing priced must never read as "free". */
+export function displayCost(cost: Pick<CostTally, "costUsd" | "pricedEvents">): string {
+  return cost.pricedEvents === 0 ? "—" : formatUsd(cost.costUsd, { approx: true });
+}
+
+/** What this machine spent inside a provider window, as one line: its
+ * tokens, its sessions, and their cost once one of them was priced. The
+ * branch is on the tally, never on the formatter's dash — a reworded "no
+ * data" must not change the line. */
+export function windowLedgerCaption(
+  ledger: Pick<CostTally, "costUsd" | "pricedEvents"> & {
+    sessionCount: number;
+    totalTokens: number;
+  },
+): string {
+  if (ledger.sessionCount === 0) return "no usage this window";
+  const sessions = `${ledger.sessionCount} session${ledger.sessionCount === 1 ? "" : "s"}`;
+  const spend = ledger.pricedEvents === 0 ? sessions : `${sessions} · ${displayCost(ledger)}`;
+  return `${formatTokens(ledger.totalTokens)} · ${spend} this window`;
 }
 
 /** A token count as a compact, glanceable string: "812", "15.5k", "1.2M",
