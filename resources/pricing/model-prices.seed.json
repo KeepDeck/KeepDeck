@@ -711,8 +711,6 @@
     "anthropic/claude-sonnet-5-5": [
       {"from":1790620837000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
       {"from":1791402404000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
-      {"from":1791405093000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
-      {"from":1791412030000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
       {"from":1792394866000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":4,"tiers":[],"modes":{}}
     ],
     "cohere/c4ai-aya-expanse-32b": [
