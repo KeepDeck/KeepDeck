@@ -147,28 +147,27 @@ impl Journal {
     /// A booked key names whoever SERVED the call: claude's is the maker
     /// already (`anthropic/claude-opus-5-5`), but opencode books its own
     /// provider (`zai-coding-plan/glm-5.3`, `openrouter/x-ai/grok-4.6`). The
-    /// list price is the maker's, so a non-maker provider resolves by the
-    /// model id among the makers, in preference order. The id is never
-    /// rewritten into a "similar" model: an id no maker lists is unpriced.
+    /// list price is the maker's: a maker provider is priced from its own
+    /// list, and a non-maker provider resolves by the model id among the
+    /// makers, in preference order. The id is never rewritten into a
+    /// "similar" model, nor priced at another maker's rate: an id its maker
+    /// does not list, or no maker lists, is unpriced.
     pub fn resolve(&self, booked: &str) -> Option<&str> {
         let (provider, model) = booked.split_once('/')?;
         let mut ids = vec![model];
         if let Some((_, last)) = model.rsplit_once('/') {
             ids.push(last);
         }
-        for id in ids {
-            if self.makers.iter().any(|maker| maker == provider) {
-                if let Some((key, _)) = self.rows.get_key_value(&format!("{provider}/{id}")) {
-                    return Some(key);
-                }
-            }
-            for maker in &self.makers {
-                if let Some((key, _)) = self.rows.get_key_value(&format!("{maker}/{id}")) {
-                    return Some(key);
-                }
-            }
-        }
-        None
+        let makers = match self.makers.iter().position(|maker| maker == provider) {
+            Some(own) => &self.makers[own..=own],
+            None => &self.makers[..],
+        };
+        ids.into_iter().find_map(|id| {
+            makers
+                .iter()
+                .find_map(|maker| self.rows.get_key_value(&format!("{maker}/{id}")))
+                .map(|(key, _)| key.as_str())
+        })
     }
 
     /// The row in effect at `at`, and whether `at` predates every row (the
@@ -449,6 +448,15 @@ mod tests {
         assert_eq!(j.resolve("openrouter/z-ai/glm-5.3"), Some("zai/glm-5.3"));
         assert_eq!(j.resolve("zai/glm-5.4"), None);
         assert_eq!(j.resolve("no-slash"), None);
+    }
+
+    #[test]
+    fn a_maker_is_priced_from_its_own_list_only() {
+        // zhipuai does not list glm-5.2; zai does. A maker that served a
+        // model it does not list is not priced at another maker's rate.
+        let j = journal(vec![row("zai/glm-5.2", 0.0, plain(rates(1.0, 3.0, 0.2, 0.0)))]);
+        assert_eq!(j.resolve("zhipuai/glm-5.2"), None);
+        assert_eq!(j.resolve("zai/glm-5.2"), Some("zai/glm-5.2"));
     }
 
     #[test]
