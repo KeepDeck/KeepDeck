@@ -1,4 +1,4 @@
-import { displayCost, formatTokens, formatUtcDay } from "../../domain/usage";
+import { formatTokens, formatUtcDay } from "../../domain/usage";
 import { DAY_MS, utcWeekStart } from "../../domain/usage/time";
 import {
   DAYS_PER_WEEK,
@@ -7,6 +7,7 @@ import {
   type UsageWeek,
 } from "../../domain/usage/weeks";
 import { seriesColorFor } from "../usagePalette";
+import { displayCost } from "./statsCost";
 
 /**
  * The Weeks block at the bottom of Overview, settled: which rows the page

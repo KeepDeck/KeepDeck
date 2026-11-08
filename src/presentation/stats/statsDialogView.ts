@@ -1,6 +1,7 @@
-import { PERIOD_LABELS, perModelNote, USAGE_PERIODS } from "../../domain/usage";
+import { formatUtcDay } from "../../domain/usage";
 import type { UsageStatsPeriod } from "../../domain/usage/history/query";
 import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
+import { PERIOD_LABELS, USAGE_PERIODS } from "./statsPeriods";
 import { periodless, TAB_SPECS } from "./statsTabs";
 
 /**
@@ -38,6 +39,23 @@ export function statsHeaderView(tab: StatsTab, period: UsageStatsPeriod): StatsH
     })),
     tabs: STATS_TAB_IDS.map((id) => ({ id, label: TAB_SPECS[id].label, active: id === tab })),
   };
+}
+
+/** The note under the Models list when the period reaches back past the
+ * ledger's switch to booking per model, or null when it does not: rows on
+ * either side of it name models differently, so one model can be listed
+ * twice. */
+export function perModelNote(
+  perModelSince: number | null,
+  firstOccurredAt: number | null,
+): string | null {
+  if (perModelSince === null || firstOccurredAt === null) return null;
+  if (firstOccurredAt >= perModelSince) return null;
+  return (
+    `Since ${formatUtcDay(perModelSince, true)}, an agent that reports each model's own ` +
+    "tokens is listed by model id, and a session's cost under the model it ran on. " +
+    "Earlier usage keeps the model names shown at the time."
+  );
 }
 
 /** What the dialog knows of the ledger as it renders a tab. */

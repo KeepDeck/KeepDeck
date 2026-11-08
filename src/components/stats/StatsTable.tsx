@@ -1,10 +1,6 @@
-import {
-  displayCost,
-  formatAge,
-  formatTokens,
-  tokenBreakdown,
-} from "../../domain/usage";
+import { formatAge, formatTokens, tokenBreakdown } from "../../domain/usage";
 import type { UsageStatsRow } from "../../domain/usage/history/query";
+import { displayCost } from "../../presentation/stats/statsCost";
 import { statsRowIdentity, type StatsTableMode } from "../../presentation/stats/statsRowView";
 
 /** The Models/Sessions drill-down table — identity, tokens with an in/out

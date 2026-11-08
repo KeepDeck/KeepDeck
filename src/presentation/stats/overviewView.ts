@@ -1,13 +1,8 @@
-import {
-  costCoverage,
-  displayCost,
-  formatTokens,
-  formatUtcDay,
-  PERIOD_LABELS,
-  tokenBreakdown,
-} from "../../domain/usage";
+import { formatTokens, formatUtcDay, tokenBreakdown } from "../../domain/usage";
 import type { UsageStats, UsageStatsPeriod } from "../../domain/usage/history/query";
 import type { UsageRecap } from "../../domain/usage/recap";
+import { costCoverage, displayCost } from "./statsCost";
+import { PERIOD_LABELS } from "./statsPeriods";
 
 /**
  * The Overview tab's words and numbers, settled: the headline cards, the

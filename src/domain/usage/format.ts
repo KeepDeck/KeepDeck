@@ -1,5 +1,3 @@
-import type { CostTally } from "./history/event";
-import type { UsageStatsPeriod } from "./history/query";
 import { DAY_MS } from "./time";
 import {
   windowExpired,
@@ -302,68 +300,6 @@ export function formatBucket(
   return form === "short" ? time : `${formatUtcDay(start)}, ${time} UTC`;
 }
 
-/** The period switcher's order and labels — exhaustive by construction: a
- * new UsageStatsPeriod member fails to compile until it names itself, so a
- * period can never exist that the switcher silently omits or that renders
- * as an empty string inside the Highlights sentence.
- *
- * Placement rule, since tab labels chose the VIEW (tabs.ts): labels live
- * with the view unless the domain itself phrases sentences with them —
- * "vs prior 7d" in recapCaption makes these domain vocabulary, not UI
- * chrome. */
-export const USAGE_PERIODS: readonly UsageStatsPeriod[] = [1, 7, 30, 90, "all"];
-
-export const PERIOD_LABELS: Record<UsageStatsPeriod, string> = {
-  1: "24h",
-  7: "7d",
-  30: "30d",
-  90: "90d",
-  all: "All",
-};
-
-/** The cost-provenance disclaimer under the Overview cards — the one text
- * in the app that says where the money figures come from and how much of
- * the usage they cover, so it lives with the other money captions, not in
- * a view. */
-export function costCoverage(totals: CostTally & { totalTokens: number }): string {
-  if (totals.pricedEvents === 0) {
-    return totals.totalTokens === 0
-      ? COST_SOURCE
-      : "No model in this period has a known price. Token totals remain available.";
-  }
-  const notes = [COST_SOURCE];
-  if (totals.approximateEvents > 0) {
-    notes.push("Some are approximate, priced by the nearest known rate.");
-  }
-  if (totals.unpricedTokens > 0) {
-    const share = (totals.unpricedTokens / totals.totalTokens) * 100;
-    notes.push(
-      `${share < 1 ? "<1" : Math.round(share)}% of tokens ran on models without a known price and are not counted.`,
-    );
-  }
-  return notes.join(" ");
-}
-
-const COST_SOURCE =
-  "Costs are estimated from each model maker's list price at the time of the call (models.dev), not subscription charges.";
-
-/** The note under the Models list when the period reaches back past the
- * ledger's switch to booking per model, or null when it does not: rows on
- * either side of it name models differently, so one model can be listed
- * twice. */
-export function perModelNote(
-  perModelSince: number | null,
-  firstOccurredAt: number | null,
-): string | null {
-  if (perModelSince === null || firstOccurredAt === null) return null;
-  if (firstOccurredAt >= perModelSince) return null;
-  return (
-    `Since ${formatUtcDay(perModelSince, true)}, an agent that reports each model's own ` +
-    "tokens is listed by model id, and a session's cost under the model it ran on. " +
-    "Earlier usage keeps the model names shown at the time."
-  );
-}
-
 /** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,
  * cents while they matter, whole grouped dollars once they don't. `approx`
  * prefixes "≈" — costs are estimates, not invoices. The display
@@ -383,28 +319,6 @@ export function formatUsd(value: number, opts: { approx?: boolean } = {}): strin
   return cents < 1_000
     ? `${prefix}$${cents.toFixed(2)}`
     : `${prefix}$${Math.round(value).toLocaleString("en-US")}`;
-}
-
-/** A cost aggregate: "—" until at least one event carried a price —
- * nothing priced must never read as "free". */
-export function displayCost(cost: Pick<CostTally, "costUsd" | "pricedEvents">): string {
-  return cost.pricedEvents === 0 ? "—" : formatUsd(cost.costUsd, { approx: true });
-}
-
-/** What this machine spent inside a provider window, as one line: its
- * tokens, its sessions, and their cost once one of them was priced. The
- * branch is on the tally, never on the formatter's dash — a reworded "no
- * data" must not change the line. */
-export function windowLedgerCaption(
-  ledger: Pick<CostTally, "costUsd" | "pricedEvents"> & {
-    sessionCount: number;
-    totalTokens: number;
-  },
-): string {
-  if (ledger.sessionCount === 0) return "no usage this window";
-  const sessions = `${ledger.sessionCount} session${ledger.sessionCount === 1 ? "" : "s"}`;
-  const spend = ledger.pricedEvents === 0 ? sessions : `${sessions} · ${displayCost(ledger)}`;
-  return `${formatTokens(ledger.totalTokens)} · ${spend} this window`;
 }
 
 /** A token count as a compact, glanceable string: "812", "15.5k", "1.2M",

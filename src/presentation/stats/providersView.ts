@@ -1,15 +1,10 @@
-import {
-  formatPct,
-  windowLabel,
-  windowLedgerCaption,
-  windowLevel,
-  type UsageWindow,
-} from "../../domain/usage";
+import { formatPct, windowLabel, windowLevel, type UsageWindow } from "../../domain/usage";
 import type { ProviderWindowGroup } from "../../domain/usage/providerWindows";
 import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
 import { burnEdgeLabel, cardCaptionParts, type BurnEdge } from "../../domain/usage/windowForecast";
 import { seriesColorFor } from "../usagePalette";
 import { reportedAgeCaption, usageLevelClass } from "../usageView";
+import { windowLedgerCaption } from "./statsCost";
 
 /**
  * The Providers tab, settled: one card per provider with its report age
