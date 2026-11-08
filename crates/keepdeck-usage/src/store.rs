@@ -17,7 +17,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::catalogue::{self, CatalogueEntry, SeedHistory};
 use crate::legacy_migration;
-use crate::model::{CallBatch, LedgerRow, Place, Tally, TokenCounts, UsageCall, TOKEN_KINDS};
+use crate::model::{CallBatch, LedgerRow, Place, Tally, TokenCounts, TokenKind, UsageCall, TOKEN_KINDS};
 use crate::pricing::{Journal, Price, PriceRow, Rates, Tier, Usage};
 
 /// The schema this build writes. Raised by a migration, never by a wipe.
@@ -578,7 +578,18 @@ fn book_in(
 /// one session cannot book what neither spent. A total from before the deck
 /// saw the session, or before this ledger kept totals at all
 /// ([`TALLIES_SINCE`] — calls booked earlier were not filed by model), only
-/// moves the base.
+/// moves the base. A count another session already reported is inherited
+/// however young it is: a fork or a background worker made in a fresh
+/// session's first minutes carries its source's spend.
+///
+/// Cache writes compare as one class: a total that cannot tell its writes
+/// apart (claude before 2.1.311) counts them all as five-minute ones while
+/// its calls file the hour-long ones apart, and a count that learns the
+/// split mid-line moves its past from one class to the other. So the
+/// remembered total holds the sum of its writes, the writes left over are
+/// that sum's growth less every write the calls booked, and the hour-long
+/// share of them is what the hour-long count grew past the calls' own —
+/// never more than the whole.
 fn book_tally(
     tx: &Transaction<'_>,
     batch: &CallBatch,
@@ -596,21 +607,30 @@ fn book_tally(
         .and_then(|value| value.parse().ok())
         .unwrap_or(0.0);
     let floor = first_seen.max(kept_since);
-    let reported = call.tokens.counts();
+    let reported = writes_as_one(&call.tokens.counts());
     let known: Option<(f64, String)> = tx
         .query_row("SELECT at, tokens FROM tally WHERE key = ?1", [&key], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional()
         .map_err(|e| e.to_string())?;
     let remember = |at: f64, tokens: &TokenCounts| -> Result<(), String> {
         tx.execute(
-            "INSERT INTO tally (key, session, at, tokens) VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO tally (key, session, began, at, tokens) VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(key) DO UPDATE SET at = excluded.at, tokens = excluded.tokens",
-            params![key, session, at, to_json(tokens)?],
+            params![key, session, tally.began, at, to_json(tokens)?],
         )
         .map(|_| ())
         .map_err(|e| e.to_string())
     };
-    let fresh = tally.began >= (first_seen - FRESH_TALLY_MS).max(kept_since) && tally.began >= captured_at - HORIZON_MS;
+    let inherited: bool = tx
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM tally WHERE began = ?1 AND session <> ?2)",
+            params![tally.began, session],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let fresh = !inherited
+        && tally.began >= (first_seen - FRESH_TALLY_MS).max(kept_since)
+        && tally.began >= captured_at - HORIZON_MS;
     let (base_at, base) = match known {
         Some((at, tokens)) => (at, from_json::<TokenCounts>(&tokens)?),
         None if fresh => (tally.began, TokenCounts::default()),
@@ -653,6 +673,16 @@ fn book_tally(
             left.set(kind, Some(rest));
         }
     }
+    // Writes, as one class (see above): `growth` holds the sum's growth.
+    let written = |t: &TokenCounts, kind: TokenKind| t.get(kind).unwrap_or(0.0);
+    let writes = (written(&growth, TokenKind::CacheWrite)
+        - written(&booked_calls, TokenKind::CacheWrite)
+        - written(&booked_calls, TokenKind::CacheWrite1h))
+    .max(0.0);
+    let hour = (written(&growth, TokenKind::CacheWrite1h) - written(&booked_calls, TokenKind::CacheWrite1h))
+        .clamp(0.0, writes);
+    left.cache_write = (writes - hour > 0.0).then_some(writes - hour);
+    left.cache_write_1h = (hour > 0.0).then_some(hour);
     left.total = Some(left.billed());
     if left.billed() <= 0.0 {
         return Ok(None);
@@ -674,6 +704,15 @@ fn book_tally(
         // Not a call the ledger can count: an unknown number of them.
         calls: 0,
     }))
+}
+
+/// A running total with its cache writes held as one class: `cache_write`
+/// the sum of both durations, `cache_write_1h` the hour-long share it says
+/// it knows (see [`book_tally`]).
+fn writes_as_one(counts: &TokenCounts) -> TokenCounts {
+    let mut merged = counts.clone();
+    merged.cache_write = Some(counts.cache_write.unwrap_or(0.0) + counts.cache_write_1h.unwrap_or(0.0));
+    merged
 }
 
 /// The session's row id and the first time the ledger saw it. Set once, by
@@ -1104,9 +1143,11 @@ fn migrate_to_4(tx: &Transaction<'_>, now: f64) -> Result<(), String> {
          CREATE TABLE tally (
              key BLOB PRIMARY KEY,
              session INTEGER NOT NULL REFERENCES session(id),
+             began REAL NOT NULL,
              at REAL NOT NULL,
              tokens TEXT NOT NULL
-         ) WITHOUT ROWID;",
+         ) WITHOUT ROWID;
+         CREATE INDEX tally_by_count ON tally (began, session);",
     )
     .map_err(|e| e.to_string())?;
     set_meta(tx, TALLIES_SINCE, &now.to_string())?;
@@ -1570,6 +1611,55 @@ mod tests {
         let mut other = batch("s2", seen, vec![total(at(900.0), began, 5_000.0, 0.0)]);
         other.agent = "claude".into();
         assert!(s.book(&other, at(950.0)).unwrap().is_empty(), "another session's count of the same lineage has its own base");
+    }
+
+    fn written(at: f64, began: f64, five: f64, hour: f64) -> UsageCall {
+        let mut call = total(at, began, 0.0, 0.0);
+        call.tokens.cache_write = five;
+        call.tokens.cache_write_1h = hour;
+        call
+    }
+
+    fn writes(rows: &[LedgerRow]) -> Vec<(u32, Option<f64>, Option<f64>)> {
+        rows.iter().map(|row| (row.calls, row.tokens.cache_write, row.tokens.cache_write_1h)).collect()
+    }
+
+    #[test]
+    fn a_total_that_cannot_tell_its_writes_apart_does_not_book_the_calls_hour_long_ones_again() {
+        let mut s = store();
+        let seen = NOW + 1_000.0;
+        let began = NOW + 500.0;
+        let mut hour_long = call("msg_1", seen + 100.0, 0.0, 0.0);
+        hour_long.tokens.cache_write_1h = 1_000.0;
+        // claude before 2.1.311: every write counted as a five-minute one.
+        let b = batch("s1", seen, vec![hour_long, written(seen + 200.0, began, 1_200.0, 0.0)]);
+        let rows = s.book(&b, seen + 300.0).unwrap();
+        assert_eq!(writes(&rows), vec![(1, Some(0.0), Some(1_000.0)), (0, Some(200.0), None)]);
+
+        // The count learns the split: its past moves into the hour-long class.
+        let mut later = call("msg_2", seen + 400.0, 0.0, 0.0);
+        later.tokens.cache_write_1h = 50.0;
+        let b = batch("s1", seen, vec![later, written(seen + 500.0, began, 150.0, 1_350.0)]);
+        let rows = s.book(&b, seen + 600.0).unwrap();
+        assert_eq!(
+            writes(&rows),
+            vec![(1, Some(0.0), Some(50.0)), (0, None, Some(250.0))],
+            "the writes' sum grew by 300, the calls wrote 50: 250 left, never the 1,350 the hour-long count jumped"
+        );
+    }
+
+    #[test]
+    fn a_count_another_session_reported_is_inherited_however_young() {
+        let mut s = store();
+        let seen = NOW + 1_000.0;
+        let began = NOW + 500.0;
+        let source = batch("source", seen, vec![total(seen + 100.0, began, 300.0, 0.0)]);
+        assert_eq!(booked_tokens(&s.book(&source, seen + 150.0).unwrap()), vec![(0, Some(300.0), None)]);
+        // A fork made minutes later carries the source's count.
+        let fork = batch("fork", seen + 200.0, vec![total(seen + 400.0, began, 350.0, 0.0)]);
+        assert!(s.book(&fork, seen + 500.0).unwrap().is_empty(), "the source's 300 are not the fork's");
+        let fork = batch("fork", seen + 200.0, vec![total(seen + 600.0, began, 380.0, 0.0)]);
+        assert_eq!(booked_tokens(&s.book(&fork, seen + 700.0).unwrap()), vec![(0, Some(30.0), None)]);
     }
 
     #[test]
