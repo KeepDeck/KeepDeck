@@ -200,7 +200,7 @@ impl UsageStore {
             )
             .optional()
             .map_err(|e| e.to_string())?;
-        let first = stored.map_or(first_seen, |(_, stored_first)| stored_first.min(first_seen));
+        let first = stored.map_or(first_seen, |(_, stored_first)| stored_first);
         let mut since = (now - HORIZON_MS).max(first);
         if let Some((id, _)) = stored {
             let newest: Option<f64> = self
@@ -476,8 +476,11 @@ fn book_in(
     Ok(rows)
 }
 
-/// The session's row id and the first time the deck saw it — the earliest
-/// of every binding that reported it.
+/// The session's row id and the first time the ledger saw it. Set once, by
+/// the first booking of the session, and never moved: a later binding's
+/// claim to have seen it earlier — a pane restored with an old binding time,
+/// a session from before the ledger booked calls — would let calls the
+/// ledger already holds, or could not tell apart, through again.
 fn upsert_session(
     tx: &Transaction<'_>,
     agent: &str,
@@ -486,7 +489,7 @@ fn upsert_session(
 ) -> Result<(i64, f64), String> {
     tx.query_row(
         "INSERT INTO session (agent, session_id, first_seen) VALUES (?1, ?2, ?3)
-         ON CONFLICT(agent, session_id) DO UPDATE SET first_seen = MIN(first_seen, excluded.first_seen)
+         ON CONFLICT(agent, session_id) DO UPDATE SET first_seen = session.first_seen
          RETURNING id, first_seen",
         params![agent, session_id, first_seen],
         |r| Ok((r.get(0)?, r.get(1)?)),
@@ -741,7 +744,11 @@ fn migrate_to_2(conn: &Connection, now: f64) -> Result<(), String> {
 /// Schema 3: usage booked per call and priced from a journal.
 ///
 /// - `session` loses the cumulative observation it diffed reports against and
-///   gains `first_seen`; an old session's is its first booked instant.
+///   gains `first_seen` — for every old session, the moment of this
+///   migration. Its usage until now is already in its old buckets, which no
+///   call id can be matched against; a first sighting of NOW is what keeps a
+///   pane re-reading its transcript after the upgrade from booking that
+///   usage a second time as calls.
 /// - `call` remembers booked calls, `price` is the journal.
 /// - `bucket` and `event` are keyed by model, mode and long-context tier and
 ///   lose their money. Their old rows are carried over in canonical classes
@@ -752,9 +759,6 @@ fn migrate_to_2(conn: &Connection, now: f64) -> Result<(), String> {
 fn migrate_to_3(tx: &Transaction<'_>, now: f64) -> Result<(), String> {
     tx.execute_batch(
         "ALTER TABLE session ADD COLUMN first_seen REAL;
-         UPDATE session SET first_seen = COALESCE(
-             (SELECT MIN(first_at) FROM bucket WHERE bucket.session = session.id),
-             (SELECT MIN(occurred_at) FROM event WHERE event.session = session.id));
          ALTER TABLE session DROP COLUMN observation;
          CREATE TABLE call (
              key BLOB PRIMARY KEY,
@@ -813,7 +817,7 @@ fn migrate_to_3(tx: &Transaction<'_>, now: f64) -> Result<(), String> {
          CREATE INDEX event_by_session ON event (session, occurred_at);",
     )
     .map_err(|e| e.to_string())?;
-    tx.execute("UPDATE session SET first_seen = ?1 WHERE first_seen IS NULL", [now])
+    tx.execute("UPDATE session SET first_seen = ?1", [now])
         .map_err(|e| e.to_string())?;
 
     // Old buckets and the old raw window are carried through the same writes
@@ -1136,7 +1140,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate_to_1(&conn).unwrap();
         migrate_to_2(&conn, 1.0).unwrap();
-        let place = to_json(&place("pane-1")).unwrap();
+        let place_json = to_json(&place("pane-1")).unwrap();
         conn.execute_batch(
             "INSERT INTO session (id, agent, session_id, observation) VALUES
                  (1, 'claude', 'c1', '{}'), (2, 'codex', 'x1', '{}'), (3, 'claude', 'c2', '{}');",
@@ -1146,7 +1150,7 @@ mod tests {
             conn.execute(
                 "INSERT INTO bucket (session, start, model, tokens, cost_pico, cost_events, count, calls, first_at, last_at, place)
                  VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, 1, ?2, ?2, ?6)",
-                params![session, start, model, tokens, pico, place],
+                params![session, start, model, tokens, pico, place_json],
             )
             .unwrap();
         };
@@ -1157,7 +1161,7 @@ mod tests {
         conn.execute(
             "INSERT INTO event (event_id, session, occurred_at, captured_at, model, place, tokens, cost_usd, calls)
              VALUES ('usage-1', 3, ?1, ?1, 'Sonnet 5.5', ?2, '{\"input\":5,\"output\":6}', 0.5, 1)",
-            params![NOW - 1000.0, place],
+            params![NOW - 1000.0, place_json],
         )
         .unwrap();
         conn.execute_batch("PRAGMA user_version = 2;").unwrap();
@@ -1168,7 +1172,7 @@ mod tests {
         let s = UsageStore::init(conn, NOW).unwrap();
 
         let first_seen: f64 = s.conn.query_row("SELECT first_seen FROM session WHERE id = 1", [], |r| r.get(0)).unwrap();
-        assert_eq!(first_seen, DAY);
+        assert_eq!(first_seen, NOW, "an old session is first seen by the call ledger at the migration");
         let rows = s.ledger(NOW).unwrap().rows;
         let opus: Vec<_> = rows.iter().filter(|r| r.model.as_deref() == Some("anthropic/claude-opus-5-5")).collect();
         assert_eq!(opus.len(), 1, "two spellings of one model in one bucket merge");
@@ -1182,5 +1186,21 @@ mod tests {
         let sonnet = rows.iter().find(|r| r.event_id == "usage-1").unwrap();
         assert_eq!(sonnet.model.as_deref(), Some("anthropic/claude-sonnet-5-5"));
         assert!(rows.iter().all(|r| r.cost_basis == CostBasis::Unpriced), "no money survives the migration; the journal prices");
+
+        let mut s = s;
+        let mut reread = UsageCall {
+            id: "msg_already_in_old_buckets".into(),
+            at: NOW - 1000.0,
+            provider: "anthropic".into(),
+            model: "claude-opus-5-5".into(),
+            mode: None,
+            tokens: CallTokens { input: 10.0, ..CallTokens::default() },
+        };
+        let b = CallBatch { agent: "claude".into(), session_id: "c1".into(), first_seen: 0.0, place: place("pane-1"), calls: vec![reread.clone()] };
+        assert!(s.book(&b, NOW + 1000.0).unwrap().is_empty(), "a transcript re-read after the upgrade does not book the old buckets' usage again");
+        reread.id = "msg_after_upgrade".into();
+        reread.at = NOW + 500.0;
+        let b = CallBatch { calls: vec![reread], ..b };
+        assert_eq!(s.book(&b, NOW + 1000.0).unwrap().len(), 1);
     }
 }
