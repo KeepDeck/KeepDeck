@@ -168,11 +168,17 @@ struct DrainReplay {
 
 fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
     let (mut events, root_rotated) = drain_file(&state.path, &mut state.root, &state.watches, true);
-    let mut contributors = state
+    // A sibling directory may hold the root file itself (kimi's `agents/`
+    // holds `main/wire.jsonl` beside its subagents'): it is read once, as the
+    // root.
+    let mut contributors: Vec<PathBuf> = state
         .siblings
         .as_deref()
         .map(sibling_paths)
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|path| *path != state.path)
+        .collect();
     for path in &state.linked {
         if !contributors.contains(path) {
             contributors.push(path.clone());
@@ -887,11 +893,21 @@ mod tests {
         fs::write(&path, "").unwrap();
         let agents = dir.join("session/agents");
         fs::create_dir_all(agents.join("sub-1")).unwrap();
+        fs::create_dir_all(agents.join("main")).unwrap();
         fs::write(agents.join("sub-1/wire.jsonl"), format!("{USAGE_RECORD_LINE}\n")).unwrap();
         fs::write(agents.join("notes.txt"), "not a store").unwrap();
-        let mut state = tail_with_siblings(path, agents);
+        let mut state = tail_with_siblings(path, agents.clone());
         state.watches = kimi_calls();
         assert_eq!(drain(&mut state).len(), 1);
+
+        // The root may sit inside the sibling directory: read once, as root.
+        let main = agents.join("main/wire.jsonl");
+        fs::write(&main, format!("{USAGE_RECORD_LINE}\n")).unwrap();
+        let mut state = tail_with_siblings(main, agents);
+        state.watches = kimi_calls();
+        let events = drain(&mut state);
+        assert_eq!(events.len(), 2, "main once, the subagent once");
+        assert_eq!(events.iter().filter(|event| event.root).count(), 1);
         fs::remove_dir_all(&dir).ok();
     }
 
