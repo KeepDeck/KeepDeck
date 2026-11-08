@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Bar, BarChart, BarStack, Legend, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { formatBucket, formatTokens, tokenSegments } from "../../domain/usage";
+import { formatBucket, formatTokens, tokenBreakdown, tokenSegments } from "../../domain/usage";
+import { usageChartTitle } from "../../presentation/stats/usageChartView";
 import { seriesColorFor } from "../../presentation/usagePalette";
 import {
   CHART_BAR_RADIUS,
@@ -33,13 +34,6 @@ import type { UsageStatsPeriod } from "../../domain/usage/history/query";
 
 type Granularity = UsageTimeline["granularity"];
 
-/** Exhaustive by construction: a third granularity fails to compile until
- * it names its title and label rule. */
-const TITLES: Record<Granularity, string> = {
-  hour: "Hourly tokens",
-  day: "Daily tokens",
-};
-
 export function UsageChart({
   ledger,
   colors,
@@ -62,7 +56,7 @@ export function UsageChart({
   // axis excludes (agents lists the EMITTED buckets' roster) — an all-zero
   // plot with an empty legend reads as broken, not as quiet.
   if (timeline.buckets.length === 0 || timeline.agents.length === 0) return null;
-  const title = TITLES[timeline.granularity];
+  const title = usageChartTitle(timeline.granularity);
 
   return (
     <section className="stats__section stats__chart" aria-label={title}>
@@ -203,9 +197,7 @@ function BucketTip({
                     />
                   ))}
                 </span>
-                <span className="stats__chart-tip-split">
-                  {segments.map((segment) => segment.caption).join(" · ")}
-                </span>
+                <span className="stats__chart-tip-split">{tokenBreakdown(share.tokens)}</span>
               </>
             )}
           </span>
