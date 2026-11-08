@@ -35,9 +35,9 @@ pub(crate) fn with_store<T>(
         let home = crate::paths::keepdeck_home().ok_or("no home directory for app state")?;
         let now = now_ms();
         let mut store = UsageStore::open(&home.join(STORE_FILE), now)?;
-        let added = store.merge_prices(&catalogue::seed()?, "seed", now)?;
-        if added > 0 {
-            log::info!("usage ledger: {added} price(s) from the shipped history joined the journal");
+        let changed = store.adopt_seed(&catalogue::seed()?, now)?;
+        if changed > 0 {
+            log::info!("usage ledger: the shipped price history changed {changed} row(s) of the journal");
         }
         *guard = Some(store);
     }

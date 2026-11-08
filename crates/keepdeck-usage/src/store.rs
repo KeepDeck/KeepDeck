@@ -134,9 +134,49 @@ impl UsageStore {
         &self.journal
     }
 
-    /// Add price rows the journal does not hold yet — the shipped seed, or a
-    /// catalogue's changes. A row the journal already holds (same model,
-    /// same start) is kept as it was. Answers how many rows were added.
+    /// Make the shipped seed the journal's seed rows. The seed is the price
+    /// history read back out of models.dev's own, so a newer build's seed
+    /// outranks the copy an older build wrote: a row it corrected is
+    /// replaced, one it no longer holds — a price models.dev itself fixed —
+    /// is dropped. What the live catalogue journaled stays, and wins a clash.
+    /// Answers how many rows were added or dropped.
+    pub fn adopt_seed(&mut self, rows: &[PriceRow], captured_at: f64) -> Result<usize, String> {
+        // A start the catalogue journaled is its own; the seed's row for it
+        // could never be written, so it is no difference either.
+        let taken: Vec<(String, f64)> = self
+            .conn
+            .prepare("SELECT model, effective_from FROM price WHERE source <> ?1")
+            .map_err(|e| e.to_string())?
+            .query_map([SEED_SOURCE], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        let mut shipped: Vec<PriceRow> = rows
+            .iter()
+            .filter(|row| !taken.iter().any(|(model, from)| *model == row.model && *from == row.from))
+            .cloned()
+            .collect();
+        shipped.sort_by(|a, b| a.model.cmp(&b.model).then(a.from.total_cmp(&b.from)));
+        let held = price_rows(&self.conn, Some(SEED_SOURCE))?;
+        if held == shipped {
+            return Ok(0);
+        }
+        let changed = held.iter().filter(|row| !shipped.contains(row)).count()
+            + shipped.iter().filter(|row| !held.contains(row)).count();
+        let tx = self.conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM price WHERE source = ?1", [SEED_SOURCE])
+            .map_err(|e| e.to_string())?;
+        for row in &shipped {
+            insert_price(&tx, row, SEED_SOURCE, captured_at)?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        self.journal = load_journal(&self.conn)?;
+        Ok(changed)
+    }
+
+    /// Add price rows the journal does not hold yet — a catalogue's changes.
+    /// A row the journal already holds (same model, same start) is kept as it
+    /// was. Answers how many rows were added.
     pub fn merge_prices(&mut self, rows: &[PriceRow], source: &str, captured_at: f64) -> Result<usize, String> {
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
         let mut added = 0;
@@ -323,6 +363,9 @@ impl UsageStore {
         Ok(cutoff)
     }
 }
+
+/// The source the shipped seed's rows are journaled under.
+const SEED_SOURCE: &str = "seed";
 
 /// The meta key [`Ledger::per_model_since`] is kept under.
 const PER_MODEL_SINCE: &str = "per_model_since";
@@ -685,14 +728,21 @@ fn insert_price(tx: &Transaction<'_>, row: &PriceRow, source: &str, captured_at:
 }
 
 fn load_journal(conn: &Connection) -> Result<Journal, String> {
+    Ok(Journal::new(price_rows(conn, None)?, catalogue::makers().to_vec()))
+}
+
+/// The journal's rows — all of them, or those one source wrote.
+fn price_rows(conn: &Connection, source: Option<&str>) -> Result<Vec<PriceRow>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT model, effective_from, name, input, output, cache_read, cache_write,
-                    cache_write_1h, modes, tiers FROM price",
+                    cache_write_1h, modes, tiers FROM price
+              WHERE ?1 IS NULL OR source = ?1
+              ORDER BY model, effective_from",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |r| {
+        .query_map([source], |r| {
             Ok(PriceRow {
                 model: r.get(0)?,
                 from: r.get(1)?,
@@ -712,8 +762,8 @@ fn load_journal(conn: &Connection) -> Result<Journal, String> {
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    Ok(Journal::new(rows, catalogue::makers().to_vec()))
+        .map_err(|e| e.to_string());
+    rows
 }
 
 fn migrate_to_1(conn: &Connection) -> Result<(), String> {
@@ -1230,6 +1280,34 @@ mod tests {
         long.tokens.cache_read = 200_000.0;
         let rows = s.book(&batch("s1", NOW - DAY, vec![long]), NOW).unwrap();
         assert!((rows[0].cost_usd.unwrap() - (0.1 * 4.0 + 0.2 * 0.2)).abs() < 1e-9, "{:?}", rows[0].cost_usd);
+    }
+
+    #[test]
+    fn a_newer_seed_replaces_what_an_older_one_wrote_and_leaves_the_catalogues_rows() {
+        let mut s = store();
+        let mut wrong = opus_price(DAY);
+        wrong.price.rates.cache_read = Some(0.4);
+        let flap = opus_price(2.0 * DAY);
+        s.adopt_seed(&[wrong, flap], NOW).unwrap();
+        let mut live = opus_price(3.0 * DAY);
+        live.price.rates.output = 30.0;
+        s.merge_prices(&[live.clone()], "models.dev", NOW).unwrap();
+
+        let corrected = opus_price(DAY);
+        let mut clash = opus_price(3.0 * DAY);
+        clash.price.rates.output = 99.0;
+        assert_eq!(
+            s.adopt_seed(&[clash, corrected.clone()], NOW).unwrap(),
+            3,
+            "two old rows dropped and the fix written; the clash is the catalogue's"
+        );
+        let rows = price_rows(&s.conn, None).unwrap();
+        assert_eq!(rows, vec![corrected.clone(), live], "the fix stands, the folded row is gone, the catalogue's row wins its clash");
+        assert_eq!(s.journal().latest("anthropic/claude-opus-5-5").unwrap().price.rates.output, 30.0, "the journal reads the new rows");
+
+        let mut clash = opus_price(3.0 * DAY);
+        clash.price.rates.output = 99.0;
+        assert_eq!(s.adopt_seed(&[corrected, clash], NOW).unwrap(), 0, "the same seed again changes nothing");
     }
 
     #[test]
