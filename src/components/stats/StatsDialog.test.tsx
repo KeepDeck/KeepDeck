@@ -302,6 +302,18 @@ describe("UsageStats", () => {
     );
   });
 
+  it("selects and focuses the next tab on an arrow, wrapping past the last", () => {
+    act(() => root.render(createElement(Host, { initialTab: "achievements" })));
+    const strip = present(host.querySelector<HTMLElement>('[role="tablist"]'), "the tab strip");
+    act(() => {
+      strip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    const selected = present(host.querySelector('[role="tab"][aria-selected="true"]'), "the selected tab");
+    expect(selected.textContent).toBe("Overview");
+    expect(document.activeElement).toBe(selected);
+    expect(overview().period).toBe(7);
+  });
+
   it("disables the period switcher on the period-independent Providers tab", () => {
     act(() => root.render(createElement(Host)));
     const periodButton = () =>

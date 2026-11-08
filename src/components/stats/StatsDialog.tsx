@@ -4,12 +4,18 @@ import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useAgents } from "../../app/useAgents";
 import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
-import { PERIOD_LABELS, USAGE_PERIODS, perModelNote } from "../../domain/usage";
 import {
   latestOccurredAt,
   queryUsageStats,
   type UsageStatsPeriod,
 } from "../../domain/usage/history/query";
+import type { StatsTab } from "../../domain/usage/statsTabs";
+import {
+  STATS_DIALOG,
+  statsHeaderView,
+  statsPanelView,
+} from "../../presentation/stats/statsDialogView";
+import { statsTabStep } from "../../presentation/stats/statsTabs";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
@@ -19,8 +25,6 @@ import { Overview } from "./Overview";
 import { Providers } from "./Providers";
 import { StatsTable } from "./StatsTable";
 import { StreakBadge } from "./StreakBadge";
-import type { StatsTab } from "../../domain/usage/statsTabs";
-import { PERIODLESS_TABS, STATS_TABS, TAB_SPECS } from "./tabs";
 
 /** Global usage analytics has its own app surface: it is observational data,
  * not a setting, and it spans every workspace and CLI. The tab is CONTROLLED
@@ -46,11 +50,11 @@ export function StatsDialog({
         className="form stats-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Statistics"
+        aria-label={STATS_DIALOG.title}
       >
         <div className="stats-dialog__head">
-          <h2 className="form__title stats-dialog__title">Statistics</h2>
-          <CloseButton label="Close statistics" onClick={onClose} />
+          <h2 className="form__title stats-dialog__title">{STATS_DIALOG.title}</h2>
+          <CloseButton label={STATS_DIALOG.close} onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
           <UsageStats tab={tab} onSelectTab={onSelectTab} />
@@ -58,7 +62,7 @@ export function StatsDialog({
         <div className="confirm__actions stats-dialog__actions">
           <StreakBadge />
           <button type="button" className="form__create" onClick={onClose} autoFocus>
-            Done
+            {STATS_DIALOG.done}
           </button>
         </div>
       </div>
@@ -72,7 +76,8 @@ export function StatsDialog({
  * global; the Providers tab ignores it (subscription windows run on the
  * provider's clock) and achievements are all-time by definition. Period
  * aggregates are memoized on their inputs — a ledger append recomputes them
- * once, not once per render. */
+ * once, not once per render. What the shell shows is settled in
+ * presentation/stats/statsDialogView.ts. */
 export function UsageStats({
   tab,
   onSelectTab,
@@ -103,27 +108,19 @@ export function UsageStats({
     () => queryUsageStats(ledger.events, period, now),
     [ledger, period, now],
   );
-  const periodless = PERIODLESS_TABS.includes(tab);
-  /** A dead ledger blocks only the tabs that read it — Providers renders
-   * from the independent account snapshot regardless. */
-  const historyDead = history.error !== null && ledger.events.length === 0;
+  const header = statsHeaderView(tab, period);
+  const panel = statsPanelView(tab, {
+    ready: history.ready,
+    error: history.error,
+    hasRows: ledger.events.length > 0,
+    periodEvents: stats.eventCount,
+    perModelSince: history.perModelSince,
+    firstOccurredAt: stats.firstOccurredAt,
+  });
 
-  /** The tab body, driven entirely by the TAB_SPECS policy table: the two
-   * gates read the spec's data field (never a hand-listed tab check), and
-   * the switch is exhaustive — a new tab id fails to compile here until it
-   * brings a body. */
-  const tabBody = (current: StatsTab): ReactElement => {
-    const spec = TAB_SPECS[current];
-    if (spec.data !== "live-accounts" && historyDead) {
-      return (
-        <p className="stats__empty kd-selectable" role="alert">
-          Usage history is unavailable: {history.error}
-        </p>
-      );
-    }
-    if (spec.data === "period-ledger" && stats.eventCount === 0) {
-      return <p className="stats__empty">No usage recorded in this period yet.</p>;
-    }
+  /** The tab body. The switch is exhaustive — a new tab id fails to compile
+   * here until it brings a body. */
+  const tabBody = (current: StatsTab, title: string, note: string | null): ReactElement => {
     switch (current) {
       case "overview":
         return (
@@ -145,19 +142,15 @@ export function UsageStats({
             now={now}
           />
         );
-      case "models": {
-        const note = perModelNote(history.perModelSince, stats.firstOccurredAt);
+      case "models":
         return (
           <>
-            <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
+            <StatsTable title={title} rows={stats.byModel} now={now} mode="model" />
             {note !== null && <p className="stats__coverage">{note}</p>}
           </>
         );
-      }
       case "sessions":
-        return (
-          <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />
-        );
+        return <StatsTable title={title} rows={stats.sessions} now={now} mode="session" />;
       case "achievements":
         return <Achievements ledger={ledger} />;
     }
@@ -166,31 +159,25 @@ export function UsageStats({
   return (
     <div className="stats">
       <div className="stats__head">
-        <p className="stats__intro">
-          Local token history and cost estimated from model prices across every
-          CLI and workspace.
-        </p>
+        <p className="stats__intro">{STATS_DIALOG.intro}</p>
         <div
-          className={`stats__period${periodless ? " stats__period--idle" : ""}`}
+          className={`stats__period${header.periodIdle ? " stats__period--idle" : ""}`}
           // role=group makes the label perceivable — on a bare div (implicit
           // role generic) aria-label is ignored by assistive tech.
           role="group"
-          aria-label="Statistics period"
-          // A switcher that silently does nothing reads as broken, so it
-          // disables on period-independent tabs. Disabled, not hidden:
-          // hiding would jump the header layout.
-          aria-disabled={periodless}
+          aria-label={STATS_DIALOG.periodGroup}
+          aria-disabled={header.periodIdle}
         >
-          {USAGE_PERIODS.map((candidate) => (
+          {header.periods.map((candidate) => (
             <button
-              key={PERIOD_LABELS[candidate]}
+              key={candidate.label}
               type="button"
-              className={candidate === period ? "stats__period--active" : ""}
-              aria-pressed={candidate === period}
-              disabled={periodless}
-              onClick={() => setPeriod(candidate)}
+              className={candidate.active ? "stats__period--active" : ""}
+              aria-pressed={candidate.active}
+              disabled={header.periodIdle}
+              onClick={() => setPeriod(candidate.period)}
             >
-              {PERIOD_LABELS[candidate]}
+              {candidate.label}
             </button>
           ))}
         </div>
@@ -202,29 +189,25 @@ export function UsageStats({
       <div
         className="stats__tabs"
         role="tablist"
-        aria-label="Statistics sections"
+        aria-label={STATS_DIALOG.tabList}
         onKeyDown={(keyEvent) => {
-          if (keyEvent.key !== "ArrowLeft" && keyEvent.key !== "ArrowRight") {
-            return;
-          }
+          const next = statsTabStep(tab, keyEvent.key);
+          if (next === null) return;
           keyEvent.preventDefault();
-          const ids = STATS_TABS.map((candidate) => candidate.id);
-          const step = keyEvent.key === "ArrowRight" ? 1 : ids.length - 1;
-          const next = ids[(ids.indexOf(tab) + step) % ids.length];
           onSelectTab(next);
           document.getElementById(`stats-tab-${next}`)?.focus();
         }}
       >
-        {STATS_TABS.map((candidate) => (
+        {header.tabs.map((candidate) => (
           <button
             key={candidate.id}
             id={`stats-tab-${candidate.id}`}
             type="button"
             role="tab"
-            aria-selected={candidate.id === tab}
+            aria-selected={candidate.active}
             aria-controls="stats-tabpanel"
-            tabIndex={candidate.id === tab ? 0 : -1}
-            className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
+            tabIndex={candidate.active ? 0 : -1}
+            className={`stats__tab${candidate.active ? " stats__tab--active" : ""}`}
             onClick={() => onSelectTab(candidate.id)}
           >
             {candidate.label}
@@ -238,16 +221,20 @@ export function UsageStats({
         aria-labelledby={`stats-tab-${tab}`}
         className="stats__tabpanel"
       >
-        {!history.ready ? (
-          <p className="stats__empty">Loading usage history…</p>
+        {panel.kind === "loading" ? (
+          <p className="stats__empty">{panel.text}</p>
+        ) : panel.kind === "unavailable" ? (
+          <p className="stats__empty kd-selectable" role="alert">
+            {panel.text}
+          </p>
         ) : (
           <>
-            {history.error !== null && !historyDead && (
-              <p className="stats__warning kd-selectable">
-                Some history could not be loaded: {history.error}
-              </p>
+            {panel.warning !== null && <p className="stats__warning kd-selectable">{panel.warning}</p>}
+            {panel.kind === "empty" ? (
+              <p className="stats__empty">{panel.text}</p>
+            ) : (
+              tabBody(panel.tab, panel.title, panel.note)
             )}
-            {tabBody(tab)}
           </>
         )}
       </div>

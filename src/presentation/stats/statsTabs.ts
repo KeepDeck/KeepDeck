@@ -1,17 +1,18 @@
+import { segmentStep } from "@keepdeck/ui-kit";
 import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
 
 /**
  * THE per-tab policy table — the one home of every per-tab decision the
- * dialog makes. The ids and type live in the domain (statsTabs.ts) so
- * deep-link producers can speak them; everything view-side hangs off this
- * exhaustive Record, so a new tab fails to compile until it declares its
- * label AND its data policy — and the switchboard's exhaustive body
- * switch fails until it brings a body.
+ * dialog makes, its name included. The ids and type live in the domain
+ * (statsTabs.ts) so deep-link producers can speak them; everything view-side
+ * hangs off this exhaustive Record, so a new tab fails to compile until it
+ * declares its label AND its data policy — and the switchboard's exhaustive
+ * body switch fails until it brings a body.
  */
 
 /** What a tab renders from — this single field decides both gates the
- * switchboard applies: a dead ledger blocks every ledger-backed tab, and
- * the period-empty state applies only to tabs whose WHOLE body is
+ * dialog applies: a dead ledger blocks every ledger-backed tab, and the
+ * period-empty state applies only to tabs whose WHOLE body is
  * period-scoped. Providers run on the provider's clock; achievements are
  * all-time by definition. `period-lens` is a period-CONSUMING view over
  * the full ledger (Overview: cards and chart follow the switcher, the
@@ -31,15 +32,25 @@ export const TAB_SPECS: Record<StatsTab, { label: string; data: StatsTabData }> 
   achievements: { label: "Achievements", data: "all-ledger" },
 };
 
-export const STATS_TABS: readonly { id: StatsTab; label: string }[] =
-  STATS_TAB_IDS.map((id) => ({ id, label: TAB_SPECS[id].label }));
-
 /** Derived, not hand-listed: does the tab read the period switcher? */
 export function consumesPeriod(data: StatsTabData): boolean {
   return data === "period-ledger" || data === "period-lens";
 }
 
 /** A tab is period-independent exactly when it never reads the switcher. */
-export const PERIODLESS_TABS: readonly StatsTab[] = STATS_TAB_IDS.filter(
-  (id) => !consumesPeriod(TAB_SPECS[id].data),
-);
+export function periodless(tab: StatsTab): boolean {
+  return !consumesPeriod(TAB_SPECS[tab].data);
+}
+
+/** The tab an arrow key selects from `current`: the next or previous one,
+ * wrapping, and the ends on Home and End — the strip's one traversal,
+ * shared with every row of choices (ui-kit segmentStep). Null for any other
+ * key. */
+export function statsTabStep(current: StatsTab, key: string): StatsTab | null {
+  const next = segmentStep(
+    key,
+    STATS_TAB_IDS.indexOf(current),
+    STATS_TAB_IDS.map(() => false),
+  );
+  return next === null ? null : (STATS_TAB_IDS[next] ?? null);
+}
