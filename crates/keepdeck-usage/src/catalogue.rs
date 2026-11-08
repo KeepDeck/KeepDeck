@@ -366,6 +366,23 @@ mod tests {
         assert_eq!(rows[1].price.rates.cache_write, None);
     }
 
+    // The history this build ships reads, and prices the models KeepDeck's
+    // agents run on as their makers list them.
+    #[test]
+    fn the_shipped_seed_reads_and_holds_the_makers_prices() {
+        let rows = seed().expect("the shipped seed");
+        assert!(rows.len() > 500, "{} rows", rows.len());
+        assert!(rows.iter().all(|row| makers().iter().any(|maker| row.model.starts_with(&format!("{maker}/")))));
+        let latest = |model: &str| rows.iter().filter(|row| row.model == model).next_back().expect(model).clone();
+        let opus = latest("anthropic/claude-opus-5-5");
+        assert_eq!((opus.price.rates.input, opus.price.rates.output), (4.0, 20.0));
+        assert_eq!(opus.price.rates.cache_write_1h, Some(8.0));
+        assert_eq!(opus.price.modes.get("fast").map(|fast| fast.output), Some(40.0));
+        let sol = latest("openai/gpt-6.1-sol");
+        assert_eq!(sol.price.tiers.first().map(|tier| (tier.over, tier.rates.input)), Some((272_000, 4.0)));
+        assert_eq!(latest("zai/glm-5.3").price.rates.input, 1.4);
+    }
+
     #[test]
     fn a_seed_of_another_version_is_refused() {
         let err = parse_seed(r#"{ "version": 2, "models": {} }"#).unwrap_err();

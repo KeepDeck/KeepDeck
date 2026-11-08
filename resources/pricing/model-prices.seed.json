@@ -1,1 +1,1959 @@
-{"version":1,"source":"anomalyco/models.dev","commit":"","models":{}}
+{
+  "version": 1,
+  "source": "anomalyco/models.dev",
+  "commit": "108245c45623b9d3349090e1e8dc9359f26fb72d",
+  "models": {
+    "alibaba-cn/MiniMax-M2.5": [
+      {"from":1773775939000,"name":"MiniMax-M2.5","input":0.3,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/MiniMax/MiniMax-M2.5": [
+      {"from":1772898696000,"name":"MiniMax M2.5","input":0.301,"output":1.205,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/MiniMax/MiniMax-M2.7": [
+      {"from":1775242073000,"name":"MiniMax-M2.7","input":0.3,"output":1.2,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-r1": [
+      {"from":1760463286000,"name":"DeepSeek R1","input":0.574,"output":2.294,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-r1-0528": [
+      {"from":1760463286000,"name":"DeepSeek R1 0528","input":0.574,"output":2.294,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-r1-distill-llama-70b": [
+      {"from":1760463286000,"name":"DeepSeek R1 Distill Llama 70B","input":0.287,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-r1-distill-llama-8b": [
+      {"from":1760463286000,"name":"DeepSeek R1 Distill Llama 8B","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-r1-distill-qwen-1-5b": [
+      {"from":1760463286000,"name":"DeepSeek R1 Distill Qwen 1.5B","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-r1-distill-qwen-14b": [
+      {"from":1760463286000,"name":"DeepSeek R1 Distill Qwen 14B","input":0.144,"output":0.431,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-r1-distill-qwen-32b": [
+      {"from":1760463286000,"name":"DeepSeek R1 Distill Qwen 32B","input":0.287,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-r1-distill-qwen-7b": [
+      {"from":1760463286000,"name":"DeepSeek R1 Distill Qwen 7B","input":0.072,"output":0.144,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-v3": [
+      {"from":1760463286000,"name":"DeepSeek V3","input":0.287,"output":1.147,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-v3-1": [
+      {"from":1760463286000,"name":"DeepSeek V3.1","input":0.574,"output":1.721,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-v3-2-exp": [
+      {"from":1760463286000,"name":"DeepSeek V3.2 Exp","input":0.287,"output":0.431,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-v4-flash": [
+      {"from":1777300088000,"name":"DeepSeek V4 Flash","input":0.14,"output":0.28,"cacheRead":0.028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779686298000,"name":"DeepSeek V4 Flash","input":0.14,"output":0.28,"cacheRead":0.0028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-v4-pro": [
+      {"from":1777300088000,"name":"DeepSeek V4 Pro","input":1.74,"output":3.48,"cacheRead":0.145,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779686298000,"name":"DeepSeek V4 Pro","input":0.435,"output":0.87,"cacheRead":0.003625,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"DeepSeek V4 Pro","input":1.65,"output":3.301,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-v4-pro-0813": [
+      {"from":1792467336000,"name":"DeepSeek V4 Pro 0813","input":1.272,"output":3.816,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-v4.1-flash": [
+      {"from":1789744271000,"name":"DeepSeek V4.1 Flash","input":0.278,"output":1.111,"cacheRead":0.014,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789745478000,"name":"DeepSeek V4.1 Flash","input":0.29754,"output":1.19015,"cacheRead":0.01488,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/deepseek-v4.1-flash-1017": [
+      {"from":1792467336000,"name":"DeepSeek V4.1 Flash 1017","input":0.283,"output":1.131,"cacheRead":0.0283,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/glm-5": [
+      {"from":1772904176000,"name":"GLM-5","input":0.86,"output":3.15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1788375205000,"name":"GLM-5","input":0.573,"output":2.58,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.86,"output":3.154,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/glm-5.1": [
+      {"from":1776353158000,"name":"GLM-5.1","input":0.87,"output":3.48,"cacheRead":0.17,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1788375205000,"name":"GLM-5.1","input":0.825,"output":3.301,"cacheRead":0.17,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":1.1,"output":3.851,"cacheRead":0.17,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"GLM-5.1","input":0.825,"output":3.301,"cacheRead":0.165,"cacheWrite":1.03125,"cacheWrite1h":null,"tiers":[{"over":32000,"input":1.1,"output":3.851,"cacheRead":0.22,"cacheWrite":1.375,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/glm-5.2": [
+      {"from":1783066189000,"name":"GLM-5.2","input":1.1,"output":3.851,"cacheRead":0.275,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/glm-5.3": [
+      {"from":1789535717000,"name":"GLM-5.3","input":1.1,"output":3.851,"cacheRead":0.275,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/kimi-k2-thinking": [
+      {"from":1770051171000,"name":"Moonshot Kimi K2 Thinking","input":0.574,"output":2.294,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/kimi-k2.5": [
+      {"from":1770051171000,"name":"Moonshot Kimi K2.5","input":0.574,"output":2.411,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Moonshot Kimi K2.5","input":0.574,"output":3.011,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Moonshot Kimi K2.5","input":0.574,"output":3.011,"cacheRead":0.1148,"cacheWrite":0.7175,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/kimi-k2.6": [
+      {"from":1776829289000,"name":"Moonshot Kimi K2.6","input":0.929,"output":3.858,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Moonshot Kimi K2.6","input":0.929,"output":3.858,"cacheRead":0.1858,"cacheWrite":1.16125,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/kimi-k2.7-code": [
+      {"from":1792467336000,"name":"Kimi K2.7 Code","input":0.894,"output":3.713,"cacheRead":0.1788,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Kimi K2.7 Code","input":0.894,"output":3.713,"cacheRead":0.1788,"cacheWrite":1.1175,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/kimi-k3": [
+      {"from":1789605786000,"name":"Kimi K3","input":2.827,"output":14.133,"cacheRead":0.283,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/kimi/kimi-k2.5": [
+      {"from":1772903380000,"name":"kimi/kimi-k2.5","input":0.6,"output":3,"cacheRead":0.1,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/minimax-m2.5": [
+      {"from":1772904176000,"name":"MiniMax-M2.5","input":0.3,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/moonshot-kimi-k2-instruct": [
+      {"from":1760463286000,"name":"Moonshot Kimi K2 Instruct","input":0.574,"output":2.294,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qvq-max": [
+      {"from":1760463286000,"name":"QVQ Max","input":1.147,"output":4.588,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-deep-research": [
+      {"from":1760463286000,"name":"Qwen Deep Research","input":7.742,"output":23.367,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-doc-turbo": [
+      {"from":1760463286000,"name":"Qwen Doc Turbo","input":0.087,"output":0.144,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-flash": [
+      {"from":1760463286000,"name":"Qwen Flash","input":0.022,"output":0.216,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen Flash","input":0.022,"output":0.216,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":128000,"input":0.087,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":256000,"input":0.173,"output":1.721,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen Flash","input":0.022,"output":0.216,"cacheRead":0.0044,"cacheWrite":0.0275,"cacheWrite1h":null,"tiers":[{"over":128000,"input":0.087,"output":0.861,"cacheRead":0.0174,"cacheWrite":0.10875,"cacheWrite1h":null},{"over":256000,"input":0.173,"output":1.721,"cacheRead":0.0346,"cacheWrite":0.21625,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen-long": [
+      {"from":1760463286000,"name":"Qwen Long","input":0.072,"output":0.287,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-math-plus": [
+      {"from":1760463286000,"name":"Qwen Math Plus","input":0.574,"output":1.721,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-math-turbo": [
+      {"from":1760463286000,"name":"Qwen Math Turbo","input":0.287,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-max": [
+      {"from":1760463286000,"name":"Qwen Max","input":0.345,"output":1.377,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-mt-plus": [
+      {"from":1760463286000,"name":"Qwen-MT Plus","input":0.259,"output":0.775,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-mt-turbo": [
+      {"from":1760463286000,"name":"Qwen-MT Turbo","input":0.101,"output":0.28,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-omni-turbo": [
+      {"from":1760463286000,"name":"Qwen-Omni Turbo","input":0.058,"output":0.23,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-omni-turbo-realtime": [
+      {"from":1760463286000,"name":"Qwen-Omni Turbo Realtime","input":0.23,"output":0.918,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-plus": [
+      {"from":1760463286000,"name":"Qwen Plus","input":0.115,"output":0.287,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1787544850000,"name":"Qwen Plus","input":0.115,"output":0.287,"cacheRead":0.012,"cacheWrite":0.144,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen Plus","input":0.115,"output":0.287,"cacheRead":0.012,"cacheWrite":0.144,"cacheWrite1h":null,"tiers":[{"over":128000,"input":0.345,"output":2.868,"cacheRead":0.012,"cacheWrite":0.144,"cacheWrite1h":null},{"over":256000,"input":0.689,"output":6.881,"cacheRead":0.012,"cacheWrite":0.144,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen Plus","input":0.115,"output":0.287,"cacheRead":0.023,"cacheWrite":0.144,"cacheWrite1h":null,"tiers":[{"over":128000,"input":0.345,"output":2.868,"cacheRead":0.069,"cacheWrite":0.43125,"cacheWrite1h":null},{"over":256000,"input":0.689,"output":6.881,"cacheRead":0.1378,"cacheWrite":0.86125,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen-plus-character": [
+      {"from":1760463286000,"name":"Qwen Plus Character","input":0.115,"output":0.287,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-turbo": [
+      {"from":1760463286000,"name":"Qwen Turbo","input":0.044,"output":0.087,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-vl-max": [
+      {"from":1760463286000,"name":"Qwen-VL Max","input":0.23,"output":0.574,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-vl-ocr": [
+      {"from":1760463286000,"name":"Qwen-VL OCR","input":0.717,"output":0.717,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789606233000,"name":"Qwen-VL OCR","input":0.043,"output":0.072,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen-vl-plus": [
+      {"from":1760463286000,"name":"Qwen-VL Plus","input":0.115,"output":0.287,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-14b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5 14B Instruct","input":0.144,"output":0.431,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-32b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5 32B Instruct","input":0.287,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-72b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5 72B Instruct","input":0.574,"output":1.721,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-7b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5 7B Instruct","input":0.072,"output":0.144,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-coder-32b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5-Coder 32B Instruct","input":0.287,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-coder-7b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5-Coder 7B Instruct","input":0.144,"output":0.287,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-math-72b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5-Math 72B Instruct","input":0.574,"output":1.721,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-math-7b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5-Math 7B Instruct","input":0.144,"output":0.287,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-omni-7b": [
+      {"from":1760463286000,"name":"Qwen2.5-Omni 7B","input":0.087,"output":0.345,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-vl-72b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5-VL 72B Instruct","input":2.294,"output":6.881,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen2-5-vl-7b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5-VL 7B Instruct","input":0.287,"output":0.717,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-14b": [
+      {"from":1760463286000,"name":"Qwen3 14B","input":0.144,"output":0.574,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-235b-a22b": [
+      {"from":1760463286000,"name":"Qwen3 235B-A22B","input":0.287,"output":1.147,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-32b": [
+      {"from":1760463286000,"name":"Qwen3 32B","input":0.287,"output":1.147,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-8b": [
+      {"from":1760463286000,"name":"Qwen3 8B","input":0.072,"output":0.287,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-asr-flash": [
+      {"from":1760463286000,"name":"Qwen3-ASR Flash","input":0.032,"output":0.032,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-coder-30b-a3b-instruct": [
+      {"from":1760463286000,"name":"Qwen3-Coder 30B-A3B Instruct","input":0.216,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1788375205000,"name":"Qwen3-Coder 30B-A3B Instruct","input":0.216,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.323,"output":1.291,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":0.538,"output":2.151,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-coder-480b-a35b-instruct": [
+      {"from":1760463286000,"name":"Qwen3-Coder 480B-A35B Instruct","input":0.861,"output":3.441,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1788375205000,"name":"Qwen3-Coder 480B-A35B Instruct","input":0.861,"output":3.441,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":1.291,"output":5.161,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":2.151,"output":8.602,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-coder-flash": [
+      {"from":1760463286000,"name":"Qwen3 Coder Flash","input":0.144,"output":0.574,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3 Coder Flash","input":0.144,"output":0.574,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.216,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":0.359,"output":1.434,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":256000,"input":0.717,"output":3.584,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3 Coder Flash","input":0.144,"output":0.574,"cacheRead":0.0288,"cacheWrite":0.18,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.216,"output":0.861,"cacheRead":0.0432,"cacheWrite":0.27,"cacheWrite1h":null},{"over":128000,"input":0.359,"output":1.434,"cacheRead":0.0718,"cacheWrite":0.44875,"cacheWrite1h":null},{"over":256000,"input":0.717,"output":3.584,"cacheRead":0.1434,"cacheWrite":0.89625,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-coder-plus": [
+      {"from":1758168198000,"name":"Qwen3 Coder Plus","input":1,"output":5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789606233000,"name":"Qwen3 Coder Plus","input":0.574,"output":2.296,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.861,"output":3.444,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":1.435,"output":5.74,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":256000,"input":2.87,"output":28.7,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-max": [
+      {"from":1760463286000,"name":"Qwen3 Max","input":0.861,"output":3.441,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789606233000,"name":"Qwen3 Max","input":1.291,"output":7.749,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":128000,"input":2.153,"output":12.915,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1790044482000,"name":"Qwen3 Max","input":0.359,"output":1.434,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.574,"output":2.294,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":1.004,"output":4.014,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-next-80b-a3b-instruct": [
+      {"from":1760463286000,"name":"Qwen3-Next 80B-A3B Instruct","input":0.144,"output":0.574,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-next-80b-a3b-thinking": [
+      {"from":1760463286000,"name":"Qwen3-Next 80B-A3B (Thinking)","input":0.144,"output":1.434,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-omni-flash": [
+      {"from":1760463286000,"name":"Qwen3-Omni Flash","input":0.058,"output":0.23,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3-Omni Flash","input":0.258,"output":0.989,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-omni-flash-realtime": [
+      {"from":1760463286000,"name":"Qwen3-Omni Flash Realtime","input":0.23,"output":0.918,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-vl-235b-a22b": [
+      {"from":1760463286000,"name":"Qwen3-VL 235B-A22B","input":0.286705,"output":1.14682,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-vl-30b-a3b": [
+      {"from":1760463286000,"name":"Qwen3-VL 30B-A3B","input":0.108,"output":0.431,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3-vl-plus": [
+      {"from":1760463286000,"name":"Qwen3-VL Plus","input":0.143353,"output":1.433525,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3-VL Plus","input":0.143353,"output":1.433525,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.215,"output":2.15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":0.43,"output":4.301,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3-VL Plus","input":0.143353,"output":1.433525,"cacheRead":0.028671,"cacheWrite":0.179191,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.215,"output":2.15,"cacheRead":0.043,"cacheWrite":0.26875,"cacheWrite1h":null},{"over":128000,"input":0.43,"output":4.301,"cacheRead":0.086,"cacheWrite":0.5375,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.5-397b-a17b": [
+      {"from":1771279592000,"name":"Qwen3.5 397B-A17B","input":0.43,"output":2.58,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1788375205000,"name":"Qwen3.5 397B-A17B","input":0.172,"output":1.032,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":128000,"input":0.43,"output":2.58,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.5-flash": [
+      {"from":1772904176000,"name":"Qwen3.5 Flash","input":0.172,"output":1.72,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789606233000,"name":"Qwen3.5 Flash","input":0.172,"output":1.033,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":256000,"input":0.689,"output":4.133,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1790044482000,"name":"Qwen3.5 Flash","input":0.029,"output":0.287,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":128000,"input":0.115,"output":1.147,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":256000,"input":0.172,"output":1.72,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.5-plus": [
+      {"from":1771279592000,"name":"Qwen3.5 Plus","input":0.573,"output":3.44,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789606233000,"name":"Qwen3.5 Plus","input":0.287,"output":1.722,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":256000,"input":1.148,"output":6.888,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1790044482000,"name":"Qwen3.5 Plus","input":0.115,"output":0.688,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":128000,"input":0.287,"output":1.72,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":256000,"input":0.573,"output":3.44,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.6-flash": [
+      {"from":1779487088000,"name":"Qwen3.6 Flash","input":0.1875,"output":1.125,"cacheRead":null,"cacheWrite":0.234375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3.6 Flash","input":0.165,"output":0.99,"cacheRead":0.0165,"cacheWrite":0.20625,"cacheWrite1h":null,"tiers":[{"over":256000,"input":0.66,"output":3.961,"cacheRead":0.066,"cacheWrite":0.825,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.6-max-preview": [
+      {"from":1777243694000,"name":"Qwen3.6 Max Preview","input":1.32,"output":7.9,"cacheRead":0.132,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.6-plus": [
+      {"from":1775242039000,"name":"Qwen3.6 Plus","input":1.146,"output":6.88,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1775328923000,"name":"Qwen3.6 Plus","input":0.276,"output":1.651,"cacheRead":0.028,"cacheWrite":0.344,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1778625648000,"name":"Qwen3.6 Plus","input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":0.625,"cacheWrite1h":null,"tiers":[{"over":256000,"input":2,"output":6,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3.6 Plus","input":0.276,"output":1.651,"cacheRead":0.0276,"cacheWrite":0.345,"cacheWrite1h":null,"tiers":[{"over":256000,"input":1.101,"output":6.602,"cacheRead":0.1101,"cacheWrite":1.37625,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.7-flash": [
+      {"from":1785686647000,"name":"Qwen3.7 Flash","input":0.02962,"output":0.1185,"cacheRead":0.002962,"cacheWrite":0.03703,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.08887,"output":0.35549,"cacheRead":0.008887,"cacheWrite":0.11109,"cacheWrite1h":null},{"over":256000,"input":0.17774,"output":0.71098,"cacheRead":0.017774,"cacheWrite":0.22218,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.7 Flash","input":0.02962,"output":0.1185,"cacheRead":0.005924,"cacheWrite":0.03703,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.08887,"output":0.35549,"cacheRead":0.017774,"cacheWrite":0.11109,"cacheWrite1h":null},{"over":256000,"input":0.17774,"output":0.71098,"cacheRead":0.035548,"cacheWrite":0.22218,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.7-max": [
+      {"from":1779487088000,"name":"Qwen3.7 Max","input":2.5,"output":7.5,"cacheRead":0.5,"cacheWrite":3.125,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3.7 Max","input":1.65,"output":4.951,"cacheRead":0.33,"cacheWrite":2.0625,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.7-plus": [
+      {"from":1780498839000,"name":"Qwen3.7 Plus","input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":0.625,"cacheWrite1h":null,"tiers":[{"over":128000,"input":2,"output":6,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3.7 Plus","input":0.276,"output":1.101,"cacheRead":0.0276,"cacheWrite":0.345,"cacheWrite1h":null,"tiers":[{"over":256000,"input":0.826,"output":3.301,"cacheRead":0.0826,"cacheWrite":1.0325,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.7 Plus","input":0.276,"output":1.101,"cacheRead":0.0552,"cacheWrite":0.345,"cacheWrite1h":null,"tiers":[{"over":256000,"input":0.826,"output":3.301,"cacheRead":0.1652,"cacheWrite":1.0325,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.8-2.4t-a95b": [
+      {"from":1792467336000,"name":"Qwen3.8 2.4T A95B","input":1.65,"output":4.951,"cacheRead":null,"cacheWrite":2.0625,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.8 2.4T A95B","input":1.65,"output":4.951,"cacheRead":0.20625,"cacheWrite":2.0625,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.8-27b": [
+      {"from":1792467336000,"name":"Qwen3.8 27B","input":0.424,"output":1.696,"cacheRead":null,"cacheWrite":0.53,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.8 27B","input":0.424,"output":1.696,"cacheRead":0.0848,"cacheWrite":0.53,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.8-flash": [
+      {"from":1788375205000,"name":"Qwen3.8 Flash","input":0.11875,"output":0.40073,"cacheRead":0.01187,"cacheWrite":0.14844,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.8 Flash","input":0.11875,"output":0.40073,"cacheRead":0.014844,"cacheWrite":0.185547,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.8-max": [
+      {"from":1785853295000,"name":"Qwen3.8 Max","input":1.65,"output":4.951,"cacheRead":0.206,"cacheWrite":2.0625,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1785854659000,"name":"Qwen3.8 Max","input":1.77744,"output":5.33231,"cacheRead":0.22218,"cacheWrite":2.22179,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.8-max-0902": [
+      {"from":1792467336000,"name":"Qwen3.8 Max 0902","input":1.65,"output":4.951,"cacheRead":null,"cacheWrite":2.0625,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.8 Max 0902","input":1.65,"output":4.951,"cacheRead":0.20625,"cacheWrite":2.0625,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwen3.8-omni-flash": [
+      {"from":1790568079000,"name":"Qwen3.8 Omni Flash","input":0.113,"output":0.382,"cacheRead":0.014,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwq-32b": [
+      {"from":1760463286000,"name":"QwQ 32B","input":0.287,"output":0.861,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/qwq-plus": [
+      {"from":1760463286000,"name":"QwQ Plus","input":0.23,"output":0.574,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/siliconflow/deepseek-r1-0528": [
+      {"from":1772903380000,"name":"siliconflow/deepseek-r1-0528","input":0.5,"output":2.18,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/siliconflow/deepseek-v3-0324": [
+      {"from":1772903380000,"name":"siliconflow/deepseek-v3-0324","input":0.25,"output":1,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/siliconflow/deepseek-v3.1-terminus": [
+      {"from":1772903380000,"name":"siliconflow/deepseek-v3.1-terminus","input":0.27,"output":1,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/siliconflow/deepseek-v3.2": [
+      {"from":1772903380000,"name":"siliconflow/deepseek-v3.2","input":0.27,"output":0.42,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba-cn/tongyi-intent-detect-v3": [
+      {"from":1760463286000,"name":"Tongyi Intent Detect V3","input":0.058,"output":0.144,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/deepseek-v4-flash-0731": [
+      {"from":1786240690000,"name":"DeepSeek V4 Flash 0731","input":0.2,"output":0.4,"cacheRead":0.04,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"DeepSeek V4 Flash 0731","input":0.44,"output":1.32,"cacheRead":0.088,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/deepseek-v4-pro": [
+      {"from":1792467336000,"name":"DeepSeek V4 Pro","input":2.4,"output":4.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/deepseek-v4-pro-0813": [
+      {"from":1792467336000,"name":"DeepSeek V4 Pro 0813","input":1.32,"output":3.96,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/deepseek-v4.1-flash": [
+      {"from":1792467336000,"name":"DeepSeek V4.1 Flash","input":0.3,"output":1.2,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/deepseek-v4.1-flash-1017": [
+      {"from":1792467336000,"name":"DeepSeek V4.1 Flash 1017","input":0.3,"output":1.2,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/glm-5.1": [
+      {"from":1792467336000,"name":"GLM-5.1","input":1.4,"output":4.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"GLM-5.1","input":1.4,"output":4.4,"cacheRead":0.26,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/glm-5.2": [
+      {"from":1786240690000,"name":"GLM-5.2","input":1.4,"output":4.4,"cacheRead":0.28,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/glm-5.3": [
+      {"from":1792467336000,"name":"GLM-5.3","input":1.4,"output":4.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/kimi-k2.7-code": [
+      {"from":1792467336000,"name":"Kimi K2.7 Code","input":0.95,"output":4,"cacheRead":0.19,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/kimi-k3": [
+      {"from":1789605786000,"name":"Kimi K3","input":3,"output":15,"cacheRead":0.3,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qvq-max": [
+      {"from":1760463286000,"name":"QVQ Max","input":1.2,"output":4.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-flash": [
+      {"from":1760463286000,"name":"Qwen Flash","input":0.05,"output":0.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen Flash","input":0.05,"output":0.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":256000,"input":0.25,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen Flash","input":0.05,"output":0.4,"cacheRead":0.01,"cacheWrite":0.0625,"cacheWrite1h":null,"tiers":[{"over":256000,"input":0.25,"output":2,"cacheRead":0.05,"cacheWrite":0.3125,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen-max": [
+      {"from":1760463286000,"name":"Qwen Max","input":1.6,"output":6.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-mt-plus": [
+      {"from":1760463286000,"name":"Qwen-MT Plus","input":2.46,"output":7.37,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-mt-turbo": [
+      {"from":1760463286000,"name":"Qwen-MT Turbo","input":0.16,"output":0.49,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-omni-turbo": [
+      {"from":1760463286000,"name":"Qwen-Omni Turbo","input":0.07,"output":0.27,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-omni-turbo-realtime": [
+      {"from":1760463286000,"name":"Qwen-Omni Turbo Realtime","input":0.27,"output":1.07,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-plus": [
+      {"from":1760463286000,"name":"Qwen Plus","input":0.4,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen Plus","input":0.4,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":256000,"input":1.2,"output":3.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen Plus","input":0.4,"output":1.2,"cacheRead":0.08,"cacheWrite":0.5,"cacheWrite1h":null,"tiers":[{"over":256000,"input":1.2,"output":3.6,"cacheRead":0.24,"cacheWrite":1.5,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen-plus-character-ja": [
+      {"from":1760463286000,"name":"Qwen Plus Character (Japanese)","input":0.5,"output":1.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-turbo": [
+      {"from":1760463286000,"name":"Qwen Turbo","input":0.05,"output":0.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-vl-max": [
+      {"from":1760463286000,"name":"Qwen-VL Max","input":0.8,"output":3.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-vl-ocr": [
+      {"from":1760463286000,"name":"Qwen-VL OCR","input":0.72,"output":0.72,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1791385603000,"name":"Qwen-VL OCR","input":0.07,"output":0.16,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen-vl-plus": [
+      {"from":1760463286000,"name":"Qwen-VL Plus","input":0.21,"output":0.63,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen2-5-14b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5 14B Instruct","input":0.35,"output":1.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen2-5-32b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5 32B Instruct","input":0.7,"output":2.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen2-5-72b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5 72B Instruct","input":1.4,"output":5.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen2-5-7b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5 7B Instruct","input":0.175,"output":0.7,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen2-5-omni-7b": [
+      {"from":1760463286000,"name":"Qwen2.5-Omni 7B","input":0.1,"output":0.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen2-5-vl-72b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5-VL 72B Instruct","input":2.8,"output":8.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen2-5-vl-7b-instruct": [
+      {"from":1760463286000,"name":"Qwen2.5-VL 7B Instruct","input":0.35,"output":1.05,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-14b": [
+      {"from":1760463286000,"name":"Qwen3 14B","input":0.35,"output":1.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-235b-a22b": [
+      {"from":1760463286000,"name":"Qwen3 235B-A22B","input":0.7,"output":2.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-32b": [
+      {"from":1760463286000,"name":"Qwen3 32B","input":0.7,"output":2.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-8b": [
+      {"from":1760463286000,"name":"Qwen3 8B","input":0.18,"output":0.7,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-asr-flash": [
+      {"from":1760463286000,"name":"Qwen3-ASR Flash","input":0.035,"output":0.035,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-coder-30b-a3b-instruct": [
+      {"from":1760463286000,"name":"Qwen3-Coder 30B-A3B Instruct","input":0.45,"output":2.25,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1788375205000,"name":"Qwen3-Coder 30B-A3B Instruct","input":0.45,"output":2.25,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.75,"output":3.75,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":1.2,"output":6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3-coder-480b-a35b-instruct": [
+      {"from":1760463286000,"name":"Qwen3-Coder 480B-A35B Instruct","input":1.5,"output":7.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1788375205000,"name":"Qwen3-Coder 480B-A35B Instruct","input":1.5,"output":7.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":2.7,"output":13.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":4.5,"output":22.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3-coder-flash": [
+      {"from":1760463286000,"name":"Qwen3 Coder Flash","input":0.3,"output":1.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3 Coder Flash","input":0.3,"output":1.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.5,"output":2.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":0.8,"output":4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":256000,"input":1.6,"output":9.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3 Coder Flash","input":0.3,"output":1.5,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.5,"output":2.5,"cacheRead":0.1,"cacheWrite":0.625,"cacheWrite1h":null},{"over":128000,"input":0.8,"output":4,"cacheRead":0.16,"cacheWrite":1,"cacheWrite1h":null},{"over":256000,"input":1.6,"output":9.6,"cacheRead":0.32,"cacheWrite":2,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3-coder-plus": [
+      {"from":1753798872000,"name":"Qwen3 Coder Plus","input":1,"output":5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-livetranslate-flash-realtime": [
+      {"from":1760463286000,"name":"Qwen3-LiveTranslate Flash Realtime","input":10,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-max": [
+      {"from":1760463286000,"name":"Qwen3 Max","input":1.2,"output":6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-next-80b-a3b-instruct": [
+      {"from":1760463286000,"name":"Qwen3-Next 80B-A3B Instruct","input":0.5,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-next-80b-a3b-thinking": [
+      {"from":1760463286000,"name":"Qwen3-Next 80B-A3B (Thinking)","input":0.5,"output":6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-omni-flash": [
+      {"from":1760463286000,"name":"Qwen3-Omni Flash","input":0.43,"output":1.66,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-omni-flash-realtime": [
+      {"from":1760463286000,"name":"Qwen3-Omni Flash Realtime","input":0.52,"output":1.99,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-vl-235b-a22b": [
+      {"from":1760463286000,"name":"Qwen3-VL 235B-A22B","input":0.7,"output":2.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-vl-30b-a3b": [
+      {"from":1760463286000,"name":"Qwen3-VL 30B-A3B","input":0.2,"output":0.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3-vl-plus": [
+      {"from":1760463286000,"name":"Qwen3-VL Plus","input":0.2,"output":1.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3-VL Plus","input":0.2,"output":1.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.3,"output":2.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null},{"over":128000,"input":0.6,"output":4.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3-VL Plus","input":0.2,"output":1.6,"cacheRead":0.04,"cacheWrite":0.25,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.3,"output":2.4,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null},{"over":128000,"input":0.6,"output":4.8,"cacheRead":0.12,"cacheWrite":0.75,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3.5-122b-a10b": [
+      {"from":1777318611000,"name":"Qwen3.5 122B-A10B","input":0.4,"output":3.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.5-27b": [
+      {"from":1777318611000,"name":"Qwen3.5 27B","input":0.3,"output":2.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.5-35b-a3b": [
+      {"from":1777318611000,"name":"Qwen3.5 35B-A3B","input":0.25,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.5-397b-a17b": [
+      {"from":1771279592000,"name":"Qwen3.5 397B-A17B","input":0.6,"output":3.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.5-flash": [
+      {"from":1790568079000,"name":"Qwen3.5 Flash","input":0.1,"output":0.4,"cacheRead":0.01,"cacheWrite":0.125,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.5-plus": [
+      {"from":1771279592000,"name":"Qwen3.5 Plus","input":0.4,"output":2.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3.5 Plus","input":0.4,"output":2.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":256000,"input":0.5,"output":3,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3.6-27b": [
+      {"from":1777318611000,"name":"Qwen3.6 27B","input":0.6,"output":3.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.6-35b-a3b": [
+      {"from":1777318611000,"name":"Qwen3.6 35B-A3B","input":0.248,"output":1.485,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3.6 35B-A3B","input":0.375,"output":2.25,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.6-flash": [
+      {"from":1779487088000,"name":"Qwen3.6 Flash","input":0.1875,"output":1.125,"cacheRead":null,"cacheWrite":0.234375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792467336000,"name":"Qwen3.6 Flash","input":0.25,"output":1.5,"cacheRead":0.025,"cacheWrite":0.3125,"cacheWrite1h":null,"tiers":[{"over":256000,"input":1,"output":4,"cacheRead":0.1,"cacheWrite":1.25,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3.6-max-preview": [
+      {"from":1777775702000,"name":"Qwen3.6 Max Preview","input":1.3,"output":7.8,"cacheRead":0.13,"cacheWrite":1.625,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.6-plus": [
+      {"from":1775328923000,"name":"Qwen3.6 Plus","input":0.276,"output":1.651,"cacheRead":0.028,"cacheWrite":0.344,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1778625648000,"name":"Qwen3.6 Plus","input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":0.625,"cacheWrite1h":null,"tiers":[{"over":256000,"input":2,"output":6,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3.7-flash": [
+      {"from":1790568079000,"name":"Qwen3.7 Flash","input":0.03,"output":0.13,"cacheRead":0.003,"cacheWrite":0.0375,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.1,"output":0.4,"cacheRead":0.01,"cacheWrite":0.125,"cacheWrite1h":null},{"over":256000,"input":0.2,"output":0.8,"cacheRead":0.02,"cacheWrite":0.25,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.7 Flash","input":0.03,"output":0.13,"cacheRead":0.006,"cacheWrite":0.0375,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.1,"output":0.4,"cacheRead":0.02,"cacheWrite":0.125,"cacheWrite1h":null},{"over":256000,"input":0.2,"output":0.8,"cacheRead":0.04,"cacheWrite":0.25,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3.7-max": [
+      {"from":1779404309000,"name":"Qwen3.7 Max","input":2.5,"output":7.5,"cacheRead":0.5,"cacheWrite":3.125,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.7-plus": [
+      {"from":1780498839000,"name":"Qwen3.7 Plus","input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":0.625,"cacheWrite1h":null,"tiers":[{"over":128000,"input":2,"output":6,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null}],"modes":{}},
+      {"from":1781052447000,"name":"Qwen3.7 Plus","input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":0.625,"cacheWrite1h":null,"tiers":[{"over":256000,"input":2,"output":6,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null}],"modes":{}},
+      {"from":1790568079000,"name":"Qwen3.7 Plus","input":0.4,"output":1.6,"cacheRead":0.04,"cacheWrite":0.5,"cacheWrite1h":null,"tiers":[{"over":256000,"input":1.2,"output":4.8,"cacheRead":0.12,"cacheWrite":1.5,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.7 Plus","input":0.4,"output":1.6,"cacheRead":0.08,"cacheWrite":0.5,"cacheWrite1h":null,"tiers":[{"over":256000,"input":1.2,"output":4.8,"cacheRead":0.24,"cacheWrite":1.5,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "alibaba/qwen3.8-2.4t-a95b": [
+      {"from":1792467336000,"name":"Qwen3.8 2.4T A95B","input":2,"output":6,"cacheRead":null,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.8 2.4T A95B","input":2,"output":6,"cacheRead":0.25,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.8-27b": [
+      {"from":1792467336000,"name":"Qwen3.8 27B","input":0.5,"output":3,"cacheRead":null,"cacheWrite":0.625,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.8 27B","input":0.5,"output":3,"cacheRead":0.1,"cacheWrite":0.625,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.8-flash": [
+      {"from":1788375205000,"name":"Qwen3.8 Flash","input":0.15,"output":0.47,"cacheRead":0.016,"cacheWrite":0.2,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.8-max": [
+      {"from":1785853295000,"name":"Qwen3.8 Max","input":2,"output":6,"cacheRead":0.25,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.8-max-0902": [
+      {"from":1792467336000,"name":"Qwen3.8 Max 0902","input":2,"output":6,"cacheRead":null,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792734970000,"name":"Qwen3.8 Max 0902","input":2,"output":6,"cacheRead":0.25,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwen3.8-omni-flash": [
+      {"from":1790568079000,"name":"Qwen3.8 Omni Flash","input":0.15,"output":0.47,"cacheRead":0.016,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "alibaba/qwq-plus": [
+      {"from":1760463286000,"name":"QwQ Plus","input":0.8,"output":2.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-5-haiku-20241022": [
+      {"from":1749154085000,"name":"Claude 3.5 Haiku","input":0.8,"output":4,"cacheRead":0.08,"cacheWrite":0.08,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1750712014000,"name":"Claude Haiku 3.5","input":0.8,"output":4,"cacheRead":0.08,"cacheWrite":1,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-5-haiku-latest": [
+      {"from":1760620390000,"name":"Claude Haiku 3.5","input":0.8,"output":4,"cacheRead":0.08,"cacheWrite":1,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-5-sonnet-20240620": [
+      {"from":1749154085000,"name":"Claude 3.5 Sonnet","input":3,"output":15,"cacheRead":0.3,"cacheWrite":0.3,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1750712014000,"name":"Claude Sonnet 3.5","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-5-sonnet-20241022": [
+      {"from":1749154085000,"name":"Claude 3.5 Sonnet v2","input":3,"output":15,"cacheRead":0.3,"cacheWrite":0.3,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1750712014000,"name":"Claude Sonnet 3.5 v2","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-7-sonnet-20250219": [
+      {"from":1749154085000,"name":"Claude 3.7 Sonnet","input":3,"output":15,"cacheRead":0.3,"cacheWrite":0.3,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1750712014000,"name":"Claude Sonnet 3.7","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-7-sonnet-latest": [
+      {"from":1760620390000,"name":"Claude Sonnet 3.7","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-haiku-20240307": [
+      {"from":1749154085000,"name":"Claude 3 Haiku","input":0.25,"output":1.25,"cacheRead":0.03,"cacheWrite":0.03,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1750712014000,"name":"Claude Haiku 3","input":0.25,"output":1.25,"cacheRead":0.03,"cacheWrite":0.3,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-opus-20240229": [
+      {"from":1749154085000,"name":"Claude 3 Opus","input":15,"output":75,"cacheRead":1.5,"cacheWrite":1.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1750712014000,"name":"Claude Opus 3","input":15,"output":75,"cacheRead":1.5,"cacheWrite":18.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-3-sonnet-20240229": [
+      {"from":1749154085000,"name":"Claude 3 Sonnet","input":3,"output":15,"cacheRead":0.3,"cacheWrite":0.3,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-fable-5": [
+      {"from":1781026218000,"name":"Claude Fable 5","input":10,"output":50,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Fable 5","input":10,"output":50,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":20,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-fable-5-1": [
+      {"from":1788375205000,"name":"Claude Fable 5.1","input":10,"output":50,"cacheRead":0.25,"cacheWrite":12.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Fable 5.1","input":10,"output":50,"cacheRead":0.25,"cacheWrite":12.5,"cacheWrite1h":20,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-haiku-4-5": [
+      {"from":1760620390000,"name":"Claude Haiku 4.5","input":1,"output":5,"cacheRead":0.1,"cacheWrite":1.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Haiku 4.5 (latest)","input":1,"output":5,"cacheRead":0.1,"cacheWrite":1.25,"cacheWrite1h":2,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-haiku-4-5-20251001": [
+      {"from":1760549076000,"name":"Claude Haiku 4.5","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1760550706000,"name":"Claude Haiku 4.5","input":1,"output":1.25,"cacheRead":0.1,"cacheWrite":1.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1760566460000,"name":"Claude Haiku 4.5","input":1,"output":5,"cacheRead":0.1,"cacheWrite":1.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Haiku 4.5","input":1,"output":5,"cacheRead":0.1,"cacheWrite":1.25,"cacheWrite1h":2,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-haiku-5-5": [
+      {"from":1791402215000,"name":"Claude Haiku 5.5","input":0.1,"output":0.5,"cacheRead":0.01,"cacheWrite":0.125,"cacheWrite1h":null,"tiers":[{"over":100000,"input":0.5,"output":2.5,"cacheRead":0.05,"cacheWrite":0.625,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792394866000,"name":"Claude Haiku 5.5","input":0.1,"output":0.5,"cacheRead":0.01,"cacheWrite":0.125,"cacheWrite1h":0.2,"tiers":[{"over":100000,"input":0.5,"output":2.5,"cacheRead":0.05,"cacheWrite":0.625,"cacheWrite1h":1}],"modes":{}}
+    ],
+    "anthropic/claude-mythos-5-1": [
+      {"from":1792813567000,"name":"Claude Mythos 5.1","input":10,"output":50,"cacheRead":0.25,"cacheWrite":12.5,"cacheWrite1h":20,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-0": [
+      {"from":1760620390000,"name":"Claude Opus 4","input":15,"output":75,"cacheRead":1.5,"cacheWrite":18.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-1": [
+      {"from":1760620390000,"name":"Claude Opus 4.1","input":15,"output":75,"cacheRead":1.5,"cacheWrite":18.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-1-20250805": [
+      {"from":1754412043000,"name":"Claude Opus 4.1","input":15,"output":75,"cacheRead":1.5,"cacheWrite":18.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-20250514": [
+      {"from":1749154085000,"name":"Claude 4 Opus","input":15,"output":75,"cacheRead":1.5,"cacheWrite":1.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1750712014000,"name":"Claude Opus 4","input":15,"output":75,"cacheRead":1.5,"cacheWrite":18.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-5": [
+      {"from":1764011758000,"name":"Claude Opus 4.5","input":5,"output":25,"cacheRead":1.5,"cacheWrite":18.75,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1764172676000,"name":"Claude Opus 4.5 (latest)","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Opus 4.5 (latest)","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":10,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-5-20251101": [
+      {"from":1764253606000,"name":"Claude Opus 4.5","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Opus 4.5","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":10,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-6": [
+      {"from":1770316474000,"name":"Claude Opus 4.6","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[{"over":200000,"input":10,"output":37.5,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null}],"modes":{}},
+      {"from":1773429220000,"name":"Claude Opus 4.6","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1775623639000,"name":"Claude Opus 4.6","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":30,"output":150,"cacheRead":3,"cacheWrite":37.5,"cacheWrite1h":null}}},
+      {"from":1786030221000,"name":"Claude Opus 4.6","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Opus 4.6","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":10,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-6-20260205": [
+      {"from":1770316769000,"name":"Claude Opus 4.6","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[{"over":200000,"input":10,"output":37.5,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-7": [
+      {"from":1776353104000,"name":"Claude Opus 4.7","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1778623849000,"name":"Claude Opus 4.7","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":30,"output":150,"cacheRead":3,"cacheWrite":37.5,"cacheWrite1h":null}}},
+      {"from":1786030221000,"name":"Claude Opus 4.7","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Opus 4.7","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":10,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-opus-4-8": [
+      {"from":1779987891000,"name":"Claude Opus 4.8","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":10,"output":50,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null}}},
+      {"from":1792394866000,"name":"Claude Opus 4.8","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":10,"tiers":[],"modes":{"fast":{"input":10,"output":50,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":20}}}
+    ],
+    "anthropic/claude-opus-5": [
+      {"from":1784913657000,"name":"Claude Opus 5","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":10,"output":50,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null}}},
+      {"from":1792394866000,"name":"Claude Opus 5","input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":10,"tiers":[],"modes":{"fast":{"input":10,"output":50,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":20}}}
+    ],
+    "anthropic/claude-opus-5-5": [
+      {"from":1790095634000,"name":"Claude Opus 5.5","input":4,"output":20,"cacheRead":0.2,"cacheWrite":5,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":8,"output":40,"cacheRead":0.4,"cacheWrite":10,"cacheWrite1h":null}}},
+      {"from":1792394866000,"name":"Claude Opus 5.5","input":4,"output":20,"cacheRead":0.2,"cacheWrite":5,"cacheWrite1h":8,"tiers":[],"modes":{"fast":{"input":8,"output":40,"cacheRead":0.4,"cacheWrite":10,"cacheWrite1h":16}}}
+    ],
+    "anthropic/claude-sonnet-4-0": [
+      {"from":1760620390000,"name":"Claude Sonnet 4","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-sonnet-4-20250514": [
+      {"from":1749076911000,"name":"Claude 4 Sonnet","input":3,"output":15,"cacheRead":3.75,"cacheWrite":0.3,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1750712014000,"name":"Claude Sonnet 4","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-sonnet-4-5": [
+      {"from":1760620390000,"name":"Claude Sonnet 4.5","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Sonnet 4.5 (latest)","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":6,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-sonnet-4-5-20250929": [
+      {"from":1759167631000,"name":"Claude Sonnet 4.5","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Sonnet 4.5","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":6,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-sonnet-4-6": [
+      {"from":1771355530000,"name":"Claude Sonnet 4.6","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[{"over":200000,"input":6,"output":22.5,"cacheRead":0.6,"cacheWrite":7.5,"cacheWrite1h":null}],"modes":{}},
+      {"from":1773429220000,"name":"Claude Sonnet 4.6","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Sonnet 4.6","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75,"cacheWrite1h":6,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-sonnet-5": [
+      {"from":1782845064000,"name":"Claude Sonnet 5","input":2,"output":10,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Sonnet 5","input":2,"output":10,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":4,"tiers":[],"modes":{}}
+    ],
+    "anthropic/claude-sonnet-5-5": [
+      {"from":1790620837000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1791402404000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1791405093000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1791412030000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792394866000,"name":"Claude Sonnet 5.5","input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":4,"tiers":[],"modes":{}}
+    ],
+    "cohere/c4ai-aya-expanse-32b": [
+      {"from":1792470442000,"name":"Aya Expanse 32B","input":0.5,"output":1.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-a-03-2025": [
+      {"from":1763756829000,"name":"Command A","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-a-plus-05-2026": [
+      {"from":1781020542000,"name":"Command A Plus","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-a-reasoning-08-2025": [
+      {"from":1763770876000,"name":"Command A Reasoning","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-a-reasoning-08-2025 ": [
+      {"from":1763756829000,"name":"Command A Reasoning","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-a-translate-08-2025": [
+      {"from":1763756829000,"name":"Command A Translate","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-a-vision-07-2025": [
+      {"from":1763756829000,"name":"Command A Vision","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-r-08-2024": [
+      {"from":1763756829000,"name":"Command R","input":0.15,"output":0.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-r-plus-08-2024": [
+      {"from":1763756829000,"name":"Command R+","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-r7b-12-2024": [
+      {"from":1763756829000,"name":"Command R7B","input":0.0375,"output":0.15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/command-r7b-arabic-02-2025": [
+      {"from":1771022831000,"name":"Command R7B Arabic","input":0.0375,"output":0.15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/north-mini-code-1-0": [
+      {"from":1781020542000,"name":"North Mini Code","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "cohere/north-small-translate-09-2026": [
+      {"from":1790907618000,"name":"North Small Translate","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "deepseek/deepseek-chat": [
+      {"from":1749596128000,"name":"DeepSeek Chat","input":0.27,"output":1.1,"cacheRead":0.07,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1756139754000,"name":"DeepSeek Chat","input":0.57,"output":1.68,"cacheRead":0.07,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1763395541000,"name":"DeepSeek Chat","input":0.28,"output":0.42,"cacheRead":0.028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1777138125000,"name":"DeepSeek Chat","input":0.14,"output":0.28,"cacheRead":0.028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1780786304000,"name":"DeepSeek Chat","input":0.14,"output":0.28,"cacheRead":0.0028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "deepseek/deepseek-flash": [
+      {"from":1789056624000,"name":"DeepSeek V4.1 Flash","input":0.15,"output":0.6,"cacheRead":0.003,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "deepseek/deepseek-reasoner": [
+      {"from":1749596128000,"name":"DeepSeek Reasoner","input":0.55,"output":2.19,"cacheRead":0.14,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1756139754000,"name":"DeepSeek Reasoner","input":0.57,"output":1.68,"cacheRead":0.07,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1763395541000,"name":"DeepSeek Reasoner","input":0.28,"output":0.42,"cacheRead":0.028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1777138125000,"name":"DeepSeek Reasoner","input":0.14,"output":0.28,"cacheRead":0.028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1780786304000,"name":"DeepSeek Reasoner","input":0.14,"output":0.28,"cacheRead":0.0028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "deepseek/deepseek-v3.2": [
+      {"from":1765168203000,"name":"DeepSeek V3.2","input":0.28,"output":0.42,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "deepseek/deepseek-v4-flash": [
+      {"from":1777034043000,"name":"DeepSeek V4 Flash","input":0.14,"output":0.28,"cacheRead":0.028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779686298000,"name":"DeepSeek V4 Flash","input":0.14,"output":0.28,"cacheRead":0.0028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789056624000,"name":"DeepSeek V4 Flash","input":0.15,"output":0.6,"cacheRead":0.003,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "deepseek/deepseek-v4-flash-vision-exp": [
+      {"from":1787347675000,"name":"DeepSeek V4 Flash Vision Exp","input":0.14,"output":0.28,"cacheRead":0.0028,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789056624000,"name":"DeepSeek V4 Flash Vision Exp","input":0.15,"output":0.6,"cacheRead":0.003,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "deepseek/deepseek-v4-pro": [
+      {"from":1777014292000,"name":"DeepSeek V4 Pro","input":1.74,"output":3.48,"cacheRead":0.145,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779686298000,"name":"DeepSeek V4 Pro","input":0.435,"output":0.87,"cacheRead":0.003625,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790958050000,"name":"DeepSeek V4 Pro","input":0.66,"output":1.98,"cacheRead":0.022,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/deep-research-max-preview-04-2026": [
+      {"from":1784849427000,"name":"Deep Research Max Preview","input":2,"output":12,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":18,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/deep-research-preview-04-2026": [
+      {"from":1784849416000,"name":"Gemini Deep Research Preview","input":2,"output":12,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":18,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/gemini-1.5-flash": [
+      {"from":1749595309000,"name":"Gemini 1.5 Flash","input":0.075,"output":0.3,"cacheRead":0.01875,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-1.5-flash-8b": [
+      {"from":1749595309000,"name":"Gemini 1.5 Flash-8B","input":0.0375,"output":0.15,"cacheRead":0.01,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-1.5-pro": [
+      {"from":1749595309000,"name":"Gemini 1.5 Pro","input":1.25,"output":5,"cacheRead":0.3125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.0-flash": [
+      {"from":1749595309000,"name":"Gemini 2.0 Flash","input":0.1,"output":0.4,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.0-flash-lite": [
+      {"from":1749595309000,"name":"Gemini 2.0 Flash Lite","input":0.075,"output":0.3,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-computer-use-preview-10-2025": [
+      {"from":1784849438000,"name":"Gemini 2.5 Computer Use Preview","input":1.25,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":2.5,"output":15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/gemini-2.5-flash": [
+      {"from":1750253008000,"name":"Gemini 2.5 Flash","input":0.3,"output":2.5,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1776710633000,"name":"Gemini 2.5 Flash","input":0.3,"output":2.5,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-image": [
+      {"from":1760495907000,"name":"Gemini 2.5 Flash Image","input":0.3,"output":30,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-image-preview": [
+      {"from":1760495907000,"name":"Gemini 2.5 Flash Image (Preview)","input":0.3,"output":30,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-lite": [
+      {"from":1758732532000,"name":"Gemini 2.5 Flash Lite","input":0.1,"output":0.4,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1778625648000,"name":"Gemini 2.5 Flash Lite","input":0.1,"output":0.4,"cacheRead":0.01,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-lite-preview-06-17": [
+      {"from":1750253008000,"name":"Gemini 2.5 Flash Lite Preview 06-17","input":0.1,"output":0.4,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-lite-preview-09-2025": [
+      {"from":1758902533000,"name":"Gemini 2.5 Flash Lite Preview 09-25","input":0.1,"output":0.4,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-native-audio-preview-12-2025": [
+      {"from":1792458844000,"name":"Gemini 2.5 Flash Native Audio Preview 12-2025","input":0.5,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-preview-04-17": [
+      {"from":1749595309000,"name":"Gemini 2.5 Flash Preview 04-17","input":0.15,"output":0.6,"cacheRead":0.0375,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-preview-05-20": [
+      {"from":1749595309000,"name":"Gemini 2.5 Flash Preview 05-20","input":0.15,"output":0.6,"cacheRead":0.0375,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-preview-09-2025": [
+      {"from":1758902533000,"name":"Gemini 2.5 Flash Preview 09-25","input":0.15,"output":0.6,"cacheRead":0.0375,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1760544335000,"name":"Gemini 2.5 Flash Preview 09-25","input":0.3,"output":2.5,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-preview-tts": [
+      {"from":1760495873000,"name":"Gemini 2.5 Flash Preview TTS","input":0.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-flash-tts": [
+      {"from":1780638507000,"name":"Gemini 2.5 Flash TTS","input":0.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-pro": [
+      {"from":1750253008000,"name":"Gemini 2.5 Pro","input":1.25,"output":10,"cacheRead":0.31,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1776655065000,"name":"Gemini 2.5 Pro","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":2.5,"output":15,"cacheRead":0.25,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/gemini-2.5-pro-preview-03-25": [
+      {"from":1749144869000,"name":"Gemini 2.5 Pro","input":1.25,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-pro-preview-05-06": [
+      {"from":1749595309000,"name":"Gemini 2.5 Pro Preview 05-06","input":1.25,"output":10,"cacheRead":0.31,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-pro-preview-06-05": [
+      {"from":1749595309000,"name":"Gemini 2.5 Pro Preview 06-05","input":1.25,"output":10,"cacheRead":0.31,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-2.5-pro-preview-tts": [
+      {"from":1760495873000,"name":"Gemini 2.5 Pro Preview TTS","input":1,"output":20,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3-flash-preview": [
+      {"from":1765988349000,"name":"Gemini 3 Flash Preview","input":0.15,"output":0.6,"cacheRead":0.0375,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":0.3,"output":1.2,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1766003982000,"name":"Gemini 3 Flash Preview","input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1778625648000,"name":"Gemini 3 Flash Preview","input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3-pro-image": [
+      {"from":1784849404000,"name":"Nano Banana Pro","input":2,"output":120,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3-pro-image-preview": [
+      {"from":1780638507000,"name":"Nano Banana Pro","input":2,"output":120,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3-pro-preview": [
+      {"from":1763483583000,"name":"Gemini 3 Pro Preview","input":2,"output":12,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1763485177000,"name":"Gemini 3 Pro Preview","input":2,"output":12,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":18,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/gemini-3.1-flash-image": [
+      {"from":1784849397000,"name":"Nano Banana 2","input":0.5,"output":60,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.1-flash-image-preview": [
+      {"from":1772902626000,"name":"Gemini 3.1 Flash Image (Preview)","input":0.25,"output":60,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1778625648000,"name":"Gemini 3.1 Flash Image (Preview)","input":0.5,"output":60,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.1-flash-lite": [
+      {"from":1778186665000,"name":"Gemini 3.1 Flash Lite","input":0.25,"output":1.5,"cacheRead":0.025,"cacheWrite":1,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1778625648000,"name":"Gemini 3.1 Flash Lite","input":0.25,"output":1.5,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.1-flash-lite-image": [
+      {"from":1784849434000,"name":"Nano Banana 2 Lite","input":0.25,"output":30,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.1-flash-lite-preview": [
+      {"from":1772903625000,"name":"Gemini 3.1 Flash Lite Preview","input":0.5,"output":3,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":0.25,"output":1.5,"cacheRead":0.025,"cacheWrite":1,"cacheWrite1h":null}],"modes":{}},
+      {"from":1773445301000,"name":"Gemini 3.1 Flash Lite Preview","input":0.25,"output":1.5,"cacheRead":0.025,"cacheWrite":1,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1778625648000,"name":"Gemini 3.1 Flash Lite Preview","input":0.25,"output":1.5,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.1-flash-live-preview": [
+      {"from":1784849441000,"name":"Gemini 3.1 Flash Live Preview","input":0.75,"output":4.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.1-flash-tts-preview": [
+      {"from":1784849401000,"name":"Gemini 3.1 Flash TTS Preview","input":1,"output":20,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.1-pro": [
+      {"from":1771522395000,"name":"Gemini 3.1 Pro","input":2,"output":12,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":18,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/gemini-3.1-pro-preview": [
+      {"from":1771526047000,"name":"Gemini 3.1 Pro Preview","input":2,"output":12,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":18,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/gemini-3.1-pro-preview-customtools": [
+      {"from":1771522395000,"name":"Gemini 3.1 Pro Preview Custom Tools","input":2,"output":12,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":18,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/gemini-3.5-flash": [
+      {"from":1779223418000,"name":"Gemini 3.5 Flash","input":1.5,"output":9,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.5-flash-lite": [
+      {"from":1784649574000,"name":"Gemini 3.5 Flash Lite","input":0.3,"output":2.5,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.5-live-translate-preview": [
+      {"from":1784849423000,"name":"Gemini 3.5 Live Translate Preview","input":3.5,"output":21,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.5-transcribe": [
+      {"from":1792458844000,"name":"Gemini 3.5 Transcribe","input":2,"output":12,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.5-transcribe-live": [
+      {"from":1792458844000,"name":"Gemini 3.5 Transcribe Live","input":3.5,"output":21,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.6-flash": [
+      {"from":1784649574000,"name":"Gemini 3.6 Flash","input":1.5,"output":7.5,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1787294548000,"name":"Gemini 3.6 Flash","input":0.75,"output":3.75,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.7-flash": [
+      {"from":1786642002000,"name":"Gemini 3.7 Flash","input":0.75,"output":3.75,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.8-flash": [
+      {"from":1788375205000,"name":"Gemini 3.8 Flash","input":0.75,"output":3.75,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.8-flash-lite-tts": [
+      {"from":1792458844000,"name":"Gemini 3.8 Flash Lite TTS","input":0.5,"output":6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.8-flash-tts": [
+      {"from":1792458844000,"name":"Gemini 3.8 Flash TTS","input":0.5,"output":9,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.8-live": [
+      {"from":1792458844000,"name":"Gemini 3.8 Live","input":0.75,"output":4.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-3.8-live-extended-thinking": [
+      {"from":1792458844000,"name":"Gemini 3.8 Live Extended Thinking","input":0.75,"output":4.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-4-argon": [
+      {"from":1791908288000,"name":"Gemini 4 Argon","input":2,"output":10,"cacheRead":0.1,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-embedding-001": [
+      {"from":1761144263000,"name":"Gemini Embedding 001","input":0.15,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-embedding-2": [
+      {"from":1784849412000,"name":"Gemini Embedding 2","input":0.2,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-flash-latest": [
+      {"from":1759161003000,"name":"Gemini Flash Latest","input":0.15,"output":0.6,"cacheRead":0.0375,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1760544335000,"name":"Gemini Flash Latest","input":0.3,"output":2.5,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1784128439000,"name":"Gemini Flash Latest","input":1.5,"output":9,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1787294548000,"name":"Gemini Flash Latest","input":0.75,"output":3.75,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-flash-lite-latest": [
+      {"from":1759161003000,"name":"Gemini Flash-Lite Latest","input":0.1,"output":0.4,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1784128439000,"name":"Gemini Flash-Lite Latest","input":0.25,"output":1.5,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1787294548000,"name":"Gemini Flash-Lite Latest","input":0.3,"output":2.5,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-live-2.5-flash": [
+      {"from":1760495897000,"name":"Gemini Live 2.5 Flash","input":0.5,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-live-2.5-flash-preview-native-audio": [
+      {"from":1759162874000,"name":"Gemini Live 2.5 Flash Preview Native Audio","input":0.5,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-nano-banana-2.1": [
+      {"from":1792458844000,"name":"Nano Banana 2.1","input":1.5,"output":30,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-omni-1.1-flash": [
+      {"from":1792458844000,"name":"Gemini Omni 1.1 Flash","input":1.5,"output":17.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-omni-flash-preview": [
+      {"from":1783546024000,"name":"Gemini Omni Flash Preview","input":1.5,"output":17.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-pro-latest": [
+      {"from":1792517529000,"name":"Gemini Pro Latest","input":2,"output":12,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":18,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "google/gemini-robotics-er-1.6-preview": [
+      {"from":1784849408000,"name":"Gemini Robotics-ER 1.6 Preview","input":1,"output":5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-robotics-er-2-preview": [
+      {"from":1792458844000,"name":"Gemini Robotics-ER 2 Preview","input":1,"output":5,"cacheRead":0.1,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemini-robotics-er-2-streaming-preview": [
+      {"from":1792458844000,"name":"Gemini Robotics-ER 2 Streaming Preview","input":1,"output":5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemma-3-12b-it": [
+      {"from":1775146343000,"name":"Gemma 3 12B","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemma-3-27b-it": [
+      {"from":1775146343000,"name":"Gemma 3 27B","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemma-3-4b-it": [
+      {"from":1775146343000,"name":"Gemma 3 4B","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemma-3n-e2b-it": [
+      {"from":1775146343000,"name":"Gemma 3n 2B","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/gemma-3n-e4b-it": [
+      {"from":1775146343000,"name":"Gemma 3n 4B","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/lyria-3-clip-preview": [
+      {"from":1784849452000,"name":"Lyria 3 Clip Preview","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "google/lyria-3-pro-preview": [
+      {"from":1784849445000,"name":"Lyria 3 Pro Preview","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "inception/mercury": [
+      {"from":1754184337000,"name":"Mercury","input":0.25,"output":1,"cacheRead":0.25,"cacheWrite":1,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "inception/mercury-2": [
+      {"from":1772902658000,"name":"Mercury 2","input":0.25,"output":0.75,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "inception/mercury-2.5": [
+      {"from":1789058053000,"name":"Mercury 2.5","input":0.04,"output":0.15,"cacheRead":0.004,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792559703000,"name":"Mercury 2.5","input":0.2,"output":0.75,"cacheRead":0.02,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "inception/mercury-3": [
+      {"from":1792478278000,"name":"Mercury 3","input":0.1,"output":0.35,"cacheRead":0.01,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "inception/mercury-coder": [
+      {"from":1754184337000,"name":"Mercury Coder","input":0.25,"output":1,"cacheRead":0.25,"cacheWrite":1,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "inception/mercury-decide": [
+      {"from":1792562226000,"name":"Mercury Decide","input":0.02,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "inception/mercury-edit": [
+      {"from":1772902658000,"name":"Mercury Edit","input":0.25,"output":0.75,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "inception/mercury-edit-2": [
+      {"from":1776221362000,"name":"Mercury Edit 2","input":0.25,"output":0.75,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "meta/muse-spark-1.1": [
+      {"from":1783618614000,"name":"Muse Spark 1.1","input":1.25,"output":4.25,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1783626677000,"name":"Muse Spark 1.1","input":1.25,"output":4.25,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "meta/muse-spark-1.2": [
+      {"from":1785987709000,"name":"Muse Spark 1.2","input":1.25,"output":4.25,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "meta/muse-spark-1.2-contributor": [
+      {"from":1785987709000,"name":"Muse Spark 1.2 Contributor","input":0.1,"output":0.2,"cacheRead":0.002,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "meta/muse-spark-1.3": [
+      {"from":1788449279000,"name":"Muse Spark 1.3","input":1.25,"output":4.25,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "meta/muse-spark-1.3-contributor": [
+      {"from":1788449123000,"name":"Muse Spark 1.3 Contributor","input":0.1,"output":0.2,"cacheRead":0.002,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "meta/muse-wonder-1.0": [
+      {"from":1791920077000,"name":"Muse Wonder","input":4,"output":20,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax-cn/MiniMax-M2": [
+      {"from":1764346846000,"name":"MiniMax-M2","input":0.3,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792461898000,"name":"MiniMax-M2","input":0.3137,"output":1.2549,"cacheRead":0.0314,"cacheWrite":0.3922,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax-cn/MiniMax-M2.1": [
+      {"from":1766515390000,"name":"MiniMax-M2.1","input":0.3,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1785599008000,"name":"MiniMax-M2.1","input":0.3,"output":1.2,"cacheRead":0.03,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792461898000,"name":"MiniMax-M2.1","input":0.3137,"output":1.2549,"cacheRead":0.0314,"cacheWrite":0.3922,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax-cn/MiniMax-M2.5": [
+      {"from":1770932216000,"name":"MiniMax-M2.5","input":0.3,"output":1.2,"cacheRead":0.03,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792461898000,"name":"MiniMax-M2.5","input":0.3137,"output":1.2549,"cacheRead":0.0314,"cacheWrite":0.3922,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax-cn/MiniMax-M2.5-highspeed": [
+      {"from":1771309390000,"name":"MiniMax-M2.5-highspeed","input":0.6,"output":2.4,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792461898000,"name":"MiniMax-M2.5-highspeed","input":0.6275,"output":2.5098,"cacheRead":0.0314,"cacheWrite":0.3922,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax-cn/MiniMax-M2.7": [
+      {"from":1773822599000,"name":"MiniMax-M2.7","input":0.3,"output":1.2,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792461898000,"name":"MiniMax-M2.7","input":0.3137,"output":1.2549,"cacheRead":0.0627,"cacheWrite":0.3922,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax-cn/MiniMax-M2.7-highspeed": [
+      {"from":1773822599000,"name":"MiniMax-M2.7-highspeed","input":0.6,"output":2.4,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792461898000,"name":"MiniMax-M2.7-highspeed","input":0.6275,"output":2.5098,"cacheRead":0.0627,"cacheWrite":0.3922,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax-cn/MiniMax-M3": [
+      {"from":1780372665000,"name":"MiniMax-M3","input":0.3,"output":1.2,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1780415638000,"name":"MiniMax-M3","input":0.6,"output":2.4,"cacheRead":0.12,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1782395471000,"name":"MiniMax-M3","input":0.3,"output":1.2,"cacheRead":0.06,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":512000,"input":0.6,"output":2.4,"cacheRead":0.12,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1792461898000,"name":"MiniMax-M3","input":0.3137,"output":1.2549,"cacheRead":0.0627,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":512000,"input":0.6275,"output":2.5098,"cacheRead":0.1255,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "minimax-cn/MiniMax-M3.1-Flash": [
+      {"from":1792400959000,"name":"MiniMax-M3.1-Flash","input":0.15,"output":0.6,"cacheRead":0.015,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792461898000,"name":"MiniMax-M3.1-Flash","input":0.1494,"output":0.5976,"cacheRead":0.0149,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax/MiniMax-M2": [
+      {"from":1763142950000,"name":"Minimax-M2","input":0.3,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax/MiniMax-M2.1": [
+      {"from":1766515390000,"name":"MiniMax-M2.1","input":0.3,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1785599008000,"name":"MiniMax-M2.1","input":0.3,"output":1.2,"cacheRead":0.03,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax/MiniMax-M2.5": [
+      {"from":1770932216000,"name":"MiniMax-M2.5","input":0.3,"output":1.2,"cacheRead":0.03,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax/MiniMax-M2.5-highspeed": [
+      {"from":1771309390000,"name":"MiniMax-M2.5-highspeed","input":0.6,"output":2.4,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1791384831000,"name":"MiniMax-M2.5-highspeed","input":0.6,"output":2.4,"cacheRead":0.03,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax/MiniMax-M2.7": [
+      {"from":1773822599000,"name":"MiniMax-M2.7","input":0.3,"output":1.2,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax/MiniMax-M2.7-highspeed": [
+      {"from":1773822599000,"name":"MiniMax-M2.7-highspeed","input":0.6,"output":2.4,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "minimax/MiniMax-M3": [
+      {"from":1780372665000,"name":"MiniMax-M3","input":0.3,"output":1.2,"cacheRead":0.06,"cacheWrite":0.375,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1780415638000,"name":"MiniMax-M3","input":0.6,"output":2.4,"cacheRead":0.12,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1782395471000,"name":"MiniMax-M3","input":0.3,"output":1.2,"cacheRead":0.06,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":512000,"input":0.6,"output":2.4,"cacheRead":0.12,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "minimax/MiniMax-M3.1-Flash": [
+      {"from":1792400959000,"name":"MiniMax-M3.1-Flash","input":0.15,"output":0.6,"cacheRead":0.015,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/codestral-2508": [
+      {"from":1791384748000,"name":"Codestral 25.08","input":0.3,"output":0.9,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/codestral-embed": [
+      {"from":1792466456000,"name":"Codestral Embed","input":0.15,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/codestral-latest": [
+      {"from":1749573215000,"name":"Codestral","input":0.3,"output":0.9,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790642246000,"name":"Codestral (latest)","input":0.3,"output":0.9,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/deepseek-v4-1-flash-1017": [
+      {"from":1793217724000,"name":"DeepSeek V4.1 Flash 1017","input":0.3,"output":1.2,"cacheRead":0.007,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/devstral-2512": [
+      {"from":1766075525000,"name":"Devstral 2","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1769704918000,"name":"Devstral 2","input":0.4,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/devstral-latest": [
+      {"from":1780428878000,"name":"Devstral 2","input":0.4,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/devstral-medium-2507": [
+      {"from":1752159662000,"name":"Devstral Medium","input":0.4,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/devstral-medium-latest": [
+      {"from":1765302708000,"name":"Devstral 2","input":0.4,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/devstral-small-2505": [
+      {"from":1749573215000,"name":"Devstral","input":0.1,"output":0.3,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/devstral-small-2507": [
+      {"from":1752159662000,"name":"Devstral Small","input":0.1,"output":0.3,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/glm-5-2": [
+      {"from":1791384744000,"name":"GLM-5.2","input":1.4,"output":4.4,"cacheRead":0.14,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/labs-devstral-small-2512": [
+      {"from":1765379499000,"name":"Devstral Small 2","input":0.1,"output":0.3,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1766075525000,"name":"Devstral Small 2","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/labs-leanstral-1-5-1": [
+      {"from":1791385474000,"name":"Leanstral 1.5","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/magistral-medium-latest": [
+      {"from":1749573215000,"name":"Magistral Medium","input":2,"output":5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/magistral-small": [
+      {"from":1749573215000,"name":"Magistral Small","input":0.5,"output":1.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/ministral-14b-2512": [
+      {"from":1791384775000,"name":"Ministral 3 14B","input":0.2,"output":0.2,"cacheRead":0.02,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/ministral-3b-2512": [
+      {"from":1791384795000,"name":"Ministral 3 3B","input":0.1,"output":0.1,"cacheRead":0.01,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/ministral-3b-latest": [
+      {"from":1749573215000,"name":"Ministral 3B","input":0.04,"output":0.04,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792466456000,"name":"Ministral 3B (latest)","input":0.1,"output":0.1,"cacheRead":0.01,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/ministral-8b-2512": [
+      {"from":1791384766000,"name":"Ministral 3 8B","input":0.15,"output":0.15,"cacheRead":0.015,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/ministral-8b-latest": [
+      {"from":1749573215000,"name":"Ministral 8B","input":0.1,"output":0.1,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792466456000,"name":"Ministral 8B (latest)","input":0.15,"output":0.15,"cacheRead":0.015,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-embed": [
+      {"from":1765468667000,"name":"Mistral Embed","input":0.1,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-large-2411": [
+      {"from":1765211557000,"name":"Mistral Large 2.1","input":2,"output":6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-large-2512": [
+      {"from":1765211557000,"name":"Mistral Large 3","input":0.5,"output":1.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790642246000,"name":"Mistral Large 3","input":0.5,"output":1.5,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-large-4": [
+      {"from":1791300903000,"name":"Mistral Large 4","input":0.68,"output":2.09,"cacheRead":0.07,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792685352000,"name":"Mistral Large 4","input":1.36,"output":4.18,"cacheRead":0.14,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1793327096000,"name":"Mistral Large 4","input":0.7,"output":2.1,"cacheRead":0.07,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-large-4-0-8": [
+      {"from":1793327096000,"name":"Mistral Large 4.0.8","input":0.7,"output":2.1,"cacheRead":0.07,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-large-latest": [
+      {"from":1749573215000,"name":"Mistral Large","input":2,"output":6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1765211557000,"name":"Mistral Large","input":0.5,"output":1.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790642246000,"name":"Mistral Large (latest)","input":0.5,"output":1.5,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-medium-2505": [
+      {"from":1756139327000,"name":"Mistral Medium 3","input":0.4,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-medium-2508": [
+      {"from":1756139327000,"name":"Mistral Medium 3.1","input":0.4,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-medium-2604": [
+      {"from":1777577836000,"name":"Mistral Medium 3.5","input":1.5,"output":7.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790642246000,"name":"Mistral Medium 3.5","input":1.5,"output":7.5,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-medium-latest": [
+      {"from":1749573215000,"name":"Mistral Medium","input":0.4,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1777577836000,"name":"Mistral Medium (latest)","input":1.5,"output":7.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1780601097000,"name":"Mistral Medium (latest)","input":0.4,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1783184471000,"name":"Mistral Medium (latest)","input":1.5,"output":7.5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790642246000,"name":"Mistral Medium (latest)","input":1.5,"output":7.5,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-moderation-2603": [
+      {"from":1792466456000,"name":"Mistral Moderation 26.03","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-nemo": [
+      {"from":1749573215000,"name":"Mistral Nemo","input":0.15,"output":0.15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-small-2506": [
+      {"from":1765468667000,"name":"Mistral Small 3.2","input":0.1,"output":0.3,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-small-2603": [
+      {"from":1775146343000,"name":"Mistral Small 4","input":0.15,"output":0.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790642246000,"name":"Mistral Small 4","input":0.15,"output":0.6,"cacheRead":0.015,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/mistral-small-latest": [
+      {"from":1749573215000,"name":"Mistral Small","input":0.1,"output":0.3,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1775146343000,"name":"Mistral Small (latest)","input":0.15,"output":0.6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790642246000,"name":"Mistral Small (latest)","input":0.15,"output":0.6,"cacheRead":0.015,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/open-mistral-7b": [
+      {"from":1749573215000,"name":"Mistral 7B","input":0.25,"output":0.25,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/open-mistral-nemo": [
+      {"from":1780428894000,"name":"Open Mistral Nemo","input":0.15,"output":0.15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/open-mixtral-8x22b": [
+      {"from":1749573215000,"name":"Mixtral 8x22B","input":2,"output":6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/open-mixtral-8x7b": [
+      {"from":1749573215000,"name":"Mixtral 8x7B","input":0.7,"output":0.7,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/pixtral-12b": [
+      {"from":1749573215000,"name":"Pixtral 12B","input":0.15,"output":0.15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/pixtral-large-latest": [
+      {"from":1749573215000,"name":"Pixtral Large","input":2,"output":6,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/voxtral-small-2507": [
+      {"from":1791384760000,"name":"Voxtral Small","input":0.1,"output":0.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/voxtral-small-latest": [
+      {"from":1785686904000,"name":"Voxtral Small (latest)","input":0.1,"output":0.3,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792466456000,"name":"Voxtral Small (latest)","input":0.1,"output":0.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/zai-glm-5-2": [
+      {"from":1788375205000,"name":"GLM-5.2","input":1.4,"output":4.4,"cacheRead":0.14,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/zai-glm-5-3": [
+      {"from":1789696177000,"name":"GLM-5.3","input":1.4,"output":4.4,"cacheRead":0.14,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "mistral/zai-glm-5-3-flash": [
+      {"from":1792709652000,"name":"GLM-5.3-Flash","input":0.15,"output":0.5,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2-0711-preview": [
+      {"from":1754690270000,"name":"Kimi K2","input":0.6,"output":2.5,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2-0905-preview": [
+      {"from":1757049787000,"name":"Kimi K2 0905","input":0.6,"output":2.5,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2-thinking": [
+      {"from":1762447304000,"name":"Kimi K2 Thinking","input":0.6,"output":2.5,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2-thinking-turbo": [
+      {"from":1762447304000,"name":"Kimi K2 Thinking Turbo","input":1.15,"output":8,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2-turbo-preview": [
+      {"from":1754690270000,"name":"Kimi K2 Turbo","input":2.4,"output":10,"cacheRead":0.6,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2.5": [
+      {"from":1769540399000,"name":"Kimi K2.5","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1769674594000,"name":"Kimi K2.5","input":0.6,"output":3,"cacheRead":0.1,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2.6": [
+      {"from":1776771313000,"name":"Kimi K2.6","input":0.95,"output":4,"cacheRead":0.16,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2.7-code": [
+      {"from":1781282200000,"name":"Kimi K2.7 Code","input":0.95,"output":4,"cacheRead":0.19,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k2.7-code-highspeed": [
+      {"from":1781606456000,"name":"Kimi K2.7 Code HighSpeed","input":1.9,"output":8,"cacheRead":0.38,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k3": [
+      {"from":1784252801000,"name":"Kimi K3","input":3,"output":15,"cacheRead":0.3,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1791385593000,"name":"Kimi K3","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792462137000,"name":"Kimi K3","input":3,"output":15,"cacheRead":0.3,"cacheWrite":3,"cacheWrite1h":6,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k3.1-pro": [
+      {"from":1792781926000,"name":"Kimi K3.1 Pro","input":2,"output":10,"cacheRead":0.2,"cacheWrite":2,"cacheWrite1h":4,"tiers":[],"modes":{}}
+    ],
+    "moonshotai/kimi-k3.1-pro-highspeed": [
+      {"from":1792781926000,"name":"Kimi K3.1 Pro Highspeed","input":4,"output":20,"cacheRead":0.2,"cacheWrite":4,"cacheWrite1h":8,"tiers":[],"modes":{}}
+    ],
+    "morph/auto": [
+      {"from":1750204631000,"name":"Auto","input":0.85,"output":1.55,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-dsv41flash": [
+      {"from":1792988957000,"name":"DeepSeek V4.1 Flash","input":0.12,"output":0.8,"cacheRead":0.008,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-dsv41flash-1017": [
+      {"from":1792988957000,"name":"DeepSeek V4.1 Flash 1017","input":0.12,"output":0.8,"cacheRead":0.008,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-dsv4flash": [
+      {"from":1792988957000,"name":"DeepSeek V4 Flash 0731","input":0.141953125,"output":0.399625,"cacheRead":0.0359375,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-glm52-744b": [
+      {"from":1792988957000,"name":"GLM-5.2","input":1.19,"output":6,"cacheRead":0.1955,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-glm53-744b": [
+      {"from":1792988957000,"name":"GLM-5.3","input":1.19,"output":6,"cacheRead":0.1955,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-glm53flash": [
+      {"from":1792988957000,"name":"GLM-5.3-Flash","input":0.2,"output":0.7,"cacheRead":0.04,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-kimik3": [
+      {"from":1792988957000,"name":"Kimi K3","input":2.5,"output":14,"cacheRead":0.29,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-kimik3-fast": [
+      {"from":1792988957000,"name":"Kimi K3 Fast","input":6,"output":22.5,"cacheRead":0.6,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-kimik31": [
+      {"from":1794090084000,"name":"Kimi K3.1 Pro","input":2.5,"output":14,"cacheRead":0.29,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-v3-fast": [
+      {"from":1750204631000,"name":"Morph v3 Fast","input":0.8,"output":1.2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/morph-v3-large": [
+      {"from":1750204631000,"name":"Morph v3 Large","input":0.9,"output":1.9,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "morph/reflex": [
+      {"from":1794089736000,"name":"Reflex","input":0.042,"output":0,"cacheRead":0.008,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/chat-latest": [
+      {"from":1792454742000,"name":"Chat Latest","input":5,"output":30,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/codex-mini-latest": [
+      {"from":1749144869000,"name":"Codex Mini","input":1.5,"output":6,"cacheRead":0.375,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-3.5-turbo": [
+      {"from":1753230170000,"name":"GPT-3.5-turbo","input":0.5,"output":1.5,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779815175000,"name":"GPT-3.5-turbo","input":0.5,"output":1.5,"cacheRead":0,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-4": [
+      {"from":1749675065000,"name":"GPT-4 Turbo","input":10,"output":30,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1754687425000,"name":"GPT-4","input":30,"output":60,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-4-turbo": [
+      {"from":1749155492000,"name":"GPT-4 Turbo","input":10,"output":30,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-4.1": [
+      {"from":1749675065000,"name":"GPT-4.1","input":2,"output":8,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-4.1","input":2,"output":8,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":3.5,"output":14,"cacheRead":0.875,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-4.1-mini": [
+      {"from":1749675065000,"name":"GPT-4.1 Mini","input":0.4,"output":1.6,"cacheRead":0.1,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-4.1 mini","input":0.4,"output":1.6,"cacheRead":0.1,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":0.7,"output":2.8,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-4.1-nano": [
+      {"from":1749675065000,"name":"GPT-4.1 Nano","input":0.1,"output":0.4,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779815175000,"name":"GPT-4.1 nano","input":0.1,"output":0.4,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-4.1 nano","input":0.1,"output":0.4,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":0.2,"output":0.8,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-4.5-preview": [
+      {"from":1749675065000,"name":"GPT-4.5 Preview","input":75,"output":150,"cacheRead":37.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-4o": [
+      {"from":1749155492000,"name":"GPT-4o","input":2.5,"output":10,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-4o","input":2.5,"output":10,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":4.25,"output":17,"cacheRead":2.125,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-4o-2024-05-13": [
+      {"from":1758904976000,"name":"GPT-4o (2024-05-13)","input":5,"output":15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-4o (2024-05-13)","input":5,"output":15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":8.75,"output":26.25,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-4o-2024-08-06": [
+      {"from":1758904976000,"name":"GPT-4o (2024-08-06)","input":2.5,"output":10,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-4o-2024-11-20": [
+      {"from":1758904976000,"name":"GPT-4o (2024-11-20)","input":2.5,"output":10,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-4o-mini": [
+      {"from":1749155492000,"name":"GPT-4o Mini","input":0.15,"output":0.6,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1749675065000,"name":"GPT-4o Mini","input":0.15,"output":0.6,"cacheRead":0.08,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779815175000,"name":"GPT-4o mini","input":0.15,"output":0.6,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-4o mini","input":0.15,"output":0.6,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":0.25,"output":1,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-4o-mini-transcribe": [
+      {"from":1792454742000,"name":"GPT-4o Mini Transcribe","input":1.25,"output":5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-4o-transcribe": [
+      {"from":1792454742000,"name":"GPT-4o Transcribe","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-4o-transcribe-diarize": [
+      {"from":1792454742000,"name":"GPT-4o Transcribe Diarize","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5": [
+      {"from":1754589547000,"name":"GPT-5","input":1.25,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1754687396000,"name":"GPT-5","input":1.25,"output":10,"cacheRead":0.13,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1768924987000,"name":"GPT-5","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-5","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":2.5,"output":20,"cacheRead":0.25,"cacheWrite":null,"cacheWrite1h":null},"flex":{"input":0.625,"output":5,"cacheRead":0.0625,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5-chat-latest": [
+      {"from":1754686627000,"name":"GPT-5 Chat (latest)","input":1.25,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779815175000,"name":"GPT-5 Chat (latest)","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5-codex": [
+      {"from":1760460611000,"name":"GPT-5-Codex","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5-mini": [
+      {"from":1754589547000,"name":"GPT-5 Mini","input":0.25,"output":2,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1754687396000,"name":"GPT-5 Mini","input":0.25,"output":2,"cacheRead":0.03,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1768924987000,"name":"GPT-5 Mini","input":0.25,"output":2,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-5 Mini","input":0.25,"output":2,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":0.45,"output":3.6,"cacheRead":0.045,"cacheWrite":null,"cacheWrite1h":null},"flex":{"input":0.125,"output":1,"cacheRead":0.0125,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5-nano": [
+      {"from":1754589547000,"name":"GPT-5 Nano","input":0.05,"output":0.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1754687396000,"name":"GPT-5 Nano","input":0.05,"output":0.4,"cacheRead":0.01,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1768924987000,"name":"GPT-5 Nano","input":0.05,"output":0.4,"cacheRead":0.005,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-5 Nano","input":0.05,"output":0.4,"cacheRead":0.005,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"flex":{"input":0.025,"output":0.2,"cacheRead":0.0025,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5-pro": [
+      {"from":1761567138000,"name":"GPT-5 Pro","input":15,"output":120,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5-search-api": [
+      {"from":1792454742000,"name":"GPT-5 Search API","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.1": [
+      {"from":1763070767000,"name":"GPT-5.1","input":1.25,"output":10,"cacheRead":0.13,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779815175000,"name":"GPT-5.1","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-5.1","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":2.5,"output":20,"cacheRead":0.25,"cacheWrite":null,"cacheWrite1h":null},"flex":{"input":0.625,"output":5,"cacheRead":0.0625,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.1-chat-latest": [
+      {"from":1763346254000,"name":"GPT-5.1 Chat","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.1-codex": [
+      {"from":1763346254000,"name":"GPT-5.1 Codex","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.1-codex-max": [
+      {"from":1764906468000,"name":"GPT-5.1 Codex Max","input":1.25,"output":10,"cacheRead":0.125,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.1-codex-mini": [
+      {"from":1763346254000,"name":"GPT-5.1 Codex mini","input":0.25,"output":2,"cacheRead":0.025,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.2": [
+      {"from":1765480361000,"name":"GPT-5.2","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-5.2","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":3.5,"output":28,"cacheRead":0.35,"cacheWrite":null,"cacheWrite1h":null},"flex":{"input":0.875,"output":7,"cacheRead":0.0875,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.2-chat-latest": [
+      {"from":1765480361000,"name":"GPT-5.2 Chat","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.2-codex": [
+      {"from":1768418743000,"name":"GPT-5.2 Codex","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.2-pro": [
+      {"from":1765480361000,"name":"GPT-5.2 Pro","input":21,"output":168,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.3-chat-latest": [
+      {"from":1775146343000,"name":"GPT-5.3 Chat (latest)","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.3-codex": [
+      {"from":1770315984000,"name":"GPT-5.3 Codex","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-5.3 Codex","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":3.5,"output":28,"cacheRead":0.35,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.3-codex-spark": [
+      {"from":1770920683000,"name":"GPT-5.3 Codex Spark","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.3-codex-spark-preview": [
+      {"from":1773429521000,"name":"GPT-5.3 Codex Spark Preview","input":1.75,"output":14,"cacheRead":0.175,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.4": [
+      {"from":1772754622000,"name":"GPT-5.4","input":2.5,"output":15,"cacheRead":0.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":5,"output":22.5,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1775623639000,"name":"GPT-5.4","input":2.5,"output":15,"cacheRead":0.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":5,"output":22.5,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null}],"modes":{"fast":{"input":5,"output":30,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null}}},
+      {"from":1778625648000,"name":"GPT-5.4","input":2.5,"output":15,"cacheRead":0.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":272000,"input":5,"output":22.5,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null}],"modes":{"fast":{"input":5,"output":30,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.4-mini": [
+      {"from":1773775884000,"name":"GPT-5.4 mini","input":0.75,"output":4.5,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1775623639000,"name":"GPT-5.4 mini","input":0.75,"output":4.5,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":1.5,"output":9,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null}}},
+      {"from":1790819251000,"name":"GPT-5.4 mini","input":0.75,"output":4.5,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":1.5,"output":9,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null},"flex":{"input":0.375,"output":2.25,"cacheRead":0.0375,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.4-nano": [
+      {"from":1773775884000,"name":"GPT-5.4 nano","input":0.2,"output":1.25,"cacheRead":0.02,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"GPT-5.4 nano","input":0.2,"output":1.25,"cacheRead":0.02,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"flex":{"input":0.1,"output":0.625,"cacheRead":0.01,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.4-pro": [
+      {"from":1772754622000,"name":"GPT-5.4 Pro","input":30,"output":180,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":60,"output":270,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1778625648000,"name":"GPT-5.4 Pro","input":30,"output":180,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":272000,"input":60,"output":270,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "openai/gpt-5.5": [
+      {"from":1776971840000,"name":"GPT-5.5","input":5,"output":30,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":12.5,"output":75,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null}}},
+      {"from":1777056650000,"name":"GPT-5.5","input":5,"output":30,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":10,"output":45,"cacheRead":1,"cacheWrite":null,"cacheWrite1h":null}],"modes":{"fast":{"input":12.5,"output":75,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null}}},
+      {"from":1778625648000,"name":"GPT-5.5","input":5,"output":30,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":272000,"input":10,"output":45,"cacheRead":1,"cacheWrite":null,"cacheWrite1h":null}],"modes":{"fast":{"input":12.5,"output":75,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.5-pro": [
+      {"from":1777402834000,"name":"GPT-5.5 Pro","input":30,"output":180,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1777422458000,"name":"GPT-5.5 Pro","input":30,"output":180,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":60,"output":270,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1778625648000,"name":"GPT-5.5 Pro","input":30,"output":180,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":272000,"input":60,"output":270,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "openai/gpt-5.6": [
+      {"from":1783619946000,"name":"GPT-5.6 Sol","input":5,"output":30,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[{"over":272000,"input":10,"output":45,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null}],"modes":{"fast":{"input":10,"output":60,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null}}},
+      {"from":1787632644000,"name":"GPT-5.6","input":4,"output":20,"cacheRead":0.4,"cacheWrite":5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":8,"output":30,"cacheRead":0.8,"cacheWrite":10,"cacheWrite1h":null}],"modes":{"fast":{"input":8,"output":40,"cacheRead":0.8,"cacheWrite":10,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.6-cyber": [
+      {"from":1792454742000,"name":"GPT-5.6 Cyber","input":12.5,"output":75,"cacheRead":1.25,"cacheWrite":15.625,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-5.6-luna": [
+      {"from":1783619946000,"name":"GPT-5.6 Luna","input":1,"output":6,"cacheRead":0.1,"cacheWrite":1.25,"cacheWrite1h":null,"tiers":[{"over":272000,"input":2,"output":9,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null}],"modes":{"fast":{"input":2,"output":12,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null}}},
+      {"from":1785466159000,"name":"GPT-5.6 Luna","input":0.2,"output":1.2,"cacheRead":0.02,"cacheWrite":0.25,"cacheWrite1h":null,"tiers":[{"over":272000,"input":0.4,"output":1.8,"cacheRead":0.04,"cacheWrite":0.5,"cacheWrite1h":null}],"modes":{"fast":{"input":0.4,"output":2.4,"cacheRead":0.04,"cacheWrite":0.5,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.6-sol": [
+      {"from":1783619946000,"name":"GPT-5.6 Sol","input":5,"output":30,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null,"tiers":[{"over":272000,"input":10,"output":45,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null}],"modes":{"fast":{"input":10,"output":60,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null}}},
+      {"from":1787632644000,"name":"GPT-5.6 Sol","input":4,"output":20,"cacheRead":0.4,"cacheWrite":5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":8,"output":30,"cacheRead":0.8,"cacheWrite":10,"cacheWrite1h":null}],"modes":{"fast":{"input":8,"output":40,"cacheRead":0.8,"cacheWrite":10,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-5.6-terra": [
+      {"from":1783619946000,"name":"GPT-5.6 Terra","input":2.5,"output":15,"cacheRead":0.25,"cacheWrite":3.125,"cacheWrite1h":null,"tiers":[{"over":272000,"input":5,"output":22.5,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null}],"modes":{"fast":{"input":5,"output":30,"cacheRead":0.5,"cacheWrite":6.25,"cacheWrite1h":null}}},
+      {"from":1785466159000,"name":"GPT-5.6 Terra","input":2,"output":12,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":4,"output":18,"cacheRead":0.4,"cacheWrite":5,"cacheWrite1h":null}],"modes":{"fast":{"input":4,"output":24,"cacheRead":0.4,"cacheWrite":5,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-6-astra": [
+      {"from":1788563111000,"name":"GPT-6 Astra","input":10,"output":50,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":20,"output":75,"cacheRead":2,"cacheWrite":25,"cacheWrite1h":null}],"modes":{"fast":{"input":20,"output":100,"cacheRead":2,"cacheWrite":25,"cacheWrite1h":null}}},
+      {"from":1790794493000,"name":"GPT-6 Astra","input":10,"output":50,"cacheRead":1,"cacheWrite":12.5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":20,"output":75,"cacheRead":2,"cacheWrite":25,"cacheWrite1h":null}],"modes":{"fast":{"input":20,"output":100,"cacheRead":2,"cacheWrite":25,"cacheWrite1h":null},"ultrafast":{"input":60,"output":300,"cacheRead":6,"cacheWrite":75,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-6-luna": [
+      {"from":1790104250000,"name":"GPT-6 Luna","input":0.1,"output":0.5,"cacheRead":0.01,"cacheWrite":0.125,"cacheWrite1h":null,"tiers":[{"over":272000,"input":0.2,"output":0.75,"cacheRead":0.02,"cacheWrite":0.25,"cacheWrite1h":null}],"modes":{"fast":{"input":0.2,"output":1,"cacheRead":0.02,"cacheWrite":0.25,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-6-sol": [
+      {"from":1790104250000,"name":"GPT-6 Sol","input":2,"output":10,"cacheRead":0.2,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":4,"output":15,"cacheRead":0.4,"cacheWrite":5,"cacheWrite1h":null}],"modes":{"fast":{"input":4,"output":20,"cacheRead":0.4,"cacheWrite":5,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-6.1-sol": [
+      {"from":1790705458000,"name":"GPT-6.1 Sol","input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":4,"output":15,"cacheRead":0.2,"cacheWrite":5,"cacheWrite1h":null}],"modes":{"fast":{"input":4,"output":20,"cacheRead":0.2,"cacheWrite":5,"cacheWrite1h":null}}},
+      {"from":1791493431000,"name":"GPT-6.1 Sol","input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":4,"output":15,"cacheRead":0.2,"cacheWrite":5,"cacheWrite1h":null}],"modes":{"fast":{"input":4,"output":20,"cacheRead":0.2,"cacheWrite":5,"cacheWrite1h":null},"ultrafast":{"input":12,"output":60,"cacheRead":0.6,"cacheWrite":15,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-6.1-terra": [
+      {"from":1793039543000,"name":"GPT-6.1 Terra","input":1,"output":5,"cacheRead":0.05,"cacheWrite":1.25,"cacheWrite1h":null,"tiers":[{"over":272000,"input":2,"output":7.5,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":null}],"modes":{"fast":{"input":2,"output":10,"cacheRead":0.1,"cacheWrite":2.5,"cacheWrite1h":null}}}
+    ],
+    "openai/gpt-audio": [
+      {"from":1792454742000,"name":"GPT-Audio","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-audio-1.5": [
+      {"from":1792454742000,"name":"GPT-Audio-1.5","input":2.5,"output":10,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-audio-mini": [
+      {"from":1792454742000,"name":"GPT-Audio Mini","input":0.6,"output":2.4,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-daybreak-blue-latest": [
+      {"from":1790563713000,"name":"Daybreak Blue","input":4,"output":20,"cacheRead":0.4,"cacheWrite":5,"cacheWrite1h":null,"tiers":[{"over":272000,"input":8,"output":30,"cacheRead":0.8,"cacheWrite":10,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "openai/gpt-daybreak-red-latest": [
+      {"from":1790563713000,"name":"Daybreak Red","input":12.5,"output":75,"cacheRead":1.25,"cacheWrite":15.625,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-image-2": [
+      {"from":1781775992000,"name":"gpt-image-2","input":5,"output":30,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-image-2.5-flare": [
+      {"from":1792454742000,"name":"GPT Image 2.5 Flare","input":5,"output":30,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-image-2.5-sunburst": [
+      {"from":1792454742000,"name":"GPT Image 2.5 Sunburst","input":5,"output":30,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-realtime": [
+      {"from":1792454742000,"name":"GPT-Realtime","input":4,"output":16,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-realtime-1.5": [
+      {"from":1792454742000,"name":"GPT-Realtime-1.5","input":4,"output":16,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-realtime-2": [
+      {"from":1792454742000,"name":"GPT-Realtime-2","input":4,"output":24,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-realtime-2.1": [
+      {"from":1783711925000,"name":"GPT-Realtime-2.1","input":4,"output":24,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-realtime-2.1-mini": [
+      {"from":1792454742000,"name":"GPT-Realtime-2.1 Mini","input":0.6,"output":2.4,"cacheRead":0.06,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/gpt-realtime-mini": [
+      {"from":1792454742000,"name":"GPT-Realtime Mini","input":0.6,"output":2.4,"cacheRead":0.06,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/o1": [
+      {"from":1749675065000,"name":"o1","input":15,"output":60,"cacheRead":7.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/o1-mini": [
+      {"from":1749155492000,"name":"o1-mini","input":3,"output":12,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1749675065000,"name":"o1-mini","input":1.1,"output":4.4,"cacheRead":0.55,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/o1-preview": [
+      {"from":1749155492000,"name":"o1-preview","input":15,"output":60,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1749675065000,"name":"o1-preview","input":15,"output":60,"cacheRead":7.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/o1-pro": [
+      {"from":1749675065000,"name":"o1-pro","input":150,"output":600,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/o3": [
+      {"from":1749675065000,"name":"o3","input":2,"output":8,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"o3","input":2,"output":8,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":3.5,"output":14,"cacheRead":0.875,"cacheWrite":null,"cacheWrite1h":null},"flex":{"input":1,"output":4,"cacheRead":0.25,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/o3-deep-research": [
+      {"from":1751346714000,"name":"o3-deep-research","input":10,"output":40,"cacheRead":2.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/o3-mini": [
+      {"from":1749675065000,"name":"o3-mini","input":1.1,"output":4.4,"cacheRead":0.55,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/o3-pro": [
+      {"from":1749675065000,"name":"o3-pro","input":20,"output":80,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/o4-mini": [
+      {"from":1749675065000,"name":"o4-mini","input":1.1,"output":4.4,"cacheRead":0.28,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779815175000,"name":"o4-mini","input":1.1,"output":4.4,"cacheRead":0.275,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790819251000,"name":"o4-mini","input":1.1,"output":4.4,"cacheRead":0.275,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":2,"output":8,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null},"flex":{"input":0.55,"output":2.2,"cacheRead":0.138,"cacheWrite":null,"cacheWrite1h":null}}},
+      {"from":1792433219000,"name":"o4-mini","input":1.1,"output":4.4,"cacheRead":0.275,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{"fast":{"input":2,"output":8,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null},"flex":{"input":0.55,"output":2.2,"cacheRead":0.1375,"cacheWrite":null,"cacheWrite1h":null}}}
+    ],
+    "openai/o4-mini-deep-research": [
+      {"from":1751346714000,"name":"o4-mini-deep-research","input":2,"output":8,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/omni-moderation-latest": [
+      {"from":1792454742000,"name":"omni-moderation","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/text-embedding-3-large": [
+      {"from":1761144263000,"name":"text-embedding-3-large","input":0.13,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/text-embedding-3-small": [
+      {"from":1761144263000,"name":"text-embedding-3-small","input":0.02,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "openai/text-embedding-ada-002": [
+      {"from":1761144263000,"name":"text-embedding-ada-002","input":0.1,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "perplexity/sonar": [
+      {"from":1758257675000,"name":"Sonar","input":1,"output":1,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "perplexity/sonar-deep-research": [
+      {"from":1771371440000,"name":"Perplexity Sonar Deep Research","input":2,"output":8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "perplexity/sonar-pro": [
+      {"from":1758257675000,"name":"Sonar Pro","input":3,"output":15,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "perplexity/sonar-reasoning": [
+      {"from":1758257675000,"name":"Sonar Reasoning","input":1,"output":5,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "perplexity/sonar-reasoning-pro": [
+      {"from":1758257675000,"name":"Sonar Reasoning Pro","input":2,"output":8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-2": [
+      {"from":1749591914000,"name":"Grok 2","input":2,"output":10,"cacheRead":2,"cacheWrite":10,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 2","input":2,"output":10,"cacheRead":2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-2-1212": [
+      {"from":1749591914000,"name":"Grok 2 (1212)","input":2,"output":10,"cacheRead":2,"cacheWrite":10,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 2 (1212)","input":2,"output":10,"cacheRead":2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-2-latest": [
+      {"from":1749591914000,"name":"Grok 2 Latest","input":2,"output":10,"cacheRead":2,"cacheWrite":10,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 2 Latest","input":2,"output":10,"cacheRead":2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-2-vision": [
+      {"from":1749591914000,"name":"Grok 2 Vision","input":2,"output":10,"cacheRead":2,"cacheWrite":10,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 2 Vision","input":2,"output":10,"cacheRead":2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-2-vision-1212": [
+      {"from":1749591914000,"name":"Grok 2 Vision (1212)","input":2,"output":10,"cacheRead":2,"cacheWrite":10,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 2 Vision (1212)","input":2,"output":10,"cacheRead":2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-2-vision-latest": [
+      {"from":1749591914000,"name":"Grok 2 Vision Latest","input":2,"output":10,"cacheRead":2,"cacheWrite":10,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 2 Vision Latest","input":2,"output":10,"cacheRead":2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-3": [
+      {"from":1749591914000,"name":"Grok 3","input":3,"output":15,"cacheRead":0.75,"cacheWrite":15,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 3","input":3,"output":15,"cacheRead":0.75,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-3-fast": [
+      {"from":1749591914000,"name":"Grok 3 Fast","input":5,"output":25,"cacheRead":1.25,"cacheWrite":25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 3 Fast","input":5,"output":25,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-3-fast-latest": [
+      {"from":1749591914000,"name":"Grok 3 Fast Latest","input":5,"output":25,"cacheRead":1.25,"cacheWrite":25,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 3 Fast Latest","input":5,"output":25,"cacheRead":1.25,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-3-latest": [
+      {"from":1749591914000,"name":"Grok 3 Latest","input":3,"output":15,"cacheRead":0.75,"cacheWrite":15,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 3 Latest","input":3,"output":15,"cacheRead":0.75,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-3-mini": [
+      {"from":1749591914000,"name":"Grok 3 Mini","input":0.3,"output":0.5,"cacheRead":0.075,"cacheWrite":0.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 3 Mini","input":0.3,"output":0.5,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-3-mini-fast": [
+      {"from":1749591914000,"name":"Grok 3 Mini Fast","input":0.6,"output":4,"cacheRead":0.15,"cacheWrite":4,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 3 Mini Fast","input":0.6,"output":4,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-3-mini-fast-latest": [
+      {"from":1749591914000,"name":"Grok 3 Mini Fast Latest","input":0.6,"output":4,"cacheRead":0.15,"cacheWrite":4,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 3 Mini Fast Latest","input":0.6,"output":4,"cacheRead":0.15,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-3-mini-latest": [
+      {"from":1749591914000,"name":"Grok 3 Mini Latest","input":0.3,"output":0.5,"cacheRead":0.075,"cacheWrite":0.5,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 3 Mini Latest","input":0.3,"output":0.5,"cacheRead":0.075,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-4": [
+      {"from":1752147125000,"name":"Grok 4","input":3,"output":15,"cacheRead":0.75,"cacheWrite":15,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok 4","input":3,"output":15,"cacheRead":0.75,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-4-1-fast": [
+      {"from":1763654725000,"name":"Grok 4.1 Fast","input":0.2,"output":0.5,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-4-1-fast-non-reasoning": [
+      {"from":1763654725000,"name":"Grok 4.1 Fast (Non-Reasoning)","input":0.2,"output":0.5,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-4-fast": [
+      {"from":1758643862000,"name":"Grok 4 Fast","input":0.2,"output":0.5,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-4-fast-non-reasoning": [
+      {"from":1758643862000,"name":"Grok 4 Fast (Non-Reasoning)","input":0.2,"output":0.5,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-4.1-fast": [
+      {"from":1763602347000,"name":"Grok 4.1 Fast","input":0.2,"output":0.5,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-4.1-fast-non-reasoning": [
+      {"from":1763602347000,"name":"Grok 4.1 Fast (Non-Reasoning)","input":0.2,"output":0.5,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-4.20-0309-non-reasoning": [
+      {"from":1774112197000,"name":"Grok 4.20 (Non-Reasoning)","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1779310958000,"name":"Grok 4.20 (Non-Reasoning)","input":1.25,"output":2.5,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1779399943000,"name":"Grok 4.20 (Non-Reasoning)","input":1.25,"output":2.5,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":2.5,"output":5,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.20-0309-reasoning": [
+      {"from":1774112197000,"name":"Grok 4.20 (Reasoning)","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1779310958000,"name":"Grok 4.20 (Reasoning)","input":1.25,"output":2.5,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1779399943000,"name":"Grok 4.20 (Reasoning)","input":1.25,"output":2.5,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":2.5,"output":5,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.20-beta-latest-non-reasoning": [
+      {"from":1773328095000,"name":"Grok 4.20 Beta (Non-Reasoning)","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.20-beta-latest-reasoning": [
+      {"from":1773328095000,"name":"Grok 4.20 Beta (Reasoning)","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.20-experimental-beta-0304-non-reasoning": [
+      {"from":1772997912000,"name":"Grok 4.20 (Experimental, Non-Reasoning)","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.20-experimental-beta-0304-reasoning": [
+      {"from":1772997912000,"name":"Grok 4.20 (Experimental, Reasoning)","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.20-multi-agent-0309": [
+      {"from":1774112197000,"name":"Grok 4.20 Multi-Agent","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1779310958000,"name":"Grok 4.20 Multi-Agent","input":1.25,"output":2.5,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1779399943000,"name":"Grok 4.20 Multi-Agent","input":1.25,"output":2.5,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":2.5,"output":5,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.20-multi-agent-beta-latest": [
+      {"from":1773328095000,"name":"Grok 4.20 Multi-Agent Beta","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.20-multi-agent-experimental-beta-0304": [
+      {"from":1772997912000,"name":"Grok 4.20 Multi-Agent (Experimental)","input":2,"output":6,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.3": [
+      {"from":1777607168000,"name":"Grok 4.3","input":1.25,"output":2.5,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":2.5,"output":5,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.5": [
+      {"from":1783534479000,"name":"Grok 4.5","input":2,"output":6,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":1,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1784434856000,"name":"Grok 4.5","input":2,"output":6,"cacheRead":0.3,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":1,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}},
+      {"from":1785524457000,"name":"Grok 4.5","input":2,"output":6,"cacheRead":0.3,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":0.6,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.6": [
+      {"from":1786549903000,"name":"Grok 4.6","input":2,"output":6,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":1,"cacheWrite":null,"cacheWrite1h":null}],"modes":{"fast":{"input":4,"output":12,"cacheRead":1,"cacheWrite":null,"cacheWrite1h":null}}},
+      {"from":1786854418000,"name":"Grok 4.6","input":2,"output":6,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":1,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-4.7": [
+      {"from":1790008851000,"name":"Grok 4.7","input":2,"output":6,"cacheRead":0.5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":4,"output":12,"cacheRead":1,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-beta": [
+      {"from":1749591914000,"name":"Grok Beta","input":5,"output":15,"cacheRead":5,"cacheWrite":15,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok Beta","input":5,"output":15,"cacheRead":5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-build-0.1": [
+      {"from":1779300306000,"name":"Grok Build 0.1","input":1,"output":2,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1779399943000,"name":"Grok Build 0.1","input":1,"output":2,"cacheRead":0.2,"cacheWrite":null,"cacheWrite1h":null,"tiers":[{"over":200000,"input":2,"output":4,"cacheRead":0.4,"cacheWrite":null,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "xai/grok-code-fast-1": [
+      {"from":1759152437000,"name":"Grok Code Fast 1","input":0.2,"output":1.5,"cacheRead":0.02,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "xai/grok-vision-beta": [
+      {"from":1749591914000,"name":"Grok Vision Beta","input":5,"output":15,"cacheRead":5,"cacheWrite":15,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1757448197000,"name":"Grok Vision Beta","input":5,"output":15,"cacheRead":5,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.5": [
+      {"from":1755235207000,"name":"GLM-4.5","input":0.6,"output":2.2,"cacheRead":0.11,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.5-air": [
+      {"from":1755235207000,"name":"GLM-4.5-Air","input":0.2,"output":1.1,"cacheRead":0.03,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.5-airx": [
+      {"from":1792463575000,"name":"GLM-4.5-AirX","input":1.1,"output":4.5,"cacheRead":0.22,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.5-flash": [
+      {"from":1755235207000,"name":"GLM-4.5-Flash","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.5-x": [
+      {"from":1792463575000,"name":"GLM-4.5-X","input":2.2,"output":8.9,"cacheRead":0.45,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.5v": [
+      {"from":1755235207000,"name":"GLM 4.5V","input":0.6,"output":1.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792288011000,"name":"GLM-4.5V","input":0.6,"output":1.8,"cacheRead":0.11,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-4.5V","input":0.6,"output":1.8,"cacheRead":0.11,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.6": [
+      {"from":1759229986000,"name":"GLM-4.6","input":0.6,"output":2.2,"cacheRead":0.11,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.6v": [
+      {"from":1765379588000,"name":"GLM-4.6V","input":0.3,"output":0.9,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792288011000,"name":"GLM-4.6V","input":0.3,"output":0.9,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-4.6V","input":0.3,"output":0.9,"cacheRead":0.05,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.6v-flash": [
+      {"from":1790004146000,"name":"GLM-4.6V-Flash","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.6v-flashx": [
+      {"from":1792463575000,"name":"GLM-4.6V-FlashX","input":0.04,"output":0.4,"cacheRead":0.004,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.7": [
+      {"from":1766419661000,"name":"GLM-4.7","input":0.6,"output":2.2,"cacheRead":0.11,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.7-flash": [
+      {"from":1769582948000,"name":"GLM-4.7-Flash","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-4.7-flashx": [
+      {"from":1775146343000,"name":"GLM-4.7-FlashX","input":0.07,"output":0.4,"cacheRead":0.01,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-5": [
+      {"from":1770833869000,"name":"GLM-5","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1770842123000,"name":"GLM-5","input":1,"output":3.2,"cacheRead":0.2,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-5-turbo": [
+      {"from":1773676028000,"name":"GLM-5-Turbo","input":1.2,"output":4,"cacheRead":0.24,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-5.1": [
+      {"from":1775624072000,"name":"GLM-5.1","input":1.4,"output":4.4,"cacheRead":0.26,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-5.2": [
+      {"from":1781382704000,"name":"GLM-5.2","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1782096921000,"name":"GLM-5.2","input":1.4,"output":4.4,"cacheRead":0.26,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-5.3": [
+      {"from":1787632282000,"name":"GLM-5.3","input":1.4,"output":4.4,"cacheRead":0.26,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-5.3-flash": [
+      {"from":1788375205000,"name":"GLM-5.3-Flash","input":0.075,"output":0.25,"cacheRead":0.015,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789795026000,"name":"GLM-5.3-Flash","input":0.15,"output":0.5,"cacheRead":0.03,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-5.3-flashx": [
+      {"from":1789795026000,"name":"GLM-5.3-FlashX","input":0.37,"output":1.25,"cacheRead":0.075,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zai/glm-5v-turbo": [
+      {"from":1775146343000,"name":"glm-5v-turbo","input":1.2,"output":4,"cacheRead":0.24,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-4.5": [
+      {"from":1754183524000,"name":"GLM-4.5","input":0.6,"output":2.2,"cacheRead":0.11,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-4.5-air": [
+      {"from":1754183524000,"name":"GLM-4.5-Air","input":0.2,"output":1.1,"cacheRead":0.03,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-4.5-Air","input":0.11952,"output":0.89637,"cacheRead":0.0239,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.17927,"output":1.19516,"cacheRead":0.03585,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "zhipuai/glm-4.5-flash": [
+      {"from":1754183524000,"name":"GLM-4.5-Flash","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-4.5v": [
+      {"from":1755058070000,"name":"GLM 4.5V","input":0.6,"output":1.8,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792288011000,"name":"GLM-4.5V","input":0.6,"output":1.8,"cacheRead":0.11,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-4.5V","input":0.29879,"output":0.89637,"cacheRead":0.05976,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.59758,"output":1.79274,"cacheRead":0.11952,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "zhipuai/glm-4.6": [
+      {"from":1759229986000,"name":"GLM-4.6","input":0.6,"output":2.2,"cacheRead":0.11,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-4.6v": [
+      {"from":1765379588000,"name":"GLM-4.6V","input":0.3,"output":0.9,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792288011000,"name":"GLM-4.6V","input":0.3,"output":0.9,"cacheRead":0.05,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-4.6V","input":0.1494,"output":0.44819,"cacheRead":0.02988,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.29879,"output":0.89637,"cacheRead":0.05976,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "zhipuai/glm-4.6v-flash": [
+      {"from":1765816539000,"name":"GLM-4.6V-Flash","input":0,"output":0,"cacheRead":null,"cacheWrite":null,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1790004146000,"name":"GLM-4.6V-Flash","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-4.6v-flashx": [
+      {"from":1792463575000,"name":"GLM-4.6V-FlashX","input":0.02241,"output":0.22409,"cacheRead":0.00448,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.04482,"output":0.44819,"cacheRead":0.00448,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "zhipuai/glm-4.7": [
+      {"from":1766419661000,"name":"GLM-4.7","input":0.6,"output":2.2,"cacheRead":0.11,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-4.7","input":0.44819,"output":2.09153,"cacheRead":0.08964,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.59758,"output":2.39032,"cacheRead":0.11952,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "zhipuai/glm-4.7-flash": [
+      {"from":1768924996000,"name":"GLM-4.7-Flash","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-4.7-flashx": [
+      {"from":1775146343000,"name":"GLM-4.7-FlashX","input":0.07,"output":0.4,"cacheRead":0.01,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-4.7-FlashX","input":0.0747,"output":0.44819,"cacheRead":0.01494,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-5": [
+      {"from":1770833869000,"name":"GLM-5","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1770842123000,"name":"GLM-5","input":1,"output":3.2,"cacheRead":0.2,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-5","input":0.59758,"output":2.68911,"cacheRead":0.1494,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":0.89637,"output":3.28669,"cacheRead":0.22409,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "zhipuai/glm-5-turbo": [
+      {"from":1792463575000,"name":"GLM-5-Turbo","input":0.74698,"output":3.28669,"cacheRead":0.17927,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":1.04577,"output":3.88427,"cacheRead":0.26891,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "zhipuai/glm-5.1": [
+      {"from":1775624072000,"name":"GLM-5.1","input":6,"output":24,"cacheRead":1.3,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1782924028000,"name":"GLM-5.1","input":1.4,"output":4.4,"cacheRead":0.26,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-5.1","input":0.89637,"output":3.58548,"cacheRead":0.19421,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":1.19516,"output":4.18306,"cacheRead":0.29879,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ],
+    "zhipuai/glm-5.2": [
+      {"from":1781382704000,"name":"GLM-5.2","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1781784555000,"name":"GLM-5.2","input":1.4,"output":4.4,"cacheRead":0.26,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-5.2","input":1.19516,"output":4.18306,"cacheRead":0.29879,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-5.3": [
+      {"from":1788375205000,"name":"GLM-5.3","input":1.4,"output":4.4,"cacheRead":0.26,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-5.3","input":1.19516,"output":4.18306,"cacheRead":0.29879,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-5.3-flash": [
+      {"from":1788375205000,"name":"GLM-5.3-Flash","input":0.075,"output":0.25,"cacheRead":0.015,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1789795026000,"name":"GLM-5.3-Flash","input":0.15,"output":0.5,"cacheRead":0.03,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-5.3-Flash","input":0.11952,"output":0.41831,"cacheRead":0.03436,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-5.3-flashx": [
+      {"from":1789795026000,"name":"GLM-5.3-FlashX","input":0.37,"output":1.25,"cacheRead":0.075,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-5.3-FlashX","input":0.29879,"output":1.04577,"cacheRead":0.08516,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}}
+    ],
+    "zhipuai/glm-5v-turbo": [
+      {"from":1775146343000,"name":"glm-5v-turbo","input":5,"output":22,"cacheRead":1.2,"cacheWrite":0,"cacheWrite1h":null,"tiers":[],"modes":{}},
+      {"from":1792463575000,"name":"GLM-5V-Turbo","input":0.74698,"output":3.28669,"cacheRead":0.17927,"cacheWrite":0,"cacheWrite1h":null,"tiers":[{"over":32000,"input":1.04577,"output":3.88427,"cacheRead":0.26891,"cacheWrite":0,"cacheWrite1h":null}],"modes":{}}
+    ]
+  }
+}
