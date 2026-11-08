@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SPARE_SLOTS } from "../presentation/usagePalette";
-import { FALLBACK_GOLD } from "../components/stats/AchievementEmbers";
+import { FALLBACK_GOLD } from "../presentation/stats/embersField";
 import { readStyles } from "./testSupport";
 
 /**
