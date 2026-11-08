@@ -10,11 +10,9 @@ import {
   correctHistory,
   foldHistory,
   formatSeed,
-  madeBy,
   parseArgs,
   priceRow,
   readCorrections,
-  readLabs,
   readMakers,
   samePrice,
 } from "./price-history.mjs";
@@ -432,7 +430,7 @@ describe("buildSeed", () => {
     expect(JSON.parse(formatSeed(seed))).toEqual(seed);
   });
 
-  it("keeps each maker's own models and leaves out what it resells", () => {
+  it("names who made each model as its latest revision did, and how far its history reaches", () => {
     const dir = mkdtempSync(join(tmpdir(), "kd-prices-"));
     dirs.push(dir);
     git(dir, ["init", "-q", "-b", "main"]);
@@ -441,15 +439,21 @@ describe("buildSeed", () => {
       files: {
         "providers/alibaba/models/deepseek-v4.1-flash.toml": priced(3),
         "providers/alibaba/models/qwen-x.toml": based("alibaba/qwen-x"),
-        "providers/zai/models/glm-x.toml": based("zhipuai/glm-x"),
+        "providers/anthropic/models/claude-x.toml": priced(3),
       },
     });
-    // The resold model names its maker only from a later revision on.
+    // A resold model names its maker only from a later revision on.
     commit(dir, S + 2, { files: { "providers/alibaba/models/deepseek-v4.1-flash.toml": based("deepseek/deepseek-v4.1-flash") } });
+    commit(dir, S + 3, { files: { "README.md": "not a model" } });
 
-    const { seed, resold } = buildSeed(dir, ["alibaba", "zai"], [], { zai: "zhipuai" });
-    expect(Object.keys(seed.models)).toEqual(["alibaba/qwen-x", "zai/glm-x"]);
-    expect([...resold]).toEqual(["alibaba/deepseek-v4.1-flash"]);
+    const { seed } = buildSeed(dir, ["alibaba", "anthropic"]);
+    expect(seed.bases).toEqual({
+      "alibaba/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+      "alibaba/qwen-x": "alibaba/qwen-x",
+    });
+    expect(Object.keys(seed.models)).toContain("alibaba/deepseek-v4.1-flash");
+    expect(seed.committedAt).toBe((S + 3) * 1000);
+    expect(JSON.parse(formatSeed(seed))).toEqual(seed);
   });
 
   it("folds a span models.dev fixed later into the fix, a real change staying history", () => {
@@ -482,14 +486,5 @@ describe("CLI", () => {
 
   it("reads the makers from resources/pricing/makers.json", () => {
     expect(readMakers()).toContain("anthropic");
-  });
-
-  it("reads the makers' labs, and a maker made only its own lab's models", () => {
-    const labs = readLabs();
-    expect(labs.zai).toBe("zhipuai");
-    expect(madeBy("zai", "zhipuai/glm-5.3", labs)).toBe(true);
-    expect(madeBy("alibaba", "alibaba/qwen3.8-max", labs)).toBe(true);
-    expect(madeBy("alibaba", "deepseek/deepseek-v4.1-flash", labs)).toBe(false);
-    expect(madeBy("anthropic", "anthropic", labs)).toBe(false);
   });
 });

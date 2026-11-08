@@ -32,8 +32,8 @@ pub const SEED_VERSION: u64 = 1;
 /// The price history this build ships, built by `scripts/price-history.mjs`.
 const SEED_JSON: &str = include_str!("../../../resources/pricing/model-prices.seed.json");
 
-/// The price rows of the history this build ships.
-pub fn seed() -> Result<Vec<PriceRow>, String> {
+/// The price history this build ships.
+pub fn seed() -> Result<SeedHistory, String> {
     parse_seed(SEED_JSON)
 }
 
@@ -84,6 +84,8 @@ pub fn aliases() -> &'static HashMap<String, String> {
 /// Whether `maker` made the model whose base model is `base` (`<lab>/<model>`,
 /// models.dev's canonical id). A maker lists other labs' models too, at its
 /// own resale price — those are not its list price, and are not journaled.
+/// The one rule both readers apply: [`parse_seed`] to the seed's history,
+/// [`parse_api`] to the live catalogue.
 pub fn made_by(maker: &str, base: &str) -> bool {
     let lab = makers_file().labs.get(maker).map_or(maker, String::as_str);
     base.split_once('/').is_some_and(|(of, _)| of == lab)
@@ -229,12 +231,29 @@ fn carried(fresh: &Price, known: &Price) -> Price {
     }
 }
 
-/// The price rows in a seed file. A seed from a newer format is refused
-/// rather than half-read.
-pub fn parse_seed(body: &str) -> Result<Vec<PriceRow>, String> {
+/// A price history as a seed holds it: models.dev's, read out of its git log.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeedHistory {
+    /// The makers' own models' rows, by model, oldest first.
+    pub rows: Vec<PriceRow>,
+    /// When the models.dev commit the seed was read at was made: the history
+    /// is complete up to here.
+    pub until: f64,
+}
+
+/// The history in a seed file — only the models their maker made
+/// ([`made_by`], by each model's base model): a maker's listing of another
+/// lab's model is resale. A seed from a newer format is refused rather than
+/// half-read.
+pub fn parse_seed(body: &str) -> Result<SeedHistory, String> {
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Seed {
         version: u64,
+        #[serde(default)]
+        committed_at: f64,
+        #[serde(default)]
+        bases: HashMap<String, String>,
         models: HashMap<String, Vec<SeedEntry>>,
     }
     #[derive(Deserialize)]
@@ -252,9 +271,15 @@ pub fn parse_seed(body: &str) -> Result<Vec<PriceRow>, String> {
             seed.version
         ));
     }
+    let bases = seed.bases;
+    let made = |model: &str| match (model.split_once('/'), bases.get(model)) {
+        (Some((maker, _)), Some(base)) => made_by(maker, base),
+        _ => true,
+    };
     let mut rows: Vec<PriceRow> = seed
         .models
         .into_iter()
+        .filter(|(model, _)| made(model))
         .flat_map(|(model, entries)| {
             entries.into_iter().map(move |entry| PriceRow {
                 model: model.clone(),
@@ -265,7 +290,10 @@ pub fn parse_seed(body: &str) -> Result<Vec<PriceRow>, String> {
         })
         .collect();
     rows.sort_by(|a, b| a.model.cmp(&b.model).then(a.from.total_cmp(&b.from)));
-    Ok(rows)
+    Ok(SeedHistory {
+        rows,
+        until: seed.committed_at,
+    })
 }
 
 #[cfg(test)]
@@ -278,7 +306,7 @@ mod tests {
 
     #[test]
     fn every_shipped_alias_names_a_maker_key_the_seed_prices() {
-        let journal = journal(seed().unwrap());
+        let journal = journal(seed().unwrap().rows);
         for (id, key) in aliases() {
             assert!(makers().iter().any(|maker| key.starts_with(&format!("{maker}/"))), "{id} → {key}: no maker's key");
             assert!(journal.latest(key).is_some(), "{id} → {key}: the seed has no price for it");
@@ -429,7 +457,7 @@ mod tests {
                 "modes": { "fast": { "input": 8, "output": 40, "cacheRead": 0.4, "cacheWrite": 10, "cacheWrite1h": 16 } } }
             ]
           } }"#;
-        let rows = parse_seed(seed).unwrap();
+        let rows = parse_seed(seed).unwrap().rows;
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].model, "anthropic/claude-opus-5-5");
         assert_eq!(rows[0].price.rates.cache_write_1h, Some(8.0));
@@ -443,8 +471,11 @@ mod tests {
     // agents run on as their makers list them.
     #[test]
     fn the_shipped_seed_reads_and_holds_the_makers_prices() {
-        let rows = seed().expect("the shipped seed");
+        let seed = seed().expect("the shipped seed");
+        assert!(seed.until > 0.0, "the seed says how far its history reaches");
+        let rows = seed.rows;
         assert!(rows.len() > 500, "{} rows", rows.len());
+        assert!(rows.iter().all(|row| !row.model.starts_with("alibaba/deepseek")), "no resold model is read");
         assert!(rows.iter().all(|row| makers().iter().any(|maker| row.model.starts_with(&format!("{maker}/")))));
         let latest = |model: &str| rows.iter().rfind(|row| row.model == model).expect(model).clone();
         let opus = latest("anthropic/claude-opus-5-5");
@@ -454,6 +485,22 @@ mod tests {
         let sol = latest("openai/gpt-6.1-sol");
         assert_eq!(sol.price.tiers.first().map(|tier| (tier.over, tier.rates.input)), Some((272_000, 4.0)));
         assert_eq!(latest("zai/glm-5.3").price.rates.input, 1.4);
+    }
+
+    #[test]
+    fn a_seed_is_read_without_the_models_a_maker_resells() {
+        let entry = r#"[{ "from": 1, "input": 1, "output": 2, "tiers": [], "modes": {} }]"#;
+        let seed = format!(
+            r#"{{ "version": 1, "committedAt": 77,
+                 "bases": {{ "alibaba/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+                            "alibaba/qwen3.8-max": "alibaba/qwen3.8-max", "zai/glm-5.3": "zhipuai/glm-5.3" }},
+                 "models": {{ "alibaba/deepseek-v4.1-flash": {entry}, "alibaba/qwen3.8-max": {entry},
+                             "zai/glm-5.3": {entry}, "anthropic/claude-x": {entry} }} }}"#
+        );
+        let history = parse_seed(&seed).unwrap();
+        let models: Vec<&str> = history.rows.iter().map(|row| row.model.as_str()).collect();
+        assert_eq!(models, ["alibaba/qwen3.8-max", "anthropic/claude-x", "zai/glm-5.3"], "a model with no base stays");
+        assert_eq!(history.until, 77.0);
     }
 
     #[test]

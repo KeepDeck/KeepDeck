@@ -39,7 +39,8 @@ export const NO_TEXT_PRICE = "no text input and output price";
  * @typedef {{ over: number } & TextPrices} Tier the prices once the context exceeds `over` tokens
  * @typedef {TextPrices & { tiers: Tier[], modes: Record<string, TextPrices> }} PriceRow
  * @typedef {{ from: number, name: string | null } & PriceRow} SeedEntry
- * @typedef {{ version: number, source: string, commit: string, models: Record<string, SeedEntry[]> }} Seed
+ * @typedef {{ version: number, source: string, commit: string, committedAt: number, bases: Record<string, string>, models: Record<string, SeedEntry[]> }} Seed
+ *   `committedAt` is when `commit` was made: the history reaches that far; `bases` names who made each model (`<lab>/<model>`)
  * @typedef {{ key: string, from: number, name: string | null, row: PriceRow }} Revision
  * @typedef {{ row: PriceRow, ignored: string[] } | { skip: string }} Mapped
  * @typedef {{ over: number, prices: Record<string, unknown> }} Step a context override, or a schema-1 tier
@@ -800,28 +801,19 @@ function tally(tallies, reason, key, commit) {
 }
 
 /**
- * Whether `maker` made the model whose base model is `base` (`<lab>/<model>`):
- * a maker lists other labs' models too, at its own resale price.
- * @param {string} maker
- * @param {string} base
- * @param {Record<string, string>} labs a maker's lab where it differs from its id
- */
-export function madeBy(maker, base, labs) {
-  return base.split("/")[0] === (labs[maker] ?? maker) && base.includes("/");
-}
-
-/**
- * Reads the price history of `makers` out of a models.dev clone: only the
- * models each one made itself — one any revision bases on another lab's is
- * resold — and the spans models.dev fixed later read with their fix (see
- * {@link correctHistory}).
+ * Reads the price history of `makers` out of a models.dev clone, the spans
+ * models.dev fixed later read with their fix (see {@link correctHistory}).
+ * Each model's base model — `<lab>/<model>`, who made it — rides along as
+ * its latest revision named it: whether a maker made a model or resells it
+ * is decided where the seed is read, by the one rule the live catalogue is
+ * read by too.
  * @param {string} repo
  * @param {string[]} makers
  * @param {Correction[]} [corrections]
- * @param {Record<string, string>} [labs]
  */
-export function buildSeed(repo, makers, corrections = [], labs = {}) {
+export function buildSeed(repo, makers, corrections = []) {
   const head = git(repo, ["rev-parse", "HEAD"]).toString("utf8").trim();
+  const committedAt = Number(git(repo, ["show", "-s", "--format=%ct", head]).toString("utf8").trim()) * 1000;
   const commits = readHistory(repo, head, makers);
   const blobIds = new Set(commits.flatMap((commit) => commit.changes.flatMap((change) => change.blob ?? [])));
   const blobs = catFile(repo, [...blobIds]);
@@ -853,13 +845,12 @@ export function buildSeed(repo, makers, corrections = [], labs = {}) {
     priced.push({ key: revision.key, from: revision.from, commit: revision.commit, doc: revision.doc, row: mapped.row });
   }
 
-  /** @type {Set<string>} */
-  const resold = new Set();
+  /** @type {Map<string, string>} */
+  const bases = new Map();
   for (const { key, doc } of priced) {
-    if (typeof doc.base_model === "string" && !madeBy(key.split("/")[0], doc.base_model, labs)) resold.add(key);
+    if (typeof doc.base_model === "string") bases.set(key, doc.base_model);
   }
-  const own = priced.filter((revision) => !resold.has(revision.key));
-  const corrected = correctHistory(own, commits.map((commit) => commit.sha), corrections);
+  const corrected = correctHistory(priced, commits.map((commit) => commit.sha), corrections);
 
   // A file that names no model inherits the name of its base model
   // (models/<lab>/<model>.toml), as it stood in the same commit.
@@ -877,11 +868,19 @@ export function buildSeed(repo, makers, corrections = [], labs = {}) {
     return { key: revision.key, from: revision.from, name, row: revision.row };
   });
 
+  const models = foldHistory(revisions);
   /** @type {Seed} */
-  const seed = { version: SEED_VERSION, source: SOURCE, commit: head, models: foldHistory(revisions) };
+  const seed = {
+    version: SEED_VERSION,
+    source: SOURCE,
+    commit: head,
+    committedAt,
+    bases: Object.fromEntries([...bases].filter(([key]) => key in models).sort(([a], [b]) => compare(a, b))),
+    models,
+  };
   const neverPriced = new Set([...skipped.values()].flatMap((entry) => [...entry.models]));
-  for (const key of [...Object.keys(seed.models), ...resold]) neverPriced.delete(key);
-  return { seed, skipped, ignored, variants, unnamed, neverPriced, resold };
+  for (const key of Object.keys(seed.models)) neverPriced.delete(key);
+  return { seed, skipped, ignored, variants, unnamed, neverPriced };
 }
 
 // ---------------------------------------------------------------- CLI
@@ -920,20 +919,6 @@ export function readMakers(file = MAKERS_FILE) {
 }
 
 /**
- * Each maker's lab, where it is not the maker's own id.
- * @param {string} [file]
- * @returns {Record<string, string>}
- */
-export function readLabs(file = MAKERS_FILE) {
-  const parsed = JSON.parse(readFileSync(file, "utf8"));
-  const labs = isRecord(parsed) ? (parsed.labs ?? {}) : undefined;
-  if (!isRecord(labs) || !Object.values(labs).every((lab) => typeof lab === "string")) {
-    throw new Error(`${file}: "labs" must map provider ids to lab ids`);
-  }
-  return /** @type {Record<string, string>} */ (labs);
-}
-
-/**
  * The spans of models.dev's history it fixed later.
  * @param {string} [file]
  * @returns {Correction[]}
@@ -961,11 +946,14 @@ export function formatSeed(seed) {
   const models = Object.entries(seed.models).map(
     ([key, entries]) => `    ${JSON.stringify(key)}: [\n${entries.map((entry) => `      ${JSON.stringify(entry)}`).join(",\n")}\n    ]`,
   );
+  const bases = Object.entries(seed.bases).map(([key, base]) => `    ${JSON.stringify(key)}: ${JSON.stringify(base)}`);
   return [
     "{",
     `  "version": ${JSON.stringify(seed.version)},`,
     `  "source": ${JSON.stringify(seed.source)},`,
     `  "commit": ${JSON.stringify(seed.commit)},`,
+    `  "committedAt": ${JSON.stringify(seed.committedAt)},`,
+    `  "bases": {${bases.length === 0 ? "}," : `\n${bases.join(",\n")}\n  },`}`,
     `  "models": {${models.length === 0 ? "}" : `\n${models.join(",\n")}\n  }`}`,
     "}",
     "",
@@ -990,12 +978,7 @@ function printTallies(title, tallies) {
 export function main(argv = process.argv.slice(2)) {
   const { repo, out } = parseArgs(argv);
   const corrections = readCorrections();
-  const { seed, skipped, ignored, variants, unnamed, neverPriced, resold } = buildSeed(
-    repo,
-    readMakers(),
-    corrections,
-    readLabs(),
-  );
+  const { seed, skipped, ignored, variants, unnamed, neverPriced } = buildSeed(repo, readMakers(), corrections);
   const text = formatSeed(seed);
   writeFileSync(out, text);
   const entries = Object.values(seed.models).reduce((sum, model) => sum + model.length, 0);
@@ -1005,7 +988,6 @@ export function main(argv = process.argv.slice(2)) {
   );
   printTallies("Skipped revisions (the price before them holds):", skipped);
   printTallies("Prices the seed has no field for (dropped):", ignored);
-  if (resold.size > 0) console.log(`Resold models left out: ${resold.size} (${[...resold].slice(0, 8).join(", ")}…)`);
   if (neverPriced.size > 0) console.log(`Models never priced: ${neverPriced.size} (${[...neverPriced].slice(0, 8).join(", ")}…)`);
   if (variants.size > 0) console.log(`Deployment variants skipped: ${[...variants].join(", ")}`);
   if (unnamed > 0) console.log(`Revisions with no resolvable name: ${unnamed}`);

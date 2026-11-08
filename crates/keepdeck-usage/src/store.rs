@@ -15,7 +15,7 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
-use crate::catalogue::{self, CatalogueEntry};
+use crate::catalogue::{self, CatalogueEntry, SeedHistory};
 use crate::legacy_migration;
 use crate::model::{CallBatch, LedgerRow, Place, TokenCounts, TOKEN_KINDS};
 use crate::pricing::{Journal, Price, PriceRow, Rates, Tier, Usage};
@@ -135,38 +135,54 @@ impl UsageStore {
         &self.journal
     }
 
-    /// Make the shipped seed the journal's seed rows. The seed is the price
-    /// history read back out of models.dev's own, so a newer build's seed
-    /// outranks the copy an older build wrote: a row it corrected is
-    /// replaced, one it no longer holds — a price models.dev itself fixed —
-    /// is dropped. What the live catalogue journaled stays, and wins a clash.
-    /// Answers how many rows were added or dropped.
-    pub fn adopt_seed(&mut self, rows: &[PriceRow], captured_at: f64) -> Result<usize, String> {
-        // A start the catalogue journaled is its own; the seed's row for it
-        // could never be written, so it is no difference either.
+    /// Make the shipped seed the journal's history up to the moment it
+    /// reaches. The seed is models.dev's price history read back out of its
+    /// git log, so it outranks what an older build's seed wrote — a row it
+    /// corrected is replaced, one it no longer holds (a price models.dev
+    /// itself fixed, a model found resold) is dropped — and what the live
+    /// catalogue journaled before that moment: the same history, dated by
+    /// when it was fetched rather than made, and without the corrections
+    /// made since. What the catalogue journaled after it stays. Answers how
+    /// many rows were added or dropped.
+    pub fn adopt_seed(&mut self, seed: &SeedHistory, captured_at: f64) -> Result<usize, String> {
+        let superseded: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM price WHERE source <> ?1 AND effective_from <= ?2",
+                params![SEED_SOURCE, seed.until],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        // A start a later catalogue row holds is the catalogue's; the seed's
+        // row for it can never be written, so it is no difference either.
         let taken: Vec<(String, f64)> = self
             .conn
-            .prepare("SELECT model, effective_from FROM price WHERE source <> ?1")
+            .prepare("SELECT model, effective_from FROM price WHERE source <> ?1 AND effective_from > ?2")
             .map_err(|e| e.to_string())?
-            .query_map([SEED_SOURCE], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_map(params![SEED_SOURCE, seed.until], |r| Ok((r.get(0)?, r.get(1)?)))
             .map_err(|e| e.to_string())?
             .collect::<Result<_, _>>()
             .map_err(|e| e.to_string())?;
-        let mut shipped: Vec<PriceRow> = rows
+        let mut shipped: Vec<PriceRow> = seed
+            .rows
             .iter()
             .filter(|row| !taken.iter().any(|(model, from)| *model == row.model && *from == row.from))
             .cloned()
             .collect();
         shipped.sort_by(|a, b| a.model.cmp(&b.model).then(a.from.total_cmp(&b.from)));
         let held = price_rows(&self.conn, Some(SEED_SOURCE))?;
-        if held == shipped {
+        if held == shipped && superseded == 0 {
             return Ok(0);
         }
         let changed = held.iter().filter(|row| !shipped.contains(row)).count()
-            + shipped.iter().filter(|row| !held.contains(row)).count();
+            + shipped.iter().filter(|row| !held.contains(row)).count()
+            + superseded as usize;
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
-        tx.execute("DELETE FROM price WHERE source = ?1", [SEED_SOURCE])
-            .map_err(|e| e.to_string())?;
+        tx.execute(
+            "DELETE FROM price WHERE source = ?1 OR effective_from <= ?2",
+            params![SEED_SOURCE, seed.until],
+        )
+        .map_err(|e| e.to_string())?;
         for row in &shipped {
             insert_price(&tx, row, SEED_SOURCE, captured_at)?;
         }
@@ -1340,31 +1356,32 @@ mod tests {
     }
 
     #[test]
-    fn a_newer_seed_replaces_what_an_older_one_wrote_and_leaves_the_catalogues_rows() {
+    fn a_newer_seed_replaces_the_history_before_it_and_leaves_the_catalogues_rows_after_it() {
         let mut s = store();
         let mut wrong = opus_price(DAY);
         wrong.price.rates.cache_read = Some(0.4);
         let flap = opus_price(2.0 * DAY);
-        s.adopt_seed(&[wrong, flap], NOW).unwrap();
-        let mut live = opus_price(3.0 * DAY);
+        s.adopt_seed(&SeedHistory { rows: vec![wrong, flap], until: 2.5 * DAY }, NOW).unwrap();
+        // The catalogue journaled a price models.dev later fixed, then a real one.
+        let mut stale = opus_price(4.0 * DAY);
+        stale.price.rates.output = 99.0;
+        let mut live = opus_price(6.0 * DAY);
         live.price.rates.output = 30.0;
-        s.merge_prices(&[live.clone()], "models.dev", NOW).unwrap();
+        s.merge_prices(&[stale, live.clone()], "models.dev", NOW).unwrap();
 
         let corrected = opus_price(DAY);
-        let mut clash = opus_price(3.0 * DAY);
-        clash.price.rates.output = 99.0;
+        let mut moved = opus_price(3.5 * DAY);
+        moved.price.rates.output = 25.0;
+        let newer = SeedHistory { rows: vec![moved.clone(), corrected.clone()], until: 5.0 * DAY };
         assert_eq!(
-            s.adopt_seed(&[clash, corrected.clone()], NOW).unwrap(),
-            3,
-            "two old rows dropped and the fix written; the clash is the catalogue's"
+            s.adopt_seed(&newer, NOW).unwrap(),
+            5,
+            "two old seed rows and the catalogue's row before the seed's end dropped, two rows written"
         );
         let rows = price_rows(&s.conn, None).unwrap();
-        assert_eq!(rows, vec![corrected.clone(), live], "the fix stands, the folded row is gone, the catalogue's row wins its clash");
+        assert_eq!(rows, vec![corrected, moved, live], "the seed's history up to its end, the catalogue's after it");
         assert_eq!(s.journal().latest("anthropic/claude-opus-5-5").unwrap().price.rates.output, 30.0, "the journal reads the new rows");
-
-        let mut clash = opus_price(3.0 * DAY);
-        clash.price.rates.output = 99.0;
-        assert_eq!(s.adopt_seed(&[corrected, clash], NOW).unwrap(), 0, "the same seed again changes nothing");
+        assert_eq!(s.adopt_seed(&newer, NOW).unwrap(), 0, "the same seed again changes nothing");
     }
 
     #[test]
