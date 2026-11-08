@@ -183,95 +183,41 @@ export interface TailWatch {
    * For metadata (e.g. execution mode), never for old calls or endings. */
   readonly replayContext?: boolean;
   /**
-   * Fold these records into a running session total, stamped onto each one
-   * as it is carried.
+   * A `calls` record that is no call but qualifies the calls after it — the
+   * model codex's `turn_context` names for the turn, the real model id kimi's
+   * `llm.request` carries.
    *
-   * DECLARED rather than done here, and that is not a compromise — it is the
-   * only arrangement that works. A session store is read once at arming, and
-   * the reader keeps the LAST record of each watch rather than every one: a
-   * large transcript holds twelve thousand rows that carry counts, and
-   * handing them all over to be added up would cost eight megabytes across
-   * the boundary every time a pane is armed. So the addition has to happen
-   * where the bytes already are, and what travels is the sum.
-   *
-   * What that side must NOT have is an opinion about it. Which records carry
-   * counts, which buckets a total is made of, and whether repeated rows are
-   * one message or several are all facts about one CLI's format — so they
-   * are said here, as data, and applied by a reader that adds the numbers it
-   * was named without knowing what any of them mean.
+   * The host holds the latest such record of each file and attaches its
+   * fields to every later `calls` record of the SAME file as their
+   * `context` ([`carriedRecord`]), so a normalizer reading one call knows
+   * what it ran on without keeping state of its own. Reading a file again
+   * from `since`, the host first restores the last context record before
+   * that point, so the first call read is qualified like any other.
    */
-  readonly sum?: TailSum;
+  readonly context?: true;
+  /**
+   * A `calls` record that names another store of the same session — a
+   * subagent thread codex writes to a rollout of its own.
+   *
+   * Carried WHOLE when a file is read again, not from `since`: a subagent
+   * spawned long ago may still be running, and its file is found only
+   * through the record that named it. The normalizer answers its `links`.
+   */
+  readonly links?: true;
 }
 
-/**
- * A running total over the records one watch carries.
+/** The three questions a session store answers. `status` moves the pane's
+ * card and gates mail delivery; `usage` moves the pane's live numbers (its
+ * context, its limits); `calls` are what the pane SPENT, booked into the
+ * usage history one call at a time. They are separate because they fail
+ * differently: a wrong status stops mail, a wrong gauge misinforms for a
+ * moment, a wrong call misprices history.
  *
- * The whole arithmetic, and deliberately no more: named buckets, added up,
- * with one rule for stores that repeat themselves. Anything a store needs
- * beyond this is interpretation, and interpretation belongs to the plugin's
- * own normalizer — which reads the stamped total the same as any other
- * field.
- *
- * WHERE THE LINE IS, for whoever is tempted to widen this. What may live
- * here is a fold that is COMMUTATIVE per key: the answer must not depend on
- * the order records arrived in, because the reader replays a file from
- * wherever its cursor happens to be and has no notion of a first or a last.
- * `dedupBy` qualifies — a per-key maximum is the same however the rows are
- * shuffled. "The newest row wins", "subtract a baseline", "only rows where
- * X" do not: each needs an ordering or a condition, and adding one turns a
- * description into a small language with a control flow nobody voted for.
- * Those belong in [`SessionTailDialect.read`], where a real language already
- * exists and the plugin — which knows the format — is the one running it.
- */
-export interface TailSum {
-  /**
-   * The buckets to add: the name each total is stamped under, mapped to the
-   * dotted path it is read from on the original record.
-   *
-   * Separate buckets rather than one number because they are not
-   * interchangeable — a re-read context prefix is not fresh input, and
-   * summing them together would report a session as having spent what it
-   * merely re-sent.
-   */
-  readonly buckets: Readonly<Record<string, string>>;
-  /**
-   * The field identifying which message a row belongs to, when a store
-   * writes one message as several rows.
-   *
-   * A claude transcript repeats an assistant message id as its content and
-   * tool blocks arrive, each row restating the message's counts so far.
-   * Added plainly they would multiply a turn's cost by the number of blocks
-   * in it; rows sharing this field are instead held at each bucket's
-   * MAXIMUM, and only the growth joins the total. Omit for a store whose
-   * every row is its own event.
-   */
-  readonly dedupBy?: string;
-  /**
-   * The field whose value splits the total into one per value, when a store
-   * mixes things that must not be added together. A claude session's rows
-   * come from more than one model (a subagent may run on another), and one
-   * total would put all of them under whichever model the pane names.
-   *
-   * Present, the stamp is an object of totals keyed by that value; a row
-   * without one is totalled under the empty name. A partition qualifies
-   * under the rule above: which total a row joins does not depend on order.
-   */
-  readonly groupBy?: string;
-  /**
-   * The name each total also counts its messages under: the distinct
-   * identities when `dedupBy` is set (a message restated in several rows is
-   * one), the rows otherwise. Omit when nobody needs the count.
-   */
-  readonly countAs?: string;
-  /** The key the running total is stamped under on each carried record. */
-  readonly stampAs: string;
-}
-
-/** The two questions a session store answers. `status` moves the pane's
- * card and gates mail delivery; `usage` moves the numbers. They are separate
- * because they fail differently: a wrong status stops mail, a wrong number
- * misinforms. */
-export type TailLane = "status" | "usage";
+ * A `calls` record is carried EVERY time it is written — not the last of a
+ * run, as a `usage` reading is — because each one is a call. Reading a file
+ * again after a restart starts from where the ledger says it stopped, not
+ * from the top, so a long transcript is not carried twice. */
+export type TailLane = "status" | "usage" | "calls";
 
 /**
  * The type a carried record travels under, on either lane.

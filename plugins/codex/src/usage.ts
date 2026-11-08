@@ -3,20 +3,21 @@ import {
   asCount,
   asFiniteNumber,
   asNonEmptyString,
-  carriedUsageRecord,
+  carriedRecord,
   clampPercent,
-  collectTokenCounts,
   isJsonRecord,
   parseJsonRecord,
   percentWindow,
   reportedLimits,
   type AccountUsage,
+  type CallTokens,
+  type CarriedRecord,
   type LimitsNormalizer,
   type LimitsRead,
   type PaneUsage,
   type PluginRpc,
   type TailWatch,
-  type TokenCounts,
+  type UsageCall,
   type UsageNormalizer,
   type UsageWindow,
 } from "@keepdeck/plugin-api";
@@ -24,31 +25,52 @@ import {
 /**
  * Codex usage normalizer — this plugin owns the rollout-record schema, both
  * halves of it: which records carry the numbers (declared below) and what
- * they mean. A `token_count` brings windows and tokens, a `turn_context`
- * the model. The store merges the two — neither may erase the other.
+ * they mean. A `token_count` brings the account's windows and the pane's
+ * context; a `token_usage_record` is one call, run on the model the latest
+ * `turn_context` names.
  */
 
 /**
  * Which rollout records carry the numbers.
  *
- * The context record is declared FIRST because declaration order is the
- * catch-up order: on arming, the host keeps the last record of each watch
- * and delivers them in this order, so the model and its window land before
- * the counts they qualify.
+ * The calls are codex 0.166's `token_usage_record`s: one per response, with
+ * the response's own id — the id that makes a call count once. The running
+ * `token_count` totals are NOT read for spend: a fork copies its source's
+ * `token_count` events into the new rollout (while it drops every
+ * `token_usage_record`), and a context-window overflow resets them.
  *
- * No `sum`. Codex keeps a running cumulative of its own inside
- * `total_token_usage`, and a total folded on top of a total would double
- * everything the session has spent.
+ * `turn_context` is the calls' context: the host attaches its model to every
+ * call after it. `collab_agent_spawn_end` names a subagent thread — a
+ * rollout of its own, found by [`UsageTail.locate`] and read with this one.
  *
- * `token_count` is matched one level down, on `payload.type`: its class
- * (`event_msg`) also carries the assistant's own text, and matching the
- * class alone would put a session's output on the bus to learn one number.
+ * Every event class is matched one level down, on `payload.type`: its class
+ * (`event_msg`) also carries the assistant's own text — and a spawn record
+ * its prompt — so only the named fields travel.
  */
 export const codexUsageWatches: readonly TailWatch[] = [
   {
     match: [{ key: "type", equals: "turn_context" }],
-    keep: ["type", "payload.model", "payload.effort"],
-    lane: "usage",
+    keep: ["payload.model"],
+    lane: "calls",
+    context: true,
+  },
+  {
+    match: [
+      { key: "type", equals: "token_usage_record" },
+      { key: "payload.response_id" },
+    ],
+    keep: ["type", "payload.response_id", "payload.usage"],
+    lane: "calls",
+  },
+  {
+    match: [
+      { key: "type", equals: "event_msg" },
+      { key: "payload.type", equals: "collab_agent_spawn_end" },
+      { key: "payload.new_thread_id" },
+    ],
+    keep: ["type", "payload.new_thread_id"],
+    lane: "calls",
+    links: true,
   },
   {
     match: [
@@ -173,17 +195,40 @@ export const normalizeCodexRateLimits: LimitsNormalizer = (body, at) => {
   return reportedLimits(windows, at);
 };
 
-/** Codex token bags share one field naming across total/last. */
-function tokens(value: unknown): TokenCounts | undefined {
-  if (!isJsonRecord(value)) return undefined;
-  return collectTokenCounts({
-    input: value.input_tokens,
-    output: value.output_tokens,
-    cacheRead: value.cached_input_tokens,
-    cacheWrite: undefined,
-    reasoning: value.reasoning_output_tokens,
-    total: value.total_tokens,
-  });
+/** A count, or 0 for anything that is not one. */
+function count(value: unknown): number {
+  const counted = asFiniteNumber(value);
+  return counted !== undefined && counted > 0 ? counted : 0;
+}
+
+/**
+ * One codex response's `usage` in the canonical classes.
+ *
+ * Codex counts its input the OpenAI way, WITH the cached prefix and the
+ * cache writes in it: the fresh input is what remains of `input_tokens`
+ * after both. Its output already holds the reasoning, which it states as a
+ * share of it.
+ */
+function codexTokens(usage: Record<string, unknown>): CallTokens {
+  const cacheRead = count(usage.cached_input_tokens);
+  const cacheWrite = count(usage.cache_write_input_tokens);
+  return {
+    input: Math.max(0, count(usage.input_tokens) - cacheRead - cacheWrite),
+    cacheRead,
+    cacheWrite,
+    output: count(usage.output_tokens),
+    reasoning: count(usage.reasoning_output_tokens),
+  };
+}
+
+/** One `token_usage_record` as its call — none without its id, its usage,
+ * its time or the model the turn ran on. */
+function codexCall(carried: CarriedRecord): UsageCall | null {
+  const id = asNonEmptyString(carried.record["payload.response_id"]);
+  const usage = carried.record["payload.usage"];
+  const model = carried.context ? asNonEmptyString(carried.context["payload.model"]) : undefined;
+  if (!id || !isJsonRecord(usage) || !model || carried.at === undefined) return null;
+  return { id, at: carried.at, provider: "openai", model, tokens: codexTokens(usage) };
 }
 
 // Codex excludes the fixed system prompt and tool instructions from the
@@ -211,23 +256,19 @@ function contextUsedPct(inContext: number, contextWindow: number): number {
  * here: a signed-out codex simply produces no rollout events.
  */
 export const normalizeCodexRollout: UsageNormalizer = (payload, at) => {
-  const record = carriedUsageRecord(payload);
-  if (!record) return null;
+  const carried = carriedRecord(payload);
+  if (!carried) return null;
+  const { record } = carried;
 
-  if (record.type === "turn_context") {
-    // A dotted `keep` arrives as a dotted KEY — what was asked for, under
-    // the name it was asked for.
-    const model = asNonEmptyString(record["payload.model"]);
-    if (!model) return { account: null, pane: null };
-    const effort = asNonEmptyString(record["payload.effort"]);
-    return {
-      account: null,
-      pane: {
-        agent: "codex",
-        model: effort ? `${model} ${effort}` : model,
-        reportedAt: at,
-      },
-    };
+  // A dotted `keep` arrives as a dotted KEY — what was asked for, under the
+  // name it was asked for.
+  if (record.type === "token_usage_record") {
+    const call = codexCall(carried);
+    return { account: null, pane: null, calls: call ? [call] : [] };
+  }
+  const spawned = asNonEmptyString(record["payload.new_thread_id"]);
+  if (spawned) {
+    return { account: null, pane: null, links: [spawned] };
   }
   const event = isJsonRecord(record.payload) ? record.payload : undefined;
   if (!event || event.type !== "token_count") return null;
@@ -245,11 +286,12 @@ export const normalizeCodexRollout: UsageNormalizer = (payload, at) => {
 
   const info = isJsonRecord(event.info) ? event.info : undefined;
   const windowTokens = info ? asFiniteNumber(info.model_context_window) : undefined;
-  const lastTurnTokens = info ? tokens(info.last_token_usage) : undefined;
-  const totalTokens = info ? tokens(info.total_token_usage) : undefined;
   // last_token_usage.total_tokens is the raw occupancy. Codex's own UI
   // removes its fixed baseline before presenting the user-controlled share.
-  const inContext = lastTurnTokens?.total;
+  const inContext =
+    info && isJsonRecord(info.last_token_usage)
+      ? asFiniteNumber(info.last_token_usage.total_tokens)
+      : undefined;
   const pane: PaneUsage = {
     agent: "codex",
     ...(inContext !== undefined && windowTokens !== undefined && windowTokens > 0
@@ -260,8 +302,6 @@ export const normalizeCodexRollout: UsageNormalizer = (payload, at) => {
           },
         }
       : {}),
-    ...(totalTokens ? { totalTokens } : {}),
-    ...(lastTurnTokens ? { lastTurnTokens } : {}),
     reportedAt: at,
   };
 

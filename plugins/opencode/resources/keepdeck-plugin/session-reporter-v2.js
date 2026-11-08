@@ -14,11 +14,12 @@
  *  - STATUS: the turn events, forwarded whole as `agent.status` — what they
  *    MEAN is read in plugins/opencode/src/status.ts, never here. 2.x calls the
  *    payload `data`; it travels as `properties`, the shape 1.x gave it.
- *  - USAGE: `usage.report` in the shape 1.x sends. Totals come from
- *    `session.usage.updated` — a running total per session — summed over the
- *    pane's conversation and its subagents; the context in use is the root's
- *    last finished step (`session.step.ended`); the window, from the model
- *    catalog.
+ *  - USAGE: `usage.report` in the shape 1.x sends. Each model step of the
+ *    pane's conversation and its subagents is a call: its model and dispatch
+ *    time from `session.step.started`, its tokens from the
+ *    `session.step.ended` (or a `session.step.failed` that was billed) of the
+ *    same assistant message. The context in use is the root's last finished
+ *    step; the window, from the model catalog.
  *
  * Best-effort throughout: nothing here may break the user's session.
  */
@@ -38,7 +39,8 @@ import {
 /** @typedef {{ id?: string, providerID?: string }} Model */
 /** @typedef {{ input?: number, output?: number, reasoning?: number, cache?: { read?: number, write?: number } }} Tokens */
 /** @typedef {{ content?: unknown, output?: unknown }} ToolResult */
-/** @typedef {{ sessionID?: string, parentID?: string, model?: Model, tokens?: Tokens, cost?: number, prompt?: { text?: string }, metadata?: Record<string, unknown>, status?: string, result?: ToolResult }} EventData */
+/** @typedef {{ sessionID?: string, parentID?: string, assistantMessageID?: string, started?: number, model?: Model, tokens?: Tokens, cost?: number, prompt?: { text?: string }, metadata?: Record<string, unknown>, status?: string, result?: ToolResult }} EventData */
+/** @typedef {import("./pane-report.js").Step} Step */
 /** @typedef {{ type?: string, data?: EventData }} BusEvent */
 /** @typedef {{ model: { list: () => Promise<{ data?: Array<{ providerID: string, id: string, limit?: { context?: number } }> }> }, session: { get: (query: { sessionID: string }) => Promise<{ agent?: unknown, model?: unknown } | undefined>, create: (query: Record<string, unknown>) => Promise<{ id?: string } | undefined>, synthetic: (input: { sessionID: string, text: string, resume: boolean }) => Promise<unknown>, prompt: (input: { sessionID: string, text: string, metadata: Record<string, unknown> }) => Promise<unknown>, hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> }, tool: { hook: (name: string, handler: (event: EventData) => Promise<void>) => Promise<unknown> } }} Context */
 
@@ -52,9 +54,11 @@ export async function startReporterV2({ context, bridge, pane }) {
     publishEnvelope(bridge, makeEnvelope(bridge, type, payload));
   };
 
-  /** sessionID → its latest running total: `{ tokens, cost }`.
-   * @type {Map<string, { tokens?: Tokens, cost?: number }>} */
-  const totals = new Map();
+  /** Each step under way, by its assistant message: what it runs on and when
+   * it was sent. A retry sends the same message again — the latest send is
+   * the step that ends next.
+   * @type {Map<string, { model: Model | undefined, started: number | undefined }>} */
+  const openSteps = new Map();
   /** The root's last finished step: what its context holds now.
    * @type {Tokens | undefined} */
   let lastStep;
@@ -79,7 +83,7 @@ export async function startReporterV2({ context, bridge, pane }) {
     const continuing = servedAny;
     servedRoot = root;
     servedAny = true;
-    totals.clear();
+    openSteps.clear();
     lastStep = undefined;
     model = undefined;
     sequence = 0;
@@ -128,32 +132,41 @@ export async function startReporterV2({ context, bridge, pane }) {
     }));
   });
 
-  const report = async () => {
-    // Nothing to say about a context until the root has finished a step.
-    if (!lastStep || !servedRoot) return;
-    const totalsOf = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 };
-    let cost = 0;
-    for (const { tokens, cost: spent } of totals.values()) {
-      const counted = tokenCounts(tokens);
-      totalsOf.input += counted.input;
-      totalsOf.output += counted.output;
-      totalsOf.reasoning += counted.reasoning;
-      totalsOf.cacheRead += counted.cacheRead;
-      totalsOf.cacheWrite += counted.cacheWrite;
-      cost += typeof spent === "number" ? spent : 0;
-    }
+  /** The conversation's context, once the root has finished a step, and the
+   * steps given. */
+  /** @param {Step[]} steps */
+  const report = async (steps) => {
+    if (!servedRoot || (!lastStep && steps.length === 0)) return;
+    const turn = lastStep;
     publish(
       "usage.report",
       usageReport({
         sessionId: servedRoot,
-        model: model?.id,
         sequence: ++sequence,
-        windowTokens: await contextWindow(model?.providerID, model?.id),
-        lastTurn: tokenCounts(lastStep),
-        totals: totalsOf,
-        costUsd: cost,
+        windowTokens: turn ? await contextWindow(model?.providerID, model?.id) : undefined,
+        lastTurn: turn ? tokenCounts(turn) : undefined,
+        steps,
       }),
     );
+  };
+
+  /** A step that ended billed, as a call: one per send, so a retried step
+   * that was billed twice is two calls. None without its start. */
+  /** @param {string} sessionID @param {EventData} data @returns {Step | undefined} */
+  const stepOf = (sessionID, data) => {
+    const id = data.assistantMessageID;
+    const opened = id ? openSteps.get(id) : undefined;
+    if (id) openSteps.delete(id);
+    const { model: ran, started } = opened ?? {};
+    if (!id || !data.tokens || !ran?.id || !ran.providerID || typeof started !== "number") return undefined;
+    return {
+      id: `${id}@${started}`,
+      sessionID,
+      providerID: ran.providerID,
+      modelID: ran.id,
+      created: started,
+      tokens: data.tokens,
+    };
   };
 
   /** @param {BusEvent} event */
@@ -180,25 +193,24 @@ export async function startReporterV2({ context, bridge, pane }) {
       return;
     }
 
-    if (type === "session.step.started" || type === "session.step.ended") {
+    if (type === "session.step.started" || type === "session.step.ended" || type === "session.step.failed") {
       await bindThrough(data.sessionID);
-      if (!data.sessionID || data.sessionID !== pane.root) return;
+      const sessionID = data.sessionID;
+      // The pane's conversation and its subagents spend; others do not. Only
+      // the conversation's own steps say what its context holds.
+      if (!sessionID || pane.rootOf(sessionID) !== pane.root) return;
+      const ownStep = sessionID === pane.root;
       if (type === "session.step.started") {
-        model = data.model;
+        if (data.assistantMessageID) {
+          openSteps.set(data.assistantMessageID, { model: data.model, started: data.started });
+        }
+        if (ownStep) model = data.model;
         return;
       }
-      lastStep = data.tokens;
-      await report();
-      return;
-    }
-
-    if (type === "session.usage.updated") {
-      await bindThrough(data.sessionID);
-      if (!data.sessionID) return;
-      // The pane's conversation and its subagents spend; others do not.
-      if (pane.rootOf(data.sessionID) !== pane.root) return;
-      totals.set(data.sessionID, { tokens: data.tokens, cost: data.cost });
-      await report();
+      const step = stepOf(sessionID, data);
+      const context = ownStep && type === "session.step.ended";
+      if (context) lastStep = data.tokens;
+      if (step || context) await report(step ? [step] : []);
     }
   };
 

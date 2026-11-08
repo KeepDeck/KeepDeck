@@ -373,43 +373,76 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
   });
 
   describe("usage", () => {
-    it("reports the pane's spend, its subagents' included, and the root's context", async () => {
+    const tokens = (input: number) => ({ input, output: 10, reasoning: 0, cache: { read: 5, write: 0 } });
+    const probe = { id: "probe", providerID: "fixture" };
+    /** Every step the reports carried, in report order. */
+    const reportedSteps = async () =>
+      ofType(await reported(), "usage.report").flatMap((report) => report.payload.steps ?? []);
+
+    it("reports each step of the conversation and its subagents as a call, and the root's context", async () => {
       const { context, bus } = createContext();
       await setup(context);
-      const tokens = (input: number) => ({ input, output: 10, reasoning: 0, cache: { read: 5, write: 0 } });
       bus.push("session.created", { sessionID: "ses_a" });
       bus.push("session.created", { sessionID: "ses_kid", parentID: "ses_a" });
-      bus.push("session.step.started", { sessionID: "ses_a", model: { id: "probe", providerID: "fixture" } });
-      bus.push("session.usage.updated", { sessionID: "ses_kid", cost: 0.5, tokens: tokens(300) });
-      bus.push("session.usage.updated", { sessionID: "ses_a", cost: 1, tokens: tokens(100) });
-      bus.push("session.step.ended", { sessionID: "ses_a", cost: 1, tokens: tokens(100) });
+      bus.push("session.step.started", { sessionID: "ses_a", assistantMessageID: "msg_a", model: probe, started: 100 });
+      bus.push("session.step.started", {
+        sessionID: "ses_kid",
+        assistantMessageID: "msg_k",
+        model: { id: "kid-model", providerID: "fixture" },
+        started: 150,
+      });
+      bus.push("session.step.ended", { sessionID: "ses_a", assistantMessageID: "msg_a", cost: 1, tokens: tokens(100) });
+      bus.push("session.step.ended", { sessionID: "ses_kid", assistantMessageID: "msg_k", cost: 0.5, tokens: tokens(300) });
 
-      const last = lastOf(ofType(await reported(), "usage.report"))?.payload;
-      expect(last).toMatchObject({
+      expect(await reportedSteps()).toEqual([
+        { id: "msg_a@100", sessionID: "ses_a", providerID: "fixture", modelID: "probe", created: 100, tokens: tokens(100) },
+        {
+          id: "msg_k@150",
+          sessionID: "ses_kid",
+          providerID: "fixture",
+          modelID: "kid-model",
+          created: 150,
+          tokens: tokens(300),
+        },
+      ]);
+      expect(lastOf(ofType(await reported(), "usage.report"))?.payload).toMatchObject({
         sessionId: "ses_a",
-        model: "probe",
         windowTokens: 200_000,
-        // The root's last finished step is what its context holds.
+        // The root's last finished step is what its context holds — never a
+        // subagent's.
         contextTokens: 115,
-        totals: { input: 400, output: 20, reasoning: 0, cacheRead: 10, cacheWrite: 0 },
-        costUsd: 1.5,
       });
     });
 
-    it("starts a new conversation's spend from nothing", async () => {
+    it("books each billed send of a retried step, and nothing for a send that was not billed", async () => {
       const { context, bus } = createContext();
       await setup(context);
-      const tokens = { input: 100, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
       bus.push("session.created", { sessionID: "ses_a" });
-      bus.push("session.usage.updated", { sessionID: "ses_a", cost: 1, tokens });
+      bus.push("session.step.started", { sessionID: "ses_a", assistantMessageID: "msg_a", model: probe, started: 100 });
+      bus.push("session.step.failed", { sessionID: "ses_a", assistantMessageID: "msg_a", tokens: tokens(40) });
+      bus.push("session.step.started", { sessionID: "ses_a", assistantMessageID: "msg_a", model: probe, started: 200 });
+      bus.push("session.step.failed", { sessionID: "ses_a", assistantMessageID: "msg_a" });
+      bus.push("session.step.started", { sessionID: "ses_a", assistantMessageID: "msg_a", model: probe, started: 300 });
+      bus.push("session.step.ended", { sessionID: "ses_a", assistantMessageID: "msg_a", tokens: tokens(100) });
+
+      expect((await reportedSteps()).map((step) => step.id)).toEqual(["msg_a@100", "msg_a@300"]);
+    });
+
+    it("leaves a step of the conversation it moved away from out of the new one", async () => {
+      const { context, bus } = createContext();
+      await setup(context);
+      bus.push("session.created", { sessionID: "ses_a" });
+      bus.push("session.step.started", { sessionID: "ses_a", assistantMessageID: "msg_a", model: probe, started: 100 });
       await reported();
       bus.push("session.created", { sessionID: "ses_b" });
-      bus.push("session.usage.updated", { sessionID: "ses_b", cost: 0.25, tokens });
-      bus.push("session.step.ended", { sessionID: "ses_b", cost: 0.25, tokens });
+      bus.push("session.step.ended", { sessionID: "ses_a", assistantMessageID: "msg_a", tokens: tokens(100) });
+      bus.push("session.step.started", { sessionID: "ses_b", assistantMessageID: "msg_b", model: probe, started: 400 });
+      bus.push("session.step.ended", { sessionID: "ses_b", assistantMessageID: "msg_b", tokens: tokens(7) });
 
+      expect((await reportedSteps()).map((step) => step.id)).toEqual(["msg_b@400"]);
       expect(lastOf(ofType(await reported(), "usage.report"))?.payload).toMatchObject({
         sessionId: "ses_b",
-        costUsd: 0.25,
+        contextTokens: 22,
       });
     });
   });

@@ -21,8 +21,6 @@ import {
   markPaneResumeOrigin,
   peekPaneSpawnSpec,
   resumeDiedSilently,
-  spawnPlanInheritsSession,
-  spawnPlanNeedsUsageBaseline,
   buildLivePaneSpec,
 } from ".";
 // Straight from the module: the barrel deliberately does not carry it.
@@ -329,33 +327,6 @@ describe("the plan builders — live pane, resume, fork", () => {
     bindPaneSpawnSpecSession("pane-fork", "fork-id");
     bindPaneSpawnSpecSession("pane-fork", "later-new-id");
     expect(peekPaneSpawnSpec("pane-fork")?.forkSessionId).toBe("fork-id");
-    expect(
-      spawnPlanNeedsUsageBaseline(peekPaneSpawnSpec("pane-fork"), "fork-id"),
-    ).toBe(true);
-    expect(
-      spawnPlanNeedsUsageBaseline(
-        peekPaneSpawnSpec("pane-fork"),
-        "later-new-id",
-      ),
-    ).toBe(false);
-    expect(
-      spawnPlanNeedsUsageBaseline({ resumeOf: "resumed-id" }, "resumed-id"),
-    ).toBe(true);
-  });
-
-  it("says a plan inherits even before the id it inherits is bound", async () => {
-    // The window the ledger cares about. A fork carries `forkOf` from the
-    // moment it is built and gains `forkSessionId` only when the binding
-    // lands — and a usage report can overtake that envelope. Reading the
-    // unmatched pair as "started clean" there told the ledger a cloned
-    // transcript was brand-new usage and appended the whole conversation.
-    expect(spawnPlanInheritsSession({ forkOf: "source-id" })).toBe(true);
-    expect(spawnPlanInheritsSession({ resumeOf: "resumed-id" })).toBe(true);
-    expect(spawnPlanInheritsSession({ forkSessionId: "fork-id" })).toBe(true);
-    // A bare spawn is the only thing that starts clean, and only a plan that
-    // exists says anything at all.
-    expect(spawnPlanInheritsSession({})).toBe(false);
-    expect(spawnPlanInheritsSession(undefined)).toBe(false);
   });
 
   it("refuses to label a bare spawn as a manual resume", async () => {

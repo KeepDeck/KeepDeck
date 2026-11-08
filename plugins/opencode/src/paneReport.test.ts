@@ -23,17 +23,30 @@ describe("what a pane's report says, on either opencode", () => {
   });
 
   it("counts the context in use from the last turn, and leaves out what is unknown", () => {
-    const turn = { input: 100, output: 10, reasoning: 0, cacheRead: 5, cacheWrite: 0, cost: 9 };
-    expect(
-      usageReport({ sessionId: "ses_a", sequence: 1, lastTurn: turn, totals: turn, costUsd: 9 }),
-    ).toEqual({
+    const turn = { input: 100, output: 10, reasoning: 0, cacheRead: 5, cacheWrite: 0 };
+    expect(usageReport({ sessionId: "ses_a", sequence: 1, lastTurn: turn })).toEqual({
       sessionId: "ses_a",
       sequence: 1,
       contextTokens: 115,
-      totals: { input: 100, output: 10, reasoning: 0, cacheRead: 5, cacheWrite: 0 },
-      lastTurn: { input: 100, output: 10, reasoning: 0, cacheRead: 5, cacheWrite: 0 },
-      costUsd: 9,
     });
+    expect(usageReport({ sequence: 2 })).toEqual({ sequence: 2 });
+  });
+
+  it("carries the steps it is given, and no empty list", () => {
+    const step = {
+      id: "prt_1",
+      sessionID: "ses_a",
+      providerID: "anthropic",
+      modelID: "claude-opus-5-5",
+      created: 5,
+      tokens: { input: 1, output: 2 },
+    };
+    expect(usageReport({ sequence: 1, windowTokens: 9, steps: [step] })).toEqual({
+      sequence: 1,
+      windowTokens: 9,
+      steps: [step],
+    });
+    expect(usageReport({ sequence: 1, steps: [] })).toEqual({ sequence: 1 });
   });
 });
 

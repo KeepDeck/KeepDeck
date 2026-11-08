@@ -49,6 +49,9 @@ export function watchSessionFile(
    * dialect named one. Listed each poll: the files appear as the work that
    * writes them starts. */
   siblings?: string | null,
+  /** From when (unix ms) the file's calls are not booked yet — the usage
+   * ledger's answer for the session. A re-read carries only those. */
+  since?: number | null,
 ): Promise<void> {
   return invoke("usage_watch_session_file", {
     paneId,
@@ -58,8 +61,16 @@ export function watchSessionFile(
       agent,
       watches: watches ?? [],
       siblings: siblings ?? null,
+      since: since ?? null,
     },
   });
+}
+
+/** Follow another store of the session a pane's tail follows — one a record
+ * named (codex's subagent thread) and its agent found. `false` when the pane
+ * has no tail to add it to. */
+export function linkSessionFile(paneId: string, path: string): Promise<boolean> {
+  return invoke<boolean>("usage_link_session_file", { paneId, path });
 }
 
 /** Change what a pane's armed tail carries, from where it stands: the file

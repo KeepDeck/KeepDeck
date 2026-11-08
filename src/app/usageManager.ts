@@ -6,6 +6,7 @@ import {
   samePaneUsage,
   type AccountUsage,
   type ApiActivity,
+  type NormalizedUsage,
   type PaneUsage,
   type UsageNormalizer,
 } from "../domain/usage";
@@ -43,8 +44,10 @@ export interface UsageManager {
    * registration for the same id replaces the first (last plugin wins, the
    * contribution-registry convention). */
   registerNormalizer(agentId: string, normalizer: UsageNormalizer): () => void;
-  /** Apply one VERIFIED bridge report. Unknown agents and unrecognizable
-   * payloads are dropped silently — reporters are best-effort by design.
+  /** Apply one VERIFIED bridge report, and answer what it carries besides
+   * the live state it applied: the calls it reports and the stores it names
+   * (null for none). Unknown agents and unrecognizable payloads are dropped
+   * silently — reporters are best-effort by design.
    *
    * `payload.catchUp` (a host-owned transport key, set by the tailer) marks
    * a replay of the EXISTING session file at arm time. Every tailed event
@@ -58,7 +61,7 @@ export interface UsageManager {
    * A normalizer that declares `accountActivity` opts its account claim out
    * of all of that: the claim counts only behind fresh API activity from
    * this pane, dated by receipt, and a replay never counts. */
-  report(paneId: string, payload: unknown, at?: number): void;
+  report(paneId: string, payload: unknown, at?: number): Pick<NormalizedUsage, "calls" | "links"> | null;
   /** Apply an account-level document that arrived OUTSIDE the pane pipeline
    * — a native limits source or the persisted snapshot. Freshest-wins like
    * every account claim. */
@@ -119,16 +122,16 @@ export function createUsageManager(): UsageManager {
     },
 
     report(paneId, payload, at = Date.now()) {
-      if (!isJsonRecord(payload) || typeof payload.agent !== "string") return;
+      if (!isJsonRecord(payload) || typeof payload.agent !== "string") return null;
       const provider = payload.agent;
       const normalize = normalizers.get(provider);
-      if (!normalize) return;
+      if (!normalize) return null;
       const catchUp = payload.catchUp === true;
       const sourceAt =
         usageSourceTimestamp(payload.sourceAt, at) ??
         usageSourceTimestamp(payload.sourceMtimeMs, at);
       const result = normalize(payload, sourceAt ?? (catchUp ? 0 : at));
-      if (!result) return;
+      if (!result) return null;
 
       const gated = gateAccountClaim(activity.get(paneId), result, {
         catchUp,
@@ -168,6 +171,7 @@ export function createUsageManager(): UsageManager {
         }
       }
       if (changed) emit();
+      return result.calls || result.links ? { calls: result.calls, links: result.links } : null;
     },
 
     setAccount(provider, account) {

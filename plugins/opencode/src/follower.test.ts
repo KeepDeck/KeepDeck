@@ -49,11 +49,19 @@ describe("the pane follows the session on screen", () => {
               sessionID: path.id,
               providerID: "anthropic",
               modelID: "claude-sonnet-5",
-              time: { completed: 1 },
+              time: { created: 1, completed: 1 },
               cost: 0.25,
               tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
             },
-            parts: [],
+            parts: [
+              {
+                id: `prt_${path.id}`,
+                type: "step-finish",
+                messageID: `msg_${path.id}`,
+                sessionID: path.id,
+                tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+              },
+            ],
           },
         ],
       }),
@@ -93,7 +101,8 @@ describe("the pane follows the session on screen", () => {
     await reporter.event(created);
     await courier.event(created);
     follower().start(dir, tui);
-    await until(() => deck.envelopes.some((e) => e.type === "session.bound"));
+    // Bound, and the history it hydrated (one step) reported.
+    await until(() => deck.envelopes.some((e) => e.type === "usage.report"));
     deck.envelopes.length = 0;
   };
 
@@ -117,7 +126,10 @@ describe("the pane follows the session on screen", () => {
     expect(order.indexOf("usage.report")).toBeGreaterThan(0);
     expect(order.indexOf("mail.ask")).toBeGreaterThan(order.indexOf("usage.report"));
     const usage = deck.envelopes.find((e) => e.type === "usage.report");
-    expect(usage.payload).toMatchObject({ sessionId: "ses_b", costUsd: 0.25 });
+    expect(usage.payload).toMatchObject({
+      sessionId: "ses_b",
+      steps: [{ id: "prt_ses_b", sessionID: "ses_b", modelID: "claude-sonnet-5", created: 1 }],
+    });
     // One move, one collection: the follower tells the courier once.
     await sleep(100);
     expect(types().filter((type) => type === "mail.ask")).toHaveLength(1);

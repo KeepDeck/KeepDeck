@@ -35,6 +35,9 @@ import { present } from "@keepdeck/plugin-api/testing";
  * declaration and the assertions so the two cannot drift: what the lane must
  * pass through is exactly what the plugin declared, never a shape this file
  * invented on the way. */
+/** From when the ledger says a session's store must be read again. */
+const SINCE = 1_234;
+
 const CODEX_WATCHES: TailWatch[] = [
   {
     match: [{ key: "type", equals: "event_msg" }],
@@ -57,6 +60,8 @@ const ipc = vi.hoisted(() => ({
   loadUsageCache: vi.fn(),
   saveUsageCache: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
+  // The ledger's answer to "from when must this session be read again".
+  usageSince: vi.fn(() => Promise.resolve(SINCE)),
   // The agents contribution list the channel reads its declarations from.
   contributions: [] as {
     pluginId: string;
@@ -71,6 +76,11 @@ vi.mock("../ipc/usage", () => ({
   readStoreCold: ipc.readStoreCold,
   loadUsageCache: ipc.loadUsageCache,
   saveUsageCache: ipc.saveUsageCache,
+}));
+vi.mock("../ipc/usageLedger", () => ({
+  usageSince: ipc.usageSince,
+  loadUsageLedger: vi.fn(),
+  bookUsageCalls: vi.fn(),
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({
@@ -385,6 +395,8 @@ describe("createUsageChannel", () => {
       CODEX_WATCHES,
       // codex keeps a session in one file, so it names no siblings.
       null,
+      // Read again from where the ledger has not booked the session.
+      SINCE,
     );
   });
 
@@ -448,6 +460,7 @@ describe("createUsageChannel", () => {
       "codex",
       CODEX_WATCHES,
       null,
+      SINCE,
     );
   });
 
@@ -479,6 +492,8 @@ describe("createUsageChannel", () => {
       CODEX_WATCHES,
       // codex keeps a session in one file, so it names no siblings.
       null,
+      // Read again from where the ledger has not booked the session.
+      SINCE,
     );
   });
 
@@ -507,6 +522,7 @@ describe("createUsageChannel", () => {
         "codex",
         CODEX_WATCHES,
         null,
+        SINCE,
       );
     } finally {
       vi.useRealTimers();

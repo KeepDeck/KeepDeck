@@ -1,17 +1,18 @@
 import {
   asFiniteNumber,
   asNonEmptyString,
-  carriedUsageRecord,
+  carriedRecord,
   clampPercent,
-  collectTokenCounts,
   isJsonRecord,
   percentWindow,
   reportedLimits,
   type AccountUsage,
   type ApiActivity,
-  type ModelUsage,
+  type CallTokens,
+  type CarriedRecord,
   type PaneUsage,
   type TailWatch,
+  type UsageCall,
   type UsageNormalizer,
   type UsageWindow,
 } from "@keepdeck/plugin-api";
@@ -21,16 +22,22 @@ import {
  * its own reporter (kd-usage-statusline.sh) forwards verbatim:
  * `{agent:"claude", statusline: <the documented stdin JSON>}`, and the
  * transcript records it declares for itself below.
+ *
+ * Two sources, two jobs: the statusLine says how full the pane's context is
+ * and where the account's limits stand; the transcript says which calls the
+ * session made — each assistant message is one, booked by the usage history
+ * and priced there.
  */
 
 /**
  * Where claude keeps the transcripts of one session's subagents.
  *
  * A subagent writes its own turns to `<transcript-without-extension>/
- * subagents/*.jsonl`, and those rows are the session's cost as much as the
- * root file's — a session whose work happened in subagents would otherwise
- * report almost nothing. Only its turn EDGES stay its own: a subagent's
- * abort is not the pane's.
+ * subagents/**.jsonl` (a workflow's agents one level further down), and
+ * those calls are the session's spend as much as the root file's — a
+ * session whose work happened in subagents would otherwise report almost
+ * nothing. Only its turn EDGES stay its own: a subagent's abort is not the
+ * pane's.
  *
  * The host used to hold this rule, which meant a pane of every OTHER agent
  * paid a directory read per poll for a convention only claude has.
@@ -40,23 +47,17 @@ export function claudeSubagentDirectory(store: string): string {
 }
 
 /**
- * What a claude transcript is worth reading for the numbers, and what a
- * session total over it is made of.
+ * The transcript rows that are calls: every assistant message that carries
+ * counts.
  *
- * `keep` is EMPTY, and that is the whole shape of the answer: nothing about
- * an assistant message needs to leave the transcript, only the total folded
- * from it. A transcript holds the conversation, and a declaration that names
- * no field of it cannot carry one out by accident.
+ * `keep` names the message's id, its model and its `usage` block — counts
+ * and billing facts, no content: a transcript holds the conversation, and
+ * a declaration that names no field of it cannot carry one out by accident.
  *
- * `dedupBy` is the fact only this side knows. Claude writes one assistant
- * message as several rows — one per content or tool block — each restating
- * the message's counts so far. Added plainly, a turn would cost as many
- * times as it had blocks; held at each bucket's maximum, it costs once.
- *
- * `groupBy` keeps one total per model: a subagent may run on another model
- * than the session's, and its rows say so. `countAs` counts each total's
- * messages — one assistant message is one call to its model, the
- * subagents' included.
+ * Claude writes one assistant message as several rows — one per content or
+ * tool block — each restating the message's counts so far. Every row
+ * travels; the usage history books a message once by its id and takes only
+ * what each restatement grew.
  */
 export const claudeUsageWatches: readonly TailWatch[] = [
   {
@@ -65,20 +66,8 @@ export const claudeUsageWatches: readonly TailWatch[] = [
       { key: "message.id" },
       { key: "message.usage" },
     ],
-    keep: [],
-    lane: "usage",
-    sum: {
-      buckets: {
-        input_tokens: "message.usage.input_tokens",
-        output_tokens: "message.usage.output_tokens",
-        cache_read_input_tokens: "message.usage.cache_read_input_tokens",
-        cache_creation_input_tokens: "message.usage.cache_creation_input_tokens",
-      },
-      dedupBy: "message.id",
-      groupBy: "message.model",
-      countAs: "messages",
-      stampAs: "sessionTotals",
-    },
+    keep: ["message.id", "message.model", "message.usage"],
+    lane: "calls",
   },
 ];
 
@@ -86,36 +75,96 @@ export const claudeUsageWatches: readonly TailWatch[] = [
  * interruption — rather than one a model answered: no call was made. */
 const SYNTHETIC_MODEL = "<synthetic>";
 
-/** The transcript totals, per model, as the deck books them. */
-function transcriptModels(totals: unknown): Record<string, ModelUsage> | undefined {
-  if (!isJsonRecord(totals)) return undefined;
-  const byModel: Record<string, ModelUsage> = {};
-  for (const [model, counts] of Object.entries(totals)) {
-    if (model === SYNTHETIC_MODEL || !isJsonRecord(counts)) continue;
-    const calls = asFiniteNumber(counts.messages);
-    const totalTokens = collectTokenCounts({
-      input: counts.input_tokens,
-      output: counts.output_tokens,
-      cacheRead: counts.cache_read_input_tokens,
-      cacheWrite: counts.cache_creation_input_tokens,
-      reasoning: undefined,
-      total: undefined,
-    });
-    if (calls === undefined || !totalTokens) continue;
-    byModel[model] = { totalTokens, calls };
-  }
-  return Object.keys(byModel).length > 0 ? byModel : undefined;
+/** A count, or 0 for anything that is not one. */
+function count(value: unknown): number {
+  const counted = asFiniteNumber(value);
+  return counted !== undefined && counted > 0 ? counted : 0;
 }
 
 /**
- * The model the statusline names, by the id a transcript names it by.
+ * One claude `usage` block in the canonical classes.
  *
- * The statusline gives the model claude was asked for: `claude-opus-5-5`, or
- * `claude-opus-5-5[1m]` for its one-million-token context. The transcript
- * gives the model that answered, with no such suffix. Booked under one id,
- * a session's price and the tokens that cost it fall under the same model;
- * the display name ("Opus 5.5 (1M context)") is no key a catalogue of
- * models can match.
+ * Claude counts its input FRESH and its cache read and write beside it, and
+ * splits the write by how long it is held (`cache_creation.ephemeral_5m` /
+ * `ephemeral_1h`); without the split, all of it is the 5-minute write. Its
+ * output already holds the thinking, which it states as a share of it.
+ */
+function claudeTokens(usage: Record<string, unknown>): CallTokens {
+  const written = count(usage.cache_creation_input_tokens);
+  const split = isJsonRecord(usage.cache_creation) ? usage.cache_creation : undefined;
+  const hour = split ? count(split.ephemeral_1h_input_tokens) : 0;
+  const fiveMinutes = split
+    ? (asFiniteNumber(split.ephemeral_5m_input_tokens) ?? Math.max(0, written - hour))
+    : written;
+  const details = isJsonRecord(usage.output_tokens_details) ? usage.output_tokens_details : undefined;
+  return {
+    input: count(usage.input_tokens),
+    cacheRead: count(usage.cache_read_input_tokens),
+    cacheWrite: count(fiveMinutes),
+    cacheWrite1h: hour,
+    output: count(usage.output_tokens),
+    reasoning: details ? count(details.thinking_tokens) : 0,
+  };
+}
+
+/** The service-tier mode a claude `usage` block ran in: fast mode, or the
+ * standard tier (absent). */
+function claudeMode(usage: Record<string, unknown>, fallback?: Record<string, unknown>): string | undefined {
+  const speed = asNonEmptyString(usage.speed) ?? (fallback ? asNonEmptyString(fallback.speed) : undefined);
+  return speed === "fast" ? "fast" : undefined;
+}
+
+/**
+ * The calls one transcript row records: the message itself, and each advisor
+ * escalation inside it.
+ *
+ * The advisor tool (`/advisor`) consults a stronger model mid-turn; its
+ * tokens are recorded under that model in `usage.iterations` as
+ * `advisor_message` entries and are NOT in the message's own counts — so
+ * each is a call of its own, keyed by its ordinal among them.
+ */
+function claudeCalls(carried: CarriedRecord): UsageCall[] {
+  const { record, at } = carried;
+  const id = asNonEmptyString(record["message.id"]);
+  const model = asNonEmptyString(record["message.model"]);
+  const usage = record["message.usage"];
+  if (!id || !model || model === SYNTHETIC_MODEL || !isJsonRecord(usage) || at === undefined) {
+    return [];
+  }
+  const mode = claudeMode(usage);
+  const calls: UsageCall[] = [
+    {
+      id,
+      at,
+      provider: "anthropic",
+      model: claudeModelId(model),
+      ...(mode ? { mode } : {}),
+      tokens: claudeTokens(usage),
+    },
+  ];
+  const iterations = Array.isArray(usage.iterations) ? usage.iterations : [];
+  let advisor = 0;
+  for (const iteration of iterations) {
+    if (!isJsonRecord(iteration) || iteration.type !== "advisor_message") continue;
+    const ordinal = advisor++;
+    const advisorModel = asNonEmptyString(iteration.model) ?? model;
+    const advisorMode = claudeMode(iteration, usage);
+    calls.push({
+      id: `${id}:advisor:${ordinal}`,
+      at,
+      provider: "anthropic",
+      model: claudeModelId(advisorModel),
+      ...(advisorMode ? { mode: advisorMode } : {}),
+      tokens: claudeTokens(iteration),
+    });
+  }
+  return calls;
+}
+
+/**
+ * A model id as the API knows it: the statusLine names the model claude was
+ * asked for with its one-million-token context as a suffix
+ * (`claude-opus-5-5[1m]`), which no catalogue lists.
  */
 function claudeModelId(id: string): string {
   return id.replace(/\[[^\]]*\]$/, "");
@@ -154,18 +203,9 @@ function window(
  */
 export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   if (!isJsonRecord(payload)) return null;
-  const tailed = carriedUsageRecord(payload);
-  if (tailed) {
-    const byModel = transcriptModels(tailed.sessionTotals);
-    if (!byModel) return { account: null, pane: null };
-    return {
-      account: null,
-      pane: {
-        agent: "claude",
-        byModel,
-        reportedAt: at,
-      },
-    };
+  const carried = carriedRecord(payload);
+  if (carried) {
+    return { account: null, pane: null, calls: claudeCalls(carried) };
   }
   const line = payload.statusline;
   if (!isJsonRecord(line)) return null;
@@ -195,13 +235,6 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
     : undefined;
   const sessionId = asNonEmptyString(line.session_id);
 
-  const model = isJsonRecord(line.model) ? line.model : undefined;
-  const modelId = model ? asNonEmptyString(model.id) : undefined;
-  const modelName = modelId
-    ? claudeModelId(modelId)
-    : model
-      ? asNonEmptyString(model.display_name)
-      : undefined;
   const context = isJsonRecord(line.context_window)
     ? line.context_window
     : undefined;
@@ -209,29 +242,10 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   const windowTokens = context
     ? asFiniteNumber(context.context_window_size)
     : undefined;
-  const current =
-    context && isJsonRecord(context.current_usage)
-      ? context.current_usage
-      : undefined;
-  // Since Claude Code 2.1.132 the statusLine's `total_*` fields describe the
-  // CURRENT context/response, not cumulative session usage. Durable totals
-  // come from the transcript tail above; current_usage remains useful only as
-  // the live last-turn breakdown.
-  const lastTurnTokens = current
-    ? collectTokenCounts({
-        input: current.input_tokens,
-        output: current.output_tokens,
-        cacheRead: current.cache_read_input_tokens,
-        cacheWrite: current.cache_creation_input_tokens,
-        reasoning: undefined,
-        total: undefined,
-      })
-    : undefined;
 
   const pane: PaneUsage = {
     agent: "claude",
     ...(sessionId ? { sessionId } : {}),
-    ...(modelName ? { model: modelName } : {}),
     ...(usedPct !== undefined
       ? {
           context: {
@@ -240,8 +254,6 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
           },
         }
       : {}),
-    ...(cost !== undefined ? { costUsd: cost } : {}),
-    ...(lastTurnTokens ? { lastTurnTokens } : {}),
     reportedAt: at,
   };
 

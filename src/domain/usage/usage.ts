@@ -124,13 +124,13 @@ export function gateAccountClaim(
   };
 }
 
-/** Merge a pane's usage across partial reports: codex delivers the model
- * (`turn_context`) and the numbers (`token_count`) as separate events, kimi
- * splits window size from token counts — neither may erase the other.
- * Incoming fields win, the context bag merges field-wise. A different agent
- * or an explicitly different session replaces wholesale; a lower sequence in
- * the same session is an out-of-order delivery and is ignored. Relies on
- * builders OMITTING absent fields rather than setting them undefined. */
+/** Merge a pane's usage across partial reports: kimi delivers its window
+ * size (`llm.request`) and its occupancy (`usage.record`) as separate events
+ * — neither may erase the other. Incoming fields win, the context bag merges
+ * field-wise. A different agent or an explicitly different session replaces
+ * wholesale; a lower sequence in the same session is an out-of-order
+ * delivery and is ignored. Relies on builders OMITTING absent fields rather
+ * than setting them undefined. */
 export function mergePaneUsage(
   current: PaneUsage | undefined,
   incoming: PaneUsage,
@@ -154,8 +154,8 @@ export function mergePaneUsage(
 
 /** Whether two readings of a pane say the same thing, field by field. A
  * report that only restates what the pane already holds changes nothing,
- * and nothing downstream — the chips, the history capture — should hear of
- * it. An absent field and one set to undefined are the same absence. */
+ * and nothing downstream — the chips — should hear of it. An absent field
+ * and one set to undefined are the same absence. */
 export function samePaneUsage(left: PaneUsage, right: PaneUsage): boolean {
   return sameValue(left, right);
 }
@@ -191,11 +191,9 @@ function mergePaneFields(base: PaneUsage, overlay: PaneUsage): PaneUsage {
   // arm-time drain pushes the root transcript before each subagent's, and a
   // dialect's catch-up order is a fixed list of KINDS rather than a timestamp
   // sort) does walk it backwards. But this field answers WHEN THIS
-  // OBSERVATION HAPPENED, not how fresh the pane is: `record` writes it into
-  // the ledger as `occurredAt` and mixes it into the deterministic `eventId`.
-  // A max would stamp a stale payload with a fresh instant, and would let a
-  // replay win the one field `mergePaneReplay` exists to keep it from
-  // winning. The reader that genuinely wants "newest" is the activity
+  // OBSERVATION HAPPENED, not how fresh the pane is. A max would stamp a
+  // stale payload with a fresh instant, and would let a replay win the one
+  // field `mergePaneReplay` exists to keep it from winning. The reader that genuinely wants "newest" is the activity
   // witness, and it takes its own max over every report it sees.
   return { ...base, ...overlay, ...(context ? { context } : {}) };
 }

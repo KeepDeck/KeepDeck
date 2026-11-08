@@ -103,9 +103,10 @@ export interface SpawnPlan {
   resumeRetry?: boolean;
   /** Host bookkeeping: the source session cloned by a FORK plan. */
   forkOf?: string;
-  /** The first accepted local session binding emitted by that fork. Keeping
-   * the derived id here prevents later `/new` sessions in the same process
-   * from inheriting the fork's baseline-only treatment. */
+  /** The first accepted local session binding emitted by that fork — the
+   * mark that the fork has started, so what only its start needed is
+   * settled once and a later `/new` in the same process is not taken for
+   * it. */
   forkSessionId?: string;
   /** Host bookkeeping: who requested this resume. The origin determines
    * whether a silent refusal is eligible for the one-shot fresh fallback. */

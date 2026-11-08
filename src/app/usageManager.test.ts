@@ -37,6 +37,26 @@ describe("report", () => {
     dispose();
   });
 
+  it("hands back the calls and stores a report carries, and null for none", () => {
+    const call = {
+      id: "msg_1",
+      at: 1,
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      tokens: { input: 1, cacheRead: 0, cacheWrite: 0, output: 2 },
+    };
+    const carrying = fake({ account: null, pane: null, calls: [call], links: ["thread-2"] });
+    expect(usage.report("pane-1", { agent: "fake" })).toEqual({
+      calls: [call],
+      links: ["thread-2"],
+    });
+    carrying();
+    const bare = fake({ account: null, pane: { agent: "fake", reportedAt: 1 } });
+    expect(usage.report("pane-1", { agent: "fake" })).toBeNull();
+    bare();
+    expect(usage.report("pane-1", { agent: "nobody" })).toBeNull();
+  });
+
   it("ignores unknown agents and unrecognizable payloads", () => {
     usage.report("pane-1", { agent: "nobody" });
     usage.report("pane-1", "garbage");
@@ -59,12 +79,12 @@ describe("report", () => {
   });
 
   it("merges partial pane reports instead of replacing them", () => {
-    const model = fake({
+    const window = fake({
       account: null,
-      pane: { agent: "fake", model: "m-1", reportedAt: 1 },
+      pane: { agent: "fake", sessionId: "s-1", context: { windowTokens: 200 }, reportedAt: 1 },
     });
     usage.report("pane-1", { agent: "fake" });
-    model();
+    window();
     const numbers = fake({
       account: null,
       pane: { agent: "fake", context: { usedTokens: 42 }, reportedAt: 2 },
@@ -73,8 +93,8 @@ describe("report", () => {
     numbers();
     expect(usage.getSnapshot().panes.get("pane-1")).toEqual({
       agent: "fake",
-      model: "m-1",
-      context: { usedTokens: 42 },
+      sessionId: "s-1",
+      context: { windowTokens: 200, usedTokens: 42 },
       reportedAt: 2,
     });
   });
@@ -88,7 +108,7 @@ describe("report", () => {
   it("tells nobody of a report that restates the pane, and keeps its object", () => {
     fake({
       account: null,
-      pane: { agent: "fake", model: "m-1", context: { usedTokens: 42 }, reportedAt: 1 },
+      pane: { agent: "fake", context: { usedTokens: 42 }, reportedAt: 1 },
     });
     usage.report("pane-1", { agent: "fake" });
     const before = usage.getSnapshot();
@@ -338,7 +358,7 @@ describe("catch-up reports", () => {
     // time — without the mark it would outrank the live data above.
     const replay = fake({
       account: { kind: "reported", windows: [], reportedAt: 99, sourcePaneId: "" },
-      pane: { agent: "fake", model: "stale", reportedAt: 99 },
+      pane: { agent: "fake", context: { usedPct: 99 }, reportedAt: 99 },
     });
     usage.report("pane-new", { agent: "fake", catchUp: true });
     replay();
@@ -348,29 +368,28 @@ describe("catch-up reports", () => {
     });
     // The NEW pane had no live data of its own — the replay fills that gap.
     expect(usage.getSnapshot().panes.get("pane-new")).toMatchObject({
-      model: "stale",
+      context: { usedPct: 99 },
     });
   });
 
   it("merge complementary replay events — one arm is several partials", () => {
     // The tailer deliberately splits catch-up into context-first partials
-    // (codex: turn_context then token_count). Both must land and merge.
-    const model = fake({
+    // (kimi: llm.request then usage.record). Both must land and merge.
+    const window = fake({
       account: null,
-      pane: { agent: "fake", model: "gpt-x", reportedAt: 1 },
+      pane: { agent: "fake", context: { windowTokens: 200_000 }, reportedAt: 1 },
     });
     usage.report("pane-1", { agent: "fake", catchUp: true });
-    model();
+    window();
     const numbers = fake({
       account: null,
-      pane: { agent: "fake", context: { usedPct: 40 }, reportedAt: 2 },
+      pane: { agent: "fake", context: { usedTokens: 40 }, reportedAt: 2 },
     });
     usage.report("pane-1", { agent: "fake", catchUp: true });
     numbers();
     expect(usage.getSnapshot().panes.get("pane-1")).toEqual({
       agent: "fake",
-      model: "gpt-x",
-      context: { usedPct: 40 },
+      context: { windowTokens: 200_000, usedTokens: 40 },
       reportedAt: 2,
     });
   });
@@ -380,8 +399,7 @@ describe("catch-up reports", () => {
       account: null,
       pane: {
         agent: "fake",
-        model: "Live display name",
-        costUsd: 4,
+        context: { usedPct: 30 },
         reportedAt: 20,
       },
     });
@@ -391,8 +409,8 @@ describe("catch-up reports", () => {
       account: null,
       pane: {
         agent: "fake",
-        model: "stale-raw-id",
-        totalTokens: { input: 100, cacheRead: 900 },
+        sequence: 3,
+        context: { usedPct: 10, windowTokens: 200_000 },
         reportedAt: 10,
       },
     });
@@ -401,9 +419,8 @@ describe("catch-up reports", () => {
 
     expect(usage.getSnapshot().panes.get("pane-1")).toEqual({
       agent: "fake",
-      model: "Live display name",
-      costUsd: 4,
-      totalTokens: { input: 100, cacheRead: 900 },
+      sequence: 3,
+      context: { usedPct: 30, windowTokens: 200_000 },
       reportedAt: 20,
     });
   });

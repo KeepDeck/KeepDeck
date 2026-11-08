@@ -3,7 +3,10 @@ import type {
   AgentUsage,
 } from "@keepdeck/plugin-api";
 import type { DeckStore } from "./deckStore";
+import { createUsageCallBook } from "./usageCallBook";
+import { bookUsageCalls } from "./usageHistoryManager";
 import type { UsageManager } from "./usageManager";
+import { createUsageSightings } from "./usageSightings";
 import { createUsageLimitsLane } from "./usageChannelLimits";
 import { createUsageMaintenanceLane } from "./usageChannelMaintenance";
 import type { PaneAttribution } from "./paneAttribution";
@@ -87,12 +90,16 @@ export function createUsageChannel(
     usage,
     attribution,
     bindings,
+    sightings: createUsageSightings(),
     tailOf,
     companionOf,
   };
+  const calls = createUsageCallBook(context, { book: bookUsageCalls });
+  const tails = createUsageTailsLane(context);
   const lanes: UsageLane[] = [
-    createUsageReportsLane(context),
-    createUsageTailsLane(context),
+    calls,
+    tails,
+    createUsageReportsLane(context, { book: calls.book, link: tails.link }),
     createUsageLimitsLane(context),
     createUsageMaintenanceLane(context),
   ];

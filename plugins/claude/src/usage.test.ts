@@ -49,20 +49,14 @@ describe("normalizeClaudeStatusline", () => {
         { usedPct: 41.2, resetsAt: 1_738_857_600_000, windowMinutes: 10_080 },
       ],
     });
+    // The pane's live state only: what it spent travels as calls.
     expect(result?.pane).toEqual({
       agent: "claude",
       sessionId: "abc-123",
-      model: "claude-opus-4-8",
       context: { usedPct: 8, windowTokens: 200_000 },
-      costUsd: 0.01234,
-      lastTurnTokens: {
-        input: 8500,
-        output: 1200,
-        cacheRead: 2000,
-        cacheWrite: 5000,
-      },
       reportedAt: AT,
     });
+    expect(result?.calls).toBeUndefined();
   });
 
   it("gates the account behind the session's API cumulatives", () => {
@@ -114,88 +108,112 @@ describe("normalizeClaudeStatusline", () => {
     });
   });
 
-  it("books the session under the model's id, its context suffix dropped", () => {
-    const model = (id: unknown, name: unknown) =>
-      normalizeClaudeStatusline(report({ ...FULL, model: { id, display_name: name } }), AT)?.pane?.model;
-    // The id the transcript names the same model by.
-    expect(model("claude-opus-5-5[1m]", "Opus 5.5 (1M context)")).toBe("claude-opus-5-5");
-    expect(model("claude-sonnet-5-5", "Sonnet 5.5")).toBe("claude-sonnet-5-5");
-    // With no id to go by, the name is all there is.
-    expect(model(undefined, "Opus 5.5")).toBe("Opus 5.5");
-  });
+  /** A transcript row as the host carries it: the fields the watch keeps,
+   * the row's own time, its place in the file. */
+  const row = (fields: Record<string, unknown>, sourceAt: unknown = "2026-10-18T14:13:52.763Z") =>
+    normalizeClaudeStatusline(
+      {
+        agent: "claude",
+        sourceAt,
+        sourceRef: { file: "/t.jsonl", offset: 7 },
+        event: { type: CARRIED_RECORD, lane: "calls", record: fields },
+      },
+      AT,
+    );
 
-  it("maps transcript-tail cumulatives into each model's tokens and calls", () => {
-    const tailed = (sessionTotals: unknown) =>
-      normalizeClaudeStatusline(
-        {
-          agent: "claude",
-          event: {
-            type: CARRIED_RECORD,
-            lane: "usage",
-            // The ONLY thing a transcript record carries out: the totals the
-            // host folded from the sum this plugin declared. `keep` is empty,
-            // so nothing of the conversation travels beside them.
-            record: { sessionTotals },
-          },
-        },
-        AT,
-      );
+  /** A real claude 2.1.319 usage block, its 1-hour write split out. */
+  const USAGE = {
+    input_tokens: 2,
+    cache_creation_input_tokens: 21_824,
+    cache_read_input_tokens: 16_090,
+    output_tokens: 302,
+    output_tokens_details: { thinking_tokens: 24 },
+    service_tier: "standard",
+    cache_creation: { ephemeral_1h_input_tokens: 21_824, ephemeral_5m_input_tokens: 0 },
+    iterations: [{ type: "message", input_tokens: 2, output_tokens: 302 }],
+    speed: "standard",
+  };
+
+  it("maps an assistant row into its call, the cache write split by how long it is held", () => {
     expect(
-      tailed({
-        "claude-opus-5-5": {
-          input_tokens: 10,
-          output_tokens: 20,
-          cache_read_input_tokens: 300,
-          cache_creation_input_tokens: 40,
-          messages: 3,
-        },
-        "claude-haiku-5": { input_tokens: 5, output_tokens: 1, messages: 2 },
-        // Messages claude wrote itself: no model answered them.
-        "<synthetic>": { input_tokens: 0, output_tokens: 0, messages: 4 },
-      }),
+      row({ "message.id": "msg_011", "message.model": "claude-opus-5-5", "message.usage": USAGE }),
     ).toEqual({
       account: null,
-      pane: {
-        agent: "claude",
-        byModel: {
-          "claude-opus-5-5": {
-            totalTokens: { input: 10, output: 20, cacheRead: 300, cacheWrite: 40 },
-            calls: 3,
-          },
-          "claude-haiku-5": { totalTokens: { input: 5, output: 1 }, calls: 2 },
-        },
-        reportedAt: AT,
-      },
-    });
-    // Nothing a model answered yet: no claim about the session at all.
-    expect(tailed({ "<synthetic>": { input_tokens: 0, messages: 1 } })).toEqual({
-      account: null,
       pane: null,
+      calls: [
+        {
+          id: "msg_011",
+          at: Date.parse("2026-10-18T14:13:52.763Z"),
+          provider: "anthropic",
+          model: "claude-opus-5-5",
+          tokens: { input: 2, cacheRead: 16_090, cacheWrite: 0, cacheWrite1h: 21_824, output: 302, reasoning: 24 },
+        },
+      ],
     });
   });
 
-  it("declares a transcript watch that carries nothing but the total", () => {
+  it("books an unsplit cache write as the 5-minute write, and fast mode as its mode", () => {
+    const { cache_creation: _split, ...unsplit } = USAGE;
+    const calls = row({
+      "message.id": "msg_012",
+      "message.model": "claude-opus-5-5[1m]",
+      "message.usage": { ...unsplit, speed: "fast" },
+    })?.calls;
+    expect(calls?.[0]).toMatchObject({
+      model: "claude-opus-5-5",
+      mode: "fast",
+      tokens: { cacheWrite: 21_824, cacheWrite1h: 0 },
+    });
+  });
+
+  it("books each advisor escalation as a call of its own, under the advisor's model", () => {
+    const calls = row({
+      "message.id": "msg_013",
+      "message.model": "claude-sonnet-5-5",
+      "message.usage": {
+        ...USAGE,
+        iterations: [
+          { type: "message", input_tokens: 2, output_tokens: 302 },
+          { type: "advisor_message", model: "claude-opus-5-5", input_tokens: 900, output_tokens: 40 },
+          { type: "advisor_message", input_tokens: 5, output_tokens: 1 },
+        ],
+      },
+    })?.calls;
+    expect(calls?.map((call) => [call.id, call.model, call.tokens.input])).toEqual([
+      ["msg_013", "claude-sonnet-5-5", 2],
+      ["msg_013:advisor:0", "claude-opus-5-5", 900],
+      ["msg_013:advisor:1", "claude-sonnet-5-5", 5],
+    ]);
+  });
+
+  it("books no call for a message claude wrote itself, or one without its time", () => {
+    const fields = { "message.id": "msg_014", "message.usage": USAGE };
+    expect(row({ ...fields, "message.model": "<synthetic>" })?.calls).toEqual([]);
+    expect(row({ ...fields, "message.model": "claude-opus-5-5" }, null)?.calls).toEqual([]);
+  });
+
+  it("declares a transcript watch that carries a call's counts and never its content", () => {
     // The pairing that matters: the watch matches an assistant row carrying
-    // counts, and `keep` names NO field of it — so the conversation cannot
-    // ride out of a transcript, structurally rather than by rule.
-    const row = {
+    // counts, and `keep` names the id, model and usage block — no content —
+    // so the conversation cannot ride out of a transcript, structurally
+    // rather than by rule.
+    const transcriptRow = {
       type: "assistant",
       message: {
         id: "msg-1",
+        model: "claude-opus-5-5",
         content: [{ type: "text", text: "SECRET ANSWER" }],
         usage: { input_tokens: 12, output_tokens: 30 },
       },
     };
     const watch = claudeUsageWatches.find((candidate) =>
-      watchMatches(candidate, row),
+      watchMatches(candidate, transcriptRow),
     );
-    expect(watch).toBeDefined();
-    expect(watchProject(present(watch, "the watcher"), row)).toEqual({});
-    // Totalled per model, each message counted once.
-    expect(watch?.sum).toMatchObject({
-      dedupBy: "message.id",
-      groupBy: "message.model",
-      countAs: "messages",
+    expect(watch?.lane).toBe("calls");
+    expect(watchProject(present(watch, "the watcher"), transcriptRow)).toEqual({
+      "message.id": "msg-1",
+      "message.model": "claude-opus-5-5",
+      "message.usage": { input_tokens: 12, output_tokens: 30 },
     });
     // And a row with no counts at all is not carried.
     expect(
@@ -213,7 +231,7 @@ describe("normalizeClaudeStatusline", () => {
       AT,
     );
     expect(resumed?.account).toBeNull();
-    expect(resumed?.pane?.costUsd).toBe(0.5);
+    expect(resumed?.pane).toEqual({ agent: "claude", reportedAt: AT });
   });
 
   it("clamps percentages and survives malformed windows", () => {
@@ -241,14 +259,13 @@ describe("normalizeClaudeStatusline", () => {
     ).toBeNull();
   });
 
-  it("omits token bags entirely when the payload carries no counts", () => {
+  it("omits the context entirely when the payload carries none", () => {
     const result = normalizeClaudeStatusline(
       report({ model: { display_name: "Opus" } }),
       AT,
     );
     expect(result?.pane).toEqual({
       agent: "claude",
-      model: "Opus",
       reportedAt: AT,
     });
   });

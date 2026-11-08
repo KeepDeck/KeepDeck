@@ -36,34 +36,33 @@ export const boundReport = (sessionId, continuing, switched = false) => ({
 });
 
 /**
- * One `usage.report`. `lastTurn` is what the context holds now — its total is
- * the context in use; `totals` and `costUsd` are the conversation's spend.
- * @typedef {{ input: number, output: number, reasoning: number, cacheRead: number, cacheWrite: number }} TokenCounts
- * @param {{ sessionId: string, model?: string, sequence: number, windowTokens?: number, lastTurn: TokenCounts, totals: TokenCounts, costUsd: number }} report
+ * One model step the pane's conversation made — a call, as opencode records
+ * it: its own id, the session it ran in (the conversation or one of its
+ * subagents), who served it, when its message was created, and its raw token
+ * usage. What the counts MEAN is the plugin normalizer's to say.
+ * @typedef {{ id: string, sessionID: string, providerID: string, modelID: string, created: number, tokens: OpenCodeTokens }} Step
  */
-export const usageReport = ({ sessionId, model, sequence, windowTokens, lastTurn, totals, costUsd }) => {
-  const turn = tokenCountsOnly(lastTurn);
-  return {
-    sessionId,
-    ...(model ? { model } : {}),
-    sequence,
-    ...(windowTokens !== undefined ? { windowTokens } : {}),
-    contextTokens: turn.input + turn.output + turn.reasoning + turn.cacheRead + turn.cacheWrite,
-    totals: tokenCountsOnly(totals),
-    lastTurn: turn,
-    costUsd,
-  };
-};
 
-/** The five counts and nothing else a caller kept beside them. */
-/** @param {TokenCounts} counts */
-const tokenCountsOnly = (counts) => ({
-  input: counts.input,
-  output: counts.output,
-  reasoning: counts.reasoning,
-  cacheRead: counts.cacheRead,
-  cacheWrite: counts.cacheWrite,
+/**
+ * One `usage.report`: what the pane's context holds now (`lastTurn`, whose
+ * total is the context in use) in which conversation, against its window,
+ * and the steps the conversation made since the last report.
+ * @typedef {{ input: number, output: number, reasoning: number, cacheRead: number, cacheWrite: number }} TokenCounts
+ * @param {{ sessionId?: string, sequence: number, windowTokens?: number, lastTurn?: TokenCounts, steps?: Step[] }} report
+ */
+export const usageReport = ({ sessionId, sequence, windowTokens, lastTurn, steps = [] }) => ({
+  ...(sessionId ? { sessionId } : {}),
+  sequence,
+  ...(windowTokens !== undefined ? { windowTokens } : {}),
+  ...(lastTurn
+    ? { contextTokens: lastTurn.input + lastTurn.output + lastTurn.reasoning + lastTurn.cacheRead + lastTurn.cacheWrite }
+    : {}),
+  ...(steps.length > 0 ? { steps } : {}),
 });
+
+/** How many steps one report carries at most: a resumed conversation's
+ * history is reported in reports of this size, not as one huge envelope. */
+export const STEPS_PER_REPORT = 200;
 
 /**
  * Context windows by model, from a catalog read once and kept once it

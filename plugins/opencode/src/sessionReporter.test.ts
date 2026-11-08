@@ -35,12 +35,20 @@ const assistantMessage = (over: Record<string, unknown> = {}) => ({
         sessionID: "ses_root",
         providerID: "anthropic",
         modelID: "claude-sonnet-5",
-        time: { completed: 1 },
+        time: { created: 500, completed: 1 },
         cost: 0.1,
         tokens: { input: 1000, output: 200, reasoning: 0, cache: { read: 5000, write: 0 } },
         ...over,
       },
     },
+  },
+});
+
+/** An opencode `message.part.updated` for a finished step — one model call. */
+const stepFinished = (id: string, messageID: string, sessionID = "ses_root", tokens: Record<string, unknown> = { input: 10, output: 1 }) => ({
+  event: {
+    type: "message.part.updated",
+    properties: { part: { id, type: "step-finish", messageID, sessionID, tokens, cost: 0.01 } },
   },
 });
 
@@ -126,6 +134,12 @@ describe("opencode session reporter", () => {
     (await envelopes())
       .filter((envelope) => envelope.type === "usage.report")
       .sort((a, b) => a.payload.sequence - b.payload.sequence);
+
+  /** Every step the reports carried, by id, in report order. */
+  const reportedSteps = async () =>
+    (await usageReports()).flatMap((report) =>
+      (report.payload.steps ?? []).map((step: { id: string }) => step.id),
+    );
 
   it("binds the pane to a root session", async () => {
     const { event } = await reporter();
@@ -241,15 +255,16 @@ describe("opencode session reporter", () => {
     };
     const { event } = await reporter({ client: withParents });
     // The binding turn, then a SECOND subagent turn — the one the cleared
-    // index used to drop — and finally a root turn, since only a root turn
-    // publishes (occupancy and model identity are the root's).
+    // index used to drop — and a root turn, each with its step.
     await event(assistantMessage({ sessionID: "ses_child" }));
+    await event(stepFinished("prt_1", "msg_1", "ses_child"));
     await event(assistantMessage({ id: "msg_2", sessionID: "ses_child" }));
+    await event(stepFinished("prt_2", "msg_2", "ses_child"));
     await event(assistantMessage({ id: "msg_3", sessionID: "ses_root" }));
+    await event(stepFinished("prt_3", "msg_3"));
 
-    const reports = (await usageReports());
-    // All three turns, at 0.1 each. Two means the middle one was lost.
-    expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.3);
+    // All three steps. Two means the middle one was lost.
+    expect(await reportedSteps()).toEqual(["prt_1", "prt_2", "prt_3"]);
   });
 
   it("walks a whole chain, and keeps every hop of it after binding", async () => {
@@ -274,15 +289,16 @@ describe("opencode session reporter", () => {
     await event(assistantMessage({ sessionID: "ses_c2" }));
     // The middle link's own turn, which only counts if the chain survived.
     await event(assistantMessage({ id: "msg_2", sessionID: "ses_c1" }));
+    await event(stepFinished("prt_2", "msg_2", "ses_c1"));
     await event(assistantMessage({ id: "msg_3", sessionID: "ses_c2" }));
+    await event(stepFinished("prt_3", "msg_3", "ses_c2"));
     await event(assistantMessage({ id: "msg_4", sessionID: "ses_root" }));
 
     expect(
       (await envelopes()).find((envelope) => envelope.type === "session.bound")?.payload
         .sessionId,
     ).toBe("ses_root");
-    const reports = (await usageReports());
-    expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.4);
+    expect(await reportedSteps()).toEqual(["prt_2", "prt_3"]);
   });
 
   it("asks again about a session the client could not answer for", async () => {
@@ -387,71 +403,65 @@ describe("opencode session reporter", () => {
           // pins the pane to one and refuses reports from another.
           reporter: String(process.pid),
           sessionId: "ses_root",
-          model: "claude-sonnet-5",
           sequence: 1,
           windowTokens: 200_000,
           contextTokens: 6200, // 1000 + 200 + 0 + 5000 + 0
-          totals: { input: 1000, output: 200, reasoning: 0, cacheRead: 5000, cacheWrite: 0 },
-          lastTurn: { input: 1000, output: 200, reasoning: 0, cacheRead: 5000, cacheWrite: 0 },
-          costUsd: 0.1,
         },
       },
     ]);
   });
 
-  it("sums per-message tokens and cost across the session", async () => {
+  it("reports each finished step with its message's model and creation time", async () => {
     const { event } = await reporter({ client });
-    await event(assistantMessage());
-    await event(
-      assistantMessage({
-        id: "msg_2",
-        cost: 0.2,
-        tokens: { input: 500, output: 100, cache: { read: 6000 } },
-      }),
-    );
+    await event(created("ses_root"));
+    // The message's first (streaming) frame names its model before any step.
+    await event(assistantMessage({ id: "msg_2", time: { created: 700 } }));
+    await event(stepFinished("prt_a", "msg_2", "ses_root", { input: 500, output: 100, cache: { read: 6000 } }));
+    await event(stepFinished("prt_b", "msg_2", "ses_root", { input: 40, output: 4 }));
 
-    // Inbox filenames are random UUIDs, so order by the reporter sequence.
-    const reports = (await usageReports());
-    const last = reports[reports.length - 1];
-    expect(last.payload.totals).toEqual({
-      input: 1500,
-      output: 300,
-      reasoning: 0,
-      cacheRead: 11_000,
-      cacheWrite: 0,
-    });
-    expect(last.payload.costUsd).toBeCloseTo(0.3);
-    // Occupancy reflects the LATEST message only, not the sum.
-    expect(last.payload.contextTokens).toBe(6600);
+    const steps = (await usageReports()).flatMap((report) => report.payload.steps ?? []);
+    expect(steps).toEqual([
+      {
+        id: "prt_a",
+        sessionID: "ses_root",
+        providerID: "anthropic",
+        modelID: "claude-sonnet-5",
+        created: 700,
+        tokens: { input: 500, output: 100, cache: { read: 6000 } },
+      },
+      expect.objectContaining({ id: "prt_b", created: 700, tokens: { input: 40, output: 4 } }),
+    ]);
   });
 
-  it("starts a clean usage generation when /new creates another root", async () => {
+  it("holds a step read before its message until the message names its model", async () => {
+    const { event } = await reporter({ client });
+    await event(assistantMessage());
+    await event(stepFinished("prt_early", "msg_9"));
+    expect(await reportedSteps()).toEqual([]);
+    await event(assistantMessage({ id: "msg_9", time: { created: 900 } }));
+    expect(await reportedSteps()).toEqual(["prt_early"]);
+  });
+
+  it("reports a conversation's steps before the pane moves to another", async () => {
     const { event } = await reporter({ client });
     await event(created("ses_old"));
-    await event(
-      assistantMessage({
-        sessionID: "ses_old",
-        tokens: { input: 10, output: 1, cache: {} },
-        cost: 0.1,
-      }),
-    );
+    await event(assistantMessage({ sessionID: "ses_old", time: { created: 1, completed: 2 } }));
+    await event(stepFinished("prt_old", "msg_1", "ses_old"));
     await event(created("ses_new"));
-    await event(
-      assistantMessage({
-        sessionID: "ses_new",
-        tokens: { input: 20, output: 2, cache: {} },
-        cost: 0.2,
-      }),
-    );
+    await event(assistantMessage({ id: "msg_n", sessionID: "ses_new", time: { created: 3, completed: 4 } }));
 
-    const reports = (await usageReports());
-    expect(reports).toHaveLength(2);
-    expect(reports.find((report) => report.payload.sessionId === "ses_new")?.payload).toMatchObject({
-      sessionId: "ses_new",
-      sequence: 1,
-      totals: { input: 20, output: 2 },
-      costUsd: 0.2,
-    });
+    const all = await envelopes();
+    const oldStep = all.findIndex(
+      (envelope) => envelope.type === "usage.report" && (envelope.payload.steps ?? []).some((step: { id: string }) => step.id === "prt_old"),
+    );
+    const newBinding = all.findIndex(
+      (envelope) => envelope.type === "session.bound" && envelope.payload.sessionId === "ses_new",
+    );
+    expect(oldStep).toBeGreaterThanOrEqual(0);
+    expect(oldStep).toBeLessThan(newBinding);
+    // A new conversation's reports count from one again.
+    const afterBinding = all.slice(newBinding).find((envelope) => envelope.type === "usage.report");
+    expect(afterBinding?.payload.sequence).toBe(1);
   });
 
   it("hydrates root and child history before reporting a resumed turn", async () => {
@@ -480,7 +490,19 @@ describe("opencode session reporter", () => {
         messages: async (call: { path?: { id?: string } }) => {
           const id = forId(call);
           if (!id) return { error: { name: "UnknownError" } };
-          return { data: id === "ses_root" ? [{ info: rootOld }] : [{ info: childOld }] };
+          const step = (partId: string, messageID: string, sessionID: string) => ({
+            id: partId,
+            type: "step-finish",
+            messageID,
+            sessionID,
+            tokens: { input: 1, output: 1 },
+          });
+          return {
+            data:
+              id === "ses_root"
+                ? [{ info: rootOld, parts: [{ type: "text", text: "SECRET" }, step("prt_root", "msg_old", "ses_root")] }]
+                : [{ info: childOld, parts: [step("prt_child", "msg_child_old", "ses_child")] }],
+          };
         },
         children: async (call: { path?: { id?: string } }) => {
           const id = forId(call);
@@ -499,12 +521,12 @@ describe("opencode session reporter", () => {
       }),
     );
 
-    expect((await usageReports())[0].payload).toMatchObject({
-      sessionId: "ses_root",
-      totals: { input: 170, output: 17 },
-      lastTurn: { input: 20, output: 2 },
-      costUsd: 1.7,
-    });
+    const reports = (await usageReports()).map((report) => report.payload);
+    // The history's steps — root and child — as soon as they are hydrated,
+    // and the resumed turn's context once it is in.
+    expect(reports[reports.length - 1]?.contextTokens).toBe(22);
+    expect(await reportedSteps()).toEqual(["prt_root", "prt_child"]);
+    expect(JSON.stringify(reports)).not.toContain("SECRET");
   });
 
   it("resolves duplicate model ids inside the message's provider", async () => {
@@ -576,8 +598,8 @@ describe("opencode session reporter", () => {
 
     expect(calls).toBe(1);
     expect((await usageReports()).map((report) => report.payload)).toMatchObject([
-      { model: "model-a", windowTokens: 100, contextTokens: 11, sequence: 1 },
-      { model: "model-b", windowTokens: 200, contextTokens: 22, sequence: 2 },
+      { windowTokens: 100, contextTokens: 11, sequence: 1 },
+      { windowTokens: 200, contextTokens: 22, sequence: 2 },
     ]);
   });
 
@@ -648,42 +670,37 @@ describe("opencode session reporter", () => {
         properties: { info: { id: "ses_child", parentID: "ses_root" } },
       },
     });
-    // A root turn establishes occupancy + identity.
+    // A root turn establishes occupancy.
     await event(
       assistantMessage({
         id: "msg_root",
         sessionID: "ses_root",
-        cost: 0.1,
         tokens: { input: 1000, output: 200, reasoning: 0, cache: { read: 5000, write: 0 } },
       }),
     );
-    // A subagent turn: its cost/tokens count, its occupancy must NOT.
+    // A subagent turn: its step counts, its occupancy must NOT.
     await event(
       assistantMessage({
         id: "msg_child",
         sessionID: "ses_child",
-        cost: 0.4,
         tokens: { input: 300, output: 50, reasoning: 0, cache: { read: 0, write: 0 } },
       }),
     );
+    await event(stepFinished("prt_child", "msg_child", "ses_child"));
 
     const reports = (await usageReports());
     const last = reports[reports.length - 1];
-    // The cumulative INCLUDES the subagent's real spend.
-    expect(last.payload.costUsd).toBeCloseTo(0.5);
-    expect(last.payload.totals.input).toBe(1300); // 1000 + 300
-    // Occupancy + identity stay the ROOT's, never the subagent's.
-    expect(last.payload.sessionId).toBe("ses_root");
+    // The subagent's step is the conversation's spend.
+    expect(await reportedSteps()).toEqual(["prt_child"]);
+    // Occupancy stays the ROOT's, never the subagent's.
     expect(last.payload.contextTokens).toBe(6200); // root's 1000+200+5000
   });
 
-  it("does not double-count when the same message id re-fires", async () => {
+  it("adds no step when a message re-fires — a step is its own record", async () => {
     const { event } = await reporter({ client });
     await event(assistantMessage());
     await event(assistantMessage()); // the SAME id (msg_1) again
-
-    // Both envelopes carry msg_1's cumulative — the map replaced, not stacked.
-    for (const r of (await usageReports())) expect(r.payload.totals.input).toBe(1000);
+    expect(await reportedSteps()).toEqual([]);
   });
 
   it("reads a message that sits directly on properties (no info nesting)", async () => {
