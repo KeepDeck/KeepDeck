@@ -373,7 +373,7 @@ mod tests {
         let rows = seed().expect("the shipped seed");
         assert!(rows.len() > 500, "{} rows", rows.len());
         assert!(rows.iter().all(|row| makers().iter().any(|maker| row.model.starts_with(&format!("{maker}/")))));
-        let latest = |model: &str| rows.iter().filter(|row| row.model == model).next_back().expect(model).clone();
+        let latest = |model: &str| rows.iter().rfind(|row| row.model == model).expect(model).clone();
         let opus = latest("anthropic/claude-opus-5-5");
         assert_eq!((opus.price.rates.input, opus.price.rates.output), (4.0, 20.0));
         assert_eq!(opus.price.rates.cache_write_1h, Some(8.0));
