@@ -9,7 +9,7 @@
 // GitHub availability incident — are retried with exponential backoff before
 // giving up. Deterministic 4xx failures (401, 403, …) stay immediately fatal:
 // repeating a rejected request cannot change the answer.
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
@@ -202,7 +202,7 @@ export async function main(
   return state;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

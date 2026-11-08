@@ -47,7 +47,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 
 /** @typedef {import("@keepdeck/plugin-api").PluginManifest} PluginManifest */
 /** @typedef {{ id: string, css: boolean }} BuiltPlugin What a plugin's build reports: its id, and whether it emitted a stylesheet. */
@@ -252,7 +252,7 @@ export async function run(argv = process.argv.slice(2), env = process.env) {
   return built.map(({ id }) => id);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   run().catch((err) => {
     console.error(err instanceof Error ? err.message : err);
     process.exit(1);

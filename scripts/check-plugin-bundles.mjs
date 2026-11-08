@@ -26,7 +26,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 // Read off the module when linking: SourceTextModule exists only under
 // --experimental-vm-modules, and the file rules need no flag.
 import vm from "node:vm";
@@ -246,7 +246,7 @@ export async function linkPlugins(distRoot, context) {
   };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   const distRoot = resolve(process.argv[2]);
   checkLayout(distRoot);
 

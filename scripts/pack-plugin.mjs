@@ -19,7 +19,7 @@
 import { readManifest } from "@keepdeck/plugin-api";
 import { lstatSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 
 /** The container-format revision this packer writes. Readers refuse a HIGHER
  * format with "created by a newer KeepDeck"; additions that older readers can
@@ -277,7 +277,7 @@ function crc32(buf) {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   run().catch((err) => {
     console.error(err instanceof Error ? err.message : err);
     process.exit(1);

@@ -10,7 +10,7 @@
 //     --out latest.json --payload darwin-aarch64=path/to/arm64.app.tar.gz
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 
 /**
  * @typedef {{ version: string, repo: string, out: string, payloads: Record<string, string> }} ManifestArgs
@@ -97,6 +97,6 @@ export function main(argv = process.argv.slice(2)) {
   return manifest;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   main();
 }

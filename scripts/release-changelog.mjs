@@ -24,7 +24,7 @@
 // the head is deduped against it (head wins, its notes are the freshest).
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 
 /**
  * @typedef {{ draft?: boolean, prerelease?: boolean, tag_name?: string | null, body?: string | null, published_at?: string | null }} GithubRelease
@@ -243,6 +243,6 @@ export function main(argv = process.argv.slice(2)) {
   return changelog;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   main();
 }

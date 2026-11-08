@@ -13,7 +13,7 @@
 // republish) skips the changelog section and keeps the existing story.
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 
 /**
  * @typedef {{ version: string, repo: string, out: string, previous: string, rolling: boolean }} NotesArgs
@@ -152,6 +152,6 @@ export function main(argv = process.argv.slice(2)) {
   return notes;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   main();
 }
