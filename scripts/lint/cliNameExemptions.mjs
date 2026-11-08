@@ -14,5 +14,5 @@ export const CLI_NAME_EXEMPTIONS = [
   // Frozen history: what an older build's files meant.
   { file: "src-tauri/src/plantings_migration.rs", names: ["kimi", "opencode"], count: 3, reason: "retires the MCP config and deletes the config homes builds before API 73 kept for these CLIs", until: null },
   { file: "src/domain/migrations/migrations.ts", names: ["claude"], count: 1, reason: "deck v13 → v14: a pane stored without an agent was claude's", until: null },
-  { file: "crates/keepdeck-usage/src/legacy_migration.rs", names: ["claude", "anthropic", "codex", "openai", "opencode"], count: 10, reason: "usage store v2 → v3: reads the rows older builds booked in each agent's own convention (claude's display names, codex's input with its cache, opencode's reasoning beside output) back into maker model ids and canonical tokens", until: null },
+  { file: "crates/keepdeck-usage/src/legacy_migration.rs", names: ["claude", "anthropic", "codex", "openai", "opencode", "kimi"], count: 11, reason: "usage store v2 → v3 (and its v4 re-key): reads the rows older builds booked in each agent's own convention (claude's display names, codex's input with its cache, opencode's reasoning beside output, kimi's names already <provider>/<model>) back into maker model ids and canonical tokens", until: null },
 ];

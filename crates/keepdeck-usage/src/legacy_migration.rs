@@ -18,6 +18,9 @@ use crate::model::TokenCounts;
 ///   already reported is kept.
 /// - codex appended the reasoning effort ("gpt-6.1-sol xhigh"); the model is
 ///   the first word.
+/// - kimi showed its models as `<provider>/<model>` already
+///   ("kimi-code/k3") — the very key its plugin books a call under — so the
+///   name is the key.
 /// - every other agent's model is kept as it was, under the agent's own name
 ///   as the provider: the journal resolves it to a maker by its id.
 ///
@@ -27,8 +30,24 @@ pub fn booked_model(agent: &str, model: &str) -> String {
     match agent {
         "claude" => format!("anthropic/{}", claude_id(model)),
         "codex" => format!("openai/{}", model.split_whitespace().next().unwrap_or("")),
+        "kimi" => model.to_string(),
         _ => format!("{agent}/{model}"),
     }
+}
+
+/// The key a schema-3 store carried an old row under, re-keyed by
+/// [`booked_model`] as it reads now — None when the key stands.
+///
+/// Schema 3 put every model but claude's and codex's under the agent's own
+/// name, so such a key still holds the name the agent showed
+/// ("kimi/kimi-code/k3" holds "kimi-code/k3") and the current rule can be
+/// applied to it again. Claude's and codex's keys were rewritten into ids
+/// and are not touched; neither is any call booked since, which never
+/// carries its agent's name as its provider.
+pub fn rekeyed(agent: &str, key: &str) -> Option<String> {
+    let shown = key.strip_prefix(agent)?.strip_prefix('/')?;
+    let booked = booked_model(agent, shown);
+    (booked != key).then_some(booked)
 }
 
 /// A claude display name ("Fable 5.1", "Opus 5 (1M context)") as its API id
@@ -105,7 +124,21 @@ mod tests {
     fn other_agents_keep_their_model_under_their_own_name() {
         assert_eq!(booked_model("opencode", "x-ai/grok-4.6"), "opencode/x-ai/grok-4.6");
         assert_eq!(booked_model("opencode", "glm-5.3"), "opencode/glm-5.3");
-        assert_eq!(booked_model("kimi", "kimi-code/k3"), "kimi/kimi-code/k3");
+    }
+
+    #[test]
+    fn kimi_shown_names_are_the_keys_its_calls_are_booked_under() {
+        assert_eq!(booked_model("kimi", "kimi-code/k3"), "kimi-code/k3");
+        assert_eq!(booked_model("kimi", "kimi-code/kimi-for-coding"), "kimi-code/kimi-for-coding");
+    }
+
+    #[test]
+    fn only_keys_schema_3_put_under_the_agent_are_rekeyed() {
+        assert_eq!(rekeyed("kimi", "kimi/kimi-code/k3").as_deref(), Some("kimi-code/k3"));
+        assert_eq!(rekeyed("kimi", "kimi-code/k3"), None, "a call booked since stands");
+        assert_eq!(rekeyed("opencode", "opencode/glm-5.3"), None, "the rule gives the same key");
+        assert_eq!(rekeyed("claude", "anthropic/claude-opus-5-5"), None);
+        assert_eq!(rekeyed("codex", "openai/gpt-6.1-sol"), None);
     }
 
     fn tokens(input: f64, output: f64, read: f64, write: f64, reasoning: Option<f64>) -> TokenCounts {

@@ -20,7 +20,7 @@ use crate::model::{CallBatch, LedgerRow, Place, TokenCounts, TOKEN_KINDS};
 use crate::pricing::{Journal, Price, PriceRow, Rates, Tier, Usage};
 
 /// The schema this build writes. Raised by a migration, never by a wipe.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// The width of a compacted bucket. A quarter hour divides every hour and
 /// day boundary, and every real timezone offset is a multiple of it, so a
@@ -106,6 +106,11 @@ impl UsageStore {
         if version < 3 {
             let tx = conn.transaction().map_err(|e| e.to_string())?;
             migrate_to_3(&tx, now)?;
+            tx.commit().map_err(|e| e.to_string())?;
+        }
+        if version < 4 {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            migrate_to_4(&tx)?;
             tx.commit().map_err(|e| e.to_string())?;
         }
         let journal = load_journal(&conn)?;
@@ -518,39 +523,65 @@ fn insert_event(tx: &Transaction<'_>, session: i64, booked: &Booked, place: &str
     Ok(())
 }
 
+/// Figures added to one bucket: one booking's, or a whole bucket's carried
+/// under another key.
+struct BucketPart<'a> {
+    session: i64,
+    start: f64,
+    model: &'a str,
+    mode: &'a str,
+    tier: u64,
+    tokens: &'a TokenCounts,
+    count: i64,
+    calls: i64,
+    first_at: f64,
+    last_at: f64,
+    place: &'a str,
+}
+
 /// Add one booking's figures to its bucket.
 fn add_to_bucket(tx: &Transaction<'_>, session: i64, booked: &Booked, place: &str) -> Result<(), String> {
-    let start = bucket_start(booked.occurred_at);
-    let existing: Option<(String, i64, i64, f64, f64)> = tx
+    merge_into_bucket(
+        tx,
+        &BucketPart {
+            session,
+            start: bucket_start(booked.occurred_at),
+            model: &booked.model,
+            mode: &booked.mode,
+            tier: booked.tier,
+            tokens: &booked.tokens,
+            count: booked.count,
+            calls: booked.calls,
+            first_at: booked.occurred_at,
+            last_at: booked.occurred_at,
+            place,
+        },
+    )
+}
+
+/// Add `part` to the bucket it names: its figures summed into what the
+/// bucket holds, its span widened.
+fn merge_into_bucket(tx: &Transaction<'_>, part: &BucketPart<'_>) -> Result<(), String> {
+    let key = params![part.session, part.start, part.model, part.mode, part.tier as i64];
+    let existing: Option<(String, i64, i64, f64, f64, String)> = tx
         .query_row(
-            "SELECT tokens, count, calls, first_at, last_at FROM bucket
+            "SELECT tokens, count, calls, first_at, last_at, place FROM bucket
               WHERE session = ?1 AND start = ?2 AND model = ?3 AND mode = ?4 AND tier = ?5",
-            params![session, start, booked.model, booked.mode, booked.tier as i64],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            key,
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    let (mut tokens, count, calls, first_at, last_at) = match existing {
-        Some((tokens, count, calls, first_at, last_at)) => (from_json::<TokenCounts>(&tokens)?, count, calls, first_at, last_at),
-        None => (TokenCounts::default(), 0, 0, booked.occurred_at, booked.occurred_at),
+    let (mut tokens, count, calls, first_at, last_at, place) = match existing {
+        Some((tokens, count, calls, first_at, last_at, place)) => {
+            (from_json::<TokenCounts>(&tokens)?, count, calls, first_at, last_at, place)
+        }
+        None => (TokenCounts::default(), 0, 0, part.first_at, part.last_at, part.place.to_string()),
     };
-    tokens.add(&booked.tokens);
+    tokens.add(part.tokens);
     // The place stays the latest event's: a bucket is one session, and a
     // session that moved panes is shown where it was last.
-    let (last_at, place) = if booked.occurred_at >= last_at {
-        (booked.occurred_at, place.to_string())
-    } else {
-        let kept: String = tx
-            .query_row(
-                "SELECT place FROM bucket WHERE session = ?1 AND start = ?2 AND model = ?3 AND mode = ?4 AND tier = ?5",
-                params![session, start, booked.model, booked.mode, booked.tier as i64],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| place.to_string());
-        (last_at, kept)
-    };
+    let place = if part.last_at >= last_at { part.place.to_string() } else { place };
     tx.execute(
         "INSERT INTO bucket (session, start, model, mode, tier, tokens, count, calls, first_at, last_at, place)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
@@ -558,16 +589,16 @@ fn add_to_bucket(tx: &Transaction<'_>, session: i64, booked: &Booked, place: &st
              tokens = excluded.tokens, count = excluded.count, calls = excluded.calls,
              first_at = excluded.first_at, last_at = excluded.last_at, place = excluded.place",
         params![
-            session,
-            start,
-            booked.model,
-            booked.mode,
-            booked.tier as i64,
+            part.session,
+            part.start,
+            part.model,
+            part.mode,
+            part.tier as i64,
             to_json(&tokens)?,
-            count + booked.count,
-            calls + booked.calls,
-            first_at.min(booked.occurred_at),
-            last_at,
+            count + part.count,
+            calls + part.calls,
+            first_at.min(part.first_at),
+            last_at.max(part.last_at),
             place
         ],
     )
@@ -840,6 +871,95 @@ fn migrate_to_3(tx: &Transaction<'_>, now: f64) -> Result<(), String> {
          PRAGMA user_version = 3;",
     )
     .map_err(|e| e.to_string())
+}
+
+/// Schema 4: old rows schema 3 carried under a wrong key are re-keyed (see
+/// [`legacy_migration::rekeyed`]) — kimi's had its agent's name put before
+/// the provider it already named, so one model stood under two keys, the
+/// old rows' and the calls' booked since. A re-keyed bucket merges into one
+/// already under its new key.
+fn migrate_to_4(tx: &Transaction<'_>) -> Result<(), String> {
+    struct Bucket {
+        session: i64,
+        agent: String,
+        start: f64,
+        model: String,
+        mode: String,
+        tier: i64,
+        tokens: String,
+        count: i64,
+        calls: i64,
+        first_at: f64,
+        last_at: f64,
+        place: String,
+    }
+    let buckets: Vec<Bucket> = tx
+        .prepare(
+            "SELECT b.session, s.agent, b.start, b.model, b.mode, b.tier, b.tokens, b.count, b.calls,
+                    b.first_at, b.last_at, b.place
+               FROM bucket b JOIN session s ON s.id = b.session",
+        )
+        .map_err(|e| e.to_string())?
+        .query_map([], |r| {
+            Ok(Bucket {
+                session: r.get(0)?,
+                agent: r.get(1)?,
+                start: r.get(2)?,
+                model: r.get(3)?,
+                mode: r.get(4)?,
+                tier: r.get(5)?,
+                tokens: r.get(6)?,
+                count: r.get(7)?,
+                calls: r.get(8)?,
+                first_at: r.get(9)?,
+                last_at: r.get(10)?,
+                place: r.get(11)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    for bucket in &buckets {
+        let Some(to) = legacy_migration::rekeyed(&bucket.agent, &bucket.model) else {
+            continue;
+        };
+        tx.execute(
+            "DELETE FROM bucket WHERE session = ?1 AND start = ?2 AND model = ?3 AND mode = ?4 AND tier = ?5",
+            params![bucket.session, bucket.start, bucket.model, bucket.mode, bucket.tier],
+        )
+        .map_err(|e| e.to_string())?;
+        merge_into_bucket(
+            tx,
+            &BucketPart {
+                session: bucket.session,
+                start: bucket.start,
+                model: &to,
+                mode: &bucket.mode,
+                tier: bucket.tier.max(0) as u64,
+                tokens: &from_json(&bucket.tokens)?,
+                count: bucket.count,
+                calls: bucket.calls,
+                first_at: bucket.first_at,
+                last_at: bucket.last_at,
+                place: &bucket.place,
+            },
+        )?;
+    }
+
+    let events: Vec<(String, String, String)> = tx
+        .prepare("SELECT e.event_id, s.agent, e.model FROM event e JOIN session s ON s.id = e.session")
+        .map_err(|e| e.to_string())?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    for (event_id, agent, model) in &events {
+        if let Some(to) = legacy_migration::rekeyed(agent, model) {
+            tx.execute("UPDATE event SET model = ?1 WHERE event_id = ?2", params![to, event_id])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.execute_batch("PRAGMA user_version = 4;").map_err(|e| e.to_string())
 }
 
 /// A schema-2 bucket or raw event, as the schema-3 migration reads it.
@@ -1202,5 +1322,69 @@ mod tests {
         reread.at = NOW + 500.0;
         let b = CallBatch { calls: vec![reread], ..b };
         assert_eq!(s.book(&b, NOW + 1000.0).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_schema_3_store_rekeys_old_kimi_rows_under_the_key_its_calls_are_booked_under() {
+        let s = store();
+        s.conn
+            .execute_batch(
+                "INSERT INTO session (id, agent, session_id, first_seen) VALUES (1, 'kimi', 'k1', 0), (2, 'opencode', 'o1', 0);",
+            )
+            .unwrap();
+        let bucket = |session: i64, model: &str, tokens: &str, first: f64, last: f64, pane: &str| {
+            s.conn
+                .execute(
+                    "INSERT INTO bucket (session, start, model, mode, tier, tokens, count, calls, first_at, last_at, place)
+                     VALUES (?1, ?2, ?3, '', 0, ?4, 1, 1, ?5, ?6, ?7)",
+                    params![session, DAY, model, tokens, first, last, to_json(&place(pane)).unwrap()],
+                )
+                .unwrap();
+        };
+        bucket(1, "kimi/kimi-code/k3", r#"{"input":10,"output":1}"#, DAY + 10.0, DAY + 20.0, "pane-old");
+        bucket(1, "kimi-code/k3", r#"{"input":5,"cacheRead":7}"#, DAY + 5.0, DAY + 30.0, "pane-new");
+        bucket(1, "kimi/kimi-code/kimi-for-coding", r#"{"input":4}"#, DAY + 1.0, DAY + 2.0, "pane-old");
+        bucket(2, "opencode/glm-5.3", r#"{"input":3}"#, DAY, DAY, "pane-1");
+        s.conn
+            .execute(
+                "INSERT INTO event (event_id, session, occurred_at, captured_at, model, mode, tier, place, tokens, calls)
+                 VALUES ('e1', 1, ?1, ?1, 'kimi/kimi-code/kimi-for-coding', '', 0, ?2, '{\"input\":2}', 1)",
+                params![NOW - 1000.0, to_json(&place("pane-old")).unwrap()],
+            )
+            .unwrap();
+        s.conn.execute_batch("PRAGMA user_version = 3;").unwrap();
+
+        let s = UsageStore::init(s.conn, NOW).unwrap();
+        let version: i64 = s.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let models: Vec<(i64, String)> = s
+            .conn
+            .prepare("SELECT session, model FROM bucket ORDER BY session, model")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let models: Vec<(i64, &str)> = models.iter().map(|(session, model)| (*session, model.as_str())).collect();
+        assert_eq!(
+            models,
+            vec![(1, "kimi-code/k3"), (1, "kimi-code/kimi-for-coding"), (2, "opencode/glm-5.3")],
+            "one key per kimi model; another agent's key stands"
+        );
+        let (tokens, counts, span, place): (String, (i64, i64), (f64, f64), String) = s
+            .conn
+            .query_row(
+                "SELECT tokens, count, calls, first_at, last_at, place FROM bucket WHERE model = 'kimi-code/k3'",
+                [],
+                |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?), (r.get(3)?, r.get(4)?), r.get(5)?)),
+            )
+            .unwrap();
+        let tokens: TokenCounts = from_json(&tokens).unwrap();
+        assert_eq!((tokens.input, tokens.output, tokens.cache_read), (Some(15.0), Some(1.0), Some(7.0)));
+        assert_eq!(counts, (2, 2), "the merged bucket counts both rows' events and calls");
+        assert_eq!(span, (DAY + 5.0, DAY + 30.0), "its span covers both");
+        assert_eq!(from_json::<Place>(&place).unwrap().pane_id, "pane-new", "it stays where the session was last");
+        let event: String = s.conn.query_row("SELECT model FROM event WHERE event_id = 'e1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(event, "kimi-code/kimi-for-coding");
     }
 }
