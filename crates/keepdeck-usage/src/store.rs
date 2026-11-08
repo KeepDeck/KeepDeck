@@ -729,7 +729,11 @@ fn insert_price(tx: &Transaction<'_>, row: &PriceRow, source: &str, captured_at:
 }
 
 fn load_journal(conn: &Connection) -> Result<Journal, String> {
-    Ok(Journal::new(price_rows(conn, None)?, catalogue::makers().to_vec()))
+    Ok(Journal::new(
+        price_rows(conn, None)?,
+        catalogue::makers().to_vec(),
+        catalogue::aliases().clone(),
+    ))
 }
 
 /// The journal's rows — all of them, or those one source wrote.
@@ -977,11 +981,6 @@ fn migrate_to_4(tx: &Transaction<'_>) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .collect::<Result<_, _>>()
         .map_err(|e| e.to_string())?;
-    for bucket in &buckets {
-        let tokens: TokenCounts = from_json(&bucket.tokens)?;
-        let Some(to) = rekeyed(&bucket.agent, bucket.session, &bucket.model, bucket.first_at, &tokens, bucket.count) else {
-            continue;
-        };
     // Each session's named buckets, as re-keyed, by when they began.
     let mut named: HashMap<i64, Vec<(f64, String)>> = HashMap::new();
     for bucket in &buckets {
@@ -1006,6 +1005,11 @@ fn migrate_to_4(tx: &Transaction<'_>) -> Result<(), String> {
             .or_else(|| rows.last())
             .map(|(_, key)| key.clone())
     };
+    for bucket in &buckets {
+        let tokens: TokenCounts = from_json(&bucket.tokens)?;
+        let Some(to) = rekeyed(&bucket.agent, bucket.session, &bucket.model, bucket.first_at, &tokens, bucket.count) else {
+            continue;
+        };
         tx.execute(
             "DELETE FROM bucket WHERE session = ?1 AND start = ?2 AND model = ?3 AND mode = ?4 AND tier = ?5",
             params![bucket.session, bucket.start, bucket.model, bucket.mode, bucket.tier],
@@ -1473,17 +1477,13 @@ mod tests {
                 )
                 .unwrap();
         };
+        let bucket = |session: i64, model: &str, tokens: &str, first: f64, last: f64, pane: &str| {
+            bucket_at(session, DAY, model, tokens, first, last, pane);
+        };
         bucket(1, "kimi/kimi-code/k3", r#"{"input":10,"output":1}"#, DAY + 10.0, DAY + 20.0, "pane-old");
         bucket(1, "kimi-code/k3", r#"{"input":5,"cacheRead":7}"#, DAY + 5.0, DAY + 30.0, "pane-new");
         bucket(1, "kimi/kimi-code/kimi-for-coding", r#"{"input":4}"#, DAY + 1.0, DAY + 2.0, "pane-old");
         bucket(2, "opencode/glm-5.3", r#"{"input":3}"#, DAY, DAY, "pane-1");
-        let bucket = |session: i64, model: &str, tokens: &str, first: f64, last: f64, pane: &str| {
-            bucket_at(session, DAY, model, tokens, first, last, pane);
-        };
-        s.conn
-            .execute(
-                "INSERT INTO event (event_id, session, occurred_at, captured_at, model, mode, tier, place, tokens, calls)
-                 VALUES ('e1', 1, ?1, ?1, 'kimi/kimi-code/kimi-for-coding', '', 0, ?2, '{\"input\":2}', 1)",
         // claude's first reports, before it named its model, then the model.
         bucket(3, "anthropic/", r#"{"cacheRead":100}"#, DAY + 1.0, DAY + 2.0, "pane-1");
         bucket(3, "anthropic/claude-fable-5-1", r#"{"cacheRead":50}"#, DAY + 3.0, DAY + 4.0, "pane-1");
@@ -1492,6 +1492,10 @@ mod tests {
         // A counter's first sighting, booked as one figure: no call.
         bucket_at(3, 0.5 * DAY, "anthropic/", r#"{"cacheRead":5000000}"#, 0.5 * DAY, 0.5 * DAY, "pane-1");
         bucket(4, "anthropic/", r#"{"cacheRead":1}"#, DAY, DAY, "pane-2");
+        s.conn
+            .execute(
+                "INSERT INTO event (event_id, session, occurred_at, captured_at, model, mode, tier, place, tokens, calls)
+                 VALUES ('e1', 1, ?1, ?1, 'kimi/kimi-code/kimi-for-coding', '', 0, ?2, '{\"input\":2}', 1)",
                 params![NOW - 1000.0, to_json(&place("pane-old")).unwrap()],
             )
             .unwrap();
@@ -1519,10 +1523,6 @@ mod tests {
             &[(1, 1.0, "kimi-code/k3", Some(7.0)), (1, 1.0, "kimi-code/kimi-for-coding", None), (2, 1.0, "opencode/glm-5.3", None)],
             "one key per kimi model; another agent's key stands"
         );
-        let (tokens, counts, span, place): (String, (i64, i64), (f64, f64), String) = s
-            .conn
-            .query_row(
-                "SELECT tokens, count, calls, first_at, last_at, place FROM bucket WHERE model = 'kimi-code/k3'",
         assert_eq!(
             &models[3..],
             &[
@@ -1535,6 +1535,10 @@ mod tests {
             "an unnamed row takes its session's next named model, the last one after it, none in a session that named \
              none, and a lump bigger than any call stays unnamed"
         );
+        let (tokens, counts, span, place): (String, (i64, i64), (f64, f64), String) = s
+            .conn
+            .query_row(
+                "SELECT tokens, count, calls, first_at, last_at, place FROM bucket WHERE model = 'kimi-code/k3'",
                 [],
                 |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?), (r.get(3)?, r.get(4)?), r.get(5)?)),
             )

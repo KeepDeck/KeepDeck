@@ -1,0 +1,20 @@
+{
+  "comment": "Model ids a CLI books that the model's maker lists under another id of the SAME model — never a similar or newer one: each alias names the maker key it is, and how that is known. Consulted only for usage a provider that is no maker served (a coding plan, a gateway) when no maker lists the id itself; a maker's own id is its own. Read by crates/keepdeck-usage (catalogue); edit here only.",
+  "aliases": [
+    {
+      "id": "deepseek-v4.1-flash",
+      "model": "deepseek/deepseek-flash",
+      "why": "DeepSeek's API serves DeepSeek V4.1 Flash as deepseek-flash: models.dev d6a78e85 added deepseek/deepseek-flash as V4.1 Flash GA with base_model deepseek/deepseek-v4.1-flash, at $0.15 / $0.60 / $0.003."
+    },
+    {
+      "id": "k3",
+      "model": "moonshotai/kimi-k3",
+      "why": "Kimi Code's plan serves Kimi K3 as k3: models.dev kimi-code-plan-cn/k3 has base_model moonshotai/kimi-k3, and kimi's own catalogue gives it family kimi-k3."
+    },
+    {
+      "id": "k3-256k",
+      "model": "moonshotai/kimi-k3",
+      "why": "k3-256k is Kimi K3 held to a 256K context window: models.dev kimi-code-plan-cn/k3-256k has base_model moonshotai/kimi-k3, 'the 256K-context version of Kimi K3'; Moonshot lists no separate model or price for it."
+    }
+  ]
+}

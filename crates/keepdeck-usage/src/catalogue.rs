@@ -55,6 +55,32 @@ pub fn makers() -> &'static [String] {
     &makers_file().makers
 }
 
+/// The aliases this crate reads — one copy, `resources/pricing/model-aliases.json`.
+const ALIASES_JSON: &str = include_str!("../../../resources/pricing/model-aliases.json");
+
+/// The ids a non-maker provider books that the model's maker lists under
+/// another id of the same model: id → maker key.
+pub fn aliases() -> &'static HashMap<String, String> {
+    static ALIASES: OnceLock<HashMap<String, String>> = OnceLock::new();
+    ALIASES.get_or_init(|| {
+        #[derive(Deserialize)]
+        struct File {
+            aliases: Vec<Alias>,
+        }
+        #[derive(Deserialize)]
+        struct Alias {
+            id: String,
+            model: String,
+        }
+        serde_json::from_str::<File>(ALIASES_JSON)
+            .expect("resources/pricing/model-aliases.json is an aliases list")
+            .aliases
+            .into_iter()
+            .map(|alias| (alias.id, alias.model))
+            .collect()
+    })
+}
+
 /// Whether `maker` made the model whose base model is `base` (`<lab>/<model>`,
 /// models.dev's canonical id). A maker lists other labs' models too, at its
 /// own resale price — those are not its list price, and are not journaled.
@@ -247,7 +273,18 @@ mod tests {
     use super::*;
 
     fn journal(rows: Vec<PriceRow>) -> Journal {
-        Journal::new(rows, makers().to_vec())
+        Journal::new(rows, makers().to_vec(), aliases().clone())
+    }
+
+    #[test]
+    fn every_shipped_alias_names_a_maker_key_the_seed_prices() {
+        let journal = journal(seed().unwrap());
+        for (id, key) in aliases() {
+            assert!(makers().iter().any(|maker| key.starts_with(&format!("{maker}/"))), "{id} → {key}: no maker's key");
+            assert!(journal.latest(key).is_some(), "{id} → {key}: the seed has no price for it");
+        }
+        assert_eq!(journal.resolve("opencode/deepseek-v4.1-flash"), Some("deepseek/deepseek-flash"));
+        assert_eq!(journal.resolve("kimi-code/k3-256k"), Some("moonshotai/kimi-k3"));
     }
 
     const API: &str = r#"{
