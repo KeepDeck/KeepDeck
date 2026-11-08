@@ -26,7 +26,8 @@ import {
  * Two sources, two jobs: the statusLine says how full the pane's context is
  * and where the account's limits stand; the transcript says which calls the
  * session made — each assistant message is one, booked by the usage history
- * and priced there.
+ * and priced there — and, in its `cost-state` rows, claude's own running
+ * total, which also counts the calls no row records.
  */
 
 /**
@@ -68,6 +69,25 @@ export const claudeUsageWatches: readonly TailWatch[] = [
     ],
     keep: ["message.id", "message.model", "message.usage"],
     lane: "calls",
+  },
+  // claude's own running count of the session's spend, model by model —
+  // the only place the calls no row records leave their tokens: compaction,
+  // "while you were away" summaries, prompt suggestions, titles. Written when
+  // a process leaves the session (it exits, /clear, a switch, /bg).
+  {
+    match: [{ key: "type", equals: "cost-state" }, { key: "modelUsage" }],
+    keep: ["startTime", "modelUsage"],
+    lane: "calls",
+  },
+  // The latest dated row, held for the count after it: a cost-state row
+  // carries no time, and the work it closes ended at the row before it. An
+  // assistant row is the call watch's, so this holds the turn's last
+  // bookkeeping row (its duration, its stop hook) — the moment work ended.
+  {
+    match: [{ key: "timestamp" }],
+    keep: ["timestamp"],
+    lane: "calls",
+    context: true,
   },
 ];
 
@@ -161,6 +181,65 @@ function claudeCalls(carried: CarriedRecord): UsageCall[] {
   return calls;
 }
 
+/** One model's counts in a `cost-state` row, in the canonical classes: the
+ * same convention as a message's `usage`, under claude's camel-case names. */
+function costStateTokens(usage: Record<string, unknown>): CallTokens {
+  const hour = count(usage.cacheCreationEphemeral1hInputTokens);
+  const fiveMinutes =
+    asFiniteNumber(usage.cacheCreationEphemeral5mInputTokens) ??
+    Math.max(0, count(usage.cacheCreationInputTokens) - hour);
+  return {
+    input: count(usage.inputTokens),
+    cacheRead: count(usage.cacheReadInputTokens),
+    cacheWrite: count(fiveMinutes),
+    cacheWrite1h: hour,
+    output: count(usage.outputTokens),
+    reasoning: count(usage.thinkingTokens),
+  };
+}
+
+/**
+ * claude's running totals out of one `cost-state` row: one per model, the
+ * count that began at the row's `startTime` (a session's line of processes —
+ * resumed ones continue it, `/clear` starts a new one), dated by the latest
+ * row before it. The main loop counts under `claude-opus-5-5[1m]`, a side job
+ * under the bare id: one model, so one total.
+ */
+function claudeTotals(carried: CarriedRecord): UsageCall[] {
+  const began = asFiniteNumber(carried.record.startTime);
+  const models = carried.record.modelUsage;
+  const stamp = carried.context ? asNonEmptyString(carried.context.timestamp) : undefined;
+  const at = stamp === undefined ? Number.NaN : Date.parse(stamp);
+  if (began === undefined || !isJsonRecord(models) || !Number.isFinite(at)) return [];
+  const totals = new Map<string, CallTokens>();
+  for (const [name, usage] of Object.entries(models)) {
+    if (!isJsonRecord(usage)) continue;
+    const model = claudeModelId(name);
+    const tokens = costStateTokens(usage);
+    const held = totals.get(model);
+    totals.set(model, held ? sumTokens(held, tokens) : tokens);
+  }
+  return [...totals].map(([model, tokens]) => ({
+    id: `${began}:${model}`,
+    at,
+    provider: "anthropic",
+    model,
+    tokens,
+    tally: { began },
+  }));
+}
+
+function sumTokens(a: CallTokens, b: CallTokens): CallTokens {
+  return {
+    input: a.input + b.input,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheWrite: a.cacheWrite + b.cacheWrite,
+    cacheWrite1h: (a.cacheWrite1h ?? 0) + (b.cacheWrite1h ?? 0),
+    output: a.output + b.output,
+    reasoning: (a.reasoning ?? 0) + (b.reasoning ?? 0),
+  };
+}
+
 /**
  * A model id as the API knows it: the statusLine names the model claude was
  * asked for with its one-million-token context as a suffix
@@ -205,7 +284,8 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   if (!isJsonRecord(payload)) return null;
   const carried = carriedRecord(payload);
   if (carried) {
-    return { account: null, pane: null, calls: claudeCalls(carried) };
+    const calls = "modelUsage" in carried.record ? claudeTotals(carried) : claudeCalls(carried);
+    return { account: null, pane: null, calls };
   }
   const line = payload.statusline;
   if (!isJsonRecord(line)) return null;

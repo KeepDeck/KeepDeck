@@ -121,6 +121,98 @@ describe("normalizeClaudeStatusline", () => {
       AT,
     );
 
+  /** A `cost-state` row as the host carries it, with the latest dated row
+   * before it held as its context. */
+  const costState = (fields: Record<string, unknown>, context: Record<string, unknown> | null) =>
+    normalizeClaudeStatusline(
+      {
+        agent: "claude",
+        sourceRef: { file: "/t.jsonl", offset: 9 },
+        event: { type: CARRIED_RECORD, lane: "calls", record: fields, ...(context ? { context } : {}) },
+      },
+      AT,
+    );
+
+  /** claude 2.1.319's per-model counts in a cost-state row (abridged). */
+  const OPUS_COUNTS = {
+    inputTokens: 3_088,
+    outputTokens: 155_370,
+    thinkingTokens: 4_000,
+    cacheReadInputTokens: 80_519_730,
+    cacheCreationInputTokens: 308_947,
+    cacheCreationEphemeral5mInputTokens: 411,
+    cacheCreationEphemeral1hInputTokens: 308_536,
+    webSearchRequests: 0,
+    costUSD: 21.69,
+  };
+
+  it("reads a cost-state row as claude's running totals, one per model, dated by the row before it", () => {
+    const result = costState(
+      {
+        startTime: 1_793_222_062_165,
+        modelUsage: {
+          "claude-opus-5-5[1m]": OPUS_COUNTS,
+          "claude-opus-5-5": { inputTokens: 12, outputTokens: 30 },
+          "claude-haiku-5-5": { inputTokens: 74_878, outputTokens: 7_011, thinkingTokens: 100 },
+        },
+      },
+      { timestamp: "2026-11-08T20:41:17.000Z" },
+    );
+    const at = Date.parse("2026-11-08T20:41:17.000Z");
+    expect(result?.calls).toEqual([
+      {
+        id: "1793222062165:claude-opus-5-5",
+        at,
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        tokens: {
+          input: 3_100,
+          cacheRead: 80_519_730,
+          cacheWrite: 411,
+          cacheWrite1h: 308_536,
+          output: 155_400,
+          reasoning: 4_000,
+        },
+        tally: { began: 1_793_222_062_165 },
+      },
+      {
+        id: "1793222062165:claude-haiku-5-5",
+        at,
+        provider: "anthropic",
+        model: "claude-haiku-5-5",
+        tokens: { input: 74_878, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, output: 7_011, reasoning: 100 },
+        tally: { began: 1_793_222_062_165 },
+      },
+    ]);
+  });
+
+  it("splits a cost-state write it does not split itself as all five-minute", () => {
+    const result = costState(
+      { startTime: 1, modelUsage: { "claude-sonnet-5-5": { cacheCreationInputTokens: 900, cacheCreationEphemeral1hInputTokens: 0 } } },
+      { timestamp: "2026-11-08T20:41:17.000Z" },
+    );
+    expect(result?.calls?.[0]?.tokens).toMatchObject({ cacheWrite: 900, cacheWrite1h: 0 });
+  });
+
+  it("books no total it cannot date, nor one without a count's start", () => {
+    const fields = { startTime: 1, modelUsage: { "claude-opus-5-5": OPUS_COUNTS } };
+    expect(costState(fields, null)?.calls).toEqual([]);
+    expect(costState(fields, { timestamp: "not a time" })?.calls).toEqual([]);
+    expect(costState({ modelUsage: fields.modelUsage }, { timestamp: "2026-11-08T20:41:17.000Z" })?.calls).toEqual([]);
+  });
+
+  it("watches cost-state rows, and holds the latest dated row other than a call for them", () => {
+    const first = (row: Record<string, unknown>) => claudeUsageWatches.find((watch) => watchMatches(watch, row));
+    const assistant = { type: "assistant", timestamp: "2026-11-08T20:41:00.000Z", message: { id: "m", usage: {} } };
+    expect(first(assistant)?.keep).toContain("message.usage");
+    const total = { type: "cost-state", sessionId: "s", startTime: 1, modelUsage: {}, totalCostUSD: 1 };
+    expect(watchProject(present(first(total), "the cost-state watch"), total)).toEqual({ startTime: 1, modelUsage: {} });
+    const bookkeeping = { type: "system", subtype: "turn_duration", timestamp: "2026-11-08T20:41:17.000Z", durationMs: 5 };
+    const held = present(first(bookkeeping), "the dating watch");
+    expect(held.context).toBe(true);
+    expect(watchProject(held, bookkeeping)).toEqual({ timestamp: "2026-11-08T20:41:17.000Z" });
+  });
+
   /** A real claude 2.1.319 usage block, its 1-hour write split out. */
   const USAGE = {
     input_tokens: 2,
