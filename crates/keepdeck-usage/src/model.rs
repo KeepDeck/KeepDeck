@@ -1,11 +1,17 @@
 //! The ledger's vocabulary, shaped as the webview speaks it (camelCase).
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 
-/// Token counters, by kind. Each one is optional: a provider reports the
-/// kinds it has. Counts are kept as the JSON numbers they arrive as.
+use crate::pricing::CostBasis;
+
+/// Token counters, by kind. Each one is optional: a row reports the kinds it
+/// has. Counts are kept as the JSON numbers they arrive as.
+///
+/// The classes are the canonical ones every agent's usage is mapped into
+/// before it is booked: `input` is FRESH input (neither read from nor
+/// written to a cache), `output` is everything billed as output — reasoning
+/// included, `reasoning` being a share of it shown on its own — and `total`
+/// is the sum of the billed classes.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenCounts {
@@ -76,8 +82,11 @@ impl TokenCounts {
         *slot = value;
     }
 
+    /// Whether no kind counts anything.
     pub fn is_empty(&self) -> bool {
-        TOKEN_KINDS.iter().all(|kind| self.get(*kind).is_none())
+        TOKEN_KINDS
+            .iter()
+            .all(|kind| self.get(*kind).is_none_or(|value| value == 0.0))
     }
 
     /// Add `other` kind by kind; a kind absent on both sides stays absent.
@@ -88,74 +97,86 @@ impl TokenCounts {
             }
         }
     }
+
+    /// The prompt a call sent: everything it read, fresh or cached — what a
+    /// long-context threshold is measured against.
+    pub fn prompt(&self) -> f64 {
+        self.input.unwrap_or(0.0)
+            + self.cache_read.unwrap_or(0.0)
+            + self.cache_write.unwrap_or(0.0)
+            + self.cache_write_1h.unwrap_or(0.0)
+    }
+
+    /// The sum of the billed classes — the row's total.
+    pub fn billed(&self) -> f64 {
+        self.prompt() + self.output.unwrap_or(0.0)
+    }
 }
 
-/// One model's cumulative counters in a session: its tokens, and how many
-/// provider calls it has made.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelCounters {
-    #[serde(default)]
-    pub total_tokens: TokenCounts,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calls: Option<f64>,
+/// One provider API call's tokens, in the canonical classes (see
+/// [`TokenCounts`]). Every class is a count; an agent that does not report
+/// one sends 0.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CallTokens {
+    pub input: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+    #[serde(rename = "cacheWrite1h")]
+    pub cache_write_1h: f64,
+    pub output: f64,
+    pub reasoning: f64,
 }
 
-/// The cumulative counters a session last reported — the base the next
-/// report's delta is taken against.
-///
-/// `tokens` is the session counted as one sum; `models` is the session
-/// counted per model, by a provider that reports so. The cost is the
-/// session's either way: no provider prices a session per model.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Observation {
-    #[serde(default)]
-    pub tokens: TokenCounts,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost_usd: Option<f64>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub models: BTreeMap<String, ModelCounters>,
+impl CallTokens {
+    /// As ledger counters, every class present and the total the sum of the
+    /// billed ones.
+    pub fn counts(&self) -> TokenCounts {
+        let finite = |value: f64| if value.is_finite() && value > 0.0 { value } else { 0.0 };
+        let mut counts = TokenCounts {
+            input: Some(finite(self.input)),
+            output: Some(finite(self.output)),
+            cache_read: Some(finite(self.cache_read)),
+            cache_write: Some(finite(self.cache_write)),
+            cache_write_1h: Some(finite(self.cache_write_1h)),
+            reasoning: Some(finite(self.reasoning)),
+            total: None,
+        };
+        counts.total = Some(counts.billed());
+        counts
+    }
 }
 
-/// One cumulative report from a pane: what its provider says the session has
-/// used so far.
+/// One provider API call, as an agent's plugin reported it.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UsageReport {
-    pub agent: String,
+pub struct UsageCall {
+    /// Unique within the agent: claude's `message.id`, codex's
+    /// `response_id`, opencode's step id, or a file position for an agent
+    /// with no id of its own.
+    pub id: String,
+    /// When the call happened, unix ms — the record's own time.
+    pub at: f64,
+    /// Who served it, as the agent says: the maker, or a reseller the price
+    /// journal resolves to the maker.
+    pub provider: String,
+    pub model: String,
+    /// The catalogue's name for the service-tier mode it ran in ("fast");
+    /// absent for the standard tier.
     #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub total_tokens: Option<TokenCounts>,
-    #[serde(default)]
-    pub cost_usd: Option<f64>,
-    /// The session counted per model, keyed by the model's id, when the
-    /// provider can say which model used what. Present, it is what the
-    /// report's tokens and calls are booked from; `total_tokens` is the same
-    /// tokens summed, there for whoever shows the session as one number.
-    #[serde(default)]
-    pub by_model: Option<BTreeMap<String, ModelCounters>>,
-    pub reported_at: f64,
-    /// The provider's own ordering of its reports, when it has one.
-    #[serde(default)]
-    pub sequence: Option<f64>,
+    pub mode: Option<String>,
+    pub tokens: CallTokens,
 }
 
-/// Where a session came from — whether its first report is a baseline or
-/// real usage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SessionOrigin {
-    /// This run's own spawn minted the session: its first turn is real usage.
-    Fresh,
-    /// Resumed or forked: the counters already hold work the ledger may hold.
-    Inherited,
-    /// No spawn plan for the pane: attached or restored.
-    Unknown,
+impl UsageCall {
+    /// The key the call's usage is booked under: `<provider>/<model>`.
+    pub fn booked_model(&self) -> String {
+        format!("{}/{}", self.provider, self.model)
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A git worktree a pane worked in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Worktree {
     pub path: String,
@@ -164,25 +185,38 @@ pub struct Worktree {
     pub repo: String,
 }
 
-/// The deck's facts about the pane a report came from.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+/// Where usage happened: the deck's facts about the pane, read back whole and
+/// never queried.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CaptureContext {
+pub struct Place {
     pub workspace_id: String,
     pub workspace_name: String,
     pub workspace_cwd: String,
     pub pane_id: String,
     pub pane_name: String,
-    pub session_id: String,
-    pub origin: SessionOrigin,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<Worktree>,
 }
 
-/// One row of the ledger as the webview reads it: either one recorded event
+/// Calls one pane reported for one session, to book together.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallBatch {
+    pub agent: String,
+    pub session_id: String,
+    /// When KeepDeck's session binding accepted this session for the pane
+    /// (unix ms, the deck's clock). Usage older than the first time the deck
+    /// saw a session is not booked: it is a fork's copy, or history from
+    /// before KeepDeck watched.
+    pub first_seen: f64,
+    pub place: Place,
+    pub calls: Vec<UsageCall>,
+}
+
+/// One row of the ledger as the webview reads it: either one booked event
 /// (`count` 1) or a compacted bucket of a session's events. Its fields are an
-/// event's, so every derivation reads both alike; the three weights say how
-/// many events, provider calls and priced events the row stands for.
+/// event's, so every derivation reads both alike.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LedgerRow {
@@ -190,8 +224,12 @@ pub struct LedgerRow {
     pub occurred_at: f64,
     pub captured_at: f64,
     pub agent: String,
+    /// The booked `<provider>/<model>` key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The catalogue's name for the model, when it knows the model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
     pub workspace_id: String,
     pub workspace_name: String,
     pub workspace_cwd: String,
@@ -202,28 +240,10 @@ pub struct LedgerRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<Worktree>,
     pub tokens: TokenCounts,
-    pub cost_source: CostSource,
+    /// Priced from the journal as the row is served; absent when unpriced.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
+    pub cost_basis: CostBasis,
     pub count: u32,
     pub calls: u32,
-    pub cost_events: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum CostSource {
-    Provider,
-    Unavailable,
-}
-
-impl CostSource {
-    /// A row is provider-priced exactly when it carries a cost.
-    pub fn of(cost_usd: Option<f64>) -> Self {
-        if cost_usd.is_some() {
-            CostSource::Provider
-        } else {
-            CostSource::Unavailable
-        }
-    }
 }
