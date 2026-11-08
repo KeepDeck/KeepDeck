@@ -7,8 +7,7 @@ const badge = (tone: ActivityBadge["tone"], label: string, detail?: string): Act
   tone, label, sentence: label.toLowerCase(), detail, at: NOW - 3 * 60_000,
 });
 const input = (over: Partial<PaneHeaderInput> = {}): PaneHeaderInput => ({
-  activity: null, unconnected: undefined, now: NOW, ctxPct: undefined, paneLive: true, team: null,
-  showTeamName: false, ...over,
+  activity: null, now: NOW, ctxPct: undefined, paneLive: true, team: null, showTeamName: false, ...over,
 });
 
 describe("paneHeaderView", () => {

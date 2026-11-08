@@ -25,8 +25,9 @@ export interface PaneHeaderView {
 
 export interface PaneHeaderInput {
   activity: ActivityBadge | null;
-  /** Why the pane's agent runs without KeepDeck's setup, when it does. */
-  unconnected: UnconnectedLaunch | undefined;
+  /** Why the pane's agent runs without KeepDeck's setup, when it does;
+   * absent for a connected one. */
+  unconnected?: UnconnectedLaunch;
   /** The minute clock the tooltip ages against. */
   now: number;
   ctxPct: number | undefined;

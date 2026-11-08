@@ -63,7 +63,7 @@ fn detect_bins(bins: Vec<String>, path: &std::ffi::OsStr) -> Vec<BinStatusDto> {
 #[tauri::command]
 pub async fn agents_probe_version(bin: String) -> Option<String> {
     tauri::async_runtime::spawn_blocking(move || {
-        version_of(&bin, keepdeck_env::augmented_path())
+        version_of(&bin, keepdeck_env::augmented_path(), PROBE_TIMEOUT)
     })
     .await
     // A panicking blocking task reads as "could not tell", like every other
@@ -72,11 +72,18 @@ pub async fn agents_probe_version(bin: String) -> Option<String> {
     .flatten()
 }
 
-/// Resolve `bin` on `path` and ask it. The command's whole body, kept apart
-/// from the async wrapper so the tests exercise what actually runs rather
-/// than a hand-copied twin of it.
-fn version_of(bin: &str, path: &std::ffi::OsStr) -> Option<String> {
-    probe_version(&keepdeck_env::find_program(bin, path)?, path)
+/// Resolve `bin` on `path` and ask it, killing it if it has not answered
+/// within `budget`. The command's whole body, kept apart from the async
+/// wrapper so the tests exercise what actually runs rather than a
+/// hand-copied twin of it.
+///
+/// The budget is the caller's: the command gives a CLI [`PROBE_TIMEOUT`],
+/// the bound that makes running somebody else's binary safe. A test asking
+/// whether an answer is READ right waits on the answer instead — starting a
+/// fresh `/bin/sh` on a loaded machine overran the product's two seconds,
+/// and four such tests failed together under a parallel build (task-586).
+fn version_of(bin: &str, path: &std::ffi::OsStr, budget: std::time::Duration) -> Option<String> {
+    probe_version(&keepdeck_env::find_program(bin, path)?, path, budget)
 }
 
 /// How long a `--version` probe may take before it is killed, and how often
@@ -99,14 +106,18 @@ const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 ///
 /// It runs on the augmented spawn PATH, like the resolution above, so a CLI
 /// that shells out to a sibling tool finds it.
-fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<String> {
+fn probe_version(
+    program: &std::path::Path,
+    path: &std::ffi::OsStr,
+    budget: std::time::Duration,
+) -> Option<String> {
     let mut command = std::process::Command::new(program);
     command.arg("--version").env("PATH", path);
     // A version banner is printed immediately or not at all; anything slower
-    // is not answering.
+    // than the budget is not answering.
     let output = crate::run_bounded::run_bounded(
         &mut command,
-        PROBE_TIMEOUT,
+        budget,
         PROBE_POLL,
         MAX_VERSION_BYTES,
     )
@@ -141,8 +152,16 @@ fn parse_version(said: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// What the command runs, on a PATH the test controls.
-    use super::version_of as probing;
+    /// The budget of a probe whose program DOES answer: the test waits on the
+    /// answer, and only a regression that hangs ever reaches it. Never the
+    /// product's [`PROBE_TIMEOUT`] — that bound has its own test below.
+    const ANSWER_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+
+    /// What the command runs, on a PATH the test controls, for a program that
+    /// answers.
+    fn probing(bin: &str, path: &std::ffi::OsStr) -> Option<String> {
+        version_of(bin, path, ANSWER_BUDGET)
+    }
 
     #[test]
     fn detects_requested_bins_on_the_given_path() {
@@ -248,7 +267,8 @@ mod tests {
         // shells out to a sibling tool does.
         let path = std::env::join_paths([dir.path(), std::path::Path::new("/bin")]).unwrap();
         let began = std::time::Instant::now();
-        let version = probing("kd-hanging-agent", &path);
+        // The product's own bound: that is what this case is about.
+        let version = version_of("kd-hanging-agent", &path, PROBE_TIMEOUT);
         let waited = began.elapsed();
 
         // Installed, with no version — a probe that could not answer is
@@ -331,8 +351,9 @@ mod tests {
         let path = std::env::join_paths([dir.path(), std::path::Path::new("/usr/bin")]).unwrap();
         let began = std::time::Instant::now();
         assert_eq!(probing("kd-chatty-agent", &path).as_deref(), Some("3.2.1"));
-        // And it did not spend the whole deadline blocked on a full buffer.
-        assert!(began.elapsed() < PROBE_TIMEOUT, "{:?}", began.elapsed());
+        // And it was not killed at the deadline, blocked on a full buffer —
+        // measured against its own budget, not a loaded machine's speed.
+        assert!(began.elapsed() < ANSWER_BUDGET, "{:?}", began.elapsed());
     }
 
     #[test]
