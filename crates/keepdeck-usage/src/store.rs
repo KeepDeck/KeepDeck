@@ -10,6 +10,7 @@
 //! Money is never stored: a row is priced from the journal as it is served
 //! ([`UsageStore::ledger`]).
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -923,11 +924,18 @@ fn migrate_to_3(tx: &Transaction<'_>, now: f64) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-/// Schema 4: old rows schema 3 carried under a wrong key are re-keyed (see
-/// [`legacy_migration::rekeyed`]) — kimi's had its agent's name put before
-/// the provider it already named, so one model stood under two keys, the
-/// old rows' and the calls' booked since. A re-keyed bucket merges into one
-/// already under its new key.
+/// Schema 4: old rows schema 3 carried under a wrong key are re-keyed.
+///
+/// - kimi's had its agent's name put before the provider it already named
+///   (see [`legacy_migration::rekeyed`]), so one model stood under two keys,
+///   the old rows' and the calls' booked since.
+/// - a row booked before its agent named the model (see
+///   [`legacy_migration::unnamed`]) was carried under no model, and so went
+///   unpriced; it takes the model its session's next named row ran on — the
+///   previous one when none follows. A session that never named a model
+///   keeps it unnamed.
+///
+/// A re-keyed bucket merges into one already under its new key.
 fn migrate_to_4(tx: &Transaction<'_>) -> Result<(), String> {
     struct Bucket {
         session: i64,
@@ -970,9 +978,34 @@ fn migrate_to_4(tx: &Transaction<'_>) -> Result<(), String> {
         .collect::<Result<_, _>>()
         .map_err(|e| e.to_string())?;
     for bucket in &buckets {
-        let Some(to) = legacy_migration::rekeyed(&bucket.agent, &bucket.model) else {
+        let tokens: TokenCounts = from_json(&bucket.tokens)?;
+        let Some(to) = rekeyed(&bucket.agent, bucket.session, &bucket.model, bucket.first_at, &tokens, bucket.count) else {
             continue;
         };
+    // Each session's named buckets, as re-keyed, by when they began.
+    let mut named: HashMap<i64, Vec<(f64, String)>> = HashMap::new();
+    for bucket in &buckets {
+        if !legacy_migration::unnamed(&bucket.agent, &bucket.model) {
+            let key = legacy_migration::rekeyed(&bucket.agent, &bucket.model).unwrap_or_else(|| bucket.model.clone());
+            named.entry(bucket.session).or_default().push((bucket.first_at, key));
+        }
+    }
+    for rows in named.values_mut() {
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+    }
+    let rekeyed = |agent: &str, session: i64, model: &str, at: f64, tokens: &TokenCounts, events: i64| -> Option<String> {
+        if !legacy_migration::unnamed(agent, model) {
+            return legacy_migration::rekeyed(agent, model);
+        }
+        if !legacy_migration::nameable(agent, model, tokens, events) {
+            return None;
+        }
+        let rows = named.get(&session)?;
+        rows.iter()
+            .find(|(first_at, _)| *first_at >= at)
+            .or_else(|| rows.last())
+            .map(|(_, key)| key.clone())
+    };
         tx.execute(
             "DELETE FROM bucket WHERE session = ?1 AND start = ?2 AND model = ?3 AND mode = ?4 AND tier = ?5",
             params![bucket.session, bucket.start, bucket.model, bucket.mode, bucket.tier],
@@ -986,7 +1019,7 @@ fn migrate_to_4(tx: &Transaction<'_>) -> Result<(), String> {
                 model: &to,
                 mode: &bucket.mode,
                 tier: bucket.tier.max(0) as u64,
-                tokens: &from_json(&bucket.tokens)?,
+                tokens: &tokens,
                 count: bucket.count,
                 calls: bucket.calls,
                 first_at: bucket.first_at,
@@ -996,15 +1029,35 @@ fn migrate_to_4(tx: &Transaction<'_>) -> Result<(), String> {
         )?;
     }
 
-    let events: Vec<(String, String, String)> = tx
-        .prepare("SELECT e.event_id, s.agent, e.model FROM event e JOIN session s ON s.id = e.session")
+    struct Event {
+        event_id: String,
+        agent: String,
+        session: i64,
+        model: String,
+        at: f64,
+        tokens: String,
+    }
+    let events: Vec<Event> = tx
+        .prepare(
+            "SELECT e.event_id, s.agent, e.session, e.model, e.occurred_at, e.tokens
+               FROM event e JOIN session s ON s.id = e.session",
+        )
         .map_err(|e| e.to_string())?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .query_map([], |r| {
+            Ok(Event {
+                event_id: r.get(0)?,
+                agent: r.get(1)?,
+                session: r.get(2)?,
+                model: r.get(3)?,
+                at: r.get(4)?,
+                tokens: r.get(5)?,
+            })
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<_, _>>()
         .map_err(|e| e.to_string())?;
-    for (event_id, agent, model) in &events {
-        if let Some(to) = legacy_migration::rekeyed(agent, model) {
+    for Event { event_id, agent, session, model, at, tokens } in &events {
+        if let Some(to) = rekeyed(agent, *session, model, *at, &from_json(tokens)?, 1) {
             tx.execute("UPDATE event SET model = ?1 WHERE event_id = ?2", params![to, event_id])
                 .map_err(|e| e.to_string())?;
         }
@@ -1403,19 +1456,20 @@ mod tests {
     }
 
     #[test]
-    fn a_schema_3_store_rekeys_old_kimi_rows_under_the_key_its_calls_are_booked_under() {
+    fn a_schema_3_store_rekeys_old_rows_under_the_key_their_model_is_booked_under() {
         let s = store();
         s.conn
             .execute_batch(
-                "INSERT INTO session (id, agent, session_id, first_seen) VALUES (1, 'kimi', 'k1', 0), (2, 'opencode', 'o1', 0);",
+                "INSERT INTO session (id, agent, session_id, first_seen) VALUES
+                     (1, 'kimi', 'k1', 0), (2, 'opencode', 'o1', 0), (3, 'claude', 'c1', 0), (4, 'claude', 'c2', 0);",
             )
             .unwrap();
-        let bucket = |session: i64, model: &str, tokens: &str, first: f64, last: f64, pane: &str| {
+        let bucket_at = |session: i64, start: f64, model: &str, tokens: &str, first: f64, last: f64, pane: &str| {
             s.conn
                 .execute(
                     "INSERT INTO bucket (session, start, model, mode, tier, tokens, count, calls, first_at, last_at, place)
                      VALUES (?1, ?2, ?3, '', 0, ?4, 1, 1, ?5, ?6, ?7)",
-                    params![session, DAY, model, tokens, first, last, to_json(&place(pane)).unwrap()],
+                    params![session, start, model, tokens, first, last, to_json(&place(pane)).unwrap()],
                 )
                 .unwrap();
         };
@@ -1423,10 +1477,21 @@ mod tests {
         bucket(1, "kimi-code/k3", r#"{"input":5,"cacheRead":7}"#, DAY + 5.0, DAY + 30.0, "pane-new");
         bucket(1, "kimi/kimi-code/kimi-for-coding", r#"{"input":4}"#, DAY + 1.0, DAY + 2.0, "pane-old");
         bucket(2, "opencode/glm-5.3", r#"{"input":3}"#, DAY, DAY, "pane-1");
+        let bucket = |session: i64, model: &str, tokens: &str, first: f64, last: f64, pane: &str| {
+            bucket_at(session, DAY, model, tokens, first, last, pane);
+        };
         s.conn
             .execute(
                 "INSERT INTO event (event_id, session, occurred_at, captured_at, model, mode, tier, place, tokens, calls)
                  VALUES ('e1', 1, ?1, ?1, 'kimi/kimi-code/kimi-for-coding', '', 0, ?2, '{\"input\":2}', 1)",
+        // claude's first reports, before it named its model, then the model.
+        bucket(3, "anthropic/", r#"{"cacheRead":100}"#, DAY + 1.0, DAY + 2.0, "pane-1");
+        bucket(3, "anthropic/claude-fable-5-1", r#"{"cacheRead":50}"#, DAY + 3.0, DAY + 4.0, "pane-1");
+        bucket_at(3, 2.0 * DAY, "anthropic/claude-opus-5-5", r#"{"cacheRead":20}"#, 2.0 * DAY, 2.0 * DAY, "pane-1");
+        bucket_at(3, 3.0 * DAY, "anthropic/", r#"{"cacheRead":9}"#, 3.0 * DAY, 3.0 * DAY, "pane-1");
+        // A counter's first sighting, booked as one figure: no call.
+        bucket_at(3, 0.5 * DAY, "anthropic/", r#"{"cacheRead":5000000}"#, 0.5 * DAY, 0.5 * DAY, "pane-1");
+        bucket(4, "anthropic/", r#"{"cacheRead":1}"#, DAY, DAY, "pane-2");
                 params![NOW - 1000.0, to_json(&place("pane-old")).unwrap()],
             )
             .unwrap();
@@ -1435,24 +1500,41 @@ mod tests {
         let s = UsageStore::init(s.conn, NOW).unwrap();
         let version: i64 = s.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, SCHEMA_VERSION);
-        let models: Vec<(i64, String)> = s
+        let models: Vec<(i64, f64, String, String)> = s
             .conn
-            .prepare("SELECT session, model FROM bucket ORDER BY session, model")
+            .prepare("SELECT session, start, model, tokens FROM bucket ORDER BY session, start, model")
             .unwrap()
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        let models: Vec<(i64, &str)> = models.iter().map(|(session, model)| (*session, model.as_str())).collect();
+        let models: Vec<(i64, f64, &str, Option<f64>)> = models
+            .iter()
+            .map(|(session, start, model, tokens)| {
+                (*session, *start / DAY, model.as_str(), from_json::<TokenCounts>(tokens).unwrap().cache_read)
+            })
+            .collect();
         assert_eq!(
-            models,
-            vec![(1, "kimi-code/k3"), (1, "kimi-code/kimi-for-coding"), (2, "opencode/glm-5.3")],
+            &models[..3],
+            &[(1, 1.0, "kimi-code/k3", Some(7.0)), (1, 1.0, "kimi-code/kimi-for-coding", None), (2, 1.0, "opencode/glm-5.3", None)],
             "one key per kimi model; another agent's key stands"
         );
         let (tokens, counts, span, place): (String, (i64, i64), (f64, f64), String) = s
             .conn
             .query_row(
                 "SELECT tokens, count, calls, first_at, last_at, place FROM bucket WHERE model = 'kimi-code/k3'",
+        assert_eq!(
+            &models[3..],
+            &[
+                (3, 0.5, "anthropic/", Some(5_000_000.0)),
+                (3, 1.0, "anthropic/claude-fable-5-1", Some(150.0)),
+                (3, 2.0, "anthropic/claude-opus-5-5", Some(20.0)),
+                (3, 3.0, "anthropic/claude-opus-5-5", Some(9.0)),
+                (4, 1.0, "anthropic/", Some(1.0)),
+            ],
+            "an unnamed row takes its session's next named model, the last one after it, none in a session that named \
+             none, and a lump bigger than any call stays unnamed"
+        );
                 [],
                 |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?), (r.get(3)?, r.get(4)?), r.get(5)?)),
             )

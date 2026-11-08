@@ -35,6 +35,29 @@ pub fn booked_model(agent: &str, model: &str) -> String {
     }
 }
 
+/// Whether `key` is the one an old row was carried under when its agent
+/// showed no model for it.
+pub fn unnamed(agent: &str, key: &str) -> bool {
+    key == booked_model(agent, "")
+}
+
+/// More tokens than one call can carry: a prompt fills at most the largest
+/// context window in use (1M) and the reply adds its output to it.
+pub const LARGEST_CALL: f64 = 2_000_000.0;
+
+/// Whether an unnamed old row can take the model its session's next named
+/// row ran on. An older build booked a session's first calls before the
+/// agent had named the model; the next named row says which (checked
+/// against the transcripts of every such session that still has one: the
+/// same model, call for call). A row whose events are each bigger than one
+/// call can be is no call: it is a cumulative counter's first sighting, or
+/// its growth over a gap, booked as one figure — usage from before the deck
+/// saw it, maybe a fork's copied history, on whatever models ran then. It
+/// stays unnamed.
+pub fn nameable(agent: &str, key: &str, tokens: &TokenCounts, events: i64) -> bool {
+    unnamed(agent, key) && events > 0 && tokens.billed() / events as f64 <= LARGEST_CALL
+}
+
 /// The key a schema-3 store carried an old row under, re-keyed by
 /// [`booked_model`] as it reads now — None when the key stands.
 ///
@@ -130,6 +153,22 @@ mod tests {
     fn kimi_shown_names_are_the_keys_its_calls_are_booked_under() {
         assert_eq!(booked_model("kimi", "kimi-code/k3"), "kimi-code/k3");
         assert_eq!(booked_model("kimi", "kimi-code/kimi-for-coding"), "kimi-code/kimi-for-coding");
+    }
+
+    #[test]
+    fn an_unnamed_row_is_the_one_carried_under_no_model() {
+        assert!(unnamed("claude", "anthropic/"));
+        assert!(!unnamed("claude", "anthropic/claude-opus-5"));
+        assert!(unnamed("codex", "openai/"));
+    }
+
+    #[test]
+    fn only_an_unnamed_row_of_call_sized_events_is_nameable() {
+        let read = |cache_read: f64| TokenCounts { cache_read: Some(cache_read), ..TokenCounts::default() };
+        assert!(nameable("claude", "anthropic/", &read(300.0 * LARGEST_CALL), 300));
+        assert!(!nameable("claude", "anthropic/", &read(LARGEST_CALL + 1.0), 1), "a counter's lump is no call");
+        assert!(!nameable("claude", "anthropic/claude-opus-5", &read(1.0), 1), "a named row is named already");
+        assert!(!nameable("claude", "anthropic/", &read(1.0), 0));
     }
 
     #[test]
