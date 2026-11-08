@@ -179,12 +179,15 @@ export interface ApiActivity {
 /** A per-agent normalizer: raw bridge payload → normalized usage, or null
  * when the payload is not recognizable. Pure; time is injected.
  *
- * Three payload keys are HOST-owned transport metadata, not agent schema:
- * `agent` (the dispatch key), `catchUp` (the event is a replay of an
- * existing session file at arm time), `sourceAt` (the event's ISO time or
- * unix milliseconds), and `sourceMtimeMs` (the file-mtime fallback when the
- * primary timestamp is malformed or clock-skewed). Normalizers may ignore
- * them. */
+ * Six payload keys are HOST-owned transport metadata, not agent schema —
+ * a plugin's own payload must not use them: `agent` (the dispatch key),
+ * `session` (on a tail's report, the session the tail follows; its calls
+ * are booked under it), `catchUp` (the event is a replay of an existing
+ * session file at arm time), `sourceAt` (the event's ISO time or unix
+ * milliseconds), `sourceMtimeMs` (the file-mtime fallback when the primary
+ * timestamp is malformed or clock-skewed), and `sourceRef` (the record's
+ * place in its store, read through [`carriedRecord`]). Normalizers may
+ * ignore them. */
 export type UsageNormalizer = (
   payload: unknown,
   at: number,
