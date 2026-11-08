@@ -100,7 +100,7 @@ describe("Providers", () => {
     expect(cards).toHaveLength(1);
     const card = cards[0];
     expect(present(card.querySelector(".stats__provider-head"), "the .stats__provider-head element").textContent).toBe(
-      "codexupdated 1m ago",
+      "codexUpdated 1m ago",
     );
     expect(card.querySelectorAll(".stats__window")).toHaveLength(2);
     expect(card.textContent).toContain("5h");
@@ -201,7 +201,7 @@ describe("Providers", () => {
     const card = present(host.querySelector(".stats__provider"), "the .stats__provider element");
     // The stale report age is announced once, in the card header.
     expect(present(card.querySelector(".stats__provider-head"), "the .stats__provider-head element").textContent).toContain(
-      "updated 2h ago",
+      "Updated 2h ago",
     );
     const windows = [...card.querySelectorAll(".stats__window")];
     // Expired 5h window: no ledger numbers, an explicit reason, demoted look.
