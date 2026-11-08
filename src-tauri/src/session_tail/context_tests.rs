@@ -3,8 +3,10 @@ use std::fs;
 
 use super::dialects::{last_of_each, watched_events, TailWatch};
 use super::reader::{drain_file, TailCursor};
-use super::route::{route, wrap, Routed};
+use super::route::{route, wrap, Origin, Routed};
 use super::test_support::temp_dir;
+
+const ORIGIN: Origin<'static> = Origin { pane_id: "pane", token: "token", agent: "agent", session: "ses" };
 
 fn watches() -> Vec<TailWatch> {
     serde_json::from_value(json!([
@@ -51,7 +53,7 @@ fn a_cold_file_restores_only_latest_context_and_never_its_old_ending() {
     assert_eq!(events.len(), 2);
     let reports: Vec<_> = events
         .into_iter()
-        .map(|event| route(wrap("pane", "token", "agent", event, true)))
+        .map(|event| route(wrap(&ORIGIN, event, true)))
         .collect();
     assert!(matches!(&reports[0], Routed::Usage(_)));
     let Routed::Status(report) = &reports[1] else {
@@ -62,7 +64,7 @@ fn a_cold_file_restores_only_latest_context_and_never_its_old_ending() {
     let old_end = watched_events(br#"{"type":"end"}"#, &watches, &mut None)
         .pop()
         .unwrap();
-    let Routed::Status(old) = route(wrap("pane", "token", "agent", old_end, true)) else {
+    let Routed::Status(old) = route(wrap(&ORIGIN, old_end, true)) else {
         panic!("an old ending rides as a reconcile")
     };
     assert_eq!(old.payload["reconcile"], true);

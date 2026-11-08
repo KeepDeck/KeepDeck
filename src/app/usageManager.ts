@@ -39,15 +39,22 @@ export interface UsageSnapshot {
   panes: ReadonlyMap<string, PaneUsage>;
 }
 
+/** What a report carries besides a pane's live state. */
+export interface ReportCarried extends Pick<NormalizedUsage, "calls" | "links"> {
+  /** The session its calls belong to, when the report says. */
+  sessionId?: string;
+}
+
 export interface UsageManager {
   /** Register an agent's usage normalizer; returns the unregister. A second
    * registration for the same id replaces the first (last plugin wins, the
    * contribution-registry convention). */
   registerNormalizer(agentId: string, normalizer: UsageNormalizer): () => void;
   /** Apply one VERIFIED bridge report, and answer what it carries besides
-   * the live state it applied: the calls it reports and the stores it names
-   * (null for none). Unknown agents and unrecognizable payloads are dropped
-   * silently — reporters are best-effort by design.
+   * the live state it applied: the calls it reports, the session they
+   * belong to when the report says, and the stores it names (null for
+   * none). Unknown agents and unrecognizable payloads are dropped silently
+   * — reporters are best-effort by design.
    *
    * `payload.catchUp` (a host-owned transport key, set by the tailer) marks
    * a replay of the EXISTING session file at arm time. Every tailed event
@@ -61,7 +68,7 @@ export interface UsageManager {
    * A normalizer that declares `accountActivity` opts its account claim out
    * of all of that: the claim counts only behind fresh API activity from
    * this pane, dated by receipt, and a replay never counts. */
-  report(paneId: string, payload: unknown, at?: number): Pick<NormalizedUsage, "calls" | "links"> | null;
+  report(paneId: string, payload: unknown, at?: number): ReportCarried | null;
   /** Apply an account-level document that arrived OUTSIDE the pane pipeline
    * — a native limits source or the persisted snapshot. Freshest-wins like
    * every account claim. */
@@ -171,7 +178,16 @@ export function createUsageManager(): UsageManager {
         }
       }
       if (changed) emit();
-      return result.calls || result.links ? { calls: result.calls, links: result.links } : null;
+      if (!result.calls && !result.links) return null;
+      // The session the calls belong to: the one a tail was armed for (the
+      // host's transport key), else the one the report itself names. Never
+      // the pane's session at arrival — a late report of the session the
+      // pane just left is still that session's.
+      const sessionId =
+        typeof payload.session === "string" && payload.session !== ""
+          ? payload.session
+          : result.pane?.sessionId;
+      return { calls: result.calls, links: result.links, ...(sessionId ? { sessionId } : {}) };
     },
 
     setAccount(provider, account) {

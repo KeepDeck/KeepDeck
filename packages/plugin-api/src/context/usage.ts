@@ -115,6 +115,11 @@ export interface CallTokens {
  * One provider API call, as the usage history books it: once, whoever
  * reports it and however often, priced from the model maker's list price at
  * the time it was made.
+ *
+ * A call names no session: it belongs to the session of the report that
+ * carries it — the one a tail was armed for, or the one a bridge report
+ * names in its [`PaneUsage.sessionId`] — and a subagent's call to the
+ * conversation it serves.
  */
 export interface UsageCall {
   /**

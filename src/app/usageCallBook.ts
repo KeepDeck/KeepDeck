@@ -17,8 +17,9 @@ import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
  * instant the session was first seen.
  */
 export interface UsageCallBook extends UsageLane {
-  /** Book calls a verified report of `paneId` carried. */
-  book(paneId: string, calls: readonly UsageCall[]): void;
+  /** Book calls a verified report of `paneId` carried, under the session the
+   * report named — or, when it named none, the session the pane holds. */
+  book(paneId: string, calls: readonly UsageCall[], sessionId?: string): void;
 }
 
 /** How long calls wait to go as one booking: a burst — a file read again, a
@@ -59,14 +60,16 @@ export function createUsageCallBook(
   };
 
   return {
-    book(paneId, calls) {
+    book(paneId, calls, reported) {
       if (disposed || calls.length === 0) return;
-      // The session the pane holds as the calls ARRIVE: a pane that moves to
-      // a new session while a batch waits must not book the old one's calls
-      // under it.
       const workspace = findWorkspaceOfPane(deck.getSnapshot().workspaces, paneId);
       const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
-      const sessionId = pane?.session?.id;
+      // The report's own session first: a late report of the session the
+      // pane just left is that session's, not the one the pane moved to. A
+      // report that names none is the pane's current session's — taken as
+      // the calls ARRIVE, so a pane that moves on while a batch waits does
+      // not book the old one's calls under the new one.
+      const sessionId = reported ?? pane?.session?.id;
       // A pane that left the deck, or has no session yet, has nowhere to
       // book: its calls stay in its store, and a read of it books them
       // once the pane has a session.

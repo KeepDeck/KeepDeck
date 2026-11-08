@@ -52,7 +52,7 @@ use dialects::{
     TailWatch, TailedEvent,
 };
 use reader::{drain_file, TailCursor};
-use route::{batch_status, route, wrap, Routed};
+use route::{batch_status, route, wrap, Origin, Routed};
 
 /// One followed session: where every source file is up to and how to
 /// attribute what it yields. The token is the pane's spawn-plan secret,
@@ -67,6 +67,10 @@ struct TailState {
     /// that hands it over is the side that knows which plugin will read
     /// them back.
     agent: String,
+    /// The session whose store this follows — the binding that armed it.
+    /// Every report says so, so its calls are booked under it even when they
+    /// land after the pane moved to another session.
+    session: String,
     root: TailCursor,
     /// What this pane's agent asked to have carried out of its store. An
     /// empty list follows a file and carries nothing: there are no readings
@@ -87,6 +91,16 @@ struct TailState {
 }
 
 impl TailState {
+    /// Who this tail's reports are for.
+    fn origin(&self) -> Origin<'_> {
+        Origin {
+            pane_id: &self.pane_id,
+            token: &self.token,
+            agent: &self.agent,
+            session: &self.session,
+        }
+    }
+
     /// Carry `watches` from here on, without reading again what was read:
     /// every cursor stays where it stands.
     ///
@@ -252,7 +266,6 @@ fn spawn_tailer(
                     break;
                 }
                 let Ok(mut s) = state.lock() else { break };
-                let agent = s.agent.clone();
                 let (events, replay) = drain_all(&mut s);
                 // Calls first, each one carried — never collapsed with the
                 // gauges below. A rotated file re-read whole carries only
@@ -260,7 +273,7 @@ fn spawn_tailer(
                 let (calls, events) = split_calls(events);
                 for call in calls_since(calls, s.since) {
                     let catch_up = if call.root { replay.root } else { replay.any };
-                    deliver(wrap(&s.pane_id, &s.token, &agent, call, catch_up));
+                    deliver(wrap(&s.origin(), call, catch_up));
                 }
                 // A rotated root file was re-read whole: its status records
                 // are a replay, and leave as ONE reconcile of the last of
@@ -291,7 +304,7 @@ fn spawn_tailer(
                     if is_status && catch_up && !replay_context {
                         continue; // carried by the reconcile below
                     }
-                    let report = wrap(&s.pane_id, &s.token, &agent, event, catch_up);
+                    let report = wrap(&s.origin(), event, catch_up);
                     if is_status && !catch_up {
                         status.push(report);
                     } else {
@@ -303,7 +316,7 @@ fn spawn_tailer(
                 }
                 let reconcile: Vec<Report> = replayed_status
                     .into_iter()
-                    .map(|event| wrap(&s.pane_id, &s.token, &agent, event, true))
+                    .map(|event| wrap(&s.origin(), event, true))
                     .collect();
                 if let Some(report) = batch_status(reconcile) {
                     deliver(report);
@@ -331,6 +344,8 @@ pub struct TailArming {
     /// envelope's verification path.
     token: String,
     agent: String,
+    /// The session the binding named for this store.
+    session: String,
     watches: Vec<TailWatch>,
     siblings: Option<String>,
     /// From when (unix ms) the calls in the file are not booked yet — the
@@ -360,6 +375,7 @@ pub fn usage_watch_session_file(
         pane_id: pane_id.clone(),
         token: tail.token,
         agent: agent.clone(),
+        session: tail.session,
         root: TailCursor::default(),
         watches: tail.watches,
         siblings: tail.siblings.map(PathBuf::from),
@@ -384,7 +400,7 @@ pub fn usage_watch_session_file(
         let (calls, drained) = split_calls(drained);
         let reconcile: Vec<Report> = last_status_of_each(&drained, &s.watches)
             .into_iter()
-            .map(|event| wrap(&s.pane_id, &s.token, &agent, event, true))
+            .map(|event| wrap(&s.origin(), event, true))
             .collect();
         let reconciled = reconcile.len();
         // The gauges are a state: the last reading of each watch is all of
@@ -394,7 +410,7 @@ pub fn usage_watch_session_file(
         events.extend(calls_since(calls, s.since));
         let count = events.len();
         for event in events {
-            let report = wrap(&s.pane_id, &s.token, &agent, event, true);
+            let report = wrap(&s.origin(), event, true);
             // Through the SAME router as the live path. Opted-in decoder
             // metadata is marked context-only there.
             deliver_routed(&app, report);
@@ -603,7 +619,7 @@ mod tests {
     /// The pre-split wire wrapper, kept as a test-local shim so the suite's
     /// many call sites read as before; production goes through [`wrap`].
     fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> Report {
-        wrap(&state.pane_id, &state.token, &state.agent, event, catch_up)
+        wrap(&state.origin(), event, catch_up)
     }
     use std::fs::{self, OpenOptions};
     use std::io::Write;
@@ -618,6 +634,7 @@ mod tests {
             pane_id: "pane-1".into(),
             token: "tok".into(),
             agent: "codex".into(),
+            session: "ses-1".into(),
             root: TailCursor::default(),
             watches: any_typed_record(),
             siblings: None,

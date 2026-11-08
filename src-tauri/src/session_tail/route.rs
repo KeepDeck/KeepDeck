@@ -39,19 +39,25 @@ pub(super) fn batch_status(reports: Vec<Report>) -> Option<Report> {
     Some(first)
 }
 
-/// Wrap one session-file event into the bridge's wire shape. `agent` and
-/// `catchUp` are HOST-owned transport keys on the payload: `catchUp` marks
-/// events replayed from the EXISTING file (arm-time drain, or a rotated poll
-/// tick) — the store must not let a replay outrank live data.
-pub(super) fn wrap(
-    pane_id: &str,
-    token: &str,
-    agent: &str,
-    event: TailedEvent,
-    catch_up: bool,
-) -> Report {
+/// Who a tail reports for: the pane, its secret, its agent, and the session
+/// whose store the tail follows.
+pub(super) struct Origin<'a> {
+    pub pane_id: &'a str,
+    pub token: &'a str,
+    pub agent: &'a str,
+    pub session: &'a str,
+}
+
+/// Wrap one session-file event into the bridge's wire shape. `agent`,
+/// `session` and `catchUp` are HOST-owned transport keys on the payload:
+/// `session` is the session the tail was armed for — what a report's calls
+/// are booked under, even when it lands after the pane moved on — and
+/// `catchUp` marks events replayed from the EXISTING file (arm-time drain, or
+/// a rotated poll tick) — the store must not let a replay outrank live data.
+pub(super) fn wrap(origin: &Origin, event: TailedEvent, catch_up: bool) -> Report {
     let mut payload = json!({
-        "agent": agent,
+        "agent": origin.agent,
+        "session": origin.session,
         EVENT_KEY: event.payload,
         CATCH_UP_KEY: catch_up,
     });
@@ -65,8 +71,8 @@ pub(super) fn wrap(
         payload["sourceRef"] = json!(source_ref);
     }
     Report {
-        pane_id: pane_id.to_string(),
-        token: token.to_string(),
+        pane_id: origin.pane_id.to_string(),
+        token: origin.token.to_string(),
         payload,
     }
 }
@@ -148,6 +154,10 @@ mod tests {
     use super::super::dialects::SourceTimestamp;
     use super::*;
 
+    fn origin<'a>(pane_id: &'a str, agent: &'a str) -> Origin<'a> {
+        Origin { pane_id, token: "tok", agent, session: "ses-1" }
+    }
+
     fn event(payload: serde_json::Value) -> TailedEvent {
         TailedEvent {
             payload,
@@ -169,9 +179,12 @@ mod tests {
             "context": { "payload.model": "gpt-6.1-sol" }
         }));
         call.source_ref = Some(super::super::dialects::SourceRef { file: "/r.jsonl".into(), offset: 42 });
-        let Routed::Usage(report) = route(wrap("pane", "token", "codex", call, false)) else {
+        let Routed::Usage(report) = route(wrap(&origin("pane", "codex"), call, false)) else {
             panic!("a call is usage, never status");
         };
+        // The session the tail follows: what the call is booked under, even
+        // when the report lands after the pane moved to another session.
+        assert_eq!(report.payload["session"], "ses-1");
         assert_eq!(report.payload["sourceRef"]["offset"], 42);
         assert_eq!(report.payload["sourceRef"]["file"], "/r.jsonl");
         assert_eq!(report.payload["event"]["context"]["payload.model"], "gpt-6.1-sol");
@@ -184,18 +197,14 @@ mod tests {
     #[test]
     fn routes_usage_through_and_interrupts_to_status_with_provenance() {
         let usage = wrap(
-            "pane-1",
-            "tok",
-            "codex",
+            &origin("pane-1", "codex"),
             event(serde_json::json!({ "type": "token_count" })),
             false,
         );
         assert!(matches!(route(usage), Routed::Usage(_)));
 
         let carried = wrap(
-            "pane-1",
-            "tok",
-            "codex",
+            &origin("pane-1", "codex"),
             event(serde_json::json!({
                 "type": CARRIED_RECORD,
                 "record": { "timestamp": "2026-08-01T10:00:00Z", "payload.type": "turn_aborted" },
@@ -225,9 +234,7 @@ mod tests {
         // marked, so the tracker can only use it to end a turn still shown
         // running — never as if it had just happened.
         let replay = wrap(
-            "pane-1",
-            "tok",
-            "claude",
+            &origin("pane-1", "claude"),
             event(serde_json::json!({
                 "type": CARRIED_RECORD,
                 "record": { "interruptedMessageId": "msg-1" },
@@ -248,9 +255,7 @@ mod tests {
             .into_iter()
             .map(|kind| {
                 wrap(
-                    "pane-1",
-                    "tok",
-                    "agent",
+                    &origin("pane-1", "agent"),
                     event(json!({
                         "type": CARRIED_RECORD, "lane": "status", "record": { "kind": kind },
                     })),

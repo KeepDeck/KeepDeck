@@ -57,6 +57,30 @@ describe("report", () => {
     expect(usage.report("pane-1", { agent: "nobody" })).toBeNull();
   });
 
+  it("says which session the calls belong to: the tail's, else the one the report names", () => {
+    const call = {
+      id: "msg_1",
+      at: 1,
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      tokens: { input: 1, cacheRead: 0, cacheWrite: 0, output: 2 },
+    };
+    const dispose = fake({
+      account: null,
+      pane: { agent: "fake", sessionId: "s-named", reportedAt: 1 },
+      calls: [call],
+    });
+    // A tail's report is stamped with the session it was armed for.
+    expect(usage.report("pane-1", { agent: "fake", session: "s-tail" })).toMatchObject({ sessionId: "s-tail" });
+    // A bridge report names its own.
+    expect(usage.report("pane-1", { agent: "fake" })).toMatchObject({ sessionId: "s-named" });
+    dispose();
+    // Neither says: the pane's session is the call book's to take.
+    const silent = fake({ account: null, pane: null, calls: [call] });
+    expect(usage.report("pane-1", { agent: "fake" })).not.toHaveProperty("sessionId");
+    silent();
+  });
+
   it("ignores unknown agents and unrecognizable payloads", () => {
     usage.report("pane-1", { agent: "nobody" });
     usage.report("pane-1", "garbage");

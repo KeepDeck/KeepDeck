@@ -121,6 +121,33 @@ describe("usage call book", () => {
     calls.dispose();
   });
 
+  it("books a late report of the session the pane left under that session, not the new one", () => {
+    const calls = setup();
+    calls.book("pane-1", [call("a")]);
+    vi.advanceTimersByTime(BOOK_DELAY_MS);
+    // The pane moves on; the old session's tail still has a report in flight.
+    clock = 3_000;
+    announce({ paneId: "pane-1", sessionId: "s-9", token: "t" });
+    deck.setPaneSession("ws-1", "pane-1", { id: "s-9", boundAt: BOUND_AT });
+    calls.book("pane-1", [call("late")], "s-1");
+    calls.book("pane-1", [call("new")]);
+    vi.advanceTimersByTime(BOOK_DELAY_MS);
+    expect(booked.slice(1).map(({ sessionId, firstSeen, calls: sent }) => [sessionId, firstSeen, sent.map((c) => c.id)])).toEqual([
+      ["s-1", 1_000, ["late"]],
+      ["s-9", 3_000, ["new"]],
+    ]);
+    calls.dispose();
+  });
+
+  it("books a report that overtook its session's binding under the session it names", () => {
+    const calls = setup();
+    clock = 4_000;
+    calls.book("pane-1", [call("early")], "s-new");
+    vi.advanceTimersByTime(BOOK_DELAY_MS);
+    expect(booked[0]).toMatchObject({ sessionId: "s-new", firstSeen: 4_000 });
+    calls.dispose();
+  });
+
   it("books nothing for a pane with no session, or one that left the deck", () => {
     const calls = setup();
     calls.book("pane-2", [call("x")]);

@@ -117,7 +117,15 @@ export function createUsageTailsLane({
     });
     links.set(paneId, new Set());
     const pending = sinceFor(paneId, agentId, sessionId).then((since) =>
-      watchSessionFile(paneId, path, token, agentId, watches, siblings, since),
+      watchSessionFile(paneId, {
+        path,
+        token,
+        agent: agentId,
+        session: sessionId,
+        watches,
+        siblings,
+        since,
+      }),
     );
     arming.set(paneId, pending);
     const settled = () => {

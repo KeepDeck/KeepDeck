@@ -62,6 +62,8 @@ const ipc = vi.hoisted(() => ({
   peekPaneSpawnSpec: vi.fn(),
   // The ledger's answer to "from when must this session be read again".
   usageSince: vi.fn(() => Promise.resolve(SINCE)),
+  loadUsageLedger: vi.fn(() => Promise.resolve({ rows: [], complete: true, perModelSince: null })),
+  bookUsageCalls: vi.fn((_entry: { batch: unknown; capturedAt: number }) => Promise.resolve([])),
   // The agents contribution list the channel reads its declarations from.
   contributions: [] as {
     pluginId: string;
@@ -79,8 +81,8 @@ vi.mock("../ipc/usage", () => ({
 }));
 vi.mock("../ipc/usageLedger", () => ({
   usageSince: ipc.usageSince,
-  loadUsageLedger: vi.fn(),
-  bookUsageCalls: vi.fn(),
+  loadUsageLedger: ipc.loadUsageLedger,
+  bookUsageCalls: ipc.bookUsageCalls,
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({
@@ -334,6 +336,33 @@ describe("createUsageChannel", () => {
     });
   });
 
+  it("books a tail's late calls under the session it followed, not the one the pane moved to", async () => {
+    const call = {
+      id: "resp_1",
+      at: 1,
+      provider: "openai",
+      model: "gpt-6.1-sol",
+      tokens: { input: 1, cacheRead: 0, cacheWrite: 0, output: 1 },
+    };
+    present(
+      present(ipc.contributions[1], "the second contribution").entry.usage,
+      "the second contribution's usage config",
+    ).normalize = () => ({ account: null, pane: null, calls: [call] });
+    ipc.bookUsageCalls.mockClear();
+    await mount(
+      deckWith([{ id: "pane-1", agentType: "codex", session: { id: "s-new", boundAt: "t" } }]),
+    );
+
+    await act(async () => {
+      emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "codex", session: "s-old", event: {} } });
+    });
+
+    await vi.waitFor(() => expect(ipc.bookUsageCalls).toHaveBeenCalled());
+    expect(ipc.bookUsageCalls.mock.calls[0]?.[0]).toMatchObject({
+      batch: { agent: "codex", sessionId: "s-old", calls: [call] },
+    });
+  });
+
   it("rejects wrong tokens and unknown panes", async () => {
     await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {
@@ -384,20 +413,21 @@ describe("createUsageChannel", () => {
         transcriptPath: "/x/rollout.jsonl",
       });
     });
-    expect(ipc.watchSessionFile).toHaveBeenCalledWith(
-      "pane-1",
-      "/x/rollout.jsonl",
-      "tok-1",
+    expect(ipc.watchSessionFile).toHaveBeenCalledWith("pane-1", {
+      path: "/x/rollout.jsonl",
+      token: "tok-1",
       // The AGENT, not a dialect name — the lane knows whose pane this is.
-      "codex",
+      agent: "codex",
+      // The session the binding named: the tail's reports say so.
+      session: "019f-codex",
       // Exactly what the plugin declared — the lane passes it through
       // without reading it.
-      CODEX_WATCHES,
+      watches: CODEX_WATCHES,
       // codex keeps a session in one file, so it names no siblings.
-      null,
+      siblings: null,
       // Read again from where the ledger has not booked the session.
-      SINCE,
-    );
+      since: SINCE,
+    });
   });
 
   it("never arms tails for undeclared agents, forged tokens or bare bindings", async () => {
@@ -453,15 +483,15 @@ describe("createUsageChannel", () => {
     );
     await act(async () => {});
     expect(ipc.findCodexRollout).toHaveBeenCalledWith("019f-recorded");
-    expect(ipc.watchSessionFile).toHaveBeenCalledWith(
-      "pane-1",
-      "/x/sessions/rollout-019f.jsonl",
-      "tok-1",
-      "codex",
-      CODEX_WATCHES,
-      null,
-      SINCE,
-    );
+    expect(ipc.watchSessionFile).toHaveBeenCalledWith("pane-1", {
+      path: "/x/sessions/rollout-019f.jsonl",
+      token: "tok-1",
+      agent: "codex",
+      session: "019f-recorded",
+      watches: CODEX_WATCHES,
+      siblings: null,
+      since: SINCE,
+    });
   });
 
   it("retries the fallback on membership changes — the pane stays unmarked", async () => {
@@ -481,20 +511,15 @@ describe("createUsageChannel", () => {
       ]),
     );
     await act(async () => {});
-    expect(ipc.watchSessionFile).toHaveBeenCalledWith(
-      "pane-1",
-      "/x/rollout.jsonl",
-      "tok-1",
-      // The AGENT, not a dialect name — the lane knows whose pane this is.
-      "codex",
-      // Exactly what the plugin declared — the lane passes it through
-      // without reading it.
-      CODEX_WATCHES,
-      // codex keeps a session in one file, so it names no siblings.
-      null,
-      // Read again from where the ledger has not booked the session.
-      SINCE,
-    );
+    expect(ipc.watchSessionFile).toHaveBeenCalledWith("pane-1", {
+      path: "/x/rollout.jsonl",
+      token: "tok-1",
+      agent: "codex",
+      session: "019f-recorded",
+      watches: CODEX_WATCHES,
+      siblings: null,
+      since: SINCE,
+    });
   });
 
   it("retries the fallback on the slow timer while membership is static", async () => {
@@ -515,15 +540,15 @@ describe("createUsageChannel", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(20_000);
       });
-      expect(ipc.watchSessionFile).toHaveBeenCalledWith(
-        "pane-1",
-        "/x/rollout.jsonl",
-        "tok-1",
-        "codex",
-        CODEX_WATCHES,
-        null,
-        SINCE,
-      );
+      expect(ipc.watchSessionFile).toHaveBeenCalledWith("pane-1", {
+        path: "/x/rollout.jsonl",
+        token: "tok-1",
+        agent: "codex",
+        session: "019f-recorded",
+        watches: CODEX_WATCHES,
+        siblings: null,
+        since: SINCE,
+      });
     } finally {
       vi.useRealTimers();
     }

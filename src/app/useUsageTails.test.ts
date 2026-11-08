@@ -11,21 +11,14 @@ import {
   type TailTarget,
 } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import type { TailArming } from "../ipc/usage";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions, type DeckActions } from "./deckActions";
 
 const ipc = vi.hoisted(() => ({
-  watchSessionFile: vi.fn<
-    (
-      paneId: string,
-      path: string,
-      token: string,
-      agent: string,
-      watches?: readonly TailWatch[],
-      siblings?: string | null,
-      since?: number | null,
-    ) => Promise<void>
-  >(() => Promise.resolve()),
+  watchSessionFile: vi.fn<(paneId: string, tail: TailArming) => Promise<void>>(() =>
+    Promise.resolve(),
+  ),
   unwatchSessionFile: vi.fn(() => Promise.resolve()),
   retargetSessionFile: vi.fn<(paneId: string, watches: readonly TailWatch[]) => Promise<boolean>>(
     () => Promise.resolve(true),
@@ -184,7 +177,7 @@ describe("usage tails — a suspended pane's watcher", () => {
     seed();
     await settle();
     expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
-    expect(ipc.watchSessionFile.mock.calls[0][2]).toBe("token-1");
+    expect(ipc.watchSessionFile.mock.calls[0][1].token).toBe("token-1");
 
     act(() => deck.suspendPane("ws-1", "pane-1"));
     await settle();
@@ -197,7 +190,7 @@ describe("usage tails — a suspended pane's watcher", () => {
     await settle();
 
     expect(ipc.watchSessionFile).toHaveBeenCalledTimes(2);
-    expect(ipc.watchSessionFile.mock.calls[1][2]).toBe("token-2");
+    expect(ipc.watchSessionFile.mock.calls[1][1].token).toBe("token-2");
   });
 
   it("keeps tailing a pane that is merely rising", async () => {
@@ -374,7 +367,7 @@ describe("usage tails — a pane whose process has a companion", () => {
   /** The watches the last arm carried. */
   const lastWatches = () => {
     const calls = ipc.watchSessionFile.mock.calls;
-    return calls[calls.length - 1]?.[4];
+    return calls[calls.length - 1]?.[1].watches;
   };
 
   beforeEach(() => {
@@ -563,7 +556,8 @@ describe("usage tails — the booking horizon and the stores a pane names", () =
       await bind();
       // Asked with the instant this run first saw the session.
       expect(ipc.usageSince).toHaveBeenCalledWith("codex", "ses-1", 5_000);
-      expect(ipc.watchSessionFile.mock.calls[0]?.[6]).toBe(7_000);
+      // Armed for the session the binding named, from the ledger's horizon.
+      expect(ipc.watchSessionFile.mock.calls[0]?.[1]).toMatchObject({ session: "ses-1", since: 7_000 });
     } finally {
       lane.dispose();
     }
@@ -575,7 +569,7 @@ describe("usage tails — the booking horizon and the stores a pane names", () =
     try {
       await bind();
       expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
-      expect(ipc.watchSessionFile.mock.calls[0]?.[6]).toBeNull();
+      expect(ipc.watchSessionFile.mock.calls[0]?.[1].since).toBeNull();
     } finally {
       lane.dispose();
     }
