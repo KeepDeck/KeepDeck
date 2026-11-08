@@ -49,11 +49,14 @@ pub const LARGEST_CALL: f64 = 2_000_000.0;
 /// row ran on. An older build booked a session's first calls before the
 /// agent had named the model; the next named row says which (checked
 /// against the transcripts of every such session that still has one: the
-/// same model, call for call). A row whose events are each bigger than one
-/// call can be is no call: it is a cumulative counter's first sighting, or
-/// its growth over a gap, booked as one figure — usage from before the deck
-/// saw it, maybe a fork's copied history, on whatever models ran then. It
-/// stays unnamed.
+/// same model, call for call). A row whose events average more than one
+/// call can carry holds no calls: it is a cumulative counter's first
+/// sighting, or its growth over a gap, booked as one figure — usage from
+/// before the deck saw it, maybe a fork's copied history, on whatever models
+/// ran then. It stays unnamed. The average is all an old bucket can tell:
+/// it keeps its events' sums, not each event, so a lump that shared a
+/// quarter hour with calls is named with them (none did in the history
+/// this was written against: every lump stood alone in its bucket).
 pub fn nameable(agent: &str, key: &str, tokens: &TokenCounts, events: i64) -> bool {
     unnamed(agent, key) && events > 0 && tokens.billed() / events as f64 <= LARGEST_CALL
 }
