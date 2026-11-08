@@ -10,9 +10,11 @@ import {
   correctHistory,
   foldHistory,
   formatSeed,
+  madeBy,
   parseArgs,
   priceRow,
   readCorrections,
+  readLabs,
   readMakers,
   samePrice,
 } from "./price-history.mjs";
@@ -430,6 +432,26 @@ describe("buildSeed", () => {
     expect(JSON.parse(formatSeed(seed))).toEqual(seed);
   });
 
+  it("keeps each maker's own models and leaves out what it resells", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kd-prices-"));
+    dirs.push(dir);
+    git(dir, ["init", "-q", "-b", "main"]);
+    const based = (/** @type {string} */ base) => priced(1).replace("[cost]", `base_model = "${base}"\n[cost]`);
+    commit(dir, S + 1, {
+      files: {
+        "providers/alibaba/models/deepseek-v4.1-flash.toml": priced(3),
+        "providers/alibaba/models/qwen-x.toml": based("alibaba/qwen-x"),
+        "providers/zai/models/glm-x.toml": based("zhipuai/glm-x"),
+      },
+    });
+    // The resold model names its maker only from a later revision on.
+    commit(dir, S + 2, { files: { "providers/alibaba/models/deepseek-v4.1-flash.toml": based("deepseek/deepseek-v4.1-flash") } });
+
+    const { seed, resold } = buildSeed(dir, ["alibaba", "zai"], [], { zai: "zhipuai" });
+    expect(Object.keys(seed.models)).toEqual(["alibaba/qwen-x", "zai/glm-x"]);
+    expect([...resold]).toEqual(["alibaba/deepseek-v4.1-flash"]);
+  });
+
   it("folds a span models.dev fixed later into the fix, a real change staying history", () => {
     const dir = mkdtempSync(join(tmpdir(), "kd-prices-"));
     dirs.push(dir);
@@ -460,5 +482,14 @@ describe("CLI", () => {
 
   it("reads the makers from resources/pricing/makers.json", () => {
     expect(readMakers()).toContain("anthropic");
+  });
+
+  it("reads the makers' labs, and a maker made only its own lab's models", () => {
+    const labs = readLabs();
+    expect(labs.zai).toBe("zhipuai");
+    expect(madeBy("zai", "zhipuai/glm-5.3", labs)).toBe(true);
+    expect(madeBy("alibaba", "alibaba/qwen3.8-max", labs)).toBe(true);
+    expect(madeBy("alibaba", "deepseek/deepseek-v4.1-flash", labs)).toBe(false);
+    expect(madeBy("anthropic", "anthropic", labs)).toBe(false);
   });
 });

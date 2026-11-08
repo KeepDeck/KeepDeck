@@ -800,13 +800,27 @@ function tally(tallies, reason, key, commit) {
 }
 
 /**
- * Reads the price history of `makers` out of a models.dev clone, the spans
- * models.dev fixed later read with their fix (see {@link correctHistory}).
+ * Whether `maker` made the model whose base model is `base` (`<lab>/<model>`):
+ * a maker lists other labs' models too, at its own resale price.
+ * @param {string} maker
+ * @param {string} base
+ * @param {Record<string, string>} labs a maker's lab where it differs from its id
+ */
+export function madeBy(maker, base, labs) {
+  return base.split("/")[0] === (labs[maker] ?? maker) && base.includes("/");
+}
+
+/**
+ * Reads the price history of `makers` out of a models.dev clone: only the
+ * models each one made itself — one any revision bases on another lab's is
+ * resold — and the spans models.dev fixed later read with their fix (see
+ * {@link correctHistory}).
  * @param {string} repo
  * @param {string[]} makers
  * @param {Correction[]} [corrections]
+ * @param {Record<string, string>} [labs]
  */
-export function buildSeed(repo, makers, corrections = []) {
+export function buildSeed(repo, makers, corrections = [], labs = {}) {
   const head = git(repo, ["rev-parse", "HEAD"]).toString("utf8").trim();
   const commits = readHistory(repo, head, makers);
   const blobIds = new Set(commits.flatMap((commit) => commit.changes.flatMap((change) => change.blob ?? [])));
@@ -839,7 +853,13 @@ export function buildSeed(repo, makers, corrections = []) {
     priced.push({ key: revision.key, from: revision.from, commit: revision.commit, doc: revision.doc, row: mapped.row });
   }
 
-  const corrected = correctHistory(priced, commits.map((commit) => commit.sha), corrections);
+  /** @type {Set<string>} */
+  const resold = new Set();
+  for (const { key, doc } of priced) {
+    if (typeof doc.base_model === "string" && !madeBy(key.split("/")[0], doc.base_model, labs)) resold.add(key);
+  }
+  const own = priced.filter((revision) => !resold.has(revision.key));
+  const corrected = correctHistory(own, commits.map((commit) => commit.sha), corrections);
 
   // A file that names no model inherits the name of its base model
   // (models/<lab>/<model>.toml), as it stood in the same commit.
@@ -860,8 +880,8 @@ export function buildSeed(repo, makers, corrections = []) {
   /** @type {Seed} */
   const seed = { version: SEED_VERSION, source: SOURCE, commit: head, models: foldHistory(revisions) };
   const neverPriced = new Set([...skipped.values()].flatMap((entry) => [...entry.models]));
-  for (const key of Object.keys(seed.models)) neverPriced.delete(key);
-  return { seed, skipped, ignored, variants, unnamed, neverPriced };
+  for (const key of [...Object.keys(seed.models), ...resold]) neverPriced.delete(key);
+  return { seed, skipped, ignored, variants, unnamed, neverPriced, resold };
 }
 
 // ---------------------------------------------------------------- CLI
@@ -897,6 +917,20 @@ export function readMakers(file = MAKERS_FILE) {
     throw new Error(`${file}: "makers" must be a non-empty list of provider ids`);
   }
   return makers;
+}
+
+/**
+ * Each maker's lab, where it is not the maker's own id.
+ * @param {string} [file]
+ * @returns {Record<string, string>}
+ */
+export function readLabs(file = MAKERS_FILE) {
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  const labs = isRecord(parsed) ? (parsed.labs ?? {}) : undefined;
+  if (!isRecord(labs) || !Object.values(labs).every((lab) => typeof lab === "string")) {
+    throw new Error(`${file}: "labs" must map provider ids to lab ids`);
+  }
+  return /** @type {Record<string, string>} */ (labs);
 }
 
 /**
@@ -956,7 +990,12 @@ function printTallies(title, tallies) {
 export function main(argv = process.argv.slice(2)) {
   const { repo, out } = parseArgs(argv);
   const corrections = readCorrections();
-  const { seed, skipped, ignored, variants, unnamed, neverPriced } = buildSeed(repo, readMakers(), corrections);
+  const { seed, skipped, ignored, variants, unnamed, neverPriced, resold } = buildSeed(
+    repo,
+    readMakers(),
+    corrections,
+    readLabs(),
+  );
   const text = formatSeed(seed);
   writeFileSync(out, text);
   const entries = Object.values(seed.models).reduce((sum, model) => sum + model.length, 0);
@@ -966,6 +1005,7 @@ export function main(argv = process.argv.slice(2)) {
   );
   printTallies("Skipped revisions (the price before them holds):", skipped);
   printTallies("Prices the seed has no field for (dropped):", ignored);
+  if (resold.size > 0) console.log(`Resold models left out: ${resold.size} (${[...resold].slice(0, 8).join(", ")}…)`);
   if (neverPriced.size > 0) console.log(`Models never priced: ${neverPriced.size} (${[...neverPriced].slice(0, 8).join(", ")}…)`);
   if (variants.size > 0) console.log(`Deployment variants skipped: ${[...variants].join(", ")}`);
   if (unnamed > 0) console.log(`Revisions with no resolvable name: ${unnamed}`);

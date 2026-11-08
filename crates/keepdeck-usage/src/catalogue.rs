@@ -37,19 +37,30 @@ pub fn seed() -> Result<Vec<PriceRow>, String> {
     parse_seed(SEED_JSON)
 }
 
+#[derive(Deserialize)]
+struct MakersFile {
+    makers: Vec<String>,
+    #[serde(default)]
+    labs: HashMap<String, String>,
+}
+
+fn makers_file() -> &'static MakersFile {
+    static FILE: OnceLock<MakersFile> = OnceLock::new();
+    FILE.get_or_init(|| serde_json::from_str(MAKERS_JSON).expect("resources/pricing/makers.json is a makers list"))
+}
+
 /// The models.dev providers that make models and publish their own list
 /// price, in resolve preference order.
 pub fn makers() -> &'static [String] {
-    static MAKERS: OnceLock<Vec<String>> = OnceLock::new();
-    MAKERS.get_or_init(|| {
-        #[derive(Deserialize)]
-        struct File {
-            makers: Vec<String>,
-        }
-        serde_json::from_str::<File>(MAKERS_JSON)
-            .expect("resources/pricing/makers.json is a makers list")
-            .makers
-    })
+    &makers_file().makers
+}
+
+/// Whether `maker` made the model whose base model is `base` (`<lab>/<model>`,
+/// models.dev's canonical id). A maker lists other labs' models too, at its
+/// own resale price — those are not its list price, and are not journaled.
+pub fn made_by(maker: &str, base: &str) -> bool {
+    let lab = makers_file().labs.get(maker).map_or(maker, String::as_str);
+    base.split_once('/').is_some_and(|(of, _)| of == lab)
 }
 
 /// One maker model as the live catalogue lists it now.
@@ -62,8 +73,9 @@ pub struct CatalogueEntry {
 
 /// The maker models in a models.dev `api.json` body. A model without both an
 /// input and an output price is skipped — an unpriced model is absent, not
-/// free. `api.json` states one cache-write rate, the 5-minute one; it has no
-/// 1-hour rate (see [`changes`] for how that gap is carried).
+/// free — and so is one another lab made ([`made_by`]). `api.json` states one
+/// cache-write rate, the 5-minute one; it has no 1-hour rate (see [`changes`]
+/// for how that gap is carried).
 pub fn parse_api(body: &str) -> Result<Vec<CatalogueEntry>, String> {
     let root: Value = serde_json::from_str(body).map_err(|e| format!("catalogue is not JSON: {e}"))?;
     let providers = root.as_object().ok_or("catalogue is not an object of providers")?;
@@ -73,6 +85,10 @@ pub fn parse_api(body: &str) -> Result<Vec<CatalogueEntry>, String> {
             continue;
         };
         for (id, model) in models {
+            let base = model.get("canonical_model_id").and_then(Value::as_str);
+            if base.is_some_and(|base| !made_by(maker, base)) {
+                continue;
+            }
             let Some(price) = model.get("cost").and_then(api_price) else {
                 continue;
             };
@@ -252,6 +268,15 @@ mod tests {
       } },
       "openrouter": { "models": {
         "glm-5.3": { "name": "GLM via a reseller", "cost": { "input": 0.07, "output": 1.4 } }
+      } },
+      "alibaba": { "models": {
+        "qwen3.8-max": { "name": "Qwen 3.8 Max", "canonical_model_id": "alibaba/qwen3.8-max",
+          "cost": { "input": 2, "output": 6 } },
+        "deepseek-v4.1-flash": { "name": "DeepSeek resold", "canonical_model_id": "deepseek/deepseek-v4.1-flash",
+          "cost": { "input": 0.3, "output": 1.2 } }
+      } },
+      "zai": { "models": {
+        "glm-5.3": { "name": "GLM-5.3", "canonical_model_id": "zhipuai/glm-5.3", "cost": { "input": 1.4, "output": 4.4 } }
       } }
     }"#;
 
@@ -272,6 +297,17 @@ mod tests {
     fn only_makers_enter_the_catalogue() {
         let entries = parse_api(API).unwrap();
         assert!(entries.iter().all(|e| !e.model.starts_with("openrouter/")));
+    }
+
+    #[test]
+    fn a_maker_enters_only_with_the_models_its_own_lab_made() {
+        let models: Vec<String> = parse_api(API).unwrap().into_iter().map(|e| e.model).collect();
+        assert!(models.contains(&"alibaba/qwen3.8-max".to_string()));
+        assert!(!models.contains(&"alibaba/deepseek-v4.1-flash".to_string()), "a resold model is not a list price");
+        assert!(models.contains(&"zai/glm-5.3".to_string()), "a maker whose lab has another name keeps its own");
+        assert!(made_by("alibaba-cn", "alibaba/qwen3.8-max"));
+        assert!(!made_by("morph", "moonshotai/kimi-k3"));
+        assert!(!made_by("anthropic", "no-lab"));
     }
 
     #[test]
