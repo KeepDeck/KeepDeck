@@ -166,6 +166,22 @@ pub struct UsageCall {
     #[serde(default)]
     pub mode: Option<String>,
     pub tokens: CallTokens,
+    /// Set when this is no single call but the agent's own running total of
+    /// what the session spent on the model — see [`Tally`].
+    #[serde(default)]
+    pub tally: Option<Tally>,
+}
+
+/// What makes a reported "call" a running total: the agent's own count of
+/// everything the session spent on one model since `began` — its calls,
+/// and what no call record shows (claude's compaction, away summaries,
+/// titles). The same id every time for one count; the ledger books what the
+/// total adds over the calls it booked for the session in between.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tally {
+    /// When the count started, unix ms: it ran from zero then.
+    pub began: f64,
 }
 
 impl UsageCall {
