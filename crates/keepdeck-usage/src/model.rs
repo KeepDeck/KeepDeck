@@ -15,8 +15,12 @@ pub struct TokenCounts {
     pub output: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_read: Option<f64>,
+    /// Cache writes held for five minutes — the default write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write: Option<f64>,
+    /// Cache writes held for an hour (Anthropic), billed at their own rate.
+    #[serde(default, rename = "cacheWrite1h", skip_serializing_if = "Option::is_none")]
+    pub cache_write_1h: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -25,11 +29,12 @@ pub struct TokenCounts {
 
 /// Every counter kind, in one order — the one list every walk over the kinds
 /// goes through.
-pub const TOKEN_KINDS: [TokenKind; 6] = [
+pub const TOKEN_KINDS: [TokenKind; 7] = [
     TokenKind::Input,
     TokenKind::Output,
     TokenKind::CacheRead,
     TokenKind::CacheWrite,
+    TokenKind::CacheWrite1h,
     TokenKind::Reasoning,
     TokenKind::Total,
 ];
@@ -40,6 +45,7 @@ pub enum TokenKind {
     Output,
     CacheRead,
     CacheWrite,
+    CacheWrite1h,
     Reasoning,
     Total,
 }
@@ -51,6 +57,7 @@ impl TokenCounts {
             TokenKind::Output => self.output,
             TokenKind::CacheRead => self.cache_read,
             TokenKind::CacheWrite => self.cache_write,
+            TokenKind::CacheWrite1h => self.cache_write_1h,
             TokenKind::Reasoning => self.reasoning,
             TokenKind::Total => self.total,
         }
@@ -62,6 +69,7 @@ impl TokenCounts {
             TokenKind::Output => &mut self.output,
             TokenKind::CacheRead => &mut self.cache_read,
             TokenKind::CacheWrite => &mut self.cache_write,
+            TokenKind::CacheWrite1h => &mut self.cache_write_1h,
             TokenKind::Reasoning => &mut self.reasoning,
             TokenKind::Total => &mut self.total,
         };

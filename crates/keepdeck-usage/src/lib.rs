@@ -7,10 +7,12 @@
 //! achievements fold those rows; they used to fold half a million raw events
 //! held in the page.
 
+pub mod catalogue;
 pub mod delta;
 mod event_id;
 pub mod import;
 pub mod model;
+pub mod pricing;
 pub mod store;
 
 pub use import::{import_jsonl, ImportReport};
