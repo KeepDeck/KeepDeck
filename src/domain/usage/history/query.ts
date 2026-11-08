@@ -1,12 +1,13 @@
 import type { TokenCounts } from "@keepdeck/plugin-api";
 import { modelLabel } from "../format";
-import { addMoney } from "../money";
 import { DAY_MS } from "../time";
 import {
+  addCost,
   addTokenCounts,
-  providerCostOf,
+  emptyCostTally,
   tokenTotal,
   usageSessionKey,
+  type CostTally,
   type UsageRow,
 } from "./event";
 
@@ -21,17 +22,16 @@ export type UsageStatsPeriodDays = 1 | 7 | 30 | 90;
  * entire ledger — history is never pruned, so "all" is genuinely all-time. */
 export type UsageStatsPeriod = UsageStatsPeriodDays | "all";
 
-export interface UsageStatsTotals {
+export interface UsageStatsTotals extends CostTally {
   tokens: TokenCounts;
   totalTokens: number;
-  providerCostUsd: number;
-  costEvents: number;
 }
 
 export interface UsageStatsRow extends UsageStatsTotals {
   key: string;
   agent: string;
   model?: string;
+  modelName?: string;
   workspaceName?: string;
   paneName?: string;
   sessionId?: string;
@@ -44,9 +44,6 @@ export interface UsageStats {
   /** The period's earliest row, null when it has none. */
   firstOccurredAt: number | null;
   sessionCount: number;
-  /** Sessions with at least one provider-reported cost event — the cost
-   * coverage the disclaimer under the cards is phrased from. */
-  costSessionCount: number;
   totals: UsageStatsTotals;
   byModel: UsageStatsRow[];
   sessions: UsageStatsRow[];
@@ -94,6 +91,7 @@ export function queryUsageStats(
       session.workspaceName = event.workspaceName;
       session.paneName = event.paneName;
       session.model = event.model;
+      session.modelName = event.modelName;
     }
     addEvent(session, event);
   }
@@ -101,7 +99,7 @@ export function queryUsageStats(
   const ranked = (rows: Map<string, UsageStatsRow>) =>
     [...rows.values()].sort(
       (left, right) =>
-        right.providerCostUsd - left.providerCostUsd ||
+        right.costUsd - left.costUsd ||
         right.totalTokens - left.totalTokens ||
         right.lastOccurredAt - left.lastOccurredAt,
     );
@@ -113,9 +111,6 @@ export function queryUsageStats(
       null,
     ),
     sessionCount: sessionRows.size,
-    costSessionCount: [...sessionRows.values()].filter(
-      (row) => row.costEvents > 0,
-    ).length,
     totals,
     byModel: ranked(modelRows),
     sessions: ranked(sessionRows),
@@ -126,8 +121,7 @@ function emptyTotals(): UsageStatsTotals {
   return {
     tokens: {},
     totalTokens: 0,
-    providerCostUsd: 0,
-    costEvents: 0,
+    ...emptyCostTally(),
   };
 }
 
@@ -142,6 +136,7 @@ function rowFor(
       key,
       agent: event.agent,
       ...(event.model ? { model: event.model } : {}),
+      ...(event.modelName ? { modelName: event.modelName } : {}),
       ...(event.workspaceName ? { workspaceName: event.workspaceName } : {}),
       ...(event.paneName ? { paneName: event.paneName } : {}),
       sessionId: event.sessionId,
@@ -159,11 +154,7 @@ function addEvent(
 ) {
   addTokenCounts(target.tokens, event.tokens);
   target.totalTokens += tokenTotal(event.tokens);
-  const cost = providerCostOf(event);
-  if (cost !== null) {
-    target.providerCostUsd = addMoney(target.providerCostUsd, cost);
-  }
-  target.costEvents += event.costEvents;
+  addCost(target, event);
   if ("lastOccurredAt" in target) {
     target.lastOccurredAt = Math.max(target.lastOccurredAt ?? 0, event.occurredAt);
   }

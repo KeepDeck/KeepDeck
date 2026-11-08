@@ -11,23 +11,23 @@ import {
   type TailTarget,
 } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import type { TailArming } from "../ipc/usage";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions, type DeckActions } from "./deckActions";
 
 const ipc = vi.hoisted(() => ({
-  watchSessionFile: vi.fn<
-    (
-      paneId: string,
-      path: string,
-      token: string,
-      agent: string,
-      watches?: readonly TailWatch[],
-      siblings?: string | null,
-    ) => Promise<void>
-  >(() => Promise.resolve()),
+  watchSessionFile: vi.fn<(paneId: string, tail: TailArming) => Promise<void>>(() =>
+    Promise.resolve(),
+  ),
   unwatchSessionFile: vi.fn(() => Promise.resolve()),
   retargetSessionFile: vi.fn<(paneId: string, watches: readonly TailWatch[]) => Promise<boolean>>(
     () => Promise.resolve(true),
+  ),
+  linkSessionFile: vi.fn<(paneId: string, path: string) => Promise<boolean>>(() =>
+    Promise.resolve(true),
+  ),
+  usageSince: vi.fn<(agent: string, sessionId: string, firstSeen: number) => Promise<number>>(
+    (_agent, _sessionId, firstSeen) => Promise.resolve(firstSeen),
   ),
   findCodexRollout: vi.fn<(sessionId: string) => Promise<string | null>>(() =>
     Promise.resolve("/rollout.jsonl"),
@@ -38,8 +38,10 @@ vi.mock("../ipc/usage", () => ({
   watchSessionFile: ipc.watchSessionFile,
   unwatchSessionFile: ipc.unwatchSessionFile,
   retargetSessionFile: ipc.retargetSessionFile,
+  linkSessionFile: ipc.linkSessionFile,
   findCodexRollout: ipc.findCodexRollout,
 }));
+vi.mock("../ipc/usageLedger", () => ({ usageSince: ipc.usageSince }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
 vi.mock("../ipc/log", () => ({
   log: { debug: vi.fn(), warn: vi.fn(), info: vi.fn() },
@@ -71,6 +73,7 @@ const dialectOf = (
   ignores: () => true,
 });
 import { createUsageManager } from "./usageManager";
+import { createUsageSightings } from "./usageSightings";
 import { createPaneAttribution } from "./paneAttribution";
 import {
   createSessionBinding,
@@ -147,6 +150,7 @@ describe("usage tails — a suspended pane's watcher", () => {
       // reports lane, so a fresh, unobserved instance satisfies the context.
       companionOf: () => undefined,
       usage: createUsageManager(),
+      sightings: createUsageSightings(),
       declarations: {
         current: () => usageByAgent,
         subscribe: () => () => {},
@@ -173,7 +177,7 @@ describe("usage tails — a suspended pane's watcher", () => {
     seed();
     await settle();
     expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
-    expect(ipc.watchSessionFile.mock.calls[0][2]).toBe("token-1");
+    expect(ipc.watchSessionFile.mock.calls[0][1].token).toBe("token-1");
 
     act(() => deck.suspendPane("ws-1", "pane-1"));
     await settle();
@@ -186,7 +190,7 @@ describe("usage tails — a suspended pane's watcher", () => {
     await settle();
 
     expect(ipc.watchSessionFile).toHaveBeenCalledTimes(2);
-    expect(ipc.watchSessionFile.mock.calls[1][2]).toBe("token-2");
+    expect(ipc.watchSessionFile.mock.calls[1][1].token).toBe("token-2");
   });
 
   it("keeps tailing a pane that is merely rising", async () => {
@@ -259,6 +263,7 @@ describe("usage tails — a store search racing a binding", () => {
         ),
       companionOf: () => undefined,
       usage: createUsageManager(),
+      sightings: createUsageSightings(),
       declarations: {
         current: () => usageByAgent,
         subscribe: () => () => {},
@@ -335,6 +340,7 @@ describe("usage tails — a pane whose process has a companion", () => {
       tailOf: () => dialectOf([STATUS_WATCH], async () => null),
       companionOf: () => (covers ? { covers } : undefined),
       usage: createUsageManager(),
+      sightings: createUsageSightings(),
       declarations: { current: () => claudeUsage, subscribe: () => () => {} },
     });
     act(() => {
@@ -361,7 +367,7 @@ describe("usage tails — a pane whose process has a companion", () => {
   /** The watches the last arm carried. */
   const lastWatches = () => {
     const calls = ipc.watchSessionFile.mock.calls;
-    return calls[calls.length - 1]?.[4];
+    return calls[calls.length - 1]?.[1].watches;
   };
 
   beforeEach(() => {
@@ -480,6 +486,165 @@ describe("usage tails — a pane whose process has a companion", () => {
       expect(ipc.retargetSessionFile).not.toHaveBeenCalled();
       expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
       expect(lastWatches()).toEqual([USAGE_WATCH, STATUS_WATCH]);
+    } finally {
+      lane.dispose();
+    }
+  });
+});
+
+describe("usage tails — the booking horizon and the stores a pane names", () => {
+  const codexUsage = (locate: (id: string) => Promise<string | null>) =>
+    new Map<string, AgentUsage>([
+      ["codex", { normalize: () => null, tail: { watches: [], locate } }],
+    ]);
+
+  function setup(locate: (id: string) => Promise<string | null> = async (id) => `/threads/${id}.jsonl`) {
+    const store = createDeckStore();
+    deck = createDeckActions(store);
+    let announce!: (bound: AcceptedBinding) => void;
+    const lane = createUsageTailsLane({
+      deck: store,
+      attribution: createPaneAttribution({
+        workspaces: () => store.getSnapshot().workspaces,
+        secretOf: () => "token-1",
+        swapSources: () => [],
+      }),
+      bindings: {
+        subscribe: (listener) => {
+          announce = listener;
+          return () => {};
+        },
+      },
+      tailOf: () => dialectOf([], async () => null),
+      companionOf: () => undefined,
+      usage: createUsageManager(),
+      sightings: createUsageSightings(() => 5_000),
+      declarations: { current: () => codexUsage(locate), subscribe: () => () => {} },
+    });
+    act(() => {
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-1", agentType: "codex" }],
+      });
+    });
+    const settle = async () => {
+      for (let i = 0; i < 6; i++) await act(async () => {});
+    };
+    const bind = async () => {
+      await act(async () =>
+        announce({ paneId: "pane-1", sessionId: "ses-1", transcriptPath: "/p/root.jsonl", token: "token-1" }),
+      );
+      await settle();
+    };
+    return { lane, bind, settle };
+  }
+
+  beforeEach(() => {
+    ipc.watchSessionFile.mockReset().mockResolvedValue(undefined);
+    ipc.unwatchSessionFile.mockClear();
+    ipc.linkSessionFile.mockReset().mockResolvedValue(true);
+    ipc.usageSince.mockReset().mockResolvedValue(7_000);
+  });
+
+  it("reads the store again only from where the ledger has not booked the session", async () => {
+    const { lane, bind } = setup();
+    try {
+      await bind();
+      // Asked with the instant this run first saw the session.
+      expect(ipc.usageSince).toHaveBeenCalledWith("codex", "ses-1", 5_000);
+      // Armed for the session the binding named, from the ledger's horizon.
+      expect(ipc.watchSessionFile.mock.calls[0]?.[1]).toMatchObject({ session: "ses-1", since: 7_000 });
+    } finally {
+      lane.dispose();
+    }
+  });
+
+  it("reads the whole store when the ledger cannot say — it books each call once anyway", async () => {
+    ipc.usageSince.mockRejectedValue(new Error("store busy"));
+    const { lane, bind } = setup();
+    try {
+      await bind();
+      expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
+      expect(ipc.watchSessionFile.mock.calls[0]?.[1].since).toBeNull();
+    } finally {
+      lane.dispose();
+    }
+  });
+
+  it("follows each named store once, where the agent locates it", async () => {
+    const locate = vi.fn(async (id: string) => `/threads/${id}.jsonl`);
+    const { lane, bind, settle } = setup(locate);
+    try {
+      await bind();
+      lane.link("pane-1", ["t-2", "t-3"]);
+      lane.link("pane-1", ["t-2"]);
+      await settle();
+      expect(locate.mock.calls.map(([id]) => id)).toEqual(["t-2", "t-3"]);
+      expect(ipc.linkSessionFile.mock.calls).toEqual([
+        ["pane-1", "/threads/t-2.jsonl"],
+        ["pane-1", "/threads/t-3.jsonl"],
+      ]);
+    } finally {
+      lane.dispose();
+    }
+  });
+
+  it("links a store named while the arm still drains once the tail is there", async () => {
+    let land: () => void = () => {};
+    ipc.watchSessionFile.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (land = resolve)),
+    );
+    const { lane, bind, settle } = setup();
+    try {
+      await bind();
+      lane.link("pane-1", ["t-2"]);
+      await settle();
+      expect(ipc.linkSessionFile).not.toHaveBeenCalled();
+
+      land();
+      await settle();
+      expect(ipc.linkSessionFile).toHaveBeenCalledWith("pane-1", "/threads/t-2.jsonl");
+    } finally {
+      lane.dispose();
+    }
+  });
+
+  it("tries a store again when it was not found or not linked", async () => {
+    const locate = vi.fn<(id: string) => Promise<string | null>>().mockResolvedValueOnce(null);
+    locate.mockImplementation(async (id) => `/threads/${id}.jsonl`);
+    const { lane, bind, settle } = setup(locate);
+    try {
+      await bind();
+      lane.link("pane-1", ["t-2"]);
+      await settle();
+      expect(ipc.linkSessionFile).not.toHaveBeenCalled();
+
+      ipc.linkSessionFile.mockResolvedValueOnce(false);
+      lane.link("pane-1", ["t-2"]);
+      await settle();
+      lane.link("pane-1", ["t-2"]);
+      await settle();
+      expect(ipc.linkSessionFile).toHaveBeenCalledTimes(2);
+      lane.link("pane-1", ["t-2"]);
+      await settle();
+      expect(ipc.linkSessionFile).toHaveBeenCalledTimes(2);
+    } finally {
+      lane.dispose();
+    }
+  });
+
+  it("names nothing for a pane it does not tail", async () => {
+    const locate = vi.fn(async () => "/x.jsonl");
+    const { lane, settle } = setup(locate);
+    try {
+      lane.link("pane-1", ["t-2"]);
+      await settle();
+      expect(locate).not.toHaveBeenCalled();
+      expect(ipc.linkSessionFile).not.toHaveBeenCalled();
     } finally {
       lane.dispose();
     }

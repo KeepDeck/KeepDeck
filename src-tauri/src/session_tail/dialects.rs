@@ -4,10 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-
-use super::totals::Folds;
+use std::path::{Path, PathBuf};
 
 // A `TailFormat` enum stood here — Claude, Codex, KimiWire — and each
 // variant owned a line filter, a catch-up order and a set of parse arms.
@@ -70,59 +67,37 @@ pub struct TailWatch {
     /// Latest cold metadata may seed the decoder, never publish activity.
     #[serde(default)]
     pub replay_context: bool,
-    /// A running total to fold over these records and stamp onto each.
-    /// Absent for a store that carries its own cumulative, or for records
-    /// that are not about numbers at all.
+    /// A `calls` record that is no call but qualifies the calls after it in
+    /// its file: held, not carried, and attached to every later `calls`
+    /// record of the same file as its `context`.
     #[serde(default)]
-    pub sum: Option<TailSum>,
+    pub context: bool,
+    /// A `calls` record naming another store of the same session: carried
+    /// whole on a re-read, not from `since`.
+    #[serde(default)]
+    pub links: bool,
 }
 
-/// The arithmetic a dialect asks for over the records one watch carries.
-///
-/// It lives on this side for one reason: the numbers are HERE. A session
-/// store is drained once at arming, and only the last record of each watch
-/// survives that drain — so a total has to be made while the rows are still
-/// in hand, and what crosses is the sum rather than twelve thousand rows.
-///
-/// It stays DATA for the opposite reason: which buckets a total is made of,
-/// and whether repeated rows are one message or several, are facts about one
-/// CLI's format. This side adds up the fields it was named and stamps the
-/// result under the name it was given, without knowing that any of it is
-/// tokens.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct TailSum {
-    /// Stamped name → the dotted path it is read from. Buckets are held
-    /// SEPARATELY: a re-read context prefix is not fresh input, and adding
-    /// them together would report a session as having spent what it re-sent.
-    pub buckets: BTreeMap<String, String>,
-    /// The field saying which message a row belongs to, for a store that
-    /// writes one message as several rows. Rows sharing it are held at each
-    /// bucket's maximum and only their GROWTH joins the total; absent, every
-    /// row is its own event and simply adds.
-    #[serde(default)]
-    pub dedup_by: Option<String>,
-    /// The field whose value splits the total into one per value. Present,
-    /// the stamp is an object of totals keyed by that value; a row without
-    /// one is totalled under the empty name. Absent, there is one total.
-    #[serde(default)]
-    pub group_by: Option<String>,
-    /// The name each total also counts its messages under: the distinct
-    /// identities when `dedup_by` is set, the rows otherwise. Absent, no
-    /// count is stamped.
-    #[serde(default)]
-    pub count_as: Option<String>,
-    /// The key the running total is stamped under on the carried record.
-    pub stamp_as: String,
-}
-
-/// The two questions a session store answers. This side does not know which
-/// one any record answers; it forwards what it was told.
+/// The three questions a session store answers. This side does not know
+/// which one any record answers; it forwards what it was told.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum TailLane {
     Status,
     Usage,
+    /// Each record a call: carried EVERY time, never collapsed into the last
+    /// of a run, and on a re-read only from `since`.
+    Calls,
+}
+
+impl TailLane {
+    fn wire(self) -> &'static str {
+        match self {
+            TailLane::Status => "status",
+            TailLane::Usage => "usage",
+            TailLane::Calls => "calls",
+        }
+    }
 }
 
 /// The payload type a carried record travels under. One name for every
@@ -136,10 +111,14 @@ pub(super) const CARRIED_RECORD: &str = "store.record";
 /// still extract usage, which has not moved yet. A line can satisfy both,
 /// and then it travels twice — once as this side's reading of the numbers,
 /// once as the record the other side will read for itself.
+///
+/// `context` is the file's latest `calls` context record: a context watch
+/// replaces it and carries nothing, and every `calls` record carried after
+/// it travels with a copy.
 pub(super) fn watched_events(
     line: &[u8],
     watches: &[TailWatch],
-    folds: &mut Folds,
+    context: &mut Option<Value>,
 ) -> Vec<TailedEvent> {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return Vec::new();
@@ -155,15 +134,21 @@ pub(super) fn watched_events(
         if lanes.contains(&watch.lane) {
             continue;
         }
-        if let Some(event) = carry(&value, watch, slot, folds) {
-            lanes.push(watch.lane);
-            events.push(event);
+        let Some(kept) = kept_fields(&value, watch) else {
+            continue;
+        };
+        lanes.push(watch.lane);
+        if watch.lane == TailLane::Calls && watch.context {
+            *context = Some(Value::Object(kept));
+            continue;
         }
+        events.push(carry(&value, watch, slot, kept, context.as_ref()));
     }
     events
 }
 
-fn carry(value: &Value, watch: &TailWatch, slot: usize, folds: &mut Folds) -> Option<TailedEvent> {
+/// The fields `watch` names, when `value` satisfies every clause of it.
+fn kept_fields(value: &Value, watch: &TailWatch) -> Option<serde_json::Map<String, Value>> {
     for clause in &watch.clauses {
         let held = at(value, &clause.key);
         let ok = match &clause.equals {
@@ -190,30 +175,39 @@ fn carry(value: &Value, watch: &TailWatch, slot: usize, folds: &mut Folds) -> Op
             kept.insert(key.clone(), held.clone());
         }
     }
-    // The total is folded from the ORIGINAL record, not from the projection:
-    // a dialect should not have to `keep` a field merely to have it counted,
-    // and what it keeps is about what the other side reads.
-    if let Some(sum) = &watch.sum {
-        kept.insert(sum.stamp_as.clone(), folds.fold(slot, sum, value));
+    Some(kept)
+}
+
+fn carry(
+    value: &Value,
+    watch: &TailWatch,
+    slot: usize,
+    kept: serde_json::Map<String, Value>,
+    context: Option<&Value>,
+) -> TailedEvent {
+    let mut payload = json!({
+        "type": CARRIED_RECORD,
+        "record": Value::Object(kept),
+        "replayContext": watch.replay_context,
+        "lane": watch.lane.wire(),
+    });
+    if watch.lane == TailLane::Calls {
+        if let Some(context) = context {
+            payload["context"] = context.clone();
+        }
     }
-    Some(TailedEvent {
-        payload: json!({
-            "type": CARRIED_RECORD,
-            "record": Value::Object(kept),
-            "replayContext": watch.replay_context,
-            "lane": match watch.lane {
-                TailLane::Status => "status",
-                TailLane::Usage => "usage",
-            },
-        }),
+    TailedEvent {
+        payload,
         // Provenance stays this side's job: the freshness guard is about the
         // deck's clock against the store's, which is a fact about following
         // a file rather than about any agent's format.
         source_at: source_timestamp(value),
         source_mtime_ms: None,
+        source_ref: None,
         root: true,
         slot: Some(slot),
-    })
+        links: watch.links,
+    }
 }
 
 /// Honest time carried by the source event. Codex writes an ISO timestamp on
@@ -245,11 +239,69 @@ fn source_timestamp(value: &Value) -> Option<SourceTimestamp> {
         .map(SourceTimestamp::UnixMillis)
 }
 
+impl SourceTimestamp {
+    /// This instant in unix milliseconds — None for an ISO text that is not
+    /// one. Only what `since` needs: a filter on records far older than it.
+    pub(super) fn unix_ms(&self) -> Option<f64> {
+        match self {
+            SourceTimestamp::UnixMillis(ms) => Some(*ms as f64),
+            SourceTimestamp::Iso(text) => iso_unix_ms(text),
+        }
+    }
+}
+
+/// An RFC 3339 instant (`2026-11-01T20:34:10.756Z`, an offset instead of
+/// `Z` allowed) in unix milliseconds.
+fn iso_unix_ms(text: &str) -> Option<f64> {
+    let bytes = text.as_bytes();
+    let number = |from: usize, to: usize| -> Option<i64> { text.get(from..to)?.parse().ok() };
+    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || !matches!(bytes[10], b'T' | b't' | b' ') {
+        return None;
+    }
+    let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
+    let (hour, minute, second) = (number(11, 13)?, number(14, 16)?, number(17, 19)?);
+    let mut rest = &text[19..];
+    let mut millis = 0.0;
+    if let Some(fraction) = rest.strip_prefix('.') {
+        let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+        millis = format!("0.{}", &fraction[..digits]).parse::<f64>().ok()? * 1000.0;
+        rest = &fraction[digits..];
+    }
+    let offset_minutes = match rest {
+        "Z" | "z" => 0,
+        _ if rest.len() == 6 && matches!(rest.as_bytes()[0], b'+' | b'-') => {
+            let sign = if rest.starts_with('-') { -1 } else { 1 };
+            sign * (rest.get(1..3)?.parse::<i64>().ok()? * 60 + rest.get(4..6)?.parse::<i64>().ok()?)
+        }
+        _ => return None,
+    };
+    // Days from the civil date (Howard Hinnant's algorithm).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let year_of_era = y - era * 400;
+    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    let seconds = days * 86_400 + hour * 3_600 + minute * 60 + second - offset_minutes * 60;
+    Some(seconds as f64 * 1000.0 + millis)
+}
+
+/// Where a carried record sits in its store: the file and the byte offset
+/// of its line. An agent whose store gives a call no id of its own takes
+/// this as one — stable for as long as the file is.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(super) struct SourceRef {
+    pub(super) file: String,
+    pub(super) offset: u64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct TailedEvent {
     pub(super) payload: Value,
     pub(super) source_at: Option<SourceTimestamp>,
     pub(super) source_mtime_ms: Option<u64>,
+    /// Where the record sits, for a `calls` record.
+    pub(super) source_ref: Option<SourceRef>,
     /// From the session's ROOT file (false = a claude subagent transcript).
     /// An interrupt marker is pane-level only when the ROOT turn was
     /// aborted; a subagent's own abort must not relabel the pane.
@@ -258,6 +310,14 @@ pub(super) struct TailedEvent {
     /// collapse on, now that every carried record travels under one type.
     /// `None` for events this side minted itself.
     pub(super) slot: Option<usize>,
+    /// Carried by a `links` watch: a re-read keeps it whatever its age.
+    pub(super) links: bool,
+}
+
+impl TailedEvent {
+    fn is_call(&self) -> bool {
+        self.payload["lane"] == TailLane::Calls.wire()
+    }
 }
 
 // The three parse arms stood here: which claude transcript lines carried
@@ -265,31 +325,62 @@ pub(super) struct TailedEvent {
 // forwarding, which kimi wire records were small enough to ride verbatim.
 // Every one of them was a statement about somebody else's format, made by
 // the side that reads the bytes. They are declarations now — a watch names
-// the records and the fields, a sum names the arithmetic — and this file
-// compares keys and copies values without knowing whose store it is in.
+// the records and the fields — and this file compares keys and copies values
+// without knowing whose store it is in.
+
+/// How deep under a sibling directory files are looked for: claude nests a
+/// workflow's agents one level down (`subagents/workflows/<run>/`), kimi a
+/// subagent's wire in a directory of its own (`agents/<id>/wire.jsonl`).
+const SIBLING_DEPTH: usize = 3;
 
 /// The `.jsonl` files in a directory the followed store's own dialect named
-/// as contributing to the SAME session.
+/// as contributing to the SAME session, and in the directories under it.
 ///
 /// Read every poll rather than once, because the files appear as the work
 /// that writes them starts — long after the tail was armed. Which directory
 /// is not asked here: the rule that turns a transcript's path into its
 /// siblings' is the agent's, and it arrives already applied.
-pub(super) fn sibling_paths(directory: &std::path::Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return Vec::new();
-    };
-    let mut paths = entries
-        .flatten()
-        .filter_map(|entry| {
+pub(super) fn sibling_paths(directory: &Path) -> Vec<PathBuf> {
+    fn walk(directory: &Path, depth: usize, into: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
             let path = entry.path();
-            let jsonl = path.extension().and_then(|ext| ext.to_str()) == Some("jsonl");
-            let file = entry.file_type().ok().is_some_and(|kind| kind.is_file());
-            (jsonl && file).then_some(path)
-        })
-        .collect::<Vec<_>>();
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() && depth > 0 {
+                walk(&path, depth - 1, into);
+            } else if kind.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+                into.push(path);
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    walk(directory, SIBLING_DEPTH, &mut paths);
     paths.sort();
     paths
+}
+
+/// The `calls` records a read keeps: those at or after `since` (unix ms), and
+/// every `links` record whatever its age — a subagent spawned long ago may
+/// still be running, and its file is found only through the record that
+/// named it. A record that states no time is kept: whether it counts is the
+/// ledger's to decide, by the call's own time.
+pub(super) fn calls_since(events: Vec<TailedEvent>, since: Option<f64>) -> Vec<TailedEvent> {
+    events
+        .into_iter()
+        .filter(|event| event.is_call())
+        .filter(|event| {
+            event.links
+                || since.is_none_or(|since| {
+                    event
+                        .source_at
+                        .as_ref()
+                        .and_then(SourceTimestamp::unix_ms)
+                        .is_none_or(|at| at >= since)
+                })
+        })
+        .collect()
 }
 
 /// The status half of a catch-up: of the ROOT file's status-lane records,
@@ -339,7 +430,9 @@ pub(super) fn last_of_each(events: Vec<TailedEvent>, watches: &[TailWatch]) -> V
         let Some(watch) = watches.get(slot) else {
             continue;
         };
-        if watch.lane == TailLane::Status && !watch.replay_context {
+        // A status edge leaves as a reconcile; a call is never summarised
+        // away — every one of them is a call ([`calls_since`]).
+        if (watch.lane == TailLane::Status && !watch.replay_context) || watch.lane == TailLane::Calls {
             continue;
         }
         last[slot] = Some(event);
@@ -396,7 +489,8 @@ mod tests {
             keep: keep.iter().map(|k| k.to_string()).collect(),
             lane,
             replay_context: false,
-            sum: None,
+            context: false,
+            links: false,
         }
     }
 
@@ -415,7 +509,7 @@ mod tests {
     }
 
     fn carried(line: &[u8], watches: &[TailWatch]) -> Option<TailedEvent> {
-        watched_events(line, watches, &mut Folds::default())
+        watched_events(line, watches, &mut None)
             .into_iter()
             .next()
     }
@@ -612,52 +706,85 @@ mod tests {
         );
     }
 
-    // The reader adds the numbers it was NAMED and stamps them under the
-    // name it was given. It cannot tell that any of this is tokens.
-    #[test]
-    fn a_watch_that_declares_a_sum_carries_a_running_total() {
-        let mut watch = declare(
-            vec![equals("type", "usage.record")],
-            &["type"],
-            TailLane::Usage,
-        );
-        watch.sum = Some(TailSum {
-            buckets: BTreeMap::from([("output".to_string(), "usage.output".to_string())]),
-            dedup_by: None,
-            group_by: None,
-            count_as: None,
-            stamp_as: "sessionTotals".to_string(),
-        });
-        let watches = std::slice::from_ref(&watch);
-        let mut folds = Folds::default();
+    fn calls(clauses: Vec<RecordMatch>, keep: &[&str]) -> TailWatch {
+        declare(clauses, keep, TailLane::Calls)
+    }
 
-        let first = watched_events(USAGE_RECORD_LINE.as_bytes(), watches, &mut folds)
-            .into_iter()
-            .next()
-            .unwrap();
-        assert_eq!(first.payload["record"]["sessionTotals"]["output"], 300);
-        // The SECOND record carries the running total, not its own count —
-        // which is what makes the last record of a catch-up drain enough.
-        let second = watched_events(USAGE_RECORD_LINE.as_bytes(), watches, &mut folds)
-            .into_iter()
-            .next()
-            .unwrap();
-        assert_eq!(second.payload["record"]["sessionTotals"]["output"], 600);
+    // A context record qualifies the calls after it in its file: it is held,
+    // never carried, and every later call travels with its fields.
+    #[test]
+    fn a_context_record_is_held_and_attached_to_the_calls_after_it() {
+        let mut context_watch = calls(vec![equals("type", "turn_context")], &["payload.model"]);
+        context_watch.context = true;
+        let call_watch = calls(vec![equals("payload.type", "token_count")], &["payload.type"]);
+        let watches = vec![context_watch, call_watch];
+        let mut context = None;
+
+        let before = watched_events(TOKEN_COUNT_LINE.as_bytes(), &watches, &mut context);
+        assert_eq!(before.len(), 1);
+        assert!(before[0].payload.get("context").is_none(), "no context seen yet");
+
+        let held = watched_events(TURN_CONTEXT_LINE.as_bytes(), &watches, &mut context);
+        assert!(held.is_empty(), "a context record is not itself carried");
+        assert!(context.is_some());
+
+        let after = watched_events(TOKEN_COUNT_LINE.as_bytes(), &watches, &mut context);
+        assert_eq!(after[0].payload["lane"], "calls");
+        assert!(after[0].payload["context"]["payload.model"].is_string(), "{:?}", after[0].payload);
     }
 
     #[test]
-    fn a_sum_reads_the_plugins_camel_case_wire() {
-        let sum: TailSum = serde_json::from_str(
-            r#"{"buckets":{"input":"message.usage.input_tokens"},"dedupBy":"message.id",
-                "groupBy":"message.model","countAs":"messages","stampAs":"sessionTotals"}"#,
+    fn a_watch_reads_the_plugins_camel_case_wire() {
+        let watch: TailWatch = serde_json::from_str(
+            r#"{"match":[{"key":"type","equals":"turn_context"}],"keep":["payload.model"],
+                "lane":"calls","context":true}"#,
         )
         .expect("the wire a plugin declares");
-        assert_eq!(sum.group_by.as_deref(), Some("message.model"));
-        assert_eq!(sum.count_as.as_deref(), Some("messages"));
-        // A plugin that declares neither is read as one total, uncounted.
-        let plain: TailSum =
-            serde_json::from_str(r#"{"buckets":{},"stampAs":"sessionTotals"}"#).unwrap();
-        assert_eq!((plain.group_by, plain.count_as), (None, None));
+        assert_eq!(watch.lane, TailLane::Calls);
+        assert!(watch.context && !watch.links);
+    }
+
+    fn call_at(at: Option<SourceTimestamp>, links: bool) -> TailedEvent {
+        TailedEvent {
+            payload: json!({ "type": CARRIED_RECORD, "record": {}, "lane": "calls" }),
+            source_at: at,
+            source_mtime_ms: None,
+            source_ref: None,
+            root: true,
+            slot: Some(0),
+            links,
+        }
+    }
+
+    // A re-read keeps the calls at or after `since`, every links record, and
+    // a call that states no time; it keeps nothing of another lane.
+    #[test]
+    fn a_re_read_keeps_calls_from_since_and_every_link() {
+        let old = call_at(Some(SourceTimestamp::UnixMillis(1_000)), false);
+        let new = call_at(Some(SourceTimestamp::Iso("1970-01-01T00:00:05.000Z".into())), false);
+        let old_link = call_at(Some(SourceTimestamp::UnixMillis(1_000)), true);
+        let timeless = call_at(None, false);
+        let mut usage = call_at(Some(SourceTimestamp::UnixMillis(9_000)), false);
+        usage.payload["lane"] = "usage".into();
+        let kept = calls_since(vec![old.clone(), new.clone(), old_link.clone(), timeless.clone(), usage], Some(5_000.0));
+        assert_eq!(kept, vec![new.clone(), old_link, timeless]);
+        assert_eq!(calls_since(vec![old.clone(), new.clone()], None), vec![old, new]);
+    }
+
+    #[test]
+    fn a_catch_up_summary_never_takes_a_call() {
+        let watches = vec![calls(vec![present("type")], &["type"])];
+        assert!(last_of_each(vec![call_at(None, false)], &watches).is_empty());
+    }
+
+    #[test]
+    fn an_rfc_3339_instant_reads_as_unix_milliseconds() {
+        assert_eq!(iso_unix_ms("1970-01-01T00:00:00Z"), Some(0.0));
+        assert_eq!(iso_unix_ms("2026-11-01T20:34:10.756Z"), Some(1_793_565_250_756.0));
+        assert_eq!(iso_unix_ms("2026-11-01T21:34:10.756+01:00"), Some(1_793_565_250_756.0));
+        assert_eq!(iso_unix_ms("2000-02-29T12:00:00Z"), Some(951_825_600_000.0));
+        assert_eq!(iso_unix_ms("not a time"), None);
+        assert_eq!(iso_unix_ms("2026-11-01T20:34:10"), None, "no zone, no instant");
     }
 
     // Two ways a store says when: an ISO stamp, or unix milliseconds.
@@ -702,15 +829,15 @@ mod tests {
             TailLane::Usage,
         );
         let watches = vec![context, counts];
-        let mut folds = Folds::default();
+        let mut held = None;
 
-        let old = watched_events(TURN_CONTEXT_LINE.as_bytes(), &watches, &mut folds)
+        let old = watched_events(TURN_CONTEXT_LINE.as_bytes(), &watches, &mut held)
             .into_iter()
             .next()
             .unwrap();
         let mut newer = old.clone();
         newer.payload["record"]["type"] = "turn_context_newer".into();
-        let count = watched_events(TOKEN_COUNT_LINE.as_bytes(), &watches, &mut folds)
+        let count = watched_events(TOKEN_COUNT_LINE.as_bytes(), &watches, &mut held)
             .into_iter()
             .next()
             .unwrap();
@@ -763,7 +890,7 @@ mod tests {
 
         for case in corpus.cases {
             let line = serde_json::to_vec(&case.record).unwrap();
-            let carried = watched_events(&line, &case.watches, &mut Folds::default())
+            let carried = watched_events(&line, &case.watches, &mut None)
                 .into_iter()
                 .next();
             match (carried, case.carried) {

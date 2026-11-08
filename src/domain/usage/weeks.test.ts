@@ -86,7 +86,6 @@ describe("usageWeeks", () => {
           agent: "claude",
           model: "small-but-costed",
           tokens: { input: 100 },
-          costSource: "provider",
           costUsd: 9,
         }),
       ],
@@ -100,8 +99,8 @@ describe("usageWeeks", () => {
     ]);
     // Tokens crown the model — the $9 event must not.
     expect(weeks[0].topModel).toMatchObject({ totalTokens: 700 });
-    expect(weeks[0].providerCostUsd).toBe(9);
-    expect(weeks[0].costEvents).toBe(1);
+    expect(weeks[0].costUsd).toBe(9);
+    expect(weeks[0].pricedEvents).toBe(1);
   });
 
   it("keeps an empty week in progress — the view owns its empty state", () => {

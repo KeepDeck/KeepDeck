@@ -1,24 +1,18 @@
-import { errorMessage, type PaneUsage, type TailWatch, type UsageNormalizer } from "@keepdeck/plugin-api";
-import { paneWorktree } from "../domain/deck";
+import { errorMessage, type TailWatch, type UsageNormalizer } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
 import { readStoreCold } from "../ipc/usage";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
-import {
-  peekPaneSpawnSpec,
-  spawnPlanInheritsSession,
-  spawnPlanNeedsUsageBaseline,
-} from "./spawnSpecs";
-import type { UsageSessionOrigin } from "../domain/usage/history/capture";
-import { recordPaneUsage } from "./usageHistoryManager";
 import { usageSourceTimestamp } from "./usageProvenance";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
-/** Account boot catch-up, pane retention and durable history capture. */
+/** Account boot catch-up and pane retention. What a pane spent is booked by
+ * the call book as its calls arrive. */
 export function createUsageMaintenanceLane({
   deck,
   declarations,
   usage,
   attribution,
+  sightings,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   const swept = new Set<string>();
@@ -92,90 +86,17 @@ export function createUsageMaintenanceLane({
     const live = paneMembership(nextKey);
     usage.retainPanes(live);
     // Per-pane state is retired by the deck's membership as well as by a
-    // process ending, and the attribution ledger holds per-pane state: left
-    // out of this half it would be the one map that only ever grows.
+    // process ending, and the attribution ledger and the sightings hold
+    // per-pane state: left out of this half either would be a map that only
+    // ever grows.
     attribution.forget(live);
-  };
-
-  /** Each pane's usage as it was last booked. A pane keeps its object until
-   * its usage changes, so a capture books only the panes that did — one IPC
-   * each — instead of every pane on every report. */
-  let booked = new Map<string, PaneUsage>();
-
-  const captureHistory = () => {
-    const current = deck.getSnapshot();
-    const next = new Map<string, PaneUsage>();
-    for (const [paneId, paneUsage] of usage.getSnapshot().panes) {
-      if (booked.get(paneId) === paneUsage) {
-        next.set(paneId, paneUsage);
-        continue;
-      }
-      const workspace = current.workspaces.find((candidate) =>
-        candidate.panes.some((pane) => pane.id === paneId),
-      );
-      const pane = workspace?.panes.find(
-        (candidate) => candidate.id === paneId,
-      );
-      if (!workspace || !pane || pane.agentType !== paneUsage.agent) {
-        continue;
-      }
-      const sessionId = paneUsage.sessionId ?? pane.session?.id;
-      if (!sessionId) continue;
-      // A pane with NO cached plan is one this run did not spawn — attached
-      // or restored across a restart — so its session may predate the run.
-      // `fresh` needs POSITIVE evidence that this run's own spawn minted the
-      // session, never merely the absence of a match: a plan that inherits
-      // from something answers `unknown` until the id it inherits is known.
-      const spec = peekPaneSpawnSpec(paneId);
-      const origin: UsageSessionOrigin = spawnPlanNeedsUsageBaseline(
-        spec,
-        sessionId,
-      )
-        ? "inherited"
-        : spec && !spawnPlanInheritsSession(spec)
-          ? "fresh"
-          : "unknown";
-      const index = workspace.panes.indexOf(pane);
-      const worktree = paneWorktree(workspace, pane);
-      // Booked once it is sent: a pane that could not be booked yet (no
-      // session known) is tried again on the next capture.
-      next.set(paneId, paneUsage);
-      void recordPaneUsage(paneUsage, {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        workspaceCwd: workspace.cwd,
-        paneId,
-        paneName: pane.name ?? pane.autoTitle ?? `Agent ${index + 1}`,
-        sessionId,
-        origin,
-        ...(worktree
-          ? {
-              worktree: {
-                path: worktree.cwd,
-                repo: workspace.cwd,
-                ...(worktree.branch ? { branch: worktree.branch } : {}),
-              },
-            }
-          : {}),
-      }).catch((error) => {
-        // Not booked after all: the next capture sends it again, unless the
-        // pane has moved on and its newer reading went out instead.
-        if (booked.get(paneId) === paneUsage) booked.delete(paneId);
-        log.warn(
-          "web:usage",
-          `usage history append failed: ${errorMessage(error)}`,
-        );
-      });
-    }
-    booked = next;
+    sightings.retain(live);
   };
 
   const unsubscribeDeck = deck.subscribe(retainLivePanes);
   const unsubscribeDeclarations = declarations.subscribe(sweepDeclaredStores);
-  const unsubscribeUsage = usage.subscribe(captureHistory);
   retainLivePanes();
   sweepDeclaredStores();
-  captureHistory();
 
   return {
     dispose() {
@@ -183,7 +104,6 @@ export function createUsageMaintenanceLane({
       disposed = true;
       unsubscribeDeck();
       unsubscribeDeclarations();
-      unsubscribeUsage();
     },
   };
 }

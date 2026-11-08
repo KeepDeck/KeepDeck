@@ -3,17 +3,33 @@ import {
   paneHasProcess,
   paneWorktree,
 } from "../domain/deck";
-import { tailWatches, type TailWatch } from "@keepdeck/plugin-api";
+import { errorMessage, tailWatches, type TailWatch } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
 import {
+  linkSessionFile,
   retargetSessionFile,
   unwatchSessionFile,
   watchSessionFile,
 } from "../ipc/usage";
+import { usageSince } from "../ipc/usageLedger";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
 export const TAIL_RETRY_MS = 20_000;
+
+export interface UsageTailsLane extends UsageLane {
+  /** Follow, in `paneId`'s tail, the stores its records named by these ids
+   * (codex's subagent threads), as its agent locates them. */
+  link(paneId: string, ids: readonly string[]): void;
+}
+
+/** What a pane was armed with. */
+interface Armed {
+  path: string;
+  token: string;
+  agentId: string;
+  sessionId: string;
+}
 
 /** Session-file watcher lane, including Codex's resume-without-binding fallback. */
 export function createUsageTailsLane({
@@ -21,9 +37,10 @@ export function createUsageTailsLane({
   declarations,
   attribution,
   bindings,
+  sightings,
   tailOf,
   companionOf,
-}: UsageLaneContext): UsageLane {
+}: UsageLaneContext): UsageTailsLane {
   let disposed = false;
   /** Panes a native watcher is armed for, or is being armed for. */
   const tailed = new Set<string>();
@@ -60,33 +77,55 @@ export function createUsageTailsLane({
   /** What each armed pane was armed WITH — so a companion arriving after the
    * arm can re-arm it without the status records, and only when that changes
    * what is read. */
-  const armedWith = new Map<
-    string,
-    { path: string; token: string; agentId: string; covered: boolean }
-  >();
+  const armedWith = new Map<string, Armed & { covered: boolean }>();
 
   /** Each pane's arm still on its way. The core registers a tail only once
-   * its catch-up has drained the store, so a narrowing that lands in the
-   * meantime finds nothing to retarget — it waits for this instead of
-   * arming, and draining the store, a second time. */
+   * its catch-up has drained the store, so a narrowing — or a link — that
+   * lands in the meantime finds nothing to change: it waits for this instead
+   * of arming, and draining the store, a second time. */
   const arming = new Map<string, Promise<void>>();
 
-  /** Arm one pane's follower; `false` when there is nothing left to read. */
-  const arm = (paneId: string, path: string, token: string, agentId: string) => {
+  /** Per armed pane, the ids of the other stores its records named that are
+   * linked or being linked. A new arm starts it empty: the fresh tail reads
+   * the records that name them again. */
+  const links = new Map<string, Set<string>>();
+
+  /** From when the pane's store must be read again for its calls: what the
+   * ledger has not booked of the session yet. Unknown is the whole store —
+   * the ledger books each call once however often it is read. */
+  const sinceFor = (paneId: string, agentId: string, sessionId: string) =>
+    usageSince(agentId, sessionId, sightings.sight(paneId, sessionId)).catch(
+      (error: unknown) => {
+        log.debug(
+          "web:usage",
+          `${paneId}: no booking horizon, reading the whole store: ${errorMessage(error)}`,
+        );
+        return null;
+      },
+    );
+
+  /** Arm one pane's follower. */
+  const arm = (paneId: string, { path, token, agentId, sessionId }: Armed) => {
     const watches = watchesFor(paneId, agentId);
+    const siblings = declarations.current().get(agentId)?.tail?.siblings?.(path) ?? null;
     armedWith.set(paneId, {
       path,
       token,
       agentId,
+      sessionId,
       covered: statusCovered(paneId, agentId),
     });
-    const pending = watchSessionFile(
-      paneId,
-      path,
-      token,
-      agentId,
-      watches,
-      declarations.current().get(agentId)?.tail?.siblings?.(path) ?? null,
+    links.set(paneId, new Set());
+    const pending = sinceFor(paneId, agentId, sessionId).then((since) =>
+      watchSessionFile(paneId, {
+        path,
+        token,
+        agent: agentId,
+        session: sessionId,
+        watches,
+        siblings,
+        since,
+      }),
     );
     arming.set(paneId, pending);
     const settled = () => {
@@ -94,6 +133,34 @@ export function createUsageTailsLane({
     };
     pending.then(settled, settled);
     return pending;
+  };
+
+  /** Follow one store a pane's records named, in the pane's tail. The agent
+   * says where it is; the core reads it with the pane's own. An id that does
+   * not link is forgotten, so the next reading that names it tries again. */
+  const linkOne = async (paneId: string, id: string, known: Set<string>) => {
+    const agentId = armedWith.get(paneId)?.agentId;
+    const locate = agentId ? declarations.current().get(agentId)?.tail?.locate : undefined;
+    const path = locate ? await locate(id) : null;
+    // The tail exists only once its arm drained the store — which is where
+    // the naming records come from.
+    await arming.get(paneId)?.catch(() => {});
+    // Re-armed meanwhile: the fresh tail names it again.
+    if (disposed || links.get(paneId) !== known) return;
+    if (!path || !(await linkSessionFile(paneId, path))) known.delete(id);
+  };
+
+  const link = (paneId: string, ids: readonly string[]) => {
+    const known = links.get(paneId);
+    if (disposed || !known) return;
+    for (const id of ids) {
+      if (known.has(id)) continue;
+      known.add(id);
+      void linkOne(paneId, id, known).catch((error: unknown) => {
+        known.delete(id);
+        log.warn("web:usage", `${paneId}: store ${id} not followed: ${errorMessage(error)}`);
+      });
+    }
   };
 
   const settleArm = (paneId: string) => {
@@ -176,7 +243,9 @@ export function createUsageTailsLane({
             // The watches are read inside `arm`, after the search: finding
             // a store is a walk, and a plugin toggled during it would leave
             // this arming a declaration that is no longer made.
-            return arm(paneId, path, token, agentId).then(() => settleArm(paneId));
+            return arm(paneId, { path, token, agentId, sessionId }).then(() =>
+              settleArm(paneId),
+            );
           })
           .catch((error) => {
             // Only the search is abandoned. A tail armed from a binding
@@ -199,6 +268,7 @@ export function createUsageTailsLane({
       if (desired.has(paneId)) continue;
       tailed.delete(paneId);
       armedWith.delete(paneId);
+      links.delete(paneId);
       void unwatchSessionFile(paneId);
     }
     // A pane that left the deck while its store was being looked for: the
@@ -215,7 +285,7 @@ export function createUsageTailsLane({
   // report would come back "already bound" and the tail would never arm.
   const unsubscribeBindings = bindings.subscribe((bound) => {
     if (disposed) return;
-    const { paneId, transcriptPath, token } = bound;
+    const { paneId, sessionId, transcriptPath, token } = bound;
     if (!transcriptPath) {
       log.debug(
         "web:usage",
@@ -246,7 +316,7 @@ export function createUsageTailsLane({
       `${paneId}: arming ${agentId} tail from binding${statusCovered(paneId, agentId) ? " — status stated by its companion, usage records only" : ""}`,
     );
     tailed.add(paneId);
-    void arm(paneId, transcriptPath, token, agentId)
+    void arm(paneId, { path: transcriptPath, token, agentId, sessionId })
       .then(() => settleArm(paneId))
       .catch((error) => {
         tailed.delete(paneId);
@@ -259,9 +329,9 @@ export function createUsageTailsLane({
 
   /** Arm a pane afresh with what it is read for now: the follower re-reads
    * the store from its start. */
-  const rearm = (paneId: string, armed: { path: string; token: string; agentId: string }) =>
+  const rearm = (paneId: string, armed: Armed) =>
     unwatchSessionFile(paneId)
-      .then(() => arm(paneId, armed.path, armed.token, armed.agentId))
+      .then(() => arm(paneId, armed))
       .then(() => settleArm(paneId));
 
   /** A companion now states the pane's status facts: the tail stops carrying
@@ -269,7 +339,7 @@ export function createUsageTailsLane({
    * is owed again, so the store — a resumed session's can run to hundreds of
    * megabytes — is not re-read. A tail that is not there yet, or refuses,
    * is armed afresh. */
-  const narrow = async (paneId: string, armed: { path: string; token: string; agentId: string }) => {
+  const narrow = async (paneId: string, armed: Armed) => {
     armedWith.set(paneId, { ...armed, covered: true });
     // Its outcome is the arm's own path's to handle; here it only has to end.
     await arming.get(paneId)?.catch(() => {});
@@ -307,6 +377,7 @@ export function createUsageTailsLane({
   reconcile();
 
   return {
+    link,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -318,6 +389,7 @@ export function createUsageTailsLane({
       for (const paneId of tailed) void unwatchSessionFile(paneId);
       tailed.clear();
       searching.clear();
+      links.clear();
     },
   };
 }

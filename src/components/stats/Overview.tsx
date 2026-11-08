@@ -1,7 +1,7 @@
 import { lazy, Suspense, useMemo } from "react";
 import {
   costCoverage,
-  displayProviderCost,
+  displayCost,
   formatTokens,
   tokenBreakdown,
 } from "../../domain/usage";
@@ -63,10 +63,7 @@ export function Overview({
         />
         <Summary
           label="Cost"
-          value={displayProviderCost(
-            stats.totals.providerCostUsd,
-            stats.totals.costEvents,
-          )}
+          value={displayCost(stats.totals)}
         />
         <Summary label="Sessions" value={String(stats.sessionCount)} />
       </div>
@@ -85,7 +82,7 @@ export function Overview({
       </ErrorBoundary>
       {caption !== "" && <p className="stats__recap">{caption}</p>}
       <p className="stats__coverage">
-        {costCoverage(stats.costSessionCount, stats.sessionCount)}
+        {costCoverage(stats.totals)}
       </p>
       {/* Period-independent by design: fixed UTC weeks under the rolling
           period's numbers, visible whatever range is selected. */}

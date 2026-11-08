@@ -73,11 +73,15 @@ describe("built-in plugin manifests", () => {
     //
     // A directory copy (API 74) is the same class: an agent built on an older
     // host would load and launch with no skills at all. So is the `ready`
-    // status edge (API 81): an older host's fold has no such case.
+    // status edge (API 81): an older host's fold has no such case. And the
+    // usage calls (API 82): the usage contract broke there with no
+    // compatibility, so a plugin reporting calls on an older host would book
+    // nothing at all.
     const SURFACES = [
       { contract: "mail", symbols: /\b(renderMail|frameTeammateMail|cliVersion|\.standing\b|wake:)/, api: 37 },
       { contract: "directory copy", symbols: /\b(copyDir|publishCopy|copyOf)\b/, api: 74 },
       { contract: "ready status", symbols: /kind: "ready"/, api: 81 },
+      { contract: "usage calls", symbols: /\b(UsageCall|lane: "calls")/, api: 82 },
     ];
     for (const path of MANIFESTS) {
       const { id, minApiVersion } = JSON.parse(readFileSync(path, "utf8"));

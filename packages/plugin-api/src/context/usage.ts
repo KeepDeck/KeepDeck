@@ -9,7 +9,7 @@
  * identically in-process or across the external tier's RPC boundary.
  */
 import { isJsonRecord, keyList } from "../json.ts";
-import { CARRIED_RECORD, type TailWatch } from "./sessionTail.ts";
+import { CARRIED_RECORD, type TailLane, type TailWatch } from "./sessionTail.ts";
 
 /** One provider rate-limit window, normalized across CLIs. Labels derive
  * from `windowMinutes` — NEVER from field position: codex plans disagree
@@ -47,54 +47,103 @@ export type AccountUsage =
       reportedAt: number;
     };
 
-/** Token counts as a CLI reports them; every field optional — providers
- * disagree on what they expose. */
+/** Token counts by class; every field optional — a row carries the classes
+ * it has. In the usage history the classes are the canonical ones a
+ * [`CallTokens`] defines. */
 export interface TokenCounts {
   input?: number;
   output?: number;
   cacheRead?: number;
   cacheWrite?: number;
+  /** Cache writes held for an hour (Anthropic), billed at their own rate. */
+  cacheWrite1h?: number;
   reasoning?: number;
   total?: number;
 }
 
-/** One model's share of a session so far: its tokens, and how many provider
- * calls (messages) it has made. */
-export interface ModelUsage {
-  totalTokens: TokenCounts;
-  calls: number;
-}
-
-/** One pane's live session usage. The context bag speaks whichever terms
- * the CLI does — a ready-made percentage, or tokens against a window size
- * that may arrive in a SEPARATE report; the host merges bags field-wise. */
+/** One pane's live state, as its agent last reported it: how full its
+ * context is. The context bag speaks whichever terms the CLI does — a
+ * ready-made percentage, or tokens against a window size that may arrive in
+ * a SEPARATE report; the host merges bags field-wise.
+ *
+ * What the pane SPENT is not here: spend is the calls it made, reported one
+ * by one as [`UsageCall`]s. */
 export interface PaneUsage {
   agent: string;
+  /** The session the state belongs to, when the report says. A report that
+   * reaches the host before its session's binding is kept by it: the host
+   * starts the pane over only for a different session. */
   sessionId?: string;
   /** Monotonic within one reporter session generation; lets the host reject an
    * older async/file delivery after a newer snapshot. */
   sequence?: number;
-  /** The model the session runs on, as the usage history books it. Its id
-   * when the CLI reports one — a model catalogue matches ids, not the name
-   * a CLI shows; else the name. */
-  model?: string;
   context?: {
     usedPct?: number;
     usedTokens?: number;
     windowTokens?: number;
   };
-  costUsd?: number;
-  totalTokens?: TokenCounts;
-  /**
-   * The session so far, per model — keyed by the model's id — when the CLI
-   * can say which model used what (a subagent may run on another). The
-   * usage history books tokens and calls from this when it is present, and
-   * never `totalTokens` beside it. Without it, a report is the session as
-   * one sum, a call each time its tokens move.
-   */
-  byModel?: Readonly<Record<string, ModelUsage>>;
-  lastTurnTokens?: TokenCounts;
   reportedAt: number;
+}
+
+/**
+ * One provider API call's tokens, in the classes every agent's usage is
+ * mapped into before KeepDeck books it. Mapping a CLI's own convention into
+ * these is its plugin's job — and the one place it is done:
+ *
+ * - `input` is FRESH input: neither read from nor written to a cache. A CLI
+ *   that counts its input with the cached prefix in it (OpenAI's convention)
+ *   subtracts the cached part here.
+ * - `output` is everything billed as output. A CLI that counts reasoning
+ *   beside its output adds it here; `reasoning` is then its share of
+ *   `output`, shown on its own and never priced a second time.
+ * - `cacheWrite` is a write held for five minutes, `cacheWrite1h` one held
+ *   for an hour; a CLI that does not tell them apart reports all of it as
+ *   `cacheWrite`.
+ *
+ * A class the CLI does not report is 0.
+ */
+export interface CallTokens {
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cacheWrite1h?: number;
+  output: number;
+  reasoning?: number;
+}
+
+/**
+ * One provider API call, as the usage history books it: once, whoever
+ * reports it and however often, priced from the model maker's list price at
+ * the time it was made.
+ *
+ * A call names no session: it belongs to the session of the report that
+ * carries it — the one a tail was armed for, or the one a bridge report
+ * names in its [`PaneUsage.sessionId`] — and a subagent's call to the
+ * conversation it serves.
+ */
+export interface UsageCall {
+  /**
+   * Unique within the agent, and the SAME every time the call is reported —
+   * the agent's own call id (claude's `message.id`, codex's `response_id`,
+   * opencode's step id) or, for an agent with none, the record's place in
+   * its store ([`carriedRecord`]'s `ref`). A call reported again with larger
+   * counts (a store restating a message as it streams) books only what grew.
+   */
+  id: string;
+  /** When the call was made, unix ms — the record's OWN time, never when it
+   * was read: a fork copies calls with their original times, and that is
+   * what keeps a copy from counting again. */
+  at: number;
+  /** Who served it, as the agent says: the maker ("anthropic") or a reseller
+   * ("zai-coding-plan"); the host resolves a reseller to the maker. */
+  provider: string;
+  /** The bare model id the API knows ("claude-opus-5-5") — not a display
+   * name, and without a reasoning effort or any other suffix. */
+  model: string;
+  /** The service-tier mode the call ran in, by the catalogue's name ("fast");
+   * absent for the standard tier. */
+  mode?: string;
+  tokens: CallTokens;
 }
 
 /** What one bridge report normalizes into. `account: null` means the report
@@ -103,6 +152,13 @@ export interface PaneUsage {
 export interface NormalizedUsage {
   account: AccountUsage | null;
   pane: PaneUsage | null;
+  /** The provider calls the report carries — the usage history's only
+   * input. */
+  calls?: readonly UsageCall[];
+  /** Ids of other stores of the SAME session the record names (codex's
+   * subagent threads): the host asks the agent's [`UsageTail.locate`] where
+   * each is, and follows it with the pane's own. */
+  links?: readonly string[];
   /** Present when the account claim may only count after the pane talked to
    * the API — for a reporter that re-sends the SAME frozen limits on a timer
    * and has no capture time of its own. `null` declares the gate with no
@@ -123,12 +179,15 @@ export interface ApiActivity {
 /** A per-agent normalizer: raw bridge payload → normalized usage, or null
  * when the payload is not recognizable. Pure; time is injected.
  *
- * Three payload keys are HOST-owned transport metadata, not agent schema:
- * `agent` (the dispatch key), `catchUp` (the event is a replay of an
- * existing session file at arm time), `sourceAt` (the event's ISO time or
- * unix milliseconds), and `sourceMtimeMs` (the file-mtime fallback when the
- * primary timestamp is malformed or clock-skewed). Normalizers may ignore
- * them. */
+ * Six payload keys are HOST-owned transport metadata, not agent schema —
+ * a plugin's own payload must not use them: `agent` (the dispatch key),
+ * `session` (on a tail's report, the session the tail follows; its calls
+ * are booked under it), `catchUp` (the event is a replay of an existing
+ * session file at arm time), `sourceAt` (the event's ISO time or unix
+ * milliseconds), `sourceMtimeMs` (the file-mtime fallback when the primary
+ * timestamp is malformed or clock-skewed), and `sourceRef` (the record's
+ * place in its store, read through [`carriedRecord`]). Normalizers may
+ * ignore them. */
 export type UsageNormalizer = (
   payload: unknown,
   at: number,
@@ -154,25 +213,39 @@ export type LimitsNormalizer = (body: string, at: number) => AccountUsage | null
  * reader compares keys and copies fields. Nothing here names an agent.
  */
 export interface UsageTail {
-  /** Which records carry this agent's numbers, and what a total over them
-   * is made of. Every watch here rides the usage lane. */
+  /** Which records carry this agent's numbers: its calls (lane `calls`)
+   * and the live state of its pane (lane `usage`). */
   readonly watches: readonly TailWatch[];
 
   /**
    * A directory of files that contribute to the SAME session as the store
    * being followed, or null when this agent keeps its session in one file.
    *
-   * Claude writes a subagent's turns to `<transcript>/subagents/*.jsonl`,
-   * and those rows are the session's cost as much as the root file's — but
-   * the rule that turns one path into the other is claude's. The host used
-   * to hold it, which meant every pane of every agent paid a directory read
-   * per poll for a convention only one of them has.
+   * Claude writes a subagent's turns to `<transcript>/subagents/**.jsonl`
+   * and kimi a subagent's wire to `<session>/agents/<id>/wire.jsonl`; those
+   * calls are the session's spend as much as the root file's — but the rule
+   * that turns one path into the other is the agent's. The host used to
+   * hold it, which meant every pane of every agent paid a directory read per
+   * poll for a convention only one of them has.
    *
-   * Given the store's path, answer with a directory. The host lists it each
-   * poll rather than once, because the files appear as subagents start —
-   * long after the tail was armed.
+   * Given the store's path, answer with a directory. The host lists it, and
+   * the directories under it, each poll rather than once, because the files
+   * appear as subagents start — long after the tail was armed.
    */
   siblings?(store: string): string | null;
+
+  /**
+   * Where the store of a session id named by a `links` watch lives, or null
+   * when it cannot be found (yet).
+   *
+   * codex runs each subagent in a thread of its own, written to a rollout of
+   * its own in the shared day-partitioned tree — no directory holds one
+   * session's files. The parent's rollout NAMES the child when it spawns it,
+   * so a watch carries that record, the normalizer answers its `links`, and
+   * this finds the file — the same search the agent's tail already makes for
+   * the pane's own session.
+   */
+  locate?(id: string): Promise<string | null>;
 
   /**
    * Stores worth reading cold at startup, newest first, when this agent's
@@ -270,10 +343,62 @@ export function tailWatches(
 export function carriedUsageRecord(
   payload: unknown,
 ): Record<string, unknown> | null {
+  return carriedRecord(payload)?.record ?? null;
+}
+
+/** Where a carried record sits in its store: the file, and the byte offset
+ * of its line. Stable for as long as the file is, which makes it the call id
+ * of an agent whose store has none. */
+export interface RecordRef {
+  file: string;
+  offset: number;
+}
+
+/** A carried record with what the host knows about it besides its fields. */
+export interface CarriedRecord {
+  /** The fields its watch named, under the names it named them. */
+  record: Record<string, unknown>;
+  /** The lane the watch that carried it declared: one record may ride two
+   * (kimi's `usage.record` is a gauge reading AND a call), and the reading
+   * it is due differs by lane. */
+  lane: TailLane | null;
+  /** The fields of the latest `context` watch record before it in the same
+   * file (the model codex's calls run on, kimi's real model id) — null when
+   * the file has shown none yet. */
+  context: Record<string, unknown> | null;
+  /** The record's own time, unix ms, when it carries one. */
+  at: number | undefined;
+  /** Where it sits in its store. */
+  ref: RecordRef | null;
+}
+
+/** A carried record out of one tailer report, or null when this report is
+ * not one — the transport around it is the HOST's, read here once. */
+export function carriedRecord(payload: unknown): CarriedRecord | null {
   if (!isJsonRecord(payload)) return null;
   const event = payload.event;
   if (!isJsonRecord(event) || event.type !== CARRIED_RECORD) return null;
-  return isJsonRecord(event.record) ? event.record : null;
+  if (!isJsonRecord(event.record)) return null;
+  const ref = payload.sourceRef;
+  const file = isJsonRecord(ref) ? asNonEmptyString(ref.file) : undefined;
+  const offset = isJsonRecord(ref) ? asFiniteNumber(ref.offset) : undefined;
+  const lane = event.lane;
+  return {
+    record: event.record,
+    lane: lane === "status" || lane === "usage" || lane === "calls" ? lane : null,
+    context: isJsonRecord(event.context) ? event.context : null,
+    at: instantOf(payload.sourceAt),
+    ref: file !== undefined && offset !== undefined ? { file, offset } : null,
+  };
+}
+
+/** An instant as stores write one — an ISO string or unix milliseconds — in
+ * unix ms. */
+function instantOf(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string" || value === "") return undefined;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 
@@ -396,7 +521,7 @@ export function allowanceWindow(
 }
 
 /** Every token count field, once — the compiler holds it to TokenCounts. */
-const TOKEN_COUNT_KEYS = keyList<Required<TokenCounts>>()(["input", "output", "cacheRead", "cacheWrite", "reasoning", "total"]);
+const TOKEN_COUNT_KEYS = keyList<Required<TokenCounts>>()(["input", "output", "cacheRead", "cacheWrite", "cacheWrite1h", "reasoning", "total"]);
 
 /** Collect present token fields; undefined when none are — an empty counts
  * object would read as "reported zero of everything". */

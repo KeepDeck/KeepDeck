@@ -58,7 +58,6 @@ describe("providerWindowRows", () => {
           sessionId: "s2",
           rootSessionId: "s2",
           tokens: { output: 50 },
-          costSource: "provider",
           costUsd: 0.5,
         }),
         event({ occurredAt: NOW - 4 * HOUR, tokens: { input: 9_999 } }), // before the window opened
@@ -74,8 +73,11 @@ describe("providerWindowRows", () => {
     expect(rows[0].stale).toBe(false);
     expect(rows[0].ledger).toEqual({
       totalTokens: 150,
-      providerCostUsd: 0.5,
-      costEvents: 1,
+      costUsd: 0.5,
+      pricedEvents: 1,
+      approximateEvents: 0,
+      // The first row carries no price: its tokens are what the cost leaves out.
+      unpricedTokens: 100,
       sessionCount: 2,
     });
   });

@@ -303,8 +303,8 @@ export function registerClaude(ctx: ClaudePorts): void {
     detect: { bin: "claude" },
     presentation: claudePresentation,
     binding: claudeBinding,
-    // StatusLine carries provider cost/limits; the transcript tail supplies
-    // deduplicated cumulative tokens.
+    // The statusLine carries the pane's context and the account's limits;
+    // the transcript tail carries every call the session made.
     usage: {
       normalize: normalizeClaudeStatusline,
       tail: {

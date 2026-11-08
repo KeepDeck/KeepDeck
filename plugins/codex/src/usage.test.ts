@@ -4,6 +4,7 @@ import {
   watchMatches,
   watchProject,
 } from "@keepdeck/plugin-api";
+import { present } from "@keepdeck/plugin-api/testing";
 import {
   codexUsageWatches,
   normalizeCodexRateLimits,
@@ -20,20 +21,57 @@ const AT = 1_738_400_000_000;
  * that stopped naming a field reads as a number that quietly went missing,
  * never as a failure.
  */
-function tailed(line: Record<string, unknown>) {
-  const watch = codexUsageWatches.find((candidate) =>
-    watchMatches(candidate, line),
+function tailed(
+  line: Record<string, unknown>,
+  context?: Record<string, unknown>,
+  sourceAt = "2026-11-01T20:34:10.756Z",
+) {
+  const watch = codexUsageWatches.find(
+    (candidate) => !candidate.context && watchMatches(candidate, line),
   );
   if (!watch) throw new Error("no declared watch carries this record");
+  // The context the host would have attached: the latest turn_context, put
+  // through ITS watch too.
+  const contextWatch = codexUsageWatches.find((candidate) => candidate.context);
   return {
     agent: "codex",
+    sourceAt,
     event: {
       type: CARRIED_RECORD,
       record: watchProject(watch, line),
-      lane: "usage",
+      lane: watch.lane,
+      ...(context && contextWatch ? { context: watchProject(contextWatch, context) } : {}),
     },
   };
 }
+
+/** A live codex 0.166.0 record: one response's usage, its input counting
+ * the cached prefix. */
+const USAGE_RECORD = {
+  timestamp: "2026-11-01T20:34:10.756Z",
+  ordinal: 16,
+  type: "token_usage_record",
+  payload: {
+    thread_id: "01a198d1-c511-72e2-9c28-30022bcce0ed",
+    turn_id: "01a198d1-c760-71b3-8976-2be988d8060e",
+    response_id: "resp_01a60be2",
+    usage: {
+      input_tokens: 14_316,
+      cached_input_tokens: 12_160,
+      cache_write_input_tokens: 0,
+      output_tokens: 74,
+      reasoning_output_tokens: 10,
+      total_tokens: 14_390,
+    },
+    turn_token_usage: { input_tokens: 14_316 },
+    thread_token_usage: { input_tokens: 14_316 },
+  },
+};
+
+const TURN_CONTEXT = {
+  type: "turn_context",
+  payload: { model: "gpt-6.1-terra", effort: "xhigh", cwd: "/x" },
+};
 
 /** The live 0.144.5 sample: plan "plus" — primary IS the weekly window,
  * secondary is null. Labels must derive from window_minutes downstream. */
@@ -78,27 +116,58 @@ describe("normalizeCodexRollout", () => {
         { usedPct: 75, resetsAt: 1_784_834_810_000, windowMinutes: 10_080 },
       ],
     });
+    // The pane's live state only: its running totals are no spend — a fork
+    // copies them, an overflow resets them.
     expect(result?.pane).toEqual({
       agent: "codex",
       context: {
         usedPct: 65,
         windowTokens: 258_400,
       },
-      totalTokens: {
-        input: 56_156_584,
-        cacheRead: 54_351_616,
-        output: 230_298,
-        reasoning: 101_010,
-        total: 56_386_882,
-      },
-      lastTurnTokens: {
-        input: 171_784,
-        cacheRead: 169_728,
-        output: 63,
-        reasoning: 17,
-        total: 171_847,
-      },
       reportedAt: AT,
+    });
+    expect(result?.calls).toBeUndefined();
+  });
+
+  it("books a response's usage as one call, its input without the cached prefix", () => {
+    const result = normalizeCodexRollout(tailed(USAGE_RECORD, TURN_CONTEXT), AT);
+    expect(result).toEqual({
+      account: null,
+      pane: null,
+      calls: [
+        {
+          id: "resp_01a60be2",
+          at: Date.parse("2026-11-01T20:34:10.756Z"),
+          provider: "openai",
+          model: "gpt-6.1-terra",
+          tokens: { input: 2_156, cacheRead: 12_160, cacheWrite: 0, output: 74, reasoning: 10 },
+        },
+      ],
+    });
+  });
+
+  it("books no call before a turn names its model, or without a time", () => {
+    expect(normalizeCodexRollout(tailed(USAGE_RECORD), AT)?.calls).toEqual([]);
+    const timeless = { ...tailed(USAGE_RECORD, TURN_CONTEXT), sourceAt: undefined };
+    expect(normalizeCodexRollout(timeless, AT)?.calls).toEqual([]);
+  });
+
+  it("names a spawned subagent thread as a link, never its prompt", () => {
+    const spawned = {
+      type: "event_msg",
+      payload: {
+        type: "collab_agent_spawn_end",
+        new_thread_id: "019d452f-8821",
+        prompt: "SECRET TASK",
+        status: "pending_init",
+      },
+    };
+    const carried = tailed(spawned);
+    expect(JSON.stringify(carried)).not.toContain("SECRET");
+    expect(normalizeCodexRollout(carried, AT)).toEqual({
+      account: null,
+      pane: null,
+      links: ["019d452f-8821"],
     });
   });
 
@@ -154,20 +223,12 @@ describe("normalizeCodexRollout", () => {
     expect(result?.pane).toEqual({ agent: "codex", reportedAt: AT });
   });
 
-  it("maps turn_context to the pane model with effort", () => {
-    const result = normalizeCodexRollout(
-      tailed({
-        type: "turn_context",
-        payload: { model: "gpt-5.6-sol", effort: "xhigh", cwd: "/x" },
-      }),
-      AT,
-    );
-    expect(result?.pane).toEqual({
-      agent: "codex",
-      model: "gpt-5.6-sol xhigh",
-      reportedAt: AT,
+  it("declares turn_context as the calls' context, carrying only the model", () => {
+    const watch = codexUsageWatches.find((candidate) => watchMatches(candidate, TURN_CONTEXT));
+    expect(watch).toMatchObject({ lane: "calls", context: true });
+    expect(watchProject(present(watch, "the turn_context watch"), TURN_CONTEXT)).toEqual({
+      "payload.model": "gpt-6.1-terra",
     });
-    expect(result?.account).toBeNull();
   });
 
   it("returns null for unrecognizable events", () => {

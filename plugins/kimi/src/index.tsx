@@ -42,6 +42,7 @@ import {
 } from "./status";
 import { kimiTail } from "./tail";
 import {
+  kimiAgentsDirectory,
   kimiUsageWatches,
   normalizeKimiUsages,
   normalizeKimiWire,
@@ -134,7 +135,7 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
     // behind the usages endpoint (kimi's own /usage queries it too).
     usage: {
       normalize: normalizeKimiWire,
-      tail: { watches: kimiUsageWatches },
+      tail: { watches: kimiUsageWatches, siblings: kimiAgentsDirectory },
       limits: { read: () => readKimiLimits(ctx), normalize: normalizeKimiUsages },
     },
     status: {

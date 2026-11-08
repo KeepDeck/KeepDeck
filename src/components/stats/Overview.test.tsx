@@ -7,6 +7,7 @@ import type { UsageRow } from "../../domain/usage/history/event";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
+  type UsageRowOverrides,
 } from "../../domain/usage/history/event.testSupport";
 import {
   queryUsageStats,
@@ -28,12 +29,11 @@ vi.mock("./UsageChart", () => ({ UsageChart: () => null }));
 const NOW = TEST_NOW;
 const DAY = 24 * 60 * 60 * 1_000;
 
-const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
+const usageEvent = (over: UsageRowOverrides = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     tokens: { input: 1_000, output: 100, cacheRead: 500 },
     costUsd: 0.25,
-    costSource: "provider",
     ...over,
   });
 
@@ -68,28 +68,30 @@ describe("Overview", () => {
     // The headline carries what it is MADE of: a bare total hides the split
     // that explains the bill, and cache is usually most of it.
     expect(shown[0]).toBe("Tokens3.2kcache 1k · ↑ 2k · ↓ 200");
-    // "≈" because a provider's own figure is an estimate, and the number is
-    // a sum of them.
+    // "≈" because a list price times tokens is an estimate, and the number
+    // is a sum of them.
     expect(shown[1]).toBe("Cost≈$0.50");
     expect(shown[2]).toBe("Sessions2");
-    // Every session priced: the caption calls the sum what it is.
-    expect(host.textContent).toContain("Provider-reported API estimates, not subscription charges.");
+    // Every row priced: the caption calls the sum what it is.
+    expect(host.textContent).toContain(
+      "Costs are estimated from each model maker's list price at the time of the call (models.dev), not subscription charges.",
+    );
   });
 
-  it("says which sessions the cost leaves out when only some were priced", async () => {
+  it("says how much of the usage the cost leaves out when only some was priced", async () => {
     await render([
       usageEvent(),
-      usageEvent({ eventId: "b", sessionId: "unpriced-1", costUsd: undefined, costSource: "unavailable" }),
-      usageEvent({ eventId: "c", sessionId: "unpriced-2", costUsd: undefined, costSource: "unavailable" }),
+      usageEvent({ eventId: "b", sessionId: "unpriced-1", costUsd: undefined }),
+      usageEvent({ eventId: "c", sessionId: "unpriced-2", costUsd: undefined }),
     ]);
-    expect(host.textContent).toContain("Provider estimates available for 1 of 3 sessions");
+    expect(host.textContent).toContain("67% of tokens ran on models without a known price");
   });
 
   it("does not render an unknown cost as a fake zero", async () => {
-    // "$0.00" claims the run was free; the truth is that no CLI said.
-    await render([usageEvent({ costUsd: undefined, costSource: "unavailable" })]);
+    // "$0.00" claims the run was free; the truth is that no price is known.
+    await render([usageEvent({ costUsd: undefined })]);
     expect(cards()[1].textContent).toBe("Cost—");
-    expect(host.textContent).toContain("No CLI reported a cost estimate");
+    expect(host.textContent).toContain("No model in this period has a known price");
   });
 
   it("compares the period against the one before it", async () => {

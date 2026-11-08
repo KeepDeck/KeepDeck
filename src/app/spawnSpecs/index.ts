@@ -6,7 +6,7 @@
  * through the agent's hook, [`./cache`] remembers it per pane.
  */
 import type { ResumeOrigin } from "../../domain/agents";
-import type { SpawnPlan, SpawnPlanContext } from "./plans";
+import type { SpawnPlanContext } from "./plans";
 import {
   paneHasProcess,
   type Pane,
@@ -220,31 +220,4 @@ export async function buildLivePaneSpec(
     // `buildAndCache` recorded the pane in `failed`; the cache DID change.
     return true;
   }
-}
-
-
-/** Whether this exact provider session began with inherited counters. */
-export function spawnPlanNeedsUsageBaseline(
-  spec: Pick<SpawnPlan, "resumeOf" | "forkSessionId"> | undefined,
-  sessionId: string,
-): boolean {
-  return spec?.resumeOf === sessionId || spec?.forkSessionId === sessionId;
-}
-
-/**
- * Whether the plan CONTINUES something rather than starting clean — asked
- * without naming a session, because the id it inherits is not always known
- * yet. A fork carries `forkOf` (the SOURCE id) from the moment it is built
- * and gains `forkSessionId` only when the binding lands, so between those
- * two a report already carries the new id while the pair above cannot match
- * it. Reading "no match" as "started clean" there told the ledger a cloned
- * transcript was brand-new usage. Anything that inherits is uncertain until
- * the match succeeds, and uncertain is the safe half of the fence.
- */
-export function spawnPlanInheritsSession(
-  spec:
-    | Pick<SpawnPlan, "resumeOf" | "forkOf" | "forkSessionId">
-    | undefined,
-): boolean {
-  return Boolean(spec?.resumeOf ?? spec?.forkOf ?? spec?.forkSessionId);
 }

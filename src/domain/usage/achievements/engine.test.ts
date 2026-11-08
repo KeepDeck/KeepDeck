@@ -34,7 +34,6 @@ const fold = (instants: number[]) => {
         eventId: `e-${index}`,
         occurredAt,
         tokens: { input: 1_000 },
-        observation: { tokens: { input: 1_000 } },
       }),
     );
   }

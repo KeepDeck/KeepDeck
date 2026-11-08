@@ -7,6 +7,7 @@ import type { UsageRow } from "../../domain/usage/history/event";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
+  type UsageRowOverrides,
 } from "../../domain/usage/history/event.testSupport";
 import { readStyles, ruleBody } from "../../styles/testSupport";
 import { Achievements } from "./Achievements";
@@ -18,12 +19,11 @@ import { elementOf } from "../../testing/values.test-support";
  * between the assertion and the thing asserted. */
 
 const NOW = TEST_NOW;
-const usageEvent = (over: Record<string, unknown> = {}): UsageRow =>
+const usageEvent = (over: UsageRowOverrides = {}): UsageRow =>
   baseEvent({
     capturedAt: NOW,
     tokens: { input: 1_000, output: 100, cacheRead: 500 },
     costUsd: 0.25,
-    costSource: "provider",
     ...over,
   });
 

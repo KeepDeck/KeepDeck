@@ -19,8 +19,10 @@ const row = (over: Partial<UsageStatsRow> = {}): UsageStatsRow => ({
   model: "gpt-5.6-terra",
   tokens: { input: 1_000, output: 100, cacheRead: 500, cacheWrite: 0 },
   totalTokens: 1_600,
-  providerCostUsd: 0.25,
-  costEvents: 1,
+  costUsd: 0.25,
+  pricedEvents: 1,
+  approximateEvents: 0,
+  unpricedTokens: 0,
   lastOccurredAt: NOW - 60_000,
   ...over,
 });
@@ -76,9 +78,9 @@ describe("StatsTable", () => {
     );
   });
 
-  it("does not render an unreported cost as a fake zero", () => {
+  it("does not render an unpriced cost as a fake zero", () => {
     // A row nobody priced is not a free row.
-    render([row({ providerCostUsd: 0, costEvents: 0 })]);
+    render([row({ costUsd: 0, pricedEvents: 0, unpricedTokens: 1_600 })]);
     expect(present(host.querySelector(".stats__row"), "the .stats__row element").textContent).toContain("—");
   });
 

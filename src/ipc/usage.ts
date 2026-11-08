@@ -29,37 +29,48 @@ export function onUsageReport(
   );
 }
 
-/** Follow a pane's session file; its records arrive as reports carrying
- * `token`. Idempotent per pane — a rebind replaces the old tail. */
-export function watchSessionFile(
-  paneId: string,
-  path: string,
-  token: string,
+/** Everything the core is told about one tail as it arms it — every field
+ * an answer only this side has. */
+export interface TailArming {
+  /** The session's store. */
+  path: string;
+  /** The pane's secret: the tail's reports carry it. */
+  token: string;
   /** The agent whose pane this is. Reports ride under it, and it is passed
    * from HERE because this is the side that knows which pane belongs to
    * which plugin — the backend has no way to tell and no business guessing. */
-  agent: string,
+  agent: string;
+  /** The session the binding named for this store. Every report the tail
+   * sends says so, and its calls are booked under it — even when they land
+   * after the pane moved on to another session. */
+  session: string;
   /** The pane's agent's own declaration of which records to carry out of its
    * store — both lanes of it, the numbers and the turn edges. The backend
    * applies these without reading them: it compares the keys it is given and
    * copies the ones it is named. An empty list carries NOTHING; there are no
    * readings of the host's own left behind them. */
-  watches?: readonly TailWatch[],
+  watches: readonly TailWatch[];
   /** A directory of files contributing to the same session, when the agent's
    * dialect named one. Listed each poll: the files appear as the work that
    * writes them starts. */
-  siblings?: string | null,
-): Promise<void> {
-  return invoke("usage_watch_session_file", {
-    paneId,
-    tail: {
-      path,
-      token,
-      agent,
-      watches: watches ?? [],
-      siblings: siblings ?? null,
-    },
-  });
+  siblings: string | null;
+  /** From when (unix ms) the file's calls are not booked yet — the usage
+   * ledger's answer for the session. A re-read carries only those; null
+   * carries every call. */
+  since: number | null;
+}
+
+/** Follow a pane's session file; its records arrive as reports carrying
+ * `token`. Idempotent per pane — a rebind replaces the old tail. */
+export function watchSessionFile(paneId: string, tail: TailArming): Promise<void> {
+  return invoke("usage_watch_session_file", { paneId, tail });
+}
+
+/** Follow another store of the session a pane's tail follows — one a record
+ * named (codex's subagent thread) and its agent found. `false` when the pane
+ * has no tail to add it to. */
+export function linkSessionFile(paneId: string, path: string): Promise<boolean> {
+  return invoke<boolean>("usage_link_session_file", { paneId, path });
 }
 
 /** Change what a pane's armed tail carries, from where it stands: the file

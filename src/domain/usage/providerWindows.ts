@@ -1,12 +1,13 @@
 import { panelWindows, usageStale } from "./format";
 import type { WindowReport } from "./reportJournal";
 import {
-  providerCostOf,
+  addCost,
+  emptyCostTally,
   tokenTotal,
   usageSessionKey,
+  type CostTally,
   type UsageRow,
 } from "./history/event";
-import { addMoney } from "./money";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
 
@@ -18,10 +19,8 @@ import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
  * from the other.
  */
 
-export interface ProviderWindowLedger {
+export interface ProviderWindowLedger extends CostTally {
   totalTokens: number;
-  providerCostUsd: number;
-  costEvents: number;
   sessionCount: number;
 }
 
@@ -133,24 +132,18 @@ function windowLedger(
   if (window.resetsAt === null || window.windowMinutes === null) return null;
   const start = window.resetsAt - window.windowMinutes * 60_000;
   let totalTokens = 0;
-  let providerCostUsd = 0;
-  let costEvents = 0;
+  const cost = emptyCostTally();
   const sessions = new Set<string>();
   for (const event of events) {
     if (event.agent !== agent) continue;
     if (event.occurredAt < start || event.occurredAt > now) continue;
     totalTokens += tokenTotal(event.tokens);
-    const cost = providerCostOf(event);
-    if (cost !== null) {
-      providerCostUsd = addMoney(providerCostUsd, cost);
-    }
-    costEvents += event.costEvents;
+    addCost(cost, event);
     sessions.add(usageSessionKey(event));
   }
   return {
     totalTokens,
-    providerCostUsd,
-    costEvents,
+    ...cost,
     sessionCount: sessions.size,
   };
 }

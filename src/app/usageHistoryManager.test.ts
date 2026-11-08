@@ -1,46 +1,46 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PaneUsage } from "@keepdeck/plugin-api";
-import type { UsageCaptureContext } from "../domain/usage/history/capture";
+import type { UsageCallBatch } from "../domain/usage/history/capture";
 import { usageEvent } from "../domain/usage/history/event.testSupport";
 import type { UsageRow } from "../domain/usage/history/event";
-import type { StoredUsageLedger, UsageRecordEntry } from "../ipc/usageLedger";
+import type { StoredUsageLedger, UsageBookEntry } from "../ipc/usageLedger";
 import { createUsageHistoryManager, RELOAD_AFTER_APPENDS } from "./usageHistoryManager";
 
 const NOW = 1_800_000_000_000;
 
-const context: UsageCaptureContext = {
-  workspaceId: "ws-1",
-  workspaceName: "Deck",
-  workspaceCwd: "/repo",
-  paneId: "pane-1",
-  paneName: "agent",
-  sessionId: "s-1",
-  origin: "fresh",
-};
-
-const usage = (input: number): PaneUsage => ({
+const batch = (input: number): UsageCallBatch => ({
   agent: "claude",
   sessionId: "s-1",
-  model: "Opus",
-  totalTokens: { input },
-  costUsd: 1,
-  byModel: { "claude-opus-5-5": { totalTokens: { input }, calls: 1 } },
-  reportedAt: NOW,
-  sequence: 7,
+  firstSeen: NOW - 60_000,
+  place: {
+    workspaceId: "ws-1",
+    workspaceName: "Deck",
+    workspaceCwd: "/repo",
+    paneId: "pane-1",
+    paneName: "agent",
+  },
+  calls: [
+    {
+      id: `msg_${input}`,
+      at: NOW,
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      tokens: { input, cacheRead: 0, cacheWrite: 0, output: 1 },
+    },
+  ],
 });
 
 function harness(stored: StoredUsageLedger = { rows: [], complete: true, perModelSince: null }) {
   // A fresh answer per load, as the IPC gives: the manager appends in place
   // to the rows it was handed.
   const loadUsageLedger = vi.fn(async (): Promise<StoredUsageLedger> => ({ ...stored, rows: [...stored.rows] }));
-  // The rows the core books for each report, in order; past them it books
+  // The rows the core books for each batch, in order; past them it books
   // nothing.
   const answers: UsageRow[][] = [];
-  const recordUsage = vi.fn(
-    async (_entry: UsageRecordEntry): Promise<UsageRow[]> => answers.shift() ?? [],
+  const bookUsageCalls = vi.fn(
+    async (_entry: UsageBookEntry): Promise<UsageRow[]> => answers.shift() ?? [],
   );
-  const manager = createUsageHistoryManager({ loadUsageLedger, recordUsage });
-  return { manager, loadUsageLedger, recordUsage, answers };
+  const manager = createUsageHistoryManager({ loadUsageLedger, bookUsageCalls });
+  return { manager, loadUsageLedger, bookUsageCalls, answers };
 }
 
 describe("usageHistoryManager", () => {
@@ -76,31 +76,19 @@ describe("usageHistoryManager", () => {
     expect(manager.getSnapshot().complete).toBe(false);
   });
 
-  it("hands the core the report, the pane's facts and the capture instant", async () => {
-    const { manager, recordUsage } = harness();
-    await manager.record(usage(100), context, NOW + 5);
-    expect(recordUsage).toHaveBeenCalledWith({
-      report: {
-        agent: "claude",
-        model: "Opus",
-        totalTokens: { input: 100 },
-        costUsd: 1,
-        byModel: { "claude-opus-5-5": { totalTokens: { input: 100 }, calls: 1 } },
-        reportedAt: NOW,
-        sequence: 7,
-      },
-      context,
-      capturedAt: NOW + 5,
-    });
+  it("hands the core the batch and the capture instant", async () => {
+    const { manager, bookUsageCalls } = harness();
+    await manager.book(batch(100), NOW + 5);
+    expect(bookUsageCalls).toHaveBeenCalledWith({ batch: batch(100), capturedAt: NOW + 5 });
   });
 
-  it("appends a booked event in place and mints a new ledger view", async () => {
+  it("appends a booked row in place and mints a new ledger view", async () => {
     const { manager, answers } = harness();
     await manager.init();
     const before = manager.getSnapshot().ledger;
     const row = usageEvent({ eventId: "e-1" });
     answers.push([row]);
-    await manager.record(usage(100), context);
+    await manager.book(batch(100));
     const after = manager.getSnapshot().ledger;
     // The array is the same one — an append never copies the ledger — and
     // the view is what tells a reader it changed.
@@ -115,14 +103,13 @@ describe("usageHistoryManager", () => {
     const { manager, answers } = harness({ rows: [held], complete: true, perModelSince: null });
     await manager.init();
     const before = manager.getSnapshot().ledger;
-    // A report counting per model: a row per model that moved, and its price.
+    // A batch whose calls ran on two models: a row per model.
     const opus = usageEvent({ eventId: "opus", model: "claude-opus-5-5", tokens: { input: 80 } });
     const haiku = usageEvent({ eventId: "haiku", model: "claude-haiku-5", tokens: { input: 9 } });
-    const price = usageEvent({ eventId: "price", tokens: {}, costSource: "provider", costUsd: 0.2, calls: 0 });
-    answers.push([opus, haiku, price]);
-    await manager.record(usage(89), context);
+    answers.push([opus, haiku]);
+    await manager.book(batch(89));
     const after = manager.getSnapshot().ledger;
-    expect(after.events).toEqual([held, opus, haiku, price]);
+    expect(after.events).toEqual([held, opus, haiku]);
     expect(after.events[0]).toBe(held);
     expect(after.version).toBe(before.version + 1);
   });
@@ -131,42 +118,43 @@ describe("usageHistoryManager", () => {
     const { manager } = harness();
     await manager.init();
     const before = manager.getSnapshot();
-    await manager.record(usage(100), context);
+    await manager.book(batch(100));
     expect(manager.getSnapshot()).toBe(before);
   });
 
-  it("books reports one after another, in the order they came", async () => {
-    const { manager, recordUsage } = harness();
+  it("books batches one after another, in the order they came", async () => {
+    const { manager, bookUsageCalls } = harness();
     const order: number[] = [];
     let release: () => void = () => {};
-    recordUsage.mockImplementationOnce(async (entry) => {
+    const inputOf = (entry: UsageBookEntry) => entry.batch.calls[0]?.tokens.input ?? 0;
+    bookUsageCalls.mockImplementationOnce(async (entry) => {
       await new Promise<void>((resolve) => (release = resolve));
-      order.push(entry.report.totalTokens?.input ?? 0);
+      order.push(inputOf(entry));
       return [];
     });
-    recordUsage.mockImplementationOnce(async (entry) => {
-      order.push(entry.report.totalTokens?.input ?? 0);
+    bookUsageCalls.mockImplementationOnce(async (entry) => {
+      order.push(inputOf(entry));
       return [];
     });
-    const first = manager.record(usage(1), context);
-    const second = manager.record(usage(2), context);
-    await vi.waitFor(() => expect(recordUsage).toHaveBeenCalledTimes(1));
+    const first = manager.book(batch(1));
+    const second = manager.book(batch(2));
+    await vi.waitFor(() => expect(bookUsageCalls).toHaveBeenCalledTimes(1));
     release();
     await Promise.all([first, second]);
     expect(order).toEqual([1, 2]);
   });
 
-  it("reloads the compacted ledger once it has appended enough events", async () => {
+  it("reloads the compacted ledger once it has appended enough rows", async () => {
     const { manager, answers, loadUsageLedger } = harness();
     await manager.init();
     for (let index = 0; index < RELOAD_AFTER_APPENDS; index += 1) {
       answers.push([usageEvent({ eventId: `e-${index}` })]);
     }
     for (let index = 0; index < RELOAD_AFTER_APPENDS - 1; index += 1) {
-      await manager.record(usage(index), context);
+      await manager.book(batch(index));
     }
     expect(loadUsageLedger).toHaveBeenCalledTimes(1);
-    await manager.record(usage(RELOAD_AFTER_APPENDS), context);
+    await manager.book(batch(RELOAD_AFTER_APPENDS));
     expect(loadUsageLedger).toHaveBeenCalledTimes(2);
     // The reload's answer stands for everything, the appended rows included.
     expect(manager.getSnapshot().ledger.events).toEqual([]);
@@ -180,7 +168,7 @@ describe("usageHistoryManager", () => {
       answers.push([usageEvent({ eventId: `a-${index}` }), usageEvent({ eventId: `b-${index}` })]);
     }
     for (let index = 0; index < bookings; index += 1) {
-      await manager.record(usage(index), context);
+      await manager.book(batch(index));
     }
     expect(loadUsageLedger).toHaveBeenCalledTimes(2);
   });

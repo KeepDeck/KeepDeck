@@ -30,7 +30,7 @@ import {
   normalizeCodexStatus,
   renderCodexMail,
 } from "./status";
-import { newestRollouts } from "./store";
+import { findRolloutById, newestRollouts } from "./store";
 import { codexTail } from "./tail";
 import {
   codexUsageWatches,
@@ -183,6 +183,9 @@ export function registerCodex(ctx: CodexPorts): void {
       normalize: normalizeCodexRollout,
       tail: {
         watches: codexUsageWatches,
+        // A subagent thread writes a rollout of its own; the parent's names
+        // it, and this is the same search a fork's source is found by.
+        locate: (threadId) => findRolloutById(ctx, threadId),
         // A rollout records the ACCOUNT's limits, so the newest files on
         // disk are worth reading before any pane exists. Ten because a
         // just-launched session writes its rollout before its first turn:

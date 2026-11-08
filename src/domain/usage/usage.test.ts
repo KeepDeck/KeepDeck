@@ -11,6 +11,7 @@ import {
   serializeUsageCache,
   windowExpired,
   type AccountUsage,
+  type PaneUsage,
 } from "./usage";
 
 /* The per-agent normalizers live (and are tested) with their plugins; this
@@ -141,13 +142,11 @@ describe("gateAccountClaim", () => {
 });
 
 describe("samePaneUsage", () => {
-  const reading = {
+  const reading: PaneUsage = {
     agent: "claude",
     sessionId: "s-1",
-    model: "Opus",
+    sequence: 3,
     context: { usedPct: 40, windowTokens: 200_000 },
-    totalTokens: { input: 100, cacheRead: 5 },
-    costUsd: 1.5,
     reportedAt: 7,
   };
 
@@ -155,8 +154,7 @@ describe("samePaneUsage", () => {
     expect(
       samePaneUsage(reading, {
         ...reading,
-        context: { ...reading.context },
-        totalTokens: { ...reading.totalTokens, output: undefined },
+        context: { ...reading.context, usedTokens: undefined },
       }),
     ).toBe(true);
   });
@@ -164,10 +162,10 @@ describe("samePaneUsage", () => {
   it("fails on any field, however deep", () => {
     for (const changed of [
       { ...reading, reportedAt: 8 },
-      { ...reading, costUsd: 1.75 },
+      { ...reading, sequence: 4 },
+      { ...reading, sessionId: "s-2" },
       { ...reading, context: { ...reading.context, usedPct: 41 } },
-      { ...reading, totalTokens: { ...reading.totalTokens, output: 1 } },
-      { ...reading, lastTurnTokens: { input: 1 } },
+      { ...reading, context: { ...reading.context, usedTokens: 1 } },
     ]) {
       expect(samePaneUsage(reading, changed)).toBe(false);
       expect(samePaneUsage(changed, reading)).toBe(false);
@@ -177,35 +175,33 @@ describe("samePaneUsage", () => {
 
 describe("mergePaneUsage", () => {
   it("lets partial reports complete each other, incoming fields winning", () => {
-    const model = { agent: "codex", model: "gpt-5.6-sol xhigh", reportedAt: 1 };
-    const numbers = {
-      agent: "codex",
+    const identified: PaneUsage = { agent: "claude", sessionId: "s-1", reportedAt: 1 };
+    const numbers: PaneUsage = {
+      agent: "claude",
       context: { usedPct: 40, windowTokens: 258_400 },
       reportedAt: 2,
     };
-    expect(mergePaneUsage(model, numbers)).toEqual({
-      agent: "codex",
-      model: "gpt-5.6-sol xhigh",
+    expect(mergePaneUsage(identified, numbers)).toEqual({
+      agent: "claude",
+      sessionId: "s-1",
       context: { usedPct: 40, windowTokens: 258_400 },
       reportedAt: 2,
     });
   });
 
   it("merges the context bag field-wise — kimi splits window from tokens", () => {
-    const windowOnly = {
+    const windowOnly: PaneUsage = {
       agent: "kimi",
-      model: "kimi-code/k3",
       context: { windowTokens: 1_048_576 },
       reportedAt: 1,
     };
-    const tokensOnly = {
+    const tokensOnly: PaneUsage = {
       agent: "kimi",
       context: { usedTokens: 42_100 },
       reportedAt: 2,
     };
     expect(mergePaneUsage(windowOnly, tokensOnly)).toEqual({
       agent: "kimi",
-      model: "kimi-code/k3",
       context: { windowTokens: 1_048_576, usedTokens: 42_100 },
       reportedAt: 2,
     });
@@ -214,40 +210,37 @@ describe("mergePaneUsage", () => {
   it("keeps the instant with the payload it describes", () => {
     // An out-of-order delivery does walk `reportedAt` backwards, and taking
     // the max here was tried and reverted: this field answers WHEN THIS
-    // OBSERVATION HAPPENED — `record` writes it into the ledger as
-    // `occurredAt` and mixes it into the deterministic `eventId` — so a max
-    // stamps a stale payload with a fresh instant. The reader that wants
-    // "newest" keeps its own max (see activityWitness.test.ts).
-    const newer = { agent: "claude", model: "sonnet", reportedAt: 200 };
-    const older = { agent: "claude", costUsd: 3, reportedAt: 150 };
-    expect(mergePaneUsage(newer, older)).toMatchObject({
-      model: "sonnet",
-      costUsd: 3,
+    // OBSERVATION HAPPENED, so a max stamps a stale payload with a fresh
+    // instant. The reader that wants "newest" keeps its own max (see
+    // activityWitness.test.ts).
+    const newer: PaneUsage = { agent: "claude", context: { windowTokens: 200_000 }, reportedAt: 200 };
+    const older: PaneUsage = { agent: "claude", context: { usedPct: 3 }, reportedAt: 150 };
+    expect(mergePaneUsage(newer, older)).toEqual({
+      agent: "claude",
+      context: { windowTokens: 200_000, usedPct: 3 },
       reportedAt: 150,
     });
   });
 
   it("replaces wholesale when the pane changed agents", () => {
-    const codex = { agent: "codex", model: "gpt-5.6-sol", reportedAt: 1 };
-    const claude = { agent: "claude", reportedAt: 2 };
+    const codex: PaneUsage = { agent: "codex", context: { usedPct: 9 }, reportedAt: 1 };
+    const claude: PaneUsage = { agent: "claude", reportedAt: 2 };
     expect(mergePaneUsage(codex, claude)).toBe(claude);
     expect(mergePaneUsage(undefined, claude)).toBe(claude);
   });
 
   it("replaces wholesale when an identified session changes", () => {
-    const oldSession = {
+    const oldSession: PaneUsage = {
       agent: "opencode",
       sessionId: "session-old",
-      model: "old-model",
       sequence: 12,
-      costUsd: 9,
+      context: { usedTokens: 90_000, windowTokens: 200_000 },
       reportedAt: 1,
     };
-    const newSession = {
+    const newSession: PaneUsage = {
       agent: "opencode",
       sessionId: "session-new",
       sequence: 1,
-      costUsd: 0.1,
       reportedAt: 2,
     };
 
@@ -255,18 +248,18 @@ describe("mergePaneUsage", () => {
   });
 
   it("rejects an older sequence inside the same session", () => {
-    const current = {
+    const current: PaneUsage = {
       agent: "opencode",
       sessionId: "session-1",
       sequence: 3,
-      costUsd: 0.3,
+      context: { usedTokens: 300 },
       reportedAt: 3,
     };
-    const delayed = {
+    const delayed: PaneUsage = {
       agent: "opencode",
       sessionId: "session-1",
       sequence: 2,
-      costUsd: 0.2,
+      context: { usedTokens: 200 },
       reportedAt: 4,
     };
 
@@ -276,24 +269,22 @@ describe("mergePaneUsage", () => {
 
 describe("mergePaneReplay", () => {
   it("fills live gaps while preserving live fields and context", () => {
-    const replay = {
+    const replay: PaneUsage = {
       agent: "claude",
-      sessionId: "session-1",
-      totalTokens: { input: 100, output: 20 },
-      context: { usedTokens: 120 },
+      sequence: 4,
+      context: { usedTokens: 120, windowTokens: 100_000 },
       reportedAt: 1,
     };
-    const live = {
+    const live: PaneUsage = {
       agent: "claude",
       sessionId: "session-1",
-      costUsd: 0.4,
       context: { windowTokens: 200_000 },
       reportedAt: 2,
     };
 
     expect(mergePaneReplay(live, replay)).toEqual({
       ...live,
-      totalTokens: { input: 100, output: 20 },
+      sequence: 4,
       context: { usedTokens: 120, windowTokens: 200_000 },
     });
   });

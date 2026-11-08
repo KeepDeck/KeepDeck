@@ -3,6 +3,7 @@ import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import type { SessionBinding } from "./sessionBinding";
 import type { UsageManager } from "./usageManager";
+import type { UsageSightings } from "./usageSightings";
 
 export interface UsageDeclarations {
   current(): ReadonlyMap<string, AgentUsage>;
@@ -26,6 +27,9 @@ export interface UsageLaneContext {
   declarations: UsageDeclarations;
   /** The runtime's usage store — every lane writes through this value. */
   usage: UsageManager;
+  /** When this run first saw each pane's session — one instant for the tail
+   * reading a file again and for the call book booking it. */
+  sightings: UsageSightings;
   /** The agent's own dialect for its live store, when its plugin declared
    * one. Two things come from it and nothing else does: WHICH store to
    * follow, which the dialect may have to go and find, and WHAT to carry out

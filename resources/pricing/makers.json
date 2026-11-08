@@ -1,0 +1,23 @@
+{
+  "comment": "models.dev provider ids that MAKE models and publish their own list price — the only providers the price journal records. Order is the resolve preference when a model id is listed by more than one maker (zai before zhipuai: the international list price before the mainland one). Read by crates/keepdeck-usage (catalogue) and scripts/price-history.mjs; edit here only.",
+  "makers": [
+    "anthropic",
+    "openai",
+    "google",
+    "xai",
+    "deepseek",
+    "moonshotai",
+    "zai",
+    "zhipuai",
+    "alibaba",
+    "alibaba-cn",
+    "mistral",
+    "minimax",
+    "minimax-cn",
+    "cohere",
+    "meta",
+    "perplexity",
+    "inception",
+    "morph"
+  ]
+}

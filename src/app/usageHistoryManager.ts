@@ -1,13 +1,8 @@
-import type { PaneUsage } from "@keepdeck/plugin-api";
-import type { UsageCaptureContext } from "../domain/usage/history/capture";
+import type { UsageCallBatch } from "../domain/usage/history/capture";
 import type { UsageRow } from "../domain/usage/history/event";
 import type { UsageLedger } from "../domain/usage/history/ledger";
-import {
-  loadUsageLedger,
-  recordUsage,
-  type StoredUsageLedger,
-  type UsageRecordEntry,
-} from "../ipc/usageLedger";
+import * as ledgerIpc from "../ipc/usageLedger";
+import type { StoredUsageLedger, UsageBookEntry } from "../ipc/usageLedger";
 
 export interface UsageHistorySnapshot {
   ready: boolean;
@@ -40,7 +35,7 @@ export interface UsageHistorySnapshot {
  * build an instance over fakes instead of mocking modules. */
 export interface UsageHistoryIpc {
   loadUsageLedger(): Promise<StoredUsageLedger>;
-  recordUsage(entry: UsageRecordEntry): Promise<UsageRow[]>;
+  bookUsageCalls(entry: UsageBookEntry): Promise<UsageRow[]>;
 }
 
 /** How many recorded events the page appends to its copy before it reloads
@@ -52,7 +47,7 @@ export interface UsageHistoryIpc {
 export const RELOAD_AFTER_APPENDS = 3_000;
 
 /** The page's view of the usage ledger, which the core owns: load it, book
- * pane reports through the core, append the row each booking adds, and
+ * panes' calls through the core, append the row each booking adds, and
  * expose a subscribable snapshot. Rows are only ever appended — the core
  * answers a booking with what it adds, never with a rewrite of a row the
  * page holds — so a reader folding the rows incrementally stays exact. A factory (not module globals): each
@@ -124,28 +119,12 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
     return initialization;
   }
 
-  /** Book one pane's latest cumulative usage. Calls run behind the load and
-   * behind each other, so rows land in the order the reports did. */
-  function record(
-    usage: PaneUsage,
-    context: UsageCaptureContext,
-    capturedAt = Date.now(),
-  ): Promise<void> {
+  /** Book one pane's calls. Bookings run behind the load and behind each
+   * other, so rows land in the order the calls were reported. */
+  function book(batch: UsageCallBatch, capturedAt = Date.now()): Promise<void> {
     void init();
     return enqueue(async () => {
-      const rows = await ipc.recordUsage({
-        report: {
-          agent: usage.agent,
-          model: usage.model,
-          totalTokens: usage.totalTokens,
-          costUsd: usage.costUsd,
-          byModel: usage.byModel,
-          reportedAt: usage.reportedAt,
-          sequence: usage.sequence,
-        },
-        context,
-        capturedAt,
-      });
+      const rows = await ipc.bookUsageCalls({ batch, capturedAt });
       if (rows.length === 0) return;
       events.push(...rows);
       appendedSinceLoad += rows.length;
@@ -157,7 +136,7 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
 
   return {
     init,
-    record,
+    book,
     getSnapshot: () => snapshot,
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -167,11 +146,11 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
 }
 
 /** The app's one ledger view, wired to the real IPC. The named exports below
- * are its bound verbs — the stable surface main.tsx, the runtime, the capture
- * path and the React hook consume. */
-const manager = createUsageHistoryManager({ loadUsageLedger, recordUsage });
+ * are its bound verbs — the stable surface main.tsx, the runtime, the call
+ * book and the React hook consume. */
+const manager = createUsageHistoryManager(ledgerIpc);
 
 export const initUsageHistory = manager.init;
-export const recordPaneUsage = manager.record;
+export const bookUsageCalls = manager.book;
 export const getUsageHistorySnapshot = manager.getSnapshot;
 export const subscribeUsageHistory = manager.subscribe;

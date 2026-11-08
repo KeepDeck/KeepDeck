@@ -2,7 +2,7 @@ import {
   tokenTotal,
   usageSessionKey,
   type UsageRow,
-  providerCostOf,
+  costOf,
 } from "../history/event";
 import { addMoney } from "../money";
 import {
@@ -111,7 +111,7 @@ export function createAchievementEngine(): AchievementEngine {
       providers.add(event.agent);
       workspaces.add(event.workspaceId);
       if (event.model !== undefined) models.add(event.model);
-      const cost = providerCostOf(event);
+      const cost = costOf(event);
       if (cost !== null) {
         spendUsd = addMoney(spendUsd, cost);
       }

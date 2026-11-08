@@ -45,7 +45,6 @@ describe("Weeks", () => {
         agent: "claude",
         model: "claude-sonnet-5",
         tokens: { input: 100 },
-        costSource: "provider",
         costUsd: 1.5,
       }),
       event({ occurredAt: NOW - 2 * WEEK_MS, tokens: { input: 50 } }),
@@ -111,9 +110,9 @@ describe("Weeks", () => {
     expect(current.querySelector(".stats__week-cost")).toBeNull();
   });
 
-  it("shows a cost-only week in progress — spend is usage too", () => {
+  it("shows a priced week in progress even with no token breakdown — spend is usage too", () => {
     const host = render([
-      event({ tokens: {}, costSource: "provider", costUsd: 4.25 }),
+      event({ tokens: {}, costUsd: 4.25 }),
     ]);
     expect(host.textContent).not.toContain("no usage yet");
     expect(host.textContent).toContain("≈$4.25");

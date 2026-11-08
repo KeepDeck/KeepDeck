@@ -101,7 +101,7 @@ const METRIC_SPECS: Record<AchievementMetric, MetricSpec> = {
   outputTokens: tokensSpec((t) => `${t} output tokens all-time`),
   cacheTokens: tokensSpec((t) => `${t} cache-read tokens all-time`),
   sessions: countSpec((t) => `${t} session${t === 1 ? "" : "s"} all-time`),
-  spendUsd: moneySpec((t) => `$${t} provider-reported spend`),
+  spendUsd: moneySpec((t) => `$${t} estimated spend`),
   dayTokens: tokensSpec((t) => `${t} tokens in one day`),
   daySessions: countSpec((t) => `${t} sessions in one day`),
   dayProviders: countSpec((t) => `${t} providers in one day`),

@@ -1,21 +1,29 @@
-import type { UsageRow } from "./event";
+import type { CostBasis, UsageRow } from "./event";
 
 /**
  * The shared UsageRow builder for tests — replaces eight hand-copied
- * builders whose defaults had silently drifted (one file defaulted
- * costSource to "provider" while its siblings said "unavailable", so an
- * identically-written assertion passed in one and failed in another).
- * Files with a real personality wrap this with their own defaults spelled
- * out, instead of re-copying the whole shape.
+ * builders whose defaults had silently drifted. Files with a real
+ * personality wrap this with their own defaults spelled out, instead of
+ * re-copying the whole shape.
+ *
+ * A row is unpriced unless the test gives it a cost; a cost without a basis
+ * is an estimate.
  */
 
 export const TEST_NOW = Date.parse("2026-07-22T12:00:00.000Z");
 
+/** What a test may set on a row: any field, and its cost and basis apart. */
+export type UsageRowOverrides = Partial<Omit<UsageRow, "costBasis" | "costUsd">> & {
+  costBasis?: CostBasis;
+  costUsd?: number;
+};
+
 let seq = 0;
 
-export function usageEvent(over: Record<string, unknown> = {}): UsageRow {
+export function usageEvent(over: UsageRowOverrides = {}): UsageRow {
   seq += 1;
-  return {
+  const { costBasis, costUsd, ...fields } = over;
+  const row = {
     eventId: `event-${seq}`,
     occurredAt: TEST_NOW - 1_000,
     capturedAt: TEST_NOW - 1_000,
@@ -29,12 +37,12 @@ export function usageEvent(over: Record<string, unknown> = {}): UsageRow {
     sessionId: "s1",
     rootSessionId: "s1",
     tokens: { input: 100 },
-    costSource: "unavailable",
-    // One recorded event, one call — a bucket says otherwise explicitly.
+    // One booked event, one call — a bucket says otherwise explicitly.
     count: 1,
     calls: 1,
-    // A provider-priced event is one cost event, unless the test says.
-    costEvents: over.costSource === "provider" ? 1 : 0,
-    ...over,
-  } as UsageRow;
+    ...fields,
+  };
+  return costUsd === undefined || costBasis === "unpriced"
+    ? { ...row, costBasis: "unpriced" }
+    : { ...row, costBasis: costBasis ?? "estimated", costUsd };
 }

@@ -69,10 +69,7 @@ const paneReport = (): { agent: string; result: NormalizedUsage } => ({
     account: null,
     pane: {
       agent: "claude",
-      model: "Opus",
       context: { usedPct: 62 },
-      costUsd: 4.128,
-      totalTokens: { input: 15_500, output: 1200 },
       reportedAt: 0,
     },
   },
@@ -194,7 +191,7 @@ describe("UsageChips", () => {
     expect(host.querySelector(".usage-chip")).toBeNull();
   });
 
-  it("keeps session tokens and cost out of the account-limits panel", () => {
+  it("keeps a pane's session state out of the account-limits panel", () => {
     usage.report("pane-1",limitsReport(42), AT);
     usage.report("pane-1",paneReport(), AT);
     render();
@@ -203,8 +200,7 @@ describe("UsageChips", () => {
     });
     const panel = present(host.querySelector("#usage-panel"), "the #usage-panel element");
     expect(panel.textContent).not.toContain("Sessions");
-    expect(panel.textContent).not.toContain("Opus");
-    expect(panel.textContent).not.toContain("$4.13");
+    expect(panel.textContent).not.toContain("62%");
   });
 
   it("marks stale data instead of showing confident numbers", () => {

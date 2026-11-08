@@ -157,7 +157,7 @@ export const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
     tiers: [{ threshold: 8, title: "Marathon Session", icon: "🌙", rarity: "rare" }],
   },
   {
-    // One-off: three digits of provider-reported cost in one session. Same
+    // One-off: three digits of estimated cost in one session. Same
     // correction as above, for the same reason.
     metric: "sessionSpendUsd",
     tiers: [{ threshold: 100, title: "All In", icon: "🃏", rarity: "rare" }],

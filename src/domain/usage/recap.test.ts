@@ -59,7 +59,6 @@ describe("usageRecap", () => {
         event({
           model: "small-but-costed",
           tokens: { input: 100 },
-          costSource: "provider",
           costUsd: 9,
         }),
         event({ model: "big-uncosted", tokens: { input: 900 } }),

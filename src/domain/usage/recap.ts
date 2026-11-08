@@ -101,7 +101,7 @@ function topModel(current: UsageStats): UsageRecap["topModel"] {
   let top: UsageRecap["topModel"] = null;
   for (const row of current.byModel) {
     if (top === null || row.totalTokens > top.totalTokens) {
-      top = { model: modelLabel(row.model), totalTokens: row.totalTokens };
+      top = { model: modelLabel(row.model, row.modelName), totalTokens: row.totalTokens };
     }
   }
   return top;

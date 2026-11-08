@@ -1,5 +1,5 @@
 import {
-  displayProviderCost,
+  displayCost,
   formatAge,
   formatTokens,
   modelLabel,
@@ -8,7 +8,7 @@ import {
 import type { UsageStatsRow } from "../../domain/usage/history/query";
 
 /** The Models/Sessions drill-down table — identity, tokens with an in/out
- * breakdown, provider cost with the row's last-seen age. */
+ * breakdown, estimated cost with the row's last-seen age. */
 export function StatsTable({
   title,
   rows,
@@ -30,7 +30,7 @@ export function StatsTable({
             <span className="stats__identity" role="cell">
               <b>
                 {mode === "model"
-                  ? modelLabel(row.model)
+                  ? modelLabel(row.model, row.modelName)
                   : row.paneName || shortSession(row.sessionId)}
               </b>
               <small>
@@ -46,7 +46,7 @@ export function StatsTable({
               <small>{tokenBreakdown(row.tokens)}</small>
             </span>
             <span className="stats__cost" role="cell">
-              {displayProviderCost(row.providerCostUsd, row.costEvents)}
+              {displayCost(row)}
               <small>{formatAge(row.lastOccurredAt, now)}</small>
             </span>
           </div>

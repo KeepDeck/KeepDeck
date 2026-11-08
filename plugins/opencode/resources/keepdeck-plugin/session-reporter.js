@@ -16,11 +16,13 @@
  *  - Every ROOT `session.created` becomes a bridge-protocol-v2 `session.bound`
  *    envelope — the pane ⇄ session identity. A resumed session is also bound
  *    when its first completed message (or child-session event) reveals it.
- *  - Every COMPLETED assistant `message.updated` becomes a `usage.report`
- *    envelope. OpenCode reports tokens/cost PER MESSAGE, so the active root and
- *    all descendant histories are hydrated and their latest snapshots summed.
- *    Context-window limits are keyed by provider + model. OpenCode exposes no
- *    account rate-limit windows, so the report is pane usage only.
+ *  - A `usage.report` envelope carries the pane's context (from the latest
+ *    COMPLETED root assistant message, its window keyed by provider + model)
+ *    and the conversation's finished STEPS — each `step-finish` part one
+ *    model call, the root's and every descendant's; a bound conversation's
+ *    history is hydrated so a resumed pane reports what it has not yet.
+ *    OpenCode exposes no account rate-limit windows, so the report is pane
+ *    usage only.
  *
  * Envelopes are posted to the deck's own surface, whose address arrives in
  * `KEEPDECK_BRIDGE` at spawn.
@@ -35,6 +37,7 @@ import {
   boundReport,
   createWindowCache,
   skipsApprovals,
+  STEPS_PER_REPORT,
   tokenCounts,
   usageReport,
 } from "./pane-report.js";
@@ -45,6 +48,7 @@ import { paneSession } from "./pane-session.js";
 /** @typedef {import("./pane-report.js").TokenCounts} TokenCounts */
 /** @typedef {{ id?: string, role?: string, sessionID?: string, parentID?: string, providerID?: string, modelID?: string, time?: { created?: number, completed?: number }, cost?: number, tokens?: import("./pane-report.js").OpenCodeTokens, info?: MessageInfo }} MessageInfo */
 /** @typedef {MessageInfo & { id: string, sessionID: string }} CompletedInfo */
+/** @typedef {{ type: "step-finish", id: string, messageID: string, sessionID: string, tokens?: import("./pane-report.js").OpenCodeTokens }} StepPart */
 /** @typedef {{ type: string, properties?: Record<string, unknown> & { sessionID?: string, status?: string | (Record<string, unknown> & { type?: string }), info?: MessageInfo } }} ReporterEvent */
 /** @typedef {{ id?: string, models?: Record<string, { limit?: { context?: number } }> }} Provider */
 /** @typedef {{ session?: { get?: (query: { path: { id: string } }) => Promise<{ error?: unknown, data?: { id?: string, parentID?: string } }>, messages?: (query: { path: { id: string } }) => Promise<unknown>, children?: (query: { path: { id: string } }) => Promise<unknown>, abort?: (query: { path: { id: string } }) => Promise<unknown> }, config?: { providers?: () => Promise<{ data?: { providers?: Provider[] }, providers?: Provider[] }> } }} ReporterClient */
@@ -71,31 +75,82 @@ export async function startReporter(input = {}) {
     publishEnvelope(bridge, makeEnvelope(bridge, type, payload));
   };
 
-  // Per-message latest snapshot for the ACTIVE ROOT session and all of its
-  // descendants, summed into the session cumulative. A new root session owns a
-  // new generation: `/new`/fork must never inherit the previous root's spend.
-  /** @type {Map<string, TokenCounts & { cost: number }>} */
-  const messages = new Map();
+  // What the conversation SPENT is its steps: each `step-finish` part is one
+  // model call, with an id of its own and its own counts — the message a
+  // step belongs to carries only its LAST step's counts, so reading messages
+  // undercounted every multi-step turn. A step names its message, and the
+  // message names the model and when it began: kept here by message id, for
+  // the conversation and its subagents. A step read before its message's
+  // first frame waits for it.
+  /** @type {Map<string, { providerID: string, modelID: string, created: number }>} */
+  const metas = new Map();
+  /** @type {Map<string, StepPart[]>} */
+  const waiting = new Map();
+  /** Steps learned and not yet reported.
+   * @type {import("./pane-report.js").Step[]} */
+  let unreported = [];
   // Which session is the pane's conversation, and which of the others are
   // subagents' — ONE object, shared with the mail courier beside this file.
   // Two answers to that question means the deck watching one session's turns
   // while mail lands in another.
   const pane = paneSession(parentLookupV1(client));
   // The latest ROOT assistant turn — defines occupancy/identity, not spend.
-  /** @type {{ sessionID: string, providerID?: string, modelID?: string, completedAt: number, turn: TokenCounts & { cost: number } } | undefined} */
+  /** @type {{ sessionID: string, providerID?: string, modelID?: string, completedAt: number, turn: TokenCounts } | undefined} */
   let root;
   let sequence = 0;
   /** @type {Promise<void> | undefined} */
   let hydration;
-  /** @param {keyof (TokenCounts & { cost: number })} key */
-  const sum = (key) => {
-    let total = 0;
-    for (const m of messages.values()) total += m[key] ?? 0;
-    return total;
-  };
 
   /** @param {MessageInfo | undefined} info */
-  const turnOf = (info) => ({ ...tokenCounts(info?.tokens), cost: info?.cost ?? 0 });
+  const turnOf = (info) => tokenCounts(info?.tokens);
+
+  /** Note what an assistant message of the conversation ran on and when it
+   * began, from any of its frames — and release the steps that waited for
+   * it. Answers whether any did. */
+  /** @param {MessageInfo | undefined} value */
+  const noteMessage = (value) => {
+    const info = value?.info ?? value;
+    if (info?.role !== "assistant" || !info.id || !info.providerID || !info.modelID) return false;
+    const created = info.time?.created;
+    if (typeof created !== "number") return false;
+    metas.set(info.id, { providerID: info.providerID, modelID: info.modelID, created });
+    const held = waiting.get(info.id);
+    if (!held) return false;
+    waiting.delete(info.id);
+    for (const part of held) learnStep(part);
+    return true;
+  };
+
+  /** One finished step, reported once its message is known. */
+  /** @param {StepPart} part */
+  const learnStep = (part) => {
+    const meta = metas.get(part.messageID);
+    if (!meta) {
+      waiting.set(part.messageID, [...(waiting.get(part.messageID) ?? []), part]);
+      return;
+    }
+    unreported.push({
+      id: part.id,
+      sessionID: part.sessionID,
+      providerID: meta.providerID,
+      modelID: meta.modelID,
+      created: meta.created,
+      tokens: part.tokens ?? {},
+    });
+  };
+
+  /** A `step-finish` part, or undefined for any other part. */
+  /** @param {unknown} value @returns {StepPart | undefined} */
+  const stepPart = (value) => {
+    if (!value || typeof value !== "object") return undefined;
+    const part = /** @type {Record<string, unknown>} */ (value);
+    return part.type === "step-finish" &&
+      typeof part.id === "string" &&
+      typeof part.messageID === "string" &&
+      typeof part.sessionID === "string"
+      ? /** @type {StepPart} */ (part)
+      : undefined;
+  };
 
   /** @param {MessageInfo | undefined} value @returns {CompletedInfo | undefined} */
   const completedAssistant = (value) => {
@@ -141,10 +196,10 @@ export async function startReporter(input = {}) {
   /** @param {CompletedInfo} info */
   const isNewestTurn = (info) => !newestTurn || newestTurn.id === info.id;
 
+  /** A finished ROOT message is the turn whose context the pane holds now. */
   /** @param {CompletedInfo} info @param {string} rootSessionID */
   const remember = (info, rootSessionID) => {
     const turn = turnOf(info);
-    messages.set(`${info.sessionID}\0${info.id}`, turn);
     if (info.sessionID === rootSessionID) {
       const completedAt = info.time?.completed ?? 0;
       if (!root || completedAt >= root.completedAt) {
@@ -179,8 +234,10 @@ export async function startReporter(input = {}) {
   /** @param {string} sessionID */
   const forSession = (sessionID) => ({ path: { id: sessionID } });
 
-  /** Best-effort full-session hydration. It makes resume totals honest and
-   * restores descendant spend without reading opencode's private SQLite. */
+  /** Best-effort full-session hydration: the context a resumed pane holds,
+   * and every step the conversation and its subagents made — the deck books
+   * each once, and only what is newer than when it first saw the session —
+   * without reading opencode's private SQLite. */
   /** @param {string} sessionID @param {string} rootSessionID @param {Set<string>} seen */
   const hydrateSession = async (sessionID, rootSessionID, seen) => {
     if (!sessionID || seen.has(sessionID)) return;
@@ -191,12 +248,18 @@ export async function startReporter(input = {}) {
         const rows = responseData(result);
         if (Array.isArray(rows)) {
           for (const row of rows) {
+            noteMessage(row);
             const info = completedAssistant(row);
             if (info) remember(info, rootSessionID);
+            const parts = row && typeof row === "object" && "parts" in row ? row.parts : undefined;
+            for (const part of Array.isArray(parts) ? parts : []) {
+              const step = stepPart(part);
+              if (step) learnStep(step);
+            }
           }
         }
       } catch {
-        // Live events still produce a valid since-start snapshot.
+        // Live events still report every step from here on.
       }
     }
     if (!client?.session?.children) return;
@@ -238,6 +301,9 @@ export async function startReporter(input = {}) {
     if (keep) pane.bindFromChain(sessionID, keep);
     else pane.newGeneration(sessionID);
     await setUpForConversation(publishBinding);
+    // The steps hydration found of a conversation in progress are owed at
+    // once: a pane that never speaks again would otherwise never tell them.
+    if (unreported.length > 0) await reportUsage();
   };
 
   /**
@@ -267,9 +333,11 @@ export async function startReporter(input = {}) {
   /** @param {boolean} publishBinding @param {boolean} [switched] */
   const setUpForConversation = async (publishBinding, switched = false) => {
     if (pane.root === undefined || pane.root === servedRoot) return;
+    // The steps of the conversation being left are its spend: reported while
+    // the deck still has it as the pane's, before the binding moves.
+    if (unreported.length > 0) await reportUsage();
     const continuing = servedRoot !== undefined;
     servedRoot = pane.root;
-    messages.clear();
     root = undefined;
     sequence = 0;
     if (publishBinding) bind(servedRoot, continuing, switched);
@@ -447,8 +515,21 @@ export async function startReporter(input = {}) {
       return;
     }
 
+    // A finished step of the pane's conversation or its subagents: one call.
+    // Before the pane is bound there is nothing to book it under — binding
+    // hydrates the conversation, its steps included.
+    if (event?.type === "message.part.updated") {
+      const step = stepPart(event.properties?.part);
+      if (!step || !pane.bound || pane.rootOf(step.sessionID) !== pane.root) return;
+      learnStep(step);
+      await reportUsage();
+      return;
+    }
+
     if (event?.type !== "message.updated") return;
     noteTurn(event.properties);
+    // Steps that waited for this message's model go out now, finished or not.
+    if (noteMessage(event.properties)) await reportUsage();
     const info = completedAssistant(event.properties);
     // Assistant messages only, once the turn is DONE (message.updated fires
     // repeatedly as a message streams; the completed frame carries the final
@@ -496,43 +577,39 @@ export async function startReporter(input = {}) {
     // sum is keyed by message id rather than by which turn is current.
     if (info.sessionID === pane.root && isNewestTurn(info)) forward(event);
     if (hydration) await hydration;
-    // Every assistant turn — ROOT or subagent — is real session spend and
-    // sums into the cumulative. But a subagent's context is ITS own, not the
-    // pane's conversation, so only a ROOT turn sets occupancy + identity.
+    // A subagent's context is ITS own, not the pane's conversation, so only
+    // a ROOT turn sets occupancy. Its spend travels as its steps.
     remember(info, pane.root);
     await reportUsage();
   };
 
-  /** The conversation's spend and context, as a `usage.report` — nothing
-   * until a root turn has been seen (the spend accumulates meanwhile). */
+  /** The conversation's context and the steps it made since the last
+   * report, as `usage.report`s — the steps in reports of a bounded size;
+   * nothing when there is neither a root turn nor a step to tell. */
   const reportUsage = async () => {
-    if (!root) return;
+    if (!root && unreported.length === 0) return;
     // Immutable report basis before the async catalog lookup. The queue below
     // serializes callbacks too, but capturing keeps this function locally sane.
     const currentRoot = root;
-    const occ = currentRoot.turn;
-    const windowTokens = await contextWindow(
-      currentRoot.providerID,
-      currentRoot.modelID,
-    );
-    publish(
-      "usage.report",
-      usageReport({
-        sessionId: currentRoot.sessionID,
-        model: currentRoot.modelID,
-        sequence: ++sequence,
-        windowTokens,
-        lastTurn: occ,
-        totals: {
-          input: sum("input"),
-          output: sum("output"),
-          reasoning: sum("reasoning"),
-          cacheRead: sum("cacheRead"),
-          cacheWrite: sum("cacheWrite"),
-        },
-        costUsd: sum("cost"),
-      }),
-    );
+    const steps = unreported;
+    unreported = [];
+    const windowTokens = currentRoot
+      ? await contextWindow(currentRoot.providerID, currentRoot.modelID)
+      : undefined;
+    let from = 0;
+    do {
+      publish(
+        "usage.report",
+        usageReport({
+          sessionId: currentRoot?.sessionID,
+          sequence: ++sequence,
+          windowTokens,
+          lastTurn: currentRoot?.turn,
+          steps: steps.slice(from, from + STEPS_PER_REPORT),
+        }),
+      );
+      from += STEPS_PER_REPORT;
+    } while (from < steps.length);
   };
 
   // OpenCode deliberately does not await plugin event promises. Reduce every
