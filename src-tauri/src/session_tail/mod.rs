@@ -33,7 +33,6 @@ mod reader;
 mod route;
 #[cfg(test)]
 mod test_support;
-mod totals;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -49,11 +48,11 @@ use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
 use dialects::{
-    drop_superseded, last_of_each, last_status_of_each, sibling_paths, TailWatch, TailedEvent,
+    calls_since, drop_superseded, last_of_each, last_status_of_each, sibling_paths, TailLane,
+    TailWatch, TailedEvent,
 };
 use reader::{drain_file, TailCursor};
 use route::{batch_status, route, wrap, Routed};
-use totals::Folds;
 
 /// One followed session: where every source file is up to and how to
 /// attribute what it yields. The token is the pane's spawn-plan secret,
@@ -77,29 +76,29 @@ struct TailState {
     /// agent's dialect named one. Listed every poll: the files appear as
     /// the work that writes them starts.
     siblings: Option<PathBuf>,
+    /// Other stores of the same session a record named (codex's subagent
+    /// threads), added by [`usage_link_session_file`] as they are found.
+    linked: Vec<PathBuf>,
+    /// The cursor of every file besides the root: siblings and linked.
     subagents: HashMap<PathBuf, TailCursor>,
-    /// The running totals those watches asked for, one per watch that
-    /// declared a sum.
-    folds: Folds,
+    /// From when (unix ms) a file read again carries its calls — where the
+    /// ledger stopped booking this session. None carries every call.
+    since: Option<f64>,
 }
 
 impl TailState {
     /// Carry `watches` from here on, without reading again what was read:
-    /// every cursor stays where it stands, and so do the running totals.
+    /// every cursor stays where it stands.
     ///
-    /// Refused — `false`, nothing changed — when a watch that keeps a total
-    /// would change or move: its total covers what was already read, and
-    /// only a re-read can make it right. Adding or dropping watches that
-    /// keep none (the status lane, which the contract lists after the
-    /// numbers) always goes through.
+    /// Refused — `false`, nothing changed — when the `calls` watches would
+    /// change: a context they hold, and the calls already carried, came from
+    /// the old ones, and only a re-read can make them right. Adding or
+    /// dropping watches of the other lanes always goes through.
     fn retarget(&mut self, watches: Vec<TailWatch>) -> bool {
-        fn summing(list: &[TailWatch]) -> Vec<(usize, &TailWatch)> {
-            list.iter()
-                .enumerate()
-                .filter(|(_, watch)| watch.sum.is_some())
-                .collect()
+        fn calls(list: &[TailWatch]) -> Vec<&TailWatch> {
+            list.iter().filter(|watch| watch.lane == TailLane::Calls).collect()
         }
-        if summing(&self.watches) != summing(&watches) {
+        if calls(&self.watches) != calls(&watches) {
             return false;
         }
         self.watches = watches;
@@ -133,6 +132,14 @@ impl TailPoller {
             .expect("tail state poisoned")
             .retarget(watches)
     }
+
+    fn link(&self, path: PathBuf) -> bool {
+        let mut state = self.state.lock().expect("tail state poisoned");
+        if state.path != path && !state.linked.contains(&path) {
+            state.linked.push(path);
+        }
+        true
+    }
 }
 
 impl Drop for TailPoller {
@@ -160,33 +167,25 @@ struct DrainReplay {
 }
 
 fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
-    let (mut events, root_rotated) = drain_file(
-        &state.path,
-        &mut state.root,
-        &state.watches,
-        &mut state.folds,
-        true,
-    );
-    let Some(directory) = state.siblings.clone() else {
-        return (
-            events,
-            DrainReplay {
-                root: root_rotated,
-                any: root_rotated,
-            },
-        );
-    };
+    let (mut events, root_rotated) = drain_file(&state.path, &mut state.root, &state.watches, true);
+    let mut contributors = state
+        .siblings
+        .as_deref()
+        .map(sibling_paths)
+        .unwrap_or_default();
+    for path in &state.linked {
+        if !contributors.contains(path) {
+            contributors.push(path.clone());
+        }
+    }
     let mut any = root_rotated;
-    for path in sibling_paths(&directory) {
+    for path in contributors {
         let cursor = state.subagents.entry(path.clone()).or_default();
         if root_rotated {
             *cursor = TailCursor::default();
         }
-        // `root: false` — a subagent's abort is its own, never the pane's,
-        // and its file rotating on its own must not restart the session's
-        // totals.
-        let (appended, sub_rotated) =
-            drain_file(&path, cursor, &state.watches, &mut state.folds, false);
+        // `root: false` — a subagent's abort is its own, never the pane's.
+        let (appended, sub_rotated) = drain_file(&path, cursor, &state.watches, false);
         any = any || sub_rotated;
         events.extend(appended);
     }
@@ -197,6 +196,13 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
             any,
         },
     )
+}
+
+/// A drain's records split into its calls and everything else.
+fn split_calls(events: Vec<TailedEvent>) -> (Vec<TailedEvent>, Vec<TailedEvent>) {
+    events
+        .into_iter()
+        .partition(|event| event.payload["lane"] == "calls")
 }
 
 /// One door out of the tailer: every report — live poll or arm-time
@@ -242,6 +248,14 @@ fn spawn_tailer(
                 let Ok(mut s) = state.lock() else { break };
                 let agent = s.agent.clone();
                 let (events, replay) = drain_all(&mut s);
+                // Calls first, each one carried — never collapsed with the
+                // gauges below. A rotated file re-read whole carries only
+                // what is newer than where the ledger stopped.
+                let (calls, events) = split_calls(events);
+                for call in calls_since(calls, s.since) {
+                    let catch_up = if call.root { replay.root } else { replay.any };
+                    deliver(wrap(&s.pane_id, &s.token, &agent, call, catch_up));
+                }
                 // A rotated root file was re-read whole: its status records
                 // are a replay, and leave as ONE reconcile of the last of
                 // each — the same summary an arm sends.
@@ -313,6 +327,10 @@ pub struct TailArming {
     agent: String,
     watches: Vec<TailWatch>,
     siblings: Option<String>,
+    /// From when (unix ms) the calls in the file are not booked yet — the
+    /// usage ledger's answer for this session. Absent carries every call.
+    #[serde(default)]
+    since: Option<f64>,
 }
 
 /// Follow one pane's session file, emitting its current usage state right
@@ -339,8 +357,9 @@ pub fn usage_watch_session_file(
         root: TailCursor::default(),
         watches: tail.watches,
         siblings: tail.siblings.map(PathBuf::from),
+        linked: Vec::new(),
         subagents: HashMap::new(),
-        folds: Folds::default(),
+        since: tail.since,
     }));
 
     // Watcher FIRST, catch-up second: an append landing during the catch-up
@@ -355,16 +374,18 @@ pub fn usage_watch_session_file(
     })?;
     let (caught_up, reconciled, position) = {
         let mut s = state.lock().expect("tail state poisoned");
-        // The drain folds the WHOLE file in order as it reads it, so the
-        // last record each watch carried already holds the session total of
-        // everything before it — which is exactly what survives the collapse.
         let (drained, _) = drain_all(&mut s);
+        let (calls, drained) = split_calls(drained);
         let reconcile: Vec<Report> = last_status_of_each(&drained, &s.watches)
             .into_iter()
             .map(|event| wrap(&s.pane_id, &s.token, &agent, event, true))
             .collect();
         let reconciled = reconcile.len();
-        let events = last_of_each(drained, &s.watches);
+        // The gauges are a state: the last reading of each watch is all of
+        // it. Calls are not — every one since the ledger stopped is a call it
+        // has not booked, so each travels; the ledger books each once.
+        let mut events = last_of_each(drained, &s.watches);
+        events.extend(calls_since(calls, s.since));
         let count = events.len();
         for event in events {
             let report = wrap(&s.pane_id, &s.token, &agent, event, true);
@@ -395,6 +416,19 @@ pub fn usage_watch_session_file(
     );
     tails.0.insert(pane_id, watcher);
     Ok(())
+}
+
+/// Follow another store of the session a pane's tail follows — a store a
+/// record named (codex's subagent thread), found by the agent's plugin. Read
+/// with the pane's own from the next poll: its calls from `since`, its status
+/// never (a subagent's turns are its own). `false` when the pane has no tail
+/// to add it to; adding a file twice is a no-op.
+#[tauri::command]
+pub fn usage_link_session_file(tails: State<UsageTails>, pane_id: String, path: String) -> bool {
+    tails
+        .0
+        .with(&pane_id, |tail| tail.link(PathBuf::from(path)))
+        .unwrap_or(false)
 }
 
 /// Change what a pane's armed tail carries, from where it stands — the
@@ -459,11 +493,10 @@ pub fn usage_read_store_cold(path: String, watches: Vec<TailWatch>) -> Option<Co
         .ok()
         .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|since| since.as_millis() as u64)?;
-    // A cold read needs no TailState: one cursor from zero, and a fold that
-    // starts empty because this file IS the whole session it describes.
+    // A cold read needs no TailState: one cursor from zero, because this
+    // file IS the whole session it describes.
     let mut cursor = TailCursor::default();
-    let mut folds = Folds::default();
-    let (drained, _) = drain_file(&path, &mut cursor, &watches, &mut folds, true);
+    let (drained, _) = drain_file(&path, &mut cursor, &watches, true);
     let records: Vec<ColdRecord> = last_of_each(drained, &watches)
         .into_iter()
         .map(|event| ColdRecord {
@@ -481,8 +514,6 @@ pub fn usage_read_store_cold(path: String, watches: Vec<TailWatch>) -> Option<Co
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::dialects::*;
     use super::*;
 
@@ -505,78 +536,55 @@ mod tests {
             keep: vec!["type".into()],
             lane: TailLane::Usage,
             replay_context: false,
-            sum: None,
+            context: false,
+            links: false,
         }]
     }
 
-    /// A kimi-shaped declaration: every usage record adds.
-    fn summing_watch() -> Vec<TailWatch> {
-        vec![TailWatch {
-            clauses: vec![equals("type", "usage.record")],
-            keep: vec!["type".into()],
-            lane: TailLane::Usage,
+    fn watch(clauses: Vec<RecordMatch>, keep: &[&str], lane: TailLane) -> TailWatch {
+        TailWatch {
+            clauses,
+            keep: keep.iter().map(|key| key.to_string()).collect(),
+            lane,
             replay_context: false,
-            sum: Some(TailSum {
-                buckets: BTreeMap::from([
-                    ("inputOther".to_string(), "usage.inputOther".to_string()),
-                    ("output".to_string(), "usage.output".to_string()),
-                ]),
-                dedup_by: None,
-                group_by: None,
-                count_as: None,
-                stamp_as: "sessionTotals".to_string(),
-            }),
-        }]
+            context: false,
+            links: false,
+        }
     }
 
-    /// A claude-shaped declaration: rows repeating a message id are one
-    /// message, held at each bucket's maximum.
-    fn deduplicating_watch() -> Vec<TailWatch> {
-        vec![TailWatch {
-            clauses: vec![equals("type", "assistant")],
-            keep: vec!["message.id".into()],
-            lane: TailLane::Usage,
-            replay_context: false,
-            sum: Some(TailSum {
-                buckets: BTreeMap::from([
-                    (
-                        "input_tokens".to_string(),
-                        "message.usage.input_tokens".to_string(),
-                    ),
-                    (
-                        "output_tokens".to_string(),
-                        "message.usage.output_tokens".to_string(),
-                    ),
-                    (
-                        "cache_read_input_tokens".to_string(),
-                        "message.usage.cache_read_input_tokens".to_string(),
-                    ),
-                ]),
-                dedup_by: Some("message.id".to_string()),
-                group_by: None,
-                count_as: None,
-                stamp_as: "sessionTotals".to_string(),
-            }),
-        }]
+    /// A kimi-shaped declaration: every usage record is a call, and the
+    /// request before it names the model.
+    fn kimi_calls() -> Vec<TailWatch> {
+        let mut request = watch(vec![equals("type", "llm.request")], &["model"], TailLane::Calls);
+        request.context = true;
+        vec![request, watch(vec![equals("type", "usage.record")], &["type", "usage"], TailLane::Calls)]
+    }
+
+    /// A claude-shaped declaration: every assistant row is a call (a
+    /// message restated over several rows is booked once by the ledger).
+    fn claude_calls() -> Vec<TailWatch> {
+        vec![watch(
+            vec![equals("type", "assistant")],
+            &["message.id", "message.usage"],
+            TailLane::Calls,
+        )]
     }
 
     /// The interrupt marker, on the status lane — declared AFTER a usage
     /// watch wherever both are used, since the first match carries.
     fn marker_watch() -> TailWatch {
-        TailWatch {
-            clauses: vec![RecordMatch {
+        watch(
+            vec![RecordMatch {
                 key: "interruptedMessageId".into(),
                 equals: None,
             }],
-            keep: vec!["interruptedMessageId".into()],
-            lane: TailLane::Status,
-            replay_context: false,
-            sum: None,
-        }
+            &["interruptedMessageId"],
+            TailLane::Status,
+        )
     }
 
-    fn totals_of(event: &TailedEvent) -> &serde_json::Value {
-        &event.payload["record"]["sessionTotals"]
+    fn calls_of(events: &[TailedEvent]) -> Vec<&TailedEvent> {
+        events.iter().filter(|event| event.payload["lane"] == "calls").collect()
     }
 
     /// Root-only drain, as the pre-split suite spelled it. Every fixture
@@ -607,8 +615,9 @@ mod tests {
             root: TailCursor::default(),
             watches: any_typed_record(),
             siblings: None,
+            linked: Vec::new(),
             subagents: HashMap::new(),
-            folds: Folds::default(),
+            since: None,
         }
     }
 
@@ -643,7 +652,7 @@ mod tests {
         // The marker reaches this side only because the pane's dialect asked
         // for it — and the numbers watch is declared first, since the first
         // match carries.
-        let mut watches = deduplicating_watch();
+        let mut watches = claude_calls();
         watches.push(marker_watch());
         state.watches = watches;
 
@@ -654,10 +663,7 @@ mod tests {
             .expect("subagent marker drained");
         assert!(!marker.root, "a subagent marker must not read as root");
         assert!(
-            drained
-                .iter()
-                .filter(|event| event.payload["lane"] == "usage")
-                .all(|event| event.root),
+            calls_of(&drained).iter().all(|event| event.root),
             "the root transcript's own rows keep their root tag"
         );
         fs::remove_dir_all(&dir).ok();
@@ -744,122 +750,148 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
+    // A rewritten file is read again from the top — every call in it, which
+    // the ledger books once — and its context starts over: the new file has
+    // not yet said what its calls run on.
     #[test]
-    fn drain_rotation_resets_the_running_total() {
+    fn a_rotation_re_reads_every_call_and_forgets_the_files_context() {
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         let mut state = tail(path.clone());
-        state.watches = summing_watch();
+        state.watches = kimi_calls();
 
-        fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
+        fs::write(&path, format!("{LLM_REQUEST_LINE}\n{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
         let events = drain(&mut state);
-        assert_eq!(totals_of(events.last().unwrap())["inputOther"], 2400);
+        assert_eq!(events.len(), 2, "the request is context, not a call");
+        assert!(events.iter().all(|event| event.payload["context"]["model"] == "kimi-code/k3"));
+        assert!(!events[0].payload.to_string().contains("SECRET"), "a context keeps only what it names");
 
-        // A shrunk file (rotation / new session): the drain zeroes the
-        // cumulative BEFORE folding what it re-reads, so the new session sums
-        // from scratch rather than atop the finished one.
         fs::write(&path, format!("{USAGE_RECORD_LINE}\n")).unwrap();
         let events = drain(&mut state);
-        assert_eq!(totals_of(events.last().unwrap())["inputOther"], 1200);
+        assert_eq!(events.len(), 1);
+        assert!(events[0].payload.get("context").is_none(), "the old file's context is gone");
 
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn a_retarget_reads_on_from_the_cursor_with_the_running_total() {
+    fn a_retarget_reads_on_from_the_cursor() {
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         let mut state = tail(path.clone());
-        state.watches = summing_watch();
+        state.watches = kimi_calls();
         state.watches.push(marker_watch());
-        fs::write(&path, format!("{USAGE_RECORD_LINE}\n")).unwrap();
+        fs::write(&path, format!("{LLM_REQUEST_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
         assert_eq!(drain(&mut state).len(), 1);
 
-        // The status lane leaves; the numbers stay where they were.
-        assert!(state.retarget(summing_watch()));
-        assert_eq!(state.watches, summing_watch());
+        // The status lane leaves; the calls read on from where they were,
+        // their context with them.
+        assert!(state.retarget(kimi_calls()));
+        assert_eq!(state.watches, kimi_calls());
         let mut file = OpenOptions::new().append(true).open(&path).unwrap();
         writeln!(file, "{USAGE_RECORD_LINE}").unwrap();
         let events = drain(&mut state);
         assert_eq!(events.len(), 1, "only the appended line is read");
-        assert_eq!(
-            totals_of(&events[0])["inputOther"],
-            2400,
-            "the total runs on"
-        );
+        assert_eq!(events[0].payload["context"]["model"], "kimi-code/k3");
 
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn a_retarget_that_would_change_a_running_total_is_refused() {
+    fn a_retarget_that_would_change_the_calls_is_refused() {
         let mut state = tail(PathBuf::from("/nowhere.jsonl"));
-        state.watches = summing_watch();
-        // A total moved to another slot — and a total that is gone.
-        let mut moved = vec![marker_watch()];
-        moved.extend(summing_watch());
-        for watches in [moved, vec![marker_watch()]] {
+        state.watches = kimi_calls();
+        let mut gone = kimi_calls();
+        gone.pop();
+        for watches in [gone, claude_calls(), vec![marker_watch()]] {
             assert!(!state.retarget(watches));
-            assert_eq!(state.watches, summing_watch(), "nothing changed");
+            assert_eq!(state.watches, kimi_calls(), "nothing changed");
         }
     }
 
+    // The ledger knows where it stopped: an arm carries the calls from there
+    // on, never the file's whole history again.
     #[test]
-    fn catch_up_last_record_carries_the_full_session_cumulative() {
-        // The crux invariant, end to end: the drain folds the whole file in
-        // order, THEN last_of_each keeps the last record each watch carried —
-        // which must hold the cumulative of ALL prior records, not just its
-        // own line. A refactor that collapsed first would silently drop the
-        // earlier records' tokens.
+    fn an_arm_carries_every_call_since_the_ledger_stopped_and_no_more() {
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         let mut state = tail(path.clone());
-        state.watches = summing_watch();
-        let record = |input: u64| {
-            format!(
-                r#"{{"type":"usage.record","usage":{{"inputOther":{input},"output":10,"inputCacheRead":0,"inputCacheCreation":0}},"usageScope":"turn","time":1}}"#
-            )
+        state.watches = kimi_calls();
+        let record = |time: u64| {
+            format!(r#"{{"type":"usage.record","usage":{{"inputOther":1,"output":1}},"time":{time}}}"#)
         };
-        fs::write(
-            &path,
-            format!("{}\n{}\n{}\n", record(100), record(200), record(300)),
-        )
-        .unwrap();
+        fs::write(&path, format!("{}\n{}\n{}\n", record(100), record(200), record(300))).unwrap();
 
-        let drained = drain(&mut state);
-        let kept = last_of_each(drained, &state.watches);
-        assert_eq!(kept.len(), 1, "one watch, one surviving record");
-        assert_eq!(totals_of(&kept[0])["inputOther"], 600); // 100+200+300
-        assert_eq!(totals_of(&kept[0])["output"], 30);
+        let (calls, rest) = split_calls(drain(&mut state));
+        assert!(rest.is_empty());
+        assert!(last_of_each(calls.clone(), &state.watches).is_empty(), "no call is summarised away");
+        let kept = calls_since(calls, Some(200.0));
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0].source_at, Some(SourceTimestamp::UnixMillis(200)));
 
         fs::remove_dir_all(&dir).ok();
     }
 
+    // A message written as several rows travels as several calls: each one
+    // restates the message, and the ledger books only what grew.
     #[test]
-    fn catch_up_keeps_the_full_deduplicated_session_cumulative() {
+    fn every_row_of_a_restated_message_is_carried() {
         let dir = temp_dir();
         let path = dir.join("claude.jsonl");
         let mut state = tail(path.clone());
-        state.watches = deduplicating_watch();
+        state.watches = claude_calls();
         let repeated =
             CLAUDE_ASSISTANT_LINE.replace(r#""output_tokens":30"#, r#""output_tokens":45"#);
-        let next = CLAUDE_ASSISTANT_LINE
-            .replace("msg-1", "msg-2")
-            .replace(r#""output_tokens":30"#, r#""output_tokens":5"#);
-        fs::write(
-            &path,
-            format!("{CLAUDE_ASSISTANT_LINE}\n{repeated}\n{next}\n"),
-        )
-        .unwrap();
+        fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n{repeated}\n")).unwrap();
 
-        let drained = drain(&mut state);
-        let kept = last_of_each(drained, &state.watches);
-        assert_eq!(kept.len(), 1);
-        // msg-1 contributes its MAXIMUM output (45, not 30+45), msg-2 its 5.
-        assert_eq!(totals_of(&kept[0])["output_tokens"], 50);
-        // The repeated row restates the same cache read — counted once.
-        assert_eq!(totals_of(&kept[0])["cache_read_input_tokens"], 80000);
+        let events = drain(&mut state);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].payload["record"]["message.usage"]["output_tokens"], 45);
+        assert!(events.iter().all(|event| !event.payload.to_string().contains("SECRET")));
 
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // A store a record named joins the pane's tail: read from the next
+    // poll, under the same session, never twice.
+    #[test]
+    fn a_linked_store_is_read_with_the_panes_own() {
+        let dir = temp_dir();
+        let path = dir.join("rollout-parent.jsonl");
+        let child = dir.join("rollout-child.jsonl");
+        fs::write(&path, format!("{USAGE_RECORD_LINE}\n")).unwrap();
+        fs::write(&child, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
+        let mut state = tail(path.clone());
+        state.watches = kimi_calls();
+        assert_eq!(drain(&mut state).len(), 1);
+
+        state.linked.push(child.clone());
+        let events = drain(&mut state);
+        assert_eq!(events.len(), 2, "the linked store's calls");
+        assert!(events.iter().all(|event| !event.root));
+        assert_eq!(
+            events[0].source_ref.as_ref().map(|r| r.file.clone()),
+            Some(child.to_string_lossy().into_owned())
+        );
+        assert!(drain(&mut state).is_empty());
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // Siblings are looked for below the named directory too: claude nests a
+    // workflow's agents, kimi gives each subagent a directory of its own.
+    #[test]
+    fn sibling_files_are_found_in_nested_directories() {
+        let dir = temp_dir();
+        let path = dir.join("session.jsonl");
+        fs::write(&path, "").unwrap();
+        let agents = dir.join("session/agents");
+        fs::create_dir_all(agents.join("sub-1")).unwrap();
+        fs::write(agents.join("sub-1/wire.jsonl"), format!("{USAGE_RECORD_LINE}\n")).unwrap();
+        fs::write(agents.join("notes.txt"), "not a store").unwrap();
+        let mut state = tail_with_siblings(path, agents);
+        state.watches = kimi_calls();
+        assert_eq!(drain(&mut state).len(), 1);
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -885,7 +917,7 @@ mod tests {
         fs::write(subagents.join("agent-a.jsonl"), format!("{subagent}\n")).unwrap();
 
         let mut state = tail_with_siblings(path, subagents.clone());
-        state.watches = deduplicating_watch();
+        state.watches = claude_calls();
         let (drained, _) = drain_all(&mut state);
         assert_eq!(drained.len(), 2);
         assert!(
@@ -894,12 +926,11 @@ mod tests {
                 .all(|event| !event.payload.to_string().contains("SECRET")),
             "root and subagent transcript content must stay private"
         );
-        let kept = last_of_each(drained, &state.watches);
-        // A subagent's rows are the session's cost too — only its turn edges
-        // are its own.
-        assert_eq!(totals_of(&kept[0])["input_tokens"], 14);
-        assert_eq!(totals_of(&kept[0])["output_tokens"], 37);
-        assert_eq!(totals_of(&kept[0])["cache_read_input_tokens"], 40100);
+        // A subagent's calls are the session's spend too — only its turn
+        // edges are its own.
+        let subagent = drained.iter().find(|event| !event.root).expect("the subagent's call");
+        assert_eq!(subagent.payload["record"]["message.id"], "msg-subagent");
+        assert_eq!(subagent.payload["record"]["message.usage"]["output_tokens"], 7);
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -913,7 +944,7 @@ mod tests {
         // Named at arming, and the directory does not exist yet — which is
         // the point: it appears when the first subagent starts.
         let mut state = tail_with_siblings(path, subagents.clone());
-        state.watches = deduplicating_watch();
+        state.watches = claude_calls();
         drain_all(&mut state);
 
         fs::create_dir_all(&subagents).unwrap();
@@ -924,7 +955,7 @@ mod tests {
 
         let (appended, _) = drain_all(&mut state);
         assert_eq!(appended.len(), 1);
-        assert_eq!(totals_of(&appended[0])["output_tokens"], 35);
+        assert_eq!(appended[0].payload["record"]["message.id"], "msg-late");
         assert!(drain_all(&mut state).0.is_empty());
 
         fs::remove_dir_all(&dir).ok();
@@ -937,16 +968,15 @@ mod tests {
         // it is never told which it is looking at.
         let dir = temp_dir();
         let path = dir.join("cold.jsonl");
-        let watches = summing_watch();
-        fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
+        let gauges = || vec![watch(vec![equals("type", "usage.record")], &["type", "usage"], TailLane::Usage)];
+        let last = USAGE_RECORD_LINE.replace(r#""inputOther":1200"#, r#""inputOther":7"#);
+        fs::write(&path, format!("{USAGE_RECORD_LINE}\n{last}\n")).unwrap();
         set_mtime(&path, 2_000);
 
-        let found = usage_read_store_cold(path.to_string_lossy().into(), watches).expect("read");
+        let found = usage_read_store_cold(path.to_string_lossy().into(), gauges()).expect("read");
         assert_eq!(found.mtime_ms, 2_000_000);
         assert_eq!(found.records.len(), 1, "the last record of the one watch");
-        let record = &found.records[0].event["record"];
-        // Folded over the WHOLE file, exactly as an arming drain folds it.
-        assert_eq!(record["sessionTotals"]["inputOther"], 2400);
+        assert_eq!(found.records[0].event["record"]["usage"]["inputOther"], 7);
         assert_eq!(
             found.records[0].source_at,
             Some(dialects::SourceTimestamp::UnixMillis(1_784_800_000_000))
@@ -957,14 +987,14 @@ mod tests {
         let empty = dir.join("empty.jsonl");
         fs::write(&empty, format!("{LLM_REQUEST_LINE}\n")).unwrap();
         assert_eq!(
-            usage_read_store_cold(empty.to_string_lossy().into(), summing_watch()),
+            usage_read_store_cold(empty.to_string_lossy().into(), gauges()),
             None
         );
         // So is a file that is not there at all.
         assert_eq!(
             usage_read_store_cold(
                 dir.join("missing.jsonl").to_string_lossy().into(),
-                summing_watch()
+                gauges()
             ),
             None
         );
@@ -976,7 +1006,7 @@ mod tests {
     fn reports_carry_the_agent_tag_and_the_catch_up_mark() {
         let watches = any_typed_record();
         let carry = |line: &[u8]| {
-            watched_events(line, &watches, &mut Folds::default())
+            watched_events(line, &watches, &mut None)
                 .into_iter()
                 .next()
                 .expect("carried")
@@ -1211,13 +1241,14 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
+    // A gauge read three times in one tick is one reading — the last.
     #[test]
-    fn tailer_delivers_one_report_for_a_message_written_as_several_lines() {
+    fn tailer_delivers_one_gauge_report_for_a_run_of_readings() {
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         fs::write(&path, "").unwrap();
         let mut state = tail(path.clone());
-        state.watches = summing_watch();
+        state.watches = vec![watch(vec![equals("type", "usage.record")], &["usage"], TailLane::Usage)];
         let state = Arc::new(Mutex::new(state));
         let (tx, rx) = mpsc::channel::<Report>();
         let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
@@ -1225,21 +1256,43 @@ mod tests {
         })
         .expect("watch");
 
-        // Three lines in one write, so one tick drains them together.
-        fs::write(
-            &path,
-            format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n"),
-        )
-        .unwrap();
+        let last = USAGE_RECORD_LINE.replace(r#""inputOther":1200"#, r#""inputOther":7"#);
+        fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n{last}\n")).unwrap();
         let report = rx.recv_timeout(Duration::from_secs(10)).expect("a report");
-        assert_eq!(
-            report.payload["event"]["record"]["sessionTotals"]["inputOther"], 3600,
-            "the one report carries all three"
-        );
+        assert_eq!(report.payload["event"]["record"]["usage"]["inputOther"], 7, "the last reading");
         assert!(
             rx.recv_timeout(Duration::from_millis(600)).is_err(),
             "and is the only one"
         );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // A call read three times in one tick is three calls: each one travels,
+    // with its place in the store.
+    #[test]
+    fn tailer_delivers_every_call_of_a_tick() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        fs::write(&path, "").unwrap();
+        let mut state = tail(path.clone());
+        state.watches = kimi_calls();
+        let state = Arc::new(Mutex::new(state));
+        let (tx, rx) = mpsc::channel::<Report>();
+        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
+            let _ = tx.send(r);
+        })
+        .expect("watch");
+
+        fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
+        let offsets: Vec<u64> = (0..3)
+            .map(|_| {
+                let report = rx.recv_timeout(Duration::from_secs(10)).expect("a call");
+                assert_eq!(report.payload["event"]["lane"], "calls");
+                report.payload["sourceRef"]["offset"].as_u64().expect("its place")
+            })
+            .collect();
+        let line = USAGE_RECORD_LINE.len() as u64 + 1;
+        assert_eq!(offsets, vec![0, line, 2 * line]);
         fs::remove_dir_all(&dir).ok();
     }
 

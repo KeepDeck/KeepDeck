@@ -61,6 +61,9 @@ pub(super) fn wrap(
     if let Some(source_mtime_ms) = event.source_mtime_ms {
         payload["sourceMtimeMs"] = json!(source_mtime_ms);
     }
+    if let Some(source_ref) = event.source_ref {
+        payload["sourceRef"] = json!(source_ref);
+    }
     Report {
         pane_id: pane_id.to_string(),
         token: token.to_string(),
@@ -97,11 +100,12 @@ pub(super) fn route(report: Report) -> Routed {
     if report.payload[EVENT_KEY]["type"] != CARRIED_RECORD && !is_batch {
         return Routed::Usage(report);
     }
-    // The lane the dialect DECLARED. A record about the numbers rides the
-    // usage channel and keeps the wrapper it came in — its normalizer reads
-    // the whole envelope, catch-up mark included, because restoring the last
-    // known cost after a restart is exactly what a replay is for.
-    if report.payload[EVENT_KEY]["lane"] == "usage" {
+    // The lane the dialect DECLARED. A record about the numbers — the pane's
+    // live gauges, or a call it made — rides the usage channel and keeps the
+    // wrapper it came in: its normalizer reads the whole envelope, its place
+    // in the store and catch-up mark included.
+    let lane = &report.payload[EVENT_KEY]["lane"];
+    if lane == "usage" || lane == "calls" {
         return Routed::Usage(report);
     }
     // A status record from a replay — the file as it was when the tail
@@ -149,9 +153,28 @@ mod tests {
             payload,
             source_at: Some(SourceTimestamp::Iso("2026-08-01T10:00:00Z".into())),
             source_mtime_ms: Some(1234),
+            source_ref: None,
             root: true,
             slot: Some(0),
+            links: false,
         }
+    }
+
+    // A call is about the numbers: it rides the usage channel, and keeps its
+    // place in the store for the plugin that needs it as an id.
+    #[test]
+    fn a_call_rides_the_usage_channel_with_its_place() {
+        let mut call = event(serde_json::json!({
+            "type": CARRIED_RECORD, "record": {}, "lane": "calls",
+            "context": { "payload.model": "gpt-6.1-sol" }
+        }));
+        call.source_ref = Some(super::super::dialects::SourceRef { file: "/r.jsonl".into(), offset: 42 });
+        let Routed::Usage(report) = route(wrap("pane", "token", "codex", call, false)) else {
+            panic!("a call is usage, never status");
+        };
+        assert_eq!(report.payload["sourceRef"]["offset"], 42);
+        assert_eq!(report.payload["sourceRef"]["file"], "/r.jsonl");
+        assert_eq!(report.payload["event"]["context"]["payload.model"], "gpt-6.1-sol");
     }
 
     // The two-channel decision itself — a typo in either literal or a

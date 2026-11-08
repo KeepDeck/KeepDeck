@@ -345,6 +345,7 @@ pub fn run() {
             head_watch::worktree_unwatch,
             session_tail::usage_watch_session_file,
             session_tail::usage_retarget_session_file,
+            session_tail::usage_link_session_file,
             session_tail::usage_unwatch_session_file,
             session_tail::usage_read_store_cold,
             rpc_child::plugin_rpc_request,
