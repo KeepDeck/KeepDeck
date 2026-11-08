@@ -1,7 +1,5 @@
 import { useMemo } from "react";
 import { Bar, BarChart, BarStack, Legend, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { formatBucket, formatTokens, tokenSegments } from "../../domain/usage";
-import { seriesColorFor } from "../../presentation/usagePalette";
 import {
   CHART_BAR_RADIUS,
   CHART_CURSOR_FILL,
@@ -10,14 +8,15 @@ import {
   CHART_TEXT_SIZE,
   CHART_TICK_INK,
 } from "../../domain/usage/chartPalette";
-import {
-  bucketShares,
-  usageTimeline,
-  type TimelineBucket,
-  type UsageTimeline,
-} from "../../domain/usage/daily";
+import { usageTimeline, type TimelineBucket } from "../../domain/usage/daily";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { UsageStatsPeriod } from "../../domain/usage/history/query";
+import {
+  bucketTipView,
+  bucketValue,
+  usageChartView,
+  type BucketTipView,
+} from "../../presentation/stats/usageChartView";
 
 /**
  * Tokens over time, stacked by provider — wide flush columns, the stack's
@@ -25,21 +24,12 @@ import type { UsageStatsPeriod } from "../../domain/usage/history/query";
  * exact numbers live in the hover card. Colors come from the domain's
  * roster-stable palette — series (presentation/usagePalette.ts, keyed on
  * the agent catalog, so period switches never repaint a provider) and
- * chrome (chartPalette.ts).
+ * chrome (chartPalette.ts). What the chart and its card say is settled in
+ * presentation/stats/usageChartView.ts.
  * Buckets are rendered as-is; series read through accessor functions, so
  * an agent id can never collide with an axis field or be misread as a
  * lodash property path.
  */
-
-type Granularity = UsageTimeline["granularity"];
-
-/** Exhaustive by construction: a third granularity fails to compile until
- * it names its title and label rule. */
-const TITLES: Record<Granularity, string> = {
-  hour: "Hourly tokens",
-  day: "Daily tokens",
-};
-
 export function UsageChart({
   ledger,
   colors,
@@ -58,26 +48,21 @@ export function UsageChart({
     () => usageTimeline(ledger.events, period, now),
     [ledger, period, now],
   );
-  // Nothing recorded, or recorded only in the leading sliver the full-bucket
-  // axis excludes (agents lists the EMITTED buckets' roster) — an all-zero
-  // plot with an empty legend reads as broken, not as quiet.
-  if (timeline.buckets.length === 0 || timeline.agents.length === 0) return null;
-  const title = TITLES[timeline.granularity];
+  const view = usageChartView(timeline, colors);
+  if (!view) return null;
 
   return (
-    <section className="stats__section stats__chart" aria-label={title}>
-      <h3>{title}</h3>
+    <section className="stats__section stats__chart" aria-label={view.title}>
+      <h3>{view.title}</h3>
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
         <BarChart
-          data={timeline.buckets as TimelineBucket[]}
+          data={view.buckets}
           margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
           barCategoryGap="12%"
         >
           <XAxis
             dataKey="start"
-            tickFormatter={(value: number) =>
-              formatBucket(value, timeline.granularity)
-            }
+            tickFormatter={view.tick}
             tick={{ fill: CHART_TICK_INK, fontSize: CHART_TEXT_SIZE }}
             axisLine={false}
             tickLine={false}
@@ -92,16 +77,10 @@ export function UsageChart({
                in this chart, so without this the legend paints over the
                hover card. */
             wrapperStyle={{ zIndex: 1 }}
+            // The hovered bucket is found by the x value recharts reports —
+            // its own payload row is untyped.
             content={(props) => (
-              <BucketTip
-                active={props.active === true}
-                // The hovered bucket, found by the x value recharts reports —
-                // its own payload row is untyped.
-                bucket={timeline.buckets.find((bucket) => bucket.start === props.label) ?? null}
-                agents={timeline.agents}
-                colors={colors}
-                granularity={timeline.granularity}
-              />
+              <BucketTip tip={bucketTipView(timeline, props.active === true, props.label, colors)} />
             )}
           />
           <Legend
@@ -116,14 +95,12 @@ export function UsageChart({
               segment happens to be on top, however thin: a per-segment
               radius left a sliver of a cap square on a square stack. */}
           <BarStack radius={[CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0]}>
-            {timeline.agents.map((agent) => (
+            {view.agents.map((agent) => (
               <Bar
                 key={agent}
                 name={agent}
-                dataKey={(bucket: TimelineBucket) =>
-                  bucket.byAgent[agent]?.totalTokens ?? 0
-                }
-                fill={colors.get(agent)}
+                dataKey={(bucket: TimelineBucket) => bucketValue(bucket, agent)}
+                fill={view.color(agent)}
                 isAnimationActive={false}
               />
             ))}
@@ -142,75 +119,41 @@ export function UsageChart({
  * provider. The composition is the question the length raises and cannot
  * answer, and this is the only surface in the app where the two can be read
  * together, per provider, at a point in time.
- *
- * Providers keep the timeline's fixed alphabetical order rather than being
- * ranked by size, so the rows do not reshuffle as the cursor moves; a
- * provider absent from the bucket is omitted rather than shown as zero.
  */
-function BucketTip({
-  active,
-  bucket,
-  agents,
-  colors,
-  granularity,
-}: {
-  active: boolean;
-  bucket: TimelineBucket | null;
-  agents: readonly string[];
-  colors: ReadonlyMap<string, string>;
-  granularity: Granularity;
-}) {
-  if (!active || bucket === null) return null;
-  const shares = bucketShares(bucket, agents);
-  if (shares.length === 0) return null;
+function BucketTip({ tip }: { tip: BucketTipView | null }) {
+  if (!tip) return null;
   return (
     <div className="stats__chart-tip">
-      <b>{formatBucket(bucket.start, granularity, "long")}</b>
-      {shares.map((share) => {
-        const segments = tokenSegments(share.tokens);
-        const color = seriesColorFor(colors, share.agent);
-        return (
-          <span
-            className="stats__chart-tip-row"
-            key={share.agent}
-            style={{ "--series": color }}
-          >
-            <span className="stats__chart-tip-name">
-              {/* Identity is the square; the text stays ink, the rule the
-                  old tooltip already followed. */}
-              <i style={{ background: color }} />
-              {share.agent}
-            </span>
-            <span className="stats__chart-tip-total">
-              {formatTokens(share.totalTokens)}
-            </span>
-            {segments.length > 0 && (
-              <>
-                {/* The split as a PROPORTION, not only as three numbers.
-                    "cache 323.7M · ↑ 7.4k" is a sentence you have to do
-                    arithmetic on; a bar that is almost entirely one shade
-                    says "nearly all of this was cache" at a glance.
-                    Shades of the provider's own colour, never three new
-                    hues: in this card colour already means WHO, and a
-                    second colour language inside it would fight the
-                    square two lines up. */}
-                <span className="stats__chart-tip-bar" aria-hidden>
-                  {segments.map((segment) => (
-                    <i
-                      key={segment.kind}
-                      data-kind={segment.kind}
-                      style={{ flexGrow: segment.value }}
-                    />
-                  ))}
-                </span>
-                <span className="stats__chart-tip-split">
-                  {segments.map((segment) => segment.caption).join(" · ")}
-                </span>
-              </>
-            )}
+      <b>{tip.heading}</b>
+      {tip.rows.map((row) => (
+        <span className="stats__chart-tip-row" key={row.agent} style={{ "--series": row.color }}>
+          <span className="stats__chart-tip-name">
+            {/* Identity is the square; the text stays ink, the rule the
+                old tooltip already followed. */}
+            <i style={{ background: row.color }} />
+            {row.agent}
           </span>
-        );
-      })}
+          <span className="stats__chart-tip-total">{row.total}</span>
+          {row.segments.length > 0 && (
+            <>
+              {/* The split as a PROPORTION, not only as three numbers.
+                  "cache 323.7M · ↑ 7.4k" is a sentence you have to do
+                  arithmetic on; a bar that is almost entirely one shade
+                  says "nearly all of this was cache" at a glance.
+                  Shades of the provider's own colour, never three new
+                  hues: in this card colour already means WHO, and a
+                  second colour language inside it would fight the
+                  square two lines up. */}
+              <span className="stats__chart-tip-bar" aria-hidden>
+                {row.segments.map((segment) => (
+                  <i key={segment.kind} data-kind={segment.kind} style={{ flexGrow: segment.value }} />
+                ))}
+              </span>
+              <span className="stats__chart-tip-split">{row.split}</span>
+            </>
+          )}
+        </span>
+      ))}
     </div>
   );
 }

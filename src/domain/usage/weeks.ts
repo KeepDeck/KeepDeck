@@ -1,4 +1,4 @@
-import { formatUtcDay, modelLabel } from "./format";
+import { modelLabel } from "./format";
 import {
   addCost,
   emptyCostTally,
@@ -15,9 +15,9 @@ import { DAY_MS, utcWeekStart, WEEK_MS } from "./time";
  * Pure and time-injected like every stats query.
  */
 
-/** Derived, not typed out: the week length these captions count against is
+/** Derived, not typed out: the week length a week's days count against is
  * the same one `WEEK_MS` already states. */
-const DAYS_PER_WEEK = WEEK_MS / DAY_MS;
+export const DAYS_PER_WEEK = WEEK_MS / DAY_MS;
 
 export interface UsageWeek extends CostTally {
   /** The week's UTC Monday 00:00. */
@@ -125,24 +125,6 @@ function topModel(fold: WeekFold | undefined): UsageWeek["topModel"] {
   return top;
 }
 
-/* ---- captions --------------------------------------------------------- */
-
-/** "Jul 27 – Aug 2", the year joining once the week no longer reaches
- * `now`'s ("Sep 8 – Sep 14 · 2025"). The suffix names the END's year: a
- * New-Year week is CURRENT while its Sunday sits in this year, and
- * wearing last year's suffix made the in-progress row read historical.
- * Both ends labeled in UTC like every stats day bucket. */
-export function formatWeekLabel(start: number, now: number): string {
-  // The week in progress is named by its RELATION to now, not by its dates.
-  // That is what carries "still filling" — the row used to say it by going
-  // translucent, which in an interface means disabled, not unfinished.
-  if (start === utcWeekStart(now)) return "This week";
-  const end = start + 6 * DAY_MS;
-  const range = `${formatUtcDay(start)} – ${formatUtcDay(end)}`;
-  const year = new Date(end).getUTCFullYear();
-  return year === new Date(now).getUTCFullYear() ? range : `${range} · ${year}`;
-}
-
 /** How many of the week's seven days have STARTED, 1–7 — the honest measure
  * of how much of an in-progress week is in hand. Days, not hours: the row's
  * numbers are day-bucketed like every other stats total, so a fraction of a
@@ -152,32 +134,9 @@ export function weekDaysElapsed(start: number, now: number): number {
   return Math.min(DAYS_PER_WEEK, Math.max(1, days));
 }
 
-/** "2 of 7 days" — what an in-progress week says where a completed one
- * shows its delta. The cell is the same cell: a week with nothing to
- * compare against still has something true to report. */
-export function weekProgressCaption(start: number, now: number): string {
-  return `${weekDaysElapsed(start, now)} of ${DAYS_PER_WEEK} days`;
-}
-
-/** "↑ +18%" / "↓ -41%" / a flat "0%" — the row's week-over-week clause,
- * sign convention shared with the recap's delta. Zero wears NO arrow: a
- * week down by half a percent rounds to -0, and `-0 >= 0` once pinned an
- * UP arrow on a decline (review finding). An incomparable week gets an
- * EMPTY cell, not a dash: a placeholder pretending to be a value breaks
- * the column's alignment rhythm. */
-export function weekDeltaCaption(deltaPct: number | null): string {
-  if (deltaPct === null) return "";
-  if (deltaPct === 0) return "0%";
-  return deltaPct > 0 ? `↑ +${deltaPct}%` : `↓ -${Math.abs(deltaPct)}%`;
-}
-
 /** Is this the still-empty week in progress? Empty means NOTHING landed —
  * tokens or a priced event alike: a week with usage renders as a row, not
  * as this placeholder (review finding). */
 export function weekAwaitingUsage(week: UsageWeek): boolean {
   return week.current && week.totalTokens === 0 && week.pricedEvents === 0;
 }
-
-/** The empty in-progress row's line — domain-owned like its delta
- * sibling, so a future digest reuses the exact wording. */
-export const WEEK_IN_PROGRESS = "in progress · no usage yet";

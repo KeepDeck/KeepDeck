@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubCanvasContext } from "../canvasContext.test-support";
-import { AchievementEmbers, reseed, seedField } from "./AchievementEmbers";
+import { AchievementEmbers } from "./AchievementEmbers";
 import { present } from "@keepdeck/plugin-api/testing";
 
 /** The card the stylesheet would give this field: a 158×93 padding box plus
@@ -234,39 +234,5 @@ describe("AchievementEmbers", () => {
     act(() => root.unmount());
     mounted = false;
     expect(cancel).toHaveBeenCalled();
-  });
-});
-
-describe("the ember field", () => {
-  const phases = (now: number, field: ReturnType<typeof seedField>) =>
-    new Set(field.map((spark) => now - spark.born));
-
-  it("starts every ember at its own point in its own life", () => {
-    const field = seedField(1_000);
-    expect(field).toHaveLength(24);
-    // A field born together flashes as one; a field mid-flight glows.
-    expect(phases(1_000, field).size).toBeGreaterThan(20);
-    expect([...phases(1_000, field)].every((age) => age >= 0)).toBe(true);
-  });
-
-  it("covers the card with exactly one ember per cell", () => {
-    // Independent random points clump, and a clump reads as "all the sparks
-    // are in one corner"; a shorter pool cycling through cells leaves a gap
-    // that travels. One per cell is the only arrangement with neither.
-    const cells = seedField(0).map((spark) => spark.cell);
-    expect(new Set(cells).size).toBe(cells.length);
-  });
-
-  it("puts a resumed field back mid-flight, not all at the starting line", () => {
-    // The regression: a field parked behind the scroll came back with every
-    // ember reborn on the same frame at phase zero, so the badge went dark,
-    // bloomed at nearly twice its steady brightness, and troughed — and the
-    // whole grid did it in step, since the observer reports newly visible
-    // cards in one batch.
-    const field = seedField(0);
-    reseed(field, 5_000);
-    expect(phases(5_000, field).size).toBeGreaterThan(20);
-    // Same cells, so the coverage the grid buys is not lost on resume.
-    expect(new Set(field.map((spark) => spark.cell)).size).toBe(field.length);
   });
 });

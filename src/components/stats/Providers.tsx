@@ -1,24 +1,9 @@
 import { Fragment, useMemo } from "react";
-import {
-  formatAge,
-  formatPct,
-  windowLabel,
-  windowLedgerCaption,
-  windowLevel,
-  type AccountUsage,
-} from "../../domain/usage";
-import { seriesColorFor } from "../../presentation/usagePalette";
+import type { AccountUsage } from "../../domain/usage";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
-import {
-  providerWindowGroups,
-  type ProviderWindowRow,
-} from "../../domain/usage/providerWindows";
+import { providerWindowGroups } from "../../domain/usage/providerWindows";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import { windowBurn } from "../../domain/usage/windowBurn";
-import {
-  burnEdgeLabel,
-  cardCaptionParts,
-} from "../../domain/usage/windowForecast";
+import { providersView, type ProviderWindowView } from "../../presentation/stats/providersView";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { WindowBurn } from "../usage/WindowBurn";
 
@@ -28,7 +13,8 @@ import { WindowBurn } from "../usage/WindowBurn";
  * reset countdown and the ledger numbers keep separate sources — the
  * section never derives one from the other. Period-independent by design:
  * a subscription window is the provider's clock, not the user's selected
- * range. */
+ * range. What each card says is settled in
+ * presentation/stats/providersView.ts. */
 export function Providers({
   accounts,
   ledger,
@@ -45,56 +31,31 @@ export function Providers({
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
 }) {
-  // Keyed on the SAME clock the captions below render with — a memo that
-  // reads its own Date.now() froze expired/stale while the caption beside
-  // them said "reset passed" (round-2 finding). reportsByKey joined the
-  // deps with the forecast join, at no added recompute: the journal
-  // captures synchronously from the usage store, so every journal emit
-  // lands in the same flush as the accounts change that caused it — a
-  // dependency this memo already carried.
-  const groups = useMemo(
-    () => providerWindowGroups(accounts, ledger.events, reportsByKey, now),
-    [accounts, ledger, reportsByKey, now],
+  // Keyed on the SAME clock the captions render with — a memo that read its
+  // own Date.now() froze expired/stale while the caption beside them said
+  // "reset passed" (round-2 finding). The journal captures synchronously
+  // from the usage store, so every journal emit lands in the same flush as
+  // the accounts change that caused it.
+  const view = useMemo(
+    () => providersView(providerWindowGroups(accounts, ledger.events, reportsByKey, now), now, colors),
+    [accounts, ledger, reportsByKey, now, colors],
   );
-  if (groups.length === 0) {
-    return (
-      <p className="stats__empty">
-        No provider reports yet. Windows appear once a CLI reports its account
-        limits.
-      </p>
-    );
+  if (view.kind === "empty") {
+    return <p className="stats__empty">{view.text}</p>;
   }
   return (
     <section className="stats__section">
-      <h3>Providers</h3>
-      <div className="stats__providers" role="group" aria-label="Providers">
-        {groups.map((group) => (
-          <article className="stats__provider" key={group.agent}>
+      <h3>{view.title}</h3>
+      <div className="stats__providers" role="group" aria-label={view.title}>
+        {view.cards.map((card) => (
+          <article className="stats__provider" key={card.agent}>
             <header className="stats__provider-head">
-              <b>{group.agent}</b>
-              <small className={group.stale ? "usage-level--warn" : ""}>
-                updated {formatAge(group.reportedAt, now)}
-              </small>
+              <b>{card.agent}</b>
+              <small className={card.updated.className}>{card.updated.text}</small>
             </header>
-            {/* Said ONCE per card, whenever ANY window has reset — not only
-                when they all have. Gating it on "all" left the common case
-                worse than before the note existed: a card with a live
-                weekly window and an expired 5h one showed a dimmed
-                percentage with nothing anywhere saying it describes a
-                window that is gone. */}
-            {group.rows.some((row) => row.expired) && (
-              <p className="stats__provider-idle">
-                A window that has reset keeps showing the previous window
-                &apos;s percentage until this account reports again.
-              </p>
-            )}
-            {group.rows.map((row) => (
-              <ProviderWindow
-                key={row.id}
-                row={row}
-                stroke={seriesColorFor(colors, row.agent)}
-                now={now}
-              />
+            {card.note && <p className="stats__provider-idle">{card.note}</p>}
+            {card.windows.map((window) => (
+              <ProviderWindow key={window.id} view={window} now={now} />
             ))}
           </article>
         ))}
@@ -103,51 +64,24 @@ export function Providers({
   );
 }
 
-function ProviderWindow({
-  row,
-  stroke,
-  now,
-}: {
-  row: ProviderWindowRow;
-  stroke: string | undefined;
-  now: number;
-}) {
-  const level = windowLevel(row.window, now);
-  const burn = useMemo(
-    () => windowBurn(row.reports, row.window, row.forecast, now, "limit"),
-    [row.reports, row.window, row.forecast, now],
-  );
-  const caption = cardCaptionParts(row.window, row.forecast, now);
+function ProviderWindow({ view, now }: { view: ProviderWindowView; now: number }) {
   return (
-    <div
-      className={`stats__window${row.expired ? " stats__window--expired" : ""}`}
-    >
+    <div className={`stats__window${view.expired ? " stats__window--expired" : ""}`}>
       <div className="stats__window-head">
-        <span>{windowLabel(row.window, "long")}</span>
-        <span className={level ? `usage-level--${level}` : ""}>
-          {formatPct(row.window.usedPct, "used")}
-        </span>
+        <span>{view.label}</span>
+        <span className={view.percent.className}>{view.percent.text}</span>
       </div>
-      <UsageWindowBar window={row.window} now={now} />
-      <WindowBurn
-        geometry={burn}
-        stroke={stroke}
-        edge={burnEdgeLabel(row.window, row.forecast, now)}
-        now={now}
-      />
+      <UsageWindowBar window={view.window} now={now} />
+      <WindowBurn geometry={view.burn} stroke={view.stroke} edge={view.edge} now={now} />
       <small>
-          {caption.map((part, index) => (
-            <Fragment key={index}>
-              {index > 0 && " · "}
-              <span
-                className={part.level ? `usage-level--${part.level}` : undefined}
-              >
-                {part.text}
-              </span>
-            </Fragment>
-          ))}
-        </small>
-      {row.ledger && <small>{windowLedgerCaption(row.ledger)}</small>}
+        {view.caption.map((part, index) => (
+          <Fragment key={index}>
+            {part.lead}
+            <span className={part.className}>{part.text}</span>
+          </Fragment>
+        ))}
+      </small>
+      {view.ledger && <small>{view.ledger}</small>}
     </div>
   );
 }

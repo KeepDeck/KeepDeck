@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { queryUsageStats } from "./history/query";
-import { recapCaption, usageRecap } from "./recap";
-import { utcDayStart } from "./time";
+import { usageRecap } from "./recap";
 
 /** The production call shape: recap describes an already-aggregated period. */
 const recapOf = (
@@ -114,40 +113,5 @@ describe("usageRecap", () => {
       topModel: null,
       busiestDay: null,
     });
-  });
-});
-
-describe("recapCaption", () => {
-  it("phrases the sentence in the domain: order, separator, sign", () => {
-    expect(
-      recapCaption(
-        {
-          tokensDeltaPct: 12,
-          topModel: { model: "gpt-5.6-terra", totalTokens: 1_500_000 },
-          busiestDay: {
-            // Through the bucket rule rather than a bare parse: the field is
-            // branded, and minting one by hand is exactly what the brand is
-            // there to stop.
-            dayStart: utcDayStart(Date.parse("2026-07-20T00:00:00.000Z")),
-            totalTokens: 900_000,
-          },
-        },
-        7,
-      ),
-    ).toBe(
-      "+12% vs prior 7d · top model gpt-5.6-terra (1.5M) · busiest day Jul 20 (900k)",
-    );
-    expect(
-      recapCaption(
-        { tokensDeltaPct: -8, topModel: null, busiestDay: null },
-        30,
-      ),
-    ).toBe("-8% vs prior 30d");
-  });
-
-  it("goes silent when the period offers no highlight", () => {
-    expect(
-      recapCaption({ tokensDeltaPct: null, topModel: null, busiestDay: null }, 7),
-    ).toBe("");
   });
 });

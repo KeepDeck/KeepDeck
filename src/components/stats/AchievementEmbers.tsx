@@ -1,124 +1,27 @@
 import { useEffect, useRef } from "react";
+import {
+  emberDraw,
+  ember,
+  emberSpent,
+  fieldRuns,
+  fieldSize,
+  glowStops,
+  parseGold,
+  reseed,
+  seedField,
+  type Rgb,
+} from "../../presentation/stats/embersField";
 
 /**
  * The legendary badge's embers: sparks that light somewhere on the card,
- * drift a few pixels, and go out.
- *
- * Not a flare and not a shimmer. Nothing travels — the whole journey is a
- * handful of pixels, which reads as the card giving off light rather than
- * as something flying past it. Every ember gets its own size, lifetime and
- * peak brightness, drawn additively so overlaps bloom.
- *
- * Position comes from a jittered GRID with one ember per cell, held for the
- * card's whole life. Independent random points clump, and a clump reads as
- * "all the sparks are in one corner"; cycling cells through a shorter pool
- * of embers leaves a gap that travels, which reads as a dead zone. One per
- * cell is the only arrangement with neither.
+ * drift a few pixels, and go out. Every number drawn comes from
+ * presentation/stats/embersField.ts; this owns the canvas, the observers
+ * and the frame loop.
  */
-
-/** Enough cells to cover a badge without crowding it. */
-const CELLS_X = 6;
-const CELLS_Y = 4;
-const EMBERS = CELLS_X * CELLS_Y;
-/** How far past the badge an ember may drift, and therefore how much room
- * the canvas needs beyond it. Must match the CSS inset. */
-const HALO = 26;
-
-interface Ember {
-  cell: number;
-  /** Where it lit, as a fraction of the card — a resize moves it along. */
-  fx: number;
-  fy: number;
-  dx: number;
-  dy: number;
-  radius: number;
-  peak: number;
-  born: number;
-  life: number;
-}
 
 /** The reader's standing answer about motion. One spelling, because the
  * component both asks it at mount and listens for it changing. */
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
-
-function ember(cell: number, now: number, seeded: boolean): Ember {
-  const life = 1900 + Math.random() * 2600;
-  const angle = Math.random() * Math.PI * 2;
-  const drift = 3 + Math.random() * 9;
-  return {
-    cell,
-    fx: ((cell % CELLS_X) + 0.04 + Math.random() * 0.92) / CELLS_X,
-    fy: (Math.floor(cell / CELLS_X) + 0.04 + Math.random() * 0.92) / CELLS_Y,
-    dx: Math.cos(angle) * drift,
-    dy: Math.sin(angle) * drift,
-    radius: 1 + Math.pow(Math.random(), 1.7) * 3.4,
-    peak: 0.55 + Math.random() * 0.45,
-    born: now - (seeded ? Math.random() * life : 0),
-    life,
-  };
-}
-
-/** A full field, every ember mid-flight at its own phase. A field born all
- * at once reads as a single flash rather than as a card giving off light. */
-export function seedField(now: number): Ember[] {
-  return Array.from({ length: EMBERS }, (_, cell) => ember(cell, now, true));
-}
-
-/** Put a field back mid-flight, in place — see the resume path. */
-export function reseed(embers: Ember[], now: number): void {
-  for (let index = 0; index < embers.length; index += 1) {
-    embers[index] = ember(embers[index].cell, now, true);
-  }
-}
-
-type Rgb = readonly [number, number, number];
-
-/** Legendary's gold, for the DOM the stylesheet never reaches. The level's
- * colour has one home — `--rarity-legendary` in stats-achievements.css — but
- * a canvas gradient cannot say `var()`, so the component reads the resolved
- * value once at mount instead of restating the hex. The literal survives
- * only as the answer for a DOM that computes no styles at all. */
-export const FALLBACK_GOLD: Rgb = [233, 174, 72];
-
-function rarityGold(element: Element): Rgb {
-  const raw = getComputedStyle(element)
-    .getPropertyValue("--rarity-legendary")
-    .trim();
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(raw);
-  if (hex) {
-    const digits = hex[1];
-    const wide =
-      digits.length === 3
-        ? digits.replace(/./g, (digit) => digit + digit)
-        : digits;
-    return [
-      parseInt(wide.slice(0, 2), 16),
-      parseInt(wide.slice(2, 4), 16),
-      parseInt(wide.slice(4, 6), 16),
-    ];
-  }
-  const channels = /^rgba?\(([^)]+)\)$/i.exec(raw);
-  if (channels) {
-    const parts = channels[1]
-      .split(/[\s,/]+/)
-      .filter(Boolean)
-      .map(Number);
-    if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
-      return [parts[0], parts[1], parts[2]];
-    }
-  }
-  return FALLBACK_GOLD;
-}
-
-/** Toward white, for the spark's hotter inner rings. */
-function tint([r, g, b]: Rgb, amount: number): Rgb {
-  const lift = (channel: number) => Math.round(channel + (255 - channel) * amount);
-  return [lift(r), lift(g), lift(b)];
-}
-
-function rgba(color: Rgb, alpha: number): string {
-  return `rgba(${color[0]},${color[1]},${color[2]},${alpha})`;
-}
 
 /** One glow, drawn once and stamped everywhere — building a gradient per
  * ember per frame would be the expensive part of this. */
@@ -129,10 +32,7 @@ function sprite(gold: Rgb): HTMLCanvasElement {
   const context = canvas.getContext("2d");
   if (!context) return canvas;
   const glow = context.createRadialGradient(32, 32, 0, 32, 32, 32);
-  glow.addColorStop(0, "rgba(255,255,255,1)");
-  glow.addColorStop(0.22, rgba(tint(gold, 0.78), 0.95));
-  glow.addColorStop(0.5, rgba(gold, 0.45));
-  glow.addColorStop(1, rgba(gold, 0));
+  for (const [offset, color] of glowStops(gold)) glow.addColorStop(offset, color);
   context.fillStyle = glow;
   context.fillRect(0, 0, 64, 64);
   return canvas;
@@ -152,7 +52,9 @@ export function AchievementEmbers() {
     if (!canvas || !card || !context || typeof context.drawImage !== "function") {
       return;
     }
-    const glow = sprite(rarityGold(canvas));
+    // The level's gold has one home, the stylesheet's `--rarity-legendary`;
+    // a canvas gradient cannot say `var()`, so it is read resolved, once.
+    const glow = sprite(parseGold(getComputedStyle(canvas).getPropertyValue("--rarity-legendary")));
     const embers = seedField(performance.now());
     let width = 0;
     let height = 0;
@@ -180,18 +82,10 @@ export function AchievementEmbers() {
      * guard that cannot fire and would not help is worse than none: it reads
      * as protection. */
     const measure = () => {
-      const box = canvas.getBoundingClientRect();
-      // A box smaller than the halo it carries has no room for a field at
-      // all: `width - HALO * 2` would go NEGATIVE and every ember would map
-      // outside the bitmap. A card with no layout box — an ancestor is
-      // `display: none` — is exactly that case, so the field simply waits
-      // for the resize that gives it one.
-      const next = Math.round(box.width);
-      const nextHeight = Math.round(box.height);
-      if (next === width && nextHeight === height) return;
-      if (next < HALO * 2 || nextHeight < HALO * 2) return;
-      width = next;
-      height = nextHeight;
+      const next = fieldSize(canvas.getBoundingClientRect(), { width, height });
+      if (!next) return;
+      width = next.width;
+      height = next.height;
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = width * ratio;
       canvas.height = height * ratio;
@@ -213,35 +107,26 @@ export function AchievementEmbers() {
       context.globalCompositeOperation = "lighter";
       for (let index = 0; index < embers.length; index += 1) {
         const spark = embers[index];
-        const age = now - spark.born;
-        if (age > spark.life) {
-          // Reborn in its OWN cell, so the coverage never drifts.
+        if (emberSpent(spark, now)) {
           embers[index] = ember(spark.cell, now, false);
           continue;
         }
-        const life = age / spark.life;
-        const x = HALO + spark.fx * (width - HALO * 2) + spark.dx * life;
-        const y = HALO + spark.fy * (height - HALO * 2) + spark.dy * life;
-        // One smooth breath: dark, up to its own peak, dark again. A
-        // flicker on top of this is what turns embers into noise.
-        const fade = Math.sin(Math.PI * life);
-        const size = spark.radius * (0.7 + fade * 0.45);
-        const halo = size * 2;
-        context.globalAlpha = Math.max(0, fade * fade * spark.peak);
-        context.drawImage(glow, x - halo, y - halo, halo * 2, halo * 2);
+        const at = emberDraw(spark, now, width, height);
+        context.globalAlpha = at.alpha;
+        context.drawImage(glow, at.x - at.halo, at.y - at.halo, at.halo * 2, at.halo * 2);
       }
       context.globalAlpha = 1;
       context.globalCompositeOperation = "source-over";
     };
-    /** Two independent reasons to hold still, one switch. Both are live: the
-     * reader can scroll the badge away and can change their mind about
-     * motion, and the CSS half of the second answers the moment they do. */
+    /** Both reasons to hold still are live: the reader can scroll the badge
+     * away and can change their mind about motion, and the CSS half of the
+     * second answers the moment they do. */
     const motion = window.matchMedia?.(REDUCED_MOTION) ?? null;
     let offscreen = false;
     let running = false;
 
     const sync = () => {
-      const wanted = !offscreen && motion?.matches !== true;
+      const wanted = fieldRuns(offscreen, motion?.matches === true);
       if (wanted === running) return;
       running = wanted;
       if (!wanted) {
@@ -249,12 +134,7 @@ export function AchievementEmbers() {
         context.clearRect(0, 0, width, height);
         return;
       }
-      // RESEEDED, not merely restarted. Every ember whose life ran out while
-      // the loop was parked would otherwise be reborn on the same frame with
-      // the same phase: the badge goes dark, blooms at nearly twice its
-      // steady brightness, then troughs. And because the observer reports
-      // every newly visible card in one batch, the whole grid does it in
-      // step — the ripple this design gave up a shimmer to avoid.
+      // RESEEDED, not merely restarted — see reseed.
       reseed(embers, performance.now());
       frame = requestAnimationFrame(draw);
     };

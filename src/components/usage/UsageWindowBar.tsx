@@ -1,4 +1,5 @@
 import { windowLevel, type UsageWindow } from "../../domain/usage";
+import { usageLevelClass } from "../../presentation/usageView";
 
 /** The window fill bar — structural gray unless [`windowLevel`] grants a
  * threshold color (it never does for an expired window). Shared by the
@@ -11,11 +12,10 @@ export function UsageWindowBar({
   window: UsageWindow;
   now: number;
 }) {
-  const level = windowLevel(window, now);
   return (
     <span className="usage-bar" aria-hidden>
       <i
-        className={level ? `usage-level--${level}` : ""}
+        className={usageLevelClass(windowLevel(window, now))}
         style={{ width: `${Math.round(window.usedPct)}%` }}
       />
     </span>

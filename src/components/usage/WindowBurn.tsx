@@ -13,6 +13,7 @@ import {
   CHART_TOOLTIP_BORDER,
 } from "../../domain/usage/chartPalette";
 import { OVERFLOW_COLOR } from "../../presentation/usagePalette";
+import { usageLevelClass } from "../../presentation/usageView";
 import type { BurnGeometry } from "../../domain/usage/windowBurn";
 import type { BurnEdge } from "../../domain/usage/windowForecast";
 import {
@@ -283,7 +284,7 @@ function WindowBurnPlot({
               is the whole question — named as a clock time rather than left
               to be derived from a countdown in another line. */}
           {edge !== null && (
-            <span className={edge.level ? `usage-level--${edge.level}` : undefined}>
+            <span className={usageLevelClass(edge.level)}>
               {edge.text}
             </span>
           )}

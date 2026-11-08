@@ -2,12 +2,12 @@ import type { CSSProperties } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import type { UsageDisplay } from "../../domain/settings";
 import {
-  formatAge,
   panelWindows,
   windowLabel,
   type AccountUsage,
 } from "../../domain/usage";
 import { seriesColorFor } from "../../presentation/usagePalette";
+import { reportedAgeCaption, usageLevelClass } from "../../presentation/usageView";
 import { type WindowReport } from "../../domain/usage/reportJournal";
 import { windowBurn } from "../../domain/usage/windowBurn";
 import {
@@ -104,7 +104,7 @@ export function UsagePanel({
               <div className="usage-panel__provider">
                 <b>{agent.label}</b>
                 <span className="usage-panel__ago">
-                  Updated {formatAge(account.reportedAt, now)}
+                  {reportedAgeCaption(account.reportedAt, now)}
                 </span>
               </div>
               {panelWindows(account).map((window, i) => {
@@ -127,13 +127,7 @@ export function UsagePanel({
                     <span className="usage-window__detail">
                       <WindowValue window={window} display={display} now={now} />
                       {caption.text && (
-                        <small
-                          className={
-                            caption.level
-                              ? `usage-level--${caption.level}`
-                              : undefined
-                          }
-                        >
+                        <small className={usageLevelClass(caption.level)}>
                           {caption.text}
                         </small>
                       )}

@@ -145,7 +145,7 @@
 
 /* The LEVEL sets the period; the CARD says how far off it this badge runs
    and where on the border it starts. Both arrive on the rim element from
-   Achievements.tsx (`rimDrift`, `rimPhase`), because both are per-badge and
+   presentation/stats/achievementView.ts (`rimDrift`, `rimPhase`), because both are per-badge and
    a stylesheet has no per-badge. Without them every epic card ran one
    duration and every legendary another, all from zero at the moment the
    gallery mounted — a row of badges turning in lockstep reads as one

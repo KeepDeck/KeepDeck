@@ -56,5 +56,5 @@ export { ProgressRing, type ProgressRingProps, type ProgressRingTone } from "./P
 export { StatusRing, type StatusRingProps, type StatusRingTone } from "./StatusRing.tsx";
 export { StatusBar, type StatusBarPart, type StatusBarProps } from "./StatusBar.tsx";
 export { pictureProps } from "./pictureProps.ts";
-export { Segmented, type SegmentedOption, type SegmentedProps } from "./Segmented.tsx";
+export { Segmented, segmentStep, type SegmentedOption, type SegmentedProps } from "./Segmented.tsx";
 export { DisclosureChevron } from "./DisclosureChevron.tsx";

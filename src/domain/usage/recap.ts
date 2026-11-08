@@ -1,4 +1,4 @@
-import { formatTokens, formatUtcDay, modelLabel, PERIOD_LABELS } from "./format";
+import { modelLabel } from "./format";
 import { tokenTotal, type UsageRow } from "./history/event";
 import {
   periodCutoff,
@@ -43,38 +43,6 @@ export function usageRecap(
     topModel: topModel(current),
     busiestDay: busiestDay(events, period, now),
   };
-}
-
-/** THE Highlights sentence — which highlights appear, their order, the
- * separator and the sign convention are a product rule, phrased here like
- * every sibling caption (costCoverage, windowResetCaption, the achievement
- * captions) so a digest notification or a copy-summary command reuses the
- * exact wording instead of re-deriving it in a component. Empty string when
- * the period offers no highlight worth reading. */
-export function recapCaption(
-  recap: UsageRecap,
-  period: UsageStatsPeriod,
-): string {
-  const parts: string[] = [];
-  if (recap.tokensDeltaPct !== null) {
-    const sign = recap.tokensDeltaPct >= 0 ? "+" : "";
-    parts.push(
-      `${sign}${recap.tokensDeltaPct}% vs prior ${PERIOD_LABELS[period]}`,
-    );
-  }
-  if (recap.topModel) {
-    parts.push(
-      `top model ${recap.topModel.model} (${formatTokens(recap.topModel.totalTokens)})`,
-    );
-  }
-  if (recap.busiestDay) {
-    parts.push(
-      `busiest day ${formatUtcDay(recap.busiestDay.dayStart)} (${formatTokens(
-        recap.busiestDay.totalTokens,
-      )})`,
-    );
-  }
-  return parts.join(" · ");
 }
 
 function tokensDeltaPct(
