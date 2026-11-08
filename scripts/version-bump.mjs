@@ -23,7 +23,7 @@
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 
 const CARGO_TOML = "src-tauri/Cargo.toml";
 const PACKAGE_JSON = "package.json";
@@ -240,6 +240,6 @@ export function main(argv = process.argv.slice(2)) {
   return next;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   main();
 }

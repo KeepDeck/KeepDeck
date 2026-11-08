@@ -22,6 +22,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "./lib/entry.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const CANONICAL_DIR = join(ROOT, "resources", "reporters");
@@ -135,7 +136,7 @@ function write() {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   const outdated = stale();
   if (process.argv.includes("--check")) {
     if (outdated.length > 0) {
