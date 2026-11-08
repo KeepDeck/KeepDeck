@@ -8,7 +8,7 @@
 //! buckets, the last hours raw.
 
 pub mod catalogue;
-mod legacy;
+mod legacy_migration;
 pub mod model;
 pub mod pricing;
 pub mod store;

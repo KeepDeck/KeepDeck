@@ -15,7 +15,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::catalogue::{self, CatalogueEntry};
-use crate::legacy;
+use crate::legacy_migration;
 use crate::model::{CallBatch, LedgerRow, Place, TokenCounts, TOKEN_KINDS};
 use crate::pricing::{Journal, Price, PriceRow, Rates, Tier, Usage};
 
@@ -752,7 +752,7 @@ fn migrate_to_2(conn: &Connection, now: f64) -> Result<(), String> {
 /// - `call` remembers booked calls, `price` is the journal.
 /// - `bucket` and `event` are keyed by model, mode and long-context tier and
 ///   lose their money. Their old rows are carried over in canonical classes
-///   under `<provider>/<model>` keys (see [`legacy`]) — from then on they are
+///   under `<provider>/<model>` keys (see [`legacy_migration`]) — from then on they are
 ///   priced from the journal like every new row (user decision 2026-11-08,
 ///   option B). An old row that carried only a price, no tokens, has nothing
 ///   left to say and is dropped. Old rows know no mode and no tier.
@@ -862,7 +862,7 @@ impl OldRow {
     /// row that only carried a price has nothing left to say).
     fn carried(&self) -> Option<Result<Booked, String>> {
         let tokens = match from_json(&self.tokens) {
-            Ok(tokens) => legacy::canonical_tokens(&self.agent, &tokens),
+            Ok(tokens) => legacy_migration::canonical_tokens(&self.agent, &tokens),
             Err(e) => return Some(Err(e)),
         };
         if tokens.billed() <= 0.0 {
@@ -875,7 +875,7 @@ impl OldRow {
             occurred_at: self.occurred_at,
             priced_at: self.occurred_at,
             captured_at: self.captured_at,
-            model: legacy::booked_model(&self.agent, self.model.as_deref().unwrap_or("")),
+            model: legacy_migration::booked_model(&self.agent, self.model.as_deref().unwrap_or("")),
             mode: String::new(),
             tier: 0,
             place,
