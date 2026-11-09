@@ -73,6 +73,15 @@ describe("a view across a program redrawing its history", () => {
     expect(scroll.frameClosed(afterReprint(90))).toBe(30);
   });
 
+  it("owes no return once the user pressed a key, which xterm answers at the bottom", () => {
+    const scroll = createRedrawScroll();
+    scroll.frameOpened();
+    scroll.historyCleared(scrolledUp);
+    scroll.keyPressed();
+
+    expect(scroll.frameClosed(afterReprint(90))).toBeUndefined();
+  });
+
   it("returns when the write is parsed in a program that never opened a frame", () => {
     const scroll = createRedrawScroll();
     scroll.historyCleared(scrolledUp);

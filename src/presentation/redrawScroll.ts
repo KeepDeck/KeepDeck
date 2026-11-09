@@ -24,6 +24,12 @@
  * A second wipe before the return keeps the first view: the one it finds is
  * what the first wipe left.
  *
+ * A key the user presses drops a return still owed: xterm takes the view to
+ * the bottom for it, and that is where the user is. A return no frame came to
+ * close — a wipe by a program that draws none in a pane where one drew
+ * before, a program killed mid-frame — would otherwise land on the next frame
+ * of whatever the user starts there, on a line long gone.
+ *
  * Pure: the terminal binding reports what it parsed and scrolls to the line
  * this answers.
  */
@@ -44,6 +50,8 @@ export interface RedrawScroll {
   frameClosed(view: ScrollView): number | undefined;
   /** A write was parsed: the line to return to, if any. */
   writeParsed(view: ScrollView): number | undefined;
+  /** The user pressed a key in the terminal. */
+  keyPressed(): void;
 }
 
 export function createRedrawScroll(): RedrawScroll {
@@ -67,5 +75,8 @@ export function createRedrawScroll(): RedrawScroll {
     },
     frameClosed: returnTo,
     writeParsed: (view) => (drawsFrames ? undefined : returnTo(view)),
+    keyPressed() {
+      anchor = undefined;
+    },
   };
 }

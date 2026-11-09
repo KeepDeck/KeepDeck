@@ -94,6 +94,24 @@ describe("a view scrolled up while the agent redraws its history", () => {
   });
 });
 
+describe("a wipe no frame comes to close", () => {
+  it("is let go at the user's key, not returned to on the next program's first frame", async () => {
+    const term = await readingAt(30);
+    const binding = registerRedrawScroll(term);
+    await write(term, OPEN + "an agent that drew frames, gone" + CLOSE);
+    await write(term, WIPE);
+    await write(term, lines(0, 40));
+
+    term.textarea?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
+    await write(term, OPEN + "the next agent's first frame" + CLOSE);
+
+    const buffer = term.buffer.active;
+    expect(buffer.viewportY).toBe(buffer.baseY);
+    binding.dispose();
+    term.dispose();
+  });
+});
+
 describe("a view at the bottom while the agent redraws its history", () => {
   it("follows the output down", async () => {
     const term = openTerminal();

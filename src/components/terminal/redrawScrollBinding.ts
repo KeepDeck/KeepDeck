@@ -8,9 +8,9 @@ const ERASE_SAVED_LINES = 3;
 
 /**
  * Keep a terminal's view on its line while the program inside redraws its
- * history (`presentation/redrawScroll`). Reports the wipe, the frames and
- * each parsed write to it, and scrolls where it answers. Every handler
- * declines the sequence, so xterm still runs its own.
+ * history (`presentation/redrawScroll`). Reports the wipe, the frames, each
+ * parsed write and each key to it, and scrolls where it answers. Every
+ * handler declines the sequence, so xterm still runs its own.
  */
 export function registerRedrawScroll(term: Terminal): IDisposable {
   const scroll = createRedrawScroll();
@@ -36,6 +36,7 @@ export function registerRedrawScroll(term: Terminal): IDisposable {
       return false;
     }),
     term.onWriteParsed(() => returnTo(scroll.writeParsed(view()))),
+    term.onKey(() => scroll.keyPressed()),
   ];
   return { dispose: () => hooks.forEach((hook) => hook.dispose()) };
 }
