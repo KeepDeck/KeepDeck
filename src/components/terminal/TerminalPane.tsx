@@ -30,6 +30,7 @@ import {
 import { registerTerminalLinks } from "./terminalLinks";
 import { capGlyphAtlas } from "./glyphAtlas";
 import { syncScrollArea } from "./xtermViewport";
+import { registerRedrawScroll } from "./redrawScrollBinding";
 import { useRuntimePart } from "../../app/runtimeContext";
 import {
   usePaneInputFocus,
@@ -283,6 +284,10 @@ export function TerminalPane({
       return true;
     });
 
+    // An agent redrawing its history (kimi, codex: `ESC[3J`, then all of it
+    // again) must not throw a reader scrolled up into it back to the top.
+    const redrawScroll = registerRedrawScroll(term);
+
     // Layer 2 for [F3]: stop the textarea inserting a literal newline on
     // Shift+Enter before xterm's handler runs (capture phase). Without this the
     // browser's own default can put a \n into the helper textarea.
@@ -419,6 +424,7 @@ export function TerminalPane({
       titleSub.dispose();
       selectionSub.dispose();
       osc52.dispose();
+      redrawScroll.dispose();
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste, true);
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);

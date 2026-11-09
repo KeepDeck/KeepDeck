@@ -30,6 +30,12 @@ vi.mock("../../app/usePaneTerminal", () => {
 const syncScrollArea = vi.hoisted(() => vi.fn());
 vi.mock("./xtermViewport", () => ({ syncScrollArea }));
 
+const redrawScroll = vi.hoisted(() => {
+  const dispose = vi.fn();
+  return { dispose, register: vi.fn(() => ({ dispose })) };
+});
+vi.mock("./redrawScrollBinding", () => ({ registerRedrawScroll: redrawScroll.register }));
+
 import { TerminalPane } from "./TerminalPane";
 
 const runtime = {
@@ -69,6 +75,8 @@ afterEach(() => {
   restoreCanvas();
   vi.unstubAllGlobals();
   syncScrollArea.mockClear();
+  redrawScroll.register.mockClear();
+  redrawScroll.dispose.mockClear();
   document.body.innerHTML = "";
 });
 
@@ -131,5 +139,18 @@ describe("a terminal's scrollbar, after time out of layout", () => {
 
     window.dispatchEvent(new Event("resize"));
     await vi.waitFor(() => expect(syncScrollArea).toHaveBeenCalled());
+  });
+});
+
+describe("a terminal's view, while the agent redraws its history", () => {
+  it("is kept on its line for as long as the terminal is mounted", () => {
+    render(true);
+    expect(redrawScroll.register).toHaveBeenCalledOnce();
+    expect(redrawScroll.dispose).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+    root = createRoot(present(document.getElementById("host"), "the host element"));
+
+    expect(redrawScroll.dispose).toHaveBeenCalledOnce();
   });
 });
