@@ -1,0 +1,67 @@
+// @vitest-environment happy-dom
+/**
+ * The contract `syncScrollArea` holds against the installed xterm: the private
+ * viewport it reaches is there, and is asked to re-sync at once — the call
+ * xterm's own resize makes. An xterm upgrade that moves it fails here.
+ */
+import { Terminal } from "@xterm/xterm";
+import { afterEach, describe, expect, it } from "vitest";
+import { isObjectLike } from "../../domain/json";
+import { syncScrollArea } from "./xtermViewport";
+
+afterEach(() => {
+  document.body.innerHTML = "";
+});
+
+/** xterm's private viewport, where `syncScrollArea` looks for it. */
+function viewportOf(term: Terminal): Record<string, unknown> {
+  const core: unknown = Reflect.get(term, "_core");
+  const viewport = isObjectLike(core) ? core.viewport : undefined;
+  if (!isObjectLike(viewport)) throw new Error("the installed xterm keeps no viewport where syncScrollArea looks");
+  return viewport;
+}
+
+function openTerminal(): Terminal {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const term = new Terminal();
+  term.open(host);
+  return term;
+}
+
+describe("syncScrollArea", () => {
+  it("asks the installed xterm's viewport to re-sync at once", () => {
+    const term = openTerminal();
+    const viewport = viewportOf(term);
+    expect(typeof viewport.syncScrollArea).toBe("function");
+    // A function, not an arrow: the real one reads its own fields, so the
+    // call must land on the viewport as its receiver.
+    const calls: { receiver: unknown; args: unknown[] }[] = [];
+    viewport.syncScrollArea = function (this: unknown, ...args: unknown[]) {
+      calls.push({ receiver: this, args });
+    };
+
+    syncScrollArea(term);
+
+    expect(calls.map((call) => call.args)).toEqual([[true]]);
+    expect(calls[0]?.receiver).toBe(viewport);
+    term.dispose();
+  });
+
+  it("forgets an ignore armed for a scroll that never came before the sync, which may arm its own", () => {
+    const term = openTerminal();
+    const viewport = viewportOf(term);
+    expect(typeof viewport._ignoreNextScrollEvent).toBe("boolean");
+    viewport._ignoreNextScrollEvent = true;
+    const armedAtSync: unknown[] = [];
+    viewport.syncScrollArea = () => {
+      armedAtSync.push(viewport._ignoreNextScrollEvent);
+    };
+
+    syncScrollArea(term);
+
+    expect(armedAtSync).toEqual([false]);
+    expect(viewport._ignoreNextScrollEvent).toBe(false);
+    term.dispose();
+  });
+});

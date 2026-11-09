@@ -27,6 +27,9 @@ vi.mock("../../app/usePaneTerminal", () => {
   return { usePaneTerminal: () => port };
 });
 
+const syncScrollArea = vi.hoisted(() => vi.fn());
+vi.mock("./xtermViewport", () => ({ syncScrollArea }));
+
 import { TerminalPane } from "./TerminalPane";
 
 const runtime = {
@@ -65,6 +68,7 @@ afterEach(() => {
   act(() => root.unmount());
   restoreCanvas();
   vi.unstubAllGlobals();
+  syncScrollArea.mockClear();
   document.body.innerHTML = "";
 });
 
@@ -92,5 +96,40 @@ describe("a terminal's markup, on screen and off", () => {
     const pane = render(false);
     const host = present(pane.querySelector(".terminal-pane__host"), "the host");
     expect(host.querySelector(":scope > .xterm")).not.toBeNull();
+  });
+});
+
+/** Give the host the laid-out size happy-dom never computes. */
+function sizeHost(pane: HTMLElement, width: number, height: number): void {
+  const host = present(pane.querySelector(".terminal-pane__host"), "the host");
+  Object.defineProperty(host, "clientWidth", { configurable: true, value: width });
+  Object.defineProperty(host, "clientHeight", { configurable: true, value: height });
+}
+
+describe("a terminal's scrollbar, after time out of layout", () => {
+  it("is re-synced when the terminal comes back on screen", () => {
+    sizeHost(render(false), 640, 400);
+    syncScrollArea.mockClear();
+
+    render(true);
+
+    expect(syncScrollArea).toHaveBeenCalledOnce();
+  });
+
+  it("is left alone while the host comes back at 0px, mid-re-tile", () => {
+    sizeHost(render(false), 0, 0);
+    syncScrollArea.mockClear();
+
+    render(true);
+
+    expect(syncScrollArea).not.toHaveBeenCalled();
+  });
+
+  it("is re-synced by a refit, which a host back from 0px gets with its grid unchanged", async () => {
+    sizeHost(render(true), 640, 400);
+    syncScrollArea.mockClear();
+
+    window.dispatchEvent(new Event("resize"));
+    await vi.waitFor(() => expect(syncScrollArea).toHaveBeenCalled());
   });
 });

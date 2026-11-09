@@ -29,6 +29,7 @@ import {
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
 import { capGlyphAtlas } from "./glyphAtlas";
+import { syncScrollArea } from "./xtermViewport";
 import { useRuntimePart } from "../../app/runtimeContext";
 import {
   usePaneInputFocus,
@@ -85,6 +86,18 @@ interface TerminalPaneProps {
  * scrollback — every refit path must skip that frame. */
 function hasSize(host: HTMLElement): boolean {
   return host.clientWidth > 0 && host.clientHeight > 0;
+}
+
+/** Fit xterm to its host and re-sync its scrollbar — every refit path goes
+ * through here. Skipped (false) while the host has no size. The re-sync is
+ * not the fit's: a terminal back on screen, or back from a 0px re-tile, with
+ * the grid it had keeps a scrollbar measured while it was out of layout, and
+ * the fit does nothing for an unchanged grid (see `syncScrollArea`). */
+function fitToHost(host: HTMLElement, term: Terminal, fit: FitAddon): boolean {
+  if (!hasSize(host)) return false;
+  fit.fit();
+  syncScrollArea(term);
+  return true;
 }
 
 /**
@@ -369,13 +382,11 @@ export function TerminalPane({
     // land on re-wrapped rows and shred the scrollback (see refitPump.ts).
     const pump = createRefitPump({
       fit: () => {
-        if (!hasSize(host)) return;
         const buf = term.buffer.active;
         const atBottom = buf.viewportY === buf.baseY;
-        fit.fit();
         // Reflow can leave the viewport mid-history; keep a bottom-pinned
         // pane pinned. A pane scrolled up is left where the user put it.
-        if (atBottom) term.scrollToBottom();
+        if (fitToHost(host, term, fit) && atBottom) term.scrollToBottom();
       },
       // Only when the cell grid actually changed — a redundant SIGWINCH
       // makes the shell reprint its prompt.
@@ -430,16 +441,18 @@ export function TerminalPane({
     }
   }, [scrollback]);
 
-  // When the pane comes back on screen (workspace switch, or un-maximized),
-  // refit and repaint from the buffer so nothing is left blank.
+  // When the pane comes back on screen (workspace switch, un-maximized,
+  // restored from the tray), refit, re-sync the scrollbar its time out of
+  // layout left behind, and repaint from the buffer so nothing is left blank.
   useEffect(() => {
     if (!visible) return;
     const term = termRef.current;
     const host = hostRef.current;
-    // Route through the same zero-size guard as the pump — a pane coming back
-    // on screen can be measured mid-re-tile at 0px, and a raw fit() there would
+    const fit = fitRef.current;
+    // Through the same zero-size guard as the pump — a pane coming back on
+    // screen can be measured mid-re-tile at 0px, and a raw fit() there would
     // clamp it to ~2 cols and rewrap the scrollback.
-    if (host && hasSize(host)) fitRef.current?.fit();
+    if (host && term && fit) fitToHost(host, term, fit);
     term?.refresh(0, term.rows - 1);
   }, [visible]);
 
