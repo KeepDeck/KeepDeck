@@ -44,8 +44,12 @@ pub const HORIZON_MS: f64 = 90.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 
 /// How long before the deck first saw a session its running total may have
 /// begun and still count from zero: an agent the deck starts begins its
-/// count a moment before the deck's binding accepts the session.
-pub const FRESH_TALLY_MS: f64 = 10.0 * 60.0 * 1000.0;
+/// count a moment before the deck's binding accepts the session, seconds at
+/// most. The ledger cannot check that it saw every call since a count began
+/// — an adopted session's earlier calls, a fork's inherited ones, are never
+/// read — so the window is kept as short as a deck-started session needs:
+/// what it can let in is a minute's spend.
+pub const FRESH_TALLY_MS: f64 = 60.0 * 1000.0;
 
 /// How far before a session's newest booked call a re-read file starts — a
 /// subagent's file is read on its own schedule, so its calls can land
@@ -509,16 +513,20 @@ fn book_in(
     let (session, first_seen) = upsert_session(tx, &batch.agent, &batch.session_id, batch.first_seen)?;
     let place_json = to_json(&batch.place)?;
     let mut rows = Vec::new();
+    // Calls first, totals after: a total counts the calls of every file of
+    // the session, and a subagent's file read in the same tick may come
+    // after the root's in the batch — set against a total before it was
+    // booked, its calls would count twice. A total also covers no less than
+    // the calls the batch reported before it: the row that dates it can be
+    // older than the last call it closes.
+    let mut latest_before = f64::NEG_INFINITY;
+    let mut totals = Vec::new();
     for call in &batch.calls {
         if let Some(tally) = call.tally {
-            let booked = book_tally(tx, batch, session, first_seen, call, tally, captured_at)?;
-            if let Some(booked) = booked {
-                insert_event(tx, session, &booked, &place_json)?;
-                add_to_bucket(tx, session, &booked, &place_json)?;
-                rows.push(booked.into_row(journal));
-            }
+            totals.push(Total { call, tally, covers: call.at.max(latest_before) });
             continue;
         }
+        latest_before = latest_before.max(call.at);
         let key = call_key(&batch.agent, &call.id);
         let known: Option<TokenCounts> = tx
             .query_row("SELECT tokens FROM call WHERE key = ?1", [&key], |r| r.get::<_, String>(0))
@@ -560,7 +568,23 @@ fn book_in(
         add_to_bucket(tx, session, &booked, &place_json)?;
         rows.push(booked.into_row(journal));
     }
+    for total in totals {
+        if let Some(booked) = book_tally(tx, batch, session, first_seen, &total, captured_at)? {
+            insert_event(tx, session, &booked, &place_json)?;
+            add_to_bucket(tx, session, &booked, &place_json)?;
+            rows.push(booked.into_row(journal));
+        }
+    }
     Ok(rows)
+}
+
+/// A running total as its batch reported it.
+struct Total<'a> {
+    call: &'a UsageCall,
+    tally: Tally,
+    /// The latest instant the total closes: its own date, or a call its
+    /// batch reported before it that is later.
+    covers: f64,
 }
 
 /// What a running total adds over the session's calls (see [`Tally`]), as one
@@ -578,9 +602,10 @@ fn book_in(
 /// one session cannot book what neither spent. A total from before the deck
 /// saw the session, or before this ledger kept totals at all
 /// ([`TALLIES_SINCE`] — calls booked earlier were not filed by model), only
-/// moves the base. A count another session already reported is inherited
-/// however young it is: a fork or a background worker made in a fresh
-/// session's first minutes carries its source's spend.
+/// moves the base, and so does the first total after a base set before then.
+/// A count another session already reported is inherited however young it
+/// is: a fork or a background worker made in a fresh session's first minute
+/// carries its source's spend.
 ///
 /// Cache writes compare as one class: a total that cannot tell its writes
 /// apart (claude before 2.1.311) counts them all as five-minute ones while
@@ -595,10 +620,10 @@ fn book_tally(
     batch: &CallBatch,
     session: i64,
     first_seen: f64,
-    call: &UsageCall,
-    tally: Tally,
+    total: &Total<'_>,
     captured_at: f64,
 ) -> Result<Option<Booked>, String> {
+    let Total { call, tally, covers } = *total;
     let key = call_key(&batch.agent, &format!("tally\u{0}{}\u{0}{}", batch.session_id, call.id));
     let kept_since: f64 = tx
         .query_row("SELECT value FROM meta WHERE key = ?1", [TALLIES_SINCE], |r| r.get::<_, String>(0))
@@ -649,8 +674,10 @@ fn book_tally(
             remembered.set(kind, Some(now_is));
         }
     }
-    remember(base_at.max(call.at), &remembered)?;
-    if growth.is_empty() || call.at <= floor || call.at < captured_at - HORIZON_MS {
+    remember(base_at.max(covers), &remembered)?;
+    // A base set before the ledger kept totals spans calls it filed under no
+    // model: what the count grew from there cannot be set against them.
+    if growth.is_empty() || call.at <= floor || base_at < kept_since || call.at < captured_at - HORIZON_MS {
         return Ok(None);
     }
 
@@ -659,7 +686,7 @@ fn book_tally(
     let calls: Vec<String> = tx
         .prepare("SELECT tokens FROM call WHERE session = ?1 AND model = ?2 AND at > ?3 AND at <= ?4")
         .map_err(|e| e.to_string())?
-        .query_map(params![session, model, base_at, call.at], |r| r.get(0))
+        .query_map(params![session, model, base_at, covers], |r| r.get(0))
         .map_err(|e| e.to_string())?
         .collect::<Result<_, _>>()
         .map_err(|e| e.to_string())?;
@@ -1670,7 +1697,42 @@ mod tests {
         let b = batch("s1", seen, vec![total(NOW - 500.0, began, 400.0, 0.0)]);
         assert!(s.book(&b, NOW + 100.0).unwrap().is_empty(), "calls before schema 4 carry no model to set it against");
         let b = batch("s1", seen, vec![total(NOW + 200.0, began, 450.0, 0.0)]);
-        assert_eq!(booked_tokens(&s.book(&b, NOW + 300.0).unwrap()), vec![(0, Some(50.0), None)]);
+        assert!(s.book(&b, NOW + 300.0).unwrap().is_empty(), "nor can what it grew from a base set before then");
+        let b = batch("s1", seen, vec![total(NOW + 400.0, began, 470.0, 0.0)]);
+        assert_eq!(booked_tokens(&s.book(&b, NOW + 500.0).unwrap()), vec![(0, Some(20.0), None)]);
+    }
+
+    #[test]
+    fn a_session_the_deck_took_over_after_its_first_minute_counts_from_its_first_total() {
+        let mut s = store();
+        let seen = NOW + 10.0 * 60.0 * 1000.0;
+        // The deck attached two minutes after the count began: the calls of
+        // those minutes were never read, and sit in the count.
+        let b = batch("s1", seen, vec![total(seen + 100.0, seen - 2.0 * 60.0 * 1000.0, 900.0, 0.0)]);
+        assert!(s.book(&b, seen + 200.0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_total_is_set_against_every_call_its_batch_reported_and_no_earlier_than_the_last() {
+        let mut s = store();
+        let seen = NOW + 1_000.0;
+        let began = NOW + 500.0;
+        // The root's total first, a subagent's call read in the same tick
+        // after it; and a total dated by a row older than that call.
+        let b = batch("s1", seen, vec![total(seen + 200.0, began, 150.0, 0.0), call("sub_1", seen + 150.0, 100.0, 0.0)]);
+        let rows = s.book(&b, seen + 400.0).unwrap();
+        assert_eq!(
+            booked_tokens(&rows),
+            vec![(1, Some(100.0), Some(0.0)), (0, Some(50.0), None)],
+            "the subagent's call, reported after the total, is set against it"
+        );
+        let b = batch("s1", seen, vec![call("msg_2", seen + 500.0, 10.0, 0.0), total(seen + 450.0, began, 200.0, 0.0)]);
+        let rows = s.book(&b, seen + 600.0).unwrap();
+        assert_eq!(
+            booked_tokens(&rows),
+            vec![(1, Some(10.0), Some(0.0)), (0, Some(40.0), None)],
+            "the call reported before it is inside it, however the total is dated"
+        );
     }
 
     #[test]
