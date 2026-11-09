@@ -14,12 +14,28 @@ describe("a view across a program redrawing its history", () => {
     expect(scroll.frameClosed(afterReprint(90))).toBe(30);
   });
 
-  it("goes to the bottom when the history came back shorter than that line", () => {
+  it("returns to the same line under new output, the history having kept its head", () => {
     const scroll = createRedrawScroll();
     scroll.frameOpened();
     scroll.historyCleared(scrolledUp);
 
-    expect(scroll.frameClosed(afterReprint(12))).toBe(12);
+    expect(scroll.frameClosed(afterReprint(95))).toBe(30);
+  });
+
+  it("keeps its distance from the bottom when only the newest rows came back", () => {
+    const scroll = createRedrawScroll();
+    scroll.frameOpened();
+    scroll.historyCleared(scrolledUp);
+
+    expect(scroll.frameClosed(afterReprint(70))).toBe(10);
+  });
+
+  it("stops at the first line left when it read further back than what came back", () => {
+    const scroll = createRedrawScroll();
+    scroll.frameOpened();
+    scroll.historyCleared(scrolledUp);
+
+    expect(scroll.frameClosed(afterReprint(12))).toBe(0);
   });
 
   it("is left to follow the output when it stood at the bottom", () => {
