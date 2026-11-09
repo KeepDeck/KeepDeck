@@ -34,14 +34,17 @@ describe("syncScrollArea", () => {
     const term = openTerminal();
     const viewport = viewportOf(term);
     expect(typeof viewport.syncScrollArea).toBe("function");
-    const calls: unknown[][] = [];
-    viewport.syncScrollArea = (...args: unknown[]) => {
-      calls.push(args);
+    // A function, not an arrow: the real one reads its own fields, so the
+    // call must land on the viewport as its receiver.
+    const calls: { receiver: unknown; args: unknown[] }[] = [];
+    viewport.syncScrollArea = function (this: unknown, ...args: unknown[]) {
+      calls.push({ receiver: this, args });
     };
 
     syncScrollArea(term);
 
-    expect(calls).toEqual([[true]]);
+    expect(calls.map((call) => call.args)).toEqual([[true]]);
+    expect(calls[0]?.receiver).toBe(viewport);
     term.dispose();
   });
 
