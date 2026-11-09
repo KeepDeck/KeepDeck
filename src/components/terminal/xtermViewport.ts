@@ -18,14 +18,27 @@ import { isObjectLike } from "../../domain/json";
  * `syncScrollArea(true)` is what xterm itself runs after a resize. It measures
  * again only when what it recorded differs from now, which a measure taken at
  * height 0 always does, so a call on a terminal in good order costs a few
- * comparisons. The viewport is private: read key by key, it is a no-op on an
- * xterm that keeps it elsewhere, and `xtermViewport.test.ts` holds the place
- * against the installed xterm, so an upgrade that moves it fails there.
+ * comparisons.
+ *
+ * The same measure out of layout also writes the scroll position, which an
+ * element out of layout drops without a scroll event — yet xterm has armed
+ * itself to ignore the event that write would raise. Shown again at the
+ * position it had, nothing raises it, and the user's first wheel tick is the
+ * event ignored. So the arming is forgotten first; the sync arms it again
+ * only for a write of its own, whose event follows. An event a write of
+ * xterm's own already has on its way, no longer ignored, reads back the row
+ * the buffer stands on and moves nothing.
+ *
+ * The viewport is private: read key by key, it is a no-op on an xterm that
+ * keeps it elsewhere, and `xtermViewport.test.ts` holds the place against the
+ * installed xterm, so an upgrade that moves it fails there.
  */
 export function syncScrollArea(term: Terminal): void {
   const core: unknown = Reflect.get(term, "_core");
   const viewport = isObjectLike(core) ? core.viewport : undefined;
   if (!isObjectLike(viewport)) return;
   const sync = viewport.syncScrollArea;
-  if (typeof sync === "function") Reflect.apply(sync, viewport, [true]);
+  if (typeof sync !== "function") return;
+  viewport._ignoreNextScrollEvent = false;
+  Reflect.apply(sync, viewport, [true]);
 }

@@ -21,12 +21,17 @@ function viewportOf(term: Terminal): Record<string, unknown> {
   return viewport;
 }
 
+function openTerminal(): Terminal {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const term = new Terminal();
+  term.open(host);
+  return term;
+}
+
 describe("syncScrollArea", () => {
   it("asks the installed xterm's viewport to re-sync at once", () => {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const term = new Terminal();
-    term.open(host);
+    const term = openTerminal();
     const viewport = viewportOf(term);
     expect(typeof viewport.syncScrollArea).toBe("function");
     const calls: unknown[][] = [];
@@ -37,6 +42,23 @@ describe("syncScrollArea", () => {
     syncScrollArea(term);
 
     expect(calls).toEqual([[true]]);
+    term.dispose();
+  });
+
+  it("forgets an ignore armed for a scroll that never came before the sync, which may arm its own", () => {
+    const term = openTerminal();
+    const viewport = viewportOf(term);
+    expect(typeof viewport._ignoreNextScrollEvent).toBe("boolean");
+    viewport._ignoreNextScrollEvent = true;
+    const armedAtSync: unknown[] = [];
+    viewport.syncScrollArea = () => {
+      armedAtSync.push(viewport._ignoreNextScrollEvent);
+    };
+
+    syncScrollArea(term);
+
+    expect(armedAtSync).toEqual([false]);
+    expect(viewport._ignoreNextScrollEvent).toBe(false);
     term.dispose();
   });
 });
