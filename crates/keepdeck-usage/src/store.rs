@@ -10,17 +10,18 @@
 //! Money is never stored: a row is priced from the journal as it is served
 //! ([`UsageStore::ledger`]).
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
-use crate::catalogue::{self, CatalogueEntry};
+use crate::catalogue::{self, CatalogueEntry, SeedHistory};
 use crate::legacy_migration;
-use crate::model::{CallBatch, LedgerRow, Place, TokenCounts, TOKEN_KINDS};
+use crate::model::{CallBatch, LedgerRow, Place, Tally, TokenCounts, TokenKind, UsageCall, TOKEN_KINDS};
 use crate::pricing::{Journal, Price, PriceRow, Rates, Tier, Usage};
 
 /// The schema this build writes. Raised by a migration, never by a wipe.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// The width of a compacted bucket. A quarter hour divides every hour and
 /// day boundary, and every real timezone offset is a multiple of it, so a
@@ -40,6 +41,15 @@ pub const RAW_WINDOW_MS: f64 = 6.0 * 60.0 * 60.0 * 1000.0;
 /// A call whose memory had been pruned yet could still be booked would be
 /// booked twice. (User decision 2026-11-08: 90 days.)
 pub const HORIZON_MS: f64 = 90.0 * 24.0 * 60.0 * 60.0 * 1000.0;
+
+/// How long before the deck first saw a session its running total may have
+/// begun and still count from zero: an agent the deck starts begins its
+/// count a moment before the deck's binding accepts the session, seconds at
+/// most. The ledger cannot check that it saw every call since a count began
+/// — an adopted session's earlier calls, a fork's inherited ones, are never
+/// read — so the window is kept as short as a deck-started session needs:
+/// what it can let in is a minute's spend.
+pub const FRESH_TALLY_MS: f64 = 60.0 * 1000.0;
 
 /// How far before a session's newest booked call a re-read file starts — a
 /// subagent's file is read on its own schedule, so its calls can land
@@ -108,6 +118,11 @@ impl UsageStore {
             migrate_to_3(&tx, now)?;
             tx.commit().map_err(|e| e.to_string())?;
         }
+        if version < 4 {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            migrate_to_4(&tx, now)?;
+            tx.commit().map_err(|e| e.to_string())?;
+        }
         let journal = load_journal(&conn)?;
         Ok(Self { conn, journal })
     }
@@ -129,9 +144,65 @@ impl UsageStore {
         &self.journal
     }
 
-    /// Add price rows the journal does not hold yet — the shipped seed, or a
-    /// catalogue's changes. A row the journal already holds (same model,
-    /// same start) is kept as it was. Answers how many rows were added.
+    /// Make the shipped seed the journal's history up to the moment it
+    /// reaches. The seed is models.dev's price history read back out of its
+    /// git log, so it outranks what an older build's seed wrote — a row it
+    /// corrected is replaced, one it no longer holds (a price models.dev
+    /// itself fixed, a model found resold) is dropped — and what the live
+    /// catalogue journaled before that moment: the same history, dated by
+    /// when it was fetched rather than made, and without the corrections
+    /// made since. What the catalogue journaled after it stays. Answers how
+    /// many rows were added or dropped.
+    pub fn adopt_seed(&mut self, seed: &SeedHistory, captured_at: f64) -> Result<usize, String> {
+        let superseded: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM price WHERE source <> ?1 AND effective_from <= ?2",
+                params![SEED_SOURCE, seed.until],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        // A start a later catalogue row holds is the catalogue's; the seed's
+        // row for it can never be written, so it is no difference either.
+        let taken: Vec<(String, f64)> = self
+            .conn
+            .prepare("SELECT model, effective_from FROM price WHERE source <> ?1 AND effective_from > ?2")
+            .map_err(|e| e.to_string())?
+            .query_map(params![SEED_SOURCE, seed.until], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        let mut shipped: Vec<PriceRow> = seed
+            .rows
+            .iter()
+            .filter(|row| !taken.iter().any(|(model, from)| *model == row.model && *from == row.from))
+            .cloned()
+            .collect();
+        shipped.sort_by(|a, b| a.model.cmp(&b.model).then(a.from.total_cmp(&b.from)));
+        let held = price_rows(&self.conn, Some(SEED_SOURCE))?;
+        if held == shipped && superseded == 0 {
+            return Ok(0);
+        }
+        let changed = held.iter().filter(|row| !shipped.contains(row)).count()
+            + shipped.iter().filter(|row| !held.contains(row)).count()
+            + superseded as usize;
+        let tx = self.conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute(
+            "DELETE FROM price WHERE source = ?1 OR effective_from <= ?2",
+            params![SEED_SOURCE, seed.until],
+        )
+        .map_err(|e| e.to_string())?;
+        for row in &shipped {
+            insert_price(&tx, row, SEED_SOURCE, captured_at)?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        self.journal = load_journal(&self.conn)?;
+        Ok(changed)
+    }
+
+    /// Add price rows the journal does not hold yet — a catalogue's changes.
+    /// A row the journal already holds (same model, same start) is kept as it
+    /// was. Answers how many rows were added.
     pub fn merge_prices(&mut self, rows: &[PriceRow], source: &str, captured_at: f64) -> Result<usize, String> {
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
         let mut added = 0;
@@ -315,9 +386,20 @@ impl UsageStore {
         self.conn
             .execute("DELETE FROM call WHERE at < ?1", [now - HORIZON_MS])
             .map_err(|e| e.to_string())?;
+        self.conn
+            .execute("DELETE FROM tally WHERE at < ?1", [now - HORIZON_MS])
+            .map_err(|e| e.to_string())?;
         Ok(cutoff)
     }
 }
+
+/// The source the shipped seed's rows are journaled under.
+const SEED_SOURCE: &str = "seed";
+
+/// The meta key holding when this ledger began to keep running totals
+/// (schema 4): calls booked before it were not filed by model, so no total
+/// can be set against them.
+const TALLIES_SINCE: &str = "tallies_since";
 
 /// The meta key [`Ledger::per_model_since`] is kept under.
 const PER_MODEL_SINCE: &str = "per_model_since";
@@ -431,7 +513,20 @@ fn book_in(
     let (session, first_seen) = upsert_session(tx, &batch.agent, &batch.session_id, batch.first_seen)?;
     let place_json = to_json(&batch.place)?;
     let mut rows = Vec::new();
+    // Calls first, totals after: a total counts the calls of every file of
+    // the session, and a subagent's file read in the same tick may come
+    // after the root's in the batch — set against a total before it was
+    // booked, its calls would count twice. A total also covers no less than
+    // the calls the batch reported before it: the row that dates it can be
+    // older than the last call it closes.
+    let mut latest_before = f64::NEG_INFINITY;
+    let mut totals = Vec::new();
     for call in &batch.calls {
+        if let Some(tally) = call.tally {
+            totals.push(Total { call, tally, covers: call.at.max(latest_before) });
+            continue;
+        }
+        latest_before = latest_before.max(call.at);
         let key = call_key(&batch.agent, &call.id);
         let known: Option<TokenCounts> = tx
             .query_row("SELECT tokens FROM call WHERE key = ?1", [&key], |r| r.get::<_, String>(0))
@@ -444,13 +539,13 @@ fn book_in(
             continue;
         };
         let new_call = known.is_none();
+        let model = call.booked_model();
         tx.execute(
-            "INSERT INTO call (key, session, at, tokens) VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO call (key, session, at, tokens, model) VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(key) DO UPDATE SET tokens = excluded.tokens",
-            params![key, session, call.at, to_json(&remembered)?],
+            params![key, session, call.at, to_json(&remembered)?, model],
         )
         .map_err(|e| e.to_string())?;
-        let model = call.booked_model();
         let mode = call.mode.clone().unwrap_or_default();
         let tier = journal.tier_of(&model, call.at, reported.prompt());
         let event_id = format!("call-{}-{}", hex(&key), hex(&call_key(&batch.agent, &to_json(&remembered)?)));
@@ -473,7 +568,178 @@ fn book_in(
         add_to_bucket(tx, session, &booked, &place_json)?;
         rows.push(booked.into_row(journal));
     }
+    for total in totals {
+        if let Some(booked) = book_tally(tx, batch, session, first_seen, &total, captured_at)? {
+            insert_event(tx, session, &booked, &place_json)?;
+            add_to_bucket(tx, session, &booked, &place_json)?;
+            rows.push(booked.into_row(journal));
+        }
+    }
     Ok(rows)
+}
+
+/// A running total as its batch reported it.
+struct Total<'a> {
+    call: &'a UsageCall,
+    tally: Tally,
+    /// The latest instant the total closes: its own date, or a call its
+    /// batch reported before it that is later.
+    covers: f64,
+}
+
+/// What a running total adds over the session's calls (see [`Tally`]), as one
+/// booking — None when it adds nothing.
+///
+/// A total counts everything the session spent on one model since its count
+/// began: the calls the ledger booked one by one, and what no call record
+/// shows. Its first sighting is its base, since the ledger cannot tell what
+/// it held before the deck watched — unless the count began when the deck
+/// first saw the session (a session the deck started counts from zero). A
+/// fork that inherited its source's total, or a session older than the
+/// deck's watch, only sets the base. From then on each larger total books
+/// its growth, less what the session's calls of that model booked in
+/// between, class by class and never below nothing: two processes counting
+/// one session cannot book what neither spent. A total from before the deck
+/// saw the session, or before this ledger kept totals at all
+/// ([`TALLIES_SINCE`] — calls booked earlier were not filed by model), only
+/// moves the base, and so does the first total after a base set before then.
+/// A count another session already reported is inherited however young it
+/// is: a fork or a background worker made in a fresh session's first minute
+/// carries its source's spend.
+///
+/// Cache writes compare as one class: a total that cannot tell its writes
+/// apart (claude before 2.1.311) counts them all as five-minute ones while
+/// its calls file the hour-long ones apart, and a count that learns the
+/// split mid-line moves its past from one class to the other. So the
+/// remembered total holds the sum of its writes, the writes left over are
+/// that sum's growth less every write the calls booked, and the hour-long
+/// share of them is what the hour-long count grew past the calls' own —
+/// never more than the whole.
+fn book_tally(
+    tx: &Transaction<'_>,
+    batch: &CallBatch,
+    session: i64,
+    first_seen: f64,
+    total: &Total<'_>,
+    captured_at: f64,
+) -> Result<Option<Booked>, String> {
+    let Total { call, tally, covers } = *total;
+    let key = call_key(&batch.agent, &format!("tally\u{0}{}\u{0}{}", batch.session_id, call.id));
+    let kept_since: f64 = tx
+        .query_row("SELECT value FROM meta WHERE key = ?1", [TALLIES_SINCE], |r| r.get::<_, String>(0))
+        .optional()
+        .map_err(|e| e.to_string())?
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0.0);
+    let floor = first_seen.max(kept_since);
+    let reported = writes_as_one(&call.tokens.counts());
+    let known: Option<(f64, String)> = tx
+        .query_row("SELECT at, tokens FROM tally WHERE key = ?1", [&key], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let remember = |at: f64, tokens: &TokenCounts| -> Result<(), String> {
+        tx.execute(
+            "INSERT INTO tally (key, session, began, at, tokens) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(key) DO UPDATE SET at = excluded.at, tokens = excluded.tokens",
+            params![key, session, tally.began, at, to_json(tokens)?],
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+    };
+    let inherited: bool = tx
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM tally WHERE began = ?1 AND session <> ?2)",
+            params![tally.began, session],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let fresh = !inherited
+        && tally.began >= (first_seen - FRESH_TALLY_MS).max(kept_since)
+        && tally.began >= captured_at - HORIZON_MS;
+    let (base_at, base) = match known {
+        Some((at, tokens)) => (at, from_json::<TokenCounts>(&tokens)?),
+        None if fresh => (tally.began, TokenCounts::default()),
+        None => {
+            remember(call.at, &reported)?;
+            return Ok(None);
+        }
+    };
+    let mut growth = TokenCounts::default();
+    let mut remembered = base.clone();
+    for kind in TOKEN_KINDS {
+        let was = base.get(kind).unwrap_or(0.0);
+        let now_is = reported.get(kind).unwrap_or(0.0);
+        if now_is > was {
+            growth.set(kind, Some(now_is - was));
+            remembered.set(kind, Some(now_is));
+        }
+    }
+    remember(base_at.max(covers), &remembered)?;
+    // A base set before the ledger kept totals spans calls it filed under no
+    // model: what the count grew from there cannot be set against them.
+    if growth.is_empty() || call.at <= floor || base_at < kept_since || call.at < captured_at - HORIZON_MS {
+        return Ok(None);
+    }
+
+    let model = call.booked_model();
+    let mut booked_calls = TokenCounts::default();
+    let calls: Vec<String> = tx
+        .prepare("SELECT tokens FROM call WHERE session = ?1 AND model = ?2 AND at > ?3 AND at <= ?4")
+        .map_err(|e| e.to_string())?
+        .query_map(params![session, model, base_at, covers], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    for tokens in &calls {
+        booked_calls.add(&from_json(tokens)?);
+    }
+    let mut left = TokenCounts::default();
+    for kind in TOKEN_KINDS {
+        let rest = growth.get(kind).unwrap_or(0.0) - booked_calls.get(kind).unwrap_or(0.0);
+        if rest > 0.0 {
+            left.set(kind, Some(rest));
+        }
+    }
+    // Writes, as one class (see above): `growth` holds the sum's growth.
+    let written = |t: &TokenCounts, kind: TokenKind| t.get(kind).unwrap_or(0.0);
+    let writes = (written(&growth, TokenKind::CacheWrite)
+        - written(&booked_calls, TokenKind::CacheWrite)
+        - written(&booked_calls, TokenKind::CacheWrite1h))
+    .max(0.0);
+    let hour = (written(&growth, TokenKind::CacheWrite1h) - written(&booked_calls, TokenKind::CacheWrite1h))
+        .clamp(0.0, writes);
+    left.cache_write = (writes - hour > 0.0).then_some(writes - hour);
+    left.cache_write_1h = (hour > 0.0).then_some(hour);
+    left.total = Some(left.billed());
+    if left.billed() <= 0.0 {
+        return Ok(None);
+    }
+    Ok(Some(Booked {
+        agent: batch.agent.clone(),
+        session_id: batch.session_id.clone(),
+        event_id: format!("tally-{}-{}", hex(&key), hex(&call_key(&batch.agent, &to_json(&remembered)?))),
+        occurred_at: call.at,
+        priced_at: call.at,
+        captured_at,
+        model,
+        mode: call.mode.clone().unwrap_or_default(),
+        // A total is many requests' sum: no one prompt to cross a tier with.
+        tier: 0,
+        place: batch.place.clone(),
+        tokens: left,
+        count: 1,
+        // Not a call the ledger can count: an unknown number of them.
+        calls: 0,
+    }))
+}
+
+/// A running total with its cache writes held as one class: `cache_write`
+/// the sum of both durations, `cache_write_1h` the hour-long share it says
+/// it knows (see [`book_tally`]).
+fn writes_as_one(counts: &TokenCounts) -> TokenCounts {
+    let mut merged = counts.clone();
+    merged.cache_write = Some(counts.cache_write.unwrap_or(0.0) + counts.cache_write_1h.unwrap_or(0.0));
+    merged
 }
 
 /// The session's row id and the first time the ledger saw it. Set once, by
@@ -518,39 +784,65 @@ fn insert_event(tx: &Transaction<'_>, session: i64, booked: &Booked, place: &str
     Ok(())
 }
 
+/// Figures added to one bucket: one booking's, or a whole bucket's carried
+/// under another key.
+struct BucketPart<'a> {
+    session: i64,
+    start: f64,
+    model: &'a str,
+    mode: &'a str,
+    tier: u64,
+    tokens: &'a TokenCounts,
+    count: i64,
+    calls: i64,
+    first_at: f64,
+    last_at: f64,
+    place: &'a str,
+}
+
 /// Add one booking's figures to its bucket.
 fn add_to_bucket(tx: &Transaction<'_>, session: i64, booked: &Booked, place: &str) -> Result<(), String> {
-    let start = bucket_start(booked.occurred_at);
-    let existing: Option<(String, i64, i64, f64, f64)> = tx
+    merge_into_bucket(
+        tx,
+        &BucketPart {
+            session,
+            start: bucket_start(booked.occurred_at),
+            model: &booked.model,
+            mode: &booked.mode,
+            tier: booked.tier,
+            tokens: &booked.tokens,
+            count: booked.count,
+            calls: booked.calls,
+            first_at: booked.occurred_at,
+            last_at: booked.occurred_at,
+            place,
+        },
+    )
+}
+
+/// Add `part` to the bucket it names: its figures summed into what the
+/// bucket holds, its span widened.
+fn merge_into_bucket(tx: &Transaction<'_>, part: &BucketPart<'_>) -> Result<(), String> {
+    let key = params![part.session, part.start, part.model, part.mode, part.tier as i64];
+    let existing: Option<(String, i64, i64, f64, f64, String)> = tx
         .query_row(
-            "SELECT tokens, count, calls, first_at, last_at FROM bucket
+            "SELECT tokens, count, calls, first_at, last_at, place FROM bucket
               WHERE session = ?1 AND start = ?2 AND model = ?3 AND mode = ?4 AND tier = ?5",
-            params![session, start, booked.model, booked.mode, booked.tier as i64],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            key,
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    let (mut tokens, count, calls, first_at, last_at) = match existing {
-        Some((tokens, count, calls, first_at, last_at)) => (from_json::<TokenCounts>(&tokens)?, count, calls, first_at, last_at),
-        None => (TokenCounts::default(), 0, 0, booked.occurred_at, booked.occurred_at),
+    let (mut tokens, count, calls, first_at, last_at, place) = match existing {
+        Some((tokens, count, calls, first_at, last_at, place)) => {
+            (from_json::<TokenCounts>(&tokens)?, count, calls, first_at, last_at, place)
+        }
+        None => (TokenCounts::default(), 0, 0, part.first_at, part.last_at, part.place.to_string()),
     };
-    tokens.add(&booked.tokens);
+    tokens.add(part.tokens);
     // The place stays the latest event's: a bucket is one session, and a
     // session that moved panes is shown where it was last.
-    let (last_at, place) = if booked.occurred_at >= last_at {
-        (booked.occurred_at, place.to_string())
-    } else {
-        let kept: String = tx
-            .query_row(
-                "SELECT place FROM bucket WHERE session = ?1 AND start = ?2 AND model = ?3 AND mode = ?4 AND tier = ?5",
-                params![session, start, booked.model, booked.mode, booked.tier as i64],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| place.to_string());
-        (last_at, kept)
-    };
+    let place = if part.last_at >= last_at { part.place.to_string() } else { place };
     tx.execute(
         "INSERT INTO bucket (session, start, model, mode, tier, tokens, count, calls, first_at, last_at, place)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
@@ -558,16 +850,16 @@ fn add_to_bucket(tx: &Transaction<'_>, session: i64, booked: &Booked, place: &st
              tokens = excluded.tokens, count = excluded.count, calls = excluded.calls,
              first_at = excluded.first_at, last_at = excluded.last_at, place = excluded.place",
         params![
-            session,
-            start,
-            booked.model,
-            booked.mode,
-            booked.tier as i64,
+            part.session,
+            part.start,
+            part.model,
+            part.mode,
+            part.tier as i64,
             to_json(&tokens)?,
-            count + booked.count,
-            calls + booked.calls,
-            first_at.min(booked.occurred_at),
-            last_at,
+            count + part.count,
+            calls + part.calls,
+            first_at.min(part.first_at),
+            last_at.max(part.last_at),
             place
         ],
     )
@@ -654,14 +946,25 @@ fn insert_price(tx: &Transaction<'_>, row: &PriceRow, source: &str, captured_at:
 }
 
 fn load_journal(conn: &Connection) -> Result<Journal, String> {
+    Ok(Journal::new(
+        price_rows(conn, None)?,
+        catalogue::makers().to_vec(),
+        catalogue::aliases().clone(),
+    ))
+}
+
+/// The journal's rows — all of them, or those one source wrote.
+fn price_rows(conn: &Connection, source: Option<&str>) -> Result<Vec<PriceRow>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT model, effective_from, name, input, output, cache_read, cache_write,
-                    cache_write_1h, modes, tiers FROM price",
+                    cache_write_1h, modes, tiers FROM price
+              WHERE ?1 IS NULL OR source = ?1
+              ORDER BY model, effective_from",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |r| {
+        .query_map([source], |r| {
             Ok(PriceRow {
                 model: r.get(0)?,
                 from: r.get(1)?,
@@ -681,8 +984,8 @@ fn load_journal(conn: &Connection) -> Result<Journal, String> {
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    Ok(Journal::new(rows, catalogue::makers().to_vec()))
+        .map_err(|e| e.to_string());
+    rows
 }
 
 fn migrate_to_1(conn: &Connection) -> Result<(), String> {
@@ -842,6 +1145,167 @@ fn migrate_to_3(tx: &Transaction<'_>, now: f64) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+/// Schema 4: old rows schema 3 carried under a wrong key are re-keyed.
+///
+/// - kimi's had its agent's name put before the provider it already named
+///   (see [`legacy_migration::rekeyed`]), so one model stood under two keys,
+///   the old rows' and the calls' booked since.
+/// - a row booked before its agent named the model (see
+///   [`legacy_migration::unnamed`]) was carried under no model, and so went
+///   unpriced; it takes the model its session's next named row ran on — the
+///   previous one when none follows. A session that never named a model
+///   keeps it unnamed.
+///
+/// A re-keyed bucket merges into one already under its new key.
+///
+/// Schema 4 also begins the running totals ([`Tally`]): a remembered call
+/// keeps the model it was booked under, so a total can be set against the
+/// session's calls of its model, and `tally` remembers each total's last
+/// sighting. Calls remembered before now carry no model, so totals count
+/// from now on ([`TALLIES_SINCE`]).
+fn migrate_to_4(tx: &Transaction<'_>, now: f64) -> Result<(), String> {
+    tx.execute_batch(
+        "ALTER TABLE call ADD COLUMN model TEXT;
+         CREATE INDEX call_by_session_model ON call (session, model, at);
+         CREATE TABLE tally (
+             key BLOB PRIMARY KEY,
+             session INTEGER NOT NULL REFERENCES session(id),
+             began REAL NOT NULL,
+             at REAL NOT NULL,
+             tokens TEXT NOT NULL
+         ) WITHOUT ROWID;
+         CREATE INDEX tally_by_count ON tally (began, session);",
+    )
+    .map_err(|e| e.to_string())?;
+    set_meta(tx, TALLIES_SINCE, &now.to_string())?;
+    struct Bucket {
+        session: i64,
+        agent: String,
+        start: f64,
+        model: String,
+        mode: String,
+        tier: i64,
+        tokens: String,
+        count: i64,
+        calls: i64,
+        first_at: f64,
+        last_at: f64,
+        place: String,
+    }
+    let buckets: Vec<Bucket> = tx
+        .prepare(
+            "SELECT b.session, s.agent, b.start, b.model, b.mode, b.tier, b.tokens, b.count, b.calls,
+                    b.first_at, b.last_at, b.place
+               FROM bucket b JOIN session s ON s.id = b.session",
+        )
+        .map_err(|e| e.to_string())?
+        .query_map([], |r| {
+            Ok(Bucket {
+                session: r.get(0)?,
+                agent: r.get(1)?,
+                start: r.get(2)?,
+                model: r.get(3)?,
+                mode: r.get(4)?,
+                tier: r.get(5)?,
+                tokens: r.get(6)?,
+                count: r.get(7)?,
+                calls: r.get(8)?,
+                first_at: r.get(9)?,
+                last_at: r.get(10)?,
+                place: r.get(11)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    // Each session's named buckets, as re-keyed, by when they began.
+    let mut named: HashMap<i64, Vec<(f64, String)>> = HashMap::new();
+    for bucket in &buckets {
+        if !legacy_migration::unnamed(&bucket.agent, &bucket.model) {
+            let key = legacy_migration::rekeyed(&bucket.agent, &bucket.model).unwrap_or_else(|| bucket.model.clone());
+            named.entry(bucket.session).or_default().push((bucket.first_at, key));
+        }
+    }
+    for rows in named.values_mut() {
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+    }
+    let rekeyed = |agent: &str, session: i64, model: &str, at: f64, tokens: &TokenCounts, events: i64| -> Option<String> {
+        if !legacy_migration::unnamed(agent, model) {
+            return legacy_migration::rekeyed(agent, model);
+        }
+        if !legacy_migration::nameable(agent, model, tokens, events) {
+            return None;
+        }
+        let rows = named.get(&session)?;
+        rows.iter()
+            .find(|(first_at, _)| *first_at >= at)
+            .or_else(|| rows.last())
+            .map(|(_, key)| key.clone())
+    };
+    for bucket in &buckets {
+        let tokens: TokenCounts = from_json(&bucket.tokens)?;
+        let Some(to) = rekeyed(&bucket.agent, bucket.session, &bucket.model, bucket.first_at, &tokens, bucket.count) else {
+            continue;
+        };
+        tx.execute(
+            "DELETE FROM bucket WHERE session = ?1 AND start = ?2 AND model = ?3 AND mode = ?4 AND tier = ?5",
+            params![bucket.session, bucket.start, bucket.model, bucket.mode, bucket.tier],
+        )
+        .map_err(|e| e.to_string())?;
+        merge_into_bucket(
+            tx,
+            &BucketPart {
+                session: bucket.session,
+                start: bucket.start,
+                model: &to,
+                mode: &bucket.mode,
+                tier: bucket.tier.max(0) as u64,
+                tokens: &tokens,
+                count: bucket.count,
+                calls: bucket.calls,
+                first_at: bucket.first_at,
+                last_at: bucket.last_at,
+                place: &bucket.place,
+            },
+        )?;
+    }
+
+    struct Event {
+        event_id: String,
+        agent: String,
+        session: i64,
+        model: String,
+        at: f64,
+        tokens: String,
+    }
+    let events: Vec<Event> = tx
+        .prepare(
+            "SELECT e.event_id, s.agent, e.session, e.model, e.occurred_at, e.tokens
+               FROM event e JOIN session s ON s.id = e.session",
+        )
+        .map_err(|e| e.to_string())?
+        .query_map([], |r| {
+            Ok(Event {
+                event_id: r.get(0)?,
+                agent: r.get(1)?,
+                session: r.get(2)?,
+                model: r.get(3)?,
+                at: r.get(4)?,
+                tokens: r.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    for Event { event_id, agent, session, model, at, tokens } in &events {
+        if let Some(to) = rekeyed(agent, *session, model, *at, &from_json(tokens)?, 1) {
+            tx.execute("UPDATE event SET model = ?1 WHERE event_id = ?2", params![to, event_id])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.execute_batch("PRAGMA user_version = 4;").map_err(|e| e.to_string())
+}
+
 /// A schema-2 bucket or raw event, as the schema-3 migration reads it.
 struct OldRow {
     event_id: String,
@@ -971,6 +1435,7 @@ mod tests {
             model: "claude-opus-5-5".into(),
             mode: None,
             tokens: CallTokens { input, output, ..CallTokens::default() },
+            tally: None,
         }
     }
 
@@ -1112,6 +1577,193 @@ mod tests {
         assert!((rows[0].cost_usd.unwrap() - (0.1 * 4.0 + 0.2 * 0.2)).abs() < 1e-9, "{:?}", rows[0].cost_usd);
     }
 
+    /// The agent's running total of the session's opus spend since `began`.
+    fn total(at: f64, began: f64, input: f64, output: f64) -> UsageCall {
+        UsageCall {
+            id: format!("{began}:claude-opus-5-5"),
+            tally: Some(Tally { began }),
+            ..call("total", at, input, output)
+        }
+    }
+
+    fn booked_tokens(rows: &[LedgerRow]) -> Vec<(u32, Option<f64>, Option<f64>)> {
+        rows.iter().map(|row| (row.calls, row.tokens.input, row.tokens.output)).collect()
+    }
+
+    #[test]
+    fn a_running_total_books_what_the_sessions_calls_left_out() {
+        let mut s = store();
+        s.merge_prices(&[opus_price(0.0)], "seed", NOW).unwrap();
+        let seen = NOW + 1_000.0;
+        let began = NOW + 500.0;
+        let at = |offset: f64| seen + offset;
+        let mut b = batch("s1", seen, vec![call("msg_1", at(100.0), 100.0, 10.0), total(at(200.0), began, 150.0, 30.0)]);
+        let rows = s.book(&b, at(300.0)).unwrap();
+        assert_eq!(
+            booked_tokens(&rows),
+            vec![(1, Some(100.0), Some(10.0)), (0, Some(50.0), Some(20.0))],
+            "a count that began as the deck saw the session runs from zero; its rest is no call"
+        );
+        assert_eq!(rows[1].cost_usd, Some((50.0 * 4.0 + 20.0 * 20.0) / 1e6), "priced like any usage");
+
+        assert!(s.book(&b, at(400.0)).unwrap().is_empty(), "the same total read again adds nothing");
+
+        b.calls = vec![call("msg_2", at(500.0), 10.0, 0.0), total(at(600.0), began, 170.0, 30.0)];
+        let rows = s.book(&b, at(700.0)).unwrap();
+        assert_eq!(
+            booked_tokens(&rows),
+            vec![(1, Some(10.0), Some(0.0)), (0, Some(10.0), None)],
+            "the next total books its growth less the calls in between"
+        );
+    }
+
+    #[test]
+    fn a_total_older_than_the_deck_s_watch_sets_the_base_and_books_only_what_grows() {
+        let mut s = store();
+        let seen = NOW + 1_000.0;
+        let at = |offset: f64| seen + offset;
+        // A fork inherits its source's count; a session the deck took over
+        // began counting long before it.
+        let began = seen - 2.0 * FRESH_TALLY_MS;
+        let b = batch("s1", seen, vec![total(at(100.0), began, 1_000.0, 100.0)]);
+        assert!(s.book(&b, at(200.0)).unwrap().is_empty(), "what it held before the deck saw it is not the deck's");
+        let b = batch("s1", seen, vec![call("msg_1", at(300.0), 60.0, 0.0), total(at(400.0), began, 1_100.0, 90.0)]);
+        let rows = s.book(&b, at(500.0)).unwrap();
+        assert_eq!(booked_tokens(&rows), vec![(1, Some(60.0), Some(0.0)), (0, Some(40.0), None)]);
+
+        let b = batch("s1", seen, vec![call("msg_2", at(600.0), 500.0, 0.0), total(at(700.0), began, 1_200.0, 90.0)]);
+        let rows = s.book(&b, at(800.0)).unwrap();
+        assert_eq!(booked_tokens(&rows), vec![(1, Some(500.0), Some(0.0))], "never less than nothing");
+
+        let mut other = batch("s2", seen, vec![total(at(900.0), began, 5_000.0, 0.0)]);
+        other.agent = "claude".into();
+        assert!(s.book(&other, at(950.0)).unwrap().is_empty(), "another session's count of the same lineage has its own base");
+    }
+
+    fn written(at: f64, began: f64, five: f64, hour: f64) -> UsageCall {
+        let mut call = total(at, began, 0.0, 0.0);
+        call.tokens.cache_write = five;
+        call.tokens.cache_write_1h = hour;
+        call
+    }
+
+    fn writes(rows: &[LedgerRow]) -> Vec<(u32, Option<f64>, Option<f64>)> {
+        rows.iter().map(|row| (row.calls, row.tokens.cache_write, row.tokens.cache_write_1h)).collect()
+    }
+
+    #[test]
+    fn a_total_that_cannot_tell_its_writes_apart_does_not_book_the_calls_hour_long_ones_again() {
+        let mut s = store();
+        let seen = NOW + 1_000.0;
+        let began = NOW + 500.0;
+        let mut hour_long = call("msg_1", seen + 100.0, 0.0, 0.0);
+        hour_long.tokens.cache_write_1h = 1_000.0;
+        // claude before 2.1.311: every write counted as a five-minute one.
+        let b = batch("s1", seen, vec![hour_long, written(seen + 200.0, began, 1_200.0, 0.0)]);
+        let rows = s.book(&b, seen + 300.0).unwrap();
+        assert_eq!(writes(&rows), vec![(1, Some(0.0), Some(1_000.0)), (0, Some(200.0), None)]);
+
+        // The count learns the split: its past moves into the hour-long class.
+        let mut later = call("msg_2", seen + 400.0, 0.0, 0.0);
+        later.tokens.cache_write_1h = 50.0;
+        let b = batch("s1", seen, vec![later, written(seen + 500.0, began, 150.0, 1_350.0)]);
+        let rows = s.book(&b, seen + 600.0).unwrap();
+        assert_eq!(
+            writes(&rows),
+            vec![(1, Some(0.0), Some(50.0)), (0, None, Some(250.0))],
+            "the writes' sum grew by 300, the calls wrote 50: 250 left, never the 1,350 the hour-long count jumped"
+        );
+    }
+
+    #[test]
+    fn a_count_another_session_reported_is_inherited_however_young() {
+        let mut s = store();
+        let seen = NOW + 1_000.0;
+        let began = NOW + 500.0;
+        let source = batch("source", seen, vec![total(seen + 100.0, began, 300.0, 0.0)]);
+        assert_eq!(booked_tokens(&s.book(&source, seen + 150.0).unwrap()), vec![(0, Some(300.0), None)]);
+        // A fork made minutes later carries the source's count.
+        let fork = batch("fork", seen + 200.0, vec![total(seen + 400.0, began, 350.0, 0.0)]);
+        assert!(s.book(&fork, seen + 500.0).unwrap().is_empty(), "the source's 300 are not the fork's");
+        let fork = batch("fork", seen + 200.0, vec![total(seen + 600.0, began, 380.0, 0.0)]);
+        assert_eq!(booked_tokens(&s.book(&fork, seen + 700.0).unwrap()), vec![(0, Some(30.0), None)]);
+    }
+
+    #[test]
+    fn a_total_from_before_the_ledger_kept_totals_only_moves_the_base() {
+        let mut s = store();
+        let seen = NOW - DAY;
+        let began = NOW - 1_000.0;
+        let b = batch("s1", seen, vec![total(NOW - 500.0, began, 400.0, 0.0)]);
+        assert!(s.book(&b, NOW + 100.0).unwrap().is_empty(), "calls before schema 4 carry no model to set it against");
+        let b = batch("s1", seen, vec![total(NOW + 200.0, began, 450.0, 0.0)]);
+        assert!(s.book(&b, NOW + 300.0).unwrap().is_empty(), "nor can what it grew from a base set before then");
+        let b = batch("s1", seen, vec![total(NOW + 400.0, began, 470.0, 0.0)]);
+        assert_eq!(booked_tokens(&s.book(&b, NOW + 500.0).unwrap()), vec![(0, Some(20.0), None)]);
+    }
+
+    #[test]
+    fn a_session_the_deck_took_over_after_its_first_minute_counts_from_its_first_total() {
+        let mut s = store();
+        let seen = NOW + 10.0 * 60.0 * 1000.0;
+        // The deck attached two minutes after the count began: the calls of
+        // those minutes were never read, and sit in the count.
+        let b = batch("s1", seen, vec![total(seen + 100.0, seen - 2.0 * 60.0 * 1000.0, 900.0, 0.0)]);
+        assert!(s.book(&b, seen + 200.0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_total_is_set_against_every_call_its_batch_reported_and_no_earlier_than_the_last() {
+        let mut s = store();
+        let seen = NOW + 1_000.0;
+        let began = NOW + 500.0;
+        // The root's total first, a subagent's call read in the same tick
+        // after it; and a total dated by a row older than that call.
+        let b = batch("s1", seen, vec![total(seen + 200.0, began, 150.0, 0.0), call("sub_1", seen + 150.0, 100.0, 0.0)]);
+        let rows = s.book(&b, seen + 400.0).unwrap();
+        assert_eq!(
+            booked_tokens(&rows),
+            vec![(1, Some(100.0), Some(0.0)), (0, Some(50.0), None)],
+            "the subagent's call, reported after the total, is set against it"
+        );
+        let b = batch("s1", seen, vec![call("msg_2", seen + 500.0, 10.0, 0.0), total(seen + 450.0, began, 200.0, 0.0)]);
+        let rows = s.book(&b, seen + 600.0).unwrap();
+        assert_eq!(
+            booked_tokens(&rows),
+            vec![(1, Some(10.0), Some(0.0)), (0, Some(40.0), None)],
+            "the call reported before it is inside it, however the total is dated"
+        );
+    }
+
+    #[test]
+    fn a_newer_seed_replaces_the_history_before_it_and_leaves_the_catalogues_rows_after_it() {
+        let mut s = store();
+        let mut wrong = opus_price(DAY);
+        wrong.price.rates.cache_read = Some(0.4);
+        let flap = opus_price(2.0 * DAY);
+        s.adopt_seed(&SeedHistory { rows: vec![wrong, flap], until: 2.5 * DAY }, NOW).unwrap();
+        // The catalogue journaled a price models.dev later fixed, then a real one.
+        let mut stale = opus_price(4.0 * DAY);
+        stale.price.rates.output = 99.0;
+        let mut live = opus_price(6.0 * DAY);
+        live.price.rates.output = 30.0;
+        s.merge_prices(&[stale, live.clone()], "models.dev", NOW).unwrap();
+
+        let corrected = opus_price(DAY);
+        let mut moved = opus_price(3.5 * DAY);
+        moved.price.rates.output = 25.0;
+        let newer = SeedHistory { rows: vec![moved.clone(), corrected.clone()], until: 5.0 * DAY };
+        assert_eq!(
+            s.adopt_seed(&newer, NOW).unwrap(),
+            5,
+            "two old seed rows and the catalogue's row before the seed's end dropped, two rows written"
+        );
+        let rows = price_rows(&s.conn, None).unwrap();
+        assert_eq!(rows, vec![corrected, moved, live], "the seed's history up to its end, the catalogue's after it");
+        assert_eq!(s.journal().latest("anthropic/claude-opus-5-5").unwrap().price.rates.output, 30.0, "the journal reads the new rows");
+        assert_eq!(s.adopt_seed(&newer, NOW).unwrap(), 0, "the same seed again changes nothing");
+    }
+
     #[test]
     fn merging_the_same_prices_twice_adds_nothing() {
         let mut s = store();
@@ -1195,6 +1847,7 @@ mod tests {
             model: "claude-opus-5-5".into(),
             mode: None,
             tokens: CallTokens { input: 10.0, ..CallTokens::default() },
+            tally: None,
         };
         let b = CallBatch { agent: "claude".into(), session_id: "c1".into(), first_seen: 0.0, place: place("pane-1"), calls: vec![reread.clone()] };
         assert!(s.book(&b, NOW + 1000.0).unwrap().is_empty(), "a transcript re-read after the upgrade does not book the old buckets' usage again");
@@ -1202,5 +1855,110 @@ mod tests {
         reread.at = NOW + 500.0;
         let b = CallBatch { calls: vec![reread], ..b };
         assert_eq!(s.book(&b, NOW + 1000.0).unwrap().len(), 1);
+    }
+
+    /// A store as a schema-3 build left it.
+    fn schema_3() -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate_to_1(&conn).unwrap();
+        migrate_to_2(&conn, 1.0).unwrap();
+        let tx = conn.transaction().unwrap();
+        migrate_to_3(&tx, 1.0).unwrap();
+        tx.commit().unwrap();
+        conn
+    }
+
+    #[test]
+    fn a_schema_3_store_rekeys_old_rows_under_the_key_their_model_is_booked_under() {
+        struct Old {
+            conn: Connection,
+        }
+        let s = Old { conn: schema_3() };
+        s.conn
+            .execute_batch(
+                "INSERT INTO session (id, agent, session_id, first_seen) VALUES
+                     (1, 'kimi', 'k1', 0), (2, 'opencode', 'o1', 0), (3, 'claude', 'c1', 0), (4, 'claude', 'c2', 0);",
+            )
+            .unwrap();
+        let bucket_at = |session: i64, start: f64, model: &str, tokens: &str, first: f64, last: f64, pane: &str| {
+            s.conn
+                .execute(
+                    "INSERT INTO bucket (session, start, model, mode, tier, tokens, count, calls, first_at, last_at, place)
+                     VALUES (?1, ?2, ?3, '', 0, ?4, 1, 1, ?5, ?6, ?7)",
+                    params![session, start, model, tokens, first, last, to_json(&place(pane)).unwrap()],
+                )
+                .unwrap();
+        };
+        let bucket = |session: i64, model: &str, tokens: &str, first: f64, last: f64, pane: &str| {
+            bucket_at(session, DAY, model, tokens, first, last, pane);
+        };
+        bucket(1, "kimi/kimi-code/k3", r#"{"input":10,"output":1}"#, DAY + 10.0, DAY + 20.0, "pane-old");
+        bucket(1, "kimi-code/k3", r#"{"input":5,"cacheRead":7}"#, DAY + 5.0, DAY + 30.0, "pane-new");
+        bucket(1, "kimi/kimi-code/kimi-for-coding", r#"{"input":4}"#, DAY + 1.0, DAY + 2.0, "pane-old");
+        bucket(2, "opencode/glm-5.3", r#"{"input":3}"#, DAY, DAY, "pane-1");
+        // claude's first reports, before it named its model, then the model.
+        bucket(3, "anthropic/", r#"{"cacheRead":100}"#, DAY + 1.0, DAY + 2.0, "pane-1");
+        bucket(3, "anthropic/claude-fable-5-1", r#"{"cacheRead":50}"#, DAY + 3.0, DAY + 4.0, "pane-1");
+        bucket_at(3, 2.0 * DAY, "anthropic/claude-opus-5-5", r#"{"cacheRead":20}"#, 2.0 * DAY, 2.0 * DAY, "pane-1");
+        bucket_at(3, 3.0 * DAY, "anthropic/", r#"{"cacheRead":9}"#, 3.0 * DAY, 3.0 * DAY, "pane-1");
+        // A counter's first sighting, booked as one figure: no call.
+        bucket_at(3, 0.5 * DAY, "anthropic/", r#"{"cacheRead":5000000}"#, 0.5 * DAY, 0.5 * DAY, "pane-1");
+        bucket(4, "anthropic/", r#"{"cacheRead":1}"#, DAY, DAY, "pane-2");
+        s.conn
+            .execute(
+                "INSERT INTO event (event_id, session, occurred_at, captured_at, model, mode, tier, place, tokens, calls)
+                 VALUES ('e1', 1, ?1, ?1, 'kimi/kimi-code/kimi-for-coding', '', 0, ?2, '{\"input\":2}', 1)",
+                params![NOW - 1000.0, to_json(&place("pane-old")).unwrap()],
+            )
+            .unwrap();
+        let s = UsageStore::init(s.conn, NOW).unwrap();
+        let version: i64 = s.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let models: Vec<(i64, f64, String, String)> = s
+            .conn
+            .prepare("SELECT session, start, model, tokens FROM bucket ORDER BY session, start, model")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let models: Vec<(i64, f64, &str, Option<f64>)> = models
+            .iter()
+            .map(|(session, start, model, tokens)| {
+                (*session, *start / DAY, model.as_str(), from_json::<TokenCounts>(tokens).unwrap().cache_read)
+            })
+            .collect();
+        assert_eq!(
+            &models[..3],
+            &[(1, 1.0, "kimi-code/k3", Some(7.0)), (1, 1.0, "kimi-code/kimi-for-coding", None), (2, 1.0, "opencode/glm-5.3", None)],
+            "one key per kimi model; another agent's key stands"
+        );
+        assert_eq!(
+            &models[3..],
+            &[
+                (3, 0.5, "anthropic/", Some(5_000_000.0)),
+                (3, 1.0, "anthropic/claude-fable-5-1", Some(150.0)),
+                (3, 2.0, "anthropic/claude-opus-5-5", Some(20.0)),
+                (3, 3.0, "anthropic/claude-opus-5-5", Some(9.0)),
+                (4, 1.0, "anthropic/", Some(1.0)),
+            ],
+            "an unnamed row takes its session's next named model, the last one after it, none in a session that named \
+             none, and a lump bigger than any call stays unnamed"
+        );
+        let (tokens, counts, span, place): (String, (i64, i64), (f64, f64), String) = s
+            .conn
+            .query_row(
+                "SELECT tokens, count, calls, first_at, last_at, place FROM bucket WHERE model = 'kimi-code/k3'",
+                [],
+                |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?), (r.get(3)?, r.get(4)?), r.get(5)?)),
+            )
+            .unwrap();
+        let tokens: TokenCounts = from_json(&tokens).unwrap();
+        assert_eq!((tokens.input, tokens.output, tokens.cache_read), (Some(15.0), Some(1.0), Some(7.0)));
+        assert_eq!(counts, (2, 2), "the merged bucket counts both rows' events and calls");
+        assert_eq!(span, (DAY + 5.0, DAY + 30.0), "its span covers both");
+        assert_eq!(from_json::<Place>(&place).unwrap().pane_id, "pane-new", "it stays where the session was last");
+        let event: String = s.conn.query_row("SELECT model FROM event WHERE event_id = 'e1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(event, "kimi-code/kimi-for-coding");
     }
 }

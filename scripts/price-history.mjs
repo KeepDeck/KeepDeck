@@ -27,6 +27,7 @@ import { isRecord } from "./lib/guards.mjs";
 const SEED_VERSION = 1;
 const SOURCE = "anomalyco/models.dev";
 const MAKERS_FILE = fileURLToPath(new URL("../resources/pricing/makers.json", import.meta.url));
+const CORRECTIONS_FILE = fileURLToPath(new URL("../resources/pricing/corrections.json", import.meta.url));
 const DEFAULT_OUT = fileURLToPath(new URL("../resources/pricing/model-prices.seed.json", import.meta.url));
 const SYMLINK_MODE = "120000";
 export const NO_TEXT_PRICE = "no text input and output price";
@@ -38,10 +39,12 @@ export const NO_TEXT_PRICE = "no text input and output price";
  * @typedef {{ over: number } & TextPrices} Tier the prices once the context exceeds `over` tokens
  * @typedef {TextPrices & { tiers: Tier[], modes: Record<string, TextPrices> }} PriceRow
  * @typedef {{ from: number, name: string | null } & PriceRow} SeedEntry
- * @typedef {{ version: number, source: string, commit: string, models: Record<string, SeedEntry[]> }} Seed
+ * @typedef {{ version: number, source: string, commit: string, committedAt: number, bases: Record<string, string>, models: Record<string, SeedEntry[]> }} Seed
+ *   `committedAt` is when `commit` was made: the history reaches that far; `bases` names who made each model (`<lab>/<model>`)
  * @typedef {{ key: string, from: number, name: string | null, row: PriceRow }} Revision
  * @typedef {{ row: PriceRow, ignored: string[] } | { skip: string }} Mapped
  * @typedef {{ over: number, prices: Record<string, unknown> }} Step a context override, or a schema-1 tier
+ * @typedef {{ model: string, from: string, until: string, why: string }} Correction a span of a model's history models.dev fixed later
  */
 
 /** A revision whose prices can't be read without guessing: it is skipped. */
@@ -111,6 +114,43 @@ export function foldHistory(revisions) {
     entries.push(entry);
   }
   return Object.fromEntries([...models].sort(([a], [b]) => compare(a, b)));
+}
+
+/**
+ * The revisions with every correction applied: a revision of a corrected
+ * model committed from the correction's `from` up to, not including, its
+ * `until` takes the price the revision at `until` brought. A correction that
+ * names a commit off the published line, a span running backwards, or an
+ * `until` that did not touch the model fails the run: a stale correction
+ * must be noticed, never quietly skipped.
+ * @template {{ key: string, commit: string, row: PriceRow }} R
+ * @param {R[]} revisions
+ * @param {string[]} line the published line's commits, oldest first
+ * @param {Correction[]} corrections
+ * @returns {R[]}
+ */
+export function correctHistory(revisions, line, corrections) {
+  const position = new Map(line.map((sha, index) => [sha, index]));
+  /** @param {string} sha @param {Correction} correction */
+  const at = (sha, correction) => {
+    const index = position.get(sha);
+    if (index === undefined) throw new Error(`correction of ${correction.model}: ${sha} is not on the published line`);
+    return index;
+  };
+  let corrected = revisions;
+  for (const correction of corrections) {
+    const from = at(correction.from, correction);
+    const until = at(correction.until, correction);
+    if (from >= until) throw new Error(`correction of ${correction.model}: ${correction.from} is not before ${correction.until}`);
+    const fix = corrected.find((revision) => revision.key === correction.model && revision.commit === correction.until);
+    if (fix === undefined) throw new Error(`correction of ${correction.model}: ${correction.until} brought it no price`);
+    corrected = corrected.map((revision) => {
+      if (revision.key !== correction.model) return revision;
+      const index = position.get(revision.commit) ?? -1;
+      return index >= from && index < until ? { ...revision, row: fix.row } : revision;
+    });
+  }
+  return corrected;
 }
 
 // ---------------------------------------------------------------- schema 1
@@ -761,12 +801,19 @@ function tally(tallies, reason, key, commit) {
 }
 
 /**
- * Reads the price history of `makers` out of a models.dev clone.
+ * Reads the price history of `makers` out of a models.dev clone, the spans
+ * models.dev fixed later read with their fix (see {@link correctHistory}).
+ * Each model's base model — `<lab>/<model>`, who made it — rides along as
+ * its latest revision named it: whether a maker made a model or resells it
+ * is decided where the seed is read, by the one rule the live catalogue is
+ * read by too.
  * @param {string} repo
  * @param {string[]} makers
+ * @param {Correction[]} [corrections]
  */
-export function buildSeed(repo, makers) {
+export function buildSeed(repo, makers, corrections = []) {
   const head = git(repo, ["rev-parse", "HEAD"]).toString("utf8").trim();
+  const committedAt = Number(git(repo, ["show", "-s", "--format=%ct", head]).toString("utf8").trim()) * 1000;
   const commits = readHistory(repo, head, makers);
   const blobIds = new Set(commits.flatMap((commit) => commit.changes.flatMap((change) => change.blob ?? [])));
   const blobs = catFile(repo, [...blobIds]);
@@ -798,15 +845,22 @@ export function buildSeed(repo, makers) {
     priced.push({ key: revision.key, from: revision.from, commit: revision.commit, doc: revision.doc, row: mapped.row });
   }
 
+  /** @type {Map<string, string>} */
+  const bases = new Map();
+  for (const { key, doc } of priced) {
+    if (typeof doc.base_model === "string") bases.set(key, doc.base_model);
+  }
+  const corrected = correctHistory(priced, commits.map((commit) => commit.sha), corrections);
+
   // A file that names no model inherits the name of its base model
   // (models/<lab>/<model>.toml), as it stood in the same commit.
   /** @param {{ commit: string, doc: Record<string, unknown> }} revision */
   const baseSpec = ({ commit, doc }) =>
     typeof doc.name !== "string" && typeof doc.base_model === "string" ? `${commit}:models/${doc.base_model}.toml` : null;
-  const baseFiles = catFile(repo, [...new Set(priced.flatMap((revision) => baseSpec(revision) ?? []))]);
+  const baseFiles = catFile(repo, [...new Set(corrected.flatMap((revision) => baseSpec(revision) ?? []))]);
   let unnamed = 0;
   /** @type {Revision[]} */
-  const revisions = priced.map((revision) => {
+  const revisions = corrected.map((revision) => {
     const spec = baseSpec(revision);
     const baseName = spec === null ? undefined : parseDoc(baseFiles.get(spec) ?? "")?.name;
     const name = typeof revision.doc.name === "string" ? revision.doc.name : typeof baseName === "string" ? baseName : null;
@@ -814,8 +868,16 @@ export function buildSeed(repo, makers) {
     return { key: revision.key, from: revision.from, name, row: revision.row };
   });
 
+  const models = foldHistory(revisions);
   /** @type {Seed} */
-  const seed = { version: SEED_VERSION, source: SOURCE, commit: head, models: foldHistory(revisions) };
+  const seed = {
+    version: SEED_VERSION,
+    source: SOURCE,
+    commit: head,
+    committedAt,
+    bases: Object.fromEntries([...bases].filter(([key]) => key in models).sort(([a], [b]) => compare(a, b))),
+    models,
+  };
   const neverPriced = new Set([...skipped.values()].flatMap((entry) => [...entry.models]));
   for (const key of Object.keys(seed.models)) neverPriced.delete(key);
   return { seed, skipped, ignored, variants, unnamed, neverPriced };
@@ -857,6 +919,24 @@ export function readMakers(file = MAKERS_FILE) {
 }
 
 /**
+ * The spans of models.dev's history it fixed later.
+ * @param {string} [file]
+ * @returns {Correction[]}
+ */
+export function readCorrections(file = CORRECTIONS_FILE) {
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  const corrections = isRecord(parsed) ? parsed.corrections : undefined;
+  const fields = ["model", "from", "until", "why"];
+  if (
+    !Array.isArray(corrections) ||
+    !corrections.every((entry) => isRecord(entry) && fields.every((field) => typeof entry[field] === "string" && entry[field] !== ""))
+  ) {
+    throw new Error(`${file}: "corrections" must be a list of { ${fields.join(", ")} }`);
+  }
+  return /** @type {Correction[]} */ (corrections);
+}
+
+/**
  * The seed as JSON with one entry per line: small enough to ship, and a
  * new price shows in a diff as the line it adds.
  * @param {Seed} seed
@@ -866,11 +946,14 @@ export function formatSeed(seed) {
   const models = Object.entries(seed.models).map(
     ([key, entries]) => `    ${JSON.stringify(key)}: [\n${entries.map((entry) => `      ${JSON.stringify(entry)}`).join(",\n")}\n    ]`,
   );
+  const bases = Object.entries(seed.bases).map(([key, base]) => `    ${JSON.stringify(key)}: ${JSON.stringify(base)}`);
   return [
     "{",
     `  "version": ${JSON.stringify(seed.version)},`,
     `  "source": ${JSON.stringify(seed.source)},`,
     `  "commit": ${JSON.stringify(seed.commit)},`,
+    `  "committedAt": ${JSON.stringify(seed.committedAt)},`,
+    `  "bases": {${bases.length === 0 ? "}," : `\n${bases.join(",\n")}\n  },`}`,
     `  "models": {${models.length === 0 ? "}" : `\n${models.join(",\n")}\n  }`}`,
     "}",
     "",
@@ -894,13 +977,14 @@ function printTallies(title, tallies) {
  */
 export function main(argv = process.argv.slice(2)) {
   const { repo, out } = parseArgs(argv);
-  const { seed, skipped, ignored, variants, unnamed, neverPriced } = buildSeed(repo, readMakers());
+  const corrections = readCorrections();
+  const { seed, skipped, ignored, variants, unnamed, neverPriced } = buildSeed(repo, readMakers(), corrections);
   const text = formatSeed(seed);
   writeFileSync(out, text);
   const entries = Object.values(seed.models).reduce((sum, model) => sum + model.length, 0);
   console.log(
     `Wrote ${out}: ${Object.keys(seed.models).length} models, ${entries} entries, ` +
-      `${Buffer.byteLength(text)} bytes, from ${seed.source}@${seed.commit}`,
+      `${Buffer.byteLength(text)} bytes, from ${seed.source}@${seed.commit}, ${corrections.length} correction(s) applied`,
   );
   printTallies("Skipped revisions (the price before them holds):", skipped);
   printTallies("Prices the seed has no field for (dropped):", ignored);

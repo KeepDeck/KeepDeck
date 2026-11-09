@@ -144,6 +144,16 @@ export interface UsageCall {
    * absent for the standard tier. */
   mode?: string;
   tokens: CallTokens;
+  /**
+   * Set when this is no single call but the agent's own running total of
+   * what the session spent on `model` since `began` (unix ms, when the count
+   * ran from zero): its calls, and what no call record shows — claude's
+   * compaction, away summaries and titles. `id` is the same for every report
+   * of one count. The host books what the total adds over the calls it
+   * booked for the session in between, never less than nothing; a count
+   * that began before the deck saw the session only sets where it stands.
+   */
+  tally?: { began: number };
 }
 
 /** What one bridge report normalizes into. `account: null` means the report

@@ -1,0 +1,11 @@
+{
+  "comment": "Prices models.dev published by mistake and later fixed itself. A correction names a model and two commits of models.dev's published line (anomalyco/models.dev, first parent): every revision of that model from `from` up to, not including, `until` is read with the price `until` brought, so the fix reaches back over the span it corrected instead of starting at the moment it landed. A real price change is history, never a correction: `why` says how the mistake is known. Read by scripts/price-history.mjs; edit here only.",
+  "corrections": [
+    {
+      "model": "anthropic/claude-sonnet-5-5",
+      "from": "17428c6a53c4fcef69efae61f4cf21401d11aba1",
+      "until": "5965293f511d4d0105b20439ae9ed4bf1cd50e0c",
+      "why": "Anthropic halved Sonnet 5.5's cache read to $0.10 on 2026-10-07 (#9035, 'matching the reported 50% drop'). The catalogue sync #9044 copied the model page, still stale at $0.20 during the rollout, back over it two hours later; the next sync, #9065, restored $0.10."
+    }
+  ]
+}

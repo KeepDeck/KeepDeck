@@ -19,5 +19,11 @@
     "perplexity",
     "inception",
     "morph"
-  ]
+  ],
+  "labsComment": "A maker also lists models other labs made, at its own resale price (alibaba sells DeepSeek's and Moonshot's). models.dev names who made a model by its base model, `<lab>/<model>` (a provider file's base_model, the catalogue's canonical_model_id): a maker's own models name its lab, which is its provider id unless `labs` says otherwise. A model of another lab is resold, and is not journaled. Read by crates/keepdeck-usage only (catalogue::made_by), for the seed and the live catalogue alike: the seed builder records each model's base model and leaves the judgment to it.",
+  "labs": {
+    "zai": "zhipuai",
+    "alibaba-cn": "alibaba",
+    "minimax-cn": "minimax"
+  }
 }

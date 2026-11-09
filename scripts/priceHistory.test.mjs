@@ -7,10 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   NO_TEXT_PRICE,
   buildSeed,
+  correctHistory,
   foldHistory,
   formatSeed,
   parseArgs,
   priceRow,
+  readCorrections,
   readMakers,
   samePrice,
 } from "./price-history.mjs";
@@ -306,6 +308,49 @@ describe("foldHistory", () => {
   });
 });
 
+describe("correctHistory", () => {
+  const priced = (/** @type {number} */ input) => row(`name = "M"\n[cost]\ninput = ${input}\noutput = 15\n`);
+  const line = ["c1", "c2", "c3", "c4"];
+  const revisions = [
+    { key: "a/m", commit: "c1", row: priced(3) },
+    { key: "a/m", commit: "c2", row: priced(4) },
+    { key: "b/m", commit: "c3", row: priced(9) },
+    { key: "a/m", commit: "c3", row: priced(3) },
+    { key: "a/m", commit: "c4", row: priced(4) },
+  ];
+  const fix = { model: "a/m", from: "c3", until: "c4", why: "a sync restored the old price" };
+
+  it("reads a corrected span of one model with the price its fix brought", () => {
+    const inputs = correctHistory(revisions, line, [fix]).map((revision) => [revision.key, revision.commit, revision.row.input]);
+    expect(inputs).toEqual([
+      ["a/m", "c1", 3],
+      ["a/m", "c2", 4],
+      ["b/m", "c3", 9],
+      ["a/m", "c3", 4],
+      ["a/m", "c4", 4],
+    ]);
+  });
+
+  it("fails on a correction that no longer fits the history", () => {
+    expect(() => correctHistory(revisions, line, [{ ...fix, from: "gone" }])).toThrow(/gone is not on the published line/);
+    expect(() => correctHistory(revisions, line, [{ ...fix, from: "c4", until: "c3" }])).toThrow(/c4 is not before c3/);
+    expect(() => correctHistory(revisions, line, [{ ...fix, from: "c1", until: "c3", model: "b/m" }])).not.toThrow();
+    expect(() => correctHistory(revisions, line, [{ ...fix, model: "b/m", from: "c1", until: "c2" }])).toThrow(
+      /c2 brought it no price/,
+    );
+  });
+
+  it("reads the shipped corrections, each naming a model and two commits", () => {
+    const corrections = readCorrections();
+    expect(corrections.length).toBeGreaterThan(0);
+    for (const correction of corrections) {
+      expect(correction.model).toMatch(/^[^/]+\/.+$/);
+      expect(correction.from).toMatch(/^[0-9a-f]{40}$/);
+      expect(correction.until).toMatch(/^[0-9a-f]{40}$/);
+    }
+  });
+});
+
 describe("buildSeed", () => {
   /** @type {string[]} */
   const dirs = [];
@@ -383,6 +428,52 @@ describe("buildSeed", () => {
     // The model and its alias both lost their output at S+5.
     expect(skipped.get(NO_TEXT_PRICE)?.revisions).toBe(2);
     expect(JSON.parse(formatSeed(seed))).toEqual(seed);
+  });
+
+  it("names who made each model as its latest revision did, and how far its history reaches", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kd-prices-"));
+    dirs.push(dir);
+    git(dir, ["init", "-q", "-b", "main"]);
+    const based = (/** @type {string} */ base) => priced(1).replace("[cost]", `base_model = "${base}"\n[cost]`);
+    commit(dir, S + 1, {
+      files: {
+        "providers/alibaba/models/deepseek-v4.1-flash.toml": priced(3),
+        "providers/alibaba/models/qwen-x.toml": based("alibaba/qwen-x"),
+        "providers/anthropic/models/claude-x.toml": priced(3),
+      },
+    });
+    // A resold model names its maker only from a later revision on.
+    commit(dir, S + 2, { files: { "providers/alibaba/models/deepseek-v4.1-flash.toml": based("deepseek/deepseek-v4.1-flash") } });
+    commit(dir, S + 3, { files: { "README.md": "not a model" } });
+
+    const { seed } = buildSeed(dir, ["alibaba", "anthropic"]);
+    expect(seed.bases).toEqual({
+      "alibaba/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+      "alibaba/qwen-x": "alibaba/qwen-x",
+    });
+    expect(Object.keys(seed.models)).toContain("alibaba/deepseek-v4.1-flash");
+    expect(seed.committedAt).toBe((S + 3) * 1000);
+    expect(JSON.parse(formatSeed(seed))).toEqual(seed);
+  });
+
+  it("folds a span models.dev fixed later into the fix, a real change staying history", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kd-prices-"));
+    dirs.push(dir);
+    git(dir, ["init", "-q", "-b", "main"]);
+    const model = "providers/anthropic/models/claude-x.toml";
+    const head = () => git(dir, ["rev-parse", "HEAD"]).toString().trim();
+    commit(dir, S + 1, { files: { [model]: priced(3) } });
+    commit(dir, S + 2, { files: { [model]: priced(4) } }); // a real price change
+    commit(dir, S + 3, { files: { [model]: priced(3) } }); // a sync copies the old price back
+    const wrong = head();
+    commit(dir, S + 4, { files: { [model]: priced(4) } }); // and the next one restores it
+    const fixed = head();
+    const inputs = (/** @type {import("./price-history.mjs").Seed} */ seed) =>
+      seed.models["anthropic/claude-x"].map((entry) => [entry.from / 1000 - S, entry.input]);
+
+    expect(inputs(buildSeed(dir, ["anthropic"]).seed)).toEqual([[1, 3], [2, 4], [3, 3], [4, 4]]);
+    const correction = { model: "anthropic/claude-x", from: wrong, until: fixed, why: "test" };
+    expect(inputs(buildSeed(dir, ["anthropic"], [correction]).seed)).toEqual([[1, 3], [2, 4]]);
   });
 });
 

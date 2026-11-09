@@ -121,11 +121,18 @@ pub struct Usage<'a> {
 pub struct Journal {
     rows: HashMap<String, Vec<PriceRow>>,
     makers: Vec<String>,
+    aliases: HashMap<String, String>,
 }
 
 impl Journal {
-    /// `makers` in resolve preference order — see [`crate::catalogue::makers`].
-    pub fn new(rows: impl IntoIterator<Item = PriceRow>, makers: Vec<String>) -> Self {
+    /// `makers` in resolve preference order — see [`crate::catalogue::makers`];
+    /// `aliases` by the id a provider books to the maker key of the same
+    /// model — see [`crate::catalogue::aliases`].
+    pub fn new(
+        rows: impl IntoIterator<Item = PriceRow>,
+        makers: Vec<String>,
+        aliases: HashMap<String, String>,
+    ) -> Self {
         let mut by_model: HashMap<String, Vec<PriceRow>> = HashMap::new();
         for row in rows {
             by_model.entry(row.model.clone()).or_default().push(row);
@@ -133,7 +140,7 @@ impl Journal {
         for rows in by_model.values_mut() {
             rows.sort_by(|a, b| a.from.total_cmp(&b.from));
         }
-        Self { rows: by_model, makers }
+        Self { rows: by_model, makers, aliases }
     }
 
     /// The newest row of each model — what a fresh catalogue is compared to.
@@ -149,25 +156,35 @@ impl Journal {
     /// provider (`zai-coding-plan/glm-5.3`, `openrouter/x-ai/grok-4.6`). The
     /// list price is the maker's: a maker provider is priced from its own
     /// list, and a non-maker provider resolves by the model id among the
-    /// makers, in preference order. The id is never rewritten into a
-    /// "similar" model, nor priced at another maker's rate: an id its maker
-    /// does not list, or no maker lists, is unpriced.
+    /// makers, in preference order — or, when no maker lists that id, by the
+    /// alias its maker lists the same model under ("k3" → `moonshotai/kimi-k3`).
+    /// The id is never rewritten into a "similar" model, nor priced at
+    /// another maker's rate: an id its maker does not list, or no maker
+    /// lists under any name, is unpriced.
     pub fn resolve(&self, booked: &str) -> Option<&str> {
         let (provider, model) = booked.split_once('/')?;
         let mut ids = vec![model];
         if let Some((_, last)) = model.rsplit_once('/') {
             ids.push(last);
         }
-        let makers = match self.makers.iter().position(|maker| maker == provider) {
+        let own = self.makers.iter().position(|maker| maker == provider);
+        let makers = match own {
             Some(own) => &self.makers[own..=own],
             None => &self.makers[..],
         };
-        ids.into_iter().find_map(|id| {
+        let listed = ids.iter().find_map(|id| {
             makers
                 .iter()
                 .find_map(|maker| self.rows.get_key_value(&format!("{maker}/{id}")))
                 .map(|(key, _)| key.as_str())
-        })
+        });
+        if listed.is_some() || own.is_some() {
+            return listed;
+        }
+        ids.iter()
+            .find_map(|id| self.aliases.get(*id))
+            .and_then(|key| self.rows.get_key_value(key))
+            .map(|(key, _)| key.as_str())
     }
 
     /// The row in effect at `at`, and whether `at` predates every row (the
@@ -341,7 +358,11 @@ mod tests {
     }
 
     fn journal(rows: Vec<PriceRow>) -> Journal {
-        Journal::new(rows, vec!["zai".into(), "zhipuai".into(), "anthropic".into(), "openai".into()])
+        Journal::new(
+            rows,
+            vec!["zai".into(), "zhipuai".into(), "anthropic".into(), "moonshotai".into(), "openai".into()],
+            HashMap::from([("k3".to_string(), "moonshotai/kimi-k3".to_string())]),
+        )
     }
 
     fn tokens(input: f64, output: f64, read: f64, write: f64, write_1h: f64) -> TokenCounts {
@@ -448,6 +469,20 @@ mod tests {
         assert_eq!(j.resolve("openrouter/z-ai/glm-5.3"), Some("zai/glm-5.3"));
         assert_eq!(j.resolve("zai/glm-5.4"), None);
         assert_eq!(j.resolve("no-slash"), None);
+    }
+
+    #[test]
+    fn an_id_no_maker_lists_resolves_by_the_alias_its_maker_lists_it_under() {
+        let j = journal(vec![
+            row("moonshotai/kimi-k3", 0.0, plain(rates(3.0, 15.0, 0.3, 3.0))),
+            row("zai/k3", 0.0, plain(rates(9.0, 9.0, 9.0, 9.0))),
+        ]);
+        assert_eq!(j.resolve("kimi-code/kimi-k3"), Some("moonshotai/kimi-k3"));
+        assert_eq!(j.resolve("opencode/k3"), Some("zai/k3"), "an id a maker lists itself is that maker's");
+        let j = journal(vec![row("moonshotai/kimi-k3", 0.0, plain(rates(3.0, 15.0, 0.3, 3.0)))]);
+        assert_eq!(j.resolve("kimi-code/k3"), Some("moonshotai/kimi-k3"));
+        assert_eq!(j.resolve("moonshotai/k3"), None, "a maker's own id is its own, never an alias");
+        assert_eq!(j.resolve("kimi-code/k4"), None);
     }
 
     #[test]

@@ -18,6 +18,9 @@ use crate::model::TokenCounts;
 ///   already reported is kept.
 /// - codex appended the reasoning effort ("gpt-6.1-sol xhigh"); the model is
 ///   the first word.
+/// - kimi showed its models as `<provider>/<model>` already
+///   ("kimi-code/k3") — the very key its plugin books a call under — so the
+///   name is the key.
 /// - every other agent's model is kept as it was, under the agent's own name
 ///   as the provider: the journal resolves it to a maker by its id.
 ///
@@ -27,8 +30,50 @@ pub fn booked_model(agent: &str, model: &str) -> String {
     match agent {
         "claude" => format!("anthropic/{}", claude_id(model)),
         "codex" => format!("openai/{}", model.split_whitespace().next().unwrap_or("")),
+        "kimi" => model.to_string(),
         _ => format!("{agent}/{model}"),
     }
+}
+
+/// Whether `key` is the one an old row was carried under when its agent
+/// showed no model for it.
+pub fn unnamed(agent: &str, key: &str) -> bool {
+    key == booked_model(agent, "")
+}
+
+/// More tokens than one call can carry: a prompt fills at most the largest
+/// context window in use (1M) and the reply adds its output to it.
+pub const LARGEST_CALL: f64 = 2_000_000.0;
+
+/// Whether an unnamed old row can take the model its session's next named
+/// row ran on. An older build booked a session's first calls before the
+/// agent had named the model; the next named row says which (checked
+/// against the transcripts of every such session that still has one: the
+/// same model, call for call). A row whose events average more than one
+/// call can carry holds no calls: it is a cumulative counter's first
+/// sighting, or its growth over a gap, booked as one figure — usage from
+/// before the deck saw it, maybe a fork's copied history, on whatever models
+/// ran then. It stays unnamed. The average is all an old bucket can tell:
+/// it keeps its events' sums, not each event, so a lump that shared a
+/// quarter hour with calls is named with them (none did in the history
+/// this was written against: every lump stood alone in its bucket).
+pub fn nameable(agent: &str, key: &str, tokens: &TokenCounts, events: i64) -> bool {
+    unnamed(agent, key) && events > 0 && tokens.billed() / events as f64 <= LARGEST_CALL
+}
+
+/// The key a schema-3 store carried an old row under, re-keyed by
+/// [`booked_model`] as it reads now — None when the key stands.
+///
+/// Schema 3 put every model but claude's and codex's under the agent's own
+/// name, so such a key still holds the name the agent showed
+/// ("kimi/kimi-code/k3" holds "kimi-code/k3") and the current rule can be
+/// applied to it again. Claude's and codex's keys were rewritten into ids
+/// and are not touched; neither is any call booked since, which never
+/// carries its agent's name as its provider.
+pub fn rekeyed(agent: &str, key: &str) -> Option<String> {
+    let shown = key.strip_prefix(agent)?.strip_prefix('/')?;
+    let booked = booked_model(agent, shown);
+    (booked != key).then_some(booked)
 }
 
 /// A claude display name ("Fable 5.1", "Opus 5 (1M context)") as its API id
@@ -105,7 +150,37 @@ mod tests {
     fn other_agents_keep_their_model_under_their_own_name() {
         assert_eq!(booked_model("opencode", "x-ai/grok-4.6"), "opencode/x-ai/grok-4.6");
         assert_eq!(booked_model("opencode", "glm-5.3"), "opencode/glm-5.3");
-        assert_eq!(booked_model("kimi", "kimi-code/k3"), "kimi/kimi-code/k3");
+    }
+
+    #[test]
+    fn kimi_shown_names_are_the_keys_its_calls_are_booked_under() {
+        assert_eq!(booked_model("kimi", "kimi-code/k3"), "kimi-code/k3");
+        assert_eq!(booked_model("kimi", "kimi-code/kimi-for-coding"), "kimi-code/kimi-for-coding");
+    }
+
+    #[test]
+    fn an_unnamed_row_is_the_one_carried_under_no_model() {
+        assert!(unnamed("claude", "anthropic/"));
+        assert!(!unnamed("claude", "anthropic/claude-opus-5"));
+        assert!(unnamed("codex", "openai/"));
+    }
+
+    #[test]
+    fn only_an_unnamed_row_of_call_sized_events_is_nameable() {
+        let read = |cache_read: f64| TokenCounts { cache_read: Some(cache_read), ..TokenCounts::default() };
+        assert!(nameable("claude", "anthropic/", &read(300.0 * LARGEST_CALL), 300));
+        assert!(!nameable("claude", "anthropic/", &read(LARGEST_CALL + 1.0), 1), "a counter's lump is no call");
+        assert!(!nameable("claude", "anthropic/claude-opus-5", &read(1.0), 1), "a named row is named already");
+        assert!(!nameable("claude", "anthropic/", &read(1.0), 0));
+    }
+
+    #[test]
+    fn only_keys_schema_3_put_under_the_agent_are_rekeyed() {
+        assert_eq!(rekeyed("kimi", "kimi/kimi-code/k3").as_deref(), Some("kimi-code/k3"));
+        assert_eq!(rekeyed("kimi", "kimi-code/k3"), None, "a call booked since stands");
+        assert_eq!(rekeyed("opencode", "opencode/glm-5.3"), None, "the rule gives the same key");
+        assert_eq!(rekeyed("claude", "anthropic/claude-opus-5-5"), None);
+        assert_eq!(rekeyed("codex", "openai/gpt-6.1-sol"), None);
     }
 
     fn tokens(input: f64, output: f64, read: f64, write: f64, reasoning: Option<f64>) -> TokenCounts {

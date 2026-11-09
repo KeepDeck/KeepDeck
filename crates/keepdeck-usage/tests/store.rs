@@ -43,6 +43,7 @@ fn call(id: &str, at: f64, output: f64) -> UsageCall {
         model: "claude-opus-5-5".into(),
         mode: None,
         tokens: CallTokens { input: 1_000.0, cache_read: 100_000.0, output, ..CallTokens::default() },
+        tally: None,
     }
 }
 

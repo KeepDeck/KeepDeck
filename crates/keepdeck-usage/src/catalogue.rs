@@ -32,24 +32,63 @@ pub const SEED_VERSION: u64 = 1;
 /// The price history this build ships, built by `scripts/price-history.mjs`.
 const SEED_JSON: &str = include_str!("../../../resources/pricing/model-prices.seed.json");
 
-/// The price rows of the history this build ships.
-pub fn seed() -> Result<Vec<PriceRow>, String> {
+/// The price history this build ships.
+pub fn seed() -> Result<SeedHistory, String> {
     parse_seed(SEED_JSON)
+}
+
+#[derive(Deserialize)]
+struct MakersFile {
+    makers: Vec<String>,
+    #[serde(default)]
+    labs: HashMap<String, String>,
+}
+
+fn makers_file() -> &'static MakersFile {
+    static FILE: OnceLock<MakersFile> = OnceLock::new();
+    FILE.get_or_init(|| serde_json::from_str(MAKERS_JSON).expect("resources/pricing/makers.json is a makers list"))
 }
 
 /// The models.dev providers that make models and publish their own list
 /// price, in resolve preference order.
 pub fn makers() -> &'static [String] {
-    static MAKERS: OnceLock<Vec<String>> = OnceLock::new();
-    MAKERS.get_or_init(|| {
+    &makers_file().makers
+}
+
+/// The aliases this crate reads — one copy, `resources/pricing/model-aliases.json`.
+const ALIASES_JSON: &str = include_str!("../../../resources/pricing/model-aliases.json");
+
+/// The ids a non-maker provider books that the model's maker lists under
+/// another id of the same model: id → maker key.
+pub fn aliases() -> &'static HashMap<String, String> {
+    static ALIASES: OnceLock<HashMap<String, String>> = OnceLock::new();
+    ALIASES.get_or_init(|| {
         #[derive(Deserialize)]
         struct File {
-            makers: Vec<String>,
+            aliases: Vec<Alias>,
         }
-        serde_json::from_str::<File>(MAKERS_JSON)
-            .expect("resources/pricing/makers.json is a makers list")
-            .makers
+        #[derive(Deserialize)]
+        struct Alias {
+            id: String,
+            model: String,
+        }
+        serde_json::from_str::<File>(ALIASES_JSON)
+            .expect("resources/pricing/model-aliases.json is an aliases list")
+            .aliases
+            .into_iter()
+            .map(|alias| (alias.id, alias.model))
+            .collect()
     })
+}
+
+/// Whether `maker` made the model whose base model is `base` (`<lab>/<model>`,
+/// models.dev's canonical id). A maker lists other labs' models too, at its
+/// own resale price — those are not its list price, and are not journaled.
+/// The one rule both readers apply: [`parse_seed`] to the seed's history,
+/// [`parse_api`] to the live catalogue.
+pub fn made_by(maker: &str, base: &str) -> bool {
+    let lab = makers_file().labs.get(maker).map_or(maker, String::as_str);
+    base.split_once('/').is_some_and(|(of, _)| of == lab)
 }
 
 /// One maker model as the live catalogue lists it now.
@@ -62,8 +101,9 @@ pub struct CatalogueEntry {
 
 /// The maker models in a models.dev `api.json` body. A model without both an
 /// input and an output price is skipped — an unpriced model is absent, not
-/// free. `api.json` states one cache-write rate, the 5-minute one; it has no
-/// 1-hour rate (see [`changes`] for how that gap is carried).
+/// free — and so is one another lab made ([`made_by`]). `api.json` states one
+/// cache-write rate, the 5-minute one; it has no 1-hour rate (see [`changes`]
+/// for how that gap is carried).
 pub fn parse_api(body: &str) -> Result<Vec<CatalogueEntry>, String> {
     let root: Value = serde_json::from_str(body).map_err(|e| format!("catalogue is not JSON: {e}"))?;
     let providers = root.as_object().ok_or("catalogue is not an object of providers")?;
@@ -73,6 +113,10 @@ pub fn parse_api(body: &str) -> Result<Vec<CatalogueEntry>, String> {
             continue;
         };
         for (id, model) in models {
+            let base = model.get("canonical_model_id").and_then(Value::as_str);
+            if base.is_some_and(|base| !made_by(maker, base)) {
+                continue;
+            }
             let Some(price) = model.get("cost").and_then(api_price) else {
                 continue;
             };
@@ -187,12 +231,29 @@ fn carried(fresh: &Price, known: &Price) -> Price {
     }
 }
 
-/// The price rows in a seed file. A seed from a newer format is refused
-/// rather than half-read.
-pub fn parse_seed(body: &str) -> Result<Vec<PriceRow>, String> {
+/// A price history as a seed holds it: models.dev's, read out of its git log.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeedHistory {
+    /// The makers' own models' rows, by model, oldest first.
+    pub rows: Vec<PriceRow>,
+    /// When the models.dev commit the seed was read at was made: the history
+    /// is complete up to here.
+    pub until: f64,
+}
+
+/// The history in a seed file — only the models their maker made
+/// ([`made_by`], by each model's base model): a maker's listing of another
+/// lab's model is resale. A seed from a newer format is refused rather than
+/// half-read.
+pub fn parse_seed(body: &str) -> Result<SeedHistory, String> {
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Seed {
         version: u64,
+        #[serde(default)]
+        committed_at: f64,
+        #[serde(default)]
+        bases: HashMap<String, String>,
         models: HashMap<String, Vec<SeedEntry>>,
     }
     #[derive(Deserialize)]
@@ -210,9 +271,15 @@ pub fn parse_seed(body: &str) -> Result<Vec<PriceRow>, String> {
             seed.version
         ));
     }
+    let bases = seed.bases;
+    let made = |model: &str| match (model.split_once('/'), bases.get(model)) {
+        (Some((maker, _)), Some(base)) => made_by(maker, base),
+        _ => true,
+    };
     let mut rows: Vec<PriceRow> = seed
         .models
         .into_iter()
+        .filter(|(model, _)| made(model))
         .flat_map(|(model, entries)| {
             entries.into_iter().map(move |entry| PriceRow {
                 model: model.clone(),
@@ -223,7 +290,10 @@ pub fn parse_seed(body: &str) -> Result<Vec<PriceRow>, String> {
         })
         .collect();
     rows.sort_by(|a, b| a.model.cmp(&b.model).then(a.from.total_cmp(&b.from)));
-    Ok(rows)
+    Ok(SeedHistory {
+        rows,
+        until: seed.committed_at,
+    })
 }
 
 #[cfg(test)]
@@ -231,7 +301,18 @@ mod tests {
     use super::*;
 
     fn journal(rows: Vec<PriceRow>) -> Journal {
-        Journal::new(rows, makers().to_vec())
+        Journal::new(rows, makers().to_vec(), aliases().clone())
+    }
+
+    #[test]
+    fn every_shipped_alias_names_a_maker_key_the_seed_prices() {
+        let journal = journal(seed().unwrap().rows);
+        for (id, key) in aliases() {
+            assert!(makers().iter().any(|maker| key.starts_with(&format!("{maker}/"))), "{id} → {key}: no maker's key");
+            assert!(journal.latest(key).is_some(), "{id} → {key}: the seed has no price for it");
+        }
+        assert_eq!(journal.resolve("opencode/deepseek-v4.1-flash"), Some("deepseek/deepseek-flash"));
+        assert_eq!(journal.resolve("kimi-code/k3-256k"), Some("moonshotai/kimi-k3"));
     }
 
     const API: &str = r#"{
@@ -252,6 +333,15 @@ mod tests {
       } },
       "openrouter": { "models": {
         "glm-5.3": { "name": "GLM via a reseller", "cost": { "input": 0.07, "output": 1.4 } }
+      } },
+      "alibaba": { "models": {
+        "qwen3.8-max": { "name": "Qwen 3.8 Max", "canonical_model_id": "alibaba/qwen3.8-max",
+          "cost": { "input": 2, "output": 6 } },
+        "deepseek-v4.1-flash": { "name": "DeepSeek resold", "canonical_model_id": "deepseek/deepseek-v4.1-flash",
+          "cost": { "input": 0.3, "output": 1.2 } }
+      } },
+      "zai": { "models": {
+        "glm-5.3": { "name": "GLM-5.3", "canonical_model_id": "zhipuai/glm-5.3", "cost": { "input": 1.4, "output": 4.4 } }
       } }
     }"#;
 
@@ -272,6 +362,17 @@ mod tests {
     fn only_makers_enter_the_catalogue() {
         let entries = parse_api(API).unwrap();
         assert!(entries.iter().all(|e| !e.model.starts_with("openrouter/")));
+    }
+
+    #[test]
+    fn a_maker_enters_only_with_the_models_its_own_lab_made() {
+        let models: Vec<String> = parse_api(API).unwrap().into_iter().map(|e| e.model).collect();
+        assert!(models.contains(&"alibaba/qwen3.8-max".to_string()));
+        assert!(!models.contains(&"alibaba/deepseek-v4.1-flash".to_string()), "a resold model is not a list price");
+        assert!(models.contains(&"zai/glm-5.3".to_string()), "a maker whose lab has another name keeps its own");
+        assert!(made_by("alibaba-cn", "alibaba/qwen3.8-max"));
+        assert!(!made_by("morph", "moonshotai/kimi-k3"));
+        assert!(!made_by("anthropic", "no-lab"));
     }
 
     #[test]
@@ -356,7 +457,7 @@ mod tests {
                 "modes": { "fast": { "input": 8, "output": 40, "cacheRead": 0.4, "cacheWrite": 10, "cacheWrite1h": 16 } } }
             ]
           } }"#;
-        let rows = parse_seed(seed).unwrap();
+        let rows = parse_seed(seed).unwrap().rows;
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].model, "anthropic/claude-opus-5-5");
         assert_eq!(rows[0].price.rates.cache_write_1h, Some(8.0));
@@ -370,8 +471,11 @@ mod tests {
     // agents run on as their makers list them.
     #[test]
     fn the_shipped_seed_reads_and_holds_the_makers_prices() {
-        let rows = seed().expect("the shipped seed");
+        let seed = seed().expect("the shipped seed");
+        assert!(seed.until > 0.0, "the seed says how far its history reaches");
+        let rows = seed.rows;
         assert!(rows.len() > 500, "{} rows", rows.len());
+        assert!(rows.iter().all(|row| !row.model.starts_with("alibaba/deepseek")), "no resold model is read");
         assert!(rows.iter().all(|row| makers().iter().any(|maker| row.model.starts_with(&format!("{maker}/")))));
         let latest = |model: &str| rows.iter().rfind(|row| row.model == model).expect(model).clone();
         let opus = latest("anthropic/claude-opus-5-5");
@@ -381,6 +485,22 @@ mod tests {
         let sol = latest("openai/gpt-6.1-sol");
         assert_eq!(sol.price.tiers.first().map(|tier| (tier.over, tier.rates.input)), Some((272_000, 4.0)));
         assert_eq!(latest("zai/glm-5.3").price.rates.input, 1.4);
+    }
+
+    #[test]
+    fn a_seed_is_read_without_the_models_a_maker_resells() {
+        let entry = r#"[{ "from": 1, "input": 1, "output": 2, "tiers": [], "modes": {} }]"#;
+        let seed = format!(
+            r#"{{ "version": 1, "committedAt": 77,
+                 "bases": {{ "alibaba/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+                            "alibaba/qwen3.8-max": "alibaba/qwen3.8-max", "zai/glm-5.3": "zhipuai/glm-5.3" }},
+                 "models": {{ "alibaba/deepseek-v4.1-flash": {entry}, "alibaba/qwen3.8-max": {entry},
+                             "zai/glm-5.3": {entry}, "anthropic/claude-x": {entry} }} }}"#
+        );
+        let history = parse_seed(&seed).unwrap();
+        let models: Vec<&str> = history.rows.iter().map(|row| row.model.as_str()).collect();
+        assert_eq!(models, ["alibaba/qwen3.8-max", "anthropic/claude-x", "zai/glm-5.3"], "a model with no base stays");
+        assert_eq!(history.until, 77.0);
     }
 
     #[test]
