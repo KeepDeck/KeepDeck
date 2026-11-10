@@ -7,10 +7,12 @@
  * object: presentation for the user, an iteration canvas (republish the
  * same slug, the open page refreshes), and a team-shared object.
  *
- * This module owns the RULES (grammar, caps, shapes) and nothing else —
- * no IO, no framework, no timestamps minted here (callers stamp `at`).
- * The store (Rust) owns the FORMAT on disk; planners in `publish.ts` /
- * `delete.ts` own the decisions; this file is the shared nouns.
+ * This module owns what the command layer checks before a request
+ * crosses to the store (the format, the title and message bounds, the
+ * caps) and the shapes it reads back — no IO, no framework, no
+ * timestamps minted here (callers stamp `at`). The store (Rust) owns the
+ * FORMAT on disk and performs every publish and delete; the slug grammar,
+ * minting and collisions are its alone.
  */
 
 /** What an artifact is. One member, and still a named type: the format
@@ -23,34 +25,6 @@ export type ArtifactFormat = "html";
  * is not html. */
 export function isArtifactFormat(value: unknown): value is ArtifactFormat {
   return value === "html";
-}
-
-/**
- * A human-readable artifact id, referenced in mail ("review artifact
- * auth-flow"). Grammar `[a-z0-9-]{1,64}`: lowercase, digits, dashes —
- * filename-safe on every platform, injection-safe in a
- * Content-Disposition, and stable under the mail-vocabulary rule (a burned
- * slug would turn old mail references into forever-404s, so slugs
- * resurrect rather than tombstone).
- */
-export type Slug = string & { readonly __slug: unique symbol };
-
-export const SLUG_MAX = 64;
-const SLUG_GRAMMAR = /^[a-z0-9-]{1,64}$/;
-
-/** A string that obeys the slug grammar, or null. Does not derive — a
- * MINTED slug is derived from the title by `mintSlug` (publish.ts); an
- * EXPLICIT one is validated here and nothing else. */
-export function validateSlug(input: string): Slug | null {
-  // The typeof guard: the branded type promises a string, but this is a
-  // JS boundary — an untrusted payload field reaches it as `unknown`,
-  // and the regex's implicit String() coercion must not launder it.
-  if (typeof input !== "string") return null;
-  return isSlug(input) ? input : null;
-}
-
-function isSlug(input: string): input is Slug {
-  return SLUG_GRAMMAR.test(input);
 }
 
 /** One version's manifest entry. `n` is the chain position (1-based);
@@ -66,16 +40,6 @@ export interface ArtifactVersionMeta {
 /** A version read from the registry has the same fields as its manifest
  * entry; the read orders these oldest first. */
 export type ArtifactVersionRow = ArtifactVersionMeta;
-
-/** What `artifact.list` returns per artifact — counts, not arrays:
- * the list is a directory, not a document. */
-export interface ArtifactMeta {
-  id: Slug;
-  title: string;
-  format: ArtifactFormat;
-  versionCount: number;
-  updatedAt: number;
-}
 
 /** Caps. `content` is the inline convenience path (rides the bridge as
  * one JSON line — the cap keeps the 30s reply timeout a non-issue);

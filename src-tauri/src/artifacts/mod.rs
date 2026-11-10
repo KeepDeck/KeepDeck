@@ -1,6 +1,7 @@
 //! Fleet artifacts: workspace-scoped persistence + the localhost display
-//! server. The store owns the disk FORMAT; the TS domain owns the rules'
-//! canonical definitions; this module is their Rust home.
+//! server. The store owns the disk FORMAT and performs every publish and
+//! delete; the slug grammar, minting and collisions live there alone,
+//! with their tests.
 //!
 //! The enable pair is the feature's whole lifecycle (B11): ON claims the
 //! store root FIRST (the transitive protection for the display server's

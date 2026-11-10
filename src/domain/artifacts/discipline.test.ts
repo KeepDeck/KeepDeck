@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-const FILES = ["model.ts", "publish.ts", "delete.ts", "rowRef.ts"] as const;
+const FILES = ["model.ts", "rowRef.ts"] as const;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DOMAIN = resolve(HERE, "..");
