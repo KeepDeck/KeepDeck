@@ -205,8 +205,8 @@ impl ArtifactsStore {
     }
 
     /// Publish: plan against the current manifest under the resolved slug
-    /// (the domain planner's contract — explicit names the canvas, minted
-    /// retries past every collision), then write.
+    /// (an explicit slug names the canvas, a minted one retries past every
+    /// collision — [`resolve_slug`]), then write.
     pub fn publish(
         &self,
         workspace_id: &str,
@@ -639,10 +639,10 @@ fn require_safe(segment: &str, what: &str) -> StoreResult<()> {
     }
 }
 
-/// The SLUG wall — the domain grammar verbatim (`^[a-z0-9-]{1,64}`, the
-/// TS `validateSlug`'s twin). Stricter than [`require_safe`] on purpose:
-/// a slug is agent-facing vocabulary AND a directory name, and the two
-/// rule sets agree exactly here or nowhere.
+/// The SLUG wall — the grammar `^[a-z0-9-]{1,64}$`, and its one home.
+/// Stricter than [`require_safe`] on purpose: a slug is agent-facing
+/// vocabulary (mail names artifacts by it) AND a directory name, safe on
+/// every platform.
 fn require_slug(segment: &str) -> StoreResult<()> {
     let ok = !segment.is_empty()
         && segment.len() <= 64
@@ -762,17 +762,16 @@ fn remove_dir_all_best_effort(dir: &Path) -> StoreResult<()> {
     }
 }
 
-/// The mint path's occupancy probe (the planner's `exists`).
+/// The mint path's occupancy probe.
 fn slug_occupied(root: &Path, workspace_id: &str, slug: &str) -> bool {
     artifact_dir(root, workspace_id, slug).join(MANIFEST_FILE).exists()
 }
 
 /// Resolve the publish slug: explicit slugs are validated and used as
 /// named (their manifest IS the canvas — a format flip is refused naming
-/// the original, mirroring the domain planner); minted slugs derive from
-/// the title and retry `-2`, `-3`, … past EVERY collision (a derived name
-/// never joins a stranger's canvas — the design's letter, pinned in the
-/// domain planner's tests).
+/// the original); minted slugs derive from the title and retry `-2`, `-3`,
+/// … past EVERY collision (a derived name never joins a stranger's canvas).
+/// The golden fixtures in collision-cases.json pin the whole matrix.
 fn resolve_slug<'a>(
     existing: Option<&Manifest>,
     request: &PublishRequest<'a>,
@@ -810,12 +809,13 @@ fn resolve_slug<'a>(
 
 const MINT_RETRY_MAX: usize = 8;
 
-/// Mint a slug from the title (the domain's derivation, mirrored for the
-/// Rust side; the TS planner owns the canonical definition and its tests).
+/// Mint a slug from the title: lowercased, every run of anything but
+/// `[a-z0-9]` collapsed to one dash, trimmed, cut to 64 with no dash left
+/// at the cut, and `artifact` when nothing survives.
 fn mint_slug_from_title(title: &str) -> String {
-    // FULL Unicode lowercasing, the TS twin's semantics exactly: the
-    // twins once diverged here (ascii-only let İ/K mint different slugs
-    // on the two sides); the shared fixtures pin the agreement.
+    // FULL Unicode lowercasing, not ascii: İ lowercases to i plus a
+    // combining dot (the dot becomes a dash), the Kelvin sign to k. The
+    // golden fixtures pin both.
     let lowered = title.to_lowercase();
     let mut derived = String::new();
     let mut dash = false;
@@ -947,7 +947,7 @@ mod tests {
 
     /// The cross-language caps mirror: the TS domain's model.test.ts
     /// asserts its constants against the SAME caps.json this reads
-    /// (include_str, the collision-cases precedent). A bump on either
+    /// (include_str). A bump on either
     /// side without the shared file fails BOTH suites; production stays
     /// compile-time on both sides.
     #[test]
@@ -1048,6 +1048,87 @@ mod tests {
         let retry = store.delete("ws-1", "gone", None).unwrap();
         assert!(!retry.deleted);
         assert_eq!(retry.version_count, None);
+        assert_eq!(retry.created_at, None);
+    }
+
+    /// What a delete reports is the artifact it removed — its whole chain
+    /// and when it was first published, not the latest version: a cleaner
+    /// that finds a young artifact where it expected an old one knows a
+    /// teammate republished the name in between.
+    #[test]
+    fn delete_reports_the_whole_chain_it_removed() {
+        let (store, _dir, _root) = store_with_root("delete-chain");
+        for at in [1000, 2000, 3000] {
+            store.publish(WS, content_request(Some("chain"), b"<p/>"), at).unwrap();
+        }
+        let out = store.delete(WS, "chain", None).unwrap();
+        assert_eq!(
+            (out.deleted, out.version_count, out.created_at),
+            (true, Some(3), Some(1000))
+        );
+    }
+
+    /// The slug grammar, `^[a-z0-9-]{1,64}$`: what an agent may name an
+    /// artifact by, and a directory name on every platform.
+    #[test]
+    fn require_slug_takes_the_grammar_and_nothing_else() {
+        let longest = "a".repeat(64);
+        let accepted: [&str; 5] = ["auth-flow", "a", "0-9", "-", &longest];
+        for slug in accepted {
+            assert!(require_slug(slug).is_ok(), "{slug:?} is a slug");
+        }
+        let too_long = "a".repeat(65);
+        let refused: [&str; 10] = [
+            "",
+            "Auth-Flow",
+            "auth.flow",
+            "auth flow",
+            "auth_flow",
+            "auth/flow",
+            "auth\\flow",
+            "../escape",
+            "ünï",
+            &too_long,
+        ];
+        for slug in refused {
+            assert!(require_slug(slug).is_err(), "{slug:?} is not a slug");
+        }
+    }
+
+    /// The derivation a minted slug starts from, before any collision.
+    #[test]
+    fn mint_slug_from_title_lowercases_collapses_trims_and_cuts() {
+        assert_eq!(
+            mint_slug_from_title("Deploy Failures by Service!"),
+            "deploy-failures-by-service"
+        );
+        assert_eq!(mint_slug_from_title("  ---Auth & Flow---  "), "auth-flow");
+        assert_eq!(mint_slug_from_title("！！！"), "artifact");
+        assert_eq!(mint_slug_from_title(&"A".repeat(100)), "a".repeat(64));
+        // The cut lands on a dash: it goes, rather than end the slug.
+        assert_eq!(
+            mint_slug_from_title(&format!("{} b", "a".repeat(63))),
+            "a".repeat(63)
+        );
+    }
+
+    /// A title must be 1..=TITLE_MAX characters — counted in chars, not
+    /// bytes, so a title in any script gets the same verdict — and a title
+    /// out of bounds is refused before anything is written.
+    #[test]
+    fn publish_refuses_a_title_out_of_bounds() {
+        let (store, _dir, _root) = store_with_root("title");
+        let over = "x".repeat(TITLE_MAX + 1);
+        for title in ["", over.as_str()] {
+            let request = PublishRequest { title, ..content_request(None, b"<p/>") };
+            let err = store.publish(WS, request, 1000).expect_err("refused");
+            assert!(err.0.contains("title"), "{title:?}: {err:?}");
+        }
+        assert!(store.list(WS).unwrap().is_empty(), "nothing was written");
+
+        let widest = "é".repeat(TITLE_MAX);
+        let request = PublishRequest { title: &widest, ..content_request(None, b"<p/>") };
+        assert!(store.publish(WS, request, 1000).is_ok(), "{TITLE_MAX} chars fit");
     }
 
     #[test]
@@ -1385,16 +1466,13 @@ mod tests {
         error_contains: Option<String>,
     }
 
-    /// The SHARED collision fixtures (the TS planner runs the same JSON —
-    /// `src/domain/artifacts/collision-cases.json`): the Rust mirror and
-    /// the canonical definition answer identically or a test fails on
-    /// both sides. Unguarded twins are how the append-on-mint divergence
-    /// shipped; this is the guard.
+    /// The collision matrix as golden fixtures (collision-cases.json,
+    /// beside this file): each case is a request, the artifact the store
+    /// already holds under its slug and the names already taken, and the
+    /// slug — or the refusal — [`resolve_slug`] must answer.
     #[test]
-    fn collision_golden_fixtures_shared_with_the_ts_planner() {
-        let cases: Vec<GoldenCase> = serde_json::from_str(include_str!(
-            "../../../src/domain/artifacts/collision-cases.json"
-        ))
+    fn collision_golden_fixtures() {
+        let cases: Vec<GoldenCase> = serde_json::from_str(include_str!("collision-cases.json"))
         .unwrap();
         assert!(cases.len() >= 12);
         for case in &cases {

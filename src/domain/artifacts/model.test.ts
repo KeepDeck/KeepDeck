@@ -5,10 +5,8 @@ import {
   FILE_CAP_BYTES,
   isArtifactFormat,
   MESSAGE_MAX,
-  SLUG_MAX,
   TITLE_MAX,
   validateMessage,
-  validateSlug,
   validateTitle,
 } from "./model";
 
@@ -24,31 +22,6 @@ describe("isArtifactFormat", () => {
     expect(isArtifactFormat("")).toBe(false);
     expect(isArtifactFormat(null)).toBe(false);
     expect(isArtifactFormat(1)).toBe(false);
-  });
-});
-
-describe("validateSlug", () => {
-  it("accepts the grammar: lowercase, digits, dashes", () => {
-    expect(validateSlug("auth-flow")).toBe("auth-flow");
-    expect(validateSlug("a")).toBe("a");
-    expect(validateSlug("0-9")).toBe("0-9");
-    expect(validateSlug("-")).toBe("-");
-  });
-
-  it("rejects uppercase, dots, spaces, underscores, separators", () => {
-    expect(validateSlug("Auth-Flow")).toBeNull();
-    expect(validateSlug("auth.flow")).toBeNull();
-    expect(validateSlug("auth flow")).toBeNull();
-    expect(validateSlug("auth_flow")).toBeNull();
-    expect(validateSlug("auth/flow")).toBeNull();
-    expect(validateSlug("auth\\flow")).toBeNull();
-    expect(validateSlug("../escape")).toBeNull();
-  });
-
-  it("rejects empty and over-length", () => {
-    expect(validateSlug("")).toBeNull();
-    expect(validateSlug("a".repeat(SLUG_MAX))).toBe("a".repeat(SLUG_MAX));
-    expect(validateSlug("a".repeat(SLUG_MAX + 1))).toBeNull();
   });
 });
 
@@ -82,8 +55,8 @@ describe("caps are the designed numbers", () => {
   });
 
   // The cross-language mirror, pinned: the Rust store asserts its
-  // constants against the SAME caps.json (include_str, the mint
-  // precedent) — a bump on either side without the shared file fails
+  // constants against the SAME caps.json (include_str) — a bump on
+  // either side without the shared file fails
   // BOTH suites. The JSON is test-only truth; production stays
   // compile-time on both sides.
   it("the constants equal caps.json — the file Rust mirrors against too", () => {
