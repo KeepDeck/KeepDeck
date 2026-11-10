@@ -354,6 +354,14 @@ describe("teamBriefing", () => {
     expect(lead).toContain("stuck or idle is yours to correct");
   });
 
+  it("says what re-reading the inbox gives, and promises no more", () => {
+    // `all: true` hands back the most recent messages, read or not, with
+    // nothing marking which are answered — not "what is still on you".
+    const text = teamBriefing("api", "impl-1", ["lead", "impl-1"]);
+    expect(text).toContain("Use all: true to read the most recent ones again");
+    expect(text).not.toContain("still on you");
+  });
+
   it("tells the holder what its OWN role is for", () => {
     // The whole reason roles stopped being bare addresses. Briefed with a
     // symmetrical text, a lead said "in charge is not quite the word" — it

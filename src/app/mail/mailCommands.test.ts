@@ -278,6 +278,17 @@ describe("mail.send", () => {
 });
 
 describe("mail.inbox", () => {
+  it("says what re-reading gives, and promises no record of what is owed", () => {
+    // The re-read hands back the most recent messages, as many as fit, and
+    // carries no mark of which were answered — an argument promising "what
+    // you are still on the hook for" sent an agent to look for one.
+    const { registry } = setup();
+    const inbox = registry.list().find((command) => command.id === "mail.inbox");
+    const all = inbox?.args.find((arg) => arg.name === "all")?.description ?? "";
+    expect(all).toContain("nothing marks which of them you have answered");
+    expect(all).not.toContain("on the hook");
+  });
+
   it("reads the caller's own mail and takes no argument for whose", async () => {
     const { registry } = setup();
     await run(

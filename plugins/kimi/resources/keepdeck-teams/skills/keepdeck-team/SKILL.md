@@ -51,5 +51,5 @@ you are choosing — take it from there rather than from memory, and say what
 is true.
 
 Read what is new with `mail.inbox`. Reading is what marks a message read, so
-a plain call will not offer it again; pass `all: true` when you need to see
-what is still on you.
+a plain call will not offer it again; pass `all: true` to read the most
+recent ones again, read or not, after your context was rebuilt.

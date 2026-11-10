@@ -182,7 +182,7 @@ export function teamBriefing(
     // handed back is a message read, and a plain call will not offer it
     // again. An agent that read a task and moved on would otherwise check
     // for outstanding work, see nothing, and conclude it owes nobody.
-    "Read what is new with mail.inbox; reading it is what marks it read, so a plain call will not show it again. Use all: true to see what is still on you. When you answer, say what you are answering — the subject, not an id.",
+    "Read what is new with mail.inbox; reading it is what marks it read, so a plain call will not show it again. Use all: true to read the most recent ones again, read or not — after your context was rebuilt. When you answer, say what you are answering — the subject, not an id.",
     // The sender's half of the same fact. A lead shown `delivered: false`
     // read it as failure and re-sent while three good messages sat in the
     // queue. Every send answers queued, so it says nothing about the reader —

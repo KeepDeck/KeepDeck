@@ -280,7 +280,7 @@ export function registerMailCommands(
           name: "all",
           type: "boolean",
           description:
-            "Re-read the most recent messages still held, including ones you have already read — for when your context was rebuilt and you need to know what you are still on the hook for. Omit for just the new ones",
+            "Re-read the most recent messages still held, including ones you have already read — for when your context was rebuilt. As many as fit, newest last; nothing marks which of them you have answered. Omit for just the new ones",
         },
       ],
       run: (args, source) => {
