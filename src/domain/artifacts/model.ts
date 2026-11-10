@@ -8,10 +8,11 @@
  * same slug, the open page refreshes), and a team-shared object.
  *
  * This module owns what the command layer checks before a request
- * crosses to the store (format, caps) and the shapes it reads back —
- * no IO, no framework, no timestamps minted here (callers stamp `at`).
- * The store (Rust) owns the FORMAT on disk and decides every publish and
- * delete: the slug grammar, minting and collisions are its alone.
+ * crosses to the store (the format, the title and message bounds, the
+ * caps) and the shapes it reads back — no IO, no framework, no
+ * timestamps minted here (callers stamp `at`). The store (Rust) owns the
+ * FORMAT on disk and performs every publish and delete; the slug grammar,
+ * minting and collisions are its alone.
  */
 
 /** What an artifact is. One member, and still a named type: the format
