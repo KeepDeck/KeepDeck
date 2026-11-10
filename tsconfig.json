@@ -13,6 +13,9 @@
     "checkJs": true,
     // No ambient @types: the app is browser code, and a hoisted @types/node
     // would hand it `process` and `Buffer` (tsconfig.scripts.json opts in).
+    // That keeps tsc from loading them on its own, no more: the tests in
+    // this program import vitest, which brings @types/node in regardless.
+    // What ships is checked without them in tsconfig.app.json (task-587).
     "types": [],
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,

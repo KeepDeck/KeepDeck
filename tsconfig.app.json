@@ -1,0 +1,29 @@
+{
+  // What KeepDeck ships, and nothing else, checked as the browser code it is
+  // (task-587). tsconfig.json's program holds the tests too, and they import
+  // vitest, whose vite types pull @types/node in with them: in that program
+  // `process` and `Buffer` typecheck anywhere, `types: []` notwithstanding.
+  //
+  // So this one starts where the builds start and follows the imports from
+  // there — a test, or a helper only tests import, is reachable from none of
+  // them, whatever it is named:
+  // - the app: index.html's src/main.tsx and the bridge chunks vite.config.ts
+  //   adds as inputs;
+  // - every built-in plugin's src/index (scripts/build-plugins.mjs);
+  // - the shared packages' main entries, plugin-guest's among them, which
+  //   only external plugins import;
+  // - code-kit's worker, imported as `./worker?worker&inline` — a path tsc
+  //   cannot follow.
+  // The two declaration files are ambient: nothing imports them.
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/vite-env.d.ts",
+    "packages/ui-kit/src/cssCustomProperties.d.ts",
+    "src/main.tsx",
+    "src/plugins/bridges/*.js",
+    "plugins/*/src/index.ts",
+    "plugins/*/src/index.tsx",
+    "packages/*/src/index.ts",
+    "packages/code-kit/src/worker.ts"
+  ]
+}
