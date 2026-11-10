@@ -50,7 +50,11 @@ export function registerWorkspaceCommands(
   return [
     registry.register({
       id: "workspace.list",
-      title: "List workspaces, their teams and agents",
+      // Says what `activity` means, because nothing else does: a lead asked
+      // to correct a stuck teammate had this answer in front of it and was
+      // never told the field was there.
+      title:
+        "List workspaces, their teams and agents. Each agent's `activity` is what it is doing now: `working` (a turn is running, `since` when), `waiting` (on its user — a permission or a question), `done` (its last turn ended; `interrupted` if cut short), `failed` (its last turn died on an API error), `started` or `ready` (up, no turn yet), `starting`, or why its agent is not running (`suspended`, `exited`, …) — mail to it is then refused. Null: running, with no status to report. `team.role` is its address on its team",
       args: [],
       run: () => {
         const deck = deps.deck();
