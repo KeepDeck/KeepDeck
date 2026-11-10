@@ -7,6 +7,7 @@ import {
 } from "../../domain/commands";
 import { renameTeam, settleRoster, type AgentDown, type AgentReach, type Pane, type Team, type Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
+import { WHEN_MAIL_LANDS } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { registerMailCommands, unreachableText } from "./mailCommands";
 import { createMailManager } from "./mailManager";
@@ -212,10 +213,12 @@ describe("mail.send", () => {
       expect(stringOf(value.status, "status")).toBe("queued");
       expect(stringOf(value.note, "note")).toContain("do not re-send");
       expect(stringOf(value.note, "note")).not.toContain("go looking");
+      expect(stringOf(value.note, "note")).toContain(WHEN_MAIL_LANDS);
     }
     const title = registry.list().find((command) => command.id === "mail.send")?.title ?? "";
     expect(title).toContain("queued");
     expect(title).not.toContain("delivered");
+    expect(title).toContain(WHEN_MAIL_LANDS);
   });
 
   it("refuses a caller it cannot name", async () => {

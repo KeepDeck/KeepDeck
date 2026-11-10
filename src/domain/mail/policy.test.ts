@@ -14,7 +14,9 @@ import {
   forgottenNotice,
   isOverdue,
   isResponse,
+  kindGuidance,
   overdueNotice,
+  WHEN_MAIL_LANDS,
 } from "./policy";
 
 const sender: MailSender = {
@@ -256,6 +258,18 @@ describe("waitsForATurn", () => {
   });
 });
 
+describe("when a message is said to land", () => {
+  it("names both doors mail leaves a queue by, and every sender-facing sentence says so", () => {
+    // A turn boundary hands mail over, and so does the reader's own read —
+    // to a pane mid-turn as well. A text that named only the first told a
+    // sender less than the truth.
+    expect(decideHandover(working, "explicit-read")).toBe("hand");
+    expect(WHEN_MAIL_LANDS).toContain("turn boundary");
+    expect(WHEN_MAIL_LANDS).toContain("reads its mail");
+    expect(kindGuidance(["task", "note"])).toContain(WHEN_MAIL_LANDS);
+  });
+});
+
 describe("decideHandover", () => {
   it("holds a pane at a prompt from a hook outside any turn, as at a turn boundary", () => {
     expect(decideHandover(approving, "outside-turn")).toBe("hold");
@@ -412,6 +426,7 @@ describe("the reports owed to a sender", () => {
     // signal — it read `delivered: false` as failure and went looking for
     // whether its teammates were alive.
     expect(notice?.body).toContain("nothing to re-send");
+    expect(notice?.body).toContain(WHEN_MAIL_LANDS);
   });
 
   it("says plainly when a message really was lost", () => {

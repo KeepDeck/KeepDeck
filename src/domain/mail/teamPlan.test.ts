@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SENDABLE_KINDS } from "./message";
-import { awaitsAnswer, sendRefusal } from "./policy";
+import { awaitsAnswer, sendRefusal, WHEN_MAIL_LANDS } from "./policy";
 import type { Pane, Team, Workspace } from "../deck";
 import { resolveNamedPanes } from "../deck/teams/testSupport";
 import { createWorkspaceInstance } from "../workspaceInstance";
@@ -349,6 +349,7 @@ describe("teamBriefing", () => {
       "the queued line",
     );
     expect(queued).toContain("Do not re-send");
+    expect(queued).toContain(WHEN_MAIL_LANDS);
     expect(queued).not.toContain("mid-turn");
     expect(lead).not.toContain("go looking");
     expect(lead).toContain("stuck or idle is yours to correct");

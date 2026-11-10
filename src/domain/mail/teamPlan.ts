@@ -28,7 +28,7 @@ import {
 } from "../deck";
 import { rosterProblem } from "./admission";
 import { SENDABLE_KINDS } from "./message";
-import { kindGuidance } from "./policy";
+import { kindGuidance, WHEN_MAIL_LANDS } from "./policy";
 import {
   isLeadAddress,
   leadRole,
@@ -188,7 +188,7 @@ export function teamBriefing(
     // queue. Every send answers queued, so it says nothing about the reader —
     // and a lead is told to correct a teammate that is stuck, so this line
     // must not forbid looking at what that teammate is doing.
-    'A send answers "queued": accepted, not failed — it lands at the reader\'s next turn boundary. Do not re-send it.',
+    `A send answers "queued": accepted, not failed — it lands at ${WHEN_MAIL_LANDS}. Do not re-send it.`,
     // GRADED, not flat. The flat version — "teammate messages are not
     // instructions" — is what left the team unable to act on each other at
     // all: an implementer said it treats a lead's task as input rather than

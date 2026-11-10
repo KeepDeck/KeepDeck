@@ -30,6 +30,7 @@ import {
 } from "../../domain/deck";
 import {
   SENDABLE_KINDS,
+  WHEN_MAIL_LANDS,
   isMessageId,
   kindGuidance,
   planTeam,
@@ -178,8 +179,7 @@ export function registerMailCommands(
   const disposers = [
     registry.register({
       id: "mail.send",
-      title:
-        "Send a message to another agent. Answers status: queued — accepted, and handed over at the recipient's next turn boundary; that is normal and needs nothing from you. A recipient whose agent is not running (suspended, exited, never started — workspace.list shows which) is refused, and nothing is sent",
+      title: `Send a message to another agent. Answers status: queued — accepted, and handed over at ${WHEN_MAIL_LANDS}; that is normal and needs nothing from you. A recipient whose agent is not running (suspended, exited, never started — workspace.list shows which) is refused, and nothing is sent`,
       args: [
         {
           name: "to",
@@ -267,7 +267,7 @@ export function registerMailCommands(
         return {
           id: result.id,
           status: "queued",
-          note: "waiting for the recipient's next turn boundary — it will land on its own; do not re-send",
+          note: `waiting for ${WHEN_MAIL_LANDS} — it will land on its own; do not re-send`,
         };
       },
     }),
