@@ -41,8 +41,8 @@ Reply with `mail.send` to the address the letter shows as its sender — the
 **role** (`lead`, `impl-1`) for a teammate, `role@<team id>` for anyone else,
 another workspace included — and say what you are answering: the subject,
 not an id. A send that answers
-`queued` has been accepted and will reach the other agent at its next turn —
-there is nothing for you to retry.
+`queued` has been accepted and lands at the reader's next turn boundary, or
+the moment it reads its mail — there is nothing for you to retry.
 
 The `kind` you choose says whether you are leaving somebody owing you an
 answer. It does not decide when the message lands. What each kind means is

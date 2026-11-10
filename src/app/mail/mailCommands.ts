@@ -30,6 +30,7 @@ import {
 } from "../../domain/deck";
 import {
   SENDABLE_KINDS,
+  WHEN_MAIL_LANDS,
   isMessageId,
   kindGuidance,
   planTeam,
@@ -178,8 +179,7 @@ export function registerMailCommands(
   const disposers = [
     registry.register({
       id: "mail.send",
-      title:
-        "Send a message to another agent. Answers status: queued — accepted, and handed over at the recipient's next turn boundary; that is normal and needs nothing from you. A recipient whose agent is not running (suspended, exited, never started — workspace.list shows which) is refused, and nothing is sent",
+      title: `Send a message to another agent. Answers status: queued — accepted, and handed over at ${WHEN_MAIL_LANDS}; that is normal and needs nothing from you. A recipient whose agent is not running (suspended, exited, never started — workspace.list shows which) is refused, and nothing is sent`,
       args: [
         {
           name: "to",
@@ -261,13 +261,14 @@ export function registerMailCommands(
         // Said in a word rather than a boolean. Shown `delivered: false`, a
         // lead read it as failure and re-sent, while three perfectly good
         // messages sat in the queue. `queued` is every send's outcome — the
-        // queue empties only at the reader's turn boundary — and it is not
+        // queue empties only at the reader's turn boundary or its own read,
+        // never inside the send — and it is not
         // something the sender can or should fix. What the reader is DOING
         // is a different question, and the roster answers it.
         return {
           id: result.id,
           status: "queued",
-          note: "waiting for the recipient's next turn boundary — it will land on its own; do not re-send",
+          note: `waiting for ${WHEN_MAIL_LANDS} — it will land on its own; do not re-send`,
         };
       },
     }),

@@ -170,6 +170,12 @@ describe("kimi teams manifest", () => {
     // Nor promise what the inbox does not answer: `all: true` re-reads the
     // most recent messages, with nothing marking which are still owed.
     expect(skill).not.toContain("still on you");
+    // And say when a queued send lands as the host does — both doors, the
+    // reader's own read included. Static prose cannot import the host's
+    // phrase, so it is held to the same words here.
+    expect(skill.replace(/\s+/g, " ")).toContain(
+      "the reader's next turn boundary, or the moment it reads its mail",
+    );
   });
 
   it("declares where its skills live, since they are not in the plugin root", () => {

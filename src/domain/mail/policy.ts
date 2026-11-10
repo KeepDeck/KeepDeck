@@ -130,6 +130,13 @@ export function isResponse(kind: MailKind): boolean {
   return kind === "answer";
 }
 
+/** When a queued message reaches its reader, said once for every text that
+ * tells an agent: the two doors mail leaves a queue by are the reader's turn
+ * boundary (its hook collects) and the reader's own read of its mail, which
+ * hands over all it can carry, mid-turn or not. Texts that named only the
+ * first told a sender less than the truth. */
+export const WHEN_MAIL_LANDS = "the reader's next turn boundary, or the moment it reads its mail";
+
 /**
  * What choosing a kind MEANS, in the words its sender needs.
  *
@@ -138,8 +145,8 @@ export function isResponse(kind: MailKind): boolean {
  * others. Delivery no longer reads it at all, and the sentence promising the
  * interrupt outlived the interrupt by long enough to be quoted back at the
  * deck — so what it describes is now the one thing the kind still decides:
- * [`awaitsAnswer`], which is what the deck books as outstanding and what an
- * `all: true` read shows a pane as still owing.
+ * [`awaitsAnswer`], which is what the deck books as outstanding — a booking
+ * that settles who a reply answers, and that no read shows a pane.
  *
  * Derived from the predicate rather than written beside it, so the sentence
  * cannot say one thing while the code does another. Two surfaces disagreeing
@@ -162,7 +169,7 @@ export function kindGuidance(kinds: readonly MailKind[]): string {
   // is what let the old promise stand unchallenged: a sender picking a kind
   // is looking for its effect, and will read one into the choice if the text
   // leaves the question open. It is now the same answer for every kind.
-  return `${named(asks)} ${one(asks, "expects", "expect")} something back, and the deck books it as still on the reader until they answer; ${named(rest)} ${one(rest, "leaves", "leave")} nothing open. When it lands is not part of the choice: every kind waits for the reader's next turn boundary, and a reader that is idle is roused because it will reach none on its own. Say what is true — a wrong kind either leaves you waiting on an answer nobody was asked for, or leaves a teammate owing one you never wanted.`;
+  return `${named(asks)} ${one(asks, "expects", "expect")} something back, and the deck books it as still on the reader until they answer; ${named(rest)} ${one(rest, "leaves", "leave")} nothing open. When it lands is not part of the choice: every kind waits for ${WHEN_MAIL_LANDS}, and a reader that is idle is roused because it would do neither on its own. Say what is true — a wrong kind either leaves you waiting on an answer nobody was asked for, or leaves a teammate owing one you never wanted.`;
 }
 export type MailVerdict =
   /**
@@ -413,7 +420,7 @@ export function overdueNotice(mail: Mail, id: string, at: number): Mail | null {
     mail,
     id,
     at,
-    `Still waiting: your ${mail.kind} has not reached its pane yet — it is queued and will land when that agent next takes a turn. Nothing is lost and there is nothing to re-send.`,
+    `Still waiting: your ${mail.kind} has not reached its pane yet — it is queued and will land at ${WHEN_MAIL_LANDS}. Nothing is lost and there is nothing to re-send.`,
   );
 }
 
