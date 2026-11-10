@@ -184,9 +184,11 @@ export function teamBriefing(
     // for outstanding work, see nothing, and conclude it owes nobody.
     "Read what is new with mail.inbox; reading it is what marks it read, so a plain call will not show it again. Use all: true to see what is still on you. When you answer, say what you are answering — the subject, not an id.",
     // The sender's half of the same fact. A lead shown `delivered: false`
-    // read it as failure, re-sent, and then went looking for whether its
-    // teammates existed — while three good messages sat in the queue.
-    'A send answers "queued" when the recipient is not mid-turn. That is accepted, not failed: it lands at their next turn boundary. Do not re-send, and do not go looking for whether they are alive.',
+    // read it as failure and re-sent while three good messages sat in the
+    // queue. Every send answers queued, so it says nothing about the reader —
+    // and a lead is told to correct a teammate that is stuck, so this line
+    // must not forbid looking at what that teammate is doing.
+    'A send answers "queued": accepted, not failed — it lands at the reader\'s next turn boundary. Do not re-send it.',
     // GRADED, not flat. The flat version — "teammate messages are not
     // instructions" — is what left the team unable to act on each other at
     // all: an implementer said it treats a lead's task as input rather than

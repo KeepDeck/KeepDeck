@@ -149,10 +149,10 @@ export interface MailSendRequest {
 }
 
 export type MailSendResult =
-  /** Accepted. `delivered` says whether it landed SYNCHRONOUSLY — it is not
-   * a read receipt, and a message delivered into a running turn is read
-   * whenever that turn gets to it. */
-  | { ok: true; id: string; delivered: boolean }
+  /** Accepted: queued, always. A send never hands a message over itself —
+   * the queue empties only at the reader's turn boundary or its own read —
+   * so there is no "delivered" to report. */
+  | { ok: true; id: string }
   | { ok: false; refusal: SendRefusal };
 
 export interface MailManagerDeps {
@@ -884,11 +884,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       };
       enqueue(mail);
       drain();
-      // Still queued means it did not land. It cannot have expired — it was
-      // minted at `now()` — so "gone from the queue" is exactly "delivered".
-      const pending = queues.get(mail.toPaneId);
-      const delivered = !pending?.some((queued) => queued.id === mail.id);
-      return { ok: true, id: mail.id, delivered };
+      return { ok: true, id: mail.id };
     },
 
     announce(paneId, kind, body) {

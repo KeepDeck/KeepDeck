@@ -338,6 +338,22 @@ describe("teamBriefing", () => {
     expect(text).not.toContain("interrupt");
   });
 
+  it("calls every send queued, and does not forbid the lead to look at a stuck teammate", () => {
+    // Every send answers queued, mid-turn reader or not — so the line makes
+    // it no condition. And the lead's charter makes a stuck teammate the
+    // lead's to correct: a briefing that also said "do not go looking for
+    // whether they are alive" told it both things at once.
+    const lead = teamBriefing("api", "lead", ["lead", "impl-1"]);
+    const queued = present(
+      lead.split("\n").find((line) => line.startsWith('A send answers "queued"')),
+      "the queued line",
+    );
+    expect(queued).toContain("Do not re-send");
+    expect(queued).not.toContain("mid-turn");
+    expect(lead).not.toContain("go looking");
+    expect(lead).toContain("stuck or idle is yours to correct");
+  });
+
   it("tells the holder what its OWN role is for", () => {
     // The whole reason roles stopped being bare addresses. Briefed with a
     // symmetrical text, a lead said "in charge is not quite the word" — it

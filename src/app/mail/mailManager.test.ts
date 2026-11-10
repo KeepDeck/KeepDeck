@@ -119,7 +119,9 @@ describe("createMailManager", () => {
       kind: "task",
       body: "rebase onto main",
     });
-    expect(result).toEqual({ ok: true, id: "mail-1", delivered: false });
+    // Accepted, and nothing more: a send never hands a message over itself,
+    // so the answer carries no "delivered" for a sender to misread.
+    expect(result).toEqual({ ok: true, id: "mail-1" });
     expect(h.woken).toEqual([B.paneId]);
     // The nudge carried no words: the message stays in the queue until the
     // pane comes for it.
@@ -137,7 +139,7 @@ describe("createMailManager", () => {
       kind: "note",
       body: "careful with that one",
     });
-    expect(result).toMatchObject({ ok: true, delivered: false });
+    expect(result).toMatchObject({ ok: true });
     expect(h.woken).toEqual([]);
     // The activity subscription is the whole retry mechanism: without it a
     // held message would wait for the expiry timer and then be dropped.
@@ -160,7 +162,7 @@ describe("createMailManager", () => {
       kind: "note",
       body: "second",
     });
-    expect(second).toMatchObject({ ok: true, delivered: false });
+    expect(second).toMatchObject({ ok: true });
     expect(h.woken).toEqual([B.paneId]);
     h.advance(PAST_RENUDGE);
     expect(h.woken).toEqual([B.paneId, B.paneId]);
@@ -250,7 +252,7 @@ describe("createMailManager", () => {
       kind: "task",
       body: "review the parser",
     });
-    expect(result).toMatchObject({ ok: true, delivered: false });
+    expect(result).toMatchObject({ ok: true });
     expect(h.woken).toEqual(["pane-silent"]);
   });
 
@@ -261,7 +263,7 @@ describe("createMailManager", () => {
     const h = harness();
     h.noChannel();
     const result = h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "go" });
-    expect(result).toMatchObject({ ok: true, delivered: false });
+    expect(result).toMatchObject({ ok: true });
     expect(h.woken).toEqual([]);
     // No status is reported here on purpose — the mount alone must do it.
     h.channelBack();
@@ -554,7 +556,7 @@ describe("createMailManager", () => {
     const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, { state: "working", since: 500 });
     const result = h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
-    expect(result).toMatchObject({ ok: true, delivered: false });
+    expect(result).toMatchObject({ ok: true });
     // Not pushed into a running turn: the labelled channel is coming, and the
     // message stays queued for it.
     expect(h.manager.waiting(B.paneId)).toBe(1);
@@ -980,7 +982,7 @@ describe("createMailManager", () => {
     // holding a stale reference would otherwise write into a pane belonging
     // to a runtime that is gone.
     const result = h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "one" });
-    expect(result).toMatchObject({ ok: true, delivered: false });
+    expect(result).toMatchObject({ ok: true });
     expect(h.woken).toEqual([]);
   });
 });

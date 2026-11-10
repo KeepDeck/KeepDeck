@@ -179,7 +179,7 @@ export function registerMailCommands(
     registry.register({
       id: "mail.send",
       title:
-        "Send a message to another agent. Answers status: delivered, or queued — queued means accepted and waiting for the recipient's next turn boundary, which is normal and needs nothing from you. A recipient whose agent is not running (suspended, exited, never started — workspace.list shows which) is refused, and nothing is sent",
+        "Send a message to another agent. Answers status: queued — accepted, and handed over at the recipient's next turn boundary; that is normal and needs nothing from you. A recipient whose agent is not running (suspended, exited, never started — workspace.list shows which) is refused, and nothing is sent",
       args: [
         {
           name: "to",
@@ -258,18 +258,16 @@ export function registerMailCommands(
           body,
         });
         if (!result.ok) throw new Error(refusalText(result.refusal));
-        // ACCEPTED either way, and the answer has to say so in a word rather
-        // than in a boolean. Shown `delivered: false`, a lead read it as
-        // failure: it re-sent, then went looking for whether its teammates
-        // were alive at all, while three perfectly good messages sat in the
-        // queue. `queued` is the normal outcome for a teammate that is not
-        // mid-turn, and it is not something the sender can or should fix.
+        // Said in a word rather than a boolean. Shown `delivered: false`, a
+        // lead read it as failure and re-sent, while three perfectly good
+        // messages sat in the queue. `queued` is every send's outcome — the
+        // queue empties only at the reader's turn boundary — and it is not
+        // something the sender can or should fix. What the reader is DOING
+        // is a different question, and the roster answers it.
         return {
           id: result.id,
-          status: result.delivered ? "delivered" : "queued",
-          note: result.delivered
-            ? "handed to the recipient now"
-            : "waiting for the recipient's next turn boundary — it will land on its own; do not re-send or go looking",
+          status: "queued",
+          note: "waiting for the recipient's next turn boundary — it will land on its own; do not re-send",
         };
       },
     }),
