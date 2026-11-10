@@ -261,7 +261,8 @@ export function registerMailCommands(
         // Said in a word rather than a boolean. Shown `delivered: false`, a
         // lead read it as failure and re-sent, while three perfectly good
         // messages sat in the queue. `queued` is every send's outcome — the
-        // queue empties only at the reader's turn boundary — and it is not
+        // queue empties only at the reader's turn boundary or its own read,
+        // never inside the send — and it is not
         // something the sender can or should fix. What the reader is DOING
         // is a different question, and the roster answers it.
         return {

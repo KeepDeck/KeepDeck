@@ -130,6 +130,13 @@ export function isResponse(kind: MailKind): boolean {
   return kind === "answer";
 }
 
+/** When a queued message reaches its reader, said once for every text that
+ * tells an agent: the two doors mail leaves a queue by are the reader's turn
+ * boundary (its hook collects) and the reader's own read of its mail, which
+ * hands over all it can carry, mid-turn or not. Texts that named only the
+ * first told a sender less than the truth. */
+export const WHEN_MAIL_LANDS = "the reader's next turn boundary, or the moment it reads its mail";
+
 /**
  * What choosing a kind MEANS, in the words its sender needs.
  *
@@ -148,13 +155,6 @@ export function isResponse(kind: MailKind): boolean {
  * hand-copied at the two call sites, both said "it decides when it lands",
  * and both had to be found by hand to stop saying it.
  */
-/** When a queued message reaches its reader, said once for every text that
- * tells an agent: the two doors mail leaves a queue by are the reader's turn
- * boundary (its hook collects) and the reader's own read of its mail, which
- * hands everything waiting over at once, mid-turn or not. Texts that named
- * only the first told a sender less than the truth. */
-export const WHEN_MAIL_LANDS = "the reader's next turn boundary, or the moment it reads its mail";
-
 export function kindGuidance(kinds: readonly MailKind[]): string {
   const named = (chosen: readonly MailKind[]) => chosen.join(" and ");
   // Written when both sides always held a pair; the flat-team filter can
