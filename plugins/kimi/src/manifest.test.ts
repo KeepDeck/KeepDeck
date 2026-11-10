@@ -167,6 +167,9 @@ describe("kimi teams manifest", () => {
     // promised an interrupt for a whole release after delivery stopped
     // reading the kind. It points at the tool's description instead.
     expect(skill).not.toContain("interrupt");
+    // Nor promise what the inbox does not answer: `all: true` re-reads the
+    // most recent messages, with nothing marking which are still owed.
+    expect(skill).not.toContain("still on you");
   });
 
   it("declares where its skills live, since they are not in the plugin root", () => {

@@ -14,6 +14,21 @@ beforeEach(() => {
 });
 
 describe("workspace commands", () => {
+  it("tells the agent reading it what each activity means", () => {
+    // The description is all an agent has to go on: a lead with a stuck
+    // teammate had `activity` in this answer and was never told what it
+    // says. Every state the roster can report is named, and what a down
+    // agent means for mail.
+    const { registry } = setup([workspace({})]);
+    const title = registry.list().find((command) => command.id === "workspace.list")?.title ?? "";
+    for (const state of ["working", "waiting", "done", "failed", "started", "ready", "starting"]) {
+      expect(title).toContain(`\`${state}\``);
+    }
+    expect(title).toContain("not running");
+    expect(title).toContain("mail to it is then refused");
+    expect(title).toContain("`team.role` is its address");
+  });
+
   it("lists workspaces with active flag and header titles", async () => {
     const { registry, deck } = setup([
       workspace({ panes: [{ id: "p1", agentType: "claude" }] }),

@@ -193,13 +193,13 @@ describe("mail.send", () => {
     expect(unreachableText("x", "worktree-missing")).toContain("relocate");
   });
 
-  it("calls an undelivered message QUEUED, and says it needs nothing", async () => {
+  it("calls every send QUEUED, and says it needs nothing", async () => {
     // A boolean was read as failure: shown `delivered: false` for all three
-    // teammates, a lead re-sent and then went looking for whether they were
-    // alive at all, while three good messages sat in the queue. Queued is
-    // the ordinary outcome for a teammate that is not mid-turn.
-    const { registry, mail } = setup();
-    mail.dispose(); // nothing can land, so the send can only be accepted
+    // teammates, a lead re-sent while three good messages sat in the queue.
+    // Queued is every send's outcome, so neither the answer nor the tool's
+    // description offers another — and neither tells a lead, who answers for
+    // a stuck teammate, not to look at what that teammate is doing.
+    const { registry } = setup();
     const result = await run(
       registry,
       "mail.send",
@@ -211,7 +211,11 @@ describe("mail.send", () => {
       const value = valueOf(result);
       expect(stringOf(value.status, "status")).toBe("queued");
       expect(stringOf(value.note, "note")).toContain("do not re-send");
+      expect(stringOf(value.note, "note")).not.toContain("go looking");
     }
+    const title = registry.list().find((command) => command.id === "mail.send")?.title ?? "";
+    expect(title).toContain("queued");
+    expect(title).not.toContain("delivered");
   });
 
   it("refuses a caller it cannot name", async () => {
@@ -274,6 +278,17 @@ describe("mail.send", () => {
 });
 
 describe("mail.inbox", () => {
+  it("says what re-reading gives, and promises no record of what is owed", () => {
+    // The re-read hands back the most recent messages, as many as fit, and
+    // carries no mark of which were answered — an argument promising "what
+    // you are still on the hook for" sent an agent to look for one.
+    const { registry } = setup();
+    const inbox = registry.list().find((command) => command.id === "mail.inbox");
+    const all = inbox?.args.find((arg) => arg.name === "all")?.description ?? "";
+    expect(all).toContain("nothing marks which of them you have answered");
+    expect(all).not.toContain("on the hook");
+  });
+
   it("reads the caller's own mail and takes no argument for whose", async () => {
     const { registry } = setup();
     await run(
