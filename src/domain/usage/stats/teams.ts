@@ -10,7 +10,8 @@ import { usageSessionKey, type UsageRow } from "../history/event";
  *   at the session's LATEST binding, a name only;
  * - branch: the team the journal last saw on the row's worktree branch IN
  *   THE ROW'S OWN WORKSPACE, AT THE ROW'S TIME — branches are recycled by
- *   successive teams, and two workspaces can each have a `feature/x`;
+ *   successive teams, and two workspaces (even two of one name) can each
+ *   have a `feature/x`;
  * - unknown.
  * Only a row booked before teams were recorded is inferred at all; such
  * rows shrink as recorded ones take over.
@@ -27,44 +28,48 @@ export type RowTeam =
 
 /** What the session journal says about teams, read once per journal change. */
 export interface TeamHistory {
-  /** Team name by agent session, at its latest binding anywhere. */
-  bySession: ReadonlyMap<string, string>;
-  /** Per workspace name and worktree branch, the teams bound on it over
+  /** By agent session, the team of its latest binding anywhere — null when
+   * that binding was on no team. */
+  bySession: ReadonlyMap<string, string | null>;
+  /** Per workspace SLOT and worktree branch, the teams bound on it over
    * time, oldest first. */
   byBranch: ReadonlyMap<string, readonly { at: number; team: string }[]>;
+  /** Each slot's current workspace name — a row's slot answers for it only
+   * while the name still matches (slots are reused). */
+  names: ReadonlyMap<string, string>;
 }
 
-export const NO_TEAM_HISTORY: TeamHistory = { bySession: new Map(), byBranch: new Map() };
+export const NO_TEAM_HISTORY: TeamHistory = { bySession: new Map(), byBranch: new Map(), names: new Map() };
 
-const branchKey = (workspaceName: string, branch: string) => `${workspaceName}\0${branch}`;
+const branchKey = (wsId: string, branch: string) => `${wsId}\0${branch}`;
 
 /**
- * The journal's teams. The journal keys its records by workspace SLOT; a
- * row names its workspace, so branches are keyed by the slot's current
- * NAME (`workspaceNames`) — a slot whose workspace has gone has no records
- * left, and a renamed workspace simply finds none, falling to unknown
- * rather than borrowing another's.
+ * The journal's teams. The journal keys its records by workspace SLOT, and
+ * a row carries its slot AND its workspace's name: a branch is the slot's,
+ * and the slot answers for a row only while its current name
+ * (`workspaceNames`) is the row's — a slot reused by another workspace, or
+ * renamed, finds nothing and falls to unknown rather than borrowing. Two
+ * workspaces of one name are two slots, never one.
  */
 export function teamHistory(journal: JournalRecords, workspaceNames: ReadonlyMap<string, string>): TeamHistory {
-  const bySession = new Map<string, { at: number; team: string }>();
+  const bySession = new Map<string, { at: number; team: string | null }>();
   const byBranch = new Map<string, { at: number; team: string }[]>();
   for (const [wsId, records] of Object.entries(journal)) {
-    const workspace = workspaceNames.get(wsId);
     for (const record of records) {
-      if (record.team === undefined) continue;
       const at = Date.parse(record.boundAt);
       if (!Number.isFinite(at)) continue;
+      // The latest binding answers, a binding on no team included.
       const key = usageSessionKey(record);
       const seen = bySession.get(key);
-      if (seen === undefined || seen.at <= at) bySession.set(key, { at, team: record.team });
-      if (record.branch === undefined || workspace === undefined) continue;
-      const holders = byBranch.get(branchKey(workspace, record.branch)) ?? [];
+      if (seen === undefined || seen.at <= at) bySession.set(key, { at, team: record.team ?? null });
+      if (record.team === undefined || record.branch === undefined) continue;
+      const holders = byBranch.get(branchKey(wsId, record.branch)) ?? [];
       holders.push({ at, team: record.team });
-      byBranch.set(branchKey(workspace, record.branch), holders);
+      byBranch.set(branchKey(wsId, record.branch), holders);
     }
   }
   for (const holders of byBranch.values()) holders.sort((left, right) => left.at - right.at);
-  return { bySession: new Map([...bySession].map(([key, seen]) => [key, seen.team])), byBranch };
+  return { bySession: new Map([...bySession].map(([key, seen]) => [key, seen.team])), byBranch, names: workspaceNames };
 }
 
 export function rowTeam(row: UsageRow, history: TeamHistory): RowTeam {
@@ -72,9 +77,13 @@ export function rowTeam(row: UsageRow, history: TeamHistory): RowTeam {
     return row.team.kind === "member" ? { kind: "member", name: row.team.name, source: "recorded" } : { kind: "none" };
   }
   const named = history.bySession.get(usageSessionKey(row));
-  if (named !== undefined) return { kind: "member", name: named, source: "journal" };
+  if (named !== undefined && named !== null) return { kind: "member", name: named, source: "journal" };
+  // A session whose latest binding was on no team names none to infer.
+  if (named === null) return { kind: "unknown" };
   const branch = row.worktree?.branch;
-  const holder = branch === undefined ? null : holderAt(history.byBranch.get(branchKey(row.workspaceName, branch)), row.occurredAt);
+  const sameWorkspace = history.names.get(row.workspaceId) === row.workspaceName;
+  const holder =
+    branch === undefined || !sameWorkspace ? null : holderAt(history.byBranch.get(branchKey(row.workspaceId, branch)), row.occurredAt);
   if (holder !== null) return { kind: "member", name: holder, source: "branch" };
   return { kind: "unknown" };
 }
