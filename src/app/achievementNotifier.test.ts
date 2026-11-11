@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ledgerOf } from "../domain/usage/history/ledger.testSupport";
 import {
   createAchievementNotifier,
-  earnedByTheMove,
+  oldCalendarEarned,
   migrateFrom,
   reconcileCongratulated,
   type AchievementNotifierDeps,
@@ -725,14 +725,78 @@ describe("the move of the per-day metrics to the reader's calendar", () => {
   });
 });
 
-describe("earnedByTheMove", () => {
-  it("is what the reader's calendar earns and the UTC bucket did not", () => {
+describe("oldCalendarEarned", () => {
+  it("is what the ledger earned with per-day metrics on the UTC bucket", () => {
     inZone("Europe/Moscow", () => {
       const rows = [
         event({ occurredAt: new Date(2026, 3, 10, 1).getTime(), tokens: { input: 600_000 } }),
         event({ occurredAt: new Date(2026, 3, 10, 12).getTime(), tokens: { input: 600_000 } }),
       ];
-      expect([...earnedByTheMove(rows, new Set(["dayTokens-1000000", "tokens-1000000"]))]).toEqual(["dayTokens-1000000"]);
+      const old = oldCalendarEarned(rows);
+      // Two UTC days of 600k each: no million-token day on the old calendar.
+      expect(old.has("dayTokens-1000000")).toBe(false);
+      expect(old.has("tokens-1000000")).toBe(true);
     });
+  });
+});
+
+describe("the floor of awards won", () => {
+  it("keeps a badge the old calendar gave while notifications were off, through the move", async () => {
+    // One UTC day of 1.2M tokens that the reader's calendar SPLITS in two.
+    await inZoneAsync("America/New_York", async () => {
+      const split = [
+        event({ eventId: "a", occurredAt: Date.parse("2026-04-10T02:00:00Z"), tokens: { input: 600_000 } }),
+        event({ eventId: "b", occurredAt: Date.parse("2026-04-10T06:00:00Z"), tokens: { input: 600_000 } }),
+      ];
+      const { deps, saved, history } = fakeDeps({
+        notify: vi.fn(() => false),
+        loadNotified: async () => JSON.stringify({ version: 2, notified: [] }),
+      });
+      const published: string[][] = [];
+      deps.keep = (ids) => published.push([...ids]);
+      history.set(ledger(split));
+      const notifier = createAchievementNotifier(deps);
+      await settle();
+      await settle();
+      // Local days: 22:00 and 02:00 — Apr 9 and Apr 10, no million-token day;
+      // UTC put both on Apr 10. Won then, never announced — and kept.
+      const last = saved[saved.length - 1] ?? "{}";
+      expect(JSON.parse(last).kept).toContain("dayTokens-1000000");
+      expect(JSON.parse(last).notified).not.toContain("dayTokens-1000000");
+      expect(published[published.length - 1]).toContain("dayTokens-1000000");
+      notifier.dispose();
+    });
+  });
+
+  it("keeps a won, unannounced badge — still owed its announcement once notifications are back", async () => {
+    const off = fakeDeps({ notify: vi.fn(() => false), loadNotified: async () => JSON.stringify({ version: 3, notified: [] }) });
+    off.history.set(ledger([event({ costUsd: 60 })]));
+    const first = createAchievementNotifier(off.deps);
+    await settle();
+    await settle();
+    const file = off.saved[off.saved.length - 1] ?? "{}";
+    expect(JSON.parse(file).kept).toContain("spendUsd-10");
+    first.dispose();
+
+    const on = fakeDeps({ loadNotified: async () => file });
+    on.history.set(ledger([event({ costUsd: 60 })]));
+    const second = createAchievementNotifier(on.deps);
+    await settle();
+    const tags = on.notify.mock.calls.map((call) => recordOf(call[0], "notification").tag);
+    expect(tags).toContain("achievement:spendUsd-10");
+    second.dispose();
+  });
+
+  it("starts a file from before the floor from what it announced", async () => {
+    const { deps, history } = fakeDeps({
+      loadNotified: async () => JSON.stringify({ version: 3, notified: ["streakDays-14"] }),
+    });
+    const published: string[][] = [];
+    deps.keep = (ids) => published.push([...ids]);
+    history.set(ledger([event({ costUsd: 1 })]));
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    expect(published[0]).toContain("streakDays-14");
+    notifier.dispose();
   });
 });
