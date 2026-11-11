@@ -11,10 +11,14 @@ import { DEFAULT_STATS_PERIOD } from "../presentation/stats/statsPeriods";
 export interface StatsView {
   period: StatsPeriod;
   workspace: string | null;
+  /** The week Weekly reports, by the instant it starts; null follows the
+   * calendar's current week. */
+  week: number | null;
   dimension: StatsDimension;
   order: BreakdownOrder;
   selectPeriod(period: StatsPeriod): void;
   selectWorkspace(workspace: string | null): void;
+  selectWeek(week: number | null): void;
   selectDimension(dimension: StatsDimension): void;
   selectOrder(order: BreakdownOrder): void;
 }
@@ -36,7 +40,10 @@ export interface StatsSessions {
 export function useStatsView(): StatsView {
   const [period, selectPeriod] = useState<StatsPeriod>(DEFAULT_STATS_PERIOD);
   const [workspace, selectWorkspace] = useState<string | null>(null);
+  const [week, selectWeek] = useState<number | null>(null);
   const [dimension, selectDimension] = useState<StatsDimension>("workspace");
   const [order, selectOrder] = useState<BreakdownOrder>("cost");
-  return { period, workspace, dimension, order, selectPeriod, selectWorkspace, selectDimension, selectOrder };
+  return {
+    period, workspace, week, dimension, order, selectPeriod, selectWorkspace, selectWeek, selectDimension, selectOrder,
+  };
 }

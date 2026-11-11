@@ -19,6 +19,7 @@ const DECK_FILE: &str = "deck.json";
 const SETTINGS_FILE: &str = "settings.json";
 const USAGE_CACHE_FILE: &str = "usage-cache.json";
 const ACHIEVEMENTS_FILE: &str = "achievements.json";
+const DIGEST_FILE: &str = "digest.json";
 
 /// The stored deck JSON, or `None` on first run. `(async)`, like every
 /// command here: disk IO stays off the main thread (the frontend already
@@ -67,6 +68,20 @@ pub fn achievements_load() -> Result<Option<String>, String> {
 #[tauri::command(async)]
 pub fn achievements_save(json: String) -> Result<(), String> {
     save_atomic(&achievements_path()?, &json).map_err(|e| e.to_string())
+}
+
+/// The week the weekly digest last reported. A CACHE like the congratulated
+/// set — tolerant webview read, no quarantine: the worst a bad file causes is
+/// one repeated digest.
+#[tauri::command(async)]
+pub fn digest_load() -> Result<Option<String>, String> {
+    load(&doc_path(DIGEST_FILE)?).map_err(|e| e.to_string())
+}
+
+/// Persist the digest's last week (already serialized by the webview).
+#[tauri::command(async)]
+pub fn digest_save(json: String) -> Result<(), String> {
+    save_atomic(&doc_path(DIGEST_FILE)?, &json).map_err(|e| e.to_string())
 }
 
 /// The stored settings JSON, or `None` on first run ([F6]).

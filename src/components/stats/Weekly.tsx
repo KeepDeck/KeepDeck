@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { JournalRecords } from "../../domain/journal/sessionLog";
 import { usageAchievementLadders } from "../../domain/usage/achievements/ladders";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
@@ -12,29 +12,34 @@ import { weeklyView, type BarsView, type WeeklyView } from "../../presentation/s
 export function Weekly({
   ledger,
   now,
+  week,
+  onSelectWeek,
   journal,
   reportsByKey,
   onOpenGallery,
 }: {
   ledger: UsageLedger;
   now: number;
+  /** The reported week, held by the app-level view so a digest can land
+   * on it; null follows the current week. */
+  week: number | null;
+  onSelectWeek(week: number | null): void;
   journal: JournalRecords;
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   onOpenGallery(): void;
 }) {
-  const [back, setBack] = useState(0);
   const teams = useMemo(() => teamHistory(journal), [journal]);
   const ladders = useMemo(() => usageAchievementLadders(ledger.events), [ledger]);
   const view = useMemo(
-    () => weeklyView(ledger.events, { now, back, teams, reports: reportsByKey, ladders }),
-    [ledger, now, back, teams, reportsByKey, ladders],
+    () => weeklyView(ledger.events, { now, week, teams, reports: reportsByKey, ladders }),
+    [ledger, now, week, teams, reportsByKey, ladders],
   );
   return (
     <div className="stats__weekly">
       <div className="stats__weeknav">
-        <Arrow label={view.nav.olderLabel} to={view.nav.older} glyph="‹" onGo={setBack} />
+        <Arrow label={view.nav.olderLabel} to={view.nav.older} glyph="‹" onGo={onSelectWeek} />
         <b>{view.nav.label}</b>
-        <Arrow label={view.nav.newerLabel} to={view.nav.newer} glyph="›" onGo={setBack} />
+        <Arrow label={view.nav.newerLabel} to={view.nav.newer} glyph="›" onGo={onSelectWeek} />
       </div>
       <div className="stats__week-top">
         <section className="stats__week-report" aria-label={view.spent.label}>
@@ -134,9 +139,19 @@ function Calendar({ calendar }: { calendar: WeeklyView["calendar"] }) {
   );
 }
 
-function Arrow({ label, to, glyph, onGo }: { label: string; to: number | null; glyph: string; onGo(back: number): void }) {
+function Arrow({
+  label,
+  to,
+  glyph,
+  onGo,
+}: {
+  label: string;
+  to: { week: number | null } | null;
+  glyph: string;
+  onGo(week: number | null): void;
+}) {
   return (
-    <button type="button" aria-label={label} disabled={to === null} onClick={() => to !== null && onGo(to)}>
+    <button type="button" aria-label={label} disabled={to === null} onClick={() => to !== null && onGo(to.week)}>
       {glyph}
     </button>
   );

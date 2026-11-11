@@ -206,6 +206,8 @@ export function UsageStats({
           <Weekly
             ledger={ledger}
             now={now}
+            week={view.week}
+            onSelectWeek={view.selectWeek}
             journal={journal}
             reportsByKey={reports.byKey}
             onOpenGallery={() => onSelectTab("achievements")}

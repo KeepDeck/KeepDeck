@@ -172,6 +172,7 @@ export function useAppController(runtime: AppRuntime) {
     agents,
     openSettings: modal.openSettings,
     openStats: modal.openStats,
+    selectWeek: statsView.selectWeek,
     openTasks: modal.openTasks,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
@@ -182,6 +183,7 @@ export function useAppController(runtime: AppRuntime) {
     agents,
     openSettings: modal.openSettings,
     openStats: modal.openStats,
+    selectWeek: statsView.selectWeek,
     openTasks: modal.openTasks,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
@@ -197,7 +199,11 @@ export function useAppController(runtime: AppRuntime) {
       requestDisbandTeam: (wsId, teamId) => current().requestDisbandTeam(wsId, teamId),
       openSettings: (sectionId) =>
         current().openSettings(sectionId ?? undefined),
-      openUsage: (tab) => current().openStats(tab),
+      openUsage: (tab, week) => {
+        // A digest names the week it reports; Weekly opens on it.
+        if (week !== undefined) current().selectWeek(week);
+        return current().openStats(tab);
+      },
       openTasks: (taskId) => current().openTasks(taskId),
       setCreating: (next) => current().setCreating(next),
       pushAlert: (title, message) => current().pushAlert(title, message),

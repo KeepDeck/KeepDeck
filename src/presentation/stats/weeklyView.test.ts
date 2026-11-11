@@ -4,18 +4,21 @@ import { usageEvent, type UsageRowOverrides } from "../../domain/usage/history/e
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
 import { inZone } from "../../domain/usage/time.testSupport";
-import { CALENDAR_WEEKS, weeklyView } from "./weeklyView";
+import { CALENDAR_WEEKS, weeklyDigestView, weeklyView } from "./weeklyView";
 
 const at = (iso: string) => new Date(iso).getTime();
 const NOW = at("2026-11-11T21:00:00+02:00"); // Wednesday
 const MONDAY = at("2026-11-09T10:00:00+02:00");
 const LAST_MONDAY = at("2026-11-02T10:00:00+02:00");
 
+/** The week `back` weeks before this one, by the instant it starts. */
+const weekOf = (back: number) => (back === 0 ? null : at(back === 1 ? "2026-11-02T00:00:00+02:00" : "2026-10-26T00:00:00+02:00"));
+
 function view(rows: UsageRowOverrides[], { back = 0, reports = new Map<string, WindowReport[]>() } = {}) {
   let result: ReturnType<typeof weeklyView> | undefined;
   inZone("Asia/Nicosia", () => {
     const events = rows.map((row) => usageEvent(row));
-    result = weeklyView(events, { now: NOW, back, teams: NO_TEAM_HISTORY, reports, ladders: usageAchievementLadders(events) });
+    result = weeklyView(events, { now: NOW, week: weekOf(back), teams: NO_TEAM_HISTORY, reports, ladders: usageAchievementLadders(events) });
   });
   if (result === undefined) throw new Error("no view");
   return result;
@@ -29,13 +32,14 @@ describe("the Weekly report", () => {
       // Last week, but past this week's point (Wednesday 21:00): not compared.
       { occurredAt: at("2026-11-06T10:00:00+02:00"), costUsd: 900 },
     ]);
-    expect(shown.nav).toMatchObject({ label: "This week · Nov 9 – today", newer: null, older: 1 });
+    expect(shown.nav).toMatchObject({ label: "This week · Nov 9 – today", newer: null, older: { week: weekOf(1) } });
     expect(shown.spent).toEqual({ label: "Spent this week", value: "≈$50.00", change: { text: "↓ 50%", tone: "good" }, caption: "vs last week at this point" });
   });
 
   it("reports a past week whole, and pages within the ledger", () => {
     const shown = view([{ occurredAt: LAST_MONDAY, costUsd: 10 }, { occurredAt: MONDAY, costUsd: 1 }], { back: 1 });
-    expect(shown.nav).toMatchObject({ label: "Nov 2 – Nov 8", newer: 0, older: null });
+    // Forward from last week is this week, which follows the calendar.
+    expect(shown.nav).toMatchObject({ label: "Nov 2 – Nov 8", newer: { week: null }, older: null });
     expect(shown.spent).toMatchObject({ label: "Spent that week", value: "≈$10.00", change: null, caption: "no comparable week before" });
     // Badge progress is about now — a past week does not show it.
     expect(shown.badges).toBeNull();
@@ -91,5 +95,27 @@ describe("the Weekly report", () => {
     expect(badges?.rows.length).toBeGreaterThan(0);
     const shares = badges?.rows.map((row) => parseInt(row.pct, 10)) ?? [];
     expect(shares).toEqual([...shares].sort((left, right) => right - left));
+  });
+});
+
+describe("the weekly digest", () => {
+  it("tells last week's report in the tab's own words, and opens on that week", () => {
+    inZone("Asia/Nicosia", () => {
+      const rows = [
+        usageEvent({ occurredAt: LAST_MONDAY, model: "a/m", modelName: "Model M", costUsd: 80 }),
+        usageEvent({ occurredAt: at("2026-10-27T10:00:00+02:00"), costUsd: 100 }),
+      ];
+      expect(weeklyDigestView(rows, NOW)).toEqual({
+        week: at("2026-11-02T00:00:00+02:00"),
+        title: "Your week in KeepDeck · Nov 2 – Nov 8",
+        body: "≈$80.00 spent (↓ 20% vs the week before). Model M ran 100% of the spend; output was 0 tokens, reasoning included.",
+      });
+    });
+  });
+
+  it("has nothing to tell for a week with no usage", () => {
+    inZone("Asia/Nicosia", () => {
+      expect(weeklyDigestView([usageEvent({ occurredAt: MONDAY, costUsd: 1 })], NOW)).toBeNull();
+    });
   });
 });

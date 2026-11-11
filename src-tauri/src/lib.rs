@@ -273,6 +273,8 @@ pub fn run() {
             state::usage_cache_save,
             state::achievements_load,
             state::achievements_save,
+            state::digest_load,
+            state::digest_save,
             usage_ledger::usage_ledger,
             usage_ledger::usage_book_calls,
             usage_ledger::usage_since,

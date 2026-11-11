@@ -13,6 +13,8 @@ import {
   saveNotifiedAchievements,
 } from "../ipc/achievements";
 import { createAchievementNotifier } from "./achievementNotifier";
+import { createWeeklyDigestNotifier } from "./weeklyDigestNotifier";
+import { loadDigest, saveDigest } from "../ipc/digest";
 import { createActivityWitness } from "./activityWitness";
 import { createIpcHealthLog } from "./ipcHealthLog";
 import {
@@ -502,6 +504,7 @@ export function createAppRuntime(
   let paneUnbinds: ReturnType<typeof listenPaneUnbinds> | null = null;
   let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
     null;
+  let digestNotifier: ReturnType<typeof createWeeklyDigestNotifier> | null = null;
   let exhaustionNotifier: ReturnType<
     typeof createWindowExhaustionNotifier
   > | null = null;
@@ -589,6 +592,21 @@ export function createAppRuntime(
           subscribe: subscribeUsageHistory,
         },
       });
+      digestNotifier ??= createWeeklyDigestNotifier({
+        loadDigest,
+        saveDigest,
+        settingsReady: initSettings,
+        notify,
+        history: {
+          getSnapshot: getUsageHistorySnapshot,
+          subscribe: subscribeUsageHistory,
+        },
+        now: () => Date.now(),
+        every: (ms, tick) => {
+          const timer = setInterval(tick, ms);
+          return () => clearInterval(timer);
+        },
+      });
       exhaustionNotifier ??= createWindowExhaustionNotifier({
         settingsReady: initSettings,
         notify,
@@ -618,6 +636,7 @@ export function createAppRuntime(
       ipcHealth?.dispose();
       windowReportJournal.dispose();
       achievementNotifier?.dispose();
+      digestNotifier?.dispose();
       usageChannel?.dispose();
       statusChannel?.dispose();
       companionHellos?.dispose();

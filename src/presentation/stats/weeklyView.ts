@@ -14,7 +14,14 @@ import {
   type CostStep,
 } from "../../domain/usage/stats/fold";
 import { rowTeam, type TeamHistory } from "../../domain/usage/stats/teams";
-import { oldestWeekBack, weekRhythm, weekSpans, windowPeaks } from "../../domain/usage/stats/weekly";
+import {
+  oldestWeekBack,
+  weekRhythm,
+  weekSpans,
+  weeksBack,
+  windowPeaks,
+  type WeekSpans,
+} from "../../domain/usage/stats/weekly";
 import { localDayStart, shiftDay } from "../../domain/usage/time";
 import { changeView, type ChangeView } from "./overviewView";
 import { costCoverage, displayCost } from "./statsCost";
@@ -56,8 +63,16 @@ export interface BarsView {
 }
 
 export interface WeeklyView {
-  /** The weeks the arrows go to — null where there is none. */
-  nav: { label: string; older: number | null; newer: number | null; olderLabel: string; newerLabel: string };
+  /** The weeks the arrows go to, by the instant each starts — `week: null`
+   * is this week, which follows the calendar; an arrow with nowhere to go
+   * is null. */
+  nav: {
+    label: string;
+    older: { week: number } | null;
+    newer: { week: number | null } | null;
+    olderLabel: string;
+    newerLabel: string;
+  };
   spent: { label: string; value: string; change: ChangeView | null; caption: string };
   lines: string[];
   calendar: { title: string; caption: string; weeks: { key: number; days: { key: number; level: number; title: string; selected: boolean }[] }[] };
@@ -68,19 +83,16 @@ export interface WeeklyView {
   notes: string[];
 }
 
-export function weeklyView(
-  rows: readonly UsageRow[],
-  input: {
-    now: number;
-    /** How many weeks back from this one (0 = this week). */
-    back: number;
-    teams: TeamHistory;
-    reports: ReadonlyMap<string, readonly WindowReport[]>;
-    /** The badge ladders as of now — only this week shows how close they are. */
-    ladders: readonly UsageAchievementLadder[];
-  },
-): WeeklyView {
-  const { now, back, teams } = input;
+/** The report itself — what the week cost and what it went on — shared by
+ * the tab and the weekly digest, so the two can never tell one week two
+ * ways. */
+export interface WeekReportView {
+  week: WeekSpans;
+  spent: WeeklyView["spent"];
+  lines: string[];
+}
+
+export function weekReportView(rows: readonly UsageRow[], now: number, back: number): WeekReportView {
   const week = weekSpans(now, back);
   const current = rowsIn(rows, week.current);
   const totals = statsTotals(current);
@@ -88,7 +100,6 @@ export function weeklyView(
   const days = costTimeline(current, week.current, "day");
   const costliest = days.reduce<CostStep | null>((top, day) => (top === null || day.costUsd > top.costUsd ? day : top), null);
   const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP);
-  const groupsOfTeams = breakdown(current, [], (row) => dimensionKey("team", row, teams), WEEKLY_LIST_TOP);
   const names = modelNames(models);
   const [topModel] = models;
   const lines: string[] = [];
@@ -109,6 +120,39 @@ export function weeklyView(
       : "";
     lines.push(`${totals.sessions} session${totals.sessions === 1 ? "" : "s"} with usage${day}.`);
   }
+  return {
+    week,
+    spent: {
+      label: week.complete ? "Spent that week" : "Spent this week",
+      value: displayCost(totals),
+      change: change === null ? null : changeView(change),
+      caption: change === null ? "no comparable week before" : week.complete ? "vs the week before" : "vs last week at this point",
+    },
+    lines,
+  };
+}
+
+export function weeklyView(
+  rows: readonly UsageRow[],
+  input: {
+    now: number;
+    /** The instant the reported week starts, or null for this week. */
+    week: number | null;
+    teams: TeamHistory;
+    reports: ReadonlyMap<string, readonly WindowReport[]>;
+    /** The badge ladders as of now — only this week shows how close they are. */
+    ladders: readonly UsageAchievementLadder[];
+  },
+): WeeklyView {
+  const { now, teams } = input;
+  const back = input.week === null ? 0 : weeksBack(input.week, now);
+  const report = weekReportView(rows, now, back);
+  const { week } = report;
+  const current = rowsIn(rows, week.current);
+  const totals = statsTotals(current);
+  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP);
+  const names = modelNames(models);
+  const groupsOfTeams = breakdown(current, [], (row) => dimensionKey("team", row, teams), WEEKLY_LIST_TOP);
   const peaks = windowPeaks(input.reports, week.current);
   const rhythm = weekRhythm(current, week.current);
   const inferred = groupsOfTeams.some((group) => {
@@ -118,18 +162,13 @@ export function weeklyView(
   return {
     nav: {
       label: back === 0 ? `This week · ${formatLocalDay(week.current.from)} – today` : weekRange(week.current.from, week.current.to),
-      older: back < oldestWeekBack(rows, now) ? back + 1 : null,
-      newer: back > 0 ? back - 1 : null,
+      older: back < oldestWeekBack(rows, now) ? { week: weekSpans(now, back + 1).current.from } : null,
+      newer: back === 0 ? null : { week: back === 1 ? null : weekSpans(now, back - 1).current.from },
       olderLabel: "Earlier week",
       newerLabel: "Later week",
     },
-    spent: {
-      label: week.complete ? "Spent that week" : "Spent this week",
-      value: displayCost(totals),
-      change: change === null ? null : changeView(change),
-      caption: change === null ? "no comparable week before" : week.complete ? "vs the week before" : "vs last week at this point",
-    },
-    lines,
+    spent: report.spent,
+    lines: report.lines,
     calendar: calendarView(rows, now, week.monday),
     rhythm: [
       { title: "By day", bars: bars(rhythm.byWeekday, (i) => DAYS[i] ?? ""), labelled: true },
@@ -216,5 +255,27 @@ function badgesView(ladders: readonly UsageAchievementLadder[]): WeeklyView["bad
     title: "Closest to the next badge",
     link: "All →",
     rows: next.map(({ tier, share }) => ({ id: tier.id, title: tier.title, pct: pct(share) })),
+  };
+}
+
+/** The weekly digest: the last whole week's report as one notification —
+ * the same words the Weekly tab says of that week. None for a week with no
+ * usage: there is nothing to tell. */
+export interface WeeklyDigestView {
+  /** The instant the reported week starts — the click opens Weekly on it. */
+  week: number;
+  title: string;
+  body: string;
+}
+
+export function weeklyDigestView(rows: readonly UsageRow[], now: number): WeeklyDigestView | null {
+  const report = weekReportView(rows, now, 1);
+  if (report.lines.length === 0) return null;
+  const { spent, week } = report;
+  const change = spent.change === null ? "" : ` (${spent.change.text} ${spent.caption})`;
+  return {
+    week: week.current.from,
+    title: `Your week in KeepDeck · ${weekRange(week.current.from, week.current.to)}`,
+    body: [`${spent.value} spent${change}.`, report.lines[0]].join(" "),
   };
 }

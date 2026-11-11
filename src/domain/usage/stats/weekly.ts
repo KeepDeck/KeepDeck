@@ -32,6 +32,14 @@ export function weekSpans(now: number, back: number): WeekSpans {
   return { monday, current: { from, to: now + 1 }, prior: { from: priorFrom, to: priorEnd + 1 }, complete: false };
 }
 
+/** How many weeks before the one containing `now` the week containing
+ * `at` lies — a week is named by any instant in it, its start most often; a
+ * week ahead of now reads as this one. */
+export function weeksBack(at: number, now: number): number {
+  const weeks = (localWeekStart(localDayNumber(now)) - localWeekStart(localDayNumber(at))) / 7;
+  return Math.max(0, Math.round(weeks));
+}
+
 /** How many weeks back the oldest row's week lies — how far the report can
  * be paged; 0 for an empty ledger. */
 export function oldestWeekBack(rows: readonly UsageRow[], now: number): number {

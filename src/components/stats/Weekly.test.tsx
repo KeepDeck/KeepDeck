@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
@@ -23,13 +23,16 @@ describe("Weekly", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  const render = (onOpenGallery = vi.fn()) => {
+  /** The week is the app-level view's; the host keeps it as the owner does. */
+  function Host({ onOpenGallery }: { onOpenGallery(): void }) {
+    const [week, setWeek] = useState<number | null>(null);
     const rows = [usageEvent({ occurredAt: NOW - 60_000, costUsd: 3 }), usageEvent({ occurredAt: NOW - 9 * DAY, costUsd: 7 })];
-    act(() =>
-      root.render(
-        createElement(Weekly, { ledger: ledgerOf(rows), now: NOW, journal: {}, reportsByKey: new Map(), onOpenGallery }),
-      ),
-    );
+    return createElement(Weekly, {
+      ledger: ledgerOf(rows), now: NOW, week, onSelectWeek: setWeek, journal: {}, reportsByKey: new Map(), onOpenGallery,
+    });
+  }
+  const render = (onOpenGallery = vi.fn()) => {
+    act(() => root.render(createElement(Host, { onOpenGallery })));
     return onOpenGallery;
   };
   const arrow = (label: string) => present(host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`), label);
