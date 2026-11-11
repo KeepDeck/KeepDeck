@@ -1,5 +1,7 @@
-import { formatPct, windowLabel, windowLevel, type UsageWindow } from "../../domain/usage";
-import type { ProviderWindowGroup } from "../../domain/usage/providerWindows";
+import { formatPct, windowLabel, windowLevel, type AccountUsage, type UsageWindow } from "../../domain/usage";
+import type { UsageRow } from "../../domain/usage/history/event";
+import { providerWindowGroups, type ProviderWindowGroup } from "../../domain/usage/providerWindows";
+import type { WindowReport } from "../../domain/usage/reportJournal";
 import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
 import { burnEdgeLabel, cardCaptionParts, type BurnEdge } from "../../domain/usage/windowForecast";
 import { seriesColorFor } from "../usagePalette";
@@ -106,4 +108,17 @@ export function providersView(
       windows: group.rows.map((row) => windowView(row, now, colors)),
     })),
   };
+}
+
+/** THE Limits pipeline — the accounts' windows joined with the ledger and
+ * the report journal, settled as cards — in one place, so the Limits tab
+ * and Overview's glance at it read the very same cards. */
+export function accountLimitsView(input: {
+  accounts: ReadonlyMap<string, AccountUsage>;
+  rows: readonly UsageRow[];
+  reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
+  now: number;
+  colors: ReadonlyMap<string, string>;
+}): ProvidersView {
+  return providersView(providerWindowGroups(input.accounts, input.rows, input.reportsByKey, input.now), input.now, input.colors);
 }

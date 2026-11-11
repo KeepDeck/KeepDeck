@@ -8,9 +8,7 @@ import type { StatsSessions, StatsView } from "../../app/useStatsView";
 import { useKeptAchievements } from "../../app/useKeptAchievements";
 import type { TeamHistory } from "../../domain/usage/stats/teams";
 import { latestOccurredAt } from "../../domain/usage/history/ledger";
-import { rowsIn, rowsOf } from "../../domain/usage/stats/fold";
 import { statsScopeView } from "../../presentation/stats/statsScopeView";
-import { statsSpans } from "../../domain/usage/stats/period";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import {
   escapeTarget,
@@ -134,25 +132,20 @@ export function UsageStats({
   );
   const now = useWallClock(latest);
   const header = statsHeaderView(tab, period, now, from);
-  // Whether the period holds anything — the one fact the panel's gate
-  // reads, inside the scope when the tab narrows to one; each tab folds
-  // its own numbers.
-  const scope = header.scoped ? view.workspace : null;
-  const periodEvents = useMemo(
-    () => rowsIn(rowsOf(ledger.events, scope), statsSpans(period, now).current).length,
-    [ledger, scope, period, now],
-  );
   const [scopeOpen, setScopeOpen] = useState(false);
   const chips = useMemo(
     () => statsScopeView(ledger.events, { period, now, workspace: view.workspace, expanded: scopeOpen }),
     [ledger, period, now, view.workspace, scopeOpen],
   );
-  const panel = statsPanelView(tab, {
-    ready: history.ready,
-    error: history.error,
-    hasRows: ledger.events.length > 0,
-    periodEvents,
-  });
+  const panel = useMemo(
+    () =>
+      statsPanelView(
+        tab,
+        { ready: history.ready, error: history.error, rows: ledger.events },
+        { period, now, workspace: view.workspace },
+      ),
+    [tab, history.ready, history.error, ledger, period, now, view.workspace],
+  );
 
   /** The tab body. The switch is exhaustive — a new tab id fails to compile
    * here until it brings a body. */

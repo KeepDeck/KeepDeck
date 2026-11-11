@@ -25,7 +25,7 @@ describe("costCoverage", () => {
 
   it("says how much of the usage no price covers", () => {
     expect(costCoverage(tally({ unpricedTokens: 250 }))).toBe(
-      `${SOURCE} 25% of tokens ran on models without a known price and are not counted; “+” marks a sum they are missing from.`,
+      `${SOURCE} 25% of tokens ran on models without a known price and are not counted; a sum marked “+” leaves them out.`,
     );
     // A sliver is never rounded away to "0%".
     expect(costCoverage(tally({ unpricedTokens: 1 }))).toContain("<1% of tokens");

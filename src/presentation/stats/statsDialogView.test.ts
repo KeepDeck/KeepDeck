@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { TEST_NOW, usageEvent } from "../../domain/usage/history/event.testSupport";
 import { inZone } from "../../domain/usage/time.testSupport";
 import { escapeTarget, galleryDoor, statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
 
+/** A ledger with one row a moment ago — in this period, in workspace A. */
+const ROWS = [usageEvent({ occurredAt: TEST_NOW - 60_000, workspaceName: "A" })];
+const SCOPE = { period: 7 as const, now: TEST_NOW, workspace: null };
 const history = (over: Partial<StatsHistoryState> = {}): StatsHistoryState => ({
   ready: true,
   error: null,
-  hasRows: true,
-  periodEvents: 5,
+  rows: ROWS,
   ...over,
 });
 
@@ -68,37 +71,38 @@ describe("statsHeaderView", () => {
 
 describe("statsPanelView", () => {
   it("waits while the history loads", () => {
-    expect(statsPanelView("overview", history({ ready: false }))).toEqual({
+    expect(statsPanelView("overview", history({ ready: false }), SCOPE)).toEqual({
       kind: "loading",
       text: "Loading usage history…",
     });
   });
 
   it("blocks a ledger tab on a dead ledger, and leaves Limits to its own snapshot", () => {
-    const dead = history({ error: "store unreadable", hasRows: false });
-    expect(statsPanelView("achievements", dead)).toEqual({
+    const dead = history({ error: "store unreadable", rows: [] });
+    expect(statsPanelView("achievements", dead, SCOPE)).toEqual({
       kind: "unavailable",
       text: "Usage history is unavailable: store unreadable",
     });
-    expect(statsPanelView("limits", dead)).toMatchObject({ kind: "tab", tab: "limits", warning: null });
+    expect(statsPanelView("limits", dead, SCOPE)).toMatchObject({ kind: "tab", tab: "limits", warning: null });
   });
 
   it("warns above the tab when only some history could be loaded", () => {
-    expect(statsPanelView("overview", history({ error: "a newer build's lines" }))).toMatchObject({
+    expect(statsPanelView("overview", history({ error: "a newer build's lines" }), SCOPE)).toMatchObject({
       kind: "tab",
       warning: "Some history could not be loaded: a newer build's lines",
     });
   });
 
   it("says an empty period only for a tab whose whole body is the period", () => {
-    const empty = history({ periodEvents: 0 });
-    expect(statsPanelView("breakdown", empty)).toEqual({
+    // Nothing in the last 7 days: one row, a year back.
+    const empty = history({ rows: [usageEvent({ occurredAt: TEST_NOW - 400 * 86_400_000 })] });
+    expect(statsPanelView("breakdown", empty, SCOPE)).toEqual({
       kind: "empty",
       warning: null,
       text: "No usage recorded in this period yet.",
     });
-    expect(statsPanelView("overview", empty)).toMatchObject({ kind: "tab" });
-    expect(statsPanelView("achievements", empty)).toMatchObject({ kind: "tab" });
+    expect(statsPanelView("overview", empty, SCOPE)).toMatchObject({ kind: "tab" });
+    expect(statsPanelView("achievements", empty, SCOPE)).toMatchObject({ kind: "tab" });
   });
 });
 
@@ -112,5 +116,13 @@ describe("escapeTarget", () => {
 describe("galleryDoor", () => {
   it("counts the earned badges", () => {
     expect(galleryDoor(52)).toBe("Achievements · 52 earned →");
+  });
+});
+
+describe("an empty period inside a workspace", () => {
+  it("is judged where the tab looks — inside the workspace it narrows to", () => {
+    const elsewhere = { ...SCOPE, workspace: "B" };
+    expect(statsPanelView("breakdown", history(), elsewhere)).toMatchObject({ kind: "empty" });
+    expect(statsPanelView("breakdown", history(), { ...SCOPE, workspace: "A" })).toMatchObject({ kind: "tab" });
   });
 });

@@ -2,13 +2,12 @@ import { lazy, Suspense, useMemo } from "react";
 import type { AccountUsage } from "../../domain/usage";
 import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
-import { providerWindowGroups } from "../../domain/usage/providerWindows";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
 import type { StatsPeriod } from "../../domain/usage/stats/period";
 import { limitsGlanceView, type LimitsGlanceView } from "../../presentation/stats/limitsGlanceView";
 import { overviewView, type FigureView, type TopListView } from "../../presentation/stats/overviewView";
-import { providersView } from "../../presentation/stats/providersView";
+import { accountLimitsView } from "../../presentation/stats/providersView";
 import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 
@@ -51,12 +50,7 @@ export function Overview({
     [ledger, period, now, colors, workspace],
   );
   const limits = useMemo(
-    () =>
-      limitsGlanceView(
-        providersView(providerWindowGroups(accounts, ledger.events, reportsByKey, now), now, colors),
-        now,
-        colors,
-      ),
+    () => limitsGlanceView(accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors }), now, colors),
     [accounts, ledger, reportsByKey, now, colors],
   );
   return (

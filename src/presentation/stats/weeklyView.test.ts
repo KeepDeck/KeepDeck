@@ -126,3 +126,18 @@ describe("the weekly digest", () => {
     });
   });
 });
+
+describe("the digest's money", () => {
+  it("says in words what the dialog marks with a \"+\"", () => {
+    inZone("Asia/Nicosia", () => {
+      const rows = [
+        usageEvent({ occurredAt: LAST_MONDAY, costUsd: 80 }),
+        usageEvent({ occurredAt: LAST_MONDAY, tokens: { input: 50 } }),
+      ];
+      expect(weeklyDigestView(rows, NOW)?.body).toMatch(/^≈\$80\.00 spent, plus usage on models without a known price\. /);
+      expect(weeklyDigestView([usageEvent({ occurredAt: LAST_MONDAY, tokens: { input: 50 } })], NOW)?.body).toMatch(
+        /^Usage on models without a known price only\. /,
+      );
+    });
+  });
+});

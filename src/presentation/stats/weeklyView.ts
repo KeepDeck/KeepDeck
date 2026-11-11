@@ -12,6 +12,7 @@ import {
   statsTotals,
   type BreakdownRow,
   type CostStep,
+  type StatsTotals,
 } from "../../domain/usage/stats/fold";
 import { teamProvenance, type TeamHistory } from "../../domain/usage/stats/teams";
 import {
@@ -88,6 +89,9 @@ export interface WeeklyView {
  * ways. */
 export interface WeekReportView {
   week: WeekSpans;
+  /** The week's money as folded — the digest words it without the dialog's
+   * "+" legend. */
+  totals: StatsTotals;
   spent: WeeklyView["spent"];
   lines: string[];
 }
@@ -122,6 +126,7 @@ export function weekReportView(rows: readonly UsageRow[], now: number, back: num
   }
   return {
     week,
+    totals,
     spent: {
       label: week.complete ? "Spent that week" : "Spent this week",
       value: displayCost(totals),
@@ -272,11 +277,16 @@ export interface WeeklyDigestView {
 export function weeklyDigestView(rows: readonly UsageRow[], now: number): WeeklyDigestView | null {
   const report = weekReportView(rows, now, 1);
   if (report.lines.length === 0) return null;
-  const { spent, week } = report;
+  const { spent, week, totals } = report;
   const change = spent.change === null ? "" : ` (${spent.change.text} ${spent.caption})`;
+  // A notification has no coverage note to explain a "+": it says it.
+  const money =
+    totals.pricedEvents === 0
+      ? "Usage on models without a known price only"
+      : `${formatUsd(totals.costUsd, { approx: true })} spent${totals.unpricedTokens > 0 ? ", plus usage on models without a known price" : ""}`;
   return {
     week: week.monday,
     title: `Your week in KeepDeck · ${weekRange(week.current.from, week.current.to)}`,
-    body: [`${spent.value} spent${change}.`, report.lines[0]].join(" "),
+    body: [`${money}${change}.`, report.lines[0]].join(" "),
   };
 }

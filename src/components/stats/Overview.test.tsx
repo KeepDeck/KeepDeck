@@ -112,7 +112,7 @@ describe("Overview", () => {
 
   it("says what the money is and what it is missing", async () => {
     await render([row(), row({ costUsd: undefined, tokens: { input: 3_000 } })]);
-    expect(present(host.querySelector(".stats__coverage"), "the note").textContent).toContain("“+” marks a sum");
+    expect(present(host.querySelector(".stats__coverage"), "the note").textContent).toContain("a sum marked “+” leaves them out");
     expect(host.querySelector(".stats__figure-value")?.textContent).toBe("≈$0.25+");
   });
 });

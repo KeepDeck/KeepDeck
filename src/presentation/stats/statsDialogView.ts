@@ -1,4 +1,6 @@
 import { formatLocalDay } from "../../domain/usage";
+import type { UsageRow } from "../../domain/usage/history/event";
+import { rowsIn, rowsOf } from "../../domain/usage/stats/fold";
 import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import { PERIOD_LABELS, USAGE_PERIODS } from "./statsPeriods";
@@ -60,14 +62,20 @@ export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number,
   };
 }
 
-/** What the dialog knows of the ledger as it renders a tab. */
+/** What the dialog knows of the ledger as it renders a tab: whether it
+ * loaded, what went wrong, and its rows. */
 export interface StatsHistoryState {
   ready: boolean;
   error: string | null;
-  /** Whether the ledger holds any row at all. */
-  hasRows: boolean;
-  /** Rows in the selected period. */
-  periodEvents: number;
+  rows: readonly UsageRow[];
+}
+
+/** What the reader set the numbers to: the period and, for a tab that
+ * narrows to one, the workspace. */
+export interface StatsPanelScope {
+  period: StatsPeriod;
+  now: number;
+  workspace: string | null;
 }
 
 /**
@@ -83,16 +91,21 @@ export type StatsPanelView =
   | { kind: "empty"; warning: string | null; text: string }
   | { kind: "tab"; tab: StatsTab; warning: string | null };
 
-export function statsPanelView(tab: StatsTab, history: StatsHistoryState): StatsPanelView {
+export function statsPanelView(tab: StatsTab, history: StatsHistoryState, scope: StatsPanelScope): StatsPanelView {
   if (!history.ready) return { kind: "loading", text: "Loading usage history…" };
-  const dead = history.error !== null && !history.hasRows;
+  const dead = history.error !== null && history.rows.length === 0;
   const spec = TAB_SPECS[tab];
   if (dead && spec.data !== "live-accounts") {
     return { kind: "unavailable", text: `Usage history is unavailable: ${history.error}` };
   }
   const warning = history.error !== null && !dead ? `Some history could not be loaded: ${history.error}` : null;
-  if (spec.data === "period-ledger" && history.periodEvents === 0) {
-    return { kind: "empty", warning, text: "No usage recorded in this period yet." };
+  // Empty means empty WHERE THE TAB LOOKS: inside the workspace it narrows
+  // to, over the period's calendar days.
+  if (spec.data === "period-ledger") {
+    const rows = rowsOf(history.rows, spec.scoped === true ? scope.workspace : null);
+    if (rowsIn(rows, statsSpans(scope.period, scope.now).current).length === 0) {
+      return { kind: "empty", warning, text: "No usage recorded in this period yet." };
+    }
   }
   return { kind: "tab", tab, warning };
 }

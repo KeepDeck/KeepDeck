@@ -34,7 +34,7 @@ export function costCoverage(totals: CostTally & { totalTokens: number }): strin
   if (totals.unpricedTokens > 0) {
     const share = (totals.unpricedTokens / totals.totalTokens) * 100;
     notes.push(
-      `${share < 1 ? "<1" : Math.round(share)}% of tokens ran on models without a known price and are not counted; “+” marks a sum they are missing from.`,
+      `${share < 1 ? "<1" : Math.round(share)}% of tokens ran on models without a known price and are not counted; a sum marked “+” leaves them out.`,
     );
   }
   return notes.join(" ");

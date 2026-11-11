@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatAge, type AccountUsage, type UsageWindow } from "../../domain/usage";
 import { providerWindowGroups } from "../../domain/usage/providerWindows";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
-import { providersView } from "./providersView";
+import { accountLimitsView, providersView } from "./providersView";
 
 const NOW = 1_800_000_000_000;
 const HOUR = 3_600_000;
@@ -79,5 +79,13 @@ describe("providersView", () => {
       { key: "claude\u0000s1", name: "auth", source: "KeepDeck · claude", cost: "≈$2.00" },
       { key: "claude\u0000s2", name: "docs", source: "Docs · claude", cost: "—" },
     ]);
+  });
+
+  it("is the one Limits pipeline both the Limits tab and Overview's glance read", () => {
+    const accounts = new Map([["claude", account([live(10)])]]);
+    const rows = [usageEvent({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 2 })];
+    expect(accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS })).toEqual(
+      providersView(providerWindowGroups(accounts, rows, new Map(), NOW), NOW, COLORS),
+    );
   });
 });
