@@ -244,7 +244,10 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     // Catalog order: a ladder announces lowest tier first, so the bell's
     // newest-first list tops out at the most impressive fresh award.
     for (const entry of catalog) {
-      if (!mayAnnounce || !earned.has(entry.id) || congratulated.has(entry.id)) continue;
+      // Owed: won (the floor, which a re-derived metric cannot sink) and not
+      // yet announced — a badge won while notifications were off is still
+      // announced once they are back, wherever the reader now is.
+      if (!mayAnnounce || !kept.has(entry.id) || congratulated.has(entry.id)) continue;
       const delivered = deps.notify({
         title: `Achievement unlocked: ${achievementDisplayTitle(entry)}`,
         body: achievementRequirement(entry),

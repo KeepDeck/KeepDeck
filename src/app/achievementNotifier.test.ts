@@ -787,6 +787,36 @@ describe("the floor of awards won", () => {
     second.dispose();
   });
 
+  it("still announces a muted day badge after a move that lowers its day", async () => {
+    // Won in Moscow while muted: one local day of 1.2M tokens.
+    const rows = [
+      event({ eventId: "a", occurredAt: Date.parse("2026-04-09T22:00:00Z"), tokens: { input: 600_000 } }),
+      event({ eventId: "b", occurredAt: Date.parse("2026-04-10T09:00:00Z"), tokens: { input: 600_000 } }),
+    ];
+    let file = "";
+    await inZoneAsync("Europe/Moscow", async () => {
+      const muted = fakeDeps({ notify: vi.fn(() => false), loadNotified: async () => JSON.stringify({ version: 3, notified: [] }) });
+      muted.history.set(ledger(rows));
+      const notifier = createAchievementNotifier(muted.deps);
+      await settle();
+      await settle();
+      file = muted.saved[muted.saved.length - 1] ?? "";
+      expect(JSON.parse(file).kept).toContain("dayTokens-1000000");
+      notifier.dispose();
+    });
+    // Read from New York the same rows are two days of 0.6M — not won by the
+    // ledger any more, but won all the same, and still owed its banner.
+    await inZoneAsync("America/New_York", async () => {
+      const back = fakeDeps({ loadNotified: async () => file });
+      back.history.set(ledger(rows));
+      const notifier = createAchievementNotifier(back.deps);
+      await settle();
+      const tags = back.notify.mock.calls.map((call) => recordOf(call[0], "notification").tag);
+      expect(tags).toContain("achievement:dayTokens-1000000");
+      notifier.dispose();
+    });
+  });
+
   it("starts a file from before the floor from what it announced", async () => {
     const { deps, history } = fakeDeps({
       loadNotified: async () => JSON.stringify({ version: 3, notified: ["streakDays-14"] }),
