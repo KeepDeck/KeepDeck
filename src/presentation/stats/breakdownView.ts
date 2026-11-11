@@ -208,4 +208,3 @@ function nameGroups(
   }[dimension];
   return new Map(groups.map((group) => [group.key, nameOf(group)]));
 }
-
