@@ -4,7 +4,8 @@ import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
 import { burnEdgeLabel, cardCaptionParts, type BurnEdge } from "../../domain/usage/windowForecast";
 import { seriesColorFor } from "../usagePalette";
 import { reportedAgeCaption, usageLevelClass } from "../usageView";
-import { windowLedgerCaption } from "./statsCost";
+import { displayCost, windowLedgerCaption } from "./statsCost";
+import { sessionName } from "./statsNames";
 
 /**
  * The Limits tab's provider cards, settled: one card per provider with its report age
@@ -33,6 +34,8 @@ export interface ProviderWindowView {
   caption: (ToneText & { lead: string })[];
   /** What this machine spent inside the window, when it can be said. */
   ledger: string | null;
+  /** Which sessions spent it, the biggest first. */
+  sessions: { key: string; name: string; source: string | null; cost: string }[];
 }
 
 export interface ProviderCardView {
@@ -72,6 +75,11 @@ function windowView(
       lead: index > 0 ? " · " : "",
     })),
     ledger: row.ledger ? windowLedgerCaption(row.ledger) : null,
+    sessions: (row.ledger?.sessions ?? []).map((session) => ({
+      key: session.key,
+      ...sessionName(session),
+      cost: displayCost(session),
+    })),
   };
 }
 

@@ -16,6 +16,7 @@ const windowView = (over: Partial<ProviderWindowView> = {}): ProviderWindowView 
   edge: { text: "", level: null, atReset: false },
   caption: [{ lead: "", text: "resets in 2h 30m" }],
   ledger: null,
+  sessions: [],
   ...over,
 });
 const card = (over: Partial<ProviderCardView> = {}): ProviderCardView => ({

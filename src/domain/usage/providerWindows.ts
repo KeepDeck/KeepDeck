@@ -1,18 +1,13 @@
 import { panelWindows, usageStale } from "./format";
 import type { WindowReport } from "./reportJournal";
-import {
-  addCost,
-  emptyCostTally,
-  tokenTotal,
-  usageSessionKey,
-  type CostTally,
-  type UsageRow,
-} from "./history/event";
+import type { CostTally, UsageRow } from "./history/event";
+import { dimensionKey } from "./stats/dimensions";
+import { breakdown, statsTotals, type BreakdownRow } from "./stats/fold";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
 
 /**
- * The Stats "Providers" view — one row per provider rate-limit window,
+ * The Stats Limits view — one row per provider rate-limit window,
  * joining the provider's own account report (how much of the limit is gone)
  * with the durable event ledger (what this machine actually spent inside
  * that window). The two sides stay labeled as such: neither is ever derived
@@ -22,7 +17,13 @@ import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
 export interface ProviderWindowLedger extends CostTally {
   totalTokens: number;
   sessionCount: number;
+  /** The sessions that spent inside the window, the biggest first — local
+   * spend, never each session's share of the provider's percentage. */
+  sessions: BreakdownRow[];
 }
+
+/** How many sessions a window names before folding the rest. */
+export const WINDOW_SESSIONS_TOP = 3;
 
 export interface ProviderWindowRow {
   /** Unique within one snapshot — two windows sharing a duration and scope
@@ -131,19 +132,11 @@ function windowLedger(
   if (windowExpired(window, now)) return null;
   if (window.resetsAt === null || window.windowMinutes === null) return null;
   const start = window.resetsAt - window.windowMinutes * 60_000;
-  let totalTokens = 0;
-  const cost = emptyCostTally();
-  const sessions = new Set<string>();
-  for (const event of events) {
-    if (event.agent !== agent) continue;
-    if (event.occurredAt < start || event.occurredAt > now) continue;
-    totalTokens += tokenTotal(event.tokens);
-    addCost(cost, event);
-    sessions.add(usageSessionKey(event));
-  }
+  const inside = events.filter((event) => event.agent === agent && event.occurredAt >= start && event.occurredAt <= now);
+  const { sessions, outputTokens: _output, ...totals } = statsTotals(inside);
   return {
-    totalTokens,
-    ...cost,
-    sessionCount: sessions.size,
+    ...totals,
+    sessionCount: sessions,
+    sessions: breakdown(inside, [], (event) => dimensionKey("session", event), WINDOW_SESSIONS_TOP),
   };
 }

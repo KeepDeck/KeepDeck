@@ -82,6 +82,19 @@ function ProviderWindow({ view, now }: { view: ProviderWindowView; now: number }
         ))}
       </small>
       {view.ledger && <small>{view.ledger}</small>}
+      {view.sessions.length > 0 && (
+        <ul className="stats__window-sessions">
+          {view.sessions.map((session) => (
+            <li key={session.key}>
+              <span>
+                {session.name}
+                {session.source !== null && <small>{session.source}</small>}
+              </span>
+              <b>{session.cost}</b>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

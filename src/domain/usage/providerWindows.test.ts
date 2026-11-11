@@ -71,7 +71,7 @@ describe("providerWindowRows", () => {
     expect(rows[0].agent).toBe("codex");
     expect(rows[0].expired).toBe(false);
     expect(rows[0].stale).toBe(false);
-    expect(rows[0].ledger).toEqual({
+    expect(rows[0].ledger).toMatchObject({
       totalTokens: 150,
       costUsd: 0.5,
       pricedEvents: 1,
@@ -80,6 +80,12 @@ describe("providerWindowRows", () => {
       unpricedTokens: 100,
       sessionCount: 2,
     });
+    // The sessions inside, the biggest spender first — the other provider's
+    // and the pre-window rows are not among them.
+    expect(rows[0].ledger?.sessions.map((session) => [session.latest.sessionId, session.costUsd])).toEqual([
+      ["s2", 0.5],
+      ["s1", 0],
+    ]);
   });
 
   // A long-passed reset once rendered a week of usage as a 5h window's own.
