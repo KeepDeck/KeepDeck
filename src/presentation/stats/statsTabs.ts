@@ -13,7 +13,7 @@ import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
 /** What a tab renders from — this single field decides both gates the
  * dialog applies: a dead ledger blocks every ledger-backed tab, and the
  * period-empty state applies only to tabs whose WHOLE body is
- * period-scoped. Providers run on the provider's clock; achievements are
+ * period-scoped. Limits run on the provider's clock; achievements are
  * all-time by definition. `period-lens` is a period-CONSUMING view over
  * the full ledger (Overview: cards and chart follow the switcher, the
  * Weeks block deliberately does not) — an empty period must never hide
@@ -26,7 +26,7 @@ export type StatsTabData =
 
 export const TAB_SPECS: Record<StatsTab, { label: string; data: StatsTabData }> = {
   overview: { label: "Overview", data: "period-lens" },
-  providers: { label: "Providers", data: "live-accounts" },
+  limits: { label: "Limits", data: "live-accounts" },
   models: { label: "Models", data: "period-ledger" },
   sessions: { label: "Sessions", data: "period-ledger" },
   achievements: { label: "Achievements", data: "all-ledger" },

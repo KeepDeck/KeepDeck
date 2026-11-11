@@ -85,10 +85,10 @@ describe("useModalRouter", () => {
     expect(router().statsTab).toBe("overview");
     let result = false;
     act(() => {
-      result = router().openStats("providers");
+      result = router().openStats("limits");
     });
     expect(result).toBe(true);
-    expect(router().statsTab).toBe("providers");
+    expect(router().statsTab).toBe("limits");
   });
 });
 

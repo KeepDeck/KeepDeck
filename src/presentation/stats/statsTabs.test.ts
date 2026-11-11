@@ -3,8 +3,8 @@ import { periodless, statsTabStep } from "./statsTabs";
 
 describe("statsTabStep", () => {
   it("selects the next or previous tab on an arrow, wrapping at the ends", () => {
-    expect(statsTabStep("overview", "ArrowRight")).toBe("providers");
-    expect(statsTabStep("providers", "ArrowLeft")).toBe("overview");
+    expect(statsTabStep("overview", "ArrowRight")).toBe("limits");
+    expect(statsTabStep("limits", "ArrowLeft")).toBe("overview");
     expect(statsTabStep("achievements", "ArrowRight")).toBe("overview");
     expect(statsTabStep("overview", "ArrowLeft")).toBe("achievements");
   });
@@ -22,7 +22,7 @@ describe("statsTabStep", () => {
 
 describe("periodless", () => {
   it("frees a tab that never reads the period switcher from it", () => {
-    expect(periodless("providers")).toBe(true);
+    expect(periodless("limits")).toBe(true);
     expect(periodless("achievements")).toBe(true);
     expect(periodless("overview")).toBe(false);
     expect(periodless("models")).toBe(false);

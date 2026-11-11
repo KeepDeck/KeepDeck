@@ -71,7 +71,7 @@ export function createWindowExhaustionNotifier(
         severity: "warning",
         // The click lands on the provider cards — the burn curves and the
         // full caption behind this alarm.
-        source: { type: "stats", tab: "providers" },
+        source: { type: "stats", tab: "limits" },
         // Namespaced like every host tag (achievement:, pane:, app:) — the
         // raw journal key stays the DOMAIN identity; the tag is delivery's.
         tag: `exhaustion:${notice.key}`,

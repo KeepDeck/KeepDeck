@@ -1,4 +1,4 @@
-/* The Providers tab — provider cards with rate-limit windows and their
+/* The Limits tab — provider cards with rate-limit windows and their
    ledger joins. */
 /* ONE column, deliberately. A provider's card is exactly as tall as it has
    windows — claude has two with curves, codex one, an idle account none —

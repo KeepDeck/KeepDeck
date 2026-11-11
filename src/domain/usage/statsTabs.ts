@@ -11,7 +11,7 @@
  * switchboard's exhaustive body switch are compiler-demanded to follow. */
 export const STATS_TAB_IDS = [
   "overview",
-  "providers",
+  "limits",
   "models",
   "sessions",
   "achievements",

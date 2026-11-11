@@ -72,8 +72,8 @@ export function StatsDialog({
 
 /** Detailed local usage analytics. Account-limit windows deliberately remain
  * in the top-bar popover; this view consumes the durable pane ledger plus
- * the live account snapshot for the Providers tab. The period switcher is
- * global; the Providers tab ignores it (subscription windows run on the
+ * the live account snapshot for the Limits tab. The period switcher is
+ * global; the Limits tab ignores it (subscription windows run on the
  * provider's clock) and achievements are all-time by definition. Period
  * aggregates are memoized on their inputs — a ledger append recomputes them
  * once, not once per render. What the shell shows is settled in
@@ -132,7 +132,7 @@ export function UsageStats({
             now={now}
           />
         );
-      case "providers":
+      case "limits":
         return (
           <Providers
             accounts={accounts}

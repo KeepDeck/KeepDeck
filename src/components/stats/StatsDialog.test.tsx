@@ -252,7 +252,7 @@ describe("UsageStats", () => {
     expect(overview().ledger).toBe(history.snapshot.ledger);
   });
 
-  it("keeps Providers alive when the ledger failed to load", () => {
+  it("keeps Limits alive when the ledger failed to load", () => {
     history.snapshot = {
       ready: true,
       ledger: { events: [], version: 0 },
@@ -271,7 +271,7 @@ describe("UsageStats", () => {
 
     // Ledger-backed tabs surface the failure…
     expect(host.textContent).toContain("Usage history is unavailable");
-    clickTab("Providers");
+    clickTab("Limits");
     // …but Providers reads the independent account snapshot and renders.
     expect(providers().accounts).toBe(usage.snapshot.accounts);
     expect(providers().reportsByKey).toBe(windowReports.snapshot.byKey);
@@ -314,13 +314,13 @@ describe("UsageStats", () => {
     expect(overview().period).toBe(7);
   });
 
-  it("disables the period switcher on the period-independent Providers tab", () => {
+  it("disables the period switcher on the period-independent Limits tab", () => {
     act(() => root.render(createElement(Host)));
     const periodButton = () =>
       [...host.querySelectorAll<HTMLButtonElement>(".stats__period button")][0];
     expect(periodButton().disabled).toBe(false);
 
-    clickTab("Providers");
+    clickTab("Limits");
     expect(periodButton().disabled).toBe(true);
     expect(host.querySelector(".stats__period--idle")).not.toBeNull();
 
@@ -343,7 +343,7 @@ describe("UsageStats", () => {
       windows: [{ usedPct: 90, resetsAt: NOW + 10_000, windowMinutes: 300 }],
     };
     usage.snapshot = { accounts: new Map([["codex", account]]), panes: new Map() };
-    act(() => root.render(createElement(Host, { initialTab: "providers" })));
+    act(() => root.render(createElement(Host, { initialTab: "limits" })));
     expect(providers().now).toBe(NOW);
 
     // The reset passes with no new report: the wall clock ticks, and the

@@ -7,7 +7,7 @@ import { reportedAgeCaption, usageLevelClass } from "../usageView";
 import { windowLedgerCaption } from "./statsCost";
 
 /**
- * The Providers tab, settled: one card per provider with its report age
+ * The Limits tab's provider cards, settled: one card per provider with its report age
  * once, a note when a window has reset, and each window's reading, bar,
  * burn and captions. The component renders this and decides nothing.
  */

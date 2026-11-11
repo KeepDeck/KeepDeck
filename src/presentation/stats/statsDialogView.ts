@@ -73,7 +73,7 @@ export interface StatsHistoryState {
 /**
  * The tab panel's state. Two gates, both read off the tab's data policy,
  * never a hand-listed tab: a dead ledger (an error and no row at all)
- * blocks every ledger-backed tab — Providers renders from the independent
+ * blocks every ledger-backed tab — Limits renders from the independent
  * account snapshot regardless — and an empty period blocks only a tab whose
  * whole body is period-scoped. A partial history warns above whatever shows.
  */

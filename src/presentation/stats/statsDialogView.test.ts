@@ -44,13 +44,13 @@ describe("statsHeaderView", () => {
   });
 
   it("idles the switcher on a tab that never reads it", () => {
-    expect(statsHeaderView("providers", 7).periodIdle).toBe(true);
+    expect(statsHeaderView("limits", 7).periodIdle).toBe(true);
   });
 
   it("names every tab and marks the selected one", () => {
     expect(statsHeaderView("models", 7).tabs.map((tab) => [tab.label, tab.active])).toEqual([
       ["Overview", false],
-      ["Providers", false],
+      ["Limits", false],
       ["Models", true],
       ["Sessions", false],
       ["Achievements", false],
@@ -66,13 +66,13 @@ describe("statsPanelView", () => {
     });
   });
 
-  it("blocks a ledger tab on a dead ledger, and leaves Providers to its own snapshot", () => {
+  it("blocks a ledger tab on a dead ledger, and leaves Limits to its own snapshot", () => {
     const dead = history({ error: "store unreadable", hasRows: false });
     expect(statsPanelView("achievements", dead)).toEqual({
       kind: "unavailable",
       text: "Usage history is unavailable: store unreadable",
     });
-    expect(statsPanelView("providers", dead)).toMatchObject({ kind: "tab", tab: "providers", warning: null });
+    expect(statsPanelView("limits", dead)).toMatchObject({ kind: "tab", tab: "limits", warning: null });
   });
 
   it("warns above the tab when only some history could be loaded", () => {
