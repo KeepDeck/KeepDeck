@@ -90,7 +90,8 @@ mod tests {
         let entry: BookEntry = serde_json::from_str(
             r#"{"batch":{"agent":"claude","sessionId":"s","firstSeen":5,
                 "place":{"workspaceId":"ws-1","workspaceName":"Deck","workspaceCwd":"/r",
-                         "paneId":"p","paneName":"n","worktree":{"path":"/w","branch":"b","repo":"/r"}},
+                         "paneId":"p","paneName":"n","worktree":{"path":"/w","branch":"b","repo":"/r"},
+                         "team":{"id":"team-1","name":"statistics","role":"lead"}},
                 "calls":[{"id":"msg_1","at":9,"provider":"anthropic","model":"claude-opus-5-5","mode":"fast",
                           "tokens":{"input":5,"cacheRead":2,"cacheWrite":1,"cacheWrite1h":3,"output":7}}]},
                "capturedAt":11}"#,
@@ -102,6 +103,7 @@ mod tests {
         assert_eq!(call.tokens.reasoning, 0.0, "a class the agent does not report is zero");
         assert_eq!(entry.batch.first_seen, 5.0);
         assert_eq!(entry.batch.place.worktree.as_ref().map(|w| w.repo.as_str()), Some("/r"));
+        assert_eq!(entry.batch.place.team.as_ref().map(|t| (t.name.as_str(), t.role.as_str())), Some(("statistics", "lead")));
         assert_eq!(entry.captured_at, 11.0);
     }
 }

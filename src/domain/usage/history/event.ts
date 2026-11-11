@@ -1,5 +1,6 @@
 import type { TokenCounts } from "@keepdeck/plugin-api";
 import { addMoney } from "../money";
+import type { UsageTeam } from "./capture";
 import { finiteNonNegative } from "./guards";
 
 /**
@@ -38,6 +39,9 @@ interface UsageRowBase {
     branch?: string;
     repo: string;
   };
+  /** The team the pane was on when the calls were booked — absent for a
+   * pane on no team, and for every row booked before teams were recorded. */
+  team?: UsageTeam;
   /** In the canonical classes: fresh `input`, `output` with any reasoning
    * in it (`reasoning` is its share), and the cache classes beside them;
    * `total` is the billed sum. */

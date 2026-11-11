@@ -911,6 +911,7 @@ impl Booked {
             root_session_id: self.session_id.clone(),
             session_id: self.session_id,
             worktree: self.place.worktree,
+            team: self.place.team,
             tokens: self.tokens,
             cost_usd: priced.cost_usd,
             cost_basis: priced.basis,
@@ -1392,7 +1393,7 @@ fn old_rows(tx: &Transaction<'_>, table: &str) -> Result<Vec<OldRow>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{CallTokens, UsageCall};
+    use crate::model::{CallTokens, TeamPlace, UsageCall};
     use crate::pricing::CostBasis;
     use std::collections::BTreeMap;
 
@@ -1424,6 +1425,7 @@ mod tests {
             pane_id: pane.into(),
             pane_name: pane.into(),
             worktree: None,
+            team: None,
         }
     }
 
@@ -1465,6 +1467,27 @@ mod tests {
         assert_eq!(rows[0].model_name.as_deref(), Some("Claude Opus 5.5"));
         assert_eq!(rows[0].calls, 1);
         assert_eq!(total_cost(&s), 24.0);
+    }
+
+    #[test]
+    fn a_row_is_served_with_the_team_its_pane_was_on() {
+        let mut s = store();
+        let team = TeamPlace { id: "team-7".into(), name: "statistics".into(), role: "lead".into() };
+        let mut b = batch("s1", NOW - DAY, vec![call("msg_1", NOW - 1000.0, 100.0, 10.0)]);
+        b.place.team = Some(team.clone());
+        assert_eq!(s.book(&b, NOW).unwrap()[0].team.as_ref(), Some(&team));
+        assert_eq!(s.ledger(NOW).unwrap().rows[0].team.as_ref(), Some(&team));
+    }
+
+    #[test]
+    fn a_place_stored_before_teams_reads_back_with_none() {
+        let old: Place = serde_json::from_str(
+            r#"{"workspaceId":"ws","workspaceName":"W","workspaceCwd":"/w","paneId":"p","paneName":"p"}"#,
+        )
+        .unwrap();
+        assert_eq!(old.team, None);
+        // And a place with no team writes no key, so old readers see what they always saw.
+        assert!(!serde_json::to_string(&old).unwrap().contains("team"));
     }
 
     #[test]

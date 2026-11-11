@@ -201,6 +201,17 @@ pub struct Worktree {
     pub repo: String,
 }
 
+/// The KeepDeck team a pane was on when its calls were booked: the team's id,
+/// its name at the time — a renamed or disbanded team still reads as what it
+/// was called when the money was spent — and the pane's role on it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamPlace {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+}
+
 /// Where usage happened: the deck's facts about the pane, read back whole and
 /// never queried.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -213,6 +224,10 @@ pub struct Place {
     pub pane_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<Worktree>,
+    /// Absent for a pane on no team, and in every place stored before teams
+    /// were recorded — which read back unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamPlace>,
 }
 
 /// Calls one pane reported for one session, to book together.
@@ -255,6 +270,8 @@ pub struct LedgerRow {
     pub root_session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<Worktree>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamPlace>,
     pub tokens: TokenCounts,
     /// Priced from the journal as the row is served; absent when unpriced.
     #[serde(skip_serializing_if = "Option::is_none")]
