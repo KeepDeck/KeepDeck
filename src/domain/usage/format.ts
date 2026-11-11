@@ -280,24 +280,36 @@ export function formatMoment(at: number, now: number): string {
   return `${day}, ${time}`;
 }
 
-/** THE chart bucket label, both granularities and both surfaces (axis tick
- * and tooltip). Buckets are UTC-aligned instants, so labels speak UTC too —
- * a local-zone rendering of a UTC-hour bucket reads as half-hours in
- * :30/:45-offset zones. The long (tooltip) form names the day and marks
- * the zone; the short ticks stay uncluttered. */
-export function formatBucket(
+/** "Nov 8" / "Nov 8, 2026" — a day on the READER'S calendar, the day every
+ * Statistics step is cut on (stats/period.ts). */
+export function formatLocalDay(at: number, withYear = false): string {
+  return new Date(at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(withYear ? { year: "numeric" } : {}),
+  });
+}
+
+/** THE timeline step label, both granularities and both surfaces (axis tick
+ * and hover card). Local, like the steps: a day is the reader's calendar
+ * day and an hour their clock hour. The long (hover) form names the
+ * weekday, or the day an hour belongs to. */
+export function formatStep(
   start: number,
   granularity: "hour" | "day",
   form: "short" | "long" = "short",
 ): string {
-  if (granularity === "day") return formatUtcDay(start, form === "long");
+  if (granularity === "day") {
+    if (form === "short") return formatLocalDay(start);
+    const weekday = new Date(start).toLocaleDateString("en-US", { weekday: "short" });
+    return `${weekday}, ${formatLocalDay(start, true)}`;
+  }
   const time = new Date(start).toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC",
   });
-  return form === "short" ? time : `${formatUtcDay(start)}, ${time} UTC`;
+  return form === "short" ? time : `${formatLocalDay(start)}, ${time}`;
 }
 
 /** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,

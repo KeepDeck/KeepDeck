@@ -111,7 +111,7 @@ export function UsageStats({
     () => queryUsageStats(ledger.events, period, now),
     [ledger, period, now],
   );
-  const header = statsHeaderView(tab, period);
+  const header = statsHeaderView(tab, period, now);
   const panel = statsPanelView(tab, {
     ready: history.ready,
     error: history.error,
@@ -129,10 +129,12 @@ export function UsageStats({
         return (
           <Overview
             ledger={ledger}
-            colors={seriesColors}
-            stats={stats}
             period={period}
             now={now}
+            colors={seriesColors}
+            accounts={accounts}
+            reportsByKey={reports.byKey}
+            onOpenLimits={() => onSelectTab("limits")}
           />
         );
       case "limits":
@@ -162,7 +164,7 @@ export function UsageStats({
   return (
     <div className="stats">
       <div className="stats__head">
-        <p className="stats__intro">{STATS_DIALOG.intro}</p>
+        <p className="stats__range">{header.range}</p>
         <div
           className={`stats__period${header.periodIdle ? " stats__period--idle" : ""}`}
           // role=group makes the label perceivable — on a bare div (implicit

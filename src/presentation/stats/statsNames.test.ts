@@ -1,0 +1,44 @@
+import { describe, expect, it } from "vitest";
+import { usageEvent } from "../../domain/usage/history/event.testSupport";
+import { breakdown } from "../../domain/usage/stats/fold";
+import { dimensionKey } from "../../domain/usage/stats/dimensions";
+import { modelNames, workspaceName } from "./statsNames";
+
+const models = (...rows: Parameters<typeof usageEvent>[0][]) =>
+  breakdown(rows.map((row) => usageEvent(row)), [], (row) => dimensionKey("model", row), 5);
+
+describe("model names", () => {
+  it("names a model by the catalogue alone while the name is unique", () => {
+    const rows = models({ agent: "claude", model: "anthropic/claude-opus-5-5", modelName: "Claude Opus 5.5", costUsd: 1 });
+    expect([...modelNames(rows).values()]).toEqual([{ name: "Claude Opus 5.5", source: null }]);
+  });
+
+  it("tells two providers of one model apart by the provider", () => {
+    const rows = models(
+      { agent: "opencode", model: "zai/glm-5.3", modelName: "GLM-5.3", costUsd: 2 },
+      { agent: "opencode", model: "opencode/glm-5.3", modelName: "GLM-5.3", costUsd: 1 },
+    );
+    expect([...modelNames(rows).values()].map((n) => n.source)).toEqual(["zai", "opencode"]);
+  });
+
+  it("falls back to the agent for a twin booked before per-model usage", () => {
+    const rows = models(
+      { agent: "codex", model: "gpt-5", costUsd: 2 },
+      { agent: "kimi", model: "gpt-5", costUsd: 1 },
+    );
+    expect([...modelNames(rows).values()].map((n) => n.source)).toEqual(["codex", "kimi"]);
+  });
+
+  it("names the closing row by how many groups it holds", () => {
+    const rows = breakdown(
+      ["a", "b", "c", "d"].map((id, i) => usageEvent({ model: `p/${id}`, modelName: id, workspaceName: id, costUsd: 9 - i })),
+      [],
+      (row) => dimensionKey("model", row),
+      2,
+    );
+    const [, , closing] = rows;
+    if (closing === undefined) throw new Error("no closing row");
+    expect(modelNames(rows).get(closing.key)).toEqual({ name: "2 more", source: null });
+    expect(workspaceName(closing)).toEqual({ name: "2 more", source: null });
+  });
+});

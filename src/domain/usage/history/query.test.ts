@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { UsageRow } from "./event";
 import { queryUsageStats } from "./query";
 
+/** A local midnight — the start of "Today", in whatever zone the suite runs. */
+const TODAY = new Date(2026, 6, 22).getTime();
+
 describe("queryUsageStats", () => {
   const base: UsageRow = {
     eventId: "event-base",
@@ -31,28 +34,30 @@ describe("queryUsageStats", () => {
   it("filters the period and groups model and session deltas", () => {
     const stats = queryUsageStats(
       [
-        base,
+        { ...base, occurredAt: TODAY + 1_000 },
         {
           ...base,
           eventId: "event-2",
-          occurredAt: 1_100,
+          occurredAt: TODAY + 1_100,
           tokens: { input: 50, cacheRead: 20 },
           costUsd: 0.1,
           costBasis: "approximate",
         },
         {
           ...base,
-          eventId: "expired",
-          occurredAt: 0,
+          eventId: "yesterday",
+          occurredAt: TODAY - 1,
           tokens: { input: 9_999 },
         },
       ],
       1,
-      24 * 60 * 60 * 1_000 + 1_000,
+      TODAY + 60_000,
     );
 
+    // Today is the reader's calendar day: the row a moment before its
+    // midnight is yesterday's.
     expect(stats.eventCount).toBe(2);
-    expect(stats.firstOccurredAt).toBe(1_000);
+    expect(stats.firstOccurredAt).toBe(TODAY + 1_000);
     expect(stats.sessionCount).toBe(1);
     expect(stats.totals).toMatchObject({
       tokens: { input: 150, output: 10, cacheRead: 20 },

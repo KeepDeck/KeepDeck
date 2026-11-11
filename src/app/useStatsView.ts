@@ -1,11 +1,11 @@
 import { useState } from "react";
-import type { UsageStatsPeriod } from "../domain/usage/history/query";
+import type { StatsPeriod } from "../domain/usage/stats/period";
 import { DEFAULT_STATS_PERIOD } from "../presentation/stats/statsPeriods";
 
 /** The Statistics view the reader set up. */
 export interface StatsView {
-  period: UsageStatsPeriod;
-  selectPeriod(period: UsageStatsPeriod): void;
+  period: StatsPeriod;
+  selectPeriod(period: StatsPeriod): void;
 }
 
 /**
@@ -16,6 +16,6 @@ export interface StatsView {
  * what the statistics show.
  */
 export function useStatsView(): StatsView {
-  const [period, selectPeriod] = useState<UsageStatsPeriod>(DEFAULT_STATS_PERIOD);
+  const [period, selectPeriod] = useState<StatsPeriod>(DEFAULT_STATS_PERIOD);
   return { period, selectPeriod };
 }

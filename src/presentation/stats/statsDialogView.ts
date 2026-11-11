@@ -1,5 +1,5 @@
-import { formatUtcDay } from "../../domain/usage";
-import type { UsageStatsPeriod } from "../../domain/usage/history/query";
+import { formatLocalDay, formatUtcDay } from "../../domain/usage";
+import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
 import { PERIOD_LABELS, USAGE_PERIODS } from "./statsPeriods";
 import { periodless, TAB_SPECS } from "./statsTabs";
@@ -16,21 +16,31 @@ export const STATS_DIALOG = {
   title: "Statistics",
   close: "Close statistics",
   done: "Done",
-  intro: "Local token history and cost estimated from model prices across every CLI and workspace.",
   periodGroup: "Statistics period",
   tabList: "Statistics sections",
 } as const;
 
 export interface StatsHeaderView {
+  /** What the numbers below cover: the period's calendar days, or the
+   * tab's own note on its clock; none for a tab with neither. */
+  range: string | null;
   /** The switcher disables on a tab that never reads it — disabled, not
    * hidden: hiding would jump the header layout. */
   periodIdle: boolean;
-  periods: { period: UsageStatsPeriod; label: string; active: boolean }[];
+  periods: { period: StatsPeriod; label: string; active: boolean }[];
   tabs: { id: StatsTab; label: string; active: boolean }[];
 }
 
-export function statsHeaderView(tab: StatsTab, period: UsageStatsPeriod): StatsHeaderView {
+/** The period's calendar days, as the header names them. */
+export function periodRange(period: StatsPeriod, now: number): string {
+  if (period === "all") return "All time";
+  if (period === 1) return `Today, ${formatLocalDay(now)}`;
+  return `${formatLocalDay(statsSpans(period, now).current.from)} – ${formatLocalDay(now)}`;
+}
+
+export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number): StatsHeaderView {
   return {
+    range: periodless(tab) ? (TAB_SPECS[tab].note ?? null) : periodRange(period, now),
     periodIdle: periodless(tab),
     periods: USAGE_PERIODS.map((candidate) => ({
       period: candidate,

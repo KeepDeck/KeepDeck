@@ -1,5 +1,5 @@
-import { usageAgents } from "../domain/usage/daily";
 import type { UsageRow } from "../domain/usage/history/event";
+import { usageAgents } from "../domain/usage/history/ledger";
 
 /**
  * The usage charts' series colours — one map every surface shares (the

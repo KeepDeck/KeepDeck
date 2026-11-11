@@ -1,6 +1,6 @@
 import type { TokenCounts } from "@keepdeck/plugin-api";
 import { modelLabel } from "../format";
-import { DAY_MS } from "../time";
+import { statsSpans, type StatsPeriod } from "../stats/period";
 import {
   addCost,
   addTokenCounts,
@@ -16,11 +16,6 @@ import {
  * and per-session rows. Pure and time-injected like every stats query.
  */
 
-export type UsageStatsPeriodDays = 1 | 7 | 30 | 90;
-
-/** A Stats aggregation window: a rolling day count ending at `now`, or the
- * entire ledger — history is never pruned, so "all" is genuinely all-time. */
-export type UsageStatsPeriod = UsageStatsPeriodDays | "all";
 
 export interface UsageStatsTotals extends CostTally {
   tokens: TokenCounts;
@@ -39,7 +34,7 @@ export interface UsageStatsRow extends UsageStatsTotals {
 }
 
 export interface UsageStats {
-  period: UsageStatsPeriod;
+  period: StatsPeriod;
   eventCount: number;
   /** The period's earliest row, null when it has none. */
   firstOccurredAt: number | null;
@@ -49,9 +44,10 @@ export interface UsageStats {
   sessions: UsageStatsRow[];
 }
 
-/** The inclusive lower bound of a period ending at `now`. */
-export function periodCutoff(period: UsageStatsPeriod, now: number): number {
-  return period === "all" ? -Infinity : now - period * DAY_MS;
+/** The inclusive lower bound of a period ending at `now`: the local
+ * midnight that opens its first calendar day (stats/period.ts). */
+export function periodCutoff(period: StatsPeriod, now: number): number {
+  return statsSpans(period, now).current.from;
 }
 
 /** The newest instant the ledger claims — what a live surface feeds the
@@ -68,7 +64,7 @@ export function latestOccurredAt(events: readonly UsageRow[]): number {
  * period boundaries and tests stay deterministic. */
 export function queryUsageStats(
   events: readonly UsageRow[],
-  period: UsageStatsPeriod,
+  period: StatsPeriod,
   now = Date.now(),
 ): UsageStats {
   const cutoff = periodCutoff(period, now);

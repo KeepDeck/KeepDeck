@@ -13,3 +13,12 @@ export interface UsageLedger {
   readonly events: readonly UsageRow[];
   readonly version: number;
 }
+
+/** Every agent the ledger has EVER seen, sorted — the stable roster that
+ * keys chart colours. A period-filtered agent list must never key colours:
+ * that is how a period switch repaints a provider. */
+export function usageAgents(events: readonly UsageRow[]): string[] {
+  const agents = new Set<string>();
+  for (const event of events) agents.add(event.agent);
+  return [...agents].sort();
+}

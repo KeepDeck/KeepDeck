@@ -24,9 +24,16 @@ export type StatsTabData =
   | "all-ledger"
   | "live-accounts";
 
-export const TAB_SPECS: Record<StatsTab, { label: string; data: StatsTabData }> = {
+export interface StatsTabSpec {
+  label: string;
+  data: StatsTabData;
+  /** What a period-independent tab says its numbers cover instead. */
+  note?: string;
+}
+
+export const TAB_SPECS: Record<StatsTab, StatsTabSpec> = {
   overview: { label: "Overview", data: "period-lens" },
-  limits: { label: "Limits", data: "live-accounts" },
+  limits: { label: "Limits", data: "live-accounts", note: "Account-wide · each window runs on its provider's clock" },
   models: { label: "Models", data: "period-ledger" },
   sessions: { label: "Sessions", data: "period-ledger" },
   achievements: { label: "Achievements", data: "all-ledger" },

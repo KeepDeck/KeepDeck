@@ -2,8 +2,8 @@
    is an app-level surface rather than a Settings section or workspace dock. */
 .stats-dialog {
   box-sizing: border-box;
-  width: min(900px, calc(100vw - 40px));
-  max-width: 900px;
+  width: min(1120px, calc(100vw - 40px));
+  max-width: 1120px;
   max-height: calc(100vh - 48px);
 }
 
@@ -21,13 +21,29 @@
 .stats-dialog__body {
   /* FIXED height, not a range: tabs carry different amounts of content, and
      a dialog that resizes on every tab switch reads as jumping. Short tabs
-     keep the air; long ones scroll. */
-  height: min(640px, 70vh);
+     keep the air; long ones scroll — inside the tab panel, so the period
+     and the tabs stay put. */
+  height: min(700px, calc(100vh - 200px));
   margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.stats {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.stats__tabpanel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   /* Gutter for the native overlay scrollbar (deliberately unstyled, see
      base.css): without it the thumb rides ON the right-aligned numbers. */
   padding-right: 12px;
-  overflow-y: auto;
 }
 
 .stats__head {
@@ -37,12 +53,12 @@
   gap: 16px;
 }
 
-.stats__intro {
-  max-width: 560px;
-  margin: 4px 0 18px;
+/* What the numbers cover — the period's days, or a tab's own clock. */
+.stats__range {
+  margin: 4px 0 14px;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
-  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
 }
 
 .stats__period {
@@ -135,58 +151,115 @@
   font-size: var(--kd-font-small);
 }
 
-.stats__summary {
+/* The Overview's headline band: one tile, the spend leading and the plain
+   figures beside it — EVERY block in the dialog sits on the concept's tile,
+   a step down from the dialog's float surface, no border. Depth by
+   lightness, the chrome's rule. */
+.stats__band {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  /* The cards are not a .stats__section, so the section spacing rule never
-     reaches them — without this the chart heading sits ON the cards. */
-  margin-bottom: 18px;
-}
-
-/* EVERY block in the statistics dialog — cards, chart, tables, provider
-   cards, achievements, the period switcher — sits on the concept's tile: a
-   step down from the dialog's float surface, no border. Depth by lightness,
-   the chrome's rule. */
-.stats__card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr));
+  margin-bottom: 12px;
   border-radius: var(--kd-radius-tile);
   background: var(--kd-tile);
 }
 
-.stats__card span {
+.stats__figure {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 18px;
+}
+
+.stats__figure + .stats__figure {
+  border-left: 1px solid var(--kd-seam);
+}
+
+.stats__figure-label {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.stats__card b {
+/* The spend leads on the scale's top step; the plain figures sit a step
+   below it — the hierarchy stays inside the three sizes the chrome has. */
+.stats__figure-value {
   color: var(--kd-text);
-  font-size: var(--kd-font-title);
+  font-size: var(--kd-font-normal);
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
-/* What the headline number is made of. Quiet enough that the card still
-   reads as one number at a glance, and NOT uppercase — the label above is
-   a name, this is a value. */
-.stats__card-detail {
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.stats__figure--hero .stats__figure-value {
+  font-size: var(--kd-font-title);
 }
 
-/* The Overview chart sits on its own tile (see .stats__card). */
+.stats__figure-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+.stats__change {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.stats__change--good {
+  color: var(--kd-ok);
+}
+
+.stats__change--bad {
+  color: var(--kd-err);
+}
+
+.stats__change--flat {
+  color: var(--kd-text-3);
+}
+
+/* The Overview chart sits on its own tile (see .stats__band); its legend
+   carries each agent's spend over the period. */
 .stats__chart {
   padding: 14px 16px 10px;
   border-radius: var(--kd-radius-tile);
   background: var(--kd-tile);
+}
+
+.stats__chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.stats__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+}
+
+.stats__legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stats__legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--kd-radius-mark);
+}
+
+.stats__legend b {
+  color: var(--kd-text-2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 /* The Overview chart's hover card. Shaped after usage.css's burn tooltip —
@@ -239,61 +312,11 @@
   white-space: nowrap;
 }
 
-/* The proportion, in shades of the row's own provider colour. Colour in this
-   card already means WHO; three new hues for the three kinds would fight the
-   square two lines up, so the kinds are steps of one hue instead — cache
-   faintest because it is both the largest and the cheapest. */
-.stats__chart-tip-bar {
+/* What a price does not cover in the step — said, never drawn as $0. */
+.stats__chart-tip-note {
   grid-column: 1 / -1;
-  display: flex;
-  gap: 1px;
-  height: 3px;
-  margin: 3px 0 3px 13px;
-  border-radius: var(--kd-radius-mark);
-  overflow: hidden;
-}
-
-.stats__chart-tip-bar > i {
-  /* A sliver still has to be visible: input is often four orders of
-     magnitude under cache, and a share that rounds to nothing is exactly
-     the fact worth seeing. */
-  min-width: 2px;
-}
-
-.stats__chart-tip-bar > i[data-kind="cache"] {
-  background: color-mix(in srgb, var(--series) 40%, var(--kd-tile));
-}
-
-.stats__chart-tip-bar > i[data-kind="input"] {
-  background: color-mix(in srgb, var(--series) 72%, var(--kd-tile));
-}
-
-.stats__chart-tip-bar > i[data-kind="output"] {
-  background: var(--series);
-}
-
-/* The split sits UNDER its provider, spanning both columns: it explains the
-   number above it, and a third column would push the totals off the eye's
-   line. It is the most informative line in the card and used to be the
-   quietest thing in it — muted ink, not the seam grey, and the card's own
-   size rather than a footnote's. */
-.stats__chart-tip-split {
-  grid-column: 1 / -1;
-  margin: 0 0 6px 13px;
+  margin-top: 4px;
   color: var(--kd-text-3);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.stats__chart-tip-row:last-child .stats__chart-tip-split {
-  margin-bottom: 0;
-}
-
-.stats__recap {
-  margin: 8px 2px 0;
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-  line-height: 1.4;
 }
 
 .stats__coverage {
@@ -305,6 +328,146 @@
 
 .stats__section + .stats__section {
   margin-top: 22px;
+}
+
+/* The Overview's three short lists under the chart: where, on what, and how
+   close the limits are — name and money, the rank being the picture. */
+.stats__glance {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-top: 12px;
+}
+
+.stats__top {
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-tile);
+  font-size: var(--kd-font-small);
+}
+
+.stats__top h3 {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 6px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stats__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--kd-working);
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.stats__top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--kd-seam);
+}
+
+.stats__top h3 + .stats__top-row {
+  border-top: 0;
+}
+
+.stats__top-name {
+  overflow: hidden;
+  color: var(--kd-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats__top-name small {
+  margin-left: 6px;
+  color: var(--kd-text-3);
+}
+
+.stats__top-row b {
+  color: var(--kd-text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stats__top-row--folded .stats__top-name,
+.stats__top-row--folded b {
+  color: var(--kd-text-3);
+  font-weight: 400;
+}
+
+.stats__top-empty {
+  margin: 6px 0;
+  color: var(--kd-text-3);
+}
+
+.stats__glance-provider + .stats__glance-provider {
+  border-top: 1px solid var(--kd-seam);
+}
+
+.stats__glance-window {
+  display: grid;
+  grid-template-columns: 62px 34px minmax(0, 1fr) 40px 50px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  color: var(--kd-text-2);
+}
+
+.stats__glance-window--expired {
+  opacity: 0.55;
+}
+
+.stats__glance-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--kd-text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stats__glance-agent i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--kd-radius-mark);
+}
+
+.stats__glance-label {
+  color: var(--kd-text-3);
+}
+
+/* No colour of its own: the shared usage-level classes colour a warning. */
+.stats__glance-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+.stats__glance-reset {
+  color: var(--kd-text-3);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.stats__glance-note {
+  display: block;
+  padding: 0 0 5px 104px;
+  line-height: 1.35;
 }
 
 .stats__section h3 {

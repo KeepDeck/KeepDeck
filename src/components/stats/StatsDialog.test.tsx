@@ -195,7 +195,8 @@ describe("UsageStats", () => {
 
     const dialog = present(document.body.querySelector('[role="dialog"]'), "the [role=\"dialog\"] element");
     expect(dialog.getAttribute("aria-label")).toBe("Statistics");
-    expect(dialog.textContent).toContain("across every CLI and workspace");
+    // The header names the calendar days the default 7 days cover.
+    expect(dialog.textContent).toContain("Jul 16 – Jul 22");
     expect(dialog.closest(".modal-overlay")).not.toBeNull();
     expect(dialog.closest(".settings")).toBeNull();
 
@@ -203,11 +204,11 @@ describe("UsageStats", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("hands Overview the period's totals, and the drill-down tabs their rows", () => {
+  it("hands Overview the period and the whole ledger, and the drill-down tabs their rows", () => {
     act(() => root.render(createElement(Host)));
 
     expect(overview().period).toBe(7);
-    expect(overview().stats.totals).toMatchObject({ totalTokens: 1_600, costUsd: 0.25 });
+    expect(overview().ledger).toBe(history.snapshot.ledger);
 
     clickTab("Models");
     expect(table()).toMatchObject({ title: "Models", mode: "model" });
@@ -222,7 +223,7 @@ describe("UsageStats", () => {
 
   it("counts a just-appended event immediately, not after the next clock tick", () => {
     act(() => root.render(createElement(Host)));
-    expect(overview().stats.totals.totalTokens).toBe(1_600);
+    expect(overview().now).toBe(NOW);
 
     // An agent finishes a turn seconds AFTER the dialog's slow clock last
     // ticked: the appended event's instant is ahead of that clock, and the
@@ -237,20 +238,17 @@ describe("UsageStats", () => {
     ]);
     act(() => root.render(createElement(Host)));
     expect(overview().now).toBe(NOW + 5_000);
-    expect(overview().stats.totals.totalTokens).toBe(101_600);
   });
 
-  it("routes a new time range to Overview, which keeps the whole ledger for its weeks", () => {
+  it("routes a new time range to Overview, which keeps the whole ledger", () => {
     history.snapshot = ledger([usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })]);
     act(() => root.render(createElement(Host)));
-    expect(overview().stats.eventCount).toBe(1); // default 7d
+    expect(overview().period).toBe(7);
 
-    clickPeriod("24h");
+    clickPeriod("Today");
     // The period went empty, but Overview STAYS, handed the whole ledger:
-    // an empty period must never hide the one period-independent block, its
-    // Weeks history (review finding; Overview's own suite draws it).
+    // its comparison and its limits glance read past the period.
     expect(overview().period).toBe(1);
-    expect(overview().stats.eventCount).toBe(0);
     expect(overview().ledger).toBe(history.snapshot.ledger);
   });
 
@@ -364,9 +362,8 @@ describe("UsageStats", () => {
       usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
     ]);
     act(() => root.render(createElement(Host)));
-    // Default 7d is empty: Overview keeps rendering, handed the whole ledger
-    // for its Weeks, while the period-LEDGER tabs still gate.
-    expect(overview().stats.eventCount).toBe(0);
+    // The default 7 days are empty: Overview keeps rendering, handed the
+    // whole ledger, while the period-LEDGER tabs still gate.
     expect(overview().ledger).toBe(history.snapshot.ledger);
     clickTab("Models");
     expect(host.textContent).toContain("No usage recorded");
@@ -374,7 +371,6 @@ describe("UsageStats", () => {
 
     clickPeriod("All");
     expect(overview().period).toBe("all");
-    expect(overview().stats.totals.totalTokens).toBe(1_600);
   });
 
   it("notes the switch to model ids under Models while the period reaches past it", () => {
@@ -390,8 +386,8 @@ describe("UsageStats", () => {
     clickTab("Models");
     expect(host.textContent).toContain("listed by model id");
 
-    // A day back the period holds only rows booked per model.
-    clickPeriod("24h");
+    // Today the period holds only rows booked per model.
+    clickPeriod("Today");
     expect(host.textContent).not.toContain("listed by model id");
   });
 

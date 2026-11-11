@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { inZone } from "../../domain/usage/time.testSupport";
 import { perModelNote, statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
 
 describe("perModelNote", () => {
@@ -31,24 +32,37 @@ const history = (over: Partial<StatsHistoryState> = {}): StatsHistoryState => ({
 });
 
 describe("statsHeaderView", () => {
-  it("offers every period in order with the selected one pressed", () => {
-    const view = statsHeaderView("overview", 30);
+  const NOW = Date.parse("2026-11-10T21:45:00+02:00");
+
+  it("offers every calendar period in order with the selected one pressed", () => {
+    const view = statsHeaderView("overview", 30, NOW);
     expect(view.periods.map((period) => [period.label, period.active])).toEqual([
-      ["24h", false],
-      ["7d", false],
-      ["30d", true],
-      ["90d", false],
+      ["Today", false],
+      ["7 days", false],
+      ["30 days", true],
+      ["90 days", false],
       ["All", false],
     ]);
     expect(view.periodIdle).toBe(false);
   });
 
-  it("idles the switcher on a tab that never reads it", () => {
-    expect(statsHeaderView("limits", 7).periodIdle).toBe(true);
+  it("names the calendar days the period covers", () => {
+    inZone("Asia/Nicosia", () => {
+      expect(statsHeaderView("overview", 7, NOW).range).toBe("Nov 4 – Nov 10");
+      expect(statsHeaderView("overview", 1, NOW).range).toBe("Today, Nov 10");
+      expect(statsHeaderView("overview", "all", NOW).range).toBe("All time");
+    });
+  });
+
+  it("idles the switcher on a tab that never reads it, and says what its numbers run on", () => {
+    const view = statsHeaderView("limits", 7, NOW);
+    expect(view.periodIdle).toBe(true);
+    expect(view.range).toBe("Account-wide · each window runs on its provider's clock");
+    expect(statsHeaderView("achievements", 7, NOW).range).toBeNull();
   });
 
   it("names every tab and marks the selected one", () => {
-    expect(statsHeaderView("models", 7).tabs.map((tab) => [tab.label, tab.active])).toEqual([
+    expect(statsHeaderView("models", 7, NOW).tabs.map((tab) => [tab.label, tab.active])).toEqual([
       ["Overview", false],
       ["Limits", false],
       ["Models", true],

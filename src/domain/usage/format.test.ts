@@ -4,7 +4,7 @@ import {
   contextLevel,
   modelLabel,
   formatAge,
-  formatBucket,
+  formatStep,
   formatElapsed,
   formatCountdown,
   formatMoment,
@@ -23,6 +23,7 @@ import {
   windowResetCaption,
 } from "./format";
 import type { AccountUsage, UsageWindow } from "./usage";
+import { inZone } from "./time.testSupport";
 
 const account = (windows: UsageWindow[]): AccountUsage => ({
   kind: "reported",
@@ -260,21 +261,22 @@ describe("formatTimestamp", () => {
   });
 });
 
-describe("formatBucket", () => {
-  const AT = Date.parse("2026-07-22T14:00:00.000Z");
-  it("labels hour buckets in UTC — the buckets themselves are UTC-aligned", () => {
-    // In a :30/:45-offset zone a local rendering would read "19:30" for a
-    // UTC-hour bucket; the label speaks the bucket's own clock instead.
-    expect(formatBucket(AT, "hour")).toBe("14:00");
-    expect(formatBucket(AT, "hour", "long")).toBe("Jul 22, 14:00 UTC");
-    expect(formatBucket(Date.parse("2026-07-22T00:00:00.000Z"), "hour")).toBe(
-      "00:00",
-    );
+describe("formatStep", () => {
+  it("labels an hour on the reader's clock, half-hour zones included", () => {
+    inZone("Asia/Kolkata", () => {
+      const at = Date.parse("2026-07-22T14:00:00+05:30");
+      expect(formatStep(at, "hour")).toBe("14:00");
+      expect(formatStep(at, "hour", "long")).toBe("Jul 22, 14:00");
+    });
   });
 
-  it("labels day buckets as UTC days, dated fully in the long form", () => {
-    expect(formatBucket(AT, "day")).toBe("Jul 22");
-    expect(formatBucket(AT, "day", "long")).toBe("Jul 22, 2026");
+  it("labels a day by the reader's calendar date, its weekday in the long form", () => {
+    inZone("Asia/Nicosia", () => {
+      // Local midnight is the previous day in UTC; the label is the local day.
+      const midnight = Date.parse("2026-11-08T00:00:00+02:00");
+      expect(formatStep(midnight, "day")).toBe("Nov 8");
+      expect(formatStep(midnight, "day", "long")).toBe("Sun, Nov 8, 2026");
+    });
   });
 });
 
