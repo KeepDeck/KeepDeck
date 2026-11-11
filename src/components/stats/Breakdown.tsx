@@ -2,9 +2,8 @@ import { useMemo, useState } from "react";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { StatsSessions } from "../../app/useStatsView";
 import type { SessionClaimKey } from "../../domain/deck";
-import type { JournalRecords } from "../../domain/journal/sessionLog";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
-import { teamHistory } from "../../domain/usage/stats/teams";
+import type { TeamHistory } from "../../domain/usage/stats/teams";
 import type { StatsPeriod } from "../../domain/usage/stats/period";
 import {
   breakdownView,
@@ -24,7 +23,7 @@ export function Breakdown({
   now,
   colors,
   perModelSince,
-  journal,
+  teams,
   sessions,
   dimension,
   order,
@@ -38,8 +37,8 @@ export function Breakdown({
   now: number;
   colors: ReadonlyMap<string, string>;
   perModelSince: number | null;
-  /** The session journal — where the teams of past sessions are read. */
-  journal: JournalRecords;
+  /** What the session journal says of past sessions' teams. */
+  teams: TeamHistory;
   /** Whether a pane holds a session, and bringing it in front. */
   sessions: StatsSessions;
   dimension: StatsDimension;
@@ -48,7 +47,6 @@ export function Breakdown({
   onSelectOrder(order: BreakdownOrder): void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
-  const teams = useMemo(() => teamHistory(journal), [journal]);
   const view = useMemo(
     () =>
       breakdownView(ledger.events, {

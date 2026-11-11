@@ -6,6 +6,7 @@ import { usageEvent } from "../../domain/usage/history/event.testSupport";
 import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { Weekly } from "./Weekly";
 import { present } from "@keepdeck/plugin-api/testing";
+import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
 
 /** The kept awards are the notifier's, through the runtime; these cases are
  * about the ledger's own crossings, so none is kept. */
@@ -32,7 +33,7 @@ describe("Weekly", () => {
     const [week, setWeek] = useState<number | null>(null);
     const rows = [usageEvent({ occurredAt: NOW - 60_000, costUsd: 3 }), usageEvent({ occurredAt: NOW - 9 * DAY, costUsd: 7 })];
     return createElement(Weekly, {
-      ledger: ledgerOf(rows), now: NOW, week, onSelectWeek: setWeek, journal: {}, reportsByKey: new Map(), onOpenGallery,
+      ledger: ledgerOf(rows), now: NOW, week, onSelectWeek: setWeek, teams: NO_TEAM_HISTORY, reportsByKey: new Map(), onOpenGallery,
     });
   }
   const render = (onOpenGallery = vi.fn()) => {

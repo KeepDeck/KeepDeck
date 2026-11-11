@@ -8,6 +8,7 @@ import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
 import { Breakdown } from "./Breakdown";
 import { present } from "@keepdeck/plugin-api/testing";
+import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
 
 /** The table maps breakdownView (tested on its own); the cases here read
  * what the reader sees and what the table emits. */
@@ -38,7 +39,7 @@ describe("Breakdown", () => {
           now: NOW,
           colors: new Map(),
           perModelSince: null,
-          journal: {},
+          teams: NO_TEAM_HISTORY,
           sessions: { held: (session: { sessionId: string }) => session.sessionId === "s1", reveal },
           dimension,
           order: "cost",

@@ -1474,11 +1474,21 @@ mod tests {
     #[test]
     fn a_row_is_served_with_the_team_its_pane_was_on() {
         let mut s = store();
-        let team = TeamPlace { id: "team-7".into(), name: "statistics".into(), role: "lead".into() };
+        let team = TeamPlace::Member { id: "team-7".into(), name: "statistics".into(), role: "lead".into() };
         let mut b = batch("s1", NOW - DAY, vec![call("msg_1", NOW - 1000.0, 100.0, 10.0)]);
         b.place.team = Some(team.clone());
         assert_eq!(s.book(&b, NOW).unwrap()[0].team.as_ref(), Some(&team));
         assert_eq!(s.ledger(NOW).unwrap().rows[0].team.as_ref(), Some(&team));
+    }
+
+    #[test]
+    fn a_pane_on_no_team_is_recorded_as_such_not_left_unknown() {
+        let mut s = store();
+        let mut b = batch("s1", NOW - DAY, vec![call("msg_1", NOW - 1000.0, 100.0, 10.0)]);
+        b.place.team = Some(TeamPlace::None);
+        assert_eq!(s.book(&b, NOW).unwrap()[0].team, Some(TeamPlace::None));
+        let wire = serde_json::to_string(&s.ledger(NOW).unwrap().rows[0]).unwrap();
+        assert!(wire.contains(r#""team":{"kind":"none"}"#), "{wire}");
     }
 
     #[test]

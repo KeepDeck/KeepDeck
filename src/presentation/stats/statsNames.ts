@@ -1,7 +1,7 @@
 import { modelLabel } from "../../domain/usage";
 import { modelProvider } from "../../domain/usage/history/event";
 import type { BreakdownRow } from "../../domain/usage/stats/fold";
-import { rowTeam, type TeamHistory } from "../../domain/usage/stats/teams";
+import { rowTeam, type TeamHistory, type TeamProvenance } from "../../domain/usage/stats/teams";
 
 /**
  * What a breakdown group is called. Read off the group's newest row; the
@@ -48,16 +48,24 @@ export function workspaceName(row: BreakdownRow): GroupName {
   return row.folded > 0 ? foldedName(row) : { name: row.latest.workspaceName, source: null };
 }
 
-/** Team groups by the team's name, its workspace beside it — a name is only
- * unique inside one — and whether the team was inferred rather than
- * recorded, read off the group's newest row. */
-export function teamName(row: BreakdownRow, teams: TeamHistory): GroupName {
+/** What a group's attribution says beside its workspace: nothing for a
+ * recorded one; inferred, or partly, when history supplied the team. */
+const PROVENANCE: Record<TeamProvenance, string | null> = {
+  recorded: null,
+  inferred: "inferred",
+  mixed: "partly inferred",
+};
+
+/** Team groups by the team's name — or "No team", or "Team unknown" — with
+ * its workspace beside it (a name is only unique inside one) and how much
+ * of the group's money was attributed by inference, over all its rows. */
+export function teamName(row: BreakdownRow, teams: TeamHistory, provenance: TeamProvenance | undefined): GroupName {
   if (row.folded > 0) return foldedName(row);
   const team = rowTeam(row.latest, teams);
-  const inferred = team.source === "journal" || team.source === "branch";
+  const name = team.kind === "member" ? team.name : team.kind === "none" ? "No team" : "Team unknown";
   return {
-    name: team.name ?? "Team unknown",
-    source: [row.latest.workspaceName, inferred ? "inferred" : null].filter(Boolean).join(" · "),
+    name,
+    source: [row.latest.workspaceName, PROVENANCE[provenance ?? "recorded"]].filter(Boolean).join(" · "),
   };
 }
 

@@ -89,6 +89,8 @@ describe("usage call book", () => {
           workspaceCwd: "/repo",
           paneId: "pane-1",
           paneName: "lead",
+          // On no team — recorded so, never left for history to infer.
+          team: { kind: "none" },
         },
         calls: [call("a"), call("b"), call("c")],
       },

@@ -18,6 +18,7 @@ import { useGitHead } from "./useGitHead";
 import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useModalRouter } from "./useModalRouter";
 import { createStatsSessions } from "./statsSessions";
+import { teamHistory } from "../domain/usage/stats/teams";
 import { useStatsView } from "./useStatsView";
 import { markNotificationsReadWhere, setSourceVisibilityProbe } from "./notificationCenter";
 import { useBoardSeen } from "./tasks/useBoardSeen";
@@ -392,6 +393,12 @@ export function useAppController(runtime: AppRuntime) {
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
   };
+  /** The session journal's teams, keyed by each workspace slot's current
+   * name — read once per change of the journal or the workspaces. */
+  const statsTeams = useMemo(
+    () => teamHistory(deck.journal.records, new Map(deck.workspaces.map((ws) => [ws.id, ws.name]))),
+    [deck.journal.records, deck.workspaces],
+  );
   const statsSessions = createStatsSessions({
     workspaces: () => deck.workspaces,
     blocked: (paneId) => paneId in runView.blocked,
@@ -554,6 +561,7 @@ export function useAppController(runtime: AppRuntime) {
     statsTab: modal.statsTab,
     statsFrom: modal.statsFrom,
     statsSessions,
+    statsTeams,
     statsView,
     unavailableReasons,
     updateState,

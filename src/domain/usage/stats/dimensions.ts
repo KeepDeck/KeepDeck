@@ -1,5 +1,5 @@
 import { usageSessionKey, type UsageRow } from "../history/event";
-import { NO_TEAM_HISTORY, rowTeam, type TeamHistory } from "./teams";
+import { NO_TEAM_HISTORY, teamKey, type TeamHistory } from "./teams";
 
 /**
  * What a Statistics breakdown can group by — and THE one key rule per
@@ -17,9 +17,7 @@ export function dimensionKey(dimension: StatsDimension, row: UsageRow, teams: Te
       // reader recognises.
       return row.workspaceName;
     case "team":
-      // A team's name is only unique inside its workspace; an unknown team
-      // is one group per workspace.
-      return `${row.workspaceName}\0${rowTeam(row, teams).name ?? ""}`;
+      return teamKey(row, teams);
     case "agent":
       return row.agent;
     case "model":

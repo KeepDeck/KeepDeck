@@ -4,61 +4,103 @@ import { usageSessionKey, type UsageRow } from "../history/event";
 /**
  * Which KeepDeck team a usage row belongs to — THE one chain, from the
  * surest source down:
- * - recorded: the team the row was booked under (capture records it);
+ * - recorded: capture records the team the row was booked under, or that
+ *   its pane was on NO team — a fact, never a gap to infer over;
  * - journal: the team the session journal bound the session to — the team
- *   at the session's LAST binding, a name only;
- * - branch: the team the journal last saw on the row's worktree branch AT
- *   THE ROW'S TIME — branches are recycled by successive teams, so the
- *   branch's current holder would fold every earlier team into today's;
+ *   at the session's LATEST binding, a name only;
+ * - branch: the team the journal last saw on the row's worktree branch IN
+ *   THE ROW'S OWN WORKSPACE, AT THE ROW'S TIME — branches are recycled by
+ *   successive teams, and two workspaces can each have a `feature/x`;
  * - unknown.
- * The two inferred steps only answer for history booked before teams were
- * recorded; they shrink as recorded rows take over.
+ * Only a row booked before teams were recorded is inferred at all; such
+ * rows shrink as recorded ones take over.
  */
 
-export type TeamSource = "recorded" | "journal" | "branch" | "unknown";
+export type TeamSource = "recorded" | "journal" | "branch";
 
-export interface RowTeam {
-  /** The team's name, null when unknown. */
-  name: string | null;
-  source: TeamSource;
-}
+/** A row's team: a member of a named team, recorded or inferred; on no
+ * team, recorded; or unknown. */
+export type RowTeam =
+  | { kind: "member"; name: string; source: TeamSource }
+  | { kind: "none" }
+  | { kind: "unknown" };
 
 /** What the session journal says about teams, read once per journal change. */
 export interface TeamHistory {
-  /** Team name by agent session, at its last binding. */
+  /** Team name by agent session, at its latest binding anywhere. */
   bySession: ReadonlyMap<string, string>;
-  /** Per worktree branch, the teams bound on it over time, oldest first. */
+  /** Per workspace name and worktree branch, the teams bound on it over
+   * time, oldest first. */
   byBranch: ReadonlyMap<string, readonly { at: number; team: string }[]>;
 }
 
 export const NO_TEAM_HISTORY: TeamHistory = { bySession: new Map(), byBranch: new Map() };
 
-export function teamHistory(journal: JournalRecords): TeamHistory {
-  const bySession = new Map<string, string>();
+const branchKey = (workspaceName: string, branch: string) => `${workspaceName}\0${branch}`;
+
+/**
+ * The journal's teams. The journal keys its records by workspace SLOT; a
+ * row names its workspace, so branches are keyed by the slot's current
+ * NAME (`workspaceNames`) — a slot whose workspace has gone has no records
+ * left, and a renamed workspace simply finds none, falling to unknown
+ * rather than borrowing another's.
+ */
+export function teamHistory(journal: JournalRecords, workspaceNames: ReadonlyMap<string, string>): TeamHistory {
+  const bySession = new Map<string, { at: number; team: string }>();
   const byBranch = new Map<string, { at: number; team: string }[]>();
-  for (const records of Object.values(journal)) {
+  for (const [wsId, records] of Object.entries(journal)) {
+    const workspace = workspaceNames.get(wsId);
     for (const record of records) {
       if (record.team === undefined) continue;
-      bySession.set(usageSessionKey(record), record.team);
-      if (record.branch === undefined) continue;
       const at = Date.parse(record.boundAt);
       if (!Number.isFinite(at)) continue;
-      const holders = byBranch.get(record.branch) ?? [];
+      const key = usageSessionKey(record);
+      const seen = bySession.get(key);
+      if (seen === undefined || seen.at <= at) bySession.set(key, { at, team: record.team });
+      if (record.branch === undefined || workspace === undefined) continue;
+      const holders = byBranch.get(branchKey(workspace, record.branch)) ?? [];
       holders.push({ at, team: record.team });
-      byBranch.set(record.branch, holders);
+      byBranch.set(branchKey(workspace, record.branch), holders);
     }
   }
   for (const holders of byBranch.values()) holders.sort((left, right) => left.at - right.at);
-  return { bySession, byBranch };
+  return { bySession: new Map([...bySession].map(([key, seen]) => [key, seen.team])), byBranch };
 }
 
 export function rowTeam(row: UsageRow, history: TeamHistory): RowTeam {
-  if (row.team !== undefined) return { name: row.team.name, source: "recorded" };
+  if (row.team !== undefined) {
+    return row.team.kind === "member" ? { kind: "member", name: row.team.name, source: "recorded" } : { kind: "none" };
+  }
   const named = history.bySession.get(usageSessionKey(row));
-  if (named !== undefined) return { name: named, source: "journal" };
-  const holder = holderAt(history.byBranch.get(row.worktree?.branch ?? ""), row.occurredAt);
-  if (holder !== null) return { name: holder, source: "branch" };
-  return { name: null, source: "unknown" };
+  if (named !== undefined) return { kind: "member", name: named, source: "journal" };
+  const branch = row.worktree?.branch;
+  const holder = branch === undefined ? null : holderAt(history.byBranch.get(branchKey(row.workspaceName, branch)), row.occurredAt);
+  if (holder !== null) return { kind: "member", name: holder, source: "branch" };
+  return { kind: "unknown" };
+}
+
+/** The key of a row's team group: a team's name is only unique inside its
+ * workspace, and "no team" and "unknown" are groups of their own there. */
+export function teamKey(row: UsageRow, history: TeamHistory): string {
+  const team = rowTeam(row, history);
+  const which = team.kind === "member" ? `team\0${team.name}` : team.kind;
+  return `${row.workspaceName}\0${which}`;
+}
+
+/** How a team group's money is attributed: wholly recorded, wholly
+ * inferred, or a mix — read off EVERY row of the group, never one. */
+export type TeamProvenance = "recorded" | "inferred" | "mixed";
+
+export function teamProvenance(rows: readonly UsageRow[], history: TeamHistory): Map<string, TeamProvenance> {
+  const out = new Map<string, TeamProvenance>();
+  for (const row of rows) {
+    const team = rowTeam(row, history);
+    const here: TeamProvenance = team.kind === "member" && team.source !== "recorded" ? "inferred" : "recorded";
+    const key = teamKey(row, history);
+    const seen = out.get(key);
+    out.set(key, seen === undefined || seen === here ? here : "mixed");
+  }
+  return out;
 }
 
 /** The team bound on a branch last before `at` — none before its first. */

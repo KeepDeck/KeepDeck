@@ -133,16 +133,19 @@ describe("team groups", () => {
   it("names a recorded team plainly and an unknown one as such, within its workspace", () => {
     const shown = view(
       [
-        { workspaceName: "KeepDeck", team: { id: "t", name: "statistics", role: "lead" }, costUsd: 2 },
+        { workspaceName: "KeepDeck", team: { kind: "member", id: "t", name: "statistics", role: "lead" }, costUsd: 3 },
+        { workspaceName: "KeepDeck", team: { kind: "none" }, costUsd: 2 },
         { workspaceName: "KeepDeck", costUsd: 1 },
       ],
       { dimension: "team" },
     );
     expect(shown.rows.map((row) => [row.name, row.source])).toEqual([
       ["statistics", "KeepDeck"],
+      ["No team", "KeepDeck"],
       ["Team unknown", "KeepDeck"],
     ]);
-    expect(shown.notes[shown.notes.length - 1]).toMatch(/inferred from the session journal/);
+    // Nothing here was inferred, so there is no inference to explain.
+    expect(shown.notes.some((note) => note.includes("inferred"))).toBe(false);
   });
 });
 

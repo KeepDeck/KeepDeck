@@ -1,10 +1,9 @@
 import { useMemo } from "react";
 import { useKeptAchievements } from "../../app/useKeptAchievements";
-import type { JournalRecords } from "../../domain/journal/sessionLog";
+import type { TeamHistory } from "../../domain/usage/stats/teams";
 import { usageAchievementLadders } from "../../domain/usage/achievements/ladders";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import { teamHistory } from "../../domain/usage/stats/teams";
 import { weeklyView, type BarsView, type WeeklyView } from "../../presentation/stats/weeklyView";
 
 /** The Weekly tab body: one calendar week as a report. What it says is
@@ -15,7 +14,7 @@ export function Weekly({
   now,
   week,
   onSelectWeek,
-  journal,
+  teams,
   reportsByKey,
   onOpenGallery,
 }: {
@@ -25,11 +24,11 @@ export function Weekly({
    * on it; null follows the current week. */
   week: number | null;
   onSelectWeek(week: number | null): void;
-  journal: JournalRecords;
+  /** What the session journal says of past sessions' teams. */
+  teams: TeamHistory;
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   onOpenGallery(): void;
 }) {
-  const teams = useMemo(() => teamHistory(journal), [journal]);
   const kept = useKeptAchievements();
   const ladders = useMemo(() => usageAchievementLadders(ledger.events, kept), [ledger, kept]);
   const view = useMemo(

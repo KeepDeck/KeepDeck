@@ -8,7 +8,7 @@ import { seriesColorFor } from "../usagePalette";
 import { changeView, type ChangeView } from "./overviewView";
 import { costCoverage, displayCost } from "./statsCost";
 import type { SessionClaimKey } from "../../domain/deck";
-import type { TeamHistory } from "../../domain/usage/stats/teams";
+import { teamProvenance, type TeamHistory, type TeamProvenance } from "../../domain/usage/stats/teams";
 import { agentName, modelNames, sessionName, teamName, workspaceName, type GroupName } from "./statsNames";
 
 /**
@@ -106,7 +106,7 @@ export function breakdownView(
   const prior = spans.prior === null ? [] : rowsIn(scoped, spans.prior);
   const keyOf = (row: UsageRow) => dimensionKey(dimension, row, teams);
   const groups = sortGroups(breakdown(current, prior, keyOf, BREAKDOWN_TOP), order);
-  const names = nameGroups(dimension, groups, teams);
+  const names = nameGroups(dimension, groups, teams, teamProvenance(current, teams));
   const widest = Math.max(...groups.filter((group) => group.folded === 0).map((group) => group.share), 1e-9);
   const rowView = (group: BreakdownRow, nameOf: (group: BreakdownRow) => GroupName, child: boolean): BreakdownRowView => {
     const opens = !child && dimension !== "session" && group.folded === 0;
@@ -164,7 +164,7 @@ export function breakdownView(
     notes: [
       costCoverage(totals),
       ...(modelNote === null ? [] : [modelNote]),
-      ...(dimension === "team" ? [TEAM_NOTE] : []),
+      ...(dimension === "team" && [...teamProvenance(current, teams).values()].some((p) => p !== "recorded") ? [TEAM_NOTE] : []),
     ],
   };
 }
@@ -197,11 +197,12 @@ function nameGroups(
   dimension: StatsDimension,
   groups: readonly BreakdownRow[],
   teams: TeamHistory,
+  provenance: ReadonlyMap<string, TeamProvenance>,
 ): Map<string, GroupName> {
   if (dimension === "model") return modelNames(groups);
   const nameOf = {
     workspace: workspaceName,
-    team: (group: BreakdownRow) => teamName(group, teams),
+    team: (group: BreakdownRow) => teamName(group, teams, provenance.get(group.key)),
     agent: agentName,
     session: sessionName,
   }[dimension];

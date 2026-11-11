@@ -63,14 +63,26 @@ describe("session names", () => {
 });
 
 describe("team names", () => {
-  it("marks a team the journal inferred, and not one capture recorded", () => {
-    const history = teamHistory({
-      "ws-1": [{ agent: "codex", sessionId: "s1", cwd: "/r", team: "artifacts", boundAt: "2026-10-01T00:00:00Z", state: "closed", endedAt: "2026-10-01T01:00:00Z" }],
-    });
-    const [inferred] = breakdown([usageEvent({ agent: "codex", sessionId: "s1", workspaceName: "KeepDeck" })], [], () => "t", 5);
-    const [recorded] = breakdown([usageEvent({ workspaceName: "KeepDeck", team: { id: "t", name: "stats", role: "lead" } })], [], () => "t", 5);
-    if (inferred === undefined || recorded === undefined) throw new Error("no rows");
-    expect(teamName(inferred, history)).toEqual({ name: "artifacts", source: "KeepDeck · inferred" });
-    expect(teamName(recorded, history)).toEqual({ name: "stats", source: "KeepDeck" });
+  it("says how much of a group was attributed by inference, beside its workspace", () => {
+    const history = teamHistory({}, new Map());
+    const [group] = breakdown(
+      [usageEvent({ workspaceName: "KeepDeck", team: { kind: "member", id: "t", name: "stats", role: "lead" } })],
+      [],
+      () => "t",
+      5,
+    );
+    if (group === undefined) throw new Error("no rows");
+    expect(teamName(group, history, "recorded")).toEqual({ name: "stats", source: "KeepDeck" });
+    expect(teamName(group, history, "inferred")).toEqual({ name: "stats", source: "KeepDeck · inferred" });
+    expect(teamName(group, history, "mixed")).toEqual({ name: "stats", source: "KeepDeck · partly inferred" });
+  });
+
+  it("names a recorded no-team group and an unknown one apart", () => {
+    const history = teamHistory({}, new Map());
+    const [none] = breakdown([usageEvent({ team: { kind: "none" } })], [], () => "n", 5);
+    const [unknown] = breakdown([usageEvent({})], [], () => "u", 5);
+    if (none === undefined || unknown === undefined) throw new Error("no rows");
+    expect(teamName(none, history, "recorded").name).toBe("No team");
+    expect(teamName(unknown, history, "recorded").name).toBe("Team unknown");
   });
 });

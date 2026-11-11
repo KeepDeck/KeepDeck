@@ -6,7 +6,7 @@ import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
 import type { StatsSessions, StatsView } from "../../app/useStatsView";
 import { useKeptAchievements } from "../../app/useKeptAchievements";
-import type { JournalRecords } from "../../domain/journal/sessionLog";
+import type { TeamHistory } from "../../domain/usage/stats/teams";
 import { latestOccurredAt } from "../../domain/usage/history/ledger";
 import { rowsIn, rowsOf } from "../../domain/usage/stats/fold";
 import { statsScopeView } from "../../presentation/stats/statsScopeView";
@@ -41,7 +41,7 @@ export function StatsDialog({
   from,
   onSelectTab,
   view,
-  journal,
+  teams,
   sessions,
   onClose,
   canClose = true,
@@ -53,8 +53,8 @@ export function StatsDialog({
   /** What the reader set the statistics to — held by the app-layer owner,
    * so it outlives the dialog. */
   view: StatsView;
-  /** The session journal, where the teams of past sessions are read. */
-  journal: JournalRecords;
+  /** What the session journal says of past sessions' teams. */
+  teams: TeamHistory;
   /** Whether a pane holds a session, and bringing it in front. */
   sessions: StatsSessions;
   onClose(): void;
@@ -77,7 +77,7 @@ export function StatsDialog({
           <CloseButton label={STATS_DIALOG.close} onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
-          <UsageStats tab={tab} from={from} onSelectTab={onSelectTab} view={view} journal={journal} sessions={sessions} />
+          <UsageStats tab={tab} from={from} onSelectTab={onSelectTab} view={view} teams={teams} sessions={sessions} />
         </div>
         <div className="confirm__actions stats-dialog__actions">
           <StreakBadge />
@@ -104,14 +104,14 @@ export function UsageStats({
   from,
   onSelectTab,
   view,
-  journal,
+  teams,
   sessions,
 }: {
   tab: StatsTab;
   from: StatsTab;
   onSelectTab(tab: StatsTab): void;
   view: StatsView;
-  journal: JournalRecords;
+  teams: TeamHistory;
   sessions: StatsSessions;
 }) {
   const history = useUsageHistorySnapshot();
@@ -184,7 +184,7 @@ export function UsageStats({
             now={now}
             colors={seriesColors}
             perModelSince={history.perModelSince}
-            journal={journal}
+            teams={teams}
             sessions={sessions}
             dimension={view.dimension}
             order={view.order}
@@ -209,7 +209,7 @@ export function UsageStats({
             now={now}
             week={view.week}
             onSelectWeek={view.selectWeek}
-            journal={journal}
+            teams={teams}
             reportsByKey={reports.byKey}
             onOpenGallery={() => onSelectTab("achievements")}
           />

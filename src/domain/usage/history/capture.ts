@@ -14,18 +14,16 @@ export interface UsagePlace {
     branch?: string;
     repo: string;
   };
-  /** The team the pane was on when its calls were booked. */
+  /** The team the pane was on when its calls were booked, or that it was
+   * on none — always recorded; absent only on rows booked before teams were. */
   team?: UsageTeam;
 }
 
-/** A team as a usage row remembers it: its id, its NAME AT THE TIME — a
- * renamed or disbanded team must still read as what it was called when the
- * money was spent — and the pane's role on it. */
-export interface UsageTeam {
-  id: string;
-  name: string;
-  role: string;
-}
+/** A team as a usage row remembers it: none, recorded as a fact so that it
+ * is never mistaken for a gap to infer; or a member — the team's id, its
+ * NAME AT THE TIME (a renamed or disbanded team must still read as what it
+ * was called when the money was spent) and the pane's role on it. */
+export type UsageTeam = { kind: "none" } | { kind: "member"; id: string; name: string; role: string };
 
 /** Where a pane's usage happens: its workspace, its name as the history
  * shows it (the user's name for it, else its own title, else its place in
@@ -48,7 +46,7 @@ export function usagePlace(workspace: Workspace, pane: Pane): UsagePlace {
           },
         }
       : {}),
-    ...(team && pane.team ? { team: { id: team.id, name: team.name, role: pane.team.role } } : {}),
+    team: team && pane.team ? { kind: "member", id: team.id, name: team.name, role: pane.team.role } : { kind: "none" },
   };
 }
 

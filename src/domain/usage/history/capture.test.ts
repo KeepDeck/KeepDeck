@@ -41,18 +41,20 @@ describe("usagePlace", () => {
       paneId: "p1",
       paneName: "Named",
       worktree: { path: "/repo/wt", repo: "/repo", branch: "kd/x" },
-      team: { id: "team-1", name: "x", role: "lead" },
+      team: { kind: "member", id: "team-1", name: "x", role: "lead" },
     });
     expect(usagePlace(ws, pane("p2")).worktree).toEqual({ path: "/repo/wt2", repo: "/repo" });
     // A pane in the workspace's own directory works in no worktree.
     expect(usagePlace(ws, pane("p3"))).not.toHaveProperty("worktree");
   });
 
-  it("remembers the team by its name at the time and the pane's role, and no team for a pane on none", () => {
-    expect(usagePlace(ws, pane("p2")).team).toEqual({ id: "team-2", name: "y", role: "lead" });
-    expect(usagePlace(ws, pane("p3"))).not.toHaveProperty("team");
+  it("remembers the team by its name at the time and the pane's role — and records a pane on none as such", () => {
+    expect(usagePlace(ws, pane("p2")).team).toEqual({ kind: "member", id: "team-2", name: "y", role: "lead" });
+    // No team is recorded, not left out: left out means "booked before
+    // teams were recorded", which history may infer over.
+    expect(usagePlace(ws, pane("p3")).team).toEqual({ kind: "none" });
     // A membership naming a team the workspace no longer has is no team.
     const orphan = { ...pane("p3"), team: { teamId: "gone", role: "impl-1" } };
-    expect(usagePlace(ws, orphan)).not.toHaveProperty("team");
+    expect(usagePlace(ws, orphan).team).toEqual({ kind: "none" });
   });
 });

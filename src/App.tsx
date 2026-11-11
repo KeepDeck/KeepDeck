@@ -128,6 +128,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
     statsTab,
     statsFrom,
     statsSessions,
+    statsTeams,
     statsView,
     unavailableReasons,
     updateState,
@@ -364,7 +365,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
               from={statsFrom}
               onSelectTab={selectStatsTab}
               view={statsView}
-              journal={deck.journal.records}
+              teams={statsTeams}
               sessions={statsSessions}
               onClose={closeStats}
               canClose={canCloseDialog}

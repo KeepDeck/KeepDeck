@@ -108,6 +108,7 @@ import { useStatsView } from "../../app/useStatsView";
 import { returnTab } from "../../presentation/stats/statsTabs";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import { present } from "@keepdeck/plugin-api/testing";
+import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
 
 /** The kept awards are the notifier's, through the runtime; these cases are
  * about the ledger's own crossings, so none is kept. */
@@ -135,11 +136,11 @@ function useTab(initialTab: StatsTab) {
 }
 
 function Host({ initialTab = "overview" }: { initialTab?: StatsTab }) {
-  return createElement(UsageStats, { ...useTab(initialTab), view: useStatsView(), journal: {}, sessions: NO_SESSIONS });
+  return createElement(UsageStats, { ...useTab(initialTab), view: useStatsView(), teams: NO_TEAM_HISTORY, sessions: NO_SESSIONS });
 }
 
 function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
-  return createElement(StatsDialog, { ...useTab("overview"), view: useStatsView(), journal: {}, sessions: NO_SESSIONS, onClose });
+  return createElement(StatsDialog, { ...useTab("overview"), view: useStatsView(), teams: NO_TEAM_HISTORY, sessions: NO_SESSIONS, onClose });
 }
 
 const NOW = TEST_NOW;

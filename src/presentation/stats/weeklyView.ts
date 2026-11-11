@@ -13,7 +13,7 @@ import {
   type BreakdownRow,
   type CostStep,
 } from "../../domain/usage/stats/fold";
-import { rowTeam, type TeamHistory } from "../../domain/usage/stats/teams";
+import { teamProvenance, type TeamHistory } from "../../domain/usage/stats/teams";
 import {
   oldestWeekBack,
   weekRhythm,
@@ -155,10 +155,8 @@ export function weeklyView(
   const groupsOfTeams = breakdown(current, [], (row) => dimensionKey("team", row, teams), WEEKLY_LIST_TOP);
   const peaks = windowPeaks(input.reports, week.current);
   const rhythm = weekRhythm(current, week.current);
-  const inferred = groupsOfTeams.some((group) => {
-    const { source } = rowTeam(group.latest, teams);
-    return group.folded === 0 && (source === "journal" || source === "branch");
-  });
+  const provenance = teamProvenance(current, teams);
+  const inferred = [...provenance.values()].some((p) => p !== "recorded");
   return {
     nav: {
       label: back === 0 ? `This week · ${formatLocalDay(week.current.from)} – today` : weekRange(week.current.from, week.current.to),
@@ -185,7 +183,7 @@ export function weeklyView(
       empty: peaks.length > 0 ? null : week.complete ? "Readings for this week are no longer kept." : "No limit readings yet this week.",
     },
     lists: [
-      list("Teams", groupsOfTeams, (group) => teamName(group, teams)),
+      list("Teams", groupsOfTeams, (group) => teamName(group, teams, provenance.get(group.key))),
       list("Models", models, (group) => names.get(group.key) ?? { name: group.key, source: null }),
     ],
     badges: back === 0 ? badgesView(input.ladders) : null,
