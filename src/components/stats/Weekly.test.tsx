@@ -7,6 +7,10 @@ import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
 import { Weekly } from "./Weekly";
 import { present } from "@keepdeck/plugin-api/testing";
 
+/** The kept awards are the notifier's, through the runtime; these cases are
+ * about the ledger's own crossings, so none is kept. */
+vi.mock("../../app/useKeptAchievements", () => ({ useKeptAchievements: () => new Set<string>() }));
+
 /** The tab maps weeklyView (tested on its own); the cases here read what
  * the reader sees and what the tab emits. */
 const NOW = Date.parse("2026-11-11T19:00:00Z");

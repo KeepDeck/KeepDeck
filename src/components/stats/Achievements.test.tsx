@@ -14,6 +14,10 @@ import { Achievements } from "./Achievements";
 import { present } from "@keepdeck/plugin-api/testing";
 import { elementOf } from "../../testing/values.test-support";
 
+/** The kept awards are the notifier's, through the runtime; these cases are
+ * about the ledger's own crossings, so none is kept. */
+vi.mock("../../app/useKeptAchievements", () => ({ useKeptAchievements: () => new Set<string>() }));
+
 /** The gallery takes one prop and computes everything else from the ledger,
  * so it is mounted directly: no history mock, no dialog shell, no tab click
  * between the assertion and the thing asserted. */

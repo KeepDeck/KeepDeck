@@ -1,4 +1,4 @@
-import { formatAge, formatTokens, formatUtcDay } from "../../domain/usage";
+import { formatAge, formatLocalDay, formatTokens } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { dimensionKey, type StatsDimension } from "../../domain/usage/stats/dimensions";
 import { earliestOccurredAt } from "../../domain/usage/history/ledger";
@@ -177,7 +177,7 @@ export function perModelNote(perModelSince: number | null, firstOccurredAt: numb
   if (perModelSince === null || firstOccurredAt === null) return null;
   if (firstOccurredAt >= perModelSince) return null;
   return (
-    `Since ${formatUtcDay(perModelSince, true)}, an agent that reports each model's own ` +
+    `Since ${formatLocalDay(perModelSince, true)}, an agent that reports each model's own ` +
     "tokens is listed by model id, and a session's cost under the model it ran on. " +
     "Earlier usage keeps the model names shown at the time."
   );

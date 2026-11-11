@@ -109,6 +109,10 @@ import { returnTab } from "../../presentation/stats/statsTabs";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import { present } from "@keepdeck/plugin-api/testing";
 
+/** The kept awards are the notifier's, through the runtime; these cases are
+ * about the ledger's own crossings, so none is kept. */
+vi.mock("../../app/useKeptAchievements", () => ({ useKeptAchievements: () => new Set<string>() }));
+
 /** What the shell last handed a panel. */
 const handed = <P,>(panel: Mock<(props: P) => void>, name: string): P =>
   present(panel.mock.lastCall, `${name}'s last render`)[0];

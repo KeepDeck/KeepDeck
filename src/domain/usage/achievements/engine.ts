@@ -9,7 +9,6 @@ import {
   HOUR_MS,
   localDayNumber,
   shiftDay,
-  utcDayStart,
   type LocalDayNumber,
   type UtcDayStart,
 } from "../time";
@@ -57,14 +56,23 @@ export interface AchievementEngine {
   earnedIds(): Set<string>;
 }
 
-export function createAchievementEngine(): AchievementEngine {
+/**
+ * `dayOf` is the calendar the per-day metrics count in: the READER'S, like
+ * every Statistics day and the streak (user decision, 2026-11-11). The UTC
+ * bucket remains only for the one caller that must still ask what the old
+ * calendar earned — the notifier's move to local days, recording quietly
+ * what the move alone newly earns.
+ */
+export function createAchievementEngine(
+  dayOf: (at: number) => LocalDayNumber | UtcDayStart = localDayNumber,
+): AchievementEngine {
   const sessions = new Set<string>();
   const providers = new Set<string>();
   const models = new Set<string>();
   const workspaces = new Set<string>();
-  const dayTokenTotals = new Map<UtcDayStart, number>();
-  const daySessionSets = new Map<UtcDayStart, Set<string>>();
-  const dayProviderSets = new Map<UtcDayStart, Set<string>>();
+  const dayTokenTotals = new Map<number, number>();
+  const daySessionSets = new Map<number, Set<string>>();
+  const dayProviderSets = new Map<number, Set<string>>();
   const sessionTokenTotals = new Map<string, number>();
   const sessionTurnCounts = new Map<string, number>();
   const sessionMinAt = new Map<string, number>();
@@ -116,20 +124,20 @@ export function createAchievementEngine(): AchievementEngine {
         spendUsd = addMoney(spendUsd, cost);
       }
 
-      const utcDay = utcDayStart(event.occurredAt);
-      const dayTokens = (dayTokenTotals.get(utcDay) ?? 0) + eventTokens;
-      dayTokenTotals.set(utcDay, dayTokens);
+      const day = dayOf(event.occurredAt);
+      const dayTokens = (dayTokenTotals.get(day) ?? 0) + eventTokens;
+      dayTokenTotals.set(day, dayTokens);
       maxDayTokens = Math.max(maxDayTokens, dayTokens);
 
       const key = usageSessionKey(event);
       sessions.add(key);
-      const daySessions = daySessionSets.get(utcDay) ?? new Set();
+      const daySessions = daySessionSets.get(day) ?? new Set();
       daySessions.add(key);
-      daySessionSets.set(utcDay, daySessions);
+      daySessionSets.set(day, daySessions);
       maxDaySessions = Math.max(maxDaySessions, daySessions.size);
-      const dayProviders = dayProviderSets.get(utcDay) ?? new Set();
+      const dayProviders = dayProviderSets.get(day) ?? new Set();
       dayProviders.add(event.agent);
-      dayProviderSets.set(utcDay, dayProviders);
+      dayProviderSets.set(day, dayProviders);
       maxDayProviders = Math.max(maxDayProviders, dayProviders.size);
 
       const sessionTokens = (sessionTokenTotals.get(key) ?? 0) + eventTokens;

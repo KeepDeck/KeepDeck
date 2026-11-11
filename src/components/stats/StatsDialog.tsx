@@ -5,6 +5,7 @@ import { useAgents } from "../../app/useAgents";
 import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
 import type { StatsSessions, StatsView } from "../../app/useStatsView";
+import { useKeptAchievements } from "../../app/useKeptAchievements";
 import type { JournalRecords } from "../../domain/journal/sessionLog";
 import { latestOccurredAt } from "../../domain/usage/history/ledger";
 import { rowsIn, rowsOf } from "../../domain/usage/stats/fold";
@@ -334,7 +335,8 @@ export function UsageStats({
  * — open beside the streak whether or not a streak is alive. */
 function GalleryDoor({ onOpen }: { onOpen(): void }) {
   const { ledger } = useUsageHistorySnapshot();
-  const earned = useMemo(() => earnedAchievements(usageAchievementLadders(ledger.events)).length, [ledger]);
+  const kept = useKeptAchievements();
+  const earned = useMemo(() => earnedAchievements(usageAchievementLadders(ledger.events, kept)).length, [ledger, kept]);
   return (
     <button type="button" className="stats__link" onClick={onOpen}>
       {galleryDoor(earned)}

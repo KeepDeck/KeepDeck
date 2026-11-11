@@ -19,6 +19,7 @@ const tier = (over: Partial<UsageAchievement>): UsageAchievement => ({
   achievedAt: null,
   progress: 0,
   ...over,
+  earned: over.earned ?? (over.achievedAt ?? null) !== null,
 });
 
 describe("captions", () => {

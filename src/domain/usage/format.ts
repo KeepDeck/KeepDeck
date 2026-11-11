@@ -230,26 +230,12 @@ export function modelLabel(
   return name || model || "Unknown model";
 }
 
-/** "Jul 22" / "Jul 22, 2026" — labeled in UTC because every stats day
- * bucket (recap, daily chart, milestone dates) is a UTC day; a local-time
- * label would drift off its own bucket. */
-export function formatUtcDay(at: number, withYear = false): string {
-  return new Date(at).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    ...(withYear ? { year: "numeric" } : {}),
-    timeZone: "UTC",
-  });
-}
-
 /**
  * A future instant as a wall clock the reader can plan against: "06:40",
  * "tomorrow 06:40", "Thu 06:40", "Aug 12, 06:40".
  *
- * LOCAL time, unlike every other label in this file. Stats buckets speak UTC
- * because they are aggregation boundaries and must agree across zones; this
- * is the opposite kind of fact — the moment a person's own limit runs out,
- * which is only useful in the clock they are looking at.
+ * LOCAL time, like every label in this file: the moment a person's own
+ * limit runs out is only useful in the clock they are looking at.
  *
  * Named by relation while the relation is short, because "tomorrow 06:40"
  * places a moment that "Aug 7, 06:40" makes the reader work out.

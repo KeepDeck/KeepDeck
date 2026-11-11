@@ -16,6 +16,7 @@ import { createAchievementNotifier } from "./achievementNotifier";
 import { createWeeklyDigestNotifier } from "./weeklyDigestNotifier";
 import { loadDigest, saveDigest } from "../ipc/digest";
 import { createActivityWitness } from "./activityWitness";
+import { createKeptAchievements } from "./keptAchievements";
 import { createIpcHealthLog } from "./ipcHealthLog";
 import {
   createAgentOrchestrator,
@@ -305,6 +306,7 @@ export function createAppRuntime(
   // Built here, not in `start()`: the streak chip reads it through the
   // runtime the moment the stats dialog mounts, and a witness that started
   // late would have missed the days its two stores already hold.
+  const keptAchievements = createKeptAchievements();
   const activityWitness = createActivityWitness({
     history: {
       getSnapshot: getUsageHistorySnapshot,
@@ -528,6 +530,7 @@ export function createAppRuntime(
     mail,
     usageManager,
     activityWitness,
+    keptAchievements,
     statusTracker,
     sessionIndex,
     windowReportJournal,
@@ -583,6 +586,7 @@ export function createAppRuntime(
         mail.expectAsk,
       );
       achievementNotifier ??= createAchievementNotifier({
+        keep: keptAchievements.publish,
         loadNotified: loadNotifiedAchievements,
         saveNotified: saveNotifiedAchievements,
         settingsReady: initSettings,

@@ -11,3 +11,15 @@ export function inZone(tz: string, body: () => void): void {
     else process.env.TZ = before;
   }
 }
+
+/** [`inZone`] for a body that awaits — the zone holds until it settles. */
+export async function inZoneAsync(tz: string, body: () => Promise<void>): Promise<void> {
+  const before = process.env.TZ;
+  process.env.TZ = tz;
+  try {
+    await body();
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
+}

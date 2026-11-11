@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useKeptAchievements } from "../../app/useKeptAchievements";
 import type { JournalRecords } from "../../domain/journal/sessionLog";
 import { usageAchievementLadders } from "../../domain/usage/achievements/ladders";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
@@ -29,7 +30,8 @@ export function Weekly({
   onOpenGallery(): void;
 }) {
   const teams = useMemo(() => teamHistory(journal), [journal]);
-  const ladders = useMemo(() => usageAchievementLadders(ledger.events), [ledger]);
+  const kept = useKeptAchievements();
+  const ladders = useMemo(() => usageAchievementLadders(ledger.events, kept), [ledger, kept]);
   const view = useMemo(
     () => weeklyView(ledger.events, { now, week, teams, reports: reportsByKey, ladders }),
     [ledger, now, week, teams, reportsByKey, ladders],

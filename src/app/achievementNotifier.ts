@@ -7,6 +7,7 @@ import {
   RECALIBRATED_IDS_V2,
 } from "../domain/usage/achievements/catalog";
 import { createAchievementEngine } from "../domain/usage/achievements/engine";
+import { utcDayStart } from "../domain/usage/time";
 import type { UsageRow } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
@@ -29,6 +30,16 @@ import { isJsonRecord } from "@keepdeck/plugin-api";
  */
 
 /**
+ * The version from which the per-day metrics count on the reader's calendar
+ * instead of the UTC bucket (user decision, 2026-11-11). The move can make
+ * a few day tiers newly earned; the user asked for those to be recorded
+ * QUIETLY — no burst of congratulations for a calendar change — and for no
+ * award to be taken back (the notifier only ever revokes what a rewrite
+ * handed out, see `reconcileCongratulated`).
+ */
+const LOCAL_DAYS_VERSION = 3;
+
+/**
  * Every id rewrite the persisted file has ever needed, oldest first. The
  * FORMAT's owner keeps the order and the version numbers; the catalog keeps
  * the id pairs, which are catalog knowledge.
@@ -36,8 +47,12 @@ import { isJsonRecord } from "@keepdeck/plugin-api";
  * A later recalibration appends `{ to: 3, ids: … }` here and nothing else
  * changes — see [`migrateFrom`] for why replaying a map twice is destructive.
  */
-const NOTIFIED_MIGRATIONS: readonly { to: number; ids: ReadonlyMap<string, string> }[] =
-  [{ to: 2, ids: RECALIBRATED_IDS_V2 }].sort((left, right) => left.to - right.to);
+const NOTIFIED_MIGRATIONS: readonly { to: number; ids: ReadonlyMap<string, string> }[] = [
+  { to: 2, ids: RECALIBRATED_IDS_V2 },
+  // The per-day metrics moved to the reader's calendar: no id moves, but a
+  // file older than this runs the quiet seed below (LOCAL_DAYS_VERSION).
+  { to: LOCAL_DAYS_VERSION, ids: new Map() },
+].sort((left, right) => left.to - right.to);
 
 /** DERIVED, never hand-kept: the version a file is written at is simply the
  * newest migration it has been through. A constant maintained beside the
@@ -67,6 +82,9 @@ export interface AchievementNotifierDeps {
     getSnapshot(): UsageHistorySnapshot;
     subscribe(listener: () => void): () => void;
   };
+  /** Publishes the awards given so far — the set it persists — to the
+   * surfaces that show earned badges. */
+  keep(ids: ReadonlySet<string>): void;
 }
 
 export function createAchievementNotifier(deps: AchievementNotifierDeps): {
@@ -119,6 +137,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     fileVersion >= NOTIFIED_SCHEMA_VERSION || reconciled;
 
   const persist = (ids: ReadonlySet<string>) => {
+    deps.keep(ids);
     const json = JSON.stringify({
       // NEVER the bare constant. A file written by a newer build carries a
       // higher version, and stamping ours over it tells that build its
@@ -172,12 +191,26 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
         congratulated = kept;
         dirty = true;
       }
+      // What the move to the reader's calendar alone newly earns is
+      // recorded, not announced: a file older than the move compares the
+      // whole ledger under both calendars, once.
+      if (fileVersion < LOCAL_DAYS_VERSION) {
+        for (const id of earnedByTheMove(events, earned)) {
+          if (congratulated.has(id)) continue;
+          congratulated.add(id);
+          dirty = true;
+        }
+      }
       // Force the write even when the repair found nothing: the version
       // stamp is what RETIRES `rewritable`, and an established user's launch
       // is exactly the one that changes nothing else. Without this the file
       // sits below the migration for good and every target stays revocable.
       if (fileVersion < NOTIFIED_SCHEMA_VERSION) dirty = true;
     }
+    // Until the quiet seed has run, nothing is announced: on a partial
+    // history it cannot tell an award the move made from one the user just
+    // won, and a calendar change must not read as a burst of wins.
+    if (fileVersion < LOCAL_DAYS_VERSION && !reconciled) return;
     // Catalog order: a ladder announces lowest tier first, so the bell's
     // newest-first list tops out at the most impressive fresh award.
     for (const entry of catalog) {
@@ -212,6 +245,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     congratulated = file.notified;
     fileVersion = file.version;
     rewritable = rewritableIds(file.version);
+    deps.keep(congratulated);
     check();
   });
 
@@ -343,4 +377,13 @@ export function reconcileCongratulated(
     if (!rewritable.has(id) || earned.has(id)) kept.add(id);
   }
   return kept;
+}
+
+/** The tiers the reader's calendar earns that the UTC bucket did not — what
+ * the move alone handed out, over the whole ledger. */
+export function earnedByTheMove(events: readonly UsageRow[], earned: ReadonlySet<string>): Set<string> {
+  const before = createAchievementEngine(utcDayStart);
+  for (const event of events) before.ingest(event);
+  const old = before.earnedIds();
+  return new Set([...earned].filter((id) => !old.has(id)));
 }

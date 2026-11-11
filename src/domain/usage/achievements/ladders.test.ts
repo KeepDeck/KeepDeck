@@ -34,7 +34,7 @@ describe("usageAchievementLadders", () => {
     expect(tokens[2].progress).toBe(25_600_000);
   });
 
-  it("dresses a tier exactly as the catalog does, adding only the dated fields", () => {
+  it("dresses a tier exactly as the catalog does, adding only the ledger's fields", () => {
     // The gallery and the notifier read the same tier through different
     // producers. Assembled separately, they agree until someone adds a
     // field to one literal — and TypeScript has nothing to object to,
@@ -43,7 +43,8 @@ describe("usageAchievementLadders", () => {
     const flat = achievementCatalog();
     expect(dated.length).toBe(flat.length);
     dated.forEach((tier, index) => {
-      const { achievedAt, progress, ...shared } = tier;
+      const { earned, achievedAt, progress, ...shared } = tier;
+      expect(earned).toBe(false);
       expect(achievedAt).toBeNull();
       expect(progress).toBe(0);
       expect(shared).toEqual(flat[index]);
@@ -232,5 +233,15 @@ describe("earned and next views", () => {
       "Token Tycoon",
       "Token Tycoon",
     ]);
+  });
+});
+
+describe("kept awards", () => {
+  it("stay earned where the ledger no longer crosses them, and are no longer the next goal", () => {
+    const ladders = usageAchievementLadders([], new Set(["tokens-1000000"]));
+    const tier = ladders.flatMap((ladder) => ladder.tiers).find((candidate) => candidate.id === "tokens-1000000");
+    expect(tier).toMatchObject({ earned: true, achievedAt: null });
+    expect(earnedAchievements(ladders).map((earned) => earned.id)).toEqual(["tokens-1000000"]);
+    expect(nextAchievements(ladders).map((next) => next.id)).not.toContain("tokens-1000000");
   });
 });
