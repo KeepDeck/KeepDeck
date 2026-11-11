@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { formatAge, type AccountUsage, type UsageWindow } from "../../domain/usage";
 import { providerWindowGroups } from "../../domain/usage/providerWindows";
-import { providersView } from "./providersView";
+import { usageEvent } from "../../domain/usage/history/event.testSupport";
+import { accountLimitsView, providersView } from "./providersView";
 
 const NOW = 1_800_000_000_000;
 const HOUR = 3_600_000;
@@ -61,5 +62,30 @@ describe("providersView", () => {
     const caption = view.kind === "cards" ? (view.cards[0]?.windows[0]?.caption ?? []) : [];
     expect(caption.length).toBeGreaterThan(0);
     expect(caption.map((part) => part.lead)).toEqual(caption.map((_, index) => (index === 0 ? "" : " · ")));
+  });
+
+  it("names the sessions that spent inside a window, with their money", () => {
+    const events = [
+      usageEvent({ agent: "claude", occurredAt: NOW - HOUR, paneName: "auth", workspaceName: "KeepDeck", costUsd: 2 }),
+      usageEvent({ agent: "claude", occurredAt: NOW - HOUR, sessionId: "s2", paneName: "docs", workspaceName: "Docs" }),
+    ];
+    const view = providersView(
+      providerWindowGroups(new Map([["claude", account([live(10)])]]), events, new Map(), NOW),
+      NOW,
+      COLORS,
+    );
+    const window = view.kind === "cards" ? view.cards[0]?.windows[0] : undefined;
+    expect(window?.sessions).toEqual([
+      { key: "claude\u0000s1", name: "auth", source: "KeepDeck · claude", cost: "≈$2.00" },
+      { key: "claude\u0000s2", name: "docs", source: "Docs · claude", cost: "—" },
+    ]);
+  });
+
+  it("is the one Limits pipeline both the Limits tab and Overview's glance read", () => {
+    const accounts = new Map([["claude", account([live(10)])]]);
+    const rows = [usageEvent({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 2 })];
+    expect(accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS })).toEqual(
+      providersView(providerWindowGroups(accounts, rows, new Map(), NOW), NOW, COLORS),
+    );
   });
 });

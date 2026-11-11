@@ -20,7 +20,10 @@ import { createAchievementEngine } from "./engine";
  * entry rather than restating it: the dated fields are what this module
  * adds, and only those belong to it. */
 export interface UsageAchievement extends AchievementCatalogEntry {
-  /** The ledger instant that crossed the threshold; null while locked. */
+  /** Won: the ledger crosses it, or it was awarded before and is kept. */
+  earned: boolean;
+  /** The ledger instant that crossed the threshold; null while locked, and
+   * for an award kept from before that the ledger no longer crosses. */
   achievedAt: number | null;
   /** The metric's current all-time value. */
   progress: number;
@@ -32,11 +35,20 @@ export interface UsageAchievementLadder {
   tiers: UsageAchievement[];
 }
 
+/** No awards kept from before. */
+export const NO_KEPT: ReadonlySet<string> = new Set();
+
 /** All ladders with crossing dates and current progress, in catalog order.
  * The batch view: sorts chronologically so each crossing is dated at the
- * exact event that crossed it — the ONLY place chronology matters. */
+ * exact event that crossed it — the ONLY place chronology matters.
+ *
+ * `kept` is what was already awarded: an award is never taken back (user
+ * decision, 2026-11-11), so a tier in it stays earned even where a metric
+ * now derives lower — the per-day ones moved to the reader's calendar, and
+ * a day the UTC bucket merged can split. */
 export function usageAchievementLadders(
   events: readonly UsageRow[],
+  kept: ReadonlySet<string> = NO_KEPT,
 ): UsageAchievementLadder[] {
   const ordered = [...events].sort((a, b) => a.occurredAt - b.occurredAt);
   const engine = createAchievementEngine();
@@ -59,11 +71,11 @@ export function usageAchievementLadders(
 
   return LADDERS.map((ladder, index) => ({
     metric: ladder.metric,
-    tiers: ladder.tiers.map((tier) => ({
-      ...catalogEntry(ladder.metric, tier),
-      achievedAt: crossings[index].get(tier.threshold) ?? null,
-      progress: engine.value(ladder.metric),
-    })),
+    tiers: ladder.tiers.map((tier) => {
+      const entry = catalogEntry(ladder.metric, tier);
+      const achievedAt = crossings[index].get(tier.threshold) ?? null;
+      return { ...entry, earned: achievedAt !== null || kept.has(entry.id), achievedAt, progress: engine.value(ladder.metric) };
+    }),
   }));
 }
 
@@ -73,7 +85,7 @@ export function earnedAchievements(
   ladders: readonly UsageAchievementLadder[],
 ): UsageAchievement[] {
   return ladders
-    .flatMap((ladder) => ladder.tiers.filter((tier) => tier.achievedAt !== null))
+    .flatMap((ladder) => ladder.tiers.filter((tier) => tier.earned))
     .sort((left, right) => (right.achievedAt ?? 0) - (left.achievedAt ?? 0));
 }
 
@@ -84,7 +96,7 @@ export function nextAchievements(
   ladders: readonly UsageAchievementLadder[],
 ): UsageAchievement[] {
   return ladders.flatMap((ladder) => {
-    const next = ladder.tiers.find((tier) => tier.achievedAt === null);
+    const next = ladder.tiers.find((tier) => !tier.earned);
     return next ? [next] : [];
   });
 }
@@ -95,7 +107,7 @@ export function lockedAchievements(
   ladders: readonly UsageAchievementLadder[],
 ): UsageAchievement[] {
   return ladders.flatMap((ladder) => {
-    const first = ladder.tiers.findIndex((tier) => tier.achievedAt === null);
+    const first = ladder.tiers.findIndex((tier) => !tier.earned);
     return first === -1 ? [] : ladder.tiers.slice(first + 1);
   });
 }

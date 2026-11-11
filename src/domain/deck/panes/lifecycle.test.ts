@@ -312,18 +312,25 @@ describe("paneBlock — the head both ladders share", () => {
 });
 
 describe("sessionClaimant", () => {
-  const decks = (panes: Pane[]) => [{ panes }];
+  const decks = (panes: Pane[]) => [{ id: "ws-1", panes }];
+  const S1 = { agent: "claude", sessionId: "s-1" };
   const free = () => false;
 
   it("says nothing when no pane holds the session", () => {
-    expect(sessionClaimant(decks([{ id: "p1", agentType: "claude" }]), "s-1", free)).toBeNull();
+    expect(sessionClaimant(decks([{ id: "p1", agentType: "claude" }]), S1, free)).toBeNull();
   });
 
   it("finds the holder across workspaces and calls a live one running", () => {
     const holder: Pane = { id: "p2", agentType: "claude", session: { id: "s-1", boundAt: "t" } };
     expect(
-      sessionClaimant([{ panes: [{ id: "p1", agentType: "claude" }] }, { panes: [holder] }], "s-1", free),
-    ).toEqual({ pane: holder, reads: "running" });
+      sessionClaimant([{ id: "ws-1", panes: [{ id: "p1", agentType: "claude" }] }, { id: "ws-2", panes: [holder] }], S1, free),
+    ).toEqual({ wsId: "ws-2", pane: holder, reads: "running" });
+  });
+
+  it("matches the agent as well as the id — another CLI's session of the same id is not this one", () => {
+    const codex: Pane = { id: "p1", agentType: "codex", session: { id: "s-1", boundAt: "t" } };
+    expect(sessionClaimant(decks([codex]), S1, free)).toBeNull();
+    expect(sessionClaimant(decks([codex]), { agent: "codex", sessionId: "s-1" }, free)?.pane).toBe(codex);
   });
 
   it("calls a suspended holder stopped — that pane has the button", () => {
@@ -337,7 +344,7 @@ describe("sessionClaimant", () => {
             session: { id: "s-1", boundAt: "t" },
           },
         ]),
-        "s-1",
+        S1,
         free,
       )?.reads,
     ).toBe("stopped");
@@ -356,7 +363,7 @@ describe("sessionClaimant", () => {
             session: { id: "s-1", boundAt: "t" },
           },
         ]),
-        "s-1",
+        S1,
         free,
       )?.reads,
     ).toBe("running");
@@ -375,7 +382,7 @@ describe("sessionClaimant", () => {
             session: { id: "s-1", boundAt: "t" },
           },
         ]),
-        "s-1",
+        S1,
         (paneId) => paneId === "p1",
       )?.reads,
     ).toBe("stopped");

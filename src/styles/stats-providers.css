@@ -1,4 +1,4 @@
-/* The Providers tab — provider cards with rate-limit windows and their
+/* The Limits tab — provider cards with rate-limit windows and their
    ledger joins. */
 /* ONE column, deliberately. A provider's card is exactly as tall as it has
    windows — claude has two with curves, codex one, an idle account none —
@@ -71,4 +71,40 @@
 .stats__window small {
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
+}
+
+/* Who spent the window: local list-price spend per session, the biggest
+   first — never each session's share of the provider's percentage. */
+.stats__window-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--kd-font-small);
+}
+
+.stats__window-sessions li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.stats__window-sessions span {
+  overflow: hidden;
+  color: var(--kd-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats__window-sessions small {
+  margin-left: 6px;
+  color: var(--kd-text-3);
+}
+
+.stats__window-sessions b {
+  color: var(--kd-text-2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }

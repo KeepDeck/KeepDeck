@@ -7,6 +7,7 @@ import {
   RECALIBRATED_IDS_V2,
 } from "../domain/usage/achievements/catalog";
 import { createAchievementEngine } from "../domain/usage/achievements/engine";
+import { utcDayStart } from "../domain/usage/time";
 import type { UsageRow } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
@@ -29,6 +30,16 @@ import { isJsonRecord } from "@keepdeck/plugin-api";
  */
 
 /**
+ * The version from which the per-day metrics count on the reader's calendar
+ * instead of the UTC bucket (user decision, 2026-11-11). The move can make
+ * a few day tiers newly earned; the user asked for those to be recorded
+ * QUIETLY — no burst of congratulations for a calendar change — and for no
+ * award to be taken back (the notifier only ever revokes what a rewrite
+ * handed out, see `reconcileCongratulated`).
+ */
+const LOCAL_DAYS_VERSION = 3;
+
+/**
  * Every id rewrite the persisted file has ever needed, oldest first. The
  * FORMAT's owner keeps the order and the version numbers; the catalog keeps
  * the id pairs, which are catalog knowledge.
@@ -36,8 +47,12 @@ import { isJsonRecord } from "@keepdeck/plugin-api";
  * A later recalibration appends `{ to: 3, ids: … }` here and nothing else
  * changes — see [`migrateFrom`] for why replaying a map twice is destructive.
  */
-const NOTIFIED_MIGRATIONS: readonly { to: number; ids: ReadonlyMap<string, string> }[] =
-  [{ to: 2, ids: RECALIBRATED_IDS_V2 }].sort((left, right) => left.to - right.to);
+const NOTIFIED_MIGRATIONS: readonly { to: number; ids: ReadonlyMap<string, string> }[] = [
+  { to: 2, ids: RECALIBRATED_IDS_V2 },
+  // The per-day metrics moved to the reader's calendar: no id moves, but a
+  // file older than this runs the quiet seed below (LOCAL_DAYS_VERSION).
+  { to: LOCAL_DAYS_VERSION, ids: new Map() },
+].sort((left, right) => left.to - right.to);
 
 /** DERIVED, never hand-kept: the version a file is written at is simply the
  * newest migration it has been through. A constant maintained beside the
@@ -67,6 +82,9 @@ export interface AchievementNotifierDeps {
     getSnapshot(): UsageHistorySnapshot;
     subscribe(listener: () => void): () => void;
   };
+  /** Publishes the awards won so far — the floor it persists, whether or not
+   * each was announced — to the surfaces that show earned badges. */
+  keep(ids: ReadonlySet<string>): void;
 }
 
 export function createAchievementNotifier(deps: AchievementNotifierDeps): {
@@ -82,6 +100,13 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
   let firstFolded: UsageRow | undefined;
   /** Null until the persisted baseline loads; checks wait for it. */
   let congratulated: Set<string> | null = null;
+  /**
+   * Every award ever won — the floor no re-derived metric may sink below
+   * (user decision, 2026-11-11: an award is never taken back). Kept apart
+   * from `congratulated`, which is only what was ANNOUNCED: a badge won while
+   * notifications were off is still won, and still owed its announcement.
+   */
+  let kept = new Set<string>();
   /** The version the file was READ at, so a write never lowers it. */
   let fileVersion = 0;
   /** The ids the migrations this file missed were able to write — the only
@@ -127,6 +152,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
       // id and a live one another rung up its ladder.
       version: Math.max(fileVersion, NOTIFIED_SCHEMA_VERSION),
       notified: [...ids].sort(),
+      kept: [...kept].sort(),
     });
     writes = writes
       .catch(() => {})
@@ -159,6 +185,17 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
 
     const earned = engine.earnedIds();
     let dirty = false;
+    /** The floor is published the moment it moves — a write may wait on an
+     * unsettled migration, the badges on screen need not. */
+    const floorBefore = kept;
+    const floorSize = kept.size;
+    // Whatever the ledger earns is won, announced or not — even off a partial
+    // history, which can only earn less than the whole.
+    for (const id of earned) {
+      if (kept.has(id)) continue;
+      kept.add(id);
+      dirty = true;
+    }
     // Only against the WHOLE ledger. `ready` means the load finished, not
     // that it could read everything: a failed load publishes a ready, EMPTY
     // snapshot, and a downgrade past a usage-event schema bump publishes a
@@ -167,10 +204,32 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     // cannot see what they did — and then write that down.
     if (!reconciled && snapshot.complete) {
       reconciled = true;
-      const kept = reconcileCongratulated(congratulated, earned, rewritable);
-      if (kept.size !== congratulated.size) {
-        congratulated = kept;
+      const repaired = reconcileCongratulated(congratulated, earned, rewritable);
+      if (repaired.size !== congratulated.size) {
+        congratulated = repaired;
         dirty = true;
+      }
+      const floor = reconcileCongratulated(kept, earned, rewritable);
+      if (floor.size !== kept.size) {
+        kept = floor;
+        dirty = true;
+      }
+      // A file older than the move to the reader's calendar compares the
+      // whole ledger under both calendars, once: what the OLD calendar earned
+      // joins the floor — announced or not, it was won — and what the move
+      // alone newly earns is recorded as announced, not announced again.
+      if (fileVersion < LOCAL_DAYS_VERSION) {
+        const before = oldCalendarEarned(events);
+        for (const id of before) {
+          if (kept.has(id)) continue;
+          kept.add(id);
+          dirty = true;
+        }
+        for (const id of earned) {
+          if (before.has(id) || congratulated.has(id)) continue;
+          congratulated.add(id);
+          dirty = true;
+        }
       }
       // Force the write even when the repair found nothing: the version
       // stamp is what RETIRES `rewritable`, and an established user's launch
@@ -178,10 +237,17 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
       // sits below the migration for good and every target stays revocable.
       if (fileVersion < NOTIFIED_SCHEMA_VERSION) dirty = true;
     }
+    // Until the quiet seed has run, nothing is announced: on a partial
+    // history it cannot tell an award the move made from one the user just
+    // won, and a calendar change must not read as a burst of wins.
+    const mayAnnounce = fileVersion >= LOCAL_DAYS_VERSION || reconciled;
     // Catalog order: a ladder announces lowest tier first, so the bell's
     // newest-first list tops out at the most impressive fresh award.
     for (const entry of catalog) {
-      if (!earned.has(entry.id) || congratulated.has(entry.id)) continue;
+      // Owed: won (the floor, which a re-derived metric cannot sink) and not
+      // yet announced — a badge won while notifications were off is still
+      // announced once they are back, wherever the reader now is.
+      if (!mayAnnounce || !kept.has(entry.id) || congratulated.has(entry.id)) continue;
       const delivered = deps.notify({
         title: `Achievement unlocked: ${achievementDisplayTitle(entry)}`,
         body: achievementRequirement(entry),
@@ -197,6 +263,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
         dirty = true;
       }
     }
+    if (kept !== floorBefore || kept.size !== floorSize) deps.keep(kept);
     if (dirty && migrationSettled()) persist(congratulated);
   };
 
@@ -210,8 +277,12 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     if (disposed) return;
     const file = decode(json);
     congratulated = file.notified;
+    // Every announced award was won; a file from before the floor existed
+    // starts its floor from them.
+    kept = new Set([...file.kept, ...file.notified]);
     fileVersion = file.version;
     rewritable = rewritableIds(file.version);
+    deps.keep(kept);
     check();
   });
 
@@ -240,12 +311,14 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
  */
 export interface NotifiedFile {
   notified: Set<string>;
+  /** The awards won, announced or not — empty in a file from before it. */
+  kept: Set<string>;
   /** The version on disk, so a later write cannot lower it. */
   version: number;
 }
 
 function decode(json: string | null): NotifiedFile {
-  if (json === null) return { notified: new Set(), version: 0 };
+  if (json === null) return { notified: new Set(), kept: new Set(), version: 0 };
   try {
     const value: unknown = JSON.parse(json);
     if (isJsonRecord(value) && Array.isArray(value.notified)) {
@@ -259,12 +332,13 @@ function decode(json: string | null): NotifiedFile {
       const stamped = value.version;
       const version =
         typeof stamped === "number" && Number.isFinite(stamped) ? stamped : 1;
-      return { notified: migrateFrom(version, ids), version };
+      const kept = Array.isArray(value.kept) ? value.kept.filter((id): id is string => typeof id === "string") : [];
+      return { notified: migrateFrom(version, ids), kept: migrateFrom(version, kept), version };
     }
   } catch {
     // fall through to the empty baseline
   }
-  return { notified: new Set(), version: 0 };
+  return { notified: new Set(), kept: new Set(), version: 0 };
 }
 
 /** Rewrite a congratulated set through ONE id map. Unknown ids are kept as
@@ -343,4 +417,12 @@ export function reconcileCongratulated(
     if (!rewritable.has(id) || earned.has(id)) kept.add(id);
   }
   return kept;
+}
+
+/** What the ledger earned under the OLD calendar — per-day metrics on the
+ * UTC bucket — for the move to the reader's calendar. */
+export function oldCalendarEarned(events: readonly UsageRow[]): Set<string> {
+  const before = createAchievementEngine(utcDayStart);
+  for (const event of events) before.ingest(event);
+  return before.earnedIds();
 }

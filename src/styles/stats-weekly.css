@@ -1,0 +1,176 @@
+/* The Weekly tab — one calendar week as a report: the money and its plain
+   sentences beside where the week sits among the recent ones, then its
+   rhythm and lists on the same tiles as the Overview. */
+.stats__weeknav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
+}
+
+.stats__weeknav b {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.stats__weeknav button {
+  padding: 0 8px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-control);
+  background: transparent;
+  color: var(--kd-text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.stats__weeknav button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.stats__week-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.stats__week-report {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 18px;
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-tile);
+}
+
+.stats__week-value {
+  color: var(--kd-text);
+  font-size: var(--kd-font-title);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.stats__week-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
+  line-height: 1.45;
+}
+
+/* The recent weeks, a square per day: five levels of one hue, the busiest
+   day the strongest; the reported week outlined. */
+.stats__heat {
+  padding: 12px 14px;
+  border-radius: var(--kd-radius-tile);
+  background: var(--kd-tile);
+}
+
+.stats__heat h3 {
+  margin: 0 0 8px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stats__heat h3 small {
+  margin-left: 6px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.stats__heat-grid {
+  display: flex;
+  gap: 3px;
+}
+
+.stats__heat-week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stats__heat-week i {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--kd-radius-mark);
+  background: var(--kd-seam);
+}
+
+.stats__heat-week i[data-level="1"] {
+  background: color-mix(in srgb, var(--kd-working) 25%, var(--kd-tile));
+}
+
+.stats__heat-week i[data-level="2"] {
+  background: color-mix(in srgb, var(--kd-working) 45%, var(--kd-tile));
+}
+
+.stats__heat-week i[data-level="3"] {
+  background: color-mix(in srgb, var(--kd-working) 70%, var(--kd-tile));
+}
+
+.stats__heat-week i[data-level="4"] {
+  background: var(--kd-working);
+}
+
+.stats__heat-week i.stats__heat--selected {
+  outline: 1px solid var(--kd-text-2);
+  outline-offset: 1px;
+}
+
+/* A week's rhythm: one column per day or hour, the tallest the week's
+   busiest. */
+.stats__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 84px;
+}
+
+.stats__bars span {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 100%;
+}
+
+.stats__bars i {
+  display: block;
+  border-radius: var(--kd-radius-mark) var(--kd-radius-mark) 0 0;
+  background: var(--kd-working);
+}
+
+.stats__bars small {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  text-align: center;
+}
+
+.stats__bars--dense {
+  gap: 2px;
+}
+
+.stats__top-row b small {
+  margin-right: 6px;
+  color: var(--kd-text-3);
+  font-weight: 400;
+}
+
+.stats__weekly .stats__glance + .stats__glance {
+  margin-top: 12px;
+}

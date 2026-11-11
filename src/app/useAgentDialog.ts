@@ -24,6 +24,7 @@ import {
   paneSessionHandle,
   parentDir,
   sessionClaimant,
+  type SessionClaimKey,
   teamOfPane,
   type Workspace,
 } from "../domain/deck";
@@ -465,10 +466,10 @@ export function useAgentDialog(
   // Stable across the app's renders (the deck is read through its ref):
   // the picker memoizes its rows on it.
   const sessionClaim = useCallback(
-    (sessionId: string): "running" | "stopped" | null =>
+    (session: SessionClaimKey): "running" | "stopped" | null =>
       sessionClaimant(
         deckRef.current.workspaces,
-        sessionId,
+        session,
         (paneId) => paneId in blockedPanes,
       )?.reads ?? null,
     [blockedPanes],

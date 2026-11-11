@@ -8,9 +8,11 @@ import type { CostTally } from "../../domain/usage/history/event";
  */
 
 /** A cost aggregate: "—" until at least one event carried a price —
- * nothing priced must never read as "free". */
-export function displayCost(cost: Pick<CostTally, "costUsd" | "pricedEvents">): string {
-  return cost.pricedEvents === 0 ? "—" : formatUsd(cost.costUsd, { approx: true });
+ * nothing priced must never read as "free" — and a "+" on a sum that has
+ * unpriced usage in it, which the coverage note explains. */
+export function displayCost(cost: Pick<CostTally, "costUsd" | "pricedEvents" | "unpricedTokens">): string {
+  if (cost.pricedEvents === 0) return "—";
+  return `${formatUsd(cost.costUsd, { approx: true })}${cost.unpricedTokens > 0 ? "+" : ""}`;
 }
 
 const COST_SOURCE =
@@ -32,7 +34,7 @@ export function costCoverage(totals: CostTally & { totalTokens: number }): strin
   if (totals.unpricedTokens > 0) {
     const share = (totals.unpricedTokens / totals.totalTokens) * 100;
     notes.push(
-      `${share < 1 ? "<1" : Math.round(share)}% of tokens ran on models without a known price and are not counted.`,
+      `${share < 1 ? "<1" : Math.round(share)}% of tokens ran on models without a known price and are not counted; a sum marked “+” leaves them out.`,
     );
   }
   return notes.join(" ");
@@ -43,7 +45,7 @@ export function costCoverage(totals: CostTally & { totalTokens: number }): strin
  * branch is on the tally, never on the formatter's dash — a reworded "no
  * data" must not change the line. */
 export function windowLedgerCaption(
-  ledger: Pick<CostTally, "costUsd" | "pricedEvents"> & {
+  ledger: Pick<CostTally, "costUsd" | "pricedEvents" | "unpricedTokens"> & {
     sessionCount: number;
     totalTokens: number;
   },

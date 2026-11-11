@@ -4,6 +4,7 @@ import {
   addTokenCounts,
   costOf,
   emptyCostTally,
+  modelProvider,
   tokenTotal,
   usageSessionKey,
 } from "./event";
@@ -47,5 +48,14 @@ describe("usage row helpers", () => {
     expect(usageSessionKey({ agent: "claude", sessionId: "s" })).not.toBe(
       usageSessionKey({ agent: "codex", sessionId: "s" }),
     );
+  });
+});
+
+describe("the booked model key's provider", () => {
+  it("is the key's prefix, and none for a key without one", () => {
+    expect(modelProvider({ model: "anthropic/claude-opus-5-5" })).toBe("anthropic");
+    expect(modelProvider({ model: "gpt-5" })).toBeNull();
+    expect(modelProvider({ model: "/odd" })).toBeNull();
+    expect(modelProvider({})).toBeNull();
   });
 });

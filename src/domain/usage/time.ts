@@ -1,16 +1,14 @@
 /**
- * Shared time units and the two day rules — THE one home for both. Four
- * modules (achievements, daily, recap, streak) had private copies of
- * DAY_MS and the `floor(t / DAY) * DAY` bucketing; a drift between them
- * would silently desynchronize the chart's days from the recap's and the
- * achievements' crossing dates.
+ * Shared time units and the day rules — THE one home for them. Modules
+ * once kept private copies of DAY_MS and the `floor(t / DAY) * DAY`
+ * bucketing; a drift between them would silently desynchronize one
+ * surface's days from another's.
  *
- * There are TWO day rules here, not one, and keeping them adjacent is what
- * makes their difference legible: `utcDayStart` is an AGGREGATION boundary
- * (charts, weeks, per-day peaks — the same data must bucket identically
- * wherever it is read), `localDayNumber` is the READER'S calendar (a streak
- * answers "did I show up today", and today belongs to the person). They
- * also carry different UNITS, which is why each one is branded below.
+ * The READER'S calendar is the rule: Statistics cuts its periods, steps and
+ * weeks on `localDayNumber` and its siblings, and a streak answers "did I
+ * show up today" — today belongs to the person. `utcDayStart` is the older
+ * aggregation boundary, still read by the achievements' per-day metrics.
+ * The two carry different UNITS, which is why each one is branded below.
  */
 
 export const HOUR_MS = 60 * 60 * 1_000;
@@ -89,20 +87,42 @@ export function shiftDay(day: LocalDayNumber, days: number): LocalDayNumber {
   return shifted;
 }
 
+/**
+ * The instant a READER'S calendar day begins — its local midnight, or the
+ * first instant that exists when a transition skips midnight itself. The
+ * inverse of [`localDayNumber`]: `localDayNumber(localDayStart(d)) === d`.
+ * Built from the ordinal's calendar date, never `day * DAY_MS` shifted by an
+ * offset, for the reason `localDayNumber` gives.
+ */
+export function localDayStart(day: LocalDayNumber): number {
+  const date = new Date(day * DAY_MS);
+  return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).getTime();
+}
+
+/** The Monday that opens the reader's calendar week containing `day`. */
+export function localWeekStart(day: LocalDayNumber): LocalDayNumber {
+  const mondayOffset = (new Date(day * DAY_MS).getUTCDay() + 6) % 7;
+  return shiftDay(day, -mondayOffset);
+}
+
+/** The start of the reader's clock hour containing `at`. Local, so a
+ * half-hour zone's hours start on its own half hour. */
+export function localHourStart(at: number): number {
+  const date = new Date(at);
+  date.setMinutes(0, 0, 0);
+  return date.getTime();
+}
+
+/** A day ordinal read back from outside — a stored document, a link — or
+ * null when it is not one. The decoding door for the brand, beside
+ * [`shiftDay`]: a calendar date kept as its ordinal names the same day in
+ * any zone, where an instant does not. */
+export function localDayFromOrdinal(value: unknown): LocalDayNumber | null {
+  return typeof value === "number" && Number.isInteger(value) && isLocalDayNumber(value) ? value : null;
+}
+
 /** Whether `value` is a day ordinal: a whole number. Non-finite passes, as
  * for [`isUtcDayStart`]. */
 function isLocalDayNumber(value: number): value is LocalDayNumber {
   return Number.isInteger(value) || !Number.isFinite(value);
-}
-
-export const WEEK_MS = 7 * DAY_MS;
-
-/** UTC Monday 00:00 of the week containing `at` — weeks are UTC buckets
- * like every stats day, so week labels can never drift off the daily
- * chart. Lives beside its day siblings: every week-shaped feature reads
- * THIS, not a private fork. */
-export function utcWeekStart(at: number): number {
-  const day = utcDayStart(at);
-  const mondayOffset = (new Date(day).getUTCDay() + 6) % 7;
-  return day - mondayOffset * DAY_MS;
 }

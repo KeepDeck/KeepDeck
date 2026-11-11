@@ -65,7 +65,7 @@ vi.mock("../../app/useWindowReports", () => ({
 const panels = vi.hoisted(() => ({
   overview: vi.fn<(props: ComponentProps<typeof Overview>) => void>(),
   providers: vi.fn<(props: ComponentProps<typeof Providers>) => void>(),
-  table: vi.fn<(props: ComponentProps<typeof StatsTable>) => void>(),
+  breakdown: vi.fn<(props: ComponentProps<typeof Breakdown>) => void>(),
   achievements: vi.fn<(props: ComponentProps<typeof Achievements>) => void>(),
 }));
 vi.mock("./Overview", () => ({
@@ -80,9 +80,9 @@ vi.mock("./Providers", () => ({
     return null;
   },
 }));
-vi.mock("./StatsTable", () => ({
-  StatsTable: (props: ComponentProps<typeof StatsTable>) => {
-    panels.table(props);
+vi.mock("./Breakdown", () => ({
+  Breakdown: (props: ComponentProps<typeof Breakdown>) => {
+    panels.breakdown(props);
     return null;
   },
 }));
@@ -102,29 +102,45 @@ import {
 import type { Achievements } from "./Achievements";
 import type { Overview } from "./Overview";
 import type { Providers } from "./Providers";
-import type { StatsTable } from "./StatsTable";
+import type { Breakdown } from "./Breakdown";
 import { StatsDialog, UsageStats } from "./StatsDialog";
+import { useStatsView } from "../../app/useStatsView";
+import { returnTab } from "../../presentation/stats/statsTabs";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import { present } from "@keepdeck/plugin-api/testing";
+import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
+
+/** The kept awards are the notifier's, through the runtime; these cases are
+ * about the ledger's own crossings, so none is kept. */
+vi.mock("../../app/useKeptAchievements", () => ({ useKeptAchievements: () => new Set<string>() }));
 
 /** What the shell last handed a panel. */
 const handed = <P,>(panel: Mock<(props: P) => void>, name: string): P =>
   present(panel.mock.lastCall, `${name}'s last render`)[0];
 const overview = () => handed(panels.overview, "Overview");
 const providers = () => handed(panels.providers, "Providers");
-const table = () => handed(panels.table, "StatsTable");
+const breakdown = () => handed(panels.breakdown, "Breakdown");
 const achievements = () => handed(panels.achievements, "Achievements");
 
-/** The dialog's tab is controlled by the app-layer owner; tests host that
- * ownership in a tiny stateful wrapper. */
+/** The dialog's tab and view are controlled by app-layer owners; tests
+ * host that ownership in a tiny stateful wrapper — the view through the
+ * real owner hook. */
+/** No pane holds any session in these cases. */
+const NO_SESSIONS = { held: () => false, reveal: () => {} };
+
+/** The router's tab memory, as the app-layer owner keeps it. */
+function useTab(initialTab: StatsTab) {
+  const [state, setState] = useState({ tab: initialTab, from: "overview" as StatsTab });
+  const onSelectTab = (tab: StatsTab) => setState((at) => ({ tab, from: returnTab(at.tab, at.from) }));
+  return { tab: state.tab, from: state.from, onSelectTab };
+}
+
 function Host({ initialTab = "overview" }: { initialTab?: StatsTab }) {
-  const [tab, setTab] = useState<StatsTab>(initialTab);
-  return createElement(UsageStats, { tab, onSelectTab: setTab });
+  return createElement(UsageStats, { ...useTab(initialTab), view: useStatsView(), teams: NO_TEAM_HISTORY, sessions: NO_SESSIONS });
 }
 
 function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
-  const [tab, setTab] = useState<StatsTab>("overview");
-  return createElement(StatsDialog, { tab, onSelectTab: setTab, onClose });
+  return createElement(StatsDialog, { ...useTab("overview"), view: useStatsView(), teams: NO_TEAM_HISTORY, sessions: NO_SESSIONS, onClose });
 }
 
 const NOW = TEST_NOW;
@@ -148,7 +164,7 @@ const usageEvent = (over: UsageRowOverrides = {}): UsageRow =>
  * honest across that boundary.
  *
  * What a panel then renders belongs to the panel's own suite, and every one
- * of them now has one — Overview, StatsTable, Providers, Achievements,
+ * of them now has one — Overview, Breakdown, Providers, Achievements,
  * Weeks, StreakBadge — each mounted directly, with no tab to click first.
  * A case that reads a number out of a panel's markup is in the wrong file:
  * the boundary only holds while nothing crosses it — so here every panel is
@@ -174,7 +190,9 @@ describe("UsageStats", () => {
   });
 
   const clickTab = (label: string) => {
-    const tab = present([...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+    // The dialog's overlay renders outside the host; the strip is found
+    // wherever it is mounted.
+    const tab = present([...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
       (button) => button.textContent === label,
     ), "the matching element");
     act(() => tab.click());
@@ -193,7 +211,8 @@ describe("UsageStats", () => {
 
     const dialog = present(document.body.querySelector('[role="dialog"]'), "the [role=\"dialog\"] element");
     expect(dialog.getAttribute("aria-label")).toBe("Statistics");
-    expect(dialog.textContent).toContain("across every CLI and workspace");
+    // The header names the calendar days the default 7 days cover.
+    expect(dialog.textContent).toContain("Jul 16 – Jul 22");
     expect(dialog.closest(".modal-overlay")).not.toBeNull();
     expect(dialog.closest(".settings")).toBeNull();
 
@@ -201,26 +220,55 @@ describe("UsageStats", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("hands Overview the period's totals, and the drill-down tabs their rows", () => {
+  it("opens the badge gallery from the footer, and Escape peels it before the dialog", () => {
+    const close = vi.fn();
+    act(() => root.render(createElement(DialogHost, { onClose: close })));
+    clickTab("Weekly");
+    const door = present(
+      [...document.body.querySelectorAll<HTMLButtonElement>(".stats-dialog__actions .stats__link")].find((b) =>
+        b.textContent?.startsWith("Achievements"),
+      ),
+      "the gallery door",
+    );
+    // The default ledger has crossed two first tiers already.
+    expect(door.textContent).toBe("Achievements · 2 earned →");
+    act(() => door.click());
+    expect(achievements().ledger).toBe(history.snapshot.ledger);
+
+    const escape = () =>
+      act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+    escape();
+    // Back on the tab the gallery was opened from, the dialog still open.
+    expect(close).not.toHaveBeenCalled();
+    expect(present(document.body.querySelector('[role="tab"][aria-selected="true"]'), "the selected tab").textContent).toBe("Weekly");
+    escape();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("hands Overview and Breakdown the period and the whole ledger", () => {
     act(() => root.render(createElement(Host)));
 
     expect(overview().period).toBe(7);
-    expect(overview().stats.totals).toMatchObject({ totalTokens: 1_600, costUsd: 0.25 });
+    expect(overview().ledger).toBe(history.snapshot.ledger);
 
-    clickTab("Models");
-    expect(table()).toMatchObject({ title: "Models", mode: "model" });
-    expect(table().rows.map((row) => row.model)).toEqual(["gpt-5.6-terra"]);
+    clickTab("Breakdown");
+    expect(breakdown()).toMatchObject({ period: 7, dimension: "workspace", order: "cost" });
+    expect(breakdown().ledger).toBe(history.snapshot.ledger);
+  });
 
-    clickTab("Sessions");
-    expect(table()).toMatchObject({ title: "Sessions", mode: "session" });
-    expect(table().rows.map((row) => [row.paneName, row.sessionId])).toEqual([
-      ["auth-refactor", "session-123456789"],
-    ]);
+  it("opens Breakdown on the dimension an Overview list names, and keeps the pick", () => {
+    act(() => root.render(createElement(Host)));
+    act(() => overview().onOpenBreakdown("model"));
+    expect(breakdown()).toMatchObject({ dimension: "model" });
+    act(() => breakdown().onSelectOrder("change"));
+    expect(breakdown()).toMatchObject({ dimension: "model", order: "change" });
   });
 
   it("counts a just-appended event immediately, not after the next clock tick", () => {
     act(() => root.render(createElement(Host)));
-    expect(overview().stats.totals.totalTokens).toBe(1_600);
+    expect(overview().now).toBe(NOW);
 
     // An agent finishes a turn seconds AFTER the dialog's slow clock last
     // ticked: the appended event's instant is ahead of that clock, and the
@@ -235,24 +283,21 @@ describe("UsageStats", () => {
     ]);
     act(() => root.render(createElement(Host)));
     expect(overview().now).toBe(NOW + 5_000);
-    expect(overview().stats.totals.totalTokens).toBe(101_600);
   });
 
-  it("routes a new time range to Overview, which keeps the whole ledger for its weeks", () => {
+  it("routes a new time range to Overview, which keeps the whole ledger", () => {
     history.snapshot = ledger([usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })]);
     act(() => root.render(createElement(Host)));
-    expect(overview().stats.eventCount).toBe(1); // default 7d
+    expect(overview().period).toBe(7);
 
-    clickPeriod("24h");
+    clickPeriod("Today");
     // The period went empty, but Overview STAYS, handed the whole ledger:
-    // an empty period must never hide the one period-independent block, its
-    // Weeks history (review finding; Overview's own suite draws it).
+    // its comparison and its limits glance read past the period.
     expect(overview().period).toBe(1);
-    expect(overview().stats.eventCount).toBe(0);
     expect(overview().ledger).toBe(history.snapshot.ledger);
   });
 
-  it("keeps Providers alive when the ledger failed to load", () => {
+  it("keeps Limits alive when the ledger failed to load", () => {
     history.snapshot = {
       ready: true,
       ledger: { events: [], version: 0 },
@@ -271,7 +316,7 @@ describe("UsageStats", () => {
 
     // Ledger-backed tabs surface the failure…
     expect(host.textContent).toContain("Usage history is unavailable");
-    clickTab("Providers");
+    clickTab("Limits");
     // …but Providers reads the independent account snapshot and renders.
     expect(providers().accounts).toBe(usage.snapshot.accounts);
     expect(providers().reportsByKey).toBe(windowReports.snapshot.byKey);
@@ -292,18 +337,25 @@ describe("UsageStats", () => {
     ).toBeNull();
   });
 
-  it("opens directly on a deep-linked tab", () => {
+  it("opens directly on a deep-linked destination, off the strip, with the way back", () => {
     act(() =>
       root.render(createElement(Host, { initialTab: "achievements" })),
     );
     expect(achievements().ledger).toBe(history.snapshot.ledger);
-    expect(present(host.querySelector('[role="tab"][aria-selected="true"]'), "the [role=\"tab\"][aria-selected=\"true\"] element").textContent).toBe(
-      "Achievements",
-    );
+    // The gallery is no tab of the strip: none is selected, the panel names it.
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')).toBeNull();
+    expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+      "Overview", "Breakdown", "Limits", "Weekly",
+    ]);
+    expect(host.querySelector('[role="tabpanel"]')?.getAttribute("aria-label")).toBe("Achievements");
+    const back = present(host.querySelector<HTMLButtonElement>(".stats__back"), "the way back");
+    expect(back.textContent).toBe("‹ Overview");
+    act(() => back.click());
+    expect(present(host.querySelector('[role="tab"][aria-selected="true"]'), "the selected tab").textContent).toBe("Overview");
   });
 
   it("selects and focuses the next tab on an arrow, wrapping past the last", () => {
-    act(() => root.render(createElement(Host, { initialTab: "achievements" })));
+    act(() => root.render(createElement(Host, { initialTab: "weekly" })));
     const strip = present(host.querySelector<HTMLElement>('[role="tablist"]'), "the tab strip");
     act(() => {
       strip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
@@ -314,18 +366,15 @@ describe("UsageStats", () => {
     expect(overview().period).toBe(7);
   });
 
-  it("disables the period switcher on the period-independent Providers tab", () => {
+  it("disables the period switcher on the period-independent Limits tab", () => {
     act(() => root.render(createElement(Host)));
     const periodButton = () =>
       [...host.querySelectorAll<HTMLButtonElement>(".stats__period button")][0];
     expect(periodButton().disabled).toBe(false);
 
-    clickTab("Providers");
+    clickTab("Limits");
     expect(periodButton().disabled).toBe(true);
     expect(host.querySelector(".stats__period--idle")).not.toBeNull();
-
-    clickTab("Achievements");
-    expect(periodButton().disabled).toBe(true);
 
     clickTab("Overview");
     expect(periodButton().disabled).toBe(false);
@@ -343,7 +392,7 @@ describe("UsageStats", () => {
       windows: [{ usedPct: 90, resetsAt: NOW + 10_000, windowMinutes: 300 }],
     };
     usage.snapshot = { accounts: new Map([["codex", account]]), panes: new Map() };
-    act(() => root.render(createElement(Host, { initialTab: "providers" })));
+    act(() => root.render(createElement(Host, { initialTab: "limits" })));
     expect(providers().now).toBe(NOW);
 
     // The reset passes with no new report: the wall clock ticks, and the
@@ -362,35 +411,36 @@ describe("UsageStats", () => {
       usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
     ]);
     act(() => root.render(createElement(Host)));
-    // Default 7d is empty: Overview keeps rendering, handed the whole ledger
-    // for its Weeks, while the period-LEDGER tabs still gate.
-    expect(overview().stats.eventCount).toBe(0);
+    // The default 7 days are empty: Overview keeps rendering, handed the
+    // whole ledger, while the period-LEDGER tabs still gate.
     expect(overview().ledger).toBe(history.snapshot.ledger);
-    clickTab("Models");
+    clickTab("Breakdown");
     expect(host.textContent).toContain("No usage recorded");
     clickTab("Overview");
 
     clickPeriod("All");
     expect(overview().period).toBe("all");
-    expect(overview().stats.totals.totalTokens).toBe(1_600);
   });
 
-  it("notes the switch to model ids under Models while the period reaches past it", () => {
-    const since = NOW - 2 * 24 * 60 * 60 * 1_000;
-    history.snapshot = {
-      ...ledger([
-        usageEvent({ occurredAt: since - 60_000 }),
-        usageEvent({ eventId: "e-new", occurredAt: NOW - 60_000 }),
-      ]),
-      perModelSince: since,
-    };
+  it("narrows Overview and Breakdown to a picked workspace, and shows no scope on Limits", () => {
+    history.snapshot = ledger([usageEvent({ workspaceName: "KeepDeck" }), usageEvent({ workspaceName: "Docs" })]);
     act(() => root.render(createElement(Host)));
-    clickTab("Models");
-    expect(host.textContent).toContain("listed by model id");
+    const chip = (label: string) =>
+      present([...host.querySelectorAll<HTMLButtonElement>(".stats__scope button")].find((b) => b.textContent === label), label);
+    expect(overview().workspace).toBeNull();
+    act(() => chip("Docs").click());
+    expect(overview().workspace).toBe("Docs");
+    clickTab("Breakdown");
+    expect(breakdown().workspace).toBe("Docs");
+    clickTab("Limits");
+    expect(host.querySelector(".stats__scope")).toBeNull();
+  });
 
-    // A day back the period holds only rows booked per model.
-    clickPeriod("24h");
-    expect(host.textContent).not.toContain("listed by model id");
+  it("hands Breakdown the ledger's switch to per-model booking", () => {
+    history.snapshot = { ...ledger([usageEvent()]), perModelSince: NOW - 60_000 };
+    act(() => root.render(createElement(Host)));
+    clickTab("Breakdown");
+    expect(breakdown().perModelSince).toBe(NOW - 60_000);
   });
 
   it("hands each tab the same period the switcher is showing", () => {
@@ -400,11 +450,11 @@ describe("UsageStats", () => {
       usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
     ]);
     act(() => root.render(createElement(Host)));
-    clickTab("Models");
+    clickTab("Breakdown");
     expect(host.textContent).toContain("No usage recorded");
 
     clickPeriod("All");
     expect(host.textContent).not.toContain("No usage recorded");
-    expect(table().rows.map((row) => row.model)).toEqual(["gpt-5.6-terra"]);
+    expect(breakdown().period).toBe("all");
   });
 });

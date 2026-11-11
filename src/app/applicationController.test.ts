@@ -270,6 +270,27 @@ describe("application controller", () => {
     expect(view.openTasks).toHaveBeenCalledTimes(1);
   });
 
+  it("routes a stats notification to its tab, and a digest's to the week it reports", () => {
+    const deck = createDeckStore({ ...initialDeckState, workspaces: [workspace()], activeId: "ws-1" });
+    const { plugins, orchestrator } = dependencies();
+    const controller = createApplicationController({
+      deck,
+      plugins,
+      orchestrator,
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      mcpLibrary: noMcp(),
+      registry: createCommandRegistry(),
+    });
+    const view = ui();
+    controller.bindUi(view);
+    controller.openNotification({ id: "n-1", title: "Badge", severity: "info", at: 0, source: { type: "stats", tab: "achievements" } });
+    expect(view.openUsage).toHaveBeenLastCalledWith("achievements", undefined);
+    controller.openNotification({ id: "n-2", title: "Week", severity: "info", at: 0, source: { type: "stats", tab: "weekly", week: 1_000 } });
+    expect(view.openUsage).toHaveBeenLastCalledWith("weekly", 1_000);
+  });
+
   it("reports workspace-allocation failures through the bound UI", () => {
     const deck = createDeckStore();
     const { plugins, orchestrator } = dependencies();

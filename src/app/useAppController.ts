@@ -17,6 +17,9 @@ import { useDragDrop } from "./useDragDrop";
 import { useGitHead } from "./useGitHead";
 import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useModalRouter } from "./useModalRouter";
+import { createStatsSessions } from "./statsSessions";
+import { teamHistory } from "../domain/usage/stats/teams";
+import { useStatsView } from "./useStatsView";
 import { markNotificationsReadWhere, setSourceVisibilityProbe } from "./notificationCenter";
 import { useBoardSeen } from "./tasks/useBoardSeen";
 import { useActivityNotifications } from "./useActivityNotifications";
@@ -164,11 +167,13 @@ export function useAppController(runtime: AppRuntime) {
   /** The dialog layer (settings / statistics / skills) has one owner: its
    * flags, gate and open/close/retarget verbs all live in the router. */
   const modal = useModalRouter({ transactionOpen: dialogOpen });
+  const statsView = useStatsView();
   const canOpenDialog = modal.canOpenDialog;
   const applicationUi = useRef({
     agents,
     openSettings: modal.openSettings,
     openStats: modal.openStats,
+    selectWeek: statsView.selectWeek,
     openTasks: modal.openTasks,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
@@ -179,6 +184,7 @@ export function useAppController(runtime: AppRuntime) {
     agents,
     openSettings: modal.openSettings,
     openStats: modal.openStats,
+    selectWeek: statsView.selectWeek,
     openTasks: modal.openTasks,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
@@ -194,7 +200,11 @@ export function useAppController(runtime: AppRuntime) {
       requestDisbandTeam: (wsId, teamId) => current().requestDisbandTeam(wsId, teamId),
       openSettings: (sectionId) =>
         current().openSettings(sectionId ?? undefined),
-      openUsage: (tab) => current().openStats(tab),
+      openUsage: (tab, week) => {
+        // A digest names the week it reports; Weekly opens on it.
+        if (week !== undefined) current().selectWeek(week);
+        return current().openStats(tab);
+      },
       openTasks: (taskId) => current().openTasks(taskId),
       setCreating: (next) => current().setCreating(next),
       pushAlert: (title, message) => current().pushAlert(title, message),
@@ -383,6 +393,18 @@ export function useAppController(runtime: AppRuntime) {
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
   };
+  /** The session journal's teams, keyed by each workspace slot's current
+   * name — read once per change of the journal or the workspaces. */
+  const statsTeams = useMemo(
+    () => teamHistory(deck.journal.records, new Map(deck.workspaces.map((ws) => [ws.id, ws.name]))),
+    [deck.journal.records, deck.workspaces],
+  );
+  const statsSessions = createStatsSessions({
+    workspaces: () => deck.workspaces,
+    blocked: (paneId) => paneId in runView.blocked,
+    closeStats: modal.closeStats,
+    activatePane: runtime.application.activatePane,
+  });
   /** A team row of the slid-open strip: that team, in its workspace. */
   const handleEnterTeam = runtime.application.activateTeam;
   const notificationPrefs =
@@ -537,6 +559,10 @@ export function useAppController(runtime: AppRuntime) {
     specByPane,
     statsOpen: modal.statsOpen,
     statsTab: modal.statsTab,
+    statsFrom: modal.statsFrom,
+    statsSessions,
+    statsTeams,
+    statsView,
     unavailableReasons,
     updateState,
     usageLiveAgents,

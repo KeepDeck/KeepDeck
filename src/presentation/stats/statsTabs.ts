@@ -13,7 +13,7 @@ import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
 /** What a tab renders from — this single field decides both gates the
  * dialog applies: a dead ledger blocks every ledger-backed tab, and the
  * period-empty state applies only to tabs whose WHOLE body is
- * period-scoped. Providers run on the provider's clock; achievements are
+ * period-scoped. Limits run on the provider's clock; achievements are
  * all-time by definition. `period-lens` is a period-CONSUMING view over
  * the full ledger (Overview: cards and chart follow the switcher, the
  * Weeks block deliberately does not) — an empty period must never hide
@@ -24,12 +24,24 @@ export type StatsTabData =
   | "all-ledger"
   | "live-accounts";
 
-export const TAB_SPECS: Record<StatsTab, { label: string; data: StatsTabData }> = {
-  overview: { label: "Overview", data: "period-lens" },
-  providers: { label: "Providers", data: "live-accounts" },
-  models: { label: "Models", data: "period-ledger" },
-  sessions: { label: "Sessions", data: "period-ledger" },
-  achievements: { label: "Achievements", data: "all-ledger" },
+export interface StatsTabSpec {
+  label: string;
+  data: StatsTabData;
+  /** What a period-independent tab says its numbers cover instead. */
+  note?: string;
+  /** The tab's numbers narrow to the workspace the reader picked. */
+  scoped?: true;
+  /** A destination reached from a door — the footer, Weekly, a deep link —
+   * rather than a tab of the strip. */
+  offStrip?: true;
+}
+
+export const TAB_SPECS: Record<StatsTab, StatsTabSpec> = {
+  overview: { label: "Overview", data: "period-lens", scoped: true },
+  limits: { label: "Limits", data: "live-accounts", note: "Account-wide · each window runs on its provider's clock" },
+  weekly: { label: "Weekly", data: "all-ledger", note: "Calendar weeks, local time · all workspaces" },
+  breakdown: { label: "Breakdown", data: "period-ledger", scoped: true },
+  achievements: { label: "Achievements", data: "all-ledger", offStrip: true },
 };
 
 /** Derived, not hand-listed: does the tab read the period switcher? */
@@ -42,15 +54,22 @@ export function periodless(tab: StatsTab): boolean {
   return !consumesPeriod(TAB_SPECS[tab].data);
 }
 
-/** The tab an arrow key selects from `current`: the next or previous one,
- * wrapping, and the ends on Home and End — the strip's one traversal,
- * shared with every row of choices (ui-kit segmentStep). Null for any other
- * key. */
+/** The tabs of the strip, in order — every tab but the off-strip ones. */
+export const STRIP_TABS: readonly StatsTab[] = STATS_TAB_IDS.filter((id) => TAB_SPECS[id].offStrip !== true);
+
+/** The tab an arrow key selects from `current`: the next or previous one of
+ * the strip, wrapping, and the ends on Home and End — the strip's one
+ * traversal, shared with every row of choices (ui-kit segmentStep). Null for
+ * any other key, and while an off-strip destination is shown. */
 export function statsTabStep(current: StatsTab, key: string): StatsTab | null {
-  const next = segmentStep(
-    key,
-    STATS_TAB_IDS.indexOf(current),
-    STATS_TAB_IDS.map(() => false),
-  );
-  return next === null ? null : (STATS_TAB_IDS[next] ?? null);
+  const index = STRIP_TABS.indexOf(current);
+  if (index === -1) return null;
+  const next = segmentStep(key, index, STRIP_TABS.map(() => false));
+  return next === null ? null : (STRIP_TABS[next] ?? null);
+}
+
+/** Where leaving an off-strip destination goes: the strip tab it was
+ * opened from. */
+export function returnTab(current: StatsTab, from: StatsTab): StatsTab {
+  return TAB_SPECS[current].offStrip === true ? from : current;
 }

@@ -1,9 +1,8 @@
 import { Fragment, useMemo } from "react";
 import type { AccountUsage } from "../../domain/usage";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
-import { providerWindowGroups } from "../../domain/usage/providerWindows";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import { providersView, type ProviderWindowView } from "../../presentation/stats/providersView";
+import { accountLimitsView, type ProviderWindowView } from "../../presentation/stats/providersView";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { WindowBurn } from "../usage/WindowBurn";
 
@@ -37,7 +36,7 @@ export function Providers({
   // from the usage store, so every journal emit lands in the same flush as
   // the accounts change that caused it.
   const view = useMemo(
-    () => providersView(providerWindowGroups(accounts, ledger.events, reportsByKey, now), now, colors),
+    () => accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors }),
     [accounts, ledger, reportsByKey, now, colors],
   );
   if (view.kind === "empty") {
@@ -82,6 +81,19 @@ function ProviderWindow({ view, now }: { view: ProviderWindowView; now: number }
         ))}
       </small>
       {view.ledger && <small>{view.ledger}</small>}
+      {view.sessions.length > 0 && (
+        <ul className="stats__window-sessions">
+          {view.sessions.map((session) => (
+            <li key={session.key}>
+              <span>
+                {session.name}
+                {session.source !== null && <small>{session.source}</small>}
+              </span>
+              <b>{session.cost}</b>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

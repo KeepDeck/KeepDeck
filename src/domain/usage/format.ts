@@ -2,7 +2,6 @@ import { DAY_MS } from "./time";
 import {
   windowExpired,
   type AccountUsage,
-  type TokenCounts,
   type UsageWindow,
 } from "./usage";
 
@@ -80,7 +79,7 @@ export function panelWindows(account: AccountUsage): UsageWindow[] {
  * whose duration no source reports. The chip abbreviates ("wk"/"mo"), the
  * panel has room to spell the word out ("week"/"month"). */
 export function windowLabel(
-  window: UsageWindow,
+  window: Pick<UsageWindow, "windowMinutes" | "scope">,
   form: "short" | "long" = "short",
 ): string {
   switch (window.windowMinutes) {
@@ -231,26 +230,12 @@ export function modelLabel(
   return name || model || "Unknown model";
 }
 
-/** "Jul 22" / "Jul 22, 2026" — labeled in UTC because every stats day
- * bucket (recap, daily chart, milestone dates) is a UTC day; a local-time
- * label would drift off its own bucket. */
-export function formatUtcDay(at: number, withYear = false): string {
-  return new Date(at).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    ...(withYear ? { year: "numeric" } : {}),
-    timeZone: "UTC",
-  });
-}
-
 /**
  * A future instant as a wall clock the reader can plan against: "06:40",
  * "tomorrow 06:40", "Thu 06:40", "Aug 12, 06:40".
  *
- * LOCAL time, unlike every other label in this file. Stats buckets speak UTC
- * because they are aggregation boundaries and must agree across zones; this
- * is the opposite kind of fact — the moment a person's own limit runs out,
- * which is only useful in the clock they are looking at.
+ * LOCAL time, like every label in this file: the moment a person's own
+ * limit runs out is only useful in the clock they are looking at.
  *
  * Named by relation while the relation is short, because "tomorrow 06:40"
  * places a moment that "Aug 7, 06:40" makes the reader work out.
@@ -280,24 +265,36 @@ export function formatMoment(at: number, now: number): string {
   return `${day}, ${time}`;
 }
 
-/** THE chart bucket label, both granularities and both surfaces (axis tick
- * and tooltip). Buckets are UTC-aligned instants, so labels speak UTC too —
- * a local-zone rendering of a UTC-hour bucket reads as half-hours in
- * :30/:45-offset zones. The long (tooltip) form names the day and marks
- * the zone; the short ticks stay uncluttered. */
-export function formatBucket(
+/** "Nov 8" / "Nov 8, 2026" — a day on the READER'S calendar, the day every
+ * Statistics step is cut on (stats/period.ts). */
+export function formatLocalDay(at: number, withYear = false): string {
+  return new Date(at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(withYear ? { year: "numeric" } : {}),
+  });
+}
+
+/** THE timeline step label, both granularities and both surfaces (axis tick
+ * and hover card). Local, like the steps: a day is the reader's calendar
+ * day and an hour their clock hour. The long (hover) form names the
+ * weekday, or the day an hour belongs to. */
+export function formatStep(
   start: number,
   granularity: "hour" | "day",
   form: "short" | "long" = "short",
 ): string {
-  if (granularity === "day") return formatUtcDay(start, form === "long");
+  if (granularity === "day") {
+    if (form === "short") return formatLocalDay(start);
+    const weekday = new Date(start).toLocaleDateString("en-US", { weekday: "short" });
+    return `${weekday}, ${formatLocalDay(start, true)}`;
+  }
   const time = new Date(start).toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC",
   });
-  return form === "short" ? time : `${formatUtcDay(start)}, ${time} UTC`;
+  return form === "short" ? time : `${formatLocalDay(start)}, ${time}`;
 }
 
 /** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,
@@ -340,61 +337,4 @@ export function formatTokens(n: number): string {
   if (m < 999.95) return `${oneDp(m)}M`;
   const b = n / 1_000_000_000;
   return b < 999.95 ? `${oneDp(b)}B` : `${oneDp(n / 1_000_000_000_000)}T`;
-}
-
-/** One named part of a total, in the order these are always read. */
-export interface TokenSegment {
-  kind: "cache" | "input" | "output";
-  /** "cache 1.7B", "↑ 240M", "↓ 80M". */
-  caption: string;
-  value: number;
-}
-
-/**
- * What a total is MADE OF, as parts — the one place that decides which kinds
- * are shown, in what order, and when one is left out.
- *
- * A single token number hides the thing that explains both the work and the
- * bill: cache reads usually dominate the sum and are priced differently from
- * what was actually sent or generated. Cache therefore leads — burying the
- * biggest term behind two smaller ones is why the total reads unexplained.
- *
- * A field the provider never reported is omitted rather than printed as a
- * zero it did not claim; a REPORTED zero is kept, because a turn that
- * generated nothing is a fact about that turn. Cache is the exception: it is
- * absent far more often than it is genuinely zero, so a bare 0 there would
- * be noise on every codex row.
- */
-export function tokenSegments(tokens: TokenCounts): TokenSegment[] {
-  const cacheRead = tokens.cacheRead ?? 0;
-  const segments: TokenSegment[] = [];
-  if (cacheRead > 0) {
-    segments.push({
-      kind: "cache",
-      caption: `cache ${formatTokens(cacheRead)}`,
-      value: cacheRead,
-    });
-  }
-  if (tokens.input !== undefined) {
-    segments.push({
-      kind: "input",
-      caption: `↑ ${formatTokens(tokens.input)}`,
-      value: tokens.input,
-    });
-  }
-  if (tokens.output !== undefined) {
-    segments.push({
-      kind: "output",
-      caption: `↓ ${formatTokens(tokens.output)}`,
-      value: tokens.output,
-    });
-  }
-  return segments;
-}
-
-/** The same parts as one line: "cache 1.7B · ↑ 240M · ↓ 80M". */
-export function tokenBreakdown(tokens: TokenCounts): string {
-  return tokenSegments(tokens)
-    .map((segment) => segment.caption)
-    .join(" · ");
 }

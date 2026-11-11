@@ -1,27 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { usageEvent } from "../history/event.testSupport";
+import { utcDayStart } from "../time";
+import { inZone } from "../time.testSupport";
 import { createAchievementEngine } from "./engine";
 
 /**
  * The metric accumulator. Most of it is covered through `usageAchievementLadders`
  * in `ladders.test.ts`, which is the right altitude for "does the gallery say
  * the right thing". What lives HERE is the one thing that view cannot see: the
- * engine folds days under TWO different calendars on purpose, and every
- * fixture spaced a flat 24h apart passes under either of them.
+ * calendar the engine folds days in — the reader's, for every per-day metric,
+ * with the UTC bucket kept only for the move from it — and every fixture
+ * spaced a flat 24h apart passes under either.
  */
-
-/** Run a body in a FIXED zone, whatever the runner is in — the suite pins no
- * TZ, so a fold that differs by calendar proves nothing until one is chosen. */
-function inZone(tz: string, body: () => void): void {
-  const before = process.env.TZ;
-  process.env.TZ = tz;
-  try {
-    body();
-  } finally {
-    if (before === undefined) delete process.env.TZ;
-    else process.env.TZ = before;
-  }
-}
 
 const at = (year: number, month: number, day: number, hour: number) =>
   new Date(year, month, day, hour, 0, 0, 0).getTime();
@@ -77,18 +67,24 @@ describe("the calendar the longest streak is folded in", () => {
     });
   });
 
-  it("leaves the per-day PEAKS on the UTC bucket", () => {
-    // Deliberate split, and the reason it is not a bug: a streak is "did I
-    // show up today" — the reader's own calendar — while a peak is "how big
-    // was the biggest day", an aggregation that must bucket identically
-    // wherever the ledger is read. Two sessions on ONE local day that
-    // straddle the UTC boundary are therefore one streak day and TWO peak
-    // days, so the peak counts 1000 tokens rather than 2000.
+  it("counts the per-day PEAKS on the reader's calendar too — one day is one day", () => {
+    // The per-day metrics moved to the reader's calendar with the rest of
+    // Statistics (user decision, 2026-11-11): two sessions on ONE local day
+    // that straddle the UTC boundary are one streak day AND one peak day.
     inZone("Europe/Moscow", () => {
       const engine = fold([at(2026, 3, 10, 1), at(2026, 3, 10, 12)]);
       expect(engine.value("streakDays")).toBe(1);
+      expect(engine.value("dayTokens")).toBe(2_000);
+    });
+  });
+
+  it("still answers on the UTC bucket when asked — the old calendar, for the move", () => {
+    inZone("Europe/Moscow", () => {
+      const engine = createAchievementEngine(utcDayStart);
+      for (const occurredAt of [at(2026, 3, 10, 1), at(2026, 3, 10, 12)]) {
+        engine.ingest(usageEvent({ occurredAt, tokens: { input: 1_000 } }));
+      }
       expect(engine.value("dayTokens")).toBe(1_000);
-      expect(engine.value("daySessions")).toBe(1);
     });
   });
 });

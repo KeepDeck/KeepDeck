@@ -68,12 +68,8 @@ export function createAgentOrchestratorContinuations({
   const resuming = new Set<string>();
   const forking = new Set<string>();
 
-  function claimantOf(sessionId: string) {
-    return sessionClaimant(
-      deck.getSnapshot().workspaces,
-      sessionId,
-      isBlocked,
-    );
+  function claimantOf(session: { agent: string; sessionId: string }) {
+    return sessionClaimant(deck.getSnapshot().workspaces, session, isBlocked);
   }
 
   const resumeSession: AgentOrchestrator["resumeSession"] = async (
@@ -93,7 +89,7 @@ export function createAgentOrchestratorContinuations({
       const cwd = team?.location?.kind === "attached" ? team.location.cwd : null;
       if (!recordedOnTeam(record.cwd, { cwd })) throw new Error(RESUMED_ELSEWHERE);
     }
-    const claimant = claimantOf(record.sessionId);
+    const claimant = claimantOf(record);
     if (claimant) {
       throw new Error(
         claimant.reads === "stopped"
@@ -127,7 +123,7 @@ export function createAgentOrchestratorContinuations({
         dropPaneSpawnSpec(id);
         throw new Error("Agent could not prepare a resume plan");
       }
-      if (claimantOf(record.sessionId)) {
+      if (claimantOf(record)) {
         dropPaneSpawnSpec(id);
         return;
       }

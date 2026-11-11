@@ -13,7 +13,7 @@ import {
   type UsageAchievementLadder,
 } from "../../domain/usage/achievements/ladders";
 import type { AchievementRarity } from "../../domain/usage/achievements/rarity";
-import { formatUtcDay } from "../../domain/usage";
+import { formatLocalDay } from "../../domain/usage";
 
 /**
  * The Achievements tab as the component maps it: which sections there are,
@@ -39,7 +39,7 @@ const RARITY_LABELS: Record<AchievementRarity, string> = {
  * stylesheet spells the same thing four more times in its own language.
  */
 export function wearsEmbers(item: UsageAchievement): boolean {
-  return item.rarity === "legendary" && item.achievedAt !== null;
+  return item.rarity === "legendary" && item.earned;
 }
 
 /**
@@ -140,14 +140,16 @@ export interface AchievementCardView {
   tipStatus: string;
 }
 
-/** One home for the earned date — the card and its own tip must never
- * disagree on how a trophy's date reads. */
-function earnedDate(achievedAt: number): string {
-  return formatUtcDay(achievedAt, true);
+/** One home for the earned wording — the card and its own tip must never
+ * disagree on how a trophy's date reads. A day on the reader's calendar,
+ * like every Statistics day; a kept award the ledger no longer dates reads
+ * as earned, undated. */
+function earnedText(achievedAt: number | null, lead: "earned" | "Earned"): string {
+  return achievedAt === null ? lead : `${lead} ${formatLocalDay(achievedAt, true)}`;
 }
 
 export function achievementCardView(item: UsageAchievement, future: boolean): AchievementCardView {
-  const earned = item.achievedAt;
+  const earned = item.earned;
   return {
     id: item.id,
     icon: item.icon,
@@ -155,19 +157,19 @@ export function achievementCardView(item: UsageAchievement, future: boolean): Ac
     rarity: item.rarity,
     rarityLabel: RARITY_LABELS[item.rarity],
     requirement: achievementRequirement(item),
-    locked: earned === null,
+    locked: !earned,
     future,
     embers: wearsEmbers(item),
     rim: { drift: rimDrift(item.id), phase: rimPhase(item.id) },
     status:
-      earned !== null
-        ? { kind: "earned", text: `earned ${earnedDate(earned)}` }
+      earned
+        ? { kind: "earned", text: earnedText(item.achievedAt, "earned") }
         : future
           ? { kind: "none" }
           : { kind: "progress", percent: achievementPercent(item), text: achievementProgress(item) },
     // Exact numbers, not the card's compact abbreviations; the per-metric
     // formatting lives with the metric specs.
-    tipStatus: earned !== null ? `Earned ${earnedDate(earned)}` : achievementExact(item),
+    tipStatus: earned ? earnedText(item.achievedAt, "Earned") : achievementExact(item),
   };
 }
 

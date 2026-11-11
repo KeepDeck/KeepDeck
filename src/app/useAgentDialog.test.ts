@@ -823,9 +823,11 @@ describe("useAgentDialog start-from routing", () => {
       ],
     });
     await mountAndOpen(ws);
-    expect(flow.sessionClaim("s-run")).toBe("running");
-    expect(flow.sessionClaim("s-dorm")).toBe("stopped");
-    expect(flow.sessionClaim("s-free")).toBeNull();
+    expect(flow.sessionClaim({ agent: "claude", sessionId: "s-run" })).toBe("running");
+    expect(flow.sessionClaim({ agent: "claude", sessionId: "s-dorm" })).toBe("stopped");
+    expect(flow.sessionClaim({ agent: "claude", sessionId: "s-free" })).toBeNull();
+    // Another CLI's session of the same id is not held by a claude pane.
+    expect(flow.sessionClaim({ agent: "codex", sessionId: "s-run" })).toBeNull();
   });
 
   it("calls a pane stuck on a gone folder stopped, like every other surface", async () => {
@@ -845,7 +847,7 @@ describe("useAgentDialog start-from routing", () => {
       ],
     });
     await mountAndOpen(ws);
-    expect(flow.sessionClaim("s-blocked")).toBe("stopped");
+    expect(flow.sessionClaim({ agent: "claude", sessionId: "s-blocked" })).toBe("stopped");
   });
 
   it("still calls a pane merely on its way up running", async () => {
@@ -860,7 +862,7 @@ describe("useAgentDialog start-from routing", () => {
       ],
     });
     await mountAndOpen(ws);
-    expect(flow.sessionClaim("s-rising")).toBe("running");
+    expect(flow.sessionClaim({ agent: "claude", sessionId: "s-rising" })).toBe("running");
   });
 });
 

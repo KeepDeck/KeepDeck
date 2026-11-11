@@ -24,6 +24,8 @@ const badge = (over: Partial<UsageAchievement> = {}): UsageAchievement => ({
   achievedAt: null,
   progress: 4,
   ...over,
+  // Earned when the ledger dated it, unless a case says otherwise.
+  earned: over.earned ?? (over.achievedAt ?? null) !== null,
 });
 
 describe("wearsEmbers", () => {
@@ -108,5 +110,14 @@ describe("achievementSections", () => {
   it("leaves out a section with nothing in it", () => {
     const sections = achievementSections([ladder([badge({ id: "sessions-10" })])]);
     expect(sections.map((section) => section.title)).toEqual(["In progress"]);
+  });
+});
+
+describe("a kept award", () => {
+  it("reads as earned, undated, when the ledger no longer crosses it", () => {
+    const card = achievementCardView(badge({ earned: true, achievedAt: null }), false);
+    expect(card.locked).toBe(false);
+    expect(card.status).toEqual({ kind: "earned", text: "earned" });
+    expect(card.tipStatus).toBe("Earned");
   });
 });

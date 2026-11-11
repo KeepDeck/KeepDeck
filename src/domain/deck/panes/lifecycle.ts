@@ -120,13 +120,15 @@ export function paneBlock(
 }
 
 /**
- * Which pane holds a recorded session, and whether it reads as running or
- * stopped — or null when no pane holds it.
+ * Which pane holds a recorded session — in which workspace, and whether it
+ * reads as running or stopped — or null when no pane holds it.
  *
- * A session runs in at most one pane, ever, and three surfaces need to say so
+ * A session runs in at most one pane, ever, and four surfaces need to say so
  * in agreement: the picker dims a claimed row, a resume refuses with a
- * sentence naming where to go instead, and the flow re-checks after its
- * build. All three matched on `session?.id` by hand and composed the stopped
+ * sentence naming where to go instead, the flow re-checks after its build,
+ * and Statistics offers to open the pane a session runs in. A session is
+ * its agent AND its id: two CLIs can mint the same id, and a codex session
+ * must never answer for a claude one. All three matched on `session?.id` by hand and composed the stopped
  * reading themselves, from two different blocked-map channels — so a fourth
  * reason to read as stopped would have made the row say "running" while the
  * error said "stopped pane", pointing the user at a card with no button.
@@ -135,18 +137,22 @@ export function paneBlock(
  * [`idleReadsAsStopped`] takes it: such a pane is staying down whatever its
  * own marker says.
  */
+/** What names a session to [`sessionClaimant`]: its agent and its id. */
+export type SessionClaimKey = { agent: string; sessionId: string };
+
 export function sessionClaimant(
-  workspaces: { panes: Pane[] }[],
-  sessionId: string,
+  workspaces: readonly { id: string; panes: Pane[] }[],
+  session: SessionClaimKey,
   blocked: (paneId: string) => boolean,
-): { pane: Pane; reads: "running" | "stopped" } | null {
+): { wsId: string; pane: Pane; reads: "running" | "stopped" } | null {
   for (const ws of workspaces) {
     for (const pane of ws.panes) {
-      if (pane.session?.id !== sessionId) continue;
+      if (pane.agentType !== session.agent || pane.session?.id !== session.sessionId) continue;
       // "Stopped" only for a pane STAYING down: one on its way up will be
       // running in a moment, and sending the user to resume it there points at
       // a card with no button.
       return {
+        wsId: ws.id,
         pane,
         reads: idleReadsAsStopped(pane.idle, blocked(pane.id))
           ? "stopped"

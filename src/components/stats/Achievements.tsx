@@ -5,13 +5,15 @@ import {
   achievementSections,
   type AchievementCardView,
 } from "../../presentation/stats/achievementView";
+import { useKeptAchievements } from "../../app/useKeptAchievements";
 import { Tooltip } from "../../ui/Tooltip";
 import { AchievementEmbers } from "./AchievementEmbers";
 
 /** The achievements tab: the sections and cards its view model settles
  * (presentation/stats/achievementView.ts), rendered. */
 export function Achievements({ ledger }: { ledger: UsageLedger }) {
-  const sections = useMemo(() => achievementSections(usageAchievementLadders(ledger.events)), [ledger]);
+  const kept = useKeptAchievements();
+  const sections = useMemo(() => achievementSections(usageAchievementLadders(ledger.events, kept)), [ledger, kept]);
   return (
     <>
       {sections.map((section) => (

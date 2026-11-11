@@ -19,6 +19,7 @@ fn place() -> Place {
         pane_id: "pane-1".into(),
         pane_name: "claude".into(),
         worktree: None,
+        team: None,
     }
 }
 

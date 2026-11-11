@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ledgerOf } from "../domain/usage/history/ledger.testSupport";
 import {
   createAchievementNotifier,
+  oldCalendarEarned,
   migrateFrom,
   reconcileCongratulated,
   type AchievementNotifierDeps,
@@ -12,6 +13,7 @@ import type { UsageHistorySnapshot } from "./usageHistoryManager";
 import type { UsageRow } from "../domain/usage/history/event";
 import { usageEvent as event } from "../domain/usage/history/event.testSupport";
 import { listOf, numberOf, recordOf, stringOf } from "../testing/values.test-support";
+import { inZone, inZoneAsync } from "../domain/usage/time.testSupport";
 
 
 // 2M tokens + provider cost earns: First Million, Warm Afternoon,
@@ -59,6 +61,7 @@ function fakeDeps(over: Partial<AchievementNotifierDeps> = {}) {
     settingsReady: async () => {},
     notify,
     history,
+    keep: () => {},
     ...over,
   };
   return { deps, saved, notify, history };
@@ -504,7 +507,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     const { deps, saved, history } = fakeDeps({
       loadNotified: async () =>
         JSON.stringify({
-          version: 2,
+          version: 3,
           notified: ["tokens-1000000", "spendUsd-10"],
         }),
     });
@@ -524,7 +527,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     const { deps, saved, history } = fakeDeps({
       loadNotified: async () =>
         JSON.stringify({
-          version: 2,
+          version: 3,
           notified: ["tokens-1000000", "tokens-25000000", "spendUsd-100"],
         }),
     });
@@ -563,7 +566,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     const { deps, saved, history } = fakeDeps({
       loadNotified: async () =>
         JSON.stringify({
-          version: 2,
+          version: 3,
           notified: ["streakDays-14", "spendUsd-500"],
         }),
     });
@@ -607,7 +610,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     await settle();
     expect(notify).not.toHaveBeenCalled();
     expect(saved).toHaveLength(1);
-    expect(JSON.parse(saved[0]).version).toBe(2);
+    expect(JSON.parse(saved[0]).version).toBe(3);
     // And a file already at the version writes nothing — the stamp is a
     // one-shot, not a write on every launch.
     const settled = fakeDeps({ loadNotified: async () => saved[0] });
@@ -662,6 +665,168 @@ describe("reconciling a congratulated set against the ledger", () => {
     const persisted = notifiedOf(saved[saved.length - 1]);
     // spendUsd-10 rewrites to spendUsd-100, which $60 does not support.
     expect(persisted).not.toContain("spendUsd-100");
+    notifier.dispose();
+  });
+});
+
+describe("the move of the per-day metrics to the reader's calendar", () => {
+  /** Two sessions on ONE local day that straddle UTC midnight — in Moscow,
+   * 01:00 and 12:00 local — each half of a million-token day. */
+  const straddling = () => [
+    event({ eventId: "a", sessionId: "s1", occurredAt: new Date(2026, 3, 10, 1).getTime(), tokens: { input: 600_000 } }),
+    event({ eventId: "b", sessionId: "s2", occurredAt: new Date(2026, 3, 10, 12).getTime(), tokens: { input: 600_000 } }),
+  ];
+
+  it("records what the move alone earns quietly, and stamps the file past it", async () => {
+    await inZoneAsync("Europe/Moscow", async () => {
+      const { deps, saved, notify, history } = fakeDeps({
+        loadNotified: async () => JSON.stringify({ version: 2, notified: ["tokens-1000000", "sessions-1"] }),
+      });
+      history.set(ledger(straddling()));
+      const notifier = createAchievementNotifier(deps);
+      await settle();
+      await settle();
+      const tags = notify.mock.calls.map((call) => recordOf(call[0], "notification").tag);
+      // The million-token DAY exists only on the reader's calendar: recorded,
+      // never announced.
+      expect(tags).not.toContain("achievement:dayTokens-1000000");
+      const last = saved[saved.length - 1];
+      expect(notifiedOf(last)).toContain("dayTokens-1000000");
+      expect(JSON.parse(last).version).toBe(3);
+      notifier.dispose();
+    });
+  });
+
+  it("announces nothing on a partial history before the move has run", async () => {
+    await inZoneAsync("Europe/Moscow", async () => {
+      const { deps, notify, history } = fakeDeps({
+        loadNotified: async () => JSON.stringify({ version: 2, notified: [] }),
+      });
+      history.set({ ready: true, ledger: ledgerOf(straddling()), error: null, complete: false, perModelSince: null });
+      const notifier = createAchievementNotifier(deps);
+      await settle();
+      await settle();
+      expect(notify).not.toHaveBeenCalled();
+      notifier.dispose();
+    });
+  });
+
+  it("takes back no award the old calendar gave", async () => {
+    // A day tier earned under UTC the reader's calendar would not give: kept.
+    const { deps, saved, history } = fakeDeps({
+      loadNotified: async () => JSON.stringify({ version: 2, notified: ["dayTokens-100000000"] }),
+    });
+    history.set(ledger([event({ costUsd: 1 })]));
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    expect(notifiedOf(saved[saved.length - 1])).toContain("dayTokens-100000000");
+    notifier.dispose();
+  });
+});
+
+describe("oldCalendarEarned", () => {
+  it("is what the ledger earned with per-day metrics on the UTC bucket", () => {
+    inZone("Europe/Moscow", () => {
+      const rows = [
+        event({ occurredAt: new Date(2026, 3, 10, 1).getTime(), tokens: { input: 600_000 } }),
+        event({ occurredAt: new Date(2026, 3, 10, 12).getTime(), tokens: { input: 600_000 } }),
+      ];
+      const old = oldCalendarEarned(rows);
+      // Two UTC days of 600k each: no million-token day on the old calendar.
+      expect(old.has("dayTokens-1000000")).toBe(false);
+      expect(old.has("tokens-1000000")).toBe(true);
+    });
+  });
+});
+
+describe("the floor of awards won", () => {
+  it("keeps a badge the old calendar gave while notifications were off, through the move", async () => {
+    // One UTC day of 1.2M tokens that the reader's calendar SPLITS in two.
+    await inZoneAsync("America/New_York", async () => {
+      const split = [
+        event({ eventId: "a", occurredAt: Date.parse("2026-04-10T02:00:00Z"), tokens: { input: 600_000 } }),
+        event({ eventId: "b", occurredAt: Date.parse("2026-04-10T06:00:00Z"), tokens: { input: 600_000 } }),
+      ];
+      const { deps, saved, history } = fakeDeps({
+        notify: vi.fn(() => false),
+        loadNotified: async () => JSON.stringify({ version: 2, notified: [] }),
+      });
+      const published: string[][] = [];
+      deps.keep = (ids) => published.push([...ids]);
+      history.set(ledger(split));
+      const notifier = createAchievementNotifier(deps);
+      await settle();
+      await settle();
+      // Local days: 22:00 and 02:00 — Apr 9 and Apr 10, no million-token day;
+      // UTC put both on Apr 10. Won then, never announced — and kept.
+      const last = saved[saved.length - 1] ?? "{}";
+      expect(JSON.parse(last).kept).toContain("dayTokens-1000000");
+      expect(JSON.parse(last).notified).not.toContain("dayTokens-1000000");
+      expect(published[published.length - 1]).toContain("dayTokens-1000000");
+      notifier.dispose();
+    });
+  });
+
+  it("keeps a won, unannounced badge — still owed its announcement once notifications are back", async () => {
+    const off = fakeDeps({ notify: vi.fn(() => false), loadNotified: async () => JSON.stringify({ version: 3, notified: [] }) });
+    off.history.set(ledger([event({ costUsd: 60 })]));
+    const first = createAchievementNotifier(off.deps);
+    await settle();
+    await settle();
+    const file = off.saved[off.saved.length - 1] ?? "{}";
+    expect(JSON.parse(file).kept).toContain("spendUsd-10");
+    first.dispose();
+
+    const on = fakeDeps({ loadNotified: async () => file });
+    on.history.set(ledger([event({ costUsd: 60 })]));
+    const second = createAchievementNotifier(on.deps);
+    await settle();
+    const tags = on.notify.mock.calls.map((call) => recordOf(call[0], "notification").tag);
+    expect(tags).toContain("achievement:spendUsd-10");
+    second.dispose();
+  });
+
+  it("still announces a muted day badge after a move that lowers its day", async () => {
+    // Won in Moscow while muted: one local day of 1.2M tokens.
+    const rows = [
+      event({ eventId: "a", occurredAt: Date.parse("2026-04-09T22:00:00Z"), tokens: { input: 600_000 } }),
+      event({ eventId: "b", occurredAt: Date.parse("2026-04-10T09:00:00Z"), tokens: { input: 600_000 } }),
+    ];
+    let file = "";
+    await inZoneAsync("Europe/Moscow", async () => {
+      const muted = fakeDeps({ notify: vi.fn(() => false), loadNotified: async () => JSON.stringify({ version: 3, notified: [] }) });
+      muted.history.set(ledger(rows));
+      const notifier = createAchievementNotifier(muted.deps);
+      await settle();
+      await settle();
+      file = muted.saved[muted.saved.length - 1] ?? "";
+      expect(JSON.parse(file).kept).toContain("dayTokens-1000000");
+      notifier.dispose();
+    });
+    // Read from New York the same rows are two days of 0.6M — not won by the
+    // ledger any more, but won all the same, and still owed its banner.
+    await inZoneAsync("America/New_York", async () => {
+      const back = fakeDeps({ loadNotified: async () => file });
+      back.history.set(ledger(rows));
+      const notifier = createAchievementNotifier(back.deps);
+      await settle();
+      const tags = back.notify.mock.calls.map((call) => recordOf(call[0], "notification").tag);
+      expect(tags).toContain("achievement:dayTokens-1000000");
+      notifier.dispose();
+    });
+  });
+
+  it("starts a file from before the floor from what it announced", async () => {
+    const { deps, history } = fakeDeps({
+      loadNotified: async () => JSON.stringify({ version: 3, notified: ["streakDays-14"] }),
+    });
+    const published: string[][] = [];
+    deps.keep = (ids) => published.push([...ids]);
+    history.set(ledger([event({ costUsd: 1 })]));
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    expect(published[0]).toContain("streakDays-14");
     notifier.dispose();
   });
 });

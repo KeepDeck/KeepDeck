@@ -722,7 +722,7 @@ describe("AgentDialog start-from session picker", () => {
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: SESSIONS, total: SESSIONS.length }),
-          sessionClaim: (id: string) => (id === "s-claimed" ? ("running" as const) : null),
+          sessionClaim: (session: { sessionId: string }) => (session.sessionId === "s-claimed" ? ("running" as const) : null),
           liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},

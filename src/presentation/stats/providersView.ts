@@ -1,13 +1,16 @@
-import { formatPct, windowLabel, windowLevel, type UsageWindow } from "../../domain/usage";
-import type { ProviderWindowGroup } from "../../domain/usage/providerWindows";
+import { formatPct, windowLabel, windowLevel, type AccountUsage, type UsageWindow } from "../../domain/usage";
+import type { UsageRow } from "../../domain/usage/history/event";
+import { providerWindowGroups, type ProviderWindowGroup } from "../../domain/usage/providerWindows";
+import type { WindowReport } from "../../domain/usage/reportJournal";
 import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
 import { burnEdgeLabel, cardCaptionParts, type BurnEdge } from "../../domain/usage/windowForecast";
 import { seriesColorFor } from "../usagePalette";
 import { reportedAgeCaption, usageLevelClass } from "../usageView";
-import { windowLedgerCaption } from "./statsCost";
+import { displayCost, windowLedgerCaption } from "./statsCost";
+import { sessionName } from "./statsNames";
 
 /**
- * The Providers tab, settled: one card per provider with its report age
+ * The Limits tab's provider cards, settled: one card per provider with its report age
  * once, a note when a window has reset, and each window's reading, bar,
  * burn and captions. The component renders this and decides nothing.
  */
@@ -33,6 +36,8 @@ export interface ProviderWindowView {
   caption: (ToneText & { lead: string })[];
   /** What this machine spent inside the window, when it can be said. */
   ledger: string | null;
+  /** Which sessions spent it, the biggest first. */
+  sessions: { key: string; name: string; source: string | null; cost: string }[];
 }
 
 export interface ProviderCardView {
@@ -72,6 +77,11 @@ function windowView(
       lead: index > 0 ? " · " : "",
     })),
     ledger: row.ledger ? windowLedgerCaption(row.ledger) : null,
+    sessions: (row.ledger?.sessions ?? []).map((session) => ({
+      key: session.key,
+      ...sessionName(session),
+      cost: displayCost(session),
+    })),
   };
 }
 
@@ -98,4 +108,17 @@ export function providersView(
       windows: group.rows.map((row) => windowView(row, now, colors)),
     })),
   };
+}
+
+/** THE Limits pipeline — the accounts' windows joined with the ledger and
+ * the report journal, settled as cards — in one place, so the Limits tab
+ * and Overview's glance at it read the very same cards. */
+export function accountLimitsView(input: {
+  accounts: ReadonlyMap<string, AccountUsage>;
+  rows: readonly UsageRow[];
+  reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
+  now: number;
+  colors: ReadonlyMap<string, string>;
+}): ProvidersView {
+  return providersView(providerWindowGroups(input.accounts, input.rows, input.reportsByKey, input.now), input.now, input.colors);
 }

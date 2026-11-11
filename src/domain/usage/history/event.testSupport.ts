@@ -12,17 +12,19 @@ import type { CostBasis, UsageRow } from "./event";
 
 export const TEST_NOW = Date.parse("2026-07-22T12:00:00.000Z");
 
-/** What a test may set on a row: any field, and its cost and basis apart. */
-export type UsageRowOverrides = Partial<Omit<UsageRow, "costBasis" | "costUsd">> & {
+/** What a test may set on a row: any field, and its money and basis apart
+ * — a saving rides only on a priced row, as the core serves it. */
+export type UsageRowOverrides = Partial<Omit<UsageRow, "costBasis" | "costUsd" | "savedUsd">> & {
   costBasis?: CostBasis;
   costUsd?: number;
+  savedUsd?: number;
 };
 
 let seq = 0;
 
 export function usageEvent(over: UsageRowOverrides = {}): UsageRow {
   seq += 1;
-  const { costBasis, costUsd, ...fields } = over;
+  const { costBasis, costUsd, savedUsd, ...fields } = over;
   const row = {
     eventId: `event-${seq}`,
     occurredAt: TEST_NOW - 1_000,
@@ -44,5 +46,5 @@ export function usageEvent(over: UsageRowOverrides = {}): UsageRow {
   };
   return costUsd === undefined || costBasis === "unpriced"
     ? { ...row, costBasis: "unpriced" }
-    : { ...row, costBasis: costBasis ?? "estimated", costUsd };
+    : { ...row, costBasis: costBasis ?? "estimated", costUsd, ...(savedUsd === undefined ? {} : { savedUsd }) };
 }

@@ -911,8 +911,10 @@ impl Booked {
             root_session_id: self.session_id.clone(),
             session_id: self.session_id,
             worktree: self.place.worktree,
+            team: self.place.team,
             tokens: self.tokens,
             cost_usd: priced.cost_usd,
+            saved_usd: priced.saved_usd,
             cost_basis: priced.basis,
             count: u32::try_from(self.count).unwrap_or(u32::MAX),
             calls: u32::try_from(self.calls).unwrap_or(0),
@@ -1392,7 +1394,7 @@ fn old_rows(tx: &Transaction<'_>, table: &str) -> Result<Vec<OldRow>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{CallTokens, UsageCall};
+    use crate::model::{CallTokens, TeamPlace, UsageCall};
     use crate::pricing::CostBasis;
     use std::collections::BTreeMap;
 
@@ -1424,6 +1426,7 @@ mod tests {
             pane_id: pane.into(),
             pane_name: pane.into(),
             worktree: None,
+            team: None,
         }
     }
 
@@ -1460,11 +1463,43 @@ mod tests {
         let rows = s.book(&batch("s1", NOW - DAY, vec![call("msg_1", NOW - 1000.0, 1_000_000.0, 1_000_000.0)]), NOW).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].cost_usd, Some(24.0));
+        assert_eq!(rows[0].saved_usd, Some(0.0), "no cache reads, nothing saved");
         assert_eq!(rows[0].cost_basis, CostBasis::Estimated);
         assert_eq!(rows[0].model.as_deref(), Some("anthropic/claude-opus-5-5"));
         assert_eq!(rows[0].model_name.as_deref(), Some("Claude Opus 5.5"));
         assert_eq!(rows[0].calls, 1);
         assert_eq!(total_cost(&s), 24.0);
+    }
+
+    #[test]
+    fn a_row_is_served_with_the_team_its_pane_was_on() {
+        let mut s = store();
+        let team = TeamPlace::Member { id: "team-7".into(), name: "statistics".into(), role: "lead".into() };
+        let mut b = batch("s1", NOW - DAY, vec![call("msg_1", NOW - 1000.0, 100.0, 10.0)]);
+        b.place.team = Some(team.clone());
+        assert_eq!(s.book(&b, NOW).unwrap()[0].team.as_ref(), Some(&team));
+        assert_eq!(s.ledger(NOW).unwrap().rows[0].team.as_ref(), Some(&team));
+    }
+
+    #[test]
+    fn a_pane_on_no_team_is_recorded_as_such_not_left_unknown() {
+        let mut s = store();
+        let mut b = batch("s1", NOW - DAY, vec![call("msg_1", NOW - 1000.0, 100.0, 10.0)]);
+        b.place.team = Some(TeamPlace::None);
+        assert_eq!(s.book(&b, NOW).unwrap()[0].team, Some(TeamPlace::None));
+        let wire = serde_json::to_string(&s.ledger(NOW).unwrap().rows[0]).unwrap();
+        assert!(wire.contains(r#""team":{"kind":"none"}"#), "{wire}");
+    }
+
+    #[test]
+    fn a_place_stored_before_teams_reads_back_with_none() {
+        let old: Place = serde_json::from_str(
+            r#"{"workspaceId":"ws","workspaceName":"W","workspaceCwd":"/w","paneId":"p","paneName":"p"}"#,
+        )
+        .unwrap();
+        assert_eq!(old.team, None);
+        // And a place with no team writes no key, so old readers see what they always saw.
+        assert!(!serde_json::to_string(&old).unwrap().contains("team"));
     }
 
     #[test]

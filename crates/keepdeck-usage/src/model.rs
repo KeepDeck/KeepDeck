@@ -201,6 +201,19 @@ pub struct Worktree {
     pub repo: String,
 }
 
+/// The KeepDeck team a pane was on when its calls were booked — or that it
+/// was on none. Recorded EITHER way, so a pane on no team is a fact and not
+/// a gap: only a place stored before teams were recorded carries no team
+/// field at all, and only that is left for history to infer. A member names
+/// the team's id, its name at the time — a renamed or disbanded team still
+/// reads as what it was called when the money was spent — and the role.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TeamPlace {
+    None,
+    Member { id: String, name: String, role: String },
+}
+
 /// Where usage happened: the deck's facts about the pane, read back whole and
 /// never queried.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -213,6 +226,10 @@ pub struct Place {
     pub pane_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<Worktree>,
+    /// Absent only in a place stored before teams were recorded — which reads
+    /// back unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamPlace>,
 }
 
 /// Calls one pane reported for one session, to book together.
@@ -255,10 +272,16 @@ pub struct LedgerRow {
     pub root_session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<Worktree>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamPlace>,
     pub tokens: TokenCounts,
     /// Priced from the journal as the row is served; absent when unpriced.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
+    /// What the row's cache reads saved against fresh input, at the same
+    /// price — an estimate; absent when unpriced.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved_usd: Option<f64>,
     pub cost_basis: CostBasis,
     pub count: u32,
     pub calls: u32,

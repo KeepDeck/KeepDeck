@@ -1,103 +1,128 @@
 import { describe, expect, it } from "vitest";
-import { perModelNote, statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
+import { TEST_NOW, usageEvent } from "../../domain/usage/history/event.testSupport";
+import { inZone } from "../../domain/usage/time.testSupport";
+import { escapeTarget, galleryDoor, statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
 
-describe("perModelNote", () => {
-  const SINCE = Date.UTC(2026, 10, 4, 18);
-
-  it("speaks only when the period reaches back past the switch", () => {
-    expect(perModelNote(SINCE, SINCE - 1)).toBe(
-      "Since Nov 4, 2026, an agent that reports each model's own tokens is listed by " +
-        "model id, and a session's cost under the model it ran on. Earlier usage keeps " +
-        "the model names shown at the time.",
-    );
-    expect(perModelNote(SINCE, SINCE)).toBeNull();
-    expect(perModelNote(SINCE, SINCE + 1)).toBeNull();
-  });
-
-  it("is silent for a ledger that never switched, or a period with no rows", () => {
-    expect(perModelNote(null, SINCE - 1)).toBeNull();
-    expect(perModelNote(SINCE, null)).toBeNull();
-  });
-});
-
+/** A ledger with one row a moment ago — in this period, in workspace A. */
+const ROWS = [usageEvent({ occurredAt: TEST_NOW - 60_000, workspaceName: "A" })];
+const SCOPE = { period: 7 as const, now: TEST_NOW, workspace: null };
 const history = (over: Partial<StatsHistoryState> = {}): StatsHistoryState => ({
   ready: true,
   error: null,
-  hasRows: true,
-  periodEvents: 5,
-  perModelSince: null,
-  firstOccurredAt: 1_000,
+  rows: ROWS,
   ...over,
 });
 
 describe("statsHeaderView", () => {
-  it("offers every period in order with the selected one pressed", () => {
-    const view = statsHeaderView("overview", 30);
+  const NOW = Date.parse("2026-11-10T21:45:00+02:00");
+
+  it("offers every calendar period in order with the selected one pressed", () => {
+    const view = statsHeaderView("overview", 30, NOW);
     expect(view.periods.map((period) => [period.label, period.active])).toEqual([
-      ["24h", false],
-      ["7d", false],
-      ["30d", true],
-      ["90d", false],
+      ["Today", false],
+      ["7 days", false],
+      ["30 days", true],
+      ["90 days", false],
       ["All", false],
     ]);
     expect(view.periodIdle).toBe(false);
   });
 
-  it("idles the switcher on a tab that never reads it", () => {
-    expect(statsHeaderView("providers", 7).periodIdle).toBe(true);
+  it("names the calendar days the period covers", () => {
+    inZone("Asia/Nicosia", () => {
+      expect(statsHeaderView("overview", 7, NOW).range).toBe("Nov 4 – Nov 10");
+      expect(statsHeaderView("overview", 1, NOW).range).toBe("Today, Nov 10");
+      expect(statsHeaderView("overview", "all", NOW).range).toBe("All time");
+    });
+  });
+
+  it("idles the switcher on a tab that never reads it, and says what its numbers run on", () => {
+    const view = statsHeaderView("limits", 7, NOW);
+    expect(view.periodIdle).toBe(true);
+    expect(view.range).toBe("Account-wide · each window runs on its provider's clock");
+    expect(statsHeaderView("achievements", 7, NOW).range).toBeNull();
+  });
+
+  it("shows the workspace scope only on the tabs that narrow to it", () => {
+    expect(statsHeaderView("overview", 7, NOW).scoped).toBe(true);
+    expect(statsHeaderView("breakdown", 7, NOW).scoped).toBe(true);
+    expect(statsHeaderView("limits", 7, NOW).scoped).toBe(false);
+    expect(statsHeaderView("achievements", 7, NOW).scoped).toBe(false);
   });
 
   it("names every tab and marks the selected one", () => {
-    expect(statsHeaderView("models", 7).tabs.map((tab) => [tab.label, tab.active])).toEqual([
+    expect(statsHeaderView("breakdown", 7, NOW).tabs.map((tab) => [tab.label, tab.active])).toEqual([
       ["Overview", false],
-      ["Providers", false],
-      ["Models", true],
-      ["Sessions", false],
-      ["Achievements", false],
+      ["Breakdown", true],
+      ["Limits", false],
+      ["Weekly", false],
     ]);
+    expect(statsHeaderView("breakdown", 7, NOW).away).toBeNull();
+  });
+
+  it("names an off-strip destination and the way back to where it was opened from", () => {
+    expect(statsHeaderView("achievements", 7, NOW, "weekly").away).toEqual({
+      label: "Achievements",
+      back: "‹ Weekly",
+      to: "weekly",
+    });
   });
 });
 
 describe("statsPanelView", () => {
   it("waits while the history loads", () => {
-    expect(statsPanelView("overview", history({ ready: false }))).toEqual({
+    expect(statsPanelView("overview", history({ ready: false }), SCOPE)).toEqual({
       kind: "loading",
       text: "Loading usage history…",
     });
   });
 
-  it("blocks a ledger tab on a dead ledger, and leaves Providers to its own snapshot", () => {
-    const dead = history({ error: "store unreadable", hasRows: false });
-    expect(statsPanelView("achievements", dead)).toEqual({
+  it("blocks a ledger tab on a dead ledger, and leaves Limits to its own snapshot", () => {
+    const dead = history({ error: "store unreadable", rows: [] });
+    expect(statsPanelView("achievements", dead, SCOPE)).toEqual({
       kind: "unavailable",
       text: "Usage history is unavailable: store unreadable",
     });
-    expect(statsPanelView("providers", dead)).toMatchObject({ kind: "tab", tab: "providers", warning: null });
+    expect(statsPanelView("limits", dead, SCOPE)).toMatchObject({ kind: "tab", tab: "limits", warning: null });
   });
 
   it("warns above the tab when only some history could be loaded", () => {
-    expect(statsPanelView("overview", history({ error: "a newer build's lines" }))).toMatchObject({
+    expect(statsPanelView("overview", history({ error: "a newer build's lines" }), SCOPE)).toMatchObject({
       kind: "tab",
       warning: "Some history could not be loaded: a newer build's lines",
     });
   });
 
   it("says an empty period only for a tab whose whole body is the period", () => {
-    const empty = history({ periodEvents: 0 });
-    expect(statsPanelView("sessions", empty)).toEqual({
+    // Nothing in the last 7 days: one row, a year back.
+    const empty = history({ rows: [usageEvent({ occurredAt: TEST_NOW - 400 * 86_400_000 })] });
+    expect(statsPanelView("breakdown", empty, SCOPE)).toEqual({
       kind: "empty",
       warning: null,
       text: "No usage recorded in this period yet.",
     });
-    expect(statsPanelView("overview", empty)).toMatchObject({ kind: "tab" });
-    expect(statsPanelView("achievements", empty)).toMatchObject({ kind: "tab" });
+    expect(statsPanelView("overview", empty, SCOPE)).toMatchObject({ kind: "tab" });
+    expect(statsPanelView("achievements", empty, SCOPE)).toMatchObject({ kind: "tab" });
   });
+});
 
-  it("titles a table tab by its name, and notes the per-model switch on Models alone", () => {
-    const reachingBack = history({ perModelSince: 5_000, firstOccurredAt: 1_000 });
-    const models = statsPanelView("models", reachingBack);
-    expect(models).toMatchObject({ kind: "tab", title: "Models" });
-    expect(models.kind === "tab" ? models.note : null).toMatch(/^Since /);
-    expect(statsPanelView("sessions", reachingBack)).toMatchObject({ title: "Sessions", note: null });
+describe("escapeTarget", () => {
+  it("peels an off-strip destination first, and closes from a strip tab", () => {
+    expect(escapeTarget("achievements", "limits")).toBe("limits");
+    expect(escapeTarget("overview", "limits")).toBeNull();
+  });
+});
+
+describe("galleryDoor", () => {
+  it("counts the earned badges", () => {
+    expect(galleryDoor(52)).toBe("Achievements · 52 earned →");
+  });
+});
+
+describe("an empty period inside a workspace", () => {
+  it("is judged where the tab looks — inside the workspace it narrows to", () => {
+    const elsewhere = { ...SCOPE, workspace: "B" };
+    expect(statsPanelView("breakdown", history(), elsewhere)).toMatchObject({ kind: "empty" });
+    expect(statsPanelView("breakdown", history(), { ...SCOPE, workspace: "A" })).toMatchObject({ kind: "tab" });
   });
 });

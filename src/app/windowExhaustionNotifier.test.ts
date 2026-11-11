@@ -103,7 +103,7 @@ describe("createWindowExhaustionNotifier", () => {
       body: "resets in 2h 35m",
       icon: "⏳",
       severity: "warning",
-      source: { type: "stats", tab: "providers" },
+      source: { type: "stats", tab: "limits" },
       tag: `exhaustion:${KEY}`,
     });
     journal.set(snapshotOf(series(1))); // same condition — an edge, not a level

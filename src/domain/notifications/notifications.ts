@@ -33,10 +33,11 @@ export type NotificationSource =
     }
   | { type: "app" }
   /** Opens the Statistics dialog, optionally on a named tab — achievement
-   * unlocks land on the trophy case, not in Settings. Typed vocabulary:
-   * renaming a tab breaks producers at compile time instead of silently
-   * rerouting every deep link to Overview. */
-  | { type: "stats"; tab?: StatsTab }
+   * unlocks land on the trophy case, not in Settings — and, for the weekly
+   * digest, on the week it reports (its Monday's day ordinal). Typed
+   * vocabulary: renaming a tab breaks producers at compile time instead of
+   * silently rerouting every deep link to Overview. */
+  | { type: "stats"; tab?: StatsTab; week?: number }
   /** An artifacts event: first publish, or a canvas removed. The click
    * target is EXTERNAL (the system browser via the openUrl IPC) — no
    * in-app surface is claimed. IDENTIFIERS only, never a URL: the URL is

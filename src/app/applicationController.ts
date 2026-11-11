@@ -40,7 +40,8 @@ export interface ApplicationUi {
   /** Open the disband-confirm flow for a team — the card's Disband. */
   requestDisbandTeam(wsId: string, teamId: string): void;
   openSettings(sectionId: string | null): boolean;
-  openUsage(tab: StatsTab | null): boolean;
+  /** Statistics, on a tab when one is named — and Weekly on a week. */
+  openUsage(tab: StatsTab | null, week?: number): boolean;
   /** Open the Tasks dialog, on `taskId` when one is named. */
   openTasks(taskId: string | null): boolean;
   setCreating(creating: boolean): void;
@@ -225,7 +226,7 @@ export function createApplicationController({
           return;
         }
         case "stats": {
-          ui?.openUsage(notification.source.tab ?? null);
+          ui?.openUsage(notification.source.tab ?? null, notification.source.week);
           return;
         }
         case "artifacts": {

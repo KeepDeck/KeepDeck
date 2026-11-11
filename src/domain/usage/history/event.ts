@@ -1,5 +1,6 @@
 import type { TokenCounts } from "@keepdeck/plugin-api";
 import { addMoney } from "../money";
+import type { UsageTeam } from "./capture";
 import { finiteNonNegative } from "./guards";
 
 /**
@@ -38,6 +39,9 @@ interface UsageRowBase {
     branch?: string;
     repo: string;
   };
+  /** The team the pane was on when the calls were booked — absent for a
+   * pane on no team, and for every row booked before teams were recorded. */
+  team?: UsageTeam;
   /** In the canonical classes: fresh `input`, `output` with any reasoning
    * in it (`reasoning` is its share), and the cache classes beside them;
    * `total` is the billed sum. */
@@ -60,9 +64,24 @@ export type CostBasis = "estimated" | "approximate" | "unpriced";
 
 export type UsageRow = UsageRowBase &
   (
-    | { costBasis: "estimated" | "approximate"; costUsd: number }
-    | { costBasis: "unpriced"; costUsd?: never }
+    | {
+        costBasis: "estimated" | "approximate";
+        costUsd: number;
+        /** What the row's cache reads saved against fresh input at the same
+         * price — the core's estimate, never a bill. */
+        savedUsd?: number;
+      }
+    | { costBasis: "unpriced"; costUsd?: never; savedUsd?: never }
   );
+
+/** The provider in a booked model key — the `<provider>` of
+ * `<provider>/<model id>`, the key's documented shape above — or null for a
+ * row booked before per-model usage, whose key names none. */
+export function modelProvider(row: Pick<UsageRow, "model">): string | null {
+  const model = row.model ?? "";
+  const slash = model.indexOf("/");
+  return slash > 0 ? model.slice(0, slash) : null;
+}
 
 /** The classes a token set is added up in, `total` among them. */
 const TOKEN_KEYS: readonly (keyof TokenCounts)[] = [

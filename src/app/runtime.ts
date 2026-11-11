@@ -13,7 +13,10 @@ import {
   saveNotifiedAchievements,
 } from "../ipc/achievements";
 import { createAchievementNotifier } from "./achievementNotifier";
+import { createWeeklyDigestNotifier } from "./weeklyDigestNotifier";
+import { loadDigest, saveDigest } from "../ipc/digest";
 import { createActivityWitness } from "./activityWitness";
+import { createKeptAchievements } from "./keptAchievements";
 import { createIpcHealthLog } from "./ipcHealthLog";
 import {
   createAgentOrchestrator,
@@ -303,6 +306,7 @@ export function createAppRuntime(
   // Built here, not in `start()`: the streak chip reads it through the
   // runtime the moment the stats dialog mounts, and a witness that started
   // late would have missed the days its two stores already hold.
+  const keptAchievements = createKeptAchievements();
   const activityWitness = createActivityWitness({
     history: {
       getSnapshot: getUsageHistorySnapshot,
@@ -502,6 +506,7 @@ export function createAppRuntime(
   let paneUnbinds: ReturnType<typeof listenPaneUnbinds> | null = null;
   let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
     null;
+  let digestNotifier: ReturnType<typeof createWeeklyDigestNotifier> | null = null;
   let exhaustionNotifier: ReturnType<
     typeof createWindowExhaustionNotifier
   > | null = null;
@@ -525,6 +530,7 @@ export function createAppRuntime(
     mail,
     usageManager,
     activityWitness,
+    keptAchievements,
     statusTracker,
     sessionIndex,
     windowReportJournal,
@@ -580,6 +586,7 @@ export function createAppRuntime(
         mail.expectAsk,
       );
       achievementNotifier ??= createAchievementNotifier({
+        keep: keptAchievements.publish,
         loadNotified: loadNotifiedAchievements,
         saveNotified: saveNotifiedAchievements,
         settingsReady: initSettings,
@@ -587,6 +594,21 @@ export function createAppRuntime(
         history: {
           getSnapshot: getUsageHistorySnapshot,
           subscribe: subscribeUsageHistory,
+        },
+      });
+      digestNotifier ??= createWeeklyDigestNotifier({
+        loadDigest,
+        saveDigest,
+        settingsReady: initSettings,
+        notify,
+        history: {
+          getSnapshot: getUsageHistorySnapshot,
+          subscribe: subscribeUsageHistory,
+        },
+        now: () => Date.now(),
+        every: (ms, tick) => {
+          const timer = setInterval(tick, ms);
+          return () => clearInterval(timer);
         },
       });
       exhaustionNotifier ??= createWindowExhaustionNotifier({
@@ -618,6 +640,7 @@ export function createAppRuntime(
       ipcHealth?.dispose();
       windowReportJournal.dispose();
       achievementNotifier?.dispose();
+      digestNotifier?.dispose();
       usageChannel?.dispose();
       statusChannel?.dispose();
       companionHellos?.dispose();
