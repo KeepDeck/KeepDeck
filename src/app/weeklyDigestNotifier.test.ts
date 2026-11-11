@@ -5,6 +5,7 @@ import type { UsageRow } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 import { createWeeklyDigestNotifier } from "./weeklyDigestNotifier";
+import { inZoneAsync } from "../domain/usage/time.testSupport";
 
 const at = (iso: string) => new Date(iso).getTime();
 /** A Wednesday; last week ran Nov 2 – Nov 8. */
@@ -125,6 +126,18 @@ describe("the weekly digest", () => {
     expect(notified).toHaveLength(2);
   });
 
+  it("does not tell the same week again after the reader moves west", async () => {
+    const first = rig();
+    await first.settle();
+    await first.settle();
+    const told = first.saved[0] ?? null;
+    await inZoneAsync("America/Los_Angeles", async () => {
+      const west = rig({ stored: told });
+      await west.settle();
+      expect(west.notified).toEqual([]);
+    });
+  });
+
   it("reads an unreadable document as none — at worst one repeat", async () => {
     const { notified, settle } = rig({ stored: "{not json" });
     await settle();
@@ -145,6 +158,7 @@ describe("the digest's click", () => {
     const { notified, settle } = rig();
     await settle();
     const source = notified[0]?.source;
-    expect(source?.type === "stats" ? source.week : undefined).toBe(new Date(2026, 10, 2).getTime());
+    // Last week's Monday, Nov 2, as a day ordinal — a calendar date.
+    expect(source?.type === "stats" ? source.week : undefined).toBe(Date.UTC(2026, 10, 2) / 86_400_000);
   });
 });

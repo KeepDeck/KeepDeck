@@ -11,8 +11,9 @@ const NOW = at("2026-11-11T21:00:00+02:00"); // Wednesday
 const MONDAY = at("2026-11-09T10:00:00+02:00");
 const LAST_MONDAY = at("2026-11-02T10:00:00+02:00");
 
-/** The week `back` weeks before this one, by the instant it starts. */
-const weekOf = (back: number) => (back === 0 ? null : at(back === 1 ? "2026-11-02T00:00:00+02:00" : "2026-10-26T00:00:00+02:00"));
+/** The week `back` weeks before this one, by its Monday's day ordinal. */
+const weekOf = (back: number) =>
+  back === 0 ? null : Date.UTC(2026, back === 1 ? 10 : 9, back === 1 ? 2 : 26) / 86_400_000;
 
 function view(rows: UsageRowOverrides[], { back = 0, reports = new Map<string, WindowReport[]>() } = {}) {
   let result: ReturnType<typeof weeklyView> | undefined;
@@ -112,7 +113,7 @@ describe("the weekly digest", () => {
         usageEvent({ occurredAt: at("2026-10-27T10:00:00+02:00"), costUsd: 100 }),
       ];
       expect(weeklyDigestView(rows, NOW)).toEqual({
-        week: at("2026-11-02T00:00:00+02:00"),
+        week: Date.UTC(2026, 10, 2) / 86_400_000,
         title: "Your week in KeepDeck · Nov 2 – Nov 8",
         body: "≈$80.00 spent (↓ 20% vs the week before). Model M ran 100% of the spend; output was 0 tokens, reasoning included.",
       });

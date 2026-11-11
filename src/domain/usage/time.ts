@@ -113,6 +113,14 @@ export function localHourStart(at: number): number {
   return date.getTime();
 }
 
+/** A day ordinal read back from outside — a stored document, a link — or
+ * null when it is not one. The decoding door for the brand, beside
+ * [`shiftDay`]: a calendar date kept as its ordinal names the same day in
+ * any zone, where an instant does not. */
+export function localDayFromOrdinal(value: unknown): LocalDayNumber | null {
+  return typeof value === "number" && Number.isInteger(value) && isLocalDayNumber(value) ? value : null;
+}
+
 /** Whether `value` is a day ordinal: a whole number. Non-finite passes, as
  * for [`isUtcDayStart`]. */
 function isLocalDayNumber(value: number): value is LocalDayNumber {

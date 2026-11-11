@@ -22,7 +22,7 @@ import {
   windowPeaks,
   type WeekSpans,
 } from "../../domain/usage/stats/weekly";
-import { localDayStart, shiftDay } from "../../domain/usage/time";
+import { localDayFromOrdinal, localDayStart, shiftDay } from "../../domain/usage/time";
 import { changeView, type ChangeView } from "./overviewView";
 import { costCoverage, displayCost } from "./statsCost";
 import { modelNames, teamName, type GroupName } from "./statsNames";
@@ -63,9 +63,9 @@ export interface BarsView {
 }
 
 export interface WeeklyView {
-  /** The weeks the arrows go to, by the instant each starts — `week: null`
-   * is this week, which follows the calendar; an arrow with nowhere to go
-   * is null. */
+  /** The weeks the arrows go to, by their Monday's day ordinal — `week:
+   * null` is this week, which follows the calendar; an arrow with nowhere to
+   * go is null. */
   nav: {
     label: string;
     older: { week: number } | null;
@@ -136,7 +136,7 @@ export function weeklyView(
   rows: readonly UsageRow[],
   input: {
     now: number;
-    /** The instant the reported week starts, or null for this week. */
+    /** The reported week's Monday as a day ordinal, or null for this week. */
     week: number | null;
     teams: TeamHistory;
     reports: ReadonlyMap<string, readonly WindowReport[]>;
@@ -145,7 +145,8 @@ export function weeklyView(
   },
 ): WeeklyView {
   const { now, teams } = input;
-  const back = input.week === null ? 0 : weeksBack(input.week, now);
+  const monday = input.week === null ? null : localDayFromOrdinal(input.week);
+  const back = monday === null ? 0 : weeksBack(monday, now);
   const report = weekReportView(rows, now, back);
   const { week } = report;
   const current = rowsIn(rows, week.current);
@@ -160,8 +161,8 @@ export function weeklyView(
   return {
     nav: {
       label: back === 0 ? `This week · ${formatLocalDay(week.current.from)} – today` : weekRange(week.current.from, week.current.to),
-      older: back < oldestWeekBack(rows, now) ? { week: weekSpans(now, back + 1).current.from } : null,
-      newer: back === 0 ? null : { week: back === 1 ? null : weekSpans(now, back - 1).current.from },
+      older: back < oldestWeekBack(rows, now) ? { week: shiftDay(week.monday, -7) } : null,
+      newer: back === 0 ? null : { week: back === 1 ? null : shiftDay(week.monday, 7) },
       olderLabel: "Earlier week",
       newerLabel: "Later week",
     },
@@ -261,7 +262,8 @@ function badgesView(ladders: readonly UsageAchievementLadder[]): WeeklyView["bad
  * the same words the Weekly tab says of that week. None for a week with no
  * usage: there is nothing to tell. */
 export interface WeeklyDigestView {
-  /** The instant the reported week starts — the click opens Weekly on it. */
+  /** The reported week's Monday as a day ordinal — the click opens Weekly
+   * on it, and the digest is told once per it, whatever zone reads it. */
   week: number;
   title: string;
   body: string;
@@ -273,7 +275,7 @@ export function weeklyDigestView(rows: readonly UsageRow[], now: number): Weekly
   const { spent, week } = report;
   const change = spent.change === null ? "" : ` (${spent.change.text} ${spent.caption})`;
   return {
-    week: week.current.from,
+    week: week.monday,
     title: `Your week in KeepDeck · ${weekRange(week.current.from, week.current.to)}`,
     body: [`${spent.value} spent${change}.`, report.lines[0]].join(" "),
   };

@@ -1,5 +1,5 @@
 import { weekSpans } from "../domain/usage/stats/weekly";
-import { HOUR_MS } from "../domain/usage/time";
+import { HOUR_MS, localDayFromOrdinal, type LocalDayNumber } from "../domain/usage/time";
 import { weeklyDigestView } from "../presentation/stats/weeklyView";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
@@ -32,15 +32,18 @@ export interface WeeklyDigestDeps {
   every(ms: number, tick: () => void): () => void;
 }
 
-const DIGEST_VERSION = 1;
+/** The document names a week by its Monday's day ordinal — a calendar date,
+ * the same week in any zone, where an instant moves with the clock. */
+const DIGEST_VERSION = 2;
 
 /** The week the last digest reported, from the persisted document — none
- * for a missing or unreadable one (the worst it costs is one repeat). */
-function readLastWeek(json: string | null): number | null {
+ * for a missing, unreadable or other-version one (at worst one repeat). */
+function readLastWeek(json: string | null): LocalDayNumber | null {
   if (json === null) return null;
   try {
     const value: unknown = JSON.parse(json);
-    return isJsonRecord(value) && typeof value.week === "number" ? value.week : null;
+    if (!isJsonRecord(value) || value.version !== DIGEST_VERSION) return null;
+    return localDayFromOrdinal(value.week);
   } catch {
     return null;
   }
@@ -48,11 +51,11 @@ function readLastWeek(json: string | null): number | null {
 
 export function createWeeklyDigestNotifier(deps: WeeklyDigestDeps): { dispose(): void } {
   /** Undefined until the persisted week loads; checks wait for it. */
-  let lastWeek: number | null | undefined;
+  let lastWeek: LocalDayNumber | null | undefined;
   let disposed = false;
   let writes: Promise<void> = Promise.resolve();
 
-  const record = (week: number) => {
+  const record = (week: LocalDayNumber) => {
     lastWeek = week;
     const json = JSON.stringify({ version: DIGEST_VERSION, week });
     writes = writes
@@ -68,7 +71,7 @@ export function createWeeklyDigestNotifier(deps: WeeklyDigestDeps): { dispose():
     // A partial history would report a week short of what it spent.
     if (!snapshot.ready || !snapshot.complete) return;
     const now = deps.now();
-    const due = weekSpans(now, 1).current.from;
+    const due = weekSpans(now, 1).monday;
     if (lastWeek !== null && lastWeek >= due) return;
     const digest = weeklyDigestView(snapshot.ledger.events, now);
     if (digest === null) {

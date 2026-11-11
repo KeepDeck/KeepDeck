@@ -34,7 +34,7 @@ export type NotificationSource =
   | { type: "app" }
   /** Opens the Statistics dialog, optionally on a named tab — achievement
    * unlocks land on the trophy case, not in Settings — and, for the weekly
-   * digest, on the week it reports (the instant that week starts). Typed
+   * digest, on the week it reports (its Monday's day ordinal). Typed
    * vocabulary: renaming a tab breaks producers at compile time instead of
    * silently rerouting every deep link to Overview. */
   | { type: "stats"; tab?: StatsTab; week?: number }

@@ -20,8 +20,8 @@ export function Weekly({
 }: {
   ledger: UsageLedger;
   now: number;
-  /** The reported week, held by the app-level view so a digest can land
-   * on it; null follows the current week. */
+  /** The reported week's Monday (a day ordinal), held by the app-level view
+   * so a digest can land on it; null follows the current week. */
   week: number | null;
   onSelectWeek(week: number | null): void;
   /** What the session journal says of past sessions' teams. */

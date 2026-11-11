@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { usageEvent } from "../history/event.testSupport";
 import type { WindowReport } from "../reportJournal";
 import { inZone } from "../time.testSupport";
-import { oldestWeekBack, weekRhythm, weekSpans, windowPeaks } from "./weekly";
+import { oldestWeekBack, weekRhythm, weekSpans, weeksBack, windowPeaks } from "./weekly";
 
 const at = (iso: string) => new Date(iso).getTime();
 const NOW = at("2026-11-11T21:00:00+02:00"); // a Wednesday
@@ -32,6 +32,16 @@ describe("calendar weeks", () => {
       const week = weekSpans(at("2026-10-28T12:00:00+01:00"), 1);
       expect(week.current).toEqual({ from: at("2026-10-19T00:00:00+02:00"), to: at("2026-10-26T00:00:00+01:00") });
     });
+  });
+
+  it("names a week by its Monday's calendar date, the same week after a move west", () => {
+    let monday = weekSpans(NOW, 1).monday;
+    inZone("Asia/Nicosia", () => {
+      monday = weekSpans(NOW, 1).monday;
+      expect(weeksBack(monday, NOW)).toBe(1);
+    });
+    // The same instant read from far west of it is still in the same week.
+    inZone("America/Los_Angeles", () => expect(weeksBack(monday, NOW)).toBe(1));
   });
 
   it("pages back as far as the oldest row's week, and nowhere for an empty ledger", () => {

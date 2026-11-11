@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  localDayFromOrdinal,
   localDayNumber,
   localDayStart,
   localHourStart,
@@ -56,5 +57,14 @@ describe("the reader's calendar", () => {
     inZone("Asia/Kolkata", () => {
       expect(localHourStart(at("2026-11-10T10:47:12+05:30"))).toBe(at("2026-11-10T10:00:00+05:30"));
     });
+  });
+});
+
+describe("a day ordinal read back from outside", () => {
+  it("is a whole number, and nothing else", () => {
+    expect(localDayFromOrdinal(20_400)).toBe(20_400);
+    expect(localDayFromOrdinal(20_400.5)).toBeNull();
+    expect(localDayFromOrdinal("20400")).toBeNull();
+    expect(localDayFromOrdinal(undefined)).toBeNull();
   });
 });

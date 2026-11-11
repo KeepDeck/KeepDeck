@@ -11,7 +11,7 @@ import { DEFAULT_STATS_PERIOD } from "../presentation/stats/statsPeriods";
 export interface StatsView {
   period: StatsPeriod;
   workspace: string | null;
-  /** The week Weekly reports, by the instant it starts; null follows the
+  /** The week Weekly reports, by its Monday's day ordinal; null follows the
    * calendar's current week. */
   week: number | null;
   dimension: StatsDimension;

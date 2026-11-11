@@ -32,12 +32,11 @@ export function weekSpans(now: number, back: number): WeekSpans {
   return { monday, current: { from, to: now + 1 }, prior: { from: priorFrom, to: priorEnd + 1 }, complete: false };
 }
 
-/** How many weeks before the one containing `now` the week containing
- * `at` lies — a week is named by any instant in it, its start most often; a
- * week ahead of now reads as this one. */
-export function weeksBack(at: number, now: number): number {
-  const weeks = (localWeekStart(localDayNumber(now)) - localWeekStart(localDayNumber(at))) / 7;
-  return Math.max(0, Math.round(weeks));
+/** How many weeks before the one containing `now` the week opening on
+ * `monday` lies — a week is named by its Monday's calendar date, which names
+ * the same week in any zone; a week ahead of now reads as this one. */
+export function weeksBack(monday: LocalDayNumber, now: number): number {
+  return Math.max(0, Math.round((localWeekStart(localDayNumber(now)) - localWeekStart(monday)) / 7));
 }
 
 /** How many weeks back the oldest row's week lies — how far the report can
