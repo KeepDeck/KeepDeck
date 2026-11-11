@@ -90,6 +90,21 @@ describe("useModalRouter", () => {
     expect(result).toBe(true);
     expect(router().statsTab).toBe("limits");
   });
+
+  it("remembers the strip tab the gallery was opened from, through a deep link too, and forgets it on close", () => {
+    const { router } = mount();
+    act(() => void router().openStats("weekly"));
+    act(() => router().selectStatsTab("achievements"));
+    expect(router().statsFrom).toBe("weekly");
+    // Inside the gallery, the way back stays where it was.
+    act(() => router().selectStatsTab("achievements"));
+    expect(router().statsFrom).toBe("weekly");
+    act(() => router().selectStatsTab("limits"));
+    act(() => void router().openStats("achievements"));
+    expect(router().statsFrom).toBe("limits");
+    act(() => router().closeStats());
+    expect(router().statsFrom).toBe("overview");
+  });
 });
 
 describe("the MCP servers dialog", () => {

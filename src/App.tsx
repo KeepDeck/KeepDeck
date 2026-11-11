@@ -126,6 +126,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
     specByPane,
     statsOpen,
     statsTab,
+    statsFrom,
     statsView,
     unavailableReasons,
     updateState,
@@ -359,6 +360,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
           {statsOpen && (
             <StatsDialog
               tab={statsTab}
+              from={statsFrom}
               onSelectTab={selectStatsTab}
               view={statsView}
               journal={deck.journal.records}

@@ -712,3 +712,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The way back from an off-strip destination (the badge gallery) to the
+   tab it was opened from. */
+.stats__back {
+  display: inline-block;
+  margin-bottom: 10px;
+}

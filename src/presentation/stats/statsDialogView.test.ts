@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inZone } from "../../domain/usage/time.testSupport";
-import { statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
+import { escapeTarget, galleryDoor, statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
 
 const history = (over: Partial<StatsHistoryState> = {}): StatsHistoryState => ({
   ready: true,
@@ -53,8 +53,16 @@ describe("statsHeaderView", () => {
       ["Breakdown", true],
       ["Limits", false],
       ["Weekly", false],
-      ["Achievements", false],
     ]);
+    expect(statsHeaderView("breakdown", 7, NOW).away).toBeNull();
+  });
+
+  it("names an off-strip destination and the way back to where it was opened from", () => {
+    expect(statsHeaderView("achievements", 7, NOW, "weekly").away).toEqual({
+      label: "Achievements",
+      back: "‹ Weekly",
+      to: "weekly",
+    });
   });
 });
 
@@ -91,5 +99,18 @@ describe("statsPanelView", () => {
     });
     expect(statsPanelView("overview", empty)).toMatchObject({ kind: "tab" });
     expect(statsPanelView("achievements", empty)).toMatchObject({ kind: "tab" });
+  });
+});
+
+describe("escapeTarget", () => {
+  it("peels an off-strip destination first, and closes from a strip tab", () => {
+    expect(escapeTarget("achievements", "limits")).toBe("limits");
+    expect(escapeTarget("overview", "limits")).toBeNull();
+  });
+});
+
+describe("galleryDoor", () => {
+  it("counts the earned badges", () => {
+    expect(galleryDoor(52)).toBe("Achievements · 52 earned →");
   });
 });
