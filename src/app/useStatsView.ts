@@ -1,11 +1,18 @@
 import { useState } from "react";
+import type { StatsDimension } from "../domain/usage/stats/dimensions";
 import type { StatsPeriod } from "../domain/usage/stats/period";
+import type { BreakdownOrder } from "../presentation/stats/breakdownView";
 import { DEFAULT_STATS_PERIOD } from "../presentation/stats/statsPeriods";
 
-/** The Statistics view the reader set up. */
+/** The Statistics view the reader set up: the period, and how Breakdown
+ * groups and orders it. */
 export interface StatsView {
   period: StatsPeriod;
+  dimension: StatsDimension;
+  order: BreakdownOrder;
   selectPeriod(period: StatsPeriod): void;
+  selectDimension(dimension: StatsDimension): void;
+  selectOrder(order: BreakdownOrder): void;
 }
 
 /**
@@ -17,5 +24,7 @@ export interface StatsView {
  */
 export function useStatsView(): StatsView {
   const [period, selectPeriod] = useState<StatsPeriod>(DEFAULT_STATS_PERIOD);
-  return { period, selectPeriod };
+  const [dimension, selectDimension] = useState<StatsDimension>("workspace");
+  const [order, selectOrder] = useState<BreakdownOrder>("cost");
+  return { period, dimension, order, selectPeriod, selectDimension, selectOrder };
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
 import { breakdown } from "../../domain/usage/stats/fold";
 import { dimensionKey } from "../../domain/usage/stats/dimensions";
-import { modelNames, workspaceName } from "./statsNames";
+import { modelNames, sessionName, shortSession, workspaceName } from "./statsNames";
 
 const models = (...rows: Parameters<typeof usageEvent>[0][]) =>
   breakdown(rows.map((row) => usageEvent(row)), [], (row) => dimensionKey("model", row), 5);
@@ -40,5 +40,23 @@ describe("model names", () => {
     if (closing === undefined) throw new Error("no closing row");
     expect(modelNames(rows).get(closing.key)).toEqual({ name: "2 more", source: null });
     expect(workspaceName(closing)).toEqual({ name: "2 more", source: null });
+  });
+});
+
+describe("session names", () => {
+  it("keeps the first eight characters of a long id, and a short id whole", () => {
+    expect(shortSession("session-123456789")).toBe("session-…");
+    expect(shortSession("123456789012")).toBe("123456789012");
+    expect(shortSession("1234567890123")).toBe("12345678…");
+    expect(shortSession(undefined)).toBe("Unknown session");
+    expect(shortSession("")).toBe("Unknown session");
+  });
+
+  it("names a session by its pane, else its id, and says where and by whom", () => {
+    const [named] = breakdown([usageEvent({ paneName: "auth-refactor", workspaceName: "KeepDeck", agent: "codex" })], [], () => "s", 5);
+    const [bare] = breakdown([usageEvent({ paneName: "", sessionId: "session-123456789", workspaceName: "", agent: "kimi" })], [], () => "s", 5);
+    if (named === undefined || bare === undefined) throw new Error("no rows");
+    expect(sessionName(named)).toEqual({ name: "auth-refactor", source: "KeepDeck · codex" });
+    expect(sessionName(bare)).toEqual({ name: "session-…", source: "kimi" });
   });
 });

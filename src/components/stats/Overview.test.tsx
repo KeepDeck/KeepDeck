@@ -58,6 +58,7 @@ describe("Overview", () => {
           accounts,
           reportsByKey: new Map(),
           onOpenLimits,
+          onOpenBreakdown: () => {},
         }),
       );
     });
@@ -83,7 +84,11 @@ describe("Overview", () => {
     const open = vi.fn();
     await render([row({ workspaceName: "KeepDeck" })], { onOpenLimits: open });
     const lists = [...host.querySelectorAll(".stats__top")];
-    expect(lists.map((list) => list.querySelector("h3")?.textContent)).toEqual(["Workspaces", "Models", "Limits nowLimits →"]);
+    expect(lists.map((list) => list.querySelector("h3")?.textContent)).toEqual([
+      "WorkspacesBreakdown →",
+      "ModelsBreakdown →",
+      "Limits nowLimits →",
+    ]);
     expect(lists[0]?.textContent).toContain("KeepDeck≈$0.25");
     // No provider has reported in this ledger-only case.
     expect(lists[2]?.textContent).toContain("No provider reports yet.");

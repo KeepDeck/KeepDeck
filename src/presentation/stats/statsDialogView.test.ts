@@ -1,33 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { inZone } from "../../domain/usage/time.testSupport";
-import { perModelNote, statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
-
-describe("perModelNote", () => {
-  const SINCE = Date.UTC(2026, 10, 4, 18);
-
-  it("speaks only when the period reaches back past the switch", () => {
-    expect(perModelNote(SINCE, SINCE - 1)).toBe(
-      "Since Nov 4, 2026, an agent that reports each model's own tokens is listed by " +
-        "model id, and a session's cost under the model it ran on. Earlier usage keeps " +
-        "the model names shown at the time.",
-    );
-    expect(perModelNote(SINCE, SINCE)).toBeNull();
-    expect(perModelNote(SINCE, SINCE + 1)).toBeNull();
-  });
-
-  it("is silent for a ledger that never switched, or a period with no rows", () => {
-    expect(perModelNote(null, SINCE - 1)).toBeNull();
-    expect(perModelNote(SINCE, null)).toBeNull();
-  });
-});
+import { statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
 
 const history = (over: Partial<StatsHistoryState> = {}): StatsHistoryState => ({
   ready: true,
   error: null,
   hasRows: true,
   periodEvents: 5,
-  perModelSince: null,
-  firstOccurredAt: 1_000,
   ...over,
 });
 
@@ -62,11 +41,10 @@ describe("statsHeaderView", () => {
   });
 
   it("names every tab and marks the selected one", () => {
-    expect(statsHeaderView("models", 7, NOW).tabs.map((tab) => [tab.label, tab.active])).toEqual([
+    expect(statsHeaderView("breakdown", 7, NOW).tabs.map((tab) => [tab.label, tab.active])).toEqual([
       ["Overview", false],
+      ["Breakdown", true],
       ["Limits", false],
-      ["Models", true],
-      ["Sessions", false],
       ["Achievements", false],
     ]);
   });
@@ -98,20 +76,12 @@ describe("statsPanelView", () => {
 
   it("says an empty period only for a tab whose whole body is the period", () => {
     const empty = history({ periodEvents: 0 });
-    expect(statsPanelView("sessions", empty)).toEqual({
+    expect(statsPanelView("breakdown", empty)).toEqual({
       kind: "empty",
       warning: null,
       text: "No usage recorded in this period yet.",
     });
     expect(statsPanelView("overview", empty)).toMatchObject({ kind: "tab" });
     expect(statsPanelView("achievements", empty)).toMatchObject({ kind: "tab" });
-  });
-
-  it("titles a table tab by its name, and notes the per-model switch on Models alone", () => {
-    const reachingBack = history({ perModelSince: 5_000, firstOccurredAt: 1_000 });
-    const models = statsPanelView("models", reachingBack);
-    expect(models).toMatchObject({ kind: "tab", title: "Models" });
-    expect(models.kind === "tab" ? models.note : null).toMatch(/^Since /);
-    expect(statsPanelView("sessions", reachingBack)).toMatchObject({ title: "Sessions", note: null });
   });
 });

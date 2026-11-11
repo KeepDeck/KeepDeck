@@ -65,7 +65,7 @@ vi.mock("../../app/useWindowReports", () => ({
 const panels = vi.hoisted(() => ({
   overview: vi.fn<(props: ComponentProps<typeof Overview>) => void>(),
   providers: vi.fn<(props: ComponentProps<typeof Providers>) => void>(),
-  table: vi.fn<(props: ComponentProps<typeof StatsTable>) => void>(),
+  breakdown: vi.fn<(props: ComponentProps<typeof Breakdown>) => void>(),
   achievements: vi.fn<(props: ComponentProps<typeof Achievements>) => void>(),
 }));
 vi.mock("./Overview", () => ({
@@ -80,9 +80,9 @@ vi.mock("./Providers", () => ({
     return null;
   },
 }));
-vi.mock("./StatsTable", () => ({
-  StatsTable: (props: ComponentProps<typeof StatsTable>) => {
-    panels.table(props);
+vi.mock("./Breakdown", () => ({
+  Breakdown: (props: ComponentProps<typeof Breakdown>) => {
+    panels.breakdown(props);
     return null;
   },
 }));
@@ -102,7 +102,7 @@ import {
 import type { Achievements } from "./Achievements";
 import type { Overview } from "./Overview";
 import type { Providers } from "./Providers";
-import type { StatsTable } from "./StatsTable";
+import type { Breakdown } from "./Breakdown";
 import { StatsDialog, UsageStats } from "./StatsDialog";
 import { useStatsView } from "../../app/useStatsView";
 import type { StatsTab } from "../../domain/usage/statsTabs";
@@ -113,7 +113,7 @@ const handed = <P,>(panel: Mock<(props: P) => void>, name: string): P =>
   present(panel.mock.lastCall, `${name}'s last render`)[0];
 const overview = () => handed(panels.overview, "Overview");
 const providers = () => handed(panels.providers, "Providers");
-const table = () => handed(panels.table, "StatsTable");
+const breakdown = () => handed(panels.breakdown, "Breakdown");
 const achievements = () => handed(panels.achievements, "Achievements");
 
 /** The dialog's tab and view are controlled by app-layer owners; tests
@@ -150,7 +150,7 @@ const usageEvent = (over: UsageRowOverrides = {}): UsageRow =>
  * honest across that boundary.
  *
  * What a panel then renders belongs to the panel's own suite, and every one
- * of them now has one — Overview, StatsTable, Providers, Achievements,
+ * of them now has one — Overview, Breakdown, Providers, Achievements,
  * Weeks, StreakBadge — each mounted directly, with no tab to click first.
  * A case that reads a number out of a panel's markup is in the wrong file:
  * the boundary only holds while nothing crosses it — so here every panel is
@@ -204,21 +204,23 @@ describe("UsageStats", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("hands Overview the period and the whole ledger, and the drill-down tabs their rows", () => {
+  it("hands Overview and Breakdown the period and the whole ledger", () => {
     act(() => root.render(createElement(Host)));
 
     expect(overview().period).toBe(7);
     expect(overview().ledger).toBe(history.snapshot.ledger);
 
-    clickTab("Models");
-    expect(table()).toMatchObject({ title: "Models", mode: "model" });
-    expect(table().rows.map((row) => row.model)).toEqual(["gpt-5.6-terra"]);
+    clickTab("Breakdown");
+    expect(breakdown()).toMatchObject({ period: 7, dimension: "workspace", order: "cost" });
+    expect(breakdown().ledger).toBe(history.snapshot.ledger);
+  });
 
-    clickTab("Sessions");
-    expect(table()).toMatchObject({ title: "Sessions", mode: "session" });
-    expect(table().rows.map((row) => [row.paneName, row.sessionId])).toEqual([
-      ["auth-refactor", "session-123456789"],
-    ]);
+  it("opens Breakdown on the dimension an Overview list names, and keeps the pick", () => {
+    act(() => root.render(createElement(Host)));
+    act(() => overview().onOpenBreakdown("model"));
+    expect(breakdown()).toMatchObject({ dimension: "model" });
+    act(() => breakdown().onSelectOrder("change"));
+    expect(breakdown()).toMatchObject({ dimension: "model", order: "change" });
   });
 
   it("counts a just-appended event immediately, not after the next clock tick", () => {
@@ -365,7 +367,7 @@ describe("UsageStats", () => {
     // The default 7 days are empty: Overview keeps rendering, handed the
     // whole ledger, while the period-LEDGER tabs still gate.
     expect(overview().ledger).toBe(history.snapshot.ledger);
-    clickTab("Models");
+    clickTab("Breakdown");
     expect(host.textContent).toContain("No usage recorded");
     clickTab("Overview");
 
@@ -373,22 +375,11 @@ describe("UsageStats", () => {
     expect(overview().period).toBe("all");
   });
 
-  it("notes the switch to model ids under Models while the period reaches past it", () => {
-    const since = NOW - 2 * 24 * 60 * 60 * 1_000;
-    history.snapshot = {
-      ...ledger([
-        usageEvent({ occurredAt: since - 60_000 }),
-        usageEvent({ eventId: "e-new", occurredAt: NOW - 60_000 }),
-      ]),
-      perModelSince: since,
-    };
+  it("hands Breakdown the ledger's switch to per-model booking", () => {
+    history.snapshot = { ...ledger([usageEvent()]), perModelSince: NOW - 60_000 };
     act(() => root.render(createElement(Host)));
-    clickTab("Models");
-    expect(host.textContent).toContain("listed by model id");
-
-    // Today the period holds only rows booked per model.
-    clickPeriod("Today");
-    expect(host.textContent).not.toContain("listed by model id");
+    clickTab("Breakdown");
+    expect(breakdown().perModelSince).toBe(NOW - 60_000);
   });
 
   it("hands each tab the same period the switcher is showing", () => {
@@ -398,11 +389,11 @@ describe("UsageStats", () => {
       usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
     ]);
     act(() => root.render(createElement(Host)));
-    clickTab("Models");
+    clickTab("Breakdown");
     expect(host.textContent).toContain("No usage recorded");
 
     clickPeriod("All");
     expect(host.textContent).not.toContain("No usage recorded");
-    expect(table().rows.map((row) => row.model)).toEqual(["gpt-5.6-terra"]);
+    expect(breakdown().period).toBe("all");
   });
 });

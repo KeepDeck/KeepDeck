@@ -1,6 +1,6 @@
 import { formatTokens } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
-import { dimensionKey } from "../../domain/usage/stats/dimensions";
+import { dimensionKey, type StatsDimension } from "../../domain/usage/stats/dimensions";
 import {
   breakdown,
   costChange,
@@ -50,6 +50,9 @@ export interface TopListRowView extends GroupName {
 
 export interface TopListView {
   title: string;
+  /** The door to the same groups in Breakdown. */
+  link: string;
+  dimension: StatsDimension;
   rows: TopListRowView[];
 }
 
@@ -119,17 +122,24 @@ export function overviewView(
       .sort((left, right) => (left.key < right.key ? -1 : 1))
       .map((row) => ({ agent: agentName(row).name, color: seriesColorFor(colors, row.key), cost: displayCost(row) })),
     lists: [
-      topList("Workspaces", workspaces, workspaceName),
-      topList("Models", models, (row) => names.get(row.key) ?? { name: row.key, source: null }),
+      topList("Workspaces", "workspace", workspaces, workspaceName),
+      topList("Models", "model", models, (row) => names.get(row.key) ?? { name: row.key, source: null }),
     ],
     coverage: costCoverage(totals),
     chartError: "The chart could not be loaded.",
   };
 }
 
-function topList(title: string, rows: readonly BreakdownRow[], nameOf: (row: BreakdownRow) => GroupName): TopListView {
+function topList(
+  title: string,
+  dimension: StatsDimension,
+  rows: readonly BreakdownRow[],
+  nameOf: (row: BreakdownRow) => GroupName,
+): TopListView {
   return {
     title,
+    link: "Breakdown →",
+    dimension,
     rows: rows.map((row) => {
       const name = nameOf(row);
       return {

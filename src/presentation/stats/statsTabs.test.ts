@@ -3,15 +3,15 @@ import { periodless, statsTabStep } from "./statsTabs";
 
 describe("statsTabStep", () => {
   it("selects the next or previous tab on an arrow, wrapping at the ends", () => {
-    expect(statsTabStep("overview", "ArrowRight")).toBe("limits");
-    expect(statsTabStep("limits", "ArrowLeft")).toBe("overview");
+    expect(statsTabStep("overview", "ArrowRight")).toBe("breakdown");
+    expect(statsTabStep("limits", "ArrowLeft")).toBe("breakdown");
     expect(statsTabStep("achievements", "ArrowRight")).toBe("overview");
     expect(statsTabStep("overview", "ArrowLeft")).toBe("achievements");
   });
 
   it("goes to the first and last tab on Home and End", () => {
-    expect(statsTabStep("sessions", "Home")).toBe("overview");
-    expect(statsTabStep("models", "End")).toBe("achievements");
+    expect(statsTabStep("limits", "Home")).toBe("overview");
+    expect(statsTabStep("breakdown", "End")).toBe("achievements");
   });
 
   it("leaves every other key alone", () => {
@@ -25,6 +25,6 @@ describe("periodless", () => {
     expect(periodless("limits")).toBe(true);
     expect(periodless("achievements")).toBe(true);
     expect(periodless("overview")).toBe(false);
-    expect(periodless("models")).toBe(false);
+    expect(periodless("breakdown")).toBe(false);
   });
 });

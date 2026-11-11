@@ -4,6 +4,7 @@ import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import { providerWindowGroups } from "../../domain/usage/providerWindows";
 import type { WindowReport } from "../../domain/usage/reportJournal";
+import type { StatsDimension } from "../../domain/usage/stats/dimensions";
 import type { StatsPeriod } from "../../domain/usage/stats/period";
 import { limitsGlanceView, type LimitsGlanceView } from "../../presentation/stats/limitsGlanceView";
 import { overviewView, type FigureView, type TopListView } from "../../presentation/stats/overviewView";
@@ -28,6 +29,7 @@ export function Overview({
   accounts,
   reportsByKey,
   onOpenLimits,
+  onOpenBreakdown,
 }: {
   /** The ledger view — derived values are keyed on it, not on its array. */
   ledger: UsageLedger;
@@ -38,6 +40,7 @@ export function Overview({
   accounts: ReadonlyMap<string, AccountUsage>;
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   onOpenLimits(): void;
+  onOpenBreakdown(dimension: StatsDimension): void;
 }) {
   const view = useMemo(() => overviewView(ledger.events, period, now, colors), [ledger, period, now, colors]);
   const limits = useMemo(
@@ -92,7 +95,7 @@ export function Overview({
       )}
       <div className="stats__glance">
         {view.lists.map((list) => (
-          <TopList key={list.title} list={list} />
+          <TopList key={list.title} list={list} onOpen={() => onOpenBreakdown(list.dimension)} />
         ))}
         <LimitsGlance view={limits} now={now} onOpen={onOpenLimits} />
       </div>
@@ -111,10 +114,15 @@ function Figure({ figure }: { figure: FigureView }) {
   );
 }
 
-function TopList({ list }: { list: TopListView }) {
+function TopList({ list, onOpen }: { list: TopListView; onOpen(): void }) {
   return (
     <section className="stats__top" aria-label={list.title}>
-      <h3>{list.title}</h3>
+      <h3>
+        {list.title}
+        <button type="button" className="stats__link" onClick={onOpen}>
+          {list.link}
+        </button>
+      </h3>
       {list.rows.map((row) => (
         <div key={row.key} className={`stats__top-row${row.folded ? " stats__top-row--folded" : ""}`}>
           <span className="stats__top-name" title={row.title}>

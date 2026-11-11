@@ -1,4 +1,4 @@
-import { formatLocalDay, formatUtcDay } from "../../domain/usage";
+import { formatLocalDay } from "../../domain/usage";
 import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
 import { PERIOD_LABELS, USAGE_PERIODS } from "./statsPeriods";
@@ -51,23 +51,6 @@ export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number)
   };
 }
 
-/** The note under the Models list when the period reaches back past the
- * ledger's switch to booking per model, or null when it does not: rows on
- * either side of it name models differently, so one model can be listed
- * twice. */
-export function perModelNote(
-  perModelSince: number | null,
-  firstOccurredAt: number | null,
-): string | null {
-  if (perModelSince === null || firstOccurredAt === null) return null;
-  if (firstOccurredAt >= perModelSince) return null;
-  return (
-    `Since ${formatUtcDay(perModelSince, true)}, an agent that reports each model's own ` +
-    "tokens is listed by model id, and a session's cost under the model it ran on. " +
-    "Earlier usage keeps the model names shown at the time."
-  );
-}
-
 /** What the dialog knows of the ledger as it renders a tab. */
 export interface StatsHistoryState {
   ready: boolean;
@@ -76,8 +59,6 @@ export interface StatsHistoryState {
   hasRows: boolean;
   /** Rows in the selected period. */
   periodEvents: number;
-  perModelSince: number | null;
-  firstOccurredAt: number | null;
 }
 
 /**
@@ -91,7 +72,7 @@ export type StatsPanelView =
   | { kind: "loading"; text: string }
   | { kind: "unavailable"; text: string }
   | { kind: "empty"; warning: string | null; text: string }
-  | { kind: "tab"; tab: StatsTab; title: string; warning: string | null; note: string | null };
+  | { kind: "tab"; tab: StatsTab; warning: string | null };
 
 export function statsPanelView(tab: StatsTab, history: StatsHistoryState): StatsPanelView {
   if (!history.ready) return { kind: "loading", text: "Loading usage history…" };
@@ -104,14 +85,5 @@ export function statsPanelView(tab: StatsTab, history: StatsHistoryState): Stats
   if (spec.data === "period-ledger" && history.periodEvents === 0) {
     return { kind: "empty", warning, text: "No usage recorded in this period yet." };
   }
-  return {
-    kind: "tab",
-    tab,
-    title: spec.label,
-    warning,
-    // Rows on either side of the switch to booking per model name models
-    // differently, so the Models list says so when the period reaches back
-    // past it.
-    note: tab === "models" ? perModelNote(history.perModelSince, history.firstOccurredAt) : null,
-  };
+  return { kind: "tab", tab, warning };
 }

@@ -51,3 +51,22 @@ export function workspaceName(row: BreakdownRow): GroupName {
 export function agentName(row: BreakdownRow): GroupName {
   return row.folded > 0 ? foldedName(row) : { name: row.latest.agent, source: null };
 }
+
+/** A session id short enough for a table cell: an id longer than twelve
+ * characters keeps its first eight and an ellipsis, a short one stays whole,
+ * and a missing one says so. */
+export function shortSession(sessionId: string | undefined): string {
+  if (!sessionId) return "Unknown session";
+  return sessionId.length > 12 ? `${sessionId.slice(0, 8)}…` : sessionId;
+}
+
+/** Session groups by the pane they ran in, else the session's id; the
+ * source says where and by which agent. */
+export function sessionName(row: BreakdownRow): GroupName {
+  if (row.folded > 0) return foldedName(row);
+  const { latest } = row;
+  return {
+    name: latest.paneName || shortSession(latest.sessionId),
+    source: [latest.workspaceName, latest.agent].filter(Boolean).join(" · "),
+  };
+}

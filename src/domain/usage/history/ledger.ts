@@ -22,3 +22,20 @@ export function usageAgents(events: readonly UsageRow[]): string[] {
   for (const event of events) agents.add(event.agent);
   return [...agents].sort();
 }
+
+/** The newest instant the ledger claims — what a live surface feeds the
+ * wall clock's `atLeast`, so a just-appended event clears the folds'
+ * `occurredAt <= now` upper bound immediately instead of hiding until the
+ * next slow tick. */
+export function latestOccurredAt(events: readonly UsageRow[]): number {
+  let latest = 0;
+  for (const event of events) latest = Math.max(latest, event.occurredAt);
+  return latest;
+}
+
+/** The oldest instant among `events`, or null for none. */
+export function earliestOccurredAt(events: readonly UsageRow[]): number | null {
+  let earliest: number | null = null;
+  for (const event of events) earliest = earliest === null ? event.occurredAt : Math.min(earliest, event.occurredAt);
+  return earliest;
+}

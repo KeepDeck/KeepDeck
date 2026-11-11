@@ -5,7 +5,9 @@ import { useAgents } from "../../app/useAgents";
 import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
 import type { StatsView } from "../../app/useStatsView";
-import { latestOccurredAt, queryUsageStats } from "../../domain/usage/history/query";
+import { latestOccurredAt } from "../../domain/usage/history/ledger";
+import { rowsIn } from "../../domain/usage/stats/fold";
+import { statsSpans } from "../../domain/usage/stats/period";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import {
   STATS_DIALOG,
@@ -18,9 +20,9 @@ import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { Achievements } from "./Achievements";
+import { Breakdown } from "./Breakdown";
 import { Overview } from "./Overview";
 import { Providers } from "./Providers";
-import { StatsTable } from "./StatsTable";
 import { StreakBadge } from "./StreakBadge";
 
 /** Global usage analytics has its own app surface: it is observational data,
@@ -107,8 +109,10 @@ export function UsageStats({
     [ledger],
   );
   const now = useWallClock(latest);
-  const stats = useMemo(
-    () => queryUsageStats(ledger.events, period, now),
+  // Whether the period holds anything — the one fact the panel's gate
+  // reads; each tab folds its own numbers.
+  const periodEvents = useMemo(
+    () => rowsIn(ledger.events, statsSpans(period, now).current).length,
     [ledger, period, now],
   );
   const header = statsHeaderView(tab, period, now);
@@ -116,14 +120,12 @@ export function UsageStats({
     ready: history.ready,
     error: history.error,
     hasRows: ledger.events.length > 0,
-    periodEvents: stats.eventCount,
-    perModelSince: history.perModelSince,
-    firstOccurredAt: stats.firstOccurredAt,
+    periodEvents,
   });
 
   /** The tab body. The switch is exhaustive — a new tab id fails to compile
    * here until it brings a body. */
-  const tabBody = (current: StatsTab, title: string, note: string | null): ReactElement => {
+  const tabBody = (current: StatsTab): ReactElement => {
     switch (current) {
       case "overview":
         return (
@@ -135,6 +137,24 @@ export function UsageStats({
             accounts={accounts}
             reportsByKey={reports.byKey}
             onOpenLimits={() => onSelectTab("limits")}
+            onOpenBreakdown={(dimension) => {
+              view.selectDimension(dimension);
+              onSelectTab("breakdown");
+            }}
+          />
+        );
+      case "breakdown":
+        return (
+          <Breakdown
+            ledger={ledger}
+            period={period}
+            now={now}
+            colors={seriesColors}
+            perModelSince={history.perModelSince}
+            dimension={view.dimension}
+            order={view.order}
+            onSelectDimension={view.selectDimension}
+            onSelectOrder={view.selectOrder}
           />
         );
       case "limits":
@@ -147,15 +167,6 @@ export function UsageStats({
             now={now}
           />
         );
-      case "models":
-        return (
-          <>
-            <StatsTable title={title} rows={stats.byModel} now={now} mode="model" />
-            {note !== null && <p className="stats__coverage">{note}</p>}
-          </>
-        );
-      case "sessions":
-        return <StatsTable title={title} rows={stats.sessions} now={now} mode="session" />;
       case "achievements":
         return <Achievements ledger={ledger} />;
     }
@@ -238,7 +249,7 @@ export function UsageStats({
             {panel.kind === "empty" ? (
               <p className="stats__empty">{panel.text}</p>
             ) : (
-              tabBody(panel.tab, panel.title, panel.note)
+              tabBody(panel.tab)
             )}
           </>
         )}

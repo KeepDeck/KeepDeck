@@ -479,69 +479,193 @@
   text-transform: uppercase;
 }
 
-.stats__table {
+/* Breakdown: the choices above, one table below — a grid per row with
+   FIXED numeric tracks, so the columns line up down the table (a
+   content-sized track would let each row pick its own positions). */
+.stats__bd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.stats__choices {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--kd-radius-control);
+  background: var(--kd-tile);
+}
+
+.stats__choices button {
+  padding: 4px 9px;
+  border: 0;
+  border-radius: var(--kd-radius-control);
+  background: transparent;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  cursor: pointer;
+}
+
+.stats__choices button:hover,
+.stats__choices .stats__choices--active {
+  background: var(--kd-selected);
+  color: var(--kd-text);
+}
+
+.stats__bd {
   border-radius: var(--kd-radius-tile);
   background: var(--kd-tile);
   overflow: hidden;
 }
 
-.stats__row {
+.stats__bd-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px 76px;
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1.6fr) 84px 64px 64px 88px;
   align-items: center;
   gap: 12px;
-  min-height: 42px;
-  padding: 6px 10px;
+  min-height: 38px;
+  padding: 5px 14px;
   border-bottom: 1px solid var(--kd-seam);
   font-size: var(--kd-font-small);
 }
 
-.stats__row:last-child {
+.stats__bd-row:last-child {
   border-bottom: 0;
 }
 
-.stats__identity,
-.stats__tokens,
-.stats__cost {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
+.stats__bd-row--head {
+  min-height: 30px;
+  color: var(--kd-text-3);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.stats__identity b,
-.stats__identity small {
+.stats__bd-row--head span:nth-child(n + 3) {
+  text-align: right;
+}
+
+.stats__bd-name {
+  display: flex;
+  min-width: 0;
+}
+
+.stats__bd-name b,
+.stats__bd-name small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.stats__identity b {
+.stats__bd-name b {
   color: var(--kd-text-2);
   font-weight: 500;
 }
 
-.stats__row small {
+.stats__bd-name small {
+  margin-left: 8px;
   color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
 }
 
-.stats__tokens,
-.stats__cost {
-  align-items: flex-end;
+.stats__bd-toggle {
+  display: flex;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stats__bd-toggle::before {
+  flex: none;
+  width: 14px;
   color: var(--kd-text-3);
+  content: "▸";
+}
+
+.stats__bd-toggle[aria-expanded="true"]::before {
+  content: "▾";
+}
+
+.stats__bd-row--child .stats__bd-name {
+  padding-left: 14px;
+}
+
+.stats__bd-row--child {
+  background: color-mix(in srgb, var(--kd-canvas) 30%, var(--kd-tile));
+}
+
+.stats__bd-row--folded .stats__bd-name b {
+  color: var(--kd-text-3);
+  font-weight: 400;
+}
+
+/* The share bar shrinks inside its own track, so the widest group can never
+   spill into the next cell; the percentage keeps its room beside it. */
+.stats__bd-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stats__bd-track {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stats__bd-bar {
+  display: flex;
+  height: 6px;
+  border-radius: var(--kd-radius-mark);
+  overflow: hidden;
+  background: var(--kd-seam);
+}
+
+.stats__bd-bar i {
+  display: block;
+  min-width: 1px;
+}
+
+.stats__bd-share em {
+  flex: none;
+  width: 34px;
+  color: var(--kd-text-3);
+  font-style: normal;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
+.stats__bd-num {
+  color: var(--kd-text-3);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
 
-@media (max-width: 720px) {
-  .stats-dialog {
-    max-width: calc(100vw - 40px);
+.stats__bd-num b {
+  color: var(--kd-text);
+  font-weight: 600;
+}
+
+/* A narrow window keeps what a row is for — its name, share and money —
+   and the glance's three lists stack. */
+@media (max-width: 980px) {
+  .stats__bd-row {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 84px 64px;
   }
 
-  .stats__row {
-    grid-template-columns: minmax(0, 1fr) 82px 64px;
-    gap: 8px;
+  .stats__bd-row > :nth-child(n + 5) {
+    display: none;
+  }
+
+  .stats__glance {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
