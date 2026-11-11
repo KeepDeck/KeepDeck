@@ -7,7 +7,8 @@ import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import { seriesColorFor } from "../usagePalette";
 import { changeView, type ChangeView } from "./overviewView";
 import { costCoverage, displayCost } from "./statsCost";
-import { agentName, modelNames, sessionName, workspaceName, type GroupName } from "./statsNames";
+import type { TeamHistory } from "../../domain/usage/stats/teams";
+import { agentName, modelNames, sessionName, teamName, workspaceName, type GroupName } from "./statsNames";
 
 /**
  * The Breakdown tab, settled: one table, any dimension, each group against
@@ -21,11 +22,17 @@ export type BreakdownOrder = "cost" | "change";
 /** Exhaustive: a new dimension names itself or fails to compile. */
 export const DIMENSION_LABELS: Record<StatsDimension, string> = {
   workspace: "Workspace",
+  team: "Team",
   agent: "Agent",
   model: "Model",
   session: "Session",
 };
-const DIMENSIONS: readonly StatsDimension[] = ["workspace", "agent", "model", "session"];
+const DIMENSIONS: readonly StatsDimension[] = ["workspace", "team", "agent", "model", "session"];
+
+/** Said under team groups: history booked before teams were recorded has
+ * its teams inferred, and the rows say so. */
+const TEAM_NOTE =
+  "Teams of usage booked before teams were recorded are inferred from the session journal or the worktree branch, and marked so.";
 const ORDER_LABELS: Record<BreakdownOrder, string> = { cost: "By cost", change: "By change" };
 
 /** How many groups the table names before folding the rest, and how many
@@ -81,15 +88,17 @@ export function breakdownView(
     open: string | null;
     colors: ReadonlyMap<string, string>;
     perModelSince: number | null;
+    /** What the session journal says about teams. */
+    teams: TeamHistory;
   },
 ): BreakdownView {
-  const { period, now, dimension, order, open, colors } = input;
+  const { period, now, dimension, order, open, colors, teams } = input;
   const spans = statsSpans(period, now);
   const current = rowsIn(rows, spans.current);
   const prior = spans.prior === null ? [] : rowsIn(rows, spans.prior);
-  const keyOf = (row: UsageRow) => dimensionKey(dimension, row);
+  const keyOf = (row: UsageRow) => dimensionKey(dimension, row, teams);
   const groups = sortGroups(breakdown(current, prior, keyOf, BREAKDOWN_TOP), order);
-  const names = nameGroups(dimension, groups);
+  const names = nameGroups(dimension, groups, teams);
   const widest = Math.max(...groups.filter((group) => group.folded === 0).map((group) => group.share), 1e-9);
   const rowView = (group: BreakdownRow, nameOf: (group: BreakdownRow) => GroupName, child: boolean): BreakdownRowView => {
     const opens = !child && dimension !== "session" && group.folded === 0;
@@ -138,7 +147,11 @@ export function breakdownView(
       last: "Last",
     },
     rows: groups.map((group) => rowView(group, (row) => names.get(row.key) ?? { name: row.key, source: null }, false)),
-    notes: [costCoverage(totals), ...(modelNote === null ? [] : [modelNote])],
+    notes: [
+      costCoverage(totals),
+      ...(modelNote === null ? [] : [modelNote]),
+      ...(dimension === "team" ? [TEAM_NOTE] : []),
+    ],
   };
 }
 
@@ -166,9 +179,18 @@ function sortGroups(groups: BreakdownRow[], order: BreakdownOrder): BreakdownRow
   return [...head.sort((left, right) => rank(right) - rank(left)), ...tail];
 }
 
-function nameGroups(dimension: StatsDimension, groups: readonly BreakdownRow[]): Map<string, GroupName> {
+function nameGroups(
+  dimension: StatsDimension,
+  groups: readonly BreakdownRow[],
+  teams: TeamHistory,
+): Map<string, GroupName> {
   if (dimension === "model") return modelNames(groups);
-  const nameOf = { workspace: workspaceName, agent: agentName, session: sessionName }[dimension];
+  const nameOf = {
+    workspace: workspaceName,
+    team: (group: BreakdownRow) => teamName(group, teams),
+    agent: agentName,
+    session: sessionName,
+  }[dimension];
   return new Map(groups.map((group) => [group.key, nameOf(group)]));
 }
 

@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
+import type { JournalRecords } from "../../domain/journal/sessionLog";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
+import { teamHistory } from "../../domain/usage/stats/teams";
 import type { StatsPeriod } from "../../domain/usage/stats/period";
 import {
   breakdownView,
@@ -19,6 +21,7 @@ export function Breakdown({
   now,
   colors,
   perModelSince,
+  journal,
   dimension,
   order,
   onSelectDimension,
@@ -30,15 +33,18 @@ export function Breakdown({
   now: number;
   colors: ReadonlyMap<string, string>;
   perModelSince: number | null;
+  /** The session journal — where the teams of past sessions are read. */
+  journal: JournalRecords;
   dimension: StatsDimension;
   order: BreakdownOrder;
   onSelectDimension(dimension: StatsDimension): void;
   onSelectOrder(order: BreakdownOrder): void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const teams = useMemo(() => teamHistory(journal), [journal]);
   const view = useMemo(
-    () => breakdownView(ledger.events, { period, now, dimension, order, open, colors, perModelSince }),
-    [ledger, period, now, dimension, order, open, colors, perModelSince],
+    () => breakdownView(ledger.events, { period, now, dimension, order, open, colors, perModelSince, teams }),
+    [ledger, period, now, dimension, order, open, colors, perModelSince, teams],
   );
   return (
     <>

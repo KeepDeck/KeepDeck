@@ -361,6 +361,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
               tab={statsTab}
               onSelectTab={selectStatsTab}
               view={statsView}
+              journal={deck.journal.records}
               onClose={closeStats}
               canClose={canCloseDialog}
             />

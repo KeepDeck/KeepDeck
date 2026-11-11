@@ -36,6 +36,7 @@ describe("Breakdown", () => {
           now: NOW,
           colors: new Map(),
           perModelSince: null,
+          journal: {},
           dimension,
           order: "cost",
           onSelectDimension,

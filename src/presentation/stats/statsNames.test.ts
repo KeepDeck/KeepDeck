@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
 import { breakdown } from "../../domain/usage/stats/fold";
 import { dimensionKey } from "../../domain/usage/stats/dimensions";
-import { modelNames, sessionName, shortSession, workspaceName } from "./statsNames";
+import { teamHistory } from "../../domain/usage/stats/teams";
+import { modelNames, sessionName, shortSession, teamName, workspaceName } from "./statsNames";
 
 const models = (...rows: Parameters<typeof usageEvent>[0][]) =>
   breakdown(rows.map((row) => usageEvent(row)), [], (row) => dimensionKey("model", row), 5);
@@ -58,5 +59,18 @@ describe("session names", () => {
     if (named === undefined || bare === undefined) throw new Error("no rows");
     expect(sessionName(named)).toEqual({ name: "auth-refactor", source: "KeepDeck · codex" });
     expect(sessionName(bare)).toEqual({ name: "session-…", source: "kimi" });
+  });
+});
+
+describe("team names", () => {
+  it("marks a team the journal inferred, and not one capture recorded", () => {
+    const history = teamHistory({
+      "ws-1": [{ agent: "codex", sessionId: "s1", cwd: "/r", team: "artifacts", boundAt: "2026-10-01T00:00:00Z", state: "closed", endedAt: "2026-10-01T01:00:00Z" }],
+    });
+    const [inferred] = breakdown([usageEvent({ agent: "codex", sessionId: "s1", workspaceName: "KeepDeck" })], [], () => "t", 5);
+    const [recorded] = breakdown([usageEvent({ workspaceName: "KeepDeck", team: { id: "t", name: "stats", role: "lead" } })], [], () => "t", 5);
+    if (inferred === undefined || recorded === undefined) throw new Error("no rows");
+    expect(teamName(inferred, history)).toEqual({ name: "artifacts", source: "KeepDeck · inferred" });
+    expect(teamName(recorded, history)).toEqual({ name: "stats", source: "KeepDeck" });
   });
 });

@@ -121,12 +121,12 @@ const achievements = () => handed(panels.achievements, "Achievements");
  * real owner hook. */
 function Host({ initialTab = "overview" }: { initialTab?: StatsTab }) {
   const [tab, setTab] = useState<StatsTab>(initialTab);
-  return createElement(UsageStats, { tab, onSelectTab: setTab, view: useStatsView() });
+  return createElement(UsageStats, { tab, onSelectTab: setTab, view: useStatsView(), journal: {} });
 }
 
 function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
   const [tab, setTab] = useState<StatsTab>("overview");
-  return createElement(StatsDialog, { tab, onSelectTab: setTab, view: useStatsView(), onClose });
+  return createElement(StatsDialog, { tab, onSelectTab: setTab, view: useStatsView(), journal: {}, onClose });
 }
 
 const NOW = TEST_NOW;

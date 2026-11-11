@@ -1,6 +1,7 @@
 import { modelLabel } from "../../domain/usage";
 import { modelProvider } from "../../domain/usage/history/event";
 import type { BreakdownRow } from "../../domain/usage/stats/fold";
+import { rowTeam, type TeamHistory } from "../../domain/usage/stats/teams";
 
 /**
  * What a breakdown group is called. Read off the group's newest row; the
@@ -45,6 +46,19 @@ export function modelNames(rows: readonly BreakdownRow[]): Map<string, GroupName
 /** Workspace groups by the workspace's name. */
 export function workspaceName(row: BreakdownRow): GroupName {
   return row.folded > 0 ? foldedName(row) : { name: row.latest.workspaceName, source: null };
+}
+
+/** Team groups by the team's name, its workspace beside it — a name is only
+ * unique inside one — and whether the team was inferred rather than
+ * recorded, read off the group's newest row. */
+export function teamName(row: BreakdownRow, teams: TeamHistory): GroupName {
+  if (row.folded > 0) return foldedName(row);
+  const team = rowTeam(row.latest, teams);
+  const inferred = team.source === "journal" || team.source === "branch";
+  return {
+    name: team.name ?? "Team unknown",
+    source: [row.latest.workspaceName, inferred ? "inferred" : null].filter(Boolean).join(" · "),
+  };
 }
 
 /** Agent groups by the agent's id — the name every stats surface uses. */

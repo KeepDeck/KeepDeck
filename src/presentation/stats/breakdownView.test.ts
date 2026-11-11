@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { usageEvent, type UsageRowOverrides } from "../../domain/usage/history/event.testSupport";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
 import { inZone } from "../../domain/usage/time.testSupport";
+import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
 import { breakdownView, perModelNote, type BreakdownOrder } from "./breakdownView";
 
 const at = (iso: string) => new Date(iso).getTime();
@@ -22,6 +23,7 @@ function view(
   inZone("Asia/Nicosia", () => {
     result = breakdownView(rows.map((row) => usageEvent({ occurredAt: THIS_WEEK, ...row })), {
       period: 7, now: NOW, dimension, order, open, colors: new Map([["claude", "#111111"]]), perModelSince,
+      teams: NO_TEAM_HISTORY,
     });
   });
   if (result === undefined) throw new Error("no view");
@@ -92,7 +94,7 @@ describe("the Breakdown table", () => {
     expect(shown.columns.name).toBe("Model ▸ Session");
     expect(view([{ costUsd: 1 }], { dimension: "session" }).columns.name).toBe("Session");
     expect(shown.dimensions.items.map((item) => [item.label, item.active])).toEqual([
-      ["Workspace", false], ["Agent", false], ["Model", true], ["Session", false],
+      ["Workspace", false], ["Team", false], ["Agent", false], ["Model", true], ["Session", false],
     ]);
     expect(shown.orders.items.map((item) => item.label)).toEqual(["By cost", "By change"]);
   });
@@ -118,5 +120,22 @@ describe("perModelNote", () => {
     expect(perModelNote(SINCE, SINCE)).toBeNull();
     expect(perModelNote(null, SINCE - 1)).toBeNull();
     expect(perModelNote(SINCE, null)).toBeNull();
+  });
+});
+
+describe("team groups", () => {
+  it("names a recorded team plainly and an unknown one as such, within its workspace", () => {
+    const shown = view(
+      [
+        { workspaceName: "KeepDeck", team: { id: "t", name: "statistics", role: "lead" }, costUsd: 2 },
+        { workspaceName: "KeepDeck", costUsd: 1 },
+      ],
+      { dimension: "team" },
+    );
+    expect(shown.rows.map((row) => [row.name, row.source])).toEqual([
+      ["statistics", "KeepDeck"],
+      ["Team unknown", "KeepDeck"],
+    ]);
+    expect(shown.notes[shown.notes.length - 1]).toMatch(/inferred from the session journal/);
   });
 });
