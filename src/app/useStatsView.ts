@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { SessionClaimKey } from "../domain/deck";
 import type { StatsDimension } from "../domain/usage/stats/dimensions";
 import type { StatsPeriod } from "../domain/usage/stats/period";
 import type { BreakdownOrder } from "../presentation/stats/breakdownView";
@@ -16,6 +17,13 @@ export interface StatsView {
   selectWorkspace(workspace: string | null): void;
   selectDimension(dimension: StatsDimension): void;
   selectOrder(order: BreakdownOrder): void;
+}
+
+/** What Statistics may ask the deck about a session: whether a pane holds
+ * it, and bringing that pane in front. */
+export interface StatsSessions {
+  held(session: SessionClaimKey): boolean;
+  reveal(session: SessionClaimKey): void;
 }
 
 /**

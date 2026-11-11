@@ -7,6 +7,7 @@ import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import { seriesColorFor } from "../usagePalette";
 import { changeView, type ChangeView } from "./overviewView";
 import { costCoverage, displayCost } from "./statsCost";
+import type { SessionClaimKey } from "../../domain/deck";
 import type { TeamHistory } from "../../domain/usage/stats/teams";
 import { agentName, modelNames, sessionName, teamName, workspaceName, type GroupName } from "./statsNames";
 
@@ -55,6 +56,8 @@ export interface BreakdownRowView extends GroupName {
   output: string;
   last: string;
   folded: boolean;
+  /** A session a pane still holds: the door to that pane. */
+  reveal: { session: SessionClaimKey; label: string } | null;
   /** Whether the row opens into its sessions, whether it is open, and
    * which group is open once it is clicked — none, if it was this one. */
   opens: boolean;
@@ -92,6 +95,8 @@ export function breakdownView(
     teams: TeamHistory;
     /** The workspace the reader narrowed to, or null for every one. */
     workspace: string | null;
+    /** Whether a pane still holds a session. */
+    held(session: SessionClaimKey): boolean;
   },
 ): BreakdownView {
   const { period, now, dimension, order, open, colors, teams } = input;
@@ -107,6 +112,11 @@ export function breakdownView(
     const opens = !child && dimension !== "session" && group.folded === 0;
     const isOpen = opens && group.key === open;
     const comparable = !child && group.folded === 0 && spans.prior !== null;
+    // A session row — of the session dimension or under an opened group —
+    // opens its pane while a pane still holds it.
+    const session = (child || dimension === "session") && group.folded === 0
+      ? { agent: group.latest.agent, sessionId: group.latest.sessionId }
+      : null;
     return {
       key: group.key,
       ...nameOf(group),
@@ -121,6 +131,7 @@ export function breakdownView(
       output: formatTokens(group.outputTokens),
       last: group.folded > 0 ? "" : formatAge(group.latest.occurredAt, now),
       folded: group.folded > 0,
+      reveal: session !== null && input.held(session) ? { session, label: "Open ↗" } : null,
       opens,
       open: isOpen,
       toggle: isOpen ? null : group.key,

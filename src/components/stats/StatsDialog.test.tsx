@@ -120,6 +120,9 @@ const achievements = () => handed(panels.achievements, "Achievements");
 /** The dialog's tab and view are controlled by app-layer owners; tests
  * host that ownership in a tiny stateful wrapper — the view through the
  * real owner hook. */
+/** No pane holds any session in these cases. */
+const NO_SESSIONS = { held: () => false, reveal: () => {} };
+
 /** The router's tab memory, as the app-layer owner keeps it. */
 function useTab(initialTab: StatsTab) {
   const [state, setState] = useState({ tab: initialTab, from: "overview" as StatsTab });
@@ -128,11 +131,11 @@ function useTab(initialTab: StatsTab) {
 }
 
 function Host({ initialTab = "overview" }: { initialTab?: StatsTab }) {
-  return createElement(UsageStats, { ...useTab(initialTab), view: useStatsView(), journal: {} });
+  return createElement(UsageStats, { ...useTab(initialTab), view: useStatsView(), journal: {}, sessions: NO_SESSIONS });
 }
 
 function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
-  return createElement(StatsDialog, { ...useTab("overview"), view: useStatsView(), journal: {}, onClose });
+  return createElement(StatsDialog, { ...useTab("overview"), view: useStatsView(), journal: {}, sessions: NO_SESSIONS, onClose });
 }
 
 const NOW = TEST_NOW;

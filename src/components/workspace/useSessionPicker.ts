@@ -24,7 +24,7 @@ import {
   type SessionPreset,
   type SessionStartMode,
 } from "../../domain/agents";
-import { resumeBlock } from "../../domain/deck";
+import { resumeBlock, type SessionClaimKey } from "../../domain/deck";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useRuntimePart } from "../../app/runtimeContext";
@@ -44,7 +44,7 @@ export function useSessionPicker(deps: {
     limit: number,
     offset: number,
   ): Promise<Page<SessionPickRow>>;
-  sessionClaim(sessionId: string): "running" | "stopped" | null;
+  sessionClaim(session: SessionClaimKey): "running" | "stopped" | null;
   liveOutside(
     agent: AgentType,
   ): Promise<{ ok: true; ids: ReadonlySet<string> } | { ok: false }>;
@@ -177,7 +177,7 @@ export function useSessionPicker(deps: {
       resumeBlock(
         {
           cwd: row.handle.cwd,
-          claimed: sessionClaim(row.handle.sessionId) !== null,
+          claimed: sessionClaim(row.handle) !== null,
           busyOutside: liveOutsideIds !== "unknown" && liveOutsideIds.has(row.handle.sessionId),
           dirPresent: dirPresent(presence, row.handle.cwd),
         },

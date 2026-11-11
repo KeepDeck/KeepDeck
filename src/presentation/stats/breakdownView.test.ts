@@ -12,7 +12,8 @@ const LAST_WEEK = at("2026-11-02T10:00:00+02:00");
 
 function view(
   rows: UsageRowOverrides[],
-  { dimension = "workspace", order = "cost", open = null, perModelSince = null, workspace = null }: {
+  { dimension = "workspace", order = "cost", open = null, perModelSince = null, workspace = null, held = new Set<string>() }: {
+    held?: Set<string>;
     workspace?: string | null;
     dimension?: StatsDimension;
     order?: BreakdownOrder;
@@ -26,6 +27,7 @@ function view(
       period: 7, now: NOW, dimension, order, open, colors: new Map([["claude", "#111111"]]), perModelSince,
       teams: NO_TEAM_HISTORY,
       workspace,
+      held: (session) => held.has(session.sessionId),
     });
   });
   if (result === undefined) throw new Error("no view");
@@ -152,5 +154,23 @@ describe("a Breakdown narrowed to one workspace", () => {
       { dimension: "agent", workspace: "KeepDeck" },
     );
     expect(shown.rows.map((row) => [row.name, row.shareText])).toEqual([["claude", "100%"]]);
+  });
+});
+
+describe("opening a session's pane", () => {
+  it("is offered on a session a pane still holds, and on no group", () => {
+    const rows = [
+      { agent: "claude", sessionId: "live", paneName: "live", costUsd: 2 },
+      { agent: "claude", sessionId: "gone", paneName: "gone", costUsd: 1 },
+    ];
+    const sessions = view(rows, { dimension: "session", held: new Set(["live"]) }).rows;
+    expect(sessions.map((row) => [row.name, row.reveal])).toEqual([
+      ["live", { session: { agent: "claude", sessionId: "live" }, label: "Open ↗" }],
+      ["gone", null],
+    ]);
+    const [group] = view(rows, { held: new Set(["live"]) }).rows;
+    expect(group?.reveal).toBeNull();
+    const opened = view(rows, { held: new Set(["live"]), open: group?.key ?? null }).rows[0];
+    expect(opened?.sessions.map((row) => row.reveal?.label ?? null)).toEqual(["Open ↗", null]);
   });
 });

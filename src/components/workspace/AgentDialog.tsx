@@ -1,3 +1,4 @@
+import type { SessionClaimKey } from "../../domain/deck";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
@@ -116,7 +117,7 @@ interface AgentDialogProps {
   ): Promise<Page<SessionPickRow>>;
   /** How a session is already held by a pane, for the resume dimming rule
    * — running, stopped, or free. Injected (deck state stays outside). */
-  sessionClaim(sessionId: string): "running" | "stopped" | null;
+  sessionClaim(session: SessionClaimKey): "running" | "stopped" | null;
   /** Which of the agent's sessions are held by an OUTSIDE process right
    * now (advisory, for the resume dimming rule): ids when the registry
    * answered, `ok: false` when it could not. Injected — the same seam the

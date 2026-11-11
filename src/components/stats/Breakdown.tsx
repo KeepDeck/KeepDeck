@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
+import type { StatsSessions } from "../../app/useStatsView";
+import type { SessionClaimKey } from "../../domain/deck";
 import type { JournalRecords } from "../../domain/journal/sessionLog";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
 import { teamHistory } from "../../domain/usage/stats/teams";
@@ -23,6 +25,7 @@ export function Breakdown({
   colors,
   perModelSince,
   journal,
+  sessions,
   dimension,
   order,
   onSelectDimension,
@@ -37,6 +40,8 @@ export function Breakdown({
   perModelSince: number | null;
   /** The session journal — where the teams of past sessions are read. */
   journal: JournalRecords;
+  /** Whether a pane holds a session, and bringing it in front. */
+  sessions: StatsSessions;
   dimension: StatsDimension;
   order: BreakdownOrder;
   onSelectDimension(dimension: StatsDimension): void;
@@ -45,8 +50,11 @@ export function Breakdown({
   const [open, setOpen] = useState<string | null>(null);
   const teams = useMemo(() => teamHistory(journal), [journal]);
   const view = useMemo(
-    () => breakdownView(ledger.events, { period, now, dimension, order, open, colors, perModelSince, teams, workspace }),
-    [ledger, period, now, dimension, order, open, colors, perModelSince, teams, workspace],
+    () =>
+      breakdownView(ledger.events, {
+        period, now, dimension, order, open, colors, perModelSince, teams, workspace, held: sessions.held,
+      }),
+    [ledger, period, now, dimension, order, open, colors, perModelSince, teams, workspace, sessions.held],
   );
   return (
     <>
@@ -62,9 +70,10 @@ export function Breakdown({
           <span role="columnheader">{view.columns.change}</span>
           <span role="columnheader">{view.columns.output}</span>
           <span role="columnheader">{view.columns.last}</span>
+          <span role="columnheader" />
         </div>
         {view.rows.map((row) => (
-          <Group key={row.key} row={row} onToggle={() => setOpen(row.toggle)} />
+          <Group key={row.key} row={row} onToggle={() => setOpen(row.toggle)} onReveal={sessions.reveal} />
         ))}
       </div>
       {view.notes.map((note) => (
@@ -92,18 +101,36 @@ function Choices<T extends string>({ view, onPick }: { view: ChoicesView<T>; onP
   );
 }
 
-function Group({ row, onToggle }: { row: BreakdownRowView; onToggle(): void }) {
+function Group({
+  row,
+  onToggle,
+  onReveal,
+}: {
+  row: BreakdownRowView;
+  onToggle(): void;
+  onReveal(session: SessionClaimKey): void;
+}) {
   return (
     <>
-      <Row row={row} onToggle={row.opens ? onToggle : undefined} />
+      <Row row={row} onToggle={row.opens ? onToggle : undefined} onReveal={onReveal} />
       {row.sessions.map((session) => (
-        <Row key={session.key} row={session} child />
+        <Row key={session.key} row={session} child onReveal={onReveal} />
       ))}
     </>
   );
 }
 
-function Row({ row, child = false, onToggle }: { row: BreakdownRowView; child?: boolean; onToggle?: () => void }) {
+function Row({
+  row,
+  child = false,
+  onToggle,
+  onReveal,
+}: {
+  row: BreakdownRowView;
+  child?: boolean;
+  onToggle?: () => void;
+  onReveal(session: SessionClaimKey): void;
+}) {
   const name = (
     <>
       <b>{row.name}</b>
@@ -141,6 +168,13 @@ function Row({ row, child = false, onToggle }: { row: BreakdownRowView; child?: 
       </span>
       <span className="stats__bd-num" role="cell">{row.output}</span>
       <span className="stats__bd-num stats__bd-last" role="cell">{row.last}</span>
+      <span className="stats__bd-num" role="cell">
+        {row.reveal !== null && (
+          <button type="button" className="stats__link" onClick={() => row.reveal && onReveal(row.reveal.session)}>
+            {row.reveal.label}
+          </button>
+        )}
+      </span>
     </div>
   );
 }

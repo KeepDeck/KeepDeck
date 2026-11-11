@@ -565,7 +565,7 @@
 
 .stats__bd-row {
   display: grid;
-  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1.6fr) 84px 64px 64px 88px;
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1.6fr) 84px 64px 64px 88px 56px;
   align-items: center;
   gap: 12px;
   min-height: 38px;

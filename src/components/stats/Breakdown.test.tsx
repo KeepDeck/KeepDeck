@@ -27,6 +27,7 @@ describe("Breakdown", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
+  const reveal = vi.fn();
   const render = (dimension: StatsDimension, onSelectDimension = vi.fn()) => {
     act(() =>
       root.render(
@@ -38,6 +39,7 @@ describe("Breakdown", () => {
           colors: new Map(),
           perModelSince: null,
           journal: {},
+          sessions: { held: (session: { sessionId: string }) => session.sessionId === "s1", reveal },
           dimension,
           order: "cost",
           onSelectDimension,
@@ -76,5 +78,13 @@ describe("Breakdown", () => {
     render("session");
     expect(bodyRows().map((row) => row.querySelector(".stats__bd-name b")?.textContent)).toEqual(["pane s1", "pane s2"]);
     expect(host.querySelector(".stats__bd-toggle")).toBeNull();
+  });
+
+  it("opens the pane of a session a pane still holds", () => {
+    render("session");
+    const open = [...host.querySelectorAll<HTMLButtonElement>(".stats__bd-row .stats__link")];
+    expect(open.map((button) => button.textContent)).toEqual(["Open ↗"]);
+    act(() => open[0]?.click());
+    expect(reveal).toHaveBeenCalledWith({ agent: "codex", sessionId: "s1" });
   });
 });

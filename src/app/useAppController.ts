@@ -17,6 +17,7 @@ import { useDragDrop } from "./useDragDrop";
 import { useGitHead } from "./useGitHead";
 import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useModalRouter } from "./useModalRouter";
+import { createStatsSessions } from "./statsSessions";
 import { useStatsView } from "./useStatsView";
 import { markNotificationsReadWhere, setSourceVisibilityProbe } from "./notificationCenter";
 import { useBoardSeen } from "./tasks/useBoardSeen";
@@ -385,6 +386,12 @@ export function useAppController(runtime: AppRuntime) {
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
   };
+  const statsSessions = createStatsSessions({
+    workspaces: () => deck.workspaces,
+    blocked: (paneId) => paneId in runView.blocked,
+    closeStats: modal.closeStats,
+    activatePane: runtime.application.activatePane,
+  });
   /** A team row of the slid-open strip: that team, in its workspace. */
   const handleEnterTeam = runtime.application.activateTeam;
   const notificationPrefs =
@@ -540,6 +547,7 @@ export function useAppController(runtime: AppRuntime) {
     statsOpen: modal.statsOpen,
     statsTab: modal.statsTab,
     statsFrom: modal.statsFrom,
+    statsSessions,
     statsView,
     unavailableReasons,
     updateState,

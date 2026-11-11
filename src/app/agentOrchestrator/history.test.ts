@@ -370,11 +370,12 @@ describe("agent orchestrator —continuing a recorded session", () => {
     act(() => {
       pending = agentRun.resumeSession("ws-1", handle(), { role: "lead" });
     });
-    // The session gets claimed DURING the build (a revive landed).
+    // The session gets claimed DURING the build (a revive landed) — by a
+    // pane of the session's own agent: another CLI's id is another session.
     act(() =>
       deck.addAgentPane("ws-1", {
         id: "pane-claimer",
-        agentType: "claude",
+        agentType: "codex",
         session: { id: "s-1", boundAt: "2026-07-19T00:00:00.000Z" },
       }),
     );

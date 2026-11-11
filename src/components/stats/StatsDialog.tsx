@@ -4,7 +4,7 @@ import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useAgents } from "../../app/useAgents";
 import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
-import type { StatsView } from "../../app/useStatsView";
+import type { StatsSessions, StatsView } from "../../app/useStatsView";
 import type { JournalRecords } from "../../domain/journal/sessionLog";
 import { latestOccurredAt } from "../../domain/usage/history/ledger";
 import { rowsIn, rowsOf } from "../../domain/usage/stats/fold";
@@ -41,6 +41,7 @@ export function StatsDialog({
   onSelectTab,
   view,
   journal,
+  sessions,
   onClose,
   canClose = true,
 }: {
@@ -53,6 +54,8 @@ export function StatsDialog({
   view: StatsView;
   /** The session journal, where the teams of past sessions are read. */
   journal: JournalRecords;
+  /** Whether a pane holds a session, and bringing it in front. */
+  sessions: StatsSessions;
   onClose(): void;
   /** False while a transaction is stacked over this dialog: `onClose` refuses
    * then, so Escape must not be claimed either. */
@@ -73,7 +76,7 @@ export function StatsDialog({
           <CloseButton label={STATS_DIALOG.close} onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
-          <UsageStats tab={tab} from={from} onSelectTab={onSelectTab} view={view} journal={journal} />
+          <UsageStats tab={tab} from={from} onSelectTab={onSelectTab} view={view} journal={journal} sessions={sessions} />
         </div>
         <div className="confirm__actions stats-dialog__actions">
           <StreakBadge />
@@ -101,12 +104,14 @@ export function UsageStats({
   onSelectTab,
   view,
   journal,
+  sessions,
 }: {
   tab: StatsTab;
   from: StatsTab;
   onSelectTab(tab: StatsTab): void;
   view: StatsView;
   journal: JournalRecords;
+  sessions: StatsSessions;
 }) {
   const history = useUsageHistorySnapshot();
   // One map for every tab, so the chart, the weeks and the provider cards
@@ -179,6 +184,7 @@ export function UsageStats({
             colors={seriesColors}
             perModelSince={history.perModelSince}
             journal={journal}
+            sessions={sessions}
             dimension={view.dimension}
             order={view.order}
             onSelectDimension={view.selectDimension}
