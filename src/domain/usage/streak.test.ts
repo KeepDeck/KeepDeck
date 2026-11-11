@@ -1,26 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { TEST_NOW } from "./history/event.testSupport";
 import { currentStreakDays, streakHeat } from "./streak";
+import { inZone } from "./time.testSupport";
 
 /** Instants, not events: the function is about days, and who witnessed an
  * instant — a recorded spend or a live report — is the caller's question,
  * answered by `createActivityWitness` and tested there. */
 const DAY = 24 * 60 * 60 * 1_000;
 const NOW = TEST_NOW;
-
-/** Run a body in a FIXED zone, whatever the runner is in. Node re-reads
- * `process.env.TZ` for each Date operation, so this genuinely pins a real
- * transition rather than hoping CI happens to sit in a zone that has one. */
-function inZone(tz: string, body: () => void): void {
-  const before = process.env.TZ;
-  process.env.TZ = tz;
-  try {
-    body();
-  } finally {
-    if (before === undefined) delete process.env.TZ;
-    else process.env.TZ = before;
-  }
-}
 
 describe("the day a streak counts in", () => {
   /** Local midnight, whatever zone the suite runs in. */

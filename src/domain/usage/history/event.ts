@@ -64,6 +64,15 @@ export type UsageRow = UsageRowBase &
     | { costBasis: "unpriced"; costUsd?: never }
   );
 
+/** The provider in a booked model key — the `<provider>` of
+ * `<provider>/<model id>`, the key's documented shape above — or null for a
+ * row booked before per-model usage, whose key names none. */
+export function modelProvider(row: Pick<UsageRow, "model">): string | null {
+  const model = row.model ?? "";
+  const slash = model.indexOf("/");
+  return slash > 0 ? model.slice(0, slash) : null;
+}
+
 /** The classes a token set is added up in, `total` among them. */
 const TOKEN_KEYS: readonly (keyof TokenCounts)[] = [
   "input",

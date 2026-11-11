@@ -89,6 +89,32 @@ export function shiftDay(day: LocalDayNumber, days: number): LocalDayNumber {
   return shifted;
 }
 
+/**
+ * The instant a READER'S calendar day begins — its local midnight, or the
+ * first instant that exists when a transition skips midnight itself. The
+ * inverse of [`localDayNumber`]: `localDayNumber(localDayStart(d)) === d`.
+ * Built from the ordinal's calendar date, never `day * DAY_MS` shifted by an
+ * offset, for the reason `localDayNumber` gives.
+ */
+export function localDayStart(day: LocalDayNumber): number {
+  const date = new Date(day * DAY_MS);
+  return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).getTime();
+}
+
+/** The Monday that opens the reader's calendar week containing `day`. */
+export function localWeekStart(day: LocalDayNumber): LocalDayNumber {
+  const mondayOffset = (new Date(day * DAY_MS).getUTCDay() + 6) % 7;
+  return shiftDay(day, -mondayOffset);
+}
+
+/** The start of the reader's clock hour containing `at`. Local, so a
+ * half-hour zone's hours start on its own half hour. */
+export function localHourStart(at: number): number {
+  const date = new Date(at);
+  date.setMinutes(0, 0, 0);
+  return date.getTime();
+}
+
 /** Whether `value` is a day ordinal: a whole number. Non-finite passes, as
  * for [`isUtcDayStart`]. */
 function isLocalDayNumber(value: number): value is LocalDayNumber {
