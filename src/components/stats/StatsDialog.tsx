@@ -1,14 +1,11 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useAgents } from "../../app/useAgents";
 import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
-import {
-  latestOccurredAt,
-  queryUsageStats,
-  type UsageStatsPeriod,
-} from "../../domain/usage/history/query";
+import type { StatsView } from "../../app/useStatsView";
+import { latestOccurredAt, queryUsageStats } from "../../domain/usage/history/query";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import {
   STATS_DIALOG,
@@ -33,11 +30,15 @@ import { StreakBadge } from "./StreakBadge";
 export function StatsDialog({
   tab,
   onSelectTab,
+  view,
   onClose,
   canClose = true,
 }: {
   tab: StatsTab;
   onSelectTab(tab: StatsTab): void;
+  /** What the reader set the statistics to — held by the app-layer owner,
+   * so it outlives the dialog. */
+  view: StatsView;
   onClose(): void;
   /** False while a transaction is stacked over this dialog: `onClose` refuses
    * then, so Escape must not be claimed either. */
@@ -57,7 +58,7 @@ export function StatsDialog({
           <CloseButton label={STATS_DIALOG.close} onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
-          <UsageStats tab={tab} onSelectTab={onSelectTab} />
+          <UsageStats tab={tab} onSelectTab={onSelectTab} view={view} />
         </div>
         <div className="confirm__actions stats-dialog__actions">
           <StreakBadge />
@@ -81,9 +82,11 @@ export function StatsDialog({
 export function UsageStats({
   tab,
   onSelectTab,
+  view,
 }: {
   tab: StatsTab;
   onSelectTab(tab: StatsTab): void;
+  view: StatsView;
 }) {
   const history = useUsageHistorySnapshot();
   // One map for every tab, so the chart, the weeks and the provider cards
@@ -93,7 +96,7 @@ export function UsageStats({
   const seriesColors = useMemo(() => usageSeriesColors(ledger.events, agents), [ledger, agents]);
   const { accounts } = useUsage();
   const reports = useWindowReports();
-  const [period, setPeriod] = useState<UsageStatsPeriod>(7);
+  const { period } = view;
   // THE tab body's one clock: stable between 30s ticks, so it sits in every
   // memo's deps — aggregates, captions and bars all agree on the same now,
   // and a reset passing while the dialog idles demotes the whole card. The
@@ -175,7 +178,7 @@ export function UsageStats({
               className={candidate.active ? "stats__period--active" : ""}
               aria-pressed={candidate.active}
               disabled={header.periodIdle}
-              onClick={() => setPeriod(candidate.period)}
+              onClick={() => view.selectPeriod(candidate.period)}
             >
               {candidate.label}
             </button>

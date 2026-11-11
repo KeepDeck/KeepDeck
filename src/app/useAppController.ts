@@ -17,6 +17,7 @@ import { useDragDrop } from "./useDragDrop";
 import { useGitHead } from "./useGitHead";
 import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useModalRouter } from "./useModalRouter";
+import { useStatsView } from "./useStatsView";
 import { markNotificationsReadWhere, setSourceVisibilityProbe } from "./notificationCenter";
 import { useBoardSeen } from "./tasks/useBoardSeen";
 import { useActivityNotifications } from "./useActivityNotifications";
@@ -164,6 +165,7 @@ export function useAppController(runtime: AppRuntime) {
   /** The dialog layer (settings / statistics / skills) has one owner: its
    * flags, gate and open/close/retarget verbs all live in the router. */
   const modal = useModalRouter({ transactionOpen: dialogOpen });
+  const statsView = useStatsView();
   const canOpenDialog = modal.canOpenDialog;
   const applicationUi = useRef({
     agents,
@@ -537,6 +539,7 @@ export function useAppController(runtime: AppRuntime) {
     specByPane,
     statsOpen: modal.statsOpen,
     statsTab: modal.statsTab,
+    statsView,
     unavailableReasons,
     updateState,
     usageLiveAgents,

@@ -126,6 +126,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
     specByPane,
     statsOpen,
     statsTab,
+    statsView,
     unavailableReasons,
     updateState,
     usageLiveAgents,
@@ -359,6 +360,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
             <StatsDialog
               tab={statsTab}
               onSelectTab={selectStatsTab}
+              view={statsView}
               onClose={closeStats}
               canClose={canCloseDialog}
             />

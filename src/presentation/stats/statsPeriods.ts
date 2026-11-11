@@ -13,3 +13,6 @@ export const PERIOD_LABELS: Record<UsageStatsPeriod, string> = {
   90: "90d",
   all: "All",
 };
+
+/** The period Statistics opens on until the reader picks another. */
+export const DEFAULT_STATS_PERIOD: UsageStatsPeriod = 7;

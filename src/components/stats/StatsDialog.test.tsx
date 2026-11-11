@@ -104,6 +104,7 @@ import type { Overview } from "./Overview";
 import type { Providers } from "./Providers";
 import type { StatsTable } from "./StatsTable";
 import { StatsDialog, UsageStats } from "./StatsDialog";
+import { useStatsView } from "../../app/useStatsView";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -115,16 +116,17 @@ const providers = () => handed(panels.providers, "Providers");
 const table = () => handed(panels.table, "StatsTable");
 const achievements = () => handed(panels.achievements, "Achievements");
 
-/** The dialog's tab is controlled by the app-layer owner; tests host that
- * ownership in a tiny stateful wrapper. */
+/** The dialog's tab and view are controlled by app-layer owners; tests
+ * host that ownership in a tiny stateful wrapper — the view through the
+ * real owner hook. */
 function Host({ initialTab = "overview" }: { initialTab?: StatsTab }) {
   const [tab, setTab] = useState<StatsTab>(initialTab);
-  return createElement(UsageStats, { tab, onSelectTab: setTab });
+  return createElement(UsageStats, { tab, onSelectTab: setTab, view: useStatsView() });
 }
 
 function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
   const [tab, setTab] = useState<StatsTab>("overview");
-  return createElement(StatsDialog, { tab, onSelectTab: setTab, onClose });
+  return createElement(StatsDialog, { tab, onSelectTab: setTab, view: useStatsView(), onClose });
 }
 
 const NOW = TEST_NOW;
