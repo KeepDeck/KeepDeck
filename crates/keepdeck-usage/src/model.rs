@@ -276,6 +276,10 @@ pub struct LedgerRow {
     /// Priced from the journal as the row is served; absent when unpriced.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
+    /// What the row's cache reads saved against fresh input, at the same
+    /// price — an estimate; absent when unpriced.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved_usd: Option<f64>,
     pub cost_basis: CostBasis,
     pub count: u32,
     pub calls: u32,

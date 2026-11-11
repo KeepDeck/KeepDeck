@@ -914,6 +914,7 @@ impl Booked {
             team: self.place.team,
             tokens: self.tokens,
             cost_usd: priced.cost_usd,
+            saved_usd: priced.saved_usd,
             cost_basis: priced.basis,
             count: u32::try_from(self.count).unwrap_or(u32::MAX),
             calls: u32::try_from(self.calls).unwrap_or(0),
@@ -1462,6 +1463,7 @@ mod tests {
         let rows = s.book(&batch("s1", NOW - DAY, vec![call("msg_1", NOW - 1000.0, 1_000_000.0, 1_000_000.0)]), NOW).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].cost_usd, Some(24.0));
+        assert_eq!(rows[0].saved_usd, Some(0.0), "no cache reads, nothing saved");
         assert_eq!(rows[0].cost_basis, CostBasis::Estimated);
         assert_eq!(rows[0].model.as_deref(), Some("anthropic/claude-opus-5-5"));
         assert_eq!(rows[0].model_name.as_deref(), Some("Claude Opus 5.5"));

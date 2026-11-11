@@ -31,6 +31,10 @@ export function rowsOf(rows: readonly UsageRow[], workspace: string | null): rea
 }
 
 export interface StatsTotals extends CostTally {
+  /** What the priced rows' cache reads saved against fresh input — an
+   * estimate; unpriced rows saved an unknown amount, left out like their
+   * cost. */
+  savedUsd: number;
   totalTokens: number;
   /** Output, reasoning included — the canonical class. */
   outputTokens: number;
@@ -39,10 +43,11 @@ export interface StatsTotals extends CostTally {
 }
 
 export function statsTotals(rows: readonly UsageRow[]): StatsTotals {
-  const totals = { ...emptyCostTally(), totalTokens: 0, outputTokens: 0, sessions: 0 };
+  const totals = { ...emptyCostTally(), savedUsd: 0, totalTokens: 0, outputTokens: 0, sessions: 0 };
   const sessions = new Set<string>();
   for (const row of rows) {
     addCost(totals, row);
+    if (row.savedUsd !== undefined) totals.savedUsd = addMoney(totals.savedUsd, row.savedUsd);
     totals.totalTokens += tokenTotal(row.tokens);
     totals.outputTokens += row.tokens.output ?? 0;
     sessions.add(usageSessionKey(row));

@@ -64,8 +64,14 @@ export type CostBasis = "estimated" | "approximate" | "unpriced";
 
 export type UsageRow = UsageRowBase &
   (
-    | { costBasis: "estimated" | "approximate"; costUsd: number }
-    | { costBasis: "unpriced"; costUsd?: never }
+    | {
+        costBasis: "estimated" | "approximate";
+        costUsd: number;
+        /** What the row's cache reads saved against fresh input at the same
+         * price — the core's estimate, never a bill. */
+        savedUsd?: number;
+      }
+    | { costBasis: "unpriced"; costUsd?: never; savedUsd?: never }
   );
 
 /** The provider in a booked model key — the `<provider>` of

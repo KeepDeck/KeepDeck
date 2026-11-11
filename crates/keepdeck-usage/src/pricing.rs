@@ -95,12 +95,18 @@ pub enum CostBasis {
 }
 
 /// One priced figure: its cost (absent when unpriced), how far to trust it,
-/// and the model's display name when the catalogue knows the model.
+/// the model's display name when the catalogue knows the model, and what its
+/// cache reads saved.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Priced {
     pub cost_usd: Option<f64>,
     pub basis: CostBasis,
     pub name: Option<String>,
+    /// How much less the cache reads cost than the same tokens as fresh
+    /// input would have, at the same price — an estimate of what the cache
+    /// saved, never a bill. Absent exactly when the cost is: an unpriced
+    /// row saved an unknown amount, not nothing.
+    pub saved_usd: Option<f64>,
 }
 
 /// What to price: tokens a model spent at `at` (unix ms), in `mode` (empty
@@ -237,6 +243,7 @@ impl Journal {
                 CostBasis::Estimated
             },
             name: row.name.clone(),
+            saved_usd: Some(cache_saving(usage.tokens, &rates)),
         }
     }
 }
@@ -246,7 +253,20 @@ fn unpriced() -> Priced {
         cost_usd: None,
         basis: CostBasis::Unpriced,
         name: None,
+        saved_usd: None,
     }
+}
+
+/// What the cache reads saved: each read token costs the cache-read rate
+/// instead of the input rate. Reads only — a cache write is spent ahead of a
+/// saving, not one. A model with no stated read rate bills reads at the
+/// input rate (see [`cost_of`]), so they save nothing.
+fn cache_saving(tokens: &TokenCounts, rates: &Rates) -> f64 {
+    let reads = tokens.cache_read.unwrap_or(0.0).max(0.0);
+    let Some(read_rate) = rates.cache_read else {
+        return 0.0;
+    };
+    (reads * (rates.input - read_rate)).max(0.0) / PER_TOKENS
 }
 
 /// The rates a call in `mode` past `tier` pays, and whether a stand-in was
@@ -456,6 +476,27 @@ mod tests {
         let priced = j.price(usage("kimi-code/kimi-for-coding", DAY, &t));
         assert_eq!(priced.cost_usd, None);
         assert_eq!(priced.basis, CostBasis::Unpriced);
+        assert_eq!(priced.saved_usd, None, "an unpriced row saved an unknown amount, not nothing");
+    }
+
+    #[test]
+    fn cache_reads_save_the_gap_to_the_input_rate_and_writes_save_nothing() {
+        let j = journal(vec![row("anthropic/opus", 0.0, plain(rates(4.0, 20.0, 0.2, 5.0)))]);
+        let reads = tokens(0.0, 0.0, 1_000_000.0, 0.0, 0.0);
+        assert_eq!(j.price(usage("anthropic/opus", DAY, &reads)).saved_usd, Some(4.0 - 0.2));
+        let writes = tokens(0.0, 0.0, 0.0, 1_000_000.0, 1_000_000.0);
+        assert_eq!(j.price(usage("anthropic/opus", DAY, &writes)).saved_usd, Some(0.0));
+    }
+
+    #[test]
+    fn reads_billed_at_the_input_rate_save_nothing() {
+        let mut r = rates(4.0, 20.0, 0.2, 5.0);
+        r.cache_read = None;
+        let j = journal(vec![row("anthropic/opus", 0.0, plain(r))]);
+        let reads = tokens(0.0, 0.0, 1_000_000.0, 0.0, 0.0);
+        let priced = j.price(usage("anthropic/opus", DAY, &reads));
+        assert_eq!(priced.saved_usd, Some(0.0));
+        assert_eq!(priced.basis, CostBasis::Approximate);
     }
 
     #[test]

@@ -25,6 +25,16 @@ describe("span totals", () => {
     expect(totals).toMatchObject({ costUsd: 2, pricedEvents: 1, unpricedTokens: 60, totalTokens: 200, outputTokens: 50 });
   });
 
+  it("adds what the cache saved on priced rows, the core's estimate carried as served", () => {
+    const totals = statsTotals([
+      usageEvent({ costUsd: 1, savedUsd: 3.5 }),
+      usageEvent({ costUsd: 1, savedUsd: 0.5 }),
+      // An unpriced row carries no saving at all.
+      usageEvent({ savedUsd: 9 }),
+    ]);
+    expect(totals.savedUsd).toBe(4);
+  });
+
   it("counts distinct agent sessions, not rows — the same id under two agents is two", () => {
     const totals = statsTotals([
       usageEvent({ agent: "codex", sessionId: "s1" }),
@@ -52,7 +62,7 @@ describe("span totals", () => {
 
 describe("the money comparison", () => {
   const span = (costUsd: number, totalTokens: number, unpricedTokens: number, pricedEvents = 1) => ({
-    costUsd, totalTokens, unpricedTokens, pricedEvents, approximateEvents: 0, outputTokens: 0, sessions: 1,
+    costUsd, totalTokens, unpricedTokens, pricedEvents, approximateEvents: 0, savedUsd: 0, outputTokens: 0, sessions: 1,
   });
 
   it("is the relative change when both spans are comparably priced", () => {
