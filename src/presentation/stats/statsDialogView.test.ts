@@ -40,6 +40,13 @@ describe("statsHeaderView", () => {
     expect(statsHeaderView("achievements", 7, NOW).range).toBeNull();
   });
 
+  it("shows the workspace scope only on the tabs that narrow to it", () => {
+    expect(statsHeaderView("overview", 7, NOW).scoped).toBe(true);
+    expect(statsHeaderView("breakdown", 7, NOW).scoped).toBe(true);
+    expect(statsHeaderView("limits", 7, NOW).scoped).toBe(false);
+    expect(statsHeaderView("achievements", 7, NOW).scoped).toBe(false);
+  });
+
   it("names every tab and marks the selected one", () => {
     expect(statsHeaderView("breakdown", 7, NOW).tabs.map((tab) => [tab.label, tab.active])).toEqual([
       ["Overview", false],

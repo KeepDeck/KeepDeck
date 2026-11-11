@@ -12,7 +12,8 @@ const LAST_WEEK = at("2026-11-02T10:00:00+02:00");
 
 function view(
   rows: UsageRowOverrides[],
-  { dimension = "workspace", order = "cost", open = null, perModelSince = null }: {
+  { dimension = "workspace", order = "cost", open = null, perModelSince = null, workspace = null }: {
+    workspace?: string | null;
     dimension?: StatsDimension;
     order?: BreakdownOrder;
     open?: string | null;
@@ -24,6 +25,7 @@ function view(
     result = breakdownView(rows.map((row) => usageEvent({ occurredAt: THIS_WEEK, ...row })), {
       period: 7, now: NOW, dimension, order, open, colors: new Map([["claude", "#111111"]]), perModelSince,
       teams: NO_TEAM_HISTORY,
+      workspace,
     });
   });
   if (result === undefined) throw new Error("no view");
@@ -137,5 +139,18 @@ describe("team groups", () => {
       ["Team unknown", "KeepDeck"],
     ]);
     expect(shown.notes[shown.notes.length - 1]).toMatch(/inferred from the session journal/);
+  });
+});
+
+describe("a Breakdown narrowed to one workspace", () => {
+  it("groups that workspace's rows alone", () => {
+    const shown = view(
+      [
+        { workspaceName: "KeepDeck", agent: "claude", costUsd: 2 },
+        { workspaceName: "Docs", agent: "codex", costUsd: 9 },
+      ],
+      { dimension: "agent", workspace: "KeepDeck" },
+    );
+    expect(shown.rows.map((row) => [row.name, row.shareText])).toEqual([["claude", "100%"]]);
   });
 });

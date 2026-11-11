@@ -29,12 +29,14 @@ export interface StatsTabSpec {
   data: StatsTabData;
   /** What a period-independent tab says its numbers cover instead. */
   note?: string;
+  /** The tab's numbers narrow to the workspace the reader picked. */
+  scoped?: true;
 }
 
 export const TAB_SPECS: Record<StatsTab, StatsTabSpec> = {
-  overview: { label: "Overview", data: "period-lens" },
+  overview: { label: "Overview", data: "period-lens", scoped: true },
   limits: { label: "Limits", data: "live-accounts", note: "Account-wide · each window runs on its provider's clock" },
-  breakdown: { label: "Breakdown", data: "period-ledger" },
+  breakdown: { label: "Breakdown", data: "period-ledger", scoped: true },
   achievements: { label: "Achievements", data: "all-ledger" },
 };
 

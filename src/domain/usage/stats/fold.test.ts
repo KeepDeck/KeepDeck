@@ -9,6 +9,7 @@ import {
   costTimeline,
   OTHER_KEY,
   rowsIn,
+  rowsOf,
   statsTotals,
 } from "./fold";
 
@@ -35,6 +36,12 @@ describe("span totals", () => {
 
   it("is all zeros for no rows", () => {
     expect(statsTotals([])).toMatchObject({ costUsd: 0, pricedEvents: 0, totalTokens: 0, sessions: 0 });
+  });
+
+  it("narrows rows to one workspace by name, and keeps every one for none", () => {
+    const rows = [usageEvent({ workspaceName: "A" }), usageEvent({ workspaceName: "B" })];
+    expect(rowsOf(rows, "B")).toEqual([rows[1]]);
+    expect(rowsOf(rows, null)).toBe(rows);
   });
 
   it("cuts rows to a half-open span", () => {

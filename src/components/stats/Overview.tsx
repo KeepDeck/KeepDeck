@@ -24,6 +24,7 @@ const SpendChart = lazy(() => import("./SpendChart").then((module) => ({ default
 export function Overview({
   ledger,
   period,
+  workspace,
   now,
   colors,
   accounts,
@@ -34,6 +35,9 @@ export function Overview({
   /** The ledger view — derived values are keyed on it, not on its array. */
   ledger: UsageLedger;
   period: StatsPeriod;
+  /** The workspace the reader narrowed to — the limits glance stays
+   * account-wide whatever it is. */
+  workspace: string | null;
   now: number;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
@@ -42,7 +46,10 @@ export function Overview({
   onOpenLimits(): void;
   onOpenBreakdown(dimension: StatsDimension): void;
 }) {
-  const view = useMemo(() => overviewView(ledger.events, period, now, colors), [ledger, period, now, colors]);
+  const view = useMemo(
+    () => overviewView(ledger.events, { period, now, colors, workspace }),
+    [ledger, period, now, colors, workspace],
+  );
   const limits = useMemo(
     () =>
       limitsGlanceView(

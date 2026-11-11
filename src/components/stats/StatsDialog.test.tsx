@@ -375,6 +375,20 @@ describe("UsageStats", () => {
     expect(overview().period).toBe("all");
   });
 
+  it("narrows Overview and Breakdown to a picked workspace, and shows no scope on Limits", () => {
+    history.snapshot = ledger([usageEvent({ workspaceName: "KeepDeck" }), usageEvent({ workspaceName: "Docs" })]);
+    act(() => root.render(createElement(Host)));
+    const chip = (label: string) =>
+      present([...host.querySelectorAll<HTMLButtonElement>(".stats__scope button")].find((b) => b.textContent === label), label);
+    expect(overview().workspace).toBeNull();
+    act(() => chip("Docs").click());
+    expect(overview().workspace).toBe("Docs");
+    clickTab("Breakdown");
+    expect(breakdown().workspace).toBe("Docs");
+    clickTab("Limits");
+    expect(host.querySelector(".stats__scope")).toBeNull();
+  });
+
   it("hands Breakdown the ledger's switch to per-model booking", () => {
     history.snapshot = { ...ledger([usageEvent()]), perModelSince: NOW - 60_000 };
     act(() => root.render(createElement(Host)));

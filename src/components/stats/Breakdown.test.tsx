@@ -33,6 +33,7 @@ describe("Breakdown", () => {
         createElement(Breakdown, {
           ledger: ledgerOf(rows),
           period: 7,
+          workspace: null,
           now: NOW,
           colors: new Map(),
           perModelSince: null,

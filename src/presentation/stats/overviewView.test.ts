@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
 import { inZone } from "../../domain/usage/time.testSupport";
+import type { StatsPeriod } from "../../domain/usage/stats/period";
 import { changeView, overviewView } from "./overviewView";
 
 const at = (iso: string) => new Date(iso).getTime();
@@ -8,10 +9,10 @@ const NOW = at("2026-11-10T21:00:00+02:00");
 const COLORS = new Map([["claude", "#111111"], ["codex", "#222222"]]);
 
 /** Overview over rows, in a fixed zone so the calendar is the test's. */
-function view(rows: Parameters<typeof usageEvent>[0][], period: Parameters<typeof overviewView>[1] = 7) {
+function view(rows: Parameters<typeof usageEvent>[0][], period: StatsPeriod = 7, workspace: string | null = null) {
   let result: ReturnType<typeof overviewView> | undefined;
   inZone("Asia/Nicosia", () => {
-    result = overviewView(rows.map((row) => usageEvent(row)), period, NOW, COLORS);
+    result = overviewView(rows.map((row) => usageEvent(row)), { period, now: NOW, colors: COLORS, workspace });
   });
   if (result === undefined) throw new Error("no view");
   return result;
@@ -122,5 +123,20 @@ describe("the Overview lists and legend", () => {
     expect(today?.steps.every((step) => step.costUsd === 0)).toBe(true);
     expect(view(rows, 7).chart?.steps).toHaveLength(7);
     expect(view(rows, 7).chart?.title).toBe("Spend per day");
+  });
+});
+
+describe("an Overview narrowed to one workspace", () => {
+  it("counts that workspace alone, and lists its agents instead of repeating the scope", () => {
+    const rows = [
+      { occurredAt: at("2026-11-09T10:00:00+02:00"), workspaceName: "KeepDeck", agent: "claude", costUsd: 4 },
+      { occurredAt: at("2026-11-09T11:00:00+02:00"), workspaceName: "KeepDeck", agent: "codex", costUsd: 1 },
+      { occurredAt: at("2026-11-09T12:00:00+02:00"), workspaceName: "Docs", costUsd: 50 },
+    ];
+    const shown = view(rows, 7, "KeepDeck");
+    expect(shown.spent.value).toBe("≈$5.00");
+    expect(shown.lists[0]?.title).toBe("Agents");
+    expect(shown.lists[0]?.rows.map((row) => row.name)).toEqual(["claude", "codex"]);
+    expect(view(rows).lists[0]?.title).toBe("Workspaces");
   });
 });

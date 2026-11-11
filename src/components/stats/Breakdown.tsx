@@ -18,6 +18,7 @@ import {
 export function Breakdown({
   ledger,
   period,
+  workspace,
   now,
   colors,
   perModelSince,
@@ -30,6 +31,7 @@ export function Breakdown({
   /** The ledger view — derived values are keyed on it, not on its array. */
   ledger: UsageLedger;
   period: StatsPeriod;
+  workspace: string | null;
   now: number;
   colors: ReadonlyMap<string, string>;
   perModelSince: number | null;
@@ -43,8 +45,8 @@ export function Breakdown({
   const [open, setOpen] = useState<string | null>(null);
   const teams = useMemo(() => teamHistory(journal), [journal]);
   const view = useMemo(
-    () => breakdownView(ledger.events, { period, now, dimension, order, open, colors, perModelSince, teams }),
-    [ledger, period, now, dimension, order, open, colors, perModelSince, teams],
+    () => breakdownView(ledger.events, { period, now, dimension, order, open, colors, perModelSince, teams, workspace }),
+    [ledger, period, now, dimension, order, open, colors, perModelSince, teams, workspace],
   );
   return (
     <>

@@ -2,7 +2,7 @@ import { formatAge, formatTokens, formatUtcDay } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { dimensionKey, type StatsDimension } from "../../domain/usage/stats/dimensions";
 import { earliestOccurredAt } from "../../domain/usage/history/ledger";
-import { breakdown, rowsIn, statsTotals, type BreakdownRow } from "../../domain/usage/stats/fold";
+import { breakdown, rowsIn, rowsOf, statsTotals, type BreakdownRow } from "../../domain/usage/stats/fold";
 import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import { seriesColorFor } from "../usagePalette";
 import { changeView, type ChangeView } from "./overviewView";
@@ -90,12 +90,15 @@ export function breakdownView(
     perModelSince: number | null;
     /** What the session journal says about teams. */
     teams: TeamHistory;
+    /** The workspace the reader narrowed to, or null for every one. */
+    workspace: string | null;
   },
 ): BreakdownView {
   const { period, now, dimension, order, open, colors, teams } = input;
+  const scoped = rowsOf(rows, input.workspace);
   const spans = statsSpans(period, now);
-  const current = rowsIn(rows, spans.current);
-  const prior = spans.prior === null ? [] : rowsIn(rows, spans.prior);
+  const current = rowsIn(scoped, spans.current);
+  const prior = spans.prior === null ? [] : rowsIn(scoped, spans.prior);
   const keyOf = (row: UsageRow) => dimensionKey(dimension, row, teams);
   const groups = sortGroups(breakdown(current, prior, keyOf, BREAKDOWN_TOP), order);
   const names = nameGroups(dimension, groups, teams);

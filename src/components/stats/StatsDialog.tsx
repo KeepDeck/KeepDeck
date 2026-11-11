@@ -1,4 +1,4 @@
-import { useMemo, type ReactElement } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useAgents } from "../../app/useAgents";
@@ -7,7 +7,8 @@ import { useWindowReports } from "../../app/useWindowReports";
 import type { StatsView } from "../../app/useStatsView";
 import type { JournalRecords } from "../../domain/journal/sessionLog";
 import { latestOccurredAt } from "../../domain/usage/history/ledger";
-import { rowsIn } from "../../domain/usage/stats/fold";
+import { rowsIn, rowsOf } from "../../domain/usage/stats/fold";
+import { statsScopeView } from "../../presentation/stats/statsScopeView";
 import { statsSpans } from "../../domain/usage/stats/period";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import {
@@ -115,13 +116,20 @@ export function UsageStats({
     [ledger],
   );
   const now = useWallClock(latest);
-  // Whether the period holds anything — the one fact the panel's gate
-  // reads; each tab folds its own numbers.
-  const periodEvents = useMemo(
-    () => rowsIn(ledger.events, statsSpans(period, now).current).length,
-    [ledger, period, now],
-  );
   const header = statsHeaderView(tab, period, now);
+  // Whether the period holds anything — the one fact the panel's gate
+  // reads, inside the scope when the tab narrows to one; each tab folds
+  // its own numbers.
+  const scope = header.scoped ? view.workspace : null;
+  const periodEvents = useMemo(
+    () => rowsIn(rowsOf(ledger.events, scope), statsSpans(period, now).current).length,
+    [ledger, scope, period, now],
+  );
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const chips = useMemo(
+    () => statsScopeView(ledger.events, { period, now, workspace: view.workspace, expanded: scopeOpen }),
+    [ledger, period, now, view.workspace, scopeOpen],
+  );
   const panel = statsPanelView(tab, {
     ready: history.ready,
     error: history.error,
@@ -138,6 +146,7 @@ export function UsageStats({
           <Overview
             ledger={ledger}
             period={period}
+            workspace={view.workspace}
             now={now}
             colors={seriesColors}
             accounts={accounts}
@@ -154,6 +163,7 @@ export function UsageStats({
           <Breakdown
             ledger={ledger}
             period={period}
+            workspace={view.workspace}
             now={now}
             colors={seriesColors}
             perModelSince={history.perModelSince}
@@ -209,35 +219,56 @@ export function UsageStats({
           the strip, arrows move within it) and an explicit tab↔panel
           association — without these a screen reader hears "tab, selected"
           with no panel to land on. */}
-      <div
-        className="stats__tabs"
-        role="tablist"
-        aria-label={STATS_DIALOG.tabList}
-        onKeyDown={(keyEvent) => {
-          const next = statsTabStep(tab, keyEvent.key);
-          if (next === null) return;
-          keyEvent.preventDefault();
-          onSelectTab(next);
-          document.getElementById(`stats-tab-${next}`)?.focus();
-        }}
-      >
-        {header.tabs.map((candidate) => (
-          <button
-            key={candidate.id}
-            id={`stats-tab-${candidate.id}`}
-            type="button"
-            role="tab"
-            aria-selected={candidate.active}
-            aria-controls="stats-tabpanel"
-            tabIndex={candidate.active ? 0 : -1}
-            className={`stats__tab${candidate.active ? " stats__tab--active" : ""}`}
-            onClick={() => onSelectTab(candidate.id)}
-          >
-            {candidate.label}
-          </button>
-        ))}
+      <div className="stats__tabrow">
+        <div
+          className="stats__tabs"
+          role="tablist"
+          aria-label={STATS_DIALOG.tabList}
+          onKeyDown={(keyEvent) => {
+            const next = statsTabStep(tab, keyEvent.key);
+            if (next === null) return;
+            keyEvent.preventDefault();
+            onSelectTab(next);
+            document.getElementById(`stats-tab-${next}`)?.focus();
+          }}
+        >
+          {header.tabs.map((candidate) => (
+            <button
+              key={candidate.id}
+              id={`stats-tab-${candidate.id}`}
+              type="button"
+              role="tab"
+              aria-selected={candidate.active}
+              aria-controls="stats-tabpanel"
+              tabIndex={candidate.active ? 0 : -1}
+              className={`stats__tab${candidate.active ? " stats__tab--active" : ""}`}
+              onClick={() => onSelectTab(candidate.id)}
+            >
+              {candidate.label}
+            </button>
+          ))}
+        </div>
+        {header.scoped && (
+          <div className="stats__scope" role="group" aria-label={chips.label}>
+            {chips.chips.map((chip) => (
+              <button
+                key={chip.label}
+                type="button"
+                className={chip.active ? "stats__scope--active" : ""}
+                aria-pressed={chip.active}
+                onClick={() => view.selectWorkspace(chip.workspace)}
+              >
+                {chip.label}
+              </button>
+            ))}
+            {chips.more !== null && (
+              <button type="button" onClick={() => setScopeOpen(true)}>
+                {chips.more}
+              </button>
+            )}
+          </div>
+        )}
       </div>
-
       <div
         id="stats-tabpanel"
         role="tabpanel"

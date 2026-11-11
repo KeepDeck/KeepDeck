@@ -23,6 +23,13 @@ export function rowsIn(rows: readonly UsageRow[], span: Span): UsageRow[] {
   return rows.filter((row) => inSpan(row.occurredAt, span));
 }
 
+/** The rows of one workspace, by name — the reader's scope; null keeps
+ * every workspace. By name, as the workspace dimension keys: a workspace id
+ * is a reusable slot, the name is what the reader picked. */
+export function rowsOf(rows: readonly UsageRow[], workspace: string | null): readonly UsageRow[] {
+  return workspace === null ? rows : rows.filter((row) => row.workspaceName === workspace);
+}
+
 export interface StatsTotals extends CostTally {
   totalTokens: number;
   /** Output, reasoning included — the canonical class. */

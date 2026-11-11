@@ -6,6 +6,7 @@ import {
   costChange,
   costTimeline,
   rowsIn,
+  rowsOf,
   statsTotals,
   type BreakdownRow,
 } from "../../domain/usage/stats/fold";
@@ -89,11 +90,11 @@ export function changeView(change: number): ChangeView {
 }
 
 export function overviewView(
-  rows: readonly UsageRow[],
-  period: StatsPeriod,
-  now: number,
-  colors: ReadonlyMap<string, string>,
+  ledgerRows: readonly UsageRow[],
+  input: { period: StatsPeriod; now: number; colors: ReadonlyMap<string, string>; workspace: string | null },
 ): OverviewView {
+  const { period, now, colors, workspace } = input;
+  const rows = rowsOf(ledgerRows, workspace);
   const spans = statsSpans(period, now);
   const current = rowsIn(rows, spans.current);
   const totals = statsTotals(current);
@@ -102,6 +103,7 @@ export function overviewView(
   const granularity = period === 1 ? "hour" : "day";
   const agents = breakdown(current, [], (row) => dimensionKey("agent", row), Infinity);
   const workspaces = breakdown(current, [], (row) => dimensionKey("workspace", row), OVERVIEW_LIST_TOP);
+  const agentsTop = breakdown(current, [], (row) => dimensionKey("agent", row), OVERVIEW_LIST_TOP);
   const models = breakdown(current, [], (row) => dimensionKey("model", row), OVERVIEW_LIST_TOP);
   const names = modelNames(models);
   return {
@@ -122,7 +124,11 @@ export function overviewView(
       .sort((left, right) => (left.key < right.key ? -1 : 1))
       .map((row) => ({ agent: agentName(row).name, color: seriesColorFor(colors, row.key), cost: displayCost(row) })),
     lists: [
-      topList("Workspaces", "workspace", workspaces, workspaceName),
+      // Inside one picked workspace a list of workspaces would only repeat
+      // the scope; its agents say something instead.
+      workspace === null
+        ? topList("Workspaces", "workspace", workspaces, workspaceName)
+        : topList("Agents", "agent", agentsTop, agentName),
       topList("Models", "model", models, (row) => names.get(row.key) ?? { name: row.key, source: null }),
     ],
     coverage: costCoverage(totals),

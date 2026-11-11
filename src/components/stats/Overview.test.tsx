@@ -53,6 +53,7 @@ describe("Overview", () => {
         createElement(Overview, {
           ledger: ledgerOf(events),
           period,
+          workspace: null,
           now: NOW,
           colors: new Map(),
           accounts,
