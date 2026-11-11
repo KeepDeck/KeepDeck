@@ -79,7 +79,7 @@ export function panelWindows(account: AccountUsage): UsageWindow[] {
  * whose duration no source reports. The chip abbreviates ("wk"/"mo"), the
  * panel has room to spell the word out ("week"/"month"). */
 export function windowLabel(
-  window: UsageWindow,
+  window: Pick<UsageWindow, "windowMinutes" | "scope">,
   form: "short" | "long" = "short",
 ): string {
   switch (window.windowMinutes) {

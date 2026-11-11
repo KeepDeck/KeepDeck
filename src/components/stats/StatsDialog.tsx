@@ -23,6 +23,7 @@ import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { Achievements } from "./Achievements";
 import { Breakdown } from "./Breakdown";
+import { Weekly } from "./Weekly";
 import { Overview } from "./Overview";
 import { Providers } from "./Providers";
 import { StreakBadge } from "./StreakBadge";
@@ -182,6 +183,16 @@ export function UsageStats({
             colors={seriesColors}
             reportsByKey={reports.byKey}
             now={now}
+          />
+        );
+      case "weekly":
+        return (
+          <Weekly
+            ledger={ledger}
+            now={now}
+            journal={journal}
+            reportsByKey={reports.byKey}
+            onOpenGallery={() => onSelectTab("achievements")}
           />
         );
       case "achievements":

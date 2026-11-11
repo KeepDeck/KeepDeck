@@ -107,25 +107,20 @@ describe("levels", () => {
 
 describe("windowLabel", () => {
   it("labels by length, falling back to scope", () => {
-    expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 300 })).toBe("5h");
-    expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 1440 })).toBe("day");
-    expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 10_080 })).toBe("wk");
-    expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 43_200 })).toBe("mo");
+    expect(windowLabel({ windowMinutes: 300 })).toBe("5h");
+    expect(windowLabel({ windowMinutes: 1440 })).toBe("day");
+    expect(windowLabel({ windowMinutes: 10_080 })).toBe("wk");
+    expect(windowLabel({ windowMinutes: 43_200 })).toBe("mo");
     expect(
-      windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 10_080 }, "long"),
+      windowLabel({ windowMinutes: 10_080 }, "long"),
     ).toBe("week");
     expect(
-      windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 43_200 }, "long"),
+      windowLabel({ windowMinutes: 43_200 }, "long"),
     ).toBe("month");
     expect(
-      windowLabel({
-        usedPct: 0,
-        resetsAt: null,
-        windowMinutes: null,
-        scope: "seven_day_fable",
-      }),
+      windowLabel({ windowMinutes: null, scope: "seven_day_fable" }),
     ).toBe("seven_day_fable");
-    expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: null })).toBe("plan");
+    expect(windowLabel({ windowMinutes: null })).toBe("plan");
   });
 });
 

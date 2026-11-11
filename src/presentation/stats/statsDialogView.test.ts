@@ -52,6 +52,7 @@ describe("statsHeaderView", () => {
       ["Overview", false],
       ["Breakdown", true],
       ["Limits", false],
+      ["Weekly", false],
       ["Achievements", false],
     ]);
   });

@@ -13,6 +13,7 @@ export const STATS_TAB_IDS = [
   "overview",
   "breakdown",
   "limits",
+  "weekly",
   "achievements",
 ] as const;
 

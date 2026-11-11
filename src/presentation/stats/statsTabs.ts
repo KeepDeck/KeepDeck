@@ -36,6 +36,7 @@ export interface StatsTabSpec {
 export const TAB_SPECS: Record<StatsTab, StatsTabSpec> = {
   overview: { label: "Overview", data: "period-lens", scoped: true },
   limits: { label: "Limits", data: "live-accounts", note: "Account-wide · each window runs on its provider's clock" },
+  weekly: { label: "Weekly", data: "all-ledger", note: "Calendar weeks, local time · all workspaces" },
   breakdown: { label: "Breakdown", data: "period-ledger", scoped: true },
   achievements: { label: "Achievements", data: "all-ledger" },
 };
