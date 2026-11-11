@@ -1,7 +1,7 @@
 import { formatLocalDay, formatPct, formatStep, formatTokens, formatUsd, windowLabel } from "../../domain/usage";
 import type { UsageAchievementLadder } from "../../domain/usage/achievements/ladders";
 import { nextAchievements } from "../../domain/usage/achievements/ladders";
-import type { UsageRow } from "../../domain/usage/history/event";
+import type { CostTally, UsageRow } from "../../domain/usage/history/event";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { dimensionKey } from "../../domain/usage/stats/dimensions";
 import {
@@ -213,12 +213,13 @@ function list(title: string, groups: readonly BreakdownRow[], nameOf: (group: Br
   };
 }
 
-function bars(values: readonly number[], labelOf: (index: number) => string): BarView[] {
-  const top = Math.max(...values, 0);
-  return values.map((value, index) => ({
+function bars(bins: readonly CostTally[], labelOf: (index: number) => string): BarView[] {
+  const top = Math.max(...bins.map((bin) => bin.costUsd), 0);
+  return bins.map((bin, index) => ({
     label: labelOf(index),
-    height: top > 0 && value > 0 ? Math.max(value / top, 0.02) : 0,
-    title: `${labelOf(index)}: ${formatUsd(value, { approx: true })}`,
+    height: top > 0 && bin.costUsd > 0 ? Math.max(bin.costUsd / top, 0.02) : 0,
+    // The one money display: "—" for unpriced usage alone, "+" beside it.
+    title: `${labelOf(index)}: ${displayCost(bin)}`,
   }));
 }
 

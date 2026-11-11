@@ -72,10 +72,16 @@ describe("the Weekly report", () => {
     expect(last?.days[0]?.selected).toBe(false);
   });
 
-  it("shows the week's rhythm, a sliver for any money and nothing for none", () => {
-    const shown = view([{ occurredAt: MONDAY, costUsd: 100 }, { occurredAt: at("2026-11-10T14:00:00+02:00"), costUsd: 0.5 }]);
+  it("shows the week's rhythm, a sliver for any money, and unpriced usage as unknown — never $0", () => {
+    const shown = view([
+      { occurredAt: MONDAY, costUsd: 100 },
+      { occurredAt: at("2026-11-10T14:00:00+02:00"), costUsd: 0.5 },
+      { occurredAt: at("2026-11-11T09:00:00+02:00"), tokens: { input: 7 } },
+    ]);
     const [days, hours] = shown.rhythm;
     expect(days?.bars.map((bar) => bar.height)).toEqual([1, 0.02, 0, 0, 0, 0, 0]);
+    expect(days?.bars.map((bar) => bar.title).slice(0, 4)).toEqual(["Mon: ≈$100.00", "Tue: ≈$0.50", "Wed: —", "Thu: —"]);
+    expect(hours?.bars[9]?.title).toBe("9:00: —");
     expect(days?.labelled).toBe(true);
     expect(hours?.bars).toHaveLength(24);
     expect(hours?.labelled).toBe(false);

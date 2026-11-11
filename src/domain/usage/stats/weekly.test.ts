@@ -44,7 +44,7 @@ describe("calendar weeks", () => {
 });
 
 describe("a week's rhythm", () => {
-  it("lays the priced money out by local weekday and hour, unpriced usage left out", () => {
+  it("lays the money out by local weekday and hour, an unpriced bin known as such", () => {
     inZone("Asia/Nicosia", () => {
       const rhythm = weekRhythm(
         [
@@ -55,10 +55,10 @@ describe("a week's rhythm", () => {
         ],
         weekSpans(NOW, 0).current,
       );
-      expect(rhythm.byWeekday).toEqual([2, 0, 3, 0, 0, 0, 0]);
-      expect(rhythm.byHour[1]).toBe(2);
-      expect(rhythm.byHour[14]).toBe(3);
-      expect(rhythm.byHour.reduce((sum, v) => sum + v, 0)).toBe(5);
+      expect(rhythm.byWeekday.map((bin) => bin.costUsd)).toEqual([2, 0, 3, 0, 0, 0, 0]);
+      expect(rhythm.byHour[1]?.costUsd).toBe(2);
+      expect(rhythm.byHour[14]).toMatchObject({ costUsd: 3, pricedEvents: 1, unpricedTokens: 100 });
+      expect(rhythm.byHour.reduce((sum, bin) => sum + bin.costUsd, 0)).toBe(5);
     });
   });
 });
