@@ -2,9 +2,9 @@ import { formatLocalDay } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { rowsIn, rowsOf } from "../../domain/usage/stats/fold";
 import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
-import type { StatsTab } from "../../domain/usage/statsTabs";
+import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
 import { PERIOD_LABELS, USAGE_PERIODS } from "./statsPeriods";
-import { periodless, returnTab, STRIP_TABS, TAB_SPECS } from "./statsTabs";
+import { periodless, TAB_SPECS } from "./statsTabs";
 
 /**
  * The Statistics dialog's shell, settled: its words, the period switcher,
@@ -32,11 +32,7 @@ export interface StatsHeaderView {
   /** The tab narrows to a workspace, so the scope chips show. */
   scoped: boolean;
   periods: { period: StatsPeriod; label: string; active: boolean }[];
-  /** The strip — off-strip destinations are reached by their doors. */
   tabs: { id: StatsTab; label: string; active: boolean }[];
-  /** On an off-strip destination: its name (the panel's accessible name,
-   * no strip tab labelling it) and the way back to the tab it came from. */
-  away: { label: string; back: string; to: StatsTab } | null;
 }
 
 /** The period's calendar days, as the header names them. */
@@ -46,8 +42,7 @@ export function periodRange(period: StatsPeriod, now: number): string {
   return `${formatLocalDay(statsSpans(period, now).current.from)} – ${formatLocalDay(now)}`;
 }
 
-export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number, from: StatsTab = "overview"): StatsHeaderView {
-  const back = returnTab(tab, from);
+export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number): StatsHeaderView {
   return {
     range: periodless(tab) ? (TAB_SPECS[tab].note ?? null) : periodRange(period, now),
     periodIdle: periodless(tab),
@@ -57,8 +52,7 @@ export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number,
       label: PERIOD_LABELS[candidate],
       active: candidate === period,
     })),
-    tabs: STRIP_TABS.map((id) => ({ id, label: TAB_SPECS[id].label, active: id === tab })),
-    away: back === tab ? null : { label: TAB_SPECS[tab].label, back: `‹ ${TAB_SPECS[back].label}`, to: back },
+    tabs: STATS_TAB_IDS.map((id) => ({ id, label: TAB_SPECS[id].label, active: id === tab })),
   };
 }
 
@@ -108,16 +102,4 @@ export function statsPanelView(tab: StatsTab, history: StatsHistoryState, scope:
     }
   }
   return { kind: "tab", tab, warning };
-}
-
-/** The footer's door to the badge gallery: how many badges are earned. */
-export function galleryDoor(earned: number): string {
-  return `Achievements · ${earned} earned →`;
-}
-
-/** What Escape does: an off-strip destination peels first, back to the tab
- * it came from (the tab it returns to); otherwise the dialog closes (null). */
-export function escapeTarget(tab: StatsTab, from: StatsTab): StatsTab | null {
-  const back = returnTab(tab, from);
-  return back === tab ? null : back;
 }

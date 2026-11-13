@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TEST_NOW, usageEvent } from "../../domain/usage/history/event.testSupport";
 import { inZone } from "../../domain/usage/time.testSupport";
-import { escapeTarget, galleryDoor, statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
+import { statsHeaderView, statsPanelView, type StatsHistoryState } from "./statsDialogView";
 
 /** A ledger with one row a moment ago — in this period, in workspace A. */
 const ROWS = [usageEvent({ occurredAt: TEST_NOW - 60_000, workspaceName: "A" })];
@@ -40,7 +40,7 @@ describe("statsHeaderView", () => {
     const view = statsHeaderView("limits", 7, NOW);
     expect(view.periodIdle).toBe(true);
     expect(view.range).toBe("Account-wide · each window runs on its provider's clock");
-    expect(statsHeaderView("achievements", 7, NOW).range).toBeNull();
+    expect(statsHeaderView("achievements", 7, NOW)).toMatchObject({ periodIdle: true, range: "All time · all workspaces" });
   });
 
   it("shows the workspace scope only on the tabs that narrow to it", () => {
@@ -56,16 +56,8 @@ describe("statsHeaderView", () => {
       ["Breakdown", true],
       ["Limits", false],
       ["Weekly", false],
+      ["Achievements", false],
     ]);
-    expect(statsHeaderView("breakdown", 7, NOW).away).toBeNull();
-  });
-
-  it("names an off-strip destination and the way back to where it was opened from", () => {
-    expect(statsHeaderView("achievements", 7, NOW, "weekly").away).toEqual({
-      label: "Achievements",
-      back: "‹ Weekly",
-      to: "weekly",
-    });
   });
 });
 
@@ -103,19 +95,6 @@ describe("statsPanelView", () => {
     });
     expect(statsPanelView("overview", empty, SCOPE)).toMatchObject({ kind: "tab" });
     expect(statsPanelView("achievements", empty, SCOPE)).toMatchObject({ kind: "tab" });
-  });
-});
-
-describe("escapeTarget", () => {
-  it("peels an off-strip destination first, and closes from a strip tab", () => {
-    expect(escapeTarget("achievements", "limits")).toBe("limits");
-    expect(escapeTarget("overview", "limits")).toBeNull();
-  });
-});
-
-describe("galleryDoor", () => {
-  it("counts the earned badges", () => {
-    expect(galleryDoor(52)).toBe("Achievements · 52 earned →");
   });
 });
 

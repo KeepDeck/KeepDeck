@@ -5,19 +5,11 @@ import { useAgents } from "../../app/useAgents";
 import { usageSeriesColors } from "../../presentation/usagePalette";
 import { useWindowReports } from "../../app/useWindowReports";
 import type { StatsSessions, StatsView } from "../../app/useStatsView";
-import { useKeptAchievements } from "../../app/useKeptAchievements";
 import type { TeamHistory } from "../../domain/usage/stats/teams";
 import { latestOccurredAt } from "../../domain/usage/history/ledger";
 import { statsScopeView } from "../../presentation/stats/statsScopeView";
 import type { StatsTab } from "../../domain/usage/statsTabs";
-import {
-  escapeTarget,
-  galleryDoor,
-  STATS_DIALOG,
-  statsHeaderView,
-  statsPanelView,
-} from "../../presentation/stats/statsDialogView";
-import { earnedAchievements, usageAchievementLadders } from "../../domain/usage/achievements/ladders";
+import { STATS_DIALOG, statsHeaderView, statsPanelView } from "../../presentation/stats/statsDialogView";
 import { statsTabStep } from "../../presentation/stats/statsTabs";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -36,7 +28,6 @@ import { StreakBadge } from "./StreakBadge";
  * link can land on a tab whether or not the dialog is already open. */
 export function StatsDialog({
   tab,
-  from,
   onSelectTab,
   view,
   teams,
@@ -45,8 +36,6 @@ export function StatsDialog({
   canClose = true,
 }: {
   tab: StatsTab;
-  /** The strip tab an off-strip destination was opened from. */
-  from: StatsTab;
   onSelectTab(tab: StatsTab): void;
   /** What the reader set the statistics to — held by the app-layer owner,
    * so it outlives the dialog. */
@@ -60,8 +49,7 @@ export function StatsDialog({
    * then, so Escape must not be claimed either. */
   canClose?: boolean;
 }) {
-  const leaveTo = escapeTarget(tab, from);
-  useEscape(() => (leaveTo === null ? onClose() : onSelectTab(leaveTo)), canClose);
+  useEscape(onClose, canClose);
   return (
     <ModalOverlay>
       <div
@@ -75,11 +63,10 @@ export function StatsDialog({
           <CloseButton label={STATS_DIALOG.close} onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
-          <UsageStats tab={tab} from={from} onSelectTab={onSelectTab} view={view} teams={teams} sessions={sessions} />
+          <UsageStats tab={tab} onSelectTab={onSelectTab} view={view} teams={teams} sessions={sessions} />
         </div>
         <div className="confirm__actions stats-dialog__actions">
           <StreakBadge />
-          <GalleryDoor onOpen={() => onSelectTab("achievements")} />
           <button type="button" className="form__create" onClick={onClose} autoFocus>
             {STATS_DIALOG.done}
           </button>
@@ -99,14 +86,12 @@ export function StatsDialog({
  * presentation/stats/statsDialogView.ts. */
 export function UsageStats({
   tab,
-  from,
   onSelectTab,
   view,
   teams,
   sessions,
 }: {
   tab: StatsTab;
-  from: StatsTab;
   onSelectTab(tab: StatsTab): void;
   view: StatsView;
   teams: TeamHistory;
@@ -131,7 +116,7 @@ export function UsageStats({
     [ledger],
   );
   const now = useWallClock(latest);
-  const header = statsHeaderView(tab, period, now, from);
+  const header = statsHeaderView(tab, period, now);
   const [scopeOpen, setScopeOpen] = useState(false);
   const chips = useMemo(
     () => statsScopeView(ledger.events, { period, now, workspace: view.workspace, expanded: scopeOpen }),
@@ -295,14 +280,9 @@ export function UsageStats({
       <div
         id="stats-tabpanel"
         role="tabpanel"
-        {...(header.away === null ? { "aria-labelledby": `stats-tab-${tab}` } : { "aria-label": header.away.label })}
+        aria-labelledby={`stats-tab-${tab}`}
         className="stats__tabpanel"
       >
-        {header.away !== null && (
-          <button type="button" className="stats__link stats__back" onClick={() => onSelectTab(header.away?.to ?? tab)}>
-            {header.away.back}
-          </button>
-        )}
         {panel.kind === "loading" ? (
           <p className="stats__empty">{panel.text}</p>
         ) : panel.kind === "unavailable" ? (
@@ -321,18 +301,5 @@ export function UsageStats({
         )}
       </div>
     </div>
-  );
-}
-
-/** The footer's door to the badge gallery, with the count of earned badges
- * — open beside the streak whether or not a streak is alive. */
-function GalleryDoor({ onOpen }: { onOpen(): void }) {
-  const { ledger } = useUsageHistorySnapshot();
-  const kept = useKeptAchievements();
-  const earned = useMemo(() => earnedAchievements(usageAchievementLadders(ledger.events, kept)).length, [ledger, kept]);
-  return (
-    <button type="button" className="stats__link" onClick={onOpen}>
-      {galleryDoor(earned)}
-    </button>
   );
 }

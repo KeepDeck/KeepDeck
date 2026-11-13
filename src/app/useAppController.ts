@@ -559,7 +559,6 @@ export function useAppController(runtime: AppRuntime) {
     specByPane,
     statsOpen: modal.statsOpen,
     statsTab: modal.statsTab,
-    statsFrom: modal.statsFrom,
     statsSessions,
     statsTeams,
     statsView,

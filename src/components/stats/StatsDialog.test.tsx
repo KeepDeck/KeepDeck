@@ -105,14 +105,9 @@ import type { Providers } from "./Providers";
 import type { Breakdown } from "./Breakdown";
 import { StatsDialog, UsageStats } from "./StatsDialog";
 import { useStatsView } from "../../app/useStatsView";
-import { returnTab } from "../../presentation/stats/statsTabs";
 import type { StatsTab } from "../../domain/usage/statsTabs";
 import { present } from "@keepdeck/plugin-api/testing";
 import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
-
-/** The kept awards are the notifier's, through the runtime; these cases are
- * about the ledger's own crossings, so none is kept. */
-vi.mock("../../app/useKeptAchievements", () => ({ useKeptAchievements: () => new Set<string>() }));
 
 /** What the shell last handed a panel. */
 const handed = <P,>(panel: Mock<(props: P) => void>, name: string): P =>
@@ -128,11 +123,10 @@ const achievements = () => handed(panels.achievements, "Achievements");
 /** No pane holds any session in these cases. */
 const NO_SESSIONS = { held: () => false, reveal: () => {} };
 
-/** The router's tab memory, as the app-layer owner keeps it. */
+/** The selected tab, as the app-layer owner keeps it. */
 function useTab(initialTab: StatsTab) {
-  const [state, setState] = useState({ tab: initialTab, from: "overview" as StatsTab });
-  const onSelectTab = (tab: StatsTab) => setState((at) => ({ tab, from: returnTab(at.tab, at.from) }));
-  return { tab: state.tab, from: state.from, onSelectTab };
+  const [tab, onSelectTab] = useState(initialTab);
+  return { tab, onSelectTab };
 }
 
 function Host({ initialTab = "overview" }: { initialTab?: StatsTab }) {
@@ -220,30 +214,15 @@ describe("UsageStats", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("opens the badge gallery from the footer, and Escape peels it before the dialog", () => {
+  it("closes on Escape from any tab, the badge gallery included", () => {
     const close = vi.fn();
     act(() => root.render(createElement(DialogHost, { onClose: close })));
-    clickTab("Weekly");
-    const door = present(
-      [...document.body.querySelectorAll<HTMLButtonElement>(".stats-dialog__actions .stats__link")].find((b) =>
-        b.textContent?.startsWith("Achievements"),
-      ),
-      "the gallery door",
-    );
-    // The default ledger has crossed two first tiers already.
-    expect(door.textContent).toBe("Achievements · 2 earned →");
-    act(() => door.click());
+    clickTab("Achievements");
     expect(achievements().ledger).toBe(history.snapshot.ledger);
 
-    const escape = () =>
-      act(() => {
-        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      });
-    escape();
-    // Back on the tab the gallery was opened from, the dialog still open.
-    expect(close).not.toHaveBeenCalled();
-    expect(present(document.body.querySelector('[role="tab"][aria-selected="true"]'), "the selected tab").textContent).toBe("Weekly");
-    escape();
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
     expect(close).toHaveBeenCalledOnce();
   });
 
@@ -337,25 +316,21 @@ describe("UsageStats", () => {
     ).toBeNull();
   });
 
-  it("opens directly on a deep-linked destination, off the strip, with the way back", () => {
+  it("opens directly on a deep-linked badge gallery, selected on the strip", () => {
     act(() =>
       root.render(createElement(Host, { initialTab: "achievements" })),
     );
     expect(achievements().ledger).toBe(history.snapshot.ledger);
-    // The gallery is no tab of the strip: none is selected, the panel names it.
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')).toBeNull();
     expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
-      "Overview", "Breakdown", "Limits", "Weekly",
+      "Overview", "Breakdown", "Limits", "Weekly", "Achievements",
     ]);
-    expect(host.querySelector('[role="tabpanel"]')?.getAttribute("aria-label")).toBe("Achievements");
-    const back = present(host.querySelector<HTMLButtonElement>(".stats__back"), "the way back");
-    expect(back.textContent).toBe("‹ Overview");
-    act(() => back.click());
-    expect(present(host.querySelector('[role="tab"][aria-selected="true"]'), "the selected tab").textContent).toBe("Overview");
+    const selected = present(host.querySelector('[role="tab"][aria-selected="true"]'), "the selected tab");
+    expect(selected.textContent).toBe("Achievements");
+    expect(host.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby")).toBe(selected.id);
   });
 
   it("selects and focuses the next tab on an arrow, wrapping past the last", () => {
-    act(() => root.render(createElement(Host, { initialTab: "weekly" })));
+    act(() => root.render(createElement(Host, { initialTab: "achievements" })));
     const strip = present(host.querySelector<HTMLElement>('[role="tablist"]'), "the tab strip");
     act(() => {
       strip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
@@ -366,7 +341,7 @@ describe("UsageStats", () => {
     expect(overview().period).toBe(7);
   });
 
-  it("disables the period switcher on the period-independent Limits tab", () => {
+  it("disables the period switcher on the period-independent tabs", () => {
     act(() => root.render(createElement(Host)));
     const periodButton = () =>
       [...host.querySelectorAll<HTMLButtonElement>(".stats__period button")][0];
@@ -375,6 +350,9 @@ describe("UsageStats", () => {
     clickTab("Limits");
     expect(periodButton().disabled).toBe(true);
     expect(host.querySelector(".stats__period--idle")).not.toBeNull();
+
+    clickTab("Achievements");
+    expect(periodButton().disabled).toBe(true);
 
     clickTab("Overview");
     expect(periodButton().disabled).toBe(false);
