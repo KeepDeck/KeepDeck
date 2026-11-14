@@ -1,6 +1,6 @@
 [package]
 name = "keepdeck"
-version = "0.32.0"
+version = "0.32.1"
 description = "Desktop deck for a fleet of coding agents."
 edition = "2021"
 
