@@ -29,8 +29,6 @@ export interface StatsHeaderView {
   /** The switcher disables on a tab that never reads it — disabled, not
    * hidden: hiding would jump the header layout. */
   periodIdle: boolean;
-  /** The tab narrows to a workspace, so the scope chips show. */
-  scoped: boolean;
   periods: { period: StatsPeriod; label: string; active: boolean }[];
   tabs: { id: StatsTab; label: string; active: boolean }[];
 }
@@ -46,7 +44,6 @@ export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number)
   return {
     range: periodless(tab) ? (TAB_SPECS[tab].note ?? null) : periodRange(period, now),
     periodIdle: periodless(tab),
-    scoped: TAB_SPECS[tab].scoped === true,
     periods: USAGE_PERIODS.map((candidate) => ({
       period: candidate,
       label: PERIOD_LABELS[candidate],
