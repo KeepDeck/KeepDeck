@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { isStatsTab, type StatsTab } from "../domain/usage/statsTabs";
-import { returnTab } from "../presentation/stats/statsTabs";
 
 /**
  * THE owner of the app-surface dialog layer: which of the six exclusive
@@ -33,9 +32,6 @@ export function useModalRouter({
   const [tasksFocus, setTasksFocus] = useState<string | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsTab, setStatsTab] = useState<StatsTab>("overview");
-  /** The strip tab an off-strip destination (the gallery) was opened from
-   * — where Back and Escape return. */
-  const [statsFrom, setStatsFrom] = useState<StatsTab>("overview");
 
   const anyDialogOpen =
     settingsOpen || statsOpen || skillsOpen || mcpOpen || artifactsOpen || tasksOpen;
@@ -110,11 +106,10 @@ export function useModalRouter({
   const openStats = (tab?: StatsTab | null): boolean => {
     const next = isStatsTab(tab) ? tab : undefined;
     if (statsOpen) {
-      if (next !== undefined) selectStatsTab(next);
+      if (next !== undefined) setStatsTab(next);
       return true;
     }
     if (!canOpenDialog) return false;
-    setStatsFrom("overview");
     setStatsTab(next ?? "overview");
     setStatsOpen(true);
     return true;
@@ -123,15 +118,8 @@ export function useModalRouter({
     if (transactionOpen) return;
     setStatsOpen(false);
     setStatsTab("overview");
-    setStatsFrom("overview");
   };
-  /** The third verb of the sequence gets a function too: every move goes
-   * through it, so the strip tab an off-strip destination was opened from
-   * is remembered in one place. */
-  function selectStatsTab(tab: StatsTab) {
-    setStatsFrom((from) => returnTab(statsTab, from));
-    setStatsTab(tab);
-  }
+  const selectStatsTab = (tab: StatsTab) => setStatsTab(tab);
 
   return {
     anyDialogOpen,
@@ -161,7 +149,6 @@ export function useModalRouter({
     focusTask,
     statsOpen,
     statsTab,
-    statsFrom,
     openStats,
     closeStats,
     selectStatsTab,

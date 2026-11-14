@@ -126,7 +126,6 @@ function App({ runtime }: { runtime: AppRuntime }) {
     specByPane,
     statsOpen,
     statsTab,
-    statsFrom,
     statsSessions,
     statsTeams,
     statsView,
@@ -362,7 +361,6 @@ function App({ runtime }: { runtime: AppRuntime }) {
           {statsOpen && (
             <StatsDialog
               tab={statsTab}
-              from={statsFrom}
               onSelectTab={selectStatsTab}
               view={statsView}
               teams={statsTeams}
