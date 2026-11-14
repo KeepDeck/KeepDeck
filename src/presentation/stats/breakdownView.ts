@@ -1,4 +1,4 @@
-import { formatAge, formatLocalDay, formatTokens } from "../../domain/usage";
+import { formatAge, formatLocalDay, formatShare, formatTokens } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { dimensionKey, type StatsDimension } from "../../domain/usage/stats/dimensions";
 import { earliestOccurredAt } from "../../domain/usage/history/ledger";
@@ -121,7 +121,7 @@ export function breakdownView(
       key: group.key,
       ...nameOf(group),
       width: group.folded > 0 ? 0 : group.share / widest,
-      shareText: `${Math.round(group.share * 100)}%`,
+      shareText: formatShare(group.share),
       split: Object.keys(group.byAgent)
         .sort()
         .map((agent) => ({ agent, color: seriesColorFor(colors, agent), weight: group.byAgent[agent] ?? 0 })),

@@ -1,4 +1,4 @@
-import { formatLocalDay, formatPct, formatStep, formatTokens, formatUsd, windowLabel } from "../../domain/usage";
+import { formatLocalDay, formatPct, formatShare, formatStep, formatTokens, formatUsd, windowLabel } from "../../domain/usage";
 import type { UsageAchievementLadder } from "../../domain/usage/achievements/ladders";
 import { nextAchievements } from "../../domain/usage/achievements/ladders";
 import type { CostTally, UsageRow } from "../../domain/usage/history/event";
@@ -109,7 +109,7 @@ export function weekReportView(rows: readonly UsageRow[], now: number, back: num
   const lines: string[] = [];
   if (topModel !== undefined && topModel.folded === 0 && topModel.pricedEvents > 0) {
     lines.push(
-      `${names.get(topModel.key)?.name ?? topModel.key} ran ${pct(topModel.share)} of the spend; ` +
+      `${names.get(topModel.key)?.name ?? topModel.key} ran ${formatShare(topModel.share)} of the spend; ` +
         `output was ${formatTokens(totals.outputTokens)} tokens, reasoning included.`,
     );
   }
@@ -200,8 +200,6 @@ export function weeklyView(
   };
 }
 
-const pct = (share: number) => `${Math.round(share * 100)}%`;
-
 function weekRange(from: number, to: number): string {
   return `${formatLocalDay(from)} – ${formatLocalDay(to - 1)}`;
 }
@@ -212,7 +210,7 @@ function list(title: string, groups: readonly BreakdownRow[], nameOf: (group: Br
     rows: groups.map((group) => ({
       key: group.key,
       ...nameOf(group),
-      share: group.folded > 0 ? "" : pct(group.share),
+      share: group.folded > 0 ? "" : formatShare(group.share),
       cost: displayCost(group),
       folded: group.folded > 0,
     })),
@@ -259,7 +257,7 @@ function badgesView(ladders: readonly UsageAchievementLadder[]): WeeklyView["bad
   return {
     title: "Closest to the next badge",
     link: "All →",
-    rows: next.map(({ tier, share }) => ({ id: tier.id, title: tier.title, pct: pct(share) })),
+    rows: next.map(({ tier, share }) => ({ id: tier.id, title: tier.title, pct: formatShare(share) })),
   };
 }
 

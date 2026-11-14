@@ -9,6 +9,7 @@ import {
   formatCountdown,
   formatMoment,
   formatPct,
+  formatShare,
   formatTimestamp,
   formatTokens,
   formatUsd,
@@ -137,6 +138,17 @@ describe("formatCountdown", () => {
     expect(formatCountdown(null, NOW)).toBeNull();
     expect(formatCountdown(NOW, NOW)).toBeNull();
     expect(formatCountdown(NOW - 1, NOW)).toBeNull();
+  });
+});
+
+describe("formatShare", () => {
+  it("rounds a share to a whole percent", () => {
+    expect([formatShare(0), formatShare(0.2189), formatShare(0.685), formatShare(1)]).toEqual(["0%", "22%", "69%", "100%"]);
+  });
+
+  it("never rounds a sliver to nothing or a near-whole to everything", () => {
+    expect([formatShare(0.0017), formatShare(0.0049), formatShare(0.005)]).toEqual(["<1%", "<1%", "1%"]);
+    expect([formatShare(0.9949), formatShare(0.995), formatShare(0.9999)]).toEqual(["99%", ">99%", ">99%"]);
   });
 });
 
