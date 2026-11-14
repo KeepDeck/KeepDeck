@@ -68,6 +68,38 @@ describe("the Overview headline", () => {
   });
 });
 
+describe("a period with nothing to draw", () => {
+  it("says the period holds no usage — in the headline, the chart and the lists — never no comparison", () => {
+    // Usage only a fortnight back: the prior span has some, this one none.
+    const shown = view([{ occurredAt: at("2026-11-02T10:00:00+02:00"), costUsd: 80 }]);
+    expect(shown.spent).toMatchObject({ value: "—", change: null, caption: "no usage in 7 days" });
+    expect(shown.chartNote).toBe("No usage in 7 days");
+    expect(shown.lists.map((list) => [list.title, list.empty, list.rows.length])).toEqual([
+      ["Workspaces", "No usage in 7 days", 0],
+      ["Models", "No usage in 7 days", 0],
+    ]);
+    // Today has its own words.
+    expect(view([], 1)).toMatchObject({ chartNote: "No usage today", spent: { caption: "no usage today" } });
+  });
+
+  it("says usage no price covers in words, not as empty bars", () => {
+    const shown = view([{ occurredAt: at("2026-11-09T10:00:00+02:00"), tokens: { input: 10 } }]);
+    expect(shown.spent).toMatchObject({ value: "—", caption: "no model here has a known price" });
+    expect(shown.chartNote).toBe("None of this usage has a known price.");
+    // Its lists still name where the usage went.
+    expect(shown.lists.every((list) => list.empty === null && list.rows.length === 1)).toBe(true);
+  });
+
+  it("draws the bars whenever some of the period's usage is priced", () => {
+    const shown = view([
+      { occurredAt: at("2026-11-09T10:00:00+02:00"), costUsd: 1 },
+      { occurredAt: at("2026-11-09T11:00:00+02:00"), tokens: { input: 10 } },
+    ]);
+    expect(shown.chartNote).toBeNull();
+    expect(shown.lists.every((list) => list.empty === null)).toBe(true);
+  });
+});
+
 describe("a money change", () => {
   it("reads spending less as good, more as bad, and a rounded zero as flat", () => {
     expect(changeView(-0.193)).toEqual({ text: "↓ 19%", tone: "good" });

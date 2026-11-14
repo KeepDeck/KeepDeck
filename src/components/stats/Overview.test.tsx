@@ -65,6 +65,19 @@ describe("Overview", () => {
     });
   };
 
+  it("says an empty period in place of the chart and the lists, keeping the card", async () => {
+    await render([row({ occurredAt: NOW - 30 * 86_400_000 })]);
+    const card = present(host.querySelector(".stats__chart"), "the chart card");
+    expect(card.querySelector(".stats__chart-empty")?.textContent).toBe("No usage in 7 days");
+    expect(chart.title).toBeNull();
+    expect([...host.querySelectorAll(".stats__top-empty")].map((note) => note.textContent)).toContain("No usage in 7 days");
+
+    // Usage with no known price: the card says so instead of empty bars.
+    await render([row({ costBasis: "unpriced" })]);
+    expect(host.querySelector(".stats__chart-empty")?.textContent).toBe("None of this usage has a known price.");
+    expect(chart.title).toBeNull();
+  });
+
   it("leads with the spend and the plain figures beside it", async () => {
     await render([row(), row({ sessionId: "other", workspaceName: "Docs" })]);
     const band = present(host.querySelector(".stats__band"), "the band");

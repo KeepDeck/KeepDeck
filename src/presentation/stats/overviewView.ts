@@ -14,6 +14,7 @@ import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import { seriesColorFor } from "../usagePalette";
 import { spendChartView, type SpendChartView } from "./spendChartView";
 import { costCoverage, displayCost } from "./statsCost";
+import { PERIOD_PHRASES } from "./statsPeriods";
 import { agentName, modelNames, workspaceName, type GroupName } from "./statsNames";
 
 /**
@@ -51,6 +52,8 @@ export interface TopListRowView extends GroupName {
 
 export interface TopListView {
   title: string;
+  /** Said in place of the rows when the period holds no usage. */
+  empty: string | null;
   /** The door to the same groups in Breakdown. */
   link: string;
   dimension: StatsDimension;
@@ -63,7 +66,10 @@ export interface OverviewView {
   /** The headline — the ONE comparison on the screen. */
   spent: FigureView & { change: ChangeView | null };
   figures: FigureView[];
-  chart: SpendChartView | null;
+  chart: SpendChartView;
+  /** Said in place of the bars when there is nothing to draw: no usage in
+   * the period, or none a price covers. The card keeps its height. */
+  chartNote: string | null;
   /** Each agent's spend over the period, for the chart's legend. */
   legend: { agent: string; color: string; cost: string }[];
   lists: TopListView[];
@@ -106,20 +112,32 @@ export function overviewView(
   const agentsTop = breakdown(current, [], (row) => dimensionKey("agent", row), OVERVIEW_LIST_TOP);
   const models = breakdown(current, [], (row) => dimensionKey("model", row), OVERVIEW_LIST_TOP);
   const names = modelNames(models);
+  // A period with no usage, or with usage no price covers, has no money to
+  // draw or compare — said in words, never as an empty chart or a "$0".
+  const idle = current.length === 0;
+  const unpriced = !idle && totals.pricedEvents === 0;
+  const noUsage = `no usage ${PERIOD_PHRASES[period]}`;
+  const empty = idle ? `No usage ${PERIOD_PHRASES[period]}` : null;
   return {
     label: "Summary",
     spent: {
       label: "Spent",
       value: displayCost(totals),
       change: change === null ? null : changeView(change),
-      caption:
-        change === null && prior !== null ? "no comparable period before" : COMPARED_WITH[period],
+      caption: idle
+        ? noUsage
+        : unpriced
+          ? "no model here has a known price"
+          : change === null && prior !== null
+            ? "no comparable period before"
+            : COMPARED_WITH[period],
     },
     figures: [
       { label: "Sessions", value: String(totals.sessions), caption: "with usage in the period" },
       { label: "Output tokens", value: formatTokens(totals.outputTokens), caption: "reasoning included" },
     ],
     chart: spendChartView(costTimeline(rows, spans.current, granularity), granularity, colors),
+    chartNote: idle ? empty : unpriced ? "None of this usage has a known price." : null,
     legend: [...agents]
       .sort((left, right) => (left.key < right.key ? -1 : 1))
       .map((row) => ({ agent: agentName(row).name, color: seriesColorFor(colors, row.key), cost: displayCost(row) })),
@@ -127,9 +145,9 @@ export function overviewView(
       // Inside one picked workspace a list of workspaces would only repeat
       // the scope; its agents say something instead.
       workspace === null
-        ? topList("Workspaces", "workspace", workspaces, workspaceName)
-        : topList("Agents", "agent", agentsTop, agentName),
-      topList("Models", "model", models, (row) => names.get(row.key) ?? { name: row.key, source: null }),
+        ? topList("Workspaces", "workspace", workspaces, workspaceName, empty)
+        : topList("Agents", "agent", agentsTop, agentName, empty),
+      topList("Models", "model", models, (row) => names.get(row.key) ?? { name: row.key, source: null }, empty),
     ],
     coverage: costCoverage(totals),
     chartError: "The chart could not be loaded.",
@@ -141,9 +159,11 @@ function topList(
   dimension: StatsDimension,
   rows: readonly BreakdownRow[],
   nameOf: (row: BreakdownRow) => GroupName,
+  empty: string | null,
 ): TopListView {
   return {
     title,
+    empty,
     link: "Breakdown →",
     dimension,
     rows: rows.map((row) => {

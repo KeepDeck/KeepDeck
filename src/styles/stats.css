@@ -307,6 +307,16 @@
   background: var(--kd-tile);
 }
 
+/* Said in place of the bars when there is nothing to draw — the card
+   keeps the chart's height (set inline from CHART_HEIGHT). */
+.stats__chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--kd-text-3);
+}
+
 .stats__chart-head {
   display: flex;
   align-items: baseline;

@@ -29,15 +29,15 @@ export interface SpendChartView {
   color(agent: string): string;
 }
 
-/** The chart, or none for a span with no steps at all. A span whose usage
- * is all unpriced still gets its axis: empty bars with a hover card saying
- * why, rather than a chart that vanishes. */
+/** The chart over a span's steps. A span with nothing to draw — no usage,
+ * or none a price covers — is the Overview's to say in words, in place of
+ * the bars (overviewView's `chartNote`); a step with unpriced usage among
+ * priced ones says so in its hover card. */
 export function spendChartView(
   steps: CostStep[],
   granularity: TimelineGranularity,
   colors: ReadonlyMap<string, string>,
-): SpendChartView | null {
-  if (steps.length === 0) return null;
+): SpendChartView {
   const agents = new Set<string>();
   for (const step of steps) for (const agent of Object.keys(step.byAgent)) agents.add(agent);
   return {

@@ -30,16 +30,16 @@ describe("the spend chart", () => {
     expect(stepValue(steps[1] ?? step(0, {}), "codex")).toBe(0);
   });
 
-  it("is absent only for a span with no steps", () => {
-    expect(spendChartView([], "day", COLORS)).toBeNull();
-    expect(spendChartView([step(0, {})], "day", COLORS)?.agents).toEqual([]);
+  it("draws any span — one with nothing priced has no agents to stack", () => {
+    expect(spendChartView([], "day", COLORS)).toMatchObject({ steps: [], agents: [] });
+    expect(spendChartView([step(0, {})], "day", COLORS).agents).toEqual([]);
   });
 
   it("labels its axis in local days or hours, and its values in dollars", () => {
     inZone("Asia/Nicosia", () => {
-      expect(spendChartView(steps, "day", COLORS)?.tick(at("2026-11-08T00:00:00+02:00"))).toBe("Nov 8");
-      expect(spendChartView(steps, "hour", COLORS)?.tick(at("2026-11-08T14:00:00+02:00"))).toBe("14:00");
-      expect(spendChartView(steps, "day", COLORS)?.axis(1500)).toBe("$1,500");
+      expect(spendChartView(steps, "day", COLORS).tick(at("2026-11-08T00:00:00+02:00"))).toBe("Nov 8");
+      expect(spendChartView(steps, "hour", COLORS).tick(at("2026-11-08T14:00:00+02:00"))).toBe("14:00");
+      expect(spendChartView(steps, "day", COLORS).axis(1500)).toBe("$1,500");
     });
   });
 });

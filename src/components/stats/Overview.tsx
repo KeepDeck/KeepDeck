@@ -70,30 +70,35 @@ export function Overview({
           <Figure key={figure.label} figure={figure} />
         ))}
       </section>
-      {view.chart && (
-        <section className="stats__section stats__chart" aria-label={view.chart.title}>
-          <header className="stats__chart-head">
-            <h3>{view.chart.title}</h3>
-            <span className="stats__legend">
-              {view.legend.map((entry) => (
-                <span key={entry.agent}>
-                  <i style={{ background: entry.color }} />
-                  {entry.agent}
-                  <b>{entry.cost}</b>
-                </span>
-              ))}
-            </span>
-          </header>
-          {/* A failed chunk load loses the chart, never the app — without a
-              boundary a rejected lazy import unwinds to the root and blanks
-              the whole window. */}
+      <section className="stats__section stats__chart" aria-label={view.chart.title}>
+        <header className="stats__chart-head">
+          <h3>{view.chart.title}</h3>
+          <span className="stats__legend">
+            {view.legend.map((entry) => (
+              <span key={entry.agent}>
+                <i style={{ background: entry.color }} />
+                {entry.agent}
+                <b>{entry.cost}</b>
+              </span>
+            ))}
+          </span>
+        </header>
+        {view.chartNote !== null ? (
+          // The card keeps the chart's height: the page does not jump.
+          <p className="stats__chart-empty" style={{ height: CHART_HEIGHT }}>
+            {view.chartNote}
+          </p>
+        ) : (
+          // A failed chunk load loses the chart, never the app — without a
+          // boundary a rejected lazy import unwinds to the root and blanks
+          // the whole window.
           <ErrorBoundary label="Statistics chart" fallback={<p className="stats__warning">{view.chartError}</p>}>
             <Suspense fallback={<div style={{ height: CHART_HEIGHT }} aria-hidden />}>
               <SpendChart view={view.chart} />
             </Suspense>
           </ErrorBoundary>
-        </section>
-      )}
+        )}
+      </section>
       <div className="stats__glance">
         {view.lists.map((list) => (
           <TopList key={list.title} list={list} onOpen={() => onOpenBreakdown(list.dimension)} />
@@ -124,6 +129,7 @@ function TopList({ list, onOpen }: { list: TopListView; onOpen(): void }) {
           {list.link}
         </button>
       </h3>
+      {list.empty !== null && <p className="stats__top-empty">{list.empty}</p>}
       {list.rows.map((row) => (
         <div key={row.key} className={`stats__top-row${row.folded ? " stats__top-row--folded" : ""}`}>
           <span className="stats__top-name" title={row.title}>
