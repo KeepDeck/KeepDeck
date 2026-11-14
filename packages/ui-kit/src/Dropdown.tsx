@@ -28,6 +28,9 @@ interface DropdownProps {
   /** Words under the options, inside the menu — why an option is
    *  disabled, said where the person meets it. */
   note?: ReactNode;
+  /** The whole control idles: it keeps its value on show and opens
+   *  nothing — where the choice stands but does not apply here. */
+  disabled?: boolean;
 }
 
 /**
@@ -48,15 +51,19 @@ export function Dropdown({
   size = "md",
   quiet = false,
   note,
+  disabled = false,
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
+  // An idle control drops the menu it had open — enabled again, it must
+  // not spring back open on its own.
+  if (disabled && open) setOpen(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLUListElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const listId = useId();
 
   useAwayClose(open, () => setOpen(false), rootRef, menuRef);
-  const view = dropdownView({ options, value, open, variant, size, quiet, className });
+  const view = dropdownView({ options, value, open, variant, size, quiet, disabled, className });
   const { menuOpen } = view;
 
   return (
@@ -84,6 +91,7 @@ export function Dropdown({
         aria-expanded={menuOpen}
         aria-controls={menuOpen ? listId : undefined}
         aria-label={ariaLabel}
+        disabled={disabled}
         onClick={() => setOpen((o) => !o)}
       >
         <span className="dropdown__label">{view.current}</span>

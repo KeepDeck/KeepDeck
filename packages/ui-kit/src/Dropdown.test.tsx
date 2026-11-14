@@ -201,6 +201,29 @@ describe("Dropdown", () => {
     expect(menu()?.querySelector(".dropdown__note")).toBeNull();
   });
 
+  it("names a rich option by its own closed words, and idles without losing its value", () => {
+    const rich = [
+      { value: "/wt/a", label: "kd/a · 3 files", current: "kd/a" },
+      { value: "/repo", label: "Workspace folder" },
+    ];
+    const render = (disabled: boolean) =>
+      act(() => root.render(createElement(Dropdown, { options: rich, value: "/wt/a", onChange, ariaLabel: "Pick", disabled })));
+    render(false);
+    expect(button().textContent).toBe("kd/a");
+    act(() => button().click());
+    expect(menu()?.textContent).toContain("kd/a · 3 files");
+
+    // Idling while open closes the menu; the value stays on show.
+    render(true);
+    expect(menu()).toBeNull();
+    expect(button().disabled).toBe(true);
+    expect(button().getAttribute("aria-expanded")).toBe("false");
+    expect(button().textContent).toBe("kd/a");
+    // Enabled again, it stays closed until asked.
+    render(false);
+    expect(menu()).toBeNull();
+  });
+
   it("opens no listbox when there is nothing to pick", () => {
     mount("/wt/a", []);
     act(() => button().click());
