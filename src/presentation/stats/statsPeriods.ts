@@ -14,5 +14,14 @@ export const PERIOD_LABELS: Record<StatsPeriod, string> = {
   all: "All",
 };
 
+/** The period inside a sentence — "no usage in 7 days", "no usage today". */
+export const PERIOD_PHRASES: Record<StatsPeriod, string> = {
+  1: "today",
+  7: "in 7 days",
+  30: "in 30 days",
+  90: "in 90 days",
+  all: "at all",
+};
+
 /** The period Statistics opens on until the reader picks another. */
 export const DEFAULT_STATS_PERIOD: StatsPeriod = 7;

@@ -108,6 +108,15 @@ export function formatCountdown(resetsAt: number | null, now: number): string | 
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
+/** A share of a whole (0–1) as a whole percent. A share between none and
+ * all never rounds onto either end — "<1%" and ">99%" — so a sliver never
+ * reads as nothing and a near-whole never as everything. */
+export function formatShare(share: number): string {
+  if (share > 0 && share < 0.005) return "<1%";
+  if (share < 1 && share >= 0.995) return ">99%";
+  return `${Math.round(share * 100)}%`;
+}
+
 /** "42%" or "58% left" — the user picks which direction the number runs;
  * threshold COLOR always follows % used regardless. Used rounds UP (the
  * CLIs' own /usage panels ceil; understating consumption reads as a bug —

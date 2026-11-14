@@ -16,6 +16,19 @@ describe("dropdownView — the Dropdown's decisions", () => {
     expect(dropdownView({ ...base, value: "z" }).current).toBe("z");
   });
 
+  it("shows a picked option's own closed-control words when its menu row carries more", () => {
+    const rich = [{ value: "a", label: "A · $12 · 40%", current: "A" }, { value: "b", label: "B" }];
+    expect(dropdownView({ ...base, options: rich }).current).toBe("A");
+    expect(dropdownView({ ...base, options: rich, value: "b" }).current).toBe("B");
+    // The menu still lists the full row.
+    expect(dropdownView({ ...base, options: rich }).items[0]?.label).toBe("A · $12 · 40%");
+  });
+
+  it("opens nothing while the whole control idles", () => {
+    expect(dropdownView({ ...base, disabled: true }).menuOpen).toBe(false);
+    expect(dropdownView({ ...base, disabled: true }).current).toBe("A");
+  });
+
   it("marks the picked option alone, and carries a refused one as refused", () => {
     expect(dropdownView(base).items).toEqual([
       { value: "a", label: "A", disabled: false, selected: true, className: "dropdown__option dropdown__option--active" },

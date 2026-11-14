@@ -599,6 +599,13 @@
   color: var(--kd-text-3);
 }
 
+/* An idle control: its value stays on show, quiet, and nothing opens — the
+   choice stands but does not apply where the person is. */
+.dropdown__button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .dropdown__label {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useAgents } from "../../app/useAgents";
@@ -20,6 +20,7 @@ import { Breakdown } from "./Breakdown";
 import { Weekly } from "./Weekly";
 import { Overview } from "./Overview";
 import { Providers } from "./Providers";
+import { StatsScope } from "./StatsScope";
 import { StreakBadge } from "./StreakBadge";
 
 /** Global usage analytics has its own app surface: it is observational data,
@@ -117,10 +118,9 @@ export function UsageStats({
   );
   const now = useWallClock(latest);
   const header = statsHeaderView(tab, period, now);
-  const [scopeOpen, setScopeOpen] = useState(false);
-  const chips = useMemo(
-    () => statsScopeView(ledger.events, { period, now, workspace: view.workspace, expanded: scopeOpen }),
-    [ledger, period, now, view.workspace, scopeOpen],
+  const scope = useMemo(
+    () => statsScopeView(ledger.events, { tab, period, now, workspace: view.workspace }),
+    [ledger, tab, period, now, view.workspace],
   );
   const panel = useMemo(
     () =>
@@ -201,26 +201,29 @@ export function UsageStats({
     <div className="stats">
       <div className="stats__head">
         <p className="stats__range">{header.range}</p>
-        <div
-          className={`stats__period${header.periodIdle ? " stats__period--idle" : ""}`}
-          // role=group makes the label perceivable — on a bare div (implicit
-          // role generic) aria-label is ignored by assistive tech.
-          role="group"
-          aria-label={STATS_DIALOG.periodGroup}
-          aria-disabled={header.periodIdle}
-        >
-          {header.periods.map((candidate) => (
-            <button
-              key={candidate.label}
-              type="button"
-              className={candidate.active ? "stats__period--active" : ""}
-              aria-pressed={candidate.active}
-              disabled={header.periodIdle}
-              onClick={() => view.selectPeriod(candidate.period)}
-            >
-              {candidate.label}
-            </button>
-          ))}
+        <div className="stats__filters">
+          <StatsScope scope={scope} onPick={view.selectWorkspace} />
+          <div
+            className={`stats__period${header.periodIdle ? " stats__period--idle" : ""}`}
+            // role=group makes the label perceivable — on a bare div (implicit
+            // role generic) aria-label is ignored by assistive tech.
+            role="group"
+            aria-label={STATS_DIALOG.periodGroup}
+            aria-disabled={header.periodIdle}
+          >
+            {header.periods.map((candidate) => (
+              <button
+                key={candidate.label}
+                type="button"
+                className={candidate.active ? "stats__period--active" : ""}
+                aria-pressed={candidate.active}
+                disabled={header.periodIdle}
+                onClick={() => view.selectPeriod(candidate.period)}
+              >
+                {candidate.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {/* The ARIA tabs pattern in full: roving tabIndex (one tab stop for
@@ -256,26 +259,6 @@ export function UsageStats({
             </button>
           ))}
         </div>
-        {header.scoped && (
-          <div className="stats__scope" role="group" aria-label={chips.label}>
-            {chips.chips.map((chip) => (
-              <button
-                key={chip.label}
-                type="button"
-                className={chip.active ? "stats__scope--active" : ""}
-                aria-pressed={chip.active}
-                onClick={() => view.selectWorkspace(chip.workspace)}
-              >
-                {chip.label}
-              </button>
-            ))}
-            {chips.more !== null && (
-              <button type="button" onClick={() => setScopeOpen(true)}>
-                {chips.more}
-              </button>
-            )}
-          </div>
-        )}
       </div>
       <div
         id="stats-tabpanel"

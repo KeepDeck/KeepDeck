@@ -8,6 +8,10 @@ export interface DropdownOption {
    * text for most call sites, or a small composition (a name plus a status
    * icon) when text alone can't carry it. */
   label: ReactNode;
+  /** What the closed control shows while this option is picked, when its
+   * menu row carries more than the control should (a figure, a bar beside
+   * the name); its label otherwise. */
+  current?: ReactNode;
   /** Shown but not to be picked — where a choice exists and is refused
    * now; the menu's `note` says why. */
   disabled?: boolean;
@@ -18,9 +22,9 @@ export interface DropdownOption {
  * and the focus, and maps this. */
 export interface DropdownView {
   className: string;
-  /** Whether the menu is drawn: open, and something to pick — a listbox
-   * with no options is a dead layer to a pointer and a lie to a screen
-   * reader, and the aria pair reports this same answer. */
+  /** Whether the menu is drawn: open, enabled, and something to pick — a
+   * listbox with no options is a dead layer to a pointer and a lie to a
+   * screen reader, and the aria pair reports this same answer. */
   menuOpen: boolean;
   /** The closed control's words: the picked option's, or the raw value. */
   current: ReactNode;
@@ -39,9 +43,12 @@ export function dropdownView(input: {
   variant: "field" | "inline";
   size: "md" | "sm";
   quiet: boolean;
+  /** The whole control is idle: it keeps showing its value, opens nothing. */
+  disabled?: boolean;
   className?: string;
 }): DropdownView {
   const { options, value } = input;
+  const picked = options.find((option) => option.value === value);
   const items = options.map((option) => {
     const selected = option.value === value;
     return {
@@ -62,8 +69,8 @@ export function dropdownView(input: {
     ]
       .filter(Boolean)
       .join(" "),
-    menuOpen: input.open && options.length > 0,
-    current: items.find((item) => item.selected)?.label ?? value,
+    menuOpen: input.open && input.disabled !== true && options.length > 0,
+    current: picked === undefined ? value : (picked.current ?? picked.label),
     widthFrom: input.variant === "inline" || input.size === "sm" ? "content" : "anchor",
     items,
   };

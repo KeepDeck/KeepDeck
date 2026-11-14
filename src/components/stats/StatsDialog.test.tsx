@@ -400,18 +400,34 @@ describe("UsageStats", () => {
     expect(overview().period).toBe("all");
   });
 
-  it("narrows Overview and Breakdown to a picked workspace, and shows no scope on Limits", () => {
+  it("narrows Overview and Breakdown to a workspace picked from the menu, idles it on Limits, and clears it", () => {
     history.snapshot = ledger([usageEvent({ workspaceName: "KeepDeck" }), usageEvent({ workspaceName: "Docs" })]);
     act(() => root.render(createElement(Host)));
-    const chip = (label: string) =>
-      present([...host.querySelectorAll<HTMLButtonElement>(".stats__scope button")].find((b) => b.textContent === label), label);
+    const menu = () => present(host.querySelector<HTMLButtonElement>('button[aria-label="Workspaces"]'), "the workspace menu");
+    expect(menu().textContent).toBe("All workspaces");
     expect(overview().workspace).toBeNull();
-    act(() => chip("Docs").click());
+
+    act(() => menu().click());
+    const docs = present(
+      [...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((option) => option.textContent?.startsWith("Docs")),
+      "the Docs option",
+    );
+    act(() => docs.click());
     expect(overview().workspace).toBe("Docs");
+    expect(menu().textContent).toBe("Docs");
     clickTab("Breakdown");
     expect(breakdown().workspace).toBe("Docs");
+
+    // Limits never narrows: the menu keeps the pick on show and opens nothing.
     clickTab("Limits");
-    expect(host.querySelector(".stats__scope")).toBeNull();
+    expect(menu().disabled).toBe(true);
+    expect(menu().textContent).toBe("Docs");
+    expect(host.querySelector('button[aria-label="Show every workspace"]')).toBeNull();
+
+    clickTab("Overview");
+    act(() => present(host.querySelector<HTMLButtonElement>('button[aria-label="Show every workspace"]'), "the way back").click());
+    expect(overview().workspace).toBeNull();
+    expect(menu().textContent).toBe("All workspaces");
   });
 
   it("hands Breakdown the ledger's switch to per-model booking", () => {
