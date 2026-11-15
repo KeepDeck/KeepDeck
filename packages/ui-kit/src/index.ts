@@ -58,3 +58,4 @@ export { StatusBar, type StatusBarPart, type StatusBarProps } from "./StatusBar.
 export { pictureProps } from "./pictureProps.ts";
 export { Segmented, segmentStep, type SegmentedOption, type SegmentedProps } from "./Segmented.tsx";
 export { DisclosureChevron } from "./DisclosureChevron.tsx";
+export { FoldBlock } from "./FoldBlock.tsx";

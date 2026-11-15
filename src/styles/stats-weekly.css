@@ -15,21 +15,6 @@
   font-weight: 600;
 }
 
-.stats__weeknav button {
-  padding: 0 8px;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-control);
-  background: transparent;
-  color: var(--kd-text-2);
-  font: inherit;
-  cursor: pointer;
-}
-
-.stats__weeknav button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .stats__week-top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

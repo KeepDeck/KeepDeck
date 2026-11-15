@@ -151,4 +151,14 @@ describe("the sheets, read together", () => {
       .map(([selector]) => selector);
     expect(widthless).toEqual([]);
   });
+
+  it("centre a disclosure chevron in any gutter wider than its mark", () => {
+    // The house's chevron (base.css .kd-chevron) turns about its box's
+    // centre. Widened into a gutter but left at its start, the mark sits off
+    // that centre, and the open chevron jumped up and aside (Statistics'
+    // Breakdown, 2026-11-15).
+    const widened = [...rules].filter(([selector, body]) => /\.kd-chevron$/.test(selector) && "width" in body);
+    expect(widened.length).toBeGreaterThan(0);
+    expect(widened.filter(([, body]) => body["justify-content"] !== "center").map(([selector]) => selector)).toEqual([]);
+  });
 });
