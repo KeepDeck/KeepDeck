@@ -33,7 +33,7 @@ describe("Weekly", () => {
     const [week, setWeek] = useState<number | null>(null);
     const rows = [usageEvent({ occurredAt: NOW - 60_000, costUsd: 3 }), usageEvent({ occurredAt: NOW - 9 * DAY, costUsd: 7 })];
     return createElement(Weekly, {
-      ledger: ledgerOf(rows), now: NOW, week, onSelectWeek: setWeek, teams: NO_TEAM_HISTORY, reportsByKey: new Map(), onOpenGallery,
+      ledger: ledgerOf(rows), now: NOW, week, onSelectWeek: setWeek, teams: NO_TEAM_HISTORY, reportsByKey: new Map(), measure: "spend", onOpenGallery,
     });
   }
   const render = (onOpenGallery = vi.fn()) => {

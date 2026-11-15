@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { usageAchievementLadders } from "../../domain/usage/achievements/ladders";
 import { usageEvent, type UsageRowOverrides } from "../../domain/usage/history/event.testSupport";
 import type { WindowReport } from "../../domain/usage/reportJournal";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
 import { inZone } from "../../domain/usage/time.testSupport";
 import { CALENDAR_WEEKS, weeklyDigestView, weeklyView } from "./weeklyView";
@@ -15,15 +16,45 @@ const LAST_MONDAY = at("2026-11-02T10:00:00+02:00");
 const weekOf = (back: number) =>
   back === 0 ? null : Date.UTC(2026, back === 1 ? 10 : 9, back === 1 ? 2 : 26) / 86_400_000;
 
-function view(rows: UsageRowOverrides[], { back = 0, reports = new Map<string, WindowReport[]>() } = {}) {
+function view(
+  rows: UsageRowOverrides[],
+  { back = 0, reports = new Map<string, WindowReport[]>(), measure = "spend" as StatsMeasure } = {},
+) {
   let result: ReturnType<typeof weeklyView> | undefined;
   inZone("Asia/Nicosia", () => {
     const events = rows.map((row) => usageEvent(row));
-    result = weeklyView(events, { now: NOW, week: weekOf(back), teams: NO_TEAM_HISTORY, reports, ladders: usageAchievementLadders(events) });
+    result = weeklyView(events, { now: NOW, week: weekOf(back), teams: NO_TEAM_HISTORY, reports, ladders: usageAchievementLadders(events), measure });
   });
   if (result === undefined) throw new Error("no view");
   return result;
 }
+
+describe("the Weekly report in tokens", () => {
+  const rows: UsageRowOverrides[] = [
+    { occurredAt: MONDAY, model: "a/big", modelName: "Big", costUsd: 9, savedUsd: 25, tokens: { input: 100, cacheRead: 40_000 } },
+    { occurredAt: at("2026-11-10T14:00:00+02:00"), sessionId: "s2", model: "k/kimi", modelName: "Kimi", tokens: { input: 300 } },
+    { occurredAt: LAST_MONDAY, tokens: { input: 200 } },
+  ];
+
+  it("heads, compares and tells the week in tokens less cache reads — no word of money", () => {
+    const shown = view(rows, { measure: "tokens" });
+    expect(shown.headline).toEqual({ label: "Tokens this week", value: "400", change: { text: "↑ 100%", tone: "flat" }, caption: "vs last week at this point" });
+    expect(shown.lines).toEqual([
+      "Kimi ran 75% of the tokens; output was 0 tokens, reasoning included.",
+      "2 sessions with usage; the busiest day was Tue, Nov 10, 2026 (300).",
+    ]);
+  });
+
+  it("shades the calendar, sizes the rhythm and fills the lists by tokens", () => {
+    const shown = view(rows, { measure: "tokens" });
+    expect(shown.calendar.caption).toBe("each square is a day's tokens");
+    const week = shown.calendar.weeks[CALENDAR_WEEKS - 1];
+    expect(week?.days.map((day) => day.level)).toEqual([2, 4, 0]);
+    const [byDay] = shown.rhythm;
+    expect(byDay?.bars.slice(0, 2).map((bar) => [bar.height, bar.title])).toEqual([[1 / 3, "Mon: 100"], [1, "Tue: 300"]]);
+    expect(shown.lists[1]?.rows.map((row) => [row.name, row.amount])).toEqual([["Kimi", "300"], ["Big", "100"]]);
+  });
+});
 
 describe("the Weekly report", () => {
   it("reports this week so far against last week at the same point", () => {
@@ -34,14 +65,14 @@ describe("the Weekly report", () => {
       { occurredAt: at("2026-11-06T10:00:00+02:00"), costUsd: 900 },
     ]);
     expect(shown.nav).toMatchObject({ label: "This week · Nov 9 – today", newer: null, older: { week: weekOf(1) } });
-    expect(shown.spent).toEqual({ label: "Spent this week", value: "≈$50.00", change: { text: "↓ 50%", tone: "good" }, caption: "vs last week at this point" });
+    expect(shown.headline).toEqual({ label: "Spent this week", value: "≈$50.00", change: { text: "↓ 50%", tone: "good" }, caption: "vs last week at this point" });
   });
 
   it("reports a past week whole, and pages within the ledger", () => {
     const shown = view([{ occurredAt: LAST_MONDAY, costUsd: 10 }, { occurredAt: MONDAY, costUsd: 1 }], { back: 1 });
     // Forward from last week is this week, which follows the calendar.
     expect(shown.nav).toMatchObject({ label: "Nov 2 – Nov 8", newer: { week: null }, older: null });
-    expect(shown.spent).toMatchObject({ label: "Spent that week", value: "≈$10.00", change: null, caption: "no comparable week before" });
+    expect(shown.headline).toMatchObject({ label: "Spent that week", value: "≈$10.00", change: null, caption: "no comparable week before" });
     // Badge progress is about now — a past week does not show it.
     expect(shown.badges).toBeNull();
   });

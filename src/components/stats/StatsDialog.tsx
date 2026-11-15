@@ -191,6 +191,7 @@ export function UsageStats({
             onSelectWeek={view.selectWeek}
             teams={teams}
             reportsByKey={reports.byKey}
+            measure={view.measure}
             onOpenGallery={() => onSelectTab("achievements")}
           />
         );

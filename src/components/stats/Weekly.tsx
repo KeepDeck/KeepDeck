@@ -3,6 +3,7 @@ import { useKeptAchievements } from "../../app/useKeptAchievements";
 import type { TeamHistory } from "../../domain/usage/stats/teams";
 import { usageAchievementLadders } from "../../domain/usage/achievements/ladders";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { weeklyView, type BarsView, type WeeklyView } from "../../presentation/stats/weeklyView";
 
@@ -16,6 +17,7 @@ export function Weekly({
   onSelectWeek,
   teams,
   reportsByKey,
+  measure,
   onOpenGallery,
 }: {
   ledger: UsageLedger;
@@ -27,13 +29,15 @@ export function Weekly({
   /** What the session journal says of past sessions' teams. */
   teams: TeamHistory;
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
+  /** What the report counts: money, or tokens less cache reads. */
+  measure: StatsMeasure;
   onOpenGallery(): void;
 }) {
   const kept = useKeptAchievements();
   const ladders = useMemo(() => usageAchievementLadders(ledger.events, kept), [ledger, kept]);
   const view = useMemo(
-    () => weeklyView(ledger.events, { now, week, teams, reports: reportsByKey, ladders }),
-    [ledger, now, week, teams, reportsByKey, ladders],
+    () => weeklyView(ledger.events, { now, week, teams, reports: reportsByKey, ladders, measure }),
+    [ledger, now, week, teams, reportsByKey, ladders, measure],
   );
   return (
     <div className="stats__weekly">
@@ -43,14 +47,14 @@ export function Weekly({
         <Arrow label={view.nav.newerLabel} to={view.nav.newer} glyph="›" onGo={onSelectWeek} />
       </div>
       <div className="stats__week-top">
-        <section className="stats__week-report" aria-label={view.spent.label}>
-          <span className="stats__figure-label">{view.spent.label}</span>
-          <b className="stats__week-value">{view.spent.value}</b>
+        <section className="stats__week-report" aria-label={view.headline.label}>
+          <span className="stats__figure-label">{view.headline.label}</span>
+          <b className="stats__week-value">{view.headline.value}</b>
           <span className="stats__figure-caption">
-            {view.spent.change && (
-              <span className={`stats__change stats__change--${view.spent.change.tone}`}>{view.spent.change.text}</span>
+            {view.headline.change && (
+              <span className={`stats__change stats__change--${view.headline.change.tone}`}>{view.headline.change.text}</span>
             )}
-            {view.spent.caption}
+            {view.headline.caption}
           </span>
           <ul className="stats__week-lines">
             {view.lines.map((line) => (
@@ -86,7 +90,7 @@ export function Weekly({
                   {row.source !== null && <small>{row.source}</small>}
                 </span>
                 <b>
-                  <small>{row.share}</small> {row.cost}
+                  <small>{row.share}</small> {row.amount}
                 </b>
               </div>
             ))}
