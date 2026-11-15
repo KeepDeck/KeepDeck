@@ -61,7 +61,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.stats__period {
+.stats__lens {
   display: inline-flex;
   flex: none;
   padding: 2px;
@@ -69,7 +69,7 @@
   background: var(--kd-tile);
 }
 
-.stats__period button {
+.stats__lens button {
   padding: 4px 7px;
   border: 0;
   border-radius: var(--kd-radius-control);
@@ -80,8 +80,8 @@
   cursor: pointer;
 }
 
-.stats__period button:hover,
-.stats__period .stats__period--active {
+.stats__lens button:hover,
+.stats__lens .stats__lens--active {
   background: var(--kd-text);
   color: var(--kd-canvas);
 }
@@ -89,11 +89,11 @@
 /* The active tab doesn't consume the period (Providers): the switcher goes
    quiet instead of pretending to work — including the hover highlight,
    which pointer-events kills on the disabled buttons. */
-.stats__period--idle {
+.stats__lens--idle {
   opacity: 0.4;
 }
 
-.stats__period--idle button {
+.stats__lens--idle button {
   cursor: default;
   pointer-events: none;
 }
@@ -168,7 +168,7 @@
   text-align: right;
 }
 
-.stats__scope-money {
+.stats__scope-amount {
   grid-column: 4;
   color: var(--kd-text);
   font-variant-numeric: tabular-nums;

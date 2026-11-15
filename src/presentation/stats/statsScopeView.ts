@@ -2,9 +2,10 @@ import { formatShare } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { dimensionKey } from "../../domain/usage/stats/dimensions";
 import { breakdown, rowsIn, statsTotals } from "../../domain/usage/stats/fold";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
-import { displayCost } from "./statsCost";
+import { displayAmount } from "./statsMeasures";
 import { PERIOD_PHRASES } from "./statsPeriods";
 import { TAB_SPECS } from "./statsTabs";
 
@@ -12,8 +13,8 @@ import { TAB_SPECS } from "./statsTabs";
  * The workspace scope: one menu beside the period switcher — the two
  * lenses on the numbers, side by side. The closed control names what the
  * numbers are narrowed to; the menu lists every workspace with usage in
- * the period, by spend, with its money and share, so a pick is never
- * blind. A picked workspace stays listed when the period holds none of its
+ * the period, ranked in the reader's measure with its amount and share, so
+ * a pick is never blind. A picked workspace stays listed when the period holds none of its
  * usage. On a tab that never narrows the control idles, as the period
  * switcher does, and keeps the pick.
  */
@@ -22,8 +23,8 @@ import { TAB_SPECS } from "./statsTabs";
 const EVERY = "\0every";
 
 export type ScopeOptionView =
-  | { kind: "every"; value: string; name: string; money: string }
-  | { kind: "spent"; value: string; name: string; money: string; share: string; bar: number }
+  | { kind: "every"; value: string; name: string; amount: string }
+  | { kind: "used"; value: string; name: string; amount: string; share: string; bar: number }
   | { kind: "silent"; value: string; name: string; note: string };
 
 export interface StatsScopeView {
@@ -43,18 +44,18 @@ export interface StatsScopeView {
 
 export function statsScopeView(
   rows: readonly UsageRow[],
-  input: { tab: StatsTab; period: StatsPeriod; now: number; workspace: string | null },
+  input: { tab: StatsTab; period: StatsPeriod; now: number; workspace: string | null; measure: StatsMeasure },
 ): StatsScopeView {
-  const { tab, period, now, workspace } = input;
+  const { tab, period, now, workspace, measure } = input;
   const inPeriod = rowsIn(rows, statsSpans(period, now).current);
-  const ranked = breakdown(inPeriod, [], (row) => dimensionKey("workspace", row), Infinity, "spend");
+  const ranked = breakdown(inPeriod, [], (row) => dimensionKey("workspace", row), Infinity, measure);
   const options: ScopeOptionView[] = [
-    { kind: "every", value: EVERY, name: "All workspaces", money: displayCost(statsTotals(inPeriod)) },
+    { kind: "every", value: EVERY, name: "All workspaces", amount: displayAmount(statsTotals(inPeriod), measure) },
     ...ranked.map((group): ScopeOptionView => ({
-      kind: "spent",
+      kind: "used",
       value: group.key,
       name: group.latest.workspaceName,
-      money: displayCost(group),
+      amount: displayAmount(group, measure),
       share: formatShare(group.share),
       bar: group.share,
     })),

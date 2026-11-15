@@ -11,10 +11,10 @@ const rows = [
   usageEvent({ occurredAt: TEST_NOW - 60_000, workspaceName: "C", costUsd: 1 }),
   usageEvent({ occurredAt: TEST_NOW - 400 * 86_400_000, workspaceName: "Old", costUsd: 50 }),
 ];
-const scope = (workspace: string | null, tab: StatsTab = "overview") =>
-  statsScopeView(rows, { tab, period: 7, now: TEST_NOW, workspace });
+const scope = (workspace: string | null, tab: StatsTab = "overview", measure: "spend" | "tokens" = "spend") =>
+  statsScopeView(rows, { tab, period: 7, now: TEST_NOW, workspace, measure });
 const shown = (option: ScopeOptionView) =>
-  option.kind === "every" ? [option.name, option.money] : option.kind === "spent" ? [option.name, option.money, option.share] : [option.name, option.note];
+  option.kind === "every" ? [option.name, option.amount] : option.kind === "used" ? [option.name, option.amount, option.share] : [option.name, option.note];
 
 describe("the workspace scope", () => {
   it("offers every workspace with the period's total, then each one with usage in it, by spend", () => {
@@ -29,7 +29,7 @@ describe("the workspace scope", () => {
   });
 
   it("draws each workspace's bar as its share of the period", () => {
-    expect(scope(null).options.flatMap((option) => (option.kind === "spent" ? [option.bar] : []))).toEqual([0.6, 0.3, 0.1]);
+    expect(scope(null).options.flatMap((option) => (option.kind === "used" ? [option.bar] : []))).toEqual([0.6, 0.3, 0.1]);
   });
 
   it("keeps a picked workspace listed, and says so, when the period holds none of its usage", () => {
@@ -37,7 +37,7 @@ describe("the workspace scope", () => {
     const view = scope("Old");
     expect(last(view)).toEqual(["Old", "no usage in 7 days"]);
     expect(view.value).toBe("Old");
-    expect(last(statsScopeView(rows, { tab: "overview", period: 1, now: TEST_NOW, workspace: "Old" }))).toEqual(["Old", "no usage today"]);
+    expect(last(statsScopeView(rows, { tab: "overview", period: 1, now: TEST_NOW, workspace: "Old", measure: "spend" }))).toEqual(["Old", "no usage today"]);
   });
 
   it("hands back the workspace an option stands for — none for every workspace", () => {
@@ -55,6 +55,16 @@ describe("the workspace scope", () => {
     }
     // Nothing to clear while every workspace shows.
     expect(scope(null).clear).toBeNull();
+  });
+
+  it("ranks and sizes the workspaces in the reader's measure", () => {
+    const work = [
+      // D: no price, but the most work; A: the most money, little work.
+      usageEvent({ occurredAt: TEST_NOW - 60_000, workspaceName: "D", tokens: { input: 900 } }),
+      usageEvent({ occurredAt: TEST_NOW - 60_000, workspaceName: "A", costUsd: 6, tokens: { input: 100, cacheRead: 50_000 } }),
+    ];
+    const view = statsScopeView(work, { tab: "overview", period: 7, now: TEST_NOW, workspace: null, measure: "tokens" });
+    expect(view.options.map(shown)).toEqual([["All workspaces", "1k"], ["D", "900", "90%"], ["A", "100", "10%"]]);
   });
 
   it("says what a pick narrows and what always counts every workspace", () => {

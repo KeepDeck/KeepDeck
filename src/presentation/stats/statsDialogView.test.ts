@@ -17,34 +17,46 @@ describe("statsHeaderView", () => {
   const NOW = Date.parse("2026-11-10T21:45:00+02:00");
 
   it("offers every calendar period in order with the selected one pressed", () => {
-    const view = statsHeaderView("overview", 30, NOW);
-    expect(view.periods.map((period) => [period.label, period.active])).toEqual([
-      ["Today", false],
-      ["7 days", false],
-      ["30 days", true],
-      ["90 days", false],
-      ["All", false],
+    const view = statsHeaderView("overview", 30, NOW, "spend");
+    expect(view.period.label).toBe("Statistics period");
+    expect(view.period.choices.map((period) => [period.label, period.active, period.value])).toEqual([
+      ["Today", false, 1],
+      ["7 days", false, 7],
+      ["30 days", true, 30],
+      ["90 days", false, 90],
+      ["All", false, "all"],
     ]);
-    expect(view.periodIdle).toBe(false);
+    expect(view.period.idle).toBe(false);
+  });
+
+  it("offers what the numbers count first, idle only where a tab counts in neither", () => {
+    const view = statsHeaderView("overview", 7, NOW, "tokens");
+    expect(view.measure.choices.map((choice) => [choice.label, choice.active, choice.value])).toEqual([
+      ["Spend", false, "spend"],
+      ["Tokens", true, "tokens"],
+    ]);
+    expect(view.measure.idle).toBe(false);
+    // Badges count by their own rules: the choice stands, idle.
+    expect(statsHeaderView("achievements", 7, NOW, "tokens").measure).toMatchObject({ idle: true });
   });
 
   it("names the calendar days the period covers", () => {
     inZone("Asia/Nicosia", () => {
-      expect(statsHeaderView("overview", 7, NOW).range).toBe("Nov 4 – Nov 10");
-      expect(statsHeaderView("overview", 1, NOW).range).toBe("Today, Nov 10");
-      expect(statsHeaderView("overview", "all", NOW).range).toBe("All time");
+      expect(statsHeaderView("overview", 7, NOW, "spend").range).toBe("Nov 4 – Nov 10");
+      expect(statsHeaderView("overview", 1, NOW, "spend").range).toBe("Today, Nov 10");
+      expect(statsHeaderView("overview", "all", NOW, "spend").range).toBe("All time");
     });
   });
 
   it("idles the switcher on a tab that never reads it, and says what its numbers run on", () => {
-    const view = statsHeaderView("limits", 7, NOW);
-    expect(view.periodIdle).toBe(true);
+    const view = statsHeaderView("limits", 7, NOW, "spend");
+    expect(view.period.idle).toBe(true);
     expect(view.range).toBe("Account-wide · each window runs on its provider's clock");
-    expect(statsHeaderView("achievements", 7, NOW)).toMatchObject({ periodIdle: true, range: "All time · all workspaces" });
+    expect(statsHeaderView("achievements", 7, NOW, "spend")).toMatchObject({ period: { idle: true }, range: "All time · all workspaces" });
   });
 
   it("names every tab and marks the selected one", () => {
-    expect(statsHeaderView("breakdown", 7, NOW).tabs.map((tab) => [tab.label, tab.active])).toEqual([
+    expect(statsHeaderView("breakdown", 7, NOW, "spend").tabs.map((tab) => [tab.label, tab.active])).toEqual([
       ["Overview", false],
       ["Breakdown", true],
       ["Limits", false],

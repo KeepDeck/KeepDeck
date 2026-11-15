@@ -6,6 +6,7 @@ import type { AccountUsage } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { TEST_NOW, usageEvent, type UsageRowOverrides } from "../../domain/usage/history/event.testSupport";
 import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { StatsPeriod } from "../../domain/usage/stats/period";
 import { Overview } from "./Overview";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -13,8 +14,8 @@ import { present } from "@keepdeck/plugin-api/testing";
 // The chart is loaded lazily and is recharts' business; a stand-in keeps the
 // library out of this file and records what the tab handed it.
 const chart = vi.hoisted(() => ({ title: null as string | null }));
-vi.mock("./SpendChart", () => ({
-  SpendChart: ({ view }: { view: { title: string } }) => {
+vi.mock("./UsageChart", () => ({
+  UsageChart: ({ view }: { view: { title: string } }) => {
     chart.title = view.title;
     return null;
   },
@@ -42,8 +43,9 @@ describe("Overview", () => {
 
   const render = async (
     events: UsageRow[],
-    { period = 7, accounts = new Map(), onOpenLimits = () => {} }: {
+    { period = 7, measure = "spend", accounts = new Map(), onOpenLimits = () => {} }: {
       period?: StatsPeriod;
+      measure?: StatsMeasure;
       accounts?: Map<string, AccountUsage>;
       onOpenLimits?: () => void;
     } = {},
@@ -54,6 +56,7 @@ describe("Overview", () => {
           ledger: ledgerOf(events),
           period,
           workspace: null,
+          measure,
           now: NOW,
           colors: new Map(),
           accounts,
@@ -76,6 +79,15 @@ describe("Overview", () => {
     await render([row({ costBasis: "unpriced" })]);
     expect(host.querySelector(".stats__chart-empty")?.textContent).toBe("None of this usage has a known price.");
     expect(chart.title).toBeNull();
+  });
+
+  it("counts in tokens when the reader picks them: headline, chart, lists", async () => {
+    await render([row({ tokens: { input: 1_000, output: 100, cacheRead: 50_000 } })], { measure: "tokens" });
+    const hero = present(host.querySelector(".stats__figure--hero"), "the headline");
+    expect(hero.querySelector(".stats__figure-label")?.textContent).toBe("Tokens");
+    expect(hero.querySelector(".stats__figure-value")?.textContent).toBe("1.1k");
+    expect(chart.title).toBe("Tokens per day");
+    expect([...host.querySelectorAll(".stats__top-row b")].map((cell) => cell.textContent)).toContain("1.1k");
   });
 
   it("leads with the spend and the plain figures beside it", async () => {

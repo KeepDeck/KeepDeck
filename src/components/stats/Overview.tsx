@@ -4,6 +4,7 @@ import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { StatsPeriod } from "../../domain/usage/stats/period";
 import { limitsGlanceView, type LimitsGlanceView } from "../../presentation/stats/limitsGlanceView";
 import { overviewView, type FigureView, type TopListView } from "../../presentation/stats/overviewView";
@@ -14,16 +15,18 @@ import { UsageWindowBar } from "../usage/UsageWindowBar";
 /** The chart rides its own chunk: recharts is the bundle's single largest
  * dependency (+45% gzip over the whole app), parsed at cold launch if
  * imported statically — for a chart behind a dialog tab. */
-const SpendChart = lazy(() => import("./SpendChart").then((module) => ({ default: module.SpendChart })));
+const UsageChart = lazy(() => import("./UsageChart").then((module) => ({ default: module.UsageChart })));
 
-/** The Overview tab body: the headline band, money over the period, where
- * and on what it went, and a glance at the limits. What it says is settled
+/** The Overview tab body: the headline band, the usage over the period in
+ * the reader's measure, where and on what it went, and a glance at the
+ * limits. What it says is settled
  * in presentation/stats/overviewView.ts and limitsGlanceView.ts; mounted
  * only while its tab is selected, so its views are memoized here. */
 export function Overview({
   ledger,
   period,
   workspace,
+  measure,
   now,
   colors,
   accounts,
@@ -37,6 +40,8 @@ export function Overview({
   /** The workspace the reader narrowed to — the limits glance stays
    * account-wide whatever it is. */
   workspace: string | null;
+  /** What the figures count: money, or tokens less cache reads. */
+  measure: StatsMeasure;
   now: number;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
@@ -46,8 +51,8 @@ export function Overview({
   onOpenBreakdown(dimension: StatsDimension): void;
 }) {
   const view = useMemo(
-    () => overviewView(ledger.events, { period, now, colors, workspace }),
-    [ledger, period, now, colors, workspace],
+    () => overviewView(ledger.events, { period, now, colors, workspace, measure }),
+    [ledger, period, now, colors, workspace, measure],
   );
   const limits = useMemo(
     () => limitsGlanceView(accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors }), now, colors),
@@ -57,13 +62,13 @@ export function Overview({
     <>
       <section className="stats__band" aria-label={view.label}>
         <div className="stats__figure stats__figure--hero">
-          <span className="stats__figure-label">{view.spent.label}</span>
-          <b className="stats__figure-value">{view.spent.value}</b>
+          <span className="stats__figure-label">{view.headline.label}</span>
+          <b className="stats__figure-value">{view.headline.value}</b>
           <span className="stats__figure-caption">
-            {view.spent.change && (
-              <span className={`stats__change stats__change--${view.spent.change.tone}`}>{view.spent.change.text}</span>
+            {view.headline.change && (
+              <span className={`stats__change stats__change--${view.headline.change.tone}`}>{view.headline.change.text}</span>
             )}
-            {view.spent.caption}
+            {view.headline.caption}
           </span>
         </div>
         {view.figures.map((figure) => (
@@ -78,7 +83,7 @@ export function Overview({
               <span key={entry.agent}>
                 <i style={{ background: entry.color }} />
                 {entry.agent}
-                <b>{entry.cost}</b>
+                <b>{entry.amount}</b>
               </span>
             ))}
           </span>
@@ -94,7 +99,7 @@ export function Overview({
           // the whole window.
           <ErrorBoundary label="Statistics chart" fallback={<p className="stats__warning">{view.chartError}</p>}>
             <Suspense fallback={<div style={{ height: CHART_HEIGHT }} aria-hidden />}>
-              <SpendChart view={view.chart} />
+              <UsageChart view={view.chart} />
             </Suspense>
           </ErrorBoundary>
         )}
@@ -136,7 +141,7 @@ function TopList({ list, onOpen }: { list: TopListView; onOpen(): void }) {
             {row.name}
             {row.source !== null && <small>{row.source}</small>}
           </span>
-          <b>{row.cost}</b>
+          <b>{row.amount}</b>
         </div>
       ))}
     </section>

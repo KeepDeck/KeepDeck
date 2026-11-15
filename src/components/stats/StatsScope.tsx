@@ -26,7 +26,7 @@ function ScopeOption({ option }: { option: ScopeOptionView }) {
   return (
     <span className="stats__scope-option">
       <span className="stats__scope-name">{option.name}</span>
-      {option.kind === "spent" && (
+      {option.kind === "used" && (
         <>
           <span className="stats__scope-bar" aria-hidden="true">
             <i style={{ width: `${option.bar * 100}%` }} />
@@ -37,7 +37,7 @@ function ScopeOption({ option }: { option: ScopeOptionView }) {
       {option.kind === "silent" ? (
         <span className="stats__scope-quiet">{option.note}</span>
       ) : (
-        <b className="stats__scope-money">{option.money}</b>
+        <b className="stats__scope-amount">{option.amount}</b>
       )}
     </span>
   );

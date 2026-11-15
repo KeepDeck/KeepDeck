@@ -126,7 +126,7 @@ export function breakdownView(
         .sort()
         .map((agent) => ({ agent, color: seriesColorFor(colors, agent), weight: group.byAgent[agent] ?? 0 })),
       cost: displayCost(group),
-      change: comparable && group.change !== null ? changeView(group.change) : null,
+      change: comparable && group.change !== null ? changeView(group.change, "spend") : null,
       noChange: comparable && group.change === null ? "—" : null,
       output: formatTokens(group.outputTokens),
       last: group.folded > 0 ? "" : formatAge(group.latest.occurredAt, now),

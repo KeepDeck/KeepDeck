@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
 import { inZone } from "../../domain/usage/time.testSupport";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { StatsPeriod } from "../../domain/usage/stats/period";
 import { changeView, overviewView } from "./overviewView";
 
@@ -9,10 +10,15 @@ const NOW = at("2026-11-10T21:00:00+02:00");
 const COLORS = new Map([["claude", "#111111"], ["codex", "#222222"]]);
 
 /** Overview over rows, in a fixed zone so the calendar is the test's. */
-function view(rows: Parameters<typeof usageEvent>[0][], period: StatsPeriod = 7, workspace: string | null = null) {
+function view(
+  rows: Parameters<typeof usageEvent>[0][],
+  period: StatsPeriod = 7,
+  workspace: string | null = null,
+  measure: StatsMeasure = "spend",
+) {
   let result: ReturnType<typeof overviewView> | undefined;
   inZone("Asia/Nicosia", () => {
-    result = overviewView(rows.map((row) => usageEvent(row)), { period, now: NOW, colors: COLORS, workspace });
+    result = overviewView(rows.map((row) => usageEvent(row)), { period, now: NOW, colors: COLORS, workspace, measure });
   });
   if (result === undefined) throw new Error("no view");
   return result;
@@ -24,7 +30,7 @@ describe("the Overview headline", () => {
       { occurredAt: at("2026-11-09T10:00:00+02:00"), costUsd: 80 },
       { occurredAt: at("2026-11-02T10:00:00+02:00"), costUsd: 100 },
     ]);
-    expect(shown.spent).toEqual({
+    expect(shown.headline).toEqual({
       label: "Spent",
       value: "≈$80.00",
       change: { text: "↓ 20%", tone: "good" },
@@ -38,22 +44,22 @@ describe("the Overview headline", () => {
       { occurredAt: at("2026-11-09T10:00:00+02:00"), costUsd: 80 },
       { occurredAt: at("2026-11-02T10:00:00+02:00"), tokens: { input: 500 } },
     ]);
-    expect(shown.spent.change).toBeNull();
-    expect(shown.spent.caption).toBe("no comparable period before");
+    expect(shown.headline.change).toBeNull();
+    expect(shown.headline.caption).toBe("no comparable period before");
   });
 
   it("marks a sum with unpriced usage in it, and never prints unknown as free", () => {
     expect(view([
       { occurredAt: at("2026-11-09T10:00:00+02:00"), costUsd: 5 },
       { occurredAt: at("2026-11-09T11:00:00+02:00"), tokens: { input: 10 } },
-    ]).spent.value).toBe("≈$5.00+");
-    expect(view([{ occurredAt: at("2026-11-09T10:00:00+02:00"), tokens: { input: 10 } }]).spent.value).toBe("—");
+    ]).headline.value).toBe("≈$5.00+");
+    expect(view([{ occurredAt: at("2026-11-09T10:00:00+02:00"), tokens: { input: 10 } }]).headline.value).toBe("—");
   });
 
   it("compares the whole ledger with nothing", () => {
     const shown = view([{ occurredAt: at("2025-01-01T10:00:00+02:00"), costUsd: 1 }], "all");
-    expect(shown.spent.change).toBeNull();
-    expect(shown.spent.caption).toBe("all recorded usage");
+    expect(shown.headline.change).toBeNull();
+    expect(shown.headline.caption).toBe("all recorded usage");
   });
 
   it("gives the plain figures with no comparison of their own", () => {
@@ -72,19 +78,19 @@ describe("a period with nothing to draw", () => {
   it("says the period holds no usage — in the headline, the chart and the lists — never no comparison", () => {
     // Usage only a fortnight back: the prior span has some, this one none.
     const shown = view([{ occurredAt: at("2026-11-02T10:00:00+02:00"), costUsd: 80 }]);
-    expect(shown.spent).toMatchObject({ value: "—", change: null, caption: "no usage in 7 days" });
+    expect(shown.headline).toMatchObject({ value: "—", change: null, caption: "no usage in 7 days" });
     expect(shown.chartNote).toBe("No usage in 7 days");
     expect(shown.lists.map((list) => [list.title, list.empty, list.rows.length])).toEqual([
       ["Workspaces", "No usage in 7 days", 0],
       ["Models", "No usage in 7 days", 0],
     ]);
     // Today has its own words.
-    expect(view([], 1)).toMatchObject({ chartNote: "No usage today", spent: { caption: "no usage today" } });
+    expect(view([], 1)).toMatchObject({ chartNote: "No usage today", headline: { caption: "no usage today" } });
   });
 
   it("says usage no price covers in words, not as empty bars", () => {
     const shown = view([{ occurredAt: at("2026-11-09T10:00:00+02:00"), tokens: { input: 10 } }]);
-    expect(shown.spent).toMatchObject({ value: "—", caption: "no model here has a known price" });
+    expect(shown.headline).toMatchObject({ value: "—", caption: "no model here has a known price" });
     expect(shown.chartNote).toBe("None of this usage has a known price.");
     // Its lists still name where the usage went.
     expect(shown.lists.every((list) => list.empty === null && list.rows.length === 1)).toBe(true);
@@ -100,11 +106,16 @@ describe("a period with nothing to draw", () => {
   });
 });
 
-describe("a money change", () => {
+describe("a change", () => {
   it("reads spending less as good, more as bad, and a rounded zero as flat", () => {
-    expect(changeView(-0.193)).toEqual({ text: "↓ 19%", tone: "good" });
-    expect(changeView(0.5)).toEqual({ text: "↑ 50%", tone: "bad" });
-    expect(changeView(0.004)).toEqual({ text: "±0%", tone: "flat" });
+    expect(changeView(-0.193, "spend")).toEqual({ text: "↓ 19%", tone: "good" });
+    expect(changeView(0.5, "spend")).toEqual({ text: "↑ 50%", tone: "bad" });
+    expect(changeView(0.004, "spend")).toEqual({ text: "±0%", tone: "flat" });
+  });
+
+  it("gives a change in tokens no tone: more work is not a cost", () => {
+    expect(changeView(0.5, "tokens")).toEqual({ text: "↑ 50%", tone: "flat" });
+    expect(changeView(-0.2, "tokens")).toEqual({ text: "↓ 20%", tone: "flat" });
   });
 });
 
@@ -117,7 +128,7 @@ describe("the Overview lists and legend", () => {
     }));
     const [workspaces] = view(rows).lists;
     expect(workspaces?.title).toBe("Workspaces");
-    expect(workspaces?.rows.map((row) => [row.name, row.cost, row.folded])).toEqual([
+    expect(workspaces?.rows.map((row) => [row.name, row.amount, row.folded])).toEqual([
       ["A", "≈$10.00", false], ["B", "≈$9.00", false], ["C", "≈$8.00", false], ["D", "≈$7.00", false],
       ["2 more", "≈$11.00", true],
     ]);
@@ -140,9 +151,9 @@ describe("the Overview lists and legend", () => {
       { occurredAt: day(2), agent: "claude", costUsd: 3 },
       { occurredAt: day(3), agent: "kimi", tokens: { input: 5 } },
     ]).legend).toEqual([
-      { agent: "claude", color: "#111111", cost: "≈$3.00" },
-      { agent: "codex", color: "#222222", cost: "≈$1.00" },
-      { agent: "kimi", color: "#596273", cost: "—" },
+      { agent: "claude", color: "#111111", amount: "≈$3.00" },
+      { agent: "codex", color: "#222222", amount: "≈$1.00" },
+      { agent: "kimi", color: "#596273", amount: "—" },
     ]);
   });
 
@@ -166,9 +177,46 @@ describe("an Overview narrowed to one workspace", () => {
       { occurredAt: at("2026-11-09T12:00:00+02:00"), workspaceName: "Docs", costUsd: 50 },
     ];
     const shown = view(rows, 7, "KeepDeck");
-    expect(shown.spent.value).toBe("≈$5.00");
+    expect(shown.headline.value).toBe("≈$5.00");
     expect(shown.lists[0]?.title).toBe("Agents");
     expect(shown.lists[0]?.rows.map((row) => row.name)).toEqual(["claude", "codex"]);
     expect(view(rows).lists[0]?.title).toBe("Workspaces");
+  });
+});
+
+describe("the Overview in tokens", () => {
+  const rows = [
+    // This week: claude priced, kimi with no price — both counted in tokens; cache reads left out.
+    { occurredAt: at("2026-11-09T10:00:00+02:00"), workspaceName: "A", agent: "claude", costUsd: 9, tokens: { input: 100, cacheRead: 9_000 } },
+    { occurredAt: at("2026-11-09T11:00:00+02:00"), workspaceName: "B", agent: "kimi", tokens: { input: 300 } },
+    // The week before.
+    { occurredAt: at("2026-11-02T10:00:00+02:00"), workspaceName: "A", agent: "claude", costUsd: 1, tokens: { input: 200 } },
+  ];
+
+  it("leads with the tokens less cache reads, compared without a tone", () => {
+    expect(view(rows, 7, null, "tokens").headline).toEqual({
+      label: "Tokens",
+      value: "400",
+      change: { text: "↑ 100%", tone: "flat" },
+      caption: "vs the 7 days before",
+    });
+  });
+
+  it("draws, lists and names the legend in tokens — usage with no price included", () => {
+    const shown = view(rows, 7, null, "tokens");
+    expect(shown.chart.title).toBe("Tokens per day");
+    expect(shown.chartNote).toBeNull();
+    expect(shown.legend.map((entry) => [entry.agent, entry.amount])).toEqual([["claude", "100"], ["kimi", "300"]]);
+    // Ranked by tokens: B leads, though only A has a price.
+    expect(shown.lists[0]?.rows.map((row) => [row.name, row.amount])).toEqual([["B", "300"], ["A", "100"]]);
+    expect(shown.coverage).toBe("Tokens count fresh input, output with its reasoning and cache writes; what was read back from cache is left out.");
+  });
+
+  it("still says an empty period, and never that no price is known", () => {
+    expect(view([{ occurredAt: at("2026-11-09T11:00:00+02:00"), tokens: { input: 3 } }], 7, null, "tokens")).toMatchObject({
+      chartNote: null,
+      headline: { value: "3", caption: "no comparable period before" },
+    });
+    expect(view([], 7, null, "tokens")).toMatchObject({ chartNote: "No usage in 7 days", headline: { caption: "no usage in 7 days" } });
   });
 });

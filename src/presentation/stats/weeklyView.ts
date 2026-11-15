@@ -130,7 +130,7 @@ export function weekReportView(rows: readonly UsageRow[], now: number, back: num
     spent: {
       label: week.complete ? "Spent that week" : "Spent this week",
       value: displayCost(totals),
-      change: change === null ? null : changeView(change),
+      change: change === null ? null : changeView(change, "spend"),
       caption: change === null ? "no comparable week before" : week.complete ? "vs the week before" : "vs last week at this point",
     },
     lines,

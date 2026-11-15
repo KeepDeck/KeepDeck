@@ -2,7 +2,9 @@ import { formatLocalDay } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { rowsIn, rowsOf } from "../../domain/usage/stats/fold";
 import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
+import { STATS_MEASURES, type StatsMeasure } from "../../domain/usage/stats/measure";
 import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
+import { MEASURE_LABELS } from "./statsMeasures";
 import { PERIOD_LABELS, USAGE_PERIODS } from "./statsPeriods";
 import { periodless, TAB_SPECS } from "./statsTabs";
 
@@ -18,18 +20,28 @@ export const STATS_DIALOG = {
   title: "Statistics",
   close: "Close statistics",
   done: "Done",
+  measureGroup: "What the statistics count",
   periodGroup: "Statistics period",
   tabList: "Statistics sections",
 } as const;
+
+/** One of the header's lenses: a named row of choices that idles on a tab
+ * that never reads it — disabled, not hidden: hiding would jump the header
+ * layout. */
+export interface LensView<T> {
+  label: string;
+  idle: boolean;
+  choices: { key: string; label: string; active: boolean; value: T }[];
+}
 
 export interface StatsHeaderView {
   /** What the numbers below cover: the period's calendar days, or the
    * tab's own note on its clock; none for a tab with neither. */
   range: string | null;
-  /** The switcher disables on a tab that never reads it — disabled, not
-   * hidden: hiding would jump the header layout. */
-  periodIdle: boolean;
-  periods: { period: StatsPeriod; label: string; active: boolean }[];
+  /** What the numbers count — the first lens. */
+  measure: LensView<StatsMeasure>;
+  /** Over which days — the last. */
+  period: LensView<StatsPeriod>;
   tabs: { id: StatsTab; label: string; active: boolean }[];
 }
 
@@ -40,15 +52,29 @@ export function periodRange(period: StatsPeriod, now: number): string {
   return `${formatLocalDay(statsSpans(period, now).current.from)} – ${formatLocalDay(now)}`;
 }
 
-export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number): StatsHeaderView {
+export function statsHeaderView(tab: StatsTab, period: StatsPeriod, now: number, measure: StatsMeasure): StatsHeaderView {
   return {
     range: periodless(tab) ? (TAB_SPECS[tab].note ?? null) : periodRange(period, now),
-    periodIdle: periodless(tab),
-    periods: USAGE_PERIODS.map((candidate) => ({
-      period: candidate,
-      label: PERIOD_LABELS[candidate],
-      active: candidate === period,
-    })),
+    measure: {
+      label: STATS_DIALOG.measureGroup,
+      idle: TAB_SPECS[tab].measured !== true,
+      choices: STATS_MEASURES.map((candidate) => ({
+        key: candidate,
+        label: MEASURE_LABELS[candidate],
+        active: candidate === measure,
+        value: candidate,
+      })),
+    },
+    period: {
+      label: STATS_DIALOG.periodGroup,
+      idle: periodless(tab),
+      choices: USAGE_PERIODS.map((candidate) => ({
+        key: String(candidate),
+        label: PERIOD_LABELS[candidate],
+        active: candidate === period,
+        value: candidate,
+      })),
+    },
     tabs: STATS_TAB_IDS.map((id) => ({ id, label: TAB_SPECS[id].label, active: id === tab })),
   };
 }
