@@ -26,7 +26,10 @@ describe("Breakdown", () => {
     host = present(document.getElementById("host"), "the #host element");
     root = createRoot(host);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
 
   const reveal = vi.fn();
   const render = (dimension: StatsDimension, onSelectDimension = vi.fn()) => {
@@ -65,7 +68,8 @@ describe("Breakdown", () => {
     expect(pick).toHaveBeenCalledWith("agent");
   });
 
-  it("opens a group into its sessions and closes it again", () => {
+  it("opens a group into its sessions and closes it again, the sessions rolling up into it", () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     render("workspace");
     const toggle = () => present(host.querySelector<HTMLButtonElement>(".stats__bd-toggle"), "the group toggle");
     // The house's chevron, turned with the group — not a glyph of its own.
@@ -78,6 +82,11 @@ describe("Breakdown", () => {
     expect(host.querySelectorAll(".stats__bd-row--child")).toHaveLength(2);
     act(() => toggle().click());
     expect(chevron().classList.contains("kd-chevron--open")).toBe(false);
+    // The house's fold (FoldBlock): the sessions roll up, inert, then go.
+    const fold = present(host.querySelector<HTMLElement>("[role='rowgroup']"), "the group's fold");
+    expect(fold.querySelectorAll(".stats__bd-row--child")).toHaveLength(2);
+    expect(fold.inert).toBe(true);
+    act(() => vi.advanceTimersByTime(1_000));
     expect(host.querySelectorAll(".stats__bd-row--child")).toHaveLength(0);
   });
 

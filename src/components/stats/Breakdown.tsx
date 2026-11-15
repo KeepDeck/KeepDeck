@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
+import { FoldBlock } from "@keepdeck/ui-kit/FoldBlock";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { StatsSessions } from "../../app/useStatsView";
 import type { SessionClaimKey } from "../../domain/deck";
@@ -17,7 +18,8 @@ import {
 /** The Breakdown tab body: one table over any dimension. What it shows is
  * settled in presentation/stats/breakdownView.ts; the group the reader
  * opened is this table's own UI state, the dimension and order are the
- * app-level view's. */
+ * app-level view's. A group's sessions unroll under it in the house's fold
+ * (FoldBlock) — the table is a dozen rows at most, nothing to window. */
 export function Breakdown({
   ledger,
   period,
@@ -116,9 +118,13 @@ function Group({
   return (
     <>
       <Row row={row} onToggle={row.opens ? onToggle : undefined} onReveal={onReveal} />
-      {row.sessions.map((session) => (
-        <Row key={session.key} row={session} child onReveal={onReveal} />
-      ))}
+      {row.opens && (
+        <FoldBlock open={row.open} role="rowgroup">
+          {row.sessions.map((session) => (
+            <Row key={session.key} row={session} child onReveal={onReveal} />
+          ))}
+        </FoldBlock>
+      )}
     </>
   );
 }
