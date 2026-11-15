@@ -1,18 +1,19 @@
 import { formatLocalDay, formatPct, formatShare, formatStep, formatTokens, formatUsd, windowLabel } from "../../domain/usage";
+import { amountOf, type StatsMeasure, type UsageTally } from "../../domain/usage/stats/measure";
 import type { UsageAchievementLadder } from "../../domain/usage/achievements/ladders";
 import { nextAchievements } from "../../domain/usage/achievements/ladders";
-import type { CostTally, UsageRow } from "../../domain/usage/history/event";
+import type { UsageRow } from "../../domain/usage/history/event";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { dimensionKey } from "../../domain/usage/stats/dimensions";
 import {
   breakdown,
-  costChange,
-  costTimeline,
+  measureChange,
   rowsIn,
   statsTotals,
+  usageTimeline,
   type BreakdownRow,
-  type CostStep,
   type StatsTotals,
+  type UsageStep,
 } from "../../domain/usage/stats/fold";
 import { teamProvenance, type TeamHistory } from "../../domain/usage/stats/teams";
 import {
@@ -25,12 +26,12 @@ import {
 } from "../../domain/usage/stats/weekly";
 import { localDayFromOrdinal, localDayStart, shiftDay } from "../../domain/usage/time";
 import { changeView, type ChangeView } from "./overviewView";
-import { costCoverage, displayCost } from "./statsCost";
+import { displayAmount, measureNote, nothingToDraw } from "./statsMeasures";
 import { modelNames, teamName, type GroupName } from "./statsNames";
 
 /**
- * The Weekly tab, settled: one calendar week as a report — its money
- * against the week before, what it went on in plain sentences, where it
+ * The Weekly tab, settled: one calendar week as a report in the reader's
+ * measure — its amount against the week before, what it went on in plain sentences, where it
  * sits among the recent weeks, its rhythm, the fullest limit readings seen
  * in it, and (this week) the badges nearest to falling.
  */
@@ -44,14 +45,14 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export interface WeeklyListRowView extends GroupName {
   key: string;
   share: string;
-  cost: string;
+  amount: string;
   folded: boolean;
 }
 
 export interface BarView {
   label: string;
-  /** Relative to the tallest bar, 0–1; a bar with any money keeps a sliver
-   * so it never reads as none. */
+  /** Relative to the tallest bar, 0–1; a bar with any amount keeps a
+   * sliver so it never reads as none. */
   height: number;
   title: string;
 }
@@ -61,6 +62,8 @@ export interface BarsView {
   bars: BarView[];
   /** Whether each bar names itself under it — not 24 hour numbers. */
   labelled: boolean;
+  /** Said in place of the bars when they have nothing to draw. */
+  empty: string | null;
 }
 
 export interface WeeklyView {
@@ -74,64 +77,82 @@ export interface WeeklyView {
     olderLabel: string;
     newerLabel: string;
   };
-  spent: { label: string; value: string; change: ChangeView | null; caption: string };
+  headline: { label: string; value: string; change: ChangeView | null; caption: string };
   lines: string[];
   calendar: { title: string; caption: string; weeks: { key: number; days: { key: number; level: number; title: string; selected: boolean }[] }[] };
   rhythm: BarsView[];
   peaks: { title: string; caption: string; rows: { key: string; label: string; pct: string }[]; empty: string | null };
-  lists: { title: string; rows: WeeklyListRowView[] }[];
+  /** `empty` is said in place of the rows of a week with no usage. */
+  lists: { title: string; rows: WeeklyListRowView[]; empty: string | null }[];
   badges: { title: string; link: string; rows: { id: string; title: string; pct: string }[] } | null;
   notes: string[];
 }
 
-/** The report itself — what the week cost and what it went on — shared by
- * the tab and the weekly digest, so the two can never tell one week two
- * ways. */
+/** The report itself — what the week came to and what it went on —
+ * shared by the tab and the weekly digest, so the two can never tell one
+ * week two ways. */
 export interface WeekReportView {
   week: WeekSpans;
-  /** The week's money as folded — the digest words it without the dialog's
+  /** The week's usage as folded — the digest words it without the dialog's
    * "+" legend. */
   totals: StatsTotals;
-  spent: WeeklyView["spent"];
+  headline: WeeklyView["headline"];
   lines: string[];
 }
 
-export function weekReportView(rows: readonly UsageRow[], now: number, back: number): WeekReportView {
+/** The report's words that change with the measure. Exhaustive: a new
+ * measure names its own or fails to compile. */
+const REPORT_WORDS: Record<StatsMeasure, { headline: [thatWeek: string, thisWeek: string]; share: string; day: string }> = {
+  spend: { headline: ["Spent that week", "Spent this week"], share: "of the spend", day: "the costliest day" },
+  tokens: { headline: ["Tokens that week", "Tokens this week"], share: "of the tokens", day: "the busiest day" },
+};
+
+/** The reported week in words: this week while it runs, that week once it
+ * is over. */
+const weekPhrase = (week: WeekSpans) => (week.complete ? "that week" : "this week");
+
+export function weekReportView(rows: readonly UsageRow[], now: number, back: number, measure: StatsMeasure): WeekReportView {
+  const words = REPORT_WORDS[measure];
   const week = weekSpans(now, back);
   const current = rowsIn(rows, week.current);
   const totals = statsTotals(current);
-  const change = costChange(totals, statsTotals(rowsIn(rows, week.prior)));
-  const days = costTimeline(current, week.current, "day");
-  const costliest = days.reduce<CostStep | null>((top, day) => (top === null || day.costUsd > top.costUsd ? day : top), null);
-  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP);
+  const change = measureChange(totals, statsTotals(rowsIn(rows, week.prior)), measure);
+  const days = usageTimeline(current, week.current, "day", measure);
+  const top = days.reduce<UsageStep | null>((best, day) => (best === null || amountOf(day, measure) > amountOf(best, measure) ? day : best), null);
+  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP, measure);
   const names = modelNames(models);
   const [topModel] = models;
   const lines: string[] = [];
-  if (topModel !== undefined && topModel.folded === 0 && topModel.pricedEvents > 0) {
+  if (topModel !== undefined && topModel.folded === 0 && topModel.amount > 0) {
     lines.push(
-      `${names.get(topModel.key)?.name ?? topModel.key} ran ${formatShare(topModel.share)} of the spend; ` +
+      `${names.get(topModel.key)?.name ?? topModel.key} ran ${formatShare(topModel.share)} ${words.share}; ` +
         `output was ${formatTokens(totals.outputTokens)} tokens, reasoning included.`,
     );
   }
-  if (totals.pricedEvents > 0 && totals.savedUsd > 0) {
+  // What the cache saved is money; said only where money is counted.
+  if (measure === "spend" && totals.pricedEvents > 0 && totals.savedUsd > 0) {
     lines.push(
       `Cache reads cost ${formatUsd(totals.savedUsd, { approx: true })} less than the same tokens as fresh input would have, at list price.`,
     );
   }
   if (totals.sessions > 0) {
-    const day = costliest !== null && costliest.pricedEvents > 0
-      ? `; the costliest day was ${formatStep(costliest.start, "day", "long")} (${displayCost(costliest)})`
+    const day = top !== null && amountOf(top, measure) > 0
+      ? `; ${words.day} was ${formatStep(top.start, "day", "long")} (${displayAmount(top, measure)})`
       : "";
     lines.push(`${totals.sessions} session${totals.sessions === 1 ? "" : "s"} with usage${day}.`);
   }
   return {
     week,
     totals,
-    spent: {
-      label: week.complete ? "Spent that week" : "Spent this week",
-      value: displayCost(totals),
-      change: change === null ? null : changeView(change),
-      caption: change === null ? "no comparable week before" : week.complete ? "vs the week before" : "vs last week at this point",
+    headline: {
+      label: words.headline[week.complete ? 0 : 1],
+      value: displayAmount(totals, measure),
+      change: change === null ? null : changeView(change, measure),
+      caption:
+        change !== null
+          ? week.complete ? "vs the week before" : "vs last week at this point"
+          // A fall to nothing keeps its change; nothing against nothing is said.
+          : current.length === 0 ? `no usage ${weekPhrase(week)}` : "no comparable week before",
     },
     lines,
   };
@@ -147,20 +168,24 @@ export function weeklyView(
     reports: ReadonlyMap<string, readonly WindowReport[]>;
     /** The badge ladders as of now — only this week shows how close they are. */
     ladders: readonly UsageAchievementLadder[];
+    measure: StatsMeasure;
   },
 ): WeeklyView {
-  const { now, teams } = input;
+  const { now, teams, measure } = input;
   const monday = input.week === null ? null : localDayFromOrdinal(input.week);
   const back = monday === null ? 0 : weeksBack(monday, now);
-  const report = weekReportView(rows, now, back);
+  const report = weekReportView(rows, now, back, measure);
   const { week } = report;
   const current = rowsIn(rows, week.current);
   const totals = statsTotals(current);
-  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP);
+  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP, measure);
   const names = modelNames(models);
-  const groupsOfTeams = breakdown(current, [], (row) => dimensionKey("team", row, teams), WEEKLY_LIST_TOP);
+  const groupsOfTeams = breakdown(current, [], (row) => dimensionKey("team", row, teams), WEEKLY_LIST_TOP, measure);
   const peaks = windowPeaks(input.reports, week.current);
   const rhythm = weekRhythm(current, week.current);
+  // A week with no usage says so in words, never as empty cards.
+  const noUsage = current.length === 0 ? `No usage ${weekPhrase(week)}` : null;
+  const rhythmEmpty = nothingToDraw(noUsage, totals, measure);
   const provenance = teamProvenance(current, teams);
   const inferred = [...provenance.values()].some((p) => p !== "recorded");
   return {
@@ -171,12 +196,12 @@ export function weeklyView(
       olderLabel: "Earlier week",
       newerLabel: "Later week",
     },
-    spent: report.spent,
+    headline: report.headline,
     lines: report.lines,
-    calendar: calendarView(rows, now, week.monday),
+    calendar: calendarView(rows, now, week.monday, measure),
     rhythm: [
-      { title: "By day", bars: bars(rhythm.byWeekday, (i) => DAYS[i] ?? ""), labelled: true },
-      { title: "By hour, local time", bars: bars(rhythm.byHour, (i) => `${i}:00`), labelled: false },
+      { title: "By day", bars: bars(rhythm.byWeekday, (i) => DAYS[i] ?? "", measure), labelled: true, empty: rhythmEmpty },
+      { title: "By hour, local time", bars: bars(rhythm.byHour, (i) => `${i}:00`, measure), labelled: false, empty: rhythmEmpty },
     ],
     peaks: {
       title: "Limits — highest readings",
@@ -189,51 +214,67 @@ export function weeklyView(
       empty: peaks.length > 0 ? null : week.complete ? "Readings for this week are no longer kept." : "No limit readings yet this week.",
     },
     lists: [
-      list("Teams", groupsOfTeams, (group) => teamName(group, teams, provenance.get(group.key))),
-      list("Models", models, (group) => names.get(group.key) ?? { name: group.key, source: null }),
+      list("Teams", groupsOfTeams, (group) => teamName(group, teams, provenance.get(group.key)), noUsage, measure),
+      list("Models", models, (group) => names.get(group.key) ?? { name: group.key, source: null }, noUsage, measure),
     ],
     badges: back === 0 ? badgesView(input.ladders) : null,
     notes: [
-      costCoverage(totals),
+      measureNote(totals, measure),
       ...(inferred ? ["Teams of usage booked before teams were recorded are inferred, and marked so."] : []),
     ],
   };
 }
 
+/** What a calendar square stands for, by measure. */
+const CALENDAR_CAPTIONS: Record<StatsMeasure, string> = {
+  spend: "each square is a day's spend",
+  tokens: "each square is a day's tokens",
+};
+
 function weekRange(from: number, to: number): string {
   return `${formatLocalDay(from)} – ${formatLocalDay(to - 1)}`;
 }
 
-function list(title: string, groups: readonly BreakdownRow[], nameOf: (group: BreakdownRow) => GroupName) {
+function list(
+  title: string,
+  groups: readonly BreakdownRow[],
+  nameOf: (group: BreakdownRow) => GroupName,
+  empty: string | null,
+  measure: StatsMeasure,
+): WeeklyView["lists"][number] {
   return {
     title,
+    empty,
     rows: groups.map((group) => ({
       key: group.key,
       ...nameOf(group),
       share: group.folded > 0 ? "" : formatShare(group.share),
-      cost: displayCost(group),
+      amount: displayAmount(group, measure),
       folded: group.folded > 0,
     })),
   };
 }
 
-function bars(bins: readonly CostTally[], labelOf: (index: number) => string): BarView[] {
-  const top = Math.max(...bins.map((bin) => bin.costUsd), 0);
-  return bins.map((bin, index) => ({
-    label: labelOf(index),
-    height: top > 0 && bin.costUsd > 0 ? Math.max(bin.costUsd / top, 0.02) : 0,
-    // The one money display: "—" for unpriced usage alone, "+" beside it.
-    title: `${labelOf(index)}: ${displayCost(bin)}`,
-  }));
+function bars(bins: readonly UsageTally[], labelOf: (index: number) => string, measure: StatsMeasure): BarView[] {
+  const top = Math.max(...bins.map((bin) => amountOf(bin, measure)), 0);
+  return bins.map((bin, index) => {
+    const amount = amountOf(bin, measure);
+    return {
+      label: labelOf(index),
+      height: top > 0 && amount > 0 ? Math.max(amount / top, 0.02) : 0,
+      // The one amount display: in money, "—" for unpriced usage alone, "+" beside it.
+      title: `${labelOf(index)}: ${displayAmount(bin, measure)}`,
+    };
+  });
 }
 
-/** The recent weeks, a square per day shaded by its spend — five levels,
+/** The recent weeks, a square per day shaded by its amount — five levels,
  * the darkest the busiest day shown; the selected week outlined. */
-function calendarView(rows: readonly UsageRow[], now: number, selected: number): WeeklyView["calendar"] {
+function calendarView(rows: readonly UsageRow[], now: number, selected: number, measure: StatsMeasure): WeeklyView["calendar"] {
   const lastMonday = weekSpans(now, 0).monday;
   const firstMonday = shiftDay(lastMonday, -7 * (CALENDAR_WEEKS - 1));
-  const steps = costTimeline(rows, { from: localDayStart(firstMonday), to: now + 1 }, "day");
-  const top = Math.max(...steps.map((step) => step.costUsd), 0);
+  const steps = usageTimeline(rows, { from: localDayStart(firstMonday), to: now + 1 }, "day", measure);
+  const top = Math.max(...steps.map((step) => amountOf(step, measure)), 0);
   const weeks: WeeklyView["calendar"]["weeks"] = [];
   steps.forEach((step, index) => {
     const weekIndex = Math.floor(index / 7);
@@ -241,12 +282,12 @@ function calendarView(rows: readonly UsageRow[], now: number, selected: number):
     weeks[weekIndex] ??= { key: monday, days: [] };
     weeks[weekIndex].days.push({
       key: step.start,
-      level: top > 0 && step.costUsd > 0 ? Math.max(1, Math.ceil((step.costUsd / top) * 4)) : 0,
-      title: `${formatStep(step.start, "day", "long")}: ${displayCost(step)}`,
+      level: top > 0 && amountOf(step, measure) > 0 ? Math.max(1, Math.ceil((amountOf(step, measure) / top) * 4)) : 0,
+      title: `${formatStep(step.start, "day", "long")}: ${displayAmount(step, measure)}`,
       selected: monday === selected,
     });
   });
-  return { title: `${CALENDAR_WEEKS} weeks`, caption: "each square is a day's spend", weeks };
+  return { title: `${CALENDAR_WEEKS} weeks`, caption: CALENDAR_CAPTIONS[measure], weeks };
 }
 
 function badgesView(ladders: readonly UsageAchievementLadder[]): WeeklyView["badges"] {
@@ -273,10 +314,11 @@ export interface WeeklyDigestView {
 }
 
 export function weeklyDigestView(rows: readonly UsageRow[], now: number): WeeklyDigestView | null {
-  const report = weekReportView(rows, now, 1);
+  // The digest tells the week's money: a notification has no switch.
+  const report = weekReportView(rows, now, 1, "spend");
   if (report.lines.length === 0) return null;
-  const { spent, week, totals } = report;
-  const change = spent.change === null ? "" : ` (${spent.change.text} ${spent.caption})`;
+  const { headline, week, totals } = report;
+  const change = headline.change === null ? "" : ` (${headline.change.text} ${headline.caption})`;
   // A notification has no coverage note to explain a "+": it says it.
   const money =
     totals.pricedEvents === 0

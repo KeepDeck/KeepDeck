@@ -31,13 +31,15 @@ export interface StatsTabSpec {
   note?: string;
   /** The tab's numbers narrow to the workspace the reader picked. */
   scoped?: true;
+  /** The tab counts in the measure the reader picked: money, or tokens. */
+  measured?: true;
 }
 
 export const TAB_SPECS: Record<StatsTab, StatsTabSpec> = {
-  overview: { label: "Overview", data: "period-lens", scoped: true },
-  limits: { label: "Limits", data: "live-accounts", note: "Account-wide · each window runs on its provider's clock" },
-  weekly: { label: "Weekly", data: "all-ledger", note: "Calendar weeks, local time · all workspaces" },
-  breakdown: { label: "Breakdown", data: "period-ledger", scoped: true },
+  overview: { label: "Overview", data: "period-lens", scoped: true, measured: true },
+  limits: { label: "Limits", data: "live-accounts", note: "Account-wide · each window runs on its provider's clock", measured: true },
+  weekly: { label: "Weekly", data: "all-ledger", note: "Calendar weeks, local time · all workspaces", measured: true },
+  breakdown: { label: "Breakdown", data: "period-ledger", scoped: true, measured: true },
   achievements: { label: "Achievements", data: "all-ledger", note: "All time · all workspaces" },
 };
 

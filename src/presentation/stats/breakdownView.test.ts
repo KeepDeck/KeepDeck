@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { usageEvent, type UsageRowOverrides } from "../../domain/usage/history/event.testSupport";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import { inZone } from "../../domain/usage/time.testSupport";
 import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
 import { breakdownView, perModelNote, type BreakdownOrder } from "./breakdownView";
@@ -12,7 +13,8 @@ const LAST_WEEK = at("2026-11-02T10:00:00+02:00");
 
 function view(
   rows: UsageRowOverrides[],
-  { dimension = "workspace", order = "cost", open = null, perModelSince = null, workspace = null, held = new Set<string>() }: {
+  { dimension = "workspace", order = "amount", open = null, perModelSince = null, workspace = null, held = new Set<string>(), measure = "spend" }: {
+    measure?: StatsMeasure;
     held?: Set<string>;
     workspace?: string | null;
     dimension?: StatsDimension;
@@ -28,11 +30,33 @@ function view(
       teams: NO_TEAM_HISTORY,
       workspace,
       held: (session) => held.has(session.sessionId),
+      measure,
     });
   });
   if (result === undefined) throw new Error("no view");
   return result;
 }
+
+describe("the Breakdown table in tokens", () => {
+  it("ranks, shares, heads and compares in tokens less cache reads, in no tone", () => {
+    const shown = view(
+      [
+        { workspaceName: "Dear", costUsd: 90, tokens: { input: 100, cacheRead: 80_000 } },
+        { workspaceName: "Busy", tokens: { input: 300 } },
+        { workspaceName: "Busy", tokens: { input: 100 }, occurredAt: LAST_WEEK },
+      ],
+      { measure: "tokens" },
+    );
+    expect(shown.rows.map((row) => [row.name, row.amount, row.shareText, row.change])).toEqual([
+      // No price, the most work — first; its change is in tokens, toneless.
+      ["Busy", "300", "75%", { text: "↑ 200%", tone: "flat" }],
+      ["Dear", "100", "25%", null],
+    ]);
+    expect(shown.columns.amount).toBe("Tokens");
+    expect(shown.orders.items.map((item) => [item.id, item.label])).toEqual([["amount", "By tokens"], ["change", "By change"]]);
+    expect(shown.notes[0]).toBe("Tokens count fresh input, output with its reasoning and cache writes; what was read back from cache is left out.");
+  });
+});
 
 describe("the Breakdown table", () => {
   it("ranks the groups by money, each against itself in the days before", () => {
@@ -41,7 +65,7 @@ describe("the Breakdown table", () => {
       { workspaceName: "B", costUsd: 10 },
       { workspaceName: "A", costUsd: 60, occurredAt: LAST_WEEK },
     ]);
-    expect(shown.rows.map((row) => [row.name, row.cost, row.shareText, row.change?.text ?? row.noChange])).toEqual([
+    expect(shown.rows.map((row) => [row.name, row.amount, row.shareText, row.change?.text ?? row.noChange])).toEqual([
       ["A", "≈$30.00", "75%", "↓ 50%"],
       // Nothing before to compare with: a dash, never a made-up +∞.
       ["B", "≈$10.00", "25%", "—"],
@@ -109,6 +133,9 @@ describe("the Breakdown table", () => {
     const notes = view(rows, { dimension: "model", perModelSince: since }).notes;
     expect(notes[notes.length - 1]).toMatch(/^Since /);
     expect(view(rows, { dimension: "workspace", perModelSince: since }).notes).toHaveLength(1);
+    // The table in tokens says so in its per-model note too.
+    const inTokens = view(rows, { dimension: "model", perModelSince: since, measure: "tokens" }).notes;
+    expect(inTokens[inTokens.length - 1]).toContain("a session's tokens under the model");
   });
 });
 
@@ -117,15 +144,21 @@ describe("perModelNote", () => {
 
   it("speaks only when the period reaches back past the switch, dated on the reader's calendar", () => {
     inZone("Asia/Nicosia", () => {
-      expect(perModelNote(SINCE, SINCE - 1)).toBe(
+      expect(perModelNote(SINCE, SINCE - 1, "spend")).toBe(
         "Since Nov 4, 2026, an agent that reports each model's own tokens is listed by " +
           "model id, and a session's cost under the model it ran on. Earlier usage keeps " +
           "the model names shown at the time.",
       );
     });
-    expect(perModelNote(SINCE, SINCE)).toBeNull();
-    expect(perModelNote(null, SINCE - 1)).toBeNull();
-    expect(perModelNote(SINCE, null)).toBeNull();
+    expect(perModelNote(SINCE, SINCE, "spend")).toBeNull();
+    expect(perModelNote(null, SINCE - 1, "spend")).toBeNull();
+    expect(perModelNote(SINCE, null, "spend")).toBeNull();
+  });
+
+  it("names what the table counts — tokens, never a cost, while it counts tokens", () => {
+    const note = perModelNote(SINCE, SINCE - 1, "tokens");
+    expect(note).toContain("a session's tokens under the model it ran on");
+    expect(note).not.toContain("cost");
   });
 });
 

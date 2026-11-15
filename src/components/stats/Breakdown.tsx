@@ -3,6 +3,7 @@ import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { StatsSessions } from "../../app/useStatsView";
 import type { SessionClaimKey } from "../../domain/deck";
 import type { StatsDimension } from "../../domain/usage/stats/dimensions";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { TeamHistory } from "../../domain/usage/stats/teams";
 import type { StatsPeriod } from "../../domain/usage/stats/period";
 import {
@@ -27,6 +28,7 @@ export function Breakdown({
   sessions,
   dimension,
   order,
+  measure,
   onSelectDimension,
   onSelectOrder,
 }: {
@@ -43,6 +45,8 @@ export function Breakdown({
   sessions: StatsSessions;
   dimension: StatsDimension;
   order: BreakdownOrder;
+  /** What the table counts: money, or tokens less cache reads. */
+  measure: StatsMeasure;
   onSelectDimension(dimension: StatsDimension): void;
   onSelectOrder(order: BreakdownOrder): void;
 }) {
@@ -50,9 +54,9 @@ export function Breakdown({
   const view = useMemo(
     () =>
       breakdownView(ledger.events, {
-        period, now, dimension, order, open, colors, perModelSince, teams, workspace, held: sessions.held,
+        period, now, dimension, order, open, colors, perModelSince, teams, workspace, held: sessions.held, measure,
       }),
-    [ledger, period, now, dimension, order, open, colors, perModelSince, teams, workspace, sessions.held],
+    [ledger, period, now, dimension, order, open, colors, perModelSince, teams, workspace, sessions.held, measure],
   );
   return (
     <>
@@ -64,7 +68,7 @@ export function Breakdown({
         <div className="stats__bd-row stats__bd-row--head" role="row">
           <span role="columnheader">{view.columns.name}</span>
           <span role="columnheader">{view.columns.share}</span>
-          <span role="columnheader">{view.columns.cost}</span>
+          <span role="columnheader">{view.columns.amount}</span>
           <span role="columnheader">{view.columns.change}</span>
           <span role="columnheader">{view.columns.output}</span>
           <span role="columnheader">{view.columns.last}</span>
@@ -159,7 +163,7 @@ function Row({
         </span>
         <em>{row.shareText}</em>
       </span>
-      <span className="stats__bd-num" role="cell"><b>{row.cost}</b></span>
+      <span className="stats__bd-num" role="cell"><b>{row.amount}</b></span>
       <span className="stats__bd-num" role="cell">
         {row.change && <span className={`stats__change stats__change--${row.change.tone}`}>{row.change.text}</span>}
         {row.noChange}

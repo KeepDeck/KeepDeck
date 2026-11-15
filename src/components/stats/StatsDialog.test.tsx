@@ -193,7 +193,7 @@ describe("UsageStats", () => {
   };
 
   const clickPeriod = (label: string) => {
-    const period = present([...host.querySelectorAll<HTMLButtonElement>(".stats__period button")].find(
+    const period = present([...host.querySelectorAll<HTMLButtonElement>('[aria-label="Statistics period"] button')].find(
       (button) => button.textContent === label,
     ), "the matching element");
     act(() => period.click());
@@ -233,7 +233,7 @@ describe("UsageStats", () => {
     expect(overview().ledger).toBe(history.snapshot.ledger);
 
     clickTab("Breakdown");
-    expect(breakdown()).toMatchObject({ period: 7, dimension: "workspace", order: "cost" });
+    expect(breakdown()).toMatchObject({ period: 7, dimension: "workspace", order: "amount" });
     expect(breakdown().ledger).toBe(history.snapshot.ledger);
   });
 
@@ -341,15 +341,34 @@ describe("UsageStats", () => {
     expect(overview().period).toBe(7);
   });
 
+  it("hands Overview the measure the reader picks, and idles the switch where a tab counts in neither", () => {
+    act(() => root.render(createElement(Host)));
+    const measure = (label: string) =>
+      present(
+        [...host.querySelectorAll<HTMLButtonElement>('[aria-label="What the statistics count"] button')].find((b) => b.textContent === label),
+        label,
+      );
+    expect(overview().measure).toBe("spend");
+    act(() => measure("Tokens").click());
+    expect(overview().measure).toBe("tokens");
+    expect(measure("Tokens").getAttribute("aria-pressed")).toBe("true");
+
+    clickTab("Achievements");
+    expect(measure("Tokens").disabled).toBe(true);
+    clickTab("Overview");
+    // The pick outlives the idle tab.
+    expect(overview().measure).toBe("tokens");
+  });
+
   it("disables the period switcher on the period-independent tabs", () => {
     act(() => root.render(createElement(Host)));
     const periodButton = () =>
-      [...host.querySelectorAll<HTMLButtonElement>(".stats__period button")][0];
+      [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Statistics period"] button')][0];
     expect(periodButton().disabled).toBe(false);
 
     clickTab("Limits");
     expect(periodButton().disabled).toBe(true);
-    expect(host.querySelector(".stats__period--idle")).not.toBeNull();
+    expect(host.querySelector('[aria-label="Statistics period"].stats__lens--idle')).not.toBeNull();
 
     clickTab("Achievements");
     expect(periodButton().disabled).toBe(true);

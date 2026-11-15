@@ -5,6 +5,7 @@ import type { WindowReport } from "../../domain/usage/reportJournal";
 import { accountLimitsView, type ProviderWindowView } from "../../presentation/stats/providersView";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { WindowBurn } from "../usage/WindowBurn";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 
 /** Per-provider rate-limit windows joined with ledger spend inside each
  * window's current interval — one card per provider, so the name and the
@@ -20,6 +21,7 @@ export function Providers({
   colors,
   reportsByKey,
   now,
+  measure,
 }: {
   accounts: ReadonlyMap<string, AccountUsage>;
   /** The ledger view — derived values are keyed on it, not on its array. */
@@ -29,6 +31,8 @@ export function Providers({
   /** The provider-report journal — the forecast's pace history. */
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
+  /** What a window's sessions are counted in: money, or tokens. */
+  measure: StatsMeasure;
 }) {
   // Keyed on the SAME clock the captions render with — a memo that read its
   // own Date.now() froze expired/stale while the caption beside them said
@@ -36,8 +40,8 @@ export function Providers({
   // from the usage store, so every journal emit lands in the same flush as
   // the accounts change that caused it.
   const view = useMemo(
-    () => accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors }),
-    [accounts, ledger, reportsByKey, now, colors],
+    () => accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors, measure }),
+    [accounts, ledger, reportsByKey, now, colors, measure],
   );
   if (view.kind === "empty") {
     return <p className="stats__empty">{view.text}</p>;
@@ -89,7 +93,7 @@ function ProviderWindow({ view, now }: { view: ProviderWindowView; now: number }
                 {session.name}
                 {session.source !== null && <small>{session.source}</small>}
               </span>
-              <b>{session.cost}</b>
+              <b>{session.amount}</b>
             </li>
           ))}
         </ul>

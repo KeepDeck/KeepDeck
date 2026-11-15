@@ -9,7 +9,7 @@ import type { TeamHistory } from "../../domain/usage/stats/teams";
 import { latestOccurredAt } from "../../domain/usage/history/ledger";
 import { statsScopeView } from "../../presentation/stats/statsScopeView";
 import type { StatsTab } from "../../domain/usage/statsTabs";
-import { STATS_DIALOG, statsHeaderView, statsPanelView } from "../../presentation/stats/statsDialogView";
+import { STATS_DIALOG, statsHeaderView, statsPanelView, type LensView } from "../../presentation/stats/statsDialogView";
 import { statsTabStep } from "../../presentation/stats/statsTabs";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -117,10 +117,10 @@ export function UsageStats({
     [ledger],
   );
   const now = useWallClock(latest);
-  const header = statsHeaderView(tab, period, now);
+  const header = statsHeaderView(tab, period, now, view.measure);
   const scope = useMemo(
-    () => statsScopeView(ledger.events, { tab, period, now, workspace: view.workspace }),
-    [ledger, tab, period, now, view.workspace],
+    () => statsScopeView(ledger.events, { tab, period, now, workspace: view.workspace, measure: view.measure }),
+    [ledger, tab, period, now, view.workspace, view.measure],
   );
   const panel = useMemo(
     () =>
@@ -142,6 +142,7 @@ export function UsageStats({
             ledger={ledger}
             period={period}
             workspace={view.workspace}
+            measure={view.measure}
             now={now}
             colors={seriesColors}
             accounts={accounts}
@@ -166,6 +167,7 @@ export function UsageStats({
             sessions={sessions}
             dimension={view.dimension}
             order={view.order}
+            measure={view.measure}
             onSelectDimension={view.selectDimension}
             onSelectOrder={view.selectOrder}
           />
@@ -178,6 +180,7 @@ export function UsageStats({
             colors={seriesColors}
             reportsByKey={reports.byKey}
             now={now}
+            measure={view.measure}
           />
         );
       case "weekly":
@@ -189,6 +192,7 @@ export function UsageStats({
             onSelectWeek={view.selectWeek}
             teams={teams}
             reportsByKey={reports.byKey}
+            measure={view.measure}
             onOpenGallery={() => onSelectTab("achievements")}
           />
         );
@@ -202,28 +206,9 @@ export function UsageStats({
       <div className="stats__head">
         <p className="stats__range">{header.range}</p>
         <div className="stats__filters">
+          <Lens lens={header.measure} onPick={view.selectMeasure} />
           <StatsScope scope={scope} onPick={view.selectWorkspace} />
-          <div
-            className={`stats__period${header.periodIdle ? " stats__period--idle" : ""}`}
-            // role=group makes the label perceivable — on a bare div (implicit
-            // role generic) aria-label is ignored by assistive tech.
-            role="group"
-            aria-label={STATS_DIALOG.periodGroup}
-            aria-disabled={header.periodIdle}
-          >
-            {header.periods.map((candidate) => (
-              <button
-                key={candidate.label}
-                type="button"
-                className={candidate.active ? "stats__period--active" : ""}
-                aria-pressed={candidate.active}
-                disabled={header.periodIdle}
-                onClick={() => view.selectPeriod(candidate.period)}
-              >
-                {candidate.label}
-              </button>
-            ))}
-          </div>
+          <Lens lens={header.period} onPick={view.selectPeriod} />
         </div>
       </div>
       {/* The ARIA tabs pattern in full: roving tabIndex (one tab stop for
@@ -283,6 +268,35 @@ export function UsageStats({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** One of the header's lenses — what the numbers count, or over which days:
+ * a row of pressed choices that idles, disabled rather than hidden, on a
+ * tab that never reads it, so the header never jumps. */
+function Lens<T>({ lens, onPick }: { lens: LensView<T>; onPick(value: T): void }) {
+  return (
+    <div
+      className={`stats__lens${lens.idle ? " stats__lens--idle" : ""}`}
+      // role=group makes the label perceivable — on a bare div (implicit
+      // role generic) aria-label is ignored by assistive tech.
+      role="group"
+      aria-label={lens.label}
+      aria-disabled={lens.idle}
+    >
+      {lens.choices.map((choice) => (
+        <button
+          key={choice.key}
+          type="button"
+          className={choice.active ? "stats__lens--active" : ""}
+          aria-pressed={choice.active}
+          disabled={lens.idle}
+          onClick={() => onPick(choice.value)}
+        >
+          {choice.label}
+        </button>
+      ))}
     </div>
   );
 }

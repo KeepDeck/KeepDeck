@@ -33,7 +33,7 @@ describe("Weekly", () => {
     const [week, setWeek] = useState<number | null>(null);
     const rows = [usageEvent({ occurredAt: NOW - 60_000, costUsd: 3 }), usageEvent({ occurredAt: NOW - 9 * DAY, costUsd: 7 })];
     return createElement(Weekly, {
-      ledger: ledgerOf(rows), now: NOW, week, onSelectWeek: setWeek, teams: NO_TEAM_HISTORY, reportsByKey: new Map(), onOpenGallery,
+      ledger: ledgerOf(rows), now: NOW, week, onSelectWeek: setWeek, teams: NO_TEAM_HISTORY, reportsByKey: new Map(), measure: "spend", onOpenGallery,
     });
   }
   const render = (onOpenGallery = vi.fn()) => {
@@ -52,6 +52,22 @@ describe("Weekly", () => {
     expect(host.querySelector(".stats__week-value")?.textContent).toBe("≈$7.00");
     act(() => arrow("Later week").click());
     expect(host.querySelector(".stats__weeknav b")?.textContent).toMatch(/^This week/);
+  });
+
+  it("says a week with no usage in words, in place of its bars and list rows", () => {
+    act(() =>
+      root.render(
+        createElement(Weekly, {
+          ledger: ledgerOf([]), now: NOW, week: null, onSelectWeek: vi.fn(), teams: NO_TEAM_HISTORY, reportsByKey: new Map(), measure: "tokens", onOpenGallery: vi.fn(),
+        }),
+      ),
+    );
+    const said = (selector: string) => [...host.querySelectorAll(selector)].map((node) => node.textContent);
+    expect(said(".stats__bars--empty")).toEqual(["No usage this week", "No usage this week"]);
+    expect(host.querySelectorAll(".stats__bars span")).toHaveLength(0);
+    for (const title of ["Teams", "Models"]) {
+      expect(host.querySelector(`[aria-label="${title}"] .stats__top-empty`)?.textContent).toBe("No usage this week");
+    }
   });
 
   it("opens the badge gallery from this week's badge panel", () => {

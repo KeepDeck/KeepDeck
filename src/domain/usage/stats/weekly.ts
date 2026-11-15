@@ -1,6 +1,7 @@
-import { addCost, emptyCostTally, type CostTally, type UsageRow } from "../history/event";
+import type { UsageRow } from "../history/event";
 import type { WindowReport } from "../reportJournal";
 import { localDayNumber, localDayStart, localWeekStart, shiftDay, type LocalDayNumber } from "../time";
+import { addUsage, emptyUsageTally, type UsageTally } from "./measure";
 import { inSpan, type Span } from "./period";
 
 /**
@@ -49,24 +50,24 @@ export function oldestWeekBack(rows: readonly UsageRow[], now: number): number {
   return Math.max(0, Math.round(weeks));
 }
 
-/** The week's money by weekday (Monday first) and by local hour — each a
- * whole cost tally, so a bin of unpriced usage alone reads as unknown, not
- * as nothing spent. */
+/** The week's usage by weekday (Monday first) and by local hour — each a
+ * whole usage tally, read in either measure, so a bin of unpriced usage
+ * alone reads as unknown money, not as nothing spent. */
 export interface WeekRhythm {
-  byWeekday: CostTally[];
-  byHour: CostTally[];
+  byWeekday: UsageTally[];
+  byHour: UsageTally[];
 }
 
 export function weekRhythm(rows: readonly UsageRow[], span: Span): WeekRhythm {
-  const byWeekday = Array.from({ length: 7 }, emptyCostTally);
-  const byHour = Array.from({ length: 24 }, emptyCostTally);
+  const byWeekday = Array.from({ length: 7 }, emptyUsageTally);
+  const byHour = Array.from({ length: 24 }, emptyUsageTally);
   for (const row of rows) {
     if (!inSpan(row.occurredAt, span)) continue;
     const at = new Date(row.occurredAt);
     const day = byWeekday[(at.getDay() + 6) % 7];
     const hour = byHour[at.getHours()];
-    if (day !== undefined) addCost(day, row);
-    if (hour !== undefined) addCost(hour, row);
+    if (day !== undefined) addUsage(day, row);
+    if (hour !== undefined) addUsage(hour, row);
   }
   return { byWeekday, byHour };
 }

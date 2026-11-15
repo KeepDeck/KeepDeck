@@ -1,8 +1,9 @@
 import { panelWindows, usageStale } from "./format";
 import type { WindowReport } from "./reportJournal";
-import type { CostTally, UsageRow } from "./history/event";
+import type { UsageRow } from "./history/event";
 import { dimensionKey } from "./stats/dimensions";
 import { breakdown, statsTotals, type BreakdownRow } from "./stats/fold";
+import type { StatsMeasure, UsageTally } from "./stats/measure";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
 
@@ -14,11 +15,12 @@ import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
  * from the other.
  */
 
-export interface ProviderWindowLedger extends CostTally {
+export interface ProviderWindowLedger extends UsageTally {
   totalTokens: number;
   sessionCount: number;
-  /** The sessions that spent inside the window, the biggest first — local
-   * spend, never each session's share of the provider's percentage. */
+  /** The sessions that spent inside the window, the biggest first in the
+   * measure asked for — local usage, never each session's share of the
+   * provider's percentage. */
   sessions: BreakdownRow[];
 }
 
@@ -77,6 +79,7 @@ export function providerWindowGroups(
   events: readonly UsageRow[],
   byKey: ReadonlyMap<string, readonly WindowReport[]>,
   now: number,
+  measure: StatsMeasure,
 ): ProviderWindowGroup[] {
   const groups: ProviderWindowGroup[] = [];
   for (const agent of [...accounts.keys()].sort()) {
@@ -101,7 +104,7 @@ export function providerWindowGroups(
           reportedAt: account.reportedAt,
           expired: windowExpired(window, now),
           stale: usageStale(account.reportedAt, now),
-          ledger: windowLedger(agent, window, events, now),
+          ledger: windowLedger(agent, window, events, now, measure),
         },
       ];
     });
@@ -127,6 +130,7 @@ function windowLedger(
   window: UsageWindow,
   events: readonly UsageRow[],
   now: number,
+  measure: StatsMeasure,
 ): ProviderWindowLedger | null {
   if (window.scope !== undefined) return null;
   if (windowExpired(window, now)) return null;
@@ -137,6 +141,6 @@ function windowLedger(
   return {
     ...totals,
     sessionCount: sessions,
-    sessions: breakdown(inside, [], (event) => dimensionKey("session", event), WINDOW_SESSIONS_TOP),
+    sessions: breakdown(inside, [], (event) => dimensionKey("session", event), WINDOW_SESSIONS_TOP, measure),
   };
 }

@@ -1,14 +1,16 @@
 import { useState } from "react";
 import type { SessionClaimKey } from "../domain/deck";
 import type { StatsDimension } from "../domain/usage/stats/dimensions";
+import type { StatsMeasure } from "../domain/usage/stats/measure";
 import type { StatsPeriod } from "../domain/usage/stats/period";
 import type { BreakdownOrder } from "../presentation/stats/breakdownView";
 import { DEFAULT_STATS_PERIOD } from "../presentation/stats/statsPeriods";
 
-/** The Statistics view the reader set up: the period, the workspace the
- * numbers are narrowed to (null: every one), and how Breakdown groups and
- * orders them. */
+/** The Statistics view the reader set up: what the numbers count, the
+ * period, the workspace they are narrowed to (null: every one), and how
+ * Breakdown groups and orders them. */
 export interface StatsView {
+  measure: StatsMeasure;
   period: StatsPeriod;
   workspace: string | null;
   /** The week Weekly reports, by its Monday's day ordinal; null follows the
@@ -16,6 +18,7 @@ export interface StatsView {
   week: number | null;
   dimension: StatsDimension;
   order: BreakdownOrder;
+  selectMeasure(measure: StatsMeasure): void;
   selectPeriod(period: StatsPeriod): void;
   selectWorkspace(workspace: string | null): void;
   selectWeek(week: number | null): void;
@@ -38,12 +41,14 @@ export interface StatsSessions {
  * what the statistics show.
  */
 export function useStatsView(): StatsView {
+  const [measure, selectMeasure] = useState<StatsMeasure>("spend");
   const [period, selectPeriod] = useState<StatsPeriod>(DEFAULT_STATS_PERIOD);
   const [workspace, selectWorkspace] = useState<string | null>(null);
   const [week, selectWeek] = useState<number | null>(null);
   const [dimension, selectDimension] = useState<StatsDimension>("workspace");
-  const [order, selectOrder] = useState<BreakdownOrder>("cost");
+  const [order, selectOrder] = useState<BreakdownOrder>("amount");
   return {
-    period, workspace, week, dimension, order, selectPeriod, selectWorkspace, selectWeek, selectDimension, selectOrder,
+    measure, period, workspace, week, dimension, order,
+    selectMeasure, selectPeriod, selectWorkspace, selectWeek, selectDimension, selectOrder,
   };
 }

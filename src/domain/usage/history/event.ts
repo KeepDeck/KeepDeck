@@ -113,6 +113,15 @@ export function tokenTotal(tokens: TokenCounts): number {
   );
 }
 
+/** A row's tokens less what was read back from cache — the work the call
+ * did: fresh input, output with its reasoning, and cache writes. Cache reads
+ * re-read the context every turn and are most of any session's tokens, so a
+ * count with them in says how long the contexts were, not how much was
+ * done. */
+export function tokensLessCacheReads(tokens: TokenCounts): number {
+  return Math.max(0, tokenTotal(tokens) - (tokens.cacheRead ?? 0));
+}
+
 /**
  * Add one row's counts into a running set, field by field. A field the
  * source never reported stays absent in the target rather than becoming a

@@ -12,7 +12,7 @@ const flatRows = (
   events: Parameters<typeof providerWindowGroups>[1],
   byKey: Parameters<typeof providerWindowGroups>[2],
   now: number,
-) => providerWindowGroups(accounts, events, byKey, now).flatMap((group) => group.rows);
+) => providerWindowGroups(accounts, events, byKey, now, "spend").flatMap((group) => group.rows);
 const NO_JOURNAL = new Map<string, readonly WindowReport[]>();
 
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
@@ -40,6 +40,7 @@ describe("providerWindowRows", () => {
         [event()],
         new Map(),
         NOW,
+        "spend",
       ),
     ).toEqual([]);
   });
@@ -86,6 +87,19 @@ describe("providerWindowRows", () => {
       ["s2", 0.5],
       ["s1", 0],
     ]);
+  });
+
+  it("ranks the window's sessions in the measure asked for", () => {
+    const accounts = new Map([["codex", reported([{ usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: 300 }])]]);
+    const events = [
+      // s1: no price, but the bigger work; s2: priced, small.
+      event({ occurredAt: NOW - HOUR, tokens: { input: 100, cacheRead: 5_000 } }),
+      event({ occurredAt: NOW - HOUR, sessionId: "s2", rootSessionId: "s2", tokens: { output: 50 }, costUsd: 0.5 }),
+    ];
+    const order = (measure: "spend" | "tokens") =>
+      providerWindowGroups(accounts, events, NO_JOURNAL, NOW, measure)[0]?.rows[0]?.ledger?.sessions.map((s) => [s.latest.sessionId, s.amount]);
+    expect(order("spend")).toEqual([["s2", 0.5], ["s1", 0]]);
+    expect(order("tokens")).toEqual([["s1", 100], ["s2", 50]]);
   });
 
   // A long-passed reset once rendered a week of usage as a 5h window's own.
@@ -151,7 +165,7 @@ describe("providerWindowRows", () => {
       ],
       ["opencode", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
     ]);
-    const groups = providerWindowGroups(accounts, [], new Map(), NOW);
+    const groups = providerWindowGroups(accounts, [], new Map(), NOW, "spend");
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({
       agent: "claude",

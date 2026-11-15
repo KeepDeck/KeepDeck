@@ -1,12 +1,13 @@
 import { formatPct, windowLabel, windowLevel, type AccountUsage, type UsageWindow } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { providerWindowGroups, type ProviderWindowGroup } from "../../domain/usage/providerWindows";
+import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
 import { burnEdgeLabel, cardCaptionParts, type BurnEdge } from "../../domain/usage/windowForecast";
 import { seriesColorFor } from "../usagePalette";
 import { reportedAgeCaption, usageLevelClass } from "../usageView";
-import { displayCost, windowLedgerCaption } from "./statsCost";
+import { displayAmount, windowLedgerCaption } from "./statsMeasures";
 import { sessionName } from "./statsNames";
 
 /**
@@ -34,10 +35,10 @@ export interface ProviderWindowView {
   edge: BurnEdge;
   /** The card's caption, in order, each part joined to the last by " · ". */
   caption: (ToneText & { lead: string })[];
-  /** What this machine spent inside the window, when it can be said. */
+  /** What this machine used inside the window, when it can be said. */
   ledger: string | null;
-  /** Which sessions spent it, the biggest first. */
-  sessions: { key: string; name: string; source: string | null; cost: string }[];
+  /** Which sessions used it, the biggest first, in the reader's measure. */
+  sessions: { key: string; name: string; source: string | null; amount: string }[];
 }
 
 export interface ProviderCardView {
@@ -62,6 +63,7 @@ function windowView(
   row: ProviderWindowGroup["rows"][number],
   now: number,
   colors: ReadonlyMap<string, string>,
+  measure: StatsMeasure,
 ): ProviderWindowView {
   return {
     id: row.id,
@@ -76,11 +78,11 @@ function windowView(
       ...tone(part.text, usageLevelClass(part.level)),
       lead: index > 0 ? " · " : "",
     })),
-    ledger: row.ledger ? windowLedgerCaption(row.ledger) : null,
+    ledger: row.ledger ? windowLedgerCaption(row.ledger, measure) : null,
     sessions: (row.ledger?.sessions ?? []).map((session) => ({
       key: session.key,
       ...sessionName(session),
-      cost: displayCost(session),
+      amount: displayAmount(session, measure),
     })),
   };
 }
@@ -89,6 +91,7 @@ export function providersView(
   groups: readonly ProviderWindowGroup[],
   now: number,
   colors: ReadonlyMap<string, string>,
+  measure: StatsMeasure,
 ): ProvidersView {
   if (groups.length === 0) {
     return {
@@ -105,7 +108,7 @@ export function providersView(
       note: group.rows.some((row) => row.expired)
         ? "A window that has reset keeps showing the previous window's percentage until this account reports again."
         : null,
-      windows: group.rows.map((row) => windowView(row, now, colors)),
+      windows: group.rows.map((row) => windowView(row, now, colors, measure)),
     })),
   };
 }
@@ -119,6 +122,12 @@ export function accountLimitsView(input: {
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
   colors: ReadonlyMap<string, string>;
+  measure: StatsMeasure;
 }): ProvidersView {
-  return providersView(providerWindowGroups(input.accounts, input.rows, input.reportsByKey, input.now), input.now, input.colors);
+  return providersView(
+    providerWindowGroups(input.accounts, input.rows, input.reportsByKey, input.now, input.measure),
+    input.now,
+    input.colors,
+    input.measure,
+  );
 }
