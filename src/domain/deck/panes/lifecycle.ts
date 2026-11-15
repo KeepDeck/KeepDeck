@@ -59,6 +59,26 @@ export function paneCanSuspend(ws: PlacementOwner, pane: Pane, blocked: boolean)
  *  shape the session picker already uses for the same job. */
 export type PaneSuspendBlock = "stopped" | "provisioning" | "remote";
 
+/**
+ * Whether putting its workspace away marks this pane suspended — the
+ * archive's own rule, not a suspend's: a suspend refuses a pane that is
+ * already down, and an archive must leave EVERY local pane down durably,
+ * because restoring wakes nobody. A pane parked by the launch policy, or
+ * never started in a workspace nobody opened, has no durable marker; without
+ * one it would rise on its own after a restart and a restore.
+ *
+ * Not marked: a pane already suspended (its date is the person's); a remote
+ * one (its agent is the server's — the archive ends only its thin client,
+ * and suspend is refused for it by design); and one whose team has no
+ * directory yet — a create still running is waited for and the pane asked
+ * again once it lands, a failed one is a card waiting for Retry.
+ */
+export function paneStopsWithArchive(ws: PlacementOwner, pane: Pane): boolean {
+  if (pane.idle?.reason === "suspended") return false;
+  if (remoteEndpointOf(pane) !== null) return false;
+  return panePlacement(ws, pane).kind !== "provisioning";
+}
+
 /** What a suspend request did. Not a boolean: three surfaces have to explain
  * a refusal, and each one guessing produced a different sentence — one of
  * them false. The reason travels with the answer so they share the words

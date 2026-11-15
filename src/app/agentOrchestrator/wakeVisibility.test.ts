@@ -351,20 +351,22 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     });
   });
 
-  it("reads a running agent down the moment its workspace is archived, and ends nothing by itself", async () => {
+  it("reads a running agent down the moment its workspace is archived, while its process still runs", async () => {
     mount(true);
     act(() => deck.hydrate(panes([{ id: "running" }, { id: "other", ws: "ws-2" }])));
     await settle();
     expect(agentRun.reachOf("running")).toEqual({ kind: "running" });
 
     act(() => deck.archiveWorkspace("ws-1"));
-    await settle();
 
-    expect(agentRun.reachOf("running")).toEqual({ kind: "down", why: "workspace-archived" });
-    // Stopping it is the archive flow's job; the gate only keeps anything new
-    // from starting.
-    expect(pty.closed).not.toContain("running");
+    // Down at once — mail sent now would never be read — though nothing
+    // has ended its process yet: the gate ends nothing.
     expect(pty.live.has("running")).toBe(true);
+    expect(agentRun.reachOf("running")).toEqual({ kind: "down", why: "workspace-archived" });
+    // The archive's pass does; a marker with no pass behind it is finished
+    // the way one the last run left is.
+    await settle();
+    expect(pty.closed).toContain("running");
   });
 
   it("does not call a pane's plugin missing before the catalog has loaded", async () => {

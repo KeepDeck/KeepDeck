@@ -25,7 +25,13 @@ export function createWorktreePlantings(
   const skills = factories.skills(inOrder, deck);
 
   async function disarm(roots: string[]): Promise<string[] | null> {
-    const liveRoots = deck.live().flatMap((ws) => ws.roots);
+    // A root stays armed while a workspace IN USE claims it. An archived
+    // workspace's claim keeps its directory (nothing is pruned for it) but
+    // not its plantings: nothing of its runs there.
+    const liveRoots = deck
+      .live()
+      .filter((ws) => !ws.archived)
+      .flatMap((ws) => ws.roots);
     const released = await cwdDisarm(roots, liveRoots);
     if (released) factories.onDisarmed(released);
     return released;

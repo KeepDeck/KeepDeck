@@ -7,7 +7,7 @@ import type {
   WorkspaceInstance,
   WorkspaceRef,
 } from "../workspaceInstance";
-import { appendPane, removePane, type Pane } from "./panes";
+import { appendPane, paneStopsWithArchive, removePane, type Pane } from "./panes";
 import { teamsOf } from "./teams/collection";
 import { claimPath, normalizePath, teamOccupyingPath } from "./teams/claims";
 import type { Team } from "./teams/model";
@@ -447,6 +447,13 @@ export function stepPlaces(
   };
 }
 
+/** What asking to put a workspace away did: it is archived now, it already
+ * was, a close of it is under way, or it is no longer there. */
+export type ArchiveOutcome = "archived" | "already" | "closing" | "gone";
+
+/** What asking for a workspace back did. */
+export type RestoreOutcome = "restored" | "not-archived" | "gone";
+
 /** The workspaces a person navigates — every one not archived, in deck
  * order: the strip's, the selection's. Identity, ownership and retention
  * keep reading the whole list. */
@@ -465,28 +472,49 @@ export function resolveActiveId(workspaces: Workspace[], activeId: string): stri
   return visible[0]?.id ?? "";
 }
 
-/** Put workspace `id` away as of `at`, in phase `"archiving"`. Same ref when
- * there is no such workspace or it is already archived. */
+/** Every pane the archive stops ([`paneStopsWithArchive`]), marked suspended as of
+ * `at`; the same list when none is left to mark. */
+function suspendedForArchive(ws: Workspace, at: string): Pane[] {
+  let marked = false;
+  const panes = ws.panes.map((pane): Pane => {
+    if (!paneStopsWithArchive(ws, pane)) return pane;
+    marked = true;
+    return { ...pane, idle: { reason: "suspended", at } };
+  });
+  return marked ? panes : ws.panes;
+}
+
+/** Put workspace `id` away as of `at`, in phase `"archiving"` — and, in the
+ * same change, every pane the archive stops marked suspended: one snapshot,
+ * one save, so no crash can leave the workspace put away with a pane on disk
+ * that would rise by itself. Ending the processes is the caller's. Same ref
+ * when there is no such workspace or it is already archived. */
 export function archiveWorkspace(workspaces: Workspace[], id: string, at: string): Workspace[] {
   const ws = findWorkspace(workspaces, id);
   if (!ws || ws.archived) return workspaces;
-  return workspaces.map((w) => (w.id === id ? { ...w, archived: { at, phase: "archiving" } } : w));
+  return workspaces.map((w) =>
+    w.id === id ? { ...w, archived: { at, phase: "archiving" }, panes: suspendedForArchive(w, at) } : w,
+  );
 }
 
 /** The archive of `id` has done what it could: phase `"archived"`, owing
- * `warnings` (kept only when something is owed). Boot repair settles again
- * after each retry, with what is still owed. Same ref when the workspace is
- * not archived, or already settled exactly so. */
+ * `warnings` (kept only when something is owed) — and any pane that landed
+ * since the archive began (a create that finished) marked suspended like the
+ * rest. Boot repair settles again after each retry, with what is still owed.
+ * Same ref when the workspace is not archived, or already settled exactly so. */
 export function settleArchive(
   workspaces: Workspace[],
   id: string,
   warnings: ArchiveWarnings,
 ): Workspace[] {
-  const archived = findWorkspace(workspaces, id)?.archived;
-  if (!archived) return workspaces;
+  const ws = findWorkspace(workspaces, id);
+  const archived = ws?.archived;
+  if (!ws || !archived) return workspaces;
+  const panes = suspendedForArchive(ws, archived.at);
   const owed = warnings.reaps.length > 0 || warnings.disarm;
   const was = archived.warnings;
   const unchanged =
+    panes === ws.panes &&
     archived.phase === "archived" &&
     (owed
       ? was !== undefined &&
@@ -500,7 +528,7 @@ export function settleArchive(
     phase: "archived",
     ...(owed && { warnings: { reaps: [...warnings.reaps], disarm: warnings.disarm } }),
   };
-  return workspaces.map((w) => (w.id === id ? { ...w, archived: settled } : w));
+  return workspaces.map((w) => (w.id === id ? { ...w, archived: settled, panes } : w));
 }
 
 /** Bring workspace `id` back: the marker goes and nothing else changes —

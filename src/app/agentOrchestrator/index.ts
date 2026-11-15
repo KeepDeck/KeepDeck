@@ -18,7 +18,7 @@ import type { DeckStore } from "../deckStore";
 import type { PaneSessionState, PaneSpawnSpec } from "../ptyManager";
 import type { SpawnContextSource } from "../spawnContextSource";
 import type { SpawnPluginAccess } from "../spawnSpecs";
-import type { SuspendOutcome } from "../../domain/deck";
+import type { ArchiveOutcome, RestoreOutcome, SuspendOutcome } from "../../domain/deck";
 import type { WorktreeProvisioner } from "../worktrees";
 import { createAgentOrchestratorRuntime } from "./runtime";
 
@@ -50,6 +50,12 @@ export interface AgentOrchestrator {
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
   /** Confirmed pane/workspace close, including optional worktree teardown. */
   close(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
+  /** Put a workspace away: its agents stopped and kept, its directories
+   * kept, nothing of it run until it is restored. Answers once the stop
+   * pass has done what it could. */
+  archive(workspace: WorkspaceRef): Promise<ArchiveOutcome>;
+  /** Bring an archived workspace back, into view; nobody in it is woken. */
+  restore(workspace: WorkspaceRef): RestoreOutcome;
   /** Restart an exited pane fresh or against its recorded session. */
   restart(
     wsId: string,

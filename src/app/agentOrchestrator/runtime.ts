@@ -32,6 +32,7 @@ import type {
   AgentOrchestratorDeps,
   StagedSkillsAsk,
 } from ".";
+import { createAgentOrchestratorArchiving, type AgentOrchestratorArchiving } from "./archiving";
 import { createAgentOrchestratorClosing } from "./closing";
 import { createAgentOrchestratorContinuations } from "./continuations";
 import { createAgentOrchestratorCreation } from "./creation";
@@ -193,6 +194,8 @@ export function createAgentOrchestratorRuntime(
     actions.failPaneWake(wsId, pane.id);
   }
 
+  // Each of the two asks the other one question, so one is bound late.
+  let archiving: AgentOrchestratorArchiving | undefined;
   const closing = createAgentOrchestratorClosing({
     deck,
     actions,
@@ -202,6 +205,15 @@ export function createAgentOrchestratorRuntime(
     isBlocked: runView.isBlocked,
     lifecycle,
     workspaceForgetters: deps.workspaceForgetters,
+    archiving: (workspace) => archiving?.archiving(workspace) ?? false,
+  });
+  archiving = createAgentOrchestratorArchiving({
+    deck,
+    actions,
+    sessions,
+    worktrees,
+    lifecycle,
+    closingWorkspace: closing.closingWorkspace,
   });
   const creation = createAgentOrchestratorCreation({
     deck,
@@ -382,6 +394,10 @@ export function createAgentOrchestratorRuntime(
 
   function reconcile(): void {
     if (reap()) publish();
+    // Before anything that waits on the spawn context or an active
+    // workspace: an archive the last run left half-done is finished with
+    // neither (every workspace may be archived).
+    archiving?.repair();
     // Wait for the spawn context (a resume plan built without it would miss
     // the agent's identity mechanism) AND the catalog (see `ready`).
     const ctx = spawnContext.get();
@@ -541,6 +557,8 @@ export function createAgentOrchestratorRuntime(
     retryProvisioning: creation.retryProvisioning,
     suspend: closing.suspend,
     close: closing.close,
+    archive: (workspace) => archiving.archive(workspace),
+    restore: (workspace) => archiving.restore(workspace),
     restart: restart.restart,
     recoverRejectedResume: restart.recoverRejectedResume,
     retryPlanBuild: restart.retryPlanBuild,

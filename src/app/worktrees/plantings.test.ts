@@ -313,6 +313,23 @@ describe("sweep", () => {
     expect(await lastDisarm()).toEqual(["/other"]);
   });
 
+  it("takes an archived workspace's plantings back, except where a workspace in use still works", async () => {
+    deck = [
+      { id: "ws-1", instance: "life-1", roots: ["/repo", "/wt/a"], archived: true },
+      { id: "ws-2", roots: ["/repo"] },
+    ];
+    expect(await manager.disarmArchived({ id: "ws-1", instance: "life-1" })).toBe(true);
+    // The archive's own claim protects nothing: only the workspace in use does.
+    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/repo", "/wt/a"], ["/repo"]);
+    expect(await lastDisarm()).toEqual(["/wt/a"]);
+  });
+
+  it("answers a failed take-back as a failure, for the archive to record", async () => {
+    deck = [{ id: "ws-1", instance: "life-1", roots: ["/wt/a"], archived: true }];
+    cwdArming.cwdDisarm.mockResolvedValueOnce(null);
+    expect(await manager.disarmArchived({ id: "ws-1", instance: "life-1" })).toBe(false);
+  });
+
   it("an empty hydrated deck sweeps everything", async () => {
     deck = [];
     await manager.sweep(true);

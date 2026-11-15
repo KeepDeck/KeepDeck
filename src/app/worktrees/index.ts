@@ -139,6 +139,14 @@ export interface WorktreeProvisioner {
    * when no create is in flight. A create that throws settles too.
    */
   awaitSettled(ownerId: string): Promise<ProvisionSettlement>;
+  /**
+   * Take KeepDeck's plantings back out of an archived workspace's directories
+   * — every one no workspace in use still claims. In the queue like every
+   * other write into a cwd, with the roots read inside the slot. Answers
+   * whether the take-back succeeded; a failure is the archive's to record
+   * and retry.
+   */
+  disarmArchived(workspace: WorkspaceRef): Promise<boolean>;
   /** Register a step to run after `ownerId`'s worktree lands (see the map doc). */
   registerPostProvision(
     ownerId: string,
@@ -316,6 +324,8 @@ export function createWorktreeManager(
 
   return {
     ...provisioning,
+    disarmArchived: (workspace) =>
+      inOrder(async () => (await plantings.disarm(deck.rootsOf(workspace))) !== null),
     skillsFor: plantings.skillsFor,
     invalidateSkills: plantings.invalidateSkills,
     sweep: plantings.sweep,
