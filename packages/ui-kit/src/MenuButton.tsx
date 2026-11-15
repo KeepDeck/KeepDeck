@@ -18,7 +18,7 @@
  * it closes this menu only while focus is inside, so a dialog above keeps its
  * own Escape.
  */
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
 import { FloatingListbox } from "./FloatingListbox";
 import { useAwayClose } from "./useAwayClose";
@@ -36,6 +36,9 @@ export interface MenuAction {
    *  different feature (a menu of descriptions), and the two would be told
    *  apart by nothing the reader can see. */
   refusal?: string;
+  /** A rule above this item — where one group of acts ends and the next
+   *  begins. Never above the first item. */
+  separatorBefore?: boolean;
 }
 
 export interface MenuButtonProps {
@@ -84,31 +87,17 @@ export function MenuButton({
 
   useAwayClose(open, () => setOpen(false), rootRef, menuRef);
 
-  // A menu is walked by the keyboard: opened, focus is on its first item;
-  // the arrows (and Home / End) move it along, wrapping — the menu pattern
-  // its role announces.
-  useEffect(() => {
-    if (menuOpen) itemsOf(menuRef.current)[0]?.focus();
-  }, [menuOpen]);
-
   return (
     <div
       ref={rootRef}
       className={`kd-menu${className ? ` ${className}` : ""}`}
       onKeyDown={(event) => {
-        // Local, not a window listener: the menu owns Escape only while focus
-        // is inside it, so modal layers keep their own Esc semantics.
+        // Escape on the closed-over trigger. Inside the list the list owns
+        // its keys (`MenuList`), and stops the ones it handles.
         if (event.key === "Escape" && open) {
           event.stopPropagation();
           closeAndRestore();
-          return;
         }
-        if (!menuOpen) return;
-        const items = itemsOf(menuRef.current);
-        const to = menuStep(event.key, document.activeElement instanceof HTMLButtonElement ? items.indexOf(document.activeElement) : -1, items.length);
-        if (to === null) return;
-        event.preventDefault();
-        items[to]?.focus();
       }}
     >
       <Button
@@ -125,47 +114,114 @@ export function MenuButton({
         {children}
       </Button>
       {menuOpen && (
-        <FloatingListbox
+        <MenuList
           anchorRef={rootRef}
           listRef={menuRef}
           id={menuId}
-          role="menu"
-          widthFrom="content"
-          aria-label={ariaLabel}
+          ariaLabel={ariaLabel}
+          actions={actions}
+          onClose={closeAndRestore}
           onAnchorHidden={() => setOpen(false)}
-        >
-          {actions.map((action) => (
-            <li key={action.id} role="none">
-              <button
-                type="button"
-                role="menuitem"
-                className="kd-menu__item"
-                /* `aria-disabled`, not `disabled`: a refused item has to stay
-                   reachable, or the reason it carries is unreadable to exactly
-                   the person it is for. A native disabled button takes no
-                   pointer, no hover and no focus — it can only be looked at,
-                   which is why its explanation used to live in a `title` and
-                   go nowhere. */
-                aria-disabled={action.disabled || undefined}
-                onClick={() => {
-                  if (action.disabled) return;
-                  // Focus first, then act: whatever the action opens is free
-                  // to take focus for itself, and nothing follows behind it
-                  // to pull focus back out.
-                  closeAndRestore();
-                  action.onSelect();
-                }}
-              >
-                <span className="kd-menu__label">{action.label}</span>
-                {action.disabled && action.refusal && (
-                  <span className="kd-menu__refusal">{action.refusal}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </FloatingListbox>
+        />
       )}
     </div>
+  );
+}
+
+/**
+ * The list a menu opens — its items, how the keyboard walks them, how a
+ * pick lets go — whatever opened it: a button (`MenuButton`) or a pointer
+ * (`ContextMenu`). One list, so the two kinds of menu cannot drift apart in
+ * how they read or how they are walked.
+ */
+export function MenuList({
+  anchorRef,
+  listRef,
+  id,
+  ariaLabel,
+  actions,
+  onClose,
+  onAnchorHidden,
+}: {
+  anchorRef: RefObject<HTMLElement | null>;
+  listRef: RefObject<HTMLUListElement | null>;
+  id: string;
+  ariaLabel: string;
+  actions: readonly MenuAction[];
+  /** Let go by the user's own doing — a pick, an Escape: the opener puts
+   *  focus back where it started. */
+  onClose(): void;
+  onAnchorHidden?: () => void;
+}) {
+  // A menu is walked by the keyboard: opened, focus is on its first item;
+  // the arrows (and Home / End) move it along, wrapping — the menu pattern
+  // its role announces.
+  useEffect(() => {
+    itemsOf(listRef.current)[0]?.focus();
+  }, [listRef]);
+
+  return (
+    <FloatingListbox
+      anchorRef={anchorRef}
+      listRef={listRef}
+      id={id}
+      role="menu"
+      widthFrom="content"
+      aria-label={ariaLabel}
+      onAnchorHidden={onAnchorHidden}
+      onKeyDown={(event) => {
+        // Local, not a window listener: the menu owns its keys only while
+        // focus is inside it, so modal layers keep their own Esc semantics.
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onClose();
+          return;
+        }
+        const items = itemsOf(listRef.current);
+        const to = menuStep(event.key, document.activeElement instanceof HTMLButtonElement ? items.indexOf(document.activeElement) : -1, items.length);
+        if (to === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        items[to]?.focus();
+      }}
+    >
+      {actions.map((action, at) => (
+        <MenuItem key={action.id} action={action} separated={at > 0 && action.separatorBefore === true} onClose={onClose} />
+      ))}
+    </FloatingListbox>
+  );
+}
+
+function MenuItem({ action, separated, onClose }: { action: MenuAction; separated: boolean; onClose(): void }) {
+  return (
+    <>
+      {separated && <li role="separator" className="kd-menu__separator" />}
+      <li role="none">
+        <button
+          type="button"
+          role="menuitem"
+          className="kd-menu__item"
+          /* `aria-disabled`, not `disabled`: a refused item has to stay
+             reachable, or the reason it carries is unreadable to exactly
+             the person it is for. A native disabled button takes no
+             pointer, no hover and no focus — it can only be looked at,
+             which is why its explanation used to live in a `title` and
+             go nowhere. */
+          aria-disabled={action.disabled || undefined}
+          onClick={() => {
+            if (action.disabled) return;
+            // Focus first, then act: whatever the action opens is free
+            // to take focus for itself, and nothing follows behind it
+            // to pull focus back out.
+            onClose();
+            action.onSelect();
+          }}
+        >
+          <span className="kd-menu__label">{action.label}</span>
+          {action.disabled && action.refusal && <span className="kd-menu__refusal">{action.refusal}</span>}
+        </button>
+      </li>
+    </>
   );
 }
 
