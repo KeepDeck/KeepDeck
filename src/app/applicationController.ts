@@ -267,17 +267,8 @@ export function createApplicationController({
     },
 
     createWorkspace(config) {
-      const result = orchestrator.createWorkspace(config);
-      if (result.ok) {
-        ui?.setCreating(false);
-        return;
-      }
-      ui?.pushAlert(
-        "Workspace creation failed",
-        result.reason === "sequence-exhausted"
-          ? "No numeric workspace ID is available. Remove the workspace with the highest numeric ID and try again."
-          : "The allocated workspace ID is already in use. Please try again.",
-      );
+      orchestrator.createWorkspace(config);
+      ui?.setCreating(false);
     },
 
     dispose() {

@@ -3,7 +3,6 @@ import { type WorkspaceView } from "../domain/deck";
 import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 
-export type { WorkspaceCreationResult } from "./deckActions";
 
 /** An empty view — the defaults for a workspace with no view entry yet. Shared
  * so `viewOf` returns a stable reference for absent workspaces. */

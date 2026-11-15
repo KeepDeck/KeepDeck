@@ -81,9 +81,9 @@ export async function openArtifactFromNotification(
     return { silent: "unresolved" };
   }
   try {
-    // The workspace INSTANCE resolves the lifetime first — the reuseable
-    // ws-N id alone would resolve a deleted+recreated workspace's store
-    // (the wrong generation); every other router case resolves lifetimes
+    // The workspace INSTANCE resolves the lifetime first — the id alone
+    // would resolve a workspace this notification was not raised in (an
+    // older deck's ws-N was a reused slot); every other router case resolves lifetimes
     // via findWorkspaceByRef, and this case owed the same discipline. A
     // stale instance is a silent no-op: the notification outlived its
     // workspace, there is nothing true to open.

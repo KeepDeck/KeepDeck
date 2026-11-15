@@ -13,8 +13,8 @@ export type StatsDimension = "workspace" | "team" | "agent" | "model" | "session
 export function dimensionKey(dimension: StatsDimension, row: UsageRow, teams: TeamHistory = NO_TEAM_HISTORY): string {
   switch (dimension) {
     case "workspace":
-      // By name: a workspace id is a reusable slot, the name is what the
-      // reader recognises.
+      // By name: older rows carry ws-N ids that were reused slots, and the
+      // name is what the reader recognises.
       return row.workspaceName;
     case "team":
       return teamKey(row, teams);

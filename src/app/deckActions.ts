@@ -13,7 +13,7 @@ import {
 } from "../domain/deck";
 import type { JournalRecords } from "../domain/journal";
 import type { DeckStore } from "./deckStore";
-import { mintWorkspaceSeq } from "./ids";
+import { mintWorkspaceId } from "./ids";
 
 /**
  * Every transition the app can ask of the deck, bound to one store.
@@ -30,10 +30,6 @@ import { mintWorkspaceSeq } from "./ids";
  * batching buffer — two sets would silently be two behaviours.
  */
 export type DeckActions = ReturnType<typeof buildDeckActions>;
-
-export type WorkspaceCreationResult =
-  | { ok: true; workspace: Workspace }
-  | { ok: false; reason: "sequence-exhausted" | "duplicate-id" };
 
 /** Journal events carry wall-clock stamps; the reducer stays deterministic by
  * taking them from the action, minted here at the dispatch boundary. */
@@ -68,24 +64,17 @@ function buildDeckActions(store: DeckStore) {
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
     createWorkspace: (workspace: Workspace) =>
       dispatch({ type: "createWorkspace", workspace, at: nowIso() }),
-    /** Build and insert a workspace against the latest deck snapshot.
-     * Allocation and insertion are one synchronous state-owner operation, so
-     * two creates in one React batch cannot observe or append the same id. */
-    createWorkspaceFromSequence: (
-      build: (sequence: number) => Workspace,
-    ): WorkspaceCreationResult => {
-      const sequence = mintWorkspaceSeq(
-        store.getSnapshot().workspaces.map((workspace) => workspace.id),
-      );
-      if (sequence === null) {
-        return { ok: false, reason: "sequence-exhausted" };
-      }
-      const workspace = build(sequence);
+    /** Mint an id, build the workspace with it, and insert it — against
+     * the latest deck snapshot, in one synchronous state-owner operation, so
+     * two creates in one React batch cannot observe or append the same id.
+     * The id is drawn against every id that snapshot holds, so the insert
+     * cannot be refused; one that is anyway is a broken invariant, thrown. */
+    createWorkspaceWithMintedId: (build: (id: string) => Workspace): Workspace => {
       const before = store.getSnapshot();
+      const workspace = build(mintWorkspaceId(new Set(before.workspaces.map((ws) => ws.id))));
       const next = dispatch({ type: "createWorkspace", workspace, at: nowIso() });
-      return next === before
-        ? { ok: false, reason: "duplicate-id" }
-        : { ok: true, workspace };
+      if (next === before) throw new Error(`workspace ${workspace.id} was not inserted`);
+      return workspace;
     },
     addAgentPane: (id: string, pane: Pane) =>
       dispatch({ type: "addAgentPane", id, pane }),

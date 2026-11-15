@@ -11,7 +11,6 @@ import type {
   WorktreeTarget,
 } from "../../domain/deck";
 import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
-import type { WorkspaceCreationResult } from "../deckActions";
 import type { SuspendOutcome } from "../suspendOutcome";
 // From the module, not the barrel: the barrel is mocked below, and these are
 // plain shapes and pure predicates with no cache state to fake.
@@ -523,7 +522,6 @@ export type {
   SpawnConfig,
   SpawnPluginAccess,
   SuspendOutcome,
-  WorkspaceCreationResult,
   RestartOutcome,
   ResumeRequest,
 };

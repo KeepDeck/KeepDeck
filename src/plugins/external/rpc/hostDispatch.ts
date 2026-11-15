@@ -207,7 +207,7 @@ export function createHostDispatch(
   const handlers: Record<string, (args: unknown[]) => unknown> = {
     "workspaces.dir": ([workspace]) => ctx.workspaces.dir(workspaceRef(workspace, "workspaces.dir")),
     // ---- storage: every operation carries the exact serializable lifetime
-    // ref captured by the guest handle, never merely a reusable public id. ----
+    // ref captured by the guest handle, never merely a public id. ----
     "storage.workspace.get": ([workspace, key]) =>
       workspaceStorage(workspace).get(
         str(key, "storage key"),

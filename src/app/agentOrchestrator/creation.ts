@@ -454,27 +454,16 @@ export function createAgentOrchestratorCreation({
    * the directory its team will hold — which is where a worktree create is
    * started now. */
   const createWorkspace: AgentOrchestrator["createWorkspace"] = (config) => {
-    const created = actions.createWorkspaceFromSequence((sequence): Workspace => {
-      const id = `ws-${sequence}`;
+    return actions.createWorkspaceWithMintedId((id): Workspace => ({
+      id,
+      instance: createWorkspaceInstance(),
       // The same derivation an empty rename resets to — one home, so the
       // birth name and the reset name cannot drift apart.
-      const name = config.name.trim() || autoWorkspaceName(id);
-      return {
-        id,
-        instance: createWorkspaceInstance(),
-        name,
-        cwd: config.cwd,
-        worktreeBaseDir: config.worktreeBaseDir,
-        panes: [],
-      };
-    });
-    if (!created.ok) {
-      log.error(
-        "web:orchestrator",
-        `workspace create rejected: ${created.reason}`,
-      );
-    }
-    return created;
+      name: config.name.trim() || autoWorkspaceName(config.cwd),
+      cwd: config.cwd,
+      worktreeBaseDir: config.worktreeBaseDir,
+      panes: [],
+    }));
   };
 
   /** Re-issue a team's FAILED create: the error clears (the card goes back

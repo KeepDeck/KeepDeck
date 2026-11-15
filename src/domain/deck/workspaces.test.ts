@@ -82,18 +82,23 @@ describe("closeWorkspace", () => {
 });
 
 describe("renameWorkspace", () => {
-  it("autoWorkspaceName: one derivation for birth and reset, id fallback outside the scheme", () => {
-    expect(autoWorkspaceName("ws-3")).toBe("workspace-3");
-    // A hand-edited or migrated deck can hold an id outside `ws-N` — the id
-    // itself is the least-wrong name that still identifies the row.
-    expect(autoWorkspaceName("imported-deck")).toBe("imported-deck");
+  it("autoWorkspaceName: the folder's own name, never the id", () => {
+    expect(autoWorkspaceName("/Users/me/Projects/keepdeck")).toBe("keepdeck");
+    expect(autoWorkspaceName("/Users/me/Projects/keepdeck/")).toBe("keepdeck");
+    // A folder that happens to look like an old id still names by folder.
+    expect(autoWorkspaceName("/tmp/ws-7")).toBe("ws-7");
   });
 
-  it("an empty name reverts to the auto name from the workspace's slot", () => {
+  it("autoWorkspaceName: a folder with no name of its own gives \"Workspace\"", () => {
+    expect(autoWorkspaceName("/")).toBe("Workspace");
+    expect(autoWorkspaceName("")).toBe("Workspace");
+  });
+
+  it("an empty name reverts to the auto name from the workspace's folder, not its id", () => {
     // The reset-on-empty contract renamePane already has — a workspace has no
     // render-time fallback, so the revert happens in the domain op itself.
-    const after = renameWorkspace([ws("ws-3", [1])], "ws-3", "   ");
-    expect(after[0].name).toBe("workspace-3");
+    const after = renameWorkspace([{ ...ws("ws-a1b2c3d4", [1]), cwd: "/repo/site" }], "ws-a1b2c3d4", "   ");
+    expect(after[0].name).toBe("site");
   });
 
   it("renames the target workspace only", () => {

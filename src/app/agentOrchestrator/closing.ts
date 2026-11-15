@@ -67,8 +67,8 @@ export interface AgentOrchestratorClosing {
   holdsPath(path: string): boolean;
 }
 
-/** One key per {workspace INSTANCE, team}: a `ws-N` slot is reused, and a
- * capture must never be mistaken for one on the workspace now in its place. */
+/** One key per {workspace INSTANCE, team}: a capture belongs to one run's
+ * hold on a workspace, never to anything that holds its id later. */
 function captureKey(workspace: WorkspaceRef, teamId: string): string {
   return `${workspace.id}#${workspace.instance}/${teamId}`;
 }

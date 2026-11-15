@@ -122,8 +122,8 @@ export const stagedFor = (wsId: string) => ({
 export const stageAnswerFor = (wsId: string) => ({ view: stagedFor(wsId), trims: [] });
 
 /** The deck view over a suite's mutable array, through the PRODUCTION
- * projection — the lifetime match is load-bearing (ids are reusable,
- * instances are not) and a hand-copied one here meant a regression in the
+ * projection — the lifetime match is load-bearing (the instance names one
+ * lifetime) and a hand-copied one here meant a regression in the
  * real closure would have broken nothing that runs.
  *
  * Read through a thunk, never captured: every suite reassigns that array

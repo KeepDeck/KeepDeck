@@ -6,12 +6,12 @@ import type {
   PlacementRefusal,
   SpawnConfig,
   TeamLocation,
+  Workspace,
   WorktreeTarget,
 } from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
 import type { RoleRefusal } from "../../domain/mail";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
-import type { WorkspaceCreationResult } from "../deckActions";
 import type { DeckStore } from "../deckStore";
 import type { PaneSessionState, PaneSpawnSpec } from "../ptyManager";
 import type { SpawnContextSource } from "../spawnContextSource";
@@ -41,7 +41,7 @@ export interface AgentOrchestrator {
    * door; its worktree create starts behind the card. */
   createTeam(request: CreateTeamRequest): CreateTeamOutcome;
   /** Register a workspace and optimistically land its agent panes. */
-  createWorkspace(config: SpawnConfig): WorkspaceCreationResult;
+  createWorkspace(config: SpawnConfig): Workspace;
   /** Re-issue a team's failed worktree create — the card is the team's. */
   retryProvisioning(wsId: string, teamId: string): void;
   /** Stop an agent while preserving its resumable pane. */
@@ -237,8 +237,8 @@ export interface WorktreeTeardown {
 
 /**
  * A confirmed close. Addressed by `WorkspaceRef`, never by id alone: a
- * `ws-N` slot is reused, and a confirmation that outlived its workspace
- * must not touch the one now living in its place.
+ * confirmation that outlived its workspace resolves to nothing, whatever
+ * the deck holds by then.
  *
  * Three verbs, because they end three different things:
  * - `agent` ends ONE agent — its process, its session, its place on its

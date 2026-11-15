@@ -258,8 +258,8 @@ export type WorktreePlantingsFactory = (
  * directories does this workspace claim".
  *
  * Here rather than assembled at the composition root: the LIFETIME match is
- * load-bearing (ids are reusable, instances are not, so a reborn workspace
- * must never be handed the dead one's roots) and it was stated only in a
+ * load-bearing (the instance, not the id, names one lifetime, so a reference
+ * that outlived its workspace is handed no roots) and it was stated only in a
  * closure with no test, while the worktree suites' fake re-implemented it
  * correctly on their own. A regression in the real one would have broken
  * nothing that runs.

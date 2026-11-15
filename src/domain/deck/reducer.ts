@@ -72,12 +72,6 @@ export interface DeckState {
    * transitions that touch panes, so seal-on-close is atomic. Persisted in
    * its own document, never in deck.json. */
   journal: JournalSlice;
-  /** Workspace ids that came from deck.json this run (runtime-only, never
-   * persisted; absent = none restored). Journal hydration keeps a loaded key
-   * ONLY for these: `ws-N` ids are reusable slots, and a workspace CREATED
-   * this run must not adopt a crash-orphaned journal that raced its
-   * `wsDeleted` prune (the guard no-ops before the journal is hydrated). */
-  restoredWorkspaceIds?: ReadonlySet<string>;
   /** Per-workspace view state (maximize, selection, dock open, dock tab), one
    * entry per workspace (absent = all defaults). Replaces the old parallel
    * focusByWs/selectByWs/dockByWs maps: closing a workspace drops ONE entry,
@@ -178,13 +172,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       if (state.workspaces.some((ws) => ws.id === workspace.id)) return state;
       return {
         ...state,
-        // A reused `ws-N` slot must not inherit a crash-orphaned journal key.
-        journal: withJournalEvent(state.journal, {
-          e: "wsDeleted",
-          v: 1,
-          wsId: workspace.id,
-          at: action.at,
-        }),
         workspaces: [...state.workspaces, workspace],
         activeId: workspace.id,
         viewByWs: withDefaultSelection(state.viewByWs, workspace.id, workspace),
@@ -315,16 +302,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         wsId: action.id,
         at: action.at,
       });
-      // Spread, like every other case: this literal once dropped
-      // `restoredWorkspaceIds`, and a close landing before the journal
-      // hydrated then pruned EVERY restored workspace's history as orphaned.
-      // The closed id leaves the restored set too — otherwise recreating
-      // the same ws-N BEFORE the journal hydrates would count as "restored"
-      // and adopt the dead workspace's history.
-      const restoredWorkspaceIds = state.restoredWorkspaceIds?.has(action.id)
-        ? new Set([...state.restoredWorkspaceIds].filter((id) => id !== action.id))
-        : state.restoredWorkspaceIds;
-      return { ...state, workspaces, activeId, viewByWs, journal, restoredWorkspaceIds };
+      return { ...state, workspaces, activeId, viewByWs, journal };
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;
@@ -459,17 +437,9 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       );
     case "hydrate":
       // deck.json knows nothing of the journal — keep the live slice (its
-      // own hydration is the separate `hydrateJournal`, sequenced after) and
-      // remember WHICH ids the restore brought: only those may adopt loaded
-      // journal keys (a this-run workspace reusing a `ws-N` slot must not).
+      // own hydration is the separate `hydrateJournal`, sequenced after).
       return workspaceIdsAreUnique(action.state.workspaces)
-        ? {
-            ...action.state,
-            journal: state.journal,
-            restoredWorkspaceIds: new Set(
-              action.state.workspaces.map((w) => w.id),
-            ),
-          }
+        ? { ...action.state, journal: state.journal }
         : state;
     case "clearPaneIdle":
       // clearPaneIdle returns the same ref for an absent/already-live pane, so
@@ -622,13 +592,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ),
       );
     case "hydrateJournal": {
-      // A loaded key survives only for a workspace that is BOTH live and
-      // restored-from-disk: a this-run creation reusing a `ws-N` id gets a
-      // clean journal, whatever a crashed run left in the file.
-      const restored = state.restoredWorkspaceIds ?? new Set<string>();
-      const keepWsIds = new Set(
-        state.workspaces.map((w) => w.id).filter((id) => restored.has(id)),
-      );
+      // A loaded key survives for a live workspace; one whose workspace is
+      // gone is pruned — history goes with its workspace. No id a workspace
+      // is created with this run can name a loaded key: ids are minted, never
+      // reused.
+      const keepWsIds = new Set(state.workspaces.map((w) => w.id));
       return {
         ...state,
         journal: hydrateJournalSlice(

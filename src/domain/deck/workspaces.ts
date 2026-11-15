@@ -30,8 +30,13 @@ export interface SpawnConfig {
  * swaps which set the grid shows; inactive workspaces keep their panes (and
  * live sessions) mounted. */
 export interface Workspace {
+  /** `ws-` and a random token, minted once and never handed to another
+   * workspace (`mintWorkspaceId`). Older decks hold `ws-N`; those stay
+   * valid. */
   id: string;
-  /** Non-reused runtime identity. `id` is a reusable `ws-N` slot. */
+  /** This run's identity of the workspace — minted at create and at
+   * hydrate, never persisted — what a stale reference held across a close
+   * is checked against. */
   readonly instance: WorkspaceInstance;
   name: string;
   /** Working directory all this workspace's agents run in. */
@@ -80,7 +85,7 @@ export function findWorkspace(
   return workspaces.find((w) => w.id === id);
 }
 
-/** Resolve one exact workspace lifetime, never merely its reusable id. */
+/** Resolve one exact workspace lifetime — id AND this run's instance. */
 export function findWorkspaceByRef(
   workspaces: Workspace[],
   ref: WorkspaceRef,
@@ -244,15 +249,12 @@ export function setWorkspacePluginSlot(
 }
 
 /** The name a workspace is born with when the user leaves the field blank —
- * and the one an empty rename resets to. ONE derivation for both moments:
- * creation and reset used to derive it separately (sequence template vs an
- * id regex), agreeing only because the two templates happened to share a
- * number. An id outside the `ws-N` scheme (a hand-edited or migrated deck)
- * falls back to the id itself — the least-wrong name that still identifies
- * the row. */
-export function autoWorkspaceName(id: string): string {
-  const slot = /^ws-(\d+)$/.exec(id);
-  return slot ? `workspace-${slot[1]}` : id;
+ * and the one an empty rename resets to: ONE derivation for both moments,
+ * from the folder it works in — what the create form suggests too — never
+ * from the id, which is a random token. A folder with no name of its own
+ * (the root) gives "Workspace". */
+export function autoWorkspaceName(cwd: string): string {
+  return baseName(cwd) || "Workspace";
 }
 
 /** Rename one workspace, leaving the rest untouched. An empty name reverts
@@ -266,7 +268,7 @@ export function renameWorkspace(
   name: string,
 ): Workspace[] {
   return workspaces.map((ws) =>
-    ws.id === id ? { ...ws, name: name.trim() || autoWorkspaceName(ws.id) } : ws,
+    ws.id === id ? { ...ws, name: name.trim() || autoWorkspaceName(ws.cwd) } : ws,
   );
 }
 

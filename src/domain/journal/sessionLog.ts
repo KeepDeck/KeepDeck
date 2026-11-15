@@ -257,8 +257,7 @@ export function flushJournalTail(
  * Fold the loaded journal into the slice at boot. Runs AFTER the deck itself
  * hydrated, so `liveWsIds` is authoritative:
  * - a loaded workspace key with no live workspace is pruned (`wsDeleted`
- *   queued — `ws-N` ids are reused slots, so a stale key would leak history
- *   into an unrelated future workspace);
+ *   queued) — a workspace's history goes with it, as a close does;
  * - loaded `live` records demote to `closed` (their processes died with the
  *   previous app run; a revived pane re-binding the same session flips its
  *   record back to live) — each demotion queues its `sealed` event so the

@@ -1,9 +1,11 @@
 /**
  * One workspace lifetime inside the running app.
  *
- * Public `ws-N` ids are reusable slots. This token is deliberately omitted
- * from persistence and never reused, so runtime references can distinguish a
- * deleted workspace from a later workspace occupying the same slot. It is a
+ * A workspace's public id names it for its whole life and is never handed to
+ * another (older decks' `ws-N` included). This token names ONE run's hold on
+ * it: deliberately omitted from persistence and minted again at every
+ * hydrate, so a runtime reference resolves only within the run, and a
+ * reference that outlived a close resolves to nothing. It is a
  * string (rather than a Symbol) because the same lifetime must cross the
  * plugin RPC boundary and serve as a React key.
  */
