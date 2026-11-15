@@ -151,7 +151,7 @@ export function breakdownView(
     };
   };
   const totals = statsTotals(current);
-  const modelNote = dimension === "model" ? perModelNote(input.perModelSince, earliestOccurredAt(current)) : null;
+  const modelNote = dimension === "model" ? perModelNote(input.perModelSince, earliestOccurredAt(current), measure) : null;
   return {
     dimensions: {
       label: "Group by",
@@ -178,16 +178,23 @@ export function breakdownView(
   };
 }
 
+/** What a session books under the model it ran on, by measure. */
+const BOOKED: Record<StatsMeasure, string> = { spend: "cost", tokens: "tokens" };
+
 /** The note under the model groups when the period reaches back past the
  * ledger's switch to booking per model, or null when it does not: rows on
  * either side of it name models differently, so one model can be listed
- * twice. */
-export function perModelNote(perModelSince: number | null, firstOccurredAt: number | null): string | null {
+ * twice. It names what the table counts — cost, or tokens. */
+export function perModelNote(
+  perModelSince: number | null,
+  firstOccurredAt: number | null,
+  measure: StatsMeasure,
+): string | null {
   if (perModelSince === null || firstOccurredAt === null) return null;
   if (firstOccurredAt >= perModelSince) return null;
   return (
     `Since ${formatLocalDay(perModelSince, true)}, an agent that reports each model's own ` +
-    "tokens is listed by model id, and a session's cost under the model it ran on. " +
+    `tokens is listed by model id, and a session's ${BOOKED[measure]} under the model it ran on. ` +
     "Earlier usage keeps the model names shown at the time."
   );
 }

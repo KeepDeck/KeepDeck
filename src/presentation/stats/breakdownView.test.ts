@@ -133,6 +133,9 @@ describe("the Breakdown table", () => {
     const notes = view(rows, { dimension: "model", perModelSince: since }).notes;
     expect(notes[notes.length - 1]).toMatch(/^Since /);
     expect(view(rows, { dimension: "workspace", perModelSince: since }).notes).toHaveLength(1);
+    // The table in tokens says so in its per-model note too.
+    const inTokens = view(rows, { dimension: "model", perModelSince: since, measure: "tokens" }).notes;
+    expect(inTokens[inTokens.length - 1]).toContain("a session's tokens under the model");
   });
 });
 
@@ -141,15 +144,21 @@ describe("perModelNote", () => {
 
   it("speaks only when the period reaches back past the switch, dated on the reader's calendar", () => {
     inZone("Asia/Nicosia", () => {
-      expect(perModelNote(SINCE, SINCE - 1)).toBe(
+      expect(perModelNote(SINCE, SINCE - 1, "spend")).toBe(
         "Since Nov 4, 2026, an agent that reports each model's own tokens is listed by " +
           "model id, and a session's cost under the model it ran on. Earlier usage keeps " +
           "the model names shown at the time.",
       );
     });
-    expect(perModelNote(SINCE, SINCE)).toBeNull();
-    expect(perModelNote(null, SINCE - 1)).toBeNull();
-    expect(perModelNote(SINCE, null)).toBeNull();
+    expect(perModelNote(SINCE, SINCE, "spend")).toBeNull();
+    expect(perModelNote(null, SINCE - 1, "spend")).toBeNull();
+    expect(perModelNote(SINCE, null, "spend")).toBeNull();
+  });
+
+  it("names what the table counts — tokens, never a cost, while it counts tokens", () => {
+    const note = perModelNote(SINCE, SINCE - 1, "tokens");
+    expect(note).toContain("a session's tokens under the model it ran on");
+    expect(note).not.toContain("cost");
   });
 });
 
