@@ -90,13 +90,13 @@ describe("UsagePanel", () => {
         }),
       ),
     );
-    // Exactly one row swaps to the run-out; the 30% twin keeps its reset.
+    // Exactly one row adds the run-out; the 30% twin has its reset alone.
     expect(host.querySelectorAll("small.usage-level--critical")).toHaveLength(1);
     expect(host.textContent).toContain("hits the limit in ~");
     expect(host.textContent).toContain("resets in 1h 40m");
   });
 
-  it("swaps the reset caption for the run-out and draws the sparkline", () => {
+  it("says the run-out ahead of the reset — never instead of it — and draws the sparkline", () => {
     const keys = accountWindowKeys("claude", account.windows);
     const reports = [50.4, 53.3, 56.2, 59.1, 62].map((usedPct, index): WindowReport => ({
       agent: "claude",
@@ -107,10 +107,10 @@ describe("UsagePanel", () => {
     }));
     const host = render(new Map([[present(keys.get(window), "the key for window").key, reports]]));
 
-    // The next relevant event replaces the reset countdown, colored.
-    expect(host.textContent).toContain("hits the limit in ~");
-    expect(host.textContent).not.toContain("resets in");
-    expect(host.querySelector("small.usage-level--warn")).not.toBeNull();
+    // The run-out, coloured, then the reset: how long the wait is after it.
+    const lines = [...host.querySelectorAll(".usage-window__lines small")];
+    expect(lines.map((line) => line.textContent)).toEqual([expect.stringMatching(/^hits the limit in ~/), "resets in 2h 35m"]);
+    expect(lines[0]?.className).toBe("usage-level--warn");
     expect(host.querySelector(".usage-burn--compact")).not.toBeNull();
   });
 

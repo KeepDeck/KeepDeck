@@ -15,7 +15,7 @@ import {
 import {
   accountWindowForecasts,
   burnEdgeLabel,
-  panelWindowCaption,
+  panelWindowLines,
   windowForecast,
   windowVerdict,
   type WindowForecast,
@@ -561,7 +561,7 @@ describe("captions", () => {
     expect(windowVerdict(FIVE_H, reached, NOW)).toEqual({ text: "Limit reached", level: "critical" });
     // The popover joins it into its own sentence — same fact, same phrase,
     // lower case because it continues rather than starts.
-    expect(panelWindowCaption(FIVE_H, reached, NOW)).toEqual({
+    expect(panelWindowLines(FIVE_H, reached, NOW)[0]).toEqual({
       text: "limit reached",
       level: "critical",
     });
@@ -655,14 +655,15 @@ describe("captions", () => {
     expect(windowVerdict({ ...FIVE_H, resetsAt: NOW - MIN }, { kind: "unknown" }, NOW)).toBeNull();
   });
 
-  it("swaps the popover line to the next relevant event", () => {
-    expect(panelWindowCaption(FIVE_H, ok, NOW)).toEqual({
-      text: "resets in 2h 35m",
-      level: null,
-    });
-    const swapped = panelWindowCaption(FIVE_H, out, NOW);
-    expect(swapped.text).toMatch(/^hits the limit in ~/);
-    expect(swapped.level).toBe("warn");
+  it("tells the popover the run-out ahead of the reset, and the reset always", () => {
+    expect(panelWindowLines(FIVE_H, ok, NOW)).toEqual([{ text: "resets in 2h 35m", level: null }]);
+    const lines = panelWindowLines(FIVE_H, out, NOW);
+    expect(lines.map((line) => line.level)).toEqual(["warn", null]);
+    expect(lines[0]?.text).toMatch(/^hits the limit in ~/);
+    // The wait after the run-out stays readable.
+    expect(lines[1]?.text).toBe("resets in 2h 35m");
+    // A window that has reset names no reset.
+    expect(panelWindowLines({ ...FIVE_H, resetsAt: NOW - MIN }, { kind: "unknown" }, NOW)).toEqual([]);
   });
 });
 

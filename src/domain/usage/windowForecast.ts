@@ -474,19 +474,21 @@ export function runOutPhrase(
   return `${verb} the limit in ~${countdown}`;
 }
 
-/** The popover line shows THE next relevant event, always "… in X": the
- * reset caption while the pace survives it, REPLACED by the run-out
- * countdown when it does not. The word swap plus the color IS the verdict. */
-export function panelWindowCaption(
+/** The popover's lines for a window, each "… in X": the run-out first,
+ * coloured, when the pace reaches the limit before the reset — and the
+ * reset always. The run-out used to REPLACE the reset, so the reader saw
+ * when the limit runs out but not how long the wait is after it (user,
+ * 2026-11-15). An expired window has no reset to name, and says nothing. */
+export function panelWindowLines(
   window: UsageWindow,
   forecast: WindowForecast,
   now: number,
-): ForecastCaptionPart {
+): ForecastCaptionPart[] {
+  const lines: ForecastCaptionPart[] = [];
   if (forecast.kind === "out") {
-    return {
-      text: runOutPhrase(forecast.outAt, now, "join"),
-      level: forecast.level,
-    };
+    lines.push({ text: runOutPhrase(forecast.outAt, now, "join"), level: forecast.level });
   }
-  return { text: windowResetCaption(window, now), level: null };
+  const reset = windowResetCaption(window, now);
+  if (reset !== "") lines.push({ text: reset, level: null });
+  return lines;
 }

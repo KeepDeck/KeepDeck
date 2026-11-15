@@ -349,10 +349,23 @@
   font-variant-numeric: tabular-nums;
 }
 
-.usage-window__detail small {
-  display: block;
+/* A window's lines under its bar and percentage — the run-out, coloured by
+   its level, and the reset. Each line wraps only as a whole: a countdown
+   never breaks in two. The grey is the row's, inherited, so a line's level
+   class always wins over it. */
+.usage-window__lines {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 2 / -1;
+  justify-content: flex-end;
+  gap: 0 8px;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
+}
+
+.usage-window__lines small {
+  font-size: var(--kd-font-small);
+  white-space: nowrap;
 }
 
 /* Narrow bar: shed chip detail before the cluster crowds the actions —

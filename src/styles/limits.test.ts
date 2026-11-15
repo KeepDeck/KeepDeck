@@ -8,17 +8,22 @@ import { readStyles } from "./testSupport";
  * longer selector outranks them, and a "Will hit the limit" warning then
  * renders grey (task-717). The neutral grey is the container's, inherited.
  */
-describe("the Limits cards' toned lines", () => {
-  const css = readStyles("stats-providers.css");
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({
-    selector: (selector ?? "").trim(),
-    body: body ?? "",
-  }));
+describe("toned limit lines", () => {
+  const rules = (file: string) =>
+    [...readStyles(file).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({
+      selector: (selector ?? "").trim(),
+      body: body ?? "",
+    }));
+  const outranking = (file: string, owner: RegExp) =>
+    rules(file)
+      .filter((rule) => owner.test(rule.selector) && /(^|[;\s])color\s*:/.test(rule.body))
+      .map((rule) => rule.selector);
 
-  it("set no colour on the small lines a tone class may carry", () => {
-    const outranking = rules.filter(
-      (rule) => /\.stats__(window|provider-head)\b[^,]*\bsmall\b/.test(rule.selector) && /(^|[;\s])color\s*:/.test(rule.body),
-    );
-    expect(outranking.map((rule) => rule.selector)).toEqual([]);
+  it("set no colour on the small lines a tone class may carry — on the Limits cards", () => {
+    expect(outranking("stats-providers.css", /\.stats__(window|provider-head)\b[^,]*\bsmall\b/)).toEqual([]);
+  });
+
+  it("…and in the limits popover", () => {
+    expect(outranking("usage.css", /\.usage-window__(lines|detail)\b[^,]*\bsmall\b/)).toEqual([]);
   });
 });
