@@ -9,7 +9,7 @@ import type {
 } from "../workspaceInstance";
 import { appendPane, paneStopsWithArchive, removePane, type Pane } from "./panes";
 import { teamsOf } from "./teams/collection";
-import { claimPath, normalizePath, teamOccupyingPath } from "./teams/claims";
+import { claimPath, normalizePath, sameDirectory, teamOccupyingPath } from "./teams/claims";
 import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is
@@ -313,19 +313,93 @@ export function worktreeBaseDirOf(raw: string | null): string | null {
   return path === "" ? null : path;
 }
 
-/** Rename one workspace, leaving the rest untouched. An empty name reverts
- * to [`autoWorkspaceName`] — the same reset-on-empty contract `renamePane`
- * has, so the two inline-rename surfaces behave alike ([F11]). A workspace
- * has no render-time fallback the way a pane does, so the revert happens
- * here. */
-export function renameWorkspace(
+/** Whether `path` names a folder from the root rather than from wherever
+ * the app happens to run: `/…`, `C:\…`, or a `\\server\share` path. A
+ * workspace's directory is where its agents start, its repository and its
+ * worktrees' repo — a relative one names a different folder per process. */
+export function isAbsolutePath(path: string): boolean {
+  return /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path);
+}
+
+/** What an edit may change on a workspace. Absent = leave as is. The values
+ * are what someone typed: [`workspaceName`] and [`worktreeBaseDirOf`] decide
+ * what blank means, exactly as at birth. */
+export interface WorkspacePatch {
+  name?: string;
+  cwd?: string;
+  /** `null` or blank = no base folder. */
+  worktreeBaseDir?: string | null;
+}
+
+/** Why an edit was refused — kinds, never words: each surface says them its
+ * own way (a field hint, a command error). */
+export type WorkspaceUpdateRefusal =
+  | { kind: "unknown-workspace" }
+  /** Put away: nothing of it changes until it is restored. */
+  | { kind: "archived" }
+  | { kind: "cwd-not-empty"; teams: number; panes: number }
+  | { kind: "blank-cwd" }
+  | { kind: "relative-cwd" };
+
+export type WorkspaceUpdateResult =
+  | { ok: true; workspaces: Workspace[] }
+  | { ok: false; refusal: WorkspaceUpdateRefusal };
+
+/**
+ * Whether a workspace's working directory is fixed now — THE rule, asked by
+ * the edit that would change it and by every surface that offers to.
+ *
+ * Only an EMPTY workspace may move: a team, and a pane on no team, run in
+ * the root or were planted against its repository (their worktrees are torn
+ * down with git run in `cwd`), so moving it under them would leave their
+ * processes behind and point their cleanup at another repository. Null
+ * when the directory may change; otherwise what holds it.
+ */
+export function cwdLocked(ws: Workspace): { teams: number; panes: number } | null {
+  const teams = teamsOf(ws).length;
+  const panes = ws.panes.length;
+  return teams > 0 || panes > 0 ? { teams, panes } : null;
+}
+
+/**
+ * Edit one workspace lifetime — the ONE transition for its own fields: its
+ * name, its worktree base folder and, while nothing runs there, its working
+ * directory.
+ *
+ * Addressed by the exact lifetime, so an edit begun against a workspace that
+ * was closed meanwhile lands nowhere. An archived workspace is read-only.
+ * Refuses rather than half-applies. A patch that changes nothing returns the
+ * same array, so a surface that writes on every blur causes no transition.
+ */
+export function updateWorkspace(
   workspaces: Workspace[],
-  id: string,
-  name: string,
-): Workspace[] {
-  return workspaces.map((ws) =>
-    ws.id === id ? { ...ws, name: workspaceName(name, ws.cwd) } : ws,
-  );
+  ref: WorkspaceRef,
+  patch: WorkspacePatch,
+): WorkspaceUpdateResult {
+  const ws = findWorkspaceByRef(workspaces, ref);
+  if (!ws) return { ok: false, refusal: { kind: "unknown-workspace" } };
+  if (ws.archived) return { ok: false, refusal: { kind: "archived" } };
+  const next: Workspace = { ...ws };
+  // Trimmed, the way the deck compares every path; the same folder is no move.
+  const cwd = patch.cwd?.trim();
+  if (cwd !== undefined && !sameDirectory(cwd, ws.cwd)) {
+    if (cwd === "") return { ok: false, refusal: { kind: "blank-cwd" } };
+    if (!isAbsolutePath(cwd)) return { ok: false, refusal: { kind: "relative-cwd" } };
+    const held = cwdLocked(ws);
+    if (held) return { ok: false, refusal: { kind: "cwd-not-empty", ...held } };
+    next.cwd = cwd;
+  }
+  // After the move: a blank name is the folder's, and it is the NEW folder.
+  if (patch.name !== undefined) next.name = workspaceName(patch.name, next.cwd);
+  if (patch.worktreeBaseDir !== undefined) {
+    next.worktreeBaseDir = worktreeBaseDirOf(patch.worktreeBaseDir);
+  }
+  const changed =
+    next.name !== ws.name || next.cwd !== ws.cwd || next.worktreeBaseDir !== ws.worktreeBaseDir;
+  return {
+    ok: true,
+    workspaces: changed ? workspaces.map((w) => (w === ws ? next : w)) : workspaces,
+  };
 }
 
 /** Set a pane's manual display name; an empty name clears it, reverting to the

@@ -90,7 +90,7 @@ describe("agent orchestrator —waking across workspace switches", () => {
     await settle();
     // Any notification re-runs the reconcile; the started pane must be left
     // exactly as it is.
-    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-1"), "ws-1"), { name: "renamed" }));
     await settle();
 
     expect(pty.acquired).toHaveLength(1);

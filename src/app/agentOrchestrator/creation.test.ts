@@ -257,7 +257,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     // The auto branch name's workspace half is not on the card: the landing
     // reads it from the workspace the pane lands in, at that moment.
     act(() => deck.hydrate(seed()));
-    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-1"), "ws-1"), { name: "renamed" }));
     await act(async () => {
       agentRun.createPane({
         role: "lead",
@@ -672,7 +672,7 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     // into it (as every intent once carried) would have named the branch
     // after a workspace that no longer exists by that name.
     failedCard({ path: "/repo-wt/x" });
-    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-1"), "ws-1"), { name: "renamed" }));
     act(() => agentRun.retryProvisioning("ws-1", "team-1"));
     expect(provisionedAs).toEqual(["renamed"]);
   });

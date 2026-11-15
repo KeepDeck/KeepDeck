@@ -389,7 +389,7 @@ describe("finishing an archive the last run left undone", () => {
       ),
     );
     await settle();
-    act(() => deck.renameWorkspace("ws-2", "renamed")); // any later reconcile
+    act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-2"), "ws-2"), { name: "renamed" })); // any later reconcile
     await settle();
 
     expect(disarms.asked).toEqual(["ws-1"]);

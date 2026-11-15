@@ -32,6 +32,14 @@ export function normalizePath(path: string): string {
   return stripped === "" ? trimmed : stripped;
 }
 
+/** Whether two paths name the same directory — the deck's key for a
+ * directory, not the raw strings ("/repo/" and "/repo" are one folder).
+ * The ONE comparison for callers holding two paths; a caller testing many
+ * paths against one keeps the normalized key itself. */
+export function sameDirectory(a: string, b: string): boolean {
+  return normalizePath(a) === normalizePath(b);
+}
+
 /** One team's hold on a directory. */
 export interface DirectoryHolder {
   ws: Workspace;

@@ -369,7 +369,7 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
       branch: null,
     });
     pty.acquired = [];
-    act(() => deck.renameWorkspace("ws-2", "two again"));
+    act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-2"), "ws-2"), { name: "two again" }));
     await settle();
     expect(pty.acquired).toEqual([]);
 

@@ -3,6 +3,7 @@ import {
   findTeam,
   findWorkspace,
   paneFrozenTitle,
+  updateWorkspace,
   type ArchiveWarnings,
   type DeckState,
   type Pane,
@@ -10,8 +11,11 @@ import {
   type Team,
   type TeamLocation,
   type Workspace,
+  type WorkspacePatch,
   type WorkspacePlace,
+  type WorkspaceUpdateResult,
 } from "../domain/deck";
+import type { WorkspaceRef } from "../domain/workspaceInstance";
 import type { JournalRecords } from "../domain/journal";
 import type { DeckStore } from "./deckStore";
 import { mintWorkspaceId } from "./ids";
@@ -79,8 +83,15 @@ function buildDeckActions(store: DeckStore) {
     },
     addAgentPane: (id: string, pane: Pane) =>
       dispatch({ type: "addAgentPane", id, pane }),
-    renameWorkspace: (id: string, name: string) =>
-      dispatch({ type: "renameWorkspace", id, name }),
+    /** Edit one workspace lifetime's own fields. The domain answers first,
+     * against the same snapshot the dispatch lands on, so a refusal reaches
+     * the caller as a reason instead of vanishing in a no-op dispatch; on
+     * success the answer is the array the store holds. */
+    updateWorkspace: (ref: WorkspaceRef, patch: WorkspacePatch): WorkspaceUpdateResult => {
+      const verdict = updateWorkspace(store.getSnapshot().workspaces, ref, patch);
+      if (!verdict.ok) return verdict;
+      return { ok: true, workspaces: dispatch({ type: "updateWorkspace", ref, patch }).workspaces };
+    },
     moveWorkspace: (id: string, place: WorkspacePlace) =>
       dispatch({ type: "moveWorkspace", id, place }),
     closeAgent: (wsId: string, paneId: string) =>

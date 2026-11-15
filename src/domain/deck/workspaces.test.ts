@@ -14,7 +14,10 @@ import {
   moveWorkspace,
   parentDir,
   stepPlaces,
-  renameWorkspace,
+  updateWorkspace,
+  cwdLocked,
+  isAbsolutePath,
+  type WorkspaceUpdateResult,
   resolveActiveId,
   archiveWorkspace,
   restoreWorkspace,
@@ -87,7 +90,7 @@ describe("closeWorkspace", () => {
   });
 });
 
-describe("renameWorkspace", () => {
+describe("a workspace's name and folders", () => {
   it("autoWorkspaceName: the folder's own name, never the id", () => {
     expect(autoWorkspaceName("/Users/me/Projects/keepdeck")).toBe("keepdeck");
     expect(autoWorkspaceName("/Users/me/Projects/keepdeck/")).toBe("keepdeck");
@@ -113,18 +116,105 @@ describe("renameWorkspace", () => {
     expect(autoWorkspaceName("")).toBe("Workspace");
   });
 
+});
+
+describe("updateWorkspace", () => {
+  const ok = (result: WorkspaceUpdateResult): Workspace[] => {
+    if (!result.ok) throw new Error(`refused: ${result.refusal.kind}`);
+    return result.workspaces;
+  };
+  const refused = (result: WorkspaceUpdateResult) => (result.ok ? null : result.refusal);
+  const empty = (id: string) => ws(id, []);
+  const withTeam = (id: string): Workspace => ({ ...empty(id), teams: [{ id: "team-1", name: "api" }] });
+
   it("an empty name reverts to the auto name from the workspace's folder, not its id", () => {
-    // The reset-on-empty contract renamePane already has — a workspace has no
-    // render-time fallback, so the revert happens in the domain op itself.
-    const after = renameWorkspace([{ ...ws("ws-a1b2c3d4", [1]), cwd: "/repo/site" }], "ws-a1b2c3d4", "   ");
-    expect(after[0].name).toBe("site");
+    const target = { ...ws("ws-a1b2c3d4", [1]), cwd: "/repo/site" };
+    expect(ok(updateWorkspace([target], target, { name: "   " }))[0].name).toBe("site");
   });
 
-  it("renames the target workspace only", () => {
-    const after = renameWorkspace([ws("a", [1]), ws("b", [2])], "a", "my-api");
-    expect(after[0].name).toBe("my-api");
-    expect(after[0].panes).toHaveLength(1); // panes untouched
-    expect(after[1].name).toBe("b");
+  it("an emptied name in the same edit as a move is the NEW folder's name", () => {
+    const a = { ...empty("a"), name: "old" };
+    expect(ok(updateWorkspace([a], a, { name: "", cwd: "/Users/me/kernel" }))[0]).toMatchObject({
+      name: "kernel",
+      cwd: "/Users/me/kernel",
+    });
+  });
+
+  it("edits the target workspace only, and only the fields the patch names", () => {
+    const [a, b] = [ws("a", [1]), ws("b", [2])];
+    const after = ok(updateWorkspace([a, b], a, { name: "my-api" }));
+    expect(after[0]).toEqual({ ...a, name: "my-api" });
+    expect(after[1]).toBe(b);
+  });
+
+  it("sets and clears the worktree base folder with the birth rule", () => {
+    const a = empty("a");
+    const set = ok(updateWorkspace([a], a, { worktreeBaseDir: "/wt" }));
+    expect(set[0].worktreeBaseDir).toBe("/wt");
+    expect(ok(updateWorkspace(set, a, { worktreeBaseDir: "  " }))[0].worktreeBaseDir).toBeNull();
+    expect(ok(updateWorkspace(set, a, { worktreeBaseDir: null }))[0].worktreeBaseDir).toBeNull();
+  });
+
+  it("moves the working directory of an empty workspace, taken trimmed", () => {
+    const a = empty("a");
+    expect(ok(updateWorkspace([a], a, { cwd: " /moved " }))[0].cwd).toBe("/moved");
+  });
+
+  it("refuses to move the working directory under a team, or under a pane on no team", () => {
+    const teamed = withTeam("a");
+    expect(refused(updateWorkspace([teamed], teamed, { cwd: "/elsewhere" }))).toEqual({
+      kind: "cwd-not-empty",
+      teams: 1,
+      panes: 0,
+    });
+    const legacy = ws("b", [1]);
+    expect(refused(updateWorkspace([legacy], legacy, { cwd: "/elsewhere" }))).toEqual({
+      kind: "cwd-not-empty",
+      teams: 0,
+      panes: 1,
+    });
+  });
+
+  it("refuses a blank or relative working directory", () => {
+    const a = empty("a");
+    expect(refused(updateWorkspace([a], a, { cwd: "  " }))).toEqual({ kind: "blank-cwd" });
+    expect(refused(updateWorkspace([a], a, { cwd: "repo" }))).toEqual({ kind: "relative-cwd" });
+    expect(isAbsolutePath("C:\\repo")).toBe(true);
+    expect(isAbsolutePath("\\\\server\\share")).toBe(true);
+  });
+
+  it("the same folder spelled otherwise is no move — not even for a workspace with teams", () => {
+    const teamed = withTeam("b");
+    const list = [teamed];
+    expect(ok(updateWorkspace(list, teamed, { cwd: `${teamed.cwd}/` }))).toBe(list);
+  });
+
+  it("refuses the whole patch, not part of it", () => {
+    const teamed = withTeam("a");
+    expect(updateWorkspace([teamed], teamed, { name: "x", cwd: "/elsewhere" }).ok).toBe(false);
+  });
+
+  it("lands on the exact lifetime it was asked for, or nowhere", () => {
+    const gone = empty("ws-1");
+    const successor = empty("ws-1");
+    expect(refused(updateWorkspace([successor], gone, { name: "x" }))).toEqual({ kind: "unknown-workspace" });
+  });
+
+  it("refuses to edit an archived workspace — nothing of it changes until it is restored", () => {
+    const put: Workspace = { ...empty("a"), archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } };
+    expect(refused(updateWorkspace([put], put, { name: "x" }))).toEqual({ kind: "archived" });
+  });
+
+  it("answers the same array when nothing changes", () => {
+    const teamed = withTeam("a");
+    const list = [teamed];
+    expect(ok(updateWorkspace(list, teamed, { name: "a", cwd: teamed.cwd }))).toBe(list);
+  });
+
+  it("cwdLocked: what holds the directory, or null when nothing does", () => {
+    expect(cwdLocked(empty("a"))).toBeNull();
+    expect(cwdLocked(withTeam("a"))).toEqual({ teams: 1, panes: 0 });
+    expect(cwdLocked(ws("a", [1, 2]))).toEqual({ teams: 0, panes: 2 });
   });
 });
 

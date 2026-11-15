@@ -439,7 +439,10 @@ export function useAppController(runtime: AppRuntime) {
   const shownWs = strip.active;
   const workspaceCrumb: WorkspaceCrumbView | null = shownWs && {
     view: shownWs,
-    onRename: (name: string) => deck.renameWorkspace(shownWs.id, name),
+    onRename: (name: string) => {
+      const ws = findWorkspace(deck.workspaces, shownWs.id);
+      if (ws) deck.updateWorkspace({ id: ws.id, instance: ws.instance }, { name });
+    },
     onMove: (place: WorkspacePlace) => deck.moveWorkspace(shownWs.id, place),
     onArchive: () => archiveFlow.request(shownWs.id),
     onClose: () => closeFlow.requestCloseWorkspace(shownWs.id),

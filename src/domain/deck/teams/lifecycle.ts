@@ -147,7 +147,7 @@ export function setTeamProvisioningError(
 }
 
 /** Rename a team. Panes are not touched — they hold the id. An empty name
- * reverts to [`autoTeamName`], the reset-on-empty contract `renameWorkspace`
+ * reverts to [`autoTeamName`], the reset-on-empty contract `workspaceName`
  * has; a name another team holds is refused with the SAME array. */
 export function renameTeam(
   workspaces: Workspace[],

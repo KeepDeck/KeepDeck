@@ -13,7 +13,7 @@
 // the loop.
 import type { Pane } from "./panes/model";
 import { teamOfPane, teamsOf } from "./teams/collection";
-import { normalizePath } from "./teams/claims";
+import { sameDirectory } from "./teams/claims";
 import type { TeamLocation, TeamProvisioning } from "./teams/model";
 import type { Workspace } from "./workspaces";
 
@@ -89,7 +89,7 @@ export function paneWorktree(
 ): { cwd: string; branch?: string } | null {
   const location = panePlacement(ws, pane);
   if (location.kind !== "attached") return null;
-  if (normalizePath(location.cwd) === normalizePath(ws.cwd)) return null;
+  if (sameDirectory(location.cwd, ws.cwd)) return null;
   return location.branch !== undefined
     ? { cwd: location.cwd, branch: location.branch }
     : { cwd: location.cwd };

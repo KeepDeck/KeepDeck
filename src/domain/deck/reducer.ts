@@ -15,7 +15,7 @@ import {
   findWorkspace,
   closeWorkspace,
   moveWorkspace,
-  renameWorkspace,
+  updateWorkspace,
   resolveActiveId,
   restoreWorkspace,
   setWorkspacePluginSlot,
@@ -217,11 +217,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       }
       return { ...state, workspaces, viewByWs, journal };
     }
-    case "renameWorkspace":
-      return {
-        ...state,
-        workspaces: renameWorkspace(state.workspaces, action.id, action.name),
-      };
+    case "updateWorkspace": {
+      // A refused edit changes nothing: the caller learns why from the same
+      // domain answer before it dispatches (deckActions).
+      const result = updateWorkspace(state.workspaces, action.ref, action.patch);
+      return result.ok ? withWorkspaces(state, result.workspaces) : state;
+    }
     case "moveWorkspace":
       // moveWorkspace returns the same ref on a no-op move → skip the re-render.
       return withWorkspaces(
