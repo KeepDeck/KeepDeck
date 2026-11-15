@@ -22,6 +22,8 @@ import { present } from "@keepdeck/plugin-api/testing";
  * it means instead of arranging one. */
 
 const NOW = TEST_NOW;
+/** A mark for codex alone: the others have none and fall back to a prompt. */
+const ICONS = new Map([["codex", { viewBox: "0 0 10 10", paths: [{ d: "M0 0h10v10H0z" }] }]]);
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
@@ -65,7 +67,7 @@ describe("Providers", () => {
   }) {
     act(() =>
       root.render(
-        createElement(Providers, { accounts, ledger: ledgerOf(events), colors: new Map(), reportsByKey, now }),
+        createElement(Providers, { accounts, ledger: ledgerOf(events), colors: new Map(), agentIcons: ICONS, reportsByKey, now }),
       ),
     );
   }
@@ -97,8 +99,11 @@ describe("Providers", () => {
     const cards = host.querySelectorAll(".stats__provider");
     expect(cards).toHaveLength(1);
     const card = present(cards[0], "the codex card");
-    // The name and the report age once, in the head.
+    // The name and the report age once, in the head — named by the agent's
+    // own mark, as the deck names it, not by a dot of its line's colour.
     expect(card.querySelector(".stats__provider-head")?.textContent).toBe("codexUpdated 1m ago");
+    expect(card.querySelector(".stats__provider-head svg path")?.getAttribute("d")).toBe("M0 0h10v10H0z");
+    expect(card.querySelector(".stats__provider-head i")).toBeNull();
     // The fuller week first, then the 5h window — each a tile and a chart.
     const rows = [...card.querySelectorAll(".stats__provider-row")];
     expect(rows.map((row) => row.querySelector(".stats__window-label")?.textContent)).toEqual(["week", "5h"]);

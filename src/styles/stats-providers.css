@@ -32,10 +32,10 @@
   font-weight: 600;
 }
 
-.stats__provider-head b i {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--kd-radius-mark);
+.stats__provider-head b svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 
 /* A live window: its tile beside its own chart. Windows follow one

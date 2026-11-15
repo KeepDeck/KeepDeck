@@ -59,6 +59,7 @@ describe("Overview", () => {
           measure,
           now: NOW,
           colors: new Map(),
+          agentIcons: new Map(),
           accounts,
           reportsByKey: new Map(),
           onOpenLimits,
@@ -159,6 +160,9 @@ describe("Overview", () => {
     const kimiLines = [...(kimi?.querySelectorAll(".stats__glance-window") ?? [])];
     expect(kimiLines[1]?.classList.contains("stats__glance-window--expired")).toBe(true);
     expect(kimiLines[1]?.querySelector(".stats__glance-agent--age")?.textContent).toBe("4d ago");
+    // Each provider is named by its agent's mark — here the fallback prompt, no mark being known.
+    expect(kimi?.querySelector(".stats__glance-agent svg")).not.toBeNull();
+    expect(kimi?.querySelector(".stats__glance-agent i")).toBeNull();
     expect(host.textContent).not.toContain("Updated");
   });
 

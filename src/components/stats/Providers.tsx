@@ -1,8 +1,10 @@
 import { useMemo } from "react";
+import type { AgentIcon } from "../../domain/agents/agents";
 import type { AccountUsage } from "../../domain/usage";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { accountLimitsView, type ProviderCardView, type ProviderWindowView } from "../../presentation/stats/providersView";
+import { AgentGlyph } from "../../ui/AgentGlyph";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { LimitsWindowChart } from "./LimitsWindowChart";
 
@@ -16,6 +18,7 @@ export function Providers({
   accounts,
   ledger,
   colors,
+  agentIcons,
   reportsByKey,
   now,
 }: {
@@ -24,6 +27,8 @@ export function Providers({
   ledger: UsageLedger;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
+  /** Each agent's mark, by agent id — a provider is named by its icon. */
+  agentIcons: ReadonlyMap<string, AgentIcon | null>;
   /** The provider-report journal — the forecast's pace. */
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
@@ -44,7 +49,7 @@ export function Providers({
     <section className="stats__section" aria-label={view.title}>
       <div className="stats__providers">
         {view.cards.map((card) => (
-          <ProviderCard key={card.agent} card={card} now={now} />
+          <ProviderCard key={card.agent} card={card} icon={agentIcons.get(card.agent) ?? null} now={now} />
         ))}
       </div>
       {view.note && <p className="stats__coverage">{view.note}</p>}
@@ -52,12 +57,12 @@ export function Providers({
   );
 }
 
-function ProviderCard({ card, now }: { card: ProviderCardView; now: number }) {
+function ProviderCard({ card, icon, now }: { card: ProviderCardView; icon: AgentIcon | null; now: number }) {
   return (
     <article className="stats__provider" aria-label={card.agent}>
       <header className="stats__provider-head">
         <b>
-          <i style={{ background: card.color }} />
+          <AgentGlyph icon={icon} />
           {card.agent}
         </b>
         <small className={card.updated.className}>{card.updated.text}</small>
