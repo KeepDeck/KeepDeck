@@ -103,6 +103,9 @@ describe("the Limits chart", () => {
     // A 5h window ending with the week: its name goes before the slice, not past the edge.
     const late = present(chart({ windows: [{ ...FIVE_H, resetsAt: WEEK_RESET }, WEEK] }), "a chart");
     expect(late.slices[0]?.side).toBe("before");
+    // A five-day window that began with the week: no room after or before — inside, from its start.
+    const fiveDays: UsageWindow = { usedPct: 9, resetsAt: WEEK_RESET - 2 * DAY, windowMinutes: 5 * 24 * 60 };
+    expect(present(chart({ windows: [fiveDays, WEEK] }), "a chart").slices[0]).toMatchObject({ x0: 0, side: "inside" });
     // An earlier window the journal holds only the start of: its name follows its line's end.
     const previousReset = WEEK_RESET - 7 * DAY;
     const journal: WindowReport[] = [

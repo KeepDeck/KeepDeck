@@ -83,10 +83,12 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
           {view.bars.map((bar) => (
             <i
               key={bar.key}
-              className={bar.unpriced === "all" ? "stats__limits-bar--unpriced" : undefined}
+              className={bar.unpriced === "none" ? undefined : `stats__limits-bar--${bar.unpriced === "all" ? "unpriced" : "part"}`}
               title={bar.title}
               style={{ left: at(bar.x0), width: at(bar.x1 - bar.x0), height: at(bar.height) }}
-            />
+            >
+              {bar.unpriced === "part" && <b>+</b>}
+            </i>
           ))}
         </div>
         <div className="stats__limits-ticks">

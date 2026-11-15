@@ -211,6 +211,16 @@ describe("Providers", () => {
     expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/a hollow one has none priced\.$/);
   });
 
+  it("marks a day whose money leaves some usage out with a visible “+”, not only in its title", () => {
+    render({
+      accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
+      events: [usageEvent({ occurredAt: NOW - HOUR, costUsd: 1 }), usageEvent({ occurredAt: NOW - HOUR, sessionId: "s2", costUsd: undefined })],
+    });
+    const part = present(host.querySelector(".stats__limits-bar--part"), "the partly priced bar");
+    expect(part.textContent).toBe("+");
+    expect(part.getAttribute("title")).toMatch(/\+$/);
+  });
+
   it("says how the tab fills before any CLI reports its limits", () => {
     render({ accounts: new Map() });
     expect(host.textContent).toBe("No provider reports yet. Windows appear once a CLI reports its account limits.");

@@ -54,8 +54,9 @@ export interface LimitsChartView {
     end: (ChartPoint & { below: boolean; side: "after" | "before" }) | null;
   }[];
   /** The provider's shorter windows running now, where they sit; the name
-   * goes after the slice, or before it when after would leave the plot. */
-  slices: { key: string; x0: number; x1: number; label: string; side: "after" | "before" }[];
+   * goes after the slice where there is room, else before it, else inside
+   * it from its start — never past an edge of the plot. */
+  slices: { key: string; x0: number; x1: number; label: string; side: "after" | "before" | "inside" }[];
   /** This machine's usage per step, the busiest step full height. In money,
    * `unpriced` says how much of a step no price covers: "all" draws a
    * hollow bar — usage, but no amount — never a missing one. */
@@ -120,7 +121,7 @@ export function limitsChartView(
             x0: x(other.span.from),
             x1: x(other.span.to),
             label: `${windowLabel(other.window, "long")} window · ${formatStep(other.span.from, "hour")}–${formatStep(other.span.to, "hour")}`,
-            side: x(other.span.to) > 0.6 ? "before" : "after",
+            side: sliceSide(x(other.span.from), x(other.span.to)),
           }],
     ),
     bars: usage.flatMap((step) => {
@@ -140,6 +141,15 @@ export function limitsChartView(
     }),
     summary: `${main.agent} ${label}: ${formatPct(main.window.usedPct, "used")} used, ${formatStep(span.from, "hour", "long")} to ${formatStep(span.to, "hour", "long")}`,
   };
+}
+
+/** Room a name needs beside a slice, as a share of the plot. */
+const NAME_ROOM = 0.4;
+
+function sliceSide(x0: number, x1: number): "after" | "before" | "inside" {
+  if (1 - x1 >= NAME_ROOM) return "after";
+  if (x0 >= NAME_ROOM) return "before";
+  return "inside";
 }
 
 /** The day (or hour) boundaries strictly inside the span. */

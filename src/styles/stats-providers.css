@@ -267,6 +267,10 @@
   transform: translateX(-100%);
 }
 
+.stats__limits-note--inside {
+  padding-left: 4px;
+}
+
 .stats__limits-earlier-label--before {
   transform: translate(calc(-100% - 4px), calc(-100% - 2px));
 }
@@ -315,11 +319,25 @@
   opacity: 0.5;
 }
 
-/* Usage no price covers: a hollow bar, never a missing one. */
+/* Usage no price covers: a hollow bar, never a missing one; a bar whose
+   money leaves some out carries a "+" over it, as every partial sum does. */
 .stats__limits-bars i.stats__limits-bar--unpriced {
   min-height: 6px;
   border: 1px dashed var(--stats-series);
   background: transparent;
+}
+
+.stats__limits-bars i.stats__limits-bar--part {
+  min-height: 2px;
+}
+
+.stats__limits-bars i b {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  color: var(--kd-text-2);
+  font-weight: 600;
+  transform: translateX(-50%);
 }
 
 .stats__limits-ticks {
