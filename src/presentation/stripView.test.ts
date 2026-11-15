@@ -89,6 +89,16 @@ describe("stripView active workspace", () => {
     expect(stripView([], frames({}), "", {}).active).toBeNull();
   });
 
+  it("gives every mark its own places, for its right-click menu", () => {
+    const deck = [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE, workspace("ws-e", [])];
+    const { marks } = stripView(deck, frames({}), "ws-a", {});
+    expect(marks.map((mark) => [mark.id, mark.moveUp, mark.moveDown])).toEqual([
+      ["ws-a", null, { after: "ws-b" }],
+      ["ws-b", { before: "ws-a" }, { after: "ws-e" }],
+      ["ws-e", { before: "ws-b" }, null],
+    ]);
+  });
+
   it("draws no mark for an archived workspace, and moves among the marks there are", () => {
     const put = (ws: Workspace): Workspace => ({ ...ws, archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } });
     const deck = [workspace("ws-a", []), put(workspace("ws-x", [])), workspace("ws-b", []), put(workspace("ws-y", []))];

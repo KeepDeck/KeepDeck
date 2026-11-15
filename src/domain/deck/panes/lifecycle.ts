@@ -60,23 +60,34 @@ export function paneCanSuspend(ws: PlacementOwner, pane: Pane, blocked: boolean)
 export type PaneSuspendBlock = "stopped" | "provisioning" | "remote";
 
 /**
- * Whether putting its workspace away marks this pane suspended — the
- * archive's own rule, not a suspend's: a suspend refuses a pane that is
- * already down, and an archive must leave EVERY local pane down durably,
- * because restoring wakes nobody. A pane parked by the launch policy, or
- * never started in a workspace nobody opened, has no durable marker; without
- * one it would rise on its own after a restart and a restore.
+ * What putting its workspace away does to a pane — the archive's own rule,
+ * not a suspend's: a suspend refuses a pane that is already down, and an
+ * archive leaves EVERY local agent down durably, because restoring wakes
+ * nobody. A pane parked by the launch policy, or never started in a
+ * workspace nobody opened, has no durable marker; without one it would rise
+ * on its own after a restart and a restore.
  *
- * Not marked: a pane already suspended (its date is the person's); a remote
- * one (its agent is the server's — the archive ends only its thin client,
- * and suspend is refused for it by design); and one whose team has no
- * directory yet — a create still running is waited for and the pane asked
- * again once it lands, a failed one is a card waiting for Retry.
+ * - `stopped` — a local agent, whatever its process is doing: it is marked
+ *   suspended (one still being created, once its directory lands).
+ * - `already-suspended` — down by the person's own suspend; its date stays.
+ * - `detached` — remote: the agent is the server's; the archive ends only
+ *   its thin client here, and suspend is refused for it by design.
+ * - `untouched` — its team's create failed: a card waiting for Retry, with
+ *   no agent behind it.
  */
+export type PaneArchiveFate = "stopped" | "already-suspended" | "detached" | "untouched";
+
+export function paneArchiveFate(ws: PlacementOwner, pane: Pane): PaneArchiveFate {
+  if (pane.idle?.reason === "suspended") return "already-suspended";
+  if (remoteEndpointOf(pane) !== null) return "detached";
+  const placement = panePlacement(ws, pane);
+  return placement.kind === "provisioning" && createFailed(placement) ? "untouched" : "stopped";
+}
+
+/** Whether the archive marks this pane suspended NOW — a `stopped` pane
+ * whose directory exists; one still being created is marked once it lands. */
 export function paneStopsWithArchive(ws: PlacementOwner, pane: Pane): boolean {
-  if (pane.idle?.reason === "suspended") return false;
-  if (remoteEndpointOf(pane) !== null) return false;
-  return panePlacement(ws, pane).kind !== "provisioning";
+  return paneArchiveFate(ws, pane) === "stopped" && panePlacement(ws, pane).kind !== "provisioning";
 }
 
 /** What a suspend request did. Not a boolean: three surfaces have to explain

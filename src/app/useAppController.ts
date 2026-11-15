@@ -67,6 +67,7 @@ import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 import { pickFolder } from "../ipc/dialogs";
 import { useWelcomeFlow } from "./useWelcomeFlow";
+import { useArchiveFlow } from "./useArchiveFlow";
 import { deckPresence } from "../presentation/deckPresence";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -159,6 +160,14 @@ export function useAppController(runtime: AppRuntime) {
     backgroundCarriers: (entries) =>
       askBackgroundCarriers(runtime.spawnPlugins, entries),
   });
+  const archiveFlow = useArchiveFlow({
+    workspaces: deck.workspaces,
+    archive: orchestrator.archive,
+    onRefused: pushAlert,
+  });
+  /** A rename asked for from a mark's menu, for the crumb to start — the
+   * workspace it names, until the crumb has taken it. */
+  const [renameAsk, setRenameAsk] = useState<string | null>(null);
   const transactions = [
     agentFlow.dialog,
     // The "another team works here — create anyway?" question is a
@@ -166,6 +175,7 @@ export function useAppController(runtime: AppRuntime) {
     // settings layer while it stands.
     agentFlow.sharedAsk,
     closeFlow.closing,
+    archiveFlow.confirming,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
@@ -431,7 +441,10 @@ export function useAppController(runtime: AppRuntime) {
     view: shownWs,
     onRename: (name: string) => deck.renameWorkspace(shownWs.id, name),
     onMove: (place: WorkspacePlace) => deck.moveWorkspace(shownWs.id, place),
+    onArchive: () => archiveFlow.request(shownWs.id),
     onClose: () => closeFlow.requestCloseWorkspace(shownWs.id),
+    renameAsked: renameAsk === shownWs.id,
+    onRenameAsked: () => setRenameAsk(null),
     // Inside a team the name is the way back up to the cards.
     onUp: openTeam ? () => deck.closeTeam(shownWs.id) : null,
   };
@@ -471,6 +484,17 @@ export function useAppController(runtime: AppRuntime) {
     barLevel,
     canOpenDialog,
     closeFlow,
+    archiveFlow,
+    /** A mark's right-click menu: the crumb's acts, for any workspace in
+     * the strip — a rename goes to the crumb, where the name is. */
+    markActs: {
+      rename: (wsId: string) => {
+        deck.selectWorkspace(wsId);
+        setRenameAsk(wsId);
+      },
+      archive: archiveFlow.request,
+      close: closeFlow.requestCloseWorkspace,
+    },
     deck,
     dismissAlert,
     dockMode,

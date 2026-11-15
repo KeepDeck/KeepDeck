@@ -66,6 +66,8 @@ function App({ runtime }: { runtime: AppRuntime }) {
     canOpenDialog,
     canCloseDialog,
     closeFlow,
+    archiveFlow,
+    markActs,
     deck,
     dismissAlert,
     dockMode,
@@ -147,6 +149,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
         onEnterTeam={handleEnterTeam}
         onAdd={newWorkspace}
         onReorder={deck.moveWorkspace}
+        markActs={markActs}
         version={info?.version ?? null}
       />
       <div className="deck__main">
@@ -399,6 +402,18 @@ function App({ runtime }: { runtime: AppRuntime }) {
               onFocus={focusTask}
               onClose={closeTasks}
               canClose={canCloseDialog}
+            />
+          )}
+          {archiveFlow.confirming && (
+            // Reversible, so not styled as a destructive act — and Enter
+            // means what the button says.
+            <ConfirmDialog
+              title={archiveFlow.confirming.title}
+              message={archiveFlow.confirming.message}
+              confirmLabel={archiveFlow.confirming.confirmLabel}
+              cancelLabel={archiveFlow.confirming.cancelLabel}
+              onConfirm={archiveFlow.confirm}
+              onCancel={archiveFlow.cancel}
             />
           )}
           {closeFlow.closing && (

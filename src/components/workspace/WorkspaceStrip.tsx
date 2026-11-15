@@ -17,6 +17,9 @@ import { useStripReveal } from "./useStripReveal";
 import { stripTeamsId, useStripTeams } from "./useStripTeams";
 import { STRIP_MOTION_MS } from "../../ui/stripTeamsMotion";
 import { useKeepActiveInView } from "./useKeepActiveInView";
+import { ContextMenu } from "../../ui/contextMenu";
+import { WORKSPACE_WORDS, workspaceMenuView } from "../../presentation/workspaceCrumbView";
+import { workspaceMenuActions } from "./workspaceMenuActions";
 
 interface WorkspaceStripProps {
   view: StripView;
@@ -25,8 +28,16 @@ interface WorkspaceStripProps {
    * strip. */
   onEnterTeam(wsId: string, teamId: string): void;
   onAdd(): void;
-  /** Move workspace `id` to `place` (long-press drag reorder). */
+  /** Move workspace `id` to `place` (long-press drag reorder, or a mark's
+   * menu). */
   onReorder(id: string, place: WorkspacePlace): void;
+  /** What a mark's right-click menu does — the crumb's acts, for the
+   * workspace whose mark it is. */
+  markActs: {
+    rename(wsId: string): void;
+    archive(wsId: string): void;
+    close(wsId: string): void;
+  };
   /** The running build, or null until `app_info` answers. At the strip's
    * foot: read a few times a year, when a report needs writing — on screen,
    * and out of the way. */
@@ -76,9 +87,12 @@ export function WorkspaceStrip({
   onEnterTeam,
   onAdd,
   onReorder,
+  markActs,
   version,
 }: WorkspaceStripProps) {
   const [ghost, setGhost] = useState<DragGhost | null>(null);
+  /** The mark whose right-click menu is open, and where the pointer was. */
+  const [markMenu, setMarkMenu] = useState<{ mark: WorkspaceMark; at: { x: number; y: number } } | null>(null);
   const colRef = useRef<HTMLDivElement>(null);
   const reveal = useStripReveal(colRef, ghost !== null);
 
@@ -226,6 +240,10 @@ export function WorkspaceStrip({
                     className={`strip__mark${mark.active ? " strip__mark--active" : ""}`}
                     onClick={() => onSelect(mark.id)}
                     onPointerDown={(e) => onMarkPointerDown(e, mark)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setMarkMenu({ mark, at: { x: e.clientX, y: e.clientY } });
+                    }}
                     aria-current={mark.active || undefined}
                     aria-label={mark.label}
                     title={mark.label}
@@ -284,6 +302,20 @@ export function WorkspaceStrip({
           </footer>
         )}
       </div>
+
+      {markMenu && (
+        <ContextMenu
+          at={markMenu.at}
+          ariaLabel={WORKSPACE_WORDS.markMenu(markMenu.mark.name)}
+          actions={workspaceMenuActions(workspaceMenuView(markMenu.mark, "mark"), {
+            rename: () => markActs.rename(markMenu.mark.id),
+            move: (place) => onReorder(markMenu.mark.id, place),
+            archive: () => markActs.archive(markMenu.mark.id),
+            close: () => markActs.close(markMenu.mark.id),
+          })}
+          onClose={() => setMarkMenu(null)}
+        />
+      )}
 
       {ghost &&
         createPortal(

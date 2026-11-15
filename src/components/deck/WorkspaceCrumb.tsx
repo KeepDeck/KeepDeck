@@ -1,4 +1,5 @@
-import { MenuButton, type MenuAction } from "../../ui/MenuButton";
+import { useEffect, useRef } from "react";
+import { MenuButton } from "../../ui/MenuButton";
 import { RenameInput } from "../../ui/RenameInput";
 import { useInlineRename } from "../../ui/useInlineRename";
 import {
@@ -6,36 +7,46 @@ import {
   workspaceMenuView,
   type WorkspaceCrumbView,
 } from "../../presentation/workspaceCrumbView";
+import { workspaceMenuActions } from "../workspace/workspaceMenuActions";
 
 
 /**
  * The first crumb of the bar: the workspace on screen — the strip's marks
  * say only its initials — and the one menu that acts on it: rename, move
  * up or down the column (the keyboard's way to do what dragging a mark
- * does), close. Inside a team the name is also the way back up to the
- * workspace's team cards, as a breadcrumb's parent is.
+ * does), archive, close. Inside a team the name is also the way back up to
+ * the workspace's team cards, as a breadcrumb's parent is.
  */
 export function WorkspaceCrumb({
   view: workspace,
   onRename,
   onMove,
+  onArchive,
   onClose,
   onUp,
+  renameAsked,
+  onRenameAsked,
 }: WorkspaceCrumbView) {
   const rename = useInlineRename((_key, name) => onRename(name));
   const { name } = workspace;
-  // Each described line → the callback it owns. A refused move is never
-  // selected (the menu disables it), so it has nowhere to go.
-  const actions: MenuAction[] = workspaceMenuView(workspace).map((item) => ({
-    id: item.id,
-    label: item.label,
-    disabled: item.disabled,
-    onSelect: () => {
-      if (item.kind === "rename") rename.start(workspace.id, name);
-      else if (item.kind === "close") onClose();
-      else if (item.place !== null) onMove(item.place);
-    },
-  }));
+  // A rename asked for from a mark's menu lands here, where the name is —
+  // once per ask: on the ask arriving, never again while it stands (that
+  // would reset what is being typed), and the ask is taken back.
+  const { start } = rename;
+  const askSeen = useRef(false);
+  useEffect(() => {
+    if (renameAsked && !askSeen.current) {
+      start(workspace.id, name);
+      onRenameAsked();
+    }
+    askSeen.current = renameAsked;
+  }, [renameAsked, start, workspace.id, name, onRenameAsked]);
+  const actions = workspaceMenuActions(workspaceMenuView(workspace, "crumb"), {
+    rename: () => rename.start(workspace.id, name),
+    move: onMove,
+    archive: onArchive,
+    close: onClose,
+  });
   return (
     <span className="deck__ws">
       {rename.editing === workspace.id ? (

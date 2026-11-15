@@ -25,7 +25,13 @@ export interface WorkspaceCrumbView {
   onRename(name: string): void;
   /** Move the workspace to `place` in the strip's column. */
   onMove(place: WorkspacePlace): void;
+  /** Ask to put the workspace away — the confirm comes first. */
+  onArchive(): void;
   onClose(): void;
+  /** A rename was asked for from elsewhere — a mark's menu — and the crumb,
+   * where the name is, starts its field and says it has. */
+  renameAsked: boolean;
+  onRenameAsked(): void;
   /** Back up to the team cards — the name is then a link — or null at the
    * cards already. */
   onUp: (() => void) | null;
@@ -37,33 +43,67 @@ export const WORKSPACE_WORDS = {
   rename: "Rename",
   moveUp: "Move up",
   moveDown: "Move down",
+  archive: "Archive…",
   close: "Close workspace",
+  /** A mark's right-click menu, named for its workspace. */
+  markMenu: (name: string) => `Workspace ${name}`,
   renameField: "Workspace name",
   /** The name as a way back from a team to the workspace's team cards. */
   up: (name: string) => `Back to the teams of ${name}`,
 } as const;
 
-/** One line of the workspace's menu, described — the crumb performs it. A
+/** One line of a workspace's menu, described — the surface performs it. A
  * move carries where it goes, or null when that end of the column is
- * already reached and the line is refused. */
-export type WorkspaceMenuItem = { id: string; label: string; disabled: boolean } & (
+ * already reached and the line is refused. `separatorBefore` starts a new
+ * group of acts. */
+export type WorkspaceMenuItem = { id: string; label: string; disabled: boolean; separatorBefore: boolean } & (
   | { kind: "rename" }
   | { kind: "move"; place: WorkspacePlace | null }
+  | { kind: "archive" }
   | { kind: "close" }
 );
 
-/** The workspace menu, in the order it is offered. */
-export function workspaceMenuView(active: ActiveWorkspace): WorkspaceMenuItem[] {
-  return [
-    { id: "rename", kind: "rename", label: WORKSPACE_WORDS.rename, disabled: false },
-    { id: "up", kind: "move", label: WORKSPACE_WORDS.moveUp, place: active.moveUp, disabled: active.moveUp === null },
-    {
-      id: "down",
-      kind: "move",
-      label: WORKSPACE_WORDS.moveDown,
-      place: active.moveDown,
-      disabled: active.moveDown === null,
-    },
-    { id: "close", kind: "close", label: WORKSPACE_WORDS.close, disabled: false },
-  ];
+/** Where a workspace's menu is opened: its mark's right-click, or the
+ * crumb's ⋯ — the same acts either way, arranged for where they are. */
+export type WorkspaceMenuSurface = "mark" | "crumb";
+
+/** The group each surface leads with: a mark is a thing to put away or
+ * keep, the crumb the workspace in front of the person, to name and place. */
+const ORDER: Record<WorkspaceMenuSurface, readonly (readonly WorkspaceMenuItem["kind"][])[]> = {
+  mark: [["archive"], ["rename", "move"], ["close"]],
+  crumb: [["rename", "move"], ["archive"], ["close"]],
+};
+
+/** A workspace's menu — ONE set of lines, the same refusals, in the order
+ * its surface offers them. */
+export function workspaceMenuView(
+  target: Pick<ActiveWorkspace, "moveUp" | "moveDown">,
+  surface: WorkspaceMenuSurface,
+): WorkspaceMenuItem[] {
+  const lines: Record<WorkspaceMenuItem["kind"], WorkspaceMenuItem[]> = {
+    rename: [{ id: "rename", kind: "rename", label: WORKSPACE_WORDS.rename, disabled: false, separatorBefore: false }],
+    move: [
+      {
+        id: "up",
+        kind: "move",
+        label: WORKSPACE_WORDS.moveUp,
+        place: target.moveUp,
+        disabled: target.moveUp === null,
+        separatorBefore: false,
+      },
+      {
+        id: "down",
+        kind: "move",
+        label: WORKSPACE_WORDS.moveDown,
+        place: target.moveDown,
+        disabled: target.moveDown === null,
+        separatorBefore: false,
+      },
+    ],
+    archive: [{ id: "archive", kind: "archive", label: WORKSPACE_WORDS.archive, disabled: false, separatorBefore: false }],
+    close: [{ id: "close", kind: "close", label: WORKSPACE_WORDS.close, disabled: false, separatorBefore: false }],
+  };
+  return ORDER[surface].flatMap((group, g) =>
+    group.flatMap((kind) => lines[kind]).map((line, i) => ({ ...line, separatorBefore: g > 0 && i === 0 })),
+  );
 }

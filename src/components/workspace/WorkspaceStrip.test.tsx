@@ -45,6 +45,8 @@ const mark = (id: string, name: string, extra: Partial<WorkspaceMark> = {}): Wor
   dot: null,
   label: name,
   teams: [],
+  moveUp: null,
+  moveDown: null,
   ...extra,
 });
 
@@ -63,6 +65,7 @@ const callbacks = {
   onEnterTeam: vi.fn(),
   onAdd: vi.fn(),
   onReorder: vi.fn(),
+  markActs: { rename: vi.fn(), archive: vi.fn(), close: vi.fn() },
 };
 
 describe("WorkspaceStrip", () => {
@@ -71,7 +74,7 @@ describe("WorkspaceStrip", () => {
 
   beforeEach(() => {
     os.asks = 0;
-    for (const fn of Object.values(callbacks)) fn.mockClear();
+    for (const fn of [callbacks.onSelect, callbacks.onEnterTeam, callbacks.onAdd, callbacks.onReorder, ...Object.values(callbacks.markActs)]) fn.mockClear();
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
   });
@@ -94,6 +97,36 @@ describe("WorkspaceStrip", () => {
     );
   const byLabel = (label: string) =>
     host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+
+  it("opens a mark's menu on right-click — the crumb's acts, for THAT workspace, archive first", () => {
+    render({
+      view: { ...VIEW, marks: VIEW.marks.map((m) => (m.id === "b" ? { ...m, moveUp: { before: "a" }, moveDown: { after: "c" } } : m)) },
+    });
+    const beta = present(host.querySelector<HTMLElement>("[data-ws-id='b'] .strip__mark"), "Beta's mark");
+    const open = () =>
+      act(() => void beta.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 30, clientY: 80 })));
+    const items = () => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")];
+
+    open();
+    expect(document.querySelector("[role='menu']")?.getAttribute("aria-label")).toBe("Workspace Beta");
+    expect(items().map((item) => item.textContent)).toEqual(["Archive…", "Rename", "Move up", "Move down", "Close workspace"]);
+    act(() => items()[0].click());
+    expect(callbacks.markActs.archive).toHaveBeenCalledWith("b");
+    // Picked: the menu lets go.
+    expect(document.querySelector("[role='menu']")).toBeNull();
+
+    open();
+    act(() => items()[3].click());
+    expect(callbacks.onReorder).toHaveBeenCalledWith("b", { after: "c" });
+    open();
+    act(() => items()[1].click());
+    expect(callbacks.markActs.rename).toHaveBeenCalledWith("b");
+    open();
+    act(() => items()[4].click());
+    expect(callbacks.markActs.close).toHaveBeenCalledWith("b");
+    // A right-click is not a select.
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
+  });
 
   it("draws a mark per workspace, the active one marked, a dot only where it is earned", () => {
     render();
@@ -483,7 +516,7 @@ describe("WorkspaceStrip as the team switcher", () => {
 
   beforeEach(() => {
     os.asks = 0;
-    for (const fn of Object.values(callbacks)) fn.mockClear();
+    for (const fn of [callbacks.onSelect, callbacks.onEnterTeam, callbacks.onAdd, callbacks.onReorder, ...Object.values(callbacks.markActs)]) fn.mockClear();
     vi.useFakeTimers();
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -908,7 +941,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
 
   beforeEach(() => {
     os.asks = 0;
-    for (const fn of Object.values(callbacks)) fn.mockClear();
+    for (const fn of [callbacks.onSelect, callbacks.onEnterTeam, callbacks.onAdd, callbacks.onReorder, ...Object.values(callbacks.markActs)]) fn.mockClear();
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = function () {

@@ -24,6 +24,7 @@ import {
   teamsOf,
   visibleWorkspaces,
   type Workspace,
+  type WorkspacePlace,
   type WorkspaceView,
 } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
@@ -59,6 +60,9 @@ export interface WorkspaceMark {
   label: string;
   /** Its teams in deck order — what the slid-open strip lists under it. */
   teams: readonly StripTeam[];
+  /** Where its menu can move it, as for the active one's crumb. */
+  moveUp: WorkspacePlace | null;
+  moveDown: WorkspacePlace | null;
 }
 
 export interface StripView {
@@ -142,8 +146,8 @@ export function stripView(
       };
     });
     const dot = markDot(teams.map((team) => team.dot), ws.panes.length);
+    const steps = stepPlaces(order, ws.id);
     if (ws.id === activeId) {
-      const steps = stepPlaces(order, ws.id);
       active = { id: ws.id, name: ws.name, moveUp: steps.up, moveDown: steps.down };
     }
     return {
@@ -154,6 +158,8 @@ export function stripView(
       dot,
       label: dot ? `${ws.name} — ${DOT_WORDS[dot]}` : ws.name,
       teams,
+      moveUp: steps.up,
+      moveDown: steps.down,
     };
   });
   return { marks, active };
