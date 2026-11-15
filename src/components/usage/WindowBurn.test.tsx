@@ -51,7 +51,7 @@ describe("WindowBurn", () => {
       root.render(
         createElement(WindowBurn, {
           stroke: "#3987e5",
-          geometry: windowBurn(nextReports, nextWindow, forecast, nextNow, "data"),
+          geometry: windowBurn(nextReports, nextWindow, forecast, nextNow),
           now: nextNow,
         }),
       ),
@@ -137,9 +137,11 @@ describe("WindowBurn", () => {
     const first = document.querySelector("[role='tooltip']")?.textContent;
     act(() => plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
     const moved = present(document.querySelector<HTMLElement>("[role='tooltip']"), "the tooltip");
-    // One step right of the newest reading is the projection.
+    // One step right of the newest reading is the projection — and it is
+    // read aloud, not only drawn.
     expect(moved.dataset.kind).toBe("projected");
     expect(moved.textContent).not.toBe(first);
+    expect(host.querySelector("[role='status']")?.textContent).toMatch(/Projected, \d+% used$/);
     act(() => plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(document.querySelector("[role='tooltip']")).toBeNull();
   });

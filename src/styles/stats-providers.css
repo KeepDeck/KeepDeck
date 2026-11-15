@@ -170,14 +170,17 @@
   gap: 12px;
 }
 
-.stats__limits-plot {
-  position: relative;
-  height: 120px;
+/* The plot and the usage bars under it: one area the pointer and the
+   arrow keys inspect. */
+.stats__limits-inspect {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   cursor: crosshair;
   outline: none;
 }
 
-.stats__limits-plot:focus-visible {
+.stats__limits-inspect:focus-visible {
   outline: 1px solid var(--kd-focus);
   outline-offset: 2px;
   border-radius: var(--kd-radius-mark);
@@ -201,6 +204,11 @@
   border: 1px solid var(--kd-tile);
   box-shadow: 0 0 0 1px var(--kd-seam);
   pointer-events: none;
+}
+
+.stats__limits-plot {
+  position: relative;
+  height: 120px;
 }
 
 .stats__limits-plot svg {

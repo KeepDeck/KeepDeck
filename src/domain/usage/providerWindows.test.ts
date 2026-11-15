@@ -42,7 +42,7 @@ describe("providerWindowRows", () => {
         [event()],
         new Map(),
         NOW,
-              ),
+      ),
     ).toEqual([]);
   });
 

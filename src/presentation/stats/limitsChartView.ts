@@ -1,10 +1,9 @@
 import { formatMoment, formatPct, formatStep, formatTokens, windowLabel } from "../../domain/usage";
 import { windowSteps, type ProviderWindowRow } from "../../domain/usage/providerWindows";
 import { nextStep, stepStart } from "../../domain/usage/stats/fold";
-
 import type { Span } from "../../domain/usage/stats/period";
 import { windowBurn, type BurnGeometry, type BurnPoint } from "../../domain/usage/windowBurn";
-import { burnTooltipView, type BurnInspectionSample, type BurnTooltipView } from "../burnInspection";
+import { burnTooltipView, type BurnInspectionGeometry, type BurnInspectionSample, type BurnTooltipView } from "../burnInspection";
 import { usageLevelClass } from "../usageView";
 
 /**
@@ -41,7 +40,7 @@ export interface LimitsChartView {
    * dashed line stops, named: the limit and when it is reached, or what is
    * left at the reset — the forecast, said on the chart. */
   current: {
-    geometry: BurnGeometry;
+    geometry: BurnInspectionGeometry;
     end: (ChartPoint & { label: string; className?: string; side: "after" | "before"; below: boolean }) | null;
   };
   /** The provider's shorter windows running now, where they sit, and where
@@ -69,7 +68,7 @@ export function limitsChartView(
   const x = (at: number) => clamp01((at - span.from) / length);
   const steps = windowSteps(span);
   const label = windowLabel(main.window, "long");
-  const burn = windowBurn(main.reports, main.window, main.forecast, now, "limit");
+  const burn = windowBurn(main.reports, main.window, main.forecast, now);
   const reading = (at: number, usedPct: number): BurnPoint => ({ x: x(at), y: usedPct / 100, at, usedPct });
   const usage = main.usage ?? [];
   const top = Math.max(0, ...usage.map((step) => step.tokensLessCacheReads));
@@ -87,8 +86,6 @@ export function limitsChartView(
         projected: burn?.projected
           ? [reading(burn.projected[0].at, burn.projected[0].usedPct), reading(burn.projected[1].at, burn.projected[1].usedPct)]
           : null,
-        out: null,
-        endPct: burn?.endPct ?? null,
       },
       end: forecastEnd(main, burn, x, now),
     },
@@ -156,7 +153,9 @@ function sliceLabel(text: string, x0: number, x1: number): LimitsChartView["slic
  * projected and how full, and this machine's usage in the step under it,
  * while there is one (a projected day has none yet). */
 export function limitsTooltipView(view: LimitsChartView, sample: BurnInspectionSample): BurnTooltipView {
-  const bar = view.bars.find((step) => sample.x >= step.x0 && sample.x < step.x1) ?? null;
+  // Steps are half-open, but the reset is the last step's own end: a point
+  // on the plot's right edge belongs to it.
+  const bar = view.bars.find((step) => sample.x >= step.x0 && (sample.x < step.x1 || step.x1 === 1)) ?? null;
   return burnTooltipView(sample, formatStep(Math.round(sample.at), "hour", "long"), bar?.note ?? null);
 }
 

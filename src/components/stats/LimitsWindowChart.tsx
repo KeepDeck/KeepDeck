@@ -1,8 +1,9 @@
 import { useId, useRef, type CSSProperties } from "react";
 import type { BurnPoint } from "../../domain/usage/windowBurn";
+import { burnAnnouncement } from "../../presentation/burnInspection";
 import { limitsTooltipView, type LimitsChartView } from "../../presentation/stats/limitsChartView";
-import type { TooltipAnchorRect } from "../../ui/tooltip/useAnchoredTooltipPosition";
 import { BurnTooltip } from "../usage/windowBurn/BurnTooltip";
+import { InspectionStatus } from "../usage/windowBurn/InspectionStatus";
 import { useBurnInspection } from "../usage/windowBurn/useBurnInspection";
 
 /**
@@ -27,18 +28,11 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
   const last = geometry.observed[geometry.observed.length - 1];
   const plotRef = useRef<HTMLDivElement | null>(null);
   const tooltipId = `stats-limits-tooltip-${useId()}`;
-  const { sample, anchor, handlers } = useBurnInspection(geometry);
-  const getAnchorRect =
-    sample === null
-      ? null
-      : anchor !== null
-        ? (): TooltipAnchorRect => ({ top: anchor.y, bottom: anchor.y, left: anchor.x })
-        : (): TooltipAnchorRect | null => {
-            const rect = plotRef.current?.getBoundingClientRect();
-            if (rect === undefined) return null;
-            const top = rect.top + (1 - sample.usedPct / 100) * rect.height;
-            return { top, bottom: top, left: rect.left + sample.x * rect.width };
-          };
+  const { sample, getAnchorRect, handlers } = useBurnInspection(geometry, {
+    ref: plotRef,
+    depth: (point) => 1 - point.usedPct / 100,
+  });
+  const card = sample === null ? null : limitsTooltipView(view, sample);
   return (
     <figure className="stats__limits-chart" style={{ "--stats-series": color } as CSSProperties}>
       <div className="stats__limits-frame">
@@ -47,73 +41,74 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
           <span>{view.end}</span>
         </div>
         <div
-          ref={plotRef}
-          className="stats__limits-plot"
+          className="stats__limits-inspect"
           role="group"
           aria-label={view.summary}
           aria-describedby={sample ? tooltipId : undefined}
           tabIndex={0}
           {...handlers}
         >
-          <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">
-            {[0, 50, 100].map((level) => (
-              <line key={level} className="stats__limits-level" x1={0} x2={1000} y1={100 - level} y2={100 - level} vectorEffect="non-scaling-stroke" />
-            ))}
-            {view.grid.map((x) => (
-              <line key={x} className="stats__limits-day" x1={x * 1000} x2={x * 1000} y1={0} y2={100} vectorEffect="non-scaling-stroke" />
-            ))}
+          <div ref={plotRef} className="stats__limits-plot">
+            <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">
+              {[0, 50, 100].map((level) => (
+                <line key={level} className="stats__limits-level" x1={0} x2={1000} y1={100 - level} y2={100 - level} vectorEffect="non-scaling-stroke" />
+              ))}
+              {view.grid.map((x) => (
+                <line key={x} className="stats__limits-day" x1={x * 1000} x2={x * 1000} y1={0} y2={100} vectorEffect="non-scaling-stroke" />
+              ))}
+              {view.slices.map((slice) => (
+                <rect key={slice.key} className="stats__limits-slice" x={slice.x0 * 1000} width={(slice.x1 - slice.x0) * 1000} y={0} height={100} />
+              ))}
+              {geometry.projected && (
+                <polyline className="stats__limits-projection" points={polyline(geometry.projected)} vectorEffect="non-scaling-stroke" />
+              )}
+              <polyline className="stats__limits-current" points={polyline(geometry.observed)} vectorEffect="non-scaling-stroke" />
+              <line className="stats__limits-now" x1={view.now.x * 1000} x2={view.now.x * 1000} y1={0} y2={100} vectorEffect="non-scaling-stroke" />
+            </svg>
+            <span className="stats__limits-axis" style={{ top: "0%" }} aria-hidden="true">100%</span>
+            <span className="stats__limits-axis" style={{ top: "50%" }} aria-hidden="true">50%</span>
             {view.slices.map((slice) => (
-              <rect key={slice.key} className="stats__limits-slice" x={slice.x0 * 1000} width={(slice.x1 - slice.x0) * 1000} y={0} height={100} />
-            ))}
-            {geometry.projected && (
-              <polyline className="stats__limits-projection" points={polyline(geometry.projected)} vectorEffect="non-scaling-stroke" />
-            )}
-            <polyline className="stats__limits-current" points={polyline(geometry.observed)} vectorEffect="non-scaling-stroke" />
-            <line className="stats__limits-now" x1={view.now.x * 1000} x2={view.now.x * 1000} y1={0} y2={100} vectorEffect="non-scaling-stroke" />
-          </svg>
-          <span className="stats__limits-axis" style={{ top: "0%" }} aria-hidden="true">100%</span>
-          <span className="stats__limits-axis" style={{ top: "50%" }} aria-hidden="true">50%</span>
-          {view.slices.map((slice) => (
-            <span
-              key={slice.key}
-              className={`stats__limits-note stats__limits-note--${slice.label.side}`}
-              style={{ left: at(slice.label.x) }}
-              aria-hidden="true"
-            >
-              {slice.label.text}
-            </span>
-          ))}
-          {last && <i className="stats__limits-dot" style={{ left: at(last.x), top: fromTop(last.usedPct) }} aria-hidden="true" />}
-          {current.end && (
-            <>
-              <i
-                className={`stats__limits-end ${current.end.className ?? ""}`}
-                style={{ left: at(current.end.x), top: fromTop(current.end.pct) }}
-                aria-hidden="true"
-              />
               <span
-                className={`stats__limits-end-label stats__limits-end-label--${current.end.side}${current.end.below ? " stats__limits-end-label--below" : ""} ${current.end.className ?? ""}`}
-                style={{ left: at(current.end.x), top: fromTop(current.end.pct) }}
+                key={slice.key}
+                className={`stats__limits-note stats__limits-note--${slice.label.side}`}
+                style={{ left: at(slice.label.x) }}
                 aria-hidden="true"
               >
-                {current.end.label}
+                {slice.label.text}
               </span>
-            </>
-          )}
-          <span className={`stats__limits-now-label stats__limits-now-label--${view.now.side}`} style={{ left: at(view.now.x) }} aria-hidden="true">
-            {view.now.label}
-          </span>
-          {sample && (
-            <>
-              <i className="stats__limits-cursor" style={{ left: at(sample.x) }} aria-hidden="true" />
-              <i className="stats__limits-dot stats__limits-dot--active" style={{ left: at(sample.x), top: fromTop(sample.usedPct) }} aria-hidden="true" />
-            </>
-          )}
-        </div>
-        <div className="stats__limits-bars" aria-hidden="true">
-          {view.bars.map((bar) => (
-            <i key={bar.key} title={bar.title} style={{ left: at(bar.x0), width: at(bar.x1 - bar.x0), height: at(bar.height) }} />
-          ))}
+            ))}
+            {last && <i className="stats__limits-dot" style={{ left: at(last.x), top: fromTop(last.usedPct) }} aria-hidden="true" />}
+            {current.end && (
+              <>
+                <i
+                  className={`stats__limits-end ${current.end.className ?? ""}`}
+                  style={{ left: at(current.end.x), top: fromTop(current.end.pct) }}
+                  aria-hidden="true"
+                />
+                <span
+                  className={`stats__limits-end-label stats__limits-end-label--${current.end.side}${current.end.below ? " stats__limits-end-label--below" : ""} ${current.end.className ?? ""}`}
+                  style={{ left: at(current.end.x), top: fromTop(current.end.pct) }}
+                  aria-hidden="true"
+                >
+                  {current.end.label}
+                </span>
+              </>
+            )}
+            <span className={`stats__limits-now-label stats__limits-now-label--${view.now.side}`} style={{ left: at(view.now.x) }} aria-hidden="true">
+              {view.now.label}
+            </span>
+            {sample && (
+              <>
+                <i className="stats__limits-cursor" style={{ left: at(sample.x) }} aria-hidden="true" />
+                <i className="stats__limits-dot stats__limits-dot--active" style={{ left: at(sample.x), top: fromTop(sample.usedPct) }} aria-hidden="true" />
+              </>
+            )}
+          </div>
+          <div className="stats__limits-bars" aria-hidden="true">
+            {view.bars.map((bar) => (
+              <i key={bar.key} title={bar.title} style={{ left: at(bar.x0), width: at(bar.x1 - bar.x0), height: at(bar.height) }} />
+            ))}
+          </div>
         </div>
         <div className="stats__limits-ticks" aria-hidden="true">
           {view.ticks.map((tick) => (
@@ -123,11 +118,12 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
           ))}
         </div>
       </div>
-      {sample && getAnchorRect && (
+      <InspectionStatus text={burnAnnouncement(card)} />
+      {card && getAnchorRect && (
         <BurnTooltip
           id={tooltipId}
           getAnchorRect={getAnchorRect}
-          view={limitsTooltipView(view, sample)}
+          view={card}
           stroke={color}
           ownerDocument={plotRef.current?.ownerDocument ?? document}
         />

@@ -147,6 +147,17 @@ describe("the Limits chart", () => {
     });
   });
 
+  it("reads the last step at the plot's right edge, where it ends at the reset", () => {
+    // Now is in the 5h window's last hour: its last step runs to the reset.
+    const view = present(chart({ windows: [FIVE_H], events: [{ occurredAt: NOW - 10 * 60_000, tokens: { input: 900 } }] }), "a chart");
+    const last = view.bars[view.bars.length - 1];
+    expect(last?.x1).toBe(1);
+    inZone("Asia/Nicosia", () => {
+      const edge = { x: 1, y: 0.2, at: FIVE_H.resetsAt ?? 0, usedPct: 20, kind: "projected" as const };
+      expect(limitsTooltipView(view, edge).note).toBe("This machine that hour: 900 tokens");
+    });
+  });
+
   it("names every n-th day of a long window rather than none", () => {
     const month: UsageWindow = { usedPct: 10, resetsAt: NOW + 20 * DAY, windowMinutes: 30 * 24 * 60 };
     const view = present(chart({ windows: [month] }), "a chart");

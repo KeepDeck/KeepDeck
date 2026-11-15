@@ -11,6 +11,11 @@ export type BurnInspectionSample = BurnPoint & {
   kind: "observed" | "projected";
 };
 
+/** What an inspection reads of a plot: its observed line and its projected
+ * segment, on whatever axis that plot draws — the popover's data axis, the
+ * Limits chart's window clock. A domain BurnGeometry is one as it is. */
+export type BurnInspectionGeometry = Pick<BurnGeometry, "observed" | "projected">;
+
 /** What a plot is being inspected by: a pointer at a share of its width,
  * the arrow keys at one, or focus alone — which opens on the newest
  * reading. */
@@ -24,7 +29,7 @@ export const NO_INSPECTION: BurnInspectionState = { pointerX: null, keyedX: null
 
 /** The point under inspection: the pointer's, else the keys', else — while
  * focused — the newest reading; none otherwise. */
-export function inspectedSample(geometry: BurnGeometry, state: BurnInspectionState): BurnInspectionSample | null {
+export function inspectedSample(geometry: BurnInspectionGeometry, state: BurnInspectionState): BurnInspectionSample | null {
   const x = state.pointerX ?? state.keyedX;
   if (x !== null) return burnInspectionAt(geometry, x);
   const newest = geometry.observed[geometry.observed.length - 1];
@@ -36,7 +41,7 @@ const KEY_STEP = 0.02;
 
 /** Where an arrow press takes the inspection: one step along the plot from
  * the point inspected now (the newest reading when none is), kept inside it. */
-export function steppedInspection(geometry: BurnGeometry, state: BurnInspectionState, direction: -1 | 1): number {
+export function steppedInspection(geometry: BurnInspectionGeometry, state: BurnInspectionState, direction: -1 | 1): number {
   const from = state.keyedX ?? inspectedSample(geometry, state)?.x ?? geometry.observed[geometry.observed.length - 1]?.x ?? 0;
   return Math.min(1, Math.max(0, from + direction * KEY_STEP));
 }
@@ -66,7 +71,7 @@ export function burnTooltipView(sample: BurnInspectionSample, label: string, not
 /** Resolve a horizontal plot position into the value shown by the UI.
  * History snaps to a report; only the forecast segment is interpolated. */
 export function burnInspectionAt(
-  geometry: BurnGeometry,
+  geometry: BurnInspectionGeometry,
   xRatio: number,
 ): BurnInspectionSample {
   const x = Number.isFinite(xRatio) ? Math.min(1, Math.max(0, xRatio)) : 0;
@@ -92,6 +97,14 @@ export function burnInspectionAt(
     Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best,
   );
   return { ...nearest, kind: "observed" };
+}
+
+/** The inspected point read aloud — the card's words in one sentence, for
+ * the live region a screen reader follows as the arrows move the point; ""
+ * while nothing is inspected. */
+export function burnAnnouncement(view: BurnTooltipView | null): string {
+  if (view === null) return "";
+  return `${view.label}: ${view.source}, ${view.value}${view.note ? `. ${view.note}` : ""}`;
 }
 
 /** The popover's hover card: the instant in the reader's clock — the same

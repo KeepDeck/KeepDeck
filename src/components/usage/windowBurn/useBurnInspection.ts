@@ -1,28 +1,31 @@
-import { useState, type KeyboardEvent, type MouseEvent } from "react";
-import type { BurnGeometry } from "../../../domain/usage/windowBurn";
+import { useState, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
 import {
   inspectedSample,
   NO_INSPECTION,
   steppedInspection,
+  type BurnInspectionGeometry,
   type BurnInspectionSample,
   type BurnInspectionState,
 } from "../../../presentation/burnInspection";
-
-/** The client point a pointer-driven tooltip anchors to. */
-export interface PointerAnchor {
-  x: number;
-  y: number;
-}
+import type { TooltipAnchorRect } from "../../../ui/tooltip/useAnchoredTooltipPosition";
 
 /**
- * The inspection state of one burn plot — pointer, arrow keys, focus — and
- * the events that move it. It holds state only: which point that state
- * shows, and where a key takes it, are presentation/burnInspection.ts.
+ * The inspection of one burn plot — pointer, arrow keys, focus — the events
+ * that move it, and where its hover card anchors: at the pointer while the
+ * pointer drives it, else at the inspected point on the plot. It holds
+ * state and measures the element; which point the state shows, and where a
+ * key takes it, are presentation/burnInspection.ts.
  */
-export function useBurnInspection(geometry: BurnGeometry): {
+export function useBurnInspection(
+  geometry: BurnInspectionGeometry,
+  plot: {
+    ref: RefObject<HTMLElement | null>;
+    /** How far down the plot a sample sits, 0 (top) to 1 (bottom). */
+    depth(sample: BurnInspectionSample): number;
+  },
+): {
   sample: BurnInspectionSample | null;
-  /** Where the pointer is, while it drives the inspection. */
-  anchor: PointerAnchor | null;
+  getAnchorRect: (() => TooltipAnchorRect | null) | null;
   handlers: {
     onMouseMove(event: MouseEvent<HTMLElement>): void;
     onMouseLeave(): void;
@@ -32,17 +35,29 @@ export function useBurnInspection(geometry: BurnGeometry): {
   };
 } {
   const [state, setState] = useState<BurnInspectionState>(NO_INSPECTION);
-  const [anchor, setAnchor] = useState<PointerAnchor | null>(null);
+  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
+  const sample = inspectedSample(geometry, state);
+  const anchor = state.pointerX === null ? null : pointer;
   return {
-    sample: inspectedSample(geometry, state),
-    anchor: state.pointerX === null ? null : anchor,
+    sample,
+    getAnchorRect:
+      sample === null
+        ? null
+        : anchor !== null
+          ? () => ({ top: anchor.y, bottom: anchor.y, left: anchor.x })
+          : () => {
+              const rect = plot.ref.current?.getBoundingClientRect();
+              if (rect === undefined) return null;
+              const top = rect.top + plot.depth(sample) * rect.height;
+              return { top, bottom: top, left: rect.left + sample.x * rect.width };
+            },
     handlers: {
       onMouseMove(event) {
         const rect = event.currentTarget.getBoundingClientRect();
         if (rect.width <= 0) return;
         const pointerX = (event.clientX - rect.left) / rect.width;
         setState((current) => ({ ...current, pointerX }));
-        setAnchor({ x: event.clientX, y: event.clientY });
+        setPointer({ x: event.clientX, y: event.clientY });
       },
       onMouseLeave() {
         setState((current) => ({ ...current, pointerX: null }));

@@ -136,7 +136,7 @@ export function UsagePanel({
                       </span>
                     )}
                     <WindowBurn
-                      geometry={windowBurn(reports, window, forecast, now, "data")}
+                      geometry={windowBurn(reports, window, forecast, now)}
                       stroke={seriesColorFor(seriesColors, agent.id)}
                       now={now}
                     />

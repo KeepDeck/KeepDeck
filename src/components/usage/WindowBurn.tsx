@@ -1,9 +1,9 @@
 import { useId, useRef } from "react";
 import { OVERFLOW_COLOR } from "../../presentation/usagePalette";
 import type { BurnGeometry } from "../../domain/usage/windowBurn";
-import { momentTooltipView } from "../../presentation/burnInspection";
-import type { TooltipAnchorRect } from "../../ui/tooltip/useAnchoredTooltipPosition";
+import { burnAnnouncement, momentTooltipView } from "../../presentation/burnInspection";
 import { BurnTooltip } from "./windowBurn/BurnTooltip";
+import { InspectionStatus } from "./windowBurn/InspectionStatus";
 import { useBurnInspection } from "./windowBurn/useBurnInspection";
 
 /**
@@ -51,21 +51,11 @@ function WindowBurnPlot({ geometry, stroke, now }: { geometry: BurnGeometry; str
   const yPx = (value: number) => PAD + (1 - value) * (HEIGHT - 2 * PAD);
   const line = (points: readonly { x: number; y: number }[]) =>
     points.map((point) => `${xPct(point.x).toFixed(2)},${yPx(point.y).toFixed(2)}`).join(" ");
-  const { sample, anchor, handlers } = useBurnInspection(geometry);
-
-  const getAnchorRect =
-    sample === null
-      ? null
-      : anchor !== null
-        ? (): TooltipAnchorRect => ({ top: anchor.y, bottom: anchor.y, left: anchor.x })
-        : (): TooltipAnchorRect | null => {
-            const plot = plotRef.current;
-            if (plot === null) return null;
-            const rect = plot.getBoundingClientRect();
-            const renderedHeight = rect.height || HEIGHT;
-            const top = rect.top + (yPx(sample.y) / HEIGHT) * renderedHeight;
-            return { top, bottom: top, left: rect.left + sample.x * rect.width };
-          };
+  const { sample, getAnchorRect, handlers } = useBurnInspection(geometry, {
+    ref: plotRef,
+    depth: (point) => yPx(point.y) / HEIGHT,
+  });
+  const card = sample === null ? null : momentTooltipView(sample, now);
 
   return (
     <span className="usage-burn">
@@ -112,11 +102,12 @@ function WindowBurnPlot({ geometry, stroke, now }: { geometry: BurnGeometry; str
           </>
         )}
       </span>
-      {sample && getAnchorRect && (
+      <InspectionStatus text={burnAnnouncement(card)} />
+      {sample && card && getAnchorRect && (
         <BurnTooltip
           id={tooltipId}
           getAnchorRect={getAnchorRect}
-          view={momentTooltipView(sample, now)}
+          view={card}
           stroke={stroke}
           ownerDocument={plotRef.current?.ownerDocument ?? document}
         />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BurnGeometry } from "../domain/usage/windowBurn";
-import { burnInspectionAt, burnTooltipView, inspectedSample, NO_INSPECTION, steppedInspection } from "./burnInspection";
+import { burnAnnouncement, burnInspectionAt, burnTooltipView, inspectedSample, NO_INSPECTION, steppedInspection } from "./burnInspection";
 
 const newest = { x: 0.5, y: 0.6, at: 200, usedPct: 60 };
 const projectedEnd = { x: 1, y: 1, at: 300, usedPct: 100 };
@@ -8,7 +8,6 @@ const geometry: BurnGeometry = {
   observed: [{ x: 0, y: 0.2, at: 100, usedPct: 20 }, newest],
   projected: [newest, projectedEnd],
   out: { x: 1, y: 1, level: "warn" },
-  endPct: 100,
 };
 
 describe("burnInspectionAt", () => {
@@ -71,5 +70,14 @@ describe("burnTooltipView", () => {
     expect(burnTooltipView({ ...projectedEnd, usedPct: 35.2, kind: "projected" }, "x", "a note")).toMatchObject({
       source: "Projected", value: "36% used", note: "a note",
     });
+  });
+});
+
+describe("burnAnnouncement", () => {
+  it("reads the card as one sentence, and nothing while nothing is inspected", () => {
+    const view = burnTooltipView({ ...newest, kind: "observed" }, "Nov 15, 21:30", "This machine that day: 4k tokens");
+    expect(burnAnnouncement(view)).toBe("Nov 15, 21:30: Observed, 60% used. This machine that day: 4k tokens");
+    expect(burnAnnouncement({ ...view, note: null })).toBe("Nov 15, 21:30: Observed, 60% used");
+    expect(burnAnnouncement(null)).toBe("");
   });
 });
