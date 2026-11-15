@@ -19,6 +19,7 @@
     "./Segmented": "./src/Segmented.tsx",
     "./DisclosureChevron": "./src/DisclosureChevron.tsx",
     "./FoldBlock": "./src/FoldBlock.tsx",
+    "./tween": "./src/tween.ts",
     "./icons": "./src/icons.tsx",
     "./Dropdown": "./src/Dropdown.tsx",
     "./Combobox": "./src/Combobox.tsx",
@@ -34,7 +35,8 @@
     "./useRowAnchoring": "./src/useRowAnchoring.ts",
     "./useFocusHandoff": "./src/useFocusHandoff.ts",
     "./rowAnchor": "./src/rowAnchor.ts",
-    "./virtualGeometry.test-support": "./src/virtualGeometry.test-support.ts"
+    "./virtualGeometry.test-support": "./src/virtualGeometry.test-support.ts",
+    "./tween.test-support": "./src/tween.test-support.ts"
   },
   "peerDependencies": {
     "react": "^19.1.0",
