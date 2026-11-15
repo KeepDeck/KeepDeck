@@ -699,8 +699,10 @@
   cursor: pointer;
 }
 
-/* The house's chevron (DisclosureChevron), quiet, in the fold's gutter. */
+/* The house's chevron (DisclosureChevron), quiet, centred in the fold's
+   gutter — so it still turns about the mark's own centre, not the box's. */
 .stats__bd-toggle .kd-chevron {
+  justify-content: center;
   width: var(--stats-bd-fold);
   color: var(--kd-text-3);
 }
