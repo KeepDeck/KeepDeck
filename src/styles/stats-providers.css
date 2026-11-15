@@ -148,13 +148,6 @@
   gap: 12px;
 }
 
-/* The plot is what the pointer and the arrow keys inspect. */
-.stats__limits-plot:focus-visible {
-  outline: 1px solid var(--kd-focus);
-  outline-offset: 2px;
-  border-radius: var(--kd-radius-mark);
-}
-
 /* The inspected instant: a hair across the plot and a dot on the line. */
 .stats__limits-cursor {
   position: absolute;
@@ -175,11 +168,18 @@
   pointer-events: none;
 }
 
+/* The plot is what the pointer and the arrow keys inspect. */
 .stats__limits-plot {
   position: relative;
   height: 120px;
   cursor: crosshair;
   outline: none;
+}
+
+.stats__limits-plot:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: 2px;
+  border-radius: var(--kd-radius-mark);
 }
 
 .stats__limits-plot svg {
