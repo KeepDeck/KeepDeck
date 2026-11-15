@@ -15,6 +15,7 @@ import {
   parentDir,
   stepPlaces,
   updateWorkspace,
+  parseWorkspaceMark,
   cwdLocked,
   isAbsolutePath,
   type WorkspaceUpdateResult,
@@ -209,6 +210,15 @@ describe("updateWorkspace", () => {
     const teamed = withTeam("a");
     const list = [teamed];
     expect(ok(updateWorkspace(list, teamed, { name: "a", cwd: teamed.cwd }))).toBe(list);
+  });
+
+  it("sets a workspace's own letters, refuses more than two characters, and a blank clears them", () => {
+    const a = empty("a");
+    const set = ok(updateWorkspace([a], a, { mark: " Kd " }));
+    expect(set[0].mark).toBe("Kd");
+    expect(refused(updateWorkspace(set, a, { mark: "KDX" }))).toEqual({ kind: "mark-too-long" });
+    const cleared = ok(updateWorkspace(set, a, { mark: "  " }));
+    expect("mark" in cleared[0]).toBe(false);
   });
 
   it("cwdLocked: what holds the directory, or null when nothing does", () => {
@@ -1098,5 +1108,20 @@ describe("homeRelative", () => {
     expect(homeRelative("/Users/meow/x", "/Users/me")).toBe("/Users/meow/x");
     expect(homeRelative("/opt/x", "/Users/me")).toBe("/opt/x");
     expect(homeRelative("/Users/me/x", null)).toBe("/Users/me/x");
+  });
+});
+
+describe("parseWorkspaceMark", () => {
+  it("takes one or two characters of any script, trimmed, and blank as none", () => {
+    expect(parseWorkspaceMark("KD")).toEqual({ mark: "KD" });
+    expect(parseWorkspaceMark(" x ")).toEqual({ mark: "x" });
+    expect(parseWorkspaceMark("Ра")).toEqual({ mark: "Ра" });
+    expect(parseWorkspaceMark("项目")).toEqual({ mark: "项目" });
+    expect(parseWorkspaceMark("   ")).toEqual({ mark: undefined });
+  });
+
+  it("counts characters, not code units: an emoji is one", () => {
+    expect(parseWorkspaceMark("🚀K")).toEqual({ mark: "🚀K" });
+    expect(parseWorkspaceMark("KDX")).toEqual({ refused: "mark-too-long" });
   });
 });

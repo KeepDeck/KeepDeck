@@ -40,6 +40,10 @@ export interface Workspace {
    * is checked against. */
   readonly instance: WorkspaceInstance;
   name: string;
+  /** The letters its mark says, when the person chose them: 1-2 characters
+   * of any script ([`parseWorkspaceMark`]). Absent = the letters are worked
+   * out from the name, unique across the deck. */
+  mark?: string;
   /** Working directory all this workspace's agents run in. */
   cwd: string;
   /** Base folder holding this workspace's per-agent git worktrees; `null` when
@@ -313,6 +317,21 @@ export function worktreeBaseDirOf(raw: string | null): string | null {
   return path === "" ? null : path;
 }
 
+/** The longest letters a mark holds — what fits its tile. */
+export const WORKSPACE_MARK_MAX = 2;
+
+/**
+ * A workspace's own letters from what someone typed — ONE rule for the page,
+ * the command and the document: trimmed; 1-2 CHARACTERS, counted by code
+ * point so any script fits ("KD", "Ра", "项目") and an emoji is one; blank is
+ * no mark of its own (the letters go back to the name's). Longer is refused.
+ */
+export function parseWorkspaceMark(raw: string): { mark: string | undefined } | { refused: "mark-too-long" } {
+  const mark = raw.trim();
+  if (mark === "") return { mark: undefined };
+  return Array.from(mark).length > WORKSPACE_MARK_MAX ? { refused: "mark-too-long" } : { mark };
+}
+
 /** Whether `path` names a folder from the root rather than from wherever
  * the app happens to run: `/…`, `C:\…`, or a `\\server\share` path. A
  * workspace's directory is where its agents start, its repository and its
@@ -326,6 +345,8 @@ export function isAbsolutePath(path: string): boolean {
  * what blank means, exactly as at birth. */
 export interface WorkspacePatch {
   name?: string;
+  /** Its own letters; blank = back to the name's ([`parseWorkspaceMark`]). */
+  mark?: string;
   cwd?: string;
   /** `null` or blank = no base folder. */
   worktreeBaseDir?: string | null;
@@ -339,7 +360,8 @@ export type WorkspaceUpdateRefusal =
   | { kind: "archived" }
   | { kind: "cwd-not-empty"; teams: number; panes: number }
   | { kind: "blank-cwd" }
-  | { kind: "relative-cwd" };
+  | { kind: "relative-cwd" }
+  | { kind: "mark-too-long" };
 
 export type WorkspaceUpdateResult =
   | { ok: true; workspaces: Workspace[] }
@@ -394,8 +416,17 @@ export function updateWorkspace(
   if (patch.worktreeBaseDir !== undefined) {
     next.worktreeBaseDir = worktreeBaseDirOf(patch.worktreeBaseDir);
   }
+  if (patch.mark !== undefined) {
+    const parsed = parseWorkspaceMark(patch.mark);
+    if ("refused" in parsed) return { ok: false, refusal: { kind: parsed.refused } };
+    if (parsed.mark === undefined) delete next.mark;
+    else next.mark = parsed.mark;
+  }
   const changed =
-    next.name !== ws.name || next.cwd !== ws.cwd || next.worktreeBaseDir !== ws.worktreeBaseDir;
+    next.name !== ws.name ||
+    next.cwd !== ws.cwd ||
+    next.worktreeBaseDir !== ws.worktreeBaseDir ||
+    next.mark !== ws.mark;
   return {
     ok: true,
     workspaces: changed ? workspaces.map((w) => (w === ws ? next : w)) : workspaces,

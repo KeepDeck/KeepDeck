@@ -26,6 +26,8 @@ function updateRefusalText(refusal: WorkspaceUpdateRefusal, name: string): strin
       return "the workspace is gone";
     case "archived":
       return workspaceArchivedMessage({ name });
+    case "mark-too-long":
+      return 'argument "mark" holds at most two characters';
     case "blank-cwd":
     case "relative-cwd":
     case "cwd-not-empty":

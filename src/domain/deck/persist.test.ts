@@ -1762,3 +1762,25 @@ describe("the archive marker on disk", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 });
+
+describe("a workspace's own letters on disk", () => {
+  const doc = (mark: unknown) =>
+    JSON.stringify({
+      version: DECK_STATE_VERSION,
+      activeId: "ws-1",
+      workspaces: [{ id: "ws-1", name: "web", cwd: "/a", worktreeBaseDir: null, panes: [], ...(mark !== undefined && { mark }) }],
+    });
+
+  it("round-trips letters the person chose, and absent stays absent", () => {
+    const chosen = okDeck(doc("Kd"));
+    expect(chosen.state.workspaces[0].mark).toBe("Kd");
+    expect(JSON.parse(serializeDeck(chosen.state)).workspaces[0].mark).toBe("Kd");
+    expect(chosen.state.workspaces[0].extras).toBeUndefined();
+    expect("mark" in JSON.parse(serializeDeck(okDeck(doc(undefined)).state)).workspaces[0]).toBe(false);
+  });
+
+  it("reads letters it cannot take as none, rather than refusing the deck", () => {
+    expect(okDeck(doc("KDX")).state.workspaces[0].mark).toBeUndefined();
+    expect(okDeck(doc(7)).state.workspaces[0].mark).toBeUndefined();
+  });
+});

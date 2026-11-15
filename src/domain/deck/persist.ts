@@ -4,8 +4,14 @@ import type { Pane, PaneIdle, WorktreeIntent } from "./panes";
 import { paneIdleIsDurable } from "./panes";
 import { paneProvisioning } from "./roots";
 import { liveSpotlights } from "./spotlights";
-import type { ArchiveWarnings, Workspace, WorkspaceArchived } from "./workspaces";
-import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
+import {
+  parseWorkspaceMark,
+  resolveActiveId,
+  workspaceIdsAreUnique,
+  type ArchiveWarnings,
+  type Workspace,
+  type WorkspaceArchived,
+} from "./workspaces";
 import {
   findTeam,
   placementFromFields,
@@ -114,6 +120,8 @@ export function serializeDeck(
       ...ws.extras,
       id: ws.id,
       name: ws.name,
+      // Sparse: only letters the person chose.
+      ...(ws.mark !== undefined && { mark: ws.mark }),
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
       // Sparse: only a workspace put away carries the marker, written whole.
@@ -359,6 +367,7 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   // preserving it as a forward-compatible extra.
   "instance",
   "name",
+  "mark",
   "cwd",
   "worktreeBaseDir",
   // NOT listed: "setup" — deck v5's one-time worktree command, retired with
@@ -474,6 +483,12 @@ function readWorkspace(value: unknown): Workspace | null {
   if (plugins) ws.plugins = plugins;
   const archived = readArchived(value.archived);
   if (archived) ws.archived = archived;
+  // Letters this build cannot take (too long, not text) are no letters: the
+  // mark goes back to the name's — nothing about them is worth a quarantine.
+  if (typeof value.mark === "string") {
+    const parsed = parseWorkspaceMark(value.mark);
+    if ("mark" in parsed && parsed.mark !== undefined) ws.mark = parsed.mark;
+  }
   const extras = collectExtras(value, WS_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) ws.extras = extras;
   return ws;

@@ -64,6 +64,8 @@ export function updateRefusalWords(refusal: WorkspaceUpdateRefusal): string {
       return "A workspace needs a working directory.";
     case "relative-cwd":
       return "The working directory must be a full path.";
+    case "mark-too-long":
+      return "A mark holds one or two characters.";
   }
 }
 
