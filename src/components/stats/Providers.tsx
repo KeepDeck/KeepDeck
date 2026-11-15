@@ -85,7 +85,6 @@ function WindowTile({ view, now, lead }: { view: ProviderWindowView; now: number
       </span>
       <span className="stats__window-bar">
         <UsageWindowBar window={view.window} now={now} />
-        {view.pace && <i className="stats__window-time" style={{ left: view.pace.left }} title={view.pace.title} />}
       </span>
       <small>{view.reset}</small>
       {view.verdict && <small className={view.verdict.className}>{view.verdict.text}</small>}

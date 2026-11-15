@@ -42,13 +42,17 @@ export interface LimitsChartView {
   current: {
     geometry: BurnInspectionGeometry;
     end: (ChartPoint & { label: string; className?: string; side: "after" | "before"; below: boolean }) | null;
+    /** Said beside the only reading the window has so far, so one dot does
+     * not read as a line that failed to draw. */
+    lone: (ChartPoint & { label: string; side: "after" | "before" }) | null;
   };
   /** The provider's shorter windows running now, where they sit, and where
    * the name goes: after the slice where there is room, else before it,
    * else inside it from its start — never past an edge of the plot. */
   slices: { key: string; x0: number; x1: number; label: { text: string; x: number; side: "after" | "before" | "inside" } }[];
   /** This machine's tokens less cache reads per step, the busiest step full
-   * height; `note` is what the hover card says of the step. */
+   * height; `note` is what the hover card says of the step. None at all
+   * while the machine used nothing in the window — no row of empty bars. */
   bars: { key: string; x0: number; x1: number; height: number; title: string; note: string }[];
   /** Read in place of the drawing. */
   summary: string;
@@ -88,6 +92,7 @@ export function limitsChartView(
           : null,
       },
       end: forecastEnd(main, burn, x, now),
+      lone: burn === null ? { x: x(main.reportedAt), pct: main.window.usedPct, label: "1 report so far", side: x(main.reportedAt) > 0.6 ? "before" : "after" } : null,
     },
     slices: others.flatMap((other) =>
       other.span === null || other.span.to - other.span.from >= length
@@ -103,7 +108,7 @@ export function limitsChartView(
             ),
           }],
     ),
-    bars: usage.flatMap((step) => {
+    bars: top === 0 ? [] : usage.flatMap((step) => {
       const from = Math.max(step.start, span.from);
       const to = Math.min(nextStep(step.start, steps), span.to);
       if (to <= from) return [];

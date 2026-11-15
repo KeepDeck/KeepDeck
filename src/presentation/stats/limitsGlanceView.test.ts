@@ -11,7 +11,6 @@ const windowView = (over: Partial<ProviderWindowView> = {}): ProviderWindowView 
   percent: { text: "12% used" },
   expired: false,
   window: { usedPct: 12, resetsAt: NOW + 2 * HOUR + 30 * 60_000, windowMinutes: 300 },
-  pace: null,
   reset: "resets in 2h 30m",
   verdict: null,
   ...over,

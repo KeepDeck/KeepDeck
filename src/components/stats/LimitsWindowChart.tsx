@@ -78,7 +78,16 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
               </span>
             ))}
             {last && <i className="stats__limits-dot" style={{ left: at(last.x), top: fromTop(last.usedPct) }} aria-hidden="true" />}
-            {current.end && (
+            {current.lone && (
+            <span
+              className={`stats__limits-lone stats__limits-lone--${current.lone.side}`}
+              style={{ left: at(current.lone.x), top: fromTop(current.lone.pct) }}
+              aria-hidden="true"
+            >
+              {current.lone.label}
+            </span>
+          )}
+          {current.end && (
               <>
                 <i
                   className={`stats__limits-end ${current.end.className ?? ""}`}
@@ -104,11 +113,13 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
               </>
             )}
           </div>
-          <div className="stats__limits-bars" aria-hidden="true">
-            {view.bars.map((bar) => (
-              <i key={bar.key} title={bar.title} style={{ left: at(bar.x0), width: at(bar.x1 - bar.x0), height: at(bar.height) }} />
-            ))}
-          </div>
+          {view.bars.length > 0 && (
+            <div className="stats__limits-bars" aria-hidden="true">
+              {view.bars.map((bar) => (
+                <i key={bar.key} title={bar.title} style={{ left: at(bar.x0), width: at(bar.x1 - bar.x0), height: at(bar.height) }} />
+              ))}
+            </div>
+          )}
         </div>
         <div className="stats__limits-ticks" aria-hidden="true">
           {view.ticks.map((tick) => (

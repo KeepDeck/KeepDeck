@@ -126,9 +126,14 @@ describe("the Limits chart", () => {
       const row = group?.rows[0];
       if (row) view = limitsChartView(row, [], NOW);
     });
-    const { observed, projected } = present(view as ReturnType<typeof limitsChartView>, "a chart").current.geometry;
-    expect(observed).toEqual([{ x: (NOW - 3 * HOUR - (WEEK_RESET - 7 * DAY)) / (7 * DAY), y: 0.03, at: NOW - 3 * HOUR, usedPct: 3 }]);
-    expect(projected).toBeNull();
+    const chartView = present(view as ReturnType<typeof limitsChartView>, "a chart");
+    const x = (NOW - 3 * HOUR - (WEEK_RESET - 7 * DAY)) / (7 * DAY);
+    expect(chartView.current.geometry.observed).toEqual([{ x, y: 0.03, at: NOW - 3 * HOUR, usedPct: 3 }]);
+    expect(chartView.current.geometry.projected).toBeNull();
+    // And says it is the only one.
+    expect(chartView.current.lone).toEqual({ x, pct: 3, label: "1 report so far", side: "after" });
+    // No usage on this machine: no bars, not a row of empty ones.
+    expect(chartView.bars).toEqual([]);
   });
 
   it("dates the instant under inspection, and says this machine's usage on that day while there is one", () => {

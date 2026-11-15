@@ -123,7 +123,6 @@
 
 /* The bar, and a tick where the window's time stands. */
 .stats__window-bar {
-  position: relative;
   display: block;
   margin: 5px 0 3px;
 }
@@ -132,16 +131,6 @@
 .stats__window-bar .usage-bar {
   display: block;
   width: 100%;
-}
-
-.stats__window-time {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 2px;
-  margin-left: -1px;
-  border-radius: var(--kd-radius-mark);
-  background: var(--kd-text-2);
 }
 
 /* ── The window's chart ───────────────────────────────────────────── */
@@ -322,6 +311,22 @@
   color: var(--kd-text-2);
 }
 
+/* "1 report so far", beside the only dot. */
+.stats__limits-lone {
+  position: absolute;
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+
+.stats__limits-lone--after {
+  padding-left: 10px;
+}
+
+.stats__limits-lone--before {
+  padding-right: 10px;
+  transform: translate(-100%, -50%);
+}
+
 .stats__limits-now-label--after {
   padding-left: 6px;
 }
@@ -334,7 +339,7 @@
 /* This machine's usage per day under the plot, on the same clock. */
 .stats__limits-bars {
   position: relative;
-  height: 36px;
+  height: 22px;
   border-bottom: 1px solid var(--kd-seam);
 }
 
@@ -346,7 +351,7 @@
   border-left: 2px solid var(--kd-tile);
   border-radius: var(--kd-radius-mark) var(--kd-radius-mark) 0 0;
   background: var(--stats-series);
-  opacity: 0.5;
+  opacity: 0.28;
 }
 
 .stats__limits-ticks {

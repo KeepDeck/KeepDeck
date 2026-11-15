@@ -75,10 +75,8 @@ describe("providersView", () => {
       reset: `resets in 1h 0m · ${formatMoment(NOW + HOUR, NOW)}`,
       // No journal: no pace to say anything from.
       verdict: { text: "No forecast yet — too few recent reports" },
-      // Four of its five hours have gone.
-      pace: { left: "80.0%", title: "80% of the window's time has gone" },
     });
-    expect(gone).toMatchObject({ reset: "reset — waiting for its next report", verdict: null, pace: null, expired: true });
+    expect(gone).toMatchObject({ reset: "reset — waiting for its next report", verdict: null, expired: true });
   });
 
   it("colours a window's percentage near the limit, never a reset one", () => {

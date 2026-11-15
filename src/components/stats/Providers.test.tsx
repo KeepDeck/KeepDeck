@@ -106,9 +106,9 @@ describe("Providers", () => {
     expect(small?.textContent).toContain("5h");
     expect(small?.textContent).toContain("34%");
     expect(small?.textContent).toContain(`resets in 2h 0m · ${formatMoment(NOW + 2 * HOUR, NOW)}`);
-    // Each tile draws the shared fill bar with a tick where its time stands.
+    // Each tile draws the shared fill bar, and nothing on it but the fill.
     expect(card.querySelectorAll(".usage-bar")).toHaveLength(2);
-    expect(card.querySelectorAll(".stats__window-time")).toHaveLength(2);
+    expect(card.querySelectorAll(".stats__window-bar > i")).toHaveLength(0);
     // The chart names its start, its reset and now, and marks the 5h window in it.
     const chart = present(card.querySelector(".stats__limits-chart"), "the chart");
     expect(chart.querySelector(".stats__limits-edges")?.textContent).toMatch(/^started .+resets .+$/);
@@ -167,7 +167,6 @@ describe("Providers", () => {
     expect(card.querySelector(".stats__provider-head")?.textContent).toContain("Updated 2h ago");
     const reset = present(card.querySelector(".stats__window--expired"), "the reset tile");
     expect(reset.textContent).toContain("reset — waiting for its next report");
-    expect(reset.querySelector(".stats__window-time")).toBeNull();
     // The live week still leads, with its chart.
     expect(card.querySelector(".stats__window--lead")?.textContent).toContain("week");
     expect(card.querySelector(".stats__limits-chart")).not.toBeNull();
@@ -224,6 +223,17 @@ describe("Providers", () => {
     act(() => area.focus());
     act(() => area.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
     expect(host.querySelector("[role='status']")?.textContent).toMatch(/: Observed, 20% used/);
+  });
+
+  it("draws no row of empty bars for a window this machine did not use, and says of a lone reading that it is one", () => {
+    render({
+      accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
+      events: [usageEvent({ agent: "claude", occurredAt: NOW - HOUR })],
+    });
+    expect(host.querySelector(".stats__limits-bars")).toBeNull();
+    // No bars anywhere: nothing to explain under them either.
+    expect(host.querySelector(".stats__coverage")).toBeNull();
+    expect(host.querySelector(".stats__limits-lone")?.textContent).toBe("1 report so far");
   });
 
   it("says how the tab fills before any CLI reports its limits", () => {
