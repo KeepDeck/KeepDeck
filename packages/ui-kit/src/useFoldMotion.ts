@@ -11,6 +11,7 @@ import {
   type FoldSegment,
   type Layout,
 } from "./foldMotion";
+import { REDUCED_MOTION, reducedMotion } from "./tween";
 
 /** How long a fold takes, start to end. */
 export const FOLD_MOTION_MS = 160;
@@ -169,7 +170,7 @@ export function useFoldMotion<T>({ items, eased, readLayout, folds, scrollRef, o
     const events = ["wheel", "touchstart", "pointerdown"] as const;
     for (const name of events) list?.addEventListener(name, release, { passive: true });
     // Reduced motion asked for mid-fold: the fold lands, now.
-    const preference = typeof window !== "undefined" ? window.matchMedia?.(REDUCE) : undefined;
+    const preference = typeof window !== "undefined" ? window.matchMedia?.(REDUCED_MOTION) : undefined;
     const reduce = (event: MediaQueryListEvent) => {
       if (event.matches) settle();
     };
@@ -295,11 +296,4 @@ function walkTo<T>(motion: Motion<T>, list: HTMLElement | null, eased: number): 
 /** Land a fold's walk where it was going, at once. */
 function finishWalk<T>(motion: Motion<T> | null, list: HTMLElement | null): void {
   if (motion) walkTo(motion, list, 1);
-}
-
-const REDUCE = "(prefers-reduced-motion: reduce)";
-
-/** Whether the person asked for reduced motion: a fold then lands at once. */
-export function reducedMotion(): boolean {
-  return typeof window !== "undefined" && window.matchMedia?.(REDUCE).matches === true;
 }

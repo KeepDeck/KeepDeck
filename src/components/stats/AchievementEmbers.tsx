@@ -11,6 +11,7 @@ import {
   seedField,
   type Rgb,
 } from "../../presentation/stats/embersField";
+import { REDUCED_MOTION } from "@keepdeck/ui-kit/tween";
 
 /**
  * The legendary badge's embers: sparks that light somewhere on the card,
@@ -18,10 +19,6 @@ import {
  * presentation/stats/embersField.ts; this owns the canvas, the observers
  * and the frame loop.
  */
-
-/** The reader's standing answer about motion. One spelling, because the
- * component both asks it at mount and listens for it changing. */
-const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 /** One glow, drawn once and stamped everywhere — building a gradient per
  * ember per frame would be the expensive part of this. */
@@ -120,7 +117,8 @@ export function AchievementEmbers() {
     };
     /** Both reasons to hold still are live: the reader can scroll the badge
      * away and can change their mind about motion, and the CSS half of the
-     * second answers the moment they do. */
+     * second answers the moment they do. The query is ui-kit's one
+     * spelling (REDUCED_MOTION), asked here and listened to. */
     const motion = window.matchMedia?.(REDUCED_MOTION) ?? null;
     let offscreen = false;
     let running = false;

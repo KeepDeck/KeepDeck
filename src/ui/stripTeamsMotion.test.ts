@@ -1,30 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { animateTeamList, type FrameClock } from "./stripTeamsMotion";
-
-/** A clock the test steps: frames run when `tick` says so. */
-function steppedClock() {
-  let time = 0;
-  let queue: [number, (t: number) => void][] = [];
-  let next = 1;
-  const clock: FrameClock = {
-    now: () => time,
-    frame: (callback) => {
-      const id = next++;
-      queue.push([id, callback]);
-      return id;
-    },
-    cancel: (id) => {
-      queue = queue.filter(([queued]) => queued !== id);
-    },
-  };
-  const tick = (ms: number) => {
-    time += ms;
-    const due = queue;
-    queue = [];
-    for (const [, callback] of due) callback(time);
-  };
-  return { clock, tick, pending: () => queue.length };
-}
+import { steppedClock } from "@keepdeck/ui-kit/tween.test-support";
+import { animateTeamList } from "./stripTeamsMotion";
 
 const target = (scrollTop = 0) => ({ block: { style: { height: "" } }, list: { scrollTop } });
 
@@ -64,36 +40,6 @@ describe("a team list's motion", () => {
     expect(t.list.scrollTop).toBe(30);
     expect(done).toHaveBeenCalledTimes(1);
     expect(pending()).toBe(0);
-  });
-
-  it("stops where it is, so a motion the other way starts from there", () => {
-    const { clock, tick, pending } = steppedClock();
-    const t = target();
-    const done = vi.fn();
-    const motion = animateTeamList({ ...t, from: 0, to: 100, scrollTo: null, durationMs: 100 }, clock, done);
-    tick(30);
-    const reached = t.block.style.height;
-    motion.stop();
-    tick(100);
-    expect(t.block.style.height).toBe(reached);
-    expect(parseFloat(reached)).toBeGreaterThan(0);
-    expect(parseFloat(reached)).toBeLessThan(100);
-    expect(done).not.toHaveBeenCalled();
-    expect(pending()).toBe(0);
-  });
-
-  it("finishes at once when told to, and says so only once", () => {
-    const { clock, tick, pending } = steppedClock();
-    const t = target();
-    const done = vi.fn();
-    const { finish } = animateTeamList({ ...t, from: 0, to: 90, scrollTo: null, durationMs: 100 }, clock, done);
-    tick(10);
-    finish();
-    expect(t.block.style.height).toBe("90px");
-    expect(pending()).toBe(0);
-    finish();
-    tick(200);
-    expect(done).toHaveBeenCalledTimes(1);
   });
 
   it("stops writing the scroll once it is released, and keeps moving the height", () => {

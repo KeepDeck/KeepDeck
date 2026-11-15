@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { browserClock, reducedMotion } from "@keepdeck/ui-kit/tween";
 
 export interface DragPoint {
   x: number;
@@ -224,7 +225,7 @@ export function animateElementReorder(
   before: ElementRectSnapshot | null,
   options: { durationMs?: number; easing?: string } = {},
 ): void {
-  if (!before || prefersReducedMotion()) return;
+  if (!before || reducedMotion()) return;
   const durationMs = options.durationMs ?? 140;
   const easing = options.easing ?? "cubic-bezier(0.2, 0, 0, 1)";
   for (const element of elements) {
@@ -252,7 +253,7 @@ export function animateElementReorder(
     const cancel = () => {
       if (activeElementAnimations.get(element) !== cancel) return;
       activeElementAnimations.delete(element);
-      if (frame) cancelFrame(frame);
+      if (frame) browserClock.cancel(frame);
       element.removeEventListener("transitionend", cleanup);
       window.clearTimeout(timeout);
       element.style.transition = oldTransition;
@@ -264,7 +265,7 @@ export function animateElementReorder(
     element.style.transform = `translate(${dx}px, ${dy}px)`;
     element.style.willChange = "transform";
     void element.offsetWidth;
-    frame = requestFrame(() => {
+    frame = browserClock.frame(() => {
       if (activeElementAnimations.get(element) !== cancel) return;
       element.style.transition = `transform ${durationMs}ms ${easing}`;
       element.style.transform = oldTransform;
@@ -287,7 +288,7 @@ export function animateFixedElementToRect(
 ): () => void {
   const durationMs = options.durationMs ?? 140;
   const easing = options.easing ?? "cubic-bezier(0.2, 0, 0, 1)";
-  if (prefersReducedMotion()) {
+  if (reducedMotion()) {
     options.onDone?.();
     return () => {};
   }
@@ -298,7 +299,7 @@ export function animateFixedElementToRect(
   const finish = () => {
     if (done) return;
     done = true;
-    if (frame) cancelFrame(frame);
+    if (frame) browserClock.cancel(frame);
     window.clearTimeout(timeout);
     element.removeEventListener("transitionend", finish);
     element.style.transition = oldTransition;
@@ -315,7 +316,7 @@ export function animateFixedElementToRect(
     `transform ${durationMs}ms ${easing}`,
   ].join(", ");
   void element.offsetWidth;
-  frame = requestFrame(() => {
+  frame = browserClock.frame(() => {
     element.style.left = `${target.left}px`;
     element.style.top = `${target.top}px`;
     element.style.width = `${target.width}px`;
@@ -326,7 +327,7 @@ export function animateFixedElementToRect(
   return () => {
     if (done) return;
     done = true;
-    if (frame) cancelFrame(frame);
+    if (frame) browserClock.cancel(frame);
     window.clearTimeout(timeout);
     element.removeEventListener("transitionend", finish);
     element.style.transition = oldTransition;
@@ -367,23 +368,4 @@ function suppressNextClick(): void {
   const cleanup = () => document.removeEventListener("click", onClick, true);
   document.addEventListener("click", onClick, true);
   setTimeout(cleanup, 0);
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-function requestFrame(callback: FrameRequestCallback): number {
-  if (typeof requestAnimationFrame === "function") {
-    return requestAnimationFrame(callback);
-  }
-  return window.setTimeout(() => callback(performance.now()), 0);
-}
-
-function cancelFrame(id: number): void {
-  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(id);
-  else window.clearTimeout(id);
 }

@@ -1,12 +1,12 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { easeFold } from "./foldMotion";
-import { FOLD_MOTION_MS, reducedMotion } from "./useFoldMotion";
+import { browserClock, reducedMotion, runTween } from "./tween";
+import { FOLD_MOTION_MS } from "./useFoldMotion";
 
 /**
  * A short list's fold, where no VirtualList is: the rows under a heading
  * unroll from under it as it opens and roll back up into it as it shuts —
- * the tracker's fold, on its clock and curve (FOLD_MOTION_MS, easeFold),
+ * the tracker's fold, on its clock and curve (FOLD_MOTION_MS, runTween),
  * for a list too short to window (Statistics' Breakdown).
  *
  * The rows are the owner's. Open, it draws what it is given; shut, it draws
@@ -59,28 +59,24 @@ export function FoldBlock({
     }
     const from = drawn.current ?? (open ? 0 : block.scrollHeight);
     const to = open ? block.scrollHeight : 0;
-    const paint = (height: number) => {
-      drawn.current = height;
-      block.style.height = `${height}px`;
-    };
     block.style.overflow = "hidden";
-    paint(from);
-    let startedAt: number | null = null;
-    let frame = requestAnimationFrame(function tick(time) {
-      startedAt ??= time;
-      const progress = easeFold((time - startedAt) / FOLD_MOTION_MS);
-      paint(from + (to - from) * progress);
-      if (progress < 1) {
-        frame = requestAnimationFrame(tick);
-        return;
-      }
-      // Rolled up: the rows go in THIS frame, before the height is let go —
-      // left to the scheduler, they would stand at their full height for a
-      // paint between the two (the flash the user saw, 2026-11-16).
-      if (!open) flushSync(() => setFold((now) => ({ ...now, rolling: false })));
-      rest();
-    });
-    return () => cancelAnimationFrame(frame);
+    const tween = runTween(
+      FOLD_MOTION_MS,
+      browserClock,
+      (progress) => {
+        drawn.current = from + (to - from) * progress;
+        block.style.height = `${drawn.current}px`;
+      },
+      () => {
+        // Rolled up: the rows go in THIS frame, before the height is let
+        // go — left to the scheduler, they would stand at their full
+        // height for a paint between the two (the flash the user saw,
+        // 2026-11-16).
+        if (!open) flushSync(() => setFold((now) => ({ ...now, rolling: false })));
+        rest();
+      },
+    );
+    return () => tween.stop();
   }, [open]);
 
   const rolling = !open && fold.rolling;
