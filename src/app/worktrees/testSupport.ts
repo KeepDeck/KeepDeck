@@ -96,7 +96,11 @@ export const provisionRequests = (count: number): ProvisionRequest[] =>
  * adapter matches a workspace's LIFETIME and documents that as load-bearing,
  * and the suites name one only where a lifetime matters. Left off an entry, it
  * follows [`ref`]'s default. The deck view names each workspace by its id. */
-export type DeckEntry = Omit<LiveWorkspace, "instance"> & { instance?: string };
+export type DeckEntry = Omit<LiveWorkspace, "instance" | "archived"> & {
+  instance?: string;
+  /** Absent: a workspace in use, as every suite but the archive's speaks. */
+  archived?: boolean;
+};
 
 const lifetimeOf = (ws: DeckEntry): string => ws.instance ?? `${ws.id}-life-1`;
 
@@ -152,6 +156,7 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
         name: `t${i}`,
         location: { kind: "attached" as const, cwd: root },
       })),
+      ...(ws.archived && { archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" as const } }),
     })),
   );
 }

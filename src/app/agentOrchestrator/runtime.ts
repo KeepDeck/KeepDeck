@@ -331,6 +331,9 @@ export function createAgentOrchestratorRuntime(
    * came to be woken with no plan cached for it. */
   function planLivePanes(ctx: SpawnPlanContext): void {
     for (const ws of deck.getSnapshot().workspaces) {
+      // A plan is what running means; an archived workspace runs nothing,
+      // and a build would arm its directories behind the archive's back.
+      if (ws.archived) continue;
       for (const pane of ws.panes) {
         void buildLivePaneSpec(
           plugins,
@@ -546,7 +549,8 @@ export function createAgentOrchestratorRuntime(
     forkSession: continuations.forkSession,
     startFresh(wsId, paneId, role) {
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
-      if (!workspace) return;
+      // Nothing starts in an archived workspace — not even fresh.
+      if (!workspace || workspace.archived) return;
       // The move FIRST, and nothing else on a refusal: a directory-bound
       // session cannot resume elsewhere, and the pane's team's directory is
       // what went missing, so the pane moves onto the workspace root's team
@@ -579,6 +583,7 @@ export function createAgentOrchestratorRuntime(
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
       const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
       if (!workspace || !pane) return "gone";
+      if (workspace.archived) return "archived";
       if (paneProvisioning(workspace, pane)) return "provisioning";
       if (!pane.idle) return "running";
       if (!agents.commands().has(pane.agentType)) return "unavailable";

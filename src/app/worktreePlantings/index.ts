@@ -5,6 +5,7 @@
  */
 import { cwdArm, cwdDisarm } from "../../ipc/cwdArm";
 import type {
+  CwdArmReport,
   WorktreeDeckView,
   WorktreePlantingFactories,
   WorktreePlantings,
@@ -13,6 +14,8 @@ import type { InOrder } from "../worktrees/queue";
 import { createSweep } from "./sweep";
 
 export { createSkillsStaging } from "./skillsStaging";
+
+const NOTHING_ARMED: CwdArmReport = { armed: [], refused: [] };
 
 export function createWorktreePlantings(
   deck: WorktreeDeckView,
@@ -32,7 +35,14 @@ export function createWorktreePlantings(
     disarm,
     skillsFor: skills.skillsFor,
     invalidateSkills: skills.invalidateSkills,
-    armCwd: (request) => inOrder(() => cwdArm(request)),
+    // Asked INSIDE the slot, right before the planting: a plan built before
+    // its workspace was archived must not plant there after.
+    armCwd: (request) =>
+      inOrder(() =>
+        deck.live().some((ws) => ws.id === request.workspaceId && ws.archived)
+          ? Promise.resolve(NOTHING_ARMED)
+          : cwdArm(request),
+      ),
     sweep: createSweep(deck, inOrder, disarm, skills.pruneSkills, factories.prunePluginDirs).sweep,
   };
 }

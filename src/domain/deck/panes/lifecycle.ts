@@ -78,6 +78,8 @@ export type ResumeRequest =
   | "running"
   | "provisioning"
   | "unavailable"
+  /** Its workspace is archived: restoring it comes first. */
+  | "archived"
   | "gone";
 
 /** `blocked` is the sweep's runtime verdict that the pane's directory is gone

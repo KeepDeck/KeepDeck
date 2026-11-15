@@ -169,6 +169,42 @@ describe("agent orchestrator —restarting an exited agent", () => {
     // No remount either: the pane is stopped, there is nothing to mount.
     expect(epoch()).toBeUndefined();
   });
+  it("an archive landing mid-restart keeps the binding and remounts nothing", async () => {
+    // The archive's stop pass may not have reached this pane yet when the
+    // restart's reap returns: the pane has no marker, but its workspace is
+    // put away — erasing its binding then would lose the conversation that
+    // a later resume, after restore, comes back to.
+    seed();
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let restarting!: Promise<RestartOutcome>;
+    act(() => {
+      restarting = agentRun.restart("ws-1", "pane-1", "fresh");
+    });
+    act(() => deck.archiveWorkspace("ws-1"));
+    let outcome!: RestartOutcome;
+    await act(async () => {
+      release();
+      outcome = await restarting;
+    });
+    expect(outcome).toBe("stopped");
+    expect(pane().session).toEqual({ id: "session-old", boundAt: "2026-07-11T00:00:00Z" });
+    expect(epoch()).toBeUndefined();
+  });
+
+  it("refuses to restart in an archived workspace at all", async () => {
+    seed();
+    act(() => deck.archiveWorkspace("ws-1"));
+    let outcome!: RestartOutcome;
+    await act(async () => {
+      outcome = await agentRun.restart("ws-1", "pane-1", "fresh");
+    });
+    expect(outcome).toBe("stopped");
+    expect(pty.closed).toEqual([]);
+  });
+
   it("a suspend landing mid-RESUME leaves the pane stopped, not remounted", async () => {
     // Every field the resume path compares survives a suspend untouched, so
     // the idle marker is the only thing that says the user changed their mind.

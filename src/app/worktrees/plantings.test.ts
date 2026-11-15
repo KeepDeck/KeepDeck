@@ -249,6 +249,27 @@ describe("what an agent's plugin plants in a pane's cwd", () => {
     expect(order).toEqual(["disarmed", "planted"]);
   });
 
+  it("plants nothing for an archived workspace — not even a planting queued before the archive", async () => {
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    worktree.removeWorktree.mockImplementation(async () => held);
+    cwdArming.cwdArm.mockResolvedValue({ armed: [".agent/conf"], refused: [] });
+
+    // Queued behind a teardown while the workspace is in use; archived
+    // before its turn comes.
+    const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
+    const planting = manager.armCwd(request("/wt/a"));
+    deck = [{ id: "ws-1", roots: ["/wt/a"], archived: true }];
+    release();
+    await removing;
+
+    expect(await planting).toEqual({ armed: [], refused: [] });
+    expect(cwdArming.cwdArm).not.toHaveBeenCalled();
+  });
+
   it("plants into a cwd the deck cannot see YET — that is the normal case", async () => {
     // A manual resume, a fork into a directory and a fork into a fresh
     // worktree all build their plan BEFORE the pane lands, so the deck does

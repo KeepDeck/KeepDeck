@@ -10,6 +10,7 @@ describe("resumeRefusalText", () => {
       "No installed agent",
     );
     expect(resumeRefusalText("gone", "Agent 1")).toContain("no longer open");
+    expect(resumeRefusalText("archived", "Agent 1")).toContain("restore the workspace first");
   });
 
   it("does not tell a pane mid-create that it is already running", () => {
@@ -27,6 +28,7 @@ describe("resumeRefusalText", () => {
       "running",
       "provisioning",
       "unavailable",
+      "archived",
       "gone",
     ];
     for (const outcome of every) {

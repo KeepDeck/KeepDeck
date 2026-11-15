@@ -11,7 +11,7 @@ import type { CommandDeck } from ".";
 import { requiredStr, str } from "./args";
 import { deliverTask } from "./deliverTask";
 import type { CoreCommandDeps } from ".";
-import { targetTeam, targetWorkspace, worktreeAhead } from "./targets";
+import { requireUnarchived, targetTeam, targetWorkspace, worktreeAhead } from "./targets";
 
 /**
  * Landing agents and teams: `agent.spawn`, `team.create`, `team.add` — the
@@ -67,7 +67,8 @@ export function registerSpawnCommands(
       const currentDeck = deps.deck();
       const currentWorkspace = findWorkspaceByRef(currentDeck.workspaces, workspace);
       if (!currentWorkspace) throw new Error(WORKSPACE_GONE_MESSAGE);
-      return { deck: currentDeck, workspace: currentWorkspace };
+      // Archived across the await: refused like at the door.
+      return { deck: currentDeck, workspace: requireUnarchived(currentWorkspace) };
     };
     const requested = str(args, "agentType");
     if (requested && !agents.some((a) => a.id === requested))

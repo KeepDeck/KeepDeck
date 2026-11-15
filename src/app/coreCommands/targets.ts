@@ -16,12 +16,27 @@ import {
 } from "../../domain/deck";
 import type { CommandDeck } from ".";
 
-/** The workspace a command acts on: the named one, else the active one. */
+/** What a command that acts on an archived workspace is told. */
+export function workspaceArchivedMessage(ws: Pick<Workspace, "name">): string {
+  return `workspace "${ws.name}" is archived — nothing in it can be changed or started until your user restores it`;
+}
+
+/** Refuse a workspace that is archived — asked at the door, and again after
+ * any await the door makes before it acts. */
+export function requireUnarchived(ws: Workspace): Workspace {
+  if (ws.archived) throw new Error(workspaceArchivedMessage(ws));
+  return ws;
+}
+
+/** The workspace a command acts on: the named one, else the active one.
+ * An archived one is still FOUND — resolving by name stays unambiguous, and
+ * the refusal names it — and then refused: nothing acts on an archive but
+ * the person restoring it. */
 export function targetWorkspace(deck: CommandDeck, ref: string | undefined): Workspace {
   if (ref) {
     const resolved = resolveWorkspaceRef(deck.workspaces, ref);
     if (!resolved.ok) throw new Error(resolved.message);
-    return resolved.value;
+    return requireUnarchived(resolved.value);
   }
   // Through the domain's by-id selector, whose own doc says it exists so callers
   // stop re-implementing this `find` — two of them had.

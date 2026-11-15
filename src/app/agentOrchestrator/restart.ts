@@ -134,12 +134,13 @@ export function createAgentOrchestratorRestart({
     };
   }
 
+  /** Down by a decision now — its own marker, or its workspace archived —
+   * asked after every await: a restart must not take back what a suspend or
+   * an archive decided while it waited, nor erase the binding they keep. */
   function stoppedNow(target: RestartTarget): boolean {
-    return !!findPane(
-      deck.getSnapshot().workspaces,
-      target.workspace.id,
-      target.paneId,
-    )?.idle;
+    const workspaces = deck.getSnapshot().workspaces;
+    if (findWorkspace(workspaces, target.workspace.id)?.archived) return true;
+    return !!findPane(workspaces, target.workspace.id, target.paneId)?.idle;
   }
 
   async function restartFresh(
@@ -223,6 +224,7 @@ export function createAgentOrchestratorRestart({
     if (restarting.has(paneId)) return "in-flight";
     const target = targetOf(wsId, paneId);
     if (typeof target === "string") return target;
+    if (findWorkspace(deck.getSnapshot().workspaces, target.workspace.id)?.archived) return "stopped";
     restarting.add(paneId);
     startOwed.add(paneId);
     try {

@@ -265,6 +265,17 @@ describe("deckReducer restore actions ([F7])", () => {
     ).toBe(start);
   });
 
+  it("wakes nobody in an archived workspace — the wake would rise on restore by itself", () => {
+    const suspended = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
+      type: "suspendPane",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      at: "2026-07-25T10:00:00.000Z",
+    });
+    const archived = deckReducer(suspended, { type: "archiveWorkspace", id: "ws-1", at: "2026-07-25T11:00:00.000Z" });
+    expect(deckReducer(archived, { type: "requestPaneWake", wsId: "ws-1", paneId: "pane-2" })).toBe(archived);
+  });
+
   it("returns failed manual wakes to their original idle state", () => {
     const suspended = deckReducer(
       state({ workspaces: [idleWs], activeId: "ws-1" }),

@@ -326,7 +326,12 @@ describe("agent orchestrator — whether a pane's agent would read something sen
 
   it("starts nothing in an archived workspace — not even a resume asked for by name", async () => {
     mount(true);
-    const state = panes([{ id: "here" }, { id: "asked", ws: "ws-2", idle: { reason: "waking", origin: "manual" } }]);
+    const state = panes([
+      { id: "here" },
+      { id: "asked", ws: "ws-2", idle: { reason: "waking", origin: "manual" } },
+      { id: "unmarked", ws: "ws-2" },
+      { id: "suspended", ws: "ws-2", idle: { reason: "suspended", at: "2026-11-16T00:00:00.000Z" } },
+    ]);
     state.workspaces[1] = { ...state.workspaces[1], archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } };
     act(() => deck.hydrate(state));
     await settle();
@@ -335,6 +340,15 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     // exempt from an archive.
     expect(pty.acquired.map((a) => a.paneId)).toEqual(["here"]);
     expect(agentRun.reachOf("asked")).toEqual({ kind: "down", why: "workspace-archived" });
+    // No plan is even built there: a plan's delivery arms the directory.
+    expect(peekPaneSpawnSpec("here")).toBeDefined();
+    expect(peekPaneSpawnSpec("unmarked")).toBeUndefined();
+    // Asking by name is refused at the door, and the pane keeps its marker.
+    expect(agentRun.resume("ws-2", "suspended")).toBe("archived");
+    expect(deck.workspaces[1].panes.find((p) => p.id === "suspended")?.idle).toEqual({
+      reason: "suspended",
+      at: "2026-11-16T00:00:00.000Z",
+    });
   });
 
   it("reads a running agent down the moment its workspace is archived, and ends nothing by itself", async () => {

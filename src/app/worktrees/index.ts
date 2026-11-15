@@ -63,6 +63,9 @@ export interface LiveWorkspace {
   id: string;
   instance: string;
   roots: string[];
+  /** Kept, not run: its roots are retained (nothing pruned, its id not
+   * released) but nothing may be armed there. */
+  archived: boolean;
 }
 
 /**
@@ -297,6 +300,7 @@ export function deckViewOf(workspaces: () => Workspace[]): WorktreeDeckView {
         id: workspace.id,
         instance: workspace.instance,
         roots: skillRootsOf(workspace),
+        archived: workspace.archived !== undefined,
       })),
   };
 }

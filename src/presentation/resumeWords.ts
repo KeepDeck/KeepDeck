@@ -19,6 +19,8 @@ export function resumeRefusalText(
       return `${label} is still creating its worktree.`;
     case "unavailable":
       return `No installed agent can start ${label}.`;
+    case "archived":
+      return `${label} is in an archived workspace — restore the workspace first.`;
     case "gone":
       return `${label} is no longer open.`;
   }
