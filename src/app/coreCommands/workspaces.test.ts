@@ -27,6 +27,21 @@ describe("workspace commands", () => {
     expect(title).toContain("not running");
     expect(title).toContain("mail to it is then refused");
     expect(title).toContain("`team.role` is its address");
+    expect(title).toContain("`archived`");
+  });
+
+  it("lists an archived workspace as such — still addressable, never hidden", async () => {
+    const { registry } = setup([
+      workspace({}),
+      workspace({ id: "ws-2", name: "old", cwd: "/old", archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } }),
+    ]);
+    const result = await registry.execute("workspace.list", {}, HOST);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(recordsOf(result.value, "workspaces").map((row) => [row.id, row.archived])).toEqual([
+      ["ws-1", false],
+      ["ws-2", true],
+    ]);
   });
 
   it("lists workspaces with active flag and header titles", async () => {
@@ -46,6 +61,7 @@ describe("workspace commands", () => {
           name: "web",
           cwd: "/repo",
           active: true,
+          archived: false,
           teams: [],
           panes: [
             {
@@ -62,6 +78,7 @@ describe("workspace commands", () => {
           name: "site",
           cwd: "/site",
           active: false,
+          archived: false,
           teams: [],
           panes: [],
         },

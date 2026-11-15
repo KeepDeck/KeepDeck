@@ -71,10 +71,17 @@ export type PaneHoldReason =
    * NOT a reason to end anything. A pane already running when its workspace
    * leaves the screen holds here and keeps running — reading this as "must not
    * have a process" would kill every background agent on a switch. */
-  | { kind: "workspace-inactive" };
+  | { kind: "workspace-inactive" }
+  /** Its workspace is archived. Nothing starts there — no debt, no click, no
+   * launch policy is an exception — until the person restores it. Stopping
+   * what still runs is the archive's own job; this only keeps anything new
+   * from starting. */
+  | { kind: "workspace-archived" };
 
 /** What the decision cannot read off the pane itself. */
 export interface PaneRunEnv {
+  /** This pane's workspace is archived — asked before everything else. */
+  workspaceArchived: boolean;
   /** A plugin currently provides this pane's agent. */
   agentAvailable: boolean;
   /** The probe's verdict that the pane's directory is gone, else null. */
@@ -112,6 +119,9 @@ export function paneRunIntent(
   pane: Pane,
   env: PaneRunEnv,
 ): PaneRunIntent {
+  // First, ahead of every exemption below: an archived workspace runs
+  // nothing, whoever asks and whatever is owed.
+  if (env.workspaceArchived) return hold({ kind: "workspace-archived" });
   // The shared head — see [`paneBlock`]. Ordered by what makes the others
   // moot, and asked in one place because the card ladder needs the same three
   // answers in the same order.
@@ -194,6 +204,8 @@ export type AgentDown =
   /** Its workspace is not open, and it has no process: nothing starts it
    * until somebody opens that workspace. */
   | "workspace-closed"
+  /** Its workspace is archived: nothing there runs until it is restored. */
+  | "workspace-archived"
   /** Its process ended. */
   | "exited"
   /** Its spawn, or the plan for it, failed. */
@@ -215,6 +227,10 @@ export function agentReach(
         return down(reason.kind);
       case "stopped":
         return down(reason.by.reason);
+      case "workspace-archived":
+        // Down the moment the marker lands — even while the archive is still
+        // stopping a live process: mail sent now would never be read.
+        return down("workspace-archived");
       case "workspace-inactive":
         // No reason to END anything: a pane already running off screen keeps
         // running. Only one without a process waits on that workspace.

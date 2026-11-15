@@ -484,6 +484,8 @@ export function unreachableText(to: string, why: AgentDown): string {
         return ["has lost its directory", "ask your user to relocate it"];
       case "workspace-closed":
         return ["has not started — its workspace is not open", "it starts when your user opens that workspace"];
+      case "workspace-archived":
+        return ["is in an archived workspace", "only your user can restore that workspace"];
       case "exited":
         return ["has exited", "ask your user to restart it"];
       case "failed-to-start":

@@ -180,6 +180,7 @@ describe("mail.send", () => {
       "agent-unavailable",
       "worktree-missing",
       "workspace-closed",
+      "workspace-archived",
       "exited",
       "failed-to-start",
     ];
@@ -192,6 +193,8 @@ describe("mail.send", () => {
     expect(new Set(texts).size).toBe(reasons.length);
     expect(unreachableText("x", "agent-unavailable")).not.toContain("ask your user to start it");
     expect(unreachableText("x", "worktree-missing")).toContain("relocate");
+    // An archive is the user's to undo, not the agent's to wait out.
+    expect(unreachableText("x", "workspace-archived")).toContain("only your user can restore");
   });
 
   it("calls every send QUEUED, and says it needs nothing", async () => {

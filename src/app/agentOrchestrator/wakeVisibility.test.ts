@@ -324,6 +324,35 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     expect(agentRun.reachOf("no-such-pane")).toBeNull();
   });
 
+  it("starts nothing in an archived workspace — not even a resume asked for by name", async () => {
+    mount(true);
+    const state = panes([{ id: "here" }, { id: "asked", ws: "ws-2", idle: { reason: "waking", origin: "manual" } }]);
+    state.workspaces[1] = { ...state.workspaces[1], archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } };
+    act(() => deck.hydrate(state));
+    await settle();
+
+    // A manual wake is exempt from the unopened-workspace economy; it is not
+    // exempt from an archive.
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["here"]);
+    expect(agentRun.reachOf("asked")).toEqual({ kind: "down", why: "workspace-archived" });
+  });
+
+  it("reads a running agent down the moment its workspace is archived, and ends nothing by itself", async () => {
+    mount(true);
+    act(() => deck.hydrate(panes([{ id: "running" }, { id: "other", ws: "ws-2" }])));
+    await settle();
+    expect(agentRun.reachOf("running")).toEqual({ kind: "running" });
+
+    act(() => deck.archiveWorkspace("ws-1"));
+    await settle();
+
+    expect(agentRun.reachOf("running")).toEqual({ kind: "down", why: "workspace-archived" });
+    // Stopping it is the archive flow's job; the gate only keeps anything new
+    // from starting.
+    expect(pty.closed).not.toContain("running");
+    expect(pty.live.has("running")).toBe(true);
+  });
+
   it("does not call a pane's plugin missing before the catalog has loaded", async () => {
     mount(false);
     act(() => deck.hydrate(panes([{ id: "orphan", agentType: "kimi" }])));

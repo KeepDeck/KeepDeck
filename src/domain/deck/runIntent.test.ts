@@ -11,6 +11,7 @@ const pane = (over: Partial<Pane> = {}): Pane => ({
 /** The unremarkable case: the agent exists, the directory is there, the
  *  workspace is on screen. Every test overrides only what it is about. */
 const env = (over: Partial<PaneRunEnv> = {}): PaneRunEnv => ({
+  workspaceArchived: false,
   agentAvailable: true,
   missingDir: null,
   workspaceActive: true,
@@ -284,6 +285,29 @@ describe("paneRunIntent — precedence", () => {
   });
 });
 
+describe("paneRunIntent — an archived workspace runs nothing", () => {
+  const ARCHIVED = { kind: "hold", reason: { kind: "workspace-archived" } };
+  const archived = (over: Partial<PaneRunEnv> = {}) => env({ workspaceArchived: true, ...over });
+
+  // Every way a pane is otherwise brought up, each tried against the gate:
+  // none of them may get past it.
+  it.each([
+    ["a pane with no marker, on screen", {}, pane()],
+    ["a start owed to it", { startOwed: true }, pane()],
+    ["a resume asked for by name", { workspaceActive: false }, pane({ idle: { reason: "waking", origin: "manual" } })],
+    ["a waking pane on screen", {}, pane({ idle: waking, session: { id: "s-1", boundAt: "t" } })],
+    ["the launch policy", { parkOnLaunch: true }, pane({ idle: waking })],
+    ["a missing directory", { missingDir: "/gone" }, pane({ idle: waking })],
+    ["a missing agent", { agentAvailable: false }, pane()],
+  ] as const)("holds against %s", (_name, over, subject) => {
+    expect(paneRunIntent({}, subject, archived(over))).toEqual(ARCHIVED);
+  });
+
+  it("holds a member of a team still creating its directory", () => {
+    expect(paneRunIntent(creating, pane(member), archived())).toEqual(ARCHIVED);
+  });
+});
+
 describe("agentReach — would its agent read something sent now", () => {
   const run = paneRunIntent({}, pane(), env());
   const reach = (process: PaneProcess, planFailed = false) => agentReach(run, process, planFailed);
@@ -332,4 +356,15 @@ describe("agentReach — would its agent read something sent now", () => {
     expect(agentReach(offScreen, "live", false)).toEqual({ kind: "running" });
     expect(agentReach(offScreen, "exited", false)).toEqual({ kind: "down", why: "exited" });
   });
+});
+
+describe("agentReach — an archived workspace", () => {
+  const archivedHold = paneRunIntent({}, pane(), env({ workspaceArchived: true }));
+
+  it.each(["none", "starting", "live", "exited", "failed"] as const)(
+    "is down whatever its process is doing (%s) — mail now would never be read",
+    (process: PaneProcess) => {
+      expect(agentReach(archivedHold, process, false)).toEqual({ kind: "down", why: "workspace-archived" });
+    },
+  );
 });

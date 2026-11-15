@@ -47,6 +47,7 @@ import {
   paneInFront,
   resolveSelectedPaneId,
   stagePanes,
+  visibleWorkspaces,
   type SpawnConfig,
   type Workspace,
   type WorkspacePlace,
@@ -120,6 +121,9 @@ export function useAppController(runtime: AppRuntime) {
   // Workspace command opens too.
   const welcome = useWelcomeFlow(pickFolder);
   const presence = deckPresence(deck.workspaces, creating);
+  // The workspaces a person navigates and is called back to — every one
+  // not archived. Identity and retention keep reading `deck.workspaces`.
+  const shownWorkspaces = useMemo(() => visibleWorkspaces(deck.workspaces), [deck.workspaces]);
   const noWorkspace = presence.welcome;
   /** New Workspace (⌘N, the strip's «+»): the form over the deck, or — with
    * no workspace yet — the welcome screen's folder picker. */
@@ -320,14 +324,16 @@ export function useAppController(runtime: AppRuntime) {
   );
   // Announce the transitions worth leaving the app for: needs-you, finished,
   // failed.
-  useActivityNotifications(deck.workspaces, agents);
+  // Neither speaks for an archived workspace: nothing there is the person's
+  // to answer until it is restored.
+  useActivityNotifications(shownWorkspaces, agents);
   // And the launch that left an agent unable to report at all.
-  useUnconnectedLaunchNotifications(deck.workspaces, agents);
+  useUnconnectedLaunchNotifications(shownWorkspaces, agents);
   // One subscription for the whole strip; what the activity MEANS for a mark
   // is `stripView`'s.
   const paneActivities = usePaneActivities(runtime.statusTracker);
   const needsYou = {
-    rows: needsYouRows(deck.workspaces, paneActivities, agents),
+    rows: needsYouRows(shownWorkspaces, paneActivities, agents),
     onOpen: (row: NeedsYouRow) =>
       runtime.application.activatePane(row.wsId, row.paneId),
   };

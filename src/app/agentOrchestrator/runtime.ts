@@ -368,6 +368,7 @@ export function createAgentOrchestratorRuntime(
     commands: ReadonlyMap<string, string>,
   ): PaneRunIntent {
     return paneRunIntent(ws, pane, {
+      workspaceArchived: ws.archived !== undefined,
       agentAvailable: !booted || commands.has(pane.agentType),
       missingDir: runView.blockedDir(pane.id),
       workspaceActive: ws.id === activeId,
