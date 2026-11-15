@@ -86,9 +86,12 @@ export function createWorktree(spec: CreateWorktreeArgs): Promise<WorktreeRecord
 
 /** Options for {@link removeWorktree}. */
 export interface RemoveWorktreeOptions {
-  /** Remove even a dirty worktree and force-delete the branch (`git branch -D`).
-   *  Refuses a dirty worktree when false, so work is never destroyed by default. */
-  force?: boolean;
+  /** Remove the tree even with uncommitted work in it. Refuses a dirty worktree
+   *  when false, so work is never destroyed without this consent. */
+  discardDirty?: boolean;
+  /** Delete the branches with `-D`, dropping commits no other branch holds —
+   *  a consent of its own; when false the safe `-d` refuses them. */
+  discardUnmerged?: boolean;
   /** Also delete this branch once the worktree is gone; left intact when unset. */
   branch?: string | null;
   /** Also delete every branch CREATED inside the worktree (reflog provenance,
@@ -108,7 +111,8 @@ export function removeWorktree(
     spec: {
       repo,
       path,
-      force: opts.force ?? false,
+      discardDirty: opts.discardDirty ?? false,
+      discardUnmerged: opts.discardUnmerged ?? false,
       branch: opts.branch ?? null,
       reapCreatedBranches: opts.reapCreatedBranches ?? false,
     },

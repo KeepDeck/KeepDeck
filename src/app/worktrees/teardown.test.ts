@@ -215,7 +215,8 @@ describe("remove", () => {
     expect(worktree.removeWorktree).toHaveBeenCalledTimes(2);
     // The delete checkbox's intent covers the agent's created side branches.
     expect(worktree.removeWorktree).toHaveBeenCalledWith("/r", "/wt/2", {
-      force: true,
+      discardDirty: true,
+      discardUnmerged: true,
       branch: "b2",
       reapCreatedBranches: true,
     });

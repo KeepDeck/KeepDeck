@@ -363,7 +363,8 @@ describe("provision with a post-provision step", () => {
     // Through the same teardown a close uses — and with the branch sweep OFF:
     // this worktree never became a pane's, so nothing was born in it.
     expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/team-1", {
-      force: true,
+      discardDirty: true,
+      discardUnmerged: true,
       branch: "kd/ws/1",
       reapCreatedBranches: false,
     });

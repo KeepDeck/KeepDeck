@@ -52,8 +52,12 @@ export function createWorktreeTeardown(
         return { kind: "held-elsewhere", target };
       }
       try {
+        // Close's delete box is consent to both losses — uncommitted files
+        // and commits only these branches hold — stated as the two intents
+        // they are.
         await removeWorktree(target.repo, target.path, {
-          force: true,
+          discardDirty: true,
+          discardUnmerged: true,
           branch: target.branch,
           reapCreatedBranches,
         });
