@@ -1,6 +1,6 @@
-/* The Limits tab — one card per provider, drawn around its longest live
-   window: a tile beside that window's chart, the provider's other windows
-   as small tiles under it. */
+/* The Limits tab — one card per provider, and in it each live window as a
+   tile beside its own chart; windows with nothing to chart are small tiles
+   under them. */
 .stats__providers {
   display: flex;
   flex-direction: column;

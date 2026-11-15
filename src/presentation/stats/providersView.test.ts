@@ -110,6 +110,24 @@ describe("providersView", () => {
     expect(order([calm, full, sooner, urgent])).toEqual(["urgent", "sooner", "full", "calm"]);
   });
 
+  it("puts a warning window above a fuller calm one inside a card", () => {
+    const row = (id: string, window: UsageWindow, forecast: WindowForecast) => ({
+      id, agent: "claude", window, reports: [], forecast, reportedAt: NOW, expired: false, stale: false,
+      span: { from: (window.resetsAt ?? NOW) - (window.windowMinutes ?? 0) * 60_000, to: window.resetsAt ?? NOW },
+      usage: null,
+    });
+    const group: ProviderWindowGroup = {
+      agent: "claude", reportedAt: NOW, stale: false, idle: false,
+      rows: [
+        row("5h", live(20), { kind: "out", outAt: NOW + 30 * 60_000, level: "warn" }),
+        row("week", week(60), { kind: "idle" }),
+      ],
+    };
+    const view = providersView([group], NOW, COLORS);
+    // The fuller week is calm; the 5h window runs out first, so it leads.
+    expect(view.kind === "cards" ? view.cards[0]?.charted.map((entry) => entry.window.label) : []).toEqual(["5h", "week"]);
+  });
+
   it("puts the provider with the fullest window first", () => {
     const view = viewOf(new Map([["claude", account([week(10)])], ["codex", account([week(80)])]]));
     expect(view.kind === "cards" ? view.cards.map((card) => card.agent) : []).toEqual(["codex", "claude"]);

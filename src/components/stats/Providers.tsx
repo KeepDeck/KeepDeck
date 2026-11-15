@@ -84,7 +84,7 @@ function ProviderCard({ card, icon, now }: { card: ProviderCardView; icon: Agent
   );
 }
 
-/** A window's tile — the card's lead window large, the others small. */
+/** A window's tile — large beside its chart (`lead`), small without one. */
 function WindowTile({ view, now, lead }: { view: ProviderWindowView; now: number; lead: boolean }) {
   return (
     <div className={`stats__window${lead ? " stats__window--lead" : ""}${view.expired ? " stats__window--expired" : ""}`}>

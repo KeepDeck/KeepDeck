@@ -123,8 +123,9 @@ describe("the Limits chart", () => {
     const x = (NOW - 3 * HOUR - (WEEK_RESET - 7 * DAY)) / (7 * DAY);
     expect(chartView.current.geometry.observed).toEqual([{ x, y: 0.03, at: NOW - 3 * HOUR, usedPct: 3 }]);
     expect(chartView.current.geometry.projected).toBeNull();
-    // And says it is the only one.
+    // And says it is the only one — to the eye, and in the chart's name.
     expect(chartView.current.lone).toEqual({ x, pct: 3, label: "1 report so far", side: "after" });
+    expect(chartView.summary).toMatch(/; 1 report so far$/);
     // No usage on this machine: no bars, not a row of empty ones.
     expect(chartView.bars).toEqual([]);
   });
@@ -154,6 +155,14 @@ describe("the Limits chart", () => {
       const edge = { x: 1, y: 0.2, at: FIVE_H.resetsAt ?? 0, usedPct: 20, kind: "projected" as const };
       expect(limitsTooltipView(view, edge).note).toBe("This machine that hour: 900 tokens");
     });
+  });
+
+  it("counts the reports rather than inferring one from a chart that did not draw", () => {
+    // Two reports at the same instant draw no line either — but they are two.
+    const twin: WindowReport[] = [1, 2].map(() => ({ agent: "codex", windowMinutes: 10_080, usedPct: 3, reportedAt: NOW - HOUR, resetsAt: WEEK_RESET }));
+    const view = present(chart({ windows: [WEEK], journal: twin }), "a chart");
+    expect(view.current.lone).toBeNull();
+    expect(view.summary).not.toContain("report so far");
   });
 
   it("names every n-th day of a long window rather than none", () => {

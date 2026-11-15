@@ -2,6 +2,7 @@ import { formatMoment, formatPct, formatStep, formatTokens, windowLabel } from "
 import { windowSteps, type ProviderWindowRow } from "../../domain/usage/providerWindows";
 import { nextStep, stepStart } from "../../domain/usage/stats/fold";
 import type { Span } from "../../domain/usage/stats/period";
+import { currentSegment } from "../../domain/usage/reportJournal";
 import { windowBurn, type BurnGeometry, type BurnPoint } from "../../domain/usage/windowBurn";
 import { burnTooltipView, type BurnInspectionGeometry, type BurnInspectionSample, type BurnTooltipView } from "../burnInspection";
 import { usageLevelClass } from "../usageView";
@@ -55,6 +56,9 @@ export interface LimitsChartView {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
+/** Said of a window with a single report so far. */
+const LONE = "1 report so far";
+
 /** Null when the window has no span to lay a clock on. */
 export function limitsChartView(
   main: ProviderWindowRow,
@@ -67,6 +71,9 @@ export function limitsChartView(
   const steps = windowSteps(span);
   const label = windowLabel(main.window, "long");
   const burn = windowBurn(main.reports, main.window, main.forecast, now);
+  // At most one report in this window so far — counted, not inferred from a
+  // chart that did not draw: two reports at one instant draw none either.
+  const lone = currentSegment(main.reports).filter((report) => report.reportedAt <= now).length <= 1;
   const reading = (at: number, usedPct: number): BurnPoint => ({ x: x(at), y: usedPct / 100, at, usedPct });
   const usage = main.usage ?? [];
   const top = Math.max(0, ...usage.map((step) => step.tokensLessCacheReads));
@@ -86,7 +93,7 @@ export function limitsChartView(
           : null,
       },
       end: forecastEnd(main, burn, x, now),
-      lone: burn === null ? { x: x(main.reportedAt), pct: main.window.usedPct, label: "1 report so far", side: x(main.reportedAt) > 0.6 ? "before" : "after" } : null,
+      lone: lone ? { x: x(main.reportedAt), pct: main.window.usedPct, label: LONE, side: x(main.reportedAt) > 0.6 ? "before" : "after" } : null,
     },
     bars: top === 0 ? [] : usage.flatMap((step) => {
       const from = Math.max(step.start, span.from);
@@ -102,7 +109,7 @@ export function limitsChartView(
         note: `This machine that ${steps}: ${tokens}`,
       }];
     }),
-    summary: `${main.agent} ${label}: ${formatPct(main.window.usedPct, "used")} used, ${formatStep(span.from, "hour", "long")} to ${formatStep(span.to, "hour", "long")}`,
+    summary: `${main.agent} ${label}: ${formatPct(main.window.usedPct, "used")} used, ${formatStep(span.from, "hour", "long")} to ${formatStep(span.to, "hour", "long")}${lone ? `; ${LONE}` : ""}`,
   };
 }
 

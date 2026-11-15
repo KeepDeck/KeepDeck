@@ -66,15 +66,15 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
             <span className="stats__limits-axis" style={{ top: "50%" }} aria-hidden="true">50%</span>
             {last && <i className="stats__limits-dot" style={{ left: at(last.x), top: fromTop(last.usedPct) }} aria-hidden="true" />}
             {current.lone && (
-            <span
-              className={`stats__limits-lone stats__limits-lone--${current.lone.side}`}
-              style={{ left: at(current.lone.x), top: fromTop(current.lone.pct) }}
-              aria-hidden="true"
-            >
-              {current.lone.label}
-            </span>
-          )}
-          {current.end && (
+              <span
+                className={`stats__limits-lone stats__limits-lone--${current.lone.side}`}
+                style={{ left: at(current.lone.x), top: fromTop(current.lone.pct) }}
+                aria-hidden="true"
+              >
+                {current.lone.label}
+              </span>
+            )}
+            {current.end && (
               <>
                 <i
                   className={`stats__limits-end ${current.end.className ?? ""}`}
