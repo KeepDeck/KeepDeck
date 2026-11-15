@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { easeFold } from "./foldMotion";
 import { FOLD_MOTION_MS, reducedMotion } from "./useFoldMotion";
 
@@ -73,8 +74,11 @@ export function FoldBlock({
         frame = requestAnimationFrame(tick);
         return;
       }
+      // Rolled up: the rows go in THIS frame, before the height is let go —
+      // left to the scheduler, they would stand at their full height for a
+      // paint between the two (the flash the user saw, 2026-11-16).
+      if (!open) flushSync(() => setFold((now) => ({ ...now, rolling: false })));
       rest();
-      if (!open) setFold((now) => ({ ...now, rolling: false }));
     });
     return () => cancelAnimationFrame(frame);
   }, [open]);

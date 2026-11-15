@@ -91,6 +91,26 @@ describe("FoldBlock", () => {
     expect(block().style.height).toBe("");
   });
 
+  it("lets the height go only once the rolled-up rows are gone — never a paint of them at full height", () => {
+    draw(true, rows("a", "b"));
+    const element = block();
+    // Every height written, with the rows standing at that moment.
+    const writes: { height: string; rows: number }[] = [];
+    Object.defineProperty(element.style, "height", {
+      configurable: true,
+      get: () => element.style.getPropertyValue("height"),
+      set: (height: string) => {
+        writes.push({ height, rows: element.querySelectorAll("p").length });
+        element.style.setProperty("height", height);
+      },
+    });
+    draw(false, null);
+    frames(FOLD_MOTION_MS + 40);
+    expect(names()).toEqual([]);
+    expect(writes[writes.length - 1]).toEqual({ height: "", rows: 0 });
+    expect(writes.filter((write) => write.height === "" && write.rows > 0)).toEqual([]);
+  });
+
   it("turned round midway, goes on from the height it reached", () => {
     draw(false, null);
     block();
