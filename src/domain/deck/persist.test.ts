@@ -8,6 +8,7 @@ import type { Team } from "./teams";
 import {
   DECK_STATE_VERSION,
   PROVISIONING_INTERRUPTED,
+  deckImmediateKey,
   hydrateDeck,
   serializeDeck,
   type HydratedDeck,
@@ -1639,5 +1640,53 @@ describe("the retired rail expansion map", () => {
     doc.railExpandedByWs = { [state.workspaces[0].id]: true };
     const restored = okDeck(JSON.stringify(doc));
     expect(serializeDeck(restored.state, restored.docExtras)).not.toContain("railExpandedByWs");
+  });
+});
+
+describe("deckImmediateKey", () => {
+  const pane = (over: Partial<Pane> = {}): Pane => ({ id: "pane-1", agentType: "claude", ...over });
+  const deckOf = (panes: Pane[], over: Partial<DeckState["workspaces"][number]> = {}) => ({
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "keepdeck",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes,
+        ...over,
+      },
+    ],
+  });
+  const base = deckImmediateKey(deckOf([pane()]));
+
+  it("changes when a durable idle marker lands", () => {
+    expect(deckImmediateKey(deckOf([pane({ idle: { reason: "suspended", at: "2026-11-16T00:00:00.000Z" } })]))).not.toBe(base);
+  });
+
+  it("changes when a session binding changes", () => {
+    const bound = deckImmediateKey(deckOf([pane({ session: { id: "s-1", boundAt: "2026-11-16T00:00:00.000Z" } })]));
+    expect(bound).not.toBe(base);
+    expect(deckImmediateKey(deckOf([pane({ session: { id: "s-2", boundAt: "2026-11-16T00:00:00.000Z" } })]))).not.toBe(bound);
+  });
+
+  it("changes when a worktree create is in flight for the pane's team", () => {
+    const teams: Team[] = [
+      {
+        id: "team-1",
+        name: "api",
+        location: { kind: "provisioning", intent: { repo: "/repo", path: "/wt/1", index: 1 } },
+      },
+    ];
+    const creating = deckOf([pane({ team: { teamId: "team-1", role: "lead" } })], { teams });
+    const settled = deckOf([pane({ team: { teamId: "team-1", role: "lead" } })], {
+      teams: [{ ...teams[0], location: { kind: "attached", cwd: "/wt/1" } }],
+    });
+    expect(deckImmediateKey(creating)).not.toBe(deckImmediateKey(settled));
+  });
+
+  it("ignores what can wait: a rename, a non-durable idle marker", () => {
+    expect(deckImmediateKey(deckOf([pane()], { name: "renamed" }))).toBe(base);
+    expect(deckImmediateKey(deckOf([pane({ idle: { reason: "parked" } })]))).toBe(base);
   });
 });

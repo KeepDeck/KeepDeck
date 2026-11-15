@@ -2,6 +2,7 @@ import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneIdle, WorktreeIntent } from "./panes";
 import { paneIdleIsDurable } from "./panes";
+import { paneProvisioning } from "./roots";
 import { liveSpotlights } from "./spotlights";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
@@ -217,6 +218,31 @@ function readView(value: unknown, ws: Workspace): WorkspaceView | undefined {
   const extras = collectExtras(value, VIEW_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) view.extras = extras;
   return Object.keys(view).length > 0 ? view : undefined;
+}
+
+/**
+ * What must reach disk at once rather than with the debounced save — as one
+ * comparable key. The deck changes many times a second while agents work,
+ * and almost all of it can wait; these facts cannot, because losing them to
+ * a quit costs a decision or a conversation: which session each pane is
+ * bound to (the resume key), which panes have a worktree create in flight,
+ * and which carry a durable idle marker (a suspend). The persistence layer
+ * flushes whenever this key changes and never needs to know why.
+ */
+export function deckImmediateKey(state: Pick<DeckState, "workspaces">): string {
+  return state.workspaces
+    .map(
+      (workspace) =>
+        `${workspace.id}:${workspace.panes
+          .map(
+            (pane) =>
+              `${pane.id}=${pane.session?.id ?? ""}${paneProvisioning(workspace, pane) ? "+wip" : ""}${
+                paneIdleIsDurable(pane.idle) ? "+susp" : ""
+              }`,
+          )
+          .join(",")}`,
+    )
+    .join(";");
 }
 
 /**
