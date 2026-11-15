@@ -52,7 +52,6 @@ export function Providers({
           <ProviderCard key={card.agent} card={card} icon={agentIcons.get(card.agent) ?? null} now={now} />
         ))}
       </div>
-      {view.note && <p className="stats__coverage">{view.note}</p>}
     </section>
   );
 }

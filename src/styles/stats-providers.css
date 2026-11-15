@@ -148,17 +148,8 @@
   gap: 12px;
 }
 
-/* The plot and the usage bars under it: one area the pointer and the
-   arrow keys inspect. */
-.stats__limits-inspect {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: crosshair;
-  outline: none;
-}
-
-.stats__limits-inspect:focus-visible {
+/* The plot is what the pointer and the arrow keys inspect. */
+.stats__limits-plot:focus-visible {
   outline: 1px solid var(--kd-focus);
   outline-offset: 2px;
   border-radius: var(--kd-radius-mark);
@@ -187,6 +178,8 @@
 .stats__limits-plot {
   position: relative;
   height: 120px;
+  cursor: crosshair;
+  outline: none;
 }
 
 .stats__limits-plot svg {
@@ -300,24 +293,6 @@
 .stats__limits-now-label--before {
   padding-right: 6px;
   transform: translateX(-100%);
-}
-
-/* This machine's usage per day under the plot, on the same clock. */
-.stats__limits-bars {
-  position: relative;
-  height: 22px;
-  border-bottom: 1px solid var(--kd-seam);
-}
-
-.stats__limits-bars i {
-  position: absolute;
-  bottom: 0;
-  box-sizing: border-box;
-  border-right: 2px solid var(--kd-tile);
-  border-left: 2px solid var(--kd-tile);
-  border-radius: var(--kd-radius-mark) var(--kd-radius-mark) 0 0;
-  background: var(--stats-series);
-  opacity: 0.28;
 }
 
 .stats__limits-ticks {

@@ -11,8 +11,8 @@ import { usageLevelClass } from "../usageView";
  * The Limits card's chart, settled: one window on its own clock — x runs
  * from the window's start (0) to its reset (1) — with the provider's
  * percent over it and where the pace takes it, named at the end of the
- * dashed line, and this machine's usage per calendar day (per hour in a
- * short window) beneath. Every instant it shows is named on the reader's calendar: the
+ * dashed line; this machine's usage per calendar day (per hour in a short
+ * window) is said by the hover card, not drawn. Every instant it shows is named on the reader's calendar: the
  * start, the reset, now, and each day — a curve without them said nothing
  * about when (user, 2026-11-15). Only the current window: the earlier ones
  * answered nothing the reader asked for.
@@ -46,10 +46,11 @@ export interface LimitsChartView {
      * not read as a line that failed to draw. */
     lone: (ChartPoint & { label: string; side: "after" | "before" }) | null;
   };
-  /** This machine's tokens less cache reads per step, the busiest step full
-   * height; `note` is what the hover card says of the step. None at all
-   * while the machine used nothing in the window — no row of empty bars. */
-  bars: { key: string; x0: number; x1: number; height: number; title: string; note: string }[];
+  /** This machine's tokens less cache reads per day (per hour in a short
+   * window), as the hover card says them of the step under the point —
+   * never drawn: the user wants no usage bars on Limits (2026-11-15). None
+   * while the machine used nothing in the window. */
+  usage: { x0: number; x1: number; note: string }[];
   /** Read in place of the drawing. */
   summary: string;
 }
@@ -76,7 +77,6 @@ export function limitsChartView(
   const lone = currentSegment(main.reports).filter((report) => report.reportedAt <= now).length <= 1;
   const reading = (at: number, usedPct: number): BurnPoint => ({ x: x(at), y: usedPct / 100, at, usedPct });
   const usage = main.usage ?? [];
-  const top = Math.max(0, ...usage.map((step) => step.tokensLessCacheReads));
   return {
     start: `started ${formatStep(span.from, "hour", "long")}`,
     end: `resets ${formatStep(span.to, "hour", "long")}`,
@@ -95,19 +95,11 @@ export function limitsChartView(
       end: forecastEnd(main, burn, x, now),
       lone: lone ? { x: x(main.reportedAt), pct: main.window.usedPct, label: LONE, side: x(main.reportedAt) > 0.6 ? "before" : "after" } : null,
     },
-    bars: top === 0 ? [] : usage.flatMap((step) => {
+    usage: usage.every((step) => step.tokensLessCacheReads === 0) ? [] : usage.flatMap((step) => {
       const from = Math.max(step.start, span.from);
       const to = Math.min(nextStep(step.start, steps), span.to);
       if (to <= from) return [];
-      const tokens = `${formatTokens(step.tokensLessCacheReads)} tokens`;
-      return [{
-        key: String(step.start),
-        x0: x(from),
-        x1: x(to),
-        height: top > 0 ? step.tokensLessCacheReads / top : 0,
-        title: `${formatStep(step.start, steps, "long")}: ${tokens}`,
-        note: `This machine that ${steps}: ${tokens}`,
-      }];
+      return [{ x0: x(from), x1: x(to), note: `This machine that ${steps}: ${formatTokens(step.tokensLessCacheReads)} tokens` }];
     }),
     summary: `${main.agent} ${label}: ${formatPct(main.window.usedPct, "used")} used, ${formatStep(span.from, "hour", "long")} to ${formatStep(span.to, "hour", "long")}${lone ? `; ${LONE}` : ""}`,
   };
@@ -138,8 +130,8 @@ function forecastEnd(
 export function limitsTooltipView(view: LimitsChartView, sample: BurnInspectionSample): BurnTooltipView {
   // Steps are half-open, but the reset is the last step's own end: a point
   // on the plot's right edge belongs to it.
-  const bar = view.bars.find((step) => sample.x >= step.x0 && (sample.x < step.x1 || step.x1 === 1)) ?? null;
-  return burnTooltipView(sample, formatStep(Math.round(sample.at), "hour", "long"), bar?.note ?? null);
+  const step = view.usage.find((each) => sample.x >= each.x0 && (sample.x < each.x1 || each.x1 === 1)) ?? null;
+  return burnTooltipView(sample, formatStep(Math.round(sample.at), "hour", "long"), step?.note ?? null);
 }
 
 /** The day (or hour) boundaries strictly inside the span. */

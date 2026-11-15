@@ -88,7 +88,7 @@ describe("providersView", () => {
     const scoped: UsageWindow = { ...week(40), scope: "opus" };
     const card = cardOf(viewOf(new Map([["claude", account([live(10), scoped])]])));
     expect(card.charted.map((entry) => entry.window.label)).toEqual([windowLabel(scoped, "long"), "5h"]);
-    expect(card.charted[0]?.chart.bars).toEqual([]);
+    expect(card.charted[0]?.chart.usage).toEqual([]);
   });
 
   it("puts the most urgent warning first: severity, then how soon, then how full", () => {
@@ -131,14 +131,6 @@ describe("providersView", () => {
   it("puts the provider with the fullest window first", () => {
     const view = viewOf(new Map([["claude", account([week(10)])], ["codex", account([week(80)])]]));
     expect(view.kind === "cards" ? view.cards.map((card) => card.agent) : []).toEqual(["codex", "claude"]);
-  });
-
-  it("says once what the bars under the charts count — tokens, the dialog's switch aside", () => {
-    const accounts = new Map([["claude", account([week(10)])]]);
-    const rows = [usageEvent({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 2 })];
-    const view = accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS });
-    expect(view.kind === "cards" ? view.note : undefined).toMatch(/^Bars are this machine's tokens less cache reads, by day/);
-    expect(viewOf(new Map([["claude", account([expired])]]))).toMatchObject({ note: null });
   });
 
   it("is the one Limits pipeline both the Limits tab and Overview's glance read", () => {

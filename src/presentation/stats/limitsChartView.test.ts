@@ -59,26 +59,23 @@ describe("the Limits chart", () => {
     expect(view.ticks.map((tick) => tick.label)).toEqual(["14:00", "15:00", "16:00", "17:00", "18:00"]);
   });
 
-  it("stands this machine's usage on the same days, the busiest one full height", () => {
+  it("knows this machine's usage on the same days, for the hover card to say", () => {
     const view = present(
       chart({
         events: [
           { occurredAt: at("2026-11-15T10:00:00+02:00"), costUsd: 1, tokens: { input: 4_000 } },
-          // Dear but small: money does not size a bar.
+          // Dear but small: money is not what is said.
           { occurredAt: at("2026-11-14T20:00:00+02:00"), costUsd: 90, tokens: { input: 1_000, cacheRead: 50_000 } },
           { occurredAt: at("2026-11-14T12:00:00+02:00"), tokens: { input: 50_000 } }, // before the week began
         ],
       }),
       "a chart",
     );
-    // Tokens, not money: a limit counts work. The busiest day is full height.
-    expect(view.bars.map((bar) => [bar.height, bar.title])).toEqual([
-      [0.25, "Sat, Nov 14, 2026: 1k tokens"],
-      [1, "Sun, Nov 15, 2026: 4k tokens"],
-    ]);
-    // Saturday's bar starts where the week does, not at midnight.
-    expect(view.bars[0]?.x0).toBe(0);
-    expect(view.bars[1]?.x0).toBeCloseTo(7 / (7 * 24));
+    // Tokens, not money: a limit counts work.
+    expect(view.usage.map((step) => step.note)).toEqual(["This machine that day: 1k tokens", "This machine that day: 4k tokens"]);
+    // Saturday's step starts where the week does, not at midnight.
+    expect(view.usage[0]?.x0).toBe(0);
+    expect(view.usage[1]?.x0).toBeCloseTo(7 / (7 * 24));
   });
 
   it("names where the pace takes the window: the limit and when, or what is left at the reset", () => {
@@ -126,8 +123,8 @@ describe("the Limits chart", () => {
     // And says it is the only one — to the eye, and in the chart's name.
     expect(chartView.current.lone).toEqual({ x, pct: 3, label: "1 report so far", side: "after" });
     expect(chartView.summary).toMatch(/; 1 report so far$/);
-    // No usage on this machine: no bars, not a row of empty ones.
-    expect(chartView.bars).toEqual([]);
+    // No usage on this machine: nothing for the card to say of it.
+    expect(chartView.usage).toEqual([]);
   });
 
   it("dates the instant under inspection, and says this machine's usage on that day while there is one", () => {
@@ -149,7 +146,7 @@ describe("the Limits chart", () => {
   it("reads the last step at the plot's right edge, where it ends at the reset", () => {
     // Now is in the 5h window's last hour: its last step runs to the reset.
     const view = present(chart({ windows: [FIVE_H], events: [{ occurredAt: NOW - 10 * 60_000, tokens: { input: 900 } }] }), "a chart");
-    const last = view.bars[view.bars.length - 1];
+    const last = view.usage[view.usage.length - 1];
     expect(last?.x1).toBe(1);
     inZone("Asia/Nicosia", () => {
       const edge = { x: 1, y: 0.2, at: FIVE_H.resetsAt ?? 0, usedPct: 20, kind: "projected" as const };
@@ -158,8 +155,8 @@ describe("the Limits chart", () => {
   });
 
   it("counts the reports rather than inferring one from a chart that did not draw", () => {
-    // Two reports at the same instant draw no line either — but they are two.
-    const twin: WindowReport[] = [1, 2].map(() => ({ agent: "codex", windowMinutes: 10_080, usedPct: 3, reportedAt: NOW - HOUR, resetsAt: WEEK_RESET }));
+    // Two reports at now draw no line either — but they are two.
+    const twin: WindowReport[] = [1, 2].map(() => ({ agent: "codex", windowMinutes: 10_080, usedPct: 3, reportedAt: NOW, resetsAt: WEEK_RESET }));
     const view = present(chart({ windows: [WEEK], journal: twin }), "a chart");
     expect(view.current.lone).toBeNull();
     expect(view.summary).not.toContain("report so far");

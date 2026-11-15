@@ -59,18 +59,10 @@ export type ProvidersView =
       kind: "cards";
       title: string;
       cards: ProviderCardView[];
-      /** What the bars under the charts are, said once; null without bars. */
-      note: string | null;
     };
 
 const tone = (text: string, className: string | undefined): ToneText =>
   className ? { text, className } : { text };
-
-/** What the bars count — tokens, whatever the dialog's switch says: a
- * limit is counted in work, not in money at list price (user, 2026-11-15:
- * the switch idles on Limits). */
-const BARS_NOTE =
-  "Bars are this machine's tokens less cache reads, by day (by hour in a short window); the provider also counts other devices and the web.";
 
 function windowView(row: ProviderWindowRow, now: number): ProviderWindowView {
   const { window } = row;
@@ -159,7 +151,6 @@ export function providersView(
     kind: "cards",
     title: "Providers",
     cards,
-    note: cards.some((card) => card.charted.some((entry) => entry.chart.bars.length > 0)) ? BARS_NOTE : null,
   };
 }
 

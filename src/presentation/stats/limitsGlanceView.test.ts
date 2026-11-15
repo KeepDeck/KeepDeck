@@ -29,7 +29,7 @@ const card = (over: Partial<ProviderCardView> = {}): ProviderCardView => ({
 describe("the limits glance", () => {
   it("is one line per window: bar, percent and the time to reset, the provider named once", () => {
     const view = limitsGlanceView(
-      { kind: "cards", title: "Providers", note: null, cards: [card({ windows: [windowView({ id: "a" }), windowView({ id: "b", label: "week" })] })] },
+      { kind: "cards", title: "Providers", cards: [card({ windows: [windowView({ id: "a" }), windowView({ id: "b", label: "week" })] })] },
       NOW,
     );
     expect(view.empty).toBeNull();
@@ -42,7 +42,7 @@ describe("the limits glance", () => {
   it("speaks a forecast only when it warns", () => {
     const calm = windowView({ verdict: { text: "Won't hit the limit · ~74% left" } });
     const warning = windowView({ verdict: { text: "Will hit the limit in ~40m", className: "usage-level--critical" } });
-    const [provider] = limitsGlanceView({ kind: "cards", title: "", note: null, cards: [card({ windows: [calm, warning] })] }, NOW).providers;
+    const [provider] = limitsGlanceView({ kind: "cards", title: "", cards: [card({ windows: [calm, warning] })] }, NOW).providers;
     expect(provider?.windows.map((w) => w.alarm)).toEqual([
       null,
       { text: "Will hit the limit in ~40m", className: "usage-level--critical" },
@@ -51,7 +51,7 @@ describe("the limits glance", () => {
 
   it("says a reading is old only when it is old enough to doubt — as its age, under the provider's name", () => {
     const glance = (over: Partial<ProviderCardView>) => {
-      const [provider] = limitsGlanceView({ kind: "cards", title: "", note: null, cards: [card(over)] }, NOW).providers;
+      const [provider] = limitsGlanceView({ kind: "cards", title: "", cards: [card(over)] }, NOW).providers;
       return { line: provider?.age, cells: provider?.windows.map((w) => w.age) };
     };
     const old = { updated: { text: "Updated 3h ago", className: "usage-level--warn" }, age: { text: "3h ago", className: "usage-level--warn" } };
@@ -65,7 +65,7 @@ describe("the limits glance", () => {
 
   it("marks a window that has reset, and says so when no provider has reported", () => {
     const reset = windowView({ expired: true, window: { usedPct: 80, resetsAt: NOW - HOUR, windowMinutes: 300 } });
-    expect(limitsGlanceView({ kind: "cards", title: "", note: null, cards: [card({ windows: [reset] })] }, NOW).providers[0]?.windows[0]?.reset).toBe("reset");
+    expect(limitsGlanceView({ kind: "cards", title: "", cards: [card({ windows: [reset] })] }, NOW).providers[0]?.windows[0]?.reset).toBe("reset");
     expect(limitsGlanceView({ kind: "empty", text: "x" }, NOW)).toEqual({
       title: "Limits now",
       link: "Limits →",

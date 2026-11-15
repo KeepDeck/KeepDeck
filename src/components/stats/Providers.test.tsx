@@ -192,16 +192,14 @@ describe("Providers", () => {
     expect(host.querySelector(".stats__limits-chart")).toBeNull();
   });
 
-  it("stands this machine's usage under the chart, and says once what the bars count", () => {
+  it("draws no usage bars — the user wants none on Limits — and so no note about them", () => {
     render({
       accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
       events: [usageEvent({ occurredAt: NOW - HOUR })],
     });
-    const bars = [...host.querySelectorAll<HTMLElement>(".stats__limits-bars i")];
-    expect(bars.length).toBeGreaterThan(0);
-    expect(bars.some((bar) => bar.style.height === "100.00%")).toBe(true);
-    expect(host.querySelectorAll(".stats__coverage")).toHaveLength(1);
-    expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/^Bars are this machine's tokens less cache reads/);
+    expect(host.querySelector(".stats__limits-chart")).not.toBeNull();
+    expect(host.querySelector(".stats__limits-bars")).toBeNull();
+    expect(host.querySelector(".stats__coverage")).toBeNull();
   });
 
   it("opens a dated card where the pointer is: reported or projected, and this machine's day", () => {
@@ -209,11 +207,10 @@ describe("Providers", () => {
       accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
       events: [usageEvent({ occurredAt: NOW - HOUR })],
     });
-    // The plot and the usage bars under it are one inspected area.
-    const area = present(host.querySelector<HTMLElement>(".stats__limits-inspect"), "the inspected area");
-    area.getBoundingClientRect = () => ({ top: 0, left: 0, right: 1000, bottom: 160, width: 1000, height: 160, x: 0, y: 0, toJSON: () => ({}) });
+    const area = present(host.querySelector<HTMLElement>(".stats__limits-plot"), "the plot");
+    area.getBoundingClientRect = () => ({ top: 0, left: 0, right: 1000, bottom: 120, width: 1000, height: 120, x: 0, y: 0, toJSON: () => ({}) });
     // The lone reading stands four days into the week: at 4/7 of the plot.
-    act(() => area.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 571, clientY: 140 })));
+    act(() => area.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 571, clientY: 100 })));
     const card = present(document.querySelector<HTMLElement>("[role='tooltip']"), "the hover card");
     expect(card.textContent).toContain("Observed");
     expect(card.textContent).toContain("20% used");
@@ -227,14 +224,11 @@ describe("Providers", () => {
     expect(host.querySelector("[role='status']")?.textContent).toMatch(/: Observed, 20% used/);
   });
 
-  it("draws no row of empty bars for a window this machine did not use, and says of a lone reading that it is one", () => {
+  it("says of a lone reading that it is one", () => {
     render({
       accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
       events: [usageEvent({ agent: "claude", occurredAt: NOW - HOUR })],
     });
-    expect(host.querySelector(".stats__limits-bars")).toBeNull();
-    // No bars anywhere: nothing to explain under them either.
-    expect(host.querySelector(".stats__coverage")).toBeNull();
     expect(host.querySelector(".stats__limits-lone")?.textContent).toBe("1 report so far");
   });
 
