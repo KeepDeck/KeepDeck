@@ -59,12 +59,13 @@ describe("providersView", () => {
     expect(card.lead?.label).toBe("week");
     expect(card.others.map((window) => window.label)).toEqual(["5h"]);
     expect(card.color).toBe("#c1");
-    expect(card.chart?.slices).toEqual([expect.objectContaining({ label: expect.stringMatching(/^5h window · \d\d:\d\d–\d\d:\d\d$/) })]);
+    expect(card.chart?.slices.map((slice) => slice.label.text)).toEqual([expect.stringMatching(/^5h window · \d\d:\d\d–\d\d:\d\d$/)]);
+    expect(card.layout).toBe("chart");
   });
 
   it("has no window to draw a card around when every one has reset", () => {
     const card = cardOf(viewOf(new Map([["claude", account([expired])]])));
-    expect([card.lead, card.chart]).toEqual([null, null]);
+    expect([card.lead, card.chart, card.layout]).toEqual([null, null, "tiles"]);
     expect(card.others).toHaveLength(1);
   });
 

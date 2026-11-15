@@ -3,7 +3,8 @@ import { windowSteps, type ProviderWindowRow } from "../../domain/usage/provider
 import { nextStep, stepStart } from "../../domain/usage/stats/fold";
 
 import type { Span } from "../../domain/usage/stats/period";
-import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
+import { windowBurn, type BurnGeometry, type BurnPoint } from "../../domain/usage/windowBurn";
+import { burnTooltipView, type BurnInspectionSample, type BurnTooltipView } from "../burnInspection";
 import { usageLevelClass } from "../usageView";
 
 /**
@@ -18,7 +19,7 @@ import { usageLevelClass } from "../usageView";
  * answered nothing the reader asked for.
  */
 
-/** A reading on the window's clock: `x` 0–1, `pct` the provider's percent. */
+/** A point on the window's clock: `x` 0–1, `pct` the provider's percent. */
 export interface ChartPoint {
   x: number;
   pct: number;
@@ -34,21 +35,22 @@ export interface LimitsChartView {
   grid: number[];
   /** A label per day (or hour) wide enough to carry one, at its middle. */
   ticks: { x: number; label: string }[];
-  /** This window's readings and where the pace takes them. `end` is where
-   * the dashed line stops, named: the limit and when it is reached, or
-   * what is left at the reset — the forecast, said on the chart. */
+  /** This window's readings and where the pace takes them, on the
+   * window's clock (x 0–1, y the percent's share of the limit) — what the
+   * lines are drawn from and what the pointer inspects. `end` is where the
+   * dashed line stops, named: the limit and when it is reached, or what is
+   * left at the reset — the forecast, said on the chart. */
   current: {
-    points: ChartPoint[];
-    projection: [ChartPoint, ChartPoint] | null;
+    geometry: BurnGeometry;
     end: (ChartPoint & { label: string; className?: string; side: "after" | "before"; below: boolean }) | null;
   };
-  /** The provider's shorter windows running now, where they sit; the name
-   * goes after the slice where there is room, else before it, else inside
-   * it from its start — never past an edge of the plot. */
-  slices: { key: string; x0: number; x1: number; label: string; side: "after" | "before" | "inside" }[];
+  /** The provider's shorter windows running now, where they sit, and where
+   * the name goes: after the slice where there is room, else before it,
+   * else inside it from its start — never past an edge of the plot. */
+  slices: { key: string; x0: number; x1: number; label: { text: string; x: number; side: "after" | "before" | "inside" } }[];
   /** This machine's tokens less cache reads per step, the busiest step full
-   * height. */
-  bars: { key: string; x0: number; x1: number; height: number; title: string }[];
+   * height; `note` is what the hover card says of the step. */
+  bars: { key: string; x0: number; x1: number; height: number; title: string; note: string }[];
   /** Read in place of the drawing. */
   summary: string;
 }
@@ -68,7 +70,7 @@ export function limitsChartView(
   const steps = windowSteps(span);
   const label = windowLabel(main.window, "long");
   const burn = windowBurn(main.reports, main.window, main.forecast, now, "limit");
-  const reading = (at: number, pct: number): ChartPoint => ({ x: x(at), pct });
+  const reading = (at: number, usedPct: number): BurnPoint => ({ x: x(at), y: usedPct / 100, at, usedPct });
   const usage = main.usage ?? [];
   const top = Math.max(0, ...usage.map((step) => step.tokensLessCacheReads));
   return {
@@ -78,12 +80,16 @@ export function limitsChartView(
     grid: cuts(span, steps).map(x),
     ticks: ticks(span, steps).map((tick) => ({ x: x(tick.at), label: tick.label })),
     current: {
-      // A lone reading is not a curve: it stands where it was read — the
-      // account's report — not at now, when nothing arrived.
-      points: burn ? burn.observed.map((point) => reading(point.at, point.usedPct)) : [reading(main.reportedAt, main.window.usedPct)],
-      projection: burn?.projected
-        ? [reading(burn.projected[0].at, burn.projected[0].usedPct), reading(burn.projected[1].at, burn.projected[1].usedPct)]
-        : null,
+      geometry: {
+        // A lone reading is not a curve: it stands where it was read — the
+        // account's report — not at now, when nothing arrived.
+        observed: burn ? burn.observed.map((point) => reading(point.at, point.usedPct)) : [reading(main.reportedAt, main.window.usedPct)],
+        projected: burn?.projected
+          ? [reading(burn.projected[0].at, burn.projected[0].usedPct), reading(burn.projected[1].at, burn.projected[1].usedPct)]
+          : null,
+        out: null,
+        endPct: burn?.endPct ?? null,
+      },
       end: forecastEnd(main, burn, x, now),
     },
     slices: others.flatMap((other) =>
@@ -93,20 +99,25 @@ export function limitsChartView(
             key: other.id,
             x0: x(other.span.from),
             x1: x(other.span.to),
-            label: `${windowLabel(other.window, "long")} window · ${formatStep(other.span.from, "hour")}–${formatStep(other.span.to, "hour")}`,
-            side: sliceSide(x(other.span.from), x(other.span.to)),
+            label: sliceLabel(
+              `${windowLabel(other.window, "long")} window · ${formatStep(other.span.from, "hour")}–${formatStep(other.span.to, "hour")}`,
+              x(other.span.from),
+              x(other.span.to),
+            ),
           }],
     ),
     bars: usage.flatMap((step) => {
       const from = Math.max(step.start, span.from);
       const to = Math.min(nextStep(step.start, steps), span.to);
       if (to <= from) return [];
+      const tokens = `${formatTokens(step.tokensLessCacheReads)} tokens`;
       return [{
         key: String(step.start),
         x0: x(from),
         x1: x(to),
         height: top > 0 ? step.tokensLessCacheReads / top : 0,
-        title: `${formatStep(step.start, steps, "long")}: ${formatTokens(step.tokensLessCacheReads)} tokens`,
+        title: `${formatStep(step.start, steps, "long")}: ${tokens}`,
+        note: `This machine that ${steps}: ${tokens}`,
       }];
     }),
     summary: `${main.agent} ${label}: ${formatPct(main.window.usedPct, "used")} used, ${formatStep(span.from, "hour", "long")} to ${formatStep(span.to, "hour", "long")}`,
@@ -134,10 +145,19 @@ function forecastEnd(
 /** Room a name needs beside a slice, as a share of the plot. */
 const NAME_ROOM = 0.4;
 
-function sliceSide(x0: number, x1: number): "after" | "before" | "inside" {
-  if (1 - x1 >= NAME_ROOM) return "after";
-  if (x0 >= NAME_ROOM) return "before";
-  return "inside";
+function sliceLabel(text: string, x0: number, x1: number): LimitsChartView["slices"][number]["label"] {
+  if (1 - x1 >= NAME_ROOM) return { text, x: x1, side: "after" };
+  if (x0 >= NAME_ROOM) return { text, x: x0, side: "before" };
+  return { text, x: x0, side: "inside" };
+}
+
+/** The hover card at an inspected point of the chart: the instant with its
+ * date — every instant on this chart is dated — whether it was reported or
+ * projected and how full, and this machine's usage in the step under it,
+ * while there is one (a projected day has none yet). */
+export function limitsTooltipView(view: LimitsChartView, sample: BurnInspectionSample): BurnTooltipView {
+  const bar = view.bars.find((step) => sample.x >= step.x0 && sample.x < step.x1) ?? null;
+  return burnTooltipView(sample, formatStep(Math.round(sample.at), "hour", "long"), bar?.note ?? null);
 }
 
 /** The day (or hour) boundaries strictly inside the span. */

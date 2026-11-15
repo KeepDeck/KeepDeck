@@ -25,6 +25,7 @@ const card = (over: Partial<ProviderCardView> = {}): ProviderCardView => ({
   lead: null,
   others: [],
   chart: null,
+  layout: "tiles",
   ...over,
 });
 const COLORS = new Map([["codex", "#d95926"]]);

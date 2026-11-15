@@ -52,6 +52,9 @@ export interface ProviderCardView {
   lead: ProviderWindowView | null;
   others: ProviderWindowView[];
   chart: LimitsChartView | null;
+  /** The lead tile beside its chart, or — with nothing to chart — the
+   * tiles laid out in a row. */
+  layout: "chart" | "tiles";
 }
 
 export type ProvidersView =
@@ -151,6 +154,7 @@ export function providersView(
     const stale = usageLevelClass(group.stale ? "warn" : null);
     const windows = group.rows.map((row) => windowView(row, now));
     const lead = windows.find((window) => window.id === main?.id) ?? null;
+    const chart = main === null ? null : limitsChartView(main, group.rows.filter((row) => row !== main), now);
     return {
       agent: group.agent,
       color: seriesColorFor(colors, group.agent),
@@ -159,7 +163,8 @@ export function providersView(
       windows,
       lead,
       others: windows.filter((window) => window !== lead),
-      chart: main === null ? null : limitsChartView(main, group.rows.filter((row) => row !== main), now),
+      chart,
+      layout: chart === null ? "tiles" : "chart",
     };
   });
   return {

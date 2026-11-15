@@ -62,7 +62,7 @@ function ProviderCard({ card, now }: { card: ProviderCardView; now: number }) {
         </b>
         <small className={card.updated.className}>{card.updated.text}</small>
       </header>
-      <div className={`stats__provider-body${card.chart ? "" : " stats__provider-body--tiles"}`}>
+      <div className={`stats__provider-body stats__provider-body--${card.layout}`}>
         <div className="stats__provider-tiles">
           {card.lead && <WindowTile view={card.lead} now={now} lead />}
           {card.others.map((window) => (

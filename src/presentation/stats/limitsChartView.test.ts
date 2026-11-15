@@ -5,7 +5,7 @@ import { providerWindowGroups } from "../../domain/usage/providerWindows";
 import { accountWindowKeys, type WindowReport } from "../../domain/usage/reportJournal";
 import { inZone } from "../../domain/usage/time.testSupport";
 import { present } from "@keepdeck/plugin-api/testing";
-import { limitsChartView } from "./limitsChartView";
+import { limitsChartView, limitsTooltipView } from "./limitsChartView";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -55,9 +55,7 @@ describe("the Limits chart", () => {
 
   it("marks where the provider's 5-hour window runs inside the week", () => {
     const view = present(chart(), "a chart");
-    expect(view.slices).toEqual([
-      expect.objectContaining({ label: "5h window · 13:49–18:49" }),
-    ]);
+    expect(view.slices.map((slice) => slice.label.text)).toEqual(["5h window · 13:49–18:49"]);
     const [slice] = view.slices;
     expect((slice?.x1 ?? 0) - (slice?.x0 ?? 0)).toBeCloseTo(5 / (7 * 24));
   });
@@ -104,13 +102,15 @@ describe("the Limits chart", () => {
   it("keeps every name inside the plot: before a mark near the right edge, after one near the left", () => {
     const view = present(chart(), "a chart");
     // Now, a day in: its name follows the line; the 5h slice, near the start, too.
-    expect([view.now.side, view.slices[0]?.side]).toEqual(["after", "after"]);
+    expect([view.now.side, view.slices[0]?.label.side]).toEqual(["after", "after"]);
+    // After the slice means at its end.
+    expect(view.slices[0]?.label.x).toBe(view.slices[0]?.x1);
     // A 5h window ending with the week: its name goes before the slice, not past the edge.
     const late = present(chart({ windows: [{ ...FIVE_H, resetsAt: WEEK_RESET }, WEEK] }), "a chart");
-    expect(late.slices[0]?.side).toBe("before");
+    expect(late.slices[0]?.label).toMatchObject({ side: "before", x: late.slices[0]?.x0 });
     // A five-day window that began with the week: no room after or before — inside, from its start.
     const fiveDays: UsageWindow = { usedPct: 9, resetsAt: WEEK_RESET - 2 * DAY, windowMinutes: 5 * 24 * 60 };
-    expect(present(chart({ windows: [fiveDays, WEEK] }), "a chart").slices[0]).toMatchObject({ x0: 0, side: "inside" });
+    expect(present(chart({ windows: [fiveDays, WEEK] }), "a chart").slices[0]).toMatchObject({ x0: 0, label: { side: "inside", x: 0 } });
   });
 
 
@@ -126,8 +126,25 @@ describe("the Limits chart", () => {
       const row = group?.rows[0];
       if (row) view = limitsChartView(row, [], NOW);
     });
-    const points = present(view as ReturnType<typeof limitsChartView>, "a chart").current.points;
-    expect(points).toEqual([{ x: (NOW - 3 * HOUR - (WEEK_RESET - 7 * DAY)) / (7 * DAY), pct: 3 }]);
+    const { observed, projected } = present(view as ReturnType<typeof limitsChartView>, "a chart").current.geometry;
+    expect(observed).toEqual([{ x: (NOW - 3 * HOUR - (WEEK_RESET - 7 * DAY)) / (7 * DAY), y: 0.03, at: NOW - 3 * HOUR, usedPct: 3 }]);
+    expect(projected).toBeNull();
+  });
+
+  it("dates the instant under inspection, and says this machine's usage on that day while there is one", () => {
+    const view = present(
+      chart({ events: [{ occurredAt: at("2026-11-15T10:00:00+02:00"), tokens: { input: 4_000 } }] }),
+      "a chart",
+    );
+    inZone("Asia/Nicosia", () => {
+      const sunday = { x: 0.15, y: 0.03, at: at("2026-11-15T12:00:00+02:00"), usedPct: 3, kind: "observed" as const };
+      expect(limitsTooltipView(view, sunday)).toEqual({
+        kind: "observed", label: "Nov 15, 12:00", source: "Observed", value: "3% used", note: "This machine that day: 4k tokens",
+      });
+      // A projected Thursday has no usage yet: nothing is said of it.
+      const thursday = { x: 0.7, y: 0.4, at: at("2026-11-19T12:00:00+02:00"), usedPct: 40, kind: "projected" as const };
+      expect(limitsTooltipView(view, thursday)).toMatchObject({ label: "Nov 19, 12:00", source: "Projected", note: null });
+    });
   });
 
   it("names every n-th day of a long window rather than none", () => {

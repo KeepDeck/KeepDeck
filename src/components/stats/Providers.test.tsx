@@ -203,6 +203,24 @@ describe("Providers", () => {
     expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/^Bars are this machine's tokens less cache reads/);
   });
 
+  it("opens a dated card where the pointer is: reported or projected, and this machine's day", () => {
+    render({
+      accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
+      events: [usageEvent({ occurredAt: NOW - HOUR })],
+    });
+    const plot = present(host.querySelector<HTMLElement>(".stats__limits-plot"), "the plot");
+    plot.getBoundingClientRect = () => ({ top: 0, left: 0, right: 1000, bottom: 120, width: 1000, height: 120, x: 0, y: 0, toJSON: () => ({}) });
+    // The lone reading stands four days into the week: at 4/7 of the plot.
+    act(() => plot.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 571, clientY: 60 })));
+    const card = present(document.querySelector<HTMLElement>("[role='tooltip']"), "the hover card");
+    expect(card.textContent).toContain("Observed");
+    expect(card.textContent).toContain("20% used");
+    expect(card.textContent).toMatch(/This machine that day: .+ tokens/);
+    expect(plot.querySelector(".stats__limits-cursor")).not.toBeNull();
+    act(() => plot.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
+  });
+
   it("says how the tab fills before any CLI reports its limits", () => {
     render({ accounts: new Map() });
     expect(host.textContent).toBe("No provider reports yet. Windows appear once a CLI reports its account limits.");

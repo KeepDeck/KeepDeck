@@ -173,6 +173,34 @@
 .stats__limits-plot {
   position: relative;
   height: 120px;
+  cursor: crosshair;
+  outline: none;
+}
+
+.stats__limits-plot:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: 2px;
+  border-radius: var(--kd-radius-mark);
+}
+
+/* The inspected instant: a hair across the plot and a dot on the line. */
+.stats__limits-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--kd-selected);
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+.stats__limits-dot--active {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid var(--kd-tile);
+  box-shadow: 0 0 0 1px var(--kd-seam);
+  pointer-events: none;
 }
 
 .stats__limits-plot svg {
