@@ -647,9 +647,15 @@
 
 /* Rows are ruled from above: a group's sessions sit in their own fold box
    (FoldBlock), so "the last row" is no longer the table's last child — and
-   a session rolling up carries its rule with it. */
+   a session rolling up carries its rule with it. The head owns the rule
+   under it, so the first row after it draws none. */
+.stats__bd-row--head + .stats__bd-row {
+  border-top: 0;
+}
+
 .stats__bd-row--head {
   border-top: 0;
+  border-bottom: 1px solid var(--kd-seam);
   min-height: 30px;
   color: var(--kd-text-3);
   font-weight: 600;

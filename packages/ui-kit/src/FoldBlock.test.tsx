@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FoldBlock } from "./FoldBlock";
@@ -29,7 +29,7 @@ describe("FoldBlock", () => {
   });
 
   const draw = (open: boolean, children: ReactNode) =>
-    act(() => root.render(createElement(FoldBlock, { open, role: "rowgroup", children })));
+    act(() => root.render(createElement(FoldBlock, { open, role: "rowgroup", className: "rows", children })));
   const block = () => {
     const element = present(host.querySelector<HTMLElement>("[role='rowgroup']"), "the block");
     Object.defineProperty(element, "scrollHeight", { configurable: true, get: () => ROWS });
@@ -42,17 +42,28 @@ describe("FoldBlock", () => {
   it("draws its first state still, and at rest leaves the height to its rows", () => {
     draw(true, rows("a", "b"));
     expect(names()).toEqual(["a", "b"]);
+    expect(block().className).toBe("rows");
     expect(block().style.height).toBe("");
     expect(block().style.overflow).toBe("");
+  });
+
+  it("stays still through a strict double mount", () => {
+    act(() => root.render(createElement(StrictMode, null, createElement(FoldBlock, { open: true, role: "rowgroup", children: rows("a") }))));
+    expect(block().style.height).toBe("");
+    frames(FOLD_MOTION_MS);
+    expect(block().style.height).toBe("");
+    expect(names()).toEqual(["a"]);
   });
 
   it("unrolls the rows from under the heading, on the fold's clock, then lets them be", () => {
     draw(false, null);
     block();
     draw(true, rows("a", "b"));
-    // Drawn shut before the first paint, clipped while it moves.
+    // Drawn shut before the first paint, clipped while it moves — and
+    // reachable: only rows that are leaving are inert.
     expect(height()).toBe(0);
     expect(block().style.overflow).toBe("hidden");
+    expect(block().inert).toBe(false);
     frames(FOLD_MOTION_MS / 2);
     // Eased out: past half the rows by half the time, not yet all of them.
     expect(height()).toBeGreaterThan(ROWS / 2);
@@ -71,6 +82,9 @@ describe("FoldBlock", () => {
     expect(height()).toBe(ROWS);
     frames(FOLD_MOTION_MS / 2);
     expect(height()).toBeLessThan(ROWS / 2);
+    // The owner draws again mid-roll, still listing none: the rows roll on.
+    draw(false, null);
+    expect(names()).toEqual(["a", "b"]);
     frames(FOLD_MOTION_MS);
     expect(names()).toEqual([]);
     expect(block().inert).toBe(false);
