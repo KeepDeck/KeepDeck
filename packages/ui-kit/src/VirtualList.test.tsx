@@ -6,30 +6,10 @@ import { FOLD_MOTION_MS } from "./useFoldMotion";
 import { VirtualList } from "./VirtualList";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 import { present } from "@keepdeck/plugin-api/testing";
-import { elementOf } from "./testDom.test-support";
+import { elementOf, FakeMediaQueryList } from "./testDom.test-support";
 
 const ROW = 20;
 const items = Array.from({ length: 500 }, (_, i) => `row ${i}`);
-
-/** The browser's answer to a media query, which happy-dom never varies: a
- * real EventTarget, so a preference that changes reaches the fold's listener
- * as a browser's `change` would. */
-class FakeMediaQueryList extends EventTarget implements MediaQueryList {
-  onchange: MediaQueryList["onchange"] = null;
-  constructor(
-    readonly media: string,
-    public matches: boolean,
-  ) {
-    super();
-  }
-  addListener(): void {}
-  removeListener(): void {}
-  /** The person changed the preference: answer anew and say so. */
-  change(matches: boolean): void {
-    this.matches = matches;
-    this.dispatchEvent(new MediaQueryListEvent("change", { matches, media: this.media }));
-  }
-}
 
 /** A fold plays out on requestAnimationFrame, timed by its frames: on a faked
  * clock a group's tests play it by time instead of sleeping through it. */
