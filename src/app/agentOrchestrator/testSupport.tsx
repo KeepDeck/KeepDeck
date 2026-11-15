@@ -222,6 +222,12 @@ const published = vi.hoisted(
     new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
 );
 
+/** Each owner's create in flight, as `awaitSettled` reports its end — a test
+ *  puts a promise here to hold a create open across a flow that waits. */
+const settling = vi.hoisted(
+  () => new Map<string, Promise<"resolved" | "failed" | "abandoned">>(),
+);
+
 export const ipcHarness = ipc;
 export const gateHarness = gate;
 export const plansHarness = plans;
@@ -229,6 +235,7 @@ export const stepsHarness = steps;
 export const lifecycleHarness = lifecycle;
 export const forgettersHarness = forgetters;
 export const publishedHarness = published;
+export const settlingHarness = settling;
 export const skillsAskedHarness = skillsAsked;
 export const transcriptsHarness = transcripts;
 export {
@@ -237,6 +244,7 @@ export {
   ipcHarness as ipc,
   plansHarness as plans,
   publishedHarness as published,
+  settlingHarness as settling,
   stepsHarness as steps,
   skillsAskedHarness as skillsAsked,
   lifecycleHarness as lifecycle,
@@ -446,6 +454,7 @@ export function Probe() {
             published.delete(paneId);
             return made;
           },
+          awaitSettled: (ownerId) => settling.get(ownerId) ?? Promise.resolve("none"),
           registerPostProvision: steps.register,
           clearPostProvision: steps.clear,
           skillsFor: skillsAsked,

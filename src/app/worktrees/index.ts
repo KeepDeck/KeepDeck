@@ -42,6 +42,11 @@ export interface CreatedWorktree {
   branch: string;
 }
 
+/** How an owner's create ended, as [`WorktreeProvisioner.awaitSettled`]
+ * reports it: its card resolved, it failed (rolled back, waiting for Retry),
+ * its owner left mid-create — or there was no create in flight to wait for. */
+export type ProvisionSettlement = "resolved" | "failed" | "abandoned" | "none";
+
 /** One create to issue: WHO asked for the directory — the id the result, the
  * early publish and any post-provision step are filed under — and what to
  * create. The manager does not know what an owner is: a team's card, or
@@ -122,6 +127,15 @@ export interface WorktreeProvisioner {
    * rolled back, or it never had one.
    */
   awaitCreated(ownerId: string): Promise<CreatedWorktree | null>;
+  /**
+   * The END of `ownerId`'s create in flight — after its post-provision step,
+   * its rollback, its card's resolve or fail — not the git call
+   * [`awaitCreated`] answers at. For a flow that must not act on an owner
+   * while its create can still change it (an archive stopping a fork's
+   * agents). Many may wait on one create; waiting consumes nothing; `"none"`
+   * when no create is in flight. A create that throws settles too.
+   */
+  awaitSettled(ownerId: string): Promise<ProvisionSettlement>;
   /** Register a step to run after `ownerId`'s worktree lands (see the map doc). */
   registerPostProvision(
     ownerId: string,

@@ -448,3 +448,133 @@ describe("provision with a post-provision step", () => {
     expect(onFailed).toHaveBeenCalledWith("team-1", "surgery boom");
   });
 });
+
+describe("awaitSettled — the END of a create, not its git call", () => {
+  const oneCard = () => provisionRequests(1);
+
+  beforeEach(() => {
+    worktree.inspectRepo.mockResolvedValue({ head: "abc" });
+    worktree.createWorktree.mockResolvedValue({ path: "/wt/team-1", branch: "kd/ws/1" });
+    worktree.removeWorktree.mockResolvedValue(undefined);
+  });
+
+  it("answers none when no create is in flight", async () => {
+    expect(await manager.awaitSettled("team-1")).toBe("none");
+  });
+
+  it("waits past the git call for the post-provision step and the card's resolve", async () => {
+    // The fork's case: `awaitCreated` answers when the worktree is on disk,
+    // while its store surgery — work done on the owner's behalf — still runs.
+    let stepDone!: () => void;
+    manager.registerPostProvision(
+      "team-1",
+      () =>
+        new Promise<void>((resolve) => {
+          stepDone = resolve;
+        }),
+    );
+    const order: string[] = [];
+    const onResolved = vi.fn(() => order.push("resolved"));
+    const running = manager.provision(oneCard(), "ws", { onResolved, onFailed: vi.fn(), abandoned: stays });
+    const settling = manager.awaitSettled("team-1").then((ended) => order.push(`settled:${ended}`));
+    await manager.awaitCreated("team-1");
+    await vi.waitFor(() => expect(stepDone).toBeTypeOf("function"));
+    expect(order).toEqual([]);
+    stepDone();
+    await running;
+    await settling;
+    expect(order).toEqual(["resolved", "settled:resolved"]);
+    // Ended: nothing in flight any more.
+    expect(await manager.awaitSettled("team-1")).toBe("none");
+  });
+
+  it("is asked for from the moment the create is, before the repo is even inspected", async () => {
+    let inspected!: (value: { head: string }) => void;
+    worktree.inspectRepo.mockReturnValue(
+      new Promise<{ head: string }>((resolve) => {
+        inspected = resolve;
+      }),
+    );
+    const running = manager.provision(oneCard(), "ws", { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
+    const waiting = manager.awaitSettled("team-1");
+    inspected({ head: "abc" });
+    await running;
+    expect(await waiting).toBe("resolved");
+  });
+
+  it("settles failed for a create git refused, and for a step that failed and rolled back", async () => {
+    worktree.createWorktree.mockRejectedValueOnce(new Error("refused"));
+    const first = manager.provision(oneCard(), "ws", { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
+    const refused = manager.awaitSettled("team-1");
+    await first;
+    expect(await refused).toBe("failed");
+
+    manager.registerPostProvision("team-1", async () => {
+      throw new Error("no plan");
+    });
+    const second = manager.provision(oneCard(), "ws", { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
+    const rolledBack = manager.awaitSettled("team-1");
+    await second;
+    expect(await rolledBack).toBe("failed");
+    expect(worktree.removeWorktree).toHaveBeenCalled();
+  });
+
+  it("settles abandoned when the owner left mid-create", async () => {
+    const running = manager.provision(oneCard(), "ws", { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: () => true });
+    const waiting = manager.awaitSettled("team-1");
+    await running;
+    expect(await waiting).toBe("abandoned");
+  });
+
+  it("is ONE settlement for every waiter, and reading it consumes nothing", async () => {
+    const running = manager.provision(oneCard(), "ws", { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
+    const one = manager.awaitSettled("team-1");
+    const two = manager.awaitSettled("team-1");
+    expect(one).toBe(two);
+    await running;
+    expect(await Promise.all([one, two])).toEqual(["resolved", "resolved"]);
+  });
+
+  it("a Retry is a create of its own: the waiter on the failed one keeps that one's end", async () => {
+    worktree.createWorktree.mockRejectedValueOnce(new Error("refused"));
+    const failed = manager.provision(oneCard(), "ws", { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
+    const onFailedOne = manager.awaitSettled("team-1");
+    await failed;
+    const retry = manager.provision(oneCard(), "ws", { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
+    const onRetry = manager.awaitSettled("team-1");
+    expect(onRetry).not.toBe(onFailedOne);
+    await retry;
+    expect(await onFailedOne).toBe("failed");
+    expect(await onRetry).toBe("resolved");
+  });
+
+  it("a Retry issued from the failure itself is still waited for — the old end never drops the new create", async () => {
+    worktree.createWorktree.mockRejectedValueOnce(new Error("refused"));
+    let retry: Promise<void> | undefined;
+    const cb = {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(() => {
+        retry ??= manager.provision(oneCard(), "ws", cb);
+      }),
+      abandoned: stays,
+    };
+    await manager.provision(oneCard(), "ws", cb);
+    const onRetry = manager.awaitSettled("team-1");
+    expect(retry).toBeDefined();
+    await retry;
+    expect(await onRetry).toBe("resolved");
+  });
+
+  it("settles even when a callback throws — a waiter is never left hanging", async () => {
+    const running = manager.provision(oneCard(), "ws", {
+      onResolved: () => {
+        throw new Error("the deck refused it");
+      },
+      onFailed: vi.fn(),
+      abandoned: stays,
+    });
+    const waiting = manager.awaitSettled("team-1");
+    await expect(running).rejects.toThrow("the deck refused it");
+    expect(await waiting).toBe("failed");
+  });
+});
