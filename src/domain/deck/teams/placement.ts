@@ -78,3 +78,22 @@ export function placementOfRecorded(record: { cwd: string; branch?: string }): T
     ? { kind: "attached", cwd: record.cwd, branch: record.branch }
     : { kind: "attached", cwd: record.cwd };
 }
+
+/** Whether a team's own worktree create is still RUNNING — the single
+ * question behind "nothing is in that directory yet" and "this card will
+ * leave a directory the close cannot name". A card carrying an `error` is
+ * NOT still out: it is parked waiting for Retry (or restored that way after
+ * a quit), so counting it promises a directory that does not exist and tells
+ * the person to wait for something that will never happen. */
+export function createIsOut(location: TeamLocation | undefined): boolean {
+  return location?.kind === "provisioning" && !location.error;
+}
+
+/** Whether a team's worktree create FAILED and is parked waiting for Retry
+ * — the other half of a provisioning card, and the one state Retry applies
+ * to. The card's failed rim, the roster's `status: "failed"`, the retry
+ * door and the retry tool all ask it here, so the next state a card can
+ * hold moves them together rather than one at a time. */
+export function createFailed(location: TeamLocation | undefined): boolean {
+  return location?.kind === "provisioning" && location.error !== undefined;
+}

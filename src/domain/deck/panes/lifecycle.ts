@@ -10,7 +10,7 @@
 import type { AgentType, ResumeOrigin } from "../../agents";
 import type { SessionHandle } from "../../journal";
 import { paneBranch, paneExecutionCwd, panePlacement } from "../roots";
-import { createFailed } from "../teams/lifecycle";
+import { createFailed } from "../teams/placement";
 import type { Workspace } from "../workspaces";
 
 /** The half of the workspace a placement question reads: its teams, whose

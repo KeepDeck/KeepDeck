@@ -4,13 +4,10 @@ import { MAX_PANES } from "../layout";
 import type { Pane } from "../panes/model";
 import type { Workspace } from "../workspaces";
 import { findTeam, findTeamInDeck, membersOf, teamIdsAreUnique, teamIdsOf } from "./collection";
+import { claimDirectory, directoriesStillHeld, teamHeldPath, teamOccupyingPath } from "./claims";
 import {
   birthRefusal,
-  claimDirectory,
-  createFailed,
-  createIsOut,
   createTeam,
-  directoriesStillHeld,
   dissolveTeam,
   joinTeam,
   nextAutoTeamName,
@@ -19,10 +16,9 @@ import {
   roleTaken,
   setTeamProvisioningError,
   settleRoster,
-  teamHeldPath,
   teamNameTaken,
-  teamOccupyingPath,
 } from "./lifecycle";
+import { createFailed, createIsOut } from "./placement";
 import type { Team, TeamLocation } from "./model";
 import { present } from "@keepdeck/plugin-api/testing";
 

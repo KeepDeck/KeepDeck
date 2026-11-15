@@ -13,7 +13,7 @@
 // the loop.
 import type { Pane } from "./panes/model";
 import { teamOfPane, teamsOf } from "./teams/collection";
-import { normalizePath } from "./teams/lifecycle";
+import { normalizePath } from "./teams/claims";
 import type { TeamLocation, TeamProvisioning } from "./teams/model";
 import type { Workspace } from "./workspaces";
 

@@ -9,7 +9,7 @@ import type {
 } from "../workspaceInstance";
 import { appendPane, removePane, type Pane } from "./panes";
 import { teamsOf } from "./teams/collection";
-import { claimPath, normalizePath, teamOccupyingPath } from "./teams/lifecycle";
+import { claimPath, normalizePath, teamOccupyingPath } from "./teams/claims";
 import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is

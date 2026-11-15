@@ -7,6 +7,7 @@ export * from "./model";
 export * from "./collection";
 export * from "./transforms";
 export * from "./lifecycle";
+export * from "./claims";
 export * from "./membership";
 export * from "./placement";
 export * from "./sessionResume";
