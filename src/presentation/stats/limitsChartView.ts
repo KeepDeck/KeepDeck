@@ -10,9 +10,8 @@ import { usageLevelClass } from "../usageView";
  * The Limits card's chart, settled: one window on its own clock — x runs
  * from the window's start (0) to its reset (1) — with the provider's
  * percent over it and where the pace takes it, named at the end of the
- * dashed line; the provider's shorter windows marked where they run, and
- * this machine's usage per calendar day (per hour in a short window)
- * beneath. Every instant it shows is named on the reader's calendar: the
+ * dashed line, and this machine's usage per calendar day (per hour in a
+ * short window) beneath. Every instant it shows is named on the reader's calendar: the
  * start, the reset, now, and each day — a curve without them said nothing
  * about when (user, 2026-11-15). Only the current window: the earlier ones
  * answered nothing the reader asked for.
@@ -46,10 +45,6 @@ export interface LimitsChartView {
      * not read as a line that failed to draw. */
     lone: (ChartPoint & { label: string; side: "after" | "before" }) | null;
   };
-  /** The provider's shorter windows running now, where they sit, and where
-   * the name goes: after the slice where there is room, else before it,
-   * else inside it from its start — never past an edge of the plot. */
-  slices: { key: string; x0: number; x1: number; label: { text: string; x: number; side: "after" | "before" | "inside" } }[];
   /** This machine's tokens less cache reads per step, the busiest step full
    * height; `note` is what the hover card says of the step. None at all
    * while the machine used nothing in the window — no row of empty bars. */
@@ -63,7 +58,6 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 /** Null when the window has no span to lay a clock on. */
 export function limitsChartView(
   main: ProviderWindowRow,
-  others: readonly ProviderWindowRow[],
   now: number,
 ): LimitsChartView | null {
   const { span } = main;
@@ -94,20 +88,6 @@ export function limitsChartView(
       end: forecastEnd(main, burn, x, now),
       lone: burn === null ? { x: x(main.reportedAt), pct: main.window.usedPct, label: "1 report so far", side: x(main.reportedAt) > 0.6 ? "before" : "after" } : null,
     },
-    slices: others.flatMap((other) =>
-      other.span === null || other.span.to - other.span.from >= length
-        ? []
-        : [{
-            key: other.id,
-            x0: x(other.span.from),
-            x1: x(other.span.to),
-            label: sliceLabel(
-              `${windowLabel(other.window, "long")} window · ${formatStep(other.span.from, "hour")}–${formatStep(other.span.to, "hour")}`,
-              x(other.span.from),
-              x(other.span.to),
-            ),
-          }],
-    ),
     bars: top === 0 ? [] : usage.flatMap((step) => {
       const from = Math.max(step.start, span.from);
       const to = Math.min(nextStep(step.start, steps), span.to);
@@ -142,15 +122,6 @@ function forecastEnd(
   if (forecast.kind === "lasts") return { ...point, ...place, label: `~${formatPct(forecast.endPct, "left")} at reset` };
   const className = usageLevelClass(forecast.level);
   return { ...point, ...place, label: `limit ~${formatMoment(forecast.outAt, now)}`, ...(className ? { className } : {}) };
-}
-
-/** Room a name needs beside a slice, as a share of the plot. */
-const NAME_ROOM = 0.4;
-
-function sliceLabel(text: string, x0: number, x1: number): LimitsChartView["slices"][number]["label"] {
-  if (1 - x1 >= NAME_ROOM) return { text, x: x1, side: "after" };
-  if (x0 >= NAME_ROOM) return { text, x: x0, side: "before" };
-  return { text, x: x0, side: "inside" };
 }
 
 /** The hover card at an inspected point of the chart: the instant with its

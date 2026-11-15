@@ -32,7 +32,7 @@ function chart(over: { windows?: UsageWindow[]; journal?: WindowReport[]; events
     );
     const rows = group?.rows ?? [];
     const main = rows.find((row) => row.window === WEEK) ?? rows[0];
-    if (main) view = limitsChartView(main, rows.filter((row) => row !== main), NOW);
+    if (main) view = limitsChartView(main, NOW);
   });
   return view as ReturnType<typeof limitsChartView>;
 }
@@ -53,11 +53,10 @@ describe("the Limits chart", () => {
     expect(view.ticks.map((tick) => tick.label)).toEqual(["Nov 15", "Nov 16", "Nov 17", "Nov 18", "Nov 19", "Nov 20", "Nov 21"]);
   });
 
-  it("marks where the provider's 5-hour window runs inside the week", () => {
-    const view = present(chart(), "a chart");
-    expect(view.slices.map((slice) => slice.label.text)).toEqual(["5h window · 13:49–18:49"]);
-    const [slice] = view.slices;
-    expect((slice?.x1 ?? 0) - (slice?.x0 ?? 0)).toBeCloseTo(5 / (7 * 24));
+  it("puts a 5h window on its own clock, by the hour", () => {
+    const view = present(chart({ windows: [FIVE_H] }), "a chart");
+    expect([view.start, view.end]).toEqual(["started Nov 15, 13:49", "resets Nov 15, 18:49"]);
+    expect(view.ticks.map((tick) => tick.label)).toEqual(["14:00", "15:00", "16:00", "17:00", "18:00"]);
   });
 
   it("stands this machine's usage on the same days, the busiest one full height", () => {
@@ -99,18 +98,12 @@ describe("the Limits chart", () => {
     expect(lasts?.label).toMatch(/^~\d+% left at reset$/);
   });
 
-  it("keeps every name inside the plot: before a mark near the right edge, after one near the left", () => {
+  it("keeps the now label inside the plot: before the line near the right edge, after it elsewhere", () => {
     const view = present(chart(), "a chart");
-    // Now, a day in: its name follows the line; the 5h slice, near the start, too.
-    expect([view.now.side, view.slices[0]?.label.side]).toEqual(["after", "after"]);
-    // After the slice means at its end.
-    expect(view.slices[0]?.label.x).toBe(view.slices[0]?.x1);
-    // A 5h window ending with the week: its name goes before the slice, not past the edge.
-    const late = present(chart({ windows: [{ ...FIVE_H, resetsAt: WEEK_RESET }, WEEK] }), "a chart");
-    expect(late.slices[0]?.label).toMatchObject({ side: "before", x: late.slices[0]?.x0 });
-    // A five-day window that began with the week: no room after or before — inside, from its start.
-    const fiveDays: UsageWindow = { usedPct: 9, resetsAt: WEEK_RESET - 2 * DAY, windowMinutes: 5 * 24 * 60 };
-    expect(present(chart({ windows: [fiveDays, WEEK] }), "a chart").slices[0]).toMatchObject({ x0: 0, label: { side: "inside", x: 0 } });
+    // Now, a day in: its name follows the line.
+    expect(view.now.side).toBe("after");
+    // Near the reset it goes before the line, not past the edge.
+    expect(present(chart({ windows: [{ ...FIVE_H, resetsAt: NOW + 10 * 60_000 }] }), "a chart").now.side).toBe("before");
   });
 
 
@@ -124,7 +117,7 @@ describe("the Limits chart", () => {
         NOW,
       );
       const row = group?.rows[0];
-      if (row) view = limitsChartView(row, [], NOW);
+      if (row) view = limitsChartView(row, NOW);
     });
     const chartView = present(view as ReturnType<typeof limitsChartView>, "a chart");
     const x = (NOW - 3 * HOUR - (WEEK_RESET - 7 * DAY)) / (7 * DAY);
@@ -181,7 +174,7 @@ describe("the Limits chart", () => {
         NOW,
       );
       const row = group?.rows[0];
-      if (row) view = limitsChartView(row, [], NOW);
+      if (row) view = limitsChartView(row, NOW);
     });
     expect(view).toBeNull();
   });

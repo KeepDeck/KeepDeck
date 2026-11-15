@@ -21,10 +21,8 @@ const card = (over: Partial<ProviderCardView> = {}): ProviderCardView => ({
   updated: { text: "Updated 2m ago" },
   age: { text: "2m ago" },
   windows: [windowView()],
-  lead: null,
+  charted: [],
   others: [],
-  chart: null,
-  layout: "tiles",
   ...over,
 });
 const COLORS = new Map([["codex", "#d95926"]]);

@@ -8,11 +8,12 @@ import { reportedAgeCaption, usageLevelClass } from "../usageView";
 import { limitsChartView, type LimitsChartView } from "./limitsChartView";
 
 /**
- * The Limits tab's provider cards, settled. One card per provider, drawn
- * around its longest live window — the week a 5-hour window runs inside —
- * with the provider's other windows beside it, never as cards of their own:
- * one subscription, one card (user, 2026-11-15). The cards come riskiest
- * first. The component renders this and decides nothing.
+ * The Limits tab's provider cards, settled. One card per provider — one
+ * subscription, one card (user, 2026-11-15) — and in it each live window
+ * beside its own chart on its own clock: the 5h window's hours are a
+ * sliver of the week's days, so a band on the week's chart showed nothing
+ * of it. The most urgent window first, the most urgent provider first.
+ * The component renders this and decides nothing.
  */
 
 /** A piece of text and the class that colours it, if any. */
@@ -44,14 +45,12 @@ export interface ProviderCardView {
   age: ToneText;
   /** Every window, the account's panel order: shortest first. */
   windows: ProviderWindowView[];
-  /** The window the card is drawn around — the longest live one with a
-   * span — or null when none is; the rest follow it as small tiles. */
-  lead: ProviderWindowView | null;
+  /** Each live window with a clock to draw, beside its own chart — the 5h
+   * window on its hours, the week on its days — the most urgent on top. */
+  charted: { window: ProviderWindowView; chart: LimitsChartView }[];
+  /** The windows with no chart to draw — reset, or without a span — as
+   * small tiles in a row. */
   others: ProviderWindowView[];
-  chart: LimitsChartView | null;
-  /** The lead tile beside its chart, or — with nothing to chart — the
-   * tiles laid out in a row. */
-  layout: "chart" | "tiles";
 }
 
 export type ProvidersView =
@@ -89,47 +88,35 @@ function windowView(row: ProviderWindowRow, now: number): ProviderWindowView {
   };
 }
 
-/** The longest live window with a span: the one a card is drawn around. */
-function mainRow(rows: readonly ProviderWindowRow[]): ProviderWindowRow | null {
-  let main: ProviderWindowRow | null = null;
-  let longest = 0;
-  for (const row of rows) {
-    const length = row.span === null ? 0 : row.span.to - row.span.from;
-    if (length > longest) {
-      main = row;
-      longest = length;
-    }
-  }
-  return main;
-}
-
 const SEVERITY = { critical: 2, warn: 1 } as const;
 
-/** How pressing a provider is, as a sort key: the severest warning its
- * forecasts give, then how soon that one runs out, then its fullest live
- * window. */
-function risk(group: ProviderWindowGroup): { severity: number; outAt: number; fullest: number } {
-  let severity = 0;
-  let outAt = Infinity;
-  let fullest = 0;
-  for (const row of group.rows) {
-    if (row.expired) continue;
-    fullest = Math.max(fullest, row.window.usedPct);
-    const { forecast } = row;
-    if (forecast.kind !== "out" || forecast.level === null) continue;
-    const level = SEVERITY[forecast.level];
-    if (level > severity || (level === severity && forecast.outAt < outAt)) {
-      severity = level;
-      outAt = forecast.outAt;
-    }
-  }
-  return { severity, outAt, fullest };
+/** How pressing a window is: the severity of its forecast's warning, how
+ * soon it runs out, and how full it is. */
+interface Urgency {
+  severity: number;
+  outAt: number;
+  fullest: number;
 }
 
-function byRisk(left: ProviderWindowGroup, right: ProviderWindowGroup): number {
-  const a = risk(left);
-  const b = risk(right);
+const CALM: Urgency = { severity: 0, outAt: Infinity, fullest: 0 };
+
+function urgency(row: ProviderWindowRow): Urgency {
+  if (row.expired) return CALM;
+  const { forecast } = row;
+  const fullest = row.window.usedPct;
+  if (forecast.kind !== "out" || forecast.level === null) return { ...CALM, fullest };
+  return { severity: SEVERITY[forecast.level], outAt: forecast.outAt, fullest };
+}
+
+/** THE order of pressing things — windows inside a card, and cards by their
+ * most pressing window: the severest warning first, then the soonest
+ * run-out, then the fullest. */
+function moreUrgentFirst(a: Urgency, b: Urgency): number {
   return b.severity - a.severity || a.outAt - b.outAt || b.fullest - a.fullest;
+}
+
+function mostUrgent(group: ProviderWindowGroup): Urgency {
+  return group.rows.map(urgency).sort(moreUrgentFirst)[0] ?? CALM;
 }
 
 export function providersView(
@@ -143,30 +130,36 @@ export function providersView(
       text: "No provider reports yet. Windows appear once a CLI reports its account limits.",
     };
   }
-  // Riskiest first; the groups arrive alphabetical and the sort is stable.
-  const cards = [...groups].sort(byRisk).map((group): ProviderCardView => {
-    const main = mainRow(group.rows);
+  // Most urgent first; the groups arrive alphabetical and the sort is stable.
+  const cards = [...groups]
+    .sort((left, right) => moreUrgentFirst(mostUrgent(left), mostUrgent(right)))
+    .map((group): ProviderCardView => {
     const stale = usageLevelClass(group.stale ? "warn" : null);
-    const windows = group.rows.map((row) => windowView(row, now));
-    const lead = windows.find((window) => window.id === main?.id) ?? null;
-    const chart = main === null ? null : limitsChartView(main, group.rows.filter((row) => row !== main), now);
+    const views = new Map(group.rows.map((row) => [row, windowView(row, now)]));
+    const charted = [...group.rows]
+      .sort((left, right) => moreUrgentFirst(urgency(left), urgency(right)))
+      .flatMap((row) => {
+        const chart = limitsChartView(row, now);
+        const window = views.get(row);
+        return chart === null || window === undefined ? [] : [{ window, chart }];
+      });
+    const drawn = new Set(charted.map((entry) => entry.window));
+    const windows = [...views.values()];
     return {
       agent: group.agent,
       color: seriesColorFor(colors, group.agent),
       updated: tone(reportedAgeCaption(group.reportedAt, now), stale),
       age: tone(formatAge(group.reportedAt, now), stale),
       windows,
-      lead,
-      others: windows.filter((window) => window !== lead),
-      chart,
-      layout: chart === null ? "tiles" : "chart",
+      charted,
+      others: windows.filter((window) => !drawn.has(window)),
     };
   });
   return {
     kind: "cards",
     title: "Providers",
     cards,
-    note: cards.some((card) => (card.chart?.bars.length ?? 0) > 0) ? BARS_NOTE : null,
+    note: cards.some((card) => card.charted.some((entry) => entry.chart.bars.length > 0)) ? BARS_NOTE : null,
   };
 }
 

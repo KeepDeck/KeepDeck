@@ -53,19 +53,18 @@ describe("providersView", () => {
     expect(staleCard?.age).toEqual({ text: "2h ago", className: "usage-level--warn" });
   });
 
-  it("draws a card around its longest live window, the shorter one marked where it runs", () => {
+  it("gives each live window its own chart, the most pressing one on top", () => {
     const card = cardOf(viewOf(new Map([["claude", account([live(30), week(10)])]])));
     expect(card.windows.map((window) => window.label)).toEqual(["5h", "week"]);
-    expect(card.lead?.label).toBe("week");
-    expect(card.others.map((window) => window.label)).toEqual(["5h"]);
+    // Neither warns: the fuller one first, each on its own clock.
+    expect(card.charted.map((entry) => [entry.window.label, entry.chart.ticks.length > 0])).toEqual([["5h", true], ["week", true]]);
+    expect(card.others).toEqual([]);
     expect(card.color).toBe("#c1");
-    expect(card.chart?.slices.map((slice) => slice.label.text)).toEqual([expect.stringMatching(/^5h window · \d\d:\d\d–\d\d:\d\d$/)]);
-    expect(card.layout).toBe("chart");
   });
 
-  it("has no window to draw a card around when every one has reset", () => {
+  it("has nothing to chart when every window has reset — small tiles only", () => {
     const card = cardOf(viewOf(new Map([["claude", account([expired])]])));
-    expect([card.lead, card.chart, card.layout]).toEqual([null, null, "tiles"]);
+    expect(card.charted).toEqual([]);
     expect(card.others).toHaveLength(1);
   });
 
@@ -85,11 +84,11 @@ describe("providersView", () => {
     expect(windows.find((window) => window.expired)?.percent.className).toBeUndefined();
   });
 
-  it("lets a scoped week lead over an unscoped 5h window", () => {
+  it("charts a scoped week on its clock too, without this machine's unscoped usage", () => {
     const scoped: UsageWindow = { ...week(40), scope: "opus" };
     const card = cardOf(viewOf(new Map([["claude", account([live(10), scoped])]])));
-    expect(card.lead?.label).toBe(windowLabel(scoped, "long"));
-    expect(card.chart?.bars).toEqual([]);
+    expect(card.charted.map((entry) => entry.window.label)).toEqual([windowLabel(scoped, "long"), "5h"]);
+    expect(card.charted[0]?.chart.bars).toEqual([]);
   });
 
   it("puts the most urgent warning first: severity, then how soon, then how full", () => {

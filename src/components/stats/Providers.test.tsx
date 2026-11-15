@@ -82,7 +82,7 @@ describe("Providers", () => {
     windows,
   });
 
-  it("draws one card per provider around its longest window: a lead tile beside its chart, the shorter one a small tile", () => {
+  it("draws one card per provider, and in it each live window beside its own chart", () => {
     render({
       accounts: new Map([
         [
@@ -99,22 +99,19 @@ describe("Providers", () => {
     const card = present(cards[0], "the codex card");
     // The name and the report age once, in the head.
     expect(card.querySelector(".stats__provider-head")?.textContent).toBe("codexUpdated 1m ago");
-    const lead = present(card.querySelector(".stats__window--lead"), "the lead tile");
-    expect(lead.textContent).toContain("week");
-    expect(lead.textContent).toContain("51%");
-    const [, small] = [...card.querySelectorAll(".stats__window")];
-    expect(small?.textContent).toContain("5h");
-    expect(small?.textContent).toContain("34%");
-    expect(small?.textContent).toContain(`resets in 2h 0m · ${formatMoment(NOW + 2 * HOUR, NOW)}`);
+    // The fuller week first, then the 5h window — each a tile and a chart.
+    const rows = [...card.querySelectorAll(".stats__provider-row")];
+    expect(rows.map((row) => row.querySelector(".stats__window-label")?.textContent)).toEqual(["week", "5h"]);
+    expect(rows.every((row) => row.querySelector(".stats__limits-chart") !== null)).toBe(true);
+    expect(rows[1]?.textContent).toContain(`resets in 2h 0m · ${formatMoment(NOW + 2 * HOUR, NOW)}`);
+    // The 5h chart runs on its own hours.
+    expect(rows[1]?.querySelector(".stats__limits-ticks")?.textContent).toMatch(/\d\d:00/);
     // Each tile draws the shared fill bar, and nothing on it but the fill.
     expect(card.querySelectorAll(".usage-bar")).toHaveLength(2);
     expect(card.querySelectorAll(".stats__window-bar > i")).toHaveLength(0);
-    // The chart names its start, its reset and now, and marks the 5h window in it.
-    const chart = present(card.querySelector(".stats__limits-chart"), "the chart");
+    const chart = present(rows[0]?.querySelector(".stats__limits-chart"), "the week's chart");
     expect(chart.querySelector(".stats__limits-edges")?.textContent).toMatch(/^started .+resets .+$/);
     expect(chart.querySelector(".stats__limits-now-label")?.textContent).toMatch(/^now · /);
-    expect(chart.querySelectorAll(".stats__limits-ticks span").length).toBeGreaterThan(0);
-    expect(chart.querySelector(".stats__limits-note")?.textContent).toMatch(/^5h window · /);
   });
 
   it("says the race on the lead tile's own line, and marks the run-out on the chart's ceiling", () => {
@@ -167,9 +164,9 @@ describe("Providers", () => {
     expect(card.querySelector(".stats__provider-head")?.textContent).toContain("Updated 2h ago");
     const reset = present(card.querySelector(".stats__window--expired"), "the reset tile");
     expect(reset.textContent).toContain("reset — waiting for its next report");
-    // The live week still leads, with its chart.
-    expect(card.querySelector(".stats__window--lead")?.textContent).toContain("week");
-    expect(card.querySelector(".stats__limits-chart")).not.toBeNull();
+    // The live week is charted; the reset 5h window is a small tile.
+    expect(card.querySelector(".stats__provider-row .stats__window-label")?.textContent).toBe("week");
+    expect(card.querySelector(".stats__provider-others .stats__window--expired")).not.toBeNull();
   });
 
   it("demotes a window on the card already drawn, the moment the now it is handed passes its reset", () => {

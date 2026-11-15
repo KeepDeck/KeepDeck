@@ -56,9 +56,6 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
               {view.grid.map((x) => (
                 <line key={x} className="stats__limits-day" x1={x * 1000} x2={x * 1000} y1={0} y2={100} vectorEffect="non-scaling-stroke" />
               ))}
-              {view.slices.map((slice) => (
-                <rect key={slice.key} className="stats__limits-slice" x={slice.x0 * 1000} width={(slice.x1 - slice.x0) * 1000} y={0} height={100} />
-              ))}
               {geometry.projected && (
                 <polyline className="stats__limits-projection" points={polyline(geometry.projected)} vectorEffect="non-scaling-stroke" />
               )}
@@ -67,16 +64,6 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
             </svg>
             <span className="stats__limits-axis" style={{ top: "0%" }} aria-hidden="true">100%</span>
             <span className="stats__limits-axis" style={{ top: "50%" }} aria-hidden="true">50%</span>
-            {view.slices.map((slice) => (
-              <span
-                key={slice.key}
-                className={`stats__limits-note stats__limits-note--${slice.label.side}`}
-                style={{ left: at(slice.label.x) }}
-                aria-hidden="true"
-              >
-                {slice.label.text}
-              </span>
-            ))}
             {last && <i className="stats__limits-dot" style={{ left: at(last.x), top: fromTop(last.usedPct) }} aria-hidden="true" />}
             {current.lone && (
             <span

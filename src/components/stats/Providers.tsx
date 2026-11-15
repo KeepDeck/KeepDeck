@@ -6,9 +6,9 @@ import { accountLimitsView, type ProviderCardView, type ProviderWindowView } fro
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { LimitsWindowChart } from "./LimitsWindowChart";
 
-/** The Limits tab: one card per provider, drawn around its longest live
- * window — a tile beside that window's chart — with the provider's other
- * windows as small tiles under it. Period-independent by design: a
+/** The Limits tab: one card per provider, and in it each live window — a
+ * tile beside its own chart — with the windows there is nothing to chart
+ * for as small tiles under them. Period-independent by design: a
  * subscription window is the provider's clock, not the user's selected
  * range. What each card says is settled in
  * presentation/stats/providersView.ts. */
@@ -62,15 +62,19 @@ function ProviderCard({ card, now }: { card: ProviderCardView; now: number }) {
         </b>
         <small className={card.updated.className}>{card.updated.text}</small>
       </header>
-      <div className={`stats__provider-body stats__provider-body--${card.layout}`}>
-        <div className="stats__provider-tiles">
-          {card.lead && <WindowTile view={card.lead} now={now} lead />}
+      {card.charted.map(({ window, chart }) => (
+        <div key={window.id} className="stats__provider-row">
+          <WindowTile view={window} now={now} lead />
+          <LimitsWindowChart view={chart} color={card.color} />
+        </div>
+      ))}
+      {card.others.length > 0 && (
+        <div className="stats__provider-others">
           {card.others.map((window) => (
             <WindowTile key={window.id} view={window} now={now} lead={false} />
           ))}
         </div>
-        {card.chart && <LimitsWindowChart view={card.chart} color={card.color} />}
-      </div>
+      )}
     </article>
   );
 }
