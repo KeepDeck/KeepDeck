@@ -83,6 +83,7 @@ export function Weekly({
         {view.lists.map((list) => (
           <section key={list.title} className="stats__top" aria-label={list.title}>
             <h3>{list.title}</h3>
+            {list.empty !== null && <p className="stats__top-empty">{list.empty}</p>}
             {list.rows.map((row) => (
               <div key={row.key} className={`stats__top-row${row.folded ? " stats__top-row--folded" : ""}`}>
                 <span className="stats__top-name">
@@ -166,14 +167,18 @@ function Bars({ view }: { view: BarsView }) {
   return (
     <section className="stats__top" aria-label={view.title}>
       <h3>{view.title}</h3>
-      <div className={`stats__bars${view.labelled ? "" : " stats__bars--dense"}`}>
-        {view.bars.map((bar) => (
-          <span key={bar.label} title={bar.title}>
-            <i style={{ height: `${bar.height * 100}%` }} />
-            {view.labelled && <small>{bar.label}</small>}
-          </span>
-        ))}
-      </div>
+      {view.empty !== null ? (
+        <p className="stats__bars stats__bars--empty">{view.empty}</p>
+      ) : (
+        <div className={`stats__bars${view.labelled ? "" : " stats__bars--dense"}`}>
+          {view.bars.map((bar) => (
+            <span key={bar.label} title={bar.title}>
+              <i style={{ height: `${bar.height * 100}%` }} />
+              {view.labelled && <small>{bar.label}</small>}
+            </span>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

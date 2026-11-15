@@ -35,6 +35,15 @@ export function measureNote(totals: UsageTally & { totalTokens: number }, measur
   return measure === "spend" ? costCoverage(totals) : TOKENS_NOTE;
 }
 
+/** Why a chart in the measure has nothing to draw, or null when it has:
+ * no usage at all — `noUsage`, the period's own words for it, null when
+ * there was some — or, in money, usage no price covers. Tokens are known
+ * for every row. */
+export function nothingToDraw(noUsage: string | null, totals: UsageTally, measure: StatsMeasure): string | null {
+  if (noUsage !== null) return noUsage;
+  return measure === "spend" && totals.pricedEvents === 0 ? "None of this usage has a known price." : null;
+}
+
 /** What this machine used inside a provider window, as one line, in the
  * measure: its tokens and sessions, then — in money, once one of them was
  * priced — their cost; in tokens, the tokens less cache reads. The branch

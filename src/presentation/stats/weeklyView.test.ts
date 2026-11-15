@@ -136,6 +136,43 @@ describe("the Weekly report", () => {
   });
 });
 
+describe("a week with no usage", () => {
+  it("says so in words — headline, rhythm and lists — in either measure", () => {
+    for (const measure of ["spend", "tokens"] as const) {
+      const shown = view([], { measure });
+      expect(shown.headline).toMatchObject({ change: null, caption: "no usage this week" });
+      expect(shown.lines).toEqual([]);
+      expect(shown.rhythm.map((group) => group.empty)).toEqual(["No usage this week", "No usage this week"]);
+      expect(shown.lists.map((list) => [list.title, list.empty, list.rows])).toEqual([
+        ["Teams", "No usage this week", []],
+        ["Models", "No usage this week", []],
+      ]);
+    }
+  });
+
+  it("speaks of a past one as that week", () => {
+    const shown = view([{ occurredAt: MONDAY, costUsd: 1 }], { back: 1 });
+    expect(shown.headline.caption).toBe("no usage that week");
+    expect(shown.rhythm[0]?.empty).toBe("No usage that week");
+    expect(shown.lists[0]?.empty).toBe("No usage that week");
+  });
+
+  it("keeps the fall when the week before had usage", () => {
+    const shown = view([{ occurredAt: LAST_MONDAY, costUsd: 4, tokens: { input: 10 } }], { measure: "tokens" });
+    expect(shown.headline).toMatchObject({ change: { text: "↓ 100%", tone: "flat" }, caption: "vs last week at this point" });
+  });
+});
+
+describe("a week whose usage no price covers", () => {
+  it("draws no money bars and says why, yet lists the usage; tokens draw it", () => {
+    const rows = [{ occurredAt: MONDAY, tokens: { input: 7 } }];
+    const spend = view(rows);
+    expect(spend.rhythm.map((group) => group.empty)).toEqual(["None of this usage has a known price.", "None of this usage has a known price."]);
+    expect(spend.lists.map((list) => [list.empty, list.rows.length])).toEqual([[null, 1], [null, 1]]);
+    expect(view(rows, { measure: "tokens" }).rhythm.map((group) => group.empty)).toEqual([null, null]);
+  });
+});
+
 describe("the weekly digest", () => {
   it("tells last week's report in the tab's own words, and opens on that week", () => {
     inZone("Asia/Nicosia", () => {

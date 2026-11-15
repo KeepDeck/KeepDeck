@@ -165,6 +165,15 @@
   gap: 2px;
 }
 
+/* Said in place of the bars when there is nothing to draw — at the bars'
+   own height, so the row keeps its shape. */
+.stats__bars--empty {
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--kd-text-3);
+}
+
 .stats__top-row b small {
   margin-right: 6px;
   color: var(--kd-text-3);

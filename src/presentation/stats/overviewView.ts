@@ -6,7 +6,7 @@ import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import { statsSpans, type StatsPeriod } from "../../domain/usage/stats/period";
 import { seriesColorFor } from "../usagePalette";
 import { usageChartView, type UsageChartView } from "./usageChartView";
-import { displayAmount, measureNote } from "./statsMeasures";
+import { displayAmount, measureNote, nothingToDraw } from "./statsMeasures";
 import { PERIOD_PHRASES } from "./statsPeriods";
 import { agentName, modelNames, workspaceName, type GroupName } from "./statsNames";
 
@@ -144,7 +144,7 @@ export function overviewView(
       { label: "Output tokens", value: formatTokens(totals.outputTokens), caption: "reasoning included" },
     ],
     chart: usageChartView(usageTimeline(rows, spans.current, granularity, measure), granularity, colors, measure),
-    chartNote: idle ? empty : unpriced ? "None of this usage has a known price." : null,
+    chartNote: nothingToDraw(empty, totals, measure),
     legend: [...agents]
       .sort((left, right) => (left.key < right.key ? -1 : 1))
       .map((row) => ({ agent: agentName(row).name, color: seriesColorFor(colors, row.key), amount: displayAmount(row, measure) })),

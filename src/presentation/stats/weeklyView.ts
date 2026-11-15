@@ -26,7 +26,7 @@ import {
 } from "../../domain/usage/stats/weekly";
 import { localDayFromOrdinal, localDayStart, shiftDay } from "../../domain/usage/time";
 import { changeView, type ChangeView } from "./overviewView";
-import { displayAmount, measureNote } from "./statsMeasures";
+import { displayAmount, measureNote, nothingToDraw } from "./statsMeasures";
 import { modelNames, teamName, type GroupName } from "./statsNames";
 
 /**
@@ -62,6 +62,8 @@ export interface BarsView {
   bars: BarView[];
   /** Whether each bar names itself under it — not 24 hour numbers. */
   labelled: boolean;
+  /** Said in place of the bars when they have nothing to draw. */
+  empty: string | null;
 }
 
 export interface WeeklyView {
@@ -80,7 +82,8 @@ export interface WeeklyView {
   calendar: { title: string; caption: string; weeks: { key: number; days: { key: number; level: number; title: string; selected: boolean }[] }[] };
   rhythm: BarsView[];
   peaks: { title: string; caption: string; rows: { key: string; label: string; pct: string }[]; empty: string | null };
-  lists: { title: string; rows: WeeklyListRowView[] }[];
+  /** `empty` is said in place of the rows of a week with no usage. */
+  lists: { title: string; rows: WeeklyListRowView[]; empty: string | null }[];
   badges: { title: string; link: string; rows: { id: string; title: string; pct: string }[] } | null;
   notes: string[];
 }
@@ -103,6 +106,10 @@ const REPORT_WORDS: Record<StatsMeasure, { headline: [thatWeek: string, thisWeek
   spend: { headline: ["Spent that week", "Spent this week"], share: "of the spend", day: "the costliest day" },
   tokens: { headline: ["Tokens that week", "Tokens this week"], share: "of the tokens", day: "the busiest day" },
 };
+
+/** The reported week in words: this week while it runs, that week once it
+ * is over. */
+const weekPhrase = (week: WeekSpans) => (week.complete ? "that week" : "this week");
 
 export function weekReportView(rows: readonly UsageRow[], now: number, back: number, measure: StatsMeasure): WeekReportView {
   const words = REPORT_WORDS[measure];
@@ -141,7 +148,11 @@ export function weekReportView(rows: readonly UsageRow[], now: number, back: num
       label: words.headline[week.complete ? 0 : 1],
       value: displayAmount(totals, measure),
       change: change === null ? null : changeView(change, measure),
-      caption: change === null ? "no comparable week before" : week.complete ? "vs the week before" : "vs last week at this point",
+      caption:
+        change !== null
+          ? week.complete ? "vs the week before" : "vs last week at this point"
+          // A fall to nothing keeps its change; nothing against nothing is said.
+          : current.length === 0 ? `no usage ${weekPhrase(week)}` : "no comparable week before",
     },
     lines,
   };
@@ -172,6 +183,9 @@ export function weeklyView(
   const groupsOfTeams = breakdown(current, [], (row) => dimensionKey("team", row, teams), WEEKLY_LIST_TOP, measure);
   const peaks = windowPeaks(input.reports, week.current);
   const rhythm = weekRhythm(current, week.current);
+  // A week with no usage says so in words, never as empty cards.
+  const noUsage = current.length === 0 ? `No usage ${weekPhrase(week)}` : null;
+  const rhythmEmpty = nothingToDraw(noUsage, totals, measure);
   const provenance = teamProvenance(current, teams);
   const inferred = [...provenance.values()].some((p) => p !== "recorded");
   return {
@@ -186,8 +200,8 @@ export function weeklyView(
     lines: report.lines,
     calendar: calendarView(rows, now, week.monday, measure),
     rhythm: [
-      { title: "By day", bars: bars(rhythm.byWeekday, (i) => DAYS[i] ?? "", measure), labelled: true },
-      { title: "By hour, local time", bars: bars(rhythm.byHour, (i) => `${i}:00`, measure), labelled: false },
+      { title: "By day", bars: bars(rhythm.byWeekday, (i) => DAYS[i] ?? "", measure), labelled: true, empty: rhythmEmpty },
+      { title: "By hour, local time", bars: bars(rhythm.byHour, (i) => `${i}:00`, measure), labelled: false, empty: rhythmEmpty },
     ],
     peaks: {
       title: "Limits — highest readings",
@@ -200,8 +214,8 @@ export function weeklyView(
       empty: peaks.length > 0 ? null : week.complete ? "Readings for this week are no longer kept." : "No limit readings yet this week.",
     },
     lists: [
-      list("Teams", groupsOfTeams, (group) => teamName(group, teams, provenance.get(group.key)), measure),
-      list("Models", models, (group) => names.get(group.key) ?? { name: group.key, source: null }, measure),
+      list("Teams", groupsOfTeams, (group) => teamName(group, teams, provenance.get(group.key)), noUsage, measure),
+      list("Models", models, (group) => names.get(group.key) ?? { name: group.key, source: null }, noUsage, measure),
     ],
     badges: back === 0 ? badgesView(input.ladders) : null,
     notes: [
@@ -221,9 +235,16 @@ function weekRange(from: number, to: number): string {
   return `${formatLocalDay(from)} – ${formatLocalDay(to - 1)}`;
 }
 
-function list(title: string, groups: readonly BreakdownRow[], nameOf: (group: BreakdownRow) => GroupName, measure: StatsMeasure) {
+function list(
+  title: string,
+  groups: readonly BreakdownRow[],
+  nameOf: (group: BreakdownRow) => GroupName,
+  empty: string | null,
+  measure: StatsMeasure,
+): WeeklyView["lists"][number] {
   return {
     title,
+    empty,
     rows: groups.map((group) => ({
       key: group.key,
       ...nameOf(group),

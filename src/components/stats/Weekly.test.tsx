@@ -54,6 +54,22 @@ describe("Weekly", () => {
     expect(host.querySelector(".stats__weeknav b")?.textContent).toMatch(/^This week/);
   });
 
+  it("says a week with no usage in words, in place of its bars and list rows", () => {
+    act(() =>
+      root.render(
+        createElement(Weekly, {
+          ledger: ledgerOf([]), now: NOW, week: null, onSelectWeek: vi.fn(), teams: NO_TEAM_HISTORY, reportsByKey: new Map(), measure: "tokens", onOpenGallery: vi.fn(),
+        }),
+      ),
+    );
+    const said = (selector: string) => [...host.querySelectorAll(selector)].map((node) => node.textContent);
+    expect(said(".stats__bars--empty")).toEqual(["No usage this week", "No usage this week"]);
+    expect(host.querySelectorAll(".stats__bars span")).toHaveLength(0);
+    for (const title of ["Teams", "Models"]) {
+      expect(host.querySelector(`[aria-label="${title}"] .stats__top-empty`)?.textContent).toBe("No usage this week");
+    }
+  });
+
   it("opens the badge gallery from this week's badge panel", () => {
     const open = render();
     act(() => present(host.querySelector<HTMLButtonElement>(".stats__link"), "the gallery door").click());
