@@ -11,9 +11,10 @@ import { useBurnInspection } from "../usage/windowBurn/useBurnInspection";
  * provider's percent over it and where the pace takes it, named at the end
  * of the dashed line. Drawn the way the popover sparkline is: the SVG
  * stretches horizontally only, strokes keep their width, and everything
- * that must not distort — dots and every label — is HTML placed in percent. The pointer and the arrow keys
- * inspect it through the shared burn inspection; what the card says is
- * limitsTooltipView's. It draws what it is handed and decides nothing.
+ * that must not distort — dots and every label — is HTML placed in
+ * percent. The pointer and the arrow keys inspect it through the shared
+ * burn inspection; what the card says is limitsTooltipView's. It draws
+ * what it is handed and decides nothing.
  */
 
 const at = (share: number) => `${(share * 100).toFixed(2)}%`;

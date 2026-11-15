@@ -9,7 +9,8 @@ import { useEffect, type RefObject } from "react";
  * or up — a scroll anywhere in the anchor's window is the cursor leaving.
  * Captured, so a dialog's own scroller counts: its scroll does not bubble.
  * Each surface says what leaving means for it; a tip held by focus or the
- * keys is its business to keep.
+ * keys is its business to keep. `onExit` should be stable (memoized): a
+ * fresh one each render re-registers the listener every render.
  */
 export function useScrollExit(active: boolean, anchor: RefObject<Element | null>, onExit: () => void): void {
   useEffect(() => {

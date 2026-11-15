@@ -85,11 +85,12 @@ export function Tooltip({
 
   // The cursor has left the anchor — by moving off it, or by the page
   // scrolling it out from under the cursor (useScrollExit): a tip asked for
-  // by the pointer goes, and one held by focus stays. A focus-opened tip survives the cursor leaving: brushing
-  // past the anchor on the way somewhere else must not close what the
-  // keyboard opened. Narrowly that, and not "focus owns the tip" — a press
-  // on the same anchor still closes it, because a press is a thing the user
-  // meant to do and a passing cursor is not.
+  // by the pointer goes, and one held by focus stays. A focus-opened tip
+  // survives the cursor leaving: brushing past the anchor on the way
+  // somewhere else must not close what the keyboard opened. Narrowly that,
+  // and not "focus owns the tip" — a press on the same anchor still closes
+  // it, because a press is a thing the user meant to do and a passing
+  // cursor is not.
   const cursorLeft = useCallback(() => {
     cancelEnter();
     setHovered(false);
