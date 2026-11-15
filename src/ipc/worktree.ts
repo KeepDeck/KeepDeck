@@ -1,3 +1,4 @@
+import type { RepoCheckout } from "../domain/deck";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { PathProbe } from "../domain/agents";
@@ -77,6 +78,17 @@ export function probeWorktree(path: string): Promise<PathProbe> {
  *  base validation instead of blocking the dialog. */
 export function listBranches(repo: string): Promise<string[]> {
   return invoke<string[]>("worktree_branches", { repo });
+}
+
+/** Every checkout of `repo`, with the uncommitted work each holds. */
+export function listWorktrees(repo: string): Promise<RepoCheckout[]> {
+  return invoke<RepoCheckout[]>("worktree_list", { repo });
+}
+
+/** Keep the commit the checkout at `path` stands on as `refs/tags/<name>`;
+ * refused when the name is taken. Answers the full ref. */
+export function saveWorktreeHead(repo: string, path: string, name: string): Promise<string> {
+  return invoke<string>("worktree_save_head", { repo, path, name });
 }
 
 /** Provision one team's git worktree; returns its path + branch. */

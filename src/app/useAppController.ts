@@ -525,6 +525,18 @@ export function useAppController(runtime: AppRuntime) {
       onCloseWorkspace: closeFlow.requestCloseWorkspace,
       /** The page's edits — one transition, the domain's answer handed back
        * so the page can say why one was refused. */
+      /** A checkout nobody holds, removed through the worktree owner's queue. */
+      onRemoveWorktree: runtime.worktrees.removeUnheld,
+      /** "New team in a worktree": the "+ Team" door, on that workspace —
+       * brought on screen first, the window let go so the dialog is not
+       * behind it. */
+      onNewTeam: (wsId: string) => {
+        const ws = findWorkspace(deck.workspaces, wsId);
+        if (!ws || ws.archived) return;
+        modal.closeWorkspaces();
+        deck.selectWorkspace(ws.id);
+        void agentFlow.openFor(ws, { kind: "new-team" });
+      },
       onUpdate: (wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult => {
         const ws = findWorkspace(deck.workspaces, wsId);
         if (!ws) return { ok: false, refusal: { kind: "unknown-workspace" } };

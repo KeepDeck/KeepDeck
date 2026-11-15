@@ -180,6 +180,42 @@ export function closeWorkspace(workspaces: Workspace[], id: string): Workspace[]
   return workspaces.filter((ws) => ws.id !== id);
 }
 
+/** One checkout of a repository, as `git worktree list` reports it — with
+ * how much uncommitted work it holds. */
+export interface RepoCheckout {
+  path: string;
+  branch: string | null;
+  head: string | null;
+  detached: boolean;
+  locked: boolean;
+  /** Its folder is gone; only git's record of it is left. */
+  prunable: boolean;
+  /** Entries `git status` calls changed, ignored files aside; null when that
+   * could not be asked. */
+  changed: number | null;
+}
+
+/** A checkout no team holds, to remove. */
+export interface UnheldRemovalRequest {
+  repo: string;
+  path: string;
+  /** Keep its commit as `refs/tags/<keepHeadAs>` before it goes — for a
+   * detached checkout, whose commits no branch holds. */
+  keepHeadAs?: string;
+  /** The person agreed to lose its uncommitted work. */
+  discardDirty: boolean;
+}
+
+/** What removing an unheld checkout did. */
+export type UnheldRemoval =
+  | { kind: "removed"; keptAs?: string }
+  /** A team holds it now; nothing was touched. */
+  | { kind: "held" }
+  /** Its commit could not be kept; nothing was removed. */
+  | { kind: "not-kept"; reason: string }
+  /** Git refused, or finished only part of it. */
+  | { kind: "failed"; reason: string; keptAs?: string };
+
 /** A git worktree (and its branch, when one is known) to tear down when an
  * agent or workspace closes. */
 export interface WorktreeTarget {

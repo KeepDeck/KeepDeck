@@ -469,3 +469,58 @@ describe("sweep", () => {
     expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("removing a checkout no team holds", () => {
+  const request = { repo: "/repo", path: "/wt/old", discardDirty: false };
+
+  it("removes it, leaving its branch, and keeps nothing it was not asked to", async () => {
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    worktree.removeWorktree.mockResolvedValue(undefined);
+    expect(await manager.removeUnheld(request)).toEqual({ kind: "removed" });
+    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/old", { discardDirty: false, discardUnmerged: false });
+    expect(worktree.saveWorktreeHead).not.toHaveBeenCalled();
+  });
+
+  it("asks again inside the queue: a team that landed there since holds it, and nothing is touched", async () => {
+    deck = [{ id: "ws-1", roots: ["/repo", "/wt/old/"] }];
+    expect(await manager.removeUnheld(request)).toEqual({ kind: "held" });
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("holds a workspace's own folder even with no team in it", async () => {
+    // Every test deck's workspaces sit in /repo; this one has no team at all.
+    deck = [{ id: "ws-1", roots: [] }];
+    expect(await manager.removeUnheld({ ...request, path: "/repo/" })).toEqual({ kind: "held" });
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("holds an archived workspace's directories as well — retained, not free", async () => {
+    deck = [{ id: "ws-1", roots: ["/wt/old"], archived: true }];
+    expect(await manager.removeUnheld(request)).toEqual({ kind: "held" });
+  });
+
+  it("keeps a detached checkout's commit first, and removes nothing when it cannot", async () => {
+    deck = [];
+    worktree.removeWorktree.mockResolvedValue(undefined);
+    expect(await manager.removeUnheld({ ...request, keepHeadAs: "archive/web/old" })).toEqual({
+      kind: "removed",
+      keptAs: "refs/tags/archive/web/old",
+    });
+    worktree.saveWorktreeHead.mockRejectedValueOnce(new Error("tag exists"));
+    worktree.removeWorktree.mockClear();
+    expect(await manager.removeUnheld({ ...request, keepHeadAs: "archive/web/old" })).toEqual({
+      kind: "not-kept",
+      reason: "tag exists",
+    });
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("says what git refused", async () => {
+    deck = [];
+    worktree.removeWorktree.mockRejectedValueOnce(new Error("worktree has uncommitted changes; not removing"));
+    expect(await manager.removeUnheld(request)).toEqual({
+      kind: "failed",
+      reason: "worktree has uncommitted changes; not removing",
+    });
+  });
+});

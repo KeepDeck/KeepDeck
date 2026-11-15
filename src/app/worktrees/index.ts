@@ -24,7 +24,11 @@
  */
 import type { CwdArm, WorkspaceRef } from "@keepdeck/plugin-api";
 import {
+  sameDirectory,
   skillRootsOf,
+  teamOccupyingPath,
+  type UnheldRemoval,
+  type UnheldRemovalRequest,
   type Workspace,
   type WorktreeIntent,
   type WorktreeTarget,
@@ -34,6 +38,9 @@ import type { ProvisionCallbacks } from "../provisioning";
 import { createWorktreeProvisioning } from "./provisioning";
 import { createOrderQueue, type InOrder } from "./queue";
 import { createWorktreeTeardown } from "./teardown";
+import { removeUnheld } from "./unheld";
+
+export type { UnheldRemoval, UnheldRemovalRequest } from "../../domain/deck";
 
 /** A worktree a create put on disk: enough for [`WorktreeManager.remove`]. */
 export interface CreatedWorktree {
@@ -82,6 +89,9 @@ export interface WorktreeDeckView {
   nameOf(workspace: WorkspaceRef): string | null;
   /** Every live workspace with its roots. */
   live(): LiveWorkspace[];
+  /** Whether any workspace — archived ones too — holds `path`: as its root,
+   * or a team's directory (one being created included). */
+  holds(path: string): boolean;
 }
 
 /** The staged skills the spawn hook consumes: the bare view and each skill as
@@ -147,6 +157,16 @@ export interface WorktreeProvisioner {
    * and retry.
    */
   disarmArchived(workspace: WorkspaceRef): Promise<boolean>;
+  /**
+   * Remove a checkout NO team holds — one the Workspaces window lists from
+   * `git worktree list`. In the queue like every write into a cwd, and asked
+   * again INSIDE the slot whether anyone holds it now: a team may have
+   * landed there since the list was read. The branch always stays. A
+   * detached checkout's commit is kept as a tag first, and nothing is
+   * removed when that cannot be done. Uncommitted work goes only with
+   * `discardDirty`.
+   */
+  removeUnheld(request: UnheldRemovalRequest): Promise<UnheldRemoval>;
   /** Register a step to run after `ownerId`'s worktree lands (see the map doc). */
   registerPostProvision(
     ownerId: string,
@@ -310,6 +330,9 @@ export function deckViewOf(workspaces: () => Workspace[]): WorktreeDeckView {
         roots: skillRootsOf(workspace),
         archived: workspace.archived !== undefined,
       })),
+    holds: (path) =>
+      workspaces().some((workspace) => sameDirectory(workspace.cwd, path)) ||
+      teamOccupyingPath(workspaces(), path) !== null,
   };
 }
 
@@ -326,6 +349,7 @@ export function createWorktreeManager(
     ...provisioning,
     disarmArchived: (workspace) =>
       inOrder(async () => (await plantings.disarm(deck.rootsOf(workspace))) !== null),
+    removeUnheld: (request) => inOrder(() => removeUnheld(deck, request)),
     skillsFor: plantings.skillsFor,
     invalidateSkills: plantings.invalidateSkills,
     sweep: plantings.sweep,

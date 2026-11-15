@@ -22,6 +22,7 @@ const worktreeIpc = vi.hoisted(() => ({
   inspectRepo: vi.fn(),
   createWorktree: vi.fn(),
   removeWorktree: vi.fn(),
+  saveWorktreeHead: vi.fn(async (_repo: string, _path: string, name: string) => `refs/tags/${name}`),
 }));
 vi.mock("../../ipc/worktree", () => worktreeIpc);
 

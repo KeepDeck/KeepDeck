@@ -186,6 +186,43 @@
   width: 6em;
 }
 
+.workspaces__sec h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspaces__count {
+  color: var(--kd-text-3);
+  font-weight: 400;
+}
+
+.workspaces__sec-act {
+  margin-left: auto;
+}
+
+.workspaces__worktrees {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--kd-font-small);
+}
+
+.workspaces__worktrees td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--kd-seam);
+  color: var(--kd-text-2);
+  vertical-align: middle;
+}
+
+.workspaces__wt-path {
+  max-width: 260px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
 .workspaces__foot {
   display: flex;
   flex-wrap: wrap;

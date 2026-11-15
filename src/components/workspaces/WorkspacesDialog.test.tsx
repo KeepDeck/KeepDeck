@@ -2,7 +2,14 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Workspace, WorkspacePatch, WorkspaceUpdateResult } from "../../domain/deck";
+import type {
+  RepoCheckout,
+  UnheldRemoval,
+  UnheldRemovalRequest,
+  Workspace,
+  WorkspacePatch,
+  WorkspaceUpdateResult,
+} from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { WorkspacesDialog, type WorkspacesDialogProps } from "./WorkspacesDialog";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -31,6 +38,11 @@ describe("WorkspacesDialog", () => {
     onClose: vi.fn(),
     onUpdate: vi.fn<(wsId: string, patch: WorkspacePatch) => WorkspaceUpdateResult>(() => ({ ok: true, workspaces: [] })),
     pickFolder: vi.fn<(title: string) => Promise<string | null>>(() => Promise.resolve("/picked")),
+    listWorktrees: vi.fn<(repo: string) => Promise<RepoCheckout[]>>(() => Promise.resolve([])),
+    onRemoveWorktree: vi.fn<(request: UnheldRemovalRequest) => Promise<UnheldRemoval>>(() =>
+      Promise.resolve({ kind: "removed" }),
+    ),
+    onNewTeam: vi.fn(),
   };
   const render = (over: Partial<WorkspacesDialogProps> = {}) =>
     act(() =>

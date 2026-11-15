@@ -25,7 +25,7 @@ import {
   findWorkspace,
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
-import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
+import { inspectRepo, listBranches, listWorktrees, probeWorktree } from "./ipc/worktree";
 import {
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
@@ -405,6 +405,9 @@ function App({ runtime }: { runtime: AppRuntime }) {
               onCloseWorkspace={workspacesWindow.onCloseWorkspace}
               onUpdate={workspacesWindow.onUpdate}
               pickFolder={pickFolder}
+              listWorktrees={listWorktrees}
+              onRemoveWorktree={workspacesWindow.onRemoveWorktree}
+              onNewTeam={workspacesWindow.onNewTeam}
               onClose={workspacesWindow.onClose}
               canClose={canCloseDialog}
             />

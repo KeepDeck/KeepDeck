@@ -467,6 +467,8 @@ export function Probe() {
             disarms.asked.push(workspace.id);
             return Promise.resolve(disarms.ok);
           },
+          // Not the orchestrator's: the Workspaces window asks it directly.
+          removeUnheld: () => Promise.resolve({ kind: "removed" as const }),
           registerPostProvision: steps.register,
           clearPostProvision: steps.clear,
           skillsFor: skillsAsked,

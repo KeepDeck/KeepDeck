@@ -1,5 +1,12 @@
-import { useState } from "react";
-import type { Workspace, WorkspacePatch, WorkspaceUpdateResult } from "../../domain/deck";
+import { useState, type ReactNode } from "react";
+import type {
+  RepoCheckout,
+  UnheldRemoval,
+  UnheldRemovalRequest,
+  Workspace,
+  WorkspacePatch,
+  WorkspaceUpdateResult,
+} from "../../domain/deck";
 import {
   updateRefusalWords,
   WORKSPACES_WORDS,
@@ -11,6 +18,7 @@ import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
+import { WorktreesSection } from "./WorktreesSection";
 
 export interface WorkspacesDialogProps {
   workspaces: Workspace[];
@@ -24,6 +32,10 @@ export interface WorkspacesDialogProps {
   /** Edit the page's workspace; the domain's answer comes back. */
   onUpdate(wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult;
   pickFolder(title: string): Promise<string | null>;
+  listWorktrees(repo: string): Promise<RepoCheckout[]>;
+  onRemoveWorktree(request: UnheldRemovalRequest): Promise<UnheldRemoval>;
+  /** The "+ Team" door, for the workspace whose page is open. */
+  onNewTeam(wsId: string): void;
   onClose(): void;
   /** Whether the window may close itself now (no transaction over it). */
   canClose: boolean;
@@ -45,6 +57,9 @@ export function WorkspacesDialog({
   onCloseWorkspace,
   onUpdate,
   pickFolder,
+  listWorktrees,
+  onRemoveWorktree,
+  onNewTeam,
   onClose,
   canClose,
 }: WorkspacesDialogProps) {
@@ -84,7 +99,20 @@ export function WorkspacesDialog({
                 onCloseWorkspace={onCloseWorkspace}
                 onUpdate={onUpdate}
                 pickFolder={pickFolder}
-              />
+              >
+                {(() => {
+                  const ws = workspaces.find((candidate) => candidate.id === view.page?.id);
+                  return ws ? (
+                    <WorktreesSection
+                      workspace={ws}
+                      workspaces={workspaces}
+                      listWorktrees={listWorktrees}
+                      onRemove={onRemoveWorktree}
+                      onNewTeam={ws.archived ? null : () => onNewTeam(ws.id)}
+                    />
+                  ) : null;
+                })()}
+              </Page>
             )}
           </section>
         </div>
@@ -123,7 +151,9 @@ function Page({
   onCloseWorkspace,
   onUpdate,
   pickFolder,
+  children,
 }: {
+  children?: ReactNode;
   page: WorkspacePageView;
   onRestore(wsId: string): void;
   onArchive(wsId: string): void;
@@ -263,6 +293,7 @@ function Page({
           </span>
         )}
       </section>
+      {children}
       <footer className="workspaces__foot">
         {acts.archive && (
           <Button variant="secondary" onClick={() => onArchive(page.id)}>
