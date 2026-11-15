@@ -26,7 +26,7 @@ export function Providers({
   ledger: UsageLedger;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
-  /** The provider-report journal — the forecast's pace and the earlier windows. */
+  /** The provider-report journal — the forecast's pace. */
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
   /** What the bars under a window count: money, or tokens. */
@@ -93,7 +93,6 @@ function WindowTile({ view, now, lead }: { view: ProviderWindowView; now: number
       </span>
       <small>{view.reset}</small>
       {view.verdict && <small className={view.verdict.className}>{view.verdict.text}</small>}
-      {view.earlier && <small>{view.earlier}</small>}
     </div>
   );
 }

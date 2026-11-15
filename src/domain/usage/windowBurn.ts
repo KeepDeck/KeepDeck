@@ -67,7 +67,7 @@ const MAX_OBSERVED_POINTS = 300;
 
 /** Even stride over the interior, always keeping the first and the last
  * report — endpoints anchor the axis and the projection. */
-export function sampleReports(segment: readonly WindowReport[]): readonly WindowReport[] {
+function sampleReports(segment: readonly WindowReport[]): readonly WindowReport[] {
   if (segment.length <= MAX_OBSERVED_POINTS) return segment;
   const stride = (segment.length - 1) / (MAX_OBSERVED_POINTS - 1);
   const sampled: WindowReport[] = [];

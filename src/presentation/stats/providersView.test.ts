@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import { formatAge, formatMoment, windowLabel, type AccountUsage, type UsageWindow } from "../../domain/usage";
 import type { ProviderWindowGroup } from "../../domain/usage/providerWindows";
 import type { WindowForecast } from "../../domain/usage/windowForecast";
-import { accountWindowKeys } from "../../domain/usage/reportJournal";
-import { present } from "@keepdeck/plugin-api/testing";
 import { providerWindowGroups } from "../../domain/usage/providerWindows";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
 import { accountLimitsView, providersView } from "./providersView";
@@ -75,7 +73,7 @@ describe("providersView", () => {
     expect(live5h).toMatchObject({
       reset: `resets in 1h 0m · ${formatMoment(NOW + HOUR, NOW)}`,
       // No journal: no pace to say anything from.
-      verdict: { text: "Not enough data yet" },
+      verdict: { text: "No forecast yet — too few recent reports" },
       // Four of its five hours have gone.
       pace: { left: "80.0%", title: "80% of the window's time has gone" },
     });
@@ -86,34 +84,6 @@ describe("providersView", () => {
     const windows = cardOf(viewOf(new Map([["claude", account([week(85), expired])]]))).windows;
     expect(windows.find((window) => !window.expired)?.percent.className).toBe("usage-level--critical");
     expect(windows.find((window) => window.expired)?.percent.className).toBeUndefined();
-  });
-
-  it("says where the last window stood at this point of its own, while the journal reaches back that far", () => {
-    const current = week(3, NOW + 6 * DAY);
-    const key = present(accountWindowKeys("claude", [current]).get(current), "the week's key").key;
-    const previousReset = NOW - DAY;
-    const journal = [
-      { agent: "claude", windowMinutes: 10_080, usedPct: 1, reportedAt: previousReset - 7 * DAY + HOUR, resetsAt: previousReset },
-      { agent: "claude", windowMinutes: 10_080, usedPct: 14, reportedAt: previousReset - 6 * DAY - HOUR, resetsAt: previousReset },
-      { agent: "claude", windowMinutes: 10_080, usedPct: 56, reportedAt: previousReset - DAY, resetsAt: previousReset },
-    ];
-    const view = providersView(providerWindowGroups(new Map([["claude", account([current])]]), [], new Map([[key, journal]]), NOW, "spend"), NOW, COLORS, "spend");
-    const card = cardOf(view);
-    expect(card.windows[0]?.earlier).toBe("last window at this point: 14%");
-    expect(card.chart?.earlier.map((window) => window.label)).toEqual([expect.stringMatching(/^56% · /)]);
-  });
-
-  it("compares with no window but the one just before this — not an older one the journal kept", () => {
-    const current = week(3, NOW + 6 * DAY);
-    const key = present(accountWindowKeys("claude", [current]).get(current), "the week's key").key;
-    // The window before last only: the last week was never seen.
-    const olderReset = NOW - 8 * DAY;
-    const journal = [
-      { agent: "claude", windowMinutes: 10_080, usedPct: 14, reportedAt: olderReset - 6 * DAY - HOUR, resetsAt: olderReset },
-      { agent: "claude", windowMinutes: 10_080, usedPct: 56, reportedAt: olderReset - DAY, resetsAt: olderReset },
-    ];
-    const view = providersView(providerWindowGroups(new Map([["claude", account([current])]]), [], new Map([[key, journal]]), NOW, "spend"), NOW, COLORS, "spend");
-    expect(cardOf(view).windows[0]?.earlier).toBeNull();
   });
 
   it("lets a scoped week lead over an unscoped 5h window", () => {
@@ -129,7 +99,7 @@ describe("providersView", () => {
       reportedAt: NOW,
       stale: false,
       idle: false,
-      rows: [{ id: agent, agent, window: live(usedPct), reports: [], forecast, reportedAt: NOW, expired: false, stale: false, span: null, usage: null, earlier: [] }],
+      rows: [{ id: agent, agent, window: live(usedPct), reports: [], forecast, reportedAt: NOW, expired: false, stale: false, span: null, usage: null }],
     });
     const order = (groups: ProviderWindowGroup[]) => {
       const view = providersView(groups, NOW, COLORS, "spend");

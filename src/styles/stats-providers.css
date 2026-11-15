@@ -73,15 +73,11 @@
 }
 
 .stats__window + .stats__window {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--kd-seam);
+  margin-top: 14px;
 }
 
 .stats__provider-body--tiles .stats__window + .stats__window {
   margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
 }
 
 /* A window that has reset: its percentage describes the window before. */
@@ -130,6 +126,12 @@
   position: relative;
   display: block;
   margin: 5px 0 3px;
+}
+
+/* The shared fill bar is an inline span: here it spans the tile. */
+.stats__window-bar .usage-bar {
+  display: block;
+  width: 100%;
 }
 
 .stats__window-time {
@@ -196,16 +198,6 @@
   fill-opacity: 0.12;
 }
 
-.stats__limits-earlier {
-  fill: none;
-  stroke: var(--kd-text-3);
-  stroke-width: 1.5;
-}
-
-.stats__limits-earlier--older {
-  stroke-opacity: 0.45;
-}
-
 .stats__limits-current {
   fill: none;
   stroke: var(--stats-series);
@@ -232,7 +224,7 @@
 }
 
 .stats__limits-dot,
-.stats__limits-out {
+.stats__limits-end {
   position: absolute;
   width: 8px;
   height: 8px;
@@ -241,14 +233,30 @@
   background: var(--stats-series);
 }
 
-/* Where the pace meets the limit: on the ceiling, in the warning's colour. */
-.stats__limits-out {
-  top: 0;
+/* Where the dashed line stops — the limit in the warning's colour, or the
+   reset — and what it says there. */
+.stats__limits-end[class*="usage-level--"] {
   background: currentcolor;
 }
 
+.stats__limits-end-label--after {
+  transform: translate(8px, calc(-100% - 2px));
+}
+
+.stats__limits-end-label--before {
+  transform: translate(calc(-100% - 8px), calc(-100% - 2px));
+}
+
+.stats__limits-end-label--after.stats__limits-end-label--below {
+  transform: translate(8px, 4px);
+}
+
+.stats__limits-end-label--before.stats__limits-end-label--below {
+  transform: translate(calc(-100% - 8px), 4px);
+}
+
 .stats__limits-note,
-.stats__limits-earlier-label,
+.stats__limits-end-label,
 .stats__limits-now-label {
   position: absolute;
   white-space: nowrap;
@@ -271,21 +279,7 @@
   padding-left: 4px;
 }
 
-.stats__limits-earlier-label--before {
-  transform: translate(calc(-100% - 4px), calc(-100% - 2px));
-}
 
-.stats__limits-earlier-label--after {
-  transform: translate(4px, calc(-100% - 2px));
-}
-
-.stats__limits-earlier-label--before.stats__limits-earlier-label--below {
-  transform: translate(calc(-100% - 4px), 4px);
-}
-
-.stats__limits-earlier-label--after.stats__limits-earlier-label--below {
-  transform: translate(4px, 4px);
-}
 
 .stats__limits-now-label {
   top: 2px;

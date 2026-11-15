@@ -4,7 +4,6 @@ import { providerWindowGroups, type ProviderWindowGroup, type ProviderWindowRow 
 import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { windowVerdict } from "../../domain/usage/windowForecast";
-import { previousWindow, readingAt } from "../../domain/usage/windowHistory";
 import { seriesColorFor } from "../usagePalette";
 import { reportedAgeCaption, usageLevelClass } from "../usageView";
 import { limitsChartView, type LimitsChartView } from "./limitsChartView";
@@ -38,9 +37,6 @@ export interface ProviderWindowView {
   /** The forecast in words; a warning carries its level's class. Null for a
    * window that has reset. */
   verdict: ToneText | null;
-  /** Where the last window stood at this point of its own, while the
-   * journal reaches back that far. */
-  earlier: string | null;
 }
 
 export interface ProviderCardView {
@@ -91,8 +87,6 @@ function windowView(row: ProviderWindowRow, now: number): ProviderWindowView {
   const { window, span } = row;
   const verdict = row.expired ? null : windowVerdict(window, row.forecast, now);
   const elapsed = span === null ? null : Math.min(1, Math.max(0, (now - span.from) / (span.to - span.from)));
-  const previous = span === null ? null : previousWindow(row.earlier, span.from, span.to - span.from);
-  const before = span === null || previous === null ? null : readingAt(previous, now - span.from);
   return {
     id: row.id,
     label: windowLabel(window, "long"),
@@ -104,7 +98,6 @@ function windowView(row: ProviderWindowRow, now: number): ProviderWindowView {
       ? "reset — waiting for its next report"
       : [windowResetCaption(window, now, "long"), window.resetsAt === null ? "" : formatMoment(window.resetsAt, now)].filter(Boolean).join(" · "),
     verdict: verdict === null ? null : tone(verdict.text, usageLevelClass(verdict.level)),
-    earlier: before === null ? null : `last window at this point: ${formatPct(before, "used")}`,
   };
 }
 

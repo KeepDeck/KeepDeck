@@ -1,20 +1,22 @@
-import { formatLocalDay, formatPct, formatStep, windowLabel } from "../../domain/usage";
+import { formatMoment, formatPct, formatStep, windowLabel } from "../../domain/usage";
 import { windowSteps, type ProviderWindowRow } from "../../domain/usage/providerWindows";
 import { nextStep, stepStart } from "../../domain/usage/stats/fold";
 import { amountOf, type StatsMeasure } from "../../domain/usage/stats/measure";
 import type { Span } from "../../domain/usage/stats/period";
-import { sampleReports, windowBurn } from "../../domain/usage/windowBurn";
+import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
 import { usageLevelClass } from "../usageView";
 import { displayAmount } from "./statsMeasures";
 
 /**
  * The Limits card's chart, settled: one window on its own clock — x runs
  * from the window's start (0) to its reset (1) — with the provider's
- * percent over it and the earlier windows under it, the provider's shorter
- * windows marked where they run, and this machine's usage per calendar day
- * (per hour in a short window) beneath. Every instant it shows is named on
- * the reader's calendar: the start, the reset, now, and each day — a curve
- * without them said nothing about when (user, 2026-11-15).
+ * percent over it and where the pace takes it, named at the end of the
+ * dashed line; the provider's shorter windows marked where they run, and
+ * this machine's usage per calendar day (per hour in a short window)
+ * beneath. Every instant it shows is named on the reader's calendar: the
+ * start, the reset, now, and each day — a curve without them said nothing
+ * about when (user, 2026-11-15). Only the current window: the earlier ones
+ * answered nothing the reader asked for.
  */
 
 /** A reading on the window's clock: `x` 0–1, `pct` the provider's percent. */
@@ -24,7 +26,6 @@ export interface ChartPoint {
 }
 
 export interface LimitsChartView {
-  title: string;
   /** The window's start and reset, named. */
   start: string;
   end: string;
@@ -34,25 +35,14 @@ export interface LimitsChartView {
   grid: number[];
   /** A label per day (or hour) wide enough to carry one, at its middle. */
   ticks: { x: number; label: string }[];
-  /** This window's readings and where the pace takes them; the run-out
-   * marked when it comes before the reset. */
+  /** This window's readings and where the pace takes them. `end` is where
+   * the dashed line stops, named: the limit and when it is reached, or
+   * what is left at the reset — the forecast, said on the chart. */
   current: {
     points: ChartPoint[];
     projection: [ChartPoint, ChartPoint] | null;
-    out: { x: number; className?: string } | null;
+    end: (ChartPoint & { label: string; className?: string; side: "after" | "before"; below: boolean }) | null;
   };
-  /** The earlier windows the journal holds, oldest first, each named by its
-   * peak and its dates. */
-  earlier: {
-    key: string;
-    label: string;
-    points: ChartPoint[];
-    latest: boolean;
-    /** Where its name sits: at the end of its line — under it near the top
-     * of the frame, and after it near the left edge, where above or before
-     * would leave the plot. */
-    end: (ChartPoint & { below: boolean; side: "after" | "before" }) | null;
-  }[];
   /** The provider's shorter windows running now, where they sit; the name
    * goes after the slice where there is room, else before it, else inside
    * it from its start — never past an edge of the plot. */
@@ -85,7 +75,6 @@ export function limitsChartView(
   const usage = main.usage ?? [];
   const top = Math.max(0, ...usage.map((step) => amountOf(step, measure)));
   return {
-    title: main.earlier.length > 0 ? "This window over the last ones" : "This window",
     start: `started ${formatStep(span.from, "hour", "long")}`,
     end: `resets ${formatStep(span.to, "hour", "long")}`,
     now: { x: x(now), label: `now · ${formatStep(now, "hour", steps === "day" ? "long" : "short")}`, side: x(now) > 0.6 ? "before" : "after" },
@@ -98,21 +87,8 @@ export function limitsChartView(
       projection: burn?.projected
         ? [reading(burn.projected[0].at, burn.projected[0].usedPct), reading(burn.projected[1].at, burn.projected[1].usedPct)]
         : null,
-      out: main.forecast.kind === "out" && burn?.out
-        ? { x: x(main.forecast.outAt), ...(usageLevelClass(main.forecast.level) ? { className: usageLevelClass(main.forecast.level) } : {}) }
-        : null,
+      end: forecastEnd(main, burn, x, now),
     },
-    earlier: main.earlier.map((window, index) => {
-      const points = sampleReports(window.readings).map((report) => ({ x: clamp01((report.reportedAt - window.startsAt) / length), pct: report.usedPct }));
-      const end = points[points.length - 1];
-      return {
-        key: String(window.resetsAt),
-        label: `${formatPct(window.peakPct, "used")} · ${formatLocalDay(window.startsAt)} – ${formatLocalDay(window.resetsAt)}`,
-        points,
-        latest: index === main.earlier.length - 1,
-        end: end === undefined ? null : { ...end, below: end.pct > 80, side: end.x < 0.4 ? "after" : "before" },
-      };
-    }),
     slices: others.flatMap((other) =>
       other.span === null || other.span.to - other.span.from >= length
         ? []
@@ -141,6 +117,24 @@ export function limitsChartView(
     }),
     summary: `${main.agent} ${label}: ${formatPct(main.window.usedPct, "used")} used, ${formatStep(span.from, "hour", "long")} to ${formatStep(span.to, "hour", "long")}`,
   };
+}
+
+/** Where the dashed line stops, named: the limit and when — in the warning's
+ * colour — or the headroom left at the reset, in the verdict's own words. */
+function forecastEnd(
+  main: ProviderWindowRow,
+  burn: BurnGeometry | null,
+  x: (at: number) => number,
+  now: number,
+): LimitsChartView["current"]["end"] {
+  const end = burn?.projected?.[1];
+  const { forecast } = main;
+  if (end === undefined || (forecast.kind !== "out" && forecast.kind !== "lasts")) return null;
+  const point = { x: x(end.at), pct: end.usedPct };
+  const place = { side: point.x > 0.6 ? ("before" as const) : ("after" as const), below: point.pct > 80 };
+  if (forecast.kind === "lasts") return { ...point, ...place, label: `~${formatPct(forecast.endPct, "left")} at reset` };
+  const className = usageLevelClass(forecast.level);
+  return { ...point, ...place, label: `limit ~${formatMoment(forecast.outAt, now)}`, ...(className ? { className } : {}) };
 }
 
 /** Room a name needs beside a slice, as a share of the plot. */

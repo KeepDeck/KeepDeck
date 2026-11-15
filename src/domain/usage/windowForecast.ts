@@ -427,7 +427,7 @@ function quietClause(
     return { text: "Not spending right now", level: null };
   }
   if (forecast.kind !== "unknown" || windowExpired(window, now)) return null;
-  return { text: "Not enough data yet", level: null };
+  return { text: "No forecast yet — too few recent reports", level: null };
 }
 
 /** The forecast in words, on a line of its own: the run-out when the pace

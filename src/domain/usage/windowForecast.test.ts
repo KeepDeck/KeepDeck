@@ -8,6 +8,7 @@ import {
   pruneReports,
   shouldRecord,
   storedReportKey,
+  windowInstances,
   windowReportKey,
   type WindowReport,
 } from "./reportJournal";
@@ -444,7 +445,7 @@ describe("windowForecast", () => {
     ];
     expect(windowForecast(falling, FIVE_H, NOW)).toEqual({ kind: "unknown" });
     expect(windowVerdict(FIVE_H, { kind: "unknown" }, NOW)?.text).toBe(
-      "Not enough data yet",
+      "No forecast yet — too few recent reports",
     );
   });
 
@@ -515,6 +516,17 @@ describe("windowForecast", () => {
   });
 });
 
+describe("windowInstances", () => {
+  it("cuts a journal at every reset it turned over at, oldest first", () => {
+    const at = (reportedAt: number, usedPct: number, resetsAt: number) => report({ reportedAt, usedPct, resetsAt });
+    const first = NOW - 10 * 60 * MIN;
+    const second = NOW - 5 * 60 * MIN;
+    const journal = [at(first - 60 * MIN, 80, first), at(first - MIN, 97, first), at(first + MIN, 1, second), at(second - MIN, 40, second), at(NOW, 3, NOW + 5 * 60 * MIN)];
+    expect(windowInstances(journal).map((instance) => instance.map((r) => r.usedPct))).toEqual([[80, 97], [1, 40], [3]]);
+    expect(windowInstances([])).toEqual([]);
+  });
+});
+
 describe("captions", () => {
   const out = windowForecast(ramp(0.29, 5, 10, 62), FIVE_H, NOW);
   const crit = windowForecast(ramp(1, 5, 10, 88), FIVE_H, NOW);
@@ -579,7 +591,7 @@ describe("captions", () => {
     const blind = windowForecast(NO_REPORTS, FIVE_H, NOW);
     expect(blind.kind).toBe("unknown");
     expect(windowVerdict(FIVE_H, blind, NOW)?.text).toBe(
-      "Not enough data yet",
+      "No forecast yet — too few recent reports",
     );
   });
 
@@ -634,6 +646,10 @@ describe("captions", () => {
       level: null,
       atReset: false,
     });
+  });
+
+  it("says nothing on the verdict line of a window that has reset", () => {
+    expect(windowVerdict({ ...FIVE_H, resetsAt: NOW - MIN }, { kind: "unknown" }, NOW)).toBeNull();
   });
 
   it("swaps the popover line to the next relevant event", () => {

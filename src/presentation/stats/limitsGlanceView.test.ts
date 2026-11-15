@@ -14,7 +14,6 @@ const windowView = (over: Partial<ProviderWindowView> = {}): ProviderWindowView 
   pace: null,
   reset: "resets in 2h 30m",
   verdict: null,
-  earlier: null,
   ...over,
 });
 const card = (over: Partial<ProviderCardView> = {}): ProviderCardView => ({

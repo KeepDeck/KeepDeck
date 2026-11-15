@@ -7,7 +7,6 @@ import type { Span } from "./stats/period";
 import { DAY_MS } from "./time";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
-import { earlierWindows, type EarlierWindow } from "./windowHistory";
 
 /**
  * The Stats Limits view — one row per provider rate-limit window,
@@ -43,8 +42,6 @@ export interface ProviderWindowRow {
    * window: a limit on one model or bucket cannot claim this machine's
    * unscoped usage as its own. */
   usage: UsageStep[] | null;
-  /** The window's earlier instances the journal still holds. */
-  earlier: EarlierWindow[];
 }
 
 /**
@@ -116,7 +113,6 @@ export function providerWindowGroups(
           expired: windowExpired(window, now),
           stale: usageStale(account.reportedAt, now),
           ...windowUsage(window, own, now, measure),
-          earlier: earlierWindows(joined.reports, window),
         },
       ];
     });

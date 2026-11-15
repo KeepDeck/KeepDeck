@@ -3,8 +3,8 @@ import type { ChartPoint, LimitsChartView } from "../../presentation/stats/limit
 
 /**
  * One window on its own clock (presentation/stats/limitsChartView.ts): the
- * provider's percent over it, the earlier windows under it, and this
- * machine's usage per day beneath. Drawn the way WindowBurn is: the SVG
+ * provider's percent over it and where the pace takes it, named at the end
+ * of the dashed line, and this machine's usage per day beneath. Drawn the way WindowBurn is: the SVG
  * stretches horizontally only, strokes keep their width, and everything
  * that must not distort — dots and every label — is HTML placed in
  * percent. It draws what it is handed and decides nothing.
@@ -20,7 +20,6 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
   const last = current.points[current.points.length - 1];
   return (
     <figure className="stats__limits-chart" style={{ "--stats-series": color } as CSSProperties} aria-label={view.summary}>
-      <figcaption className="stats__figure-label">{view.title}</figcaption>
       <div className="stats__limits-frame" aria-hidden="true">
         <div className="stats__limits-edges">
           <span>{view.start}</span>
@@ -36,14 +35,6 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
             ))}
             {view.slices.map((slice) => (
               <rect key={slice.key} className="stats__limits-slice" x={slice.x0 * 1000} width={(slice.x1 - slice.x0) * 1000} y={0} height={100} />
-            ))}
-            {view.earlier.map((earlier) => (
-              <polyline
-                key={earlier.key}
-                className={`stats__limits-earlier${earlier.latest ? "" : " stats__limits-earlier--older"}`}
-                points={polyline(earlier.points)}
-                vectorEffect="non-scaling-stroke"
-              />
             ))}
             {current.projection && (
               <polyline className="stats__limits-projection" points={polyline(current.projection)} vectorEffect="non-scaling-stroke" />
@@ -62,19 +53,18 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
               {slice.label}
             </span>
           ))}
-          {view.earlier.map((earlier) =>
-            earlier.end ? (
-              <span
-                key={earlier.key}
-                className={`stats__limits-earlier-label stats__limits-earlier-label--${earlier.end.side}${earlier.end.below ? " stats__limits-earlier-label--below" : ""}`}
-                style={{ left: at(earlier.end.x), top: fromTop(earlier.end.pct) }}
-              >
-                {earlier.label}
-              </span>
-            ) : null,
-          )}
           {last && <i className="stats__limits-dot" style={{ left: at(last.x), top: fromTop(last.pct) }} />}
-          {current.out && <i className={`stats__limits-out ${current.out.className ?? ""}`} style={{ left: at(current.out.x) }} />}
+          {current.end && (
+            <>
+              <i className={`stats__limits-end ${current.end.className ?? ""}`} style={{ left: at(current.end.x), top: fromTop(current.end.pct) }} />
+              <span
+                className={`stats__limits-end-label stats__limits-end-label--${current.end.side}${current.end.below ? " stats__limits-end-label--below" : ""} ${current.end.className ?? ""}`}
+                style={{ left: at(current.end.x), top: fromTop(current.end.pct) }}
+              >
+                {current.end.label}
+              </span>
+            </>
+          )}
           <span className={`stats__limits-now-label stats__limits-now-label--${view.now.side}`} style={{ left: at(view.now.x) }}>
             {view.now.label}
           </span>

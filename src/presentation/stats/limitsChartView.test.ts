@@ -20,7 +20,8 @@ function chart(over: { windows?: UsageWindow[]; journal?: WindowReport[]; events
   const windows = over.windows ?? [FIVE_H, WEEK];
   const keys = accountWindowKeys("codex", windows);
   const byKey = new Map<string, WindowReport[]>();
-  if (over.journal) byKey.set(present(keys.get(WEEK), "the week's key").key, over.journal);
+  const week = windows.find((window) => window.windowMinutes === WEEK.windowMinutes);
+  if (over.journal && week) byKey.set(present(keys.get(week), "the week's key").key, over.journal);
   let view: ReturnType<typeof limitsChartView> = null;
   inZone("Asia/Nicosia", () => {
     const [group] = providerWindowGroups(
@@ -82,18 +83,21 @@ describe("the Limits chart", () => {
     expect(view.bars[1]?.x0).toBeCloseTo(7 / (7 * 24));
   });
 
-  it("lays the last windows under this one, each named by its peak and its dates", () => {
-    const previousReset = WEEK_RESET - 7 * DAY;
-    const journal: WindowReport[] = [
-      { agent: "codex", windowMinutes: 10_080, usedPct: 10, reportedAt: previousReset - 6 * DAY, resetsAt: previousReset },
-      { agent: "codex", windowMinutes: 10_080, usedPct: 56, reportedAt: previousReset - DAY, resetsAt: previousReset },
-      { agent: "codex", windowMinutes: 10_080, usedPct: 3, reportedAt: NOW - HOUR, resetsAt: WEEK.resetsAt },
-    ];
-    const view = present(chart({ journal }), "a chart");
-    expect(view.title).toBe("This window over the last ones");
-    expect(view.earlier).toEqual([
-      expect.objectContaining({ label: "56% · Nov 7 – Nov 14", latest: true, points: [{ x: 1 / 7, pct: 10 }, { x: 6 / 7, pct: 56 }] }),
-    ]);
+  it("names where the pace takes the window: the limit and when, or what is left at the reset", () => {
+    // A steep climb: 3% to 13% over the last six hours of reports.
+    const steep: WindowReport[] = [0, 2, 4, 6].map((hours, index) => ({
+      agent: "codex", windowMinutes: 10_080, usedPct: 3 + index * 3.4, reportedAt: NOW - (6 - hours) * HOUR, resetsAt: WEEK_RESET,
+    }));
+    const out = present(chart({ windows: [{ ...WEEK, usedPct: 13.2 }], journal: steep }), "a chart").current.end;
+    expect(out).toMatchObject({ pct: 100, side: "after", below: true, className: "usage-level--warn" });
+    expect(out?.label).toMatch(/^limit ~/);
+    // A gentle one ends at the reset with its headroom.
+    const gentle: WindowReport[] = [0, 2, 4, 6].map((hours, index) => ({
+      agent: "codex", windowMinutes: 10_080, usedPct: 3 + index * 0.1, reportedAt: NOW - (6 - hours) * HOUR, resetsAt: WEEK_RESET,
+    }));
+    const lasts = present(chart({ windows: [{ ...WEEK, usedPct: 3.3 }], journal: gentle }), "a chart").current.end;
+    expect(lasts).toMatchObject({ x: 1, side: "before" });
+    expect(lasts?.label).toMatch(/^~\d+% left at reset$/);
   });
 
   it("keeps every name inside the plot: before a mark near the right edge, after one near the left", () => {
@@ -106,13 +110,6 @@ describe("the Limits chart", () => {
     // A five-day window that began with the week: no room after or before — inside, from its start.
     const fiveDays: UsageWindow = { usedPct: 9, resetsAt: WEEK_RESET - 2 * DAY, windowMinutes: 5 * 24 * 60 };
     expect(present(chart({ windows: [fiveDays, WEEK] }), "a chart").slices[0]).toMatchObject({ x0: 0, side: "inside" });
-    // An earlier window the journal holds only the start of: its name follows its line's end.
-    const previousReset = WEEK_RESET - 7 * DAY;
-    const journal: WindowReport[] = [
-      { agent: "codex", windowMinutes: 10_080, usedPct: 20, reportedAt: previousReset - 6.5 * DAY, resetsAt: previousReset },
-      { agent: "codex", windowMinutes: 10_080, usedPct: 3, reportedAt: NOW - HOUR, resetsAt: WEEK_RESET },
-    ];
-    expect(present(chart({ journal }), "a chart").earlier[0]?.end).toMatchObject({ side: "after" });
   });
 
   it("draws usage no price covers as a hollow bar, never as none", () => {

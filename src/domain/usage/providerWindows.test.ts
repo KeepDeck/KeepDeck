@@ -162,19 +162,6 @@ describe("providerWindowRows", () => {
     expect(windowSpan({ usedPct: 1, resetsAt: NOW + HOUR, windowMinutes: 300 }, NOW)).toEqual({ from: NOW - 4 * HOUR, to: NOW + HOUR });
   });
 
-  it("carries the window's earlier instances from the journal", () => {
-    const window: UsageWindow = { usedPct: 3, resetsAt: NOW + 4 * HOUR, windowMinutes: 300 };
-    const accounts = new Map([["codex", reported([window])]]);
-    const key = present(accountWindowKeys("codex", [window]).get(window), "the window's key").key;
-    const previousReset = NOW - HOUR;
-    const series: WindowReport[] = [
-      { agent: "codex", windowMinutes: 300, usedPct: 40, reportedAt: previousReset - 2 * HOUR, resetsAt: previousReset },
-      { agent: "codex", windowMinutes: 300, usedPct: 3, reportedAt: NOW, resetsAt: window.resetsAt },
-    ];
-    const [row] = flatRows(accounts, [], new Map([[key, series]]), NOW);
-    expect(row?.earlier.map((e) => [e.resetsAt, e.peakPct])).toEqual([[previousReset, 40]]);
-  });
-
   it("groups a provider's windows under one card identity", () => {
     const accounts = new Map<string, AccountUsage>([
       [

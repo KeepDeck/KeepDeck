@@ -134,13 +134,14 @@ describe("Providers", () => {
     });
     // The phrase and its unit, not the exact minute: the domain suite owns the arithmetic.
     expect(host.querySelector(".stats__window--lead")?.textContent).toMatch(/Will hit the limit in ~2h \d+m/);
-    expect(host.querySelector(".stats__limits-out.usage-level--warn")).not.toBeNull();
+    expect(host.querySelector(".stats__limits-end.usage-level--warn")).not.toBeNull();
+    expect(host.querySelector(".stats__limits-end-label")?.textContent).toMatch(/^limit ~/);
     expect(host.querySelector(".stats__limits-projection")).not.toBeNull();
   });
 
   it("says when there is no pace to read yet, and draws no projection", () => {
     render({ accounts: new Map([["claude", account([{ usedPct: 62, resetsAt: NOW + 155 * MIN, windowMinutes: 300 }], NOW)]]) });
-    expect(host.textContent).toContain("Not enough data yet");
+    expect(host.textContent).toContain("No forecast yet — too few recent reports");
     expect(host.textContent).not.toContain("the limit");
     expect(host.querySelector(".stats__limits-projection")).toBeNull();
   });
