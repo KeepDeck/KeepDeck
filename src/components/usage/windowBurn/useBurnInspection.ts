@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
+import { useCallback, useState, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
 import {
   inspectedSample,
   NO_INSPECTION,
@@ -8,6 +8,7 @@ import {
   type BurnInspectionState,
 } from "../../../presentation/burnInspection";
 import type { TooltipAnchorRect } from "../../../ui/tooltip/useAnchoredTooltipPosition";
+import { useScrollExit } from "../../../ui/tooltip/useScrollExit";
 
 /**
  * The inspection of one burn plot — pointer, arrow keys, focus — the events
@@ -38,17 +39,11 @@ export function useBurnInspection(
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const sample = inspectedSample(geometry, state);
   const anchor = state.pointerX === null ? null : pointer;
-  const pointed = state.pointerX !== null;
-  // A scroll moves the plot out from under a still cursor, and no mouse
-  // event says so until the mouse moves: the pointer's inspection ends, as
-  // when it leaves. The keys' and focus's stay, and follow the plot.
-  useEffect(() => {
-    if (!pointed) return;
-    const view = plot.ref.current?.ownerDocument.defaultView;
-    const left = () => setState((current) => ({ ...current, pointerX: null }));
-    view?.addEventListener("scroll", left, true);
-    return () => view?.removeEventListener("scroll", left, true);
-  }, [pointed, plot.ref]);
+  // The pointer leaving — off the plot, or the plot scrolled out from under
+  // it (useScrollExit) — ends the pointer's inspection; the keys' and
+  // focus's stay, and follow the plot.
+  const pointerLeft = useCallback(() => setState((current) => ({ ...current, pointerX: null })), []);
+  useScrollExit(state.pointerX !== null, plot.ref, pointerLeft);
   return {
     sample,
     getAnchorRect:
@@ -70,9 +65,7 @@ export function useBurnInspection(
         setState((current) => ({ ...current, pointerX }));
         setPointer({ x: event.clientX, y: event.clientY });
       },
-      onMouseLeave() {
-        setState((current) => ({ ...current, pointerX: null }));
-      },
+      onMouseLeave: pointerLeft,
       onFocus() {
         setState((current) => ({ ...current, focused: true }));
       },

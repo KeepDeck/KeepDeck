@@ -10,6 +10,7 @@ import { trayChipFrame, trayChipStatus, type TrayChipStatus } from "../../presen
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedDetailsTooltip } from "./MinimizedDetailsTooltip";
+import { useScrollExit } from "../../ui/tooltip/useScrollExit";
 
 export const MINIMIZED_TOOLTIP_DELAY_MS = 600;
 
@@ -136,6 +137,8 @@ export function MinimizedItem({
   const hoverTimer = useRef<number | null>(null);
   const focused = useRef(false);
   const [tooltipAnchor, setTooltipAnchor] = useState<HTMLElement | null>(null);
+  /** The cursor is on the chip: its details are pending or up. */
+  const [hovered, setHovered] = useState(false);
   const tooltipId = useId();
 
   const cancelHover = useCallback(() => {
@@ -151,6 +154,14 @@ export function MinimizedItem({
     cancelHover();
     setTooltipAnchor(buttonRef.current);
   };
+  // The cursor leaving — off the chip, or the overflow list scrolled out
+  // from under it (useScrollExit): the cursor's details go; focus keeps its.
+  const pointerLeft = useCallback(() => {
+    cancelHover();
+    setHovered(false);
+    if (!focused.current) setTooltipAnchor(null);
+  }, [cancelHover]);
+  useScrollExit(hovered, buttonRef, pointerLeft);
   useEffect(() => cancelHover, [cancelHover]);
   useEffect(() => {
     if (!active) closeTooltip();
@@ -164,16 +175,14 @@ export function MinimizedItem({
         className={`minimized minimized--chip${frame === "none" ? "" : ` minimized--frame-${frame}`}`}
         onMouseEnter={() => {
           if (!active) return;
+          setHovered(true);
           cancelHover();
           hoverTimer.current = window.setTimeout(
             openTooltip,
             MINIMIZED_TOOLTIP_DELAY_MS,
           );
         }}
-        onMouseLeave={() => {
-          cancelHover();
-          if (!focused.current) setTooltipAnchor(null);
-        }}
+        onMouseLeave={pointerLeft}
         onFocus={() => {
           focused.current = true;
           if (active) openTooltip();

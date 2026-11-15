@@ -88,6 +88,11 @@ describe("Tooltip", () => {
     expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
     act(() => window.dispatchEvent(new Event("scroll")));
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    // A dialog's own scroller does not bubble its scroll: caught all the same.
+    over(anchor, "mouseover");
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    act(() => host.dispatchEvent(new Event("scroll", { bubbles: false })));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 
   it("cancels the cursor's pending tip when the page scrolls before it opens", () => {

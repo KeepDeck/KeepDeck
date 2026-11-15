@@ -137,6 +137,11 @@ describe("WindowBurn", () => {
     expect(document.querySelector("[role='tooltip']")).not.toBeNull();
     act(() => globalThis.window.dispatchEvent(new Event("scroll")));
     expect(document.querySelector("[role='tooltip']")).toBeNull();
+    // A nested scroller's scroll does not bubble: caught all the same.
+    act(() => plot.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 100, clientY: 115 })));
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+    act(() => host.dispatchEvent(new Event("scroll", { bubbles: false })));
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
     // Focus's inspection stays through a scroll, and follows the plot.
     act(() => plot.focus());
     act(() => globalThis.window.dispatchEvent(new Event("scroll")));

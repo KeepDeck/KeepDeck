@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredTooltipPosition } from "./tooltip/useAnchoredTooltipPosition";
+import { useScrollExit } from "./tooltip/useScrollExit";
 
 /** The one open tip's closer — a hover layer is a spotlight, and two at
  * once (a focused anchor plus a hovered one) read as a glitch: opening
@@ -83,9 +84,8 @@ export function Tooltip({
   );
 
   // The cursor has left the anchor — by moving off it, or by the page
-  // scrolling the anchor out from under it, which no mouse event says until
-  // the mouse moves: a tip asked for by the pointer goes, and one held by
-  // focus stays. A focus-opened tip survives the cursor leaving: brushing
+  // scrolling it out from under the cursor (useScrollExit): a tip asked for
+  // by the pointer goes, and one held by focus stays. A focus-opened tip survives the cursor leaving: brushing
   // past the anchor on the way somewhere else must not close what the
   // keyboard opened. Narrowly that, and not "focus owns the tip" — a press
   // on the same anchor still closes it, because a press is a thing the user
@@ -96,15 +96,7 @@ export function Tooltip({
     if (anchorRef.current !== anchorRef.current?.ownerDocument.activeElement) hide();
   }, [hide]);
 
-  // While the cursor's tip is pending or up, a scroll anywhere (captured:
-  // the dialog's own scroller included) is the cursor leaving. Before this
-  // the tip rode along with its card instead of closing.
-  useEffect(() => {
-    if (!hovered) return;
-    const view = anchorRef.current?.ownerDocument.defaultView;
-    view?.addEventListener("scroll", cursorLeft, true);
-    return () => view?.removeEventListener("scroll", cursorLeft, true);
-  }, [hovered, cursorLeft]);
+  useScrollExit(hovered, anchorRef, cursorLeft);
 
   return (
     <span
@@ -142,6 +134,7 @@ export function Tooltip({
       // (a button minding its own press) cannot leave the card standing.
       onPointerDownCapture={() => {
         cancelEnter();
+        setHovered(false);
         hide();
       }}
     >

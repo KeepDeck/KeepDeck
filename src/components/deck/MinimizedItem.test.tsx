@@ -149,6 +149,29 @@ describe("MinimizedItem", () => {
     expect(document.querySelector("[role='tooltip']")).toBeNull();
   });
 
+  it("closes the cursor's details when the overflow list scrolls under them; focus keeps its", () => {
+    const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
+    act(() => {
+      button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      vi.advanceTimersByTime(MINIMIZED_TOOLTIP_DELAY_MS);
+    });
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+    // The overflow popover's own scroller: its scroll does not bubble.
+    const scroller = present(button.parentElement, "the chip's container");
+    act(() => scroller.dispatchEvent(new Event("scroll", { bubbles: false })));
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
+    // A pending one is cancelled too.
+    act(() => button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+    act(() => scroller.dispatchEvent(new Event("scroll", { bubbles: false })));
+    act(() => vi.advanceTimersByTime(MINIMIZED_TOOLTIP_DELAY_MS));
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
+    // Focus's details stay through a scroll.
+    act(() => button.focus());
+    act(() => scroller.dispatchEvent(new Event("scroll", { bubbles: false })));
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+    act(() => button.blur());
+  });
+
   it("shows the same details immediately for keyboard focus", () => {
     const button = present(document.querySelector<HTMLButtonElement>(".minimized"), "the .minimized element");
     act(() => button.focus());
