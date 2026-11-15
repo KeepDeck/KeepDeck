@@ -541,6 +541,14 @@ describe("agent orchestrator —a new workspace", () => {
     expect(deck.workspaces).toEqual([created]);
   });
 
+  it("applies the domain's blank-field rules at birth: a padded name trimmed, a blank folder none", () => {
+    expect(create({ name: "  Web  ", worktreeBaseDir: "  /base/wt " })).toMatchObject({ name: "Web", worktreeBaseDir: "/base/wt" });
+    expect(create({ name: "   ", cwd: "/tmp/promo", worktreeBaseDir: "   " })).toMatchObject({
+      name: "promo",
+      worktreeBaseDir: null,
+    });
+  });
+
   it("never hands a closed workspace's id to a new one", () => {
     create();
     create();

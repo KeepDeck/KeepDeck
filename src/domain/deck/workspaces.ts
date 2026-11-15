@@ -17,10 +17,11 @@ import type { Team } from "./teams/model";
  * here — the agent type and its YOLO mode are decided by whoever adds an
  * agent, one agent at a time. */
 export interface SpawnConfig {
-  /** Workspace name; blank falls back to a default in the caller. */
+  /** Workspace name as typed; [`workspaceName`] decides what blank means. */
   name: string;
   cwd: string;
-  /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
+  /** Base folder for per-agent git worktrees as typed; [`worktreeBaseDirOf`]
+   * decides what blank means (`null` = agents run in `cwd`). */
   worktreeBaseDir: string | null;
 }
 
@@ -294,6 +295,24 @@ export function autoWorkspaceName(cwd: string): string {
   return baseName(cwd) || "Workspace";
 }
 
+/** The name a workspace takes from what someone typed: the text trimmed,
+ * or [`autoWorkspaceName`] of its folder when nothing is left. ONE rule for
+ * the moment a workspace is born and every later edit, so a blank field
+ * means the same thing in the create form, the Workspaces window and a
+ * command. */
+export function workspaceName(raw: string, cwd: string): string {
+  return raw.trim() || autoWorkspaceName(cwd);
+}
+
+/** The worktree base folder a workspace takes from what someone typed:
+ * trimmed — the deck compares paths trimmed (`normalizePath`), and a pasted
+ * " /wt " means /wt — and a blank field is no base folder at all. ONE rule
+ * for creation and every later edit. */
+export function worktreeBaseDirOf(raw: string | null): string | null {
+  const path = raw?.trim() ?? "";
+  return path === "" ? null : path;
+}
+
 /** Rename one workspace, leaving the rest untouched. An empty name reverts
  * to [`autoWorkspaceName`] — the same reset-on-empty contract `renamePane`
  * has, so the two inline-rename surfaces behave alike ([F11]). A workspace
@@ -305,7 +324,7 @@ export function renameWorkspace(
   name: string,
 ): Workspace[] {
   return workspaces.map((ws) =>
-    ws.id === id ? { ...ws, name: name.trim() || autoWorkspaceName(ws.cwd) } : ws,
+    ws.id === id ? { ...ws, name: workspaceName(name, ws.cwd) } : ws,
   );
 }
 

@@ -98,7 +98,9 @@ export function WorkspaceForm({
     onCreate({
       name,
       cwd,
-      worktreeBaseDir: worktreeDir.trim() || null,
+      // As typed: what a blank folder means is the domain's
+      // (`worktreeBaseDirOf`), the same at birth and at every edit.
+      worktreeBaseDir: worktreeDir,
     });
   };
 

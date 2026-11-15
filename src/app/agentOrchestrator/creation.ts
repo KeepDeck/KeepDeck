@@ -1,5 +1,4 @@
 import {
-  autoWorkspaceName,
   birthRefusal,
   claimDirectory,
   createFailed,
@@ -20,6 +19,8 @@ import {
   type Team,
   type TeamLocation,
   type Workspace,
+  workspaceName,
+  worktreeBaseDirOf,
 } from "../../domain/deck";
 import { admitRole, carryRole } from "../../domain/mail";
 import { createRefusalMessage } from "./refusals";
@@ -457,11 +458,11 @@ export function createAgentOrchestratorCreation({
     return actions.createWorkspaceWithMintedId((id): Workspace => ({
       id,
       instance: createWorkspaceInstance(),
-      // The same derivation an empty rename resets to — one home, so the
-      // birth name and the reset name cannot drift apart.
-      name: config.name.trim() || autoWorkspaceName(config.cwd),
+      // The same rules every later edit applies — one home, so what a
+      // blank field means cannot drift between birth and edit.
+      name: workspaceName(config.name, config.cwd),
       cwd: config.cwd,
-      worktreeBaseDir: config.worktreeBaseDir,
+      worktreeBaseDir: worktreeBaseDirOf(config.worktreeBaseDir),
       panes: [],
     }));
   };

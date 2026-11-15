@@ -4,6 +4,8 @@ import {
   homeRelative,
   addAgentPane,
   autoWorkspaceName,
+  workspaceName,
+  worktreeBaseDirOf,
   closeAgent,
   closeWorkspace,
   findWorkspace,
@@ -91,6 +93,19 @@ describe("renameWorkspace", () => {
     expect(autoWorkspaceName("/Users/me/Projects/keepdeck/")).toBe("keepdeck");
     // A folder that happens to look like an old id still names by folder.
     expect(autoWorkspaceName("/tmp/ws-7")).toBe("ws-7");
+  });
+
+  it("workspaceName: what was typed, trimmed — blank is the folder's name", () => {
+    expect(workspaceName("  Web app ", "/repo")).toBe("Web app");
+    expect(workspaceName("   ", "/Users/me/keepdeck")).toBe("keepdeck");
+  });
+
+  it("worktreeBaseDirOf: a blank field is no base folder; a path is taken trimmed", () => {
+    expect(worktreeBaseDirOf(null)).toBeNull();
+    expect(worktreeBaseDirOf("")).toBeNull();
+    expect(worktreeBaseDirOf("   ")).toBeNull();
+    expect(worktreeBaseDirOf("  /base/wt  ")).toBe("/base/wt");
+    expect(worktreeBaseDirOf("/base/my wt")).toBe("/base/my wt");
   });
 
   it("autoWorkspaceName: a folder with no name of its own gives \"Workspace\"", () => {

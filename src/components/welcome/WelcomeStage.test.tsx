@@ -91,7 +91,8 @@ describe("WelcomeStage", () => {
     expect(host.querySelector(".welcome")).not.toBeNull();
     await act(async () => present(host.querySelector<HTMLButtonElement>(".welcome__open"), "the .welcome__open element").click());
     await act(async () => present(host.querySelector("form"), "the form element").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    expect(created).toEqual([{ name: "fresh", cwd: "/Users/me/fresh", worktreeBaseDir: null }]);
+    // The fields as typed — what a blank folder means is the domain's rule.
+    expect(created).toEqual([{ name: "fresh", cwd: "/Users/me/fresh", worktreeBaseDir: "" }]);
     // The next time there is no workspace, the welcome starts over — not on this confirm.
     expect(host.querySelector(".welcome")).not.toBeNull();
   });
