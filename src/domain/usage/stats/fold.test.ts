@@ -6,11 +6,12 @@ import {
   COMPARABLE_UNPRICED,
   comparablyPriced,
   costChange,
-  costTimeline,
+  measureChange,
   OTHER_KEY,
   rowsIn,
   rowsOf,
   statsTotals,
+  usageTimeline,
 } from "./fold";
 
 const at = (iso: string) => new Date(iso).getTime();
@@ -63,6 +64,7 @@ describe("span totals", () => {
 describe("the money comparison", () => {
   const span = (costUsd: number, totalTokens: number, unpricedTokens: number, pricedEvents = 1) => ({
     costUsd, totalTokens, unpricedTokens, pricedEvents, approximateEvents: 0, savedUsd: 0, outputTokens: 0, sessions: 1,
+    tokensLessCacheReads: totalTokens,
   });
 
   it("is the relative change when both spans are comparably priced", () => {
@@ -87,11 +89,49 @@ describe("the money comparison", () => {
   });
 });
 
+describe("a comparison in a measure", () => {
+  const span = (costUsd: number, tokensLessCacheReads: number, pricedEvents = 1) => ({
+    costUsd, totalTokens: tokensLessCacheReads, unpricedTokens: 0, pricedEvents, approximateEvents: 0, savedUsd: 0,
+    outputTokens: 0, sessions: 1, tokensLessCacheReads,
+  });
+
+  it("compares money only as costChange allows, and tokens whenever the prior span had any", () => {
+    expect(measureChange(span(80, 50), span(100, 100), "spend")).toBeCloseTo(-0.2);
+    expect(measureChange(span(80, 50), span(100, 100), "tokens")).toBeCloseTo(-0.5);
+    // A prior side with no price refuses money, never tokens.
+    expect(measureChange(span(80, 50), span(0, 100, 0), "spend")).toBeNull();
+    expect(measureChange(span(80, 50), span(0, 100, 0), "tokens")).toBeCloseTo(-0.5);
+    // Nothing before, or no prior span at all: nothing to compare.
+    expect(measureChange(span(80, 50), span(0, 0, 0), "tokens")).toBeNull();
+    expect(measureChange(span(80, 50), null, "tokens")).toBeNull();
+  });
+});
+
+describe("tokens over time", () => {
+  it("splits each step by agent in tokens less cache reads, an unpriced agent included", () => {
+    inZone("Asia/Nicosia", () => {
+      const span = { from: at("2026-11-08T00:00:00+02:00"), to: at("2026-11-09T00:00:00+02:00") };
+      const [step] = usageTimeline(
+        [
+          usageEvent({ occurredAt: at("2026-11-08T10:00:00+02:00"), agent: "claude", costUsd: 3, tokens: { input: 5, cacheRead: 900 } }),
+          usageEvent({ occurredAt: at("2026-11-08T11:00:00+02:00"), agent: "kimi", tokens: { input: 7 } }),
+        ],
+        span,
+        "day",
+        "tokens",
+      );
+      expect({ ...step?.byAgent }).toEqual({ claude: 5, kimi: 7 });
+      // The step's tally still holds both measures.
+      expect(step).toMatchObject({ costUsd: 3, tokensLessCacheReads: 12 });
+    });
+  });
+});
+
 describe("money over time", () => {
   it("fills every local day of the span, quiet ones included, split by agent", () => {
     inZone("Asia/Nicosia", () => {
       const span = { from: at("2026-11-08T00:00:00+02:00"), to: at("2026-11-10T09:00:00+02:00") + 1 };
-      const steps = costTimeline(
+      const steps = usageTimeline(
         [
           usageEvent({ occurredAt: at("2026-11-08T00:30:00+02:00"), agent: "claude", costUsd: 3 }),
           usageEvent({ occurredAt: at("2026-11-08T23:30:00+02:00"), agent: "codex", costUsd: 1 }),
@@ -99,6 +139,7 @@ describe("money over time", () => {
         ],
         span,
         "day",
+        "spend",
       );
       expect(steps.map((s) => s.start)).toEqual([
         at("2026-11-08T00:00:00+02:00"), at("2026-11-09T00:00:00+02:00"), at("2026-11-10T00:00:00+02:00"),
@@ -114,7 +155,7 @@ describe("money over time", () => {
   it("steps from local midnight to local midnight across a 25-hour day", () => {
     inZone("Europe/Berlin", () => {
       const span = { from: at("2026-10-24T00:00:00+02:00"), to: at("2026-10-26T12:00:00+01:00") };
-      const steps = costTimeline([usageEvent({ occurredAt: at("2026-10-26T00:30:00+01:00"), costUsd: 2 })], span, "day");
+      const steps = usageTimeline([usageEvent({ occurredAt: at("2026-10-26T00:30:00+01:00"), costUsd: 2 })], span, "day", "spend");
       expect(steps.map((step) => step.start)).toEqual([
         at("2026-10-24T00:00:00+02:00"), at("2026-10-25T00:00:00+02:00"), at("2026-10-26T00:00:00+01:00"),
       ]);
@@ -125,7 +166,7 @@ describe("money over time", () => {
   it("steps by hour for one day, through to the current hour", () => {
     inZone("Asia/Nicosia", () => {
       const from = at("2026-11-10T00:00:00+02:00");
-      const steps = costTimeline([usageEvent({ occurredAt: from + 2 * HOUR + 5, costUsd: 1 })], { from, to: from + 3 * HOUR + 10 }, "hour");
+      const steps = usageTimeline([usageEvent({ occurredAt: from + 2 * HOUR + 5, costUsd: 1 })], { from, to: from + 3 * HOUR + 10 }, "hour", "spend");
       expect(steps.map((s) => (s.start - from) / HOUR)).toEqual([0, 1, 2, 3]);
       expect(steps[2]?.costUsd).toBe(1);
     });
@@ -135,8 +176,8 @@ describe("money over time", () => {
     inZone("Asia/Nicosia", () => {
       const first = at("2026-11-09T10:00:00+02:00");
       const span = { from: -Infinity, to: at("2026-11-10T10:00:00+02:00") };
-      expect(costTimeline([usageEvent({ occurredAt: first, costUsd: 1 })], span, "day")).toHaveLength(2);
-      expect(costTimeline([], span, "day")).toEqual([]);
+      expect(usageTimeline([usageEvent({ occurredAt: first, costUsd: 1 })], span, "day", "spend")).toHaveLength(2);
+      expect(usageTimeline([], span, "day", "spend")).toEqual([]);
     });
   });
 });
@@ -154,6 +195,7 @@ describe("a breakdown", () => {
       [usageEvent({ workspaceName: "B", costUsd: 10 })],
       byWorkspace,
       5,
+      "spend",
     );
     expect(rows.map((r) => [r.key, r.costUsd, r.share])).toEqual([["B", 5, 0.625], ["A", 3, 0.375]]);
     expect(rows[0]?.change).toBeCloseTo(-0.5);
@@ -164,13 +206,36 @@ describe("a breakdown", () => {
 
   it("shows a list one longer than the limit whole, and folds a longer tail from its raw rows", () => {
     const four = ["A", "B", "C", "D"].map((w, i) => usageEvent({ workspaceName: w, costUsd: 10 - i, sessionId: "shared" }));
-    expect(breakdown(four.slice(0, 3), [], byWorkspace, 2).every((r) => r.folded === 0)).toBe(true);
-    const rows = breakdown(four, [], byWorkspace, 2);
+    expect(breakdown(four.slice(0, 3), [], byWorkspace, 2, "spend").every((r) => r.folded === 0)).toBe(true);
+    const rows = breakdown(four, [], byWorkspace, 2, "spend");
     expect(rows).toHaveLength(3);
     expect(rows[2]).toMatchObject({ key: OTHER_KEY, folded: 2, costUsd: 15 });
     // One session across both folded groups counts once, not twice.
     expect(rows[2]?.sessions).toBe(1);
     expect(rows.reduce((sum, r) => sum + r.share, 0)).toBeCloseTo(1);
+  });
+
+  it("ranks, shares, splits and compares by tokens less cache reads in the token measure — unpriced rows counted", () => {
+    const tokens = (input: number, cacheRead = 0) => ({ input, cacheRead });
+    const rows = breakdown(
+      [
+        // A: dear but small; B: cheap and big, half of it on a model with no price.
+        usageEvent({ workspaceName: "A", agent: "claude", costUsd: 9, tokens: tokens(10, 5_000) }),
+        usageEvent({ workspaceName: "B", agent: "claude", costUsd: 1, tokens: tokens(30) }),
+        usageEvent({ workspaceName: "B", agent: "kimi", tokens: tokens(30) }),
+      ],
+      [usageEvent({ workspaceName: "B", tokens: tokens(40) })],
+      byWorkspace,
+      5,
+      "tokens",
+    );
+    expect(rows.map((r) => [r.key, r.amount, r.share])).toEqual([["B", 60, 60 / 70], ["A", 10, 10 / 70]]);
+    expect({ ...rows[0]?.byAgent }).toEqual({ claude: 30, kimi: 30 });
+    // Its prior had no price at all, and still compares in tokens.
+    expect(rows[0]?.change).toBeCloseTo(0.5);
+    // The same rows by money: A leads, B's unpriced half is not in its sum.
+    expect(breakdown([usageEvent({ workspaceName: "A", costUsd: 9 }), usageEvent({ workspaceName: "B", costUsd: 1 })], [], byWorkspace, 5, "spend")
+      .map((r) => [r.key, r.amount])).toEqual([["A", 9], ["B", 1]]);
   });
 
   it("splits a group's priced cost by agent", () => {
@@ -179,6 +244,7 @@ describe("a breakdown", () => {
       [],
       () => "all",
       5,
+      "spend",
     );
     expect({ ...row?.byAgent }).toEqual({ claude: 2, codex: 1 });
   });

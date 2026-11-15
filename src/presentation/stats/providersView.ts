@@ -120,5 +120,5 @@ export function accountLimitsView(input: {
   now: number;
   colors: ReadonlyMap<string, string>;
 }): ProvidersView {
-  return providersView(providerWindowGroups(input.accounts, input.rows, input.reportsByKey, input.now), input.now, input.colors);
+  return providersView(providerWindowGroups(input.accounts, input.rows, input.reportsByKey, input.now, "spend"), input.now, input.colors);
 }

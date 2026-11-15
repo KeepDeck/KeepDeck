@@ -47,7 +47,7 @@ export function statsScopeView(
 ): StatsScopeView {
   const { tab, period, now, workspace } = input;
   const inPeriod = rowsIn(rows, statsSpans(period, now).current);
-  const ranked = breakdown(inPeriod, [], (row) => dimensionKey("workspace", row), Infinity);
+  const ranked = breakdown(inPeriod, [], (row) => dimensionKey("workspace", row), Infinity, "spend");
   const options: ScopeOptionView[] = [
     { kind: "every", value: EVERY, name: "All workspaces", money: displayCost(statsTotals(inPeriod)) },
     ...ranked.map((group): ScopeOptionView => ({

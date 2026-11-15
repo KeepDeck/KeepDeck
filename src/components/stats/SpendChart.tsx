@@ -6,7 +6,7 @@ import {
   CHART_TEXT_SIZE,
   CHART_TICK_INK,
 } from "../../domain/usage/chartPalette";
-import type { CostStep } from "../../domain/usage/stats/fold";
+import type { UsageStep } from "../../domain/usage/stats/fold";
 import {
   spendTipView,
   stepValue,
@@ -57,7 +57,7 @@ export function SpendChart({ view }: { view: SpendChartView }) {
             <Bar
               key={agent}
               name={agent}
-              dataKey={(step: CostStep) => stepValue(step, agent)}
+              dataKey={(step: UsageStep) => stepValue(step, agent)}
               fill={view.color(agent)}
               isAnimationActive={false}
             />

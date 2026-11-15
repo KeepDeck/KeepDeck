@@ -1,22 +1,16 @@
 import { nullPrototypeRecord } from "../../json";
 import { addMoney } from "../money";
-import {
-  addCost,
-  costOf,
-  emptyCostTally,
-  tokenTotal,
-  usageSessionKey,
-  type CostTally,
-  type UsageRow,
-} from "../history/event";
+import { tokenTotal, usageSessionKey, type UsageRow } from "../history/event";
 import { HOUR_MS, localDayNumber, localDayStart, localHourStart, shiftDay } from "../time";
+import { addUsage, amountOf, emptyUsageTally, rowAmount, type StatsMeasure, type UsageTally } from "./measure";
 import { inSpan, type Span } from "./period";
 
 /**
  * THE Statistics folds — what every tab of the dialog adds up, in one
- * module, over rows already cut to a span: totals, money over time, and a
- * ranked breakdown by any key. Built on `CostTally`, so money is counted
- * one way everywhere and an unpriced row is never read as free.
+ * module, over rows already cut to a span: totals, an amount over time, and
+ * a ranked breakdown by any key, each in the measure the reader picked
+ * (measure.ts). Built on `UsageTally`, so money is counted one way
+ * everywhere and an unpriced row is never read as free.
  */
 
 export function rowsIn(rows: readonly UsageRow[], span: Span): UsageRow[] {
@@ -30,7 +24,7 @@ export function rowsOf(rows: readonly UsageRow[], workspace: string | null): rea
   return workspace === null ? rows : rows.filter((row) => row.workspaceName === workspace);
 }
 
-export interface StatsTotals extends CostTally {
+export interface StatsTotals extends UsageTally {
   /** What the priced rows' cache reads saved against fresh input — an
    * estimate; unpriced rows saved an unknown amount, left out like their
    * cost. */
@@ -43,10 +37,10 @@ export interface StatsTotals extends CostTally {
 }
 
 export function statsTotals(rows: readonly UsageRow[]): StatsTotals {
-  const totals = { ...emptyCostTally(), savedUsd: 0, totalTokens: 0, outputTokens: 0, sessions: 0 };
+  const totals = { ...emptyUsageTally(), savedUsd: 0, totalTokens: 0, outputTokens: 0, sessions: 0 };
   const sessions = new Set<string>();
   for (const row of rows) {
-    addCost(totals, row);
+    addUsage(totals, row);
     if (row.savedUsd !== undefined) totals.savedUsd = addMoney(totals.savedUsd, row.savedUsd);
     totals.totalTokens += tokenTotal(row.tokens);
     totals.outputTokens += row.tokens.output ?? 0;
@@ -77,37 +71,49 @@ export function costChange(current: StatsTotals, prior: StatsTotals | null): num
   return (current.costUsd - prior.costUsd) / prior.costUsd;
 }
 
-/** Add a row's priced cost to its agent's share — the split every bar by
- * agent reads. An unpriced row adds nothing, as in [`addCost`]. Null-
- * prototype records: agent ids are plugin-declared strings, and "__proto__"
- * must stay an agent. */
-function addAgentCost(byAgent: Record<string, number>, row: UsageRow): void {
-  const cost = costOf(row);
-  if (cost !== null) byAgent[row.agent] = addMoney(byAgent[row.agent] ?? 0, cost);
+/** THE comparison in a measure: money as [`costChange`] allows it; tokens
+ * whenever the prior span had any — every row has its tokens, so there is
+ * no coverage to doubt. Null with no prior span. */
+export function measureChange(current: StatsTotals, prior: StatsTotals | null, measure: StatsMeasure): number | null {
+  if (measure === "spend") return costChange(current, prior);
+  if (prior === null || !(prior.tokensLessCacheReads > 0)) return null;
+  return (current.tokensLessCacheReads - prior.tokensLessCacheReads) / prior.tokensLessCacheReads;
 }
 
-/** One step of a money timeline: a local day, or a local hour for today. */
-export interface CostStep extends CostTally {
+/** Add a row's amount to its agent's share — the split every bar by agent
+ * reads. A row with no amount (unpriced, in money) adds nothing. Null-
+ * prototype records: agent ids are plugin-declared strings, and "__proto__"
+ * must stay an agent. */
+function addAgentAmount(byAgent: Record<string, number>, row: UsageRow, measure: StatsMeasure): void {
+  const amount = rowAmount(row, measure);
+  if (amount === null) return;
+  const held = byAgent[row.agent] ?? 0;
+  byAgent[row.agent] = measure === "spend" ? addMoney(held, amount) : held + amount;
+}
+
+/** One step of a timeline: a local day, or a local hour for today. */
+export interface UsageStep extends UsageTally {
   start: number;
-  /** Priced cost per agent; an agent with none in the step has no key. */
+  /** The amount per agent; an agent with none in the step has no key. */
   byAgent: Record<string, number>;
 }
 
 export type TimelineGranularity = "hour" | "day";
 
 /**
- * Money over the span, continuous and zero-filled — a quiet step is a
+ * An amount over the span, continuous and zero-filled — a quiet step is a
  * visible gap, never a skipped one. Days are the reader's calendar days;
  * the hour steps are for a span of one day. An open span starts at its
  * first row's step.
  */
-export function costTimeline(
+export function usageTimeline(
   rows: readonly UsageRow[],
   span: Span,
   granularity: TimelineGranularity,
-): CostStep[] {
+  measure: StatsMeasure,
+): UsageStep[] {
   const stepOf = granularity === "hour" ? localHourStart : (at: number) => localDayStart(localDayNumber(at));
-  const steps = new Map<number, CostStep>();
+  const steps = new Map<number, UsageStep>();
   let first = Infinity;
   for (const row of rows) {
     if (!inSpan(row.occurredAt, span)) continue;
@@ -115,18 +121,18 @@ export function costTimeline(
     first = Math.min(first, start);
     let step = steps.get(start);
     if (!step) {
-      step = { start, byAgent: nullPrototypeRecord<number>(), ...emptyCostTally() };
+      step = { start, byAgent: nullPrototypeRecord<number>(), ...emptyUsageTally() };
       steps.set(start, step);
     }
-    addCost(step, row);
-    addAgentCost(step.byAgent, row);
+    addUsage(step, row);
+    addAgentAmount(step.byAgent, row, measure);
   }
   const from = Number.isFinite(span.from) ? stepOf(span.from) : first;
   if (!Number.isFinite(from)) return [];
   const last = stepOf(span.to - 1);
-  const out: CostStep[] = [];
+  const out: UsageStep[] = [];
   for (let start = from; start <= last; start = nextStep(start, granularity)) {
-    out.push(steps.get(start) ?? { start, byAgent: nullPrototypeRecord<number>(), ...emptyCostTally() });
+    out.push(steps.get(start) ?? { start, byAgent: nullPrototypeRecord<number>(), ...emptyUsageTally() });
   }
   return out;
 }
@@ -144,11 +150,13 @@ export interface BreakdownRow extends StatsTotals {
   key: string;
   /** The group's newest row — where names and places are read from. */
   latest: UsageRow;
-  /** The group's share of the span's priced cost, 0–1. */
+  /** The group's amount in the measure it was ranked by. */
+  amount: number;
+  /** The group's share of the span's amount, 0–1. */
   share: number;
-  /** Priced cost per agent, for a bar split by agent. */
+  /** The amount per agent, for a bar split by agent. */
   byAgent: Readonly<Record<string, number>>;
-  /** Against the same group in the prior rows, by [`costChange`]. */
+  /** Against the same group in the prior rows, by [`measureChange`]. */
   change: number | null;
   /** How many groups this row folds together — 0 for a group of its own,
    * N for the "N more" row that closes a long list. */
@@ -156,39 +164,43 @@ export interface BreakdownRow extends StatsTotals {
 }
 
 /**
- * Rows grouped by `keyOf`, ranked by priced cost (tokens break ties), each
- * set against the same key in `prior`. Past `top` groups the rest fold into
- * one closing row — folded from its RAW rows, so a session spread over
- * several folded groups counts once. A list one longer than `top` is shown
- * whole: a "1 more" row would hide exactly as much as it shows.
+ * Rows grouped by `keyOf`, ranked by their amount in `measure` (tokens break
+ * ties), each set against the same key in `prior`. Past `top` groups the
+ * rest fold into one closing row — folded from its RAW rows, so a session
+ * spread over several folded groups counts once. A list one longer than
+ * `top` is shown whole: a "1 more" row would hide exactly as much as it
+ * shows.
  */
 export function breakdown(
   current: readonly UsageRow[],
   prior: readonly UsageRow[],
   keyOf: (row: UsageRow) => string,
   top: number,
+  measure: StatsMeasure,
 ): BreakdownRow[] {
   const groups = groupBy(current, keyOf);
   const priorGroups = groupBy(prior, keyOf);
-  const spanCost = statsTotals(current).costUsd;
+  const spanAmount = amountOf(statsTotals(current), measure);
   // Every group, the folded one included, holds at least one row.
   const rowOf = (key: string, rows: UsageRow[], priorRows: UsageRow[], folded: number): BreakdownRow => {
     const totals = statsTotals(rows);
     const byAgent = nullPrototypeRecord<number>();
-    for (const row of rows) addAgentCost(byAgent, row);
+    for (const row of rows) addAgentAmount(byAgent, row, measure);
+    const amount = amountOf(totals, measure);
     return {
       ...totals,
       key,
       latest: rows.reduce((newest, row) => (row.occurredAt > newest.occurredAt ? row : newest)),
-      share: spanCost > 0 ? totals.costUsd / spanCost : 0,
+      amount,
+      share: spanAmount > 0 ? amount / spanAmount : 0,
       byAgent,
-      change: costChange(totals, statsTotals(priorRows)),
+      change: measureChange(totals, statsTotals(priorRows), measure),
       folded,
     };
   };
   const ranked = [...groups]
     .map(([key, rows]) => rowOf(key, rows, priorGroups.get(key) ?? [], 0))
-    .sort((left, right) => right.costUsd - left.costUsd || right.totalTokens - left.totalTokens);
+    .sort((left, right) => right.amount - left.amount || right.totalTokens - left.totalTokens);
   if (ranked.length <= top + 1) return ranked;
   const tail = ranked.slice(top);
   const tailRows = tail.flatMap((row) => groups.get(row.key) ?? []);

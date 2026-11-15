@@ -105,7 +105,7 @@ export function breakdownView(
   const current = rowsIn(scoped, spans.current);
   const prior = spans.prior === null ? [] : rowsIn(scoped, spans.prior);
   const keyOf = (row: UsageRow) => dimensionKey(dimension, row, teams);
-  const groups = sortGroups(breakdown(current, prior, keyOf, BREAKDOWN_TOP), order);
+  const groups = sortGroups(breakdown(current, prior, keyOf, BREAKDOWN_TOP, "spend"), order);
   const names = nameGroups(dimension, groups, teams, teamProvenance(current, teams));
   const widest = Math.max(...groups.filter((group) => group.folded === 0).map((group) => group.share), 1e-9);
   const rowView = (group: BreakdownRow, nameOf: (group: BreakdownRow) => GroupName, child: boolean): BreakdownRowView => {
@@ -136,7 +136,7 @@ export function breakdownView(
       open: isOpen,
       toggle: isOpen ? null : group.key,
       sessions: isOpen
-        ? breakdown(current.filter((row) => keyOf(row) === group.key), [], (row) => dimensionKey("session", row), SESSIONS_TOP)
+        ? breakdown(current.filter((row) => keyOf(row) === group.key), [], (row) => dimensionKey("session", row), SESSIONS_TOP, "spend")
             .map((session) => rowView(session, sessionName, true))
         : [],
     };

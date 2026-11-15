@@ -1,5 +1,5 @@
 import { formatStep, formatTokens, formatUsd } from "../../domain/usage";
-import type { CostStep, TimelineGranularity } from "../../domain/usage/stats/fold";
+import type { UsageStep, TimelineGranularity } from "../../domain/usage/stats/fold";
 import { seriesColorFor } from "../usagePalette";
 
 /**
@@ -19,7 +19,7 @@ export interface SpendChartView {
   title: string;
   granularity: TimelineGranularity;
   /** Mutable as the chart library types its data; never written. */
-  steps: CostStep[];
+  steps: UsageStep[];
   /** Agents with priced spend in the steps, in a FIXED alphabetical order
    * — a period switch must not re-stack the bars. */
   agents: readonly string[];
@@ -34,7 +34,7 @@ export interface SpendChartView {
  * the bars (overviewView's `chartNote`); a step with unpriced usage among
  * priced ones says so in its hover card. */
 export function spendChartView(
-  steps: CostStep[],
+  steps: UsageStep[],
   granularity: TimelineGranularity,
   colors: ReadonlyMap<string, string>,
 ): SpendChartView {
@@ -52,7 +52,7 @@ export function spendChartView(
 }
 
 /** An agent's bar in a step: its priced spend, or none. */
-export function stepValue(step: CostStep, agent: string): number {
+export function stepValue(step: UsageStep, agent: string): number {
   return step.byAgent[agent] ?? 0;
 }
 

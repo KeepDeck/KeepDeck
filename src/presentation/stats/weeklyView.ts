@@ -7,11 +7,11 @@ import { dimensionKey } from "../../domain/usage/stats/dimensions";
 import {
   breakdown,
   costChange,
-  costTimeline,
+  usageTimeline,
   rowsIn,
   statsTotals,
   type BreakdownRow,
-  type CostStep,
+  type UsageStep,
   type StatsTotals,
 } from "../../domain/usage/stats/fold";
 import { teamProvenance, type TeamHistory } from "../../domain/usage/stats/teams";
@@ -101,9 +101,9 @@ export function weekReportView(rows: readonly UsageRow[], now: number, back: num
   const current = rowsIn(rows, week.current);
   const totals = statsTotals(current);
   const change = costChange(totals, statsTotals(rowsIn(rows, week.prior)));
-  const days = costTimeline(current, week.current, "day");
-  const costliest = days.reduce<CostStep | null>((top, day) => (top === null || day.costUsd > top.costUsd ? day : top), null);
-  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP);
+  const days = usageTimeline(current, week.current, "day", "spend");
+  const costliest = days.reduce<UsageStep | null>((top, day) => (top === null || day.costUsd > top.costUsd ? day : top), null);
+  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP, "spend");
   const names = modelNames(models);
   const [topModel] = models;
   const lines: string[] = [];
@@ -156,9 +156,9 @@ export function weeklyView(
   const { week } = report;
   const current = rowsIn(rows, week.current);
   const totals = statsTotals(current);
-  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP);
+  const models = breakdown(current, [], (row) => dimensionKey("model", row), WEEKLY_LIST_TOP, "spend");
   const names = modelNames(models);
-  const groupsOfTeams = breakdown(current, [], (row) => dimensionKey("team", row, teams), WEEKLY_LIST_TOP);
+  const groupsOfTeams = breakdown(current, [], (row) => dimensionKey("team", row, teams), WEEKLY_LIST_TOP, "spend");
   const peaks = windowPeaks(input.reports, week.current);
   const rhythm = weekRhythm(current, week.current);
   const provenance = teamProvenance(current, teams);
@@ -232,7 +232,7 @@ function bars(bins: readonly CostTally[], labelOf: (index: number) => string): B
 function calendarView(rows: readonly UsageRow[], now: number, selected: number): WeeklyView["calendar"] {
   const lastMonday = weekSpans(now, 0).monday;
   const firstMonday = shiftDay(lastMonday, -7 * (CALENDAR_WEEKS - 1));
-  const steps = costTimeline(rows, { from: localDayStart(firstMonday), to: now + 1 }, "day");
+  const steps = usageTimeline(rows, { from: localDayStart(firstMonday), to: now + 1 }, "day", "spend");
   const top = Math.max(...steps.map((step) => step.costUsd), 0);
   const weeks: WeeklyView["calendar"]["weeks"] = [];
   steps.forEach((step, index) => {

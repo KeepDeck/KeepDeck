@@ -6,7 +6,7 @@ import { teamHistory } from "../../domain/usage/stats/teams";
 import { modelNames, sessionName, shortSession, teamName, workspaceName } from "./statsNames";
 
 const models = (...rows: Parameters<typeof usageEvent>[0][]) =>
-  breakdown(rows.map((row) => usageEvent(row)), [], (row) => dimensionKey("model", row), 5);
+  breakdown(rows.map((row) => usageEvent(row)), [], (row) => dimensionKey("model", row), 5, "spend");
 
 describe("model names", () => {
   it("names a model by the catalogue alone while the name is unique", () => {
@@ -36,6 +36,7 @@ describe("model names", () => {
       [],
       (row) => dimensionKey("model", row),
       2,
+      "spend",
     );
     const [, , closing] = rows;
     if (closing === undefined) throw new Error("no closing row");
@@ -54,8 +55,8 @@ describe("session names", () => {
   });
 
   it("names a session by its pane, else its id, and says where and by whom", () => {
-    const [named] = breakdown([usageEvent({ paneName: "auth-refactor", workspaceName: "KeepDeck", agent: "codex" })], [], () => "s", 5);
-    const [bare] = breakdown([usageEvent({ paneName: "", sessionId: "session-123456789", workspaceName: "", agent: "kimi" })], [], () => "s", 5);
+    const [named] = breakdown([usageEvent({ paneName: "auth-refactor", workspaceName: "KeepDeck", agent: "codex" })], [], () => "s", 5, "spend");
+    const [bare] = breakdown([usageEvent({ paneName: "", sessionId: "session-123456789", workspaceName: "", agent: "kimi" })], [], () => "s", 5, "spend");
     if (named === undefined || bare === undefined) throw new Error("no rows");
     expect(sessionName(named)).toEqual({ name: "auth-refactor", source: "KeepDeck · codex" });
     expect(sessionName(bare)).toEqual({ name: "session-…", source: "kimi" });
@@ -70,6 +71,7 @@ describe("team names", () => {
       [],
       () => "t",
       5,
+      "spend",
     );
     if (group === undefined) throw new Error("no rows");
     expect(teamName(group, history, "recorded")).toEqual({ name: "stats", source: "KeepDeck" });
@@ -79,8 +81,8 @@ describe("team names", () => {
 
   it("names a recorded no-team group and an unknown one apart", () => {
     const history = teamHistory({}, new Map());
-    const [none] = breakdown([usageEvent({ team: { kind: "none" } })], [], () => "n", 5);
-    const [unknown] = breakdown([usageEvent({})], [], () => "u", 5);
+    const [none] = breakdown([usageEvent({ team: { kind: "none" } })], [], () => "n", 5, "spend");
+    const [unknown] = breakdown([usageEvent({})], [], () => "u", 5, "spend");
     if (none === undefined || unknown === undefined) throw new Error("no rows");
     expect(teamName(none, history, "recorded").name).toBe("No team");
     expect(teamName(unknown, history, "recorded").name).toBe("Team unknown");

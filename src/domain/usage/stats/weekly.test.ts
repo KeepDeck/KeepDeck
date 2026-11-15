@@ -67,7 +67,8 @@ describe("a week's rhythm", () => {
       );
       expect(rhythm.byWeekday.map((bin) => bin.costUsd)).toEqual([2, 0, 3, 0, 0, 0, 0]);
       expect(rhythm.byHour[1]?.costUsd).toBe(2);
-      expect(rhythm.byHour[14]).toMatchObject({ costUsd: 3, pricedEvents: 1, unpricedTokens: 100 });
+      // Each bin holds the tokens too: the same rhythm reads in either measure.
+      expect(rhythm.byHour[14]).toMatchObject({ costUsd: 3, pricedEvents: 1, unpricedTokens: 100, tokensLessCacheReads: 200 });
       expect(rhythm.byHour.reduce((sum, bin) => sum + bin.costUsd, 0)).toBe(5);
     });
   });

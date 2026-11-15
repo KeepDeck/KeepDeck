@@ -4,7 +4,7 @@ import { dimensionKey, type StatsDimension } from "../../domain/usage/stats/dime
 import {
   breakdown,
   costChange,
-  costTimeline,
+  usageTimeline,
   rowsIn,
   rowsOf,
   statsTotals,
@@ -107,10 +107,10 @@ export function overviewView(
   const prior = spans.prior === null ? null : statsTotals(rowsIn(rows, spans.prior));
   const change = costChange(totals, prior);
   const granularity = period === 1 ? "hour" : "day";
-  const agents = breakdown(current, [], (row) => dimensionKey("agent", row), Infinity);
-  const workspaces = breakdown(current, [], (row) => dimensionKey("workspace", row), OVERVIEW_LIST_TOP);
-  const agentsTop = breakdown(current, [], (row) => dimensionKey("agent", row), OVERVIEW_LIST_TOP);
-  const models = breakdown(current, [], (row) => dimensionKey("model", row), OVERVIEW_LIST_TOP);
+  const agents = breakdown(current, [], (row) => dimensionKey("agent", row), Infinity, "spend");
+  const workspaces = breakdown(current, [], (row) => dimensionKey("workspace", row), OVERVIEW_LIST_TOP, "spend");
+  const agentsTop = breakdown(current, [], (row) => dimensionKey("agent", row), OVERVIEW_LIST_TOP, "spend");
+  const models = breakdown(current, [], (row) => dimensionKey("model", row), OVERVIEW_LIST_TOP, "spend");
   const names = modelNames(models);
   // A period with no usage, or with usage no price covers, has no money to
   // draw or compare — said in words, never as an empty chart or a "$0".
@@ -136,7 +136,7 @@ export function overviewView(
       { label: "Sessions", value: String(totals.sessions), caption: "with usage in the period" },
       { label: "Output tokens", value: formatTokens(totals.outputTokens), caption: "reasoning included" },
     ],
-    chart: spendChartView(costTimeline(rows, spans.current, granularity), granularity, colors),
+    chart: spendChartView(usageTimeline(rows, spans.current, granularity, "spend"), granularity, colors),
     chartNote: idle ? empty : unpriced ? "None of this usage has a known price." : null,
     legend: [...agents]
       .sort((left, right) => (left.key < right.key ? -1 : 1))

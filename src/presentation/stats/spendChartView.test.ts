@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { emptyCostTally } from "../../domain/usage/history/event";
-import type { CostStep } from "../../domain/usage/stats/fold";
+import { emptyUsageTally } from "../../domain/usage/stats/measure";
+import type { UsageStep } from "../../domain/usage/stats/fold";
 import { inZone } from "../../domain/usage/time.testSupport";
 import { spendChartView, spendTipView, stepValue } from "./spendChartView";
 
 const at = (iso: string) => new Date(iso).getTime();
-const step = (start: number, byAgent: Record<string, number>, over: Partial<CostStep> = {}): CostStep => ({
-  ...emptyCostTally(),
+const step = (start: number, byAgent: Record<string, number>, over: Partial<UsageStep> = {}): UsageStep => ({
+  ...emptyUsageTally(),
   start,
   byAgent,
   costUsd: Object.values(byAgent).reduce((sum, v) => sum + v, 0),

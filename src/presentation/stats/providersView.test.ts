@@ -22,7 +22,7 @@ const live = (usedPct: number, windowMinutes = 300): UsageWindow => ({
 const expired: UsageWindow = { usedPct: 40, resetsAt: NOW - HOUR, windowMinutes: 300 };
 
 const viewOf = (accounts: Map<string, AccountUsage>) =>
-  providersView(providerWindowGroups(accounts, [], new Map(), NOW), NOW, COLORS);
+  providersView(providerWindowGroups(accounts, [], new Map(), NOW, "spend"), NOW, COLORS);
 
 describe("providersView", () => {
   it("says how the tab fills before any CLI reports its limits", () => {
@@ -70,7 +70,7 @@ describe("providersView", () => {
       usageEvent({ agent: "claude", occurredAt: NOW - HOUR, sessionId: "s2", paneName: "docs", workspaceName: "Docs" }),
     ];
     const view = providersView(
-      providerWindowGroups(new Map([["claude", account([live(10)])]]), events, new Map(), NOW),
+      providerWindowGroups(new Map([["claude", account([live(10)])]]), events, new Map(), NOW, "spend"),
       NOW,
       COLORS,
     );
@@ -85,7 +85,7 @@ describe("providersView", () => {
     const accounts = new Map([["claude", account([live(10)])]]);
     const rows = [usageEvent({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 2 })];
     expect(accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS })).toEqual(
-      providersView(providerWindowGroups(accounts, rows, new Map(), NOW), NOW, COLORS),
+      providersView(providerWindowGroups(accounts, rows, new Map(), NOW, "spend"), NOW, COLORS),
     );
   });
 });

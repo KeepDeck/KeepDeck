@@ -6,6 +6,7 @@ import {
   emptyCostTally,
   modelProvider,
   tokenTotal,
+  tokensLessCacheReads,
   usageSessionKey,
 } from "./event";
 import { usageEvent } from "./event.testSupport";
@@ -17,6 +18,15 @@ describe("usage row helpers", () => {
     // Reasoning is a share of output, never added again.
     expect(tokenTotal({ input: 10, output: 6, reasoning: 4 })).toBe(16);
     expect(tokenTotal({ total: 99, input: 10 })).toBe(99);
+  });
+
+  it("counts the work a call did — its tokens less what was read back from cache", () => {
+    expect(tokensLessCacheReads({ input: 10, output: 2, cacheRead: 400, cacheWrite: 30 })).toBe(42);
+    // A source total stands, less the cache reads it reported.
+    expect(tokensLessCacheReads({ total: 500, input: 10, cacheRead: 450 })).toBe(50);
+    expect(tokensLessCacheReads({ total: 99 })).toBe(99);
+    // A total that undercounts its own cache reads is never negative work.
+    expect(tokensLessCacheReads({ total: 10, cacheRead: 40 })).toBe(0);
   });
 
   it("adds counts field by field, leaving a field nobody reported absent", () => {
