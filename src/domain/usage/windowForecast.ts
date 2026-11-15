@@ -45,10 +45,11 @@ import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
  */
 export type WindowForecast =
   /** No projection may be made: too few reports, too short a span, a stale
-   * journal, an expired window — or a pace that came out NEGATIVE, which
-   * means the journal is contradicting itself and is not evidence of
-   * anything. */
-  | { kind: "unknown" }
+   * journal, an expired window — or, `contradictory`, a pace that came out
+   * NEGATIVE: the journal is contradicting itself and is not evidence of
+   * anything. The two are said differently: the first is a want of
+   * reports, the second has reports enough that do not add up. */
+  | { kind: "unknown"; contradictory?: true }
   /** Reports, and no growth at all across the tail. A real answer, and a
    * different one from "cannot say". */
   | { kind: "idle" }
@@ -205,7 +206,7 @@ export function windowForecast(
   // and it did: after a lagged reset the card read "Not spending right now"
   // for a whole lookback horizon — 45 minutes on a 5h window, over 8 hours
   // on a weekly one.
-  if (pace < 0) return { kind: "unknown" };
+  if (pace < 0) return { kind: "unknown", contradictory: true };
   if (pace === 0) return { kind: "idle" };
   const outAt = last.reportedAt + (100 - last.usedPct) / pace;
   if (outAt <= now) {
@@ -415,8 +416,10 @@ function survivalClause(forecast: WindowForecast): ForecastCaptionPart | null {
  * one, and is also what explains the burn plot's empty right half.
  *
  * An EXPIRED window is neither. Its percentage belongs to a window that is
- * gone, the card already says "reset passed" above, and "Not enough data
- * yet" over it would blame the journal for a fact about the clock.
+ * gone, the card already says "reset passed" above, and "no forecast"
+ * over it would blame the journal for a fact about the clock. A forecast
+ * refused for want of reports says so; one refused because the reports
+ * contradict each other must not claim there are too few of them.
  */
 function quietClause(
   window: UsageWindow,
@@ -427,7 +430,9 @@ function quietClause(
     return { text: "Not spending right now", level: null };
   }
   if (forecast.kind !== "unknown" || windowExpired(window, now)) return null;
-  return { text: "No forecast yet — too few recent reports", level: null };
+  return forecast.contradictory
+    ? { text: "No forecast — the recent reports don't add up", level: null }
+    : { text: "No forecast yet — too few recent reports", level: null };
 }
 
 /** The forecast in words, on a line of its own: the run-out when the pace

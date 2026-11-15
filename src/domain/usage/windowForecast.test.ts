@@ -443,7 +443,10 @@ describe("windowForecast", () => {
       report({ reportedAt: NOW - 10 * MIN, usedPct: 3 }),
       report({ reportedAt: NOW, usedPct: 4 }),
     ];
-    expect(windowForecast(falling, FIVE_H, NOW)).toEqual({ kind: "unknown" });
+    const contradicted = windowForecast(falling, FIVE_H, NOW);
+    expect(contradicted).toEqual({ kind: "unknown", contradictory: true });
+    // Reports enough, that do not add up — never "too few" of them.
+    expect(windowVerdict(FIVE_H, contradicted, NOW)?.text).toBe("No forecast — the recent reports don't add up");
     expect(windowVerdict(FIVE_H, { kind: "unknown" }, NOW)?.text).toBe(
       "No forecast yet — too few recent reports",
     );
