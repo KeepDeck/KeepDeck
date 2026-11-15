@@ -3,14 +3,14 @@ import type { WorkspaceInstance } from "../workspaceInstance";
 import type { Pane, PaneSession } from "./panes";
 import type { DeckState } from "./reducer";
 import type { Team, TeamLocation } from "./teams/model";
-import type { Workspace } from "./workspaces";
+import type { Workspace, WorkspacePlace } from "./workspaces";
 
 export type DeckAction =
   | { type: "selectWorkspace"; id: string }
   | { type: "createWorkspace"; workspace: Workspace; at: string }
   | { type: "addAgentPane"; id: string; pane: Pane }
   | { type: "renameWorkspace"; id: string; name: string }
-  | { type: "moveWorkspace"; id: string; toIndex: number }
+  | { type: "moveWorkspace"; id: string; place: WorkspacePlace }
   /** `sealTitle` is the title the pane's journal record freezes with — what
    * its header showed, named by the dispatcher, which can see the agent
    * catalog the reducer cannot. Like `at`, minted at the dispatch boundary. */

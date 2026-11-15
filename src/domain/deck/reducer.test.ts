@@ -440,7 +440,7 @@ describe("deckReducer moveWorkspace", () => {
         activeId: "a",
         viewByWs: { a: { select: "a-1" } },
       }),
-      { type: "moveWorkspace", id: "a", toIndex: 2 },
+      { type: "moveWorkspace", id: "a", place: { after: "c" } },
     );
     expect(next.workspaces.map((w) => w.id)).toEqual(["b", "c", "a"]);
     expect(next.activeId).toBe("a");
@@ -453,7 +453,7 @@ describe("deckReducer moveWorkspace", () => {
       activeId: "a",
     });
     expect(
-      deckReducer(start, { type: "moveWorkspace", id: "a", toIndex: 0 }),
+      deckReducer(start, { type: "moveWorkspace", id: "a", place: { before: "b" } }),
     ).toBe(start);
   });
 });

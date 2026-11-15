@@ -11,6 +11,7 @@ import {
   firstFreeTeamWorktree,
   moveWorkspace,
   parentDir,
+  stepPlaces,
   renameWorkspace,
   resolveActiveId,
   directoryState,
@@ -107,22 +108,46 @@ describe("moveWorkspace", () => {
   const ids = (list: Workspace[]) => list.map((w) => w.id);
   const three = [ws("a", []), ws("b", []), ws("c", [])];
 
-  it("moves an item down to a later index", () => {
-    expect(ids(moveWorkspace(three, "a", 2))).toEqual(["b", "c", "a"]);
+  it("places a workspace right after its anchor", () => {
+    expect(ids(moveWorkspace(three, "a", { after: "c" }))).toEqual(["b", "c", "a"]);
+    expect(ids(moveWorkspace(three, "a", { after: "b" }))).toEqual(["b", "a", "c"]);
   });
 
-  it("moves an item up to an earlier index", () => {
-    expect(ids(moveWorkspace(three, "c", 0))).toEqual(["c", "a", "b"]);
+  it("places a workspace right before its anchor", () => {
+    expect(ids(moveWorkspace(three, "c", { before: "a" }))).toEqual(["c", "a", "b"]);
+    expect(ids(moveWorkspace(three, "c", { before: "b" }))).toEqual(["a", "c", "b"]);
   });
 
-  it("clamps an out-of-range target to the ends", () => {
-    expect(ids(moveWorkspace(three, "a", 99))).toEqual(["b", "c", "a"]);
-    expect(ids(moveWorkspace(three, "c", -5))).toEqual(["c", "a", "b"]);
+  it("anchors on the row, not on a position: rows between the two keep their order", () => {
+    const five = [ws("a", []), ws("b", []), ws("c", []), ws("d", []), ws("e", [])];
+    expect(ids(moveWorkspace(five, "a", { after: "d" }))).toEqual(["b", "c", "d", "a", "e"]);
+    expect(ids(moveWorkspace(five, "e", { before: "b" }))).toEqual(["a", "e", "b", "c", "d"]);
   });
 
-  it("returns the SAME array reference on a no-op move (no re-render)", () => {
-    expect(moveWorkspace(three, "b", 1)).toBe(three); // already at index 1
-    expect(moveWorkspace(three, "missing", 0)).toBe(three); // unknown id
+  it("returns the SAME array reference when nothing moves (no re-render)", () => {
+    expect(moveWorkspace(three, "b", { after: "a" })).toBe(three); // already there
+    expect(moveWorkspace(three, "b", { before: "c" })).toBe(three); // already there
+    expect(moveWorkspace(three, "b", { after: "b" })).toBe(three); // beside itself
+    expect(moveWorkspace(three, "missing", { after: "a" })).toBe(three); // unknown id
+    expect(moveWorkspace(three, "a", { after: "missing" })).toBe(three); // unknown anchor
+  });
+});
+
+describe("stepPlaces", () => {
+  const order = ["a", "b", "c"];
+
+  it("moves up before the upper neighbour and down after the lower one", () => {
+    expect(stepPlaces(order, "b")).toEqual({ up: { before: "a" }, down: { after: "c" } });
+  });
+
+  it("refuses a step past either end of the column", () => {
+    expect(stepPlaces(order, "a")).toEqual({ up: null, down: { after: "b" } });
+    expect(stepPlaces(order, "c")).toEqual({ up: { before: "b" }, down: null });
+    expect(stepPlaces(["a"], "a")).toEqual({ up: null, down: null });
+  });
+
+  it("offers no step for an id the column does not hold", () => {
+    expect(stepPlaces(order, "zz")).toEqual({ up: null, down: null });
   });
 });
 

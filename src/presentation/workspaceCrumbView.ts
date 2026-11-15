@@ -5,6 +5,8 @@
  * the callbacks that own each act; the crumb maps it.
  */
 
+import type { WorkspacePlace } from "../domain/deck";
+
 /** The workspace on screen, as the bar's crumb names it and its menu acts
  * on it. */
 export interface ActiveWorkspace {
@@ -12,8 +14,8 @@ export interface ActiveWorkspace {
   name: string;
   /** Where the menu can move it — the keyboard's way to do what a held
    * mark's drag does — or null at that end of the column. */
-  moveUpTo: number | null;
-  moveDownTo: number | null;
+  moveUp: WorkspacePlace | null;
+  moveDown: WorkspacePlace | null;
 }
 
 /** The crumb as the controller composes it and the bar passes it through. */
@@ -21,8 +23,8 @@ export interface WorkspaceCrumbView {
   view: ActiveWorkspace;
   /** Empty = back to the auto name, which the domain rename implements. */
   onRename(name: string): void;
-  /** Move the workspace to `toIndex` in the strip's column. */
-  onMove(toIndex: number): void;
+  /** Move the workspace to `place` in the strip's column. */
+  onMove(place: WorkspacePlace): void;
   onClose(): void;
   /** Back up to the team cards — the name is then a link — or null at the
    * cards already. */
@@ -46,7 +48,7 @@ export const WORKSPACE_WORDS = {
  * already reached and the line is refused. */
 export type WorkspaceMenuItem = { id: string; label: string; disabled: boolean } & (
   | { kind: "rename" }
-  | { kind: "move"; to: number | null }
+  | { kind: "move"; place: WorkspacePlace | null }
   | { kind: "close" }
 );
 
@@ -54,13 +56,13 @@ export type WorkspaceMenuItem = { id: string; label: string; disabled: boolean }
 export function workspaceMenuView(active: ActiveWorkspace): WorkspaceMenuItem[] {
   return [
     { id: "rename", kind: "rename", label: WORKSPACE_WORDS.rename, disabled: false },
-    { id: "up", kind: "move", label: WORKSPACE_WORDS.moveUp, to: active.moveUpTo, disabled: active.moveUpTo === null },
+    { id: "up", kind: "move", label: WORKSPACE_WORDS.moveUp, place: active.moveUp, disabled: active.moveUp === null },
     {
       id: "down",
       kind: "move",
       label: WORKSPACE_WORDS.moveDown,
-      to: active.moveDownTo,
-      disabled: active.moveDownTo === null,
+      place: active.moveDown,
+      disabled: active.moveDown === null,
     },
     { id: "close", kind: "close", label: WORKSPACE_WORDS.close, disabled: false },
   ];

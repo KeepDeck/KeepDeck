@@ -49,6 +49,7 @@ import {
   stagePanes,
   type SpawnConfig,
   type Workspace,
+  type WorkspacePlace,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
@@ -423,7 +424,7 @@ export function useAppController(runtime: AppRuntime) {
   const workspaceCrumb: WorkspaceCrumbView | null = shownWs && {
     view: shownWs,
     onRename: (name: string) => deck.renameWorkspace(shownWs.id, name),
-    onMove: (toIndex: number) => deck.moveWorkspace(shownWs.id, toIndex),
+    onMove: (place: WorkspacePlace) => deck.moveWorkspace(shownWs.id, place),
     onClose: () => closeFlow.requestCloseWorkspace(shownWs.id),
     // Inside a team the name is the way back up to the cards.
     onUp: openTeam ? () => deck.closeTeam(shownWs.id) : null,

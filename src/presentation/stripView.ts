@@ -15,7 +15,7 @@
  * It also names the ACTIVE workspace and where it sits, for the bar's crumb
  * (`workspaceCrumbView`).
  */
-import { membersOf, openTeamOf, teamsOf, type Workspace, type WorkspaceView } from "../domain/deck";
+import { membersOf, openTeamOf, stepPlaces, teamsOf, type Workspace, type WorkspaceView } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
 import type { ActiveWorkspace } from "./workspaceCrumbView";
 import { TEAM_CARD_WORDS, teamDot, type TeamCardDot } from "./teamCardView";
@@ -115,7 +115,8 @@ export function stripView(
   viewByWs: Readonly<Record<string, WorkspaceView>>,
 ): StripView {
   let active = null as ActiveWorkspace | null;
-  const marks = workspaces.map((ws, index): WorkspaceMark => {
+  const order = workspaces.map((ws) => ws.id);
+  const marks = workspaces.map((ws): WorkspaceMark => {
     const openTeam = openTeamOf(ws, viewByWs[ws.id]);
     // ONE pass: each team's dot is the row's, and the same dots fold into
     // the mark's — the two can never rank a team differently.
@@ -131,12 +132,8 @@ export function stripView(
     });
     const dot = markDot(teams.map((team) => team.dot), ws.panes.length);
     if (ws.id === activeId) {
-      active = {
-        id: ws.id,
-        name: ws.name,
-        moveUpTo: index > 0 ? index - 1 : null,
-        moveDownTo: index < workspaces.length - 1 ? index + 1 : null,
-      };
+      const steps = stepPlaces(order, ws.id);
+      active = { id: ws.id, name: ws.name, moveUp: steps.up, moveDown: steps.down };
     }
     return {
       id: ws.id,

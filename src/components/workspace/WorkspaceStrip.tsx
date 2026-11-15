@@ -10,7 +10,7 @@ import {
   usePointerDrag,
   type ElementRectSnapshot,
 } from "../../ui/dragManager";
-import { markAtY } from "../../domain/deck";
+import { dropPlace, markAtY, type WorkspacePlace } from "../../domain/deck";
 import { STRIP_WORDS, type StripView, type WorkspaceMark } from "../../presentation/stripView";
 import { stripGroupView } from "../../presentation/stripExpand";
 import { useStripReveal } from "./useStripReveal";
@@ -25,8 +25,8 @@ interface WorkspaceStripProps {
    * strip. */
   onEnterTeam(wsId: string, teamId: string): void;
   onAdd(): void;
-  /** Move workspace `id` to `toIndex` (long-press drag reorder). */
-  onReorder(id: string, toIndex: number): void;
+  /** Move workspace `id` to `place` (long-press drag reorder). */
+  onReorder(id: string, place: WorkspacePlace): void;
   /** The running build, or null until `app_info` answers. At the strip's
    * foot: read a few times a year, when a report needs writing — on screen,
    * and out of the way. */
@@ -160,11 +160,10 @@ export function WorkspaceStrip({
       if (!list) return;
       const rects = collectMarkRects(list);
       const overId = markAtY(current.y, rects);
-      if (!overId || overId === source.mark.id) return;
-      const toIndex = rects.findIndex((r) => r.id === overId);
-      if (toIndex < 0) return;
+      const place = overId && dropPlace(rects.map((r) => r.id), source.mark.id, overId);
+      if (!place) return;
       flipBefore.current = snapshotElementRects(markGroups(list), markId);
-      onReorder(source.mark.id, toIndex);
+      onReorder(source.mark.id, place);
     },
     onDrop: ({ source }) => settleGhost(source.mark.id),
     onCancel: () => setGhost(null),

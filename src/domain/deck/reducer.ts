@@ -233,7 +233,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // moveWorkspace returns the same ref on a no-op move → skip the re-render.
       return withWorkspaces(
         state,
-        moveWorkspace(state.workspaces, action.id, action.toIndex),
+        moveWorkspace(state.workspaces, action.id, action.place),
       );
     case "closeAgent": {
       const { wsId, paneId } = action;

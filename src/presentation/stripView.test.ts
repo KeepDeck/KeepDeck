@@ -83,9 +83,9 @@ describe("stripView active workspace", () => {
   it("names the one on screen and where its menu can move it, refusing past an end", () => {
     const deck = [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE, workspace("ws-e", [])];
     const at = (id: string) => stripView(deck, frames({}), id, {}).active;
-    expect(at("ws-a")).toEqual({ id: "ws-a", name: "ws-a", moveUpTo: null, moveDownTo: 1 });
-    expect(at("ws-b")).toMatchObject({ moveUpTo: 0, moveDownTo: 2 });
-    expect(at("ws-e")).toMatchObject({ moveUpTo: 1, moveDownTo: null });
+    expect(at("ws-a")).toEqual({ id: "ws-a", name: "ws-a", moveUp: null, moveDown: { after: "ws-b" } });
+    expect(at("ws-b")).toMatchObject({ moveUp: { before: "ws-a" }, moveDown: { after: "ws-e" } });
+    expect(at("ws-e")).toMatchObject({ moveUp: { before: "ws-b" }, moveDown: null });
     expect(stripView([], frames({}), "", {}).active).toBeNull();
   });
 });

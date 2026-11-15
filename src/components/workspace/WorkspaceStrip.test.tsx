@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StripTeam, StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
+import { moveWorkspace, type WorkspacePlace } from "../../domain/deck";
 import {
   STRIP_FOCUS_ASK_MS,
   STRIP_POINTER_CHECK_MS,
@@ -54,7 +55,7 @@ const VIEW: StripView = {
     mark("c", "Gamma"),
     mark("d", "Delta"),
   ],
-  active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 },
+  active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } },
 };
 
 const callbacks = {
@@ -143,21 +144,13 @@ function pointerEvent(
 
 const MARK_HEIGHT = 50;
 
-function move<T extends { id: string }>(items: readonly T[], id: string, toIndex: number): T[] {
-  const next = items.slice();
-  const from = next.findIndex((item) => item.id === id);
-  const [moved] = next.splice(from, 1);
-  next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, moved);
-  return next;
-}
-
 function Harness() {
   const [marks, setMarks] = useState(VIEW.marks);
   return createElement(WorkspaceStrip, {
     view: { ...VIEW, marks },
     version: null,
     ...callbacks,
-    onReorder: (id: string, toIndex: number) => setMarks((current) => move(current, id, toIndex)),
+    onReorder: (id: string, place: WorkspacePlace) => setMarks((current) => moveWorkspace([...current], id, place)),
   });
 }
 
@@ -460,7 +453,7 @@ describe("WorkspaceStrip as the team switcher", () => {
       mark("b", "Beta", { teams: [team("t3", "hwc2", { dot: "waiting" })] }),
       mark("c", "Gamma"),
     ],
-    active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 },
+    active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } },
   };
   const render = () =>
     act(() =>
@@ -906,10 +899,10 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       mark("d", "Delta"),
     ]);
     return createElement(WorkspaceStrip, {
-      view: { marks, active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 } },
+      view: { marks, active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } } },
       version: null,
       ...callbacks,
-      onReorder: (id: string, toIndex: number) => setMarks((current) => move(current, id, toIndex)),
+      onReorder: (id: string, place: WorkspacePlace) => setMarks((current) => moveWorkspace([...current], id, place)),
     });
   }
 

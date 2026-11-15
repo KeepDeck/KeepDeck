@@ -33,7 +33,7 @@ export function WorkspaceCrumb({
     onSelect: () => {
       if (item.kind === "rename") rename.start(workspace.id, name);
       else if (item.kind === "close") onClose();
-      else if (item.to !== null) onMove(item.to);
+      else if (item.place !== null) onMove(item.place);
     },
   }));
   return (

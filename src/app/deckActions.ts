@@ -9,6 +9,7 @@ import {
   type Team,
   type TeamLocation,
   type Workspace,
+  type WorkspacePlace,
 } from "../domain/deck";
 import type { JournalRecords } from "../domain/journal";
 import type { DeckStore } from "./deckStore";
@@ -90,8 +91,8 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "addAgentPane", id, pane }),
     renameWorkspace: (id: string, name: string) =>
       dispatch({ type: "renameWorkspace", id, name }),
-    moveWorkspace: (id: string, toIndex: number) =>
-      dispatch({ type: "moveWorkspace", id, toIndex }),
+    moveWorkspace: (id: string, place: WorkspacePlace) =>
+      dispatch({ type: "moveWorkspace", id, place }),
     closeAgent: (wsId: string, paneId: string) =>
       dispatch({ type: "closeAgent", wsId, paneId, at: nowIso(), ...sealTitle(wsId, paneId) }),
     closeWorkspace: (id: string) =>

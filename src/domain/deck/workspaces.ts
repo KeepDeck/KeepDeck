@@ -366,22 +366,46 @@ export function homeRelative(path: string, home: string | null): string {
 // plants in a working directory keys off them, and they change for entirely
 // different reasons than workspace membership or pane state do.
 
-/** Move the workspace with `id` to `toIndex` (clamped to the list), preserving
- * the order of the rest. Returns the SAME array reference when nothing moves, so
- * a live drag that lands on the current slot doesn't trigger a re-render. */
-export function moveWorkspace(
-  workspaces: Workspace[],
+/** Where a workspace goes in the column: right before or right after another
+ * one, named by id. A place, not an index — an index means a position in ONE
+ * list, and the column a person sees and the deck's full list stop being the
+ * same list the moment any workspace is not drawn; an id means the same row
+ * in both. */
+export type WorkspacePlace = { before: string } | { after: string };
+
+/** Move the workspace with `id` to `place`, preserving the order of the rest.
+ * Returns the SAME array reference when nothing moves — an unknown id or
+ * anchor, a workspace placed beside itself, or one already where it is asked
+ * to go — so a live drag that lands on the current slot doesn't re-render. */
+export function moveWorkspace<T extends { id: string }>(
+  workspaces: T[],
   id: string,
-  toIndex: number,
-): Workspace[] {
-  const from = workspaces.findIndex((ws) => ws.id === id);
-  if (from < 0) return workspaces;
-  const to = Math.max(0, Math.min(toIndex, workspaces.length - 1));
-  if (from === to) return workspaces;
-  const next = workspaces.slice();
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
-  return next;
+  place: WorkspacePlace,
+): T[] {
+  const anchor = "before" in place ? place.before : place.after;
+  const moved = workspaces.find((ws) => ws.id === id);
+  if (!moved || anchor === id) return workspaces;
+  const rest = workspaces.filter((ws) => ws.id !== id);
+  const at = rest.findIndex((ws) => ws.id === anchor);
+  if (at < 0) return workspaces;
+  const next = [...rest];
+  next.splice("before" in place ? at : at + 1, 0, moved);
+  return next.every((ws, i) => ws === workspaces[i]) ? workspaces : next;
+}
+
+/** The places "Move up" and "Move down" take the workspace `id` to in a
+ * column drawn in `order`: before its upper neighbour, after its lower one —
+ * null at that end of the column, or for an id the column does not hold. */
+export function stepPlaces(
+  order: readonly string[],
+  id: string,
+): { up: WorkspacePlace | null; down: WorkspacePlace | null } {
+  const at = order.indexOf(id);
+  if (at < 0) return { up: null, down: null };
+  return {
+    up: at > 0 ? { before: order[at - 1] } : null,
+    down: at < order.length - 1 ? { after: order[at + 1] } : null,
+  };
 }
 
 /** Which workspace to focus: keep `activeId` if it still exists, otherwise the

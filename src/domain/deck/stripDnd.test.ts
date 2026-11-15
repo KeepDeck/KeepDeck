@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markAtY, type MarkRect } from "./stripDnd";
+import { dropPlace, markAtY, type MarkRect } from "./stripDnd";
 
 describe("markAtY", () => {
   const rects: MarkRect[] = [
@@ -26,5 +26,25 @@ describe("markAtY", () => {
 
   it("returns null when there are no items", () => {
     expect(markAtY(10, [])).toBeNull();
+  });
+});
+
+describe("dropPlace", () => {
+  const column = ["a", "b", "c", "d"];
+
+  it("puts a mark dragged down after the mark under the pointer", () => {
+    expect(dropPlace(column, "a", "c")).toEqual({ after: "c" });
+    expect(dropPlace(column, "b", "c")).toEqual({ after: "c" });
+  });
+
+  it("puts a mark dragged up before the mark under the pointer", () => {
+    expect(dropPlace(column, "d", "b")).toEqual({ before: "b" });
+    expect(dropPlace(column, "c", "b")).toEqual({ before: "b" });
+  });
+
+  it("moves nothing over the dragged mark itself or a mark the column lacks", () => {
+    expect(dropPlace(column, "b", "b")).toBeNull();
+    expect(dropPlace(column, "b", "zz")).toBeNull();
+    expect(dropPlace(column, "zz", "b")).toBeNull();
   });
 });

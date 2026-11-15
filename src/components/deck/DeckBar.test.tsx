@@ -33,7 +33,7 @@ const TEAM: BarLevel = {
 };
 
 const WORKSPACE: NonNullable<DeckBarProps["workspace"]> = {
-  view: { id: "ws-1", name: "Personal project", moveUpTo: null, moveDownTo: 1 },
+  view: { id: "ws-1", name: "Personal project", moveUp: null, moveDown: { after: "ws-2" } },
   onRename: () => {},
   onMove: () => {},
   onClose: () => {},
@@ -408,7 +408,7 @@ describe("DeckBar", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-    expect(calls).toEqual([["move", 1], ["close"], ["rename", "Work"]]);
+    expect(calls).toEqual([["move", { after: "ws-2" }], ["close"], ["rename", "Work"]]);
   });
 
   it("renames the workspace on a double-click at the cards, never inside a team", () => {
