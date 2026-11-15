@@ -36,8 +36,11 @@ describe("providersView", () => {
     const fresh = viewOf(new Map([["claude", account([live(10)])]]));
     const card = fresh.kind === "cards" ? fresh.cards[0] : undefined;
     expect(card?.updated).toEqual({ text: `Updated ${formatAge(NOW - 60_000, NOW)}` });
+    expect(card?.age).toEqual({ text: formatAge(NOW - 60_000, NOW) });
     const stale = viewOf(new Map([["claude", account([live(10)], NOW - 2 * HOUR)]]));
-    expect(stale.kind === "cards" ? stale.cards[0]?.updated.className : undefined).toBe("usage-level--warn");
+    const staleCard = stale.kind === "cards" ? stale.cards[0] : undefined;
+    expect(staleCard?.updated.className).toBe("usage-level--warn");
+    expect(staleCard?.age).toEqual({ text: "2h ago", className: "usage-level--warn" });
   });
 
   it("notes a reset window whenever ANY window has reset, not only all of them", () => {

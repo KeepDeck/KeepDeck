@@ -1,4 +1,4 @@
-import { formatPct, windowLabel, windowLevel, type AccountUsage, type UsageWindow } from "../../domain/usage";
+import { formatAge, formatPct, windowLabel, windowLevel, type AccountUsage, type UsageWindow } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { providerWindowGroups, type ProviderWindowGroup } from "../../domain/usage/providerWindows";
 import type { StatsMeasure } from "../../domain/usage/stats/measure";
@@ -44,6 +44,9 @@ export interface ProviderWindowView {
 export interface ProviderCardView {
   agent: string;
   updated: ToneText;
+  /** The report's age alone ("3h ago"), toned as `updated` — for a place
+   * that already says whose report it is. */
+  age: ToneText;
   /** Said once per card whenever ANY window has reset — not only when they
    * all have: a card with a live weekly window and an expired 5h one would
    * otherwise show a dimmed percentage with nothing saying it describes a
@@ -105,6 +108,7 @@ export function providersView(
     cards: groups.map((group) => ({
       agent: group.agent,
       updated: tone(reportedAgeCaption(group.reportedAt, now), usageLevelClass(group.stale ? "warn" : null)),
+      age: tone(formatAge(group.reportedAt, now), usageLevelClass(group.stale ? "warn" : null)),
       note: group.rows.some((row) => row.expired)
         ? "A window that has reset keeps showing the previous window's percentage until this account reports again."
         : null,

@@ -500,27 +500,40 @@
   color: var(--kd-text-3);
 }
 
+/* The window line's columns, read by the lines under it too: an age starts
+   under the provider's name, a forecast under the bar — set once, they
+   cannot drift apart. */
+.stats__glance-provider {
+  --glance-name: 62px;
+  --glance-label: 34px;
+  --glance-gap: 8px;
+  --glance-dot: 8px;
+  --glance-dot-gap: 6px;
+}
+
 .stats__glance-provider + .stats__glance-provider {
   border-top: 1px solid var(--kd-seam);
 }
 
 .stats__glance-window {
   display: grid;
-  grid-template-columns: 62px 34px minmax(0, 1fr) 40px 50px;
+  grid-template-columns: var(--glance-name) var(--glance-label) minmax(0, 1fr) 40px 50px;
   align-items: center;
-  gap: 8px;
+  gap: var(--glance-gap);
   padding: 5px 0;
   color: var(--kd-text-2);
 }
 
-.stats__glance-window--expired {
+/* A reset window dims, its line's report age aside: that belongs to the
+   provider, and an old report must stay as loud as it was. */
+.stats__glance-window--expired > :not(.stats__glance-agent--age) {
   opacity: 0.55;
 }
 
 .stats__glance-agent {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--glance-dot-gap);
   overflow: hidden;
   color: var(--kd-text);
   font-weight: 600;
@@ -529,8 +542,8 @@
 
 .stats__glance-agent i {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: var(--glance-dot);
+  height: var(--glance-dot);
   border-radius: var(--kd-radius-mark);
 }
 
@@ -552,9 +565,23 @@
   white-space: nowrap;
 }
 
+/* A forecast's warning, under its window's bar. */
 .stats__glance-note {
   display: block;
-  padding: 0 0 5px 104px;
+  padding: 0 0 5px calc(var(--glance-name) + var(--glance-label) + 2 * var(--glance-gap));
+  line-height: 1.35;
+}
+
+/* A provider's stale report age, starting where its name does; the
+   stale level colours it. */
+.stats__glance-age {
+  padding-left: calc(var(--glance-dot) + var(--glance-dot-gap));
+  font-weight: 400;
+}
+
+.stats__glance-age--line {
+  display: block;
+  padding-bottom: 5px;
   line-height: 1.35;
 }
 

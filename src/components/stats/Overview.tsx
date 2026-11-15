@@ -163,13 +163,14 @@ function LimitsGlance({ view, now, onOpen }: { view: LimitsGlanceView; now: numb
           {provider.windows.map((window) => (
             <div key={window.id}>
               <div className={`stats__glance-window${window.expired ? " stats__glance-window--expired" : ""}`}>
-                <span className="stats__glance-agent">
+                <span className={`stats__glance-agent${window.age ? " stats__glance-agent--age" : ""}`}>
                   {window.agent !== null && (
                     <>
                       <i style={{ background: provider.color }} />
                       {window.agent}
                     </>
                   )}
+                  {window.age && <small className={`stats__glance-age ${window.age.className ?? ""}`}>{window.age.text}</small>}
                 </span>
                 <span className="stats__glance-label">{window.label}</span>
                 <UsageWindowBar window={window.window} now={now} />
@@ -179,7 +180,9 @@ function LimitsGlance({ view, now, onOpen }: { view: LimitsGlanceView; now: numb
               {window.alarm && <small className={`stats__glance-note ${window.alarm.className ?? ""}`}>{window.alarm.text}</small>}
             </div>
           ))}
-          {provider.stale && <small className={`stats__glance-note ${provider.stale.className ?? ""}`}>{provider.stale.text}</small>}
+          {provider.age && (
+            <small className={`stats__glance-age stats__glance-age--line ${provider.age.className ?? ""}`}>{provider.age.text}</small>
+          )}
         </div>
       ))}
     </section>
