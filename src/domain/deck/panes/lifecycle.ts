@@ -59,6 +59,27 @@ export function paneCanSuspend(ws: PlacementOwner, pane: Pane, blocked: boolean)
  *  shape the session picker already uses for the same job. */
 export type PaneSuspendBlock = "stopped" | "provisioning" | "remote";
 
+/** What a suspend request did. Not a boolean: three surfaces have to explain
+ * a refusal, and each one guessing produced a different sentence — one of
+ * them false. The reason travels with the answer so they share the words
+ * (`suspendRefusalText`). */
+export type SuspendOutcome =
+  | "suspended"
+  | PaneSuspendBlock
+  /** A suspend for this pane is already reaping its process. */
+  | "in-flight"
+  /** The pane (or its workspace) is no longer in the deck. */
+  | "gone";
+
+/** What asking for a pane back did: it is coming, or why not — a reason
+ * every surface that can ask explains the same way (`resumeRefusalText`). */
+export type ResumeRequest =
+  | "resuming"
+  | "running"
+  | "provisioning"
+  | "unavailable"
+  | "gone";
+
 /** `blocked` is the sweep's runtime verdict that the pane's directory is gone
  *  — the same argument [`idleReadsAsStopped`] takes, and for the same reason:
  *  such a pane has no process and is going nowhere, so every surface has to

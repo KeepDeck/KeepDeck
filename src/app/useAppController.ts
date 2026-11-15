@@ -31,7 +31,7 @@ import { usePersistence } from "./usePersistence";
 import { useBrowserSharedSeam } from "./useSessionsBrowser";
 import { useSettings } from "./useSettings";
 import { useSpawnContext } from "./useSpawnContext";
-import { suspendRefusalText } from "./suspendOutcome";
+import { suspendRefusalText } from "../presentation/suspendWords";
 import { useUpdate } from "./useUpdate";
 import { buildDockTabs } from "../components/dock/useDockTabs";
 import { DEFAULT_SETTINGS } from "../domain/settings";

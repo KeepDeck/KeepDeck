@@ -10,6 +10,7 @@ import {
   type Team,
   type Workspace,
   type WorktreeTarget,
+  type WorktreeTeardownFailure,
 } from "../../domain/deck";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
@@ -238,7 +239,7 @@ export function createAgentOrchestratorClosing({
    * its card. A member of a team already taken by a disband or a workspace
    * close is that close's to end: ending it here too would reap its
    * session twice. */
-  async function closeMember(workspace: Workspace, ref: WorkspaceRef, paneId: string): Promise<string[]> {
+  async function closeMember(workspace: Workspace, ref: WorkspaceRef, paneId: string): Promise<WorktreeTeardownFailure[]> {
     const pane = workspace.panes.find((candidate) => candidate.id === paneId);
     if (!pane) return [];
     if (closingWorkspaces.has(workspaceKey(ref))) return [];
@@ -259,7 +260,7 @@ export function createAgentOrchestratorClosing({
     ref: WorkspaceRef,
     teamId: string,
     teardown: WorktreeTeardown,
-  ): Promise<string[]> {
+  ): Promise<WorktreeTeardownFailure[]> {
     const team = teamsOf(workspace).find((candidate) => candidate.id === teamId);
     if (!team) return [];
     const taken = capture(ref, team, membersOf(workspace, team.id));
@@ -312,7 +313,7 @@ export function createAgentOrchestratorClosing({
     workspace: Workspace,
     ref: WorkspaceRef,
     teardown: WorktreeTeardown,
-  ): Promise<string[]> {
+  ): Promise<WorktreeTeardownFailure[]> {
     const key = workspaceKey(ref);
     if (closingWorkspaces.has(key)) return [];
     closingWorkspaces.add(key);

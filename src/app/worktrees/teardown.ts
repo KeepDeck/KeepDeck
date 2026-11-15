@@ -6,7 +6,7 @@
  * create's rollback alike — because two paths doing it by hand is what let
  * an arming land inside a `git worktree remove`.
  */
-import type { WorktreeTarget } from "../../domain/deck";
+import type { WorktreeTarget, WorktreeTeardownFailure } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { removeWorktree } from "../../ipc/worktree";
 import type { WorktreeProvisioner } from "./index";
@@ -36,12 +36,12 @@ export function createWorktreeTeardown(
    * holding one slot across a whole workspace's teardown stalled spawn-plan
    * builds in unrelated workspaces for the length of N forced git removals.
    *
-   * Returns the user-facing message when git refused, `null` on success.
+   * Returns why the target was left in place, `null` on success.
    */
   function teardown(
     target: WorktreeTarget,
     reapCreatedBranches: boolean,
-  ): Promise<string | null> {
+  ): Promise<WorktreeTeardownFailure | null> {
     return inOrder(async () => {
       // A cwd another LIVE workspace still runs a pane in stays armed: two
       // workspaces may legitimately share a directory, and the arming is keyed
@@ -49,7 +49,7 @@ export function createWorktreeTeardown(
       // rule keeps the directory itself: it is not deleted from under them.
       const released = await disarm([target.path]);
       if (released !== null && !released.includes(target.path)) {
-        return `${target.branch ?? target.path}: another workspace still works in this folder`;
+        return { kind: "held-elsewhere", target };
       }
       try {
         await removeWorktree(target.repo, target.path, {
@@ -63,7 +63,7 @@ export function createWorktreeTeardown(
           "web:worktrees",
           `worktree removal failed for ${target.path}: ${errorMessage(e)}`,
         );
-        return `${target.branch ?? target.path}: ${e}`;
+        return { kind: "git-refused", target, reason: String(e) };
       }
     });
   }
@@ -82,7 +82,7 @@ export function createWorktreeTeardown(
       false,
     );
     if (failure) {
-      log.warn("web:worktrees", `worktree rollback failed: ${failure}`);
+      log.warn("web:worktrees", `worktree rollback left ${rec.path} (${failure.kind})`);
     }
   }
 
@@ -90,7 +90,7 @@ export function createWorktreeTeardown(
     rollback: rollbackWorktree,
 
     async remove(targets) {
-      const failures: string[] = [];
+      const failures: WorktreeTeardownFailure[] = [];
       for (const target of targets) {
         const failure = await teardown(target, true);
         if (failure) failures.push(failure);

@@ -9,8 +9,7 @@ import {
   askLiveRegistry,
 } from "../src/app/liveSessions";
 import { decideRejectedResume } from "../src/domain/agents";
-import { createWorkspaceInstance } from "../src/domain/workspaceInstance";
-import { closeMessageFor } from "../src/app/useCloseFlow";
+import { closeMessageFor } from "../src/presentation/closeWords";
 import type { SpawnPluginAccess } from "../src/app/spawnSpecs";
 import {
   agentContribution,
@@ -133,9 +132,6 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     const message = closeMessageFor(
       {
         kind: "agent",
-        workspace: { id: "ws-1", instance: createWorkspaceInstance() },
-        paneId: "pane-1",
-        label: "Agent 1",
         pane: {
           provisioning: false,
           rising: false,

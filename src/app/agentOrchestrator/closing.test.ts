@@ -21,6 +21,7 @@ import {
   forgetters,
 } from "./testSupport";
 import { present } from "@keepdeck/plugin-api/testing";
+import type { WorktreeTeardownFailure } from "../../domain/deck";
 
 /**
  * The close coordinator: one agent, one team, one workspace — three verbs,
@@ -178,7 +179,7 @@ describe("agent orchestrator —closing an agent", () => {
   it("a member of a team a confirmed close holds is that close's to end — reaped once", async () => {
     creating();
     const publish = pendingTicket("team-9");
-    let disbanding!: Promise<string[]>;
+    let disbanding!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       disbanding = agentRun.close({
         kind: "team",
@@ -279,7 +280,7 @@ describe("agent orchestrator —disbanding a team", () => {
     pty.hold = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let disbanding!: Promise<string[]>;
+    let disbanding!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       disbanding = disband("team-2", true, [target]);
     });
@@ -347,9 +348,10 @@ describe("agent orchestrator —disbanding a team", () => {
   });
 
   it("reports back what it could not delete, rather than swallowing it", async () => {
-    setDiscardFailures(["kd/ws/2: still in use"]);
+    const refused: WorktreeTeardownFailure = { kind: "git-refused", target, reason: "still in use" };
+    setDiscardFailures([refused]);
     const failures = await act(async () => disband("team-2", true, [target]));
-    expect(failures).toEqual(["kd/ws/2: still in use"]);
+    expect(failures).toEqual([refused]);
   });
 
   it("never reaches the worktree runner when nothing was asked for", async () => {
@@ -401,7 +403,7 @@ describe("agent orchestrator —disbanding a team", () => {
   it("a disband confirmed while the create is still out waits for it, then removes what it made — once", async () => {
     creating();
     const publish = pendingTicket("team-9");
-    let disbanding!: Promise<string[]>;
+    let disbanding!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       disbanding = disband("team-9", true, [], "ws-2");
     });
@@ -429,7 +431,7 @@ describe("agent orchestrator —disbanding a team", () => {
     // gone — removes only what its own create made.
     creating();
     const publishOld = pendingTicket("team-9");
-    let old!: Promise<string[]>;
+    let old!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       old = disband("team-9", true, [], "ws-2");
     });
@@ -455,7 +457,7 @@ describe("agent orchestrator —disbanding a team", () => {
       }),
     );
     const publishNew = pendingTicket("team-9");
-    let fresh!: Promise<string[]>;
+    let fresh!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       fresh = disband("team-9", false, [], "ws-2");
     });
@@ -484,7 +486,7 @@ describe("agent orchestrator —disbanding a team", () => {
     pty.hold = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let disbanding!: Promise<string[]>;
+    let disbanding!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       disbanding = disband("team-2", true, [target]);
     });
@@ -523,7 +525,7 @@ describe("agent orchestrator —disbanding a team", () => {
   it("holds the directory a captured team's create is heading for, while the disband waits on the ticket", async () => {
     creating();
     const publish = pendingTicket("team-9");
-    let disbanding!: Promise<string[]>;
+    let disbanding!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       disbanding = disband("team-9", true, [], "ws-2");
     });
@@ -553,7 +555,7 @@ describe("agent orchestrator —disbanding a team", () => {
     act(() => {
       deck.resolveTeamProvisioning("ws-2", "team-9", { cwd: "/wt/two-1", branch: "kd/two/1" });
     });
-    let disbanding!: Promise<string[]>;
+    let disbanding!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       disbanding = disband("team-9", false, [], "ws-2");
     });
@@ -578,8 +580,8 @@ describe("agent orchestrator —disbanding a team", () => {
   it("two confirmations for one team remove once and reap each session once", async () => {
     creating();
     const publish = pendingTicket("team-9");
-    let first!: Promise<string[]>;
-    let second!: Promise<string[]>;
+    let first!: Promise<WorktreeTeardownFailure[]>;
+    let second!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       first = disband("team-9", true, [], "ws-2");
       second = disband("team-9", true, [], "ws-2");
@@ -612,7 +614,7 @@ describe("agent orchestrator —closing a workspace", () => {
     pty.hold = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let closing!: Promise<string[]>;
+    let closing!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       closing = closeWorkspace(true, [target]);
     });
@@ -630,7 +632,7 @@ describe("agent orchestrator —closing a workspace", () => {
     pty.hold = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let closing!: Promise<string[]>;
+    let closing!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       closing = closeWorkspace(true, [target]);
     });
@@ -694,8 +696,8 @@ describe("agent orchestrator —closing a workspace", () => {
   });
 
   it("a disband that got there first keeps its team's decision — the later workspace close deletes nothing of it", async () => {
-    let disbanding!: Promise<string[]>;
-    let closing!: Promise<string[]>;
+    let disbanding!: Promise<WorktreeTeardownFailure[]>;
+    let closing!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       disbanding = agentRun.close({
         kind: "team",
@@ -715,8 +717,8 @@ describe("agent orchestrator —closing a workspace", () => {
   });
 
   it("a workspace close that got there first leaves the later disband nothing to do", async () => {
-    let closing!: Promise<string[]>;
-    let disbanding!: Promise<string[]>;
+    let closing!: Promise<WorktreeTeardownFailure[]>;
+    let disbanding!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       closing = closeWorkspace(true, [target]);
       disbanding = agentRun.close({
@@ -736,8 +738,8 @@ describe("agent orchestrator —closing a workspace", () => {
   it("a second confirmation of the same workspace close does nothing", async () => {
     creating();
     const publish = pendingTicket("team-9");
-    let first!: Promise<string[]>;
-    let second!: Promise<string[]>;
+    let first!: Promise<WorktreeTeardownFailure[]>;
+    let second!: Promise<WorktreeTeardownFailure[]>;
     act(() => {
       first = closeWorkspace(true, [], "ws-2");
       second = closeWorkspace(true, [], "ws-2");

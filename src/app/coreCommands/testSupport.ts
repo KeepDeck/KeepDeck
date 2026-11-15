@@ -30,13 +30,12 @@ import type {
   CreatePaneRequest,
   CreateTeamOutcome,
   CreateTeamRequest,
-  ResumeRequest,
 } from "../agentOrchestrator";
 import { teamCreateRefusal } from "../agentOrchestrator/creation";
 import { fakeMcpLibrary } from "../mcpLibrary.fake";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
 import { registerCoreCommands, type CommandDeck } from ".";
-import type { SuspendOutcome } from "../suspendOutcome";
+import type { ResumeRequest, SuspendOutcome } from "../../domain/deck";
 
 export const HOST = { kind: "host" } as const;
 

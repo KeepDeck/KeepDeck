@@ -1,8 +1,8 @@
 import type { CommandRegistry } from "../../domain/commands";
 import { paneDisplayTitle, teamOfPane } from "../../domain/deck";
 import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
-import { resumeRefusalText } from "../resumeOutcome";
-import { suspendRefusalText } from "../suspendOutcome";
+import { resumeRefusalText } from "../../presentation/resumeWords";
+import { suspendRefusalText } from "../../presentation/suspendWords";
 import { requiredStr, str, text } from "./args";
 import type { CoreCommandDeps } from ".";
 import { targetPane, targetWorkspace } from "./targets";

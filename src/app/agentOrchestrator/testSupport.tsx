@@ -7,11 +7,13 @@ import type {
   Pane,
   PaneIdle,
   SpawnConfig,
+  ResumeRequest,
   TeamLocation,
   WorktreeTarget,
+  WorktreeTeardownFailure,
 } from "../../domain/deck";
 import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
-import type { SuspendOutcome } from "../suspendOutcome";
+import type { SuspendOutcome } from "../../domain/deck";
 // From the module, not the barrel: the barrel is mocked below, and these are
 // plain shapes and pure predicates with no cache state to fake.
 import {
@@ -35,7 +37,6 @@ import {
   type AgentOrchestrator,
   type AgentRunView,
   type RestartOutcome,
-  type ResumeRequest,
 } from ".";
 import { useAgentRunView } from "../useAgentRunView";
 import type { SpawnPluginAccess } from "../spawnSpecs";
@@ -359,8 +360,8 @@ export let provisionedAs: string[];
 /** The worktree removals a confirmed close asked for, per mount. */
 export let discards: WorktreeTarget[][];
 /** What the removal reports back as un-deletable. */
-let discardFailures: string[] = [];
-export const setDiscardFailures = (failures: string[]) => {
+let discardFailures: WorktreeTeardownFailure[] = [];
+export const setDiscardFailures = (failures: WorktreeTeardownFailure[]) => {
   discardFailures = failures;
 };
 export const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };

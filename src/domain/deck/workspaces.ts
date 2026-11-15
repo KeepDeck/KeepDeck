@@ -161,6 +161,13 @@ export interface WorktreeTarget {
   branch?: string;
 }
 
+/** Why a worktree teardown left its target in place — a kind, never a
+ * sentence (the words are presentation's `teardownFailureText`): another
+ * live workspace still works in the folder, or git refused. */
+export type WorktreeTeardownFailure =
+  | { kind: "held-elsewhere"; target: WorktreeTarget }
+  | { kind: "git-refused"; target: WorktreeTarget; reason: string };
+
 /** Runtime git position for a path, supplied by the app layer when available.
  * This is intentionally not pane domain state: panes own durable worktree
  * intent/branch, while current HEAD is observed at runtime. */

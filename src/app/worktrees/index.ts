@@ -28,6 +28,7 @@ import {
   type Workspace,
   type WorktreeIntent,
   type WorktreeTarget,
+  type WorktreeTeardownFailure,
 } from "../../domain/deck";
 import type { ProvisionCallbacks } from "../provisioning";
 import { createWorktreeProvisioning } from "./provisioning";
@@ -151,7 +152,7 @@ export interface WorktreeProvisioner {
    * dead). Never throws: a failing target is collected so one bad worktree
    * doesn't strand the rest, and the messages surface in the error dialog.
    */
-  remove(targets: WorktreeTarget[]): Promise<string[]>;
+  remove(targets: WorktreeTarget[]): Promise<WorktreeTeardownFailure[]>;
 }
 
 /** What the deck's housekeeping needs — nothing else. */

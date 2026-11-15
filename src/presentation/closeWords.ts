@@ -1,12 +1,33 @@
 /**
  * What closing will actually do, in the dialog's own words — the copy, and
- * nothing else.
+ * nothing else: the close sentence, the background-carrier note, and what a
+ * worktree teardown that left something behind says.
  *
  * Kept apart from the flow that shows it because the sentence has its own
  * history of being wrong (see [`closeMessageFor`]) and its own reason to
  * change; here it is addressable without a workspace, a probe and a render.
+ * It reads the slice of a pending close it needs ([`CloseWordsTarget`]) —
+ * the flow's `ClosingTarget` is one — and never reaches into the app.
  */
-import type { CarrierNote, ClosingTarget } from "./closingTarget";
+import type { WorktreeTeardownFailure } from "../domain/deck";
+
+/** The late-painted carrier line: set only when the registry's answer
+ * WARNS ("background" proven, or the ask failed = "unknown"). A "none"
+ * answer never sets it — the ordinary close's text stays untouched to the
+ * character and the dialog does not even re-render. */
+export type CarrierNote = { kind: "background" } | { kind: "unknown" };
+
+/** The facts of a pending close the sentence reads. */
+export type CloseWordsTarget =
+  | {
+      kind: "agent";
+      pane: { provisioning: boolean; stopped: boolean; canSuspend: boolean; rising: boolean };
+      /** The team this pane is the last member of, with the directories
+       * its disband would offer; null otherwise. */
+      last: { name: string; targets: readonly unknown[] } | null;
+    }
+  | { kind: "team"; count: number }
+  | { kind: "workspace"; count: number };
 
 /** The sentence about the sessions a close of `count` agents ends, of
  * which `running` still hold one. Only the agents that actually HOLD a
@@ -37,7 +58,7 @@ function sessionsEnded(count: number, running: number, removes: string): string 
  * pinned without a workspace, a probe and a render.
  */
 export function closeMessageFor(
-  closing: ClosingTarget | null,
+  closing: CloseWordsTarget | null,
   /** For a team or workspace close: how many of its agents still hold a
    * session. The only fact this cannot take from the snapshot, because
    * such a close is about panes it does not name individually. */
@@ -102,17 +123,16 @@ export function closeMessageFor(
   return verbs + opening + alternative + note;
 }
 
-/**
- * Owns the confirmed-close flow: all three close paths ([U6]) park a
- * ClosingTarget for the confirm dialog — once its candidate worktrees are
- * probed, so a directory that's already gone is never offered for deletion;
- * confirming removes the pane(s) from the deck AND ends their PTY sessions
- * through the ptyManager (unmounting alone no longer kills a process), then
- * optionally tears the worktrees down per the delete checkbox — after the
- * closes settle, so no worktree dir is a live cwd.
- *
- * A directory is a TEAM's: closing one agent is never asked about one, and
- * only a disband (or a workspace close, which disbands every team) carries
- * the offer. The last member of a team is the one pane whose close dialog
- * speaks both verbs.
- */
+/** One worktree a teardown left in place, in one line: the branch when it is
+ * known, else the folder, and why. */
+export function teardownFailureText(failure: WorktreeTeardownFailure): string {
+  const name = failure.target.branch ?? failure.target.path;
+  return failure.kind === "held-elsewhere"
+    ? `${name}: another workspace still works in this folder`
+    : `${name}: ${failure.reason}`;
+}
+
+/** The alert after a close whose worktree teardown left some in place. */
+export function worktreesNotDeletedText(failures: readonly WorktreeTeardownFailure[]): string {
+  return `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.map(teardownFailureText).join("\n")}`;
+}

@@ -4,10 +4,12 @@ import type {
   AgentReach,
   Pane,
   PlacementRefusal,
+  ResumeRequest,
   SpawnConfig,
   TeamLocation,
   Workspace,
   WorktreeTarget,
+  WorktreeTeardownFailure,
 } from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
 import type { RoleRefusal } from "../../domain/mail";
@@ -16,7 +18,7 @@ import type { DeckStore } from "../deckStore";
 import type { PaneSessionState, PaneSpawnSpec } from "../ptyManager";
 import type { SpawnContextSource } from "../spawnContextSource";
 import type { SpawnPluginAccess } from "../spawnSpecs";
-import type { SuspendOutcome } from "../suspendOutcome";
+import type { SuspendOutcome } from "../../domain/deck";
 import type { WorktreeProvisioner } from "../worktrees";
 import { createAgentOrchestratorRuntime } from "./runtime";
 
@@ -47,7 +49,7 @@ export interface AgentOrchestrator {
   /** Stop an agent while preserving its resumable pane. */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
   /** Confirmed pane/workspace close, including optional worktree teardown. */
-  close(request: CloseRequest): Promise<string[]>;
+  close(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
   /** Restart an exited pane fresh or against its recorded session. */
   restart(
     wsId: string,
@@ -263,12 +265,6 @@ export type RestartOutcome =
    * restart into, and its card offers Retry instead. */
   | "provisioning";
 
-export type ResumeRequest =
-  | "resuming"
-  | "running"
-  | "provisioning"
-  | "unavailable"
-  | "gone";
 
 /** Delay the MCP lookup until a spawn plan is actually built — and ask per
  * build, never once: the transport can go up or down between two spawns.
