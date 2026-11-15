@@ -349,16 +349,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* A window's lines under its bar and percentage — the run-out, coloured by
-   its level, and the reset. Each line wraps only as a whole: a countdown
-   never breaks in two. The grey is the row's, inherited, so a line's level
-   class always wins over it. */
+/* A window's lines — the run-out, coloured by its level, then the reset —
+   one under the other, right-aligned under the percentage: two lines side by
+   side floated mid-row, aligned with nothing (user, 2026-11-15). They may
+   reach left over the bar's column, never break a countdown in two. The
+   grey is the row's, inherited, so a line's level class always wins. */
 .usage-window__lines {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-end;
   grid-column: 2 / -1;
-  justify-content: flex-end;
-  gap: 0 8px;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
