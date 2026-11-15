@@ -304,4 +304,59 @@ describe("workspace commands", () => {
     if (!blank.ok) expect(blank.error.message).toBe('argument "workspace" must not be blank');
     expect(deck.selectWorkspace).not.toHaveBeenCalled();
   });
+
+  describe("workspace.update", () => {
+    it("edits the active workspace when none is named, and answers what it now is", async () => {
+      const { registry, deck } = setup(twoWorkspaces());
+      const result = await registry.execute("workspace.update", { name: "api", worktreeBaseDir: "/wt" }, HOST);
+      expect(result).toEqual({ ok: true, value: { workspaceId: "ws-1", name: "api", worktreeBaseDir: "/wt" } });
+      expect(deck.workspaces[1].name).toBe("site");
+    });
+
+    it("edits the workspace it names", async () => {
+      const { registry, deck } = setup(twoWorkspaces());
+      await registry.execute("workspace.update", { workspace: "site", name: "landing" }, HOST);
+      expect(deck.workspaces.map((ws) => ws.name)).toEqual(["web", "landing"]);
+    });
+
+    it("a blank name is the folder's name; a blank folder clears it; an omitted one is left alone", async () => {
+      const { registry, deck } = setup([workspace({ cwd: "/Users/me/kernel", worktreeBaseDir: "/wt" })]);
+      await registry.execute("workspace.update", { name: "api" }, HOST);
+      expect(deck.workspaces[0].worktreeBaseDir).toBe("/wt");
+      await registry.execute("workspace.update", { name: "  ", worktreeBaseDir: "" }, HOST);
+      expect(deck.workspaces[0]).toMatchObject({ name: "kernel", worktreeBaseDir: null });
+    });
+
+    it("never moves a workspace: the directory is the person's to change", async () => {
+      const { registry, deck } = setup([workspace({})]);
+      const title = registry.list().find((command) => command.id === "workspace.update")?.title ?? "";
+      expect(title).not.toContain("working directory");
+      await registry.execute("workspace.update", { cwd: "/elsewhere", name: "x" }, HOST);
+      expect(deck.workspaces[0].cwd).toBe("/repo");
+    });
+
+    it("refuses a blank workspace rather than editing the active one", async () => {
+      const { registry, deck } = setup(twoWorkspaces());
+      const result = await registry.execute("workspace.update", { workspace: " ", name: "x" }, HOST);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toBe('argument "workspace" must not be blank');
+      expect(deck.workspaces.map((ws) => ws.name)).toEqual(["web", "site"]);
+    });
+
+    it("refuses a call that changes nothing", async () => {
+      const { registry } = setup([workspace({})]);
+      const result = await registry.execute("workspace.update", { workspace: "web" }, HOST);
+      expect(result).toEqual({ ok: false, error: { code: "failed", message: "nothing to change — pass name or worktreeBaseDir" } });
+    });
+
+    it("refuses an archived workspace, naming it", async () => {
+      const { registry, deck } = setup([
+        workspace({}),
+        workspace({ id: "ws-2", name: "old", cwd: "/old", archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } }),
+      ]);
+      const result = await registry.execute("workspace.update", { workspace: "old", name: "x" }, HOST);
+      expect(result).toEqual({ ok: false, error: { code: "failed", message: workspaceArchivedMessage({ name: "old" }) } });
+      expect(deck.workspaces[1].name).toBe("old");
+    });
+  });
 });

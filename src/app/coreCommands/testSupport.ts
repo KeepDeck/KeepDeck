@@ -18,6 +18,7 @@ import {
   teamHeldPath,
   teamIdsOf,
   teamNameTaken,
+  updateWorkspace,
   type AgentReach,
   type Workspace,
 } from "../../domain/deck";
@@ -122,16 +123,23 @@ export const twoWorkspaces = (): Workspace[] => [
   workspace({ id: "ws-2", name: "site" }),
 ];
 
-/** A deck stub: the live workspaces array + recording actions. */
+/** A deck stub: the live workspaces array + recording actions. An edit goes
+ * through the domain's own transition, as the real action does. */
 function fakeDeck(workspaces: Workspace[]) {
-  return {
+  const deck = {
     workspaces,
     activeId: workspaces[0]?.id ?? "",
     viewOf: vi.fn<CommandDeck["viewOf"]>(() => ({})),
     selectWorkspace: vi.fn<CommandDeck["selectWorkspace"]>(),
     selectPane: vi.fn<CommandDeck["selectPane"]>(),
     renameTeam: vi.fn<CommandDeck["renameTeam"]>(),
+    updateWorkspace: vi.fn<CommandDeck["updateWorkspace"]>((ref, patch) => {
+      const result = updateWorkspace(deck.workspaces, ref, patch);
+      if (result.ok) deck.workspaces = result.workspaces;
+      return result;
+    }),
   } satisfies CommandDeck;
+  return deck;
 }
 
 export function setup(workspaces: Workspace[]) {

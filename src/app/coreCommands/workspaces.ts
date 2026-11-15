@@ -8,12 +8,30 @@ import {
   type AgentDown,
   type AgentReach,
   type Team,
+  type WorkspacePatch,
+  type WorkspaceUpdateRefusal,
 } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
 import { teamOf } from "../../domain/mail";
-import { requiredStr } from "./args";
+import { rawStr, requiredStr } from "./args";
 import type { CoreCommandDeps } from ".";
-import { targetWorkspace } from "./targets";
+import { targetWorkspace, workspaceArchivedMessage } from "./targets";
+
+/** A refused edit in a command's words. The domain decided the refusal; the
+ * Workspaces window words the same kinds its own way. A directory is never
+ * this command's to change, so its refusals never come here. */
+function updateRefusalText(refusal: WorkspaceUpdateRefusal, name: string): string {
+  switch (refusal.kind) {
+    case "unknown-workspace":
+      return "the workspace is gone";
+    case "archived":
+      return workspaceArchivedMessage({ name });
+    case "blank-cwd":
+    case "relative-cwd":
+    case "cwd-not-empty":
+      return "the working directory is not this command's to change";
+  }
+}
 
 /** What the roster says a pane's agent is doing: the turn status while its
  * agent runs, and why not when it does not — `starting` on its way up by
@@ -121,6 +139,48 @@ export function registerWorkspaceCommands(
         const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
         deck.selectWorkspace(ws.id);
         return { workspaceId: ws.id };
+      },
+    }),
+    registry.register({
+      id: "workspace.update",
+      // The directory is not offered: moving a workspace is the person's, in
+      // the Workspaces window, where nothing else can be open against it.
+      title: "Change a workspace's name or the folder its new teams' worktrees go under",
+      args: [
+        {
+          name: "workspace",
+          type: "string",
+          description: "Workspace name or id; omit it for the active workspace",
+        },
+        { name: "name", type: "string", description: "New name; blank resets it to its folder's name" },
+        {
+          name: "worktreeBaseDir",
+          type: "string",
+          description: "Folder new team worktrees are suggested under; blank clears it",
+        },
+      ],
+      run: (args) => {
+        const deck = deps.deck();
+        // Present-but-blank is refused, not read as "omitted": targetWorkspace
+        // answers an omitted one with the ACTIVE workspace, and a caller that
+        // sent a blank name must not edit a workspace it never named.
+        const named = rawStr(args, "workspace");
+        const ws = targetWorkspace(deck, named === undefined ? undefined : requiredStr(args, "workspace"));
+        // Verbatim, and absent only when not sent: blank means something for
+        // each of these, and the domain is what says what.
+        const patch: WorkspacePatch = {};
+        const name = rawStr(args, "name");
+        const worktreeBaseDir = rawStr(args, "worktreeBaseDir");
+        if (name !== undefined) patch.name = name;
+        if (worktreeBaseDir !== undefined) patch.worktreeBaseDir = worktreeBaseDir;
+        if (Object.keys(patch).length === 0) {
+          throw new Error("nothing to change — pass name or worktreeBaseDir");
+        }
+        const result = deck.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
+        if (!result.ok) throw new Error(updateRefusalText(result.refusal, ws.name));
+        const updated = result.workspaces.find((candidate) => candidate.instance === ws.instance);
+        if (!updated) throw new Error("the workspace is gone");
+        return { workspaceId: updated.id, name: updated.name, worktreeBaseDir: updated.worktreeBaseDir };
       },
     }),
   ];

@@ -20,7 +20,7 @@ import { registerWorkspaceCommands } from "./workspaces";
  * agent goes through its own dep below. */
 export type CommandDeck = Pick<
   Deck,
-  "workspaces" | "activeId" | "viewOf" | "selectWorkspace" | "selectPane" | "renameTeam"
+  "workspaces" | "activeId" | "viewOf" | "selectWorkspace" | "selectPane" | "renameTeam" | "updateWorkspace"
 >;
 
 /**
