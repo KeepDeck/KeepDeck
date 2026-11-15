@@ -43,40 +43,40 @@ describe("windowBurn", () => {
   const ok = windowForecast(okReports, FIVE_H, NOW);
 
   it("fills the data axis and puts the out dot at the top-right corner", () => {
-    const geometry = present(windowBurn(doomedReports, FIVE_H, out, NOW, "limit"), "the doomed window's geometry");
+    const geometry = present(windowBurn(doomedReports, FIVE_H, out, NOW), "the doomed window's geometry");
     // Data axis: first report at the left edge, projection end at the right.
     expect(geometry.observed[0].x).toBe(0);
     expect(geometry.out).toEqual({ x: 1, y: 1, level: "warn" });
-    expect(geometry.endPct).toBeCloseTo(100, 5); // it reaches the ceiling
     const [from, to] = present(geometry.projected, "the projected line");
-    expect(from.y).toBeCloseTo(0.62, 2);
+    expect(from.usedPct).toBeCloseTo(62, 2);
+    // It reaches the ceiling, and the frame's top is the limit then.
+    expect(to.usedPct).toBeCloseTo(100, 5);
     expect(to.y).toBeCloseTo(1, 2);
   });
 
   it("caps a surviving pace at the reset: exits the right edge below the ceiling", () => {
-    const geometry = present(windowBurn(okReports, FIVE_H, ok, NOW, "limit"), "the surviving window's geometry");
+    const geometry = present(windowBurn(okReports, FIVE_H, ok, NOW), "the surviving window's geometry");
     expect(geometry.out).toBeNull();
     const projected = present(geometry.projected, "the projected line");
     expect(projected[1].x).toBe(1);
     expect(projected[1].y).toBeLessThan(1);
-    const endPct = present(geometry.endPct, "the projected end percentage");
-    expect(endPct).toBeGreaterThan(62);
-    expect(endPct).toBeLessThan(100);
+    expect(projected[1].usedPct).toBeGreaterThan(62);
+    expect(projected[1].usedPct).toBeLessThan(100);
   });
 
   it("charts a plan window on the same data axis — no reset anchor needed", () => {
     const plan: UsageWindow = { usedPct: 30, resetsAt: null, windowMinutes: null };
     const planReports = ramp(0.01, 5, 60, 30, null);
     const verdict = windowForecast(planReports, plan, NOW);
-    const geometry = present(windowBurn(planReports, plan, verdict, NOW, "limit"), "the plan window's geometry");
+    const geometry = present(windowBurn(planReports, plan, verdict, NOW), "the plan window's geometry");
     expect(geometry.out).not.toBeNull(); // no reset will ever save it
     const expired: UsageWindow = { ...FIVE_H, resetsAt: NOW - 1 };
-    expect(windowBurn(doomedReports, expired, out, NOW, "limit")).toBeNull();
+    expect(windowBurn(doomedReports, expired, out, NOW)).toBeNull();
   });
 
   it("draws observed-only up to now when the forecast is unknown", () => {
     const geometry = present(
-      windowBurn(ramp(0.29, 2, 1, 62), FIVE_H, { kind: "unknown" }, NOW, "limit"),
+      windowBurn(ramp(0.29, 2, 1, 62), FIVE_H, { kind: "unknown" }, NOW),
       "the unknown-forecast geometry",
     );
     expect(geometry.projected).toBeNull();
@@ -86,7 +86,7 @@ describe("windowBurn", () => {
   });
 });
 
-describe("the y scale is the surface's choice", () => {
+describe("the y scale", () => {
   const quietReports = ramp(0, 5, 10, 10);
   const quietWindow: UsageWindow = {
     usedPct: 10,
@@ -95,30 +95,18 @@ describe("the y scale is the surface's choice", () => {
   };
   const quiet = windowForecast(quietReports, quietWindow, NOW);
 
-  it("draws the card against the whole limit, so a quiet window looks quiet", () => {
-    // The card asks "how close am I to the wall" and has the height, the
-    // ceiling label and the floor label to answer it. When the scale
-    // followed the data instead, a window heading for 33% and one heading
-    // for 100% climbed into the same corner at the same angle.
-    const card = present(windowBurn(quietReports, quietWindow, quiet, NOW, "limit"), "the card geometry");
-    expect(card.observed[0].y).toBeCloseTo(0.1, 3);
+  it("follows the data, so a quiet window still reads in a 20px sparkline", () => {
+    // On the limit scale this window sat 1.6px above its own axis line,
+    // inside the two strokes' combined width.
+    const geometry = present(windowBurn(quietReports, quietWindow, quiet, NOW), "the quiet geometry");
+    expect(geometry.observed[0].y).toBeGreaterThan(0.5);
   });
 
-  it("draws the popover against the data, so a 20px sparkline still reads", () => {
-    // The compact plot is 20px tall with no ceiling and no floor label —
-    // it asks "is this rising", and the percentage beside it carries the
-    // level. On the limit scale this same window sat 1.6px above its own
-    // axis line, inside the two strokes' combined width.
-    const compact = present(windowBurn(quietReports, quietWindow, quiet, NOW, "data"), "the compact geometry");
-    expect(compact.observed[0].y).toBeGreaterThan(0.5);
-  });
-
-  it("still tops out at the limit on the data scale once the pace reaches it", () => {
-    // "Data" is not "lie about the ceiling": a curve that genuinely reaches
-    // 100 is drawn against 100 on either scale.
+  it("still tops out at the limit once the pace reaches it", () => {
+    // Following the data is not lying about the ceiling.
     const doomedReports = ramp(0.29, 5, 10, 62);
     const doomed = windowForecast(doomedReports, FIVE_H, NOW);
-    const compact = present(windowBurn(doomedReports, FIVE_H, doomed, NOW, "data"), "the compact geometry");
-    expect(present(compact.out, "the out dot").y).toBe(1);
+    const geometry = present(windowBurn(doomedReports, FIVE_H, doomed, NOW), "the doomed geometry");
+    expect(present(geometry.out, "the out dot").y).toBe(1);
   });
 });

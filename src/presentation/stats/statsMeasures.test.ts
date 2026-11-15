@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { displayAmount, formatAmount, measureNote, windowLedgerCaption } from "./statsMeasures";
+import { DEFAULT_STATS_MEASURE, displayAmount, formatAmount, measureNote } from "./statsMeasures";
 
 const tally = { costUsd: 1.5, pricedEvents: 3, approximateEvents: 0, unpricedTokens: 0, tokensLessCacheReads: 2_400 };
+
+describe("the measure Statistics opens on", () => {
+  it("is tokens — work every row has — until the reader picks money", () => {
+    expect(DEFAULT_STATS_MEASURE).toBe("tokens");
+  });
+});
 
 describe("an amount in a measure", () => {
   it("says a tally as money — never free, marked when part is unpriced — or as tokens less cache reads", () => {
@@ -16,20 +22,5 @@ describe("an amount in a measure", () => {
     expect(measureNote({ ...tally, totalTokens: 2_400 }, "tokens")).toBe(
       "Tokens count fresh input, output with its reasoning and cache writes; what was read back from cache is left out.",
     );
-  });
-});
-
-describe("windowLedgerCaption", () => {
-  const ledger = { ...tally, totalTokens: 15_500, sessionCount: 2 };
-
-  it("says what the window's sessions used and, once one was priced, cost", () => {
-    expect(windowLedgerCaption(ledger, "spend")).toBe("15.5k · 2 sessions · ≈$1.50 this window");
-    expect(windowLedgerCaption({ ...ledger, sessionCount: 1, pricedEvents: 0 }, "spend")).toBe("15.5k · 1 session this window");
-    expect(windowLedgerCaption({ ...ledger, sessionCount: 0 }, "spend")).toBe("no usage this window");
-  });
-
-  it("says the window's tokens less cache reads in tokens, priced or not", () => {
-    expect(windowLedgerCaption({ ...ledger, pricedEvents: 0 }, "tokens")).toBe("2.4k tokens · 2 sessions this window");
-    expect(windowLedgerCaption({ ...ledger, sessionCount: 0 }, "tokens")).toBe("no usage this window");
   });
 });

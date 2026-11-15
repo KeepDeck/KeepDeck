@@ -108,8 +108,6 @@
   overflow-y: auto;
   border-radius: var(--kd-radius-pop);
   font-size: var(--kd-font-small);
-  /* The burn chart's ground here (see .usage-burn__ymax). */
-  --burn-ground: var(--kd-float);
   color: var(--kd-text-2);
   text-align: left;
 }
@@ -199,21 +197,14 @@
   padding: 3px 0;
 }
 
-/* The burn curve — shared by the panel (compact) and the Stats Providers
-   cards. FIXED plot height: the svg stretches horizontally only, so the
-   chart never grows with the card or overflows it. Chrome inherits the
-   bar's greys; only the verdict dot wears a level color. */
+/* The popover's burn sparkline. FIXED plot height: the svg stretches
+   horizontally only, so it never grows with the panel or overflows it.
+   Chrome inherits the bar's greys; only the verdict dot wears a level
+   color. */
 .usage-burn {
   display: block;
-  width: 100%;
-}
-
-.usage-burn--compact {
   grid-column: 2; /* aligned under the panel row's fill bar */
-}
-
-.usage-burn--card {
-  margin-top: 5px;
+  width: 100%;
 }
 
 .usage-burn__plot {
@@ -263,9 +254,8 @@
 .usage-burn__dot--active {
   width: 7px;
   height: 7px;
-  /* The halo wears the chart's ground: float in the usage panel, tile on
-     the statistics provider cards (the default). */
-  border: 1px solid var(--burn-ground, var(--kd-tile));
+  /* The halo wears the chart's ground: the panel's float. */
+  border: 1px solid var(--kd-float);
   box-shadow: 0 0 0 1px var(--kd-seam);
   pointer-events: none;
 }
@@ -309,35 +299,12 @@
   font-weight: 500;
 }
 
-/* Sits centered ON the ceiling line, wearing the card's background as a
-   chip — the curve and the dashed line pass beneath it without collision. */
-.usage-burn__ymax {
-  position: absolute;
-  top: -3px;
-  left: 2px;
-  padding: 1px 3px;
-  border-radius: var(--kd-radius-mark);
-  background: var(--burn-ground, var(--kd-tile));
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-  line-height: 1;
-}
-
-.usage-burn__foot {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 1px;
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-  line-height: 1;
+.usage-burn-tooltip__note {
+  margin-top: 4px;
 }
 
 .usage-burn__grid {
   stroke: var(--kd-seam);
-}
-
-.usage-burn__edge {
-  stroke: var(--kd-seam-strong);
 }
 
 .usage-window__label {
@@ -349,10 +316,23 @@
   font-variant-numeric: tabular-nums;
 }
 
-.usage-window__detail small {
-  display: block;
+/* A window's lines — the run-out, coloured by its level, then the reset —
+   one under the other, right-aligned under the percentage: two lines side by
+   side floated mid-row, aligned with nothing (user, 2026-11-15). They may
+   reach left over the bar's column, never break a countdown in two. The
+   grey is the row's, inherited, so a line's level class always wins. */
+.usage-window__lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  grid-column: 2 / -1;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
+}
+
+.usage-window__lines small {
+  font-size: var(--kd-font-small);
+  white-space: nowrap;
 }
 
 /* Narrow bar: shed chip detail before the cluster crowds the actions —
@@ -374,4 +354,15 @@
   .usage-chip {
     padding: 0 3px;
   }
+}
+
+/* The inspected point read aloud (InspectionStatus): there for a screen
+   reader, not for the eye. */
+.usage-burn-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

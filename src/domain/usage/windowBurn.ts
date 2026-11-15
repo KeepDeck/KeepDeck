@@ -11,7 +11,13 @@ import { windowExpired, type UsageWindow } from "./usage";
  *
  * The verdict stays geometric: a projection that reaches the ceiling puts
  * the out-dot at the top-right corner; one capped by the reset exits
- * through the right edge below the ceiling (`resetAtEdge`).
+ * through the right edge below the ceiling.
+ *
+ * The y axis is the peak plus headroom, not the limit: the popover's 20px
+ * sparkline asks "is this rising", and the percentage beside it carries the
+ * level — on the limit scale a 10% window sat 1.6px above its own floor
+ * line, inside the two strokes' width, and vanished into the axis. A curve
+ * that genuinely reaches 100 is still drawn against 100.
  */
 
 export interface BurnPoint {
@@ -33,35 +39,7 @@ export interface BurnGeometry {
    * — the dot still marks where the line meets the ceiling, but the verdict
    * is too close to call, so it is drawn without a colour. */
   out: { x: number; y: number; level: "warn" | "critical" | null } | null;
-  /** Where the plot's right edge sits, in percent. The CAPTION does not read
-   * this — `WindowForecast.endPct` owns that fact, so a sentence never needs
-   * a chart built before it can be written; this is the drawn copy. */
-  endPct: number | null;
 }
-
-/**
- * What the top of the frame means — a CHOICE the surface makes, because the
- * two plots answer different questions.
- *
- * `"limit"`: the frame is 100%. The card asks "how close am I to the wall",
- * and it can afford the answer: 60px of height, a labelled ceiling and a
- * labelled floor. The scale used to follow the data here — 100 when the
- * projection reached the ceiling, otherwise about 1.25× the peak — so every
- * curve filled its frame and a window heading for 33% drew the same climb
- * into the same corner as one heading for 100%. The shape carried no
- * information, only alarm.
- *
- * `"data"`: the frame is the peak plus headroom. The popover sparkline is
- * 20px tall with no ceiling label, no floor label and no room for either;
- * it asks "is this rising", and the percentage beside it already carries
- * the level. Forcing the limit scale there flattened a 10% window to 1.6px
- * above its own floor line — inside the two strokes' combined width, so the
- * curve disappeared into the axis.
- *
- * The cost of `"limit"` is real and correct where it applies: a window at
- * 1% is a flat line along the floor of the card. Nothing IS happening.
- */
-export type BurnScale = "limit" | "data";
 
 const MAX_OBSERVED_POINTS = 300;
 
@@ -82,9 +60,6 @@ export function windowBurn(
   window: UsageWindow,
   forecast: WindowForecast,
   now: number,
-  /** Required, not defaulted: a surface that does not state which question
-   * its plot answers is a surface that has not decided. */
-  scale: BurnScale,
 ): BurnGeometry | null {
   if (windowExpired(window, now)) return null;
   const segment = currentSegment(reports).filter(
@@ -125,12 +100,7 @@ export function windowBurn(
     0,
   );
   const peak = Math.max(observedMax, projEndPct ?? 0);
-  const yMaxPct =
-    scale === "limit"
-      ? 100
-      : peak >= 99.5
-        ? 100
-        : Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
+  const yMaxPct = peak >= 99.5 ? 100 : Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
   const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
   const plotPoint = (at: number, pct: number) => ({
     x: clamp01((at - tMin) / (tEnd - tMin)),
@@ -142,8 +112,8 @@ export function windowBurn(
     usedPct: pct,
   });
 
-  // A long-lived key can hold thousands of records; a 60px plot cannot use
-  // more than a few hundred points, and the SVG string grows linearly.
+  // A long-lived key can hold thousands of records; a plot cannot use more
+  // than a few hundred points, and the SVG string grows linearly.
   const observed = drawn.map((report) =>
     point(report.reportedAt, report.usedPct),
   );
@@ -158,10 +128,5 @@ export function windowBurn(
           level: forecast.level,
         }
       : null;
-  return {
-    observed,
-    projected,
-    out,
-    endPct: projEndPct,
-  };
+  return { observed, projected, out };
 }

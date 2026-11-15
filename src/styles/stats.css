@@ -504,10 +504,10 @@
    under the provider's name, a forecast under the bar — set once, they
    cannot drift apart. */
 .stats__glance-provider {
-  --glance-name: 62px;
+  --glance-name: 82px;
   --glance-label: 34px;
   --glance-gap: 8px;
-  --glance-dot: 8px;
+  --glance-dot: 13px;
   --glance-dot-gap: 6px;
 }
 
@@ -540,11 +540,10 @@
   white-space: nowrap;
 }
 
-.stats__glance-agent i {
+.stats__glance-agent svg {
   flex: none;
   width: var(--glance-dot);
   height: var(--glance-dot);
-  border-radius: var(--kd-radius-mark);
 }
 
 .stats__glance-label {

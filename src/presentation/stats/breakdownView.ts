@@ -23,6 +23,11 @@ import { agentName, modelNames, sessionName, teamName, workspaceName, type Group
  * that moved. */
 export type BreakdownOrder = "amount" | "change";
 
+/** How Breakdown groups and orders until the reader picks otherwise: by
+ * workspace, the biggest first. */
+export const DEFAULT_BREAKDOWN_DIMENSION: StatsDimension = "workspace";
+export const DEFAULT_BREAKDOWN_ORDER: BreakdownOrder = "amount";
+
 /** Exhaustive: a new dimension names itself or fails to compile. */
 export const DIMENSION_LABELS: Record<StatsDimension, string> = {
   workspace: "Workspace",

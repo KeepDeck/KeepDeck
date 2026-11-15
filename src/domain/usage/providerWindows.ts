@@ -1,9 +1,9 @@
 import { panelWindows, usageStale } from "./format";
 import type { WindowReport } from "./reportJournal";
 import type { UsageRow } from "./history/event";
-import { dimensionKey } from "./stats/dimensions";
-import { breakdown, statsTotals, type BreakdownRow } from "./stats/fold";
-import type { StatsMeasure, UsageTally } from "./stats/measure";
+import { usageTimeline, type TimelineGranularity, type UsageStep } from "./stats/fold";
+import type { Span } from "./stats/period";
+import { DAY_MS } from "./time";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
 
@@ -14,18 +14,6 @@ import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
  * that window). The two sides stay labeled as such: neither is ever derived
  * from the other.
  */
-
-export interface ProviderWindowLedger extends UsageTally {
-  totalTokens: number;
-  sessionCount: number;
-  /** The sessions that spent inside the window, the biggest first in the
-   * measure asked for — local usage, never each session's share of the
-   * provider's percentage. */
-  sessions: BreakdownRow[];
-}
-
-/** How many sessions a window names before folding the rest. */
-export const WINDOW_SESSIONS_TOP = 3;
 
 export interface ProviderWindowRow {
   /** Unique within one snapshot — two windows sharing a duration and scope
@@ -45,14 +33,32 @@ export interface ProviderWindowRow {
   expired: boolean;
   /** The report aged past the trust threshold — numbers render demoted. */
   stale: boolean;
-  /** Ledger spend inside the window's current interval — null when the
-   * interval is unknowable: an expired window, no reset instant, an
-   * unstated duration, or a scoped window (a model- or bucket-scoped limit
-   * cannot be joined to unscoped ledger events without claiming other
-   * models' spend as its own). A field report proved "spend since the last
-   * known reset" is NOT an acceptable fallback: a long-expired 5h window
-   * rendered a week of usage as its own. */
-  ledger: ProviderWindowLedger | null;
+  /** The window's own span on the calendar, start to reset ([`windowSpan`]). */
+  span: Span | null;
+  /** This machine's usage inside the span so far, step by step on the
+   * reader's calendar ([`windowSteps`]) — quiet steps included, so a gap
+   * reads as one. Null without a span, and for a scoped
+   * window: a limit on one model or bucket cannot claim this machine's
+   * unscoped usage as its own. */
+  usage: UsageStep[] | null;
+}
+
+/**
+ * A window's span — from its start to its reset — when it can be placed on
+ * the calendar: alive, with a reset and a length. "Since the last known
+ * reset" is no fallback for an expired one — a long-expired 5h window once
+ * rendered a week of usage as its own.
+ */
+export function windowSpan(window: UsageWindow, now: number): Span | null {
+  if (windowExpired(window, now)) return null;
+  if (window.resetsAt === null || window.windowMinutes === null) return null;
+  return { from: window.resetsAt - window.windowMinutes * 60_000, to: window.resetsAt };
+}
+
+/** A window of two days or more is told by the reader's calendar days, a
+ * shorter one by the hour. */
+export function windowSteps(span: Span): TimelineGranularity {
+  return span.to - span.from >= 2 * DAY_MS ? "day" : "hour";
 }
 
 /** One provider's card: identity and report freshness once, windows inside.
@@ -79,12 +85,12 @@ export function providerWindowGroups(
   events: readonly UsageRow[],
   byKey: ReadonlyMap<string, readonly WindowReport[]>,
   now: number,
-  measure: StatsMeasure,
 ): ProviderWindowGroup[] {
   const groups: ProviderWindowGroup[] = [];
   for (const agent of [...accounts.keys()].sort()) {
     const account = accounts.get(agent);
     if (account?.kind !== "reported") continue;
+    const own = events.filter((event) => event.agent === agent);
     const windows = panelWindows(account);
     const forecasts = accountWindowForecasts(agent, account, byKey, now);
     const rows = windows.flatMap((window, index): ProviderWindowRow[] => {
@@ -104,7 +110,7 @@ export function providerWindowGroups(
           reportedAt: account.reportedAt,
           expired: windowExpired(window, now),
           stale: usageStale(account.reportedAt, now),
-          ledger: windowLedger(agent, window, events, now, measure),
+          ...windowUsage(window, own, now),
         },
       ];
     });
@@ -125,22 +131,15 @@ export function providerWindowGroups(
   return groups;
 }
 
-function windowLedger(
-  agent: string,
+function windowUsage(
   window: UsageWindow,
-  events: readonly UsageRow[],
+  own: readonly UsageRow[],
   now: number,
-  measure: StatsMeasure,
-): ProviderWindowLedger | null {
-  if (window.scope !== undefined) return null;
-  if (windowExpired(window, now)) return null;
-  if (window.resetsAt === null || window.windowMinutes === null) return null;
-  const start = window.resetsAt - window.windowMinutes * 60_000;
-  const inside = events.filter((event) => event.agent === agent && event.occurredAt >= start && event.occurredAt <= now);
-  const { sessions, outputTokens: _output, ...totals } = statsTotals(inside);
-  return {
-    ...totals,
-    sessionCount: sessions,
-    sessions: breakdown(inside, [], (event) => dimensionKey("session", event), WINDOW_SESSIONS_TOP, measure),
-  };
+): Pick<ProviderWindowRow, "span" | "usage"> {
+  const span = windowSpan(window, now);
+  if (span === null || window.scope !== undefined) return { span, usage: null };
+  const sofar = { from: span.from, to: Math.min(now, span.to) + 1 };
+  // The bars count work — tokens — not money at list price, which no
+  // subscription limit is counted in.
+  return { span, usage: usageTimeline(own, sofar, windowSteps(span), "tokens") };
 }

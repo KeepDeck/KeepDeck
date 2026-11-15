@@ -1,14 +1,6 @@
-/* The Limits tab — provider cards with rate-limit windows and their
-   ledger joins. */
-/* ONE column, deliberately. A provider's card is exactly as tall as it has
-   windows — claude has two with curves, codex one, an idle account none —
-   so a multi-column grid put cards of three different heights side by side
-   and left half a screen of nothing under the shortest. Nothing about the
-   content wanted columns; only the width did.
-
-   The width is the point of giving them up. These charts answer "when do I
-   hit the limit", and that answer is a label at the right edge of a time
-   axis: at 360px there is no room for it, at full width there is. */
+/* The Limits tab — one card per provider, and in it each live window as a
+   tile beside its own chart; windows with nothing to chart are small tiles
+   under them. */
 .stats__providers {
   display: flex;
   flex-direction: column;
@@ -19,7 +11,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: var(--kd-radius-tile);
   background: var(--kd-tile);
 }
@@ -28,83 +20,288 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
 .stats__provider-head b {
-  color: var(--kd-text-2);
-  font-size: var(--kd-font-small);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--kd-text);
+  font-weight: 600;
 }
 
-.stats__provider-head small {
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
+.stats__provider-head b svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 
-/* Why a card has nothing live to show, said once above its windows. */
-.stats__provider-idle {
-  margin: 0;
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-  line-height: 1.45;
+/* A live window: its tile beside its own chart. Windows follow one
+   another down the card, ruled apart. */
+.stats__provider-row {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
 }
 
+.stats__provider-row + .stats__provider-row {
+  padding-top: 12px;
+  border-top: 1px solid var(--kd-seam);
+}
+
+/* The windows with nothing to chart, as small tiles in a row. */
+.stats__provider-others {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0 22px;
+}
+
+/* The neutral grey is the tile's own, inherited: a toned line — a warning,
+   a critical run-out — carries its level's class and must win over it. */
 .stats__window {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
 }
 
-/* An expired window: the numbers demote instead of lying confidently. */
+/* A window that has reset: its percentage describes the window before. */
 .stats__window--expired {
   opacity: 0.55;
 }
 
 .stats__window-head {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
+}
+
+.stats__window-label {
   color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
+}
+
+.stats__window-pct {
+  color: var(--kd-text);
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* The lead window reads like the Overview's figures: its name small and
+   upper-case, its percentage large under it. */
+.stats__window--lead .stats__window-head {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stats__window--lead .stats__window-label {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stats__window--lead .stats__window-pct {
+  font-size: var(--kd-font-title);
 }
 
 .stats__window small {
+  font-size: var(--kd-font-small);
+}
+
+/* The bar, and a tick where the window's time stands. */
+.stats__window-bar {
+  display: block;
+  margin: 5px 0 3px;
+}
+
+/* The shared fill bar is an inline span: here it spans the tile. */
+.stats__window-bar .usage-bar {
+  display: block;
+  width: 100%;
+}
+
+/* ── The window's chart ───────────────────────────────────────────── */
+.stats__limits-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+/* The plot, the bars and the day names share one frame; the gutter on the
+   left carries the percent scale. */
+.stats__limits-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 34px;
   color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
-/* Who spent the window: local list-price spend per session, the biggest
-   first — never each session's share of the provider's percentage. */
-.stats__window-sessions {
+.stats__limits-edges {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--kd-font-small);
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.stats__window-sessions li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+/* The inspected instant: a hair across the plot and a dot on the line. */
+.stats__limits-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--kd-selected);
+  transform: translateX(-0.5px);
+  pointer-events: none;
 }
 
-.stats__window-sessions span {
-  overflow: hidden;
-  color: var(--kd-text-2);
-  text-overflow: ellipsis;
+.stats__limits-dot--active {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid var(--kd-tile);
+  box-shadow: 0 0 0 1px var(--kd-seam);
+  pointer-events: none;
+}
+
+/* The plot is what the pointer and the arrow keys inspect. */
+.stats__limits-plot {
+  position: relative;
+  height: 120px;
+  cursor: crosshair;
+  outline: none;
+}
+
+.stats__limits-plot:focus-visible {
+  outline: 1px solid var(--kd-focus);
+  outline-offset: 2px;
+  border-radius: var(--kd-radius-mark);
+}
+
+.stats__limits-plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.stats__limits-level {
+  stroke: var(--kd-seam);
+  stroke-width: 1;
+}
+
+.stats__limits-day {
+  stroke: var(--kd-seam);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.stats__limits-current {
+  fill: none;
+  stroke: var(--stats-series);
+  stroke-width: 2.5;
+}
+
+.stats__limits-projection {
+  fill: none;
+  stroke: var(--stats-series);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.stats__limits-now {
+  stroke: var(--kd-text-3);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.stats__limits-axis {
+  position: absolute;
+  left: -34px;
+  transform: translateY(-50%);
+}
+
+.stats__limits-dot,
+.stats__limits-end {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--stats-series);
+}
+
+/* Where the dashed line stops — the limit in the warning's colour, or the
+   reset — and what it says there. */
+.stats__limits-end[class*="usage-level--"] {
+  background: currentcolor;
+}
+
+.stats__limits-end-label--after {
+  transform: translate(8px, calc(-100% - 2px));
+}
+
+.stats__limits-end-label--before {
+  transform: translate(calc(-100% - 8px), calc(-100% - 2px));
+}
+
+.stats__limits-end-label--after.stats__limits-end-label--below {
+  transform: translate(8px, 4px);
+}
+
+.stats__limits-end-label--before.stats__limits-end-label--below {
+  transform: translate(calc(-100% - 8px), 4px);
+}
+
+.stats__limits-end-label,
+.stats__limits-now-label {
+  position: absolute;
   white-space: nowrap;
 }
 
-.stats__window-sessions small {
-  margin-left: 6px;
-  color: var(--kd-text-3);
+
+
+.stats__limits-now-label {
+  top: 2px;
+  color: var(--kd-text-2);
 }
 
-.stats__window-sessions b {
-  color: var(--kd-text-2);
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
+/* "1 report so far", beside the only dot. */
+.stats__limits-lone {
+  position: absolute;
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+
+.stats__limits-lone--after {
+  padding-left: 10px;
+}
+
+.stats__limits-lone--before {
+  padding-right: 10px;
+  transform: translate(-100%, -50%);
+}
+
+.stats__limits-now-label--after {
+  padding-left: 6px;
+}
+
+.stats__limits-now-label--before {
+  padding-right: 6px;
+  transform: translateX(-100%);
+}
+
+.stats__limits-ticks {
+  position: relative;
+  height: 16px;
+}
+
+.stats__limits-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }

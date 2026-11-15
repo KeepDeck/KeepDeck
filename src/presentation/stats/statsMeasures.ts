@@ -10,6 +10,11 @@ import { costCoverage, displayCost } from "./statsCost";
  * it names itself everywhere.
  */
 
+/** What Statistics counts until the reader picks otherwise: tokens — the
+ * work done, which every row has, before the money only priced rows have
+ * (user, 2026-11-15). */
+export const DEFAULT_STATS_MEASURE: StatsMeasure = "tokens";
+
 export const MEASURE_LABELS: Record<StatsMeasure, string> = {
   spend: "Spend",
   tokens: "Tokens",
@@ -42,20 +47,4 @@ export function measureNote(totals: UsageTally & { totalTokens: number }, measur
 export function nothingToDraw(noUsage: string | null, totals: UsageTally, measure: StatsMeasure): string | null {
   if (noUsage !== null) return noUsage;
   return measure === "spend" && totals.pricedEvents === 0 ? "None of this usage has a known price." : null;
-}
-
-/** What this machine used inside a provider window, as one line, in the
- * measure: its tokens and sessions, then — in money, once one of them was
- * priced — their cost; in tokens, the tokens less cache reads. The branch
- * is on the tally, never on the formatter's dash — a reworded "no data"
- * must not change the line. */
-export function windowLedgerCaption(
-  ledger: UsageTally & { sessionCount: number; totalTokens: number },
-  measure: StatsMeasure,
-): string {
-  if (ledger.sessionCount === 0) return "no usage this window";
-  const sessions = `${ledger.sessionCount} session${ledger.sessionCount === 1 ? "" : "s"}`;
-  if (measure === "tokens") return `${formatTokens(ledger.tokensLessCacheReads)} tokens · ${sessions} this window`;
-  const spend = ledger.pricedEvents === 0 ? sessions : `${sessions} · ${displayCost(ledger)}`;
-  return `${formatTokens(ledger.totalTokens)} · ${spend} this window`;
 }

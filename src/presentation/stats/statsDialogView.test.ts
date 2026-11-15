@@ -38,6 +38,8 @@ describe("statsHeaderView", () => {
     expect(view.measure.idle).toBe(false);
     // Badges count by their own rules: the choice stands, idle.
     expect(statsHeaderView("achievements", 7, NOW, "tokens").measure).toMatchObject({ idle: true });
+    // Limits are the provider's percent, and its bars count tokens: idle too.
+    expect(statsHeaderView("limits", 7, NOW, "spend").measure).toMatchObject({ idle: true });
   });
 
   it("names the calendar days the period covers", () => {

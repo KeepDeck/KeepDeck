@@ -1,15 +1,11 @@
 // @vitest-environment happy-dom
-import { act, createElement, type ComponentProps } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import type { UsageWindow } from "../../domain/usage/usage";
 import { windowBurn } from "../../domain/usage/windowBurn";
-import {
-  burnEdgeLabel,
-  windowForecast,
-  type WindowForecast,
-} from "../../domain/usage/windowForecast";
+import { windowForecast, type WindowForecast } from "../../domain/usage/windowForecast";
 import { WindowBurn } from "./WindowBurn";
 import { present } from "@keepdeck/plugin-api/testing";
 import { instanceOf } from "../../testing/values.test-support";
@@ -36,16 +32,14 @@ describe("WindowBurn", () => {
   let plotLeft: number;
   let plotTop: number;
 
-  /** The surface computes the geometry now — the card's caption reads the
-   * same object — so the test assembles it the way a surface would. */
+  /** The surface computes the geometry, so the test assembles it the way
+   * the popover does. */
   const render = (
-    size: ComponentProps<typeof WindowBurn>["size"],
     overrides: {
       window?: UsageWindow;
       reports?: readonly WindowReport[];
       now?: number;
       forecast?: WindowForecast;
-      edge?: ComponentProps<typeof WindowBurn>["edge"];
     } = {},
   ) => {
     const nextWindow = overrides.window ?? window;
@@ -57,16 +51,8 @@ describe("WindowBurn", () => {
       root.render(
         createElement(WindowBurn, {
           stroke: "#3987e5",
-          geometry: windowBurn(
-            nextReports,
-            nextWindow,
-            forecast,
-            nextNow,
-            size === "card" ? "limit" : "data",
-          ),
-          edge: overrides.edge ?? burnEdgeLabel(nextWindow, forecast, nextNow),
+          geometry: windowBurn(nextReports, nextWindow, forecast, nextNow),
           now: nextNow,
-          size,
         }),
       ),
     );
@@ -76,10 +62,10 @@ describe("WindowBurn", () => {
       ({
         top: plotTop,
         right: plotLeft + 200,
-        bottom: plotTop + (size === "card" ? 60 : 20),
+        bottom: plotTop + 20,
         left: plotLeft,
         width: 200,
-        height: size === "card" ? 60 : 20,
+        height: 20,
         x: plotLeft,
         y: plotTop,
         toJSON: () => ({}),
@@ -101,12 +87,12 @@ describe("WindowBurn", () => {
   });
 
   it.each([
-    ["card", 22, "Observed"],
-    ["compact", 180, "Projected"],
+    [22, "Observed"],
+    [180, "Projected"],
   ] as const)(
-    "inspects the %s curve with the shared portaled tooltip",
-    (size, clientX, expectedKind) => {
-      const plot = present(render(size), "the rendered output");
+    "inspects the curve at %spx with the shared portaled tooltip",
+    (clientX, expectedKind) => {
+      const plot = present(render(), "the rendered output");
 
       act(() =>
         plot.dispatchEvent(
@@ -138,21 +124,43 @@ describe("WindowBurn", () => {
     },
   );
 
-  it("labels the card's ceiling as the limit, and only on the card", () => {
-    // The frame's top IS 100% now. If this ever went back to reading a
-    // field off the geometry — an easy slip after `yMaxPct` became
-    // `endPct` — the label would follow the data again and quietly
-    // reintroduce the wrong-scale bug on every surviving window.
-    render("card");
-    expect(present(host.querySelector(".usage-burn__ymax"), "the .usage-burn__ymax element").textContent).toBe("100%");
-  });
-
-  it("gives the compact plot no ceiling or floor label to contradict", () => {
+  it("gives the sparkline no ceiling or floor label to contradict", () => {
     // Which is exactly why its scale is the data's rather than the limit's:
     // there is nothing on it disclosing what the frame means.
-    render("compact");
-    expect(host.querySelector(".usage-burn__ymax")).toBeNull();
-    expect(host.querySelector(".usage-burn__foot")).toBeNull();
+    render();
+    expect(host.querySelector(".usage-burn")?.textContent).toBe("");
+  });
+
+  it("ends the pointer's inspection when the page scrolls — the card does not stay behind", () => {
+    const plot = present(render(), "the rendered output");
+    act(() => plot.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 100, clientY: 115 })));
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+    act(() => globalThis.window.dispatchEvent(new Event("scroll")));
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
+    // A nested scroller's scroll does not bubble: caught all the same.
+    act(() => plot.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 100, clientY: 115 })));
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+    act(() => host.dispatchEvent(new Event("scroll", { bubbles: false })));
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
+    // Focus's inspection stays through a scroll, and follows the plot.
+    act(() => plot.focus());
+    act(() => globalThis.window.dispatchEvent(new Event("scroll")));
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+  });
+
+  it("walks the inspection with the arrow keys from the newest reading", () => {
+    const plot = present(render(), "the rendered output");
+    act(() => plot.focus());
+    const first = document.querySelector("[role='tooltip']")?.textContent;
+    act(() => plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    const moved = present(document.querySelector<HTMLElement>("[role='tooltip']"), "the tooltip");
+    // One step right of the newest reading is the projection — and it is
+    // read aloud, not only drawn.
+    expect(moved.dataset.kind).toBe("projected");
+    expect(moved.textContent).not.toBe(first);
+    expect(host.querySelector("[role='status']")?.textContent).toMatch(/Projected, \d+% used$/);
+    act(() => plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
   });
 
   it("keeps a quiet window off its own axis line in the 20px sparkline", () => {
@@ -166,7 +174,7 @@ describe("WindowBurn", () => {
       reportedAt: NOW - (4 - index) * 10 * MIN,
       resetsAt: window.resetsAt,
     }));
-    const plot = present(render("compact", {
+    const plot = present(render({
       reports: quiet,
       window: { ...window, usedPct: 10 },
     }), "the rendered output");
@@ -180,7 +188,7 @@ describe("WindowBurn", () => {
   });
 
   it("exposes the latest observed value immediately on keyboard focus", () => {
-    const plot = present(render("compact"), "the rendered output");
+    const plot = present(render(), "the rendered output");
 
     act(() => plot.focus());
 
@@ -194,7 +202,7 @@ describe("WindowBurn", () => {
   });
 
   it("rederives an open inspection when geometry updates", () => {
-    const plot = present(render("compact"), "the rendered output");
+    const plot = present(render(), "the rendered output");
     act(() => plot.focus());
     expect(document.querySelector("[role='tooltip']")?.textContent).toContain(
       "62%",
@@ -210,7 +218,7 @@ describe("WindowBurn", () => {
         reportedAt: later,
       },
     ];
-    render("compact", {
+    render({
       window: nextWindow,
       reports: nextReports,
       now: later,
@@ -222,19 +230,19 @@ describe("WindowBurn", () => {
   });
 
   it("discards inspection state while geometry is unavailable", () => {
-    const plot = present(render("compact"), "the rendered output");
+    const plot = present(render(), "the rendered output");
     act(() => plot.focus());
     expect(document.querySelector("[role='tooltip']")).not.toBeNull();
 
-    expect(render("compact", { reports: reports.slice(-1) })).toBeNull();
+    expect(render({ reports: reports.slice(-1) })).toBeNull();
     expect(document.querySelector("[role='tooltip']")).toBeNull();
 
-    expect(render("compact", { reports: reports.slice(-2) })).not.toBeNull();
+    expect(render({ reports: reports.slice(-2) })).not.toBeNull();
     expect(document.querySelector("[role='tooltip']")).toBeNull();
   });
 
   it("keeps inspection open while either hover or focus remains", () => {
-    const plot = present(render("compact"), "the rendered output");
+    const plot = present(render(), "the rendered output");
     act(() => {
       plot.focus();
       plot.dispatchEvent(
@@ -270,7 +278,7 @@ describe("WindowBurn", () => {
   });
 
   it("remeasures a focused plot when an ancestor scrolls", () => {
-    const plot = present(render("compact"), "the rendered output");
+    const plot = present(render(), "the rendered output");
     act(() => plot.focus());
     const initialLeft =
       present(document.querySelector<HTMLElement>("[role='tooltip']"), "the [role='tooltip'] element").style.left;

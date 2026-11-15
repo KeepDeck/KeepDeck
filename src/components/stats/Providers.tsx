@@ -1,38 +1,37 @@
-import { Fragment, useMemo } from "react";
+import { useMemo } from "react";
+import type { AgentIcon } from "../../domain/agents/agents";
 import type { AccountUsage } from "../../domain/usage";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import { accountLimitsView, type ProviderWindowView } from "../../presentation/stats/providersView";
+import { accountLimitsView, type ProviderCardView, type ProviderWindowView } from "../../presentation/stats/providersView";
+import { AgentGlyph } from "../../ui/AgentGlyph";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
-import { WindowBurn } from "../usage/WindowBurn";
-import type { StatsMeasure } from "../../domain/usage/stats/measure";
+import { LimitsWindowChart } from "./LimitsWindowChart";
 
-/** Per-provider rate-limit windows joined with ledger spend inside each
- * window's current interval — one card per provider, so the name and the
- * report age appear once instead of repeating on every window. Provider %,
- * reset countdown and the ledger numbers keep separate sources — the
- * section never derives one from the other. Period-independent by design:
- * a subscription window is the provider's clock, not the user's selected
+/** The Limits tab: one card per provider, and in it each live window — a
+ * tile beside its own chart — with the windows there is nothing to chart
+ * for as small tiles under them. Period-independent by design: a
+ * subscription window is the provider's clock, not the user's selected
  * range. What each card says is settled in
  * presentation/stats/providersView.ts. */
 export function Providers({
   accounts,
   ledger,
   colors,
+  agentIcons,
   reportsByKey,
   now,
-  measure,
 }: {
   accounts: ReadonlyMap<string, AccountUsage>;
   /** The ledger view — derived values are keyed on it, not on its array. */
   ledger: UsageLedger;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
-  /** The provider-report journal — the forecast's pace history. */
+  /** Each agent's mark, by agent id — a provider is named by its icon. */
+  agentIcons: ReadonlyMap<string, AgentIcon | null>;
+  /** The provider-report journal — the forecast's pace. */
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
-  /** What a window's sessions are counted in: money, or tokens. */
-  measure: StatsMeasure;
 }) {
   // Keyed on the SAME clock the captions render with — a memo that read its
   // own Date.now() froze expired/stale while the caption beside them said
@@ -40,64 +39,63 @@ export function Providers({
   // from the usage store, so every journal emit lands in the same flush as
   // the accounts change that caused it.
   const view = useMemo(
-    () => accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors, measure }),
-    [accounts, ledger, reportsByKey, now, colors, measure],
+    () => accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors }),
+    [accounts, ledger, reportsByKey, now, colors],
   );
   if (view.kind === "empty") {
     return <p className="stats__empty">{view.text}</p>;
   }
   return (
-    <section className="stats__section">
-      <h3>{view.title}</h3>
-      <div className="stats__providers" role="group" aria-label={view.title}>
+    <section className="stats__section" aria-label={view.title}>
+      <div className="stats__providers">
         {view.cards.map((card) => (
-          <article className="stats__provider" key={card.agent}>
-            <header className="stats__provider-head">
-              <b>{card.agent}</b>
-              <small className={card.updated.className}>{card.updated.text}</small>
-            </header>
-            {card.note && <p className="stats__provider-idle">{card.note}</p>}
-            {card.windows.map((window) => (
-              <ProviderWindow key={window.id} view={window} now={now} />
-            ))}
-          </article>
+          <ProviderCard key={card.agent} card={card} icon={agentIcons.get(card.agent) ?? null} now={now} />
         ))}
       </div>
     </section>
   );
 }
 
-function ProviderWindow({ view, now }: { view: ProviderWindowView; now: number }) {
+function ProviderCard({ card, icon, now }: { card: ProviderCardView; icon: AgentIcon | null; now: number }) {
   return (
-    <div className={`stats__window${view.expired ? " stats__window--expired" : ""}`}>
-      <div className="stats__window-head">
-        <span>{view.label}</span>
-        <span className={view.percent.className}>{view.percent.text}</span>
-      </div>
-      <UsageWindowBar window={view.window} now={now} />
-      <WindowBurn geometry={view.burn} stroke={view.stroke} edge={view.edge} now={now} />
-      <small>
-        {view.caption.map((part, index) => (
-          <Fragment key={index}>
-            {part.lead}
-            <span className={part.className}>{part.text}</span>
-          </Fragment>
-        ))}
-      </small>
-      {view.ledger && <small>{view.ledger}</small>}
-      {view.sessions.length > 0 && (
-        <ul className="stats__window-sessions">
-          {view.sessions.map((session) => (
-            <li key={session.key}>
-              <span>
-                {session.name}
-                {session.source !== null && <small>{session.source}</small>}
-              </span>
-              <b>{session.amount}</b>
-            </li>
+    <article className="stats__provider" aria-label={card.agent}>
+      <header className="stats__provider-head">
+        <b>
+          <AgentGlyph icon={icon} />
+          {card.agent}
+        </b>
+        <small className={card.updated.className}>{card.updated.text}</small>
+      </header>
+      {card.charted.map(({ window, chart }) => (
+        <div key={window.id} className="stats__provider-row">
+          <WindowTile view={window} now={now} lead />
+          <LimitsWindowChart view={chart} color={card.color} />
+        </div>
+      ))}
+      {card.others.length > 0 && (
+        <div className="stats__provider-others">
+          {card.others.map((window) => (
+            <WindowTile key={window.id} view={window} now={now} lead={false} />
           ))}
-        </ul>
+        </div>
       )}
+    </article>
+  );
+}
+
+/** A window's tile — large beside its chart (`lead`), small without one. */
+function WindowTile({ view, now, lead }: { view: ProviderWindowView; now: number; lead: boolean }) {
+  return (
+    <div className={`stats__window${lead ? " stats__window--lead" : ""}${view.expired ? " stats__window--expired" : ""}`}>
+      <span className="stats__window-head">
+        <span className="stats__window-label">{view.label}</span>
+        <b className={`stats__window-pct ${view.percent.className ?? ""}`}>{view.percent.text}</b>
+      </span>
+      <span className="stats__window-bar">
+        <UsageWindowBar window={view.window} now={now} />
+      </span>
+      <small>{view.reset}</small>
+      {view.verdict && <small className={view.verdict.className}>{view.verdict.text}</small>}
     </div>
   );
 }

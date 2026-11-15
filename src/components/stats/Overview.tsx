@@ -1,4 +1,5 @@
 import { lazy, Suspense, useMemo } from "react";
+import type { AgentIcon } from "../../domain/agents/agents";
 import type { AccountUsage } from "../../domain/usage";
 import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
@@ -10,6 +11,7 @@ import { limitsGlanceView, type LimitsGlanceView } from "../../presentation/stat
 import { overviewView, type FigureView, type TopListView } from "../../presentation/stats/overviewView";
 import { accountLimitsView } from "../../presentation/stats/providersView";
 import { ErrorBoundary } from "../../ui/ErrorBoundary";
+import { AgentGlyph } from "../../ui/AgentGlyph";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 
 /** The chart rides its own chunk: recharts is the bundle's single largest
@@ -29,6 +31,7 @@ export function Overview({
   measure,
   now,
   colors,
+  agentIcons,
   accounts,
   reportsByKey,
   onOpenLimits,
@@ -45,6 +48,8 @@ export function Overview({
   now: number;
   /** The dialog's series colours (presentation/usagePalette.ts). */
   colors: ReadonlyMap<string, string>;
+  /** Each agent's mark, by agent id — a provider is named by its icon. */
+  agentIcons: ReadonlyMap<string, AgentIcon | null>;
   accounts: ReadonlyMap<string, AccountUsage>;
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   onOpenLimits(): void;
@@ -55,8 +60,8 @@ export function Overview({
     [ledger, period, now, colors, workspace, measure],
   );
   const limits = useMemo(
-    () => limitsGlanceView(accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors, measure }), now, colors),
-    [accounts, ledger, reportsByKey, now, colors, measure],
+    () => limitsGlanceView(accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors }), now),
+    [accounts, ledger, reportsByKey, now, colors],
   );
   return (
     <>
@@ -108,7 +113,7 @@ export function Overview({
         {view.lists.map((list) => (
           <TopList key={list.title} list={list} onOpen={() => onOpenBreakdown(list.dimension)} />
         ))}
-        <LimitsGlance view={limits} now={now} onOpen={onOpenLimits} />
+        <LimitsGlance view={limits} icons={agentIcons} now={now} onOpen={onOpenLimits} />
       </div>
       <p className="stats__coverage">{view.coverage}</p>
     </>
@@ -148,7 +153,17 @@ function TopList({ list, onOpen }: { list: TopListView; onOpen(): void }) {
   );
 }
 
-function LimitsGlance({ view, now, onOpen }: { view: LimitsGlanceView; now: number; onOpen(): void }) {
+function LimitsGlance({
+  view,
+  icons,
+  now,
+  onOpen,
+}: {
+  view: LimitsGlanceView;
+  icons: ReadonlyMap<string, AgentIcon | null>;
+  now: number;
+  onOpen(): void;
+}) {
   return (
     <section className="stats__top" aria-label={view.title}>
       <h3>
@@ -166,7 +181,7 @@ function LimitsGlance({ view, now, onOpen }: { view: LimitsGlanceView; now: numb
                 <span className={`stats__glance-agent${window.age ? " stats__glance-agent--age" : ""}`}>
                   {window.agent !== null && (
                     <>
-                      <i style={{ background: provider.color }} />
+                      <AgentGlyph icon={icons.get(provider.agent) ?? null} />
                       {window.agent}
                     </>
                   )}

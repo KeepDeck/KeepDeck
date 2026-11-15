@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { formatAge, type AccountUsage, type UsageWindow } from "../../domain/usage";
+import { formatAge, formatMoment, windowLabel, type AccountUsage, type UsageWindow } from "../../domain/usage";
+import type { ProviderWindowGroup } from "../../domain/usage/providerWindows";
+import type { WindowForecast } from "../../domain/usage/windowForecast";
 import { providerWindowGroups } from "../../domain/usage/providerWindows";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
 import { accountLimitsView, providersView } from "./providersView";
@@ -20,9 +22,17 @@ const live = (usedPct: number, windowMinutes = 300): UsageWindow => ({
   windowMinutes,
 });
 const expired: UsageWindow = { usedPct: 40, resetsAt: NOW - HOUR, windowMinutes: 300 };
+const DAY = 24 * HOUR;
+/** A week window, by default with six days of it gone. */
+const week = (usedPct: number, resetsAt = NOW + DAY): UsageWindow => ({ usedPct, resetsAt, windowMinutes: 10_080 });
+const cardOf = (view: ReturnType<typeof providersView>) => {
+  const card = view.kind === "cards" ? view.cards[0] : undefined;
+  if (card === undefined) throw new Error("no card");
+  return card;
+};
 
 const viewOf = (accounts: Map<string, AccountUsage>) =>
-  providersView(providerWindowGroups(accounts, [], new Map(), NOW, "spend"), NOW, COLORS, "spend");
+  providersView(providerWindowGroups(accounts, [], new Map(), NOW), NOW, COLORS);
 
 describe("providersView", () => {
   it("says how the tab fills before any CLI reports its limits", () => {
@@ -43,65 +53,91 @@ describe("providersView", () => {
     expect(staleCard?.age).toEqual({ text: "2h ago", className: "usage-level--warn" });
   });
 
-  it("notes a reset window whenever ANY window has reset, not only all of them", () => {
-    const some = viewOf(new Map([["claude", account([live(10, 10_080), expired])]]));
-    expect(some.kind === "cards" ? some.cards[0]?.note : null).toMatch(/^A window that has reset keeps showing/);
-    const none = viewOf(new Map([["claude", account([live(10)])]]));
-    expect(none.kind === "cards" ? none.cards[0]?.note : undefined).toBeNull();
+  it("gives each live window its own chart, the most pressing one on top", () => {
+    const card = cardOf(viewOf(new Map([["claude", account([live(30), week(10)])]])));
+    expect(card.windows.map((window) => window.label)).toEqual(["5h", "week"]);
+    // Neither warns: the fuller one first, each on its own clock.
+    expect(card.charted.map((entry) => [entry.window.label, entry.chart.ticks.length > 0])).toEqual([["5h", true], ["week", true]]);
+    expect(card.others).toEqual([]);
+    expect(card.color).toBe("#c1");
   });
 
-  it("colours a window's percentage near the limit and marks a reset window", () => {
-    const view = viewOf(new Map([["claude", account([live(85, 10_080), expired])]]));
-    const windows = view.kind === "cards" ? (view.cards[0]?.windows ?? []) : [];
-    const hot = windows.find((window) => !window.expired);
-    const gone = windows.find((window) => window.expired);
-    expect(hot?.percent.className).toBe("usage-level--critical");
-    expect(hot?.stroke).toBe("#c1");
-    expect(gone?.percent.className).toBeUndefined();
+  it("has nothing to chart when every window has reset — small tiles only", () => {
+    const card = cardOf(viewOf(new Map([["claude", account([expired])]])));
+    expect(card.charted).toEqual([]);
+    expect(card.others).toHaveLength(1);
   });
 
-  it("joins the caption's parts with a separator after the first", () => {
-    const view = viewOf(new Map([["claude", account([live(10)])]]));
-    const caption = view.kind === "cards" ? (view.cards[0]?.windows[0]?.caption ?? []) : [];
-    expect(caption.length).toBeGreaterThan(0);
-    expect(caption.map((part) => part.lead)).toEqual(caption.map((_, index) => (index === 0 ? "" : " · ")));
+  it("says when a window resets and its forecast on lines of their own; a reset one waits for its next report", () => {
+    const [live5h, gone] = cardOf(viewOf(new Map([["claude", account([live(10), expired])]]))).windows;
+    expect(live5h).toMatchObject({
+      reset: `resets in 1h 0m · ${formatMoment(NOW + HOUR, NOW)}`,
+      // No journal: no pace to say anything from.
+      verdict: { text: "No forecast yet — too few recent reports" },
+    });
+    expect(gone).toMatchObject({ reset: "reset — waiting for its next report", verdict: null, expired: true });
   });
 
-  it("names the sessions that spent inside a window, with their money", () => {
-    const events = [
-      usageEvent({ agent: "claude", occurredAt: NOW - HOUR, paneName: "auth", workspaceName: "KeepDeck", costUsd: 2 }),
-      usageEvent({ agent: "claude", occurredAt: NOW - HOUR, sessionId: "s2", paneName: "docs", workspaceName: "Docs" }),
-    ];
-    const view = providersView(
-      providerWindowGroups(new Map([["claude", account([live(10)])]]), events, new Map(), NOW, "spend"),
-      NOW,
-      COLORS,
-      "spend",
-    );
-    const window = view.kind === "cards" ? view.cards[0]?.windows[0] : undefined;
-    expect(window?.sessions).toEqual([
-      { key: "claude\u0000s1", name: "auth", source: "KeepDeck · claude", amount: "≈$2.00" },
-      { key: "claude\u0000s2", name: "docs", source: "Docs · claude", amount: "—" },
-    ]);
+  it("colours a window's percentage near the limit, never a reset one", () => {
+    const windows = cardOf(viewOf(new Map([["claude", account([week(85), expired])]]))).windows;
+    expect(windows.find((window) => !window.expired)?.percent.className).toBe("usage-level--critical");
+    expect(windows.find((window) => window.expired)?.percent.className).toBeUndefined();
   });
 
-  it("names a window's sessions and its line in tokens when the reader counts them", () => {
-    const events = [
-      usageEvent({ agent: "claude", occurredAt: NOW - HOUR, paneName: "auth", workspaceName: "KeepDeck", costUsd: 2, tokens: { input: 50 } }),
-      usageEvent({ agent: "claude", occurredAt: NOW - HOUR, sessionId: "s2", paneName: "docs", workspaceName: "Docs", tokens: { input: 700 } }),
-    ];
-    const view = accountLimitsView({ accounts: new Map([["claude", account([live(10)])]]), rows: events, reportsByKey: new Map(), now: NOW, colors: COLORS, measure: "tokens" });
-    const window = view.kind === "cards" ? view.cards[0]?.windows[0] : undefined;
-    expect(window?.ledger).toBe("750 tokens · 2 sessions this window");
-    // The one with no price did the most work — first.
-    expect(window?.sessions.map((session) => [session.name, session.amount])).toEqual([["docs", "700"], ["auth", "50"]]);
+  it("charts a scoped week on its clock too, without this machine's unscoped usage", () => {
+    const scoped: UsageWindow = { ...week(40), scope: "opus" };
+    const card = cardOf(viewOf(new Map([["claude", account([live(10), scoped])]])));
+    expect(card.charted.map((entry) => entry.window.label)).toEqual([windowLabel(scoped, "long"), "5h"]);
+    expect(card.charted[0]?.chart.usage).toEqual([]);
+  });
+
+  it("puts the most urgent warning first: severity, then how soon, then how full", () => {
+    const row = (agent: string, usedPct: number, forecast: WindowForecast): ProviderWindowGroup => ({
+      agent,
+      reportedAt: NOW,
+      stale: false,
+      idle: false,
+      rows: [{ id: agent, agent, window: live(usedPct), reports: [], forecast, reportedAt: NOW, expired: false, stale: false, span: null, usage: null }],
+    });
+    const order = (groups: ProviderWindowGroup[]) => {
+      const view = providersView(groups, NOW, COLORS);
+      return view.kind === "cards" ? view.cards.map((card) => card.agent) : [];
+    };
+    const full = row("full", 90, { kind: "out", outAt: NOW + 2 * HOUR, level: "warn" });
+    const urgent = row("urgent", 30, { kind: "out", outAt: NOW + 5 * 60_000, level: "critical" });
+    const sooner = row("sooner", 20, { kind: "out", outAt: NOW + HOUR, level: "warn" });
+    const calm = row("calm", 95, { kind: "idle" });
+    expect(order([calm, full, sooner, urgent])).toEqual(["urgent", "sooner", "full", "calm"]);
+  });
+
+  it("puts a warning window above a fuller calm one inside a card", () => {
+    const row = (id: string, window: UsageWindow, forecast: WindowForecast) => ({
+      id, agent: "claude", window, reports: [], forecast, reportedAt: NOW, expired: false, stale: false,
+      span: { from: (window.resetsAt ?? NOW) - (window.windowMinutes ?? 0) * 60_000, to: window.resetsAt ?? NOW },
+      usage: null,
+    });
+    const group: ProviderWindowGroup = {
+      agent: "claude", reportedAt: NOW, stale: false, idle: false,
+      rows: [
+        row("5h", live(20), { kind: "out", outAt: NOW + 30 * 60_000, level: "warn" }),
+        row("week", week(60), { kind: "idle" }),
+      ],
+    };
+    const view = providersView([group], NOW, COLORS);
+    // The fuller week is calm; the 5h window runs out first, so it leads.
+    expect(view.kind === "cards" ? view.cards[0]?.charted.map((entry) => entry.window.label) : []).toEqual(["5h", "week"]);
+  });
+
+  it("puts the provider with the fullest window first", () => {
+    const view = viewOf(new Map([["claude", account([week(10)])], ["codex", account([week(80)])]]));
+    expect(view.kind === "cards" ? view.cards.map((card) => card.agent) : []).toEqual(["codex", "claude"]);
   });
 
   it("is the one Limits pipeline both the Limits tab and Overview's glance read", () => {
     const accounts = new Map([["claude", account([live(10)])]]);
     const rows = [usageEvent({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 2 })];
-    expect(accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS, measure: "spend" })).toEqual(
-      providersView(providerWindowGroups(accounts, rows, new Map(), NOW, "spend"), NOW, COLORS, "spend"),
+    expect(accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS })).toEqual(
+      providersView(providerWindowGroups(accounts, rows, new Map(), NOW), NOW, COLORS),
     );
   });
 });

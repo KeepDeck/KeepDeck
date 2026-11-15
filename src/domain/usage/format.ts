@@ -1,4 +1,3 @@
-import { DAY_MS } from "./time";
 import {
   windowExpired,
   type AccountUsage,
@@ -240,38 +239,18 @@ export function modelLabel(
 }
 
 /**
- * A future instant as a wall clock the reader can plan against: "06:40",
- * "tomorrow 06:40", "Thu 06:40", "Aug 12, 06:40".
+ * An instant as a wall clock the reader can plan against: "06:40" today,
+ * "Aug 12, 06:40" on any other day — its date written out, never a relation
+ * to today ("tomorrow", "Thu"), which left the reader working out the day
+ * (user, 2026-11-15). Past days get their date too, so a reading from
+ * yesterday no longer passes for one from this morning.
  *
- * LOCAL time, like every label in this file: the moment a person's own
- * limit runs out is only useful in the clock they are looking at.
- *
- * Named by relation while the relation is short, because "tomorrow 06:40"
- * places a moment that "Aug 7, 06:40" makes the reader work out.
+ * LOCAL time, like every label in this file, and the same day-and-time the
+ * Statistics steps are named in ([`formatStep`]).
  */
 export function formatMoment(at: number, now: number): string {
-  const time = new Date(at).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const startOfDay = (instant: number) => {
-    const date = new Date(instant);
-    date.setHours(0, 0, 0, 0);
-    return date.getTime();
-  };
-  const days = Math.round((startOfDay(at) - startOfDay(now)) / DAY_MS);
-  if (days <= 0) return time;
-  if (days === 1) return `tomorrow ${time}`;
-  if (days < 7) {
-    const weekday = new Date(at).toLocaleDateString("en-US", { weekday: "short" });
-    return `${weekday} ${time}`;
-  }
-  const day = new Date(at).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-  return `${day}, ${time}`;
+  const sameDay = new Date(at).toDateString() === new Date(now).toDateString();
+  return formatStep(at, "hour", sameDay ? "short" : "long");
 }
 
 /** "Nov 8" / "Nov 8, 2026" — a day on the READER'S calendar, the day every

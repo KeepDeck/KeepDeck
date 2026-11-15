@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMoment, formatPct } from "./format";
+import { formatPct } from "./format";
 import {
   accountWindowKeys,
   currentSegment,
@@ -8,15 +8,15 @@ import {
   pruneReports,
   shouldRecord,
   storedReportKey,
+  windowInstances,
   windowReportKey,
   type WindowReport,
 } from "./reportJournal";
 import {
   accountWindowForecasts,
-  burnEdgeLabel,
-  cardCaptionParts,
-  panelWindowCaption,
+  panelWindowLines,
   windowForecast,
+  windowVerdict,
   type WindowForecast,
 } from "./windowForecast";
 import { NO_REPORTS } from "./reportJournal";
@@ -442,9 +442,12 @@ describe("windowForecast", () => {
       report({ reportedAt: NOW - 10 * MIN, usedPct: 3 }),
       report({ reportedAt: NOW, usedPct: 4 }),
     ];
-    expect(windowForecast(falling, FIVE_H, NOW)).toEqual({ kind: "unknown" });
-    expect(cardCaptionParts(FIVE_H, { kind: "unknown" }, NOW)[1].text).toBe(
-      "Not enough data yet",
+    const contradicted = windowForecast(falling, FIVE_H, NOW);
+    expect(contradicted).toEqual({ kind: "unknown", contradictory: true });
+    // Reports enough, that do not add up — never "too few" of them.
+    expect(windowVerdict(FIVE_H, contradicted, NOW)?.text).toBe("No forecast — the recent reports don't add up");
+    expect(windowVerdict(FIVE_H, { kind: "unknown" }, NOW)?.text).toBe(
+      "No forecast yet — too few recent reports",
     );
   });
 
@@ -515,6 +518,17 @@ describe("windowForecast", () => {
   });
 });
 
+describe("windowInstances", () => {
+  it("cuts a journal at every reset it turned over at, oldest first", () => {
+    const at = (reportedAt: number, usedPct: number, resetsAt: number) => report({ reportedAt, usedPct, resetsAt });
+    const first = NOW - 10 * 60 * MIN;
+    const second = NOW - 5 * 60 * MIN;
+    const journal = [at(first - 60 * MIN, 80, first), at(first - MIN, 97, first), at(first + MIN, 1, second), at(second - MIN, 40, second), at(NOW, 3, NOW + 5 * 60 * MIN)];
+    expect(windowInstances(journal).map((instance) => instance.map((r) => r.usedPct))).toEqual([[80, 97], [1, 40], [3]]);
+    expect(windowInstances([])).toEqual([]);
+  });
+});
+
 describe("captions", () => {
   const out = windowForecast(ramp(0.29, 5, 10, 62), FIVE_H, NOW);
   const crit = windowForecast(ramp(1, 5, 10, 88), FIVE_H, NOW);
@@ -526,15 +540,16 @@ describe("captions", () => {
     // countdown is already on this line, and nobody subtracts two clocks in
     // their head. A countdown to the run-out answers the question directly
     // and is comparable to its neighbour at a glance.
-    const warnParts = cardCaptionParts(FIVE_H, out, NOW);
-    expect(warnParts[1].text).toMatch(/^Will hit the limit in ~.+$/);
-    expect(warnParts[1].text).not.toContain("before reset");
+    const warn = windowVerdict(FIVE_H, out, NOW);
+    expect(warn?.text).toMatch(/^Will hit the limit in ~.+$/);
+    expect(warn?.text).not.toContain("before reset");
     // "the limit", not "100%": a percentage is a number, not an outcome.
-    expect(warnParts[1].text).not.toContain("100%");
-    // Imminent takes the same shape — only the level and the ordering move.
-    const critParts = cardCaptionParts(FIVE_H, crit, NOW);
-    expect(critParts[0].text).toMatch(/^Will hit the limit in ~/);
-    expect(critParts[0].level).toBe("critical");
+    expect(warn?.text).not.toContain("100%");
+    expect(warn?.level).toBe("warn");
+    // Imminent takes the same shape — only the level moves.
+    const critical = windowVerdict(FIVE_H, crit, NOW);
+    expect(critical?.text).toMatch(/^Will hit the limit in ~/);
+    expect(critical?.level).toBe("critical");
   });
 
   it("says the wall is here when there is nothing left to count down to", () => {
@@ -542,12 +557,10 @@ describe("captions", () => {
     // suite still had minutes on the clock, so `formatCountdown` never
     // returned null and both spellings shipped unexercised.
     const reached: WindowForecast = { kind: "out", outAt: NOW, level: "critical" };
-    const parts = cardCaptionParts(FIVE_H, reached, NOW);
-    // Critical leads the line, ahead of the reset anchor.
-    expect(parts[0]).toEqual({ text: "Limit reached", level: "critical" });
+    expect(windowVerdict(FIVE_H, reached, NOW)).toEqual({ text: "Limit reached", level: "critical" });
     // The popover joins it into its own sentence — same fact, same phrase,
     // lower case because it continues rather than starts.
-    expect(panelWindowCaption(FIVE_H, reached, NOW)).toEqual({
+    expect(panelWindowLines(FIVE_H, reached, NOW)[0]).toEqual({
       text: "limit reached",
       level: "critical",
     });
@@ -557,17 +570,16 @@ describe("captions", () => {
     // "ends near 33%" named the number the line lands on. The reader is not
     // holding a line; they are holding a budget, so the useful quantity is
     // the headroom.
-    const parts = cardCaptionParts(FIVE_H, ok, NOW);
-    expect(parts).toHaveLength(2);
-    expect(parts[1].text).toMatch(/^Won't hit the limit · ~\d+% left$/);
-    expect(parts[1].level).toBeNull();
+    const verdict = windowVerdict(FIVE_H, ok, NOW);
+    expect(verdict?.text).toMatch(/^Won't hit the limit · ~\d+% left$/);
+    expect(verdict?.level).toBeNull();
     // Through `formatPct`'s own "left" mode. Ceiling the complement by hand
     // rounds the wrong way: that mode ceils the USED side on purpose, so
     // `100 - ceil(endPct)` understates headroom where `ceil(100 - endPct)`
     // overstates it, and the two disagree by a point at every non-integer
     // landing.
     if (!("endPct" in ok) || typeof ok.endPct !== "number") throw new Error("expected a landing window");
-    expect(parts[1].text).toContain(formatPct(ok.endPct, "left"));
+    expect(verdict?.text).toContain(formatPct(ok.endPct, "left"));
   });
 
   it("separates an idle window from one it cannot read yet", () => {
@@ -575,13 +587,13 @@ describe("captions", () => {
     // their first minutes was indistinguishable from an account nobody is
     // using — and neither explained the burn plot's empty right half.
     const flat = windowForecast(ramp(0, 5, 10, 20), FIVE_H, NOW);
-    expect(cardCaptionParts(FIVE_H, flat, NOW)[1].text).toBe(
+    expect(windowVerdict(FIVE_H, flat, NOW)?.text).toBe(
       "Not spending right now",
     );
     const blind = windowForecast(NO_REPORTS, FIVE_H, NOW);
     expect(blind.kind).toBe("unknown");
-    expect(cardCaptionParts(FIVE_H, blind, NOW)[1].text).toBe(
-      "Not enough data yet",
+    expect(windowVerdict(FIVE_H, blind, NOW)?.text).toBe(
+      "No forecast yet — too few recent reports",
     );
   });
 
@@ -601,58 +613,24 @@ describe("captions", () => {
     // It reaches the limit — `out`, and the sentence says so. What the
     // margin buys is the absence of a colour, not the inversion of the fact.
     expect(forecast).toMatchObject({ kind: "out", level: null });
-    const parts = cardCaptionParts(window, forecast, NOW);
-    expect(parts[1].text).toMatch(/^Will hit the limit in ~/);
-    expect(parts[1].level).toBeNull();
-    // And the plot's edge names the same instant, so the two cannot
-    // disagree — which they did: "Won't hit the limit" sat under a dashed
-    // line ending at 100 with its edge labelled the run-out clock time.
-    expect(burnEdgeLabel(window, forecast, NOW).atReset).toBe(false);
+    const verdict = windowVerdict(window, forecast, NOW);
+    expect(verdict?.text).toMatch(/^Will hit the limit in ~/);
+    expect(verdict?.level).toBeNull();
   });
 
-  it("names the plot's right edge as a moment, and always names it", () => {
-    // The edge already IS "when do I hit 100%" — the out dot sits on it —
-    // and it no longer needs a geometry built first to say so.
-    // Compared against the formatter rather than a shape: the fixture's
-    // run-out is 2h35m out, which crosses LOCAL midnight in some zones and
-    // not others, so `/^\d{2}:\d{2}$/` pinned the runner's timezone instead
-    // of the contract. What matters is that the edge names that instant.
-    const edge = burnEdgeLabel(FIVE_H, out, NOW);
-    if (!("outAt" in out) || typeof out.outAt !== "number") throw new Error("expected a run-out edge");
-    expect(edge.text).toBe(formatMoment(out.outAt, NOW));
-    expect(edge.level).toBe("warn");
-    expect(edge.atReset).toBe(false);
-
-    // A surviving pace ends at the reset, and says so.
-    const resetEdge = burnEdgeLabel(FIVE_H, ok, NOW);
-    expect(resetEdge.text).toBe(`reset ${formatMoment(present(FIVE_H.resetsAt, "the five-hour window's reset time"), NOW)}`);
-    expect(resetEdge.atReset).toBe(true);
-
-    // No projection at all: the axis ends at now. Saying so is what turns
-    // an empty right half into "nothing has been reported since" — the
-    // state a provider that stopped reporting renders in.
-    expect(burnEdgeLabel(FIVE_H, { kind: "unknown" }, NOW)).toEqual({
-      text: "now",
-      level: null,
-      atReset: false,
-    });
+  it("says nothing on the verdict line of a window that has reset", () => {
+    expect(windowVerdict({ ...FIVE_H, resetsAt: NOW - MIN }, { kind: "unknown" }, NOW)).toBeNull();
   });
 
-  it("orders the card caption: reset anchors, critical leads", () => {
-    const warnParts = cardCaptionParts(FIVE_H, out, NOW).map((p) => p.level);
-    expect(warnParts).toEqual([null, "warn"]);
-    const critParts = cardCaptionParts(FIVE_H, crit, NOW).map((p) => p.level);
-    expect(critParts).toEqual(["critical", null]);
-  });
-
-  it("swaps the popover line to the next relevant event", () => {
-    expect(panelWindowCaption(FIVE_H, ok, NOW)).toEqual({
-      text: "resets in 2h 35m",
-      level: null,
-    });
-    const swapped = panelWindowCaption(FIVE_H, out, NOW);
-    expect(swapped.text).toMatch(/^hits the limit in ~/);
-    expect(swapped.level).toBe("warn");
+  it("tells the popover the run-out ahead of the reset, and the reset always", () => {
+    expect(panelWindowLines(FIVE_H, ok, NOW)).toEqual([{ text: "resets in 2h 35m", level: null }]);
+    const lines = panelWindowLines(FIVE_H, out, NOW);
+    expect(lines.map((line) => line.level)).toEqual(["warn", null]);
+    expect(lines[0]?.text).toMatch(/^hits the limit in ~/);
+    // The wait after the run-out stays readable.
+    expect(lines[1]?.text).toBe("resets in 2h 35m");
+    // A window that has reset names no reset.
+    expect(panelWindowLines({ ...FIVE_H, resetsAt: NOW - MIN }, { kind: "unknown" }, NOW)).toEqual([]);
   });
 });
 

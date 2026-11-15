@@ -348,16 +348,20 @@ describe("UsageStats", () => {
         [...host.querySelectorAll<HTMLButtonElement>('[aria-label="What the statistics count"] button')].find((b) => b.textContent === label),
         label,
       );
-    expect(overview().measure).toBe("spend");
-    act(() => measure("Tokens").click());
+    // Tokens until the reader picks money.
     expect(overview().measure).toBe("tokens");
     expect(measure("Tokens").getAttribute("aria-pressed")).toBe("true");
+    act(() => measure("Spend").click());
+    expect(overview().measure).toBe("spend");
+    expect(measure("Spend").getAttribute("aria-pressed")).toBe("true");
 
     clickTab("Achievements");
-    expect(measure("Tokens").disabled).toBe(true);
+    expect(measure("Spend").disabled).toBe(true);
+    clickTab("Limits");
+    expect(measure("Spend").disabled).toBe(true);
     clickTab("Overview");
     // The pick outlives the idle tab.
-    expect(overview().measure).toBe("tokens");
+    expect(overview().measure).toBe("spend");
   });
 
   it("disables the period switcher on the period-independent tabs", () => {

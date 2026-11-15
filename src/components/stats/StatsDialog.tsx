@@ -104,6 +104,8 @@ export function UsageStats({
   const { agents } = useAgents();
   const { ledger } = history;
   const seriesColors = useMemo(() => usageSeriesColors(ledger.events, agents), [ledger, agents]);
+  // Each agent's mark, so a provider is named the way the deck names it.
+  const agentIcons = useMemo(() => new Map(agents.map((agent) => [agent.id, agent.icon ?? null])), [agents]);
   const { accounts } = useUsage();
   const reports = useWindowReports();
   const { period } = view;
@@ -145,6 +147,7 @@ export function UsageStats({
             measure={view.measure}
             now={now}
             colors={seriesColors}
+            agentIcons={agentIcons}
             accounts={accounts}
             reportsByKey={reports.byKey}
             onOpenLimits={() => onSelectTab("limits")}
@@ -178,9 +181,9 @@ export function UsageStats({
             accounts={accounts}
             ledger={ledger}
             colors={seriesColors}
+            agentIcons={agentIcons}
             reportsByKey={reports.byKey}
             now={now}
-            measure={view.measure}
           />
         );
       case "weekly":

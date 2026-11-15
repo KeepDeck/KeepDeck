@@ -1,18 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { providerWindowGroups } from "./providerWindows";
+import { providerWindowGroups, windowSpan, windowSteps } from "./providerWindows";
+import { localDayNumber, localDayStart, localHourStart } from "./time";
+import { inZone } from "./time.testSupport";
 
 import { accountWindowKeys, type WindowReport } from "./reportJournal";
 import type { AccountUsage, UsageWindow } from "./usage";
 
 /** The production shape IS groups; tests reach rows through them — same
- * argument order as providerWindowGroups. Most cases exercise the ledger
+ * argument order as providerWindowGroups. Most cases exercise the usage
  * join and pass an empty journal. */
 const flatRows = (
   accounts: Parameters<typeof providerWindowGroups>[0],
   events: Parameters<typeof providerWindowGroups>[1],
   byKey: Parameters<typeof providerWindowGroups>[2],
   now: number,
-) => providerWindowGroups(accounts, events, byKey, now, "spend").flatMap((group) => group.rows);
+) => providerWindowGroups(accounts, events, byKey, now).flatMap((group) => group.rows);
 const NO_JOURNAL = new Map<string, readonly WindowReport[]>();
 
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
@@ -40,13 +42,12 @@ describe("providerWindowRows", () => {
         [event()],
         new Map(),
         NOW,
-        "spend",
       ),
     ).toEqual([]);
   });
 
-  it("sums the ledger inside an active window's interval only", () => {
-    // 5h window resetting in 2h: interval opened 3h ago.
+  it("counts this machine's usage inside an active window's span only", () => {
+    // 5h window resetting in 2h: its span opened 3h ago.
     const accounts = new Map([
       ["codex", reported([{ usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: 300 }])],
     ]);
@@ -54,52 +55,21 @@ describe("providerWindowRows", () => {
       accounts,
       [
         event({ occurredAt: NOW - HOUR, tokens: { input: 100 } }),
-        event({
-          occurredAt: NOW - 2 * HOUR,
-          sessionId: "s2",
-          rootSessionId: "s2",
-          tokens: { output: 50 },
-          costUsd: 0.5,
-        }),
-        event({ occurredAt: NOW - 4 * HOUR, tokens: { input: 9_999 } }), // before the window opened
-        event({ agent: "claude", occurredAt: NOW - HOUR, tokens: { input: 7_777 } }), // other provider
+        event({ occurredAt: NOW - 2 * HOUR, sessionId: "s2", rootSessionId: "s2", tokens: { output: 50 }, costUsd: 0.5 }),
+        event({ occurredAt: NOW - 4 * HOUR, tokens: { input: 9_999 }, costUsd: 9 }), // before the window opened
+        event({ agent: "claude", occurredAt: NOW - HOUR, tokens: { input: 7_777 }, costUsd: 7 }), // other provider
       ],
       NO_JOURNAL,
       NOW,
     );
-
     expect(rows).toHaveLength(1);
     expect(rows[0].agent).toBe("codex");
     expect(rows[0].expired).toBe(false);
     expect(rows[0].stale).toBe(false);
-    expect(rows[0].ledger).toMatchObject({
-      totalTokens: 150,
-      costUsd: 0.5,
-      pricedEvents: 1,
-      approximateEvents: 0,
-      // The first row carries no price: its tokens are what the cost leaves out.
-      unpricedTokens: 100,
-      sessionCount: 2,
-    });
-    // The sessions inside, the biggest spender first — the other provider's
-    // and the pre-window rows are not among them.
-    expect(rows[0].ledger?.sessions.map((session) => [session.latest.sessionId, session.costUsd])).toEqual([
-      ["s2", 0.5],
-      ["s1", 0],
-    ]);
-  });
-
-  it("ranks the window's sessions in the measure asked for", () => {
-    const accounts = new Map([["codex", reported([{ usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: 300 }])]]);
-    const events = [
-      // s1: no price, but the bigger work; s2: priced, small.
-      event({ occurredAt: NOW - HOUR, tokens: { input: 100, cacheRead: 5_000 } }),
-      event({ occurredAt: NOW - HOUR, sessionId: "s2", rootSessionId: "s2", tokens: { output: 50 }, costUsd: 0.5 }),
-    ];
-    const order = (measure: "spend" | "tokens") =>
-      providerWindowGroups(accounts, events, NO_JOURNAL, NOW, measure)[0]?.rows[0]?.ledger?.sessions.map((s) => [s.latest.sessionId, s.amount]);
-    expect(order("spend")).toEqual([["s2", 0.5], ["s1", 0]]);
-    expect(order("tokens")).toEqual([["s1", 100], ["s2", 50]]);
+    expect(rows[0].span).toEqual({ from: NOW - 3 * HOUR, to: NOW + 2 * HOUR });
+    const steps = rows[0].usage ?? [];
+    expect(steps.reduce((sum, step) => sum + step.costUsd, 0)).toBe(0.5);
+    expect(steps.reduce((sum, step) => sum + step.tokensLessCacheReads, 0)).toBe(150);
   });
 
   // A long-passed reset once rendered a week of usage as a 5h window's own.
@@ -114,7 +84,7 @@ describe("providerWindowRows", () => {
       NOW,
     );
     expect(rows[0].expired).toBe(true);
-    expect(rows[0].ledger).toBeNull();
+    expect([rows[0].span, rows[0].usage]).toEqual([null, null]);
   });
 
   it("flags a stale report but keeps the join while the window is alive", () => {
@@ -132,7 +102,7 @@ describe("providerWindowRows", () => {
     const rows = flatRows(accounts, [event()], NO_JOURNAL, NOW);
     expect(rows[0].stale).toBe(true);
     expect(rows[0].expired).toBe(false);
-    expect(rows[0].ledger?.totalTokens).toBe(100);
+    expect((rows[0].usage ?? []).reduce((sum, step) => sum + step.tokensLessCacheReads, 0)).toBe(100);
   });
 
   it("declines the join when the interval is unknowable or scoped", () => {
@@ -148,7 +118,47 @@ describe("providerWindowRows", () => {
     ]);
     const rows = flatRows(accounts, [event({ agent: "kimi" })], NO_JOURNAL, NOW);
     expect(rows).toHaveLength(3);
-    expect(rows.map((row) => row.ledger)).toEqual([null, null, null]);
+    expect(rows.map((row) => [row.span, row.usage])).toEqual([[null, null], [null, null], [null, null]]);
+  });
+
+  it("steps this machine's usage through a week by calendar day, and a 5h window by the hour", () => {
+    inZone("Asia/Nicosia", () => {
+      // A week that began a day and a half ago, and a 5h window two hours in.
+      const week: UsageWindow = { usedPct: 9, resetsAt: NOW + 5.5 * 24 * HOUR, windowMinutes: 10_080 };
+      const fiveH: UsageWindow = { usedPct: 30, resetsAt: NOW + 3 * HOUR, windowMinutes: 300 };
+      const accounts = new Map([["codex", reported([week, fiveH])]]);
+      const events = [
+        event({ occurredAt: NOW - 30 * 60_000, costUsd: 2 }),
+        event({ occurredAt: NOW - 30 * HOUR, costUsd: 1 }),
+        event({ occurredAt: NOW - 3 * 24 * HOUR, costUsd: 50 }), // before the week began
+        event({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 70 }), // another provider
+      ];
+      const [short, long] = flatRows(accounts, events, NO_JOURNAL, NOW);
+      const sum = (steps: { costUsd: number }[] | null | undefined) => (steps ?? []).reduce((total, step) => total + step.costUsd, 0);
+      expect(long?.span).toEqual({ from: NOW - 1.5 * 24 * HOUR, to: week.resetsAt });
+      expect(sum(long?.usage)).toBe(3);
+      // Each step opens at a local midnight, the first one the day the week began, the last today.
+      expect(long?.usage?.every((step) => step.start === localDayStart(localDayNumber(step.start)))).toBe(true);
+      expect(long?.usage?.[0]?.start).toBe(localDayStart(localDayNumber(NOW - 1.5 * 24 * HOUR)));
+      const steps = long?.usage ?? [];
+      expect(steps[steps.length - 1]?.start).toBe(localDayStart(localDayNumber(NOW)));
+      // The 5h window: only its own two hours, an hour a step.
+      expect(sum(short?.usage)).toBe(2);
+      expect(short?.usage?.map((step) => step.start)).toEqual([localHourStart(NOW - 2 * HOUR), localHourStart(NOW - HOUR), localHourStart(NOW)]);
+    });
+  });
+
+  it("keeps a scoped window's clock, but never claims this machine's unscoped usage for it", () => {
+    const scoped: UsageWindow = { usedPct: 40, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080, scope: "opus" };
+    const [row] = flatRows(new Map([["claude", reported([scoped])]]), [event({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 5 })], NO_JOURNAL, NOW);
+    expect(row?.span).toEqual({ from: NOW - 4 * 24 * HOUR, to: scoped.resetsAt });
+    expect(row?.usage).toBeNull();
+  });
+
+  it("tells a window of two days or more by the day, a shorter one by the hour", () => {
+    const span = (hours: number) => ({ from: NOW, to: NOW + hours * HOUR });
+    expect([windowSteps(span(48)), windowSteps(span(47)), windowSteps(span(5))]).toEqual(["day", "hour", "hour"]);
+    expect(windowSpan({ usedPct: 1, resetsAt: NOW + HOUR, windowMinutes: 300 }, NOW)).toEqual({ from: NOW - 4 * HOUR, to: NOW + HOUR });
   });
 
   it("groups a provider's windows under one card identity", () => {
@@ -165,7 +175,7 @@ describe("providerWindowRows", () => {
       ],
       ["opencode", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
     ]);
-    const groups = providerWindowGroups(accounts, [], new Map(), NOW, "spend");
+    const groups = providerWindowGroups(accounts, [], new Map(), NOW);
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({
       agent: "claude",

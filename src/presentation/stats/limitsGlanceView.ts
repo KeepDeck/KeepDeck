@@ -1,5 +1,4 @@
 import { formatCountdown, type UsageWindow } from "../../domain/usage";
-import { seriesColorFor } from "../usagePalette";
 import type { ProviderCardView, ProvidersView, ToneText } from "./providersView";
 
 /**
@@ -31,7 +30,6 @@ export interface GlanceWindowView {
 
 export interface GlanceProviderView {
   agent: string;
-  color: string;
   windows: GlanceWindowView[];
   /** The report age of a provider with ONE window, said on a short line
    * under its name — only when it is old enough to doubt. With more
@@ -48,29 +46,23 @@ export interface LimitsGlanceView {
   empty: string | null;
 }
 
-export function limitsGlanceView(
-  view: ProvidersView,
-  now: number,
-  colors: ReadonlyMap<string, string>,
-): LimitsGlanceView {
+export function limitsGlanceView(view: ProvidersView, now: number): LimitsGlanceView {
   const head = { title: "Limits now", link: "Limits →" };
   if (view.kind === "empty") return { ...head, providers: [], empty: "No provider reports yet." };
-  return { ...head, providers: view.cards.map((card) => glanceProvider(card, now, colors)), empty: null };
+  return { ...head, providers: view.cards.map((card) => glanceProvider(card, now)), empty: null };
 }
 
 /** The report age belongs to the provider, so it is said under the
  * provider's name: in the empty name cell of its second window's line, or
  * on a line of its own when there is no second window. */
-function glanceProvider(card: ProviderCardView, now: number, colors: ReadonlyMap<string, string>): GlanceProviderView {
+function glanceProvider(card: ProviderCardView, now: number): GlanceProviderView {
   const stale = card.age.className === undefined ? null : card.age;
   const ownLine = card.windows.length < 2;
   return {
     agent: card.agent,
-    color: seriesColorFor(colors, card.agent),
     windows: card.windows.map((window, index) => {
-      // Only a caption part with a level is a warning; the reset clause and
-      // a calm forecast carry none.
-      const alarm = window.caption.find((part) => part.className !== undefined);
+      // Only a verdict with a level is a warning; a calm forecast carries none.
+      const alarm = window.verdict?.className === undefined ? undefined : window.verdict;
       return {
         id: window.id,
         agent: index === 0 ? card.agent : null,

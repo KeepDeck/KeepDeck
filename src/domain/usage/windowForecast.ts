@@ -1,6 +1,5 @@
 import {
   formatCountdown,
-  formatMoment,
   formatPct,
   usageStale,
   windowResetCaption,
@@ -45,10 +44,11 @@ import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
  */
 export type WindowForecast =
   /** No projection may be made: too few reports, too short a span, a stale
-   * journal, an expired window — or a pace that came out NEGATIVE, which
-   * means the journal is contradicting itself and is not evidence of
-   * anything. */
-  | { kind: "unknown" }
+   * journal, an expired window — or, `contradictory`, a pace that came out
+   * NEGATIVE: the journal is contradicting itself and is not evidence of
+   * anything. The two are said differently: the first is a want of
+   * reports, the second has reports enough that do not add up. */
+  | { kind: "unknown"; contradictory?: true }
   /** Reports, and no growth at all across the tail. A real answer, and a
    * different one from "cannot say". */
   | { kind: "idle" }
@@ -205,7 +205,7 @@ export function windowForecast(
   // and it did: after a lagged reset the card read "Not spending right now"
   // for a whole lookback horizon — 45 minutes on a 5h window, over 8 hours
   // on a weekly one.
-  if (pace < 0) return { kind: "unknown" };
+  if (pace < 0) return { kind: "unknown", contradictory: true };
   if (pace === 0) return { kind: "idle" };
   const outAt = last.reportedAt + (100 - last.usedPct) / pace;
   if (outAt <= now) {
@@ -319,71 +319,6 @@ function forecastClause(
 }
 
 /**
- * Does the reset arrive before the pace does?
- *
- * THE one home of the capping rule. The burn plot ends its axis at
- * `min(outAt, resetsAt)` and the edge label has to name whichever of the
- * two that was — asking the question in both places let one of them be
- * merely handed the answer, which is how the label ended up needing a plot
- * before it could be built.
- */
-export function resetCapsProjection(
-  window: UsageWindow,
-  forecast: WindowForecast,
-  now: number,
-): boolean {
-  if (window.resetsAt === null) return false;
-  if (forecast.kind !== "lasts" && forecast.kind !== "out") return false;
-  return forecast.outAt >= now && forecast.outAt >= window.resetsAt;
-}
-
-/**
- * What the burn plot's RIGHT EDGE is, as a moment.
- *
- * The axis runs from the window's first report to wherever the projection
- * ends, so that edge already IS the answer to "when do I hit 100%" — the
- * out-dot sits on it. It was labelled "reset" or nothing at all, which left
- * the most-asked question drawn but unnamed, and left the reader deriving a
- * clock time from a countdown printed in a different line.
- */
-export interface BurnEdge extends ForecastCaptionPart {
-  /** The edge IS the reset. The plot rules a boundary line there; asking
-   * this of the label rather than sniffing its text keeps the two from
-   * having separate opinions about the same edge. */
-  atReset: boolean;
-}
-
-export function burnEdgeLabel(
-  window: UsageWindow,
-  forecast: WindowForecast,
-  now: number,
-): BurnEdge {
-  const { resetsAt } = window;
-  if (resetsAt !== null && resetCapsProjection(window, forecast, now)) {
-    return {
-      text: `reset ${formatMoment(resetsAt, now)}`,
-      level: null,
-      atReset: true,
-    };
-  }
-  // Every projection that reaches the ceiling before the reset — including
-  // the uncoloured margin band, which used to need its own branch here
-  // because the union could not say what it was.
-  if (forecast.kind === "out") {
-    return {
-      text: formatMoment(forecast.outAt, now),
-      level: forecast.level,
-      atReset: false,
-    };
-  }
-  // No projection at all — the axis simply ends at now. Saying so is what
-  // turns an empty right half into "nothing has been reported since": the
-  // curve stops where the reports stopped, and without this the gap reads
-  // as a chart that failed to draw.
-  return { text: "now", level: null, atReset: false };
-}
-
-/**
  * The card's clause for a window the pace does not exhaust.
  *
  * It names what is LEFT at the reset, not where the line stops. "ends near
@@ -415,8 +350,10 @@ function survivalClause(forecast: WindowForecast): ForecastCaptionPart | null {
  * one, and is also what explains the burn plot's empty right half.
  *
  * An EXPIRED window is neither. Its percentage belongs to a window that is
- * gone, the card already says "reset passed" above, and "Not enough data
- * yet" over it would blame the journal for a fact about the clock.
+ * gone, the card already says "reset passed" above, and "no forecast"
+ * over it would blame the journal for a fact about the clock. A forecast
+ * refused for want of reports says so; one refused because the reports
+ * contradict each other must not claim there are too few of them.
  */
 function quietClause(
   window: UsageWindow,
@@ -427,26 +364,21 @@ function quietClause(
     return { text: "Not spending right now", level: null };
   }
   if (forecast.kind !== "unknown" || windowExpired(window, now)) return null;
-  return { text: "Not enough data yet", level: null };
+  return forecast.contradictory
+    ? { text: "No forecast — the recent reports don't add up", level: null }
+    : { text: "No forecast yet — too few recent reports", level: null };
 }
 
-/** The card's full caption, ordered: the reset stays the anchor fact, the
- * clause joins it — and leads it once the run-out is imminent. */
-export function cardCaptionParts(
+/** The forecast in words, on a line of its own: the run-out when the pace
+ * reaches the limit, the headroom when it does not, or why there is no
+ * projection — null for a window that has reset, whose percentage belongs
+ * to a window that is gone. The three clauses are the card caption's own. */
+export function windowVerdict(
   window: UsageWindow,
   forecast: WindowForecast,
   now: number,
-): ForecastCaptionPart[] {
-  const reset = windowResetCaption(window, now, "long");
-  const clause =
-    forecastClause(forecast, now) ??
-    survivalClause(forecast) ??
-    quietClause(window, forecast, now);
-  const parts: ForecastCaptionPart[] = [];
-  if (clause !== null && clause.level === "critical") parts.push(clause);
-  if (reset !== "") parts.push({ text: reset, level: null });
-  if (clause !== null && clause.level !== "critical") parts.push(clause);
-  return parts;
+): ForecastCaptionPart | null {
+  return forecastClause(forecast, now) ?? survivalClause(forecast) ?? quietClause(window, forecast, now);
 }
 
 /**
@@ -476,19 +408,21 @@ export function runOutPhrase(
   return `${verb} the limit in ~${countdown}`;
 }
 
-/** The popover line shows THE next relevant event, always "… in X": the
- * reset caption while the pace survives it, REPLACED by the run-out
- * countdown when it does not. The word swap plus the color IS the verdict. */
-export function panelWindowCaption(
+/** The popover's lines for a window, each "… in X": the run-out first,
+ * coloured, when the pace reaches the limit before the reset — and the
+ * reset always. The run-out used to REPLACE the reset, so the reader saw
+ * when the limit runs out but not how long the wait is after it (user,
+ * 2026-11-15). An expired window has no reset to name, and says nothing. */
+export function panelWindowLines(
   window: UsageWindow,
   forecast: WindowForecast,
   now: number,
-): ForecastCaptionPart {
+): ForecastCaptionPart[] {
+  const lines: ForecastCaptionPart[] = [];
   if (forecast.kind === "out") {
-    return {
-      text: runOutPhrase(forecast.outAt, now, "join"),
-      level: forecast.level,
-    };
+    lines.push({ text: runOutPhrase(forecast.outAt, now, "join"), level: forecast.level });
   }
-  return { text: windowResetCaption(window, now), level: null };
+  const reset = windowResetCaption(window, now);
+  if (reset !== "") lines.push({ text: reset, level: null });
+  return lines;
 }

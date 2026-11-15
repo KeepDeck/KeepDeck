@@ -12,7 +12,7 @@ import { type WindowReport } from "../../domain/usage/reportJournal";
 import { windowBurn } from "../../domain/usage/windowBurn";
 import {
   accountWindowForecasts,
-  panelWindowCaption,
+  panelWindowLines,
 } from "../../domain/usage/windowForecast";
 import { useSettingsWrite } from "../../app/useSettings";
 import { UsageWindowBar } from "./UsageWindowBar";
@@ -20,9 +20,9 @@ import { WindowBurn } from "./WindowBurn";
 import { WindowValue } from "./WindowValue";
 
 /**
- * The chips' anchored panel: one provider's windows with bars, the
- * next-relevant-event caption (reset, or the run-out that beats it) and
- * the compact burn sparkline. Extracted from UsageChips so the panel body
+ * The chips' anchored panel: one provider's windows with bars, their
+ * lines (the run-out that beats the reset, and the reset) and the compact
+ * burn sparkline. Extracted from UsageChips so the panel body
  * is testable on its own and the chips file keeps one job.
  */
 export function UsagePanel({
@@ -115,9 +115,8 @@ export function UsagePanel({
                 const row = rows.get(window);
                 if (!row) return null;
                 const { reports, forecast } = row;
-                // THE next relevant event, one per row: the reset while
-                // the pace survives it, the run-out once it does not.
-                const caption = panelWindowCaption(window, forecast, now);
+                // The run-out when the pace beats the reset, and the reset.
+                const lines = panelWindowLines(window, forecast, now);
                 return (
                   <div key={i} className="usage-window">
                     <span className="usage-window__label">
@@ -126,17 +125,20 @@ export function UsagePanel({
                     <UsageWindowBar window={window} now={now} />
                     <span className="usage-window__detail">
                       <WindowValue window={window} display={display} now={now} />
-                      {caption.text && (
-                        <small className={usageLevelClass(caption.level)}>
-                          {caption.text}
-                        </small>
-                      )}
                     </span>
+                    {lines.length > 0 && (
+                      <span className="usage-window__lines">
+                        {lines.map((line) => (
+                          <small key={line.text} className={usageLevelClass(line.level)}>
+                            {line.text}
+                          </small>
+                        ))}
+                      </span>
+                    )}
                     <WindowBurn
-                      geometry={windowBurn(reports, window, forecast, now, "data")}
+                      geometry={windowBurn(reports, window, forecast, now)}
                       stroke={seriesColorFor(seriesColors, agent.id)}
                       now={now}
-                      size="compact"
                     />
                   </div>
                 );
