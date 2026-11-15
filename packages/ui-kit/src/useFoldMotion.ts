@@ -299,6 +299,7 @@ function finishWalk<T>(motion: Motion<T> | null, list: HTMLElement | null): void
 
 const REDUCE = "(prefers-reduced-motion: reduce)";
 
-function reducedMotion(): boolean {
+/** Whether the person asked for reduced motion: a fold then lands at once. */
+export function reducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.(REDUCE).matches === true;
 }
