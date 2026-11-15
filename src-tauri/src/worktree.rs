@@ -274,6 +274,94 @@ fn base_branch_options(path: &Path) -> Result<Vec<String>, String> {
     Ok(branch::pin_first(list, pin.as_deref()))
 }
 
+/// One of a repository's checkouts, as the Workspaces window lists them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedWorktree {
+    pub path: String,
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub detached: bool,
+    pub locked: bool,
+    /// Its directory is gone; only git's record of it is left.
+    pub prunable: bool,
+    /// Entries `git status` calls changed — `None` when that could not be
+    /// asked (a directory that is gone, a git that failed). Never a silent 0.
+    pub changed: Option<usize>,
+}
+
+/// Every checkout of `repo`, from `git worktree list`, with how much
+/// uncommitted work each holds. `(async)`: it shells out to git per row.
+#[tauri::command(async)]
+pub fn worktree_list(repo: String) -> Result<Vec<ListedWorktree>, String> {
+    let path = Path::new(&repo);
+    if !repo::is_git_repo(path) {
+        return Err(format!("not a git repository: {repo}"));
+    }
+    list_worktrees(path)
+}
+
+/// [`worktree_list`] body.
+fn list_worktrees(repo: &Path) -> Result<Vec<ListedWorktree>, String> {
+    let rows = worktree::list(repo).map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| !row.bare)
+        .map(|row| {
+            let changed = if row.prunable || !row.path.exists() {
+                None
+            } else {
+                worktree::changed_entries(&row.path).ok()
+            };
+            ListedWorktree {
+                path: row.path.to_string_lossy().into_owned(),
+                branch: row.branch,
+                head: row.head,
+                detached: row.detached,
+                locked: row.locked,
+                prunable: row.prunable,
+                changed,
+            }
+        })
+        .collect())
+}
+
+/// Keep the commit a checkout stands on as `refs/tags/<name>` — asked before
+/// a detached checkout is removed, so the commits only it holds are not left
+/// for git to collect. Refuses a name already taken rather than moving it.
+#[tauri::command(async)]
+pub fn worktree_save_head(repo: String, path: String, name: String) -> Result<String, String> {
+    save_head(Path::new(&repo), Path::new(&path), &name)
+}
+
+/// [`worktree_save_head`] body.
+fn save_head(repo: &Path, path: &Path, name: &str) -> Result<String, String> {
+    let rows = worktree::list(repo).map_err(|e| e.to_string())?;
+    let head = rows
+        .into_iter()
+        .find(|row| worktree::paths_match(&row.path, path))
+        .and_then(|row| row.head)
+        .ok_or_else(|| format!("{} is not a checkout of this repository with a commit", path.display()))?;
+    let reference = format!("refs/tags/{name}");
+    // `update-ref` with an all-zero old value creates the ref only if it does
+    // not exist yet: a name in use is refused, never moved.
+    let zero = "0".repeat(head.len());
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["update-ref", &reference, &head, &zero])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !status.status.success() {
+        return Err(format!(
+            "could not keep {} as tag {name}: {}",
+            &head[..head.len().min(7)],
+            String::from_utf8_lossy(&status.stderr).trim()
+        ));
+    }
+    Ok(reference)
+}
+
 /// Inspect a working directory: is it a git repo, and if so its `HEAD`/branch.
 /// Never errors — a non-repo simply reports `is_repo: false`. `(async)`: it
 /// shells out to git — off the main thread.
@@ -1529,6 +1617,60 @@ mod tests {
         assert!(wt.join("wip.txt").exists(), "work was destroyed");
         let _ = std::fs::remove_dir_all(&repo);
         let _ = std::fs::remove_dir_all(&wt);
+    }
+
+    #[test]
+    fn lists_every_checkout_with_its_changed_entries() {
+        let (repo, wt, branch) = repo_with_worktree("list-changed");
+        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
+        std::fs::create_dir_all(wt.join("new/dir")).unwrap();
+        std::fs::write(wt.join("new/dir/a.txt"), "a").unwrap();
+
+        let rows = list_worktrees(&repo).expect("listed");
+
+        assert_eq!(rows.len(), 2, "the main checkout and the linked one");
+        let linked = rows.iter().find(|row| row.branch.as_deref() == Some(branch.as_str())).expect("the linked row");
+        // A file and an untracked directory: two entries, as git counts them.
+        assert_eq!(linked.changed, Some(2));
+        assert!(!linked.prunable && !linked.detached);
+        let main = rows.iter().find(|row| row.branch.as_deref() != Some(branch.as_str())).expect("the main row");
+        assert_eq!(main.changed, Some(0));
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn a_checkout_whose_folder_is_gone_is_prunable_and_its_changes_unknown() {
+        let (repo, wt, branch) = repo_with_worktree("list-gone");
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        let rows = list_worktrees(&repo).expect("listed");
+
+        let gone = rows.iter().find(|row| row.branch.as_deref() == Some(branch.as_str())).expect("the gone row");
+        assert!(gone.prunable);
+        assert_eq!(gone.changed, None, "unknown, never a silent 0");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn keeps_a_checkouts_commit_as_a_tag_and_never_moves_one_already_there() {
+        let (repo, wt, _branch) = repo_with_worktree("save-head");
+        std::fs::write(wt.join("f.txt"), "work").unwrap();
+        git(&wt, &["add", "."]);
+        git(&wt, &["commit", "-q", "-m", "only here"]);
+        git(&wt, &["checkout", "-q", "--detach"]);
+        let tip = git_out(&wt, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let saved = save_head(&repo, &wt, "archive/test/save-head").expect("saved");
+        assert_eq!(saved, "refs/tags/archive/test/save-head");
+        assert_eq!(git_out(&repo, &["rev-parse", "archive/test/save-head"]).trim(), tip);
+
+        // Taken: refused, and the tag stays where it was.
+        git(&wt, &["commit", "-q", "--allow-empty", "-m", "moved on"]);
+        assert!(save_head(&repo, &wt, "archive/test/save-head").is_err());
+        assert_eq!(git_out(&repo, &["rev-parse", "archive/test/save-head"]).trim(), tip);
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     #[test]
