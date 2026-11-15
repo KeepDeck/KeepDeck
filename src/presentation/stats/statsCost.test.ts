@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { costCoverage, displayCost, windowLedgerCaption } from "./statsCost";
+import { costCoverage, displayCost } from "./statsCost";
 
 describe("costCoverage", () => {
   const SOURCE =
@@ -47,16 +47,5 @@ describe("displayCost", () => {
     // Unpriced usage alone is unknown, never free; beside a priced sum it is "+".
     expect(displayCost({ costUsd: 0, pricedEvents: 0, unpricedTokens: 10 })).toBe("—");
     expect(displayCost({ costUsd: 1.5, pricedEvents: 2, unpricedTokens: 10 })).toBe("≈$1.50+");
-  });
-});
-
-describe("windowLedgerCaption", () => {
-  it("says what the window's sessions used and, once one was priced, cost", () => {
-    const ledger = { totalTokens: 15_500, sessionCount: 2, costUsd: 1.5, pricedEvents: 3, unpricedTokens: 0 };
-    expect(windowLedgerCaption(ledger)).toBe("15.5k · 2 sessions · ≈$1.50 this window");
-    expect(windowLedgerCaption({ ...ledger, sessionCount: 1, pricedEvents: 0 })).toBe(
-      "15.5k · 1 session this window",
-    );
-    expect(windowLedgerCaption({ ...ledger, sessionCount: 0 })).toBe("no usage this window");
   });
 });

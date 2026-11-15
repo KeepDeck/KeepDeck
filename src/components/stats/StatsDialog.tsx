@@ -180,6 +180,7 @@ export function UsageStats({
             colors={seriesColors}
             reportsByKey={reports.byKey}
             now={now}
+            measure={view.measure}
           />
         );
       case "weekly":

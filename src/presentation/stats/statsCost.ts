@@ -1,10 +1,10 @@
-import { formatTokens, formatUsd } from "../../domain/usage";
+import { formatUsd } from "../../domain/usage";
 import type { CostTally } from "../../domain/usage/history/event";
 
 /**
- * How the Statistics screen speaks of money: a cost figure, the note on
- * where the figures come from, and a provider window's spend line. Every
- * money fold hands its CostTally here; none phrases it itself.
+ * How the Statistics screen speaks of money: a cost figure, and the note
+ * on where the figures come from. Every money fold hands its CostTally
+ * here; none phrases it itself.
  */
 
 /** A cost aggregate: "—" until at least one event carried a price —
@@ -38,20 +38,4 @@ export function costCoverage(totals: CostTally & { totalTokens: number }): strin
     );
   }
   return notes.join(" ");
-}
-
-/** What this machine spent inside a provider window, as one line: its
- * tokens, its sessions, and their cost once one of them was priced. The
- * branch is on the tally, never on the formatter's dash — a reworded "no
- * data" must not change the line. */
-export function windowLedgerCaption(
-  ledger: Pick<CostTally, "costUsd" | "pricedEvents" | "unpricedTokens"> & {
-    sessionCount: number;
-    totalTokens: number;
-  },
-): string {
-  if (ledger.sessionCount === 0) return "no usage this window";
-  const sessions = `${ledger.sessionCount} session${ledger.sessionCount === 1 ? "" : "s"}`;
-  const spend = ledger.pricedEvents === 0 ? sessions : `${sessions} · ${displayCost(ledger)}`;
-  return `${formatTokens(ledger.totalTokens)} · ${spend} this window`;
 }

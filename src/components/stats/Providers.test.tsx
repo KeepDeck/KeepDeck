@@ -65,7 +65,7 @@ describe("Providers", () => {
   }) {
     act(() =>
       root.render(
-        createElement(Providers, { accounts, ledger: ledgerOf(events), colors: new Map(), reportsByKey, now }),
+        createElement(Providers, { accounts, ledger: ledgerOf(events), colors: new Map(), reportsByKey, now, measure: "spend" }),
       ),
     );
   }
