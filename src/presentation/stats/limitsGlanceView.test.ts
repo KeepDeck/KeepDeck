@@ -22,6 +22,7 @@ const windowView = (over: Partial<ProviderWindowView> = {}): ProviderWindowView 
 const card = (over: Partial<ProviderCardView> = {}): ProviderCardView => ({
   agent: "codex",
   updated: { text: "Updated 2m ago" },
+  age: { text: "2m ago" },
   note: null,
   windows: [windowView()],
   ...over,
@@ -55,14 +56,18 @@ describe("the limits glance", () => {
     ]);
   });
 
-  it("says a reading is old only when it is old enough to doubt", () => {
-    const fresh = limitsGlanceView({ kind: "cards", title: "", cards: [card()] }, NOW, COLORS);
-    expect(fresh.providers[0]?.stale).toBeNull();
-    const old = card({ updated: { text: "Updated 3h ago", className: "usage-level--warn" } });
-    expect(limitsGlanceView({ kind: "cards", title: "", cards: [old] }, NOW, COLORS).providers[0]?.stale).toEqual({
-      text: "Updated 3h ago",
-      className: "usage-level--warn",
-    });
+  it("says a reading is old only when it is old enough to doubt — as its age, under the provider's name", () => {
+    const glance = (over: Partial<ProviderCardView>) => {
+      const [provider] = limitsGlanceView({ kind: "cards", title: "", cards: [card(over)] }, NOW, COLORS).providers;
+      return { line: provider?.age, cells: provider?.windows.map((w) => w.age) };
+    };
+    const old = { updated: { text: "Updated 3h ago", className: "usage-level--warn" }, age: { text: "3h ago", className: "usage-level--warn" } };
+    expect(glance({})).toEqual({ line: null, cells: [null] });
+    // One window: the age takes a short line of its own under the name.
+    expect(glance(old)).toEqual({ line: old.age, cells: [null] });
+    // More windows: it fills the empty name cell of the second line, once.
+    const three = [windowView({ id: "a" }), windowView({ id: "b" }), windowView({ id: "c" })];
+    expect(glance({ ...old, windows: three })).toEqual({ line: null, cells: [null, old.age, null] });
   });
 
   it("marks a window that has reset, and says so when no provider has reported", () => {

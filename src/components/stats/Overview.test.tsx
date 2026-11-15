@@ -135,6 +135,30 @@ describe("Overview", () => {
     expect(glance.textContent).toContain("3h");
   });
 
+  it("says an old report's age under the provider's name, never dimmed with a window that reset", async () => {
+    const accounts = new Map<string, AccountUsage>([
+      ["claude", { kind: "reported", reportedAt: NOW - 3 * 3_600_000, sourcePaneId: "pane-1", windows: [
+        { usedPct: 1, resetsAt: NOW + 5 * 86_400_000, windowMinutes: 10_080 },
+      ] }],
+      ["kimi", { kind: "reported", reportedAt: NOW - 4 * 86_400_000, sourcePaneId: "pane-2", windows: [
+        { usedPct: 3, resetsAt: NOW + 3_600_000, windowMinutes: 300 },
+        // The week has reset: its line dims, the age in it must not.
+        { usedPct: 1, resetsAt: NOW - 3_600_000, windowMinutes: 10_080 },
+      ] }],
+    ]);
+    await render([row()], { accounts });
+    const providers = [...host.querySelectorAll(".stats__glance-provider")];
+    const ageOf = (provider: Element | undefined) => provider?.querySelector(".stats__glance-age");
+    // One window: a line of its own under the name.
+    expect(ageOf(providers[0])?.textContent).toBe("3h ago");
+    expect(ageOf(providers[0])?.classList.contains("stats__glance-age--line")).toBe(true);
+    // Two windows: the second line's name cell, kept out of the reset window's dimming.
+    const kimiLines = [...(providers[1]?.querySelectorAll(".stats__glance-window") ?? [])];
+    expect(kimiLines[1]?.classList.contains("stats__glance-window--expired")).toBe(true);
+    expect(kimiLines[1]?.querySelector(".stats__glance-agent--age")?.textContent).toBe("4d ago");
+    expect(host.textContent).not.toContain("Updated");
+  });
+
   it("says what the money is and what it is missing", async () => {
     await render([row(), row({ costUsd: undefined, tokens: { input: 3_000 } })]);
     expect(present(host.querySelector(".stats__coverage"), "the note").textContent).toContain("a sum marked “+” leaves them out");

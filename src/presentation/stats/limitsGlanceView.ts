@@ -15,6 +15,9 @@ export interface GlanceWindowView {
   id: string;
   /** The provider's name, on its first window's line only. */
   agent: string | null;
+  /** The provider's stale report age, in the name cell of its second
+   * window's line — the cell under its name that is empty anyway. */
+  age: ToneText | null;
   label: string;
   percent: ToneText;
   expired: boolean;
@@ -30,8 +33,10 @@ export interface GlanceProviderView {
   agent: string;
   color: string;
   windows: GlanceWindowView[];
-  /** The report age, only when it is old enough to doubt. */
-  stale: ToneText | null;
+  /** The report age of a provider with ONE window, said on a short line
+   * under its name — only when it is old enough to doubt. With more
+   * windows it sits on the second line instead (GlanceWindowView.age). */
+  age: ToneText | null;
 }
 
 export interface LimitsGlanceView {
@@ -53,7 +58,12 @@ export function limitsGlanceView(
   return { ...head, providers: view.cards.map((card) => glanceProvider(card, now, colors)), empty: null };
 }
 
+/** The report age belongs to the provider, so it is said under the
+ * provider's name: in the empty name cell of its second window's line, or
+ * on a line of its own when there is no second window. */
 function glanceProvider(card: ProviderCardView, now: number, colors: ReadonlyMap<string, string>): GlanceProviderView {
+  const stale = card.age.className === undefined ? null : card.age;
+  const ownLine = card.windows.length < 2;
   return {
     agent: card.agent,
     color: seriesColorFor(colors, card.agent),
@@ -64,6 +74,7 @@ function glanceProvider(card: ProviderCardView, now: number, colors: ReadonlyMap
       return {
         id: window.id,
         agent: index === 0 ? card.agent : null,
+        age: index === 1 ? stale : null,
         label: window.label,
         percent: window.percent,
         expired: window.expired,
@@ -72,6 +83,6 @@ function glanceProvider(card: ProviderCardView, now: number, colors: ReadonlyMap
         alarm: alarm === undefined ? null : { text: alarm.text, className: alarm.className },
       };
     }),
-    stale: card.updated.className === undefined ? null : card.updated,
+    age: ownLine ? stale : null,
   };
 }
