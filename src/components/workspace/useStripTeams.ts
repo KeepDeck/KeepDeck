@@ -6,13 +6,8 @@ import {
   planListMotions,
 } from "../../presentation/stripExpand";
 import type { StripView } from "../../presentation/stripView";
-import {
-  STRIP_MOTION_MS,
-  animateTeamList,
-  browserClock,
-  prefersReducedMotion,
-  type MotionHandle,
-} from "../../ui/stripTeamsMotion";
+import { browserClock, reducedMotion } from "@keepdeck/ui-kit/tween";
+import { STRIP_MOTION_MS, animateTeamList, type MotionHandle } from "../../ui/stripTeamsMotion";
 
 /** The id a workspace's team list carries — what the chevron controls and
  * what the motion finds. */
@@ -137,7 +132,7 @@ export function useStripTeams(
       view.marks.map((mark) => mark.id),
       { scrollTop: list.scrollTop, viewportHeight: list.clientHeight, contentHeight: list.scrollHeight },
     );
-    const durationMs = prefersReducedMotion() ? 0 : STRIP_MOTION_MS;
+    const durationMs = reducedMotion() ? 0 : STRIP_MOTION_MS;
     for (const plan of plans) {
       const el = elements.get(plan.id);
       if (!el) continue; // a plan is made only for a measured block

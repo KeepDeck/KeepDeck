@@ -6,39 +6,17 @@
  * the height, so the row the list hangs from never moves on its own.
  *
  * Impure on purpose and thin: every number it moves to comes from the
- * pure rules in presentation/stripExpand; the clock is injected so tests
- * can step frames.
+ * pure rules in presentation/stripExpand, and the motion itself is ui-kit's
+ * one tween (runTween) — the folds' ease-out cubic, which the column's edge
+ * runs too as cubic-bezier(0.33, 1, 0.68, 1) in strip.css; the clock is
+ * injected so tests can step frames.
  */
+import { runTween, type FrameClock, type Tween } from "@keepdeck/ui-kit/tween";
 
 /** One duration for the strip's every motion — the column's width
  * transition in strip.css is this long too (deck.test holds them equal),
  * so the list and the edge arrive together. */
 export const STRIP_MOTION_MS = 140;
-
-export interface FrameClock {
-  now(): number;
-  frame(callback: (time: number) => void): number;
-  cancel(id: number): void;
-}
-
-export const browserClock: FrameClock = {
-  now: () => performance.now(),
-  frame: (callback) =>
-    typeof requestAnimationFrame === "function"
-      ? requestAnimationFrame(callback)
-      : window.setTimeout(() => callback(performance.now()), 16),
-  cancel: (id) =>
-    typeof cancelAnimationFrame === "function" ? cancelAnimationFrame(id) : window.clearTimeout(id),
-};
-
-export function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-/** Ease-out cubic: quick to start, settling at the end. The strip's edge
- * runs the same curve — cubic-bezier(0.33, 1, 0.68, 1) in strip.css, which
- * deck.test holds to this. */
-const easeOut = (x: number) => 1 - (1 - x) ** 3;
 
 export interface ListMotion {
   /** The list's own box: its height is driven. */
@@ -52,20 +30,14 @@ export interface ListMotion {
   durationMs: number;
 }
 
-/** A running motion's two ways out. */
-export interface MotionHandle {
-  /** Jump to the end at once — a person's own scroll taking over (a script
-   * still writing scrollTop under a wheel is a jump). */
-  finish(): void;
-  /** Stop where it is, without landing or reporting done — a motion the
-   * other way takes over from the height it reached. */
-  stop(): void;
+/** A running motion's ways out: the tween's two, and letting the scroll go. */
+export interface MotionHandle extends Tween {
   /** Keep moving the height, but stop writing the scroll — another motion
    * now owns the scroll, and two writing it every frame would fight. */
   releaseScroll(): void;
 }
 
-/** Run one list motion. */
+/** Run one list motion: the height and the scroll painted from ONE tween. */
 export function animateTeamList(
   motion: ListMotion,
   clock: FrameClock,
@@ -74,41 +46,19 @@ export function animateTeamList(
   const { block, list, from, to, scrollTo, durationMs } = motion;
   const scrollFrom = list.scrollTop;
   let scrollTarget = scrollTo;
-  let frame: number | null = null;
-  let done = false;
-  const land = (progress: number) => {
-    block.style.height = `${from + (to - from) * progress}px`;
-    if (scrollTarget !== null) list.scrollTop = scrollFrom + (scrollTarget - scrollFrom) * progress;
+  const tween = runTween(
+    durationMs,
+    clock,
+    (progress) => {
+      block.style.height = `${from + (to - from) * progress}px`;
+      if (scrollTarget !== null) list.scrollTop = scrollFrom + (scrollTarget - scrollFrom) * progress;
+    },
+    onDone,
+  );
+  return {
+    ...tween,
+    releaseScroll: () => {
+      scrollTarget = null;
+    },
   };
-  const finish = () => {
-    if (done) return;
-    done = true;
-    if (frame !== null) clock.cancel(frame);
-    land(1);
-    onDone?.();
-  };
-  const releaseScroll = () => {
-    scrollTarget = null;
-  };
-  const stop = () => {
-    if (done) return;
-    done = true;
-    if (frame !== null) clock.cancel(frame);
-  };
-  if (durationMs <= 0) {
-    finish();
-    return { finish, stop, releaseScroll };
-  }
-  const start = clock.now();
-  const step = (time: number) => {
-    frame = null;
-    if (done) return;
-    const progress = Math.min(1, (time - start) / durationMs);
-    land(easeOut(progress));
-    if (progress < 1) frame = clock.frame(step);
-    else finish();
-  };
-  land(0);
-  frame = clock.frame(step);
-  return { finish, stop, releaseScroll };
 }
