@@ -1,6 +1,7 @@
 import { useState } from "react";
-import type { Workspace } from "../../domain/deck";
+import type { Workspace, WorkspacePatch, WorkspaceUpdateResult } from "../../domain/deck";
 import {
+  updateRefusalWords,
   WORKSPACES_WORDS,
   workspacesWindowView,
   type WorkspaceListGroup,
@@ -20,6 +21,9 @@ export interface WorkspacesDialogProps {
   onRestore(wsId: string): void;
   onArchive(wsId: string): void;
   onCloseWorkspace(wsId: string): void;
+  /** Edit the page's workspace; the domain's answer comes back. */
+  onUpdate(wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult;
+  pickFolder(title: string): Promise<string | null>;
   onClose(): void;
   /** Whether the window may close itself now (no transaction over it). */
   canClose: boolean;
@@ -39,6 +43,8 @@ export function WorkspacesDialog({
   onRestore,
   onArchive,
   onCloseWorkspace,
+  onUpdate,
+  pickFolder,
   onClose,
   canClose,
 }: WorkspacesDialogProps) {
@@ -68,7 +74,17 @@ export function WorkspacesDialog({
           </nav>
           <section className="settings__section workspaces__page">
             {view.page && (
-              <Page page={view.page} onRestore={onRestore} onArchive={onArchive} onCloseWorkspace={onCloseWorkspace} />
+              <Page
+                // A page per workspace: what one was being typed into is not
+                // carried onto the next.
+                key={view.page.id}
+                page={view.page}
+                onRestore={onRestore}
+                onArchive={onArchive}
+                onCloseWorkspace={onCloseWorkspace}
+                onUpdate={onUpdate}
+                pickFolder={pickFolder}
+              />
             )}
           </section>
         </div>
@@ -105,13 +121,28 @@ function Page({
   onRestore,
   onArchive,
   onCloseWorkspace,
+  onUpdate,
+  pickFolder,
 }: {
   page: WorkspacePageView;
   onRestore(wsId: string): void;
   onArchive(wsId: string): void;
   onCloseWorkspace(wsId: string): void;
+  onUpdate(wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult;
+  pickFolder(title: string): Promise<string | null>;
 }) {
-  const { state, acts } = page;
+  const { state, acts, fields } = page;
+  /** What the last edit was refused for, until the next one. */
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const update = (patch: WorkspacePatch) => {
+    const result = onUpdate(page.id, patch);
+    setRefusal(result.ok ? null : updateRefusalWords(result.refusal));
+  };
+  const choose = (title: string, apply: (path: string) => WorkspacePatch) => {
+    void pickFolder(title).then((path) => {
+      if (path !== null) update(apply(path));
+    });
+  };
   return (
     <div className="workspaces__pane">
       <header className="workspaces__head">
@@ -137,6 +168,82 @@ function Page({
           </Button>
         </div>
       )}
+      <section className="workspaces__sec">
+        <h4>{WORKSPACES_WORDS.identity}</h4>
+        <label className="workspaces__field">
+          <span className="form__label">{WORKSPACES_WORDS.name}</span>
+          <input
+            // Re-seeded when the name changes elsewhere (the crumb, a command).
+            key={fields.name}
+            className="form__input"
+            defaultValue={fields.name}
+            readOnly={!fields.editable}
+            aria-label={WORKSPACES_WORDS.name}
+            onBlur={(event) => {
+              if (fields.editable && event.currentTarget.value !== fields.name) update({ name: event.currentTarget.value });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+          />
+        </label>
+      </section>
+      <section className="workspaces__sec">
+        <h4>{WORKSPACES_WORDS.folders}</h4>
+        <div className="workspaces__field">
+          <span className="form__label">{WORKSPACES_WORDS.workingDirectory}</span>
+          <div className="form__dir">
+            <span className="form__dir-path" title={fields.cwd.path}>
+              <span>{fields.cwd.path}</span>
+            </span>
+            {fields.editable && !fields.cwd.locked && (
+              <button
+                type="button"
+                className="form__dir-btn"
+                aria-label={WORKSPACES_WORDS.chooseWorkingDirectory}
+                onClick={() => choose(WORKSPACES_WORDS.chooseWorkingDirectory, (cwd) => ({ cwd }))}
+              >
+                {WORKSPACES_WORDS.choose}
+              </button>
+            )}
+          </div>
+          {fields.editable && fields.cwd.locked && <span className="settings__hint">{WORKSPACES_WORDS.cwdLocked}</span>}
+        </div>
+        <div className="workspaces__field">
+          <span className="form__label">{WORKSPACES_WORDS.worktreeFolder}</span>
+          <div className="form__dir">
+            <span className={`form__dir-path${fields.worktreeBaseDir ? "" : " form__dir-path--empty"}`}>
+              <span>{fields.worktreeBaseDir ?? WORKSPACES_WORDS.noWorktreeFolder}</span>
+            </span>
+            {fields.editable && (
+              <>
+                <button
+                  type="button"
+                  className="form__dir-btn"
+                  aria-label={WORKSPACES_WORDS.chooseWorktreeFolder}
+                  onClick={() =>
+                    choose(WORKSPACES_WORDS.chooseWorktreeFolder, (worktreeBaseDir) => ({ worktreeBaseDir }))
+                  }
+                >
+                  {WORKSPACES_WORDS.choose}
+                </button>
+                {fields.worktreeBaseDir !== null && (
+                  <button type="button" className="form__dir-btn" onClick={() => update({ worktreeBaseDir: null })}>
+                    {WORKSPACES_WORDS.clear}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+          <span className="settings__hint">{WORKSPACES_WORDS.worktreeFolderHint}</span>
+        </div>
+        {!fields.editable && <span className="settings__hint">{WORKSPACES_WORDS.readOnly}</span>}
+        {refusal && (
+          <span className="settings__hint settings__hint--warn" role="alert">
+            {refusal}
+          </span>
+        )}
+      </section>
       <footer className="workspaces__foot">
         {acts.archive && (
           <Button variant="secondary" onClick={() => onArchive(page.id)}>

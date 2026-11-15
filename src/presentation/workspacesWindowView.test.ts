@@ -96,6 +96,17 @@ describe("workspacesWindowView — the page", () => {
     });
   });
 
+  it("gives a page its own fields: editable in use, kept as they are when archived", () => {
+    expect(view().page?.fields).toEqual({
+      editable: true,
+      name: "KeepDeck",
+      cwd: { path: "/Users/me/keepdeck", locked: true },
+      worktreeBaseDir: null,
+    });
+    expect(view({ focus: "ws-2" }).page?.fields.cwd.locked).toBe(false);
+    expect(view({ focus: "ws-3" }).page?.fields.editable).toBe(false);
+  });
+
   it("will not close one still being archived, and says why", () => {
     const busy = ws("ws-6", "Busy", "/b", { at: HOURS(0), phase: "archiving" });
     const page = workspacesWindowView({ workspaces: [busy], activeId: "", query: "", focus: null, now: NOW }).page;

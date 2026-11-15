@@ -8,7 +8,13 @@
  * suspended, everything else is kept, and Restore brings it back into the
  * strip with every agent as it is — nobody is woken.
  */
-import { teamsOf, type Workspace, type WorkspaceArchived } from "../domain/deck";
+import {
+  cwdLocked,
+  teamsOf,
+  type Workspace,
+  type WorkspaceArchived,
+  type WorkspaceUpdateRefusal,
+} from "../domain/deck";
 import { formatAge } from "../domain/usage";
 import { counted } from "./countWords";
 import { workspaceInitials } from "./stripView";
@@ -29,7 +35,37 @@ export const WORKSPACES_WORDS = {
   archivingBanner: "Being archived — its agents are stopping.",
   restoreNote: "Restore brings it back into the strip with every agent as it is — nobody is woken.",
   closeWhileArchiving: "It can be closed once the archive has stopped its agents.",
+  identity: "Identity",
+  name: "Name",
+  folders: "Folders",
+  workingDirectory: "Working directory",
+  worktreeFolder: "Worktree folder",
+  choose: "Choose…",
+  clear: "Clear",
+  chooseWorkingDirectory: "Choose the workspace's working directory",
+  chooseWorktreeFolder: "Choose where new teams' worktrees go",
+  cwdLocked: "Can be changed only while the workspace has no teams and no agents.",
+  noWorktreeFolder: "Next to the repo (suggested per team)",
+  worktreeFolderHint: "Where new teams' worktrees go. Existing worktrees stay where they are.",
+  readOnly: "An archived workspace is kept as it was — restore it to change it.",
 } as const;
+
+/** A refused edit, said on the page. The domain decided it; a picker never
+ * hands a blank or relative folder, but the words stand for every kind. */
+export function updateRefusalWords(refusal: WorkspaceUpdateRefusal): string {
+  switch (refusal.kind) {
+    case "unknown-workspace":
+      return "This workspace is no longer open.";
+    case "archived":
+      return WORKSPACES_WORDS.readOnly;
+    case "cwd-not-empty":
+      return WORKSPACES_WORDS.cwdLocked;
+    case "blank-cwd":
+      return "A workspace needs a working directory.";
+    case "relative-cwd":
+      return "The working directory must be a full path.";
+  }
+}
 
 export interface WorkspaceListRow {
   id: string;
@@ -61,6 +97,14 @@ export interface WorkspacePageView {
     restore: boolean;
     archive: boolean;
     close: { disabled: boolean; refusal?: string };
+  };
+  /** Its own fields — editable while it is in use, shown as they are when
+   * it is archived. */
+  fields: {
+    editable: boolean;
+    name: string;
+    cwd: { path: string; locked: boolean };
+    worktreeBaseDir: string | null;
   };
 }
 
@@ -124,6 +168,12 @@ function pageOf(ws: Workspace, now: number): WorkspacePageView {
     cwd: ws.cwd,
     facts: `${counted(teams, "team")} · ${counted(ws.panes.length, "agent")}`,
     state,
+    fields: {
+      editable: marker === undefined,
+      name: ws.name,
+      cwd: { path: ws.cwd, locked: cwdLocked(ws) !== null },
+      worktreeBaseDir: ws.worktreeBaseDir,
+    },
     acts: {
       restore: marker !== undefined,
       archive: marker === undefined,

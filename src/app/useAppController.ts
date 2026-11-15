@@ -50,7 +50,9 @@ import {
   visibleWorkspaces,
   type SpawnConfig,
   type Workspace,
+  type WorkspacePatch,
   type WorkspacePlace,
+  type WorkspaceUpdateResult,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
@@ -521,6 +523,13 @@ export function useAppController(runtime: AppRuntime) {
       },
       onArchive: archiveFlow.request,
       onCloseWorkspace: closeFlow.requestCloseWorkspace,
+      /** The page's edits — one transition, the domain's answer handed back
+       * so the page can say why one was refused. */
+      onUpdate: (wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult => {
+        const ws = findWorkspace(deck.workspaces, wsId);
+        if (!ws) return { ok: false, refusal: { kind: "unknown-workspace" } };
+        return deck.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
+      },
     },
     deck,
     dismissAlert,

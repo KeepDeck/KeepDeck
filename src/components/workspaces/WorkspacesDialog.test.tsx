@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Workspace } from "../../domain/deck";
+import type { Workspace, WorkspacePatch, WorkspaceUpdateResult } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { WorkspacesDialog, type WorkspacesDialogProps } from "./WorkspacesDialog";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -29,6 +29,8 @@ describe("WorkspacesDialog", () => {
     onArchive: vi.fn(),
     onCloseWorkspace: vi.fn(),
     onClose: vi.fn(),
+    onUpdate: vi.fn<(wsId: string, patch: WorkspacePatch) => WorkspaceUpdateResult>(() => ({ ok: true, workspaces: [] })),
+    pickFolder: vi.fn<(title: string) => Promise<string | null>>(() => Promise.resolve("/picked")),
   };
   const render = (over: Partial<WorkspacesDialogProps> = {}) =>
     act(() =>
@@ -84,6 +86,51 @@ describe("WorkspacesDialog", () => {
     expect(acts.onArchive).toHaveBeenCalledWith("ws-1");
     act(() => button("Close workspace…").click());
     expect(acts.onCloseWorkspace).toHaveBeenCalledWith("ws-1");
+  });
+
+  it("renames the workspace when its name field is left", () => {
+    render();
+    const field = present(document.querySelector<HTMLInputElement>("input[aria-label='Name']"), "the name field");
+    act(() => {
+      present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "value").set?.call(field, "Web app");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      field.focus();
+      field.blur();
+    });
+    expect(acts.onUpdate).toHaveBeenCalledWith("ws-1", { name: "Web app" });
+  });
+
+  it("moves an empty workspace's folder through the picker, and sets or clears its worktree folder", async () => {
+    render();
+    await act(async () => button("Choose…").click());
+    expect(acts.pickFolder).toHaveBeenCalledWith("Choose the workspace's working directory");
+    expect(acts.onUpdate).toHaveBeenCalledWith("ws-1", { cwd: "/picked" });
+
+    render({ workspaces: [ws("ws-1", "Web", { worktreeBaseDir: "/wt" }), DECK[1]] });
+    act(() => button("Clear").click());
+    expect(acts.onUpdate).toHaveBeenCalledWith("ws-1", { worktreeBaseDir: null });
+  });
+
+  it("keeps the folder of a workspace that has teams, and says why", () => {
+    render({ workspaces: [ws("ws-1", "Web", { teams: [{ id: "t1", name: "api" }] }), DECK[1]] });
+    expect(document.querySelector("[aria-label=\"Choose the workspace's working directory\"]")).toBeNull();
+    expect(document.body.textContent).toContain("Can be changed only while the workspace has no teams and no agents.");
+  });
+
+  it("says why an edit was refused", () => {
+    acts.onUpdate.mockReturnValueOnce({ ok: false, refusal: { kind: "unknown-workspace" } });
+    render({ workspaces: [ws("ws-1", "Web", { worktreeBaseDir: "/wt" }), DECK[1]] });
+    act(() => button("Clear").click());
+    expect(document.querySelector("[role='alert']")?.textContent).toBe("This workspace is no longer open.");
+  });
+
+  it("shows an archive's fields as they are, and offers no edit", () => {
+    render({ focus: "ws-2" });
+    expect(present(document.querySelector<HTMLInputElement>("input[aria-label='Name']"), "the name field").readOnly).toBe(true);
+    expect(Array.from(document.querySelectorAll("button")).some((b) => b.textContent === "Choose…")).toBe(false);
+    expect(document.body.textContent).toContain("restore it to change it");
   });
 
   it("closes on its ✕", () => {

@@ -157,6 +157,31 @@
   font-size: var(--kd-font-small);
 }
 
+.workspaces__sec h4 {
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--kd-seam);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
+  font-weight: 600;
+}
+
+.workspaces__field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+.workspaces__field .form__input,
+.workspaces__field .form__dir {
+  margin-bottom: 0;
+}
+
+.workspaces__field .settings__hint {
+  margin: 6px 0 0;
+}
+
 .workspaces__foot {
   display: flex;
   flex-wrap: wrap;

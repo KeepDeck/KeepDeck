@@ -403,6 +403,8 @@ function App({ runtime }: { runtime: AppRuntime }) {
               onRestore={workspacesWindow.onRestore}
               onArchive={workspacesWindow.onArchive}
               onCloseWorkspace={workspacesWindow.onCloseWorkspace}
+              onUpdate={workspacesWindow.onUpdate}
+              pickFolder={pickFolder}
               onClose={workspacesWindow.onClose}
               canClose={canCloseDialog}
             />
