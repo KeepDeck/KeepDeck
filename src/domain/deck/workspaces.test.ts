@@ -14,6 +14,10 @@ import {
   stepPlaces,
   renameWorkspace,
   resolveActiveId,
+  archiveWorkspace,
+  restoreWorkspace,
+  settleArchive,
+  visibleWorkspaces,
   directoryState,
   setWorkspacePluginSlot,
   worktreeTargets,
@@ -168,7 +172,57 @@ describe("resolveActiveId", () => {
   it("returns an empty id when no workspaces remain", () => {
     expect(resolveActiveId([], "a")).toBe("");
   });
+
+  it("never lands on an archived workspace", () => {
+    const put = (w: Workspace): Workspace => ({ ...w, archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } });
+    expect(resolveActiveId([put(ws("a", [])), ws("b", [])], "a")).toBe("b");
+    expect(resolveActiveId([put(ws("a", [])), ws("b", [])], "gone")).toBe("b");
+    // Every one archived: there is no workspace to be in.
+    expect(resolveActiveId([put(ws("a", [])), put(ws("b", []))], "a")).toBe("");
+  });
 });
+
+describe("archive, settle, restore", () => {
+  const AT = "2026-11-16T10:00:00.000Z";
+  const deck = () => [ws("a", [1]), ws("b", [])];
+
+  it("puts a workspace away in phase archiving, keeping everything else", () => {
+    const before = deck();
+    const after = archiveWorkspace(before, "a", AT);
+    expect(after[0]).toEqual({ ...before[0], archived: { at: AT, phase: "archiving" } });
+    expect(after[1]).toBe(before[1]);
+    expect(visibleWorkspaces(after).map((w) => w.id)).toEqual(["b"]);
+  });
+
+  it("archiving twice, or a workspace that is not there, changes nothing", () => {
+    const once = archiveWorkspace(deck(), "a", AT);
+    expect(archiveWorkspace(once, "a", "2026-11-17T00:00:00.000Z")).toBe(once);
+    expect(archiveWorkspace(once, "gone", AT)).toBe(once);
+  });
+
+  it("settles with what is still owed, and only keeps warnings that owe something", () => {
+    const archiving = archiveWorkspace(deck(), "a", AT);
+    const owing = settleArchive(archiving, "a", { reaps: ["a-p1"], disarm: true });
+    expect(owing[0].archived).toEqual({ at: AT, phase: "archived", warnings: { reaps: ["a-p1"], disarm: true } });
+    const clear = settleArchive(owing, "a", { reaps: [], disarm: false });
+    expect(clear[0].archived).toEqual({ at: AT, phase: "archived" });
+    // Settling exactly as it already stands is not a change.
+    expect(settleArchive(clear, "a", { reaps: [], disarm: false })).toBe(clear);
+    expect(settleArchive(owing, "a", { reaps: ["a-p1"], disarm: true })).toBe(owing);
+    // Nothing to settle on a workspace in use.
+    const live = deck();
+    expect(settleArchive(live, "a", { reaps: [], disarm: false })).toBe(live);
+  });
+
+  it("restores by taking the marker off and nothing else", () => {
+    const before = deck();
+    const restored = restoreWorkspace(settleArchive(archiveWorkspace(before, "a", AT), "a", { reaps: [], disarm: false }), "a");
+    expect(restored[0]).toEqual(before[0]);
+    expect("archived" in restored[0]).toBe(false);
+    expect(restoreWorkspace(before, "a")).toBe(before);
+  });
+});
+
 
 describe("renamePane", () => {
   it("sets a pane's name in the target workspace only", () => {

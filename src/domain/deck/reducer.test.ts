@@ -722,3 +722,69 @@ describe("deckReducer toggleMinimize", () => {
     expect(next.viewByWs).toEqual({ a: open({ select: "a-2", minimized: ["a-2"] }) });
   });
 });
+
+describe("deckReducer archive and restore", () => {
+  const AT = "2026-11-16T10:00:00.000Z";
+  const archivedWs = (id: string): Workspace => ({ ...ws(id, [`${id}-1`]), archived: { at: AT, phase: "archived" } });
+
+  it("archiving the open workspace moves the person to the first visible one and keeps its view", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])],
+        activeId: "a",
+        viewByWs: { a: { focus: ["a-1"], select: "a-1" } },
+      }),
+      { type: "archiveWorkspace", id: "a", at: AT },
+    );
+    expect(next.workspaces[0].archived).toEqual({ at: AT, phase: "archiving" });
+    expect(next.activeId).toBe("b");
+    // Kept whole for restore — archive is not close.
+    expect(next.viewByWs.a).toEqual({ focus: ["a-1"], select: "a-1" });
+  });
+
+  it("archiving the last visible workspace leaves nobody active", () => {
+    const next = deckReducer(
+      state({ workspaces: [archivedWs("a"), ws("b", ["b-1"])], activeId: "b" }),
+      { type: "archiveWorkspace", id: "b", at: AT },
+    );
+    expect(next.activeId).toBe("");
+  });
+
+  it("archiving an already archived workspace returns the same state", () => {
+    const before = state({ workspaces: [archivedWs("a"), ws("b", [])], activeId: "b" });
+    expect(deckReducer(before, { type: "archiveWorkspace", id: "a", at: AT })).toBe(before);
+  });
+
+  it("refuses to select an archived workspace", () => {
+    const before = state({ workspaces: [archivedWs("a"), ws("b", [])], activeId: "b" });
+    expect(deckReducer(before, { type: "selectWorkspace", id: "a" })).toBe(before);
+  });
+
+  it("restores into view, where it was in the order", () => {
+    const next = deckReducer(
+      state({ workspaces: [archivedWs("a"), ws("b", ["b-1"])], activeId: "b" }),
+      { type: "restoreWorkspace", id: "a" },
+    );
+    expect(next.workspaces.map((w) => [w.id, w.archived])).toEqual([
+      ["a", undefined],
+      ["b", undefined],
+    ]);
+    expect(next.activeId).toBe("a");
+  });
+
+  it("closing the open workspace never falls back onto an archived one", () => {
+    const next = deckReducer(
+      state({ workspaces: [archivedWs("a"), ws("b", []), ws("c", [])], activeId: "b" }),
+      { type: "closeWorkspace", id: "b", at: AT },
+    );
+    expect(next.activeId).toBe("c");
+  });
+
+  it("settles the archive with what it still owes", () => {
+    const next = deckReducer(
+      state({ workspaces: [{ ...ws("a", ["a-1"]), archived: { at: AT, phase: "archiving" } }], activeId: "" }),
+      { type: "settleArchive", id: "a", warnings: { reaps: ["a-1"], disarm: false } },
+    );
+    expect(next.workspaces[0].archived).toEqual({ at: AT, phase: "archived", warnings: { reaps: ["a-1"], disarm: false } });
+  });
+});

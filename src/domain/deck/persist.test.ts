@@ -1690,3 +1690,74 @@ describe("deckImmediateKey", () => {
     expect(deckImmediateKey(deckOf([pane({ idle: { reason: "parked" } })]))).toBe(base);
   });
 });
+
+describe("the archive marker on disk", () => {
+  const AT = "2026-11-16T10:00:00.000Z";
+  const doc = (archived: unknown, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      version: DECK_STATE_VERSION,
+      activeId: "ws-1",
+      workspaces: [
+        { id: "ws-1", name: "put away", cwd: "/a", worktreeBaseDir: null, panes: [], ...(archived !== undefined && { archived }) },
+        { id: "ws-2", name: "in use", cwd: "/b", worktreeBaseDir: null, panes: [] },
+      ],
+      ...extra,
+    });
+  const markerOf = (json: string) => okDeck(json).state.workspaces[0].archived;
+
+  it("round-trips whole, warnings included", () => {
+    const marker = { at: AT, phase: "archived", warnings: { reaps: ["pane-1"], disarm: true } };
+    const hydrated = okDeck(doc(marker));
+    expect(hydrated.state.workspaces[0].archived).toEqual(marker);
+    const saved = JSON.parse(serializeDeck(hydrated.state));
+    expect(saved.workspaces[0].archived).toEqual(marker);
+    // Owned, not carried: it does not also ride the extras.
+    expect(hydrated.state.workspaces[0].extras).toBeUndefined();
+  });
+
+  it("a workspace in use writes no marker at all", () => {
+    const saved = JSON.parse(serializeDeck(okDeck(doc(undefined)).state));
+    expect(saved.workspaces.map((ws: Record<string, unknown>) => "archived" in ws)).toEqual([false, false]);
+  });
+
+  it("a marker this build cannot read fails CLOSED: put away, still archiving", () => {
+    expect(markerOf(doc({ at: AT, phase: "restoring" }))).toEqual({ at: AT, phase: "archiving" });
+    expect(markerOf(doc({ at: "yesterday", phase: "archived" }))).toEqual({
+      at: new Date(0).toISOString(),
+      phase: "archiving",
+    });
+    expect(markerOf(doc({ at: AT, phase: "archived", warnings: { reaps: "pane-1", disarm: false } }))).toEqual({
+      at: AT,
+      phase: "archiving",
+    });
+    expect(markerOf(doc({ at: AT, phase: "archived", warnings: { reaps: [], disarm: "no" } }))).toEqual({
+      at: AT,
+      phase: "archiving",
+    });
+    expect(markerOf(doc(true))).toEqual({ at: new Date(0).toISOString(), phase: "archiving" });
+    expect(markerOf(doc(null))).toEqual({ at: new Date(0).toISOString(), phase: "archiving" });
+    // And it is written back as what it now is: an archive to finish.
+    const saved = JSON.parse(serializeDeck(okDeck(doc({ at: AT, phase: "restoring" })).state));
+    expect(saved.workspaces[0].archived).toEqual({ at: AT, phase: "archiving" });
+  });
+
+  it("never opens on an archived workspace", () => {
+    expect(okDeck(doc({ at: AT, phase: "archived" })).state.activeId).toBe("ws-2");
+    const allPut = JSON.stringify({
+      version: DECK_STATE_VERSION,
+      activeId: "ws-1",
+      workspaces: [{ id: "ws-1", name: "a", cwd: "/a", worktreeBaseDir: null, panes: [], archived: { at: AT, phase: "archived" } }],
+    });
+    expect(okDeck(allPut).state.activeId).toBe("");
+  });
+
+  it("changes the immediate key on every marker transition", () => {
+    const live = okDeck(doc(undefined)).state;
+    const archiving = okDeck(doc({ at: AT, phase: "archiving" })).state;
+    const archived = okDeck(doc({ at: AT, phase: "archived" })).state;
+    const owing = okDeck(doc({ at: AT, phase: "archived", warnings: { reaps: ["pane-1"], disarm: false } })).state;
+    const owingDisarm = okDeck(doc({ at: AT, phase: "archived", warnings: { reaps: ["pane-1"], disarm: true } })).state;
+    const keys = [live, archiving, archived, owing, owingDisarm].map(deckImmediateKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});

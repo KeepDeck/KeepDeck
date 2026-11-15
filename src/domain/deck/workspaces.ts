@@ -62,6 +62,36 @@ export interface Workspace {
    * panes, which hold the id. Sparse: a workspace with no teams carries no
    * key, like `plugins`. Read through `teamsOf`. */
   teams?: Team[];
+  /** Put away ([`WorkspaceArchived`]); absent on a workspace in use. */
+  archived?: WorkspaceArchived;
+}
+
+/** What an archive could not finish, kept on its marker so boot repair
+ * retries exactly that and nothing else: the panes whose process did not
+ * stop, and whether taking KeepDeck's plantings back out of the workspace's
+ * directories failed. Never present empty. */
+export interface ArchiveWarnings {
+  reaps: string[];
+  disarm: boolean;
+}
+
+/**
+ * A workspace put away: kept whole — its teams, panes, view, board and
+ * artifacts, its id never handed to another — but not drawn, not selectable
+ * and not run. ONE flag on the row, and four readings of it: the whole list
+ * (identity, ownership, retention) keeps every row; navigation reads
+ * [`visibleWorkspaces`]; the run gate and the arming of directories read the
+ * flag. Nothing filters the deck's list as such.
+ *
+ * `phase` is the commit point a crash resumes from: `"archiving"` while its
+ * agents are being stopped (boot repair finishes the job), `"archived"` once
+ * the stop pass has done what it could.
+ */
+export interface WorkspaceArchived {
+  /** When it was put away. */
+  at: string;
+  phase: "archiving" | "archived";
+  warnings?: ArchiveWarnings;
 }
 
 /** Apply a pane transform to the workspace with `id`, leaving the rest as-is.
@@ -417,9 +447,70 @@ export function stepPlaces(
   };
 }
 
-/** Which workspace to focus: keep `activeId` if it still exists, otherwise the
- * first remaining workspace (or `""` when none remain). */
+/** The workspaces a person navigates — every one not archived, in deck
+ * order: the strip's, the selection's. Identity, ownership and retention
+ * keep reading the whole list. */
+export function visibleWorkspaces<T extends Pick<Workspace, "archived">>(
+  workspaces: readonly T[],
+): T[] {
+  return workspaces.filter((ws) => ws.archived === undefined);
+}
+
+/** Which workspace to focus: keep `activeId` while it names one a person can
+ * see, otherwise the first visible workspace — or `""` when there is none:
+ * no workspace at all, or every one archived. */
 export function resolveActiveId(workspaces: Workspace[], activeId: string): string {
-  if (workspaces.some((ws) => ws.id === activeId)) return activeId;
-  return workspaces[0]?.id ?? "";
+  const visible = visibleWorkspaces(workspaces);
+  if (visible.some((ws) => ws.id === activeId)) return activeId;
+  return visible[0]?.id ?? "";
+}
+
+/** Put workspace `id` away as of `at`, in phase `"archiving"`. Same ref when
+ * there is no such workspace or it is already archived. */
+export function archiveWorkspace(workspaces: Workspace[], id: string, at: string): Workspace[] {
+  const ws = findWorkspace(workspaces, id);
+  if (!ws || ws.archived) return workspaces;
+  return workspaces.map((w) => (w.id === id ? { ...w, archived: { at, phase: "archiving" } } : w));
+}
+
+/** The archive of `id` has done what it could: phase `"archived"`, owing
+ * `warnings` (kept only when something is owed). Boot repair settles again
+ * after each retry, with what is still owed. Same ref when the workspace is
+ * not archived, or already settled exactly so. */
+export function settleArchive(
+  workspaces: Workspace[],
+  id: string,
+  warnings: ArchiveWarnings,
+): Workspace[] {
+  const archived = findWorkspace(workspaces, id)?.archived;
+  if (!archived) return workspaces;
+  const owed = warnings.reaps.length > 0 || warnings.disarm;
+  const was = archived.warnings;
+  const unchanged =
+    archived.phase === "archived" &&
+    (owed
+      ? was !== undefined &&
+        was.disarm === warnings.disarm &&
+        was.reaps.length === warnings.reaps.length &&
+        was.reaps.every((paneId, i) => paneId === warnings.reaps[i])
+      : was === undefined);
+  if (unchanged) return workspaces;
+  const settled: WorkspaceArchived = {
+    at: archived.at,
+    phase: "archived",
+    ...(owed && { warnings: { reaps: [...warnings.reaps], disarm: warnings.disarm } }),
+  };
+  return workspaces.map((w) => (w.id === id ? { ...w, archived: settled } : w));
+}
+
+/** Bring workspace `id` back: the marker goes and nothing else changes —
+ * every pane stays as the archive left it, and waking them is the person's,
+ * one by one. Same ref when it is not archived. */
+export function restoreWorkspace(workspaces: Workspace[], id: string): Workspace[] {
+  if (!findWorkspace(workspaces, id)?.archived) return workspaces;
+  return workspaces.map((w) => {
+    if (w.id !== id) return w;
+    const { archived: _restored, ...rest } = w;
+    return rest;
+  });
 }

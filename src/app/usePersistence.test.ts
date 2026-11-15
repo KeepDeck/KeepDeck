@@ -285,6 +285,33 @@ describe("usePersistence", () => {
     expect(saved.workspaces[0].panes[0].session.id).toBe("s-1");
   });
 
+  it("every archive marker transition saves IMMEDIATELY — a quit must not run an archived workspace", async () => {
+    // Put away, settled, brought back: each is a promise about what runs on
+    // the next launch, and none of them may wait for the debounce.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    const savedNow = () => {
+      expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+      const saved = JSON.parse(ipc.saveDeckState.mock.calls[0][0]);
+      ipc.saveDeckState.mockClear();
+      return saved.workspaces[0].archived;
+    };
+    ipc.saveDeckState.mockClear();
+
+    act(() => deck.archiveWorkspace("ws-1"));
+    await act(async () => {}); // the save in flight settles
+    expect(savedNow()).toMatchObject({ phase: "archiving" });
+
+    act(() => deck.settleArchive("ws-1", { reaps: ["pane-1"], disarm: false }));
+    await act(async () => {});
+    expect(savedNow()).toMatchObject({ phase: "archived", warnings: { reaps: ["pane-1"] } });
+
+    act(() => deck.restoreWorkspace("ws-1"));
+    await act(async () => {});
+    expect(savedNow()).toBeUndefined();
+  });
+
   it("cosmetic churn cannot starve the save past the max wait", async () => {
     ipc.loadDeckState.mockResolvedValue(STORED);
     await mount();

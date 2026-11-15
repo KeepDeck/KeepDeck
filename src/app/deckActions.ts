@@ -3,6 +3,7 @@ import {
   findTeam,
   findWorkspace,
   paneFrozenTitle,
+  type ArchiveWarnings,
   type DeckState,
   type Pane,
   type PaneSession,
@@ -86,6 +87,11 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "closeAgent", wsId, paneId, at: nowIso(), ...sealTitle(wsId, paneId) }),
     closeWorkspace: (id: string) =>
       dispatch({ type: "closeWorkspace", id, at: nowIso() }),
+    archiveWorkspace: (id: string) =>
+      dispatch({ type: "archiveWorkspace", id, at: nowIso() }),
+    settleArchive: (id: string, warnings: ArchiveWarnings) =>
+      dispatch({ type: "settleArchive", id, warnings }),
+    restoreWorkspace: (id: string) => dispatch({ type: "restoreWorkspace", id }),
     toggleFocus: (wsId: string, paneId: string) =>
       dispatch({ type: "toggleFocus", wsId, paneId }),
     toggleMinimize: (wsId: string, paneId: string) =>

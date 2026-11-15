@@ -9,6 +9,7 @@ import {
 } from "../journal";
 import {
   addAgentPane,
+  archiveWorkspace,
   closeAgent,
   findPane,
   findWorkspace,
@@ -16,7 +17,9 @@ import {
   moveWorkspace,
   renameWorkspace,
   resolveActiveId,
+  restoreWorkspace,
   setWorkspacePluginSlot,
+  settleArchive,
   workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
@@ -158,6 +161,9 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
   switch (action.type) {
     case "selectWorkspace": {
       const ws = state.workspaces.find((w) => w.id === action.id);
+      // Nobody is IN an archived workspace — not a click, not a command, not
+      // a deep link: restore it first. The one rule every door relies on.
+      if (ws?.archived) return state;
       return {
         ...state,
         activeId: action.id,
@@ -303,6 +309,29 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         at: action.at,
       });
       return { ...state, workspaces, activeId, viewByWs, journal };
+    }
+    case "archiveWorkspace": {
+      const workspaces = archiveWorkspace(state.workspaces, action.id, action.at);
+      if (workspaces === state.workspaces) return state;
+      // It leaves the strip at once, and the person lands on the first
+      // visible workspace (or none). Its own view is kept whole for restore.
+      const activeId = resolveActiveId(workspaces, state.activeId);
+      const viewByWs = withDefaultSelection(state.viewByWs, activeId, findWorkspace(workspaces, activeId));
+      return { ...state, workspaces, activeId, viewByWs };
+    }
+    case "settleArchive":
+      return withWorkspaces(state, settleArchive(state.workspaces, action.id, action.warnings));
+    case "restoreWorkspace": {
+      const workspaces = restoreWorkspace(state.workspaces, action.id);
+      if (workspaces === state.workspaces) return state;
+      // Back where it was in the strip, and in front of the person.
+      const ws = findWorkspace(workspaces, action.id);
+      return {
+        ...state,
+        workspaces,
+        activeId: action.id,
+        viewByWs: withDefaultSelection(state.viewByWs, action.id, ws),
+      };
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;

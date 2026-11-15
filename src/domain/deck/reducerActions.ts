@@ -3,7 +3,7 @@ import type { WorkspaceInstance } from "../workspaceInstance";
 import type { Pane, PaneSession } from "./panes";
 import type { DeckState } from "./reducer";
 import type { Team, TeamLocation } from "./teams/model";
-import type { Workspace, WorkspacePlace } from "./workspaces";
+import type { ArchiveWarnings, Workspace, WorkspacePlace } from "./workspaces";
 
 export type DeckAction =
   | { type: "selectWorkspace"; id: string }
@@ -16,6 +16,12 @@ export type DeckAction =
    * catalog the reducer cannot. Like `at`, minted at the dispatch boundary. */
   | { type: "closeAgent"; wsId: string; paneId: string; at: string; sealTitle?: string }
   | { type: "closeWorkspace"; id: string; at: string }
+  /** Put a workspace away (phase "archiving"); it leaves navigation at once. */
+  | { type: "archiveWorkspace"; id: string; at: string }
+  /** The archive's stop pass is done, owing `warnings`. */
+  | { type: "settleArchive"; id: string; warnings: ArchiveWarnings }
+  /** Bring an archived workspace back, and into view. */
+  | { type: "restoreWorkspace"; id: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
   | { type: "toggleMinimize"; wsId: string; paneId: string }
   | { type: "restoreSuspendedPane"; wsId: string; paneId: string }
