@@ -1,6 +1,5 @@
 import {
   formatCountdown,
-  formatMoment,
   formatPct,
   usageStale,
   windowResetCaption,
@@ -317,71 +316,6 @@ function forecastClause(
 ): ForecastCaptionPart | null {
   if (forecast.kind !== "out") return null;
   return { text: runOutPhrase(forecast.outAt, now, "lead"), level: forecast.level };
-}
-
-/**
- * Does the reset arrive before the pace does?
- *
- * THE one home of the capping rule. The burn plot ends its axis at
- * `min(outAt, resetsAt)` and the edge label has to name whichever of the
- * two that was — asking the question in both places let one of them be
- * merely handed the answer, which is how the label ended up needing a plot
- * before it could be built.
- */
-export function resetCapsProjection(
-  window: UsageWindow,
-  forecast: WindowForecast,
-  now: number,
-): boolean {
-  if (window.resetsAt === null) return false;
-  if (forecast.kind !== "lasts" && forecast.kind !== "out") return false;
-  return forecast.outAt >= now && forecast.outAt >= window.resetsAt;
-}
-
-/**
- * What the burn plot's RIGHT EDGE is, as a moment.
- *
- * The axis runs from the window's first report to wherever the projection
- * ends, so that edge already IS the answer to "when do I hit 100%" — the
- * out-dot sits on it. It was labelled "reset" or nothing at all, which left
- * the most-asked question drawn but unnamed, and left the reader deriving a
- * clock time from a countdown printed in a different line.
- */
-export interface BurnEdge extends ForecastCaptionPart {
-  /** The edge IS the reset. The plot rules a boundary line there; asking
-   * this of the label rather than sniffing its text keeps the two from
-   * having separate opinions about the same edge. */
-  atReset: boolean;
-}
-
-export function burnEdgeLabel(
-  window: UsageWindow,
-  forecast: WindowForecast,
-  now: number,
-): BurnEdge {
-  const { resetsAt } = window;
-  if (resetsAt !== null && resetCapsProjection(window, forecast, now)) {
-    return {
-      text: `reset ${formatMoment(resetsAt, now)}`,
-      level: null,
-      atReset: true,
-    };
-  }
-  // Every projection that reaches the ceiling before the reset — including
-  // the uncoloured margin band, which used to need its own branch here
-  // because the union could not say what it was.
-  if (forecast.kind === "out") {
-    return {
-      text: formatMoment(forecast.outAt, now),
-      level: forecast.level,
-      atReset: false,
-    };
-  }
-  // No projection at all — the axis simply ends at now. Saying so is what
-  // turns an empty right half into "nothing has been reported since": the
-  // curve stops where the reports stopped, and without this the gap reads
-  // as a chart that failed to draw.
-  return { text: "now", level: null, atReset: false };
 }
 
 /**

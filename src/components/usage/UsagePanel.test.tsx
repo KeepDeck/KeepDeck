@@ -111,7 +111,7 @@ describe("UsagePanel", () => {
     const lines = [...host.querySelectorAll(".usage-window__lines small")];
     expect(lines.map((line) => line.textContent)).toEqual([expect.stringMatching(/^hits the limit in ~/), "resets in 2h 35m"]);
     expect(lines[0]?.className).toBe("usage-level--warn");
-    expect(host.querySelector(".usage-burn--compact")).not.toBeNull();
+    expect(host.querySelector(".usage-burn")).not.toBeNull();
   });
 
   it("keeps today's quiet row when the journal has no pace", () => {
@@ -121,6 +121,6 @@ describe("UsagePanel", () => {
     // named "runs out", which production stopped saying — so it was
     // permanently true and guarded nothing.
     expect(host.textContent).not.toContain("the limit");
-    expect(host.querySelector(".usage-burn--compact")).toBeNull();
+    expect(host.querySelector(".usage-burn")).toBeNull();
   });
 });

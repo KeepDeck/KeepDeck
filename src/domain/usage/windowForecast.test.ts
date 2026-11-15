@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMoment, formatPct } from "./format";
+import { formatPct } from "./format";
 import {
   accountWindowKeys,
   currentSegment,
@@ -14,7 +14,6 @@ import {
 } from "./reportJournal";
 import {
   accountWindowForecasts,
-  burnEdgeLabel,
   panelWindowLines,
   windowForecast,
   windowVerdict,
@@ -617,38 +616,6 @@ describe("captions", () => {
     const verdict = windowVerdict(window, forecast, NOW);
     expect(verdict?.text).toMatch(/^Will hit the limit in ~/);
     expect(verdict?.level).toBeNull();
-    // And the plot's edge names the same instant, so the two cannot
-    // disagree — which they did: "Won't hit the limit" sat under a dashed
-    // line ending at 100 with its edge labelled the run-out clock time.
-    expect(burnEdgeLabel(window, forecast, NOW).atReset).toBe(false);
-  });
-
-  it("names the plot's right edge as a moment, and always names it", () => {
-    // The edge already IS "when do I hit 100%" — the out dot sits on it —
-    // and it no longer needs a geometry built first to say so.
-    // Compared against the formatter rather than a shape: the fixture's
-    // run-out is 2h35m out, which crosses LOCAL midnight in some zones and
-    // not others, so `/^\d{2}:\d{2}$/` pinned the runner's timezone instead
-    // of the contract. What matters is that the edge names that instant.
-    const edge = burnEdgeLabel(FIVE_H, out, NOW);
-    if (!("outAt" in out) || typeof out.outAt !== "number") throw new Error("expected a run-out edge");
-    expect(edge.text).toBe(formatMoment(out.outAt, NOW));
-    expect(edge.level).toBe("warn");
-    expect(edge.atReset).toBe(false);
-
-    // A surviving pace ends at the reset, and says so.
-    const resetEdge = burnEdgeLabel(FIVE_H, ok, NOW);
-    expect(resetEdge.text).toBe(`reset ${formatMoment(present(FIVE_H.resetsAt, "the five-hour window's reset time"), NOW)}`);
-    expect(resetEdge.atReset).toBe(true);
-
-    // No projection at all: the axis ends at now. Saying so is what turns
-    // an empty right half into "nothing has been reported since" — the
-    // state a provider that stopped reporting renders in.
-    expect(burnEdgeLabel(FIVE_H, { kind: "unknown" }, NOW)).toEqual({
-      text: "now",
-      level: null,
-      atReset: false,
-    });
   });
 
   it("says nothing on the verdict line of a window that has reset", () => {

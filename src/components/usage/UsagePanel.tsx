@@ -139,7 +139,6 @@ export function UsagePanel({
                       geometry={windowBurn(reports, window, forecast, now, "data")}
                       stroke={seriesColorFor(seriesColors, agent.id)}
                       now={now}
-                      size="compact"
                     />
                   </div>
                 );
