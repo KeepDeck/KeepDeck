@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Tooltip } from "./Tooltip";
 import { present } from "@keepdeck/plugin-api/testing";
 import { elementOf } from "../testing/values.test-support";
@@ -79,6 +79,39 @@ describe("Tooltip", () => {
     const tips = document.querySelectorAll('[role="tooltip"]');
     expect(tips).toHaveLength(1);
     expect(tips[0].textContent).toBe("second");
+  });
+
+  it("closes the cursor's tip when the page scrolls under it — it does not ride along", () => {
+    const host = render();
+    const anchor = present(host.querySelector(".kd-tip__anchor"), "the tooltip anchor");
+    over(anchor, "mouseover");
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    act(() => window.dispatchEvent(new Event("scroll")));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it("cancels the cursor's pending tip when the page scrolls before it opens", () => {
+    vi.useFakeTimers();
+    try {
+      const host = render({ delayMs: 450 });
+      const anchor = present(host.querySelector(".kd-tip__anchor"), "the tooltip anchor");
+      over(anchor, "mouseover");
+      act(() => window.dispatchEvent(new Event("scroll")));
+      act(() => vi.advanceTimersByTime(500));
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a focus-held tip through a scroll — the keyboard has not left", () => {
+    const host = render({ focusable: true });
+    const anchor = elementOf(host, ".kd-tip__anchor", HTMLElement);
+    act(() => anchor.focus());
+    over(anchor, "mouseover");
+    act(() => window.dispatchEvent(new Event("scroll")));
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    act(() => anchor.blur());
   });
 
   it("lets focus hold the tip through a brushing cursor", () => {

@@ -51,6 +51,8 @@ export function Tooltip({
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const enterTimer = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
+  /** The cursor is on the anchor: a tip it asked for is pending or up. */
+  const [hovered, setHovered] = useState(false);
 
   const cancelEnter = () => {
     if (enterTimer.current !== null) {
@@ -80,6 +82,30 @@ export function Tooltip({
     [],
   );
 
+  // The cursor has left the anchor — by moving off it, or by the page
+  // scrolling the anchor out from under it, which no mouse event says until
+  // the mouse moves: a tip asked for by the pointer goes, and one held by
+  // focus stays. A focus-opened tip survives the cursor leaving: brushing
+  // past the anchor on the way somewhere else must not close what the
+  // keyboard opened. Narrowly that, and not "focus owns the tip" — a press
+  // on the same anchor still closes it, because a press is a thing the user
+  // meant to do and a passing cursor is not.
+  const cursorLeft = useCallback(() => {
+    cancelEnter();
+    setHovered(false);
+    if (anchorRef.current !== anchorRef.current?.ownerDocument.activeElement) hide();
+  }, [hide]);
+
+  // While the cursor's tip is pending or up, a scroll anywhere (captured:
+  // the dialog's own scroller included) is the cursor leaving. Before this
+  // the tip rode along with its card instead of closing.
+  useEffect(() => {
+    if (!hovered) return;
+    const view = anchorRef.current?.ownerDocument.defaultView;
+    view?.addEventListener("scroll", cursorLeft, true);
+    return () => view?.removeEventListener("scroll", cursorLeft, true);
+  }, [hovered, cursorLeft]);
+
   return (
     <span
       ref={anchorRef}
@@ -97,21 +123,14 @@ export function Tooltip({
           }
         : {})}
       onMouseEnter={() => {
+        setHovered(true);
         if (delayMs > 0) {
           enterTimer.current = window.setTimeout(show, delayMs);
         } else {
           show();
         }
       }}
-      onMouseLeave={() => {
-        cancelEnter();
-        // A focus-opened tip survives the CURSOR LEAVING: brushing past the
-        // anchor on the way somewhere else must not close what the keyboard
-        // opened. Narrowly that, and not "focus owns the tip" — a press on
-        // the same anchor still closes it, because a press is a thing the
-        // user meant to do and a passing cursor is not.
-        if (anchorRef.current !== document.activeElement) hide();
-      }}
+      onMouseLeave={cursorLeft}
       // A press ends the question the tip was answering. It stays on the
       // anchor after a click — the pointer has not moved — and whatever the
       // press opened arrives UNDER it: a menu button's own menu came up

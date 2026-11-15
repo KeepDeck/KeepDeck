@@ -131,6 +131,18 @@ describe("WindowBurn", () => {
     expect(host.querySelector(".usage-burn")?.textContent).toBe("");
   });
 
+  it("ends the pointer's inspection when the page scrolls — the card does not stay behind", () => {
+    const plot = present(render(), "the rendered output");
+    act(() => plot.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 100, clientY: 115 })));
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+    act(() => globalThis.window.dispatchEvent(new Event("scroll")));
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
+    // Focus's inspection stays through a scroll, and follows the plot.
+    act(() => plot.focus());
+    act(() => globalThis.window.dispatchEvent(new Event("scroll")));
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+  });
+
   it("walks the inspection with the arrow keys from the newest reading", () => {
     const plot = present(render(), "the rendered output");
     act(() => plot.focus());

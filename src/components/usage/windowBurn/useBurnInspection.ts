@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
+import { useEffect, useState, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
 import {
   inspectedSample,
   NO_INSPECTION,
@@ -38,6 +38,17 @@ export function useBurnInspection(
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const sample = inspectedSample(geometry, state);
   const anchor = state.pointerX === null ? null : pointer;
+  const pointed = state.pointerX !== null;
+  // A scroll moves the plot out from under a still cursor, and no mouse
+  // event says so until the mouse moves: the pointer's inspection ends, as
+  // when it leaves. The keys' and focus's stay, and follow the plot.
+  useEffect(() => {
+    if (!pointed) return;
+    const view = plot.ref.current?.ownerDocument.defaultView;
+    const left = () => setState((current) => ({ ...current, pointerX: null }));
+    view?.addEventListener("scroll", left, true);
+    return () => view?.removeEventListener("scroll", left, true);
+  }, [pointed, plot.ref]);
   return {
     sample,
     getAnchorRect:
