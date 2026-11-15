@@ -10,6 +10,11 @@ import { costCoverage, displayCost } from "./statsCost";
  * it names itself everywhere.
  */
 
+/** What Statistics counts until the reader picks otherwise: tokens — the
+ * work done, which every row has, before the money only priced rows have
+ * (user, 2026-11-15). */
+export const DEFAULT_STATS_MEASURE: StatsMeasure = "tokens";
+
 export const MEASURE_LABELS: Record<StatsMeasure, string> = {
   spend: "Spend",
   tokens: "Tokens",

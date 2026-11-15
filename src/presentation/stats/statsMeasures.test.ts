@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { displayAmount, formatAmount, measureNote } from "./statsMeasures";
+import { DEFAULT_STATS_MEASURE, displayAmount, formatAmount, measureNote } from "./statsMeasures";
 
 const tally = { costUsd: 1.5, pricedEvents: 3, approximateEvents: 0, unpricedTokens: 0, tokensLessCacheReads: 2_400 };
+
+describe("the measure Statistics opens on", () => {
+  it("is tokens — work every row has — until the reader picks money", () => {
+    expect(DEFAULT_STATS_MEASURE).toBe("tokens");
+  });
+});
 
 describe("an amount in a measure", () => {
   it("says a tally as money — never free, marked when part is unpriced — or as tokens less cache reads", () => {

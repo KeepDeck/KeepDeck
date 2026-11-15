@@ -3,7 +3,8 @@ import type { SessionClaimKey } from "../domain/deck";
 import type { StatsDimension } from "../domain/usage/stats/dimensions";
 import type { StatsMeasure } from "../domain/usage/stats/measure";
 import type { StatsPeriod } from "../domain/usage/stats/period";
-import type { BreakdownOrder } from "../presentation/stats/breakdownView";
+import { DEFAULT_BREAKDOWN_DIMENSION, DEFAULT_BREAKDOWN_ORDER, type BreakdownOrder } from "../presentation/stats/breakdownView";
+import { DEFAULT_STATS_MEASURE } from "../presentation/stats/statsMeasures";
 import { DEFAULT_STATS_PERIOD } from "../presentation/stats/statsPeriods";
 
 /** The Statistics view the reader set up: what the numbers count, the
@@ -41,12 +42,12 @@ export interface StatsSessions {
  * what the statistics show.
  */
 export function useStatsView(): StatsView {
-  const [measure, selectMeasure] = useState<StatsMeasure>("spend");
+  const [measure, selectMeasure] = useState<StatsMeasure>(DEFAULT_STATS_MEASURE);
   const [period, selectPeriod] = useState<StatsPeriod>(DEFAULT_STATS_PERIOD);
   const [workspace, selectWorkspace] = useState<string | null>(null);
   const [week, selectWeek] = useState<number | null>(null);
-  const [dimension, selectDimension] = useState<StatsDimension>("workspace");
-  const [order, selectOrder] = useState<BreakdownOrder>("amount");
+  const [dimension, selectDimension] = useState<StatsDimension>(DEFAULT_BREAKDOWN_DIMENSION);
+  const [order, selectOrder] = useState<BreakdownOrder>(DEFAULT_BREAKDOWN_ORDER);
   return {
     measure, period, workspace, week, dimension, order,
     selectMeasure, selectPeriod, selectWorkspace, selectWeek, selectDimension, selectOrder,
