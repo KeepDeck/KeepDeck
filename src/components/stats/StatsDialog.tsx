@@ -167,6 +167,7 @@ export function UsageStats({
             sessions={sessions}
             dimension={view.dimension}
             order={view.order}
+            measure={view.measure}
             onSelectDimension={view.selectDimension}
             onSelectOrder={view.selectOrder}
           />

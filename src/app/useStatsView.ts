@@ -46,7 +46,7 @@ export function useStatsView(): StatsView {
   const [workspace, selectWorkspace] = useState<string | null>(null);
   const [week, selectWeek] = useState<number | null>(null);
   const [dimension, selectDimension] = useState<StatsDimension>("workspace");
-  const [order, selectOrder] = useState<BreakdownOrder>("cost");
+  const [order, selectOrder] = useState<BreakdownOrder>("amount");
   return {
     measure, period, workspace, week, dimension, order,
     selectMeasure, selectPeriod, selectWorkspace, selectWeek, selectDimension, selectOrder,

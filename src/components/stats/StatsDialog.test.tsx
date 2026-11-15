@@ -233,7 +233,7 @@ describe("UsageStats", () => {
     expect(overview().ledger).toBe(history.snapshot.ledger);
 
     clickTab("Breakdown");
-    expect(breakdown()).toMatchObject({ period: 7, dimension: "workspace", order: "cost" });
+    expect(breakdown()).toMatchObject({ period: 7, dimension: "workspace", order: "amount" });
     expect(breakdown().ledger).toBe(history.snapshot.ledger);
   });
 
