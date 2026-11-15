@@ -29,6 +29,7 @@ import {
 } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
 import { counted } from "./countWords";
+import { workspaceMarks } from "./workspaceMark";
 import type { ActiveWorkspace } from "./workspaceCrumbView";
 import { TEAM_CARD_WORDS, teamDot, type TeamCardDot } from "./teamCardView";
 
@@ -113,21 +114,6 @@ function markDot(teamDots: readonly TeamCardDot[], agents: number): MarkDot | nu
   return agents > 0 ? "idle" : null;
 }
 
-/**
- * The mark's letters: the initials of the first two words ("KeepDeck" →
- * "KD", "web app" → "wa"), else the first two letters of the one word
- * ("mnemo" → "mn"). Words part at spaces, dots, dashes, underscores and a
- * lower-to-upper case step.
- */
-export function workspaceInitials(name: string): string {
-  const words = name
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .split(/[\s._\-/]+/)
-    .filter(Boolean);
-  if (words.length >= 2) return words[0][0] + words[1][0];
-  return (words[0] ?? "?").slice(0, 2);
-}
-
 export function stripView(
   workspaces: readonly Workspace[],
   activities: ReadonlyMap<string, PaneActivity>,
@@ -137,6 +123,9 @@ export function stripView(
 ): StripView {
   let active = null as ActiveWorkspace | null;
   const shown = visibleWorkspaces(workspaces);
+  // Over every workspace, archived ones included: letters stay put when one
+  // is put away or restored.
+  const letters = workspaceMarks(workspaces);
   const order = shown.map((ws) => ws.id);
   const marks = shown.map((ws): WorkspaceMark => {
     const openTeam = openTeamOf(ws, viewByWs[ws.id]);
@@ -160,7 +149,7 @@ export function stripView(
     return {
       id: ws.id,
       name: ws.name,
-      initials: workspaceInitials(ws.name),
+      initials: letters.get(ws.id) ?? "?",
       active: ws.id === activeId,
       dot,
       label: dot ? `${ws.name} — ${DOT_WORDS[dot]}` : ws.name,

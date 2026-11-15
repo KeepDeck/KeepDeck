@@ -17,7 +17,7 @@ import {
 } from "../domain/deck";
 import { formatAge } from "../domain/usage";
 import { counted } from "./countWords";
-import { workspaceInitials } from "./stripView";
+import { workspaceMarks } from "./workspaceMark";
 
 export const WORKSPACES_WORDS = {
   title: "Workspaces",
@@ -151,7 +151,7 @@ function owedLine(marker: WorkspaceArchived): string | null {
   return `${parts.join("; ")} — tried again on the next launch.`;
 }
 
-function pageOf(ws: Workspace, now: number): WorkspacePageView {
+function pageOf(ws: Workspace, initials: string, now: number): WorkspacePageView {
   const marker = ws.archived;
   const teams = teamsOf(ws).length;
   const state: WorkspacePageView["state"] = !marker
@@ -166,7 +166,7 @@ function pageOf(ws: Workspace, now: number): WorkspacePageView {
   return {
     id: ws.id,
     name: ws.name,
-    initials: workspaceInitials(ws.name),
+    initials,
     cwd: ws.cwd,
     facts: `${counted(teams, "team")} · ${counted(ws.panes.length, "agent")}`,
     state,
@@ -194,10 +194,13 @@ export function workspacesWindowView(input: WorkspacesWindowInput): WorkspacesWi
     workspaces.find((ws) => ws.id === focus) ??
     workspaces.find((ws) => ws.id === activeId) ??
     workspaces[0];
+  // The letters the strip shows — one pass, so the window cannot disagree.
+  const letters = workspaceMarks(workspaces);
+  const initialsOf = (ws: Workspace) => letters.get(ws.id) ?? "?";
   const row = (ws: Workspace, meta: string | null): WorkspaceListRow => ({
     id: ws.id,
     name: ws.name,
-    initials: workspaceInitials(ws.name),
+    initials: initialsOf(ws),
     meta,
     selected: ws === picked,
   });
@@ -218,6 +221,6 @@ export function workspacesWindowView(input: WorkspacesWindowInput): WorkspacesWi
       ),
     },
     noMatch: found.length === 0 && workspaces.length > 0,
-    page: picked ? pageOf(picked, now) : null,
+    page: picked ? pageOf(picked, initialsOf(picked), now) : null,
   };
 }

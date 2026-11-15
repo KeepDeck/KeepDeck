@@ -114,15 +114,15 @@ describe("stripView active workspace", () => {
   });
 });
 
-describe("a mark's initials", () => {
-  it("takes two words' initials, else a word's first two letters", () => {
-    const initials = (name: string) =>
-      stripView([{ ...workspace("w", []), name }], frames({}), "", {}).marks[0].initials;
-    expect(initials("KeepDeck")).toBe("KD");
-    expect(initials("keepdeck.ai")).toBe("ka");
-    expect(initials("web app")).toBe("wa");
-    expect(initials("mnemo")).toBe("mn");
-    expect(initials("")).toBe("?");
+describe("a mark's letters", () => {
+  it("are the deck's one pass: two workspaces of one name never share a mark", () => {
+    const marks = stripView([{ ...workspace("a", []), name: "KeepDeck" }, { ...workspace("b", []), name: "KeepDeck Web" }], frames({}), "a", {}).marks;
+    expect(marks.map((mark) => mark.initials)).toEqual(["KD", "KW"]);
+  });
+
+  it("are the person's own when they chose them", () => {
+    const marks = stripView([{ ...workspace("a", []), name: "KeepDeck", mark: "★" }], frames({}), "a", {}).marks;
+    expect(marks[0].initials).toBe("★");
   });
 });
 
