@@ -1,4 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
+import { Button } from "../../ui/Button";
+import { BackIcon, ForwardIcon } from "../../ui/icons";
 import { useKeptAchievements } from "../../app/useKeptAchievements";
 import type { TeamHistory } from "../../domain/usage/stats/teams";
 import { usageAchievementLadders } from "../../domain/usage/achievements/ladders";
@@ -42,9 +44,9 @@ export function Weekly({
   return (
     <div className="stats__weekly">
       <div className="stats__weeknav">
-        <Arrow label={view.nav.olderLabel} to={view.nav.older} glyph="‹" onGo={onSelectWeek} />
+        <Arrow label={view.nav.olderLabel} to={view.nav.older} icon={<BackIcon />} onGo={onSelectWeek} />
         <b>{view.nav.label}</b>
-        <Arrow label={view.nav.newerLabel} to={view.nav.newer} glyph="›" onGo={onSelectWeek} />
+        <Arrow label={view.nav.newerLabel} to={view.nav.newer} icon={<ForwardIcon />} onGo={onSelectWeek} />
       </div>
       <div className="stats__week-top">
         <section className="stats__week-report" aria-label={view.headline.label}>
@@ -148,18 +150,18 @@ function Calendar({ calendar }: { calendar: WeeklyView["calendar"] }) {
 function Arrow({
   label,
   to,
-  glyph,
+  icon,
   onGo,
 }: {
   label: string;
   to: { week: number | null } | null;
-  glyph: string;
+  icon: ReactNode;
   onGo(week: number | null): void;
 }) {
   return (
-    <button type="button" aria-label={label} disabled={to === null} onClick={() => to !== null && onGo(to.week)}>
-      {glyph}
-    </button>
+    <Button size="sm" label={label} disabled={to === null} onClick={() => to !== null && onGo(to.week)}>
+      {icon}
+    </Button>
   );
 }
 

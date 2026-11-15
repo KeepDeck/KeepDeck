@@ -61,11 +61,21 @@ export function PlusIcon() {
 
 /** Back out of a drilled-in view to its list — a left chevron. The same
  * glyph the git plugin draws for its drill-back rows; drill-in navigation
- * backs out at the top LEFT, it does not "close". */
+ * backs out at the top LEFT, it does not "close". Also the step back of a
+ * pager (Statistics' earlier week), beside ForwardIcon. */
 export function BackIcon() {
   return (
     <svg {...iconProps}>
       <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+/** BackIcon's mirror — a right chevron: a pager's step forward. */
+export function ForwardIcon() {
+  return (
+    <svg {...iconProps}>
+      <polyline points="9 18 15 12 9 6" />
     </svg>
   );
 }

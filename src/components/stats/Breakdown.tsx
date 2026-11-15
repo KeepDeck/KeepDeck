@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { StatsSessions } from "../../app/useStatsView";
 import type { SessionClaimKey } from "../../domain/deck";
@@ -147,6 +148,7 @@ function Row({
       <span className="stats__bd-name" role="cell">
         {onToggle ? (
           <button type="button" className="stats__bd-toggle" aria-expanded={row.open} onClick={onToggle}>
+            <DisclosureChevron open={row.open} />
             {name}
           </button>
         ) : (

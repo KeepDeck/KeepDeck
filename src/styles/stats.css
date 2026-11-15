@@ -661,7 +661,10 @@
   text-align: right;
 }
 
+/* The fold's gutter: a group's chevron stands in it, and a child row's
+   name is set in by it, under its group's name. */
 .stats__bd-name {
+  --stats-bd-fold: 18px;
   display: flex;
   min-width: 0;
 }
@@ -685,6 +688,7 @@
 
 .stats__bd-toggle {
   display: flex;
+  align-items: center;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -695,19 +699,14 @@
   cursor: pointer;
 }
 
-.stats__bd-toggle::before {
-  flex: none;
-  width: 14px;
+/* The house's chevron (DisclosureChevron), quiet, in the fold's gutter. */
+.stats__bd-toggle .kd-chevron {
+  width: var(--stats-bd-fold);
   color: var(--kd-text-3);
-  content: "▸";
-}
-
-.stats__bd-toggle[aria-expanded="true"]::before {
-  content: "▾";
 }
 
 .stats__bd-row--child .stats__bd-name {
-  padding-left: 14px;
+  padding-left: var(--stats-bd-fold);
 }
 
 .stats__bd-row--child {

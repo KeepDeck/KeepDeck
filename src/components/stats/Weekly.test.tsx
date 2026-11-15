@@ -47,6 +47,12 @@ describe("Weekly", () => {
     expect(host.querySelector(".stats__weeknav b")?.textContent).toMatch(/^This week/);
     expect(host.querySelector(".stats__week-value")?.textContent).toBe("≈$3.00");
     expect(arrow("Later week").disabled).toBe(true);
+    // The shared button, drawn with the icon set's chevrons — no text glyph.
+    for (const label of ["Earlier week", "Later week"]) {
+      expect(arrow(label).classList.contains("kd-btn")).toBe(true);
+      expect(arrow(label).querySelector("svg")).not.toBeNull();
+      expect(arrow(label).textContent).toBe("");
+    }
     act(() => arrow("Earlier week").click());
     expect(host.querySelector(".stats__weeknav b")?.textContent).not.toMatch(/^This week/);
     expect(host.querySelector(".stats__week-value")?.textContent).toBe("≈$7.00");
