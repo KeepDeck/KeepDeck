@@ -2,10 +2,13 @@ import { panelWindows, usageStale } from "./format";
 import type { WindowReport } from "./reportJournal";
 import type { UsageRow } from "./history/event";
 import { dimensionKey } from "./stats/dimensions";
-import { breakdown, statsTotals, type BreakdownRow } from "./stats/fold";
+import { breakdown, statsTotals, usageTimeline, type BreakdownRow, type TimelineGranularity, type UsageStep } from "./stats/fold";
 import type { StatsMeasure, UsageTally } from "./stats/measure";
+import type { Span } from "./stats/period";
+import { DAY_MS } from "./time";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
+import { earlierWindows, type EarlierWindow } from "./windowHistory";
 
 /**
  * The Stats Limits view — one row per provider rate-limit window,
@@ -53,6 +56,34 @@ export interface ProviderWindowRow {
    * known reset" is NOT an acceptable fallback: a long-expired 5h window
    * rendered a week of usage as its own. */
   ledger: ProviderWindowLedger | null;
+  /** The window's own span on the calendar, start to reset ([`windowSpan`]). */
+  span: Span | null;
+  /** This machine's usage inside the span so far, in the measure asked for,
+   * step by step on the reader's calendar ([`windowSteps`]) — quiet steps
+   * included, so a gap reads as one. Null without a span. */
+  usage: UsageStep[] | null;
+  /** The window's earlier instances the journal still holds. */
+  earlier: EarlierWindow[];
+}
+
+/**
+ * A window's span — from its start to its reset — when it can be placed on
+ * the calendar: alive, with a reset and a length, and unscoped. A scoped
+ * limit (one model, one bucket) cannot claim this machine's unscoped usage
+ * as its own; and "since the last known reset" is no fallback for an
+ * expired one — a long-expired 5h window once rendered a week of usage as
+ * its own.
+ */
+export function windowSpan(window: UsageWindow, now: number): Span | null {
+  if (window.scope !== undefined || windowExpired(window, now)) return null;
+  if (window.resetsAt === null || window.windowMinutes === null) return null;
+  return { from: window.resetsAt - window.windowMinutes * 60_000, to: window.resetsAt };
+}
+
+/** A window of two days or more is told by the reader's calendar days, a
+ * shorter one by the hour. */
+export function windowSteps(span: Span): TimelineGranularity {
+  return span.to - span.from >= 2 * DAY_MS ? "day" : "hour";
 }
 
 /** One provider's card: identity and report freshness once, windows inside.
@@ -85,6 +116,7 @@ export function providerWindowGroups(
   for (const agent of [...accounts.keys()].sort()) {
     const account = accounts.get(agent);
     if (account?.kind !== "reported") continue;
+    const own = events.filter((event) => event.agent === agent);
     const windows = panelWindows(account);
     const forecasts = accountWindowForecasts(agent, account, byKey, now);
     const rows = windows.flatMap((window, index): ProviderWindowRow[] => {
@@ -105,6 +137,8 @@ export function providerWindowGroups(
           expired: windowExpired(window, now),
           stale: usageStale(account.reportedAt, now),
           ledger: windowLedger(agent, window, events, now, measure),
+          ...windowUsage(window, own, now, measure),
+          earlier: earlierWindows(joined.reports, window),
         },
       ];
     });
@@ -123,6 +157,18 @@ export function providerWindowGroups(
     });
   }
   return groups;
+}
+
+function windowUsage(
+  window: UsageWindow,
+  own: readonly UsageRow[],
+  now: number,
+  measure: StatsMeasure,
+): Pick<ProviderWindowRow, "span" | "usage"> {
+  const span = windowSpan(window, now);
+  if (span === null) return { span, usage: null };
+  const sofar = { from: span.from, to: Math.min(now, span.to) + 1 };
+  return { span, usage: usageTimeline(own, sofar, windowSteps(span), measure) };
 }
 
 function windowLedger(

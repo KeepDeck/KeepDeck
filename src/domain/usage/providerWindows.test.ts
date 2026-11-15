@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { providerWindowGroups } from "./providerWindows";
+import { providerWindowGroups, windowSpan, windowSteps } from "./providerWindows";
+import { localDayNumber, localDayStart, localHourStart } from "./time";
+import { inZone } from "./time.testSupport";
 
 import { accountWindowKeys, type WindowReport } from "./reportJournal";
 import type { AccountUsage, UsageWindow } from "./usage";
@@ -115,6 +117,7 @@ describe("providerWindowRows", () => {
     );
     expect(rows[0].expired).toBe(true);
     expect(rows[0].ledger).toBeNull();
+    expect([rows[0].span, rows[0].usage]).toEqual([null, null]);
   });
 
   it("flags a stale report but keeps the join while the window is alive", () => {
@@ -149,6 +152,53 @@ describe("providerWindowRows", () => {
     const rows = flatRows(accounts, [event({ agent: "kimi" })], NO_JOURNAL, NOW);
     expect(rows).toHaveLength(3);
     expect(rows.map((row) => row.ledger)).toEqual([null, null, null]);
+    expect(rows.map((row) => [row.span, row.usage])).toEqual([[null, null], [null, null], [null, null]]);
+  });
+
+  it("steps this machine's usage through a week by calendar day, and a 5h window by the hour", () => {
+    inZone("Asia/Nicosia", () => {
+      // A week that began a day and a half ago, and a 5h window two hours in.
+      const week: UsageWindow = { usedPct: 9, resetsAt: NOW + 5.5 * 24 * HOUR, windowMinutes: 10_080 };
+      const fiveH: UsageWindow = { usedPct: 30, resetsAt: NOW + 3 * HOUR, windowMinutes: 300 };
+      const accounts = new Map([["codex", reported([week, fiveH])]]);
+      const events = [
+        event({ occurredAt: NOW - 30 * 60_000, costUsd: 2 }),
+        event({ occurredAt: NOW - 30 * HOUR, costUsd: 1 }),
+        event({ occurredAt: NOW - 3 * 24 * HOUR, costUsd: 50 }), // before the week began
+        event({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 70 }), // another provider
+      ];
+      const [short, long] = flatRows(accounts, events, NO_JOURNAL, NOW);
+      const sum = (steps: { costUsd: number }[] | null | undefined) => (steps ?? []).reduce((total, step) => total + step.costUsd, 0);
+      expect(long?.span).toEqual({ from: NOW - 1.5 * 24 * HOUR, to: week.resetsAt });
+      expect(sum(long?.usage)).toBe(3);
+      // Each step opens at a local midnight, the first one the day the week began, the last today.
+      expect(long?.usage?.every((step) => step.start === localDayStart(localDayNumber(step.start)))).toBe(true);
+      expect(long?.usage?.[0]?.start).toBe(localDayStart(localDayNumber(NOW - 1.5 * 24 * HOUR)));
+      const steps = long?.usage ?? [];
+      expect(steps[steps.length - 1]?.start).toBe(localDayStart(localDayNumber(NOW)));
+      // The 5h window: only its own two hours, an hour a step.
+      expect(sum(short?.usage)).toBe(2);
+      expect(short?.usage?.map((step) => step.start)).toEqual([localHourStart(NOW - 2 * HOUR), localHourStart(NOW - HOUR), localHourStart(NOW)]);
+    });
+  });
+
+  it("tells a window of two days or more by the day, a shorter one by the hour", () => {
+    const span = (hours: number) => ({ from: NOW, to: NOW + hours * HOUR });
+    expect([windowSteps(span(48)), windowSteps(span(47)), windowSteps(span(5))]).toEqual(["day", "hour", "hour"]);
+    expect(windowSpan({ usedPct: 1, resetsAt: NOW + HOUR, windowMinutes: 300 }, NOW)).toEqual({ from: NOW - 4 * HOUR, to: NOW + HOUR });
+  });
+
+  it("carries the window's earlier instances from the journal", () => {
+    const window: UsageWindow = { usedPct: 3, resetsAt: NOW + 4 * HOUR, windowMinutes: 300 };
+    const accounts = new Map([["codex", reported([window])]]);
+    const key = present(accountWindowKeys("codex", [window]).get(window), "the window's key").key;
+    const previousReset = NOW - HOUR;
+    const series: WindowReport[] = [
+      { agent: "codex", windowMinutes: 300, usedPct: 40, reportedAt: previousReset - 2 * HOUR, resetsAt: previousReset },
+      { agent: "codex", windowMinutes: 300, usedPct: 3, reportedAt: NOW, resetsAt: window.resetsAt },
+    ];
+    const [row] = flatRows(accounts, [], new Map([[key, series]]), NOW);
+    expect(row?.earlier.map((e) => [e.resetsAt, e.peakPct])).toEqual([[previousReset, 40]]);
   });
 
   it("groups a provider's windows under one card identity", () => {
