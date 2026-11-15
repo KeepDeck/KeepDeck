@@ -66,7 +66,7 @@ import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 import { pickFolder } from "../ipc/dialogs";
 import { useWelcomeFlow } from "./useWelcomeFlow";
-import { newWorkspaceTarget } from "../presentation/welcomeFlow";
+import { deckPresence } from "../presentation/deckPresence";
 import { errorMessage } from "@keepdeck/plugin-api";
 
 /** No epic folded: one list, so the dialog's set is not rebuilt each render. */
@@ -119,11 +119,12 @@ export function useAppController(runtime: AppRuntime) {
   // No workspace: the welcome screen, whose folder picker the New
   // Workspace command opens too.
   const welcome = useWelcomeFlow(pickFolder);
-  const noWorkspace = deck.workspaces.length === 0;
+  const presence = deckPresence(deck.workspaces, creating);
+  const noWorkspace = presence.welcome;
   /** New Workspace (⌘N, the strip's «+»): the form over the deck, or — with
    * no workspace yet — the welcome screen's folder picker. */
   const newWorkspace = () =>
-    newWorkspaceTarget(deck.workspaces.length) === "welcome" ? welcome.openFolder() : setCreating(true);
+    presence.newWorkspace === "welcome" ? welcome.openFolder() : setCreating(true);
   const [alerts, setAlerts] = useState<{ title: string; message: string }[]>([]);
   const error = alerts[0] ?? null;
   const [alertSeq, setAlertSeq] = useState(0);
@@ -224,7 +225,7 @@ export function useAppController(runtime: AppRuntime) {
   const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
   const activeView = deck.viewOf(deck.activeId);
   const dockOpen = activeView.dock ?? false;
-  const showForm = creating && !noWorkspace;
+  const showForm = presence.formOpen;
   // Resolved over the stage's slice: a highlight is only ever on a pane of
   // the open team.
   const selectedPaneId =
@@ -244,8 +245,7 @@ export function useAppController(runtime: AppRuntime) {
   // What is painted over what — decided once, in `layering`, for the render
   // and for the notification probe alike. The z-order reasoning lives there.
   const windows = layering({
-    creating,
-    workspaceCount: deck.workspaces.length,
+    formOpen: showForm,
     dialogOpen,
     anyDialogOpen: modal.anyDialogOpen,
     statsOpen: modal.statsOpen,

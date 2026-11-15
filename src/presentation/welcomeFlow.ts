@@ -34,10 +34,3 @@ export function welcomeStep(state: WelcomeState, action: WelcomeAction): Welcome
       return WELCOME_AT_START;
   }
 }
-
-/** Where New Workspace (⌘N, the strip's «+») leads: with a workspace, the
- * form over the deck; with none, the welcome screen's folder picker — the
- * screen IS the way in, and a form over it would be a second one. */
-export function newWorkspaceTarget(workspaceCount: number): "form" | "welcome" {
-  return workspaceCount === 0 ? "welcome" : "form";
-}

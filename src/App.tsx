@@ -257,19 +257,16 @@ function App({ runtime }: { runtime: AppRuntime }) {
             restartEpochs={runView.epochs}
             onRetryPlanBuild={orchestrator.retryPlanBuild}
           />
-          {showForm &&
-            (deck.workspaces.length > 0 ? (
-              <ModalOverlay>
-                <WorkspaceForm
-                  onCreate={handleCreateWorkspace}
-                  onCancel={
-                    !canOpenDialog ? undefined : () => setCreating(false)
-                  }
-                  pickFolder={pickFolder}
-                  inspectDir={inspectRepo}
-                />
-              </ModalOverlay>
-            ) : null)}
+          {showForm && (
+            <ModalOverlay>
+              <WorkspaceForm
+                onCreate={handleCreateWorkspace}
+                onCancel={!canOpenDialog ? undefined : () => setCreating(false)}
+                pickFolder={pickFolder}
+                inspectDir={inspectRepo}
+              />
+            </ModalOverlay>
+          )}
           {noWorkspace && (
             <div className="deck__overlay">
               <WelcomeStage

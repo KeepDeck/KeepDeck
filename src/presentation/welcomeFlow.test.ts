@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WELCOME_AT_START, newWorkspaceTarget, welcomeStep, type WelcomeState } from "./welcomeFlow";
+import { WELCOME_AT_START, welcomeStep, type WelcomeState } from "./welcomeFlow";
 
 describe("the welcome screen's steps", () => {
   const confirming: WelcomeState = { step: { kind: "confirm", dir: "/repo" }, showAll: true };
@@ -20,12 +20,5 @@ describe("the welcome screen's steps", () => {
   it("shows every recent project once asked, and starts over after a workspace is made", () => {
     expect(welcomeStep(WELCOME_AT_START, { type: "showAll" }).showAll).toBe(true);
     expect(welcomeStep(confirming, { type: "reset" })).toBe(WELCOME_AT_START);
-  });
-});
-
-describe("where New Workspace leads", () => {
-  it("to the welcome screen's picker with no workspace, to the form over the deck with one", () => {
-    expect(newWorkspaceTarget(0)).toBe("welcome");
-    expect(newWorkspaceTarget(1)).toBe("form");
   });
 });
