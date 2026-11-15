@@ -448,29 +448,22 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         clearPaneIdle(state.workspaces, action.wsId, action.paneId),
       );
-    case "suspendPane": {
+    case "suspendPane":
       // suspendPane returns the same ref for a pane that is absent, already
       // idle or still provisioning — a repeated gesture re-renders nothing.
-      const workspaces = suspendPane(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        action.at,
+      return withWorkspaces(
+        state,
+        suspendPane(state.workspaces, action.wsId, action.paneId, action.at),
       );
-      if (workspaces === state.workspaces) return state;
-      const next = { ...state, workspaces };
-      return action.moveToTray
-        ? withView(
-            next,
-            hidePaneView(
-              next.viewByWs,
-              next.workspaces,
-              action.wsId,
-              action.paneId,
-              "suspendedTray",
-            ),
-          )
-        : next;
+    case "moveSuspendedToTray": {
+      // Only a pane the suspend actually stopped goes to the tray: a refused
+      // or never-made suspend leaves no marker, and so no tray entry.
+      const pane = findPane(state.workspaces, action.wsId, action.paneId);
+      if (pane?.idle?.reason !== "suspended") return state;
+      return withView(
+        state,
+        hidePaneView(state.viewByWs, state.workspaces, action.wsId, action.paneId, "suspendedTray"),
+      );
     }
     case "requestPaneWake":
       return withWorkspaces(

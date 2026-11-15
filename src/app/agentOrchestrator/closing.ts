@@ -224,7 +224,10 @@ export function createAgentOrchestratorClosing({
     suspending.add(paneId);
     try {
       log.info("web:orchestrator", `${paneId}: suspending`);
-      actions.suspendPane(wsId, paneId, suspendPolicy.moveToTray());
+      // The marker first, then — by the placement setting — the tray: a
+      // tray entry only ever follows a suspend that landed.
+      actions.suspendPane(wsId, paneId);
+      if (suspendPolicy.moveToTray()) actions.moveSuspendedToTray(wsId, paneId);
       dropPaneSpawnSpec(paneId);
       lifecycle.retire(paneId);
       await sessions.close(paneId);

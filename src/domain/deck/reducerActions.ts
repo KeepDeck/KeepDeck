@@ -41,13 +41,11 @@ export type DeckAction =
     }
   | { type: "hydrate"; state: DeckState }
   | { type: "clearPaneIdle"; wsId: string; paneId: string }
-  | {
-      type: "suspendPane";
-      wsId: string;
-      paneId: string;
-      at: string;
-      moveToTray?: boolean;
-    }
+  | { type: "suspendPane"; wsId: string; paneId: string; at: string }
+  /** Put a SUSPENDED pane in the workspace's tray — the view's half of a
+   * suspend, its own transition (the marker is `suspendPane`'s), undone by
+   * `restoreSuspendedPane`. A pane that is not suspended stays where it is. */
+  | { type: "moveSuspendedToTray"; wsId: string; paneId: string }
   | { type: "requestPaneWake"; wsId: string; paneId: string }
   | { type: "failPaneWake"; wsId: string; paneId: string }
   | { type: "parkPane"; wsId: string; paneId: string }
