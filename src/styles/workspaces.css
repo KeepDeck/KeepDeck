@@ -1,0 +1,192 @@
+/* The Workspaces window — the settings dialog's shell, wider, with a list
+   of workspaces on the left and the picked one's page on the right. */
+.workspaces {
+  width: min(960px, calc(100vw - 32px));
+}
+
+.workspaces__body {
+  grid-template-columns: 236px 1fr;
+}
+
+.workspaces__list {
+  gap: 1px;
+}
+
+.workspaces__search {
+  margin: 0 0 10px;
+  font-size: var(--kd-font-small);
+}
+
+.workspaces__group {
+  margin: 12px 0 4px 6px;
+}
+
+.workspaces__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--kd-radius-control);
+  background: none;
+  color: var(--kd-text-2);
+  font: inherit;
+  font-size: var(--kd-font-normal);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspaces__row:hover {
+  color: var(--kd-text);
+}
+
+.workspaces__row--on {
+  background: var(--kd-selected);
+  color: var(--kd-text);
+}
+
+.workspaces__row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.workspaces__row-meta {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  white-space: nowrap;
+}
+
+.workspaces__none {
+  margin: 8px 6px 0;
+}
+
+/* A workspace's letters, as its mark in the strip says them. */
+.workspaces__tile {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--kd-seam);
+  border-radius: 6px;
+  background: var(--kd-tile);
+  color: var(--kd-text-2);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.workspaces__tile--big {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  font-size: var(--kd-font-normal);
+}
+
+.workspaces__pane {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-bottom: 8px;
+}
+
+.workspaces__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.workspaces__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workspaces__title h3 {
+  margin: 0;
+  color: var(--kd-text);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.workspaces__path {
+  overflow: hidden;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.workspaces__facts {
+  margin-left: auto;
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  white-space: nowrap;
+}
+
+.workspaces__banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-pop);
+  background: var(--kd-tile);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-normal);
+}
+
+.workspaces__banner-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workspaces__banner b {
+  color: var(--kd-text);
+  font-weight: 600;
+}
+
+.workspaces__owed {
+  color: var(--kd-warn);
+  font-size: var(--kd-font-small);
+}
+
+.workspaces__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--kd-seam);
+}
+
+.workspaces__refusal {
+  margin: 0;
+}
+
+/* The strip foot's door into the archived workspaces. */
+.strip__archived {
+  flex: none;
+  width: 52px;
+  margin-bottom: 6px;
+  padding: 4px 0;
+  border: 1px solid var(--kd-seam);
+  border-radius: var(--kd-radius-control);
+  background: none;
+  color: var(--kd-text-3);
+  font: inherit;
+  font-size: var(--kd-font-small);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.strip__archived:hover {
+  color: var(--kd-text);
+  border-color: var(--kd-seam-strong);
+}

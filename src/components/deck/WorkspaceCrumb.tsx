@@ -22,6 +22,7 @@ export function WorkspaceCrumb({
   onRename,
   onMove,
   onArchive,
+  onSettings,
   onClose,
   onUp,
   renameAsked,
@@ -44,6 +45,7 @@ export function WorkspaceCrumb({
   const actions = workspaceMenuActions(workspaceMenuView(workspace, "crumb"), {
     rename: () => rename.start(workspace.id, name),
     move: onMove,
+    settings: onSettings,
     archive: onArchive,
     close: onClose,
   });

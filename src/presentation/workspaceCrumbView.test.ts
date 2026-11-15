@@ -6,12 +6,13 @@ const summary = (surface: "mark" | "crumb") =>
   workspaceMenuView(TARGET, surface).map((item) => `${item.separatorBefore ? "| " : ""}${item.label}`);
 
 describe("workspaceMenuView", () => {
-  it("offers rename, both moves, archive and close — a move refused past its end", () => {
+  it("offers rename, both moves, settings, archive and close — a move refused past its end", () => {
     expect(workspaceMenuView(TARGET, "crumb")).toEqual([
       { id: "rename", kind: "rename", label: "Rename", disabled: false, separatorBefore: false },
       { id: "up", kind: "move", label: "Move up", place: null, disabled: true, separatorBefore: false },
       { id: "down", kind: "move", label: "Move down", place: { after: "b" }, disabled: false, separatorBefore: false },
-      { id: "archive", kind: "archive", label: "Archive…", disabled: false, separatorBefore: true },
+      { id: "settings", kind: "settings", label: "Workspace settings…", disabled: false, separatorBefore: true },
+      { id: "archive", kind: "archive", label: "Archive…", disabled: false, separatorBefore: false },
       { id: "close", kind: "close", label: "Close workspace", disabled: false, separatorBefore: true },
     ]);
   });
@@ -24,7 +25,21 @@ describe("workspaceMenuView", () => {
     expect(sorted("mark")).toEqual(sorted("crumb"));
     // A mark leads with putting the workspace away; the crumb with naming
     // and placing the one in front of the person. Close ends both.
-    expect(summary("mark")).toEqual(["Archive…", "| Rename", "Move up", "Move down", "| Close workspace"]);
-    expect(summary("crumb")).toEqual(["Rename", "Move up", "Move down", "| Archive…", "| Close workspace"]);
+    expect(summary("mark")).toEqual([
+      "Workspace settings…",
+      "Archive…",
+      "| Rename",
+      "Move up",
+      "Move down",
+      "| Close workspace",
+    ]);
+    expect(summary("crumb")).toEqual([
+      "Rename",
+      "Move up",
+      "Move down",
+      "| Workspace settings…",
+      "Archive…",
+      "| Close workspace",
+    ]);
   });
 });

@@ -1,0 +1,171 @@
+/**
+ * What the Workspaces window shows — every workspace in one place, decided
+ * apart from the markup: the list (the ones in the strip, then the archived
+ * ones, newest first, narrowed by a search over name and folder) and the
+ * page of the one picked.
+ *
+ * The page says what is true of an archive and nothing more: its agents are
+ * suspended, everything else is kept, and Restore brings it back into the
+ * strip with every agent as it is — nobody is woken.
+ */
+import { teamsOf, type Workspace, type WorkspaceArchived } from "../domain/deck";
+import { formatAge } from "../domain/usage";
+import { counted } from "./countWords";
+import { workspaceInitials } from "./stripView";
+
+export const WORKSPACES_WORDS = {
+  title: "Workspaces",
+  close: "Close workspaces",
+  search: "Find a workspace",
+  inStrip: (n: number) => `In the strip · ${n}`,
+  archived: (n: number) => `Archived · ${n}`,
+  noMatch: "No workspace matches.",
+  onScreen: "on screen",
+  restore: "Restore to the strip",
+  archive: "Archive…",
+  closeWorkspace: "Close workspace…",
+  archivedBanner: (when: string) =>
+    `Archived ${when}. Its agents are suspended; teams, worktrees, board and artifacts are kept.`,
+  archivingBanner: "Being archived — its agents are stopping.",
+  restoreNote: "Restore brings it back into the strip with every agent as it is — nobody is woken.",
+  closeWhileArchiving: "It can be closed once the archive has stopped its agents.",
+} as const;
+
+export interface WorkspaceListRow {
+  id: string;
+  name: string;
+  initials: string;
+  /** A word beside the name: on screen, or when it was archived. */
+  meta: string | null;
+  selected: boolean;
+}
+
+export interface WorkspaceListGroup {
+  label: string;
+  rows: WorkspaceListRow[];
+}
+
+export interface WorkspacePageView {
+  id: string;
+  name: string;
+  initials: string;
+  cwd: string;
+  /** "2 teams · 5 agents". */
+  facts: string;
+  /** In use, still being archived, or archived — with what it still owes. */
+  state:
+    | { kind: "in-use" }
+    | { kind: "archiving"; banner: string }
+    | { kind: "archived"; banner: string; owed: string | null };
+  acts: {
+    restore: boolean;
+    archive: boolean;
+    close: { disabled: boolean; refusal?: string };
+  };
+}
+
+export interface WorkspacesWindowView {
+  inStrip: WorkspaceListGroup;
+  archived: WorkspaceListGroup;
+  /** The search left no row in either group. */
+  noMatch: boolean;
+  page: WorkspacePageView | null;
+}
+
+export interface WorkspacesWindowInput {
+  workspaces: readonly Workspace[];
+  activeId: string;
+  /** What the search field holds. */
+  query: string;
+  /** The workspace the person picked, or a door named. */
+  focus: string | null;
+  now: number;
+}
+
+/** Whether `ws` answers the search: its name or its folder holds the words,
+ * case aside — what a person calls a workspace, and where it is. */
+function matches(ws: Workspace, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return q === "" || ws.name.toLowerCase().includes(q) || ws.cwd.toLowerCase().includes(q);
+}
+
+/** When it was put away, as a number to sort and age by. */
+const archivedAt = (marker: WorkspaceArchived | undefined) => (marker ? Date.parse(marker.at) || 0 : 0);
+
+/** What an archive could not finish, said once — or nothing when it owes
+ * nothing. Its retry is the next launch's. */
+function owedLine(marker: WorkspaceArchived): string | null {
+  const owed = marker.warnings;
+  if (!owed) return null;
+  const parts: string[] = [];
+  if (owed.reaps.length > 0) {
+    parts.push(`${counted(owed.reaps.length, "agent")} did not stop cleanly`);
+  }
+  if (owed.disarm) parts.push("KeepDeck's files could not be taken out of its folders");
+  return `${parts.join("; ")} — tried again on the next launch.`;
+}
+
+function pageOf(ws: Workspace, now: number): WorkspacePageView {
+  const marker = ws.archived;
+  const teams = teamsOf(ws).length;
+  const state: WorkspacePageView["state"] = !marker
+    ? { kind: "in-use" }
+    : marker.phase === "archiving"
+      ? { kind: "archiving", banner: WORKSPACES_WORDS.archivingBanner }
+      : {
+          kind: "archived",
+          banner: WORKSPACES_WORDS.archivedBanner(formatAge(archivedAt(marker), now)),
+          owed: owedLine(marker),
+        };
+  return {
+    id: ws.id,
+    name: ws.name,
+    initials: workspaceInitials(ws.name),
+    cwd: ws.cwd,
+    facts: `${counted(teams, "team")} · ${counted(ws.panes.length, "agent")}`,
+    state,
+    acts: {
+      restore: marker !== undefined,
+      archive: marker === undefined,
+      close:
+        marker?.phase === "archiving"
+          ? { disabled: true, refusal: WORKSPACES_WORDS.closeWhileArchiving }
+          : { disabled: false },
+    },
+  };
+}
+
+export function workspacesWindowView(input: WorkspacesWindowInput): WorkspacesWindowView {
+  const { workspaces, activeId, query, focus, now } = input;
+  // The page: what was picked, else the workspace on screen, else the first.
+  const picked =
+    workspaces.find((ws) => ws.id === focus) ??
+    workspaces.find((ws) => ws.id === activeId) ??
+    workspaces[0];
+  const row = (ws: Workspace, meta: string | null): WorkspaceListRow => ({
+    id: ws.id,
+    name: ws.name,
+    initials: workspaceInitials(ws.name),
+    meta,
+    selected: ws === picked,
+  });
+  const found = workspaces.filter((ws) => matches(ws, query));
+  const inStrip = found.filter((ws) => ws.archived === undefined);
+  const archived = found
+    .filter((ws) => ws.archived !== undefined)
+    .sort((a, b) => archivedAt(b.archived) - archivedAt(a.archived));
+  return {
+    inStrip: {
+      label: WORKSPACES_WORDS.inStrip(inStrip.length),
+      rows: inStrip.map((ws) => row(ws, ws.id === activeId ? WORKSPACES_WORDS.onScreen : null)),
+    },
+    archived: {
+      label: WORKSPACES_WORDS.archived(archived.length),
+      rows: archived.map((ws) =>
+        row(ws, ws.archived?.phase === "archiving" ? "archiving" : formatAge(archivedAt(ws.archived), now)),
+      ),
+    },
+    noMatch: found.length === 0 && workspaces.length > 0,
+    page: picked ? pageOf(picked, now) : null,
+  };
+}

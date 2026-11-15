@@ -9,6 +9,7 @@
  * or never-started one too, so "stops" counts them all.
  */
 import { paneArchiveFate, type ArchiveOutcome, type Workspace } from "../domain/deck";
+import { byCount } from "./countWords";
 
 export interface ArchiveConfirmView {
   title: string;
@@ -18,14 +19,12 @@ export interface ArchiveConfirmView {
   cancelLabel: string;
 }
 
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
-
 function agentsSentence(stopping: number, suspended: number, detached: number): string {
   const parts: string[] = [];
   if (stopping > 0) {
     parts.push(
-      `${stopping} ${plural(stopping, "agent stops", "agents stop")}` +
-        (suspended > 0 ? `; ${suspended} already suspended ${plural(suspended, "stays", "stay")} so.` : "."),
+      `${stopping} ${byCount(stopping, "agent stops", "agents stop")}` +
+        (suspended > 0 ? `; ${suspended} already suspended ${byCount(suspended, "stays", "stay")} so.` : "."),
     );
   } else if (suspended > 0) {
     parts.push("Its agents are already suspended.");
@@ -34,7 +33,7 @@ function agentsSentence(stopping: number, suspended: number, detached: number): 
   }
   if (detached > 0) {
     parts.push(
-      `${detached} remote ${plural(detached, "agent keeps", "agents keep")} running on ${plural(detached, "its", "their")} server; only the connection here closes.`,
+      `${detached} remote ${byCount(detached, "agent keeps", "agents keep")} running on ${byCount(detached, "its", "their")} server; only the connection here closes.`,
     );
   }
   return parts.join(" ");

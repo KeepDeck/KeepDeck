@@ -104,11 +104,13 @@ describe("stripView active workspace", () => {
     const deck = [workspace("ws-a", []), put(workspace("ws-x", [])), workspace("ws-b", []), put(workspace("ws-y", []))];
     const view = stripView(deck, frames({}), "ws-b", {});
     expect(view.marks.map((mark) => mark.id)).toEqual(["ws-a", "ws-b"]);
+    // ...and counts them, for the door at the strip's foot.
+    expect(view.archived).toBe(2);
     // Up from ws-b lands before ws-a — past the archived row between them,
     // which keeps its place in the deck's order.
     expect(view.active).toMatchObject({ moveUp: { before: "ws-a" }, moveDown: null });
     // Every workspace archived: no marks, nobody on screen.
-    expect(stripView([put(workspace("ws-a", []))], frames({}), "", {})).toEqual({ marks: [], active: null });
+    expect(stripView([put(workspace("ws-a", []))], frames({}), "", {})).toEqual({ marks: [], active: null, archived: 1 });
   });
 });
 

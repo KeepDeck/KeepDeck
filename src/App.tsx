@@ -19,6 +19,7 @@ import { AgentDialog } from "./components/workspace/AgentDialog";
 import { WorkspaceStrip } from "./components/workspace/WorkspaceStrip";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { WelcomeStage } from "./components/welcome/WelcomeStage";
+import { WorkspacesDialog } from "./components/workspaces/WorkspacesDialog";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
@@ -68,6 +69,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
     closeFlow,
     archiveFlow,
     markActs,
+    workspacesWindow,
     deck,
     dismissAlert,
     dockMode,
@@ -150,6 +152,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
         onAdd={newWorkspace}
         onReorder={deck.moveWorkspace}
         markActs={markActs}
+        onOpenArchived={workspacesWindow.openArchived}
         version={info?.version ?? null}
       />
       <div className="deck__main">
@@ -388,6 +391,19 @@ function App({ runtime }: { runtime: AppRuntime }) {
               activeWs={active ? { id: active.id, name: active.name } : null}
               reads={registryReads}
               onClose={closeArtifacts}
+              canClose={canCloseDialog}
+            />
+          )}
+          {workspacesWindow.open && (
+            <WorkspacesDialog
+              workspaces={deck.workspaces}
+              activeId={deck.activeId}
+              focus={workspacesWindow.focus}
+              onFocus={workspacesWindow.onFocus}
+              onRestore={workspacesWindow.onRestore}
+              onArchive={workspacesWindow.onArchive}
+              onCloseWorkspace={workspacesWindow.onCloseWorkspace}
+              onClose={workspacesWindow.onClose}
               canClose={canCloseDialog}
             />
           )}

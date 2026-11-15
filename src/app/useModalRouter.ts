@@ -2,8 +2,9 @@ import { useState } from "react";
 import { isStatsTab, type StatsTab } from "../domain/usage/statsTabs";
 
 /**
- * THE owner of the app-surface dialog layer: which of the six exclusive
- * dialogs (settings, statistics, skills, MCP servers, artifacts, tasks) is open, and every verb that
+ * THE owner of the app-surface dialog layer: which of the seven exclusive
+ * dialogs (settings, statistics, skills, MCP servers, artifacts, tasks,
+ * workspaces) is open, and every verb that
  * opens, closes or retargets one. All entry points — toolbar, hotkey,
  * update banner, notification deep link, future command — speak these
  * verbs, so the gate ("one dialog at a time, never over a transaction")
@@ -30,11 +31,14 @@ export function useModalRouter({
   const [tasksOpen, setTasksOpen] = useState(false);
   /** The task the dialog should land on, when a door named one. */
   const [tasksFocus, setTasksFocus] = useState<string | null>(null);
+  const [workspacesOpen, setWorkspacesOpen] = useState(false);
+  /** The workspace the window shows, when a door named one. */
+  const [workspacesFocus, setWorkspacesFocus] = useState<string | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsTab, setStatsTab] = useState<StatsTab>("overview");
 
   const anyDialogOpen =
-    settingsOpen || statsOpen || skillsOpen || mcpOpen || artifactsOpen || tasksOpen;
+    settingsOpen || statsOpen || skillsOpen || mcpOpen || artifactsOpen || tasksOpen || workspacesOpen;
   const canOpenDialog = !transactionOpen && !anyDialogOpen;
 
   const openSettings = (sectionId?: string): boolean => {
@@ -101,6 +105,25 @@ export function useModalRouter({
    * uses, so one owner holds which task is open. */
   const focusTask = (taskId: string | null) => setTasksFocus(taskId);
 
+  /** The Workspaces window, the Tasks shape: a door naming a workspace while
+   * the window is open refocuses it; closing forgets the focus. */
+  const openWorkspaces = (wsId?: string | null): boolean => {
+    if (workspacesOpen) {
+      if (wsId) setWorkspacesFocus(wsId);
+      return true;
+    }
+    if (!canOpenDialog) return false;
+    setWorkspacesFocus(wsId ?? null);
+    setWorkspacesOpen(true);
+    return true;
+  };
+  const closeWorkspaces = () => {
+    if (transactionOpen) return;
+    setWorkspacesOpen(false);
+    setWorkspacesFocus(null);
+  };
+  const focusWorkspace = (wsId: string | null) => setWorkspacesFocus(wsId);
+
   /** The Stats trio: a deep link arriving while the dialog is already open
    * switches tabs instead of being swallowed; closing resets to Overview. */
   const openStats = (tab?: StatsTab | null): boolean => {
@@ -147,6 +170,11 @@ export function useModalRouter({
     openTasks,
     closeTasks,
     focusTask,
+    workspacesOpen,
+    workspacesFocus,
+    openWorkspaces,
+    closeWorkspaces,
+    focusWorkspace,
     statsOpen,
     statsTab,
     openStats,

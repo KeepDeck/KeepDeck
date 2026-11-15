@@ -27,6 +27,8 @@ export interface WorkspaceCrumbView {
   onMove(place: WorkspacePlace): void;
   /** Ask to put the workspace away — the confirm comes first. */
   onArchive(): void;
+  /** Open the Workspaces window on this workspace's page. */
+  onSettings(): void;
   onClose(): void;
   /** A rename was asked for from elsewhere — a mark's menu — and the crumb,
    * where the name is, starts its field and says it has. */
@@ -44,6 +46,7 @@ export const WORKSPACE_WORDS = {
   moveUp: "Move up",
   moveDown: "Move down",
   archive: "Archive…",
+  settings: "Workspace settings…",
   close: "Close workspace",
   /** A mark's right-click menu, named for its workspace. */
   markMenu: (name: string) => `Workspace ${name}`,
@@ -59,6 +62,7 @@ export const WORKSPACE_WORDS = {
 export type WorkspaceMenuItem = { id: string; label: string; disabled: boolean; separatorBefore: boolean } & (
   | { kind: "rename" }
   | { kind: "move"; place: WorkspacePlace | null }
+  | { kind: "settings" }
   | { kind: "archive" }
   | { kind: "close" }
 );
@@ -70,8 +74,8 @@ export type WorkspaceMenuSurface = "mark" | "crumb";
 /** The group each surface leads with: a mark is a thing to put away or
  * keep, the crumb the workspace in front of the person, to name and place. */
 const ORDER: Record<WorkspaceMenuSurface, readonly (readonly WorkspaceMenuItem["kind"][])[]> = {
-  mark: [["archive"], ["rename", "move"], ["close"]],
-  crumb: [["rename", "move"], ["archive"], ["close"]],
+  mark: [["settings", "archive"], ["rename", "move"], ["close"]],
+  crumb: [["rename", "move"], ["settings", "archive"], ["close"]],
 };
 
 /** A workspace's menu — ONE set of lines, the same refusals, in the order
@@ -100,6 +104,7 @@ export function workspaceMenuView(
         separatorBefore: false,
       },
     ],
+    settings: [{ id: "settings", kind: "settings", label: WORKSPACE_WORDS.settings, disabled: false, separatorBefore: false }],
     archive: [{ id: "archive", kind: "archive", label: WORKSPACE_WORDS.archive, disabled: false, separatorBefore: false }],
     close: [{ id: "close", kind: "close", label: WORKSPACE_WORDS.close, disabled: false, separatorBefore: false }],
   };

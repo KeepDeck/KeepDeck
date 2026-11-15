@@ -28,6 +28,7 @@ import {
   type WorkspaceView,
 } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
+import { counted } from "./countWords";
 import type { ActiveWorkspace } from "./workspaceCrumbView";
 import { TEAM_CARD_WORDS, teamDot, type TeamCardDot } from "./teamCardView";
 
@@ -67,6 +68,9 @@ export interface WorkspaceMark {
 
 export interface StripView {
   marks: readonly WorkspaceMark[];
+  /** How many workspaces are archived — the count on the strip foot's door
+   * into the Workspaces window; none, no door. */
+  archived: number;
   /** Null only for a deck with no workspace at all. */
   active: ActiveWorkspace | null;
 }
@@ -80,6 +84,9 @@ export const STRIP_WORDS = {
   /** The chevron that opens or closes a workspace's team list. */
   showTeams: (workspace: string) => `Show teams of ${workspace}`,
   hideTeams: (workspace: string) => `Hide teams of ${workspace}`,
+  /** The strip foot's door into the archived workspaces. */
+  archivedDoor: (count: number) => `${count} archived`,
+  archivedDoorLabel: (count: number) => `${counted(count, "archived workspace")} — open the Workspaces window`,
 } as const;
 
 const DOT_WORDS: Record<MarkDot, string> = {
@@ -112,7 +119,7 @@ function markDot(teamDots: readonly TeamCardDot[], agents: number): MarkDot | nu
  * ("mnemo" → "mn"). Words part at spaces, dots, dashes, underscores and a
  * lower-to-upper case step.
  */
-function workspaceInitials(name: string): string {
+export function workspaceInitials(name: string): string {
   const words = name
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .split(/[\s._\-/]+/)
@@ -162,5 +169,5 @@ export function stripView(
       moveDown: steps.down,
     };
   });
-  return { marks, active };
+  return { marks, active, archived: workspaces.length - shown.length };
 }

@@ -10,6 +10,7 @@ import type { MenuAction } from "../../ui/MenuButton";
 export interface WorkspaceMenuActs {
   rename(): void;
   move(place: WorkspacePlace): void;
+  settings(): void;
   archive(): void;
   close(): void;
 }
@@ -24,6 +25,8 @@ export function workspaceMenuActions(items: readonly WorkspaceMenuItem[], acts: 
       switch (item.kind) {
         case "rename":
           return acts.rename();
+        case "settings":
+          return acts.settings();
         case "archive":
           return acts.archive();
         case "close":

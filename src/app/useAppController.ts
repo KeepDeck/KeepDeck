@@ -445,6 +445,7 @@ export function useAppController(runtime: AppRuntime) {
     },
     onMove: (place: WorkspacePlace) => deck.moveWorkspace(shownWs.id, place),
     onArchive: () => archiveFlow.request(shownWs.id),
+    onSettings: () => modal.openWorkspaces(shownWs.id),
     onClose: () => closeFlow.requestCloseWorkspace(shownWs.id),
     renameAsked: renameAsk === shownWs.id,
     onRenameAsked: () => setRenameAsk(null),
@@ -495,8 +496,31 @@ export function useAppController(runtime: AppRuntime) {
         deck.selectWorkspace(wsId);
         setRenameAsk(wsId);
       },
+      settings: (wsId: string) => modal.openWorkspaces(wsId),
       archive: archiveFlow.request,
       close: closeFlow.requestCloseWorkspace,
+    },
+    /** The Workspaces window: the router's dialog, and the acts its page
+     * hands back to the flows that own them. */
+    workspacesWindow: {
+      open: modal.workspacesOpen,
+      focus: modal.workspacesFocus,
+      onFocus: modal.focusWorkspace,
+      onClose: modal.closeWorkspaces,
+      /** The strip foot's door: the window, on the archived workspace most
+       * recently put away. */
+      openArchived: () => {
+        const latest = [...deck.workspaces]
+          .filter((ws) => ws.archived !== undefined)
+          .sort((a, b) => (Date.parse(b.archived?.at ?? "") || 0) - (Date.parse(a.archived?.at ?? "") || 0))[0];
+        modal.openWorkspaces(latest?.id ?? null);
+      },
+      onRestore: (wsId: string) => {
+        const ws = findWorkspace(deck.workspaces, wsId);
+        if (ws) orchestrator.restore({ id: ws.id, instance: ws.instance });
+      },
+      onArchive: archiveFlow.request,
+      onCloseWorkspace: closeFlow.requestCloseWorkspace,
     },
     deck,
     dismissAlert,

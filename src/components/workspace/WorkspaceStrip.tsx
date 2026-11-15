@@ -35,9 +35,13 @@ interface WorkspaceStripProps {
    * workspace whose mark it is. */
   markActs: {
     rename(wsId: string): void;
+    settings(wsId: string): void;
     archive(wsId: string): void;
     close(wsId: string): void;
   };
+  /** Open the Workspaces window on the archived workspaces — the door at
+   * the strip's foot, there while any is archived. */
+  onOpenArchived(): void;
   /** The running build, or null until `app_info` answers. At the strip's
    * foot: read a few times a year, when a report needs writing — on screen,
    * and out of the way. */
@@ -88,6 +92,7 @@ export function WorkspaceStrip({
   onAdd,
   onReorder,
   markActs,
+  onOpenArchived,
   version,
 }: WorkspaceStripProps) {
   const [ghost, setGhost] = useState<DragGhost | null>(null);
@@ -296,6 +301,17 @@ export function WorkspaceStrip({
             );
           })}
         </ul>
+        {view.archived > 0 && (
+          <button
+            type="button"
+            className="strip__archived"
+            onClick={onOpenArchived}
+            aria-label={STRIP_WORDS.archivedDoorLabel(view.archived)}
+            title={STRIP_WORDS.archivedDoorLabel(view.archived)}
+          >
+            {STRIP_WORDS.archivedDoor(view.archived)}
+          </button>
+        )}
         {version !== null && (
           <footer className="strip__foot" title={STRIP_WORDS.build(version)}>
             {version}
@@ -310,6 +326,7 @@ export function WorkspaceStrip({
           actions={workspaceMenuActions(workspaceMenuView(markMenu.mark, "mark"), {
             rename: () => markActs.rename(markMenu.mark.id),
             move: (place) => onReorder(markMenu.mark.id, place),
+            settings: () => markActs.settings(markMenu.mark.id),
             archive: () => markActs.archive(markMenu.mark.id),
             close: () => markActs.close(markMenu.mark.id),
           })}
