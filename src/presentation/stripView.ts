@@ -1,6 +1,8 @@
 /**
  * What the left strip says, decided apart from the markup that draws it:
- * one mark per workspace, in deck order — the way between workspaces —
+ * one mark per workspace in use, in deck order — the way between them; an
+ * archived workspace has no mark, and the places a mark moves to are among
+ * the marks there are —
  * and, when the strip slides open, each workspace's teams under it (user
  * decision 2026-10-01: the reveal is the team switcher; at rest the strip
  * stays marks only).
@@ -15,7 +17,15 @@
  * It also names the ACTIVE workspace and where it sits, for the bar's crumb
  * (`workspaceCrumbView`).
  */
-import { membersOf, openTeamOf, stepPlaces, teamsOf, type Workspace, type WorkspaceView } from "../domain/deck";
+import {
+  membersOf,
+  openTeamOf,
+  stepPlaces,
+  teamsOf,
+  visibleWorkspaces,
+  type Workspace,
+  type WorkspaceView,
+} from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
 import type { ActiveWorkspace } from "./workspaceCrumbView";
 import { TEAM_CARD_WORDS, teamDot, type TeamCardDot } from "./teamCardView";
@@ -115,8 +125,9 @@ export function stripView(
   viewByWs: Readonly<Record<string, WorkspaceView>>,
 ): StripView {
   let active = null as ActiveWorkspace | null;
-  const order = workspaces.map((ws) => ws.id);
-  const marks = workspaces.map((ws): WorkspaceMark => {
+  const shown = visibleWorkspaces(workspaces);
+  const order = shown.map((ws) => ws.id);
+  const marks = shown.map((ws): WorkspaceMark => {
     const openTeam = openTeamOf(ws, viewByWs[ws.id]);
     // ONE pass: each team's dot is the row's, and the same dots fold into
     // the mark's — the two can never rank a team differently.

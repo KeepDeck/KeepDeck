@@ -88,6 +88,18 @@ describe("stripView active workspace", () => {
     expect(at("ws-e")).toMatchObject({ moveUp: { before: "ws-b" }, moveDown: null });
     expect(stripView([], frames({}), "", {}).active).toBeNull();
   });
+
+  it("draws no mark for an archived workspace, and moves among the marks there are", () => {
+    const put = (ws: Workspace): Workspace => ({ ...ws, archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } });
+    const deck = [workspace("ws-a", []), put(workspace("ws-x", [])), workspace("ws-b", []), put(workspace("ws-y", []))];
+    const view = stripView(deck, frames({}), "ws-b", {});
+    expect(view.marks.map((mark) => mark.id)).toEqual(["ws-a", "ws-b"]);
+    // Up from ws-b lands before ws-a — past the archived row between them,
+    // which keeps its place in the deck's order.
+    expect(view.active).toMatchObject({ moveUp: { before: "ws-a" }, moveDown: null });
+    // Every workspace archived: no marks, nobody on screen.
+    expect(stripView([put(workspace("ws-a", []))], frames({}), "", {})).toEqual({ marks: [], active: null });
+  });
 });
 
 describe("a mark's initials", () => {

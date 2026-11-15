@@ -621,7 +621,7 @@ describe("team membership across a restart", () => {
     expect(deck.notices).toEqual([]);
     const saved = JSON.parse(serializeDeck(deck.state));
     expect(saved.version).toBe(DECK_STATE_VERSION);
-    expect(saved.minVersion).toBe(11);
+    expect(saved.minVersion).toBe(15);
   });
 
   it("surfaces what the ladder did as notices, and never writes them back", () => {
@@ -1482,9 +1482,10 @@ describe("schema revisions and the compatibility floor", () => {
   it("writes the current revision and its floor", () => {
     const out = JSON.parse(serializeDeck(state));
     expect(out.version).toBe(DECK_STATE_VERSION);
-    // The floor rose with v11: a v10 reader would misread membership and
-    // save the misreading back, so it must park instead.
-    expect(out.minVersion).toBe(11);
+    // The floor rose with v11 (a v10 reader misreads membership) and again
+    // with v15 (a v14 reader runs an archived workspace and drops its
+    // marker): each would save its misreading back, so it must park instead.
+    expect(out.minVersion).toBe(15);
   });
 
   it("a v1 deck (pre run presets) migrates up on load", () => {

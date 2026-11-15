@@ -8,6 +8,7 @@ import {
 } from "./testSupport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordsOf } from "../../testing/values.test-support";
+import { workspaceArchivedMessage } from "./targets";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -28,6 +29,16 @@ describe("workspace commands", () => {
     expect(title).toContain("mail to it is then refused");
     expect(title).toContain("`team.role` is its address");
     expect(title).toContain("`archived`");
+  });
+
+  it("refuses to switch to an archived workspace, naming it — it is restored by the user, not opened", async () => {
+    const { registry, deck } = setup([
+      workspace({}),
+      workspace({ id: "ws-2", name: "old", cwd: "/old", archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } }),
+    ]);
+    const result = await registry.execute("workspace.switch", { workspace: "old" }, HOST);
+    expect(result).toEqual({ ok: false, error: { code: "failed", message: workspaceArchivedMessage({ name: "old" }) } });
+    expect(deck.selectWorkspace).not.toHaveBeenCalled();
   });
 
   it("lists an archived workspace as such — still addressable, never hidden", async () => {
