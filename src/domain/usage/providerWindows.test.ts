@@ -14,7 +14,7 @@ const flatRows = (
   events: Parameters<typeof providerWindowGroups>[1],
   byKey: Parameters<typeof providerWindowGroups>[2],
   now: number,
-) => providerWindowGroups(accounts, events, byKey, now, "spend").flatMap((group) => group.rows);
+) => providerWindowGroups(accounts, events, byKey, now).flatMap((group) => group.rows);
 const NO_JOURNAL = new Map<string, readonly WindowReport[]>();
 
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
@@ -42,8 +42,7 @@ describe("providerWindowRows", () => {
         [event()],
         new Map(),
         NOW,
-        "spend",
-      ),
+              ),
     ).toEqual([]);
   });
 
@@ -176,7 +175,7 @@ describe("providerWindowRows", () => {
       ],
       ["opencode", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
     ]);
-    const groups = providerWindowGroups(accounts, [], new Map(), NOW, "spend");
+    const groups = providerWindowGroups(accounts, [], new Map(), NOW);
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({
       agent: "claude",

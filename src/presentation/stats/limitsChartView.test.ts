@@ -16,7 +16,7 @@ const WEEK: UsageWindow = { usedPct: 3, resetsAt: at("2026-11-21T17:00:00+02:00"
 const FIVE_H: UsageWindow = { usedPct: 17, resetsAt: at("2026-11-15T18:49:00+02:00"), windowMinutes: 300 };
 const WEEK_RESET = at("2026-11-21T17:00:00+02:00");
 
-function chart(over: { windows?: UsageWindow[]; journal?: WindowReport[]; events?: Parameters<typeof usageEvent>[0][]; measure?: "spend" | "tokens" } = {}) {
+function chart(over: { windows?: UsageWindow[]; journal?: WindowReport[]; events?: Parameters<typeof usageEvent>[0][] } = {}) {
   const windows = over.windows ?? [FIVE_H, WEEK];
   const keys = accountWindowKeys("codex", windows);
   const byKey = new Map<string, WindowReport[]>();
@@ -29,11 +29,10 @@ function chart(over: { windows?: UsageWindow[]; journal?: WindowReport[]; events
       (over.events ?? []).map((event) => usageEvent({ agent: "codex", ...event })),
       byKey,
       NOW,
-      over.measure ?? "spend",
     );
     const rows = group?.rows ?? [];
     const main = rows.find((row) => row.window === WEEK) ?? rows[0];
-    if (main) view = limitsChartView(main, rows.filter((row) => row !== main), NOW, over.measure ?? "spend");
+    if (main) view = limitsChartView(main, rows.filter((row) => row !== main), NOW);
   });
   return view as ReturnType<typeof limitsChartView>;
 }
@@ -67,16 +66,18 @@ describe("the Limits chart", () => {
     const view = present(
       chart({
         events: [
-          { occurredAt: at("2026-11-15T10:00:00+02:00"), costUsd: 4 },
-          { occurredAt: at("2026-11-14T20:00:00+02:00"), costUsd: 1 },
-          { occurredAt: at("2026-11-14T12:00:00+02:00"), costUsd: 50 }, // before the week began
+          { occurredAt: at("2026-11-15T10:00:00+02:00"), costUsd: 1, tokens: { input: 4_000 } },
+          // Dear but small: money does not size a bar.
+          { occurredAt: at("2026-11-14T20:00:00+02:00"), costUsd: 90, tokens: { input: 1_000, cacheRead: 50_000 } },
+          { occurredAt: at("2026-11-14T12:00:00+02:00"), tokens: { input: 50_000 } }, // before the week began
         ],
       }),
       "a chart",
     );
+    // Tokens, not money: a limit counts work. The busiest day is full height.
     expect(view.bars.map((bar) => [bar.height, bar.title])).toEqual([
-      [0.25, "Sat, Nov 14, 2026: ≈$1.00"],
-      [1, "Sun, Nov 15, 2026: ≈$4.00"],
+      [0.25, "Sat, Nov 14, 2026: 1k tokens"],
+      [1, "Sun, Nov 15, 2026: 4k tokens"],
     ]);
     // Saturday's bar starts where the week does, not at midnight.
     expect(view.bars[0]?.x0).toBe(0);
@@ -112,25 +113,6 @@ describe("the Limits chart", () => {
     expect(present(chart({ windows: [fiveDays, WEEK] }), "a chart").slices[0]).toMatchObject({ x0: 0, side: "inside" });
   });
 
-  it("draws usage no price covers as a hollow bar, never as none", () => {
-    const view = present(
-      chart({
-        events: [
-          { occurredAt: at("2026-11-15T10:00:00+02:00"), costUsd: 4 },
-          { occurredAt: at("2026-11-15T11:00:00+02:00"), tokens: { input: 50 } },
-          { occurredAt: at("2026-11-14T20:00:00+02:00"), tokens: { input: 70 } },
-        ],
-      }),
-      "a chart",
-    );
-    expect(view.bars.map((bar) => [bar.unpriced, bar.title])).toEqual([
-      ["all", "Sat, Nov 14, 2026: —"],
-      ["part", "Sun, Nov 15, 2026: ≈$4.00+"],
-    ]);
-    // In tokens every step has its amount.
-    const tokens = present(chart({ measure: "tokens", events: [{ occurredAt: at("2026-11-15T11:00:00+02:00"), tokens: { input: 50 } }] }), "a chart");
-    expect(tokens.bars.map((bar) => bar.unpriced)).toEqual(["none", "none"]);
-  });
 
   it("stands a lone reading where it was read, not at now", () => {
     let view: ReturnType<typeof limitsChartView> = null;
@@ -140,10 +122,9 @@ describe("the Limits chart", () => {
         [],
         new Map(),
         NOW,
-        "spend",
       );
       const row = group?.rows[0];
-      if (row) view = limitsChartView(row, [], NOW, "spend");
+      if (row) view = limitsChartView(row, [], NOW);
     });
     const points = present(view as ReturnType<typeof limitsChartView>, "a chart").current.points;
     expect(points).toEqual([{ x: (NOW - 3 * HOUR - (WEEK_RESET - 7 * DAY)) / (7 * DAY), pct: 3 }]);
@@ -165,10 +146,9 @@ describe("the Limits chart", () => {
         [],
         new Map(),
         NOW,
-        "spend",
       );
       const row = group?.rows[0];
-      if (row) view = limitsChartView(row, [], NOW, "spend");
+      if (row) view = limitsChartView(row, [], NOW);
     });
     expect(view).toBeNull();
   });

@@ -1,11 +1,10 @@
-import { formatMoment, formatPct, formatStep, windowLabel } from "../../domain/usage";
+import { formatMoment, formatPct, formatStep, formatTokens, windowLabel } from "../../domain/usage";
 import { windowSteps, type ProviderWindowRow } from "../../domain/usage/providerWindows";
 import { nextStep, stepStart } from "../../domain/usage/stats/fold";
-import { amountOf, type StatsMeasure } from "../../domain/usage/stats/measure";
+
 import type { Span } from "../../domain/usage/stats/period";
 import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
 import { usageLevelClass } from "../usageView";
-import { displayAmount } from "./statsMeasures";
 
 /**
  * The Limits card's chart, settled: one window on its own clock — x runs
@@ -47,10 +46,9 @@ export interface LimitsChartView {
    * goes after the slice where there is room, else before it, else inside
    * it from its start — never past an edge of the plot. */
   slices: { key: string; x0: number; x1: number; label: string; side: "after" | "before" | "inside" }[];
-  /** This machine's usage per step, the busiest step full height. In money,
-   * `unpriced` says how much of a step no price covers: "all" draws a
-   * hollow bar — usage, but no amount — never a missing one. */
-  bars: { key: string; x0: number; x1: number; height: number; title: string; unpriced: "none" | "part" | "all" }[];
+  /** This machine's tokens less cache reads per step, the busiest step full
+   * height. */
+  bars: { key: string; x0: number; x1: number; height: number; title: string }[];
   /** Read in place of the drawing. */
   summary: string;
 }
@@ -62,7 +60,6 @@ export function limitsChartView(
   main: ProviderWindowRow,
   others: readonly ProviderWindowRow[],
   now: number,
-  measure: StatsMeasure,
 ): LimitsChartView | null {
   const { span } = main;
   if (span === null) return null;
@@ -73,7 +70,7 @@ export function limitsChartView(
   const burn = windowBurn(main.reports, main.window, main.forecast, now, "limit");
   const reading = (at: number, pct: number): ChartPoint => ({ x: x(at), pct });
   const usage = main.usage ?? [];
-  const top = Math.max(0, ...usage.map((step) => amountOf(step, measure)));
+  const top = Math.max(0, ...usage.map((step) => step.tokensLessCacheReads));
   return {
     start: `started ${formatStep(span.from, "hour", "long")}`,
     end: `resets ${formatStep(span.to, "hour", "long")}`,
@@ -104,15 +101,12 @@ export function limitsChartView(
       const from = Math.max(step.start, span.from);
       const to = Math.min(nextStep(step.start, steps), span.to);
       if (to <= from) return [];
-      const amount = amountOf(step, measure);
-      const unpriced = measure !== "spend" || step.unpricedTokens === 0 ? "none" : step.pricedEvents === 0 ? "all" : "part";
       return [{
         key: String(step.start),
         x0: x(from),
         x1: x(to),
-        height: top > 0 ? amount / top : 0,
-        title: `${formatStep(step.start, steps, "long")}: ${displayAmount(step, measure)}`,
-        unpriced,
+        height: top > 0 ? step.tokensLessCacheReads / top : 0,
+        title: `${formatStep(step.start, steps, "long")}: ${formatTokens(step.tokensLessCacheReads)} tokens`,
       }];
     }),
     summary: `${main.agent} ${label}: ${formatPct(main.window.usedPct, "used")} used, ${formatStep(span.from, "hour", "long")} to ${formatStep(span.to, "hour", "long")}`,

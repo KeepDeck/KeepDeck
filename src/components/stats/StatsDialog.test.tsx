@@ -355,6 +355,8 @@ describe("UsageStats", () => {
 
     clickTab("Achievements");
     expect(measure("Tokens").disabled).toBe(true);
+    clickTab("Limits");
+    expect(measure("Tokens").disabled).toBe(true);
     clickTab("Overview");
     // The pick outlives the idle tab.
     expect(overview().measure).toBe("tokens");

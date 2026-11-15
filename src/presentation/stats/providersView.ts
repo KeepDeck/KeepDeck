@@ -1,7 +1,6 @@
 import { formatAge, formatMoment, formatPct, windowLabel, windowLevel, windowResetCaption, type AccountUsage, type UsageWindow } from "../../domain/usage";
 import type { UsageRow } from "../../domain/usage/history/event";
 import { providerWindowGroups, type ProviderWindowGroup, type ProviderWindowRow } from "../../domain/usage/providerWindows";
-import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { windowVerdict } from "../../domain/usage/windowForecast";
 import { seriesColorFor } from "../usagePalette";
@@ -68,20 +67,11 @@ export type ProvidersView =
 const tone = (text: string, className: string | undefined): ToneText =>
   className ? { text, className } : { text };
 
-/** What the bars count, by measure. */
-const BAR_NOTES: Record<StatsMeasure, string> = {
-  spend: "Bars are this machine's spend at list price, by day (by hour in a short window); the provider also counts other devices and the web.",
-  tokens: "Bars are this machine's tokens less cache reads, by day (by hour in a short window); the provider also counts other devices and the web.",
-};
-
-function barsNote(cards: readonly ProviderCardView[], measure: StatsMeasure): string | null {
-  const bars = cards.flatMap((card) => card.chart?.bars ?? []);
-  if (bars.length === 0) return null;
-  return bars.some((bar) => bar.unpriced !== "none") ? `${BAR_NOTES[measure]} ${UNPRICED_BARS}` : BAR_NOTES[measure];
-}
-
-/** Said under the bars once any of them leaves usage out of its money. */
-const UNPRICED_BARS = "Usage on a model without a known price is not in a bar's height: a bar marked “+” leaves some out, a hollow one has none priced.";
+/** What the bars count — tokens, whatever the dialog's switch says: a
+ * limit is counted in work, not in money at list price (user, 2026-11-15:
+ * the switch idles on Limits). */
+const BARS_NOTE =
+  "Bars are this machine's tokens less cache reads, by day (by hour in a short window); the provider also counts other devices and the web.";
 
 function windowView(row: ProviderWindowRow, now: number): ProviderWindowView {
   const { window, span } = row;
@@ -148,7 +138,6 @@ export function providersView(
   groups: readonly ProviderWindowGroup[],
   now: number,
   colors: ReadonlyMap<string, string>,
-  measure: StatsMeasure,
 ): ProvidersView {
   if (groups.length === 0) {
     return {
@@ -170,14 +159,14 @@ export function providersView(
       windows,
       lead,
       others: windows.filter((window) => window !== lead),
-      chart: main === null ? null : limitsChartView(main, group.rows.filter((row) => row !== main), now, measure),
+      chart: main === null ? null : limitsChartView(main, group.rows.filter((row) => row !== main), now),
     };
   });
   return {
     kind: "cards",
     title: "Providers",
     cards,
-    note: barsNote(cards, measure),
+    note: cards.some((card) => (card.chart?.bars.length ?? 0) > 0) ? BARS_NOTE : null,
   };
 }
 
@@ -190,12 +179,10 @@ export function accountLimitsView(input: {
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
   colors: ReadonlyMap<string, string>;
-  measure: StatsMeasure;
 }): ProvidersView {
   return providersView(
-    providerWindowGroups(input.accounts, input.rows, input.reportsByKey, input.now, input.measure),
+    providerWindowGroups(input.accounts, input.rows, input.reportsByKey, input.now),
     input.now,
     input.colors,
-    input.measure,
   );
 }

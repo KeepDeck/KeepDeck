@@ -2,7 +2,6 @@ import { panelWindows, usageStale } from "./format";
 import type { WindowReport } from "./reportJournal";
 import type { UsageRow } from "./history/event";
 import { usageTimeline, type TimelineGranularity, type UsageStep } from "./stats/fold";
-import type { StatsMeasure } from "./stats/measure";
 import type { Span } from "./stats/period";
 import { DAY_MS } from "./time";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
@@ -36,9 +35,9 @@ export interface ProviderWindowRow {
   stale: boolean;
   /** The window's own span on the calendar, start to reset ([`windowSpan`]). */
   span: Span | null;
-  /** This machine's usage inside the span so far, in the measure asked for,
-   * step by step on the reader's calendar ([`windowSteps`]) — quiet steps
-   * included, so a gap reads as one. Null without a span, and for a scoped
+  /** This machine's usage inside the span so far, step by step on the
+   * reader's calendar ([`windowSteps`]) — quiet steps included, so a gap
+   * reads as one. Null without a span, and for a scoped
    * window: a limit on one model or bucket cannot claim this machine's
    * unscoped usage as its own. */
   usage: UsageStep[] | null;
@@ -86,7 +85,6 @@ export function providerWindowGroups(
   events: readonly UsageRow[],
   byKey: ReadonlyMap<string, readonly WindowReport[]>,
   now: number,
-  measure: StatsMeasure,
 ): ProviderWindowGroup[] {
   const groups: ProviderWindowGroup[] = [];
   for (const agent of [...accounts.keys()].sort()) {
@@ -112,7 +110,7 @@ export function providerWindowGroups(
           reportedAt: account.reportedAt,
           expired: windowExpired(window, now),
           stale: usageStale(account.reportedAt, now),
-          ...windowUsage(window, own, now, measure),
+          ...windowUsage(window, own, now),
         },
       ];
     });
@@ -137,10 +135,11 @@ function windowUsage(
   window: UsageWindow,
   own: readonly UsageRow[],
   now: number,
-  measure: StatsMeasure,
 ): Pick<ProviderWindowRow, "span" | "usage"> {
   const span = windowSpan(window, now);
   if (span === null || window.scope !== undefined) return { span, usage: null };
   const sofar = { from: span.from, to: Math.min(now, span.to) + 1 };
-  return { span, usage: usageTimeline(own, sofar, windowSteps(span), measure) };
+  // The bars count work — tokens — not money at list price, which no
+  // subscription limit is counted in.
+  return { span, usage: usageTimeline(own, sofar, windowSteps(span), "tokens") };
 }

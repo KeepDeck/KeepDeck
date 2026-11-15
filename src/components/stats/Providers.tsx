@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import type { AccountUsage } from "../../domain/usage";
 import type { UsageLedger } from "../../domain/usage/history/ledger";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import { accountLimitsView, type ProviderCardView, type ProviderWindowView } from "../../presentation/stats/providersView";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { LimitsWindowChart } from "./LimitsWindowChart";
@@ -19,7 +18,6 @@ export function Providers({
   colors,
   reportsByKey,
   now,
-  measure,
 }: {
   accounts: ReadonlyMap<string, AccountUsage>;
   /** The ledger view — derived values are keyed on it, not on its array. */
@@ -29,8 +27,6 @@ export function Providers({
   /** The provider-report journal — the forecast's pace. */
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
   now: number;
-  /** What the bars under a window count: money, or tokens. */
-  measure: StatsMeasure;
 }) {
   // Keyed on the SAME clock the captions render with — a memo that read its
   // own Date.now() froze expired/stale while the caption beside them said
@@ -38,8 +34,8 @@ export function Providers({
   // from the usage store, so every journal emit lands in the same flush as
   // the accounts change that caused it.
   const view = useMemo(
-    () => accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors, measure }),
-    [accounts, ledger, reportsByKey, now, colors, measure],
+    () => accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors }),
+    [accounts, ledger, reportsByKey, now, colors],
   );
   if (view.kind === "empty") {
     return <p className="stats__empty">{view.text}</p>;

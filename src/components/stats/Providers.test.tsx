@@ -65,7 +65,7 @@ describe("Providers", () => {
   }) {
     act(() =>
       root.render(
-        createElement(Providers, { accounts, ledger: ledgerOf(events), colors: new Map(), reportsByKey, now, measure: "spend" }),
+        createElement(Providers, { accounts, ledger: ledgerOf(events), colors: new Map(), reportsByKey, now }),
       ),
     );
   }
@@ -200,26 +200,7 @@ describe("Providers", () => {
     expect(bars.length).toBeGreaterThan(0);
     expect(bars.some((bar) => bar.style.height === "100.00%")).toBe(true);
     expect(host.querySelectorAll(".stats__coverage")).toHaveLength(1);
-    expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/^Bars are this machine's spend at list price/);
-  });
-
-  it("draws a day of usage no price covers as a hollow bar", () => {
-    render({
-      accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
-      events: [usageEvent({ occurredAt: NOW - HOUR, costUsd: undefined })],
-    });
-    expect(host.querySelectorAll(".stats__limits-bar--unpriced")).toHaveLength(1);
-    expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/a hollow one has none priced\.$/);
-  });
-
-  it("marks a day whose money leaves some usage out with a visible “+”, not only in its title", () => {
-    render({
-      accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
-      events: [usageEvent({ occurredAt: NOW - HOUR, costUsd: 1 }), usageEvent({ occurredAt: NOW - HOUR, sessionId: "s2", costUsd: undefined })],
-    });
-    const part = present(host.querySelector(".stats__limits-bar--part"), "the partly priced bar");
-    expect(part.textContent).toBe("+");
-    expect(part.getAttribute("title")).toMatch(/\+$/);
+    expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/^Bars are this machine's tokens less cache reads/);
   });
 
   it("says how the tab fills before any CLI reports its limits", () => {

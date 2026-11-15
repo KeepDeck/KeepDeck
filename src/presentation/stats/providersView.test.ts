@@ -32,7 +32,7 @@ const cardOf = (view: ReturnType<typeof providersView>) => {
 };
 
 const viewOf = (accounts: Map<string, AccountUsage>) =>
-  providersView(providerWindowGroups(accounts, [], new Map(), NOW, "spend"), NOW, COLORS, "spend");
+  providersView(providerWindowGroups(accounts, [], new Map(), NOW), NOW, COLORS);
 
 describe("providersView", () => {
   it("says how the tab fills before any CLI reports its limits", () => {
@@ -102,7 +102,7 @@ describe("providersView", () => {
       rows: [{ id: agent, agent, window: live(usedPct), reports: [], forecast, reportedAt: NOW, expired: false, stale: false, span: null, usage: null }],
     });
     const order = (groups: ProviderWindowGroup[]) => {
-      const view = providersView(groups, NOW, COLORS, "spend");
+      const view = providersView(groups, NOW, COLORS);
       return view.kind === "cards" ? view.cards.map((card) => card.agent) : [];
     };
     const full = row("full", 90, { kind: "out", outAt: NOW + 2 * HOUR, level: "warn" });
@@ -117,33 +117,19 @@ describe("providersView", () => {
     expect(view.kind === "cards" ? view.cards.map((card) => card.agent) : []).toEqual(["codex", "claude"]);
   });
 
-  it("says once what the bars under the charts count, in the reader's measure", () => {
+  it("says once what the bars under the charts count — tokens, the dialog's switch aside", () => {
     const accounts = new Map([["claude", account([week(10)])]]);
     const rows = [usageEvent({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 2 })];
-    const note = (measure: "spend" | "tokens") => {
-      const view = accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS, measure });
-      return view.kind === "cards" ? view.note : undefined;
-    };
-    expect(note("spend")).toMatch(/^Bars are this machine's spend at list price, by day/);
-    expect(note("tokens")).toMatch(/^Bars are this machine's tokens less cache reads, by day/);
+    const view = accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS });
+    expect(view.kind === "cards" ? view.note : undefined).toMatch(/^Bars are this machine's tokens less cache reads, by day/);
     expect(viewOf(new Map([["claude", account([expired])]]))).toMatchObject({ note: null });
-    // Usage no price covers is said, never drawn as none.
-    const unpriced = accountLimitsView({
-      accounts,
-      rows: [usageEvent({ agent: "claude", occurredAt: NOW - HOUR, costUsd: undefined, tokens: { input: 9 } })],
-      reportsByKey: new Map(),
-      now: NOW,
-      colors: COLORS,
-      measure: "spend",
-    });
-    expect(unpriced.kind === "cards" ? unpriced.note : null).toMatch(/a hollow one has none priced\.$/);
   });
 
   it("is the one Limits pipeline both the Limits tab and Overview's glance read", () => {
     const accounts = new Map([["claude", account([live(10)])]]);
     const rows = [usageEvent({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 2 })];
-    expect(accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS, measure: "spend" })).toEqual(
-      providersView(providerWindowGroups(accounts, rows, new Map(), NOW, "spend"), NOW, COLORS, "spend"),
+    expect(accountLimitsView({ accounts, rows, reportsByKey: new Map(), now: NOW, colors: COLORS })).toEqual(
+      providersView(providerWindowGroups(accounts, rows, new Map(), NOW), NOW, COLORS),
     );
   });
 });

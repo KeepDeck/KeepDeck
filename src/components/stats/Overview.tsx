@@ -55,8 +55,8 @@ export function Overview({
     [ledger, period, now, colors, workspace, measure],
   );
   const limits = useMemo(
-    () => limitsGlanceView(accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors, measure }), now, colors),
-    [accounts, ledger, reportsByKey, now, colors, measure],
+    () => limitsGlanceView(accountLimitsView({ accounts, rows: ledger.events, reportsByKey, now, colors }), now, colors),
+    [accounts, ledger, reportsByKey, now, colors],
   );
   return (
     <>
