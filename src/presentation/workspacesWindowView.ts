@@ -37,6 +37,8 @@ export const WORKSPACES_WORDS = {
   closeWhileArchiving: "It can be closed once the archive has stopped its agents.",
   identity: "Identity",
   name: "Name",
+  mark: "Mark letters",
+  markHint: "One or two characters for its mark in the strip. Leave it blank for letters from the name.",
   folders: "Folders",
   workingDirectory: "Working directory",
   worktreeFolder: "Worktree folder",
@@ -105,6 +107,8 @@ export interface WorkspacePageView {
   fields: {
     editable: boolean;
     name: string;
+    /** The person's own letters, or "" — then `initials` are the name's. */
+    mark: string;
     cwd: { path: string; locked: boolean };
     worktreeBaseDir: string | null;
   };
@@ -173,6 +177,7 @@ function pageOf(ws: Workspace, initials: string, now: number): WorkspacePageView
     fields: {
       editable: marker === undefined,
       name: ws.name,
+      mark: ws.mark ?? "",
       cwd: { path: ws.cwd, locked: cwdLocked(ws) !== null },
       worktreeBaseDir: ws.worktreeBaseDir,
     },

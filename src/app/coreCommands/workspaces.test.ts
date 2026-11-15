@@ -309,7 +309,7 @@ describe("workspace commands", () => {
     it("edits the active workspace when none is named, and answers what it now is", async () => {
       const { registry, deck } = setup(twoWorkspaces());
       const result = await registry.execute("workspace.update", { name: "api", worktreeBaseDir: "/wt" }, HOST);
-      expect(result).toEqual({ ok: true, value: { workspaceId: "ws-1", name: "api", worktreeBaseDir: "/wt" } });
+      expect(result).toEqual({ ok: true, value: { workspaceId: "ws-1", name: "api", mark: null, worktreeBaseDir: "/wt" } });
       expect(deck.workspaces[1].name).toBe("site");
     });
 
@@ -346,7 +346,18 @@ describe("workspace commands", () => {
     it("refuses a call that changes nothing", async () => {
       const { registry } = setup([workspace({})]);
       const result = await registry.execute("workspace.update", { workspace: "web" }, HOST);
-      expect(result).toEqual({ ok: false, error: { code: "failed", message: "nothing to change — pass name or worktreeBaseDir" } });
+      expect(result).toEqual({ ok: false, error: { code: "failed", message: "nothing to change — pass name, mark or worktreeBaseDir" } });
+    });
+
+    it("sets a mark's letters, refuses more than two characters, and a blank goes back to the name's", async () => {
+      const { registry, deck } = setup([workspace({})]);
+      const set = await registry.execute("workspace.update", { mark: "Wb" }, HOST);
+      expect(set).toMatchObject({ ok: true, value: { mark: "Wb" } });
+      const tooLong = await registry.execute("workspace.update", { mark: "Web" }, HOST);
+      expect(tooLong).toEqual({ ok: false, error: { code: "failed", message: 'argument "mark" holds at most two characters' } });
+      expect(deck.workspaces[0].mark).toBe("Wb");
+      await registry.execute("workspace.update", { mark: "" }, HOST);
+      expect(deck.workspaces[0].mark).toBeUndefined();
     });
 
     it("refuses an archived workspace, naming it", async () => {

@@ -147,7 +147,7 @@ export function registerWorkspaceCommands(
       id: "workspace.update",
       // The directory is not offered: moving a workspace is the person's, in
       // the Workspaces window, where nothing else can be open against it.
-      title: "Change a workspace's name or the folder its new teams' worktrees go under",
+      title: "Change a workspace's name, its mark's letters, or the folder its new teams' worktrees go under",
       args: [
         {
           name: "workspace",
@@ -155,6 +155,11 @@ export function registerWorkspaceCommands(
           description: "Workspace name or id; omit it for the active workspace",
         },
         { name: "name", type: "string", description: "New name; blank resets it to its folder's name" },
+        {
+          name: "mark",
+          type: "string",
+          description: "One or two characters for its mark in the strip; blank goes back to letters from the name",
+        },
         {
           name: "worktreeBaseDir",
           type: "string",
@@ -172,17 +177,25 @@ export function registerWorkspaceCommands(
         // each of these, and the domain is what says what.
         const patch: WorkspacePatch = {};
         const name = rawStr(args, "name");
+        const mark = rawStr(args, "mark");
         const worktreeBaseDir = rawStr(args, "worktreeBaseDir");
         if (name !== undefined) patch.name = name;
+        if (mark !== undefined) patch.mark = mark;
         if (worktreeBaseDir !== undefined) patch.worktreeBaseDir = worktreeBaseDir;
         if (Object.keys(patch).length === 0) {
-          throw new Error("nothing to change — pass name or worktreeBaseDir");
+          throw new Error("nothing to change — pass name, mark or worktreeBaseDir");
         }
         const result = deck.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
         if (!result.ok) throw new Error(updateRefusalText(result.refusal, ws.name));
         const updated = result.workspaces.find((candidate) => candidate.instance === ws.instance);
         if (!updated) throw new Error("the workspace is gone");
-        return { workspaceId: updated.id, name: updated.name, worktreeBaseDir: updated.worktreeBaseDir };
+        return {
+          workspaceId: updated.id,
+          name: updated.name,
+          // Null: its letters come from the name.
+          mark: updated.mark ?? null,
+          worktreeBaseDir: updated.worktreeBaseDir,
+        };
       },
     }),
   ];

@@ -100,6 +100,7 @@ describe("workspacesWindowView — the page", () => {
     expect(view().page?.fields).toEqual({
       editable: true,
       name: "KeepDeck",
+      mark: "",
       cwd: { path: "/Users/me/keepdeck", locked: true },
       worktreeBaseDir: null,
     });

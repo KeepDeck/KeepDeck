@@ -182,6 +182,10 @@
   margin: 6px 0 0;
 }
 
+.workspaces__letters {
+  width: 6em;
+}
+
 .workspaces__foot {
   display: flex;
   flex-wrap: wrap;

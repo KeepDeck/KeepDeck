@@ -133,6 +133,21 @@ describe("WorkspacesDialog", () => {
     expect(document.body.textContent).toContain("restore it to change it");
   });
 
+  it("sets the mark's letters when that field is left, showing the name's letters until then", () => {
+    render();
+    const field = present(document.querySelector<HTMLInputElement>("input[aria-label='Mark letters']"), "the letters field");
+    expect(field.placeholder).toBe("We");
+    act(() => {
+      present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "value").set?.call(field, "W");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      field.focus();
+      field.blur();
+    });
+    expect(acts.onUpdate).toHaveBeenCalledWith("ws-1", { mark: "W" });
+  });
+
   it("closes on its ✕", () => {
     render();
     act(() => present(document.querySelector<HTMLButtonElement>("[aria-label='Close workspaces']"), "the close button").click());

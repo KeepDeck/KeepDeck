@@ -187,6 +187,25 @@ function Page({
             }}
           />
         </label>
+        <label className="workspaces__field">
+          <span className="form__label">{WORKSPACES_WORDS.mark}</span>
+          <input
+            key={fields.mark}
+            className="form__input workspaces__letters"
+            defaultValue={fields.mark}
+            // What it says now when the person chose nothing.
+            placeholder={page.initials}
+            readOnly={!fields.editable}
+            aria-label={WORKSPACES_WORDS.mark}
+            onBlur={(event) => {
+              if (fields.editable && event.currentTarget.value !== fields.mark) update({ mark: event.currentTarget.value });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+          />
+          <span className="settings__hint">{WORKSPACES_WORDS.markHint}</span>
+        </label>
       </section>
       <section className="workspaces__sec">
         <h4>{WORKSPACES_WORDS.folders}</h4>
