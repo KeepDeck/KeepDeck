@@ -112,7 +112,7 @@ export function usageTimeline(
   granularity: TimelineGranularity,
   measure: StatsMeasure,
 ): UsageStep[] {
-  const stepOf = granularity === "hour" ? localHourStart : (at: number) => localDayStart(localDayNumber(at));
+  const stepOf = (at: number) => stepStart(at, granularity);
   const steps = new Map<number, UsageStep>();
   let first = Infinity;
   for (const row of rows) {
@@ -137,7 +137,14 @@ export function usageTimeline(
   return out;
 }
 
-function nextStep(start: number, granularity: TimelineGranularity): number {
+/** The step an instant falls in: its local hour, or its local calendar day. */
+export function stepStart(at: number, granularity: TimelineGranularity): number {
+  return granularity === "hour" ? localHourStart(at) : localDayStart(localDayNumber(at));
+}
+
+/** The step after one — THE walk every timeline and its axis take, so a
+ * clock change cannot make the bars and the day lines disagree. */
+export function nextStep(start: number, granularity: TimelineGranularity): number {
   if (granularity === "day") return localDayStart(shiftDay(localDayNumber(start), 1));
   // Hours step through instants, so a repeated clock hour is two steps and a
   // skipped one none; the guard keeps a half-hour shift from standing still.

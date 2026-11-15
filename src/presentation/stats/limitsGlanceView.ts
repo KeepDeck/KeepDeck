@@ -68,9 +68,8 @@ function glanceProvider(card: ProviderCardView, now: number, colors: ReadonlyMap
     agent: card.agent,
     color: seriesColorFor(colors, card.agent),
     windows: card.windows.map((window, index) => {
-      // Only a caption part with a level is a warning; the reset clause and
-      // a calm forecast carry none.
-      const alarm = window.caption.find((part) => part.className !== undefined);
+      // Only a verdict with a level is a warning; a calm forecast carries none.
+      const alarm = window.verdict?.className === undefined ? undefined : window.verdict;
       return {
         id: window.id,
         agent: index === 0 ? card.agent : null,

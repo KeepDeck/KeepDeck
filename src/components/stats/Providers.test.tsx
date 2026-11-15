@@ -82,43 +82,44 @@ describe("Providers", () => {
     windows,
   });
 
-  it("joins provider windows with ledger spend inside each window", () => {
+  it("draws one card per provider around its longest window: a lead tile beside its chart, the shorter one a small tile", () => {
     render({
       accounts: new Map([
         [
           "codex",
           account([
             { usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: 300 },
-            { usedPct: 51, resetsAt: null, windowMinutes: 10_080 },
+            { usedPct: 51, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 },
           ]),
         ],
       ]),
     });
-
-    // One card per provider: the name and report age appear exactly once.
     const cards = host.querySelectorAll(".stats__provider");
     expect(cards).toHaveLength(1);
-    const card = cards[0];
-    expect(present(card.querySelector(".stats__provider-head"), "the .stats__provider-head element").textContent).toBe(
-      "codexUpdated 1m ago",
-    );
-    expect(card.querySelectorAll(".stats__window")).toHaveLength(2);
-    expect(card.textContent).toContain("5h");
-    expect(card.textContent).toContain("34%");
-    expect(card.textContent).toContain("resets in 2h 0m");
-    expect(card.textContent).toContain("1.6k · 1 session · ≈$0.25 this window");
-    // The weekly window has no reset instant: percentage without a join.
-    expect(card.textContent).toContain("week");
-    expect(card.textContent).toContain("51%");
-    expect(card.textContent).toContain("reset unknown");
-    // Both windows draw the shared popover fill bar.
+    const card = present(cards[0], "the codex card");
+    // The name and the report age once, in the head.
+    expect(card.querySelector(".stats__provider-head")?.textContent).toBe("codexUpdated 1m ago");
+    const lead = present(card.querySelector(".stats__window--lead"), "the lead tile");
+    expect(lead.textContent).toContain("week");
+    expect(lead.textContent).toContain("51%");
+    const [, small] = [...card.querySelectorAll(".stats__window")];
+    expect(small?.textContent).toContain("5h");
+    expect(small?.textContent).toContain("34%");
+    expect(small?.textContent).toContain(`resets in 2h 0m · ${formatMoment(NOW + 2 * HOUR, NOW)}`);
+    // Each tile draws the shared fill bar with a tick where its time stands.
     expect(card.querySelectorAll(".usage-bar")).toHaveLength(2);
+    expect(card.querySelectorAll(".stats__window-time")).toHaveLength(2);
+    // The chart names its start, its reset and now, and marks the 5h window in it.
+    const chart = present(card.querySelector(".stats__limits-chart"), "the chart");
+    expect(chart.querySelector(".stats__limits-edges")?.textContent).toMatch(/^started .+resets .+$/);
+    expect(chart.querySelector(".stats__limits-now-label")?.textContent).toMatch(/^now · /);
+    expect(chart.querySelectorAll(".stats__limits-ticks span").length).toBeGreaterThan(0);
+    expect(chart.querySelector(".stats__limits-note")?.textContent).toMatch(/^5h window · /);
   });
 
-  it("forecasts the race and draws the burn curve when the journal has pace", () => {
+  it("says the race on the lead tile's own line, and marks the run-out on the chart's ceiling", () => {
     const resetsAt = NOW + 155 * MIN;
     const windows = [{ usedPct: 62, resetsAt, windowMinutes: 300 }];
-    const claude = account(windows, NOW);
     // 0.29%/min over 40 minutes of reports: 38% left ≈ 131m < 155m to reset.
     const reports = [50.4, 53.3, 56.2, 59.1, 62].map((usedPct, index) => ({
       agent: "claude",
@@ -128,67 +129,30 @@ describe("Providers", () => {
       resetsAt,
     }));
     render({
-      accounts: new Map([["claude", claude]]),
-      reportsByKey: new Map([
-        [present(accountWindowKeys("claude", windows).get(windows[0]), "the account window key").key, reports],
-      ]),
+      accounts: new Map([["claude", account(windows, NOW)]]),
+      reportsByKey: new Map([[present(accountWindowKeys("claude", windows).get(windows[0]), "the window's key").key, reports]]),
     });
-
-    // The clause names the thing you run into and counts down to it, in the
-    // same unit as the reset beside it — no clock face to convert and no
-    // margin to subtract.
-    // The run-out instant is still phrased by the formatter on the PLOT's
-    // edge below; spelling that shape out here would pin the runner's
-    // timezone instead: 2h35m from the fixture crosses LOCAL midnight in
-    // some zones and not others.
-    const moment = formatMoment(NOW + 131 * MIN, NOW);
-    // The phrase and its unit, not the exact minute: the fixture's run-out
-    // lands on a `Math.ceil` boundary, so pinning "2h 12m" would flake on any
-    // change to the pace estimator that is still perfectly correct. The
-    // domain suite owns the arithmetic; this one owns the wiring.
-    expect(host.textContent).toMatch(/Will hit the limit in ~2h \d+m/);
-    expect(host.textContent).not.toContain("before reset");
-    expect(host.textContent).toContain("resets in 2h 35m");
-    expect(host.querySelector(".usage-burn")).not.toBeNull();
-    expect(host.querySelector(".usage-burn__dot--warn")).not.toBeNull();
-    // The plot's right edge names that same moment, so the curve and the
-    // sentence under it cannot disagree. Matching a bare clock shape would
-    // have accepted the reset-prefixed label too — the wrong branch.
-    const foot = present(host.querySelector(".usage-burn__foot"), "the .usage-burn__foot element").textContent ?? "";
-    expect(foot).toBe(`0${moment}`);
+    // The phrase and its unit, not the exact minute: the domain suite owns the arithmetic.
+    expect(host.querySelector(".stats__window--lead")?.textContent).toMatch(/Will hit the limit in ~2h \d+m/);
+    expect(host.querySelector(".stats__limits-out.usage-level--warn")).not.toBeNull();
+    expect(host.querySelector(".stats__limits-projection")).not.toBeNull();
   });
 
-  it("stays silent about the race when the journal has no pace yet", () => {
-    render({
-      accounts: new Map([
-        [
-          "claude",
-          account(
-            [{ usedPct: 62, resetsAt: NOW + 155 * MIN, windowMinutes: 300 }],
-            NOW,
-          ),
-        ],
-      ]),
-    });
-    expect(host.textContent).toContain("resets in 2h 35m");
-    // Against what the card ACTUALLY prints now. The old negative named "on
-    // pace", a phrase production no longer uses anywhere, so it was
-    // permanently true. And the positive assertion is the point: this state
-    // has words of its own, and they are only checked as a pure function
-    // elsewhere — nothing proved they reach the DOM.
-    expect(host.textContent).not.toContain("the limit");
+  it("says when there is no pace to read yet, and draws no projection", () => {
+    render({ accounts: new Map([["claude", account([{ usedPct: 62, resetsAt: NOW + 155 * MIN, windowMinutes: 300 }], NOW)]]) });
     expect(host.textContent).toContain("Not enough data yet");
-    expect(host.querySelector(".usage-burn")).toBeNull();
+    expect(host.textContent).not.toContain("the limit");
+    expect(host.querySelector(".stats__limits-projection")).toBeNull();
   });
 
-  it("demotes expired and stale windows instead of joining them", () => {
+  it("dims a reset window on its own small tile, and says a stale report's age once", () => {
     render({
       accounts: new Map([
         [
           "claude",
           account(
             [
-              { usedPct: 10, resetsAt: NOW - HOUR, windowMinutes: 300 }, // expired
+              { usedPct: 10, resetsAt: NOW - HOUR, windowMinutes: 300 }, // reset
               { usedPct: 81, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 },
             ],
             NOW - 2 * HOUR, // stale report
@@ -197,112 +161,49 @@ describe("Providers", () => {
       ]),
       events: [usageEvent({ agent: "claude" })],
     });
-
-    const card = present(host.querySelector(".stats__provider"), "the .stats__provider element");
-    // The stale report age is announced once, in the card header.
-    expect(present(card.querySelector(".stats__provider-head"), "the .stats__provider-head element").textContent).toContain(
-      "Updated 2h ago",
-    );
-    const windows = [...card.querySelectorAll(".stats__window")];
-    // Expired 5h window: no ledger numbers, an explicit reason, demoted look.
-    expect(windows[0].textContent).toContain("reset passed");
-    expect(windows[0].textContent).not.toContain("1.6k");
-    expect(windows[0].className).toContain("stats__window--expired");
-    // Live weekly window: joined despite the stale report.
-    expect(windows[1].textContent).toContain("1.6k");
-    expect(windows[1].className).not.toContain("stats__window--expired");
+    const card = present(host.querySelector(".stats__provider"), "the claude card");
+    expect(card.querySelector(".stats__provider-head small")?.className).toBe("usage-level--warn");
+    expect(card.querySelector(".stats__provider-head")?.textContent).toContain("Updated 2h ago");
+    const reset = present(card.querySelector(".stats__window--expired"), "the reset tile");
+    expect(reset.textContent).toContain("reset — waiting for its next report");
+    expect(reset.querySelector(".stats__window-time")).toBeNull();
+    // The live week still leads, with its chart.
+    expect(card.querySelector(".stats__window--lead")?.textContent).toContain("week");
+    expect(card.querySelector(".stats__limits-chart")).not.toBeNull();
   });
 
   it("demotes a window on the card already drawn, the moment the now it is handed passes its reset", () => {
     // The dialog's clock ticks on with no new report, event or journal
-    // entry: the very same inputs, only a later now. The WHOLE window
-    // demotes together — caption, dim and join in agreement — not what the
-    // card drew before.
+    // entry: the very same inputs, only a later now.
     const inputs = {
-      accounts: new Map([
-        ["codex", account([{ usedPct: 90, resetsAt: NOW + 10_000, windowMinutes: 300 }])],
-      ]),
+      accounts: new Map([["codex", account([{ usedPct: 90, resetsAt: NOW + 10_000, windowMinutes: 300 }])]]),
       events: [usageEvent()],
       reportsByKey: new Map<string, readonly WindowReport[]>(),
     };
     render(inputs);
     expect(host.querySelector(".stats__window--expired")).toBeNull();
-    expect(host.textContent).toContain("resets in");
+    expect(host.querySelector(".stats__limits-chart")).not.toBeNull();
 
     render({ ...inputs, now: NOW + 31_000 });
     expect(host.querySelector(".stats__window--expired")).not.toBeNull();
-    expect(host.textContent).toContain("reset passed");
-    expect(host.textContent).not.toContain("this window");
+    expect(host.textContent).toContain("reset — waiting for its next report");
+    expect(host.querySelector(".stats__limits-chart")).toBeNull();
   });
 
-  it("explains a reset percentage once per card, not once per window", () => {
-    // Two grey lines each repeating "% is from the previous window" made a
-    // card with nothing to report look like a card that was broken.
+  it("stands this machine's usage under the chart, and says once what the bars count", () => {
     render({
-      accounts: new Map([
-        [
-          "kimi",
-          account([
-            { usedPct: 0, resetsAt: NOW - HOUR, windowMinutes: 300 },
-            { usedPct: 6, resetsAt: NOW - HOUR, windowMinutes: 10_080 },
-          ]),
-        ],
-      ]),
+      accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
+      events: [usageEvent({ occurredAt: NOW - HOUR })],
     });
-    const idle = host.querySelectorAll(".stats__provider-idle");
-    expect(idle).toHaveLength(1);
-    expect(idle[0].textContent).toContain("previous window");
-    // The per-row caption keeps the fact and drops the explanation.
-    expect(host.textContent).toContain("reset passed");
-    expect(host.textContent).not.toContain("% is from the previous window");
+    const bars = [...host.querySelectorAll<HTMLElement>(".stats__limits-bars i")];
+    expect(bars.length).toBeGreaterThan(0);
+    expect(bars.some((bar) => bar.style.height === "100.00%")).toBe(true);
+    expect(host.querySelectorAll(".stats__coverage")).toHaveLength(1);
+    expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/^Bars are this machine's spend at list price/);
   });
 
-  it("still explains it when only SOME of the card's windows have reset", () => {
-    // The mixed card is the common one — a 5h window resets many times per
-    // week that the weekly one does not — and gating the note on "all"
-    // left it showing a dimmed percentage with nothing anywhere saying it
-    // describes a window that is gone.
-    render({
-      accounts: new Map([
-        [
-          "claude",
-          account([
-            { usedPct: 88, resetsAt: NOW - HOUR, windowMinutes: 300 }, // expired
-            { usedPct: 34, resetsAt: NOW + 3 * HOUR, windowMinutes: 10_080 },
-          ]),
-        ],
-      ]),
-    });
-    expect(host.querySelectorAll(".stats__provider-idle")).toHaveLength(1);
-  });
-
-  it("says nothing about resets on a card where every window is live", () => {
-    render({
-      accounts: new Map([
-        [
-          "claude",
-          account([
-            { usedPct: 10, resetsAt: NOW + HOUR, windowMinutes: 300 },
-            { usedPct: 40, resetsAt: NOW + 3 * HOUR, windowMinutes: 10_080 },
-          ]),
-        ],
-      ]),
-    });
-    expect(host.querySelector(".stats__provider-idle")).toBeNull();
-  });
-
-  it("labels a live window with zero ledger activity honestly", () => {
-    render({
-      accounts: new Map([
-        [
-          "kimi",
-          account([
-            { usedPct: 0, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 },
-          ]),
-        ],
-      ]),
-    });
-    expect(host.textContent).toContain("no usage this window");
-    expect(host.textContent).not.toContain("0 sessions");
+  it("says how the tab fills before any CLI reports its limits", () => {
+    render({ accounts: new Map() });
+    expect(host.textContent).toBe("No provider reports yet. Windows appear once a CLI reports its account limits.");
   });
 });

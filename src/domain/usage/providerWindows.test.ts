@@ -7,7 +7,7 @@ import { accountWindowKeys, type WindowReport } from "./reportJournal";
 import type { AccountUsage, UsageWindow } from "./usage";
 
 /** The production shape IS groups; tests reach rows through them — same
- * argument order as providerWindowGroups. Most cases exercise the ledger
+ * argument order as providerWindowGroups. Most cases exercise the usage
  * join and pass an empty journal. */
 const flatRows = (
   accounts: Parameters<typeof providerWindowGroups>[0],
@@ -47,8 +47,8 @@ describe("providerWindowRows", () => {
     ).toEqual([]);
   });
 
-  it("sums the ledger inside an active window's interval only", () => {
-    // 5h window resetting in 2h: interval opened 3h ago.
+  it("counts this machine's usage inside an active window's span only", () => {
+    // 5h window resetting in 2h: its span opened 3h ago.
     const accounts = new Map([
       ["codex", reported([{ usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: 300 }])],
     ]);
@@ -56,52 +56,21 @@ describe("providerWindowRows", () => {
       accounts,
       [
         event({ occurredAt: NOW - HOUR, tokens: { input: 100 } }),
-        event({
-          occurredAt: NOW - 2 * HOUR,
-          sessionId: "s2",
-          rootSessionId: "s2",
-          tokens: { output: 50 },
-          costUsd: 0.5,
-        }),
-        event({ occurredAt: NOW - 4 * HOUR, tokens: { input: 9_999 } }), // before the window opened
-        event({ agent: "claude", occurredAt: NOW - HOUR, tokens: { input: 7_777 } }), // other provider
+        event({ occurredAt: NOW - 2 * HOUR, sessionId: "s2", rootSessionId: "s2", tokens: { output: 50 }, costUsd: 0.5 }),
+        event({ occurredAt: NOW - 4 * HOUR, tokens: { input: 9_999 }, costUsd: 9 }), // before the window opened
+        event({ agent: "claude", occurredAt: NOW - HOUR, tokens: { input: 7_777 }, costUsd: 7 }), // other provider
       ],
       NO_JOURNAL,
       NOW,
     );
-
     expect(rows).toHaveLength(1);
     expect(rows[0].agent).toBe("codex");
     expect(rows[0].expired).toBe(false);
     expect(rows[0].stale).toBe(false);
-    expect(rows[0].ledger).toMatchObject({
-      totalTokens: 150,
-      costUsd: 0.5,
-      pricedEvents: 1,
-      approximateEvents: 0,
-      // The first row carries no price: its tokens are what the cost leaves out.
-      unpricedTokens: 100,
-      sessionCount: 2,
-    });
-    // The sessions inside, the biggest spender first — the other provider's
-    // and the pre-window rows are not among them.
-    expect(rows[0].ledger?.sessions.map((session) => [session.latest.sessionId, session.costUsd])).toEqual([
-      ["s2", 0.5],
-      ["s1", 0],
-    ]);
-  });
-
-  it("ranks the window's sessions in the measure asked for", () => {
-    const accounts = new Map([["codex", reported([{ usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: 300 }])]]);
-    const events = [
-      // s1: no price, but the bigger work; s2: priced, small.
-      event({ occurredAt: NOW - HOUR, tokens: { input: 100, cacheRead: 5_000 } }),
-      event({ occurredAt: NOW - HOUR, sessionId: "s2", rootSessionId: "s2", tokens: { output: 50 }, costUsd: 0.5 }),
-    ];
-    const order = (measure: "spend" | "tokens") =>
-      providerWindowGroups(accounts, events, NO_JOURNAL, NOW, measure)[0]?.rows[0]?.ledger?.sessions.map((s) => [s.latest.sessionId, s.amount]);
-    expect(order("spend")).toEqual([["s2", 0.5], ["s1", 0]]);
-    expect(order("tokens")).toEqual([["s1", 100], ["s2", 50]]);
+    expect(rows[0].span).toEqual({ from: NOW - 3 * HOUR, to: NOW + 2 * HOUR });
+    const steps = rows[0].usage ?? [];
+    expect(steps.reduce((sum, step) => sum + step.costUsd, 0)).toBe(0.5);
+    expect(steps.reduce((sum, step) => sum + step.tokensLessCacheReads, 0)).toBe(150);
   });
 
   // A long-passed reset once rendered a week of usage as a 5h window's own.
@@ -116,7 +85,6 @@ describe("providerWindowRows", () => {
       NOW,
     );
     expect(rows[0].expired).toBe(true);
-    expect(rows[0].ledger).toBeNull();
     expect([rows[0].span, rows[0].usage]).toEqual([null, null]);
   });
 
@@ -135,7 +103,7 @@ describe("providerWindowRows", () => {
     const rows = flatRows(accounts, [event()], NO_JOURNAL, NOW);
     expect(rows[0].stale).toBe(true);
     expect(rows[0].expired).toBe(false);
-    expect(rows[0].ledger?.totalTokens).toBe(100);
+    expect((rows[0].usage ?? []).reduce((sum, step) => sum + step.tokensLessCacheReads, 0)).toBe(100);
   });
 
   it("declines the join when the interval is unknowable or scoped", () => {
@@ -151,7 +119,6 @@ describe("providerWindowRows", () => {
     ]);
     const rows = flatRows(accounts, [event({ agent: "kimi" })], NO_JOURNAL, NOW);
     expect(rows).toHaveLength(3);
-    expect(rows.map((row) => row.ledger)).toEqual([null, null, null]);
     expect(rows.map((row) => [row.span, row.usage])).toEqual([[null, null], [null, null], [null, null]]);
   });
 

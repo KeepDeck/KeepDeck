@@ -14,9 +14,9 @@ import {
 import {
   accountWindowForecasts,
   burnEdgeLabel,
-  cardCaptionParts,
   panelWindowCaption,
   windowForecast,
+  windowVerdict,
   type WindowForecast,
 } from "./windowForecast";
 import { NO_REPORTS } from "./reportJournal";
@@ -443,7 +443,7 @@ describe("windowForecast", () => {
       report({ reportedAt: NOW, usedPct: 4 }),
     ];
     expect(windowForecast(falling, FIVE_H, NOW)).toEqual({ kind: "unknown" });
-    expect(cardCaptionParts(FIVE_H, { kind: "unknown" }, NOW)[1].text).toBe(
+    expect(windowVerdict(FIVE_H, { kind: "unknown" }, NOW)?.text).toBe(
       "Not enough data yet",
     );
   });
@@ -526,15 +526,16 @@ describe("captions", () => {
     // countdown is already on this line, and nobody subtracts two clocks in
     // their head. A countdown to the run-out answers the question directly
     // and is comparable to its neighbour at a glance.
-    const warnParts = cardCaptionParts(FIVE_H, out, NOW);
-    expect(warnParts[1].text).toMatch(/^Will hit the limit in ~.+$/);
-    expect(warnParts[1].text).not.toContain("before reset");
+    const warn = windowVerdict(FIVE_H, out, NOW);
+    expect(warn?.text).toMatch(/^Will hit the limit in ~.+$/);
+    expect(warn?.text).not.toContain("before reset");
     // "the limit", not "100%": a percentage is a number, not an outcome.
-    expect(warnParts[1].text).not.toContain("100%");
-    // Imminent takes the same shape — only the level and the ordering move.
-    const critParts = cardCaptionParts(FIVE_H, crit, NOW);
-    expect(critParts[0].text).toMatch(/^Will hit the limit in ~/);
-    expect(critParts[0].level).toBe("critical");
+    expect(warn?.text).not.toContain("100%");
+    expect(warn?.level).toBe("warn");
+    // Imminent takes the same shape — only the level moves.
+    const critical = windowVerdict(FIVE_H, crit, NOW);
+    expect(critical?.text).toMatch(/^Will hit the limit in ~/);
+    expect(critical?.level).toBe("critical");
   });
 
   it("says the wall is here when there is nothing left to count down to", () => {
@@ -542,9 +543,7 @@ describe("captions", () => {
     // suite still had minutes on the clock, so `formatCountdown` never
     // returned null and both spellings shipped unexercised.
     const reached: WindowForecast = { kind: "out", outAt: NOW, level: "critical" };
-    const parts = cardCaptionParts(FIVE_H, reached, NOW);
-    // Critical leads the line, ahead of the reset anchor.
-    expect(parts[0]).toEqual({ text: "Limit reached", level: "critical" });
+    expect(windowVerdict(FIVE_H, reached, NOW)).toEqual({ text: "Limit reached", level: "critical" });
     // The popover joins it into its own sentence — same fact, same phrase,
     // lower case because it continues rather than starts.
     expect(panelWindowCaption(FIVE_H, reached, NOW)).toEqual({
@@ -557,17 +556,16 @@ describe("captions", () => {
     // "ends near 33%" named the number the line lands on. The reader is not
     // holding a line; they are holding a budget, so the useful quantity is
     // the headroom.
-    const parts = cardCaptionParts(FIVE_H, ok, NOW);
-    expect(parts).toHaveLength(2);
-    expect(parts[1].text).toMatch(/^Won't hit the limit · ~\d+% left$/);
-    expect(parts[1].level).toBeNull();
+    const verdict = windowVerdict(FIVE_H, ok, NOW);
+    expect(verdict?.text).toMatch(/^Won't hit the limit · ~\d+% left$/);
+    expect(verdict?.level).toBeNull();
     // Through `formatPct`'s own "left" mode. Ceiling the complement by hand
     // rounds the wrong way: that mode ceils the USED side on purpose, so
     // `100 - ceil(endPct)` understates headroom where `ceil(100 - endPct)`
     // overstates it, and the two disagree by a point at every non-integer
     // landing.
     if (!("endPct" in ok) || typeof ok.endPct !== "number") throw new Error("expected a landing window");
-    expect(parts[1].text).toContain(formatPct(ok.endPct, "left"));
+    expect(verdict?.text).toContain(formatPct(ok.endPct, "left"));
   });
 
   it("separates an idle window from one it cannot read yet", () => {
@@ -575,12 +573,12 @@ describe("captions", () => {
     // their first minutes was indistinguishable from an account nobody is
     // using — and neither explained the burn plot's empty right half.
     const flat = windowForecast(ramp(0, 5, 10, 20), FIVE_H, NOW);
-    expect(cardCaptionParts(FIVE_H, flat, NOW)[1].text).toBe(
+    expect(windowVerdict(FIVE_H, flat, NOW)?.text).toBe(
       "Not spending right now",
     );
     const blind = windowForecast(NO_REPORTS, FIVE_H, NOW);
     expect(blind.kind).toBe("unknown");
-    expect(cardCaptionParts(FIVE_H, blind, NOW)[1].text).toBe(
+    expect(windowVerdict(FIVE_H, blind, NOW)?.text).toBe(
       "Not enough data yet",
     );
   });
@@ -601,9 +599,9 @@ describe("captions", () => {
     // It reaches the limit — `out`, and the sentence says so. What the
     // margin buys is the absence of a colour, not the inversion of the fact.
     expect(forecast).toMatchObject({ kind: "out", level: null });
-    const parts = cardCaptionParts(window, forecast, NOW);
-    expect(parts[1].text).toMatch(/^Will hit the limit in ~/);
-    expect(parts[1].level).toBeNull();
+    const verdict = windowVerdict(window, forecast, NOW);
+    expect(verdict?.text).toMatch(/^Will hit the limit in ~/);
+    expect(verdict?.level).toBeNull();
     // And the plot's edge names the same instant, so the two cannot
     // disagree — which they did: "Won't hit the limit" sat under a dashed
     // line ending at 100 with its edge labelled the run-out clock time.
@@ -636,13 +634,6 @@ describe("captions", () => {
       level: null,
       atReset: false,
     });
-  });
-
-  it("orders the card caption: reset anchors, critical leads", () => {
-    const warnParts = cardCaptionParts(FIVE_H, out, NOW).map((p) => p.level);
-    expect(warnParts).toEqual([null, "warn"]);
-    const critParts = cardCaptionParts(FIVE_H, crit, NOW).map((p) => p.level);
-    expect(critParts).toEqual(["critical", null]);
   });
 
   it("swaps the popover line to the next relevant event", () => {

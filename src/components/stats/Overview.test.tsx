@@ -148,12 +148,15 @@ describe("Overview", () => {
     ]);
     await render([row()], { accounts });
     const providers = [...host.querySelectorAll(".stats__glance-provider")];
+    // The fuller kimi comes first: the glance reads the Limits cards, riskiest first.
+    const [kimi, claude] = providers;
+    expect([kimi?.textContent?.startsWith("kimi"), claude?.textContent?.startsWith("claude")]).toEqual([true, true]);
     const ageOf = (provider: Element | undefined) => provider?.querySelector(".stats__glance-age");
     // One window: a line of its own under the name.
-    expect(ageOf(providers[0])?.textContent).toBe("3h ago");
-    expect(ageOf(providers[0])?.classList.contains("stats__glance-age--line")).toBe(true);
+    expect(ageOf(claude)?.textContent).toBe("3h ago");
+    expect(ageOf(claude)?.classList.contains("stats__glance-age--line")).toBe(true);
     // Two windows: the second line's name cell, kept out of the reset window's dimming.
-    const kimiLines = [...(providers[1]?.querySelectorAll(".stats__glance-window") ?? [])];
+    const kimiLines = [...(kimi?.querySelectorAll(".stats__glance-window") ?? [])];
     expect(kimiLines[1]?.classList.contains("stats__glance-window--expired")).toBe(true);
     expect(kimiLines[1]?.querySelector(".stats__glance-agent--age")?.textContent).toBe("4d ago");
     expect(host.textContent).not.toContain("Updated");

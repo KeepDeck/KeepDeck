@@ -442,22 +442,6 @@ export function windowVerdict(
   return forecastClause(forecast, now) ?? survivalClause(forecast) ?? quietClause(window, forecast, now);
 }
 
-/** The card's full caption, ordered: the reset stays the anchor fact, the
- * clause joins it — and leads it once the run-out is imminent. */
-export function cardCaptionParts(
-  window: UsageWindow,
-  forecast: WindowForecast,
-  now: number,
-): ForecastCaptionPart[] {
-  const reset = windowResetCaption(window, now, "long");
-  const clause = windowVerdict(window, forecast, now);
-  const parts: ForecastCaptionPart[] = [];
-  if (clause !== null && clause.level === "critical") parts.push(clause);
-  if (reset !== "") parts.push({ text: reset, level: null });
-  if (clause !== null && clause.level !== "critical") parts.push(clause);
-  return parts;
-}
-
 /**
  * THE run-out phrase — one wording for the fact, in the two grammatical
  * positions its surfaces need.

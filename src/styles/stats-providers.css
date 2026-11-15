@@ -1,14 +1,6 @@
-/* The Limits tab — provider cards with rate-limit windows and their
-   ledger joins. */
-/* ONE column, deliberately. A provider's card is exactly as tall as it has
-   windows — claude has two with curves, codex one, an idle account none —
-   so a multi-column grid put cards of three different heights side by side
-   and left half a screen of nothing under the shortest. Nothing about the
-   content wanted columns; only the width did.
-
-   The width is the point of giving them up. These charts answer "when do I
-   hit the limit", and that answer is a label at the right edge of a time
-   axis: at 360px there is no room for it, at full width there is. */
+/* The Limits tab — one card per provider, drawn around its longest live
+   window: a tile beside that window's chart, the provider's other windows
+   as small tiles under it. */
 .stats__providers {
   display: flex;
   flex-direction: column;
@@ -19,7 +11,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: var(--kd-radius-tile);
   background: var(--kd-tile);
 }
@@ -28,44 +20,105 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  font-size: var(--kd-font-small);
 }
 
 .stats__provider-head b {
-  color: var(--kd-text-2);
-  font-size: var(--kd-font-small);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--kd-text);
+  font-weight: 600;
+}
+
+.stats__provider-head b i {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--kd-radius-mark);
 }
 
 .stats__provider-head small {
   color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
 }
 
-/* Why a card has nothing live to show, said once above its windows. */
-.stats__provider-idle {
-  margin: 0;
-  color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
-  line-height: 1.45;
+/* The tiles' column and the chart; a provider with no window to draw a
+   chart around lays its tiles out in a row instead. */
+.stats__provider-body {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.stats__provider-body--tiles {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.stats__provider-body--tiles .stats__provider-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0 22px;
+}
+
+.stats__provider-tiles {
+  display: flex;
+  flex-direction: column;
 }
 
 .stats__window {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  font-size: var(--kd-font-small);
 }
 
-/* An expired window: the numbers demote instead of lying confidently. */
+.stats__window + .stats__window {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--kd-seam);
+}
+
+.stats__provider-body--tiles .stats__window + .stats__window {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* A window that has reset: its percentage describes the window before. */
 .stats__window--expired {
   opacity: 0.55;
 }
 
 .stats__window-head {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
+}
+
+.stats__window-label {
   color: var(--kd-text-3);
-  font-size: var(--kd-font-small);
+}
+
+.stats__window-pct {
+  color: var(--kd-text);
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* The lead window reads like the Overview's figures: its name small and
+   upper-case, its percentage large under it. */
+.stats__window--lead .stats__window-head {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stats__window--lead .stats__window-label {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stats__window--lead .stats__window-pct {
+  font-size: var(--kd-font-title);
 }
 
 .stats__window small {
@@ -73,38 +126,184 @@
   font-size: var(--kd-font-small);
 }
 
-/* Who spent the window: local list-price spend per session, the biggest
-   first — never each session's share of the provider's percentage. */
-.stats__window-sessions {
+/* The bar, and a tick where the window's time stands. */
+.stats__window-bar {
+  position: relative;
+  display: block;
+  margin: 5px 0 3px;
+}
+
+.stats__window-time {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: var(--kd-radius-mark);
+  background: var(--kd-text-2);
+}
+
+/* ── The window's chart ───────────────────────────────────────────── */
+.stats__limits-chart {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+/* The plot, the bars and the day names share one frame; the gutter on the
+   left carries the percent scale. */
+.stats__limits-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 34px;
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
-.stats__window-sessions li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+.stats__limits-edges {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.stats__window-sessions span {
-  overflow: hidden;
-  color: var(--kd-text-2);
-  text-overflow: ellipsis;
+.stats__limits-plot {
+  position: relative;
+  height: 120px;
+}
+
+.stats__limits-plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.stats__limits-level {
+  stroke: var(--kd-seam);
+  stroke-width: 1;
+}
+
+.stats__limits-day {
+  stroke: var(--kd-seam);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.stats__limits-slice {
+  fill: var(--kd-text-3);
+  fill-opacity: 0.12;
+}
+
+.stats__limits-earlier {
+  fill: none;
+  stroke: var(--kd-text-3);
+  stroke-width: 1.5;
+}
+
+.stats__limits-earlier--older {
+  stroke-opacity: 0.45;
+}
+
+.stats__limits-current {
+  fill: none;
+  stroke: var(--stats-series);
+  stroke-width: 2.5;
+}
+
+.stats__limits-projection {
+  fill: none;
+  stroke: var(--stats-series);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.stats__limits-now {
+  stroke: var(--kd-text-3);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.stats__limits-axis {
+  position: absolute;
+  left: -34px;
+  transform: translateY(-50%);
+}
+
+.stats__limits-dot,
+.stats__limits-out {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--stats-series);
+}
+
+/* Where the pace meets the limit: on the ceiling, in the warning's colour. */
+.stats__limits-out {
+  top: 0;
+  background: currentcolor;
+}
+
+.stats__limits-note,
+.stats__limits-earlier-label,
+.stats__limits-now-label {
+  position: absolute;
   white-space: nowrap;
 }
 
-.stats__window-sessions small {
-  margin-left: 6px;
-  color: var(--kd-text-3);
+.stats__limits-note {
+  bottom: 2px;
+  padding-left: 4px;
 }
 
-.stats__window-sessions b {
+.stats__limits-earlier-label {
+  transform: translate(calc(-100% - 4px), calc(-100% - 2px));
+}
+
+.stats__limits-earlier-label--below {
+  transform: translate(calc(-100% - 4px), 4px);
+}
+
+.stats__limits-now-label {
+  top: 2px;
+  padding-left: 6px;
   color: var(--kd-text-2);
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
+}
+
+.stats__limits-now-label--before {
+  padding: 0 6px 0 0;
+  transform: translateX(-100%);
+}
+
+/* This machine's usage per day under the plot, on the same clock. */
+.stats__limits-bars {
+  position: relative;
+  height: 36px;
+  border-bottom: 1px solid var(--kd-seam);
+}
+
+.stats__limits-bars i {
+  position: absolute;
+  bottom: 0;
+  box-sizing: border-box;
+  border-right: 2px solid var(--kd-tile);
+  border-left: 2px solid var(--kd-tile);
+  border-radius: var(--kd-radius-mark) var(--kd-radius-mark) 0 0;
+  background: var(--stats-series);
+  opacity: 0.5;
+}
+
+.stats__limits-ticks {
+  position: relative;
+  height: 16px;
+}
+
+.stats__limits-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
