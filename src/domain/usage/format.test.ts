@@ -377,32 +377,17 @@ describe("formatMoment", () => {
     expect(formatMoment(at(0, 9, 5), NOON)).toBe("09:05");
   });
 
-  it("names tomorrow by its relation, not by its date", () => {
-    // "tomorrow 06:40" places a moment that "Jul 23, 06:40" makes the
-    // reader work out.
-    expect(formatMoment(at(1, 6, 40), NOON)).toBe("tomorrow 06:40");
+  it("writes out the date of any other day — never tomorrow or a weekday", () => {
+    expect(formatMoment(at(1, 6, 40), NOON)).toBe("Jul 23, 06:40");
     // The boundary is the calendar day, not 24 hours: 01:00 tomorrow is
-    // thirteen hours away and still "tomorrow".
-    expect(formatMoment(at(1, 1), NOON)).toBe("tomorrow 01:00");
-  });
-
-  it("names the weekday inside the week ahead", () => {
-    expect(formatMoment(at(2, 6, 40), NOON)).toBe("Fri 06:40");
-    expect(formatMoment(at(6, 6, 40), NOON)).toBe("Tue 06:40");
-  });
-
-  it("falls back to a date once the weekday would be ambiguous", () => {
-    // Seven days out, "Wed" would name the same weekday as today.
-    expect(formatMoment(at(7, 6, 40), NOON)).toBe("Jul 29, 06:40");
+    // thirteen hours away and already dated.
+    expect(formatMoment(at(1, 1), NOON)).toBe("Jul 23, 01:00");
+    expect(formatMoment(at(2, 6, 40), NOON)).toBe("Jul 24, 06:40");
     expect(formatMoment(at(40, 6, 40), NOON)).toBe("Aug 31, 06:40");
   });
 
-  it("renders a past instant as a bare clock, which is its known limit", () => {
-    // Every caller today passes a FUTURE instant by construction (a reset
-    // or a run-out), so this is a documented edge rather than a live bug —
-    // but it means the function cannot be reused for "last reported at"
-    // without a yesterday branch.
-    expect(formatMoment(at(-1, 8), NOON)).toBe("08:00");
+  it("dates a past day too: a reading from yesterday is not one from this morning", () => {
+    expect(formatMoment(at(-1, 8), NOON)).toBe("Jul 21, 08:00");
     expect(formatMoment(at(0, 8), NOON)).toBe("08:00");
   });
 });
