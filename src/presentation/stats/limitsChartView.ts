@@ -28,7 +28,8 @@ export interface LimitsChartView {
   /** The window's start and reset, named. */
   start: string;
   end: string;
-  now: { x: number; label: string };
+  /** Its name goes after the line, or before it in the right part of the plot. */
+  now: { x: number; label: string; side: "after" | "before" };
   /** Local midnights (or hours) inside the window. */
   grid: number[];
   /** A label per day (or hour) wide enough to carry one, at its middle. */
@@ -48,13 +49,17 @@ export interface LimitsChartView {
     points: ChartPoint[];
     latest: boolean;
     /** Where its name sits: at the end of its line — under it near the top
-     * of the frame, where above would leave the plot. */
-    end: (ChartPoint & { below: boolean }) | null;
+     * of the frame, and after it near the left edge, where above or before
+     * would leave the plot. */
+    end: (ChartPoint & { below: boolean; side: "after" | "before" }) | null;
   }[];
-  /** The provider's shorter windows running now, where they sit. */
-  slices: { key: string; x0: number; x1: number; label: string }[];
-  /** This machine's usage per step, the busiest step full height. */
-  bars: { key: string; x0: number; x1: number; height: number; title: string }[];
+  /** The provider's shorter windows running now, where they sit; the name
+   * goes after the slice, or before it when after would leave the plot. */
+  slices: { key: string; x0: number; x1: number; label: string; side: "after" | "before" }[];
+  /** This machine's usage per step, the busiest step full height. In money,
+   * `unpriced` says how much of a step no price covers: "all" draws a
+   * hollow bar — usage, but no amount — never a missing one. */
+  bars: { key: string; x0: number; x1: number; height: number; title: string; unpriced: "none" | "part" | "all" }[];
   /** Read in place of the drawing. */
   summary: string;
 }
@@ -82,12 +87,13 @@ export function limitsChartView(
     title: main.earlier.length > 0 ? "This window over the last ones" : "This window",
     start: `started ${formatStep(span.from, "hour", "long")}`,
     end: `resets ${formatStep(span.to, "hour", "long")}`,
-    now: { x: x(now), label: `now · ${formatStep(now, "hour", steps === "day" ? "long" : "short")}` },
+    now: { x: x(now), label: `now · ${formatStep(now, "hour", steps === "day" ? "long" : "short")}`, side: x(now) > 0.6 ? "before" : "after" },
     grid: cuts(span, steps).map(x),
     ticks: ticks(span, steps).map((tick) => ({ x: x(tick.at), label: tick.label })),
     current: {
-      // A single reading is not a curve: it is still where the window stands.
-      points: burn ? burn.observed.map((point) => reading(point.at, point.usedPct)) : [reading(now, main.window.usedPct)],
+      // A lone reading is not a curve: it stands where it was read — the
+      // account's report — not at now, when nothing arrived.
+      points: burn ? burn.observed.map((point) => reading(point.at, point.usedPct)) : [reading(main.reportedAt, main.window.usedPct)],
       projection: burn?.projected
         ? [reading(burn.projected[0].at, burn.projected[0].usedPct), reading(burn.projected[1].at, burn.projected[1].usedPct)]
         : null,
@@ -103,7 +109,7 @@ export function limitsChartView(
         label: `${formatPct(window.peakPct, "used")} · ${formatLocalDay(window.startsAt)} – ${formatLocalDay(window.resetsAt)}`,
         points,
         latest: index === main.earlier.length - 1,
-        end: end === undefined ? null : { ...end, below: end.pct > 80 },
+        end: end === undefined ? null : { ...end, below: end.pct > 80, side: end.x < 0.4 ? "after" : "before" },
       };
     }),
     slices: others.flatMap((other) =>
@@ -114,6 +120,7 @@ export function limitsChartView(
             x0: x(other.span.from),
             x1: x(other.span.to),
             label: `${windowLabel(other.window, "long")} window · ${formatStep(other.span.from, "hour")}–${formatStep(other.span.to, "hour")}`,
+            side: x(other.span.to) > 0.6 ? "before" : "after",
           }],
     ),
     bars: usage.flatMap((step) => {
@@ -121,12 +128,14 @@ export function limitsChartView(
       const to = Math.min(nextStep(step.start, steps), span.to);
       if (to <= from) return [];
       const amount = amountOf(step, measure);
+      const unpriced = measure !== "spend" || step.unpricedTokens === 0 ? "none" : step.pricedEvents === 0 ? "all" : "part";
       return [{
         key: String(step.start),
         x0: x(from),
         x1: x(to),
         height: top > 0 ? amount / top : 0,
         title: `${formatStep(step.start, steps, "long")}: ${displayAmount(step, measure)}`,
+        unpriced,
       }];
     }),
     summary: `${main.agent} ${label}: ${formatPct(main.window.usedPct, "used")} used, ${formatStep(span.from, "hour", "long")} to ${formatStep(span.to, "hour", "long")}`,
@@ -140,16 +149,21 @@ function cuts(span: Span, steps: "day" | "hour"): number[] {
   return out;
 }
 
+/** At most this many names under a chart; a longer window names every
+ * second (third…) day instead of none. */
+const MAX_TICKS = 10;
+
 /** A label per day (or hour), at the middle of its stretch inside the span —
- * only where the stretch is wide enough to carry one: a window that starts
- * at 17:00 has a sliver of a first day, not a label crammed into it. */
+ * a sliver of a day (a window that starts at 17:00) carries none, and a long
+ * window names every n-th one so the names fit. */
 function ticks(span: Span, steps: "day" | "hour"): { at: number; label: string }[] {
   const edges = [span.from, ...cuts(span, steps), span.to];
-  const length = span.to - span.from;
-  const room = steps === "day" ? 0.07 : 0.1;
-  return edges.slice(0, -1).flatMap((from, index) => {
-    const to = edges[index + 1] ?? span.to;
-    if ((to - from) / length < room) return [];
-    return [{ at: (from + to) / 2, label: formatStep(stepStart(from, steps), steps) }];
-  });
+  const stretches = edges.slice(0, -1).map((from, index) => ({ from, to: edges[index + 1] ?? span.to }));
+  // Half a day (half an hour) is room for a name; less is a sliver.
+  const full = steps === "day" ? 12 * 60 * 60_000 : 30 * 60_000;
+  const named = stretches.filter((stretch) => stretch.to - stretch.from >= full);
+  const stride = Math.max(1, Math.ceil(named.length / MAX_TICKS));
+  return named
+    .filter((_, index) => index % stride === 0)
+    .map((stretch) => ({ at: (stretch.from + stretch.to) / 2, label: formatStep(stepStart(stretch.from, steps), steps) }));
 }

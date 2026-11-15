@@ -54,7 +54,11 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
           <span className="stats__limits-axis" style={{ top: "0%" }}>100%</span>
           <span className="stats__limits-axis" style={{ top: "50%" }}>50%</span>
           {view.slices.map((slice) => (
-            <span key={slice.key} className="stats__limits-note" style={{ left: at(slice.x1) }}>
+            <span
+              key={slice.key}
+              className={`stats__limits-note stats__limits-note--${slice.side}`}
+              style={{ left: at(slice.side === "after" ? slice.x1 : slice.x0) }}
+            >
               {slice.label}
             </span>
           ))}
@@ -62,7 +66,7 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
             earlier.end ? (
               <span
                 key={earlier.key}
-                className={`stats__limits-earlier-label${earlier.end.below ? " stats__limits-earlier-label--below" : ""}`}
+                className={`stats__limits-earlier-label stats__limits-earlier-label--${earlier.end.side}${earlier.end.below ? " stats__limits-earlier-label--below" : ""}`}
                 style={{ left: at(earlier.end.x), top: fromTop(earlier.end.pct) }}
               >
                 {earlier.label}
@@ -71,13 +75,18 @@ export function LimitsWindowChart({ view, color }: { view: LimitsChartView; colo
           )}
           {last && <i className="stats__limits-dot" style={{ left: at(last.x), top: fromTop(last.pct) }} />}
           {current.out && <i className={`stats__limits-out ${current.out.className ?? ""}`} style={{ left: at(current.out.x) }} />}
-          <span className={`stats__limits-now-label${view.now.x > 0.6 ? " stats__limits-now-label--before" : ""}`} style={{ left: at(view.now.x) }}>
+          <span className={`stats__limits-now-label stats__limits-now-label--${view.now.side}`} style={{ left: at(view.now.x) }}>
             {view.now.label}
           </span>
         </div>
         <div className="stats__limits-bars">
           {view.bars.map((bar) => (
-            <i key={bar.key} title={bar.title} style={{ left: at(bar.x0), width: at(bar.x1 - bar.x0), height: at(bar.height) }} />
+            <i
+              key={bar.key}
+              className={bar.unpriced === "all" ? "stats__limits-bar--unpriced" : undefined}
+              title={bar.title}
+              style={{ left: at(bar.x0), width: at(bar.x1 - bar.x0), height: at(bar.height) }}
+            />
           ))}
         </div>
         <div className="stats__limits-ticks">

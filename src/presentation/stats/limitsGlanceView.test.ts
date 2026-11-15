@@ -23,7 +23,8 @@ const card = (over: Partial<ProviderCardView> = {}): ProviderCardView => ({
   updated: { text: "Updated 2m ago" },
   age: { text: "2m ago" },
   windows: [windowView()],
-  main: null,
+  lead: null,
+  others: [],
   chart: null,
   ...over,
 });

@@ -96,6 +96,67 @@ describe("the Limits chart", () => {
     ]);
   });
 
+  it("keeps every name inside the plot: before a mark near the right edge, after one near the left", () => {
+    const view = present(chart(), "a chart");
+    // Now, a day in: its name follows the line; the 5h slice, near the start, too.
+    expect([view.now.side, view.slices[0]?.side]).toEqual(["after", "after"]);
+    // A 5h window ending with the week: its name goes before the slice, not past the edge.
+    const late = present(chart({ windows: [{ ...FIVE_H, resetsAt: WEEK_RESET }, WEEK] }), "a chart");
+    expect(late.slices[0]?.side).toBe("before");
+    // An earlier window the journal holds only the start of: its name follows its line's end.
+    const previousReset = WEEK_RESET - 7 * DAY;
+    const journal: WindowReport[] = [
+      { agent: "codex", windowMinutes: 10_080, usedPct: 20, reportedAt: previousReset - 6.5 * DAY, resetsAt: previousReset },
+      { agent: "codex", windowMinutes: 10_080, usedPct: 3, reportedAt: NOW - HOUR, resetsAt: WEEK_RESET },
+    ];
+    expect(present(chart({ journal }), "a chart").earlier[0]?.end).toMatchObject({ side: "after" });
+  });
+
+  it("draws usage no price covers as a hollow bar, never as none", () => {
+    const view = present(
+      chart({
+        events: [
+          { occurredAt: at("2026-11-15T10:00:00+02:00"), costUsd: 4 },
+          { occurredAt: at("2026-11-15T11:00:00+02:00"), tokens: { input: 50 } },
+          { occurredAt: at("2026-11-14T20:00:00+02:00"), tokens: { input: 70 } },
+        ],
+      }),
+      "a chart",
+    );
+    expect(view.bars.map((bar) => [bar.unpriced, bar.title])).toEqual([
+      ["all", "Sat, Nov 14, 2026: —"],
+      ["part", "Sun, Nov 15, 2026: ≈$4.00+"],
+    ]);
+    // In tokens every step has its amount.
+    const tokens = present(chart({ measure: "tokens", events: [{ occurredAt: at("2026-11-15T11:00:00+02:00"), tokens: { input: 50 } }] }), "a chart");
+    expect(tokens.bars.map((bar) => bar.unpriced)).toEqual(["none", "none"]);
+  });
+
+  it("stands a lone reading where it was read, not at now", () => {
+    let view: ReturnType<typeof limitsChartView> = null;
+    inZone("Asia/Nicosia", () => {
+      const [group] = providerWindowGroups(
+        new Map([["codex", { kind: "reported", reportedAt: NOW - 3 * HOUR, sourcePaneId: "", windows: [WEEK] }]]),
+        [],
+        new Map(),
+        NOW,
+        "spend",
+      );
+      const row = group?.rows[0];
+      if (row) view = limitsChartView(row, [], NOW, "spend");
+    });
+    const points = present(view as ReturnType<typeof limitsChartView>, "a chart").current.points;
+    expect(points).toEqual([{ x: (NOW - 3 * HOUR - (WEEK_RESET - 7 * DAY)) / (7 * DAY), pct: 3 }]);
+  });
+
+  it("names every n-th day of a long window rather than none", () => {
+    const month: UsageWindow = { usedPct: 10, resetsAt: NOW + 20 * DAY, windowMinutes: 30 * 24 * 60 };
+    const view = present(chart({ windows: [month] }), "a chart");
+    expect(view.grid.length).toBeGreaterThan(28);
+    expect(view.ticks.length).toBeGreaterThan(5);
+    expect(view.ticks.length).toBeLessThanOrEqual(10);
+  });
+
   it("has no clock to draw on for a window without a span", () => {
     let view: ReturnType<typeof limitsChartView> | undefined;
     inZone("Asia/Nicosia", () => {

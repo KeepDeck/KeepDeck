@@ -4,7 +4,7 @@ import { providerWindowGroups, type ProviderWindowGroup, type ProviderWindowRow 
 import type { StatsMeasure } from "../../domain/usage/stats/measure";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { windowVerdict } from "../../domain/usage/windowForecast";
-import { readingAt } from "../../domain/usage/windowHistory";
+import { previousWindow, readingAt } from "../../domain/usage/windowHistory";
 import { seriesColorFor } from "../usagePalette";
 import { reportedAgeCaption, usageLevelClass } from "../usageView";
 import { limitsChartView, type LimitsChartView } from "./limitsChartView";
@@ -53,8 +53,9 @@ export interface ProviderCardView {
   /** Every window, the account's panel order: shortest first. */
   windows: ProviderWindowView[];
   /** The window the card is drawn around — the longest live one with a
-   * span — or null when none is. */
-  main: string | null;
+   * span — or null when none is; the rest follow it as small tiles. */
+  lead: ProviderWindowView | null;
+  others: ProviderWindowView[];
   chart: LimitsChartView | null;
 }
 
@@ -77,12 +78,21 @@ const BAR_NOTES: Record<StatsMeasure, string> = {
   tokens: "Bars are this machine's tokens less cache reads, by day (by hour in a short window); the provider also counts other devices and the web.",
 };
 
+function barsNote(cards: readonly ProviderCardView[], measure: StatsMeasure): string | null {
+  const bars = cards.flatMap((card) => card.chart?.bars ?? []);
+  if (bars.length === 0) return null;
+  return bars.some((bar) => bar.unpriced !== "none") ? `${BAR_NOTES[measure]} ${UNPRICED_BARS}` : BAR_NOTES[measure];
+}
+
+/** Said under the bars once any of them leaves usage out of its money. */
+const UNPRICED_BARS = "Usage on a model without a known price is not in a bar's height: a bar marked “+” leaves some out, a hollow one has none priced.";
+
 function windowView(row: ProviderWindowRow, now: number): ProviderWindowView {
   const { window, span } = row;
   const verdict = row.expired ? null : windowVerdict(window, row.forecast, now);
   const elapsed = span === null ? null : Math.min(1, Math.max(0, (now - span.from) / (span.to - span.from)));
-  const last = row.earlier[row.earlier.length - 1];
-  const before = span === null || last === undefined ? null : readingAt(last, now - span.from);
+  const previous = span === null ? null : previousWindow(row.earlier, span.from, span.to - span.from);
+  const before = span === null || previous === null ? null : readingAt(previous, now - span.from);
   return {
     id: row.id,
     label: windowLabel(window, "long"),
@@ -112,15 +122,33 @@ function mainRow(rows: readonly ProviderWindowRow[]): ProviderWindowRow | null {
   return main;
 }
 
-/** How pressing a provider is: a forecast that warns first, then the
- * fullest live window. */
-function risk(group: ProviderWindowGroup): number {
-  return Math.max(
-    0,
-    ...group.rows
-      .filter((row) => !row.expired)
-      .map((row) => (row.forecast.kind === "out" && row.forecast.level !== null ? 1000 : 0) + row.window.usedPct),
-  );
+const SEVERITY = { critical: 2, warn: 1 } as const;
+
+/** How pressing a provider is, as a sort key: the severest warning its
+ * forecasts give, then how soon that one runs out, then its fullest live
+ * window. */
+function risk(group: ProviderWindowGroup): { severity: number; outAt: number; fullest: number } {
+  let severity = 0;
+  let outAt = Infinity;
+  let fullest = 0;
+  for (const row of group.rows) {
+    if (row.expired) continue;
+    fullest = Math.max(fullest, row.window.usedPct);
+    const { forecast } = row;
+    if (forecast.kind !== "out" || forecast.level === null) continue;
+    const level = SEVERITY[forecast.level];
+    if (level > severity || (level === severity && forecast.outAt < outAt)) {
+      severity = level;
+      outAt = forecast.outAt;
+    }
+  }
+  return { severity, outAt, fullest };
+}
+
+function byRisk(left: ProviderWindowGroup, right: ProviderWindowGroup): number {
+  const a = risk(left);
+  const b = risk(right);
+  return b.severity - a.severity || a.outAt - b.outAt || b.fullest - a.fullest;
 }
 
 export function providersView(
@@ -136,16 +164,19 @@ export function providersView(
     };
   }
   // Riskiest first; the groups arrive alphabetical and the sort is stable.
-  const cards = [...groups].sort((left, right) => risk(right) - risk(left)).map((group): ProviderCardView => {
+  const cards = [...groups].sort(byRisk).map((group): ProviderCardView => {
     const main = mainRow(group.rows);
     const stale = usageLevelClass(group.stale ? "warn" : null);
+    const windows = group.rows.map((row) => windowView(row, now));
+    const lead = windows.find((window) => window.id === main?.id) ?? null;
     return {
       agent: group.agent,
       color: seriesColorFor(colors, group.agent),
       updated: tone(reportedAgeCaption(group.reportedAt, now), stale),
       age: tone(formatAge(group.reportedAt, now), stale),
-      windows: group.rows.map((row) => windowView(row, now)),
-      main: main?.id ?? null,
+      windows,
+      lead,
+      others: windows.filter((window) => window !== lead),
       chart: main === null ? null : limitsChartView(main, group.rows.filter((row) => row !== main), now, measure),
     };
   });
@@ -153,7 +184,7 @@ export function providersView(
     kind: "cards",
     title: "Providers",
     cards,
-    note: cards.some((card) => card.chart !== null && card.chart.bars.length > 0) ? BAR_NOTES[measure] : null,
+    note: barsNote(cards, measure),
   };
 }
 

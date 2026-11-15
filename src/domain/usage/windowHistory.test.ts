@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { windowInstances } from "./reportJournal";
 import { TEST_NOW, windowReport as report } from "./reportJournal.testSupport";
 import type { UsageWindow } from "./usage";
-import { earlierWindows, readingAt } from "./windowHistory";
+import { earlierWindows, previousWindow, readingAt } from "./windowHistory";
 import { windowVerdict } from "./windowForecast";
 
 const HOUR = 3_600_000;
@@ -49,6 +49,20 @@ describe("earlierWindows", () => {
     expect(earlierWindows(JOURNAL, { ...WEEK, resetsAt: null })).toEqual([]);
     expect(earlierWindows(JOURNAL, { ...WEEK, windowMinutes: null })).toEqual([]);
     expect(earlierWindows(JOURNAL.slice(-2), WEEK)).toEqual([]);
+  });
+});
+
+describe("previousWindow", () => {
+  const earlier = earlierWindows(JOURNAL, WEEK);
+  const startsAt = RESET - 7 * DAY;
+
+  it("is the window that ended just before this one began", () => {
+    expect(previousWindow(earlier, startsAt, 7 * DAY)?.resetsAt).toBe(PREVIOUS_RESET);
+  });
+
+  it("is none when the journal holds only an older one — the one between was missed", () => {
+    expect(previousWindow(earlier.slice(0, 1), startsAt, 7 * DAY)).toBeNull();
+    expect(previousWindow([], startsAt, 7 * DAY)).toBeNull();
   });
 });
 

@@ -39,7 +39,9 @@ export interface ProviderWindowRow {
   span: Span | null;
   /** This machine's usage inside the span so far, in the measure asked for,
    * step by step on the reader's calendar ([`windowSteps`]) — quiet steps
-   * included, so a gap reads as one. Null without a span. */
+   * included, so a gap reads as one. Null without a span, and for a scoped
+   * window: a limit on one model or bucket cannot claim this machine's
+   * unscoped usage as its own. */
   usage: UsageStep[] | null;
   /** The window's earlier instances the journal still holds. */
   earlier: EarlierWindow[];
@@ -47,14 +49,12 @@ export interface ProviderWindowRow {
 
 /**
  * A window's span — from its start to its reset — when it can be placed on
- * the calendar: alive, with a reset and a length, and unscoped. A scoped
- * limit (one model, one bucket) cannot claim this machine's unscoped usage
- * as its own; and "since the last known reset" is no fallback for an
- * expired one — a long-expired 5h window once rendered a week of usage as
- * its own.
+ * the calendar: alive, with a reset and a length. "Since the last known
+ * reset" is no fallback for an expired one — a long-expired 5h window once
+ * rendered a week of usage as its own.
  */
 export function windowSpan(window: UsageWindow, now: number): Span | null {
-  if (window.scope !== undefined || windowExpired(window, now)) return null;
+  if (windowExpired(window, now)) return null;
   if (window.resetsAt === null || window.windowMinutes === null) return null;
   return { from: window.resetsAt - window.windowMinutes * 60_000, to: window.resetsAt };
 }
@@ -144,7 +144,7 @@ function windowUsage(
   measure: StatsMeasure,
 ): Pick<ProviderWindowRow, "span" | "usage"> {
   const span = windowSpan(window, now);
-  if (span === null) return { span, usage: null };
+  if (span === null || window.scope !== undefined) return { span, usage: null };
   const sofar = { from: span.from, to: Math.min(now, span.to) + 1 };
   return { span, usage: usageTimeline(own, sofar, windowSteps(span), measure) };
 }

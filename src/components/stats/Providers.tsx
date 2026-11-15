@@ -57,8 +57,6 @@ export function Providers({
 }
 
 function ProviderCard({ card, now }: { card: ProviderCardView; now: number }) {
-  const main = card.windows.find((window) => window.id === card.main);
-  const others = card.windows.filter((window) => window !== main);
   return (
     <article className="stats__provider" aria-label={card.agent}>
       <header className="stats__provider-head">
@@ -70,8 +68,8 @@ function ProviderCard({ card, now }: { card: ProviderCardView; now: number }) {
       </header>
       <div className={`stats__provider-body${card.chart ? "" : " stats__provider-body--tiles"}`}>
         <div className="stats__provider-tiles">
-          {main && <WindowTile view={main} now={now} lead />}
-          {others.map((window) => (
+          {card.lead && <WindowTile view={card.lead} now={now} lead />}
+          {card.others.map((window) => (
             <WindowTile key={window.id} view={window} now={now} lead={false} />
           ))}
         </div>

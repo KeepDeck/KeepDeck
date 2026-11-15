@@ -202,6 +202,15 @@ describe("Providers", () => {
     expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/^Bars are this machine's spend at list price/);
   });
 
+  it("draws a day of usage no price covers as a hollow bar", () => {
+    render({
+      accounts: new Map([["codex", account([{ usedPct: 20, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }])]]),
+      events: [usageEvent({ occurredAt: NOW - HOUR, costUsd: undefined })],
+    });
+    expect(host.querySelectorAll(".stats__limits-bar--unpriced")).toHaveLength(1);
+    expect(host.querySelector(".stats__coverage")?.textContent).toMatch(/a hollow one has none priced\.$/);
+  });
+
   it("says how the tab fills before any CLI reports its limits", () => {
     render({ accounts: new Map() });
     expect(host.textContent).toBe("No provider reports yet. Windows appear once a CLI reports its account limits.");

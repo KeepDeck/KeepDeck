@@ -149,6 +149,13 @@ describe("providerWindowRows", () => {
     });
   });
 
+  it("keeps a scoped window's clock, but never claims this machine's unscoped usage for it", () => {
+    const scoped: UsageWindow = { usedPct: 40, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080, scope: "opus" };
+    const [row] = flatRows(new Map([["claude", reported([scoped])]]), [event({ agent: "claude", occurredAt: NOW - HOUR, costUsd: 5 })], NO_JOURNAL, NOW);
+    expect(row?.span).toEqual({ from: NOW - 4 * 24 * HOUR, to: scoped.resetsAt });
+    expect(row?.usage).toBeNull();
+  });
+
   it("tells a window of two days or more by the day, a shorter one by the hour", () => {
     const span = (hours: number) => ({ from: NOW, to: NOW + hours * HOUR });
     expect([windowSteps(span(48)), windowSteps(span(47)), windowSteps(span(5))]).toEqual(["day", "hour", "hour"]);

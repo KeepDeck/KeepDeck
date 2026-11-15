@@ -20,6 +20,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -35,10 +36,6 @@
   width: 8px;
   height: 8px;
   border-radius: var(--kd-radius-mark);
-}
-
-.stats__provider-head small {
-  color: var(--kd-text-3);
 }
 
 /* The tiles' column and the chart; a provider with no window to draw a
@@ -65,10 +62,13 @@
   flex-direction: column;
 }
 
+/* The neutral grey is the tile's own, inherited: a toned line — a warning,
+   a critical run-out — carries its level's class and must win over it. */
 .stats__window {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -122,7 +122,6 @@
 }
 
 .stats__window small {
-  color: var(--kd-text-3);
   font-size: var(--kd-font-small);
 }
 
@@ -257,25 +256,44 @@
 
 .stats__limits-note {
   bottom: 2px;
+}
+
+.stats__limits-note--after {
   padding-left: 4px;
 }
 
-.stats__limits-earlier-label {
+.stats__limits-note--before {
+  padding-right: 4px;
+  transform: translateX(-100%);
+}
+
+.stats__limits-earlier-label--before {
   transform: translate(calc(-100% - 4px), calc(-100% - 2px));
 }
 
-.stats__limits-earlier-label--below {
+.stats__limits-earlier-label--after {
+  transform: translate(4px, calc(-100% - 2px));
+}
+
+.stats__limits-earlier-label--before.stats__limits-earlier-label--below {
   transform: translate(calc(-100% - 4px), 4px);
+}
+
+.stats__limits-earlier-label--after.stats__limits-earlier-label--below {
+  transform: translate(4px, 4px);
 }
 
 .stats__limits-now-label {
   top: 2px;
-  padding-left: 6px;
   color: var(--kd-text-2);
 }
 
+.stats__limits-now-label--after {
+  padding-left: 6px;
+}
+
 .stats__limits-now-label--before {
-  padding: 0 6px 0 0;
+  padding-right: 6px;
   transform: translateX(-100%);
 }
 
@@ -295,6 +313,13 @@
   border-radius: var(--kd-radius-mark) var(--kd-radius-mark) 0 0;
   background: var(--stats-series);
   opacity: 0.5;
+}
+
+/* Usage no price covers: a hollow bar, never a missing one. */
+.stats__limits-bars i.stats__limits-bar--unpriced {
+  min-height: 6px;
+  border: 1px dashed var(--stats-series);
+  background: transparent;
 }
 
 .stats__limits-ticks {

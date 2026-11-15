@@ -42,6 +42,15 @@ export function earlierWindows(
   });
 }
 
+/** The window just before the current one — the last earlier instance,
+ * when it ended less than a window length before this one began — or null.
+ * One that ended longer ago is not "the last window": the journal may have
+ * missed the one between. */
+export function previousWindow(earlier: readonly EarlierWindow[], startsAt: number, length: number): EarlierWindow | null {
+  const last = earlier[earlier.length - 1];
+  return last !== undefined && startsAt - last.resetsAt < length ? last : null;
+}
+
 /** Where an earlier window stood `elapsedMs` into its own span — its last
  * reading at or before that point — or null when the journal does not
  * reach back that far: an unknown is not a zero. */
