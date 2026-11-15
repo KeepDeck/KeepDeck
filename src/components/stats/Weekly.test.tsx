@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usageEvent } from "../../domain/usage/history/event.testSupport";
 import { ledgerOf } from "../../domain/usage/history/ledger.testSupport";
+import { BackIcon, ForwardIcon } from "../../ui/icons";
 import { Weekly } from "./Weekly";
 import { present } from "@keepdeck/plugin-api/testing";
 import { NO_TEAM_HISTORY } from "../../domain/usage/stats/teams";
@@ -47,11 +49,11 @@ describe("Weekly", () => {
     expect(host.querySelector(".stats__weeknav b")?.textContent).toMatch(/^This week/);
     expect(host.querySelector(".stats__week-value")?.textContent).toBe("≈$3.00");
     expect(arrow("Later week").disabled).toBe(true);
-    // The shared button, drawn with the icon set's chevrons — no text glyph.
-    for (const label of ["Earlier week", "Later week"]) {
-      expect(arrow(label).classList.contains("kd-btn")).toBe(true);
-      expect(arrow(label).querySelector("svg")).not.toBeNull();
-      expect(arrow(label).textContent).toBe("");
+    // The shared small button, drawn with the icon set's chevrons — back for
+    // the earlier week, forward for the later one — and no text glyph.
+    for (const [label, icon] of [["Earlier week", BackIcon], ["Later week", ForwardIcon]] as const) {
+      expect([...arrow(label).classList]).toEqual(["kd-btn", "kd-btn--secondary", "kd-btn--sm"]);
+      expect(arrow(label).innerHTML).toBe(renderToStaticMarkup(createElement(icon)));
     }
     act(() => arrow("Earlier week").click());
     expect(host.querySelector(".stats__weeknav b")?.textContent).not.toMatch(/^This week/);
