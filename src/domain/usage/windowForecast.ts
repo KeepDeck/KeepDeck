@@ -430,6 +430,18 @@ function quietClause(
   return { text: "Not enough data yet", level: null };
 }
 
+/** The forecast in words, on a line of its own: the run-out when the pace
+ * reaches the limit, the headroom when it does not, or why there is no
+ * projection — null for a window that has reset, whose percentage belongs
+ * to a window that is gone. The three clauses are the card caption's own. */
+export function windowVerdict(
+  window: UsageWindow,
+  forecast: WindowForecast,
+  now: number,
+): ForecastCaptionPart | null {
+  return forecastClause(forecast, now) ?? survivalClause(forecast) ?? quietClause(window, forecast, now);
+}
+
 /** The card's full caption, ordered: the reset stays the anchor fact, the
  * clause joins it — and leads it once the run-out is imminent. */
 export function cardCaptionParts(
@@ -438,10 +450,7 @@ export function cardCaptionParts(
   now: number,
 ): ForecastCaptionPart[] {
   const reset = windowResetCaption(window, now, "long");
-  const clause =
-    forecastClause(forecast, now) ??
-    survivalClause(forecast) ??
-    quietClause(window, forecast, now);
+  const clause = windowVerdict(window, forecast, now);
   const parts: ForecastCaptionPart[] = [];
   if (clause !== null && clause.level === "critical") parts.push(clause);
   if (reset !== "") parts.push({ text: reset, level: null });

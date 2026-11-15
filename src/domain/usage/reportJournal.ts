@@ -167,15 +167,28 @@ export function instanceChanged(
  * single point of wobble is quantisation, not a refill. */
 export const SEGMENT_DROP_PCT = 1;
 
+/** A window's journal cut into its instances, oldest first — at every
+ * boundary [`instanceChanged`] finds, with the journal's own dip tolerance.
+ * THE one cut: the pace reads the last instance, the Limits chart the ones
+ * before it. */
+export function windowInstances(
+  reports: readonly WindowReport[],
+): WindowReport[][] {
+  const instances: WindowReport[][] = [];
+  reports.forEach((report, index) => {
+    if (index === 0 || instanceChanged(reports[index - 1], report, SEGMENT_DROP_PCT)) {
+      instances.push([]);
+    }
+    instances[instances.length - 1].push(report);
+  });
+  return instances;
+}
+
 export function currentSegment(
   reports: readonly WindowReport[],
 ): WindowReport[] {
-  let start = 0;
-  for (let index = 1; index < reports.length; index += 1) {
-    if (instanceChanged(reports[index - 1], reports[index], SEGMENT_DROP_PCT)) {
-      start = index;
-    }
-  }
+  const instances = windowInstances(reports);
+  const start = reports.length - (instances[instances.length - 1]?.length ?? 0);
   // The trajectory begins at the first spend, not at the boundary. A window
   // that waits for first use journals a zero every heartbeat until then, and
   // hours of them dragged the pace an order of magnitude low (a run-out read
