@@ -206,7 +206,8 @@ impl<'a> Walk<'a> {
     /// Copy what the open folder `dir` — the skill's own, at `real` inside it —
     /// holds into `dest`.
     fn folder(&mut self, dir: &File, real: &[OsString], dest: &Path, top: bool) -> Result<(), Stop> {
-        let names = match fsb::names_in(dir) {
+        // The user's own library, charged entry by entry below.
+        let names = match fsb::names_in(dir, usize::MAX) {
             Ok(names) => names,
             Err(_) => {
                 self.leave(real, None, Why::Unreadable);

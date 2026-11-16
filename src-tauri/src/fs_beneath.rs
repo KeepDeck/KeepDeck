@@ -146,8 +146,10 @@ pub(crate) fn stat_of(file: &File) -> io::Result<Stat> {
     })
 }
 
-/// The names in the open directory `dir`, sorted, without `.` and `..`.
-pub(crate) fn names_in(dir: &File) -> io::Result<Vec<OsString>> {
+/// The names in the open directory `dir`, sorted, without `.` and `..` — or
+/// an error once it holds more than `at_most`, before the rest is read: a
+/// directory someone else can fill is never gathered whole just to be refused.
+pub(crate) fn names_in(dir: &File, at_most: usize) -> io::Result<Vec<OsString>> {
     // fdopendir takes its descriptor over: hand it a copy, so `dir` stays ours.
     // SAFETY: an open descriptor, duplicated close-on-exec.
     let fd = unsafe { libc::fcntl(dir.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
@@ -178,6 +180,9 @@ pub(crate) fn names_in(dir: &File) -> io::Result<Vec<OsString>> {
         // SAFETY: readdir answered an entry whose name is NUL-terminated.
         let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
         if name != b"." && name != b".." {
+            if names.len() == at_most {
+                break Some(io::Error::new(ErrorKind::InvalidData, "more entries than a listing may hold"));
+            }
             names.push(OsString::from_vec(name.to_vec()));
         }
     };
@@ -327,9 +332,21 @@ mod tests {
         fs::create_dir(tmp.path().join("d")).unwrap();
         let dir = open_dir(tmp.path()).unwrap();
         let expected: Vec<OsString> = ["a", "b", "c", "d"].iter().map(OsString::from).collect();
-        assert_eq!(names_in(&dir).unwrap(), expected);
+        assert_eq!(names_in(&dir, usize::MAX).unwrap(), expected);
         // The listing reads a copy of the descriptor: a second one starts over.
-        assert_eq!(names_in(&dir).unwrap(), expected);
+        assert_eq!(names_in(&dir, usize::MAX).unwrap(), expected);
+    }
+
+    #[test]
+    fn a_listing_past_its_bound_refuses_and_one_within_it_is_whole() {
+        let tmp = tempfile::tempdir().unwrap();
+        for name in ["c", "a", "b"] {
+            fs::write(tmp.path().join(name), "x").unwrap();
+        }
+        let dir = open_dir(tmp.path()).unwrap();
+        assert_eq!(names_in(&dir, 2).unwrap_err().kind(), ErrorKind::InvalidData);
+        let expected: Vec<OsString> = ["a", "b", "c"].iter().map(OsString::from).collect();
+        assert_eq!(names_in(&dir, 3).unwrap(), expected);
     }
 
     #[test]

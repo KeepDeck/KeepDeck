@@ -63,7 +63,8 @@ pub(super) fn verified(dir: &Path) -> Option<String> {
 /// for a file — its length before its bytes: no two views read the same.
 /// `left` is what a view may still hold; past it the walk refuses.
 fn take_in(dir: &File, at: &mut Vec<OsString>, digest: &mut Sha256, left: &mut Allowance) -> io::Result<()> {
-    for name in fsb::names_in(dir)? {
+    // At most what is left, and the fingerprint file beside it at the top.
+    for name in fsb::names_in(dir, left.entries.saturating_add(1))? {
         if at.is_empty() && name == FINGERPRINT_FILE {
             continue;
         }
@@ -242,6 +243,15 @@ mod tests {
         fs::remove_file(dir.join(FINGERPRINT_FILE)).unwrap();
         fs::write(dir.join(FINGERPRINT_FILE), format!("{said}{}", "x".repeat(4096))).unwrap();
         assert_eq!(verified(&dir), None, "no more than a fingerprint is read");
+    }
+
+    #[test]
+    fn a_view_holding_more_bytes_than_a_view_may_is_refused_unread() {
+        // Sparse: the length is claimed, not written.
+        let (_tmp, dir, _) = published(&[("a/SKILL.md", "one")]);
+        fs::File::create(dir.join("a/huge")).unwrap().set_len(VIEW_MAX.bytes + 1).unwrap();
+        assert_eq!(of_view(&dir).unwrap_err().kind(), ErrorKind::InvalidData);
+        assert_eq!(verified(&dir), None);
     }
 
     #[test]
