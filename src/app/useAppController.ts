@@ -624,6 +624,7 @@ export function useAppController(runtime: AppRuntime) {
     showBell,
     showForm,
     noWorkspace,
+    allArchived: presence.allArchived,
     welcome,
     newWorkspace,
     /** The welcome screen's workspace: a form left open over a deck that

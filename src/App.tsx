@@ -20,6 +20,7 @@ import { WorkspaceStrip } from "./components/workspace/WorkspaceStrip";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { WelcomeStage } from "./components/welcome/WelcomeStage";
 import { WorkspacesDialog } from "./components/workspaces/WorkspacesDialog";
+import { AllArchivedStage } from "./components/deck/AllArchivedStage";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
@@ -121,6 +122,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
     needsYou,
     showForm,
     noWorkspace,
+    allArchived,
     welcome,
     newWorkspace,
     createFromWelcome,
@@ -272,6 +274,11 @@ function App({ runtime }: { runtime: AppRuntime }) {
                 inspectDir={inspectRepo}
               />
             </ModalOverlay>
+          )}
+          {allArchived && (
+            <div className="deck__overlay">
+              <AllArchivedStage onOpenArchived={workspacesWindow.openArchived} onCreate={newWorkspace} />
+            </div>
           )}
           {noWorkspace && (
             <div className="deck__overlay">

@@ -19,7 +19,18 @@ export interface DeckPresence {
   newWorkspace: "form" | "welcome";
   /** The create form is on screen: asked for, and over a deck. */
   formOpen: boolean;
+  /** There are workspaces, and every one is archived: nothing to draw, and
+   * the stage says where they went instead of standing empty. */
+  allArchived: boolean;
 }
+
+/** What the stage says when every workspace is archived. */
+export const ALL_ARCHIVED_WORDS = {
+  title: "Every workspace is archived",
+  body: "They are all kept — teams, worktrees, boards and artifacts — and nothing in them runs. Restore one to work in it again.",
+  open: "Show archived workspaces",
+  create: "New workspace",
+} as const;
 
 export function deckPresence(
   workspaces: readonly Workspace[],
@@ -31,5 +42,6 @@ export function deckPresence(
     welcome,
     newWorkspace: welcome ? "welcome" : "form",
     formOpen: creating && !welcome,
+    allArchived: !welcome && workspaces.every((ws) => ws.archived !== undefined),
   };
 }
