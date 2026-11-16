@@ -19,14 +19,16 @@ import type { WorktreeIntent } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { createWorktree, inspectRepo } from "../../ipc/worktree";
 import type { ProvisionCallbacks } from "../provisioning";
-import type { CreatedWorktree, WorktreeProvisioner } from "./index";
+import type { CreatedWorktree, ProvisionSettlement, WorktreeProvisioner } from "./index";
 import type { InOrder } from "./queue";
 import { errorMessage } from "@keepdeck/plugin-api";
 
 export type WorktreeProvisioning = Pick<
   WorktreeProvisioner,
-  "provision" | "awaitCreated" | "registerPostProvision" | "clearPostProvision"
+  "provision" | "awaitCreated" | "awaitSettled" | "registerPostProvision" | "clearPostProvision"
 >;
+
+type Ended = Exclude<ProvisionSettlement, "none">;
 
 export function createWorktreeProvisioning(
   inOrder: InOrder,
@@ -81,6 +83,17 @@ export function createWorktreeProvisioning(
    */
   const created = new Map<string, Promise<CreatedWorktree | null>>();
 
+  /**
+   * Each owner's create IN FLIGHT, as the promise of how it ends — the other
+   * half of [`created`]: that one answers at the git call, this one once the
+   * create has done everything it will (step, rollback, the card's resolve or
+   * fail). Shared, not consumed: every waiter observes one settlement. Set
+   * with the ticket, before the first await, and dropped when the create
+   * ends — so a Retry installs its own, and a waiter holds the end of the
+   * create it saw.
+   */
+  const settled = new Map<string, Promise<Ended>>();
+
   /** Run the registered step, if any. Returns null on success (or when none is
    * registered — a plain owner) and the failure message otherwise; a successful
    * step is consumed, a failed one is KEPT so a Retry re-runs it. */
@@ -114,7 +127,7 @@ export function createWorktreeProvisioning(
     batchBase: { commit?: string; branch?: string } | undefined,
     workspaceName: string,
     cb: ProvisionCallbacks,
-  ): Promise<void> {
+  ): Promise<Ended> {
     /**
      * The owner left while we were working. Asked after every await that could
      * outlive it, because everything past the create is done ON ITS BEHALF: a
@@ -162,14 +175,14 @@ export function createWorktreeProvisioning(
       publish(null);
       created.delete(ownerId);
       cb.onFailed(ownerId, errorMessage(e));
-      return;
+      return "failed";
     }
     // The directory exists: say so before anything else can delay it. A close
     // racing this is the case the early publish is for.
     publish({ repo: intent.repo, path: rec.path, branch: rec.branch });
     // Before the post-provision step, not only after: it runs on the owner's
     // behalf, and there is no behalf left once the owner is gone.
-    if (abandoned()) return;
+    if (abandoned()) return "abandoned";
 
     // The worktree is on disk — run any registered post-provision step (a
     // journal fork's store surgery, bound to the CREATED worktree). A failure
@@ -185,7 +198,7 @@ export function createWorktreeProvisioning(
     // decide — the one thing this function must never do. Past this line the
     // owner holds the worktree and an ordinary close can name it by its `cwd`,
     // so the published entry stops being anyone's only handle on it.
-    if (abandoned()) return;
+    if (abandoned()) return "abandoned";
     if (stepError !== null) {
       log.error(
         "web:worktrees",
@@ -194,11 +207,12 @@ export function createWorktreeProvisioning(
       await rollbackWorktree(intent.repo, rec);
       created.delete(ownerId);
       cb.onFailed(ownerId, stepError);
-      return;
+      return "failed";
     }
     created.delete(ownerId);
 
     cb.onResolved(ownerId, { cwd: rec.path, branch: rec.branch });
+    return "resolved";
   }
 
   return {
@@ -222,7 +236,18 @@ export function createWorktreeProvisioning(
             publish = resolve;
           }),
         );
-        return { request, publish };
+        let settle!: (ended: Ended) => void;
+        const ending = new Promise<Ended>((resolve) => {
+          settle = resolve;
+        });
+        settled.set(request.ownerId, ending);
+        // Settles on EVERY way out, a throw from a callback included: a
+        // waiter left hanging would hang the flow that waits.
+        const end = (ended: Ended) => {
+          settle(ended);
+          if (settled.get(request.ownerId) === ending) settled.delete(request.ownerId);
+        };
+        return { request, publish, end };
       });
 
       let batchBase: { commit?: string; branch?: string } | undefined;
@@ -237,9 +262,14 @@ export function createWorktreeProvisioning(
       }
 
       await Promise.all(
-        tickets.map(({ request, publish }) =>
-          provisionOwner(request.ownerId, request.intent, publish, batchBase, workspaceName, cb),
-        ),
+        tickets.map(async ({ request, publish, end }) => {
+          let ended: Ended = "failed";
+          try {
+            ended = await provisionOwner(request.ownerId, request.intent, publish, batchBase, workspaceName, cb);
+          } finally {
+            end(ended);
+          }
+        }),
       );
     },
 
@@ -248,6 +278,10 @@ export function createWorktreeProvisioning(
       if (!pending) return Promise.resolve(null);
       created.delete(ownerId);
       return pending;
+    },
+
+    awaitSettled(ownerId) {
+      return settled.get(ownerId) ?? Promise.resolve("none");
     },
 
     registerPostProvision(ownerId, step) {

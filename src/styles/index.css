@@ -44,6 +44,8 @@
 @import "./library.css";
 @import "./artifacts.css";
 @import "./tasks.css";
+/* After settings.css: the Workspaces window is its shell, widened. */
+@import "./workspaces.css";
 @import "./notifications.css";
 @import "./usage.css";
 @import "./buttons.css";

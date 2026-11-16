@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
+import type { SuspendOutcome } from "../domain/deck";
+import { suspendRefusalText } from "./suspendWords";
 
 describe("suspendRefusalText", () => {
   it("gives every refusal its own sentence", () => {

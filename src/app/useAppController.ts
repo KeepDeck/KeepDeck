@@ -31,7 +31,7 @@ import { usePersistence } from "./usePersistence";
 import { useBrowserSharedSeam } from "./useSessionsBrowser";
 import { useSettings } from "./useSettings";
 import { useSpawnContext } from "./useSpawnContext";
-import { suspendRefusalText } from "./suspendOutcome";
+import { suspendRefusalText } from "../presentation/suspendWords";
 import { useUpdate } from "./useUpdate";
 import { buildDockTabs } from "../components/dock/useDockTabs";
 import { DEFAULT_SETTINGS } from "../domain/settings";
@@ -47,8 +47,12 @@ import {
   paneInFront,
   resolveSelectedPaneId,
   stagePanes,
+  visibleWorkspaces,
   type SpawnConfig,
   type Workspace,
+  type WorkspacePatch,
+  type WorkspacePlace,
+  type WorkspaceUpdateResult,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
 import { readAppInfo } from "./appInfo";
@@ -65,7 +69,8 @@ import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 import { pickFolder } from "../ipc/dialogs";
 import { useWelcomeFlow } from "./useWelcomeFlow";
-import { newWorkspaceTarget } from "../presentation/welcomeFlow";
+import { useArchiveFlow } from "./useArchiveFlow";
+import { deckPresence } from "../presentation/deckPresence";
 import { errorMessage } from "@keepdeck/plugin-api";
 
 /** No epic folded: one list, so the dialog's set is not rebuilt each render. */
@@ -118,11 +123,15 @@ export function useAppController(runtime: AppRuntime) {
   // No workspace: the welcome screen, whose folder picker the New
   // Workspace command opens too.
   const welcome = useWelcomeFlow(pickFolder);
-  const noWorkspace = deck.workspaces.length === 0;
+  const presence = deckPresence(deck.workspaces, creating);
+  // The workspaces a person navigates and is called back to — every one
+  // not archived. Identity and retention keep reading `deck.workspaces`.
+  const shownWorkspaces = useMemo(() => visibleWorkspaces(deck.workspaces), [deck.workspaces]);
+  const noWorkspace = presence.welcome;
   /** New Workspace (⌘N, the strip's «+»): the form over the deck, or — with
    * no workspace yet — the welcome screen's folder picker. */
   const newWorkspace = () =>
-    newWorkspaceTarget(deck.workspaces.length) === "welcome" ? welcome.openFolder() : setCreating(true);
+    presence.newWorkspace === "welcome" ? welcome.openFolder() : setCreating(true);
   const [alerts, setAlerts] = useState<{ title: string; message: string }[]>([]);
   const error = alerts[0] ?? null;
   const [alertSeq, setAlertSeq] = useState(0);
@@ -153,6 +162,14 @@ export function useAppController(runtime: AppRuntime) {
     backgroundCarriers: (entries) =>
       askBackgroundCarriers(runtime.spawnPlugins, entries),
   });
+  const archiveFlow = useArchiveFlow({
+    workspaces: deck.workspaces,
+    archive: orchestrator.archive,
+    onRefused: pushAlert,
+  });
+  /** A rename asked for from a mark's menu, for the crumb to start — the
+   * workspace it names, until the crumb has taken it. */
+  const [renameAsk, setRenameAsk] = useState<string | null>(null);
   const transactions = [
     agentFlow.dialog,
     // The "another team works here — create anyway?" question is a
@@ -160,6 +177,7 @@ export function useAppController(runtime: AppRuntime) {
     // settings layer while it stands.
     agentFlow.sharedAsk,
     closeFlow.closing,
+    archiveFlow.confirming,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
@@ -223,7 +241,7 @@ export function useAppController(runtime: AppRuntime) {
   const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
   const activeView = deck.viewOf(deck.activeId);
   const dockOpen = activeView.dock ?? false;
-  const showForm = creating && !noWorkspace;
+  const showForm = presence.formOpen;
   // Resolved over the stage's slice: a highlight is only ever on a pane of
   // the open team.
   const selectedPaneId =
@@ -243,8 +261,7 @@ export function useAppController(runtime: AppRuntime) {
   // What is painted over what — decided once, in `layering`, for the render
   // and for the notification probe alike. The z-order reasoning lives there.
   const windows = layering({
-    creating,
-    workspaceCount: deck.workspaces.length,
+    formOpen: showForm,
     dialogOpen,
     anyDialogOpen: modal.anyDialogOpen,
     statsOpen: modal.statsOpen,
@@ -319,14 +336,16 @@ export function useAppController(runtime: AppRuntime) {
   );
   // Announce the transitions worth leaving the app for: needs-you, finished,
   // failed.
-  useActivityNotifications(deck.workspaces, agents);
+  // Neither speaks for an archived workspace: nothing there is the person's
+  // to answer until it is restored.
+  useActivityNotifications(shownWorkspaces, agents);
   // And the launch that left an agent unable to report at all.
-  useUnconnectedLaunchNotifications(deck.workspaces, agents);
+  useUnconnectedLaunchNotifications(shownWorkspaces, agents);
   // One subscription for the whole strip; what the activity MEANS for a mark
   // is `stripView`'s.
   const paneActivities = usePaneActivities(runtime.statusTracker);
   const needsYou = {
-    rows: needsYouRows(deck.workspaces, paneActivities, agents),
+    rows: needsYouRows(shownWorkspaces, paneActivities, agents),
     onOpen: (row: NeedsYouRow) =>
       runtime.application.activatePane(row.wsId, row.paneId),
   };
@@ -422,9 +441,16 @@ export function useAppController(runtime: AppRuntime) {
   const shownWs = strip.active;
   const workspaceCrumb: WorkspaceCrumbView | null = shownWs && {
     view: shownWs,
-    onRename: (name: string) => deck.renameWorkspace(shownWs.id, name),
-    onMove: (toIndex: number) => deck.moveWorkspace(shownWs.id, toIndex),
+    onRename: (name: string) => {
+      const ws = findWorkspace(deck.workspaces, shownWs.id);
+      if (ws) deck.updateWorkspace({ id: ws.id, instance: ws.instance }, { name });
+    },
+    onMove: (place: WorkspacePlace) => deck.moveWorkspace(shownWs.id, place),
+    onArchive: () => archiveFlow.request(shownWs.id),
+    onSettings: () => modal.openWorkspaces(shownWs.id),
     onClose: () => closeFlow.requestCloseWorkspace(shownWs.id),
+    renameAsked: renameAsk === shownWs.id,
+    onRenameAsked: () => setRenameAsk(null),
     // Inside a team the name is the way back up to the cards.
     onUp: openTeam ? () => deck.closeTeam(shownWs.id) : null,
   };
@@ -464,6 +490,68 @@ export function useAppController(runtime: AppRuntime) {
     barLevel,
     canOpenDialog,
     closeFlow,
+    archiveFlow,
+    /** A mark's right-click menu: the crumb's acts, for any workspace in
+     * the strip — a rename goes to the crumb, where the name is. */
+    markActs: {
+      rename: (wsId: string) => {
+        deck.selectWorkspace(wsId);
+        setRenameAsk(wsId);
+      },
+      settings: (wsId: string) => modal.openWorkspaces(wsId),
+      archive: archiveFlow.request,
+      close: closeFlow.requestCloseWorkspace,
+    },
+    /** The Workspaces window: the router's dialog, and the acts its page
+     * hands back to the flows that own them. */
+    workspacesWindow: {
+      open: modal.workspacesOpen,
+      focus: modal.workspacesFocus,
+      onFocus: modal.focusWorkspace,
+      onClose: modal.closeWorkspaces,
+      /** The strip foot's door: the window, on the archived workspace most
+       * recently put away. */
+      openArchived: () => {
+        const latest = [...deck.workspaces]
+          .filter((ws) => ws.archived !== undefined)
+          .sort((a, b) => (Date.parse(b.archived?.at ?? "") || 0) - (Date.parse(a.archived?.at ?? "") || 0))[0];
+        modal.openWorkspaces(latest?.id ?? null);
+      },
+      onRestore: (wsId: string) => {
+        const ws = findWorkspace(deck.workspaces, wsId);
+        if (ws) orchestrator.restore({ id: ws.id, instance: ws.instance });
+      },
+      onArchive: archiveFlow.request,
+      onCloseWorkspace: closeFlow.requestCloseWorkspace,
+      /** The page's edits — one transition, the domain's answer handed back
+       * so the page can say why one was refused. */
+      /** A checkout nobody holds, removed through the worktree owner's queue. */
+      onRemoveWorktree: runtime.worktrees.removeUnheld,
+      /** "New team in a worktree": the "+ Team" door, on that workspace —
+       * brought on screen first, the window let go so the dialog is not
+       * behind it. */
+      onNewTeam: (wsId: string) => {
+        const ws = findWorkspace(deck.workspaces, wsId);
+        if (!ws || ws.archived) return;
+        modal.closeWorkspaces();
+        deck.selectWorkspace(ws.id);
+        void agentFlow.openFor(ws, { kind: "new-team" });
+      },
+      /** A worktree's team, from its row: its workspace on screen, the team
+       * open, the window let go. */
+      onOpenTeam: (wsId: string, teamId: string) => {
+        const ws = findWorkspace(deck.workspaces, wsId);
+        if (!ws || ws.archived) return;
+        modal.closeWorkspaces();
+        deck.selectWorkspace(wsId);
+        deck.openTeam(wsId, teamId);
+      },
+      onUpdate: (wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult => {
+        const ws = findWorkspace(deck.workspaces, wsId);
+        if (!ws) return { ok: false, refusal: { kind: "unknown-workspace" } };
+        return deck.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
+      },
+    },
     deck,
     dismissAlert,
     dockMode,
@@ -545,6 +633,7 @@ export function useAppController(runtime: AppRuntime) {
     showBell,
     showForm,
     noWorkspace,
+    allArchived: presence.allArchived,
     welcome,
     newWorkspace,
     /** The welcome screen's workspace: a form left open over a deck that

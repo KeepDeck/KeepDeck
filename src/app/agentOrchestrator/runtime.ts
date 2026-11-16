@@ -32,6 +32,7 @@ import type {
   AgentOrchestratorDeps,
   StagedSkillsAsk,
 } from ".";
+import { createAgentOrchestratorArchiving, type AgentOrchestratorArchiving } from "./archiving";
 import { createAgentOrchestratorClosing } from "./closing";
 import { createAgentOrchestratorContinuations } from "./continuations";
 import { createAgentOrchestratorCreation } from "./creation";
@@ -193,6 +194,8 @@ export function createAgentOrchestratorRuntime(
     actions.failPaneWake(wsId, pane.id);
   }
 
+  // Each of the two asks the other one question, so one is bound late.
+  let archiving: AgentOrchestratorArchiving | undefined;
   const closing = createAgentOrchestratorClosing({
     deck,
     actions,
@@ -202,6 +205,15 @@ export function createAgentOrchestratorRuntime(
     isBlocked: runView.isBlocked,
     lifecycle,
     workspaceForgetters: deps.workspaceForgetters,
+    archiving: (workspace) => archiving?.archiving(workspace) ?? false,
+  });
+  archiving = createAgentOrchestratorArchiving({
+    deck,
+    actions,
+    sessions,
+    worktrees,
+    lifecycle,
+    closingWorkspace: closing.closingWorkspace,
   });
   const creation = createAgentOrchestratorCreation({
     deck,
@@ -331,6 +343,9 @@ export function createAgentOrchestratorRuntime(
    * came to be woken with no plan cached for it. */
   function planLivePanes(ctx: SpawnPlanContext): void {
     for (const ws of deck.getSnapshot().workspaces) {
+      // A plan is what running means; an archived workspace runs nothing,
+      // and a build would arm its directories behind the archive's back.
+      if (ws.archived) continue;
       for (const pane of ws.panes) {
         void buildLivePaneSpec(
           plugins,
@@ -368,6 +383,7 @@ export function createAgentOrchestratorRuntime(
     commands: ReadonlyMap<string, string>,
   ): PaneRunIntent {
     return paneRunIntent(ws, pane, {
+      workspaceArchived: ws.archived !== undefined,
       agentAvailable: !booted || commands.has(pane.agentType),
       missingDir: runView.blockedDir(pane.id),
       workspaceActive: ws.id === activeId,
@@ -378,6 +394,10 @@ export function createAgentOrchestratorRuntime(
 
   function reconcile(): void {
     if (reap()) publish();
+    // Before anything that waits on the spawn context or an active
+    // workspace: an archive the last run left half-done is finished with
+    // neither (every workspace may be archived).
+    archiving?.repair();
     // Wait for the spawn context (a resume plan built without it would miss
     // the agent's identity mechanism) AND the catalog (see `ready`).
     const ctx = spawnContext.get();
@@ -537,6 +557,8 @@ export function createAgentOrchestratorRuntime(
     retryProvisioning: creation.retryProvisioning,
     suspend: closing.suspend,
     close: closing.close,
+    archive: (workspace) => archiving.archive(workspace),
+    restore: (workspace) => archiving.restore(workspace),
     restart: restart.restart,
     recoverRejectedResume: restart.recoverRejectedResume,
     retryPlanBuild: restart.retryPlanBuild,
@@ -545,7 +567,8 @@ export function createAgentOrchestratorRuntime(
     forkSession: continuations.forkSession,
     startFresh(wsId, paneId, role) {
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
-      if (!workspace) return;
+      // Nothing starts in an archived workspace — not even fresh.
+      if (!workspace || workspace.archived) return;
       // The move FIRST, and nothing else on a refusal: a directory-bound
       // session cannot resume elsewhere, and the pane's team's directory is
       // what went missing, so the pane moves onto the workspace root's team
@@ -578,6 +601,7 @@ export function createAgentOrchestratorRuntime(
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
       const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
       if (!workspace || !pane) return "gone";
+      if (workspace.archived) return "archived";
       if (paneProvisioning(workspace, pane)) return "provisioning";
       if (!pane.idle) return "running";
       if (!agents.commands().has(pane.agentType)) return "unavailable";

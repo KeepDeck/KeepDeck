@@ -83,22 +83,46 @@ describe("stripView active workspace", () => {
   it("names the one on screen and where its menu can move it, refusing past an end", () => {
     const deck = [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE, workspace("ws-e", [])];
     const at = (id: string) => stripView(deck, frames({}), id, {}).active;
-    expect(at("ws-a")).toEqual({ id: "ws-a", name: "ws-a", moveUpTo: null, moveDownTo: 1 });
-    expect(at("ws-b")).toMatchObject({ moveUpTo: 0, moveDownTo: 2 });
-    expect(at("ws-e")).toMatchObject({ moveUpTo: 1, moveDownTo: null });
+    expect(at("ws-a")).toEqual({ id: "ws-a", name: "ws-a", moveUp: null, moveDown: { after: "ws-b" } });
+    expect(at("ws-b")).toMatchObject({ moveUp: { before: "ws-a" }, moveDown: { after: "ws-e" } });
+    expect(at("ws-e")).toMatchObject({ moveUp: { before: "ws-b" }, moveDown: null });
     expect(stripView([], frames({}), "", {}).active).toBeNull();
+  });
+
+  it("gives every mark its own places, for its right-click menu", () => {
+    const deck = [ONE_TEAM_OF_THREE, THREE_TEAMS_OF_ONE, workspace("ws-e", [])];
+    const { marks } = stripView(deck, frames({}), "ws-a", {});
+    expect(marks.map((mark) => [mark.id, mark.moveUp, mark.moveDown])).toEqual([
+      ["ws-a", null, { after: "ws-b" }],
+      ["ws-b", { before: "ws-a" }, { after: "ws-e" }],
+      ["ws-e", { before: "ws-b" }, null],
+    ]);
+  });
+
+  it("draws no mark for an archived workspace, and moves among the marks there are", () => {
+    const put = (ws: Workspace): Workspace => ({ ...ws, archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } });
+    const deck = [workspace("ws-a", []), put(workspace("ws-x", [])), workspace("ws-b", []), put(workspace("ws-y", []))];
+    const view = stripView(deck, frames({}), "ws-b", {});
+    expect(view.marks.map((mark) => mark.id)).toEqual(["ws-a", "ws-b"]);
+    // ...and counts them, for the door at the strip's foot.
+    expect(view.archived).toBe(2);
+    // Up from ws-b lands before ws-a — past the archived row between them,
+    // which keeps its place in the deck's order.
+    expect(view.active).toMatchObject({ moveUp: { before: "ws-a" }, moveDown: null });
+    // Every workspace archived: no marks, nobody on screen.
+    expect(stripView([put(workspace("ws-a", []))], frames({}), "", {})).toEqual({ marks: [], active: null, archived: 1 });
   });
 });
 
-describe("a mark's initials", () => {
-  it("takes two words' initials, else a word's first two letters", () => {
-    const initials = (name: string) =>
-      stripView([{ ...workspace("w", []), name }], frames({}), "", {}).marks[0].initials;
-    expect(initials("KeepDeck")).toBe("KD");
-    expect(initials("keepdeck.ai")).toBe("ka");
-    expect(initials("web app")).toBe("wa");
-    expect(initials("mnemo")).toBe("mn");
-    expect(initials("")).toBe("?");
+describe("a mark's letters", () => {
+  it("are the deck's one pass: two workspaces of one name never share a mark", () => {
+    const marks = stripView([{ ...workspace("a", []), name: "KeepDeck" }, { ...workspace("b", []), name: "KeepDeck Web" }], frames({}), "a", {}).marks;
+    expect(marks.map((mark) => mark.initials)).toEqual(["KD", "KW"]);
+  });
+
+  it("are the person's own when they chose them", () => {
+    const marks = stripView([{ ...workspace("a", []), name: "KeepDeck", mark: "★" }], frames({}), "a", {}).marks;
+    expect(marks[0].initials).toBe("★");
   });
 });
 

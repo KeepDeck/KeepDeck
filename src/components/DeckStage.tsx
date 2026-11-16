@@ -19,6 +19,7 @@ import {
   paneProvisioning,
   stagePanes,
   teamOfPane,
+  visibleWorkspaces,
 } from "../domain/deck";
 import type { PaneActivity, PaneFramePlace } from "../domain/status";
 import { teamNamesIn, teamOf } from "../domain/mail";
@@ -228,7 +229,10 @@ export function DeckStage({
 }: DeckStageProps) {
   return (
     <>
-      {workspaces.map((ws) => {
+      {/* An archived workspace is not on the stage, not even hidden: nothing
+          in it runs, so there is no terminal to keep mounted. The whole list
+          still answers whose a directory is (`startFreshRoles`). */}
+      {visibleWorkspaces(workspaces).map((ws) => {
         const isActive = ws.id === activeId;
 
         const view = viewByWs[ws.id];

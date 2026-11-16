@@ -24,15 +24,23 @@
  */
 import type { CwdArm, WorkspaceRef } from "@keepdeck/plugin-api";
 import {
+  sameDirectory,
   skillRootsOf,
+  teamOccupyingPath,
+  type UnheldRemoval,
+  type UnheldRemovalRequest,
   type Workspace,
   type WorktreeIntent,
   type WorktreeTarget,
+  type WorktreeTeardownFailure,
 } from "../../domain/deck";
 import type { ProvisionCallbacks } from "../provisioning";
 import { createWorktreeProvisioning } from "./provisioning";
 import { createOrderQueue, type InOrder } from "./queue";
 import { createWorktreeTeardown } from "./teardown";
+import { removeUnheld } from "./unheld";
+
+export type { UnheldRemoval, UnheldRemovalRequest } from "../../domain/deck";
 
 /** A worktree a create put on disk: enough for [`WorktreeManager.remove`]. */
 export interface CreatedWorktree {
@@ -40,6 +48,11 @@ export interface CreatedWorktree {
   path: string;
   branch: string;
 }
+
+/** How an owner's create ended, as [`WorktreeProvisioner.awaitSettled`]
+ * reports it: its card resolved, it failed (rolled back, waiting for Retry),
+ * its owner left mid-create — or there was no create in flight to wait for. */
+export type ProvisionSettlement = "resolved" | "failed" | "abandoned" | "none";
 
 /** One create to issue: WHO asked for the directory — the id the result, the
  * early publish and any post-provision step are filed under — and what to
@@ -57,6 +70,9 @@ export interface LiveWorkspace {
   id: string;
   instance: string;
   roots: string[];
+  /** Kept, not run: its roots are retained (nothing pruned, its id not
+   * released) but nothing may be armed there. */
+  archived: boolean;
 }
 
 /**
@@ -73,6 +89,9 @@ export interface WorktreeDeckView {
   nameOf(workspace: WorkspaceRef): string | null;
   /** Every live workspace with its roots. */
   live(): LiveWorkspace[];
+  /** Whether any workspace — archived ones too — holds `path`: as its root,
+   * or a team's directory (one being created included). */
+  holds(path: string): boolean;
 }
 
 /** The staged skills the spawn hook consumes: the bare view and each skill as
@@ -121,6 +140,33 @@ export interface WorktreeProvisioner {
    * rolled back, or it never had one.
    */
   awaitCreated(ownerId: string): Promise<CreatedWorktree | null>;
+  /**
+   * The END of `ownerId`'s create in flight — after its post-provision step,
+   * its rollback, its card's resolve or fail — not the git call
+   * [`awaitCreated`] answers at. For a flow that must not act on an owner
+   * while its create can still change it (an archive stopping a fork's
+   * agents). Many may wait on one create; waiting consumes nothing; `"none"`
+   * when no create is in flight. A create that throws settles too.
+   */
+  awaitSettled(ownerId: string): Promise<ProvisionSettlement>;
+  /**
+   * Take KeepDeck's plantings back out of an archived workspace's directories
+   * — every one no workspace in use still claims. In the queue like every
+   * other write into a cwd, with the roots read inside the slot. Answers
+   * whether the take-back succeeded; a failure is the archive's to record
+   * and retry.
+   */
+  disarmArchived(workspace: WorkspaceRef): Promise<boolean>;
+  /**
+   * Remove a checkout NO team holds — one the Workspaces window lists from
+   * `git worktree list`. In the queue like every write into a cwd, and asked
+   * again INSIDE the slot whether anyone holds it now: a team may have
+   * landed there since the list was read. The branch always stays. A
+   * detached checkout's commit is kept as a tag first, and nothing is
+   * removed when that cannot be done. Uncommitted work goes only with
+   * `discardDirty`.
+   */
+  removeUnheld(request: UnheldRemovalRequest): Promise<UnheldRemoval>;
   /** Register a step to run after `ownerId`'s worktree lands (see the map doc). */
   registerPostProvision(
     ownerId: string,
@@ -151,7 +197,7 @@ export interface WorktreeProvisioner {
    * dead). Never throws: a failing target is collected so one bad worktree
    * doesn't strand the rest, and the messages surface in the error dialog.
    */
-  remove(targets: WorktreeTarget[]): Promise<string[]>;
+  remove(targets: WorktreeTarget[]): Promise<WorktreeTeardownFailure[]>;
 }
 
 /** What the deck's housekeeping needs — nothing else. */
@@ -258,8 +304,8 @@ export type WorktreePlantingsFactory = (
  * directories does this workspace claim".
  *
  * Here rather than assembled at the composition root: the LIFETIME match is
- * load-bearing (ids are reusable, instances are not, so a reborn workspace
- * must never be handed the dead one's roots) and it was stated only in a
+ * load-bearing (the instance, not the id, names one lifetime, so a reference
+ * that outlived its workspace is handed no roots) and it was stated only in a
  * closure with no test, while the worktree suites' fake re-implemented it
  * correctly on their own. A regression in the real one would have broken
  * nothing that runs.
@@ -282,7 +328,11 @@ export function deckViewOf(workspaces: () => Workspace[]): WorktreeDeckView {
         id: workspace.id,
         instance: workspace.instance,
         roots: skillRootsOf(workspace),
+        archived: workspace.archived !== undefined,
       })),
+    holds: (path) =>
+      workspaces().some((workspace) => sameDirectory(workspace.cwd, path)) ||
+      teamOccupyingPath(workspaces(), path) !== null,
   };
 }
 
@@ -297,6 +347,9 @@ export function createWorktreeManager(
 
   return {
     ...provisioning,
+    disarmArchived: (workspace) =>
+      inOrder(async () => (await plantings.disarm(deck.rootsOf(workspace))) !== null),
+    removeUnheld: (request) => inOrder(() => removeUnheld(deck, request)),
     skillsFor: plantings.skillsFor,
     invalidateSkills: plantings.invalidateSkills,
     sweep: plantings.sweep,

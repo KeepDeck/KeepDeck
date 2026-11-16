@@ -20,6 +20,9 @@ pub struct WorktreeInfo {
     pub detached: bool,
     /// Whether the worktree is locked.
     pub locked: bool,
+    /// Whether git calls it prunable: its directory is gone, and only the
+    /// administrative record is left.
+    pub prunable: bool,
 }
 
 /// Parse the output of `git worktree list --porcelain` into structured entries.
@@ -49,6 +52,7 @@ pub fn parse_worktrees(porcelain: &str) -> Vec<WorktreeInfo> {
                     bare: false,
                     detached: false,
                     locked: false,
+                    prunable: false,
                 });
             }
             "HEAD" => {
@@ -74,6 +78,13 @@ pub fn parse_worktrees(porcelain: &str) -> Vec<WorktreeInfo> {
             "locked" => {
                 if let Some(w) = cur.as_mut() {
                     w.locked = true;
+                }
+            }
+            // With or without a reason after it — either way the record
+            // outlived its directory.
+            "prunable" => {
+                if let Some(w) = cur.as_mut() {
+                    w.prunable = true;
                 }
             }
             _ => {}
@@ -168,7 +179,7 @@ pub(crate) fn admin_git_dir(
 }
 
 /// Compare a worktree path with Git's realpath-based administrative pointer.
-fn paths_match(recorded: &Path, worktree: &Path) -> bool {
+pub fn paths_match(recorded: &Path, worktree: &Path) -> bool {
     if recorded == worktree {
         return true;
     }
@@ -212,9 +223,40 @@ pub fn is_dirty(path: &Path) -> Result<bool, GitError> {
     Ok(!out.trim().is_empty())
 }
 
+/// How many entries `git status` reports as changed in the worktree at
+/// `path`: modified, staged, deleted and untracked ones (an untracked
+/// directory counts once). Ignored files are not counted — and are lost
+/// with the folder all the same.
+pub fn changed_entries(path: &Path) -> Result<usize, GitError> {
+    let out = run_git(path, ["status", "--porcelain", "--untracked-files=normal"])?;
+    Ok(out.lines().filter(|line| !line.trim().is_empty()).count())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_prunable_with_and_without_a_reason() {
+        let porcelain = "\
+worktree /repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+
+worktree /gone/a
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/kd/a
+prunable gitdir file points to non-existent location
+
+worktree /gone/b
+HEAD 3333333333333333333333333333333333333333
+detached
+prunable
+";
+        let rows = parse_worktrees(porcelain);
+        assert_eq!(rows.iter().map(|w| w.prunable).collect::<Vec<_>>(), vec![false, true, true]);
+        assert!(rows[2].detached);
+    }
 
     #[test]
     fn parses_multiple_blocks() {

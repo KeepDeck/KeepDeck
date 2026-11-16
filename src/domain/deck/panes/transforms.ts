@@ -89,13 +89,16 @@ export function clearPaneIdle(
  * put it back exactly there ([`failPaneWake`]) rather than inventing a state
  * for it.
  *
- * Returns the SAME array for a live pane, one already on its way up, or an
- * unknown id. */
+ * Returns the SAME array for a live pane, one already on its way up, an
+ * unknown id — or a pane in an archived workspace: nobody is brought back
+ * there until the workspace is, and a wake asked for now would rise on its
+ * own the moment it was restored. */
 export function requestPaneWake(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
+  if (workspaces.find((ws) => ws.id === workspaceId)?.archived) return workspaces;
   const pane = findPane(workspaces, workspaceId, paneId);
   // A pane already rising for the SWEEP's own reasons is upgraded rather than
   // left alone: "a human asked" is new information even mid-wake, and it is

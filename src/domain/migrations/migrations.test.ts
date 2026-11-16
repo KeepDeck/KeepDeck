@@ -12,7 +12,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
   it("the deck + settings revisions are the expected values", () => {
     // Pin the bumps so a forgotten version bump (the r3 SETTINGS miss) fails
     // loudly rather than silently shrinking the ladder-loop's coverage.
-    expect(DECK_STATE_VERSION).toBe(14);
+    expect(DECK_STATE_VERSION).toBe(15);
     expect(SETTINGS_VERSION).toBe(27);
   });
 
@@ -49,7 +49,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     expect(out).toEqual({
       kind: "ok",
       doc: {
-        version: 14,
+        version: 15,
         minVersion: 11,
         workspaces: [
           { id: "ws-1", view: { focus: ["pane-1"], select: "pane-2" }, panes: [] },
@@ -76,7 +76,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     expect(out).toEqual({
       kind: "ok",
       doc: {
-        version: 14,
+        version: 15,
         minVersion: 11,
         workspaces: [
           { id: "ws-1", view: { focus: ["pane-1"], select: "pane-2" } },
@@ -113,7 +113,7 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
     expect(out).toEqual({
       kind: "ok",
       doc: {
-        version: 14,
+        version: 15,
         minVersion: 11,
         workspaces: [
           {
@@ -135,12 +135,24 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
   it("v13 → v14 leaves an already-named deck exactly as it was", () => {
     const workspaces = [{ id: "ws-1", panes: [{ id: "p1", agentType: "kimi" }] }];
     const out = migrateDeck({ version: 13, minVersion: 11, workspaces });
-    expect(out).toEqual({ kind: "ok", doc: { version: 14, minVersion: 11, workspaces } });
+    expect(out).toEqual({ kind: "ok", doc: { version: 15, minVersion: 11, workspaces } });
   });
 
-  it("keeps the deck floor at 11: an older build misreads nothing in a v14 file", () => {
-    // v14 only writes a field older builds already read.
-    expect(DECK_MIN_READER).toBe(11);
+  it("raises the deck floor to 15: an archive-unaware build must refuse the file, not run it", () => {
+    // A v14 reader takes an archived workspace for one in use — opens it,
+    // starts its agents — and saves the marker away. The floor is what it
+    // checks first.
+    expect(DECK_MIN_READER).toBe(15);
+    const LAST_ARCHIVE_UNAWARE = 14;
+    expect(DECK_MIN_READER).toBeGreaterThan(LAST_ARCHIVE_UNAWARE);
+  });
+
+  it("v14 → v15 adds nothing to an older document", () => {
+    const workspaces = [{ id: "ws-1", name: "web", cwd: "/repo", worktreeBaseDir: null, panes: [] }];
+    expect(migrateDeck({ version: 14, minVersion: 11, workspaces })).toEqual({
+      kind: "ok",
+      doc: { version: 15, minVersion: 11, workspaces },
+    });
   });
 
   it("reads a NEWER revision as-is when its floor admits this build", () => {

@@ -5,6 +5,7 @@
  */
 import { cwdArm, cwdDisarm } from "../../ipc/cwdArm";
 import type {
+  CwdArmReport,
   WorktreeDeckView,
   WorktreePlantingFactories,
   WorktreePlantings,
@@ -14,6 +15,8 @@ import { createSweep } from "./sweep";
 
 export { createSkillsStaging } from "./skillsStaging";
 
+const NOTHING_ARMED: CwdArmReport = { armed: [], refused: [] };
+
 export function createWorktreePlantings(
   deck: WorktreeDeckView,
   inOrder: InOrder,
@@ -22,7 +25,13 @@ export function createWorktreePlantings(
   const skills = factories.skills(inOrder, deck);
 
   async function disarm(roots: string[]): Promise<string[] | null> {
-    const liveRoots = deck.live().flatMap((ws) => ws.roots);
+    // A root stays armed while a workspace IN USE claims it. An archived
+    // workspace's claim keeps its directory (nothing is pruned for it) but
+    // not its plantings: nothing of its runs there.
+    const liveRoots = deck
+      .live()
+      .filter((ws) => !ws.archived)
+      .flatMap((ws) => ws.roots);
     const released = await cwdDisarm(roots, liveRoots);
     if (released) factories.onDisarmed(released);
     return released;
@@ -32,7 +41,14 @@ export function createWorktreePlantings(
     disarm,
     skillsFor: skills.skillsFor,
     invalidateSkills: skills.invalidateSkills,
-    armCwd: (request) => inOrder(() => cwdArm(request)),
+    // Asked INSIDE the slot, right before the planting: a plan built before
+    // its workspace was archived must not plant there after.
+    armCwd: (request) =>
+      inOrder(() =>
+        deck.live().some((ws) => ws.id === request.workspaceId && ws.archived)
+          ? Promise.resolve(NOTHING_ARMED)
+          : cwdArm(request),
+      ),
     sweep: createSweep(deck, inOrder, disarm, skills.pruneSkills, factories.prunePluginDirs).sweep,
   };
 }

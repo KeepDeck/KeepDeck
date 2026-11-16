@@ -24,6 +24,7 @@
     "./Dropdown": "./src/Dropdown.tsx",
     "./Combobox": "./src/Combobox.tsx",
     "./MenuButton": "./src/MenuButton.tsx",
+    "./ContextMenu": "./src/ContextMenu.tsx",
     "./dropBlocker": "./src/dropBlocker.ts",
     "./Peek": "./src/Peek.tsx",
     "./inputProps": "./src/inputProps.ts",

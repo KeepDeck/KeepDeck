@@ -73,7 +73,10 @@ describe("the ordering between plantings and teardown", () => {
 
     expect(cwdArming.cwdDisarm).toHaveBeenCalledWith(["/wt/shared"], ["/wt/shared"]);
     expect(worktree.removeWorktree).not.toHaveBeenCalled();
-    expect(failures).toEqual(["b: another workspace still works in this folder"]);
+    // A kind, never a sentence: the words are presentation's.
+    expect(failures).toEqual([
+      { kind: "held-elsewhere", target: { repo: "/r", path: "/wt/shared", branch: "b" } },
+    ]);
   });
 
   it("still removes the worktree when the disarm itself failed", async () => {
@@ -206,12 +209,14 @@ describe("remove", () => {
       { repo: "/r", path: "/wt/1", branch: "b1" },
       { repo: "/r", path: "/wt/2", branch: "b2" },
     ]);
-    expect(failures).toHaveLength(1);
-    expect(failures[0]).toContain("b1");
+    expect(failures).toEqual([
+      { kind: "git-refused", target: { repo: "/r", path: "/wt/1", branch: "b1" }, reason: "Error: dirty" },
+    ]);
     expect(worktree.removeWorktree).toHaveBeenCalledTimes(2);
     // The delete checkbox's intent covers the agent's created side branches.
     expect(worktree.removeWorktree).toHaveBeenCalledWith("/r", "/wt/2", {
-      force: true,
+      discardDirty: true,
+      discardUnmerged: true,
       branch: "b2",
       reapCreatedBranches: true,
     });

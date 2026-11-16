@@ -1,3 +1,4 @@
+import type { RepoCheckout } from "../domain/deck";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { PathProbe } from "../domain/agents";
@@ -79,6 +80,17 @@ export function listBranches(repo: string): Promise<string[]> {
   return invoke<string[]>("worktree_branches", { repo });
 }
 
+/** Every checkout of `repo`, with the uncommitted work each holds. */
+export function listWorktrees(repo: string): Promise<RepoCheckout[]> {
+  return invoke<RepoCheckout[]>("worktree_list", { repo });
+}
+
+/** Keep the commit the checkout at `path` stands on as `refs/tags/<name>`;
+ * refused when the name is taken. Answers the full ref. */
+export function saveWorktreeHead(repo: string, path: string, name: string): Promise<string> {
+  return invoke<string>("worktree_save_head", { repo, path, name });
+}
+
 /** Provision one team's git worktree; returns its path + branch. */
 export function createWorktree(spec: CreateWorktreeArgs): Promise<WorktreeRecord> {
   return invoke<WorktreeRecord>("worktree_create", { spec });
@@ -86,9 +98,12 @@ export function createWorktree(spec: CreateWorktreeArgs): Promise<WorktreeRecord
 
 /** Options for {@link removeWorktree}. */
 export interface RemoveWorktreeOptions {
-  /** Remove even a dirty worktree and force-delete the branch (`git branch -D`).
-   *  Refuses a dirty worktree when false, so work is never destroyed by default. */
-  force?: boolean;
+  /** Remove the tree even with uncommitted work in it. Refuses a dirty worktree
+   *  when false, so work is never destroyed without this consent. */
+  discardDirty?: boolean;
+  /** Delete the branches with `-D`, dropping commits no other branch holds —
+   *  a consent of its own; when false the safe `-d` refuses them. */
+  discardUnmerged?: boolean;
   /** Also delete this branch once the worktree is gone; left intact when unset. */
   branch?: string | null;
   /** Also delete every branch CREATED inside the worktree (reflog provenance,
@@ -108,7 +123,8 @@ export function removeWorktree(
     spec: {
       repo,
       path,
-      force: opts.force ?? false,
+      discardDirty: opts.discardDirty ?? false,
+      discardUnmerged: opts.discardUnmerged ?? false,
       branch: opts.branch ?? null,
       reapCreatedBranches: opts.reapCreatedBranches ?? false,
     },

@@ -18,6 +18,7 @@ import {
   teamHeldPath,
   teamIdsOf,
   teamNameTaken,
+  updateWorkspace,
   type AgentReach,
   type Workspace,
 } from "../../domain/deck";
@@ -30,13 +31,12 @@ import type {
   CreatePaneRequest,
   CreateTeamOutcome,
   CreateTeamRequest,
-  ResumeRequest,
 } from "../agentOrchestrator";
 import { teamCreateRefusal } from "../agentOrchestrator/creation";
 import { fakeMcpLibrary } from "../mcpLibrary.fake";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
 import { registerCoreCommands, type CommandDeck } from ".";
-import type { SuspendOutcome } from "../suspendOutcome";
+import type { ResumeRequest, SuspendOutcome } from "../../domain/deck";
 
 export const HOST = { kind: "host" } as const;
 
@@ -123,16 +123,23 @@ export const twoWorkspaces = (): Workspace[] => [
   workspace({ id: "ws-2", name: "site" }),
 ];
 
-/** A deck stub: the live workspaces array + recording actions. */
+/** A deck stub: the live workspaces array + recording actions. An edit goes
+ * through the domain's own transition, as the real action does. */
 function fakeDeck(workspaces: Workspace[]) {
-  return {
+  const deck = {
     workspaces,
     activeId: workspaces[0]?.id ?? "",
     viewOf: vi.fn<CommandDeck["viewOf"]>(() => ({})),
     selectWorkspace: vi.fn<CommandDeck["selectWorkspace"]>(),
     selectPane: vi.fn<CommandDeck["selectPane"]>(),
     renameTeam: vi.fn<CommandDeck["renameTeam"]>(),
+    updateWorkspace: vi.fn<CommandDeck["updateWorkspace"]>((ref, patch) => {
+      const result = updateWorkspace(deck.workspaces, ref, patch);
+      if (result.ok) deck.workspaces = result.workspaces;
+      return result;
+    }),
   } satisfies CommandDeck;
+  return deck;
 }
 
 export function setup(workspaces: Workspace[]) {

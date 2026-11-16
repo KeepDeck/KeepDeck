@@ -28,10 +28,9 @@
 import type { DockMode } from "../domain/settings";
 
 export interface LayeringInput {
-  /** The CREATE form is open over the deck. The welcome screen is not
-   * this: it is `workspaceCount === 0`. */
-  creating: boolean;
-  workspaceCount: number;
+  /** The CREATE form is on screen over the deck ([`deckPresence`]). The
+   * welcome screen is not this: no form paints over it. */
+  formOpen: boolean;
   /** A transaction is stacked over the app: an agent dialog, a close
    * confirm, a fork, a team, an error, a frozen notice. */
   dialogOpen: boolean;
@@ -93,16 +92,15 @@ export function tasksBoardOnScreen(
 }
 
 export function layering(input: LayeringInput): WindowLayering {
-  const formIsModalLayer = input.creating && input.workspaceCount > 0;
   // A covering overlay is a modal layer to everything that asks: hotkeys
   // pause, the doors close, a pane behind it is not on screen. It used to be
   // invisible here — a full-window diff had ⌘-hotkeys firing through it and
   // banners for the panes under it suppressed as if they were visible.
   const modal =
-    formIsModalLayer || input.dialogOpen || input.anyDialogOpen || input.overlayCovers;
+    input.formOpen || input.dialogOpen || input.anyDialogOpen || input.overlayCovers;
   // What paints over a router dialog: a transaction, or the CREATE form
   // (see the z-order note) — never the router dialog itself.
-  const dialogCovered = input.dialogOpen || input.creating;
+  const dialogCovered = input.dialogOpen || input.formOpen;
   const dockCovers =
     input.dockMode === "floating" && input.dockTabs > 0 && input.hasActive;
   return {

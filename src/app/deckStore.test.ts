@@ -109,3 +109,41 @@ describe("createDeckActions", () => {
     expect(second.getSnapshot().workspaces).toEqual([]);
   });
 });
+
+describe("updateWorkspace", () => {
+  const seeded = () => {
+    const store = createDeckStore();
+    const actions = createDeckActions(store);
+    const ws: Workspace = {
+      id: "ws-1",
+      instance: createWorkspaceInstance(),
+      name: "web",
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [],
+    };
+    actions.createWorkspace(ws);
+    return { store, actions, ws };
+  };
+
+  it("answers with the array the store actually holds", () => {
+    const { store, actions, ws } = seeded();
+    const result = actions.updateWorkspace(ws, { name: "api" });
+    expect(result.ok && result.workspaces).toBe(store.getSnapshot().workspaces);
+    expect(store.getSnapshot().workspaces[0].name).toBe("api");
+  });
+
+  it("hands a refusal back and publishes nothing", () => {
+    const { store, actions, ws } = seeded();
+    actions.addAgentPane(ws.id, { id: "p1", agentType: "claude" });
+    const listener = vi.fn();
+    store.subscribe(listener);
+    const before = store.getSnapshot();
+
+    const result = actions.updateWorkspace(ws, { cwd: "/elsewhere" });
+
+    expect(result).toEqual({ ok: false, refusal: { kind: "cwd-not-empty", teams: 0, panes: 1 } });
+    expect(store.getSnapshot()).toBe(before);
+    expect(listener).not.toHaveBeenCalled();
+  });
+});

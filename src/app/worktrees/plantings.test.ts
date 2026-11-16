@@ -249,6 +249,27 @@ describe("what an agent's plugin plants in a pane's cwd", () => {
     expect(order).toEqual(["disarmed", "planted"]);
   });
 
+  it("plants nothing for an archived workspace — not even a planting queued before the archive", async () => {
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    worktree.removeWorktree.mockImplementation(async () => held);
+    cwdArming.cwdArm.mockResolvedValue({ armed: [".agent/conf"], refused: [] });
+
+    // Queued behind a teardown while the workspace is in use; archived
+    // before its turn comes.
+    const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
+    const planting = manager.armCwd(request("/wt/a"));
+    deck = [{ id: "ws-1", roots: ["/wt/a"], archived: true }];
+    release();
+    await removing;
+
+    expect(await planting).toEqual({ armed: [], refused: [] });
+    expect(cwdArming.cwdArm).not.toHaveBeenCalled();
+  });
+
   it("plants into a cwd the deck cannot see YET — that is the normal case", async () => {
     // A manual resume, a fork into a directory and a fork into a fresh
     // worktree all build their plan BEFORE the pane lands, so the deck does
@@ -290,6 +311,23 @@ describe("sweep", () => {
     expect(skills.pruneSkills).toHaveBeenLastCalledWith(["ws-1"]);
     expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/repo", "/other"], ["/repo"]);
     expect(await lastDisarm()).toEqual(["/other"]);
+  });
+
+  it("takes an archived workspace's plantings back, except where a workspace in use still works", async () => {
+    deck = [
+      { id: "ws-1", instance: "life-1", roots: ["/repo", "/wt/a"], archived: true },
+      { id: "ws-2", roots: ["/repo"] },
+    ];
+    expect(await manager.disarmArchived({ id: "ws-1", instance: "life-1" })).toBe(true);
+    // The archive's own claim protects nothing: only the workspace in use does.
+    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/repo", "/wt/a"], ["/repo"]);
+    expect(await lastDisarm()).toEqual(["/wt/a"]);
+  });
+
+  it("answers a failed take-back as a failure, for the archive to record", async () => {
+    deck = [{ id: "ws-1", instance: "life-1", roots: ["/wt/a"], archived: true }];
+    cwdArming.cwdDisarm.mockResolvedValueOnce(null);
+    expect(await manager.disarmArchived({ id: "ws-1", instance: "life-1" })).toBe(false);
   });
 
   it("an empty hydrated deck sweeps everything", async () => {
@@ -429,5 +467,60 @@ describe("sweep", () => {
     // requests and each one after the first finds the live set already accounted
     // for, so it costs nothing — no second mechanism needed to coalesce.
     expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("removing a checkout no team holds", () => {
+  const request = { repo: "/repo", path: "/wt/old", discardDirty: false };
+
+  it("removes it, leaving its branch, and keeps nothing it was not asked to", async () => {
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    worktree.removeWorktree.mockResolvedValue(undefined);
+    expect(await manager.removeUnheld(request)).toEqual({ kind: "removed" });
+    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/old", { discardDirty: false, discardUnmerged: false });
+    expect(worktree.saveWorktreeHead).not.toHaveBeenCalled();
+  });
+
+  it("asks again inside the queue: a team that landed there since holds it, and nothing is touched", async () => {
+    deck = [{ id: "ws-1", roots: ["/repo", "/wt/old/"] }];
+    expect(await manager.removeUnheld(request)).toEqual({ kind: "held" });
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("holds a workspace's own folder even with no team in it", async () => {
+    // Every test deck's workspaces sit in /repo; this one has no team at all.
+    deck = [{ id: "ws-1", roots: [] }];
+    expect(await manager.removeUnheld({ ...request, path: "/repo/" })).toEqual({ kind: "held" });
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("holds an archived workspace's directories as well — retained, not free", async () => {
+    deck = [{ id: "ws-1", roots: ["/wt/old"], archived: true }];
+    expect(await manager.removeUnheld(request)).toEqual({ kind: "held" });
+  });
+
+  it("keeps a detached checkout's commit first, and removes nothing when it cannot", async () => {
+    deck = [];
+    worktree.removeWorktree.mockResolvedValue(undefined);
+    expect(await manager.removeUnheld({ ...request, keepHeadAs: "archive/web/old" })).toEqual({
+      kind: "removed",
+      keptAs: "refs/tags/archive/web/old",
+    });
+    worktree.saveWorktreeHead.mockRejectedValueOnce(new Error("tag exists"));
+    worktree.removeWorktree.mockClear();
+    expect(await manager.removeUnheld({ ...request, keepHeadAs: "archive/web/old" })).toEqual({
+      kind: "not-kept",
+      reason: "tag exists",
+    });
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("says what git refused", async () => {
+    deck = [];
+    worktree.removeWorktree.mockRejectedValueOnce(new Error("worktree has uncommitted changes; not removing"));
+    expect(await manager.removeUnheld(request)).toEqual({
+      kind: "failed",
+      reason: "worktree has uncommitted changes; not removing",
+    });
   });
 });

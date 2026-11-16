@@ -169,8 +169,9 @@ export function markAllRead(
   return markReadWhere(items, () => true, at);
 }
 
-/** A task event about THIS workspace lifetime's board — the id alone is a
- * reusable slot, so a board deleted and re-made under it is not this one. */
+/** A task event about THIS workspace lifetime's board — matched on the
+ * instance as well as the id, as every lifetime reference is: a board of a
+ * workspace that was closed is not this one's. */
 export function isTaskNotificationOf(
   n: Notification,
   workspace: NotificationWorkspace,

@@ -10,13 +10,16 @@ import {
   usePointerDrag,
   type ElementRectSnapshot,
 } from "../../ui/dragManager";
-import { markAtY } from "../../domain/deck";
+import { dropPlace, markAtY, type WorkspacePlace } from "../../domain/deck";
 import { STRIP_WORDS, type StripView, type WorkspaceMark } from "../../presentation/stripView";
 import { stripGroupView } from "../../presentation/stripExpand";
 import { useStripReveal } from "./useStripReveal";
 import { stripTeamsId, useStripTeams } from "./useStripTeams";
 import { STRIP_MOTION_MS } from "../../ui/stripTeamsMotion";
 import { useKeepActiveInView } from "./useKeepActiveInView";
+import { ContextMenu } from "../../ui/contextMenu";
+import { WORKSPACE_WORDS, workspaceMenuView } from "../../presentation/workspaceCrumbView";
+import { workspaceMenuActions } from "./workspaceMenuActions";
 
 interface WorkspaceStripProps {
   view: StripView;
@@ -25,8 +28,20 @@ interface WorkspaceStripProps {
    * strip. */
   onEnterTeam(wsId: string, teamId: string): void;
   onAdd(): void;
-  /** Move workspace `id` to `toIndex` (long-press drag reorder). */
-  onReorder(id: string, toIndex: number): void;
+  /** Move workspace `id` to `place` (long-press drag reorder, or a mark's
+   * menu). */
+  onReorder(id: string, place: WorkspacePlace): void;
+  /** What a mark's right-click menu does — the crumb's acts, for the
+   * workspace whose mark it is. */
+  markActs: {
+    rename(wsId: string): void;
+    settings(wsId: string): void;
+    archive(wsId: string): void;
+    close(wsId: string): void;
+  };
+  /** Open the Workspaces window on the archived workspaces — the door at
+   * the strip's foot, there while any is archived. */
+  onOpenArchived(): void;
   /** The running build, or null until `app_info` answers. At the strip's
    * foot: read a few times a year, when a report needs writing — on screen,
    * and out of the way. */
@@ -76,9 +91,13 @@ export function WorkspaceStrip({
   onEnterTeam,
   onAdd,
   onReorder,
+  markActs,
+  onOpenArchived,
   version,
 }: WorkspaceStripProps) {
   const [ghost, setGhost] = useState<DragGhost | null>(null);
+  /** The mark whose right-click menu is open, and where the pointer was. */
+  const [markMenu, setMarkMenu] = useState<{ mark: WorkspaceMark; at: { x: number; y: number } } | null>(null);
   const colRef = useRef<HTMLDivElement>(null);
   const reveal = useStripReveal(colRef, ghost !== null);
 
@@ -160,11 +179,10 @@ export function WorkspaceStrip({
       if (!list) return;
       const rects = collectMarkRects(list);
       const overId = markAtY(current.y, rects);
-      if (!overId || overId === source.mark.id) return;
-      const toIndex = rects.findIndex((r) => r.id === overId);
-      if (toIndex < 0) return;
+      const place = overId && dropPlace(rects.map((r) => r.id), source.mark.id, overId);
+      if (!place) return;
       flipBefore.current = snapshotElementRects(markGroups(list), markId);
-      onReorder(source.mark.id, toIndex);
+      onReorder(source.mark.id, place);
     },
     onDrop: ({ source }) => settleGhost(source.mark.id),
     onCancel: () => setGhost(null),
@@ -227,6 +245,10 @@ export function WorkspaceStrip({
                     className={`strip__mark${mark.active ? " strip__mark--active" : ""}`}
                     onClick={() => onSelect(mark.id)}
                     onPointerDown={(e) => onMarkPointerDown(e, mark)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setMarkMenu({ mark, at: { x: e.clientX, y: e.clientY } });
+                    }}
                     aria-current={mark.active || undefined}
                     aria-label={mark.label}
                     title={mark.label}
@@ -279,12 +301,38 @@ export function WorkspaceStrip({
             );
           })}
         </ul>
+        {view.archived > 0 && (
+          <button
+            type="button"
+            className="strip__archived"
+            onClick={onOpenArchived}
+            aria-label={STRIP_WORDS.archivedDoorLabel(view.archived)}
+            title={STRIP_WORDS.archivedDoorLabel(view.archived)}
+          >
+            {STRIP_WORDS.archivedDoor(view.archived)}
+          </button>
+        )}
         {version !== null && (
           <footer className="strip__foot" title={STRIP_WORDS.build(version)}>
             {version}
           </footer>
         )}
       </div>
+
+      {markMenu && (
+        <ContextMenu
+          at={markMenu.at}
+          ariaLabel={WORKSPACE_WORDS.markMenu(markMenu.mark.name)}
+          actions={workspaceMenuActions(workspaceMenuView(markMenu.mark, "mark"), {
+            rename: () => markActs.rename(markMenu.mark.id),
+            move: (place) => onReorder(markMenu.mark.id, place),
+            settings: () => markActs.settings(markMenu.mark.id),
+            archive: () => markActs.archive(markMenu.mark.id),
+            close: () => markActs.close(markMenu.mark.id),
+          })}
+          onClose={() => setMarkMenu(null)}
+        />
+      )}
 
       {ghost &&
         createPortal(

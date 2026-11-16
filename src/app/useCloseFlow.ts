@@ -9,38 +9,45 @@ import {
   teamsOf,
   type GitPosition,
   type Pane,
+  type SuspendOutcome,
   type WorktreeTarget,
+  type WorktreeTeardownFailure,
   type Workspace,
 } from "../domain/deck";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { probeWorktree } from "../ipc/worktree";
-import { closeMessageFor } from "./closing/closeMessage";
-// The model and the copy moved to modules of their own; they are still part
-// of what this flow IS, so its consumers keep taking them from here.
-export { closeMessageFor } from "./closing/closeMessage";
-export type {
-  CarrierNote,
-  ClosingPaneFacts,
-  ClosingTarget,
-  TeamTeardownOffer,
-} from "./closing/closingTarget";
+import {
+  closeMessageFor,
+  worktreesNotDeletedText,
+  type CarrierNote,
+} from "../presentation/closeWords";
+import { suspendRefusalText } from "../presentation/suspendWords";
 import {
   paneFactsOf,
   pendingCreates,
-  type CarrierNote,
   type ClosingTarget,
   type TeamTeardownOffer,
 } from "./closing/closingTarget";
 import { deletableWorktrees, existingTargets } from "./closing/teardownTargets";
-import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
 import type { BackgroundCarrier } from "./liveSessions";
 import type { CloseRequest } from "./agentOrchestrator";
 import type { Deck } from "./useDeck";
 
-/** The late-painted carrier line: set only when the registry's answer
- * WARNS ("background" proven, or the ask failed = "unknown"). A "none"
- * answer never sets it — the ordinary close's text stays untouched to the
- * character and the dialog does not even re-render. */
+/**
+ * Owns the confirmed-close flow: all three close paths ([U6]) park a
+ * ClosingTarget for the confirm dialog — once its candidate worktrees are
+ * probed, so a directory that's already gone is never offered for deletion;
+ * confirming removes the pane(s) from the deck AND ends their PTY sessions
+ * through the ptyManager (unmounting alone no longer kills a process), then
+ * optionally tears the worktrees down per the delete checkbox — after the
+ * closes settle, so no worktree dir is a live cwd.
+ *
+ * A directory is a TEAM's: closing one agent is never asked about one, and
+ * only a disband (or a workspace close, which disbands every team) carries
+ * the offer. The last member of a team is the one pane whose close dialog
+ * speaks both verbs.
+ */
+
 export function useCloseFlow(
   deck: Deck,
   /** The hook's collaborators, named rather than positional: the list grew to
@@ -66,7 +73,7 @@ export function useCloseFlow(
      * it could not delete. Injected for the same reason: what this hook owns
      * is the CONFIRMATION — which panes, which directories, and whether the
      * user meant it — not the teardown that follows. */
-    closeAgents(request: CloseRequest): Promise<string[]>;
+    closeAgents(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
     /** Ask the agent's live registry whether panes' conversations are
      * carried by a background process — the fact the close sentence must
      * say before the pane is gone. Batched: ONE registry query per
@@ -260,10 +267,7 @@ export function useCloseFlow(
     setClosing(null);
     setDeleteWorktree(false);
     void closeAgents(request).then((failures) => {
-      if (failures.length > 0)
-        onError(
-          `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
-        );
+      if (failures.length > 0) onError(worktreesNotDeletedText(failures));
     });
   };
 

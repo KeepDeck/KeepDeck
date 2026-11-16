@@ -271,6 +271,26 @@ describe("agent orchestrator —session policy", () => {
     expect(agentRun.blocked).toEqual({});
   });
 
+  it("start fresh does nothing in an archived workspace: the pane keeps its team and its conversation", async () => {
+    ipc.probeWorktree.mockResolvedValue({ exists: false, isWorktree: false, empty: false, branch: null });
+    act(() =>
+      deck.hydrate(
+        restored({ session: { id: "s-1", boundAt: "t" } }, { kind: "attached", cwd: "/repo/wt-gone" }),
+      ),
+    );
+    await settle();
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
+    act(() => deck.archiveWorkspace("ws-1"));
+
+    act(() => agentRun.startFresh("ws-1", "pane-1"));
+    await settle();
+
+    const pane = deck.workspaces[0].panes[0];
+    expect(pane.session).toEqual({ id: "s-1", boundAt: "t" });
+    expect(pane.team?.teamId).toBe("team-1");
+    expect(deck.workspaces[0].teams?.map((team) => team.id)).toEqual(["team-1"]);
+  });
+
   it("start fresh refuses when the root's team is full: the pane keeps its session and its place, and the card says why", async () => {
     // Sixteen on the root already. Dropping the session and waking the
     // pane before knowing would wake it back into the directory that is

@@ -1,5 +1,4 @@
 import {
-  autoWorkspaceName,
   birthRefusal,
   claimDirectory,
   createFailed,
@@ -20,6 +19,8 @@ import {
   type Team,
   type TeamLocation,
   type Workspace,
+  workspaceName,
+  worktreeBaseDirOf,
 } from "../../domain/deck";
 import { admitRole, carryRole } from "../../domain/mail";
 import { createRefusalMessage } from "./refusals";
@@ -454,27 +455,16 @@ export function createAgentOrchestratorCreation({
    * the directory its team will hold — which is where a worktree create is
    * started now. */
   const createWorkspace: AgentOrchestrator["createWorkspace"] = (config) => {
-    const created = actions.createWorkspaceFromSequence((sequence): Workspace => {
-      const id = `ws-${sequence}`;
-      // The same derivation an empty rename resets to — one home, so the
-      // birth name and the reset name cannot drift apart.
-      const name = config.name.trim() || autoWorkspaceName(id);
-      return {
-        id,
-        instance: createWorkspaceInstance(),
-        name,
-        cwd: config.cwd,
-        worktreeBaseDir: config.worktreeBaseDir,
-        panes: [],
-      };
-    });
-    if (!created.ok) {
-      log.error(
-        "web:orchestrator",
-        `workspace create rejected: ${created.reason}`,
-      );
-    }
-    return created;
+    return actions.createWorkspaceWithMintedId((id): Workspace => ({
+      id,
+      instance: createWorkspaceInstance(),
+      // The same rules every later edit applies — one home, so what a
+      // blank field means cannot drift between birth and edit.
+      name: workspaceName(config.name, config.cwd),
+      cwd: config.cwd,
+      worktreeBaseDir: worktreeBaseDirOf(config.worktreeBaseDir),
+      panes: [],
+    }));
   };
 
   /** Re-issue a team's FAILED create: the error clears (the card goes back

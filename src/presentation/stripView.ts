@@ -1,6 +1,8 @@
 /**
  * What the left strip says, decided apart from the markup that draws it:
- * one mark per workspace, in deck order — the way between workspaces —
+ * one mark per workspace in use, in deck order — the way between them; an
+ * archived workspace has no mark, and the places a mark moves to are among
+ * the marks there are —
  * and, when the strip slides open, each workspace's teams under it (user
  * decision 2026-10-01: the reveal is the team switcher; at rest the strip
  * stays marks only).
@@ -15,8 +17,19 @@
  * It also names the ACTIVE workspace and where it sits, for the bar's crumb
  * (`workspaceCrumbView`).
  */
-import { membersOf, openTeamOf, teamsOf, type Workspace, type WorkspaceView } from "../domain/deck";
+import {
+  membersOf,
+  openTeamOf,
+  stepPlaces,
+  teamsOf,
+  visibleWorkspaces,
+  type Workspace,
+  type WorkspacePlace,
+  type WorkspaceView,
+} from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
+import { counted } from "./countWords";
+import { workspaceMarks } from "./workspaceMark";
 import type { ActiveWorkspace } from "./workspaceCrumbView";
 import { TEAM_CARD_WORDS, teamDot, type TeamCardDot } from "./teamCardView";
 
@@ -49,10 +62,16 @@ export interface WorkspaceMark {
   label: string;
   /** Its teams in deck order — what the slid-open strip lists under it. */
   teams: readonly StripTeam[];
+  /** Where its menu can move it, as for the active one's crumb. */
+  moveUp: WorkspacePlace | null;
+  moveDown: WorkspacePlace | null;
 }
 
 export interface StripView {
   marks: readonly WorkspaceMark[];
+  /** How many workspaces are archived — the count on the strip foot's door
+   * into the Workspaces window; none, no door. */
+  archived: number;
   /** Null only for a deck with no workspace at all. */
   active: ActiveWorkspace | null;
 }
@@ -66,6 +85,9 @@ export const STRIP_WORDS = {
   /** The chevron that opens or closes a workspace's team list. */
   showTeams: (workspace: string) => `Show teams of ${workspace}`,
   hideTeams: (workspace: string) => `Hide teams of ${workspace}`,
+  /** The strip foot's door into the archived workspaces. */
+  archivedDoor: (count: number) => `${count} archived`,
+  archivedDoorLabel: (count: number) => `${counted(count, "archived workspace")} — open the Workspaces window`,
 } as const;
 
 const DOT_WORDS: Record<MarkDot, string> = {
@@ -92,21 +114,6 @@ function markDot(teamDots: readonly TeamCardDot[], agents: number): MarkDot | nu
   return agents > 0 ? "idle" : null;
 }
 
-/**
- * The mark's letters: the initials of the first two words ("KeepDeck" →
- * "KD", "web app" → "wa"), else the first two letters of the one word
- * ("mnemo" → "mn"). Words part at spaces, dots, dashes, underscores and a
- * lower-to-upper case step.
- */
-function workspaceInitials(name: string): string {
-  const words = name
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .split(/[\s._\-/]+/)
-    .filter(Boolean);
-  if (words.length >= 2) return words[0][0] + words[1][0];
-  return (words[0] ?? "?").slice(0, 2);
-}
-
 export function stripView(
   workspaces: readonly Workspace[],
   activities: ReadonlyMap<string, PaneActivity>,
@@ -115,7 +122,12 @@ export function stripView(
   viewByWs: Readonly<Record<string, WorkspaceView>>,
 ): StripView {
   let active = null as ActiveWorkspace | null;
-  const marks = workspaces.map((ws, index): WorkspaceMark => {
+  const shown = visibleWorkspaces(workspaces);
+  // Over every workspace, archived ones included: letters stay put when one
+  // is put away or restored.
+  const letters = workspaceMarks(workspaces);
+  const order = shown.map((ws) => ws.id);
+  const marks = shown.map((ws): WorkspaceMark => {
     const openTeam = openTeamOf(ws, viewByWs[ws.id]);
     // ONE pass: each team's dot is the row's, and the same dots fold into
     // the mark's — the two can never rank a team differently.
@@ -130,23 +142,21 @@ export function stripView(
       };
     });
     const dot = markDot(teams.map((team) => team.dot), ws.panes.length);
+    const steps = stepPlaces(order, ws.id);
     if (ws.id === activeId) {
-      active = {
-        id: ws.id,
-        name: ws.name,
-        moveUpTo: index > 0 ? index - 1 : null,
-        moveDownTo: index < workspaces.length - 1 ? index + 1 : null,
-      };
+      active = { id: ws.id, name: ws.name, moveUp: steps.up, moveDown: steps.down };
     }
     return {
       id: ws.id,
       name: ws.name,
-      initials: workspaceInitials(ws.name),
+      initials: letters.get(ws.id) ?? "?",
       active: ws.id === activeId,
       dot,
       label: dot ? `${ws.name} — ${DOT_WORDS[dot]}` : ws.name,
       teams,
+      moveUp: steps.up,
+      moveDown: steps.down,
     };
   });
-  return { marks, active };
+  return { marks, active, archived: workspaces.length - shown.length };
 }

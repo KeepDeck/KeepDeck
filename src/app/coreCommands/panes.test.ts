@@ -2,6 +2,7 @@
 import { HOST, resetCoreCommandTestState, setup, workspace } from "./testSupport";
 import { beforeEach, describe, expect, it } from "vitest";
 import { registerPaneInput } from "../paneInput";
+import { workspaceArchivedMessage } from "./targets";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -104,6 +105,24 @@ describe("agent.focus / agent.close / pane.write", () => {
     const already = await registry.execute("agent.resume", { agent: "live" }, HOST);
     expect(already.ok).toBe(false);
     if (!already.ok) expect(already.error.message).toContain("already running");
+  });
+
+  it("refuses to touch an agent in an archived workspace named by the caller", async () => {
+    const { registry, resumeAgent } = setup([
+      workspace({}),
+      workspace({
+        id: "ws-2",
+        name: "old",
+        cwd: "/old",
+        archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" },
+        panes: [{ id: "p9", agentType: "claude", idle: { reason: "suspended", at: "2026-11-16T00:00:00.000Z" } }],
+      }),
+    ]);
+    for (const id of ["agent.resume", "agent.suspend", "agent.close", "agent.focus"]) {
+      const result = await registry.execute(id, { workspace: "old", agent: "p9" }, HOST);
+      expect(result, id).toEqual({ ok: false, error: { code: "failed", message: workspaceArchivedMessage({ name: "old" }) } });
+    }
+    expect(resumeAgent).not.toHaveBeenCalled();
   });
 
   it("pastes text into the addressed pane; submit sends Enter as a separate raw write", async () => {

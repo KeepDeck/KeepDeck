@@ -341,6 +341,8 @@ pub fn run() {
             worktree::worktree_suggest,
             worktree::worktree_probe,
             worktree::worktree_branches,
+            worktree::worktree_list,
+            worktree::worktree_save_head,
             worktree::worktree_create,
             worktree::worktree_remove,
             head_watch::worktree_watch,

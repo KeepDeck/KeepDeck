@@ -2,9 +2,16 @@ import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneIdle, WorktreeIntent } from "./panes";
 import { paneIdleIsDurable } from "./panes";
+import { paneProvisioning } from "./roots";
 import { liveSpotlights } from "./spotlights";
-import type { Workspace } from "./workspaces";
-import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
+import {
+  parseWorkspaceMark,
+  resolveActiveId,
+  workspaceIdsAreUnique,
+  type ArchiveWarnings,
+  type Workspace,
+  type WorkspaceArchived,
+} from "./workspaces";
 import {
   findTeam,
   placementFromFields,
@@ -113,8 +120,12 @@ export function serializeDeck(
       ...ws.extras,
       id: ws.id,
       name: ws.name,
+      // Sparse: only letters the person chose.
+      ...(ws.mark !== undefined && { mark: ws.mark }),
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
+      // Sparse: only a workspace put away carries the marker, written whole.
+      ...(ws.archived !== undefined && { archived: ws.archived }),
       // Sparse: a workspace the person left at its defaults writes no view.
       ...(view !== undefined && { view }),
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
@@ -217,6 +228,38 @@ function readView(value: unknown, ws: Workspace): WorkspaceView | undefined {
   const extras = collectExtras(value, VIEW_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) view.extras = extras;
   return Object.keys(view).length > 0 ? view : undefined;
+}
+
+/**
+ * What must reach disk at once rather than with the debounced save — as one
+ * comparable key. The deck changes many times a second while agents work,
+ * and almost all of it can wait; these facts cannot, because losing them to
+ * a quit costs a decision or a conversation: which session each pane is
+ * bound to (the resume key), which panes have a worktree create in flight,
+ * which carry a durable idle marker (a suspend), and which workspaces are
+ * archived — in what phase, owing what. The persistence layer flushes
+ * whenever this key changes and never needs to know why.
+ */
+export function deckImmediateKey(state: Pick<DeckState, "workspaces">): string {
+  return state.workspaces
+    .map(
+      (workspace) =>
+        `${workspace.id}${archiveKey(workspace.archived)}:${workspace.panes
+          .map(
+            (pane) =>
+              `${pane.id}=${pane.session?.id ?? ""}${paneProvisioning(workspace, pane) ? "+wip" : ""}${
+                paneIdleIsDurable(pane.idle) ? "+susp" : ""
+              }`,
+          )
+          .join(",")}`,
+    )
+    .join(";");
+}
+
+function archiveKey(archived: WorkspaceArchived | undefined): string {
+  if (!archived) return "";
+  const owed = archived.warnings;
+  return `@${archived.phase}${owed ? `!${owed.reaps.join("|")}${owed.disarm ? "+disarm" : ""}` : ""}`;
 }
 
 /**
@@ -324,6 +367,7 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   // preserving it as a forward-compatible extra.
   "instance",
   "name",
+  "mark",
   "cwd",
   "worktreeBaseDir",
   // NOT listed: "setup" — deck v5's one-time worktree command, retired with
@@ -334,6 +378,7 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "teams",
   "panes",
   "view",
+  "archived",
 ]);
 
 /** The folded epics as a hand edit may have left them: what has the shape
@@ -436,9 +481,49 @@ function readWorkspace(value: unknown): Workspace | null {
   // load-and-save even while the plugin system experiment is off.
   const plugins = readWorkspacePlugins(value.plugins);
   if (plugins) ws.plugins = plugins;
+  const archived = readArchived(value.archived);
+  if (archived) ws.archived = archived;
+  // Letters this build cannot take (too long, not text) are no letters: the
+  // mark goes back to the name's — nothing about them is worth a quarantine.
+  if (typeof value.mark === "string") {
+    const parsed = parseWorkspaceMark(value.mark);
+    if ("mark" in parsed && parsed.mark !== undefined) ws.mark = parsed.mark;
+  }
   const extras = collectExtras(value, WS_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) ws.extras = extras;
   return ws;
+}
+
+/** The instant a marker reads when the document's own cannot be read. */
+const ARCHIVED_AT_UNKNOWN = new Date(0).toISOString();
+
+/**
+ * A workspace's archive marker as the document spells it; absent, none.
+ *
+ * A marker this build cannot read — a phase it does not know, an instant
+ * that is not one, a damaged warnings list — fails CLOSED: the workspace
+ * stays put away and reads `"archiving"`, so boot repair stops whatever
+ * could run there and settles the archive. Reading it as absent would bring
+ * an archived workspace back unasked and start its agents.
+ */
+function readArchived(value: unknown): WorkspaceArchived | undefined {
+  if (value === undefined) return undefined;
+  if (!isJsonRecord(value)) return { at: ARCHIVED_AT_UNKNOWN, phase: "archiving" };
+  const at = typeof value.at === "string" && parseInstant(value.at) !== null ? value.at : null;
+  const warnings = value.warnings === undefined ? undefined : readArchiveWarnings(value.warnings);
+  const phase = value.phase === "archiving" || value.phase === "archived" ? value.phase : null;
+  if (at === null || phase === null || warnings === null) {
+    return { at: at ?? ARCHIVED_AT_UNKNOWN, phase: "archiving" };
+  }
+  return { at, phase, ...(warnings !== undefined && { warnings }) };
+}
+
+function readArchiveWarnings(value: unknown): ArchiveWarnings | null {
+  if (!isJsonRecord(value)) return null;
+  const { reaps, disarm } = value;
+  if (!Array.isArray(reaps) || !reaps.every((id) => typeof id === "string")) return null;
+  if (typeof disarm !== "boolean") return null;
+  return { reaps: [...reaps], disarm };
 }
 
 /** One team as the document spells it. `id` and a non-blank `name` are

@@ -1,5 +1,3 @@
-import { nextIdSequence } from "../domain/idSequence";
-
 /**
  * App-wide pane id mint. Pane seq numbers must be unique for the whole app
  * lifetime — pane ids key the PTY input registry and the agent↔worktree
@@ -13,16 +11,6 @@ export function mintAgentSeq(): number {
   return nextAgentSeq++;
 }
 
-/**
- * The next workspace sequence from the live deck. Removing the highest
- * workspace releases its sequence; gaps below the maximum remain untouched.
- */
-export function mintWorkspaceSeq(
-  workspaceIds: readonly string[],
-): number | null {
-  return nextIdSequence(workspaceIds, "ws");
-}
-
 /** Raise the agent mint to at least `min` (deck restore, [F7]). Never lowers —
  * ids issued before a (late) hydrate must stay unique. */
 export function seedAgentSeq(min: number): void {
@@ -30,17 +18,30 @@ export function seedAgentSeq(min: number): void {
 }
 
 /**
- * Mint a team id: `team-` and a random token. Random rather than counted,
- * so nothing a team leaves behind — its task board, the replies addressed
- * to it — can pass to a later team: no counter to release on a disband or
- * to forget across a restart. `taken` is every id the deck holds; a clash
- * is drawn again.
+ * `prefix-` and a random token, drawn again while `taken` holds it. Random
+ * rather than counted, so nothing a team or a workspace leaves behind — a
+ * task board, the replies addressed to it, a store kept under its id — can
+ * pass to a later one: no counter to release when one goes, or to forget
+ * across a restart.
  */
-export function mintTeamId(taken: ReadonlySet<string>): string {
+function mintTokenId(prefix: string, taken: ReadonlySet<string>): string {
   for (;;) {
-    const id = `team-${crypto.randomUUID().slice(0, 8)}`;
+    const id = `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
     if (!taken.has(id)) return id;
   }
+}
+
+/** Mint a team id: `team-` and a random token. `taken` is every team id the
+ * deck holds. */
+export function mintTeamId(taken: ReadonlySet<string>): string {
+  return mintTokenId("team", taken);
+}
+
+/** Mint a workspace id: `ws-` and a random token, never one the deck holds.
+ * Older decks hold `ws-N`; those stay valid and are never handed out again
+ * either, since no counter mints them any more. */
+export function mintWorkspaceId(taken: ReadonlySet<string>): string {
+  return mintTokenId("ws", taken);
 }
 
 /** Mint a per-pane MCP secret — what an injected client announces so the

@@ -8,6 +8,7 @@ import type { Team } from "./teams";
 import {
   DECK_STATE_VERSION,
   PROVISIONING_INTERRUPTED,
+  deckImmediateKey,
   hydrateDeck,
   serializeDeck,
   type HydratedDeck,
@@ -620,7 +621,7 @@ describe("team membership across a restart", () => {
     expect(deck.notices).toEqual([]);
     const saved = JSON.parse(serializeDeck(deck.state));
     expect(saved.version).toBe(DECK_STATE_VERSION);
-    expect(saved.minVersion).toBe(11);
+    expect(saved.minVersion).toBe(15);
   });
 
   it("surfaces what the ladder did as notices, and never writes them back", () => {
@@ -1481,9 +1482,10 @@ describe("schema revisions and the compatibility floor", () => {
   it("writes the current revision and its floor", () => {
     const out = JSON.parse(serializeDeck(state));
     expect(out.version).toBe(DECK_STATE_VERSION);
-    // The floor rose with v11: a v10 reader would misread membership and
-    // save the misreading back, so it must park instead.
-    expect(out.minVersion).toBe(11);
+    // The floor rose with v11 (a v10 reader misreads membership) and again
+    // with v15 (a v14 reader runs an archived workspace and drops its
+    // marker): each would save its misreading back, so it must park instead.
+    expect(out.minVersion).toBe(15);
   });
 
   it("a v1 deck (pre run presets) migrates up on load", () => {
@@ -1639,5 +1641,146 @@ describe("the retired rail expansion map", () => {
     doc.railExpandedByWs = { [state.workspaces[0].id]: true };
     const restored = okDeck(JSON.stringify(doc));
     expect(serializeDeck(restored.state, restored.docExtras)).not.toContain("railExpandedByWs");
+  });
+});
+
+describe("deckImmediateKey", () => {
+  const pane = (over: Partial<Pane> = {}): Pane => ({ id: "pane-1", agentType: "claude", ...over });
+  const deckOf = (panes: Pane[], over: Partial<DeckState["workspaces"][number]> = {}) => ({
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "keepdeck",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes,
+        ...over,
+      },
+    ],
+  });
+  const base = deckImmediateKey(deckOf([pane()]));
+
+  it("changes when a durable idle marker lands", () => {
+    expect(deckImmediateKey(deckOf([pane({ idle: { reason: "suspended", at: "2026-11-16T00:00:00.000Z" } })]))).not.toBe(base);
+  });
+
+  it("changes when a session binding changes", () => {
+    const bound = deckImmediateKey(deckOf([pane({ session: { id: "s-1", boundAt: "2026-11-16T00:00:00.000Z" } })]));
+    expect(bound).not.toBe(base);
+    expect(deckImmediateKey(deckOf([pane({ session: { id: "s-2", boundAt: "2026-11-16T00:00:00.000Z" } })]))).not.toBe(bound);
+  });
+
+  it("changes when a worktree create is in flight for the pane's team", () => {
+    const teams: Team[] = [
+      {
+        id: "team-1",
+        name: "api",
+        location: { kind: "provisioning", intent: { repo: "/repo", path: "/wt/1", index: 1 } },
+      },
+    ];
+    const creating = deckOf([pane({ team: { teamId: "team-1", role: "lead" } })], { teams });
+    const settled = deckOf([pane({ team: { teamId: "team-1", role: "lead" } })], {
+      teams: [{ ...teams[0], location: { kind: "attached", cwd: "/wt/1" } }],
+    });
+    expect(deckImmediateKey(creating)).not.toBe(deckImmediateKey(settled));
+  });
+
+  it("ignores what can wait: a rename, a non-durable idle marker", () => {
+    expect(deckImmediateKey(deckOf([pane()], { name: "renamed" }))).toBe(base);
+    expect(deckImmediateKey(deckOf([pane({ idle: { reason: "parked" } })]))).toBe(base);
+  });
+});
+
+describe("the archive marker on disk", () => {
+  const AT = "2026-11-16T10:00:00.000Z";
+  const doc = (archived: unknown, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      version: DECK_STATE_VERSION,
+      activeId: "ws-1",
+      workspaces: [
+        { id: "ws-1", name: "put away", cwd: "/a", worktreeBaseDir: null, panes: [], ...(archived !== undefined && { archived }) },
+        { id: "ws-2", name: "in use", cwd: "/b", worktreeBaseDir: null, panes: [] },
+      ],
+      ...extra,
+    });
+  const markerOf = (json: string) => okDeck(json).state.workspaces[0].archived;
+
+  it("round-trips whole, warnings included", () => {
+    const marker = { at: AT, phase: "archived", warnings: { reaps: ["pane-1"], disarm: true } };
+    const hydrated = okDeck(doc(marker));
+    expect(hydrated.state.workspaces[0].archived).toEqual(marker);
+    const saved = JSON.parse(serializeDeck(hydrated.state));
+    expect(saved.workspaces[0].archived).toEqual(marker);
+    // Owned, not carried: it does not also ride the extras.
+    expect(hydrated.state.workspaces[0].extras).toBeUndefined();
+  });
+
+  it("a workspace in use writes no marker at all", () => {
+    const saved = JSON.parse(serializeDeck(okDeck(doc(undefined)).state));
+    expect(saved.workspaces.map((ws: Record<string, unknown>) => "archived" in ws)).toEqual([false, false]);
+  });
+
+  it("a marker this build cannot read fails CLOSED: put away, still archiving", () => {
+    expect(markerOf(doc({ at: AT, phase: "restoring" }))).toEqual({ at: AT, phase: "archiving" });
+    expect(markerOf(doc({ at: "yesterday", phase: "archived" }))).toEqual({
+      at: new Date(0).toISOString(),
+      phase: "archiving",
+    });
+    expect(markerOf(doc({ at: AT, phase: "archived", warnings: { reaps: "pane-1", disarm: false } }))).toEqual({
+      at: AT,
+      phase: "archiving",
+    });
+    expect(markerOf(doc({ at: AT, phase: "archived", warnings: { reaps: [], disarm: "no" } }))).toEqual({
+      at: AT,
+      phase: "archiving",
+    });
+    expect(markerOf(doc(true))).toEqual({ at: new Date(0).toISOString(), phase: "archiving" });
+    expect(markerOf(doc(null))).toEqual({ at: new Date(0).toISOString(), phase: "archiving" });
+    // And it is written back as what it now is: an archive to finish.
+    const saved = JSON.parse(serializeDeck(okDeck(doc({ at: AT, phase: "restoring" })).state));
+    expect(saved.workspaces[0].archived).toEqual({ at: AT, phase: "archiving" });
+  });
+
+  it("never opens on an archived workspace", () => {
+    expect(okDeck(doc({ at: AT, phase: "archived" })).state.activeId).toBe("ws-2");
+    const allPut = JSON.stringify({
+      version: DECK_STATE_VERSION,
+      activeId: "ws-1",
+      workspaces: [{ id: "ws-1", name: "a", cwd: "/a", worktreeBaseDir: null, panes: [], archived: { at: AT, phase: "archived" } }],
+    });
+    expect(okDeck(allPut).state.activeId).toBe("");
+  });
+
+  it("changes the immediate key on every marker transition", () => {
+    const live = okDeck(doc(undefined)).state;
+    const archiving = okDeck(doc({ at: AT, phase: "archiving" })).state;
+    const archived = okDeck(doc({ at: AT, phase: "archived" })).state;
+    const owing = okDeck(doc({ at: AT, phase: "archived", warnings: { reaps: ["pane-1"], disarm: false } })).state;
+    const owingDisarm = okDeck(doc({ at: AT, phase: "archived", warnings: { reaps: ["pane-1"], disarm: true } })).state;
+    const keys = [live, archiving, archived, owing, owingDisarm].map(deckImmediateKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("a workspace's own letters on disk", () => {
+  const doc = (mark: unknown) =>
+    JSON.stringify({
+      version: DECK_STATE_VERSION,
+      activeId: "ws-1",
+      workspaces: [{ id: "ws-1", name: "web", cwd: "/a", worktreeBaseDir: null, panes: [], ...(mark !== undefined && { mark }) }],
+    });
+
+  it("round-trips letters the person chose, and absent stays absent", () => {
+    const chosen = okDeck(doc("Kd"));
+    expect(chosen.state.workspaces[0].mark).toBe("Kd");
+    expect(JSON.parse(serializeDeck(chosen.state)).workspaces[0].mark).toBe("Kd");
+    expect(chosen.state.workspaces[0].extras).toBeUndefined();
+    expect("mark" in JSON.parse(serializeDeck(okDeck(doc(undefined)).state)).workspaces[0]).toBe(false);
+  });
+
+  it("reads letters it cannot take as none, rather than refusing the deck", () => {
+    expect(okDeck(doc("KDX")).state.workspaces[0].mark).toBeUndefined();
+    expect(okDeck(doc(7)).state.workspaces[0].mark).toBeUndefined();
   });
 });

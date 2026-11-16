@@ -141,6 +141,13 @@
   opacity: 0.5;
 }
 
+/* Where one group of acts ends and the next begins. */
+.kd-menu__separator {
+  height: 1px;
+  margin: 4px 0;
+  background-color: var(--kd-seam);
+}
+
 .kd-menu__refusal {
   font-size: var(--kd-font-small);
   line-height: 1.35;

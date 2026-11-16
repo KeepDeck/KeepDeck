@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { deckReducer, initialDeckState } from "./reducer";
+import { deckReducer, initialDeckState, type DeckState } from "./reducer";
 import { deckState as state, workspace as ws } from "./reducer.testSupport";
 import type { Workspace } from "./workspaces";
 
@@ -96,8 +96,27 @@ describe("deckReducer restore actions ([F7])", () => {
     expect(next.viewByWs).toEqual({});
   });
 
-  it("atomically records and restores suspended Tray placement", () => {
-    const suspended = deckReducer(
+  /** A suspend under the Tray placement, as the orchestrator sequences it:
+   * the marker, then the tray. */
+  const suspendToTray = (from: DeckState) =>
+    deckReducer(
+      deckReducer(from, { type: "suspendPane", wsId: "ws-1", paneId: "pane-2", at: "2026-07-25T10:00:00.000Z" }),
+      { type: "moveSuspendedToTray", wsId: "ws-1", paneId: "pane-2" },
+    );
+
+  it("moves a suspended pane to the tray, and leaves a pane that is not suspended where it is", () => {
+    const start = state({
+      workspaces: [idleWs],
+      activeId: "ws-1",
+      viewByWs: { "ws-1": open({ select: "pane-2" }) },
+    });
+    // Never suspended: no marker, so no tray entry — the same state back.
+    expect(deckReducer(start, { type: "moveSuspendedToTray", wsId: "ws-1", paneId: "pane-2" })).toBe(start);
+    expect(deckReducer(start, { type: "moveSuspendedToTray", wsId: "ws-1", paneId: "missing" })).toBe(start);
+  });
+
+  it("records and restores suspended Tray placement — the marker, then the tray", () => {
+    const suspended = suspendToTray(
       state({
         workspaces: [idleWs],
         activeId: "ws-1",
@@ -105,13 +124,6 @@ describe("deckReducer restore actions ([F7])", () => {
           "ws-1": open({ focus: ["pane-2"], select: "pane-2" }),
         },
       }),
-      {
-        type: "suspendPane",
-        wsId: "ws-1",
-        paneId: "pane-2",
-        at: "2026-07-25T10:00:00.000Z",
-        moveToTray: true,
-      },
     );
     expect(suspended.workspaces[0].panes[1].idle).toEqual({
       reason: "suspended",
@@ -136,7 +148,7 @@ describe("deckReducer restore actions ([F7])", () => {
   });
 
   it("keeps the minimized set distinct from suspended Tray placement", () => {
-    const next = deckReducer(
+    const next = suspendToTray(
       state({
         workspaces: [idleWs],
         activeId: "ws-1",
@@ -144,13 +156,6 @@ describe("deckReducer restore actions ([F7])", () => {
           "ws-1": open({ select: "pane-2", minimized: ["pane-2"] }),
         },
       }),
-      {
-        type: "suspendPane",
-        wsId: "ws-1",
-        paneId: "pane-2",
-        at: "2026-07-25T10:00:00.000Z",
-        moveToTray: true,
-      },
     );
     expect(next.viewByWs).toEqual({
       "ws-1": open({
@@ -165,7 +170,7 @@ describe("deckReducer restore actions ([F7])", () => {
     // A minimized pane is off the grid as surely as a suspended one, so a
     // selection stranded on it does not survive the transition; with nothing
     // left on the grid there is no pane to move it to.
-    const next = deckReducer(
+    const next = suspendToTray(
       state({
         workspaces: [idleWs],
         activeId: "ws-1",
@@ -173,13 +178,6 @@ describe("deckReducer restore actions ([F7])", () => {
           "ws-1": { select: "pane-1", minimized: ["pane-1"] },
         },
       }),
-      {
-        type: "suspendPane",
-        wsId: "ws-1",
-        paneId: "pane-2",
-        at: "2026-07-25T10:00:00.000Z",
-        moveToTray: true,
-      },
     );
     expect(next.viewByWs["ws-1"]).toEqual({
       minimized: ["pane-1"],
@@ -265,6 +263,17 @@ describe("deckReducer restore actions ([F7])", () => {
         paneId: "nope",
       }),
     ).toBe(start);
+  });
+
+  it("wakes nobody in an archived workspace — the wake would rise on restore by itself", () => {
+    const suspended = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
+      type: "suspendPane",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      at: "2026-07-25T10:00:00.000Z",
+    });
+    const archived = deckReducer(suspended, { type: "archiveWorkspace", id: "ws-1", at: "2026-07-25T11:00:00.000Z" });
+    expect(deckReducer(archived, { type: "requestPaneWake", wsId: "ws-1", paneId: "pane-2" })).toBe(archived);
   });
 
   it("returns failed manual wakes to their original idle state", () => {

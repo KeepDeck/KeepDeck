@@ -93,7 +93,7 @@ describe("agent orchestrator —suspending an agent", () => {
     expect(deck.viewByWs["ws-1"]?.suspendedTray).toBeUndefined();
   });
 
-  it("atomically moves the stopped pane to the existing tray when configured", async () => {
+  it("moves the stopped pane to the tray after its marker when configured", async () => {
     catalog.moveSuspendedToTray = true;
     seed();
 

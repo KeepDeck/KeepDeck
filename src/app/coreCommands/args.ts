@@ -41,6 +41,16 @@ export function requiredStr(args: CommandArgs, name: string): string {
   return value;
 }
 
+/** An OPTIONAL argument kept VERBATIM, and told apart from an absent one:
+ * `undefined` only when the caller did not send it. For values where blank
+ * MEANS something — a blank worktree folder clears it, a blank name resets
+ * it — and the rule that owns the value decides what. `str` is the opposite
+ * contract (blank is absent) for identifiers and short scalars. */
+export function rawStr(args: CommandArgs, name: string): string | undefined {
+  const value = args[name];
+  return typeof value === "string" ? value : undefined;
+}
+
 /** A required string argument kept VERBATIM — for content, where whitespace is
  * part of the value. A skill's markdown body is the case that makes the
  * distinction necessary: trimming it would silently edit what an agent wrote,

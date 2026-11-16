@@ -96,7 +96,7 @@ describe("WorkspaceForm", () => {
     await mount(false);
     submit();
     expect(created).toEqual([
-      { name: "", cwd: "/repo", worktreeBaseDir: null },
+      { name: "", cwd: "/repo", worktreeBaseDir: "" },
     ]);
   });
 
@@ -133,7 +133,7 @@ describe("WorkspaceForm", () => {
       expect(document.querySelector(".form__dir-path")?.textContent).toBe("/Users/me/Projects/kernel");
       expect(document.querySelector(".form__git")?.textContent).toContain("Git repository detected");
       submit();
-      expect(created).toEqual([{ name: "kernel", cwd: "/Users/me/Projects/kernel", worktreeBaseDir: null }]);
+      expect(created).toEqual([{ name: "kernel", cwd: "/Users/me/Projects/kernel", worktreeBaseDir: "" }]);
     });
 
     it("shows where worktrees go, as the «+» form does", async () => {
@@ -160,21 +160,14 @@ describe("WorkspaceForm", () => {
     });
   });
 
-  it("submits worktreeBaseDir: null while the field is empty", async () => {
-    await mount(false);
-    submit();
-    expect(created).toHaveLength(1);
-    expect(created[0].worktreeBaseDir).toBeNull();
-  });
-
-  it("passes a typed path through trimmed", async () => {
+  it("submits the worktree field as typed — what blank means is the domain's rule", async () => {
     await mount(false);
     type(worktreeInput(), "  /base/worktrees  ");
     submit();
-    expect(created[0].worktreeBaseDir).toBe("/base/worktrees");
+    expect(created[0].worktreeBaseDir).toBe("  /base/worktrees  ");
   });
 
-  it("clears back to null via the inline ✕", async () => {
+  it("clears the field via the inline ✕", async () => {
     await mount(false);
     type(worktreeInput(), "/base/worktrees");
     expect(clearBtn()).not.toBeNull();
@@ -182,7 +175,7 @@ describe("WorkspaceForm", () => {
     act(() => present(clearBtn(), "Clear button").click());
     expect(worktreeInput().value).toBe("");
     submit();
-    expect(created[0].worktreeBaseDir).toBeNull();
+    expect(created[0].worktreeBaseDir).toBe("");
   });
 
   it("treats a whitespace-only path as empty, and asks nothing extra for a git repo", async () => {
@@ -193,7 +186,7 @@ describe("WorkspaceForm", () => {
     await mount(true);
     type(worktreeInput(), "   ");
     submit();
-    expect(created).toEqual([{ name: "", cwd: "/repo", worktreeBaseDir: null }]);
+    expect(created).toEqual([{ name: "", cwd: "/repo", worktreeBaseDir: "   " }]);
     expect(document.body.textContent).not.toContain("No worktree isolation");
   });
 

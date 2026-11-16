@@ -4,6 +4,8 @@ import {
   homeRelative,
   addAgentPane,
   autoWorkspaceName,
+  workspaceName,
+  worktreeBaseDirOf,
   closeAgent,
   closeWorkspace,
   findWorkspace,
@@ -11,8 +13,17 @@ import {
   firstFreeTeamWorktree,
   moveWorkspace,
   parentDir,
-  renameWorkspace,
+  stepPlaces,
+  updateWorkspace,
+  parseWorkspaceMark,
+  cwdLocked,
+  isAbsolutePath,
+  type WorkspaceUpdateResult,
   resolveActiveId,
+  archiveWorkspace,
+  restoreWorkspace,
+  settleArchive,
+  visibleWorkspaces,
   directoryState,
   setWorkspacePluginSlot,
   worktreeTargets,
@@ -80,26 +91,140 @@ describe("closeWorkspace", () => {
   });
 });
 
-describe("renameWorkspace", () => {
-  it("autoWorkspaceName: one derivation for birth and reset, id fallback outside the scheme", () => {
-    expect(autoWorkspaceName("ws-3")).toBe("workspace-3");
-    // A hand-edited or migrated deck can hold an id outside `ws-N` — the id
-    // itself is the least-wrong name that still identifies the row.
-    expect(autoWorkspaceName("imported-deck")).toBe("imported-deck");
+describe("a workspace's name and folders", () => {
+  it("autoWorkspaceName: the folder's own name, never the id", () => {
+    expect(autoWorkspaceName("/Users/me/Projects/keepdeck")).toBe("keepdeck");
+    expect(autoWorkspaceName("/Users/me/Projects/keepdeck/")).toBe("keepdeck");
+    // A folder that happens to look like an old id still names by folder.
+    expect(autoWorkspaceName("/tmp/ws-7")).toBe("ws-7");
   });
 
-  it("an empty name reverts to the auto name from the workspace's slot", () => {
-    // The reset-on-empty contract renamePane already has — a workspace has no
-    // render-time fallback, so the revert happens in the domain op itself.
-    const after = renameWorkspace([ws("ws-3", [1])], "ws-3", "   ");
-    expect(after[0].name).toBe("workspace-3");
+  it("workspaceName: what was typed, trimmed — blank is the folder's name", () => {
+    expect(workspaceName("  Web app ", "/repo")).toBe("Web app");
+    expect(workspaceName("   ", "/Users/me/keepdeck")).toBe("keepdeck");
   });
 
-  it("renames the target workspace only", () => {
-    const after = renameWorkspace([ws("a", [1]), ws("b", [2])], "a", "my-api");
-    expect(after[0].name).toBe("my-api");
-    expect(after[0].panes).toHaveLength(1); // panes untouched
-    expect(after[1].name).toBe("b");
+  it("worktreeBaseDirOf: a blank field is no base folder; a path is taken trimmed", () => {
+    expect(worktreeBaseDirOf(null)).toBeNull();
+    expect(worktreeBaseDirOf("")).toBeNull();
+    expect(worktreeBaseDirOf("   ")).toBeNull();
+    expect(worktreeBaseDirOf("  /base/wt  ")).toBe("/base/wt");
+    expect(worktreeBaseDirOf("/base/my wt")).toBe("/base/my wt");
+  });
+
+  it("autoWorkspaceName: a folder with no name of its own gives \"Workspace\"", () => {
+    expect(autoWorkspaceName("/")).toBe("Workspace");
+    expect(autoWorkspaceName("")).toBe("Workspace");
+  });
+
+});
+
+describe("updateWorkspace", () => {
+  const ok = (result: WorkspaceUpdateResult): Workspace[] => {
+    if (!result.ok) throw new Error(`refused: ${result.refusal.kind}`);
+    return result.workspaces;
+  };
+  const refused = (result: WorkspaceUpdateResult) => (result.ok ? null : result.refusal);
+  const empty = (id: string) => ws(id, []);
+  const withTeam = (id: string): Workspace => ({ ...empty(id), teams: [{ id: "team-1", name: "api" }] });
+
+  it("an empty name reverts to the auto name from the workspace's folder, not its id", () => {
+    const target = { ...ws("ws-a1b2c3d4", [1]), cwd: "/repo/site" };
+    expect(ok(updateWorkspace([target], target, { name: "   " }))[0].name).toBe("site");
+  });
+
+  it("an emptied name in the same edit as a move is the NEW folder's name", () => {
+    const a = { ...empty("a"), name: "old" };
+    expect(ok(updateWorkspace([a], a, { name: "", cwd: "/Users/me/kernel" }))[0]).toMatchObject({
+      name: "kernel",
+      cwd: "/Users/me/kernel",
+    });
+  });
+
+  it("edits the target workspace only, and only the fields the patch names", () => {
+    const [a, b] = [ws("a", [1]), ws("b", [2])];
+    const after = ok(updateWorkspace([a, b], a, { name: "my-api" }));
+    expect(after[0]).toEqual({ ...a, name: "my-api" });
+    expect(after[1]).toBe(b);
+  });
+
+  it("sets and clears the worktree base folder with the birth rule", () => {
+    const a = empty("a");
+    const set = ok(updateWorkspace([a], a, { worktreeBaseDir: "/wt" }));
+    expect(set[0].worktreeBaseDir).toBe("/wt");
+    expect(ok(updateWorkspace(set, a, { worktreeBaseDir: "  " }))[0].worktreeBaseDir).toBeNull();
+    expect(ok(updateWorkspace(set, a, { worktreeBaseDir: null }))[0].worktreeBaseDir).toBeNull();
+  });
+
+  it("moves the working directory of an empty workspace, taken trimmed", () => {
+    const a = empty("a");
+    expect(ok(updateWorkspace([a], a, { cwd: " /moved " }))[0].cwd).toBe("/moved");
+  });
+
+  it("refuses to move the working directory under a team, or under a pane on no team", () => {
+    const teamed = withTeam("a");
+    expect(refused(updateWorkspace([teamed], teamed, { cwd: "/elsewhere" }))).toEqual({
+      kind: "cwd-not-empty",
+      teams: 1,
+      panes: 0,
+    });
+    const legacy = ws("b", [1]);
+    expect(refused(updateWorkspace([legacy], legacy, { cwd: "/elsewhere" }))).toEqual({
+      kind: "cwd-not-empty",
+      teams: 0,
+      panes: 1,
+    });
+  });
+
+  it("refuses a blank or relative working directory", () => {
+    const a = empty("a");
+    expect(refused(updateWorkspace([a], a, { cwd: "  " }))).toEqual({ kind: "blank-cwd" });
+    expect(refused(updateWorkspace([a], a, { cwd: "repo" }))).toEqual({ kind: "relative-cwd" });
+    expect(isAbsolutePath("C:\\repo")).toBe(true);
+    expect(isAbsolutePath("\\\\server\\share")).toBe(true);
+  });
+
+  it("the same folder spelled otherwise is no move — not even for a workspace with teams", () => {
+    const teamed = withTeam("b");
+    const list = [teamed];
+    expect(ok(updateWorkspace(list, teamed, { cwd: `${teamed.cwd}/` }))).toBe(list);
+  });
+
+  it("refuses the whole patch, not part of it", () => {
+    const teamed = withTeam("a");
+    expect(updateWorkspace([teamed], teamed, { name: "x", cwd: "/elsewhere" }).ok).toBe(false);
+  });
+
+  it("lands on the exact lifetime it was asked for, or nowhere", () => {
+    const gone = empty("ws-1");
+    const successor = empty("ws-1");
+    expect(refused(updateWorkspace([successor], gone, { name: "x" }))).toEqual({ kind: "unknown-workspace" });
+  });
+
+  it("refuses to edit an archived workspace — nothing of it changes until it is restored", () => {
+    const put: Workspace = { ...empty("a"), archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } };
+    expect(refused(updateWorkspace([put], put, { name: "x" }))).toEqual({ kind: "archived" });
+  });
+
+  it("answers the same array when nothing changes", () => {
+    const teamed = withTeam("a");
+    const list = [teamed];
+    expect(ok(updateWorkspace(list, teamed, { name: "a", cwd: teamed.cwd }))).toBe(list);
+  });
+
+  it("sets a workspace's own letters, refuses more than two characters, and a blank clears them", () => {
+    const a = empty("a");
+    const set = ok(updateWorkspace([a], a, { mark: " Kd " }));
+    expect(set[0].mark).toBe("Kd");
+    expect(refused(updateWorkspace(set, a, { mark: "KDX" }))).toEqual({ kind: "mark-too-long" });
+    const cleared = ok(updateWorkspace(set, a, { mark: "  " }));
+    expect("mark" in cleared[0]).toBe(false);
+  });
+
+  it("cwdLocked: what holds the directory, or null when nothing does", () => {
+    expect(cwdLocked(empty("a"))).toBeNull();
+    expect(cwdLocked(withTeam("a"))).toEqual({ teams: 1, panes: 0 });
+    expect(cwdLocked(ws("a", [1, 2]))).toEqual({ teams: 0, panes: 2 });
   });
 });
 
@@ -107,22 +232,46 @@ describe("moveWorkspace", () => {
   const ids = (list: Workspace[]) => list.map((w) => w.id);
   const three = [ws("a", []), ws("b", []), ws("c", [])];
 
-  it("moves an item down to a later index", () => {
-    expect(ids(moveWorkspace(three, "a", 2))).toEqual(["b", "c", "a"]);
+  it("places a workspace right after its anchor", () => {
+    expect(ids(moveWorkspace(three, "a", { after: "c" }))).toEqual(["b", "c", "a"]);
+    expect(ids(moveWorkspace(three, "a", { after: "b" }))).toEqual(["b", "a", "c"]);
   });
 
-  it("moves an item up to an earlier index", () => {
-    expect(ids(moveWorkspace(three, "c", 0))).toEqual(["c", "a", "b"]);
+  it("places a workspace right before its anchor", () => {
+    expect(ids(moveWorkspace(three, "c", { before: "a" }))).toEqual(["c", "a", "b"]);
+    expect(ids(moveWorkspace(three, "c", { before: "b" }))).toEqual(["a", "c", "b"]);
   });
 
-  it("clamps an out-of-range target to the ends", () => {
-    expect(ids(moveWorkspace(three, "a", 99))).toEqual(["b", "c", "a"]);
-    expect(ids(moveWorkspace(three, "c", -5))).toEqual(["c", "a", "b"]);
+  it("anchors on the row, not on a position: rows between the two keep their order", () => {
+    const five = [ws("a", []), ws("b", []), ws("c", []), ws("d", []), ws("e", [])];
+    expect(ids(moveWorkspace(five, "a", { after: "d" }))).toEqual(["b", "c", "d", "a", "e"]);
+    expect(ids(moveWorkspace(five, "e", { before: "b" }))).toEqual(["a", "e", "b", "c", "d"]);
   });
 
-  it("returns the SAME array reference on a no-op move (no re-render)", () => {
-    expect(moveWorkspace(three, "b", 1)).toBe(three); // already at index 1
-    expect(moveWorkspace(three, "missing", 0)).toBe(three); // unknown id
+  it("returns the SAME array reference when nothing moves (no re-render)", () => {
+    expect(moveWorkspace(three, "b", { after: "a" })).toBe(three); // already there
+    expect(moveWorkspace(three, "b", { before: "c" })).toBe(three); // already there
+    expect(moveWorkspace(three, "b", { after: "b" })).toBe(three); // beside itself
+    expect(moveWorkspace(three, "missing", { after: "a" })).toBe(three); // unknown id
+    expect(moveWorkspace(three, "a", { after: "missing" })).toBe(three); // unknown anchor
+  });
+});
+
+describe("stepPlaces", () => {
+  const order = ["a", "b", "c"];
+
+  it("moves up before the upper neighbour and down after the lower one", () => {
+    expect(stepPlaces(order, "b")).toEqual({ up: { before: "a" }, down: { after: "c" } });
+  });
+
+  it("refuses a step past either end of the column", () => {
+    expect(stepPlaces(order, "a")).toEqual({ up: null, down: { after: "b" } });
+    expect(stepPlaces(order, "c")).toEqual({ up: { before: "b" }, down: null });
+    expect(stepPlaces(["a"], "a")).toEqual({ up: null, down: null });
+  });
+
+  it("offers no step for an id the column does not hold", () => {
+    expect(stepPlaces(order, "zz")).toEqual({ up: null, down: null });
   });
 });
 
@@ -138,7 +287,110 @@ describe("resolveActiveId", () => {
   it("returns an empty id when no workspaces remain", () => {
     expect(resolveActiveId([], "a")).toBe("");
   });
+
+  it("never lands on an archived workspace", () => {
+    const put = (w: Workspace): Workspace => ({ ...w, archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } });
+    expect(resolveActiveId([put(ws("a", [])), ws("b", [])], "a")).toBe("b");
+    expect(resolveActiveId([put(ws("a", [])), ws("b", [])], "gone")).toBe("b");
+    // Every one archived: there is no workspace to be in.
+    expect(resolveActiveId([put(ws("a", [])), put(ws("b", []))], "a")).toBe("");
+  });
 });
+
+describe("archive, settle, restore", () => {
+  const AT = "2026-11-16T10:00:00.000Z";
+  const deck = () => [ws("a", [1]), ws("b", [])];
+
+  it("puts a workspace away in phase archiving — its panes suspended in the same change", () => {
+    const before = deck();
+    const after = archiveWorkspace(before, "a", AT);
+    expect(after[0]).toEqual({
+      ...before[0],
+      archived: { at: AT, phase: "archiving" },
+      panes: [{ ...before[0].panes[0], idle: { reason: "suspended", at: AT } }],
+    });
+    expect(after[1]).toBe(before[1]);
+    expect(visibleWorkspaces(after).map((w) => w.id)).toEqual(["b"]);
+  });
+
+  it("leaves EVERY local pane down durably, whatever it was doing — and nothing else", () => {
+    const EARLIER = "2026-11-01T00:00:00.000Z";
+    const creating = (id: string, error?: string): Team => ({
+      id,
+      name: id,
+      location: { kind: "provisioning", intent: { repo: "/tmp", path: `/wt/${id}`, index: 1 }, ...(error && { error }) },
+    });
+    const before: Workspace = {
+      ...ws("a", []),
+      teams: [creating("t-run"), creating("t-failed", "refused")],
+      panes: [
+        { id: "running", agentType: "claude" },
+        { id: "parked", agentType: "claude", idle: { reason: "parked" } },
+        { id: "rising", agentType: "claude", idle: { reason: "waking", origin: "manual", from: { reason: "parked" } } },
+        { id: "mine", agentType: "claude", idle: { reason: "suspended", at: EARLIER } },
+        { id: "remote", agentType: "codex", location: { kind: "remote", endpoint: "ws://vps" } },
+        { id: "making", agentType: "claude", team: { teamId: "t-run", role: "lead" } },
+        { id: "failed", agentType: "claude", team: { teamId: "t-failed", role: "lead" } },
+      ],
+    };
+    const [after] = archiveWorkspace([before], "a", AT);
+    expect(Object.fromEntries(after.panes.map((p) => [p.id, p.idle]))).toEqual({
+      running: { reason: "suspended", at: AT },
+      parked: { reason: "suspended", at: AT },
+      rising: { reason: "suspended", at: AT },
+      // The person's own suspend keeps its date.
+      mine: { reason: "suspended", at: EARLIER },
+      // Not KeepDeck's to stop; the archive ends its client.
+      remote: undefined,
+      // A create still running is waited for, and settled after.
+      making: undefined,
+      // A failed create is a card waiting for Retry — no process, nothing to mark.
+      failed: undefined,
+    });
+  });
+
+  it("settling marks what landed since the archive began, dated by the archive", () => {
+    const team: Team = { id: "t-run", name: "t", location: { kind: "provisioning", intent: { repo: "/tmp", path: "/wt/t", index: 1 } } };
+    const start: Workspace = { ...ws("a", []), teams: [team], panes: [{ id: "making", agentType: "claude", team: { teamId: "t-run", role: "lead" } }] };
+    const archiving = archiveWorkspace([start], "a", AT);
+    // The create lands while the archive waits for it.
+    const landed = archiving.map((w) => ({ ...w, teams: [{ ...team, location: { kind: "attached" as const, cwd: "/wt/t" } }] }));
+    const [settled] = settleArchive(landed, "a", { reaps: [], disarm: false });
+    expect(settled.panes[0].idle).toEqual({ reason: "suspended", at: AT });
+    expect(settled.archived).toEqual({ at: AT, phase: "archived" });
+  });
+
+  it("archiving twice, or a workspace that is not there, changes nothing", () => {
+    const once = archiveWorkspace(deck(), "a", AT);
+    expect(archiveWorkspace(once, "a", "2026-11-17T00:00:00.000Z")).toBe(once);
+    expect(archiveWorkspace(once, "gone", AT)).toBe(once);
+  });
+
+  it("settles with what is still owed, and only keeps warnings that owe something", () => {
+    const archiving = archiveWorkspace(deck(), "a", AT);
+    const owing = settleArchive(archiving, "a", { reaps: ["a-p1"], disarm: true });
+    expect(owing[0].archived).toEqual({ at: AT, phase: "archived", warnings: { reaps: ["a-p1"], disarm: true } });
+    const clear = settleArchive(owing, "a", { reaps: [], disarm: false });
+    expect(clear[0].archived).toEqual({ at: AT, phase: "archived" });
+    // Settling exactly as it already stands is not a change.
+    expect(settleArchive(clear, "a", { reaps: [], disarm: false })).toBe(clear);
+    expect(settleArchive(owing, "a", { reaps: ["a-p1"], disarm: true })).toBe(owing);
+    // Nothing to settle on a workspace in use.
+    const live = deck();
+    expect(settleArchive(live, "a", { reaps: [], disarm: false })).toBe(live);
+  });
+
+  it("restores by taking the marker off and nothing else — every pane stays down", () => {
+    const before = deck();
+    const archived = settleArchive(archiveWorkspace(before, "a", AT), "a", { reaps: [], disarm: false });
+    const restored = restoreWorkspace(archived, "a");
+    expect(restored[0]).toEqual({ ...before[0], panes: archived[0].panes });
+    expect(restored[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
+    expect("archived" in restored[0]).toBe(false);
+    expect(restoreWorkspace(before, "a")).toBe(before);
+  });
+});
+
 
 describe("renamePane", () => {
   it("sets a pane's name in the target workspace only", () => {
@@ -856,5 +1108,20 @@ describe("homeRelative", () => {
     expect(homeRelative("/Users/meow/x", "/Users/me")).toBe("/Users/meow/x");
     expect(homeRelative("/opt/x", "/Users/me")).toBe("/opt/x");
     expect(homeRelative("/Users/me/x", null)).toBe("/Users/me/x");
+  });
+});
+
+describe("parseWorkspaceMark", () => {
+  it("takes one or two characters of any script, trimmed, and blank as none", () => {
+    expect(parseWorkspaceMark("KD")).toEqual({ mark: "KD" });
+    expect(parseWorkspaceMark(" x ")).toEqual({ mark: "x" });
+    expect(parseWorkspaceMark("Ра")).toEqual({ mark: "Ра" });
+    expect(parseWorkspaceMark("项目")).toEqual({ mark: "项目" });
+    expect(parseWorkspaceMark("   ")).toEqual({ mark: undefined });
+  });
+
+  it("counts characters, not code units: an emoji is one", () => {
+    expect(parseWorkspaceMark("🚀K")).toEqual({ mark: "🚀K" });
+    expect(parseWorkspaceMark("KDX")).toEqual({ refused: "mark-too-long" });
   });
 });

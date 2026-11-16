@@ -125,24 +125,31 @@ pub struct WorktreeRecord {
 pub struct RemoveSpec {
     pub repo: String,
     pub path: String,
-    /// Remove even if the worktree is dirty. The UI sets this only on explicit
-    /// intent; by default a dirty worktree is kept (work is never destroyed).
+    /// Remove the tree even when it holds uncommitted work — and finish a
+    /// deletion git abandoned midway (its leftover may still hold every file).
+    /// Off by default: a dirty worktree is kept, work is never destroyed
+    /// without this explicit consent.
     #[serde(default)]
-    pub force: bool,
+    pub discard_dirty: bool,
+    /// Delete the branches with `-D`, dropping commits no other branch holds,
+    /// instead of the safe `-d`, which refuses them. A consent of its own,
+    /// apart from `discard_dirty`: losing uncommitted files and losing
+    /// committed work are two different things to agree to.
+    #[serde(default)]
+    pub discard_unmerged: bool,
     /// When set (and non-blank), also delete this branch after the worktree is
-    /// removed; otherwise the branch is left intact. `force` selects `-D` (drops
-    /// unmerged commits) over the safe `-d`. Used by "delete worktree + branch
-    /// on close" — the branch can't be deleted while its worktree exists, so it
-    /// happens here, after the removal, under the same per-repo lock.
+    /// removed; otherwise the branch is left intact. Used by "delete worktree +
+    /// branch on close" — the branch can't be deleted while its worktree
+    /// exists, so it happens here, after the removal, under the same per-repo
+    /// lock.
     #[serde(default)]
     pub branch: Option<String>,
     /// Also delete every branch CREATED inside this worktree (reflog
     /// provenance — see `keepdeck_git::provenance`): the close dialog's delete
     /// intent covers the agent's side branches, not just the tracked one. A
     /// created branch that meanwhile moved to another worktree is in use, not
-    /// litter, and is kept. Designed for FORCED closes — the one product
-    /// caller always sends `force` — since a non-force reap surfaces safe
-    /// `-d` refusals for every unmerged side branch.
+    /// litter, and is kept. Without `discard_unmerged` every unmerged side
+    /// branch is a safe `-d` refusal, reported.
     #[serde(default)]
     pub reap_created_branches: bool,
 }
@@ -265,6 +272,94 @@ fn base_branch_options(path: &Path) -> Result<Vec<String>, String> {
         .filter(|name| list.iter().any(|b| b == name))
         .or_else(|| repo::current_branch(path).ok().flatten());
     Ok(branch::pin_first(list, pin.as_deref()))
+}
+
+/// One of a repository's checkouts, as the Workspaces window lists them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedWorktree {
+    pub path: String,
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub detached: bool,
+    pub locked: bool,
+    /// Its directory is gone; only git's record of it is left.
+    pub prunable: bool,
+    /// Entries `git status` calls changed — `None` when that could not be
+    /// asked (a directory that is gone, a git that failed). Never a silent 0.
+    pub changed: Option<usize>,
+}
+
+/// Every checkout of `repo`, from `git worktree list`, with how much
+/// uncommitted work each holds. `(async)`: it shells out to git per row.
+#[tauri::command(async)]
+pub fn worktree_list(repo: String) -> Result<Vec<ListedWorktree>, String> {
+    let path = Path::new(&repo);
+    if !repo::is_git_repo(path) {
+        return Err(format!("not a git repository: {repo}"));
+    }
+    list_worktrees(path)
+}
+
+/// [`worktree_list`] body.
+fn list_worktrees(repo: &Path) -> Result<Vec<ListedWorktree>, String> {
+    let rows = worktree::list(repo).map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| !row.bare)
+        .map(|row| {
+            let changed = if row.prunable || !row.path.exists() {
+                None
+            } else {
+                worktree::changed_entries(&row.path).ok()
+            };
+            ListedWorktree {
+                path: row.path.to_string_lossy().into_owned(),
+                branch: row.branch,
+                head: row.head,
+                detached: row.detached,
+                locked: row.locked,
+                prunable: row.prunable,
+                changed,
+            }
+        })
+        .collect())
+}
+
+/// Keep the commit a checkout stands on as `refs/tags/<name>` — asked before
+/// a detached checkout is removed, so the commits only it holds are not left
+/// for git to collect. Refuses a name already taken rather than moving it.
+#[tauri::command(async)]
+pub fn worktree_save_head(repo: String, path: String, name: String) -> Result<String, String> {
+    save_head(Path::new(&repo), Path::new(&path), &name)
+}
+
+/// [`worktree_save_head`] body.
+fn save_head(repo: &Path, path: &Path, name: &str) -> Result<String, String> {
+    let rows = worktree::list(repo).map_err(|e| e.to_string())?;
+    let head = rows
+        .into_iter()
+        .find(|row| worktree::paths_match(&row.path, path))
+        .and_then(|row| row.head)
+        .ok_or_else(|| format!("{} is not a checkout of this repository with a commit", path.display()))?;
+    let reference = format!("refs/tags/{name}");
+    // `update-ref` with an all-zero old value creates the ref only if it does
+    // not exist yet: a name in use is refused, never moved.
+    let zero = "0".repeat(head.len());
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["update-ref", &reference, &head, &zero])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !status.status.success() {
+        return Err(format!(
+            "could not keep {} as tag {name}: {}",
+            &head[..head.len().min(7)],
+            String::from_utf8_lossy(&status.stderr).trim()
+        ));
+    }
+    Ok(reference)
 }
 
 /// Inspect a working directory: is it a git repo, and if so its `HEAD`/branch.
@@ -442,12 +537,12 @@ fn add_worktree_with_base(
 }
 
 /// Remove an agent's worktree, and — when `spec.branch` is set — delete that
-/// branch too. Without `force`, refuses a dirty worktree so work is never
-/// destroyed; with `branch` but no `force`, the branch delete uses the safe
-/// `-d`, which git refuses for unmerged commits.
+/// branch too. Without `discard_dirty`, refuses a dirty worktree so work is
+/// never destroyed; without `discard_unmerged`, the branch delete uses the
+/// safe `-d`, which git refuses for unmerged commits.
 ///
-/// Runs on the blocking pool like [`worktree_create`]: a forced remove deletes
-/// the whole worktree directory, which can take a while.
+/// Runs on the blocking pool like [`worktree_create`]: removing a worktree
+/// deletes the whole directory, which can take a while.
 #[tauri::command]
 pub async fn worktree_remove(locks: State<'_, RepoLocks>, spec: RemoveSpec) -> Result<(), String> {
     let locks = locks.inner().clone();
@@ -472,7 +567,7 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     let repo_path = PathBuf::from(&spec.repo);
     let path = PathBuf::from(&spec.path);
 
-    if !spec.force && path.exists() && worktree::is_dirty(&path).map_err(|e| e.to_string())? {
+    if !spec.discard_dirty && path.exists() && worktree::is_dirty(&path).map_err(|e| e.to_string())? {
         return Err("worktree has uncommitted changes; not removing".to_string());
     }
 
@@ -508,7 +603,7 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     let registered = is_registered_worktree(&repo_path, &path);
 
     let mut leftover = None;
-    match worktree::remove(&repo_path, &path, spec.force) {
+    match worktree::remove(&repo_path, &path, spec.discard_dirty) {
         Ok(()) => {}
         // Git refuses to `remove` a worktree whose dir is already gone; only a
         // failure with the dir still present is a real error.
@@ -519,9 +614,9 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
             // way. Finishing the DELETE is a separate question: git can abandon
             // having unlinked nothing at all — a subdirectory it cannot enter
             // aborts its recursion where it stands — so the leftover may still
-            // hold every file the user had, and only a forced removal is
+            // hold every file the user had, and only `discard_dirty` is
             // consent to lose them.
-            leftover = if spec.force {
+            leftover = if spec.discard_dirty {
                 clear_husk(&path).err().map(|why| format!("{e}; {why}"))
             } else {
                 Some(format!(
@@ -557,7 +652,7 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let failures = reap_branches(&repo_path, primary, &created, spec.force);
+    let failures = reap_branches(&repo_path, primary, &created, spec.discard_unmerged);
     let problems: Vec<String> = leftover.into_iter().chain(failures).collect();
     if problems.is_empty() {
         Ok(())
@@ -637,7 +732,7 @@ fn reap_branches(
     repo_path: &Path,
     primary: Option<&str>,
     created: &[String],
-    force: bool,
+    discard_unmerged: bool,
 ) -> Vec<String> {
     let extras: Vec<&str> = created
         .iter()
@@ -679,7 +774,7 @@ fn reap_branches(
 
     let mut failures = Vec::new();
     for branch in targets {
-        if let Err(message) = delete_branch_if_present(repo_path, branch, force) {
+        if let Err(message) = delete_branch_if_present(repo_path, branch, discard_unmerged) {
             failures.push(message);
         }
     }
@@ -712,9 +807,9 @@ fn sweep_targets<'a>(
 /// already-cleaned, not failed. `Err` carries the user-facing message so the
 /// caller can keep sweeping and report every branch that resisted, instead of
 /// aborting at the first one.
-fn delete_branch_if_present(repo_path: &Path, branch: &str, force: bool) -> Result<(), String> {
+fn delete_branch_if_present(repo_path: &Path, branch: &str, discard_unmerged: bool) -> Result<(), String> {
     match repo::branch_exists(repo_path, branch) {
-        Ok(true) => repo::delete_branch(repo_path, branch, force).map_err(|e| {
+        Ok(true) => repo::delete_branch(repo_path, branch, discard_unmerged).map_err(|e| {
             format!(
                 "Couldn’t delete branch '{branch}' after removing the worktree. \
                  You may need to delete it manually. Reason: {e}"
@@ -1027,7 +1122,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: Some(branch.clone()),
                 reap_created_branches: false,
             },
@@ -1042,7 +1138,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_without_force_skips_the_dirty_check_on_a_gone_dir() {
+    fn remove_without_discard_dirty_skips_the_dirty_check_on_a_gone_dir() {
         // The default (safe) path: is_dirty shells `git -C <path> status`,
         // which errors on a missing dir — that error must read as "nothing to
         // lose", not abort the whole removal.
@@ -1054,7 +1150,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: false,
+                discard_dirty: false,
+                discard_unmerged: false,
                 branch: Some(branch.clone()),
                 reap_created_branches: false,
             },
@@ -1079,7 +1176,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: Some(branch.clone()),
                 reap_created_branches: false,
             },
@@ -1106,7 +1204,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: false,
+                discard_dirty: false,
+                discard_unmerged: false,
                 branch: Some(branch),
                 reap_created_branches: false,
             },
@@ -1140,7 +1239,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: Some(branch.clone()),
                 reap_created_branches: true,
             },
@@ -1447,7 +1547,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: Some(branch.clone()),
                 reap_created_branches: true,
             },
@@ -1480,7 +1581,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: Some(branch),
                 reap_created_branches: true,
             },
@@ -1494,7 +1596,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_without_force_still_refuses_a_dirty_worktree() {
+    fn remove_without_discard_dirty_still_refuses_a_dirty_worktree() {
         // The safety property the dirty check exists for must survive the fix.
         let (repo, wt, branch) = repo_with_worktree("keep-dirty");
         std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
@@ -1504,7 +1606,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: false,
+                discard_dirty: false,
+                discard_unmerged: false,
                 branch: Some(branch),
                 reap_created_branches: false,
             },
@@ -1512,6 +1615,114 @@ mod tests {
 
         assert!(result.is_err(), "dirty worktree must be kept");
         assert!(wt.join("wip.txt").exists(), "work was destroyed");
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&wt);
+    }
+
+    #[test]
+    fn lists_every_checkout_with_its_changed_entries() {
+        let (repo, wt, branch) = repo_with_worktree("list-changed");
+        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
+        std::fs::create_dir_all(wt.join("new/dir")).unwrap();
+        std::fs::write(wt.join("new/dir/a.txt"), "a").unwrap();
+
+        let rows = list_worktrees(&repo).expect("listed");
+
+        assert_eq!(rows.len(), 2, "the main checkout and the linked one");
+        let linked = rows.iter().find(|row| row.branch.as_deref() == Some(branch.as_str())).expect("the linked row");
+        // A file and an untracked directory: two entries, as git counts them.
+        assert_eq!(linked.changed, Some(2));
+        assert!(!linked.prunable && !linked.detached);
+        let main = rows.iter().find(|row| row.branch.as_deref() != Some(branch.as_str())).expect("the main row");
+        assert_eq!(main.changed, Some(0));
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn a_checkout_whose_folder_is_gone_is_prunable_and_its_changes_unknown() {
+        let (repo, wt, branch) = repo_with_worktree("list-gone");
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        let rows = list_worktrees(&repo).expect("listed");
+
+        let gone = rows.iter().find(|row| row.branch.as_deref() == Some(branch.as_str())).expect("the gone row");
+        assert!(gone.prunable);
+        assert_eq!(gone.changed, None, "unknown, never a silent 0");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn keeps_a_checkouts_commit_as_a_tag_and_never_moves_one_already_there() {
+        let (repo, wt, _branch) = repo_with_worktree("save-head");
+        std::fs::write(wt.join("f.txt"), "work").unwrap();
+        git(&wt, &["add", "."]);
+        git(&wt, &["commit", "-q", "-m", "only here"]);
+        git(&wt, &["checkout", "-q", "--detach"]);
+        let tip = git_out(&wt, &["rev-parse", "HEAD"]).trim().to_string();
+
+        let saved = save_head(&repo, &wt, "archive/test/save-head").expect("saved");
+        assert_eq!(saved, "refs/tags/archive/test/save-head");
+        assert_eq!(git_out(&repo, &["rev-parse", "archive/test/save-head"]).trim(), tip);
+
+        // Taken: refused, and the tag stays where it was.
+        git(&wt, &["commit", "-q", "--allow-empty", "-m", "moved on"]);
+        assert!(save_head(&repo, &wt, "archive/test/save-head").is_err());
+        assert_eq!(git_out(&repo, &["rev-parse", "archive/test/save-head"]).trim(), tip);
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn discarding_dirty_work_is_not_consent_to_drop_unmerged_commits() {
+        // Two consents, two flags: the tree goes with its uncommitted file,
+        // and the branch holding a commit nothing else has is KEPT.
+        let (repo, wt, branch) = repo_with_worktree("dirty-not-unmerged");
+        std::fs::write(wt.join("feature.txt"), "work").unwrap();
+        git(&wt, &["add", "."]);
+        git(&wt, &["commit", "-q", "-m", "unmerged"]);
+        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
+
+        let result = remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                discard_dirty: true,
+                discard_unmerged: false,
+                branch: Some(branch.clone()),
+                reap_created_branches: false,
+            },
+        );
+
+        assert!(result.expect_err("the unmerged branch is refused").contains("Couldn’t delete branch"));
+        assert!(!wt.exists(), "the dirty tree was consented to");
+        let kept = git_out(&repo, &["branch", "--list", &branch]);
+        assert!(!kept.trim().is_empty(), "the unmerged branch was deleted");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn dropping_unmerged_commits_is_not_consent_to_discard_dirty_work() {
+        let (repo, wt, branch) = repo_with_worktree("unmerged-not-dirty");
+        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
+
+        let result = remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                discard_dirty: false,
+                discard_unmerged: true,
+                branch: Some(branch.clone()),
+                reap_created_branches: false,
+            },
+        );
+
+        assert!(result.expect_err("a dirty tree is refused").contains("uncommitted"));
+        assert!(wt.join("wip.txt").exists(), "work was destroyed");
+        let kept = git_out(&repo, &["branch", "--list", &branch]);
+        assert!(!kept.trim().is_empty(), "a refused removal touched the branch");
         let _ = std::fs::remove_dir_all(&repo);
         let _ = std::fs::remove_dir_all(&wt);
     }
@@ -1647,7 +1858,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.wt.to_string_lossy().into_owned(),
-                force: false,
+                discard_dirty: false,
+                discard_unmerged: false,
                 branch: Some(branch.clone()),
                 reap_created_branches: false,
             },
@@ -1686,7 +1898,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.wt.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: Some(branch.clone()),
                 reap_created_branches: false,
             },
@@ -1727,7 +1940,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: stray.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: None,
                 reap_created_branches: false,
             },
@@ -1775,7 +1989,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: sub.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: None,
                 reap_created_branches: false,
             },
@@ -1802,7 +2017,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: stray.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: None,
                 reap_created_branches: false,
             },
@@ -1828,7 +2044,8 @@ mod tests {
             RemoveSpec {
                 repo: repo.to_string_lossy().into_owned(),
                 path: wt.to_string_lossy().into_owned(),
-                force: true,
+                discard_dirty: true,
+                discard_unmerged: true,
                 branch: Some(branch.clone()),
                 reap_created_branches: false,
             },

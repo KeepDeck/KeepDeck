@@ -3,6 +3,8 @@
  * as `app/dragDrop.ts` feeds the pane hit-test, so this module needs no DOM
  * to test. */
 
+import type { WorkspacePlace } from "./workspaces";
+
 export interface MarkRect {
   id: string;
   top: number;
@@ -23,3 +25,20 @@ export function markAtY(y: number, rects: MarkRect[]): string | null {
   return rects[rects.length - 1].id; // below everything → the last item
 }
 
+/**
+ * Where a dragged mark lands when the pointer is over `overId`, in a column
+ * drawn in `order`: a mark dragged DOWN onto another goes after it, one
+ * dragged UP goes before it — so crossing a neighbour swaps the two either
+ * way. Null when the pointer is over the dragged mark itself, or either id is
+ * not in the column: nothing moves.
+ */
+export function dropPlace(
+  order: readonly string[],
+  draggedId: string,
+  overId: string,
+): WorkspacePlace | null {
+  const from = order.indexOf(draggedId);
+  const over = order.indexOf(overId);
+  if (from < 0 || over < 0 || from === over) return null;
+  return from < over ? { after: overId } : { before: overId };
+}

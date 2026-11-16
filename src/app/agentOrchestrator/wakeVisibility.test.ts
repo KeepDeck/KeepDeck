@@ -90,7 +90,7 @@ describe("agent orchestrator —waking across workspace switches", () => {
     await settle();
     // Any notification re-runs the reconcile; the started pane must be left
     // exactly as it is.
-    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-1"), "ws-1"), { name: "renamed" }));
     await settle();
 
     expect(pty.acquired).toHaveLength(1);
@@ -322,6 +322,51 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     expect(agentRun.reachOf("orphan")).toEqual({ kind: "down", why: "agent-unavailable" });
     expect(agentRun.reachOf("unopened")).toEqual({ kind: "down", why: "workspace-closed" });
     expect(agentRun.reachOf("no-such-pane")).toBeNull();
+  });
+
+  it("starts nothing in an archived workspace — not even a resume asked for by name", async () => {
+    mount(true);
+    const state = panes([
+      { id: "here" },
+      { id: "asked", ws: "ws-2", idle: { reason: "waking", origin: "manual" } },
+      { id: "unmarked", ws: "ws-2" },
+      { id: "suspended", ws: "ws-2", idle: { reason: "suspended", at: "2026-11-16T00:00:00.000Z" } },
+    ]);
+    state.workspaces[1] = { ...state.workspaces[1], archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } };
+    act(() => deck.hydrate(state));
+    await settle();
+
+    // A manual wake is exempt from the unopened-workspace economy; it is not
+    // exempt from an archive.
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["here"]);
+    expect(agentRun.reachOf("asked")).toEqual({ kind: "down", why: "workspace-archived" });
+    // No plan is even built there: a plan's delivery arms the directory.
+    expect(peekPaneSpawnSpec("here")).toBeDefined();
+    expect(peekPaneSpawnSpec("unmarked")).toBeUndefined();
+    // Asking by name is refused at the door, and the pane keeps its marker.
+    expect(agentRun.resume("ws-2", "suspended")).toBe("archived");
+    expect(deck.workspaces[1].panes.find((p) => p.id === "suspended")?.idle).toEqual({
+      reason: "suspended",
+      at: "2026-11-16T00:00:00.000Z",
+    });
+  });
+
+  it("reads a running agent down the moment its workspace is archived, while its process still runs", async () => {
+    mount(true);
+    act(() => deck.hydrate(panes([{ id: "running" }, { id: "other", ws: "ws-2" }])));
+    await settle();
+    expect(agentRun.reachOf("running")).toEqual({ kind: "running" });
+
+    act(() => deck.archiveWorkspace("ws-1"));
+
+    // Down at once — mail sent now would never be read — though nothing
+    // has ended its process yet: the gate ends nothing.
+    expect(pty.live.has("running")).toBe(true);
+    expect(agentRun.reachOf("running")).toEqual({ kind: "down", why: "workspace-archived" });
+    // The archive's pass does; a marker with no pass behind it is finished
+    // the way one the last run left is.
+    await settle();
+    expect(pty.closed).toContain("running");
   });
 
   it("does not call a pane's plugin missing before the catalog has loaded", async () => {

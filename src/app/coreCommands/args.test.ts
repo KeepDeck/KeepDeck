@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requiredStr, str, text } from "./args";
+import { rawStr, requiredStr, str, text } from "./args";
 
 /**
  * The three readers' own suite.
@@ -70,5 +70,16 @@ describe("reading a string argument", () => {
     // opposite answers, and having both is the point.
     expect(() => requiredStr({ a: " " }, "a")).toThrow();
     expect(text({ a: " " }, "a")).toBe(" ");
+  });
+});
+
+describe("rawStr — optional, verbatim", () => {
+  it("keeps the bytes, blank included, and is absent only when not sent", () => {
+    // Blank means something to the arguments read this way (a blank folder
+    // clears it, a blank name resets it).
+    expect(rawStr({ a: "  /spaced  " }, "a")).toBe("  /spaced  ");
+    expect(rawStr({ a: "" }, "a")).toBe("");
+    expect(rawStr({}, "a")).toBeUndefined();
+    expect(rawStr({ a: 42 }, "a")).toBeUndefined();
   });
 });

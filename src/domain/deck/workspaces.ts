@@ -7,9 +7,9 @@ import type {
   WorkspaceInstance,
   WorkspaceRef,
 } from "../workspaceInstance";
-import { appendPane, removePane, type Pane } from "./panes";
+import { appendPane, paneStopsWithArchive, removePane, type Pane } from "./panes";
 import { teamsOf } from "./teams/collection";
-import { claimPath, normalizePath, teamOccupyingPath } from "./teams/lifecycle";
+import { claimPath, normalizePath, sameDirectory, teamOccupyingPath } from "./teams/claims";
 import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is
@@ -17,10 +17,11 @@ import type { Team } from "./teams/model";
  * here — the agent type and its YOLO mode are decided by whoever adds an
  * agent, one agent at a time. */
 export interface SpawnConfig {
-  /** Workspace name; blank falls back to a default in the caller. */
+  /** Workspace name as typed; [`workspaceName`] decides what blank means. */
   name: string;
   cwd: string;
-  /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
+  /** Base folder for per-agent git worktrees as typed; [`worktreeBaseDirOf`]
+   * decides what blank means (`null` = agents run in `cwd`). */
   worktreeBaseDir: string | null;
 }
 
@@ -30,10 +31,19 @@ export interface SpawnConfig {
  * swaps which set the grid shows; inactive workspaces keep their panes (and
  * live sessions) mounted. */
 export interface Workspace {
+  /** `ws-` and a random token, minted once and never handed to another
+   * workspace (`mintWorkspaceId`). Older decks hold `ws-N`; those stay
+   * valid. */
   id: string;
-  /** Non-reused runtime identity. `id` is a reusable `ws-N` slot. */
+  /** This run's identity of the workspace — minted at create and at
+   * hydrate, never persisted — what a stale reference held across a close
+   * is checked against. */
   readonly instance: WorkspaceInstance;
   name: string;
+  /** The letters its mark says, when the person chose them: 1-2 characters
+   * of any script ([`parseWorkspaceMark`]). Absent = the letters are worked
+   * out from the name, unique across the deck. */
+  mark?: string;
   /** Working directory all this workspace's agents run in. */
   cwd: string;
   /** Base folder holding this workspace's per-agent git worktrees; `null` when
@@ -57,6 +67,36 @@ export interface Workspace {
    * panes, which hold the id. Sparse: a workspace with no teams carries no
    * key, like `plugins`. Read through `teamsOf`. */
   teams?: Team[];
+  /** Put away ([`WorkspaceArchived`]); absent on a workspace in use. */
+  archived?: WorkspaceArchived;
+}
+
+/** What an archive could not finish, kept on its marker so boot repair
+ * retries exactly that and nothing else: the panes whose process did not
+ * stop, and whether taking KeepDeck's plantings back out of the workspace's
+ * directories failed. Never present empty. */
+export interface ArchiveWarnings {
+  reaps: string[];
+  disarm: boolean;
+}
+
+/**
+ * A workspace put away: kept whole — its teams, panes, view, board and
+ * artifacts, its id never handed to another — but not drawn, not selectable
+ * and not run. ONE flag on the row, and four readings of it: the whole list
+ * (identity, ownership, retention) keeps every row; navigation reads
+ * [`visibleWorkspaces`]; the run gate and the arming of directories read the
+ * flag. Nothing filters the deck's list as such.
+ *
+ * `phase` is the commit point a crash resumes from: `"archiving"` while its
+ * agents are being stopped (boot repair finishes the job), `"archived"` once
+ * the stop pass has done what it could.
+ */
+export interface WorkspaceArchived {
+  /** When it was put away. */
+  at: string;
+  phase: "archiving" | "archived";
+  warnings?: ArchiveWarnings;
 }
 
 /** Apply a pane transform to the workspace with `id`, leaving the rest as-is.
@@ -80,7 +120,7 @@ export function findWorkspace(
   return workspaces.find((w) => w.id === id);
 }
 
-/** Resolve one exact workspace lifetime, never merely its reusable id. */
+/** Resolve one exact workspace lifetime — id AND this run's instance. */
 export function findWorkspaceByRef(
   workspaces: Workspace[],
   ref: WorkspaceRef,
@@ -140,6 +180,42 @@ export function closeWorkspace(workspaces: Workspace[], id: string): Workspace[]
   return workspaces.filter((ws) => ws.id !== id);
 }
 
+/** One checkout of a repository, as `git worktree list` reports it — with
+ * how much uncommitted work it holds. */
+export interface RepoCheckout {
+  path: string;
+  branch: string | null;
+  head: string | null;
+  detached: boolean;
+  locked: boolean;
+  /** Its folder is gone; only git's record of it is left. */
+  prunable: boolean;
+  /** Entries `git status` calls changed, ignored files aside; null when that
+   * could not be asked. */
+  changed: number | null;
+}
+
+/** A checkout no team holds, to remove. */
+export interface UnheldRemovalRequest {
+  repo: string;
+  path: string;
+  /** Keep its commit as `refs/tags/<keepHeadAs>` before it goes — for a
+   * detached checkout, whose commits no branch holds. */
+  keepHeadAs?: string;
+  /** The person agreed to lose its uncommitted work. */
+  discardDirty: boolean;
+}
+
+/** What removing an unheld checkout did. */
+export type UnheldRemoval =
+  | { kind: "removed"; keptAs?: string }
+  /** A team holds it now; nothing was touched. */
+  | { kind: "held" }
+  /** Its commit could not be kept; nothing was removed. */
+  | { kind: "not-kept"; reason: string }
+  /** Git refused, or finished only part of it. */
+  | { kind: "failed"; reason: string; keptAs?: string };
+
 /** A git worktree (and its branch, when one is known) to tear down when an
  * agent or workspace closes. */
 export interface WorktreeTarget {
@@ -155,6 +231,13 @@ export interface WorktreeTarget {
    * never "no branch will be touched". */
   branch?: string;
 }
+
+/** Why a worktree teardown left its target in place — a kind, never a
+ * sentence (the words are presentation's `teardownFailureText`): another
+ * live workspace still works in the folder, or git refused. */
+export type WorktreeTeardownFailure =
+  | { kind: "held-elsewhere"; target: WorktreeTarget }
+  | { kind: "git-refused"; target: WorktreeTarget; reason: string };
 
 /** Runtime git position for a path, supplied by the app layer when available.
  * This is intentionally not pane domain state: panes own durable worktree
@@ -244,30 +327,146 @@ export function setWorkspacePluginSlot(
 }
 
 /** The name a workspace is born with when the user leaves the field blank —
- * and the one an empty rename resets to. ONE derivation for both moments:
- * creation and reset used to derive it separately (sequence template vs an
- * id regex), agreeing only because the two templates happened to share a
- * number. An id outside the `ws-N` scheme (a hand-edited or migrated deck)
- * falls back to the id itself — the least-wrong name that still identifies
- * the row. */
-export function autoWorkspaceName(id: string): string {
-  const slot = /^ws-(\d+)$/.exec(id);
-  return slot ? `workspace-${slot[1]}` : id;
+ * and the one an empty rename resets to: ONE derivation for both moments,
+ * from the folder it works in — what the create form suggests too — never
+ * from the id, which is a random token. A folder with no name of its own
+ * (the root) gives "Workspace". */
+export function autoWorkspaceName(cwd: string): string {
+  return baseName(cwd) || "Workspace";
 }
 
-/** Rename one workspace, leaving the rest untouched. An empty name reverts
- * to [`autoWorkspaceName`] — the same reset-on-empty contract `renamePane`
- * has, so the two inline-rename surfaces behave alike ([F11]). A workspace
- * has no render-time fallback the way a pane does, so the revert happens
- * here. */
-export function renameWorkspace(
+/** The name a workspace takes from what someone typed: the text trimmed,
+ * or [`autoWorkspaceName`] of its folder when nothing is left. ONE rule for
+ * the moment a workspace is born and every later edit, so a blank field
+ * means the same thing in the create form, the Workspaces window and a
+ * command. */
+export function workspaceName(raw: string, cwd: string): string {
+  return raw.trim() || autoWorkspaceName(cwd);
+}
+
+/** The worktree base folder a workspace takes from what someone typed:
+ * trimmed — the deck compares paths trimmed (`normalizePath`), and a pasted
+ * " /wt " means /wt — and a blank field is no base folder at all. ONE rule
+ * for creation and every later edit. */
+export function worktreeBaseDirOf(raw: string | null): string | null {
+  const path = raw?.trim() ?? "";
+  return path === "" ? null : path;
+}
+
+/** The longest letters a mark holds — what fits its tile. */
+export const WORKSPACE_MARK_MAX = 2;
+
+/**
+ * A workspace's own letters from what someone typed — ONE rule for the page,
+ * the command and the document: trimmed; 1-2 CHARACTERS, counted by code
+ * point so any script fits ("KD", "Ра", "项目") and an emoji is one; blank is
+ * no mark of its own (the letters go back to the name's). Longer is refused.
+ */
+export function parseWorkspaceMark(raw: string): { mark: string | undefined } | { refused: "mark-too-long" } {
+  const mark = raw.trim();
+  if (mark === "") return { mark: undefined };
+  return Array.from(mark).length > WORKSPACE_MARK_MAX ? { refused: "mark-too-long" } : { mark };
+}
+
+/** Whether `path` names a folder from the root rather than from wherever
+ * the app happens to run: `/…`, `C:\…`, or a `\\server\share` path. A
+ * workspace's directory is where its agents start, its repository and its
+ * worktrees' repo — a relative one names a different folder per process. */
+export function isAbsolutePath(path: string): boolean {
+  return /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path);
+}
+
+/** What an edit may change on a workspace. Absent = leave as is. The values
+ * are what someone typed: [`workspaceName`] and [`worktreeBaseDirOf`] decide
+ * what blank means, exactly as at birth. */
+export interface WorkspacePatch {
+  name?: string;
+  /** Its own letters; blank = back to the name's ([`parseWorkspaceMark`]). */
+  mark?: string;
+  cwd?: string;
+  /** `null` or blank = no base folder. */
+  worktreeBaseDir?: string | null;
+}
+
+/** Why an edit was refused — kinds, never words: each surface says them its
+ * own way (a field hint, a command error). */
+export type WorkspaceUpdateRefusal =
+  | { kind: "unknown-workspace" }
+  /** Put away: nothing of it changes until it is restored. */
+  | { kind: "archived" }
+  | { kind: "cwd-not-empty"; teams: number; panes: number }
+  | { kind: "blank-cwd" }
+  | { kind: "relative-cwd" }
+  | { kind: "mark-too-long" };
+
+export type WorkspaceUpdateResult =
+  | { ok: true; workspaces: Workspace[] }
+  | { ok: false; refusal: WorkspaceUpdateRefusal };
+
+/**
+ * Whether a workspace's working directory is fixed now — THE rule, asked by
+ * the edit that would change it and by every surface that offers to.
+ *
+ * Only an EMPTY workspace may move: a team, and a pane on no team, run in
+ * the root or were planted against its repository (their worktrees are torn
+ * down with git run in `cwd`), so moving it under them would leave their
+ * processes behind and point their cleanup at another repository. Null
+ * when the directory may change; otherwise what holds it.
+ */
+export function cwdLocked(ws: Workspace): { teams: number; panes: number } | null {
+  const teams = teamsOf(ws).length;
+  const panes = ws.panes.length;
+  return teams > 0 || panes > 0 ? { teams, panes } : null;
+}
+
+/**
+ * Edit one workspace lifetime — the ONE transition for its own fields: its
+ * name, its worktree base folder and, while nothing runs there, its working
+ * directory.
+ *
+ * Addressed by the exact lifetime, so an edit begun against a workspace that
+ * was closed meanwhile lands nowhere. An archived workspace is read-only.
+ * Refuses rather than half-applies. A patch that changes nothing returns the
+ * same array, so a surface that writes on every blur causes no transition.
+ */
+export function updateWorkspace(
   workspaces: Workspace[],
-  id: string,
-  name: string,
-): Workspace[] {
-  return workspaces.map((ws) =>
-    ws.id === id ? { ...ws, name: name.trim() || autoWorkspaceName(ws.id) } : ws,
-  );
+  ref: WorkspaceRef,
+  patch: WorkspacePatch,
+): WorkspaceUpdateResult {
+  const ws = findWorkspaceByRef(workspaces, ref);
+  if (!ws) return { ok: false, refusal: { kind: "unknown-workspace" } };
+  if (ws.archived) return { ok: false, refusal: { kind: "archived" } };
+  const next: Workspace = { ...ws };
+  // Trimmed, the way the deck compares every path; the same folder is no move.
+  const cwd = patch.cwd?.trim();
+  if (cwd !== undefined && !sameDirectory(cwd, ws.cwd)) {
+    if (cwd === "") return { ok: false, refusal: { kind: "blank-cwd" } };
+    if (!isAbsolutePath(cwd)) return { ok: false, refusal: { kind: "relative-cwd" } };
+    const held = cwdLocked(ws);
+    if (held) return { ok: false, refusal: { kind: "cwd-not-empty", ...held } };
+    next.cwd = cwd;
+  }
+  // After the move: a blank name is the folder's, and it is the NEW folder.
+  if (patch.name !== undefined) next.name = workspaceName(patch.name, next.cwd);
+  if (patch.worktreeBaseDir !== undefined) {
+    next.worktreeBaseDir = worktreeBaseDirOf(patch.worktreeBaseDir);
+  }
+  if (patch.mark !== undefined) {
+    const parsed = parseWorkspaceMark(patch.mark);
+    if ("refused" in parsed) return { ok: false, refusal: { kind: parsed.refused } };
+    if (parsed.mark === undefined) delete next.mark;
+    else next.mark = parsed.mark;
+  }
+  const changed =
+    next.name !== ws.name ||
+    next.cwd !== ws.cwd ||
+    next.worktreeBaseDir !== ws.worktreeBaseDir ||
+    next.mark !== ws.mark;
+  return {
+    ok: true,
+    workspaces: changed ? workspaces.map((w) => (w === ws ? next : w)) : workspaces,
+  };
 }
 
 /** Set a pane's manual display name; an empty name clears it, reverting to the
@@ -366,27 +565,140 @@ export function homeRelative(path: string, home: string | null): string {
 // plants in a working directory keys off them, and they change for entirely
 // different reasons than workspace membership or pane state do.
 
-/** Move the workspace with `id` to `toIndex` (clamped to the list), preserving
- * the order of the rest. Returns the SAME array reference when nothing moves, so
- * a live drag that lands on the current slot doesn't trigger a re-render. */
-export function moveWorkspace(
-  workspaces: Workspace[],
+/** Where a workspace goes in the column: right before or right after another
+ * one, named by id. A place, not an index — an index means a position in ONE
+ * list, and the column a person sees and the deck's full list stop being the
+ * same list the moment any workspace is not drawn; an id means the same row
+ * in both. */
+export type WorkspacePlace = { before: string } | { after: string };
+
+/** Move the workspace with `id` to `place`, preserving the order of the rest.
+ * Returns the SAME array reference when nothing moves — an unknown id or
+ * anchor, a workspace placed beside itself, or one already where it is asked
+ * to go — so a live drag that lands on the current slot doesn't re-render. */
+export function moveWorkspace<T extends { id: string }>(
+  workspaces: T[],
   id: string,
-  toIndex: number,
-): Workspace[] {
-  const from = workspaces.findIndex((ws) => ws.id === id);
-  if (from < 0) return workspaces;
-  const to = Math.max(0, Math.min(toIndex, workspaces.length - 1));
-  if (from === to) return workspaces;
-  const next = workspaces.slice();
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
-  return next;
+  place: WorkspacePlace,
+): T[] {
+  const anchor = "before" in place ? place.before : place.after;
+  const moved = workspaces.find((ws) => ws.id === id);
+  if (!moved || anchor === id) return workspaces;
+  const rest = workspaces.filter((ws) => ws.id !== id);
+  const at = rest.findIndex((ws) => ws.id === anchor);
+  if (at < 0) return workspaces;
+  const next = [...rest];
+  next.splice("before" in place ? at : at + 1, 0, moved);
+  return next.every((ws, i) => ws === workspaces[i]) ? workspaces : next;
 }
 
-/** Which workspace to focus: keep `activeId` if it still exists, otherwise the
- * first remaining workspace (or `""` when none remain). */
+/** The places "Move up" and "Move down" take the workspace `id` to in a
+ * column drawn in `order`: before its upper neighbour, after its lower one —
+ * null at that end of the column, or for an id the column does not hold. */
+export function stepPlaces(
+  order: readonly string[],
+  id: string,
+): { up: WorkspacePlace | null; down: WorkspacePlace | null } {
+  const at = order.indexOf(id);
+  if (at < 0) return { up: null, down: null };
+  return {
+    up: at > 0 ? { before: order[at - 1] } : null,
+    down: at < order.length - 1 ? { after: order[at + 1] } : null,
+  };
+}
+
+/** What asking to put a workspace away did: it is archived now, it already
+ * was, a close of it is under way, or it is no longer there. */
+export type ArchiveOutcome = "archived" | "already" | "closing" | "gone";
+
+/** What asking for a workspace back did. */
+export type RestoreOutcome = "restored" | "not-archived" | "gone";
+
+/** The workspaces a person navigates — every one not archived, in deck
+ * order: the strip's, the selection's. Identity, ownership and retention
+ * keep reading the whole list. */
+export function visibleWorkspaces<T extends Pick<Workspace, "archived">>(
+  workspaces: readonly T[],
+): T[] {
+  return workspaces.filter((ws) => ws.archived === undefined);
+}
+
+/** Which workspace to focus: keep `activeId` while it names one a person can
+ * see, otherwise the first visible workspace — or `""` when there is none:
+ * no workspace at all, or every one archived. */
 export function resolveActiveId(workspaces: Workspace[], activeId: string): string {
-  if (workspaces.some((ws) => ws.id === activeId)) return activeId;
-  return workspaces[0]?.id ?? "";
+  const visible = visibleWorkspaces(workspaces);
+  if (visible.some((ws) => ws.id === activeId)) return activeId;
+  return visible[0]?.id ?? "";
+}
+
+/** Every pane the archive stops ([`paneStopsWithArchive`]), marked suspended as of
+ * `at`; the same list when none is left to mark. */
+function suspendedForArchive(ws: Workspace, at: string): Pane[] {
+  let marked = false;
+  const panes = ws.panes.map((pane): Pane => {
+    if (!paneStopsWithArchive(ws, pane)) return pane;
+    marked = true;
+    return { ...pane, idle: { reason: "suspended", at } };
+  });
+  return marked ? panes : ws.panes;
+}
+
+/** Put workspace `id` away as of `at`, in phase `"archiving"` — and, in the
+ * same change, every pane the archive stops marked suspended: one snapshot,
+ * one save, so no crash can leave the workspace put away with a pane on disk
+ * that would rise by itself. Ending the processes is the caller's. Same ref
+ * when there is no such workspace or it is already archived. */
+export function archiveWorkspace(workspaces: Workspace[], id: string, at: string): Workspace[] {
+  const ws = findWorkspace(workspaces, id);
+  if (!ws || ws.archived) return workspaces;
+  return workspaces.map((w) =>
+    w.id === id ? { ...w, archived: { at, phase: "archiving" }, panes: suspendedForArchive(w, at) } : w,
+  );
+}
+
+/** The archive of `id` has done what it could: phase `"archived"`, owing
+ * `warnings` (kept only when something is owed) — and any pane that landed
+ * since the archive began (a create that finished) marked suspended like the
+ * rest. Boot repair settles again after each retry, with what is still owed.
+ * Same ref when the workspace is not archived, or already settled exactly so. */
+export function settleArchive(
+  workspaces: Workspace[],
+  id: string,
+  warnings: ArchiveWarnings,
+): Workspace[] {
+  const ws = findWorkspace(workspaces, id);
+  const archived = ws?.archived;
+  if (!ws || !archived) return workspaces;
+  const panes = suspendedForArchive(ws, archived.at);
+  const owed = warnings.reaps.length > 0 || warnings.disarm;
+  const was = archived.warnings;
+  const unchanged =
+    panes === ws.panes &&
+    archived.phase === "archived" &&
+    (owed
+      ? was !== undefined &&
+        was.disarm === warnings.disarm &&
+        was.reaps.length === warnings.reaps.length &&
+        was.reaps.every((paneId, i) => paneId === warnings.reaps[i])
+      : was === undefined);
+  if (unchanged) return workspaces;
+  const settled: WorkspaceArchived = {
+    at: archived.at,
+    phase: "archived",
+    ...(owed && { warnings: { reaps: [...warnings.reaps], disarm: warnings.disarm } }),
+  };
+  return workspaces.map((w) => (w.id === id ? { ...w, archived: settled, panes } : w));
+}
+
+/** Bring workspace `id` back: the marker goes and nothing else changes —
+ * every pane stays as the archive left it, and waking them is the person's,
+ * one by one. Same ref when it is not archived. */
+export function restoreWorkspace(workspaces: Workspace[], id: string): Workspace[] {
+  if (!findWorkspace(workspaces, id)?.archived) return workspaces;
+  return workspaces.map((w) => {
+    if (w.id !== id) return w;
+    const { archived: _restored, ...rest } = w;
+    return rest;
+  });
 }

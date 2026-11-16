@@ -1,9 +1,4 @@
-import {
-  hydrateDeck,
-  paneIdleIsDurable,
-  paneProvisioning,
-  serializeDeck,
-} from "../domain/deck";
+import { deckImmediateKey, hydrateDeck, serializeDeck } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
 import { log } from "../ipc/log";
 import {
@@ -57,7 +52,7 @@ export function createDeckPersistence(
   let saving = false;
   let docExtras: Record<string, unknown> = {};
   let serialized = serializeSnapshot();
-  let immediate = immediateKey();
+  let immediate = deckImmediateKey(deck.getSnapshot());
 
   function emit(next: DeckPersistenceSnapshot): void {
     if (
@@ -81,23 +76,6 @@ export function createDeckPersistence(
       },
       docExtras,
     );
-  }
-
-  function immediateKey(): string {
-    return deck
-      .getSnapshot()
-      .workspaces.map(
-        (workspace) =>
-          `${workspace.id}:${workspace.panes
-            .map(
-              (pane) =>
-                `${pane.id}=${pane.session?.id ?? ""}${
-                  paneProvisioning(workspace, pane) ? "+wip" : ""
-                }${paneIdleIsDurable(pane.idle) ? "+susp" : ""}`,
-            )
-            .join(",")}`,
-      )
-      .join(";");
   }
 
   function clearTimer(): void {
@@ -161,7 +139,7 @@ export function createDeckPersistence(
 
   function deckChanged(): void {
     serialized = serializeSnapshot();
-    immediate = immediateKey();
+    immediate = deckImmediateKey(deck.getSnapshot());
     reconcileSave();
   }
 

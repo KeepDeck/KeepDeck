@@ -10,6 +10,7 @@ import {
   type Team,
   type Workspace,
   type WorktreeTarget,
+  type WorktreeTeardownFailure,
 } from "../../domain/deck";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
@@ -25,6 +26,18 @@ import type { DeckStore } from "../deckStore";
 import { deletableWorktrees } from "../closing/teardownTargets";
 import { dropPaneSpawnSpec } from "../spawnSpecs";
 import type { CreatedWorktree, WorktreeProvisioner } from "../worktrees";
+
+/** End a pane's process and what this run keeps for it — its cached plan,
+ * its lifecycle (usage, the binding watch). The tail a suspend and an
+ * archive share; the marker that keeps the pane down is each caller's. */
+export async function endPaneProcess(
+  ports: { sessions: SessionRegistryPort; lifecycle: PaneLifecyclePort },
+  paneId: string,
+): Promise<void> {
+  dropPaneSpawnSpec(paneId);
+  ports.lifecycle.retire(paneId);
+  await ports.sessions.close(paneId);
+}
 
 interface ClosingDeps {
   deck: DeckStore;
@@ -44,6 +57,9 @@ interface ClosingDeps {
    * and a failure only logs: the deck teardown must not abort on a store
    * hiccup. Optional so non-app tests need not stub it. */
   workspaceForgetters?: readonly WorkspaceForgetter[];
+  /** Whether an archive is stopping this workspace's agents right now — a
+   * close waits for it to finish rather than racing it. */
+  archiving?: (workspace: WorkspaceRef) => boolean;
 }
 
 export type WorkspaceForgetter = (wsId: string) => Promise<void>;
@@ -65,10 +81,13 @@ export interface AgentOrchestratorClosing {
    * BEFORE that, so the deck alone would show the directory as free while a
    * `git worktree remove` is still coming for it. */
   holdsPath(path: string): boolean;
+  /** Whether a confirmed close of the whole workspace is under way — an
+   * archive is refused meanwhile. */
+  closingWorkspace(workspace: WorkspaceRef): boolean;
 }
 
-/** One key per {workspace INSTANCE, team}: a `ws-N` slot is reused, and a
- * capture must never be mistaken for one on the workspace now in its place. */
+/** One key per {workspace INSTANCE, team}: a capture belongs to one run's
+ * hold on a workspace, never to anything that holds its id later. */
 function captureKey(workspace: WorkspaceRef, teamId: string): string {
   return `${workspace.id}#${workspace.instance}/${teamId}`;
 }
@@ -90,6 +109,7 @@ export function createAgentOrchestratorClosing({
   isBlocked,
   lifecycle,
   workspaceForgetters = [],
+  archiving = () => false,
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
   /**
@@ -223,10 +243,11 @@ export function createAgentOrchestratorClosing({
     suspending.add(paneId);
     try {
       log.info("web:orchestrator", `${paneId}: suspending`);
-      actions.suspendPane(wsId, paneId, suspendPolicy.moveToTray());
-      dropPaneSpawnSpec(paneId);
-      lifecycle.retire(paneId);
-      await sessions.close(paneId);
+      // The marker first, then — by the placement setting — the tray: a
+      // tray entry only ever follows a suspend that landed.
+      actions.suspendPane(wsId, paneId);
+      if (suspendPolicy.moveToTray()) actions.moveSuspendedToTray(wsId, paneId);
+      await endPaneProcess({ sessions, lifecycle }, paneId);
       return "suspended";
     } finally {
       suspending.delete(paneId);
@@ -238,7 +259,7 @@ export function createAgentOrchestratorClosing({
    * its card. A member of a team already taken by a disband or a workspace
    * close is that close's to end: ending it here too would reap its
    * session twice. */
-  async function closeMember(workspace: Workspace, ref: WorkspaceRef, paneId: string): Promise<string[]> {
+  async function closeMember(workspace: Workspace, ref: WorkspaceRef, paneId: string): Promise<WorktreeTeardownFailure[]> {
     const pane = workspace.panes.find((candidate) => candidate.id === paneId);
     if (!pane) return [];
     if (closingWorkspaces.has(workspaceKey(ref))) return [];
@@ -259,7 +280,7 @@ export function createAgentOrchestratorClosing({
     ref: WorkspaceRef,
     teamId: string,
     teardown: WorktreeTeardown,
-  ): Promise<string[]> {
+  ): Promise<WorktreeTeardownFailure[]> {
     const team = teamsOf(workspace).find((candidate) => candidate.id === teamId);
     if (!team) return [];
     const taken = capture(ref, team, membersOf(workspace, team.id));
@@ -312,7 +333,7 @@ export function createAgentOrchestratorClosing({
     workspace: Workspace,
     ref: WorkspaceRef,
     teardown: WorktreeTeardown,
-  ): Promise<string[]> {
+  ): Promise<WorktreeTeardownFailure[]> {
     const key = workspaceKey(ref);
     if (closingWorkspaces.has(key)) return [];
     closingWorkspaces.add(key);
@@ -397,6 +418,13 @@ export function createAgentOrchestratorClosing({
     // one by now — touches nothing.
     const workspace = live(request.workspace);
     if (!workspace) return [];
+    if (archiving(request.workspace)) {
+      // Its agents are being stopped; ending them a second time underneath
+      // is a race nobody asked for. The close is offered again once the
+      // archive has settled.
+      log.warn("web:orchestrator", `${workspace.id}: close refused — it is being archived`);
+      return [];
+    }
     switch (request.kind) {
       case "agent":
         return closeMember(workspace, request.workspace, request.paneId);
@@ -414,5 +442,8 @@ export function createAgentOrchestratorClosing({
   const holdsPath: AgentOrchestratorClosing["holdsPath"] = (path) =>
     heldPaths.has(normalizePath(path));
 
-  return { suspend, close, closing, holdsPath };
+  const closingWorkspace: AgentOrchestratorClosing["closingWorkspace"] = (workspace) =>
+    closingWorkspaces.has(workspaceKey(workspace));
+
+  return { suspend, close, closing, holdsPath, closingWorkspace };
 }

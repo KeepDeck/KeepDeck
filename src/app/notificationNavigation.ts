@@ -4,7 +4,7 @@ import type {
   NotificationWorkspace,
 } from "../domain/notifications";
 
-/** Resolve a notification's workspace lifetime, never merely its reusable id. */
+/** Resolve a notification's workspace lifetime — id AND instance, never the id alone. */
 export function workspaceForNotification(
   workspaces: Workspace[],
   ref: NotificationWorkspace,

@@ -33,11 +33,15 @@ const TEAM: BarLevel = {
 };
 
 const WORKSPACE: NonNullable<DeckBarProps["workspace"]> = {
-  view: { id: "ws-1", name: "Personal project", moveUpTo: null, moveDownTo: 1 },
+  view: { id: "ws-1", name: "Personal project", moveUp: null, moveDown: { after: "ws-2" } },
   onRename: () => {},
   onMove: () => {},
+  onArchive: () => {},
+  onSettings: () => {},
   onClose: () => {},
   onUp: () => {},
+  renameAsked: false,
+  onRenameAsked: () => {},
 };
 
 const BASE: DeckBarProps = {
@@ -383,22 +387,35 @@ describe("DeckBar", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("renames, moves and closes the workspace from its crumb's menu", () => {
+  it("renames, moves, archives and closes the workspace from its crumb's menu", () => {
     const calls: unknown[] = [];
     render({
       workspace: {
         ...WORKSPACE,
         onRename: (name) => calls.push(["rename", name]),
         onMove: (to) => calls.push(["move", to]),
+        onArchive: () => calls.push(["archive"]),
+        onSettings: () => calls.push(["settings"]),
         onClose: () => calls.push(["close"]),
       },
     });
     const items = () => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")];
     act(() => present(byLabel("Workspace Personal project actions"), "the element labelled \"Workspace Personal project actions\"").click());
-    expect(items().map((i) => i.textContent)).toEqual(["Rename", "Move up", "Move down", "Close workspace"]);
+    expect(items().map((i) => i.textContent)).toEqual([
+      "Rename",
+      "Move up",
+      "Move down",
+      "Workspace settings",
+      "Archive",
+      "Close workspace",
+    ]);
     act(() => items()[2].click());
     act(() => present(byLabel("Workspace Personal project actions"), "the element labelled \"Workspace Personal project actions\"").click());
     act(() => items()[3].click());
+    act(() => present(byLabel("Workspace Personal project actions"), "the element labelled \"Workspace Personal project actions\"").click());
+    act(() => items()[4].click());
+    act(() => present(byLabel("Workspace Personal project actions"), "the element labelled \"Workspace Personal project actions\"").click());
+    act(() => items()[5].click());
     act(() => present(byLabel("Workspace Personal project actions"), "the element labelled \"Workspace Personal project actions\"").click());
     act(() => items()[0].click());
     const input = present(host.querySelector<HTMLInputElement>("input[aria-label='Workspace name']"), "the input[aria-label='Workspace name'] element");
@@ -408,7 +425,15 @@ describe("DeckBar", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-    expect(calls).toEqual([["move", 1], ["close"], ["rename", "Work"]]);
+    expect(calls).toEqual([["move", { after: "ws-2" }], ["settings"], ["archive"], ["close"], ["rename", "Work"]]);
+  });
+
+  it("opens the rename field when a mark's menu asked for it, and takes the ask back", () => {
+    const onRenameAsked = vi.fn();
+    render({ workspace: { ...WORKSPACE, renameAsked: true, onRenameAsked } });
+    const input = present(host.querySelector<HTMLInputElement>("input[aria-label='Workspace name']"), "the rename field");
+    expect(input.value).toBe("Personal project");
+    expect(onRenameAsked).toHaveBeenCalledOnce();
   });
 
   it("renames the workspace on a double-click at the cards, never inside a team", () => {

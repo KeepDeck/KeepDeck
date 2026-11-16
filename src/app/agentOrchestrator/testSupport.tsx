@@ -7,12 +7,13 @@ import type {
   Pane,
   PaneIdle,
   SpawnConfig,
+  ResumeRequest,
   TeamLocation,
   WorktreeTarget,
+  WorktreeTeardownFailure,
 } from "../../domain/deck";
 import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
-import type { WorkspaceCreationResult } from "../deckActions";
-import type { SuspendOutcome } from "../suspendOutcome";
+import type { SuspendOutcome } from "../../domain/deck";
 // From the module, not the barrel: the barrel is mocked below, and these are
 // plain shapes and pure predicates with no cache state to fake.
 import {
@@ -36,7 +37,6 @@ import {
   type AgentOrchestrator,
   type AgentRunView,
   type RestartOutcome,
-  type ResumeRequest,
 } from ".";
 import { useAgentRunView } from "../useAgentRunView";
 import type { SpawnPluginAccess } from "../spawnSpecs";
@@ -222,6 +222,16 @@ const published = vi.hoisted(
     new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
 );
 
+/** Each owner's create in flight, as `awaitSettled` reports its end — a test
+ *  puts a promise here to hold a create open across a flow that waits. */
+const settling = vi.hoisted(
+  () => new Map<string, Promise<"resolved" | "failed" | "abandoned">>(),
+);
+
+/** The archive's take-back of plantings: who asked, and what it answers
+ *  (a test sets `ok` to false to see the failure recorded). */
+const disarms = vi.hoisted(() => ({ asked: [] as string[], ok: true }));
+
 export const ipcHarness = ipc;
 export const gateHarness = gate;
 export const plansHarness = plans;
@@ -229,6 +239,8 @@ export const stepsHarness = steps;
 export const lifecycleHarness = lifecycle;
 export const forgettersHarness = forgetters;
 export const publishedHarness = published;
+export const settlingHarness = settling;
+export const disarmsHarness = disarms;
 export const skillsAskedHarness = skillsAsked;
 export const transcriptsHarness = transcripts;
 export {
@@ -237,6 +249,8 @@ export {
   ipcHarness as ipc,
   plansHarness as plans,
   publishedHarness as published,
+  settlingHarness as settling,
+  disarmsHarness as disarms,
   stepsHarness as steps,
   skillsAskedHarness as skillsAsked,
   lifecycleHarness as lifecycle,
@@ -349,6 +363,8 @@ export let agentRun: AgentRunView &
     | "recoverRejectedResume"
     | "retryPlanBuild"
     | "close"
+    | "archive"
+    | "restore"
   >;
 /** The worktree creates the orchestrator asked for, recorded instead of run.
  *  Per mount like the deck beside it, so no `describe` has to remember to
@@ -360,8 +376,8 @@ export let provisionedAs: string[];
 /** The worktree removals a confirmed close asked for, per mount. */
 export let discards: WorktreeTarget[][];
 /** What the removal reports back as un-deletable. */
-let discardFailures: string[] = [];
-export const setDiscardFailures = (failures: string[]) => {
+let discardFailures: WorktreeTeardownFailure[] = [];
+export const setDiscardFailures = (failures: WorktreeTeardownFailure[]) => {
   discardFailures = failures;
 };
 export const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
@@ -446,6 +462,13 @@ export function Probe() {
             published.delete(paneId);
             return made;
           },
+          awaitSettled: (ownerId) => settling.get(ownerId) ?? Promise.resolve("none"),
+          disarmArchived: (workspace) => {
+            disarms.asked.push(workspace.id);
+            return Promise.resolve(disarms.ok);
+          },
+          // Not the orchestrator's: the Workspaces window asks it directly.
+          removeUnheld: () => Promise.resolve({ kind: "removed" as const }),
           registerPostProvision: steps.register,
           clearPostProvision: steps.clear,
           skillsFor: skillsAsked,
@@ -474,6 +497,8 @@ export function Probe() {
     forkSession: wiring.orchestrator.forkSession,
     suspend: wiring.orchestrator.suspend,
     restart: wiring.orchestrator.restart,
+    archive: wiring.orchestrator.archive,
+    restore: wiring.orchestrator.restore,
     recoverRejectedResume: wiring.orchestrator.recoverRejectedResume,
     retryPlanBuild: wiring.orchestrator.retryPlanBuild,
     close: wiring.orchestrator.close,
@@ -523,7 +548,6 @@ export type {
   SpawnConfig,
   SpawnPluginAccess,
   SuspendOutcome,
-  WorkspaceCreationResult,
   RestartOutcome,
   ResumeRequest,
 };

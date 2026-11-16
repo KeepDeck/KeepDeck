@@ -47,6 +47,7 @@ export {
   type MenuAction,
   type MenuButtonProps,
 } from "./MenuButton.tsx";
+export { ContextMenu, type ContextMenuProps } from "./ContextMenu.tsx";
 export { DROP_BLOCKER_ATTR, dropBlocker } from "./dropBlocker.ts";
 export { Peek, type PeekProps } from "./Peek.tsx";
 export { noAutoCorrect } from "./inputProps.ts";

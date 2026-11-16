@@ -9,14 +9,17 @@ import {
 } from "../journal";
 import {
   addAgentPane,
+  archiveWorkspace,
   closeAgent,
   findPane,
   findWorkspace,
   closeWorkspace,
   moveWorkspace,
-  renameWorkspace,
+  updateWorkspace,
   resolveActiveId,
+  restoreWorkspace,
   setWorkspacePluginSlot,
+  settleArchive,
   workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
@@ -72,12 +75,6 @@ export interface DeckState {
    * transitions that touch panes, so seal-on-close is atomic. Persisted in
    * its own document, never in deck.json. */
   journal: JournalSlice;
-  /** Workspace ids that came from deck.json this run (runtime-only, never
-   * persisted; absent = none restored). Journal hydration keeps a loaded key
-   * ONLY for these: `ws-N` ids are reusable slots, and a workspace CREATED
-   * this run must not adopt a crash-orphaned journal that raced its
-   * `wsDeleted` prune (the guard no-ops before the journal is hydrated). */
-  restoredWorkspaceIds?: ReadonlySet<string>;
   /** Per-workspace view state (maximize, selection, dock open, dock tab), one
    * entry per workspace (absent = all defaults). Replaces the old parallel
    * focusByWs/selectByWs/dockByWs maps: closing a workspace drops ONE entry,
@@ -164,6 +161,9 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
   switch (action.type) {
     case "selectWorkspace": {
       const ws = state.workspaces.find((w) => w.id === action.id);
+      // Nobody is IN an archived workspace — not a click, not a command, not
+      // a deep link: restore it first. The one rule every door relies on.
+      if (ws?.archived) return state;
       return {
         ...state,
         activeId: action.id,
@@ -178,13 +178,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       if (state.workspaces.some((ws) => ws.id === workspace.id)) return state;
       return {
         ...state,
-        // A reused `ws-N` slot must not inherit a crash-orphaned journal key.
-        journal: withJournalEvent(state.journal, {
-          e: "wsDeleted",
-          v: 1,
-          wsId: workspace.id,
-          at: action.at,
-        }),
         workspaces: [...state.workspaces, workspace],
         activeId: workspace.id,
         viewByWs: withDefaultSelection(state.viewByWs, workspace.id, workspace),
@@ -224,16 +217,17 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       }
       return { ...state, workspaces, viewByWs, journal };
     }
-    case "renameWorkspace":
-      return {
-        ...state,
-        workspaces: renameWorkspace(state.workspaces, action.id, action.name),
-      };
+    case "updateWorkspace": {
+      // A refused edit changes nothing: the caller learns why from the same
+      // domain answer before it dispatches (deckActions).
+      const result = updateWorkspace(state.workspaces, action.ref, action.patch);
+      return result.ok ? withWorkspaces(state, result.workspaces) : state;
+    }
     case "moveWorkspace":
       // moveWorkspace returns the same ref on a no-op move → skip the re-render.
       return withWorkspaces(
         state,
-        moveWorkspace(state.workspaces, action.id, action.toIndex),
+        moveWorkspace(state.workspaces, action.id, action.place),
       );
     case "closeAgent": {
       const { wsId, paneId } = action;
@@ -315,16 +309,30 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         wsId: action.id,
         at: action.at,
       });
-      // Spread, like every other case: this literal once dropped
-      // `restoredWorkspaceIds`, and a close landing before the journal
-      // hydrated then pruned EVERY restored workspace's history as orphaned.
-      // The closed id leaves the restored set too — otherwise recreating
-      // the same ws-N BEFORE the journal hydrates would count as "restored"
-      // and adopt the dead workspace's history.
-      const restoredWorkspaceIds = state.restoredWorkspaceIds?.has(action.id)
-        ? new Set([...state.restoredWorkspaceIds].filter((id) => id !== action.id))
-        : state.restoredWorkspaceIds;
-      return { ...state, workspaces, activeId, viewByWs, journal, restoredWorkspaceIds };
+      return { ...state, workspaces, activeId, viewByWs, journal };
+    }
+    case "archiveWorkspace": {
+      const workspaces = archiveWorkspace(state.workspaces, action.id, action.at);
+      if (workspaces === state.workspaces) return state;
+      // It leaves the strip at once, and the person lands on the first
+      // visible workspace (or none). Its own view is kept whole for restore.
+      const activeId = resolveActiveId(workspaces, state.activeId);
+      const viewByWs = withDefaultSelection(state.viewByWs, activeId, findWorkspace(workspaces, activeId));
+      return { ...state, workspaces, activeId, viewByWs };
+    }
+    case "settleArchive":
+      return withWorkspaces(state, settleArchive(state.workspaces, action.id, action.warnings));
+    case "restoreWorkspace": {
+      const workspaces = restoreWorkspace(state.workspaces, action.id);
+      if (workspaces === state.workspaces) return state;
+      // Back where it was in the strip, and in front of the person.
+      const ws = findWorkspace(workspaces, action.id);
+      return {
+        ...state,
+        workspaces,
+        activeId: action.id,
+        viewByWs: withDefaultSelection(state.viewByWs, action.id, ws),
+      };
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;
@@ -459,17 +467,9 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       );
     case "hydrate":
       // deck.json knows nothing of the journal — keep the live slice (its
-      // own hydration is the separate `hydrateJournal`, sequenced after) and
-      // remember WHICH ids the restore brought: only those may adopt loaded
-      // journal keys (a this-run workspace reusing a `ws-N` slot must not).
+      // own hydration is the separate `hydrateJournal`, sequenced after).
       return workspaceIdsAreUnique(action.state.workspaces)
-        ? {
-            ...action.state,
-            journal: state.journal,
-            restoredWorkspaceIds: new Set(
-              action.state.workspaces.map((w) => w.id),
-            ),
-          }
+        ? { ...action.state, journal: state.journal }
         : state;
     case "clearPaneIdle":
       // clearPaneIdle returns the same ref for an absent/already-live pane, so
@@ -478,29 +478,22 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         clearPaneIdle(state.workspaces, action.wsId, action.paneId),
       );
-    case "suspendPane": {
+    case "suspendPane":
       // suspendPane returns the same ref for a pane that is absent, already
       // idle or still provisioning — a repeated gesture re-renders nothing.
-      const workspaces = suspendPane(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        action.at,
+      return withWorkspaces(
+        state,
+        suspendPane(state.workspaces, action.wsId, action.paneId, action.at),
       );
-      if (workspaces === state.workspaces) return state;
-      const next = { ...state, workspaces };
-      return action.moveToTray
-        ? withView(
-            next,
-            hidePaneView(
-              next.viewByWs,
-              next.workspaces,
-              action.wsId,
-              action.paneId,
-              "suspendedTray",
-            ),
-          )
-        : next;
+    case "moveSuspendedToTray": {
+      // Only a pane the suspend actually stopped goes to the tray: a refused
+      // or never-made suspend leaves no marker, and so no tray entry.
+      const pane = findPane(state.workspaces, action.wsId, action.paneId);
+      if (pane?.idle?.reason !== "suspended") return state;
+      return withView(
+        state,
+        hidePaneView(state.viewByWs, state.workspaces, action.wsId, action.paneId, "suspendedTray"),
+      );
     }
     case "requestPaneWake":
       return withWorkspaces(
@@ -622,13 +615,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ),
       );
     case "hydrateJournal": {
-      // A loaded key survives only for a workspace that is BOTH live and
-      // restored-from-disk: a this-run creation reusing a `ws-N` id gets a
-      // clean journal, whatever a crashed run left in the file.
-      const restored = state.restoredWorkspaceIds ?? new Set<string>();
-      const keepWsIds = new Set(
-        state.workspaces.map((w) => w.id).filter((id) => restored.has(id)),
-      );
+      // A loaded key survives for a live workspace; one whose workspace is
+      // gone is pruned — history goes with its workspace. No id a workspace
+      // is created with this run can name a loaded key: ids are minted, never
+      // reused.
+      const keepWsIds = new Set(state.workspaces.map((w) => w.id));
       return {
         ...state,
         journal: hydrateJournalSlice(

@@ -82,16 +82,22 @@ export type MigrationOutcome =
  *       here, once. From now on an agent is never assumed — a new pane
  *       takes one from the catalog. The floor stays at 11: an older build
  *       reads the field it already wrote.
+ *  15 — + `Workspace.archived` { at, phase, warnings? }: a workspace put
+ *       away — kept whole, not drawn, nothing in it run. Additive in shape,
+ *       and still the second kind of change that raises the floor, to 15:
+ *       an older build reads no marker and so takes an archived workspace
+ *       for one in use — opens it, starts its agents — and its next save
+ *       drops the marker, undoing the archive without a word.
  */
-export const DECK_STATE_VERSION = 14;
+export const DECK_STATE_VERSION = 15;
 /** The oldest reader that can still make sense of a current document. It was
  * held at 1 while every change was additive (v1→v4, v6→v10) or moved data an
  * old reader would merely lose rather than misread (v5's `run` retirement).
- * v11 changes what `Pane.team` MEANS, which is the one kind of change that
- * raises the floor: a v10 build reading a v11 file would misinterpret data it
- * still consumes, and its next save would write the misreading back. Parking
- * is the honest option left. */
-export const DECK_MIN_READER = 11;
+ * It rises when an old reader would ACT wrongly on what it reads and then
+ * save the wrong reading back: v11 (a v10 build misreads every `Pane.team`),
+ * and v15 (a v14 build runs an archived workspace as one in use and drops
+ * its marker). Parking is the honest option left. */
+export const DECK_MIN_READER = 15;
 
 /** v1 → v2: `Workspace.run` added — additive, nothing to transform. */
 function migrateDeckFromV1toV2(doc: RawDoc): RawDoc {
@@ -488,6 +494,12 @@ function migrateDeckFromV13toV14(doc: RawDoc): RawDoc {
   };
 }
 
+/** v14 → v15: `Workspace.archived` added — additive, nothing to transform;
+ * no document written before it has an archived workspace. */
+function migrateDeckFromV14toV15(doc: RawDoc): RawDoc {
+  return doc;
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
@@ -502,6 +514,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
   11: migrateDeckFromV11toV12,
   12: migrateDeckFromV12toV13,
   13: migrateDeckFromV13toV14,
+  14: migrateDeckFromV14toV15,
 };
 
 /**

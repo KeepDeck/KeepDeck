@@ -1,3 +1,7 @@
+/** The in-app context menu lives in the shared @keepdeck/ui-kit; re-exported
+ * beside the switch that turns the platform's own off. */
+export { ContextMenu, type ContextMenuProps } from "@keepdeck/ui-kit/ContextMenu";
+
 // The app renders its own UI for every interaction, so the WKWebView context
 // menus (Cut/Copy/Paste over inputs, Reload elsewhere) don't belong in the
 // product — suppress them wholesale. Clipboard use inside terminals is already

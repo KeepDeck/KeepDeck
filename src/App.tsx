@@ -19,12 +19,14 @@ import { AgentDialog } from "./components/workspace/AgentDialog";
 import { WorkspaceStrip } from "./components/workspace/WorkspaceStrip";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { WelcomeStage } from "./components/welcome/WelcomeStage";
+import { WorkspacesDialog } from "./components/workspaces/WorkspacesDialog";
+import { AllArchivedStage } from "./components/deck/AllArchivedStage";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
-import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
+import { inspectRepo, listBranches, listWorktrees, probeWorktree } from "./ipc/worktree";
 import {
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
@@ -66,6 +68,9 @@ function App({ runtime }: { runtime: AppRuntime }) {
     canOpenDialog,
     canCloseDialog,
     closeFlow,
+    archiveFlow,
+    markActs,
+    workspacesWindow,
     deck,
     dismissAlert,
     dockMode,
@@ -117,6 +122,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
     needsYou,
     showForm,
     noWorkspace,
+    allArchived,
     welcome,
     newWorkspace,
     createFromWelcome,
@@ -147,6 +153,8 @@ function App({ runtime }: { runtime: AppRuntime }) {
         onEnterTeam={handleEnterTeam}
         onAdd={newWorkspace}
         onReorder={deck.moveWorkspace}
+        markActs={markActs}
+        onOpenArchived={workspacesWindow.openArchived}
         version={info?.version ?? null}
       />
       <div className="deck__main">
@@ -257,19 +265,21 @@ function App({ runtime }: { runtime: AppRuntime }) {
             restartEpochs={runView.epochs}
             onRetryPlanBuild={orchestrator.retryPlanBuild}
           />
-          {showForm &&
-            (deck.workspaces.length > 0 ? (
-              <ModalOverlay>
-                <WorkspaceForm
-                  onCreate={handleCreateWorkspace}
-                  onCancel={
-                    !canOpenDialog ? undefined : () => setCreating(false)
-                  }
-                  pickFolder={pickFolder}
-                  inspectDir={inspectRepo}
-                />
-              </ModalOverlay>
-            ) : null)}
+          {showForm && (
+            <ModalOverlay>
+              <WorkspaceForm
+                onCreate={handleCreateWorkspace}
+                onCancel={!canOpenDialog ? undefined : () => setCreating(false)}
+                pickFolder={pickFolder}
+                inspectDir={inspectRepo}
+              />
+            </ModalOverlay>
+          )}
+          {allArchived && (
+            <div className="deck__overlay">
+              <AllArchivedStage onOpenArchived={workspacesWindow.openArchived} onCreate={newWorkspace} />
+            </div>
+          )}
           {noWorkspace && (
             <div className="deck__overlay">
               <WelcomeStage
@@ -391,6 +401,25 @@ function App({ runtime }: { runtime: AppRuntime }) {
               canClose={canCloseDialog}
             />
           )}
+          {workspacesWindow.open && (
+            <WorkspacesDialog
+              workspaces={deck.workspaces}
+              activeId={deck.activeId}
+              focus={workspacesWindow.focus}
+              onFocus={workspacesWindow.onFocus}
+              onRestore={workspacesWindow.onRestore}
+              onArchive={workspacesWindow.onArchive}
+              onCloseWorkspace={workspacesWindow.onCloseWorkspace}
+              onUpdate={workspacesWindow.onUpdate}
+              pickFolder={pickFolder}
+              listWorktrees={listWorktrees}
+              onRemoveWorktree={workspacesWindow.onRemoveWorktree}
+              onNewTeam={workspacesWindow.onNewTeam}
+              onOpenTeam={workspacesWindow.onOpenTeam}
+              onClose={workspacesWindow.onClose}
+              canClose={canCloseDialog}
+            />
+          )}
           {tasksOpen && (
             <TasksDialog
               stageTeam={stageTeamId}
@@ -402,6 +431,18 @@ function App({ runtime }: { runtime: AppRuntime }) {
               onFocus={focusTask}
               onClose={closeTasks}
               canClose={canCloseDialog}
+            />
+          )}
+          {archiveFlow.confirming && (
+            // Reversible, so not styled as a destructive act — and Enter
+            // means what the button says.
+            <ConfirmDialog
+              title={archiveFlow.confirming.title}
+              message={archiveFlow.confirming.message}
+              confirmLabel={archiveFlow.confirming.confirmLabel}
+              cancelLabel={archiveFlow.confirming.cancelLabel}
+              onConfirm={archiveFlow.confirm}
+              onCancel={archiveFlow.cancel}
             />
           )}
           {closeFlow.closing && (

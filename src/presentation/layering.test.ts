@@ -3,8 +3,7 @@ import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen, type LayeringInput
 
 /** Nothing up: one workspace, no form, no dialog, a docked dock with no tabs. */
 const quiet: LayeringInput = {
-  creating: false,
-  workspaceCount: 1,
+  formOpen: false,
   dialogOpen: false,
   anyDialogOpen: false,
   statsOpen: false,
@@ -39,18 +38,8 @@ describe("layering", () => {
     expect(peek.stats.covered).toBe(false);
   });
 
-  it("(а) the zero-workspace form is not a modal layer and covers nothing", () => {
-    // It renders in the deck overlay at z 10, under the top bar, the strip and
-    // any portaled dialog: a flag that counted it claimed a layer the user
-    // could tab straight past.
-    const zero = at({ workspaceCount: 0, hasActive: false });
-    expect(zero.modal).toBe(false);
-    expect(zero.stats.covered).toBe(false);
-    expect(zero.panesInteractive).toBe(true);
-  });
-
   it("(б) the CREATE form is a modal layer and paints over the stats dialog", () => {
-    const create = at({ creating: true, statsOpen: true });
+    const create = at({ formOpen: true, statsOpen: true });
     expect(create.modal).toBe(true);
     expect(create.stats.covered).toBe(true);
     expect(create.panesInteractive).toBe(false);
@@ -72,7 +61,7 @@ describe("layering", () => {
     expect(open.modal).toBe(true);
     expect(open.stats.covered).toBe(false);
     expect(at({ statsOpen: true, dialogOpen: true }).stats.covered).toBe(true);
-    expect(at({ statsOpen: true, creating: true }).stats.covered).toBe(true);
+    expect(at({ statsOpen: true, formOpen: true }).stats.covered).toBe(true);
   });
 
   it("(д) the panes lose keyboard focus to a modal and to a covering dock, separately", () => {
@@ -133,6 +122,6 @@ describe("tasksBoardOnScreen — the probe's tasks branch", () => {
   it("a closed dialog, or one a transaction or the CREATE form paints over, shows nothing", () => {
     expect(tasksBoardOnScreen(at({}).tasks, "ws-1", "ws-1")).toBe(false);
     expect(tasksBoardOnScreen(at({ tasksOpen: true, dialogOpen: true }).tasks, "ws-1", "ws-1")).toBe(false);
-    expect(tasksBoardOnScreen(at({ tasksOpen: true, creating: true }).tasks, "ws-1", "ws-1")).toBe(false);
+    expect(tasksBoardOnScreen(at({ tasksOpen: true, formOpen: true }).tasks, "ws-1", "ws-1")).toBe(false);
   });
 });

@@ -3,19 +3,26 @@ import type { WorkspaceInstance } from "../workspaceInstance";
 import type { Pane, PaneSession } from "./panes";
 import type { DeckState } from "./reducer";
 import type { Team, TeamLocation } from "./teams/model";
-import type { Workspace } from "./workspaces";
+import type { ArchiveWarnings, Workspace, WorkspacePatch, WorkspacePlace } from "./workspaces";
+import type { WorkspaceRef } from "../workspaceInstance";
 
 export type DeckAction =
   | { type: "selectWorkspace"; id: string }
   | { type: "createWorkspace"; workspace: Workspace; at: string }
   | { type: "addAgentPane"; id: string; pane: Pane }
-  | { type: "renameWorkspace"; id: string; name: string }
-  | { type: "moveWorkspace"; id: string; toIndex: number }
+  | { type: "updateWorkspace"; ref: WorkspaceRef; patch: WorkspacePatch }
+  | { type: "moveWorkspace"; id: string; place: WorkspacePlace }
   /** `sealTitle` is the title the pane's journal record freezes with — what
    * its header showed, named by the dispatcher, which can see the agent
    * catalog the reducer cannot. Like `at`, minted at the dispatch boundary. */
   | { type: "closeAgent"; wsId: string; paneId: string; at: string; sealTitle?: string }
   | { type: "closeWorkspace"; id: string; at: string }
+  /** Put a workspace away (phase "archiving"); it leaves navigation at once. */
+  | { type: "archiveWorkspace"; id: string; at: string }
+  /** The archive's stop pass is done, owing `warnings`. */
+  | { type: "settleArchive"; id: string; warnings: ArchiveWarnings }
+  /** Bring an archived workspace back, and into view. */
+  | { type: "restoreWorkspace"; id: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
   | { type: "toggleMinimize"; wsId: string; paneId: string }
   | { type: "restoreSuspendedPane"; wsId: string; paneId: string }
@@ -41,13 +48,11 @@ export type DeckAction =
     }
   | { type: "hydrate"; state: DeckState }
   | { type: "clearPaneIdle"; wsId: string; paneId: string }
-  | {
-      type: "suspendPane";
-      wsId: string;
-      paneId: string;
-      at: string;
-      moveToTray?: boolean;
-    }
+  | { type: "suspendPane"; wsId: string; paneId: string; at: string }
+  /** Put a SUSPENDED pane in the workspace's tray — the view's half of a
+   * suspend, its own transition (the marker is `suspendPane`'s), undone by
+   * `restoreSuspendedPane`. A pane that is not suspended stays where it is. */
+  | { type: "moveSuspendedToTray"; wsId: string; paneId: string }
   | { type: "requestPaneWake"; wsId: string; paneId: string }
   | { type: "failPaneWake"; wsId: string; paneId: string }
   | { type: "parkPane"; wsId: string; paneId: string }

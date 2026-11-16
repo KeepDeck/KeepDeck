@@ -45,10 +45,7 @@ function dependencies() {
       teamId: "team-1",
     })),
     retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(),
-    createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(() => ({
-      ok: true,
-      workspace: workspace(),
-    })),
+    createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(() => workspace()),
     reachOf: vi.fn<ApplicationOrchestrator["reachOf"]>(() => ({ kind: "running" })),
   } satisfies ApplicationOrchestrator;
   return { plugins, orchestrator };
@@ -291,13 +288,9 @@ describe("application controller", () => {
     expect(view.openUsage).toHaveBeenLastCalledWith("weekly", 1_000);
   });
 
-  it("reports workspace-allocation failures through the bound UI", () => {
+  it("creates the workspace and closes the form — a create is never refused", () => {
     const deck = createDeckStore();
     const { plugins, orchestrator } = dependencies();
-    vi.mocked(orchestrator.createWorkspace).mockReturnValue({
-      ok: false,
-      reason: "sequence-exhausted",
-    });
     const controller = createApplicationController({
       deck,
       plugins,
@@ -311,15 +304,10 @@ describe("application controller", () => {
     const view = ui();
     controller.bindUi(view);
 
-    controller.createWorkspace({
-      name: "Workspace",
-      cwd: "/repo",
-      worktreeBaseDir: null,
-    });
+    controller.createWorkspace({ name: "Workspace", cwd: "/repo", worktreeBaseDir: null });
 
-    expect(view.pushAlert).toHaveBeenCalledWith(
-      "Workspace creation failed",
-      expect.stringContaining("No numeric workspace ID"),
-    );
+    expect(orchestrator.createWorkspace).toHaveBeenCalledWith({ name: "Workspace", cwd: "/repo", worktreeBaseDir: null });
+    expect(view.setCreating).toHaveBeenCalledWith(false);
+    expect(view.pushAlert).not.toHaveBeenCalled();
   });
 });

@@ -320,6 +320,16 @@ describe("DeckStage — exited agents across layouts", () => {
     ).toBeNull();
   });
 
+  it("does not put an archived workspace on the stage at all — not even hidden", () => {
+    const [first, second] = twoWorkspaces;
+    render({
+      workspaces: [first, { ...second, archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } }],
+    });
+    expect(document.querySelectorAll(".deck__workspace")).toHaveLength(1);
+    expect(document.querySelector("[data-pane-id='pane-3']")).toBeNull();
+    expect(document.querySelector("[data-pane-id='pane-1']")).not.toBeNull();
+  });
+
   it("removes a tray popover when a programmatic workspace switch hides its source", () => {
     const viewByWs = { "ws-1": { minimized: ["pane-1"] } };
     render({ workspaces: twoWorkspaces, viewByWs });

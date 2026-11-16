@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StripTeam, StripView, WorkspaceMark } from "../../presentation/stripView";
 import { WorkspaceStrip } from "./WorkspaceStrip";
+import { moveWorkspace, type WorkspacePlace } from "../../domain/deck";
 import {
   STRIP_FOCUS_ASK_MS,
   STRIP_POINTER_CHECK_MS,
@@ -44,6 +45,8 @@ const mark = (id: string, name: string, extra: Partial<WorkspaceMark> = {}): Wor
   dot: null,
   label: name,
   teams: [],
+  moveUp: null,
+  moveDown: null,
   ...extra,
 });
 
@@ -54,7 +57,8 @@ const VIEW: StripView = {
     mark("c", "Gamma"),
     mark("d", "Delta"),
   ],
-  active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 },
+  active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } },
+  archived: 0,
 };
 
 const callbacks = {
@@ -62,6 +66,8 @@ const callbacks = {
   onEnterTeam: vi.fn(),
   onAdd: vi.fn(),
   onReorder: vi.fn(),
+  onOpenArchived: vi.fn(),
+  markActs: { rename: vi.fn(), settings: vi.fn(), archive: vi.fn(), close: vi.fn() },
 };
 
 describe("WorkspaceStrip", () => {
@@ -70,7 +76,7 @@ describe("WorkspaceStrip", () => {
 
   beforeEach(() => {
     os.asks = 0;
-    for (const fn of Object.values(callbacks)) fn.mockClear();
+    for (const fn of [callbacks.onSelect, callbacks.onEnterTeam, callbacks.onAdd, callbacks.onReorder, callbacks.onOpenArchived, ...Object.values(callbacks.markActs)]) fn.mockClear();
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
   });
@@ -94,6 +100,46 @@ describe("WorkspaceStrip", () => {
   const byLabel = (label: string) =>
     host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 
+  it("opens a mark's menu on right-click — the crumb's acts, for THAT workspace, archive first", () => {
+    render({
+      view: { ...VIEW, marks: VIEW.marks.map((m) => (m.id === "b" ? { ...m, moveUp: { before: "a" }, moveDown: { after: "c" } } : m)) },
+    });
+    const beta = present(host.querySelector<HTMLElement>("[data-ws-id='b'] .strip__mark"), "Beta's mark");
+    const open = () =>
+      act(() => void beta.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 30, clientY: 80 })));
+    const items = () => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")];
+
+    open();
+    expect(document.querySelector("[role='menu']")?.getAttribute("aria-label")).toBe("Workspace Beta");
+    expect(items().map((item) => item.textContent)).toEqual([
+      "Workspace settings",
+      "Archive",
+      "Rename",
+      "Move up",
+      "Move down",
+      "Close workspace",
+    ]);
+    act(() => items()[1].click());
+    expect(callbacks.markActs.archive).toHaveBeenCalledWith("b");
+    // Picked: the menu lets go.
+    expect(document.querySelector("[role='menu']")).toBeNull();
+
+    open();
+    act(() => items()[0].click());
+    expect(callbacks.markActs.settings).toHaveBeenCalledWith("b");
+    open();
+    act(() => items()[4].click());
+    expect(callbacks.onReorder).toHaveBeenCalledWith("b", { after: "c" });
+    open();
+    act(() => items()[2].click());
+    expect(callbacks.markActs.rename).toHaveBeenCalledWith("b");
+    open();
+    act(() => items()[5].click());
+    expect(callbacks.markActs.close).toHaveBeenCalledWith("b");
+    // A right-click is not a select.
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
+  });
+
   it("draws a mark per workspace, the active one marked, a dot only where it is earned", () => {
     render();
     const groups = [...host.querySelectorAll<HTMLElement>("[data-ws-id]")];
@@ -116,6 +162,17 @@ describe("WorkspaceStrip", () => {
     expect(add.closest(".strip__marks")).toBeNull();
     act(() => add.click());
     expect(callbacks.onAdd).toHaveBeenCalledOnce();
+  });
+
+  it("opens the archived workspaces from a door at its foot, there only while any is archived", () => {
+    render();
+    expect(host.querySelector(".strip__archived")).toBeNull();
+    render({ view: { ...VIEW, archived: 3 } });
+    const door = present(host.querySelector<HTMLButtonElement>(".strip__archived"), "the archived door");
+    expect(door.textContent).toBe("3 archived");
+    expect(door.getAttribute("aria-label")).toBe("3 archived workspaces — open the Workspaces window");
+    act(() => door.click());
+    expect(callbacks.onOpenArchived).toHaveBeenCalledOnce();
   });
 
   it("signs the strip with the build, and stays silent without one", () => {
@@ -143,21 +200,13 @@ function pointerEvent(
 
 const MARK_HEIGHT = 50;
 
-function move<T extends { id: string }>(items: readonly T[], id: string, toIndex: number): T[] {
-  const next = items.slice();
-  const from = next.findIndex((item) => item.id === id);
-  const [moved] = next.splice(from, 1);
-  next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, moved);
-  return next;
-}
-
 function Harness() {
   const [marks, setMarks] = useState(VIEW.marks);
   return createElement(WorkspaceStrip, {
     view: { ...VIEW, marks },
     version: null,
     ...callbacks,
-    onReorder: (id: string, toIndex: number) => setMarks((current) => move(current, id, toIndex)),
+    onReorder: (id: string, place: WorkspacePlace) => setMarks((current) => moveWorkspace([...current], id, place)),
   });
 }
 
@@ -460,7 +509,8 @@ describe("WorkspaceStrip as the team switcher", () => {
       mark("b", "Beta", { teams: [team("t3", "hwc2", { dot: "waiting" })] }),
       mark("c", "Gamma"),
     ],
-    active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 },
+    active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } },
+  archived: 0,
   };
   const render = () =>
     act(() =>
@@ -490,7 +540,7 @@ describe("WorkspaceStrip as the team switcher", () => {
 
   beforeEach(() => {
     os.asks = 0;
-    for (const fn of Object.values(callbacks)) fn.mockClear();
+    for (const fn of [callbacks.onSelect, callbacks.onEnterTeam, callbacks.onAdd, callbacks.onReorder, callbacks.onOpenArchived, ...Object.values(callbacks.markActs)]) fn.mockClear();
     vi.useFakeTimers();
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -906,16 +956,16 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       mark("d", "Delta"),
     ]);
     return createElement(WorkspaceStrip, {
-      view: { marks, active: { id: "a", name: "Alpha", moveUpTo: null, moveDownTo: 1 } },
+      view: { marks, active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } }, archived: 0 },
       version: null,
       ...callbacks,
-      onReorder: (id: string, toIndex: number) => setMarks((current) => move(current, id, toIndex)),
+      onReorder: (id: string, place: WorkspacePlace) => setMarks((current) => moveWorkspace([...current], id, place)),
     });
   }
 
   beforeEach(() => {
     os.asks = 0;
-    for (const fn of Object.values(callbacks)) fn.mockClear();
+    for (const fn of [callbacks.onSelect, callbacks.onEnterTeam, callbacks.onAdd, callbacks.onReorder, callbacks.onOpenArchived, ...Object.values(callbacks.markActs)]) fn.mockClear();
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = function () {

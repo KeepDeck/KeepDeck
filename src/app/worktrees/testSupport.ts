@@ -22,6 +22,7 @@ const worktreeIpc = vi.hoisted(() => ({
   inspectRepo: vi.fn(),
   createWorktree: vi.fn(),
   removeWorktree: vi.fn(),
+  saveWorktreeHead: vi.fn(async (_repo: string, _path: string, name: string) => `refs/tags/${name}`),
 }));
 vi.mock("../../ipc/worktree", () => worktreeIpc);
 
@@ -96,7 +97,11 @@ export const provisionRequests = (count: number): ProvisionRequest[] =>
  * adapter matches a workspace's LIFETIME and documents that as load-bearing,
  * and the suites name one only where a lifetime matters. Left off an entry, it
  * follows [`ref`]'s default. The deck view names each workspace by its id. */
-export type DeckEntry = Omit<LiveWorkspace, "instance"> & { instance?: string };
+export type DeckEntry = Omit<LiveWorkspace, "instance" | "archived"> & {
+  instance?: string;
+  /** Absent: a workspace in use, as every suite but the archive's speaks. */
+  archived?: boolean;
+};
 
 const lifetimeOf = (ws: DeckEntry): string => ws.instance ?? `${ws.id}-life-1`;
 
@@ -122,8 +127,8 @@ export const stagedFor = (wsId: string) => ({
 export const stageAnswerFor = (wsId: string) => ({ view: stagedFor(wsId), trims: [] });
 
 /** The deck view over a suite's mutable array, through the PRODUCTION
- * projection — the lifetime match is load-bearing (ids are reusable,
- * instances are not) and a hand-copied one here meant a regression in the
+ * projection — the lifetime match is load-bearing (the instance names one
+ * lifetime) and a hand-copied one here meant a regression in the
  * real closure would have broken nothing that runs.
  *
  * Read through a thunk, never captured: every suite reassigns that array
@@ -152,6 +157,7 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
         name: `t${i}`,
         location: { kind: "attached" as const, cwd: root },
       })),
+      ...(ws.archived && { archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" as const } }),
     })),
   );
 }

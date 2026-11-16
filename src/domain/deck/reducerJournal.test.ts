@@ -164,23 +164,15 @@ describe("deckReducer journal", () => {
     });
   });
 
-  it("prunes crash-orphaned journal state before reusing an id", () => {
-    const closed = deckReducer(boundState(), {
-      type: "closeWorkspace",
-      id: "ws-1",
-      at: AT,
-    });
-    const stale: DeckState = {
-      ...closed,
-      journal: boundState().journal,
-      workspaces: [],
-    };
-    const recreated = deckReducer(stale, {
+  it("creates a workspace without touching the journal — a minted id is never one it knows", () => {
+    const bound = boundState();
+    const created = deckReducer(bound, {
       type: "createWorkspace",
-      workspace: journalWorkspace(),
+      workspace: { ...journalWorkspace(), id: "ws-a1b2c3d4", panes: [] },
       at: AT,
     });
-    expect(recreated.journal.records).toEqual({});
+    expect(created.workspaces.map((ws) => ws.id)).toContain("ws-a1b2c3d4");
+    expect(created.journal).toBe(bound.journal);
   });
 
   it("keeps the live journal during deck hydrate", () => {
@@ -195,7 +187,7 @@ describe("deckReducer journal", () => {
     expect(hydrated.journal).toBe(bound.journal);
   });
 
-  it("hydrates records only for live workspaces restored from disk", () => {
+  it("hydrates records only for live workspaces, pruning a gone one's", () => {
     const restored = deckReducer(boundState(), {
       type: "hydrate",
       state: state({
@@ -243,62 +235,6 @@ describe("deckReducer journal", () => {
     expect(
       hydrated.journal.records["ws-1"]?.map((record) => record.sessionId),
     ).toEqual(["keep-me"]);
-  });
-
-  it("does not attach dead history to a restored id closed and recreated early", () => {
-    const restored = deckReducer(initialDeckState, {
-      type: "hydrate",
-      state: state({
-        workspaces: [journalWorkspace()],
-        activeId: "ws-1",
-      }),
-    });
-    const closed = deckReducer(restored, {
-      type: "closeWorkspace",
-      id: "ws-1",
-      at: AT,
-    });
-    const recreated = deckReducer(closed, {
-      type: "createWorkspace",
-      workspace: journalWorkspace(),
-      at: AT,
-    });
-    const hydrated = deckReducer(recreated, {
-      type: "hydrateJournal",
-      records: { "ws-1": [closedRecord("dead-history")] },
-      at: AT,
-    });
-    expect(hydrated.journal.records).toEqual({});
-  });
-
-  it("does not attach crash-orphaned history to a workspace created this run", () => {
-    const empty = deckReducer(initialDeckState, {
-      type: "hydrate",
-      state: state({ workspaces: [], activeId: "" }),
-    });
-    const recreated = deckReducer(empty, {
-      type: "createWorkspace",
-      workspace: journalWorkspace(),
-      at: AT,
-    });
-    const hydrated = deckReducer(recreated, {
-      type: "hydrateJournal",
-      records: {
-        "ws-1": [
-          {
-            ...closedRecord("phantom"),
-            cwd: "/somewhere/else",
-          },
-        ],
-      },
-      at: AT,
-    });
-    expect(hydrated.journal.records).toEqual({});
-    expect(
-      hydrated.journal.tail.some(
-        (event) => event.e === "wsDeleted" && event.wsId === "ws-1",
-      ),
-    ).toBe(true);
   });
 
   it("flushes the journal outbox", () => {

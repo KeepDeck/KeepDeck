@@ -8,12 +8,32 @@ import {
   type AgentDown,
   type AgentReach,
   type Team,
+  type WorkspacePatch,
+  type WorkspaceUpdateRefusal,
 } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
 import { teamOf } from "../../domain/mail";
-import { requiredStr } from "./args";
+import { rawStr, requiredStr } from "./args";
 import type { CoreCommandDeps } from ".";
-import { targetWorkspace } from "./targets";
+import { targetWorkspace, workspaceArchivedMessage } from "./targets";
+
+/** A refused edit in a command's words. The domain decided the refusal; the
+ * Workspaces window words the same kinds its own way. A directory is never
+ * this command's to change, so its refusals never come here. */
+function updateRefusalText(refusal: WorkspaceUpdateRefusal, name: string): string {
+  switch (refusal.kind) {
+    case "unknown-workspace":
+      return "the workspace is gone";
+    case "archived":
+      return workspaceArchivedMessage({ name });
+    case "mark-too-long":
+      return 'argument "mark" holds at most two characters';
+    case "blank-cwd":
+    case "relative-cwd":
+    case "cwd-not-empty":
+      return "the working directory is not this command's to change";
+  }
+}
 
 /** What the roster says a pane's agent is doing: the turn status while its
  * agent runs, and why not when it does not — `starting` on its way up by
@@ -54,7 +74,7 @@ export function registerWorkspaceCommands(
       // to correct a stuck teammate had this answer in front of it and was
       // never told the field was there.
       title:
-        "List workspaces, their teams and agents. Each agent's `activity` is what it is doing now: `working` (a turn is running, `since` when), `waiting` (on its user — a permission or a question), `done` (its last turn ended; `interrupted` if cut short), `failed` (its last turn died on an API error), `started` or `ready` (up, no turn yet), `starting`, or why its agent is not running (`suspended`, `exited`, …) — mail to it is then refused. Null: running, with no status to report. `team.role` is its address on its team",
+        "List workspaces, their teams and agents. Each agent's `activity` is what it is doing now: `working` (a turn is running, `since` when), `waiting` (on its user — a permission or a question), `done` (its last turn ended; `interrupted` if cut short), `failed` (its last turn died on an API error), `started` or `ready` (up, no turn yet), `starting`, or why its agent is not running (`suspended`, `exited`, `workspace-archived`, …) — mail to it is then refused. Null: running, with no status to report. `team.role` is its address on its team. `archived`: the workspace is put away — nothing in it runs, and only the user can restore it",
       args: [],
       run: () => {
         const deck = deps.deck();
@@ -64,6 +84,7 @@ export function registerWorkspaceCommands(
           name: ws.name,
           cwd: ws.cwd,
           active: ws.id === deck.activeId,
+          archived: ws.archived !== undefined,
           // The teams and where each runs — the ONE place a directory is
           // answered. A pane runs where its team runs, and saying so again
           // per member answered twice, and differently while a worktree
@@ -120,6 +141,61 @@ export function registerWorkspaceCommands(
         const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
         deck.selectWorkspace(ws.id);
         return { workspaceId: ws.id };
+      },
+    }),
+    registry.register({
+      id: "workspace.update",
+      // The directory is not offered: moving a workspace is the person's, in
+      // the Workspaces window, where nothing else can be open against it.
+      title: "Change a workspace's name, its mark's letters, or the folder its new teams' worktrees go under",
+      args: [
+        {
+          name: "workspace",
+          type: "string",
+          description: "Workspace name or id; omit it for the active workspace",
+        },
+        { name: "name", type: "string", description: "New name; blank resets it to its folder's name" },
+        {
+          name: "mark",
+          type: "string",
+          description: "One or two characters for its mark in the strip; blank goes back to letters from the name",
+        },
+        {
+          name: "worktreeBaseDir",
+          type: "string",
+          description: "Folder new team worktrees are suggested under; blank clears it",
+        },
+      ],
+      run: (args) => {
+        const deck = deps.deck();
+        // Present-but-blank is refused, not read as "omitted": targetWorkspace
+        // answers an omitted one with the ACTIVE workspace, and a caller that
+        // sent a blank name must not edit a workspace it never named.
+        const named = rawStr(args, "workspace");
+        const ws = targetWorkspace(deck, named === undefined ? undefined : requiredStr(args, "workspace"));
+        // Verbatim, and absent only when not sent: blank means something for
+        // each of these, and the domain is what says what.
+        const patch: WorkspacePatch = {};
+        const name = rawStr(args, "name");
+        const mark = rawStr(args, "mark");
+        const worktreeBaseDir = rawStr(args, "worktreeBaseDir");
+        if (name !== undefined) patch.name = name;
+        if (mark !== undefined) patch.mark = mark;
+        if (worktreeBaseDir !== undefined) patch.worktreeBaseDir = worktreeBaseDir;
+        if (Object.keys(patch).length === 0) {
+          throw new Error("nothing to change — pass name, mark or worktreeBaseDir");
+        }
+        const result = deck.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
+        if (!result.ok) throw new Error(updateRefusalText(result.refusal, ws.name));
+        const updated = result.workspaces.find((candidate) => candidate.instance === ws.instance);
+        if (!updated) throw new Error("the workspace is gone");
+        return {
+          workspaceId: updated.id,
+          name: updated.name,
+          // Null: its letters come from the name.
+          mark: updated.mark ?? null,
+          worktreeBaseDir: updated.worktreeBaseDir,
+        };
       },
     }),
   ];

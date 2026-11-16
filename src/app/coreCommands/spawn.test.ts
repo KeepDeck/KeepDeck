@@ -17,6 +17,7 @@ import {
   paneProvisioning,
 } from "../../domain/deck";
 import { deliverTask } from "./deliverTask";
+import { workspaceArchivedMessage } from "./targets";
 import { registerPaneInput } from "../paneInput";
 import { recordOf, stringOf } from "../../testing/values.test-support";
 
@@ -190,6 +191,35 @@ describe("agent.spawn", () => {
     }
     expect(createPane).not.toHaveBeenCalled();
     expect(deck.workspaces[0].panes).toHaveLength(1);
+  });
+
+  it("refuses to spawn into an archived workspace, and names it", async () => {
+    const { registry, createPane } = setup([
+      workspace({ archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" } }),
+    ]);
+    const result = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
+    expect(result).toEqual({ ok: false, error: { code: "failed", message: workspaceArchivedMessage({ name: "web" }) } });
+    expect(createPane).not.toHaveBeenCalled();
+  });
+
+  it("refuses a spawn whose workspace was archived while it waited", async () => {
+    let finishInspect!: (value: { isRepo: boolean; head: string; branch: string }) => void;
+    repoMode.inspect = () =>
+      new Promise((resolve) => {
+        finishInspect = resolve;
+      });
+    const workspaces = [workspace({})];
+    const { registry, createPane } = setup(workspaces);
+
+    const pending = registry.execute("agent.spawn", { role: "lead", workspace: "web", agentType: "codex" }, HOST);
+    workspaces[0] = { ...workspaces[0], archived: { at: "2026-11-16T00:00:00.000Z", phase: "archiving" } };
+    finishInspect({ isRepo: false, head: "abc", branch: "main" });
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      error: { code: "failed", message: workspaceArchivedMessage({ name: "web" }) },
+    });
+    expect(createPane).not.toHaveBeenCalled();
   });
 
   it("does not attach a delayed spawn to a replacement with the same id", async () => {

@@ -19,8 +19,6 @@ import {
 } from "../../domain/deck";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 
-export type CarrierNote = { kind: "background" } | { kind: "unknown" };
-
 /** A team's worktree, as a close could take it: the directories that
  * exist, snapshotted — and probed for existence — at open time, and
  * whether the team's create is still genuinely OUT. A team mid-create has

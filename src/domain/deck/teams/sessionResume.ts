@@ -1,6 +1,6 @@
 import type { ResumeBlock } from "../../agents";
 import { journalRows, type JournalRecords, type SessionRecord } from "../../journal";
-import { normalizePath } from "./lifecycle";
+import { normalizePath } from "./claims";
 
 /** What is known about a session when somebody asks to resume it. */
 export interface ResumeFacts {

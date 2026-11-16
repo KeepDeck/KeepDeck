@@ -25,7 +25,6 @@ import type {
   Pane,
   SpawnConfig,
   SpawnPluginAccess,
-  WorkspaceCreationResult,
 } from "./testSupport";
 import type { TeamLocation, Workspace } from "../../domain/deck";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -258,7 +257,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     // The auto branch name's workspace half is not on the card: the landing
     // reads it from the workspace the pane lands in, at that moment.
     act(() => deck.hydrate(seed()));
-    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-1"), "ws-1"), { name: "renamed" }));
     await act(async () => {
       agentRun.createPane({
         role: "lead",
@@ -527,44 +526,39 @@ describe("agent orchestrator —a new workspace", () => {
   });
 
   const create = (over: Partial<SpawnConfig> = {}) => {
-    let result!: WorkspaceCreationResult;
+    let created!: Workspace;
     act(() => {
-      result = agentRun.createWorkspace(config(over));
+      created = agentRun.createWorkspace(config(over));
     });
-    return result;
+    return created;
   };
+  const TOKEN_ID = /^ws-[0-9a-f]{8}$/;
 
-  it("reuses the highest sequence after its workspace is deleted", () => {
-    create();
-    create();
-    create();
-    expect(deck.workspaces.map((ws) => [ws.id, ws.name])).toEqual([
-      ["ws-1", "workspace-1"],
-      ["ws-2", "workspace-2"],
-      ["ws-3", "workspace-3"],
-    ]);
-
-    const oldInstance = deck.workspaces[2].instance;
-    act(() => deck.closeWorkspace("ws-3"));
-    create();
-
-    expect(deck.workspaces.map((ws) => [ws.id, ws.name])).toEqual([
-      ["ws-1", "workspace-1"],
-      ["ws-2", "workspace-2"],
-      ["ws-3", "workspace-3"],
-    ]);
-    expect(deck.workspaces[2].instance).not.toBe(oldInstance);
+  it("mints a token id and names a blank-named workspace after its folder", () => {
+    const created = create({ cwd: "/tmp/x/promo" });
+    expect(created.id).toMatch(TOKEN_ID);
+    expect(created.name).toBe("promo");
+    expect(deck.workspaces).toEqual([created]);
   });
 
-  it("keeps advancing past the maximum when only an interior id is deleted", () => {
-    create();
-    create();
-    create();
+  it("applies the domain's blank-field rules at birth: a padded name trimmed, a blank folder none", () => {
+    expect(create({ name: "  Web  ", worktreeBaseDir: "  /base/wt " })).toMatchObject({ name: "Web", worktreeBaseDir: "/base/wt" });
+    expect(create({ name: "   ", cwd: "/tmp/promo", worktreeBaseDir: "   " })).toMatchObject({
+      name: "promo",
+      worktreeBaseDir: null,
+    });
+  });
 
-    act(() => deck.closeWorkspace("ws-2"));
+  it("never hands a closed workspace's id to a new one", () => {
     create();
+    create();
+    const closed = create();
+    act(() => deck.closeWorkspace(closed.id));
+    const next = create();
 
-    expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-3", "ws-4"]);
+    expect(next.id).toMatch(TOKEN_ID);
+    expect(next.id).not.toBe(closed.id);
+    expect(new Set(deck.workspaces.map((ws) => ws.id)).size).toBe(3);
   });
 
   it("allocates distinct ids to creates queued in the same React batch", () => {
@@ -573,46 +567,33 @@ describe("agent orchestrator —a new workspace", () => {
       agentRun.createWorkspace(config());
     });
 
-    expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-2"]);
+    const ids = deck.workspaces.map((ws) => ws.id);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
   });
 
-  it("can release and reuse the maximum inside one React batch", () => {
-    create();
-    create();
-    create();
-
-    act(() => {
-      deck.closeWorkspace("ws-3");
-      agentRun.createWorkspace(config());
+  it("keeps an older deck's ws-N ids and mints a token beside them", () => {
+    const old = (id: string) => ({
+      id,
+      instance: createWorkspaceInstance(),
+      name: id,
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [],
     });
-
-    expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-2", "ws-3"]);
-  });
-
-  it("does not start a create when the numeric namespace is exhausted", () => {
-    const maxId = `ws-${Number.MAX_SAFE_INTEGER}`;
     act(() =>
       deck.hydrate({
-        workspaces: [
-          {
-            id: maxId,
-            instance: createWorkspaceInstance(),
-            name: "maximum",
-            cwd: "/repo",
-            worktreeBaseDir: null,
-            panes: [],
-          },
-        ],
-        activeId: maxId,
+        workspaces: [old("ws-1"), old("ws-2")],
+        activeId: "ws-1",
         journal: emptyJournal,
         viewByWs: {},
       }),
     );
 
-    const result = create();
+    const created = create();
 
-    expect(deck.workspaces.map((ws) => ws.id)).toEqual([maxId]);
-    expect(result).toEqual({ ok: false, reason: "sequence-exhausted" });
+    expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-2", created.id]);
+    expect(created.id).toMatch(TOKEN_ID);
     expect(provisions).toEqual([]);
   });
 
@@ -691,7 +672,7 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     // into it (as every intent once carried) would have named the branch
     // after a workspace that no longer exists by that name.
     failedCard({ path: "/repo-wt/x" });
-    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-1"), "ws-1"), { name: "renamed" }));
     act(() => agentRun.retryProvisioning("ws-1", "team-1"));
     expect(provisionedAs).toEqual(["renamed"]);
   });

@@ -602,7 +602,9 @@ fn release_exclusion(base: &Path, segment: &str, remaining: &[&ArmRecord]) {
 
 /// Take back what was planted in `roots`, except in a root one of `live` still
 /// is, however either is spelled — the last guard under the host's. Returns
-/// the roots released, spelled as asked.
+/// the roots released, spelled as asked — or an error naming the plantings
+/// that could not be taken back, whose records stay in the ledger so the next
+/// disarm or prune tries them again.
 fn disarm(root: &Path, roots: &[String], live: &[String]) -> io::Result<Vec<String>> {
     let _guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let live: BTreeSet<String> = live.iter().map(|r| canonical(r)).collect();
@@ -623,12 +625,19 @@ fn disarm(root: &Path, roots: &[String], live: &[String]) -> io::Result<Vec<Stri
         .iter()
         .flat_map(|(_, records)| records.iter().cloned())
         .partition(|r| gone_roots.contains(&r.cwd));
-    let result = take_back_all(&gone, &kept);
+    let failed = take_back_all(&gone, &kept);
     for (ws, records) in ledger.records {
-        let left: Vec<ArmRecord> = records.into_iter().filter(|r| !gone_roots.contains(&r.cwd)).collect();
+        let left: Vec<ArmRecord> = records
+            .into_iter()
+            .filter(|r| !gone_roots.contains(&r.cwd) || failed_at(&failed, r))
+            .collect();
         write_records(root, &ws, &left)?;
     }
-    result.map(|()| released)
+    if failed.is_empty() {
+        Ok(released)
+    } else {
+        Err(io::Error::other(format!("could not take back {}", plantings(&failed))))
+    }
 }
 
 /// Dead workspaces' plantings go, except what a live one still records. A
@@ -650,21 +659,40 @@ fn prune(root: &Path, live: &[String]) -> io::Result<()> {
     let (dead, alive): (Vec<_>, Vec<_>) = ledger.records.into_iter().partition(|(ws, _)| !live.contains(ws));
     let gone: Vec<ArmRecord> = dead.iter().flat_map(|(_, r)| r.iter().cloned()).collect();
     let kept: Vec<ArmRecord> = alive.into_iter().flat_map(|(_, r)| r).collect();
-    if let Err(e) = take_back_all(&gone, &kept) {
-        log::warn!("cwd arming: sweeping dead workspaces failed: {e}");
+    let failed = take_back_all(&gone, &kept);
+    if !failed.is_empty() {
+        log::warn!("cwd arming: sweeping dead workspaces left {}", plantings(&failed));
     }
-    for (ws, _) in &dead {
-        let _ = fs::remove_file(manifest(root, ws));
+    // A dead workspace's manifest goes once nothing it recorded is left on
+    // disk; what could not be taken back stays recorded, for the next prune.
+    for (ws, records) in &dead {
+        let left: Vec<ArmRecord> = records.iter().filter(|r| failed_at(&failed, r)).cloned().collect();
+        if left.is_empty() {
+            let _ = fs::remove_file(manifest(root, ws));
+        } else {
+            write_records(root, ws, &left)?;
+        }
     }
     Ok(())
 }
 
+/// Whether `record` names a planting `failed` could not take back.
+fn failed_at(failed: &[ArmRecord], record: &ArmRecord) -> bool {
+    failed.iter().any(|f| f.at(&record.cwd, &record.path))
+}
+
+/// The plantings in `records`, for a message: `cwd/path`, comma-separated.
+fn plantings(records: &[ArmRecord]) -> String {
+    records.iter().map(|r| format!("{}/{}", r.cwd, r.path)).collect::<Vec<_>>().join(", ")
+}
+
 /// Take back every planting in `gone` that no `kept` record shares, each path
 /// once — and in an order that leaves a marker or an exclude line in place
-/// until the last of what it covers has gone. Best-effort per planting: the
-/// first failure is returned once the rest were tried.
-fn take_back_all(gone: &[ArmRecord], kept: &[ArmRecord]) -> io::Result<()> {
-    let mut failure = Ok(());
+/// until the last of what it covers has gone. Best-effort per planting: every
+/// one is tried, and the records of those that could not be taken back are
+/// returned — the ledger keeps them, so nothing on disk loses its owner.
+fn take_back_all(gone: &[ArmRecord], kept: &[ArmRecord]) -> Vec<ArmRecord> {
+    let mut failed: Vec<ArmRecord> = Vec::new();
     for (index, record) in gone.iter().enumerate() {
         let shared = kept.iter().any(|r| r.at(&record.cwd, &record.path));
         let already = gone[..index].iter().any(|r| r.at(&record.cwd, &record.path));
@@ -677,12 +705,10 @@ fn take_back_all(gone: &[ArmRecord], kept: &[ArmRecord]) -> io::Result<()> {
             .collect();
         if let Err(e) = take_back(record, &rest) {
             log::warn!("cwd arming: taking back {}/{} failed: {e}", record.cwd, record.path);
-            if failure.is_ok() {
-                failure = Err(e);
-            }
+            failed.push(record.clone());
         }
     }
-    failure
+    failed
 }
 
 /// A relative path's parts, or None when it is empty, absolute, or leaves
@@ -1018,6 +1044,53 @@ mod tests {
         assert!(!s.cwd.join(".agent-conf").exists());
         assert!(!s.cwd.join(".agents").exists());
         assert!(s.skills.exists(), "a link goes as a link");
+        assert!(!manifest(&s.root, "ws-1").exists());
+    }
+
+    /// Make a planted directory refuse removals of its entries, so a take-back
+    /// in it fails the way a busy or locked file would.
+    fn lock_dir(dir: &Path, locked: bool) {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(if locked { 0o555 } else { 0o755 })).unwrap();
+    }
+
+    fn recorded_paths(root: &Path, ws: &str) -> Vec<String> {
+        let ledger = all_records(root).unwrap();
+        ledger.records.into_iter().filter(|(w, _)| w == ws).flat_map(|(_, r)| r).map(|r| r.path).collect()
+    }
+
+    #[test]
+    fn disarm_keeps_the_record_of_a_planting_it_could_not_take_back_and_retries_it() {
+        let s = scratch();
+        s.arm("p.filer", "ws-1", &[file(".agent-conf/mcp.json", "{}")]);
+        s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
+        let conf = s.cwd.join(".agent-conf");
+        lock_dir(&conf, true);
+        let err = disarm(&s.root, &[s.cwd()], &[]).unwrap_err();
+        lock_dir(&conf, false);
+        assert!(err.to_string().contains(".agent-conf/mcp.json"), "{err}");
+        // What went is forgotten; what stayed on disk keeps its record.
+        assert!(!s.cwd.join(".agents").exists());
+        assert!(s.cwd.join(".agent-conf/mcp.json").exists());
+        assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".agent-conf/mcp.json"]);
+        // The next disarm finds it and finishes the job.
+        assert_eq!(s.disarm(), vec![s.cwd()]);
+        assert!(!s.cwd.join(".agent-conf").exists());
+        assert!(!manifest(&s.root, "ws-1").exists());
+    }
+
+    #[test]
+    fn prune_keeps_a_dead_workspaces_record_while_its_planting_remains() {
+        let s = scratch();
+        s.arm("p.filer", "ws-1", &[file(".agent-conf/mcp.json", "{}")]);
+        let conf = s.cwd.join(".agent-conf");
+        lock_dir(&conf, true);
+        prune(&s.root, &[]).unwrap();
+        lock_dir(&conf, false);
+        assert!(s.cwd.join(".agent-conf/mcp.json").exists());
+        assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".agent-conf/mcp.json"]);
+        prune(&s.root, &[]).unwrap();
+        assert!(!s.cwd.join(".agent-conf").exists());
         assert!(!manifest(&s.root, "ws-1").exists());
     }
 

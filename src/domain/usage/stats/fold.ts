@@ -18,8 +18,9 @@ export function rowsIn(rows: readonly UsageRow[], span: Span): UsageRow[] {
 }
 
 /** The rows of one workspace, by name — the reader's scope; null keeps
- * every workspace. By name, as the workspace dimension keys: a workspace id
- * is a reusable slot, the name is what the reader picked. */
+ * every workspace. By name, as the workspace dimension keys: the rows reach
+ * back to decks whose ws-N ids were reused slots, and the name is what the
+ * reader picked. */
 export function rowsOf(rows: readonly UsageRow[], workspace: string | null): readonly UsageRow[] {
   return workspace === null ? rows : rows.filter((row) => row.workspaceName === workspace);
 }

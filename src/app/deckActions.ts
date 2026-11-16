@@ -3,16 +3,22 @@ import {
   findTeam,
   findWorkspace,
   paneFrozenTitle,
+  updateWorkspace,
+  type ArchiveWarnings,
   type DeckState,
   type Pane,
   type PaneSession,
   type Team,
   type TeamLocation,
   type Workspace,
+  type WorkspacePatch,
+  type WorkspacePlace,
+  type WorkspaceUpdateResult,
 } from "../domain/deck";
+import type { WorkspaceRef } from "../domain/workspaceInstance";
 import type { JournalRecords } from "../domain/journal";
 import type { DeckStore } from "./deckStore";
-import { mintWorkspaceSeq } from "./ids";
+import { mintWorkspaceId } from "./ids";
 
 /**
  * Every transition the app can ask of the deck, bound to one store.
@@ -29,10 +35,6 @@ import { mintWorkspaceSeq } from "./ids";
  * batching buffer — two sets would silently be two behaviours.
  */
 export type DeckActions = ReturnType<typeof buildDeckActions>;
-
-export type WorkspaceCreationResult =
-  | { ok: true; workspace: Workspace }
-  | { ok: false; reason: "sequence-exhausted" | "duplicate-id" };
 
 /** Journal events carry wall-clock stamps; the reducer stays deterministic by
  * taking them from the action, minted here at the dispatch boundary. */
@@ -67,35 +69,40 @@ function buildDeckActions(store: DeckStore) {
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
     createWorkspace: (workspace: Workspace) =>
       dispatch({ type: "createWorkspace", workspace, at: nowIso() }),
-    /** Build and insert a workspace against the latest deck snapshot.
-     * Allocation and insertion are one synchronous state-owner operation, so
-     * two creates in one React batch cannot observe or append the same id. */
-    createWorkspaceFromSequence: (
-      build: (sequence: number) => Workspace,
-    ): WorkspaceCreationResult => {
-      const sequence = mintWorkspaceSeq(
-        store.getSnapshot().workspaces.map((workspace) => workspace.id),
-      );
-      if (sequence === null) {
-        return { ok: false, reason: "sequence-exhausted" };
-      }
-      const workspace = build(sequence);
+    /** Mint an id, build the workspace with it, and insert it — against
+     * the latest deck snapshot, in one synchronous state-owner operation, so
+     * two creates in one React batch cannot observe or append the same id.
+     * The id is drawn against every id that snapshot holds, so the insert
+     * cannot be refused; one that is anyway is a broken invariant, thrown. */
+    createWorkspaceWithMintedId: (build: (id: string) => Workspace): Workspace => {
       const before = store.getSnapshot();
+      const workspace = build(mintWorkspaceId(new Set(before.workspaces.map((ws) => ws.id))));
       const next = dispatch({ type: "createWorkspace", workspace, at: nowIso() });
-      return next === before
-        ? { ok: false, reason: "duplicate-id" }
-        : { ok: true, workspace };
+      if (next === before) throw new Error(`workspace ${workspace.id} was not inserted`);
+      return workspace;
     },
     addAgentPane: (id: string, pane: Pane) =>
       dispatch({ type: "addAgentPane", id, pane }),
-    renameWorkspace: (id: string, name: string) =>
-      dispatch({ type: "renameWorkspace", id, name }),
-    moveWorkspace: (id: string, toIndex: number) =>
-      dispatch({ type: "moveWorkspace", id, toIndex }),
+    /** Edit one workspace lifetime's own fields. The domain answers first,
+     * against the same snapshot the dispatch lands on, so a refusal reaches
+     * the caller as a reason instead of vanishing in a no-op dispatch; on
+     * success the answer is the array the store holds. */
+    updateWorkspace: (ref: WorkspaceRef, patch: WorkspacePatch): WorkspaceUpdateResult => {
+      const verdict = updateWorkspace(store.getSnapshot().workspaces, ref, patch);
+      if (!verdict.ok) return verdict;
+      return { ok: true, workspaces: dispatch({ type: "updateWorkspace", ref, patch }).workspaces };
+    },
+    moveWorkspace: (id: string, place: WorkspacePlace) =>
+      dispatch({ type: "moveWorkspace", id, place }),
     closeAgent: (wsId: string, paneId: string) =>
       dispatch({ type: "closeAgent", wsId, paneId, at: nowIso(), ...sealTitle(wsId, paneId) }),
     closeWorkspace: (id: string) =>
       dispatch({ type: "closeWorkspace", id, at: nowIso() }),
+    archiveWorkspace: (id: string) =>
+      dispatch({ type: "archiveWorkspace", id, at: nowIso() }),
+    settleArchive: (id: string, warnings: ArchiveWarnings) =>
+      dispatch({ type: "settleArchive", id, warnings }),
+    restoreWorkspace: (id: string) => dispatch({ type: "restoreWorkspace", id }),
     toggleFocus: (wsId: string, paneId: string) =>
       dispatch({ type: "toggleFocus", wsId, paneId }),
     toggleMinimize: (wsId: string, paneId: string) =>
@@ -128,14 +135,10 @@ function buildDeckActions(store: DeckStore) {
     hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
     clearPaneIdle: (wsId: string, paneId: string) =>
       dispatch({ type: "clearPaneIdle", wsId, paneId }),
-    suspendPane: (wsId: string, paneId: string, moveToTray = false) =>
-      dispatch({
-        type: "suspendPane",
-        wsId,
-        paneId,
-        at: nowIso(),
-        moveToTray,
-      }),
+    suspendPane: (wsId: string, paneId: string) =>
+      dispatch({ type: "suspendPane", wsId, paneId, at: nowIso() }),
+    moveSuspendedToTray: (wsId: string, paneId: string) =>
+      dispatch({ type: "moveSuspendedToTray", wsId, paneId }),
     requestPaneWake: (wsId: string, paneId: string) =>
       dispatch({ type: "requestPaneWake", wsId, paneId }),
     failPaneWake: (wsId: string, paneId: string) =>
