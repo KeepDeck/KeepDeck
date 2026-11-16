@@ -6,13 +6,18 @@
 //! The PLUGIN says what is planted; this engine owns everything that makes
 //! planting in a user's directory safe, the same for every agent:
 //!
-//! - nothing of the user's is ever written over or removed. An entry already
-//!   at a path is ours only when this plugin's record names it: a file only
-//!   beside our `.keepdeck-managed` marker too, a symlink only while it still
-//!   points where we made it point. A marker or a matching target alone
-//!   proves nothing — the user may keep a file beside our marker, or a link
-//!   to the very same place. A parent on the way that is a file or a link is
-//!   the user's, and nothing is written through it;
+//! - nothing of the user's is ever written over or removed. A file already at
+//!   a path is ours only when this plugin's record names it AND our
+//!   `.keepdeck-managed` marker stands beside it — a marker alone proves
+//!   nothing, the user may keep a file beside it. A symlink where a plugin
+//!   declares a link is replaced, whatever it points at: removing a link
+//!   removes nothing of what it points to, and a link no record names is one
+//!   KeepDeck can no longer prove it made (its workspace deleted since,
+//!   another KeepDeck home's) — refusing it kept a pane on someone else's view
+//!   for good. A directory or a file where a link is declared is the user's.
+//!   Taking back is narrower: a link goes only while it still points where we
+//!   made it point. A parent on the way that is a file or a link is the
+//!   user's, and nothing is written through it;
 //! - a symlink may only point at something that exists inside the plugin's
 //!   own workspace directory or the skills directory handed to this plan —
 //!   judged, and made, on the real location;
@@ -434,7 +439,7 @@ fn link_target(target: &str, allowed: &[PathBuf]) -> Option<String> {
 
 /// Plant one admitted arm. `Ok(Err(reason))` deliberately left it alone and
 /// says why. `recorded` is what the manifests said before this pass — the
-/// only proof an entry already there is ours.
+/// only proof a file already there is ours.
 fn plant<'a>(
     cwd: &str,
     arm: &CwdArm,
@@ -460,24 +465,19 @@ fn plant<'a>(
             _ => {}
         }
     }
-    let ours = |kind: ArmKind, target: Option<&Path>| {
-        recorded.clone().any(|r| {
-            r.at(cwd, path)
-                && r.plugin == record.plugin
-                && r.kind == kind
-                && target.is_none_or(|t| r.target.as_deref().map(Path::new) == Some(t))
-        })
-    };
     let full = base.join(path);
     match arm {
         CwdArm::File { content, .. } => {
             let dir = full.parent().unwrap_or(base).to_path_buf();
             let marker = dir.join(MARKER_FILE);
+            let recorded_ours = recorded
+                .clone()
+                .any(|r| r.at(cwd, path) && r.plugin == record.plugin && r.kind == ArmKind::File);
             match fs::symlink_metadata(&full) {
                 Ok(meta) if !meta.file_type().is_file() => {
                     return Ok(Err(format!("{path} here is not KeepDeck's")));
                 }
-                Ok(_) if !marker.exists() || !ours(ArmKind::File, None) => {
+                Ok(_) if !marker.exists() || !recorded_ours => {
                     return Ok(Err(format!("{path} here is not KeepDeck's")));
                 }
                 Ok(_) => {}
@@ -500,16 +500,9 @@ fn plant<'a>(
         CwdArm::Symlink { .. } => {
             let target = Path::new(record.target.as_deref().unwrap_or_default());
             match fs::symlink_metadata(&full) {
+                // Any link here gives way to ours (see the module doc).
                 Ok(meta) if meta.file_type().is_symlink() => {
-                    let current = fs::read_link(&full)?;
-                    if !ours(ArmKind::Symlink, Some(&current)) {
-                        return Ok(Err(if current == target {
-                            format!("{path} is your own — nothing was planted")
-                        } else {
-                            format!("{path} points somewhere else — it is not ours to replace")
-                        }));
-                    }
-                    if current != target {
+                    if fs::read_link(&full)? != target {
                         fs::remove_file(&full)?;
                         symlink_dir(target, &full)?;
                     }
@@ -918,29 +911,85 @@ mod tests {
     }
 
     #[test]
-    fn a_link_or_directory_of_the_users_stays_as_it_is() {
+    fn a_directory_of_the_users_stays_as_it_is() {
         let s = scratch();
-        fs::create_dir_all(s.cwd.join(".agents/skills")).unwrap();
-        let theirs = s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
-        assert_eq!(theirs.refused[0].reason, ".agents/skills is your own — nothing was planted");
-        fs::remove_dir(s.cwd.join(".agents/skills")).unwrap();
-        let elsewhere = s.base.join("theirs");
-        fs::create_dir_all(&elsewhere).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, s.cwd.join(".agents/skills")).unwrap();
-        let foreign = s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
-        assert_eq!(foreign.refused[0].reason, ".agents/skills points somewhere else — it is not ours to replace");
-        assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), elsewhere);
+        fs::create_dir_all(s.cwd.join(".agents/skills/theirs")).unwrap();
+        let report = s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
+        assert_eq!(report.refused[0].reason, ".agents/skills is your own — nothing was planted");
+        assert!(s.cwd.join(".agents/skills/theirs").is_dir());
+        s.disarm();
+        assert!(s.cwd.join(".agents/skills/theirs").is_dir());
     }
 
     #[test]
-    fn a_users_link_to_the_very_same_place_is_still_theirs() {
+    fn a_link_no_record_names_gives_way_to_ours_and_its_target_is_left_whole() {
+        // Another KeepDeck home's view: the codex pane read that home's
+        // skills, refused on every launch, until the user deleted the folder.
+        let s = scratch();
+        let foreign = s.base.join("home-dev/skills/staging/ws-1/skills");
+        fs::create_dir_all(foreign.join("only-one")).unwrap();
+        fs::create_dir_all(s.cwd.join(".agents")).unwrap();
+        std::os::unix::fs::symlink(&foreign, s.cwd.join(".agents/skills")).unwrap();
+
+        let report = s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
+        assert_eq!(report.armed, vec![".agents/skills"]);
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), s.skills);
+        assert!(foreign.join("only-one").is_dir(), "removing a link removed nothing it pointed to");
+        assert!(read_records(&s.root, "ws-1").unwrap().iter().any(|r| r.path == ".agents/skills"));
+    }
+
+    #[test]
+    fn a_dangling_link_gives_way_to_ours() {
+        let s = scratch();
+        fs::create_dir_all(s.cwd.join(".agents")).unwrap();
+        std::os::unix::fs::symlink(s.base.join("gone"), s.cwd.join(".agents/skills")).unwrap();
+        let report = s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
+        assert_eq!(report.armed, vec![".agents/skills"]);
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), s.skills);
+    }
+
+    #[test]
+    fn a_link_left_by_a_deleted_workspace_in_a_shared_folder_gives_way_to_ours() {
+        // Two workspaces on one folder; the one whose view the link pointed at
+        // is deleted. The sweep keeps the link (the other still records the
+        // path) while its view goes, and the survivor's next launch used to
+        // be refused for good.
+        let s = scratch();
+        let survivor = s.base.join("home/skills/staging/ws-2/skills");
+        fs::create_dir_all(&survivor).unwrap();
+        let arm_as = |ws: &str, target: &Path| {
+            let allowed = vec![s.plugin_dir.clone(), target.to_path_buf()];
+            arm(&s.root, "p.linker", ws, &s.cwd(), &[link(".agents/skills", target)], &allowed)
+        };
+        arm_as("ws-2", &survivor);
+        arm_as("ws-1", &s.skills);
+        prune(&s.root, &["ws-2".into()]).unwrap();
+        fs::remove_dir_all(s.base.join("home/skills/staging/ws-1")).unwrap();
+        assert!(!s.cwd.join(".agents/skills").exists(), "the link dangles");
+
+        let report = arm_as("ws-2", &survivor);
+        assert_eq!(report.armed, vec![".agents/skills"]);
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), survivor);
+        assert!(read_records(&s.root, "ws-2").unwrap().iter().any(|r| r.path == ".agents/skills"));
+    }
+
+    #[test]
+    fn a_link_already_pointing_where_ours_would_is_kept_and_taken_back_as_ours() {
         let s = scratch();
         fs::create_dir_all(s.cwd.join(".agents")).unwrap();
         std::os::unix::fs::symlink(&s.skills, s.cwd.join(".agents/skills")).unwrap();
         let report = s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
-        assert_eq!(report.refused[0].reason, ".agents/skills is your own — nothing was planted");
+        assert_eq!(report.armed, vec![".agents/skills"]);
         s.disarm();
-        assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), s.skills);
+        assert!(fs::symlink_metadata(s.cwd.join(".agents/skills")).is_err());
+    }
+
+    #[test]
+    fn another_agents_link_is_not_replaced() {
+        let s = scratch();
+        s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
+        let other = s.arm("p.other", "ws-2", &[link(".agents/skills", &s.skills)]);
+        assert_eq!(other.refused[0].reason, ".agents/skills is planted here by another agent");
     }
 
     #[test]
