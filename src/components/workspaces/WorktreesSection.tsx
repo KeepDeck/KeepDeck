@@ -6,6 +6,8 @@ import {
   worktreeRemovalConfirm,
   worktreeTableView,
 } from "../../presentation/worktreeTableView";
+import { GitBranchIcon } from "@keepdeck/ui-kit/icons";
+import { Chip } from "@keepdeck/ui-kit/Chip";
 import { Button } from "../../ui/Button";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 
@@ -17,6 +19,8 @@ export interface WorktreesSectionProps {
   /** Make a new team in a worktree of its own — the "+ Team" door. Null
    * while the workspace cannot take one (archived). */
   onNewTeam: (() => void) | null;
+  /** Open the team a checkout belongs to. */
+  onOpenTeam(wsId: string, teamId: string): void;
 }
 
 /**
@@ -25,7 +29,14 @@ export interface WorktreesSectionProps {
  * confirm that says what goes and what stays. Reads the list when the page
  * opens and again after a removal; decides nothing it can hand to the view.
  */
-export function WorktreesSection({ workspace, workspaces, listWorktrees, onRemove, onNewTeam }: WorktreesSectionProps) {
+export function WorktreesSection({
+  workspace,
+  workspaces,
+  listWorktrees,
+  onRemove,
+  onNewTeam,
+  onOpenTeam,
+}: WorktreesSectionProps) {
   const [listed, setListed] = useState<RepoCheckout[] | "loading" | "none">("loading");
   const [reads, setReads] = useState(0);
   const [asked, setAsked] = useState<RepoCheckout | null>(null);
@@ -62,21 +73,48 @@ export function WorktreesSection({ workspace, workspaces, listWorktrees, onRemov
       {listed === "loading" && <span className="settings__hint">{WORKTREE_WORDS.loading}</span>}
       {listed === "none" && <span className="settings__hint">{WORKTREE_WORDS.notARepo}</span>}
       {table && (
-        <table className="workspaces__worktrees">
+        <table className="worktrees">
+          <thead>
+            <tr>
+              <th>{WORKTREE_WORDS.columns.folder}</th>
+              <th>{WORKTREE_WORDS.columns.branch}</th>
+              <th>{WORKTREE_WORDS.columns.holder}</th>
+              <th>{WORKTREE_WORDS.columns.state}</th>
+              <th />
+            </tr>
+          </thead>
           <tbody>
             {table.rows.map((row, at) => (
-              <tr key={row.path}>
-                <td className="workspaces__wt-path" title={row.path}>
-                  {row.path}
+              <tr key={row.path} className={row.holderKind === "free" ? "worktrees__row--free" : undefined}>
+                <td className="worktrees__folder" title={row.path}>
+                  {row.folder}
                 </td>
-                <td>{row.branch}</td>
-                <td>{row.state}</td>
-                <td>{row.holder}</td>
+                <td title={row.branch}>
+                  <span className={`worktrees__branch${row.detached ? " worktrees__branch--detached" : ""}`}>
+                    {!row.detached && <GitBranchIcon />}
+                    {row.branch}
+                  </span>
+                </td>
+                <td className={`worktrees__holder worktrees__holder--${row.holderKind}`} title={row.holder}>
+                  {row.holder}
+                </td>
                 <td>
+                  {row.stateKind === "changed" ? (
+                    <Chip size="inline" tone="warn" label={row.state} />
+                  ) : (
+                    <span className="worktrees__quiet">{row.state}</span>
+                  )}
+                </td>
+                <td className="worktrees__act">
+                  {row.team && (
+                    <Button size="sm" variant="ghost" onClick={() => row.team && onOpenTeam(row.team.wsId, row.team.teamId)}>
+                      {WORKTREE_WORDS.openTeam}
+                    </Button>
+                  )}
                   {row.removable && Array.isArray(listed) && (
-                    <button type="button" className="form__dir-btn" onClick={() => setAsked(listed[at])}>
+                    <Button size="sm" variant="ghost" onClick={() => setAsked(listed[at])}>
                       {WORKTREE_WORDS.remove}
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>

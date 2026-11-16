@@ -537,6 +537,15 @@ export function useAppController(runtime: AppRuntime) {
         deck.selectWorkspace(ws.id);
         void agentFlow.openFor(ws, { kind: "new-team" });
       },
+      /** A worktree's team, from its row: its workspace on screen, the team
+       * open, the window let go. */
+      onOpenTeam: (wsId: string, teamId: string) => {
+        const ws = findWorkspace(deck.workspaces, wsId);
+        if (!ws || ws.archived) return;
+        modal.closeWorkspaces();
+        deck.selectWorkspace(wsId);
+        deck.openTeam(wsId, teamId);
+      },
       onUpdate: (wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult => {
         const ws = findWorkspace(deck.workspaces, wsId);
         if (!ws) return { ok: false, refusal: { kind: "unknown-workspace" } };

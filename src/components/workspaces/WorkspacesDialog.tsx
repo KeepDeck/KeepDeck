@@ -36,6 +36,8 @@ export interface WorkspacesDialogProps {
   onRemoveWorktree(request: UnheldRemovalRequest): Promise<UnheldRemoval>;
   /** The "+ Team" door, for the workspace whose page is open. */
   onNewTeam(wsId: string): void;
+  /** Open a team a worktree belongs to — its workspace brought on screen. */
+  onOpenTeam(wsId: string, teamId: string): void;
   onClose(): void;
   /** Whether the window may close itself now (no transaction over it). */
   canClose: boolean;
@@ -60,6 +62,7 @@ export function WorkspacesDialog({
   listWorktrees,
   onRemoveWorktree,
   onNewTeam,
+  onOpenTeam,
   onClose,
   canClose,
 }: WorkspacesDialogProps) {
@@ -109,6 +112,7 @@ export function WorkspacesDialog({
                       listWorktrees={listWorktrees}
                       onRemove={onRemoveWorktree}
                       onNewTeam={ws.archived ? null : () => onNewTeam(ws.id)}
+                      onOpenTeam={onOpenTeam}
                     />
                   ) : null;
                 })()}

@@ -43,6 +43,7 @@ describe("WorkspacesDialog", () => {
       Promise.resolve({ kind: "removed" }),
     ),
     onNewTeam: vi.fn(),
+    onOpenTeam: vi.fn(),
   };
   const render = (over: Partial<WorkspacesDialogProps> = {}) =>
     act(() =>

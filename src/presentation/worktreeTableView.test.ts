@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RepoCheckout, Team, Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { keptHeadName, worktreeRemovalConfirm, worktreeTableView } from "./worktreeTableView";
+import { keptHeadName, worktreeFolder, worktreeRemovalConfirm, worktreeTableView } from "./worktreeTableView";
 
 const NOW = Date.parse("2026-11-16T12:00:00.000Z");
 const attached = (id: string, name: string, cwd: string): Team => ({ id, name, location: { kind: "attached", cwd } });
@@ -40,17 +40,25 @@ describe("worktreeTableView", () => {
       WEB,
       DECK,
     );
-    expect(rows.map((r) => [r.holder, r.removable])).toEqual([
-      ["the workspace's own folder", false],
-      ["team “api”", false],
-      ["team “docs” in “Site”", false],
-      ["team “legacy” in “Old” (archived)", false],
-      ["no team", true],
+    expect(rows.map((r) => [r.holder, r.holderKind, r.removable])).toEqual([
+      ["workspace folder", "root", false],
+      ["api", "team", false],
+      ["docs · Site", "team", false],
+      ["legacy · Old (archived)", "team", false],
+      ["no team", "free", true],
     ]);
-    expect(rows[4].state).toBe("3 changed entries");
+    expect([rows[4].state, rows[4].stateKind]).toEqual(["3 uncommitted", "changed"]);
+    // A team can be opened from its row — unless its workspace is archived.
+    expect(rows.map((r) => r.team)).toEqual([
+      null,
+      { wsId: "ws-1", teamId: "t1" },
+      { wsId: "ws-2", teamId: "t2" },
+      null,
+      null,
+    ]);
   });
 
-  it("says what is in a checkout: no changes, unknown, a folder that is gone, a lock", () => {
+  it("says what is in a checkout: clean, unknown, a folder that is gone, a lock", () => {
     const { rows } = worktreeTableView(
       [
         row("/a"),
@@ -62,10 +70,25 @@ describe("worktreeTableView", () => {
       WEB,
       DECK,
     );
-    expect(rows.map((r) => r.state)).toEqual(["no changes", "changes unknown", "folder gone", "no changes · locked", "no changes"]);
+    expect(rows.map((r) => [r.state, r.stateKind])).toEqual([
+      ["clean", "clean"],
+      ["unknown", "unknown"],
+      ["folder gone", "gone"],
+      ["clean · locked", "clean"],
+      ["clean", "clean"],
+    ]);
     // A folder that is gone, or a locked one, is not offered for removal.
     expect(rows.map((r) => r.removable)).toEqual([true, true, false, false, true]);
-    expect(rows[4].branch).toBe("detached at 2ce52ed");
+    expect([rows[4].branch, rows[4].detached]).toEqual(["2ce52ed", true]);
+  });
+
+  it("shows a folder short: the repository by its name, a checkout beside it relative to the folder they share", () => {
+    expect(worktreeFolder("/Users/me/Projects/KeepDeck/Workspace", "/Users/me/Projects/KeepDeck/Workspace/")).toBe("Workspace");
+    expect(worktreeFolder("/Users/me/Projects/KeepDeck/test/kd-1", "/Users/me/Projects/KeepDeck/Workspace")).toBe("test/kd-1");
+    expect(worktreeFolder("/Users/me/Projects/KeepDeck/Workspace/.claude/wt/a", "/Users/me/Projects/KeepDeck/Workspace")).toBe(
+      "Workspace/.claude/wt/a",
+    );
+    expect(worktreeFolder("/elsewhere/wt", "/Users/me/Projects/KeepDeck/Workspace")).toBe("/elsewhere/wt");
   });
 });
 

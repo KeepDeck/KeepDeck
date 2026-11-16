@@ -415,6 +415,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
               listWorktrees={listWorktrees}
               onRemoveWorktree={workspacesWindow.onRemoveWorktree}
               onNewTeam={workspacesWindow.onNewTeam}
+              onOpenTeam={workspacesWindow.onOpenTeam}
               onClose={workspacesWindow.onClose}
               canClose={canCloseDialog}
             />

@@ -27,13 +27,23 @@ describe("WorktreesSection", () => {
   const listWorktrees = vi.fn<(repo: string) => Promise<RepoCheckout[]>>();
   const onRemove = vi.fn<(request: UnheldRemovalRequest) => Promise<UnheldRemoval>>();
   const onNewTeam = vi.fn();
+  const onOpenTeam = vi.fn();
   const render = async (over: Partial<WorktreesSectionProps> = {}) =>
     act(async () =>
       root.render(
-        createElement(WorktreesSection, { workspace: WEB, workspaces: [WEB], listWorktrees, onRemove, onNewTeam, ...over }),
+        createElement(WorktreesSection, {
+          workspace: WEB,
+          workspaces: [WEB],
+          listWorktrees,
+          onRemove,
+          onNewTeam,
+          onOpenTeam,
+          ...over,
+        }),
       ),
     );
-  const cells = () => Array.from(document.querySelectorAll("tr")).map((tr) => tr.textContent);
+  const cells = () =>
+    Array.from(document.querySelectorAll("tbody tr")).map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent));
   const button = (text: string) =>
     present(
       Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === text),
@@ -49,14 +59,30 @@ describe("WorktreesSection", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  it("lists the repository's checkouts, who holds each, and offers Remove only for one nobody holds", async () => {
+  it("lists the repository's checkouts under named columns, who holds each, and what can be done with it", async () => {
     await render();
     expect(listWorktrees).toHaveBeenCalledWith("/repo");
-    expect(cells()).toEqual([
-      "/repomainno changesthe workspace's own folder",
-      "/wt/apikd/apino changesteam “api”",
-      "/wt/orphankd/orphan2 changed entriesno teamRemove",
+    expect(Array.from(document.querySelectorAll("th")).map((th) => th.textContent)).toEqual([
+      "Folder",
+      "Branch",
+      "Held by",
+      "State",
+      "",
     ]);
+    expect(cells()).toEqual([
+      ["repo", "main", "workspace folder", "clean", ""],
+      ["/wt/api", "kd/api", "api", "clean", "Open team"],
+      ["/wt/orphan", "kd/orphan", "no team", "2 uncommitted", "Remove"],
+    ]);
+    // The full path where the column shortens it; the row nobody holds stands out.
+    expect(document.querySelector(".worktrees__folder")?.getAttribute("title")).toBe("/repo");
+    expect(document.querySelectorAll(".worktrees__row--free")).toHaveLength(1);
+  });
+
+  it("opens the team a checkout belongs to", async () => {
+    await render();
+    act(() => button("Open team").click());
+    expect(onOpenTeam).toHaveBeenCalledWith("ws-1", "t1");
   });
 
   it("removes one behind a confirm that names the lost changes, says what happened, and reads the list again", async () => {
