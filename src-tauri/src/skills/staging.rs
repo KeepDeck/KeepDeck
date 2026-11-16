@@ -316,7 +316,7 @@ pub(super) fn stage(
     // match that text. An unchanged library therefore leaves the view as it is.
     let said = if sources.is_empty() { None } else { Some(fingerprint::of_view(&view)?) };
     let published = final_dir.join("skills");
-    if said.is_some() && said == published_fingerprint(&published) {
+    if said.is_some() && said == fingerprint::verified(&published) {
         fs::remove_dir_all(&tmp)?;
     } else {
         if let Some(said) = &said {
@@ -480,15 +480,6 @@ fn collect_sources(
         }
     }
     sources
-}
-
-/// What the published `view` holds, when it says so truthfully: its
-/// fingerprint file, while a fresh digest of the view agrees with it. None for
-/// a view that is absent or unreadable, or that changed after it was published
-/// (a CLI writing into it through its link) — such a view is replaced.
-fn published_fingerprint(view: &Path) -> Option<String> {
-    let said = fs::read_to_string(view.join(FINGERPRINT_FILE)).ok()?;
-    (fingerprint::of_view(view).ok()? == said).then_some(said)
 }
 
 /// Publish `tmp` at `final_dir` with the smallest possible outage: the old
