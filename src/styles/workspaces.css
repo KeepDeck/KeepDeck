@@ -212,43 +212,46 @@
   margin-left: auto;
 }
 
-/* The Worktrees table: fixed columns, the folder in the code face and
-   cut at its end, every cell on one line. */
+/* The Worktrees table: the folder takes what the other columns leave,
+   cut at its end; every cell on one line, in the page's reading size. */
 .worktrees {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: var(--kd-font-small);
+  font-size: var(--kd-font-normal);
 }
 
 .worktrees th {
-  padding: 0 8px 6px;
+  padding: 0 10px 8px;
   color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
   font-weight: 500;
   letter-spacing: 0.04em;
   text-align: left;
   text-transform: uppercase;
 }
 
-.worktrees th:nth-child(1) {
-  width: 30%;
-}
-
 .worktrees th:nth-child(2) {
-  width: 20%;
+  width: 22%;
 }
 
 .worktrees th:nth-child(3) {
-  width: 20%;
+  width: 24%;
 }
 
 .worktrees th:nth-child(4) {
-  width: 14%;
+  width: 16%;
+}
+
+/* Drawn only when a row has an act: room for one button, two at most. */
+.worktrees__acts-col {
+  width: 112px;
 }
 
 .worktrees td {
   overflow: hidden;
-  padding: 6px 8px;
+  height: 24px;
+  padding: 8px 10px;
   border-top: 1px solid var(--kd-seam);
   color: var(--kd-text-2);
   vertical-align: middle;

@@ -79,6 +79,13 @@ describe("WorktreesSection", () => {
     expect(document.querySelectorAll(".worktrees__row--free")).toHaveLength(1);
   });
 
+  it("draws no acts column when no row has anything to do — the table keeps its width", async () => {
+    listWorktrees.mockResolvedValue(ROWS.slice(0, 1));
+    await render();
+    expect(document.querySelectorAll("th")).toHaveLength(4);
+    expect(cells()).toEqual([["repo", "main", "workspace folder", "clean"]]);
+  });
+
   it("opens the team a checkout belongs to", async () => {
     await render();
     act(() => button("Open team").click());

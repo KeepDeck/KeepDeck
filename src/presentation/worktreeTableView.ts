@@ -59,6 +59,9 @@ export interface WorktreeRowView {
 
 export interface WorktreeTableView {
   rows: WorktreeRowView[];
+  /** Whether any row has something to do — the acts column is drawn only
+   * then, so an empty one never takes the table's width. */
+  acts: boolean;
 }
 
 /** The folder a column shows for `path`: the repository by its own name, a
@@ -116,8 +119,7 @@ export function worktreeTableView(
   workspace: Workspace,
   workspaces: readonly Workspace[],
 ): WorktreeTableView {
-  return {
-    rows: listed.map((row) => {
+  const rows = listed.map((row): WorktreeRowView => {
       const holder = holderOf(row.path, workspace, workspaces);
       return {
         path: row.path,
@@ -128,8 +130,8 @@ export function worktreeTableView(
         ...stateOf(row),
         removable: holder.holderKind === "free" && !row.prunable && !row.locked,
       };
-    }),
-  };
+    });
+  return { rows, acts: rows.some((row) => row.team !== null || row.removable) };
 }
 
 /** A ref name part git takes whatever the name held: only letters, digits,

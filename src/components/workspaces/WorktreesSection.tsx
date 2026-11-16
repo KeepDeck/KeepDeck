@@ -80,7 +80,7 @@ export function WorktreesSection({
               <th>{WORKTREE_WORDS.columns.branch}</th>
               <th>{WORKTREE_WORDS.columns.holder}</th>
               <th>{WORKTREE_WORDS.columns.state}</th>
-              <th />
+              {table.acts && <th className="worktrees__acts-col" />}
             </tr>
           </thead>
           <tbody>
@@ -105,18 +105,20 @@ export function WorktreesSection({
                     <span className="worktrees__quiet">{row.state}</span>
                   )}
                 </td>
-                <td className="worktrees__act">
-                  {row.team && (
-                    <Button size="sm" variant="ghost" onClick={() => row.team && onOpenTeam(row.team.wsId, row.team.teamId)}>
-                      {WORKTREE_WORDS.openTeam}
-                    </Button>
-                  )}
-                  {row.removable && Array.isArray(listed) && (
-                    <Button size="sm" variant="ghost" onClick={() => setAsked(listed[at])}>
-                      {WORKTREE_WORDS.remove}
-                    </Button>
-                  )}
-                </td>
+                {table.acts && (
+                  <td className="worktrees__act">
+                    {row.team && (
+                      <Button size="sm" variant="ghost" onClick={() => row.team && onOpenTeam(row.team.wsId, row.team.teamId)}>
+                        {WORKTREE_WORDS.openTeam}
+                      </Button>
+                    )}
+                    {row.removable && Array.isArray(listed) && (
+                      <Button size="sm" variant="ghost" onClick={() => setAsked(listed[at])}>
+                        {WORKTREE_WORDS.remove}
+                      </Button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

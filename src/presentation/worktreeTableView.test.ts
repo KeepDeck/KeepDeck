@@ -48,6 +48,8 @@ describe("worktreeTableView", () => {
       ["no team", "free", true],
     ]);
     expect([rows[4].state, rows[4].stateKind]).toEqual(["3 uncommitted", "changed"]);
+    expect(worktreeTableView([row("/repo", { branch: "main" })], WEB, DECK).acts).toBe(false);
+    expect(worktreeTableView([row("/wt/orphan")], WEB, DECK).acts).toBe(true);
     // A team can be opened from its row — unless its workspace is archived.
     expect(rows.map((r) => r.team)).toEqual([
       null,
