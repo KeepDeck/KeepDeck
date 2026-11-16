@@ -90,12 +90,6 @@
   font-weight: 600;
 }
 
-/* The workspace on screen: its letters outlined, as the strip marks it. */
-.workspaces__tile--active {
-  border-color: var(--kd-text-2);
-  color: var(--kd-text);
-}
-
 .workspaces__tile--big {
   width: 40px;
   height: 40px;

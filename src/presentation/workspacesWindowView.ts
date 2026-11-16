@@ -77,8 +77,6 @@ export interface WorkspaceListRow {
   /** When it was archived — nothing for a workspace in use. */
   meta: string | null;
   selected: boolean;
-  /** The workspace on screen — marked on its letters, not in words. */
-  active: boolean;
 }
 
 export interface WorkspaceListGroup {
@@ -211,7 +209,6 @@ export function workspacesWindowView(input: WorkspacesWindowInput): WorkspacesWi
     initials: initialsOf(ws),
     meta,
     selected: ws === picked,
-    active: ws.id === activeId,
   });
   const found = workspaces.filter((ws) => matches(ws, query));
   const inStrip = found.filter((ws) => ws.archived === undefined);

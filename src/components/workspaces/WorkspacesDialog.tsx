@@ -138,7 +138,7 @@ function ListGroup({ group, onPick }: { group: WorkspaceListGroup; onPick(wsId: 
           title={row.name}
           onClick={() => onPick(row.id)}
         >
-          <span className={`workspaces__tile${row.active ? " workspaces__tile--active" : ""}`} aria-hidden>
+          <span className="workspaces__tile" aria-hidden>
             {row.initials}
           </span>
           <span className="workspaces__row-name">{row.name}</span>
