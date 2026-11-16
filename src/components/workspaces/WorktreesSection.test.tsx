@@ -77,6 +77,7 @@ describe("WorktreesSection", () => {
     // The full path where the column shortens it; the row nobody holds stands out.
     expect(document.querySelector(".worktrees__folder")?.getAttribute("title")).toBe("/repo");
     expect(document.querySelectorAll(".worktrees__row--free")).toHaveLength(1);
+    expect(document.body.textContent).toContain("A worktree no team uses can be removed here. Its branch is kept.");
   });
 
   it("draws no acts column when no row has anything to do — the table keeps its width", async () => {
@@ -84,6 +85,8 @@ describe("WorktreesSection", () => {
     await render();
     expect(document.querySelectorAll("th")).toHaveLength(4);
     expect(cells()).toEqual([["repo", "main", "workspace folder", "clean"]]);
+    // Nothing to remove: nothing said about removing.
+    expect(document.body.textContent).not.toContain("can be removed");
   });
 
   it("opens the team a checkout belongs to", async () => {

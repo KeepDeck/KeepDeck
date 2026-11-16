@@ -124,7 +124,7 @@ export function WorktreesSection({
           </tbody>
         </table>
       )}
-      <span className="settings__hint">{WORKTREE_WORDS.hint}</span>
+      {table?.removable && <span className="settings__hint">{WORKTREE_WORDS.hint}</span>}
       {said && (
         <span className="settings__hint" role="status">
           {said}

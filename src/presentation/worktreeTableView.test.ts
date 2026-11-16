@@ -48,8 +48,9 @@ describe("worktreeTableView", () => {
       ["no team", "free", true],
     ]);
     expect([rows[4].state, rows[4].stateKind]).toEqual(["3 uncommitted", "changed"]);
-    expect(worktreeTableView([row("/repo", { branch: "main" })], WEB, DECK).acts).toBe(false);
-    expect(worktreeTableView([row("/wt/orphan")], WEB, DECK).acts).toBe(true);
+    expect(worktreeTableView([row("/repo", { branch: "main" })], WEB, DECK)).toMatchObject({ acts: false, removable: false });
+    expect(worktreeTableView([row("/wt/orphan")], WEB, DECK)).toMatchObject({ acts: true, removable: true });
+    expect(worktreeTableView([row("/wt/api")], WEB, DECK)).toMatchObject({ acts: true, removable: false });
     // A team can be opened from its row — unless its workspace is archived.
     expect(rows.map((r) => r.team)).toEqual([
       null,
@@ -97,7 +98,7 @@ describe("worktreeTableView", () => {
 describe("worktreeRemovalConfirm", () => {
   it("asks to lose uncommitted work in so many words, and keeps the branch", () => {
     const confirm = worktreeRemovalConfirm(row("/wt/orphan", { changed: 2 }), WEB, NOW);
-    expect(confirm.title).toBe("Remove the checkout at “orphan”?");
+    expect(confirm.title).toBe("Remove the worktree “orphan”?");
     expect(confirm.message).toContain("Its 2 changed entries are lost with the folder");
     expect(confirm.message).toContain("Its branch kd/orphan stays");
     expect(confirm).toMatchObject({ confirmLabel: "Remove and lose the changes", discardDirty: true });

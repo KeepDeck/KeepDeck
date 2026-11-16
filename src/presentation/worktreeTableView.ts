@@ -21,9 +21,10 @@ import { byCount, counted } from "./countWords";
 
 export const WORKTREE_WORDS = {
   title: "Worktrees",
-  hint: "A checkout no team holds can be removed here; its branch always stays.",
+  /** Said only while a row can be removed. */
+  hint: "A worktree no team uses can be removed here. Its branch is kept.",
   newTeam: "New team in a worktree",
-  loading: "Reading the repository's checkouts…",
+  loading: "Reading the repository's worktrees…",
   notARepo: "Not a git repository — it has no worktrees.",
   columns: { folder: "Folder", branch: "Branch", holder: "Held by", state: "State" },
   remove: "Remove",
@@ -62,6 +63,9 @@ export interface WorktreeTableView {
   /** Whether any row has something to do — the acts column is drawn only
    * then, so an empty one never takes the table's width. */
   acts: boolean;
+  /** Whether any row can be removed — the hint about removing is said only
+   * then. */
+  removable: boolean;
 }
 
 /** The folder a column shows for `path`: the repository by its own name, a
@@ -131,7 +135,11 @@ export function worktreeTableView(
         removable: holder.holderKind === "free" && !row.prunable && !row.locked,
       };
     });
-  return { rows, acts: rows.some((row) => row.team !== null || row.removable) };
+  return {
+    rows,
+    acts: rows.some((row) => row.team !== null || row.removable),
+    removable: rows.some((row) => row.removable),
+  };
 }
 
 /** A ref name part git takes whatever the name held: only letters, digits,
@@ -187,7 +195,7 @@ export function worktreeRemovalConfirm(
       : `Its branch ${row.branch ?? ""} stays, with every commit on it.`,
   ];
   return {
-    title: `Remove the checkout at “${baseName(row.path)}”?`,
+    title: `Remove the worktree “${baseName(row.path)}”?`,
     message: lines.join("\n\n"),
     confirmLabel: changed > 0 ? "Remove and lose the changes" : "Remove",
     discardDirty: changed > 0,
