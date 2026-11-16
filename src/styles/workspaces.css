@@ -97,11 +97,18 @@
   font-size: var(--kd-font-normal);
 }
 
-.workspaces__pane {
+/* The page column: its content scrolls (the settings section's own
+   scroll), its acts stay at the foot, beneath it. */
+.workspaces__page {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspaces__pane {
+  flex: 1;
   gap: 22px;
-  padding-bottom: 8px;
 }
 
 .workspaces__head {
@@ -312,10 +319,11 @@
 
 .workspaces__foot {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  padding-top: 8px;
+  padding-top: 12px;
 }
 
 .workspaces__refusal {

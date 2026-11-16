@@ -90,7 +90,7 @@ export function WorkspacesDialog({
             <ListGroup group={view.archived} onPick={onFocus} />
             {view.noMatch && <span className="settings__hint workspaces__none">{WORKSPACES_WORDS.noMatch}</span>}
           </nav>
-          <section className="settings__section workspaces__page">
+          <section className="workspaces__page">
             {view.page && (
               <Page
                 // A page per workspace: what one was being typed into is not
@@ -183,126 +183,129 @@ function Page({
     });
   };
   return (
-    <div className="workspaces__pane">
-      <header className="workspaces__head">
-        <span className="workspaces__tile workspaces__tile--big" aria-hidden>
-          {page.initials}
-        </span>
-        <div className="workspaces__title">
-          <h3>{page.name}</h3>
-          <span className="workspaces__path" title={page.cwd}>
-            {page.cwd}
+    <>
+      {/* The page's content scrolls; its acts stay put beneath it. */}
+      <div className="settings__section workspaces__pane">
+        <header className="workspaces__head">
+          <span className="workspaces__tile workspaces__tile--big" aria-hidden>
+            {page.initials}
           </span>
-        </div>
-        <span className="workspaces__facts">{page.facts}</span>
-      </header>
-      {state.kind !== "in-use" && (
-        <div className="workspaces__banner" role="status">
-          <span className="workspaces__banner-text">
-            <b>{state.banner}</b> {WORKSPACES_WORDS.restoreNote}
-            {state.kind === "archived" && state.owed && <span className="workspaces__owed">{state.owed}</span>}
-          </span>
-          <Button size="sm" variant="primary" onClick={() => onRestore(page.id)}>
-            {WORKSPACES_WORDS.restore}
-          </Button>
-        </div>
-      )}
-      <section className="workspaces__sec">
-        <h4>{WORKSPACES_WORDS.identity}</h4>
-        <label className="workspaces__field">
-          <span className="form__label">{WORKSPACES_WORDS.name}</span>
-          <input
-            // Re-seeded when the name changes elsewhere (the crumb, a command).
-            key={fields.name}
-            className="form__input"
-            defaultValue={fields.name}
-            readOnly={!fields.editable}
-            aria-label={WORKSPACES_WORDS.name}
-            onBlur={(event) => {
-              if (fields.editable && event.currentTarget.value !== fields.name) update({ name: event.currentTarget.value });
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-            }}
-          />
-        </label>
-        <label className="workspaces__field">
-          <span className="form__label">{WORKSPACES_WORDS.mark}</span>
-          <input
-            key={fields.mark}
-            className="form__input workspaces__letters"
-            defaultValue={fields.mark}
-            // What it says now when the person chose nothing.
-            placeholder={page.initials}
-            readOnly={!fields.editable}
-            aria-label={WORKSPACES_WORDS.mark}
-            onBlur={(event) => {
-              if (fields.editable && event.currentTarget.value !== fields.mark) update({ mark: event.currentTarget.value });
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-            }}
-          />
-          <span className="settings__hint">{WORKSPACES_WORDS.markHint}</span>
-        </label>
-      </section>
-      <section className="workspaces__sec">
-        <h4>{WORKSPACES_WORDS.folders}</h4>
-        <div className="workspaces__field">
-          <span className="form__label">{WORKSPACES_WORDS.workingDirectory}</span>
-          <div className="form__dir">
-            <span className="form__dir-path" title={fields.cwd.path}>
-              <span>{fields.cwd.path}</span>
+          <div className="workspaces__title">
+            <h3>{page.name}</h3>
+            <span className="workspaces__path" title={page.cwd}>
+              {page.cwd}
             </span>
-            {fields.editable && !fields.cwd.locked && (
-              <button
-                type="button"
-                className="form__dir-btn"
-                aria-label={WORKSPACES_WORDS.chooseWorkingDirectory}
-                onClick={() => choose(WORKSPACES_WORDS.chooseWorkingDirectory, (cwd) => ({ cwd }))}
-              >
-                {WORKSPACES_WORDS.choose}
-              </button>
-            )}
           </div>
-          {fields.editable && fields.cwd.locked && <span className="settings__hint">{WORKSPACES_WORDS.cwdLocked}</span>}
-        </div>
-        <div className="workspaces__field">
-          <span className="form__label">{WORKSPACES_WORDS.worktreeFolder}</span>
-          <div className="form__dir">
-            <span className={`form__dir-path${fields.worktreeBaseDir ? "" : " form__dir-path--empty"}`}>
-              <span>{fields.worktreeBaseDir ?? WORKSPACES_WORDS.noWorktreeFolder}</span>
+          <span className="workspaces__facts">{page.facts}</span>
+        </header>
+        {state.kind !== "in-use" && (
+          <div className="workspaces__banner" role="status">
+            <span className="workspaces__banner-text">
+              <b>{state.banner}</b> {WORKSPACES_WORDS.restoreNote}
+              {state.kind === "archived" && state.owed && <span className="workspaces__owed">{state.owed}</span>}
             </span>
-            {fields.editable && (
-              <>
+            <Button size="sm" variant="primary" onClick={() => onRestore(page.id)}>
+              {WORKSPACES_WORDS.restore}
+            </Button>
+          </div>
+        )}
+        <section className="workspaces__sec">
+          <h4>{WORKSPACES_WORDS.identity}</h4>
+          <label className="workspaces__field">
+            <span className="form__label">{WORKSPACES_WORDS.name}</span>
+            <input
+              // Re-seeded when the name changes elsewhere (the crumb, a command).
+              key={fields.name}
+              className="form__input"
+              defaultValue={fields.name}
+              readOnly={!fields.editable}
+              aria-label={WORKSPACES_WORDS.name}
+              onBlur={(event) => {
+                if (fields.editable && event.currentTarget.value !== fields.name) update({ name: event.currentTarget.value });
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+          </label>
+          <label className="workspaces__field">
+            <span className="form__label">{WORKSPACES_WORDS.mark}</span>
+            <input
+              key={fields.mark}
+              className="form__input workspaces__letters"
+              defaultValue={fields.mark}
+              // What it says now when the person chose nothing.
+              placeholder={page.initials}
+              readOnly={!fields.editable}
+              aria-label={WORKSPACES_WORDS.mark}
+              onBlur={(event) => {
+                if (fields.editable && event.currentTarget.value !== fields.mark) update({ mark: event.currentTarget.value });
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+            <span className="settings__hint">{WORKSPACES_WORDS.markHint}</span>
+          </label>
+        </section>
+        <section className="workspaces__sec">
+          <h4>{WORKSPACES_WORDS.folders}</h4>
+          <div className="workspaces__field">
+            <span className="form__label">{WORKSPACES_WORDS.workingDirectory}</span>
+            <div className="form__dir">
+              <span className="form__dir-path" title={fields.cwd.path}>
+                <span>{fields.cwd.path}</span>
+              </span>
+              {fields.editable && !fields.cwd.locked && (
                 <button
                   type="button"
                   className="form__dir-btn"
-                  aria-label={WORKSPACES_WORDS.chooseWorktreeFolder}
-                  onClick={() =>
-                    choose(WORKSPACES_WORDS.chooseWorktreeFolder, (worktreeBaseDir) => ({ worktreeBaseDir }))
-                  }
+                  aria-label={WORKSPACES_WORDS.chooseWorkingDirectory}
+                  onClick={() => choose(WORKSPACES_WORDS.chooseWorkingDirectory, (cwd) => ({ cwd }))}
                 >
                   {WORKSPACES_WORDS.choose}
                 </button>
-                {fields.worktreeBaseDir !== null && (
-                  <button type="button" className="form__dir-btn" onClick={() => update({ worktreeBaseDir: null })}>
-                    {WORKSPACES_WORDS.clear}
-                  </button>
-                )}
-              </>
-            )}
+              )}
+            </div>
+            {fields.editable && fields.cwd.locked && <span className="settings__hint">{WORKSPACES_WORDS.cwdLocked}</span>}
           </div>
-          <span className="settings__hint">{WORKSPACES_WORDS.worktreeFolderHint}</span>
-        </div>
-        {!fields.editable && <span className="settings__hint">{WORKSPACES_WORDS.readOnly}</span>}
-        {refusal && (
-          <span className="settings__hint settings__hint--warn" role="alert">
-            {refusal}
-          </span>
-        )}
-      </section>
-      {children}
+          <div className="workspaces__field">
+            <span className="form__label">{WORKSPACES_WORDS.worktreeFolder}</span>
+            <div className="form__dir">
+              <span className={`form__dir-path${fields.worktreeBaseDir ? "" : " form__dir-path--empty"}`}>
+                <span>{fields.worktreeBaseDir ?? WORKSPACES_WORDS.noWorktreeFolder}</span>
+              </span>
+              {fields.editable && (
+                <>
+                  <button
+                    type="button"
+                    className="form__dir-btn"
+                    aria-label={WORKSPACES_WORDS.chooseWorktreeFolder}
+                    onClick={() =>
+                      choose(WORKSPACES_WORDS.chooseWorktreeFolder, (worktreeBaseDir) => ({ worktreeBaseDir }))
+                    }
+                  >
+                    {WORKSPACES_WORDS.choose}
+                  </button>
+                  {fields.worktreeBaseDir !== null && (
+                    <button type="button" className="form__dir-btn" onClick={() => update({ worktreeBaseDir: null })}>
+                      {WORKSPACES_WORDS.clear}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            <span className="settings__hint">{WORKSPACES_WORDS.worktreeFolderHint}</span>
+          </div>
+          {!fields.editable && <span className="settings__hint">{WORKSPACES_WORDS.readOnly}</span>}
+          {refusal && (
+            <span className="settings__hint settings__hint--warn" role="alert">
+              {refusal}
+            </span>
+          )}
+        </section>
+        {children}
+      </div>
       <footer className="workspaces__foot">
         {acts.archive && (
           <Button variant="secondary" onClick={() => onArchive(page.id)}>
@@ -320,6 +323,6 @@ function Page({
         </button>
         {acts.close.refusal && <span className="settings__hint workspaces__refusal">{acts.close.refusal}</span>}
       </footer>
-    </div>
+    </>
   );
 }

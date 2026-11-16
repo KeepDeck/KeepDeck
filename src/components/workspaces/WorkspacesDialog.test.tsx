@@ -104,6 +104,9 @@ describe("WorkspacesDialog", () => {
 
   it("hands Archive and Close back to the flows that own them", () => {
     render();
+    // The acts sit beneath the scrolling content, not inside it.
+    expect(document.querySelector(".workspaces__pane .workspaces__foot")).toBeNull();
+    expect(document.querySelector(".workspaces__page > .workspaces__foot")).not.toBeNull();
     act(() => button("Archive").click());
     expect(acts.onArchive).toHaveBeenCalledWith("ws-1");
     act(() => button("Close workspace").click());
