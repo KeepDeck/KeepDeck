@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import type { GitBadge } from "../../ui/gitBadge";
 import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
 import type { PaneYoloStart } from "../../presentation/paneYolo";
+import { byCount } from "../../presentation/countWords";
 import { MinimizedItem, MinimizedItemMeasure } from "./MinimizedItem";
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
@@ -417,7 +418,7 @@ export function MinimizedTray({
             ref={overflowRef}
             type="button"
             className="minimized-overflow__trigger"
-            aria-label={`Show ${hiddenCount} more ${stateLabel.toLowerCase()} ${hiddenCount === 1 ? "agent" : "agents"}`}
+            aria-label={`Show ${hiddenCount} more ${stateLabel.toLowerCase()} ${byCount(hiddenCount, "agent", "agents")}`}
             aria-haspopup="dialog"
             aria-expanded={active && overflowOpen}
             aria-controls={active && overflowOpen ? popoverId : undefined}
