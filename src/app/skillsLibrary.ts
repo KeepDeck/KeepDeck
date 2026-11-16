@@ -201,28 +201,29 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
   }
 
   /**
-   * Every mutation goes through here, so "a write makes the staged views stale"
-   * is stated once — and states it for a FAILED write too. Once a call has
-   * reached the storage the library may have changed whatever it answers: a
-   * compound rename's first step lands before its second can fail, and a delete
-   * removes children one at a time. Re-staging a library that turns out not to
-   * have changed costs one cleared memo, and staging is cheap; keeping a memo
-   * that is silently stale costs every agent the skill it should have had.
+   * Every mutation goes through here, so "a write makes what staging said about
+   * the library stale" is stated once — and states it for a FAILED write too.
+   * Once a call has reached the storage the library may have changed whatever it
+   * answers: a compound rename's first step lands before its second can fail,
+   * and a delete removes children one at a time. Forgetting a report about a
+   * library that turns out not to have changed costs nothing the next launch's
+   * stage does not say again; keeping one over a library that did change shows
+   * the user a problem already fixed.
    *
    * No refusal of OURS gets this far — composing and every precondition run
    * before the call. The storage still has two of its own, and they cost a
-   * needless re-stage: it refuses a create whose name is taken and a rename onto
+   * needless forget: it refuses a create whose name is taken and a rename onto
    * a taken target without touching the disk. That is the price of `expectNew`
-   * being the guard that survives a library we could not read, and a dropped memo
-   * is cheap; do not read this `finally` as "the disk definitely changed".
+   * being the guard that survives a library we could not read; do not read this
+   * `finally` as "the disk definitely changed".
    */
-  async function writeThenRestage(write: () => Promise<void>): Promise<void> {
+  async function writeThenRefresh(write: () => Promise<void>): Promise<void> {
     try {
       await write();
     } finally {
       // Neither of these may turn a landed write into a failed one, nor stop the
-      // other from running: a stale staged view and an unrefreshed pane are bad,
-      // reporting a successful save as failed is worse.
+      // other from running: a stale staging report and an unrefreshed pane are
+      // bad, reporting a successful save as failed is worse.
       try {
         ports.staging.invalidateSkills();
       } catch {
@@ -285,9 +286,9 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
     create: async (scope, draft) => {
       requireValidName(draft.name);
       // Composed BEFORE the wrapper, like every other refusal: a draft the
-      // format cannot carry has changed nothing, and must not clear the memo.
+      // format cannot carry has changed nothing, and must not forget a report.
       const content = authoredFile({ ...draft, extraFrontmatter: [] });
-      await writeThenRestage(() => ports.storage.save(scope, draft.name, content, true));
+      await writeThenRefresh(() => ports.storage.save(scope, draft.name, content, true));
     },
 
     update: async (scope, draft) => {
@@ -296,7 +297,7 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
       // The stored extras win: they are what is on disk now.
       const stored = skillDraftOf(row);
       const content = authoredFile({ ...draft, extraFrontmatter: stored.extraFrontmatter });
-      await writeThenRestage(() => ports.storage.save(scope, draft.name, content, false));
+      await writeThenRefresh(() => ports.storage.save(scope, draft.name, content, false));
     },
 
     rename: async (scope, from, to) => {
@@ -311,7 +312,7 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
       if (renamed.kind === "unsupported") {
         throw new Error(beyondUs(`Cannot rename "${from}"`, renamed.reason));
       }
-      await writeThenRestage(async () => {
+      await writeThenRefresh(async () => {
         // The MOVE FIRST, and this order is load-bearing. "Is this name taken" is
         // answered here from the listed rows and there from the directory — wider,
         // because a directory with no readable SKILL.md is not listed. Writing the
@@ -337,7 +338,7 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
 
     remove: async (scope, name) => {
       (await library(scope)).existing(name);
-      await writeThenRestage(() => ports.storage.remove(scope, name));
+      await writeThenRefresh(() => ports.storage.remove(scope, name));
     },
 
     subscribe: notifier.subscribe,

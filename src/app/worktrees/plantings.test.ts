@@ -25,25 +25,32 @@ beforeEach(() => {
 });
 
 describe("skillsFor", () => {
-  it("stages once per workspace, even for concurrent callers", async () => {
+  it("stages afresh for every launch, concurrent ones included", async () => {
     const [a, b] = await Promise.all([
       manager.skillsFor(ref("ws-1")),
       manager.skillsFor(ref("ws-1")),
     ]);
     expect(a).toEqual(stagedFor("ws-1"));
     expect(b).toEqual(a);
-    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
-
-    await manager.skillsFor(ref("ws-2"));
     expect(skills.stageSkills).toHaveBeenCalledTimes(2);
+
+    await manager.skillsFor(ref("ws-1"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(3);
   });
 
-  it("a reused id with a NEW instance re-stages — but to the same disk id", async () => {
-    // The sweep may have deleted the dead lifetime's dirs; serving the memoized
-    // promise would hand the reborn workspace vanished paths.
-    await manager.skillsFor(ref("ws-1", "life-1"));
+  it("never hands a later launch what an earlier stage came out short of", async () => {
+    // The codex pane that found one skill in .agents/skills: the first stage
+    // saw only the bundled tier, and every later launch in the workspace was
+    // served that same answer until the user edited a skill.
+    const short = { dir: "/staging/ws-1/skills", skills: [{ name: "artifacts", content: "---\ndescription: A\n---\n" }] };
+    skills.stageSkills.mockResolvedValueOnce({ view: short, trims: [] });
+    expect(await manager.skillsFor(ref("ws-1"))).toEqual(short);
+
+    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+  });
+
+  it("stages to the durable workspace id, whichever lifetime asks", async () => {
     await manager.skillsFor(ref("ws-1", "life-2"));
-    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
     // The DISK key is the durable id — that's where the user's library is.
     expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", []);
   });
@@ -68,39 +75,13 @@ describe("skillsFor", () => {
     expect(skills.stageSkills).toHaveBeenCalledTimes(1);
   });
 
-  it("does not remember a failed stage: the next spawn stages again, and keeps what it gets", async () => {
+  it("a failed stage costs its own launch alone", async () => {
     // One transient error used to cost every later pane in the workspace its
     // skills until the user happened to edit one (task-568).
     skills.stageSkills.mockRejectedValueOnce(new Error("disk full"));
     expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
 
     expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
-    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
-    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
-  });
-
-  it("concurrent callers of a stage that fails all get none, and the next one stages again", async () => {
-    skills.stageSkills.mockRejectedValueOnce(new Error("disk full"));
-    const [a, b] = await Promise.all([manager.skillsFor(ref("ws-1")), manager.skillsFor(ref("ws-1"))]);
-    expect([a, b]).toEqual([null, null]);
-    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
-
-    await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
-  });
-
-  it("re-stages after a library edit invalidates the memo", async () => {
-    await manager.skillsFor(ref("ws-1"));
-    manager.invalidateSkills();
-    await manager.skillsFor(ref("ws-1"));
-    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
-  });
-
-  it("remembers an empty result — panes must not re-stage per spawn", async () => {
-    skills.stageSkills.mockResolvedValue({ view: null, trims: [] });
-    expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
-    expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
-    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -158,10 +139,16 @@ describe("what staging could not hand out whole", () => {
   it("is replaced by the workspace's next stage — a fixed skill leaves the list", async () => {
     skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
     await manager.skillsFor(ref("ws-1"));
-    manager.invalidateSkills();
-    expect(trims.get()).toEqual([]);
+    expect(trims.get()).toHaveLength(1);
 
     await manager.skillsFor(ref("ws-1"));
+    expect(trims.get()).toEqual([]);
+  });
+
+  it("is forgotten the moment the library moves, before any launch stages again", async () => {
+    skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
+    await manager.skillsFor(ref("ws-1"));
+    manager.invalidateSkills();
     expect(trims.get()).toEqual([]);
   });
 

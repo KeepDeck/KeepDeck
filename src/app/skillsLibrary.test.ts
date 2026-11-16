@@ -107,8 +107,9 @@ describe("a write reports the library as changed", () => {
   it("invalidates even when the write FAILED, because the disk state is unknown", async () => {
     // Once a call has reached the storage nothing here knows what landed: a
     // compound rename's first step succeeds before its second can fail, and a
-    // delete removes children one at a time. A cleared memo costs one re-stage;
-    // a memo kept over a library that did change costs every agent the skill.
+    // delete removes children one at a time. A report forgotten for nothing is
+    // said again by the next launch's stage; one kept over a library that did
+    // change shows the user a problem already fixed.
     const { library, invalidateSkills } = libraryOver({
       save: vi.fn(async () => {
         throw new Error("read-only fs");
@@ -397,7 +398,7 @@ describe("a rename moves the directory AND fixes the file", () => {
 
     expect(storage.save).not.toHaveBeenCalled();
     expect(storage.rename).not.toHaveBeenCalled();
-    // And no memo cleared for an operation that never happened.
+    // And no report forgotten for an operation that never happened.
     expect(invalidateSkills).not.toHaveBeenCalled();
   });
 

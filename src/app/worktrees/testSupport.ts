@@ -112,7 +112,8 @@ function workspaceInstance(value: string): string {
   return value;
 }
 
-/** A workspace REF: the id keys the disk, the instance keys the memo. */
+/** A workspace REF: the id keys the disk, the instance names the lifetime a
+ * stage reports under. */
 export const ref = (id: string, instance = `${id}-life-1`): WorkspaceRef => ({
   id,
   instance,
