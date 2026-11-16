@@ -219,9 +219,10 @@ export interface WorktreeHousekeeping {
  * moved. Held by `skillsLibrary`, which reports it after every successful write
  * — the editor reaches it only through that owner. */
 export interface SkillsInvalidation {
-  /** The library changed (any scope): what earlier stages said they could not
-   * hand out whole speaks of a library that is gone, so it is forgotten — and
-   * a stage already asked for does not say it after this. */
+  /** What staging reads changed — the library (any scope), or the claim that
+   * gates the bundled tier: what earlier stages said they could not hand out
+   * whole speaks of something that is gone, so it is forgotten — and a stage
+   * already asked for does not say it after this. */
   invalidateSkills(): void;
 }
 

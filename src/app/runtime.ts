@@ -218,8 +218,15 @@ export function createAppRuntime(
       // as well printed every backend refusal twice, in the same words.
       artifactsEnableOk = transition.ok;
       artifactsEnableStatus.record(transition);
-      // The claim also gates the bundled skills tier; every launch stages
-      // afresh and reads the claim then, so a flip needs nothing here.
+      // The claim also gates the bundled skills tier. Every launch stages
+      // afresh and reads the claim then — but what earlier stages said they
+      // could not hand out whole was said under the old claim (the tier
+      // takes room in the view), and a stage already in flight would say it
+      // after the flip: both are forgotten here, as on a library write.
+      // TDZ-safe: a report fires only from the policy's chain microtasks and
+      // createAppRuntime is synchronous, so `worktrees` (bound later) exists
+      // before any report can run.
+      worktrees.invalidateSkills();
       reconcileArtifactCommands();
     },
   );
