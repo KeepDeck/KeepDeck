@@ -10,7 +10,7 @@
 //! time or inode of it means anything, and an edit that keeps a file's size
 //! and time is still an edit.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, ErrorKind, Read as _};
 use std::os::unix::ffi::OsStrExt;
@@ -18,7 +18,7 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-use super::tree::Allowance;
+use super::tree::{Allowance, VIEW_MAX};
 use crate::fs_beneath::{self as fsb, Kind};
 
 /// The view's own file holding its fingerprint, at its top (plugin-api's
@@ -31,23 +31,56 @@ const PREFIX: &str = "sha256:";
 pub(super) const FINGERPRINT_COST: Allowance = Allowance { entries: 1, bytes: (PREFIX.len() + 64) as u64 };
 
 /// The fingerprint of the view `dir`: of every entry in it but the
-/// fingerprint file itself.
+/// fingerprint file itself. A view is never larger than `VIEW_MAX`; a folder
+/// that is refuses rather than being read whole.
 pub(super) fn of_view(dir: &Path) -> io::Result<String> {
     let root = fsb::open_dir(dir)?;
     let mut digest = Sha256::new();
-    take_in(&root, &mut Vec::new(), &mut digest)?;
+    take_in(&root, &mut Vec::new(), &mut digest, &mut { VIEW_MAX })?;
     Ok(format!("{PREFIX}{:x}", digest.finalize()))
+}
+
+/// What the view `dir` says it holds, when it says so truthfully: its
+/// fingerprint file — a plain file no longer than a fingerprint, read without
+/// following a link or waiting on a pipe — while a fresh digest of the view
+/// agrees. None for a view that is absent, unreadable, larger than a view may
+/// be, or changed since it was written: a published view is writable through
+/// the links CLIs read it by.
+pub(super) fn verified(dir: &Path) -> Option<String> {
+    let root = fsb::open_dir(dir).ok()?;
+    let file = fsb::open_at(&root, OsStr::new(FINGERPRINT_FILE), libc::O_NONBLOCK).ok()?;
+    let stat = fsb::stat_of(&file).ok()?;
+    if stat.kind != Kind::File || stat.len > FINGERPRINT_COST.bytes {
+        return None;
+    }
+    let mut said = String::new();
+    (&file).take(FINGERPRINT_COST.bytes).read_to_string(&mut said).ok()?;
+    (of_view(dir).ok()? == said).then_some(said)
+}
+
+fn too_large() -> io::Error {
+    io::Error::new(ErrorKind::InvalidData, "larger than a staged view may be")
 }
 
 /// Every entry of the open folder `dir`, at `at` inside the view, in name
 /// order. Each one is its kind, its path ended by a NUL no name holds, and —
 /// for a file — its length before its bytes: no two views read the same.
-fn take_in(dir: &File, at: &mut Vec<OsString>, digest: &mut Sha256) -> io::Result<()> {
-    for name in fsb::names_in(dir)? {
+/// `left` is what a view may still hold; past it the walk refuses.
+fn take_in(dir: &File, at: &mut Vec<OsString>, digest: &mut Sha256, left: &mut Allowance) -> io::Result<()> {
+    // At most what is left, and the fingerprint file beside it at the top.
+    let Some(names) = fsb::names_in(dir, left.entries.saturating_add(1))? else {
+        return Err(too_large());
+    };
+    for name in names {
         if at.is_empty() && name == FINGERPRINT_FILE {
             continue;
         }
         let stat = fsb::stat_at(dir, &name)?;
+        let cost = Allowance { entries: 1, bytes: if stat.kind == Kind::File { stat.len } else { 0 } };
+        if !left.covers(cost) {
+            return Err(too_large());
+        }
+        *left = left.less(cost);
         at.push(name);
         let name = at.last().expect("just pushed");
         let kind = match stat.kind {
@@ -68,7 +101,7 @@ fn take_in(dir: &File, at: &mut Vec<OsString>, digest: &mut Sha256) -> io::Resul
         digest.update([0]);
         if stat.kind == Kind::Dir {
             let sub = fsb::open_at(dir, name, libc::O_DIRECTORY)?;
-            take_in(&sub, at, digest)?;
+            take_in(&sub, at, digest, left)?;
         } else {
             let file = fsb::open_at(dir, name, libc::O_NONBLOCK)?;
             digest.update(stat.len.to_le_bytes());
@@ -181,5 +214,65 @@ mod tests {
         let (_tmp, dir) = view(&[("a/SKILL.md", "one")]);
         symlink("SKILL.md", dir.join("a/alias")).unwrap();
         assert!(of_view(&dir).is_err());
+    }
+
+    /// A view as a stage publishes it: its files, then its fingerprint.
+    fn published(files: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf, String) {
+        let (tmp, dir) = view(files);
+        let said = of_view(&dir).unwrap();
+        fs::write(dir.join(FINGERPRINT_FILE), &said).unwrap();
+        (tmp, dir, said)
+    }
+
+    #[test]
+    fn a_published_view_that_still_holds_what_it_says_is_verified() {
+        let (_tmp, dir, said) = published(&[("a/SKILL.md", "one")]);
+        assert_eq!(verified(&dir), Some(said));
+    }
+
+    #[test]
+    fn a_published_view_written_into_since_is_not() {
+        let (_tmp, dir, _) = published(&[("a/SKILL.md", "one")]);
+        fs::create_dir_all(dir.join("stray")).unwrap();
+        fs::write(dir.join("stray/SKILL.md"), "two").unwrap();
+        assert_eq!(verified(&dir), None);
+    }
+
+    #[test]
+    fn a_fingerprint_that_is_a_link_or_longer_than_one_is_not_read() {
+        let (_tmp, dir, said) = published(&[("a/SKILL.md", "one")]);
+        let elsewhere = dir.parent().unwrap().join("said");
+        fs::write(&elsewhere, &said).unwrap();
+        fs::remove_file(dir.join(FINGERPRINT_FILE)).unwrap();
+        symlink(&elsewhere, dir.join(FINGERPRINT_FILE)).unwrap();
+        assert_eq!(verified(&dir), None, "a link is not followed");
+
+        fs::remove_file(dir.join(FINGERPRINT_FILE)).unwrap();
+        fs::write(dir.join(FINGERPRINT_FILE), format!("{said}{}", "x".repeat(4096))).unwrap();
+        assert_eq!(verified(&dir), None, "no more than a fingerprint is read");
+    }
+
+    #[test]
+    fn a_view_holding_more_bytes_than_a_view_may_is_refused_unread() {
+        // Sparse: the length is claimed, not written.
+        let (_tmp, dir, _) = published(&[("a/SKILL.md", "one")]);
+        fs::File::create(dir.join("a/huge")).unwrap().set_len(VIEW_MAX.bytes + 1).unwrap();
+        assert_eq!(of_view(&dir).unwrap_err().kind(), ErrorKind::InvalidData);
+        assert_eq!(verified(&dir), None);
+    }
+
+    #[test]
+    fn a_fingerprint_that_is_a_pipe_answers_at_once() {
+        // A writer-less FIFO in its place used to block every stage of the
+        // workspace — holding its lock and the launch queue behind it.
+        let (_tmp, dir, _) = published(&[("a/SKILL.md", "one")]);
+        fs::remove_file(dir.join(FINGERPRINT_FILE)).unwrap();
+        let fifo = std::ffi::CString::new(dir.join(FINGERPRINT_FILE).as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a NUL-terminated path alive for the call.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+
+        let (done, answer) = std::sync::mpsc::channel();
+        std::thread::spawn(move || done.send(verified(&dir)).unwrap());
+        assert_eq!(answer.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), None);
     }
 }

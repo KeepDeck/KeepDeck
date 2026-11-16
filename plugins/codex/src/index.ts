@@ -153,9 +153,9 @@ const disablePasteBurstArgs: string[] = ["-c", "disable_paste_burst=true"];
  * (openai/codex#15149, #22869), but it reads `.agents/skills` from its
  * starting cwd at session start. So the pane's cwd gets a symlink there to
  * the host's bare skills directory — declared here, planted by the host's
- * arming engine, which keeps the user's own `.agents` untouched and git
- * blind to ours. No skills: an empty set, so a link an earlier launch
- * planted is taken back. argv and env stay untouched.
+ * arming engine, which replaces any link already there, never a folder of
+ * the user's, and keeps git blind to ours. No skills: an empty set, so a
+ * link an earlier launch planted is taken back. argv and env stay untouched.
  */
 export function codexArms(skills: SpawnSkillsInput | undefined): CwdArm[] {
   return skills ? [{ kind: "symlink", path: ".agents/skills", target: skills.dir }] : [];

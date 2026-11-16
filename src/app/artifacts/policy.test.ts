@@ -80,6 +80,19 @@ describe("createArtifactsPolicy", () => {
     expect(t.calls).toEqual(["disable", "enable", "disable"]);
   });
 
+  it("re-asserting the applied value calls nothing and reports nothing", async () => {
+    const t = transport();
+    const settings = settingsPort(true);
+    const transitions: unknown[] = [];
+    createArtifactsPolicy(settings, t, (tr) => transitions.push(tr));
+    await flush();
+
+    settings.set(true);
+    await flush();
+    expect(t.calls).toEqual(["enable"]);
+    expect(transitions).toHaveLength(1);
+  });
+
   it("a failed enable reports and retries on the next settings event", async () => {
     const t = transport();
     const settings = settingsPort(true);

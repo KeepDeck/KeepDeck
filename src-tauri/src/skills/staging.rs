@@ -240,8 +240,9 @@ pub(super) fn stage(
     sources.sort_by(|a, b| a.0.cmp(&b.0));
     let (sources, mut left) = reserve(sources, &mut trims);
 
-    // Build aside, then swap: a pane spawning mid-rebuild reads either the
-    // old complete view or the new one, never a half-copied one.
+    // Build aside, then swap: the view is never seen half-copied — only, for
+    // the moment between the swap's two renames, absent (see below for why an
+    // unchanged view is not swapped at all).
     let tmp = root.join("staging").join(format!(".tmp-{ws_id}"));
     match fs::remove_dir_all(&tmp) {
         Err(e) if e.kind() == ErrorKind::NotFound => {}
@@ -307,13 +308,24 @@ pub(super) fn stage(
         staged.push(StagedSkill { name: name.clone(), content: content.to_string() });
     }
     trims.extend(no_room.0);
-    if !sources.is_empty() {
-        let said = fingerprint::of_view(&view)?;
-        fs::write(view.join(FINGERPRINT_FILE), said)?;
+    // Built whole on every stage, published only when it differs. Every launch
+    // stages, and the published view is what running CLIs read through their
+    // links — outside any lock of ours: a swap under them leaves the view
+    // briefly absent. A launch also holds its own stage's skills as text while
+    // its plugin copies the view, so a newer view published meanwhile would not
+    // match that text. An unchanged library therefore leaves the view as it is.
+    let said = if sources.is_empty() { None } else { Some(fingerprint::of_view(&view)?) };
+    let published = final_dir.join("skills");
+    if said.is_some() && said == fingerprint::verified(&published) {
+        fs::remove_dir_all(&tmp)?;
+    } else {
+        if let Some(said) = &said {
+            fs::write(view.join(FINGERPRINT_FILE), said)?;
+        }
+        fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
+        // An emptied library swaps in nothing, so yesterday's view goes with it.
+        swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
     }
-    fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
-    // An emptied library swaps in nothing, so yesterday's view goes with it.
-    swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
     let view = (!staged.is_empty()).then(|| SkillStagingDto {
         dir: final_dir.join("skills").to_string_lossy().into_owned(),
         skills: staged,
@@ -582,6 +594,55 @@ mod tests {
         delete(&ws(&root, "ws-1"), "review").unwrap();
         assert_eq!(staged(&root, "ws-1", &[], false, &[]), None);
         assert!(!root.join("staging").join("ws-1").exists());
+    }
+
+    /// The published view's folder, by identity: a swap puts another there.
+    fn view_inode(root: &Path, ws_id: &str) -> u64 {
+        use std::os::unix::fs::MetadataExt;
+        fs::metadata(root.join("staging").join(ws_id).join("skills")).unwrap().ino()
+    }
+
+    #[test]
+    fn an_unchanged_library_leaves_the_published_view_where_its_readers_are() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("x")).unwrap();
+        staged(&root, "ws-1", &[], false, &[]).unwrap();
+        let before = view_inode(&root, "ws-1");
+
+        let again = staged(&root, "ws-1", &[], false, &[]).unwrap();
+        assert_eq!(view_inode(&root, "ws-1"), before, "not swapped under a running CLI");
+        assert_eq!(again.skills.len(), 1);
+        assert!(!root.join("staging").join(".tmp-ws-1").exists(), "the build aside is gone");
+    }
+
+    #[test]
+    fn a_short_view_gives_way_to_the_next_stage_that_sees_more() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("x")).unwrap();
+        staged(&root, "ws-1", &[], false, &[]).unwrap();
+        let short = view_inode(&root, "ws-1");
+
+        save(&global(&root), "deploy", &fm("y")).unwrap();
+        let whole = staged(&root, "ws-1", &[], false, &[]).unwrap();
+        assert_ne!(view_inode(&root, "ws-1"), short);
+        assert_eq!(whole.skills.len(), 2);
+        assert!(PathBuf::from(&whole.dir).join("deploy").join(SKILL_FILE).exists());
+    }
+
+    #[test]
+    fn a_view_changed_after_it_was_published_is_replaced() {
+        // A CLI may write through its link into the view (codex's import
+        // does): its fingerprint file then no longer says what it holds.
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("x")).unwrap();
+        let views = staged(&root, "ws-1", &[], false, &[]).unwrap();
+        let skills = PathBuf::from(&views.dir);
+        fs::create_dir_all(skills.join("stray")).unwrap();
+        fs::write(skills.join("stray").join(SKILL_FILE), fm("stray")).unwrap();
+
+        staged(&root, "ws-1", &[], false, &[]).unwrap();
+        assert!(!skills.join("stray").exists());
+        assert!(skills.join("review").join(SKILL_FILE).exists());
     }
 
     #[test]

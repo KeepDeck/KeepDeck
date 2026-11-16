@@ -3,6 +3,42 @@ import type { DownloadRequest } from "@keepdeck/plugin-api";
 import { createCommandRegistry } from "../domain/commands";
 import type { DownloadBackend } from "./downloadManager";
 import { createAppRuntime } from "./runtime";
+import { stagingTrims } from "./stagingTrims";
+
+/** The artifacts setting, as the runtime reads it: null until loaded, and a
+ * flip the test drives. Everything else of the settings owner stays real. */
+const artifactsSetting = vi.hoisted(() => {
+  let value: boolean | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    read: () => (value === null ? null : { artifacts: value }),
+    set(next: boolean) {
+      value = next;
+      for (const listener of [...listeners]) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+});
+
+vi.mock("./settingsManager", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./settingsManager")>()),
+  getSettings: artifactsSetting.read,
+  subscribeSettings: artifactsSetting.subscribe,
+}));
+
+// The artifacts server's IPC, the boundary the claim's transitions cross.
+vi.mock("../ipc/artifacts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../ipc/artifacts")>()),
+  artifactsEnable: vi.fn(async () => 43119),
+  artifactsDisable: vi.fn(async () => {}),
+}));
+
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 const request = (id: string): DownloadRequest => ({
   id,
@@ -74,5 +110,22 @@ describe("createAppRuntime", () => {
       revision: 0,
       invalidated: new Set(),
     });
+  });
+
+  it("forgets what staging said under the old artifacts claim when the claim flips", async () => {
+    // The claim gates the bundled skills tier, which takes room in a view:
+    // what a stage said it could not hand out whole was said under the claim
+    // it ran with.
+    const runtime = createAppRuntime(backend(), createCommandRegistry());
+    stagingTrims.record({ id: "ws-1", instance: "ws-1-life-1", name: "ws-1" }, [
+      { scope: "global", skill: "review", kind: "omitted", path: null, count: 1 },
+    ]);
+    expect(stagingTrims.get()).toHaveLength(1);
+
+    artifactsSetting.set(true);
+    await flush();
+    expect(stagingTrims.get()).toEqual([]);
+
+    runtime.dispose();
   });
 });

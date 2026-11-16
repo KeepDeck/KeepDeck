@@ -31,20 +31,22 @@ async function unfitSkills(): Promise<ExcludedSkill[] | null> {
   }
 }
 
-/** A stage's outcome: the views (null when nothing stages), or a failure —
- * which says nothing about the library. */
-type Staged = { ok: true; views: WorktreeSkillViews | null } | { ok: false };
-
 /**
  * `deck` names the workspace a stage reports under; `trims` is where it
  * reports what it could not hand out whole.
+ *
+ * Every ask stages afresh: a launch is handed what the library holds at that
+ * moment, never an earlier answer. A stage that came out short — the library
+ * could not be read whole that once — used to be remembered and re-served to
+ * every later launch in the workspace until the user happened to edit a
+ * skill; rebuilding per launch makes such a stage cost one launch, not the
+ * rest of the session.
  */
 export function createSkillsStaging(
   inOrder: InOrder,
   deck: Pick<WorktreeDeckView, "nameOf">,
   trims: Pick<StagingTrimStore, "record" | "keep" | "clear">,
 ): SkillsStaging {
-  const staged = new Map<string, Promise<WorktreeSkillViews | null>>();
   /** Bumped by every invalidation: a stage asked for before one speaks of a
    * library that is gone, and its report must not land over the clear. */
   let generation = 0;
@@ -58,38 +60,29 @@ export function createSkillsStaging(
     trims.record({ id: workspace.id, instance: workspace.instance, name }, said);
   }
 
-  async function stage(workspace: WorkspaceRef, asked: number): Promise<Staged> {
+  /** The views a launch is handed: null when nothing stages, and null when
+   * staging failed — then the pane spawns without skills. */
+  async function stage(workspace: WorkspaceRef, asked: number): Promise<WorktreeSkillViews | null> {
     const excluded = await unfitSkills();
-    if (excluded === null) return { ok: false };
+    if (excluded === null) return null;
     try {
       const answer = await stageSkills(workspace.id, excluded);
       report(workspace, asked, answer.trims);
-      return { ok: true, views: answer.view };
+      return answer.view;
     } catch (e) {
       log.warn("web:skills", `skills_stage failed; spawning without skills: ${errorMessage(e)}`);
-      return { ok: false };
+      return null;
     }
   }
 
   return {
     skillsFor(workspace) {
-      const memoized = staged.get(workspace.instance);
-      if (memoized) return memoized;
       const asked = generation;
-      const views: Promise<WorktreeSkillViews | null> = inOrder(() => stage(workspace, asked)).then((outcome) => {
-        if (outcome.ok) return outcome.views;
-        // A failure is no answer about the library: the pane spawns without
-        // skills, and the next spawn stages again instead of inheriting it.
-        if (staged.get(workspace.instance) === views) staged.delete(workspace.instance);
-        return null;
-      });
-      staged.set(workspace.instance, views);
-      return views;
+      return inOrder(() => stage(workspace, asked));
     },
 
     invalidateSkills() {
       generation += 1;
-      staged.clear();
       trims.clear();
     },
 

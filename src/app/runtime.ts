@@ -218,14 +218,14 @@ export function createAppRuntime(
       // as well printed every backend refusal twice, in the same words.
       artifactsEnableOk = transition.ok;
       artifactsEnableStatus.record(transition);
-      // Every claim flip changes the bundled skills staging gate — the
-      // tier's arming follows the claim, and the staging memo only
-      // invalidates on skill writes, so without this a flip leaves panes
-      // spawned after it on the PRE-flip views. TDZ-safe: report fires
-      // only from the policy's chain microtasks and createAppRuntime is
-      // synchronous — `worktrees` (bound later) exists before any report
-      // can run. Bare invalidate is verified sufficient: a cleared memo
-      // is a miss, the miss re-runs stageSkills.
+      // The claim also gates the bundled skills tier. Every launch stages
+      // afresh and reads the claim then — but what earlier stages said they
+      // could not hand out whole was said under the old claim (the tier
+      // takes room in the view), and a stage already in flight would say it
+      // after the flip: both are forgotten here, as on a library write.
+      // TDZ-safe: a report fires only from the policy's chain microtasks and
+      // createAppRuntime is synchronous, so `worktrees` (bound later) exists
+      // before any report can run.
       worktrees.invalidateSkills();
       reconcileArtifactCommands();
     },

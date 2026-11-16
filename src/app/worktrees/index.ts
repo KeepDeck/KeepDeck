@@ -179,13 +179,10 @@ export interface WorktreeProvisioner {
    * nothing to inject: an empty library, or a staging that failed — the pane
    * then spawns without skills.
    *
-   * Memoized per workspace INSTANCE: staging rebuilds the on-disk views from
-   * the library, so it runs once and every later pane spawn in that workspace
-   * reuses the promise until the library moves. A FAILED staging is not
-   * memoized: it says nothing about the library, so the next spawn stages
-   * again. Ids may be reused after a close, instances never are, so a reborn
-   * id cannot be served a dead lifetime's promise (whose dirs the sweep may
-   * have deleted). The DISK key stays the durable id.
+   * Staged afresh on every ask — every launch, new or resumed, gets the views
+   * rebuilt from the library as it is now, never an earlier answer. The DISK
+   * key is the durable id; the instance only says which lifetime a stage's
+   * report belongs to.
    */
   skillsFor(workspace: WorkspaceRef): Promise<WorktreeSkillViews | null>;
   /**
@@ -222,8 +219,10 @@ export interface WorktreeHousekeeping {
  * moved. Held by `skillsLibrary`, which reports it after every successful write
  * — the editor reaches it only through that owner. */
 export interface SkillsInvalidation {
-  /** The library changed (any scope): every workspace re-stages on its next
-   * spawn. Editing is rare and staging is cheap — no finer bookkeeping. */
+  /** What staging reads changed — the library (any scope), or the claim that
+   * gates the bundled tier: what earlier stages said they could not hand out
+   * whole speaks of something that is gone, so it is forgotten — and a stage
+   * already asked for does not say it after this. */
   invalidateSkills(): void;
 }
 
