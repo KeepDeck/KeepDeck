@@ -34,7 +34,7 @@ const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id);
 describe("workspacesWindowView — the list", () => {
   it("lists the strip's workspaces, then the archived ones newest first, counted", () => {
     const v = view();
-    expect([v.inStrip.label, v.inStrip.count]).toEqual(["In the strip", 2]);
+    expect([v.inStrip.label, v.inStrip.count]).toEqual(["Active", 2]);
     expect(ids(v.inStrip.rows)).toEqual(["ws-1", "ws-2"]);
     expect([v.archived.label, v.archived.count]).toEqual(["Archived", 2]);
     expect(ids(v.archived.rows)).toEqual(["ws-4", "ws-3"]);

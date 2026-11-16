@@ -70,7 +70,7 @@ describe("WorkspacesDialog", () => {
       Array.from(g.children).map((part) => part.textContent),
     );
     expect(groups).toEqual([
-      ["In the strip", "1"],
+      ["Active", "1"],
       ["Archived", "1"],
     ]);
     expect(rows().map((row) => row.querySelector(".workspaces__row-name")?.textContent)).toEqual(["Web", "Blog"]);

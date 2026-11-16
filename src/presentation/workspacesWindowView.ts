@@ -23,7 +23,7 @@ export const WORKSPACES_WORDS = {
   title: "Workspaces",
   close: "Close workspaces",
   search: "Find a workspace",
-  inStrip: "In the strip",
+  inStrip: "Active",
   archived: "Archived",
   noMatch: "No workspace matches.",
   onScreen: "on screen",
