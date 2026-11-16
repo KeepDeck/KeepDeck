@@ -17,8 +17,19 @@
   font-size: var(--kd-font-small);
 }
 
+/* A group's name in the nav's small caps, and its count beside it as a
+   plain number — a separator set among capitals sits off their line. */
 .workspaces__group {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   margin: 12px 0 4px 6px;
+}
+
+.workspaces__group-count {
+  color: var(--kd-text-3);
+  font-size: var(--kd-font-small);
+  font-variant-numeric: tabular-nums;
 }
 
 .workspaces__row {

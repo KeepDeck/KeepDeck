@@ -66,8 +66,13 @@ describe("WorkspacesDialog", () => {
 
   it("lists every workspace, archived ones under their own heading, and opens a row's page", () => {
     render();
-    const labels = Array.from(document.querySelectorAll(".workspaces__group")).map((g) => g.textContent);
-    expect(labels).toEqual(["In the strip · 1", "Archived · 1"]);
+    const groups = Array.from(document.querySelectorAll(".workspaces__group")).map((g) =>
+      Array.from(g.children).map((part) => part.textContent),
+    );
+    expect(groups).toEqual([
+      ["In the strip", "1"],
+      ["Archived", "1"],
+    ]);
     expect(rows().map((row) => row.querySelector(".workspaces__row-name")?.textContent)).toEqual(["Web", "Blog"]);
     expect(document.querySelector(".workspaces__title h3")?.textContent).toBe("Web");
     act(() => rows()[1].click());

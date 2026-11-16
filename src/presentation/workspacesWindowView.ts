@@ -23,8 +23,8 @@ export const WORKSPACES_WORDS = {
   title: "Workspaces",
   close: "Close workspaces",
   search: "Find a workspace",
-  inStrip: (n: number) => `In the strip · ${n}`,
-  archived: (n: number) => `Archived · ${n}`,
+  inStrip: "In the strip",
+  archived: "Archived",
   noMatch: "No workspace matches.",
   onScreen: "on screen",
   restore: "Restore to the strip",
@@ -82,6 +82,8 @@ export interface WorkspaceListRow {
 
 export interface WorkspaceListGroup {
   label: string;
+  /** How many rows it holds — drawn beside the label, apart from it. */
+  count: number;
   rows: WorkspaceListRow[];
 }
 
@@ -216,11 +218,13 @@ export function workspacesWindowView(input: WorkspacesWindowInput): WorkspacesWi
     .sort((a, b) => archivedAt(b.archived) - archivedAt(a.archived));
   return {
     inStrip: {
-      label: WORKSPACES_WORDS.inStrip(inStrip.length),
+      label: WORKSPACES_WORDS.inStrip,
+      count: inStrip.length,
       rows: inStrip.map((ws) => row(ws, ws.id === activeId ? WORKSPACES_WORDS.onScreen : null)),
     },
     archived: {
-      label: WORKSPACES_WORDS.archived(archived.length),
+      label: WORKSPACES_WORDS.archived,
+      count: archived.length,
       rows: archived.map((ws) =>
         row(ws, ws.archived?.phase === "archiving" ? "archiving" : formatAge(archivedAt(ws.archived), now)),
       ),

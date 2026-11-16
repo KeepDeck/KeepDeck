@@ -124,7 +124,10 @@ export function WorkspacesDialog({
 function ListGroup({ group, onPick }: { group: WorkspaceListGroup; onPick(wsId: string): void }) {
   return (
     <>
-      <span className="settings__nav-group-label workspaces__group">{group.label}</span>
+      <span className="workspaces__group">
+        <span className="settings__nav-group-label">{group.label}</span>
+        <span className="workspaces__group-count">{group.count}</span>
+      </span>
       {group.rows.map((row) => (
         <button
           key={row.id}

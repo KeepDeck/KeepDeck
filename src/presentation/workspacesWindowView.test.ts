@@ -34,9 +34,9 @@ const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id);
 describe("workspacesWindowView — the list", () => {
   it("lists the strip's workspaces, then the archived ones newest first, counted", () => {
     const v = view();
-    expect(v.inStrip.label).toBe("In the strip · 2");
+    expect([v.inStrip.label, v.inStrip.count]).toEqual(["In the strip", 2]);
     expect(ids(v.inStrip.rows)).toEqual(["ws-1", "ws-2"]);
-    expect(v.archived.label).toBe("Archived · 2");
+    expect([v.archived.label, v.archived.count]).toEqual(["Archived", 2]);
     expect(ids(v.archived.rows)).toEqual(["ws-4", "ws-3"]);
   });
 
@@ -52,7 +52,7 @@ describe("workspacesWindowView — the list", () => {
     expect(ids(view({ query: "  site " }).inStrip.rows)).toEqual(["ws-2"]);
     const none = view({ query: "nothing like it" });
     expect(none.noMatch).toBe(true);
-    expect(none.inStrip.label).toBe("In the strip · 0");
+    expect(none.inStrip.count).toBe(0);
   });
 
   it("opens on what was picked, else on the workspace on screen, and marks its row", () => {
