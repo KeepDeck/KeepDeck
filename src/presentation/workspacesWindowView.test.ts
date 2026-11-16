@@ -40,9 +40,12 @@ describe("workspacesWindowView — the list", () => {
     expect(ids(v.archived.rows)).toEqual(["ws-4", "ws-3"]);
   });
 
-  it("says which one is on screen, and when each archive was put away", () => {
+  it("marks the one on screen without words, and says when each archive was put away", () => {
     const v = view();
-    expect(v.inStrip.rows.map((row) => row.meta)).toEqual(["on screen", null]);
+    expect(v.inStrip.rows.map((row) => [row.active, row.meta])).toEqual([
+      [true, null],
+      [false, null],
+    ]);
     expect(v.archived.rows.map((row) => row.meta)).toEqual(["2h ago", "2d ago"]);
   });
 

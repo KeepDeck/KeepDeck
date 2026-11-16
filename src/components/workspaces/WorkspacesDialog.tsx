@@ -134,9 +134,11 @@ function ListGroup({ group, onPick }: { group: WorkspaceListGroup; onPick(wsId: 
           type="button"
           className={`workspaces__row${row.selected ? " workspaces__row--on" : ""}`}
           aria-current={row.selected || undefined}
+          // The full name, where the row cuts it short.
+          title={row.name}
           onClick={() => onPick(row.id)}
         >
-          <span className="workspaces__tile" aria-hidden>
+          <span className={`workspaces__tile${row.active ? " workspaces__tile--active" : ""}`} aria-hidden>
             {row.initials}
           </span>
           <span className="workspaces__row-name">{row.name}</span>

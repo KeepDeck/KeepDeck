@@ -26,7 +26,6 @@ export const WORKSPACES_WORDS = {
   inStrip: "Active",
   archived: "Archived",
   noMatch: "No workspace matches.",
-  onScreen: "on screen",
   restore: "Restore to the strip",
   archive: "Archive",
   closeWorkspace: "Close workspace",
@@ -75,9 +74,11 @@ export interface WorkspaceListRow {
   id: string;
   name: string;
   initials: string;
-  /** A word beside the name: on screen, or when it was archived. */
+  /** When it was archived — nothing for a workspace in use. */
   meta: string | null;
   selected: boolean;
+  /** The workspace on screen — marked on its letters, not in words. */
+  active: boolean;
 }
 
 export interface WorkspaceListGroup {
@@ -210,6 +211,7 @@ export function workspacesWindowView(input: WorkspacesWindowInput): WorkspacesWi
     initials: initialsOf(ws),
     meta,
     selected: ws === picked,
+    active: ws.id === activeId,
   });
   const found = workspaces.filter((ws) => matches(ws, query));
   const inStrip = found.filter((ws) => ws.archived === undefined);
@@ -220,7 +222,7 @@ export function workspacesWindowView(input: WorkspacesWindowInput): WorkspacesWi
     inStrip: {
       label: WORKSPACES_WORDS.inStrip,
       count: inStrip.length,
-      rows: inStrip.map((ws) => row(ws, ws.id === activeId ? WORKSPACES_WORDS.onScreen : null)),
+      rows: inStrip.map((ws) => row(ws, null)),
     },
     archived: {
       label: WORKSPACES_WORDS.archived,

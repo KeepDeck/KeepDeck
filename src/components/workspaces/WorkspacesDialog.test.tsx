@@ -75,6 +75,11 @@ describe("WorkspacesDialog", () => {
     ]);
     expect(rows().map((row) => row.querySelector(".workspaces__row-name")?.textContent)).toEqual(["Web", "Blog"]);
     expect(document.querySelector(".workspaces__title h3")?.textContent).toBe("Web");
+    // The one on screen: its letters outlined, no words; every row names
+    // itself in full on hover.
+    expect(rows().map((row) => row.querySelector(".workspaces__tile--active") !== null)).toEqual([true, false]);
+    expect(rows()[0].querySelector(".workspaces__row-meta")).toBeNull();
+    expect(rows().map((row) => row.title)).toEqual(["Web", "Blog"]);
     act(() => rows()[1].click());
     expect(acts.onFocus).toHaveBeenCalledWith("ws-2");
   });

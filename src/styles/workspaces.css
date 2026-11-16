@@ -5,7 +5,7 @@
 }
 
 .workspaces__body {
-  grid-template-columns: 236px 1fr;
+  grid-template-columns: 264px 1fr;
 }
 
 .workspaces__list {
@@ -88,6 +88,12 @@
   color: var(--kd-text-2);
   font-size: var(--kd-font-small);
   font-weight: 600;
+}
+
+/* The workspace on screen: its letters outlined, as the strip marks it. */
+.workspaces__tile--active {
+  border-color: var(--kd-text-2);
+  color: var(--kd-text);
 }
 
 .workspaces__tile--big {
