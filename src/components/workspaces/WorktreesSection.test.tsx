@@ -55,13 +55,13 @@ describe("WorktreesSection", () => {
     expect(cells()).toEqual([
       "/repomainno changesthe workspace's own folder",
       "/wt/apikd/apino changesteam “api”",
-      "/wt/orphankd/orphan2 changed entriesno teamRemove…",
+      "/wt/orphankd/orphan2 changed entriesno teamRemove",
     ]);
   });
 
   it("removes one behind a confirm that names the lost changes, says what happened, and reads the list again", async () => {
     await render();
-    act(() => button("Remove…").click());
+    act(() => button("Remove").click());
     expect(document.body.textContent).toContain("Its 2 changed entries are lost with the folder");
     listWorktrees.mockResolvedValue(ROWS.slice(0, 2));
     await act(async () => button("Remove and lose the changes").click());
@@ -73,7 +73,7 @@ describe("WorktreesSection", () => {
 
   it("cancels without removing anything", async () => {
     await render();
-    act(() => button("Remove…").click());
+    act(() => button("Remove").click());
     act(() => button("Cancel").click());
     expect(onRemove).not.toHaveBeenCalled();
   });

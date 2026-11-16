@@ -28,8 +28,8 @@ export const WORKSPACES_WORDS = {
   noMatch: "No workspace matches.",
   onScreen: "on screen",
   restore: "Restore to the strip",
-  archive: "Archive…",
-  closeWorkspace: "Close workspace…",
+  archive: "Archive",
+  closeWorkspace: "Close workspace",
   archivedBanner: (when: string) =>
     `Archived ${when}. Its agents are suspended; teams, worktrees, board and artifacts are kept.`,
   archivingBanner: "Being archived — its agents are stopping.",

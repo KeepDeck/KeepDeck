@@ -45,8 +45,8 @@ export const WORKSPACE_WORDS = {
   rename: "Rename",
   moveUp: "Move up",
   moveDown: "Move down",
-  archive: "Archive…",
-  settings: "Workspace settings…",
+  archive: "Archive",
+  settings: "Workspace settings",
   close: "Close workspace",
   /** A mark's right-click menu, named for its workspace. */
   markMenu: (name: string) => `Workspace ${name}`,

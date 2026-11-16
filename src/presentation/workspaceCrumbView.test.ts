@@ -11,8 +11,8 @@ describe("workspaceMenuView", () => {
       { id: "rename", kind: "rename", label: "Rename", disabled: false, separatorBefore: false },
       { id: "up", kind: "move", label: "Move up", place: null, disabled: true, separatorBefore: false },
       { id: "down", kind: "move", label: "Move down", place: { after: "b" }, disabled: false, separatorBefore: false },
-      { id: "settings", kind: "settings", label: "Workspace settings…", disabled: false, separatorBefore: true },
-      { id: "archive", kind: "archive", label: "Archive…", disabled: false, separatorBefore: false },
+      { id: "settings", kind: "settings", label: "Workspace settings", disabled: false, separatorBefore: true },
+      { id: "archive", kind: "archive", label: "Archive", disabled: false, separatorBefore: false },
       { id: "close", kind: "close", label: "Close workspace", disabled: false, separatorBefore: true },
     ]);
   });
@@ -26,8 +26,8 @@ describe("workspaceMenuView", () => {
     // A mark leads with putting the workspace away; the crumb with naming
     // and placing the one in front of the person. Close ends both.
     expect(summary("mark")).toEqual([
-      "Workspace settings…",
-      "Archive…",
+      "Workspace settings",
+      "Archive",
       "| Rename",
       "Move up",
       "Move down",
@@ -37,8 +37,8 @@ describe("workspaceMenuView", () => {
       "Rename",
       "Move up",
       "Move down",
-      "| Workspace settings…",
-      "Archive…",
+      "| Workspace settings",
+      "Archive",
       "| Close workspace",
     ]);
   });

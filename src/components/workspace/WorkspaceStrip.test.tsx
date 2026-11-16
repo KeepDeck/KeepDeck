@@ -112,8 +112,8 @@ describe("WorkspaceStrip", () => {
     open();
     expect(document.querySelector("[role='menu']")?.getAttribute("aria-label")).toBe("Workspace Beta");
     expect(items().map((item) => item.textContent)).toEqual([
-      "Workspace settings…",
-      "Archive…",
+      "Workspace settings",
+      "Archive",
       "Rename",
       "Move up",
       "Move down",

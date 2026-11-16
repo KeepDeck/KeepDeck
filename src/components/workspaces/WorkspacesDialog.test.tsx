@@ -89,14 +89,14 @@ describe("WorkspacesDialog", () => {
     expect(document.querySelector(".workspaces__banner")?.textContent).toContain("nobody is woken");
     act(() => button("Restore to the strip").click());
     expect(acts.onRestore).toHaveBeenCalledWith("ws-2");
-    expect(Array.from(document.querySelectorAll("button")).some((b) => b.textContent === "Archive…")).toBe(false);
+    expect(Array.from(document.querySelectorAll("button")).some((b) => b.textContent === "Archive")).toBe(false);
   });
 
   it("hands Archive and Close back to the flows that own them", () => {
     render();
-    act(() => button("Archive…").click());
+    act(() => button("Archive").click());
     expect(acts.onArchive).toHaveBeenCalledWith("ws-1");
-    act(() => button("Close workspace…").click());
+    act(() => button("Close workspace").click());
     expect(acts.onCloseWorkspace).toHaveBeenCalledWith("ws-1");
   });
 

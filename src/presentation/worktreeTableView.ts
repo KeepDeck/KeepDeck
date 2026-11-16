@@ -24,7 +24,7 @@ export const WORKTREE_WORDS = {
   newTeam: "New team in a worktree",
   loading: "Reading the repository's checkouts…",
   notARepo: "Not a git repository — it has no worktrees.",
-  remove: "Remove…",
+  remove: "Remove",
   clean: "no changes",
   unknownChanges: "changes unknown",
   gone: "folder gone",

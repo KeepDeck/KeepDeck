@@ -405,8 +405,8 @@ describe("DeckBar", () => {
       "Rename",
       "Move up",
       "Move down",
-      "Workspace settings…",
-      "Archive…",
+      "Workspace settings",
+      "Archive",
       "Close workspace",
     ]);
     act(() => items()[2].click());
