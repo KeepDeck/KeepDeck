@@ -252,11 +252,16 @@
   overflow: hidden;
   height: 24px;
   padding: 8px 10px;
-  border-top: 1px solid var(--kd-seam);
   color: var(--kd-text-2);
   vertical-align: middle;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Lines only BETWEEN rows: the section's own rule already sits above the
+   table, and a second under its column names doubled it. */
+.worktrees tbody tr + tr td {
+  border-top: 1px solid var(--kd-seam);
 }
 
 /* A checkout nobody holds: the row the table is there to point out. */
@@ -310,8 +315,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  padding-top: 16px;
-  border-top: 1px solid var(--kd-seam);
+  padding-top: 8px;
 }
 
 .workspaces__refusal {
