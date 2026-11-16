@@ -307,6 +307,8 @@ function Page({
         {children}
       </div>
       <footer className="workspaces__foot">
+        {/* Why Close is refused, read before the buttons it is about. */}
+        {acts.close.refusal && <span className="settings__hint workspaces__refusal">{acts.close.refusal}</span>}
         {acts.archive && (
           <Button variant="secondary" onClick={() => onArchive(page.id)}>
             {WORKSPACES_WORDS.archive}
@@ -321,7 +323,6 @@ function Page({
         >
           {WORKSPACES_WORDS.closeWorkspace}
         </button>
-        {acts.close.refusal && <span className="settings__hint workspaces__refusal">{acts.close.refusal}</span>}
       </footer>
     </>
   );
