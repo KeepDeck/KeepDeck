@@ -194,6 +194,40 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(epoch()).toBeUndefined();
   });
 
+  it("an archive, a restore and a resume all landing mid-restart leave the binding to the resume", async () => {
+    // The chain the archive design named: the restart's old continuation must
+    // not see the resumed pane as live and erase the binding it comes back
+    // on. The sweep holds back from a pane a restart owns, so the resume
+    // stays a waking marker until the restart is done — and a marker is
+    // "stopped" to it.
+    seed();
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let restarting!: Promise<RestartOutcome>;
+    act(() => {
+      restarting = agentRun.restart("ws-1", "pane-1", "fresh");
+    });
+    act(() => {
+      deck.archiveWorkspace("ws-1");
+      deck.restoreWorkspace("ws-1");
+    });
+    act(() => {
+      expect(agentRun.resume("ws-1", "pane-1")).toBe("resuming");
+    });
+    // Everything the sweep would do with the resume, done before the reap
+    // returns — the window the race needs.
+    await settle();
+    let outcome!: RestartOutcome;
+    await act(async () => {
+      release();
+      outcome = await restarting;
+    });
+    expect(outcome).toBe("stopped");
+    expect(pane().session).toEqual({ id: "session-old", boundAt: "2026-07-11T00:00:00Z" });
+  });
+
   it("refuses to restart in an archived workspace at all", async () => {
     seed();
     act(() => deck.archiveWorkspace("ws-1"));
