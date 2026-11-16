@@ -58,20 +58,27 @@ pub(super) fn verified(dir: &Path) -> Option<String> {
     (of_view(dir).ok()? == said).then_some(said)
 }
 
+fn too_large() -> io::Error {
+    io::Error::new(ErrorKind::InvalidData, "larger than a staged view may be")
+}
+
 /// Every entry of the open folder `dir`, at `at` inside the view, in name
 /// order. Each one is its kind, its path ended by a NUL no name holds, and —
 /// for a file — its length before its bytes: no two views read the same.
 /// `left` is what a view may still hold; past it the walk refuses.
 fn take_in(dir: &File, at: &mut Vec<OsString>, digest: &mut Sha256, left: &mut Allowance) -> io::Result<()> {
     // At most what is left, and the fingerprint file beside it at the top.
-    for name in fsb::names_in(dir, left.entries.saturating_add(1))? {
+    let Some(names) = fsb::names_in(dir, left.entries.saturating_add(1))? else {
+        return Err(too_large());
+    };
+    for name in names {
         if at.is_empty() && name == FINGERPRINT_FILE {
             continue;
         }
         let stat = fsb::stat_at(dir, &name)?;
         let cost = Allowance { entries: 1, bytes: if stat.kind == Kind::File { stat.len } else { 0 } };
         if !left.covers(cost) {
-            return Err(io::Error::new(ErrorKind::InvalidData, "larger than a staged view may be"));
+            return Err(too_large());
         }
         *left = left.less(cost);
         at.push(name);

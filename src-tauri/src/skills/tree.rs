@@ -206,9 +206,13 @@ impl<'a> Walk<'a> {
     /// Copy what the open folder `dir` — the skill's own, at `real` inside it —
     /// holds into `dest`.
     fn folder(&mut self, dir: &File, real: &[OsString], dest: &Path, top: bool) -> Result<(), Stop> {
-        // The user's own library, charged entry by entry below.
-        let names = match fsb::names_in(dir, usize::MAX) {
-            Ok(names) => names,
+        // Every name is charged below, but the top folder's SKILL.md and its
+        // transient go free: a folder holding more than that is too big
+        // before its names are gathered past the allowance.
+        let free = if top { 2 } else { 0 };
+        let names = match fsb::names_in(dir, self.left.entries.saturating_add(free)) {
+            Ok(Some(names)) => names,
+            Ok(None) => return Err(Stop::TooBig),
             Err(_) => {
                 self.leave(real, None, Why::Unreadable);
                 return Ok(());
@@ -701,6 +705,27 @@ mod tests {
             assert_eq!(fs::read_dir(&dest).unwrap().count(), 0, "{short:?} left a partial copy");
             fs::remove_dir(&dest).unwrap();
         }
+    }
+
+    #[test]
+    fn a_folder_is_listed_no_further_than_its_allowance_and_the_skill_file_goes_free() {
+        // The top folder's SKILL.md and its transient are skipped free; every
+        // other name costs one. A folder holding more stops at the bound —
+        // too big, not unreadable — before the rest of it is gathered.
+        let (tmp, skill) = skill();
+        fs::write(skill.join("SKILL.md.tmp"), "saving").unwrap();
+        fs::write(skill.join("a"), "").unwrap();
+        fs::write(skill.join("b"), "").unwrap();
+        let dest = tmp.path().join("copy");
+        let fits = Allowance { entries: 2, bytes: 0 };
+        let (used, left_out) = copied(&skill, &dest, fits);
+        assert_eq!(used.entries, 2);
+        assert!(left_out.is_empty());
+
+        fs::remove_dir_all(&dest).unwrap();
+        fs::write(skill.join("c"), "").unwrap();
+        assert!(matches!(copy_into(&skill, &dest, fits).unwrap(), TreeCopy::TooBig));
+        assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
     }
 
     #[test]
