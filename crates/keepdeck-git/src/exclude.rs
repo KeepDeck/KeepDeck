@@ -9,6 +9,7 @@
 //! byte — CRLF endings, comments, a missing final newline — survives
 //! untouched. The user's exclude file is theirs; KeepDeck edits its own line.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
@@ -103,7 +104,7 @@ pub fn update(common_dir: &Path, add: &[&str], remove: &[&str]) -> io::Result<bo
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e),
     };
-    let removing: Vec<&str> = remove.iter().map(|line| pattern(line)).collect();
+    let removing: HashSet<&str> = remove.iter().map(|line| pattern(line)).collect();
     let segments: Vec<&str> = current.split_inclusive('\n').collect();
     let mut kept = String::with_capacity(current.len());
     let mut changed = false;
@@ -119,8 +120,9 @@ pub fn update(common_dir: &Path, add: &[&str], remove: &[&str]) -> io::Result<bo
         kept.push_str(segments[index]);
         index += 1;
     }
+    let mut there: HashSet<String> = kept.lines().map(|existing| pattern(existing).to_string()).collect();
     for line in add {
-        if kept.lines().any(|existing| pattern(existing) == pattern(line)) {
+        if !there.insert(pattern(line).to_string()) {
             continue;
         }
         if !kept.is_empty() && !kept.ends_with('\n') {
