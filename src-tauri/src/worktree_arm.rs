@@ -35,11 +35,6 @@ impl ExcludeRepo {
         Ok(Some(Self { common_dir, below_root: repo.below_root }))
     }
 
-    /// The repo's COMMON git dir.
-    pub(crate) fn common_dir(&self) -> &Path {
-        &self.common_dir
-    }
-
     /// `relative`, an entry's path below the armed cwd, as a path below the
     /// root of any worktree of the repo.
     pub(crate) fn below_root(&self, relative: &str) -> PathBuf {
@@ -50,35 +45,59 @@ impl ExcludeRepo {
     /// path began with `segment` — `/<subdir>/<segment>/`, raw, unescaped —
     /// byte for byte what stands in users' exclude files, so it can be found
     /// and taken out again.
-    pub(crate) fn legacy_line(&self, segment: &str) -> ExcludeLine {
+    pub(crate) fn legacy_line(&self, segment: &str) -> io::Result<ExcludeLine> {
         let line = if self.below_root.is_empty() {
             format!("/{segment}/")
         } else {
             format!("/{}/{segment}/", self.below_root)
         };
-        ExcludeLine { common_dir: self.common_dir.clone(), line }
+        self.exclude_line(line)
     }
 
     /// The line keeping git blind to `excluded`: anchored at the armed cwd
     /// (`/<path>` at the repo root, `/<subdir>/<path>` below it), literal
     /// throughout, with a trailing `/` for a directory only.
-    pub(crate) fn line(&self, excluded: &Excluded) -> ExcludeLine {
+    pub(crate) fn line(&self, excluded: &Excluded) -> io::Result<ExcludeLine> {
         let path = if self.below_root.is_empty() {
             excluded.path.clone()
         } else {
             format!("{}/{}", self.below_root, excluded.path)
         };
         let suffix = if excluded.directory { "/" } else { "" };
-        ExcludeLine { common_dir: self.common_dir.clone(), line: format!("/{}{suffix}", literal(&path)) }
+        self.exclude_line(format!("/{}{suffix}", literal(&path)))
     }
+
+    /// `line`, whole as rendered — the repo's folders above the cwd included
+    /// — or an error when git could not read it as one line.
+    fn exclude_line(&self, line: String) -> io::Result<ExcludeLine> {
+        if !hideable(&line) {
+            let why = format!("git cannot be told to ignore {line:?}: it holds a line break");
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, why));
+        }
+        Ok(ExcludeLine { common_dir: self.common_dir.clone(), line })
+    }
+}
+
+/// Whether git could be told to ignore `path` at all: an exclude file is read
+/// line by line, so a name holding a line break can never be one pattern.
+pub(crate) fn hideable(path: &str) -> bool {
+    !path.contains(['\n', '\r'])
 }
 
 /// One line of a repo's SHARED `info/exclude` that KeepDeck adds and takes
 /// out as its own.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ExcludeLine {
     common_dir: PathBuf,
     line: String,
+}
+
+impl ExcludeLine {
+    /// The common git dir whose exclude file holds it.
+    pub(crate) fn common_dir(&self) -> &Path {
+        &self.common_dir
+    }
 }
 
 /// Add `add` and take out `remove` — each line marked as KeepDeck's, the same
@@ -169,7 +188,7 @@ mod tests {
             ("skills/trailing ", ["skills/trailing", "skills/trailing  "]),
         ];
         let at = ExcludeRepo::of(&repo).unwrap().unwrap();
-        let lines: Vec<ExcludeLine> = cases.iter().map(|(name, _)| at.line(&file(name))).collect();
+        let lines: Vec<ExcludeLine> = cases.iter().map(|(name, _)| at.line(&file(name)).unwrap()).collect();
         update(&lines, &[]).unwrap();
         for (name, others) in &cases {
             assert!(ignored(&repo, name), "{name:?} itself is hidden");
@@ -180,13 +199,28 @@ mod tests {
     }
 
     #[test]
+    fn a_line_break_anywhere_in_the_rendered_path_is_no_line_at_all() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let cwd = repo.join("pkg\nx");
+        fs::create_dir_all(&cwd).unwrap();
+        assert!(git(&repo, &["init", "-q"]));
+        let at = ExcludeRepo::of(&cwd).unwrap().unwrap();
+        let err = at.line(&Excluded { path: ".k".into(), directory: false }).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(at.legacy_line(".k").is_err());
+        assert!(!hideable("a\rb") && hideable("a b"));
+    }
+
+    #[test]
     fn the_cwds_place_below_the_root_is_literal_too_and_a_directory_is_only_a_directory() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path().join("repo");
         let cwd = repo.join("pkg[1]");
         fs::create_dir_all(&cwd).unwrap();
         assert!(git(&repo, &["init", "-q"]));
-        let line = ExcludeRepo::of(&cwd).unwrap().unwrap().line(&Excluded { path: ".k".into(), directory: true });
+        let line =
+            ExcludeRepo::of(&cwd).unwrap().unwrap().line(&Excluded { path: ".k".into(), directory: true }).unwrap();
         assert_eq!(line.line, "/pkg\\[1\\]/.k/");
         update(&[line], &[]).unwrap();
         fs::create_dir_all(cwd.join(".k")).unwrap();
@@ -203,7 +237,7 @@ mod tests {
         fs::create_dir_all(&cwd).unwrap();
         fs::create_dir_all(repo.join(".git")).unwrap();
         let at = ExcludeRepo::of(&cwd).unwrap().unwrap();
-        assert_eq!(at.legacy_line(".agents").line, "/pkg[1]/.agents/");
+        assert_eq!(at.legacy_line(".agents").unwrap().line, "/pkg[1]/.agents/");
         assert_eq!(at.below_root(".agents/skills"), Path::new("pkg[1]/.agents/skills"));
     }
 }

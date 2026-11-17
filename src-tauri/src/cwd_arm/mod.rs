@@ -20,9 +20,10 @@
 //!   The one link on the way that gives way is the one older builds made to
 //!   codex's whole skills folder.
 //! - Every planting is recorded before it is made, a file as prepared until
-//!   it is seen in place, so a crash leaves a record that settles from what
-//!   stands, never a planting no record names. A record that cannot be read
-//!   now is kept, never let go on an error.
+//!   it is seen in place, and every temporary's name before it is made, so a
+//!   crash leaves a record that settles from what stands, never a planting or
+//!   a temporary no record names. A record that cannot be read now is kept,
+//!   never let go on an error.
 //! - Git is kept blind to exactly what is planted — its temporaries too —
 //!   never to the user's files beside it ([`lines`]), from before it is
 //!   published. If the lines or the record will not go in first, nothing
@@ -249,8 +250,10 @@ fn prune(root: &Path, home: &Path, live: &[String]) -> io::Result<()> {
 }
 
 /// Retire every place `gone` picks, across workspaces, through the one
-/// lifecycle: plantings first, then the folders made for them, then the lines
-/// nothing needs any more. Each workspace's record keeps what would not go.
+/// lifecycle: plantings and reserved names first, then the folders made for
+/// them, then the lines nothing needs any more. Each workspace's record keeps
+/// what would not go, and every line still owed; only a planting that would
+/// not go is a failure.
 fn sweep(ledger: &mut Ledger, home: &Path, gone: impl Fn(&str, &Place) -> bool) -> io::Result<Vec<Place>> {
     let mut leaving: Vec<Held> = Vec::new();
     let mut staying: Vec<Held> = Vec::new();
@@ -268,20 +271,21 @@ fn sweep(ledger: &mut Ledger, home: &Path, gone: impl Fn(&str, &Place) -> bool) 
     let (dirs, plantings): (Vec<Held>, Vec<Held>) =
         leaving.into_iter().partition(|(_, p)| matches!(p.what, What::Dir { .. }));
     let lifecycle::Outcome { mut released, mut retained } = lifecycle::retire(home, true, plantings);
-    let present: Vec<Place> = staying.iter().chain(&retained).map(|(_, p)| p.clone()).collect();
-    let dirs_out = lifecycle::retire_dirs(true, dirs, &present);
+    let holding: Vec<&Place> = staying.iter().chain(&retained).map(|(_, p)| p).collect();
+    let dirs_out = lifecycle::retire_dirs(true, dirs, &holding);
     released.extend(dirs_out.released);
     retained.extend(dirs_out.retained);
+    let failed: Vec<Place> = retained.iter().map(|(_, p)| p.clone()).collect();
     let remaining: Vec<&Place> = staying.iter().chain(&retained).map(|(_, p)| p).collect();
-    let still = lines::Lines::default().release(&released, &remaining);
-    retained.extend(still);
+    let owed = lines::Lines::default().release(released, &remaining);
+    retained.extend(owed);
     let workspaces: BTreeSet<String> = ledger.places.iter().map(|(ws, _)| ws.clone()).collect();
     for ws in workspaces {
         let places: Vec<Place> =
             staying.iter().chain(&retained).filter(|(id, _)| *id == ws).map(|(_, p)| p.clone()).collect();
         ledger.write(&ws, places)?;
     }
-    Ok(retained.into_iter().map(|(_, p)| p).collect())
+    Ok(failed)
 }
 
 /// The plantings in `places`, for a message: `cwd/path`, comma-separated.

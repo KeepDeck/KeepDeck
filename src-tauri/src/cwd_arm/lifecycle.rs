@@ -5,18 +5,25 @@
 //!
 //! An arming pass, in order:
 //!
-//! 1. Decide each declaration from what stands now.
-//! 2. Prerequisites, changing nothing that stands: every exclude line the
-//!    plantings — and the temporaries files are staged as — will need, then
-//!    the record of the new places. If either will not go, nothing is changed:
-//!    what stood keeps standing.
+//! 1. Decide each declaration from what stands now, and name every
+//!    temporary it will make.
+//! 2. Set up, changing nothing that stands: first the record of what the
+//!    pass will owe — the new links, each new file's line, each temporary's
+//!    reserved name — then every exclude line all of it needs. If either
+//!    will not go, NOTHING that stands changes this pass: no planting, no
+//!    take-back, no line let go, no record promoted.
 //! 3. Clear each link older builds left on the way, once.
 //! 4. Make the folders on the way and stage the files, and record them as
 //!    prepared.
 //! 5. Publish: only into an empty name, or over what is still provably ours.
 //!    A file is active once seen in place as staged.
 //! 6. Settle the record: a declared slot keeps what stood until a new planting
-//!    took its place; an undeclared one is taken back; lines nothing needs go.
+//!    took its place; an undeclared one is taken back, with every reserved
+//!    name's leftover; lines nothing needs go.
+//!
+//! A crash between any two steps leaves only what a record names: a folder
+//! made on the way, which an empty folder of ours is, is the one thing that
+//! may stay behind unnamed.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
@@ -139,7 +146,7 @@ pub(super) fn arm(
     let roots = Roots::of(home, plugin, ws);
     let allowed: Vec<PathBuf> = allowed.iter().filter_map(|dir| std::fs::canonicalize(dir).ok()).collect();
     let theirs: HashSet<String> =
-        ledger.all().filter(|(_, p)| p.cwd == cwd && p.plugin != plugin).filter_map(|(_, p)| p.slot()).collect();
+        ledger.all().filter(|(_, p)| p.cwd == cwd && p.plugin != plugin).filter_map(|(_, p)| p.claim()).collect();
 
     let mut refusals: Vec<Option<String>> = vec![None; arms.len()];
     let admitted = admit(arms, &theirs, &allowed, &roots, &mut refusals);
@@ -164,7 +171,8 @@ pub(super) fn arm(
         })
         .collect();
     let dirs: Vec<Place> = take(&mut here, |p| matches!(p.what, What::Dir { .. }));
-    let line_only: Vec<Place> = take(&mut here, |p| matches!(p.what, What::Line));
+    let owed: Vec<Place> = take(&mut here, |p| matches!(p.what, What::Line { .. }));
+    let leftovers: Vec<Place> = take(&mut here, |p| matches!(p.what, What::Temp { .. }));
     let mut by_slot: HashMap<String, Vec<usize>> = HashMap::new();
     for (index, place) in here.iter().enumerate() {
         if let Some(key) = place.slot() {
@@ -176,7 +184,7 @@ pub(super) fn arm(
         by_slot.get(key)?.iter().map(|i| &here[*i]).max_by_key(|p| p.hidden == Hidden::Exact)
     };
 
-    // 1. Decide.
+    // 1. Decide, and name every temporary.
     let mut plantings: Vec<Planting> = Vec::new();
     for admitted in admitted {
         let key = slot(&admitted.path).expect("an admitted path is a slot");
@@ -184,7 +192,7 @@ pub(super) fn arm(
         match decided {
             Ok(act) => {
                 let temp = match (&admitted.want, &act) {
-                    (Want::File { .. }, Act::Create { .. } | Act::Replace { .. }) => {
+                    (Want::File { .. }, Act::Create { .. } | Act::Replace { .. }) | (Want::Link(_), Act::Replace { .. }) => {
                         Some(fsb::temporary_beside(OsStr::new(admitted.parts.last().expect("a path has a name"))))
                     }
                     _ => None,
@@ -195,39 +203,52 @@ pub(super) fn arm(
         }
     }
 
-    // 2. Prerequisites: the lines, then the record of the new places.
+    // 2. Set up: the record of what the pass will owe, then the lines.
     let mut lines = Lines::default();
-    let hide: Vec<Place> = plantings
-        .iter()
-        .flat_map(|p| {
-            let temp = p.temp_path().map(|path| place(cwd, plugin, path, What::Line));
-            [Some(exact(cwd, plugin, &p.admitted)), temp].into_iter().flatten()
-        })
-        .collect();
-    let hidden = lines.ensure(&hide).map_err(|e| log::warn!("cwd arming: hiding {ws}'s plantings in {cwd} from git failed: {e}"));
-    let mut prerequisite: Result<(), &str> = hidden.map_err(|()| UNHIDDEN);
-    let new_links: Vec<Place> = plantings
-        .iter()
-        .filter(|p| p.changes() && matches!(p.admitted.want, Want::Link(_)))
-        .map(|p| place(cwd, plugin, p.admitted.path.clone(), What::Symlink { target: None }))
-        .collect();
     let recorded = |extra: &[Place]| -> Vec<Place> {
-        elsewhere.iter().chain(&here).chain(&dirs).chain(&line_only).chain(extra).cloned().collect()
+        elsewhere.iter().chain(&here).chain(&dirs).chain(&owed).chain(&leftovers).chain(extra).cloned().collect()
     };
-    if prerequisite.is_ok() {
-        match ledger.write(ws, dedup(recorded(&new_links))) {
-            Ok(wrote) => stats.manifests_written += usize::from(wrote),
-            Err(e) => {
-                log::warn!("cwd arming: recording {ws} failed: {e}");
-                prerequisite = Err(UNWRITABLE);
+    let mut setup: Result<(), &str> = Ok(());
+    let mut intent: Vec<Place> = Vec::new();
+    for planting in plantings.iter().filter(|p| p.changes()) {
+        let path = planting.admitted.path.clone();
+        let owes = match &planting.admitted.want {
+            Want::Link(_) => Ok(Some(place(cwd, plugin, path, What::Symlink { target: None }))),
+            Want::File { .. } => lines.owing(&exact(cwd, plugin, &planting.admitted)),
+        };
+        let reserved = planting.temp_path().map(|temp| lines.reserve(cwd, plugin, temp)).transpose();
+        match (owes, reserved) {
+            (Ok(owes), Ok(reserved)) => intent.extend(owes.into_iter().chain(reserved)),
+            (Err(e), _) | (_, Err(e)) => {
+                log::warn!("cwd arming: hiding {ws}'s plantings in {cwd} from git failed: {e}");
+                setup = Err(UNHIDDEN);
             }
         }
     }
-    if let Err(reason) = prerequisite {
+    if setup.is_ok() {
+        match ledger.write(ws, dedup(recorded(&intent))) {
+            Ok(wrote) => stats.manifests_written += usize::from(wrote),
+            Err(e) => {
+                log::warn!("cwd arming: recording {ws} failed: {e}");
+                setup = Err(UNWRITABLE);
+            }
+        }
+    }
+    if setup.is_ok() {
+        let exacts: Vec<Place> = plantings.iter().map(|p| exact(cwd, plugin, &p.admitted)).collect();
+        let reservations = intent.iter().filter(|p| matches!(p.what, What::Temp { .. }));
+        if let Err(e) = lines.ensure(exacts.iter().chain(reservations)) {
+            log::warn!("cwd arming: hiding {ws}'s plantings in {cwd} from git failed: {e}");
+            setup = Err(UNHIDDEN);
+        }
+    }
+    if let Err(reason) = setup {
         for planting in plantings.iter_mut().filter(|p| p.changes()) {
             planting.refused = Some(reason.to_string());
         }
     }
+    // Whether anything that stands may change this pass.
+    let fence = whole && setup.is_ok();
 
     // 3. Clear each link older builds left on the way, once.
     let mut cleared: Vec<String> = Vec::new();
@@ -281,13 +302,8 @@ pub(super) fn arm(
                         continue;
                     };
                     let previous = if let Act::Replace { previous, .. } = &planting.act { previous.clone() } else { None };
-                    let receipt = Receipt {
-                        state: Landing::Prepared,
-                        identity,
-                        digest: digest.clone(),
-                        temp: Some(temp.to_string_lossy().into_owned()),
-                        previous: previous.map(Box::new),
-                    };
+                    let receipt =
+                        Receipt { state: Landing::Prepared, identity, digest: digest.clone(), previous: previous.map(Box::new) };
                     let what = What::File { receipt: Some(receipt) };
                     prepared.push(place(cwd, plugin, planting.admitted.path.clone(), what));
                     planting.staged = Some(file);
@@ -301,7 +317,7 @@ pub(super) fn arm(
         planting.dir = Some(way.dir);
     }
     if !made.is_empty() || !prepared.is_empty() {
-        let extra: Vec<Place> = new_links.iter().chain(&made).chain(&prepared).cloned().collect();
+        let extra: Vec<Place> = intent.iter().chain(&made).chain(&prepared).cloned().collect();
         match ledger.write(ws, dedup(recorded(&extra))) {
             Ok(wrote) => stats.manifests_written += usize::from(wrote),
             Err(e) => {
@@ -326,7 +342,11 @@ pub(super) fn arm(
         }
         if matches!(planting.act, Act::Keep) {
             let key = slot(&planting.admitted.path).expect("a slot");
-            present.push(keep(place_at(&key), cwd, plugin, &planting.admitted));
+            // A failed setup promotes no record: what stood stays as it was.
+            present.push(match (setup.is_ok(), place_at(&key)) {
+                (false, Some(place)) => place.clone(),
+                (_, place) => keep(place, cwd, plugin, &planting.admitted),
+            });
             continue;
         }
         let Some(dir) = &planting.dir else { continue };
@@ -363,38 +383,39 @@ pub(super) fn arm(
             retiring.push((ws.to_string(), place));
         }
     }
-    let Outcome { released, mut retained } = retire(home, whole, retiring);
+    // Every reserved name goes with whatever a crash or a failed step left
+    // at it; this pass's own new links and files' lines are owed no more
+    // than what landed owes.
+    let (reservations, intended): (Vec<Place>, Vec<Place>) =
+        intent.into_iter().partition(|p| matches!(p.what, What::Temp { .. }));
+    retiring.extend(leftovers.into_iter().chain(reservations).map(|p| (ws.to_string(), p)));
+    let Outcome { released, mut retained } = retire(home, fence, retiring);
     // A folder made on the way stays while anything recorded lies inside:
     // this pass's plantings, what would not go, another workspace's.
-    let holding: Vec<Place> = present
+    let holding: Vec<&Place> = present
         .iter()
         .chain(&unconfirmed)
         .chain(&preserved)
         .chain(retained.iter().map(|(_, p)| p))
         .chain(ledger.all().filter(|(id, _)| *id != ws).map(|(_, p)| p))
-        .cloned()
         .collect();
-    let dirs_out = retire_dirs(whole, dirs.into_iter().chain(made).map(|p| (ws.to_string(), p)).collect(), &holding);
+    let dirs_out = retire_dirs(fence, dirs.into_iter().chain(made).map(|p| (ws.to_string(), p)).collect(), &holding);
     retained.extend(dirs_out.retained);
 
     // What no line needs any more: what went, what was replaced, what was
-    // forgotten, the temporaries, plantings that never landed, older
-    // records, and every workspace's record of a link that gave way.
+    // forgotten, older owed lines, what this pass meant to plant but did not,
+    // and every workspace's record of a link that gave way.
     let mut gone: Vec<Held> = released;
     gone.extend(replanted);
     gone.extend(dirs_out.released);
     gone.extend(forgotten);
-    gone.extend(line_only.into_iter().map(|p| (ws.to_string(), p)));
-    // This pass's own lines, when they went in at all.
-    for planting in plantings.iter().filter(|_| hidden.is_ok()) {
-        if let Some(path) = planting.temp_path() {
-            gone.push((ws.to_string(), place(cwd, plugin, path, What::Line)));
-        }
-        let key = slot(&planting.admitted.path).expect("a slot");
-        if planting.refused.is_some() && !standing.contains_key(&key) {
-            gone.push((ws.to_string(), Place { what: What::Line, ..exact(cwd, plugin, &planting.admitted) }));
-        }
-    }
+    gone.extend(owed.into_iter().map(|p| (ws.to_string(), p)));
+    gone.extend(
+        intended
+            .into_iter()
+            .filter(|p| p.slot().and_then(|key| standing.get(&key)).is_none_or(|now| **now != *p))
+            .map(|p| (ws.to_string(), p)),
+    );
     let mut peers: Vec<(String, Vec<Place>)> = Vec::new();
     for (id, places) in ledger.places.iter().filter(|(id, _)| id != ws) {
         let (theirs, rest): (Vec<Place>, Vec<Place>) = places.iter().cloned().partition(|p| {
@@ -419,14 +440,13 @@ pub(super) fn arm(
             rest.unwrap_or_else(|| places.clone())
         })
         .collect();
-    // While a record will not read, no line goes: one could be its claim;
-    // nor while this pass's lines would not go in: what replaces an older
-    // line may not be there.
-    let still: Vec<Held> = if whole && hidden.is_ok() {
+    // Behind the fence no line goes: a record that will not read could be
+    // its claim, and a setup that failed may not have put in what replaces it.
+    let still: Vec<Held> = if fence {
         let remaining: Vec<&Place> = kept.iter().chain(&others).collect();
-        lines.release(&gone, &remaining)
+        lines.release(gone, &remaining)
     } else {
-        gone.into_iter().map(|(id, p)| (id, p.line_left())).collect()
+        gone.into_iter().filter_map(|(id, p)| lines.line_left(p).map(|p| (id, p))).collect()
     };
     let mut still_peers: HashMap<String, Vec<Place>> = HashMap::new();
     for (id, place) in still {
@@ -499,7 +519,7 @@ fn admit(
             let (Some(parts), Some(key)) = (relative_parts(path), &slots[index]) else {
                 return Err(format!("{path} is not a path inside this directory"));
             };
-            if path.contains(['\n', '\r']) {
+            if !crate::worktree_arm::hideable(path) {
                 return Err(format!("{path} has a name git cannot be told to ignore"));
             }
             let oversized = path.len() > CAPS.path_max_bytes
@@ -658,11 +678,12 @@ pub(super) enum Settled {
     Forget(Place),
 }
 
-/// Settle a place a crash left mid-change: a prepared file is active once
-/// its slot holds exactly the staged file, back to the file it was replacing
-/// when that one stands, and forgotten otherwise. A leftover temporary goes
-/// when it is still the staged file. An error reading any of it is an error:
-/// the place stays as it was, for a later pass.
+/// Settle a place a crash left mid-change, from what stands — reading only:
+/// a prepared file is active once its slot holds exactly the staged file,
+/// back to the file it was replacing when that one stands, and forgotten
+/// otherwise. (A leftover temporary goes with its reserved name.) An error
+/// reading any of it is an error: the place stays as it was, for a later
+/// pass.
 pub(super) fn settle(cwd_fd: &File, place: Place) -> io::Result<Settled> {
     let What::File { receipt: Some(receipt) } = &place.what else { return Ok(Settled::Place(place)) };
     if receipt.state == Landing::Active {
@@ -673,15 +694,6 @@ pub(super) fn settle(cwd_fd: &File, place: Place) -> io::Result<Settled> {
         Reach::Reached(way) => way.dir,
         Reach::Missing | Reach::Blocked { .. } => return Ok(Settled::Forget(place)),
     };
-    if let Some(temp) = &receipt.temp {
-        let temp = OsStr::new(temp);
-        match fsb::identity_at(&dir, temp) {
-            Ok(Some(identity)) if identity == receipt.identity => fsb::remove_at(&dir, temp, false)?,
-            Ok(_) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
-        }
-    }
     let leaf = OsStr::new(parts.last().expect("a place has a name"));
     let Slot::File { identity, digest } = disk::observe(&dir, leaf, CAPS.content_max_bytes as u64)? else {
         return Ok(Settled::Forget(place));
@@ -699,14 +711,18 @@ pub(super) fn settle(cwd_fd: &File, place: Place) -> io::Result<Settled> {
 }
 
 fn active_receipt(landed: Landed) -> Receipt {
-    Receipt { state: Landing::Active, identity: landed.identity, digest: landed.digest, temp: None, previous: None }
+    Receipt { state: Landing::Active, identity: landed.identity, digest: landed.digest, previous: None }
 }
 
-/// The place a declaration that already stands as declared keeps: its own,
-/// exact from now on.
+/// The place a declaration that already stands as declared keeps: its own
+/// record, exact from now on, while it records the kind that stands — a fresh
+/// one when what stands now is of another kind than the record says.
 fn keep(place: Option<&Place>, cwd: &str, plugin: &str, admitted: &Admitted) -> Place {
-    match place {
-        Some(place) if !matches!(place.what, What::File { receipt: None }) => {
+    match (place, &admitted.want) {
+        (Some(place), Want::Link(_)) if matches!(place.what, What::Symlink { .. }) => {
+            Place { hidden: Hidden::Exact, path: admitted.path.clone(), ..place.clone() }
+        }
+        (Some(place), Want::File { .. }) if matches!(place.what, What::File { receipt: Some(_) }) => {
             Place { hidden: Hidden::Exact, path: admitted.path.clone(), ..place.clone() }
         }
         _ => exact(cwd, plugin, admitted),
@@ -770,7 +786,7 @@ fn publish(dir: &File, roots: &Roots, planting: &Planting, cwd: &str, plugin: &s
     }
     let publish = if matches!(planting.act, Act::Replace { .. }) { Publish::Replace } else { Publish::Exclusive };
     match (&admitted.want, staged) {
-        (Want::Link(target), _) => match fsb::link_at(target.as_os_str(), dir, leaf, publish) {
+        (Want::Link(target), _) => match fsb::link_at(target.as_os_str(), dir, leaf, through(planting, publish)) {
             Ok(()) => Published::Landed(place(cwd, plugin, path.clone(), What::Symlink { target: None })),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => Published::Refused(late()),
             Err(e) => Published::Refused(e.to_string()),
@@ -790,18 +806,21 @@ fn publish(dir: &File, roots: &Roots, planting: &Planting, cwd: &str, plugin: &s
                 Published::Landed(place(cwd, plugin, path.clone(), What::File { receipt: Some(active_receipt(landed)) }))
             } else {
                 let previous = if let Act::Replace { previous, .. } = &planting.act { previous.clone() } else { None };
-                let receipt = Receipt {
-                    state: Landing::Prepared,
-                    identity,
-                    digest: digest.clone(),
-                    temp: None,
-                    previous: previous.map(Box::new),
-                };
+                let receipt =
+                    Receipt { state: Landing::Prepared, identity, digest: digest.clone(), previous: previous.map(Box::new) };
                 let prepared = place(cwd, plugin, path.clone(), What::File { receipt: Some(receipt) });
                 Published::Unconfirmed(prepared, format!("{path} could not be seen in place after it was planted"))
             }
         }
         (Want::File { .. }, None) => unreachable!("a file to publish is always staged"),
+    }
+}
+
+/// The reserved name a link replacing one of ours is made as, first.
+fn through(planting: &Planting, publish: Publish) -> Option<&OsStr> {
+    match publish {
+        Publish::Replace => Some(planting.temp.as_deref().expect("a replacement has its temporary named")),
+        Publish::Exclusive => None,
     }
 }
 
@@ -845,7 +864,7 @@ pub(super) fn retire(home: &Path, whole: bool, gone: Vec<Held>) -> Outcome {
 /// that is gone takes its plantings with it; one that will not open is an
 /// error, so the place stays recorded.
 fn take_back(home: &Path, ws: &str, place: &Place) -> io::Result<()> {
-    if matches!(place.what, What::Line) {
+    if matches!(place.what, What::Line { .. }) {
         return Ok(());
     }
     let Some((_, cwd_fd)) = open_cwd(&place.cwd)? else { return Ok(()) };
@@ -862,6 +881,8 @@ fn take_back(home: &Path, ws: &str, place: &Place) -> io::Result<()> {
         (What::File { .. }, Slot::File { identity, digest }) => {
             active(&place).is_some_and(|landed| proof::is_landed(&landed, identity, digest.as_deref()))
         }
+        // A reserved name holds only the temporary it was reserved for.
+        (What::Temp { .. }, Slot::File { .. } | Slot::Link(_)) => true,
         _ => false,
     };
     if ours {
@@ -873,13 +894,16 @@ fn take_back(home: &Path, ws: &str, place: &Place) -> io::Result<()> {
 /// Take back the folders KeepDeck made on the way, deepest first, once none
 /// of `holding` lies inside: each goes when it is still exactly the one made
 /// and empty; one holding anything else now is forgotten.
-pub(super) fn retire_dirs(whole: bool, dirs: Vec<Held>, holding: &[Place]) -> Outcome {
-    let inside = |dir: &Place, p: &Place| {
-        p.cwd == dir.cwd
-            && p.slot().zip(dir.slot()).is_some_and(|(p, d)| p.starts_with(&format!("{d}/")))
-    };
-    let (mut free, mut held): (Vec<Held>, Vec<Held>) =
-        dirs.into_iter().partition(|(_, dir)| !holding.iter().any(|p| inside(dir, p)));
+pub(super) fn retire_dirs(whole: bool, dirs: Vec<Held>, holding: &[&Place]) -> Outcome {
+    // Every folder something recorded lies in — an owed line lies nowhere.
+    let mut around: HashSet<(&str, String)> = HashSet::new();
+    for place in holding.iter().filter(|p| !matches!(p.what, What::Line { .. })) {
+        let Some(key) = place.slot() else { continue };
+        around.extend(key.match_indices('/').map(|(at, _)| (place.cwd.as_str(), key[..at].to_string())));
+    }
+    let (mut free, mut held): (Vec<Held>, Vec<Held>) = dirs
+        .into_iter()
+        .partition(|(_, dir)| !dir.slot().is_some_and(|key| around.contains(&(dir.cwd.as_str(), key))));
     if !whole {
         held.append(&mut free);
         return Outcome { released: Vec::new(), retained: held };
@@ -975,7 +999,7 @@ mod tests {
 
     fn receipt(state: Landing) -> Place {
         let identity = Identity { dev: 1, ino: 2, born: (3, 4) };
-        let receipt = Receipt { state, identity, digest: "sha256:0".into(), temp: None, previous: None };
+        let receipt = Receipt { state, identity, digest: "sha256:0".into(), previous: None };
         place("/r", "p", ".k/f".into(), What::File { receipt: Some(receipt) })
     }
 

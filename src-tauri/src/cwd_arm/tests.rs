@@ -144,11 +144,11 @@ fn a_prepared_file_never_authorizes_taking_back_what_stands_after_a_crash() {
         state: Landing::Prepared,
         identity: staged.identity.unwrap(),
         digest: super::proof::digest(b"ours"),
-        temp: Some(staged.name.to_string_lossy().into_owned()),
         previous: None,
     };
     let mut places = s.places("ws-1");
     places.push(place(&s.cwd, "p.filer", ".conf/mcp.json", What::File { receipt: Some(receipt) }));
+    places.push(reserved(&s.cwd, &staged));
     Ledger::read(&s.root).unwrap().write("ws-1", places).unwrap();
     fs::write(s.cwd.join(".conf/mcp.json"), "ours").unwrap();
 
@@ -167,11 +167,11 @@ fn a_file_published_before_a_crash_is_recognized_and_taken_back() {
         state: Landing::Prepared,
         identity: staged.identity.unwrap(),
         digest: super::proof::digest(b"ours"),
-        temp: Some(staged.name.to_string_lossy().into_owned()),
         previous: None,
     };
     let mut places = s.places("ws-1");
     places.push(place(&s.cwd, "p.filer", ".conf/mcp.json", What::File { receipt: Some(receipt) }));
+    places.push(reserved(&s.cwd, &staged));
     Ledger::read(&s.root).unwrap().write("ws-1", places).unwrap();
     fsb::publish_at(&dir, &staged.name, "mcp.json".as_ref(), fsb::Publish::Exclusive).unwrap();
 
@@ -194,10 +194,10 @@ fn a_crash_before_a_rewrite_was_published_keeps_the_file_it_was_replacing() {
             state: Landing::Prepared,
             identity: staged.identity.unwrap(),
             digest: super::proof::digest(b"new"),
-            temp: Some(staged.name.to_string_lossy().into_owned()),
             previous: Some(Box::new(previous)),
         }),
     };
+    places.push(reserved(&s.cwd, &staged));
     Ledger::read(&s.root).unwrap().write("ws-1", places).unwrap();
 
     let report = s.arm("p.filer", "ws-1", &[file(".conf/mcp.json", "newer")]);
@@ -233,6 +233,12 @@ fn a_file_an_older_build_recorded_without_a_receipt_is_never_changed() {
     assert_eq!(fs::read_to_string(s.cwd.join(".kimi-code/mcp.json")).unwrap(), "old");
     s.disarm(&s.cwd).unwrap();
     assert_eq!(fs::read_to_string(s.cwd.join(".kimi-code/mcp.json")).unwrap(), "old");
+}
+
+/// The reservation the engine records for `staged`, beside `.conf/mcp.json`,
+/// before it is made (no repo: no line to owe).
+fn reserved(cwd: &Path, staged: &fsb::Staged) -> Place {
+    place(cwd, "p.filer", &format!(".conf/{}", staged.name.to_string_lossy()), What::Temp { owed: None })
 }
 
 fn place(cwd: &Path, plugin: &str, path: &str, what: What) -> Place {
@@ -743,11 +749,12 @@ fn a_line_stays_while_anything_stands_at_its_entry_in_any_worktree() {
     fs::write(main.join(".m"), "theirs").unwrap();
     s.disarm(&wt).unwrap();
     assert_eq!(excluded(&main), ["/.l", "/.m"]);
+    assert!(s.places("ws-1").iter().all(|p| matches!(p.what, What::Line { .. })), "each line stays owed");
     fs::remove_file(main.join(".l")).unwrap();
     fs::remove_file(main.join(".m")).unwrap();
-    s.arm_in(&wt, "p.linker", "ws-1", &[link(".l", &skills), link(".m", &skills)]);
     s.disarm(&wt).unwrap();
     assert!(excluded(&main).is_empty(), "nothing stands anywhere now");
+    assert!(s.places("ws-1").is_empty());
 }
 
 #[test]
@@ -812,6 +819,12 @@ fn a_rewrite_that_cannot_be_hidden_first_leaves_what_stood() {
     assert_eq!(refused(&report, ".k/conf"), "this could not be kept from git — nothing was planted");
     assert_eq!(fs::read_to_string(main.join(".k/conf")).unwrap(), "a");
     assert_eq!(fs::read_dir(main.join(".k")).unwrap().count(), 1, "nothing staged beside it");
+    let owed = |p: &Place| matches!(p.what, What::Line { .. } | What::Temp { .. });
+    let standing: Vec<Place> = s.places("ws-1").into_iter().filter(|p| !owed(p)).collect();
+    assert_eq!(standing, before);
+    assert_eq!(excluded(&main), ["/.k/conf"]);
+    // What the pass meant to do stays recorded until a later one lets it go.
+    s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "a")]);
     assert_eq!(s.places("ws-1"), before);
     assert_eq!(excluded(&main), ["/.k/conf"]);
 }
@@ -824,7 +837,7 @@ fn a_file_planted_in_a_repo_leaves_git_blind_to_it_alone() {
     s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "a")]);
     s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "b")]);
     assert_eq!(excluded(&main), ["/.k/conf"]);
-    assert_eq!(s.places("ws-1").iter().filter(|p| matches!(p.what, What::Line)).count(), 0);
+    assert_eq!(s.places("ws-1").iter().filter(|p| matches!(p.what, What::Line { .. } | What::Temp { .. })).count(), 0);
 }
 
 #[test]
@@ -839,7 +852,6 @@ fn a_planting_that_cannot_be_read_now_stays_recorded_for_a_later_pass() {
         state: Landing::Prepared,
         identity: staged.identity.unwrap(),
         digest: super::proof::digest(b"ours"),
-        temp: None,
         previous: None,
     };
     let mut places = s.places("ws-1");
@@ -929,4 +941,160 @@ fn a_pass_over_an_unchanged_set_looks_once_per_entry_and_writes_nothing() {
     assert_eq!(again.armed.len(), CAPS.entries_max);
     let unchanged = lifecycle::Stats { observed: CAPS.entries_max, digested: 0, manifests_written: 0, excludes_written: 0 };
     assert_eq!(cost, unchanged);
+}
+
+// ---- what a record of an owed line, a reserved name or a slot may do ----
+
+#[test]
+fn a_slot_is_one_name_in_every_unicode_spelling() {
+    let s = scratch();
+    let (one, two) = (s.skill("ws-1", "one"), s.skill("ws-1", "two"));
+    assert!(s.arm("p.a", "ws-1", &[link(".x/caf\u{e9}", &one)]).refused.is_empty());
+    let other = s.arm("p.b", "ws-1", &[link(".x/cafe\u{301}", &two)]);
+    assert_eq!(refused(&other, ".x/cafe\u{301}"), ".x/cafe\u{301} is planted here by another agent");
+    assert_eq!(fs::read_link(s.cwd.join(".x/caf\u{e9}")).unwrap(), one);
+}
+
+#[test]
+fn an_owed_line_claims_no_slot_and_moves_nothing() {
+    let s = scratch();
+    let main = repo(&s);
+    let skills = s.skills("ws-1");
+    s.arm_in(&main, "p.a", "ws-1", &[link(".l", &skills)]);
+    lock(&main.join(".git/info"), true);
+    s.arm_in(&main, "p.a", "ws-1", &[]);
+    lock(&main.join(".git/info"), false);
+    assert!(fs::symlink_metadata(main.join(".l")).is_err(), "taken back; only its line is owed");
+    let other = s.arm_in(&main, "p.b", "ws-1", &[link(".l", &skills)]);
+    assert!(other.refused.is_empty(), "an owed line claims nothing: {:?}", other.refused);
+}
+
+#[test]
+fn an_older_line_left_owed_is_no_authority_over_a_link_standing_there_later() {
+    let s = scratch();
+    let main = repo(&s);
+    let skills = s.skills("ws-1");
+    fs::create_dir_all(main.join(".cfg")).unwrap();
+    symlink(&skills, main.join(".cfg/l")).unwrap();
+    older_places(&s, "ws-1", &main, vec![place(&main, "p.linker", ".cfg/l", What::Symlink { target: None })]);
+    lock(&main.join(".git/info"), true);
+    s.disarm(&main).unwrap();
+    lock(&main.join(".git/info"), false);
+    assert!(fs::symlink_metadata(main.join(".cfg/l")).is_err());
+    symlink(&skills, main.join(".cfg/l")).unwrap();
+    s.disarm(&main).unwrap();
+    assert_eq!(fs::read_link(main.join(".cfg/l")).unwrap(), skills, "no record planted this one");
+    assert_eq!(excluded(&main), ["/.cfg/"], "and its older line stays while it stands");
+}
+
+#[test]
+fn a_line_is_let_go_over_an_entry_only_once_that_entrys_own_line_is_written() {
+    let s = scratch();
+    let main = repo(&s);
+    let skills = s.skills("ws-1");
+    s.arm_in(&main, "p.linker", "ws-1", &[link(".cfg/l", &skills)]);
+    let older = place(&main, "p.linker", ".cfg/l", What::Symlink { target: None });
+    Ledger::read(&s.root).unwrap().write("ws-2", vec![Place { hidden: Hidden::FirstSegment, ..older }]).unwrap();
+    keepdeck_git::exclude::ensure_line(&main.join(".git"), "/.cfg/").unwrap();
+    keepdeck_git::exclude::remove_line(&main.join(".git"), "/.cfg/l").unwrap();
+    prune(&s.root, &s.home, &["ws-1".into()]).unwrap();
+    assert_eq!(fs::read_link(main.join(".cfg/l")).unwrap(), skills);
+    assert_eq!(excluded(&main), ["/.cfg/l"], "never visible to git: its own line went back in first");
+}
+
+#[test]
+fn a_failed_setup_changes_nothing_that_stands() {
+    let s = scratch();
+    let main = repo(&s);
+    let skills = s.skills("ws-1");
+    s.arm_in(&main, "p.linker", "ws-1", &[link(".l", &skills), link(".m", &skills)]);
+    lock(&main.join(".git/info"), true);
+    let report = s.arm_in(&main, "p.linker", "ws-1", &[link(".l", &skills), link(".n", &skills)]);
+    lock(&main.join(".git/info"), false);
+    assert_eq!(refused(&report, ".n"), "this could not be kept from git — nothing was planted");
+    assert!(fs::symlink_metadata(main.join(".m")).is_ok(), "no take-back behind a failed setup");
+    assert!(s.arm_in(&main, "p.linker", "ws-1", &[link(".l", &skills)]).refused.is_empty());
+    assert!(fs::symlink_metadata(main.join(".m")).is_err());
+    assert_eq!(excluded(&main), ["/.l"]);
+}
+
+#[test]
+fn a_failed_setup_promotes_no_older_record() {
+    let s = scratch();
+    let main = repo(&s);
+    let skills = s.skills("ws-1");
+    fs::create_dir_all(main.join(".cfg")).unwrap();
+    symlink(&skills, main.join(".cfg/l")).unwrap();
+    older_places(&s, "ws-1", &main, vec![place(&main, "p.linker", ".cfg/l", What::Symlink { target: None })]);
+    lock(&main.join(".git/info"), true);
+    s.arm_in(&main, "p.linker", "ws-1", &[link(".cfg/l", &skills)]);
+    lock(&main.join(".git/info"), false);
+    assert!(s.places("ws-1").iter().all(|p| p.hidden == Hidden::FirstSegment), "still hidden only as it was");
+    s.arm_in(&main, "p.linker", "ws-1", &[link(".cfg/l", &skills)]);
+    assert!(s.places("ws-1").iter().all(|p| p.hidden == Hidden::Exact));
+    assert_eq!(excluded(&main), ["/.cfg/l"]);
+}
+
+#[test]
+fn a_reserved_names_leftover_goes_only_from_behind_the_fence() {
+    // A crash left a staged file and a replacement link at their reserved
+    // names; while another record will not read, they stay.
+    let s = scratch();
+    let skills = s.skills("ws-1");
+    s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
+    fs::write(s.cwd.join(".conf/.a.1-1.keepdeck-tmp"), "staged").unwrap();
+    symlink(&skills, s.cwd.join(".conf/.b.1-2.keepdeck-tmp")).unwrap();
+    let mut places = s.places("ws-1");
+    for name in [".conf/.a.1-1.keepdeck-tmp", ".conf/.b.1-2.keepdeck-tmp"] {
+        places.push(place(&s.cwd, "p.filer", name, What::Temp { owed: None }));
+    }
+    Ledger::read(&s.root).unwrap().write("ws-1", places).unwrap();
+    fs::write(manifest(&s.root, "ws-9"), "not json").unwrap();
+    s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
+    assert!(s.cwd.join(".conf/.a.1-1.keepdeck-tmp").exists());
+    assert!(fs::symlink_metadata(s.cwd.join(".conf/.b.1-2.keepdeck-tmp")).is_ok());
+    fs::remove_file(manifest(&s.root, "ws-9")).unwrap();
+    s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
+    assert_eq!(fs::read_dir(s.cwd.join(".conf")).unwrap().count(), 1, "only the planting stays");
+    assert!(s.places("ws-1").iter().all(|p| !matches!(p.what, What::Temp { .. })));
+}
+
+#[test]
+fn nothing_is_hidden_from_git_that_could_not_be_recorded_first() {
+    let s = scratch();
+    let main = repo(&s);
+    fs::create_dir_all(&s.root).unwrap();
+    lock(&s.root, true);
+    let report = s.arm_in(&main, "p.linker", "ws-1", &[link(".l", &s.skills("ws-1"))]);
+    lock(&s.root, false);
+    assert_eq!(refused(&report, ".l"), "KeepDeck's record of what it plants here could not be written");
+    assert!(excluded(&main).is_empty(), "a line no record owes would never be let go");
+}
+
+#[test]
+fn a_directory_whose_path_git_cannot_read_as_one_line_plants_nothing() {
+    let s = scratch();
+    let main = repo(&s);
+    let cwd = main.join("pkg\nx");
+    fs::create_dir_all(&cwd).unwrap();
+    let report = s.arm_in(&cwd, "p.linker", "ws-1", &[link(".l", &s.skills("ws-1"))]);
+    assert_eq!(refused(&report, ".l"), "this could not be kept from git — nothing was planted");
+    assert!(fs::symlink_metadata(cwd.join(".l")).is_err());
+    assert!(excluded(&main).is_empty());
+}
+
+#[test]
+fn what_stands_as_declared_is_recorded_as_the_kind_it_is() {
+    // The user replaced a planted file with exactly the link the next plan
+    // declares: it is kept, and recorded — and taken back — as a link.
+    let s = scratch();
+    let skills = s.skills("ws-1");
+    s.arm("p.mixed", "ws-1", &[file(".k", "a")]);
+    fs::remove_file(s.cwd.join(".k")).unwrap();
+    symlink(&skills, s.cwd.join(".k")).unwrap();
+    let report = s.arm("p.mixed", "ws-1", &[link(".k", &skills)]);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(matches!(s.places("ws-1")[..], [Place { what: What::Symlink { .. }, .. }]));
+    s.disarm(&s.cwd).unwrap();
+    assert!(fs::symlink_metadata(s.cwd.join(".k")).is_err());
 }

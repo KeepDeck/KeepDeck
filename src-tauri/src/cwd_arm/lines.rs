@@ -4,17 +4,22 @@
 //! it sits in, which may hold the user's own files git must still see. A line
 //! is added before the planting is published, so a planting is never visible
 //! to git, even for a moment or after a crash. A line goes only when it is
-//! provably needed by nothing: no place of this home names it, and in no
+//! provably needed by nothing: no place of this home owes it, and in no
 //! worktree of the repo does anything stand where it hides — another KeepDeck
-//! home's planting there, which this ledger cannot see, keeps it. When that
-//! cannot be decided (the worktrees will not list, an exclude file will not
-//! write), the line stays and so does the place, to be tried again.
+//! home's planting there, which this ledger cannot see, keeps it. An entry a
+//! place of this home keeps hidden by its own line is not such an occupant:
+//! that line is written again in the same edit that takes the other out.
+//!
+//! A line that stays while its planting is gone is recorded as owed
+//! ([`What::Line`]), with all it takes to let it go later — the repo, the
+//! pattern, the entry — and nothing else: it claims no slot and touches no
+//! file. It is tried again until nothing stands where it hides.
 //!
 //! A line an older build wrote hid a place's whole first segment, raw. It
-//! goes with the last place that needs it, once no worktree holds what such a
+//! goes with the last place that owes it, once no worktree holds what such a
 //! place planted: for codex's old folder link, a link at its slot — anything
-//! else under the folder is the user's, and hiding it was the harm; for a
-//! file, anything at all at its slot.
+//! else under the folder is the user's, and hiding it was the harm; for any
+//! other, anything at all at its slot.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -22,20 +27,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use super::proof::{HISTORICAL_FOLDER_LINK, HISTORICAL_PLUGIN};
-use super::registry::{slot, Held, Hidden, Place, What};
+use super::registry::{slot, Held, Hidden, Owed, Place, What};
 use crate::worktree_arm::{self, ExcludeLine, ExcludeRepo, Excluded};
-
-/// One line a place needs, and what in a worktree it could still be hiding.
-struct Need {
-    line: ExcludeLine,
-    common_dir: PathBuf,
-    /// The place's path below any worktree's root.
-    slot: PathBuf,
-    /// Whether only a link standing at the slot keeps the line: the older
-    /// builds' line for codex's whole-folder link, whose other occupants are
-    /// the user's own.
-    links_only: bool,
-}
 
 /// The lines of one pass, each repo and worktree list read once.
 #[derive(Default)]
@@ -45,9 +38,6 @@ pub(super) struct Lines {
     /// How many exclude files this pass wrote.
     pub written: usize,
 }
-
-/// What [`Lines::release`] could not let go.
-pub(super) type Kept = Vec<Held>;
 
 impl Lines {
     fn repo(&mut self, cwd: &str) -> io::Result<Option<ExcludeRepo>> {
@@ -59,134 +49,180 @@ impl Lines {
         Ok(repo)
     }
 
-    /// The lines `place` needs: none for a folder, none outside any repo.
-    fn needs(&mut self, place: &Place) -> io::Result<Vec<Need>> {
-        let Some(repo) = self.repo(&place.cwd)? else { return Ok(Vec::new()) };
-        let Some(first) = place.path.split('/').next() else { return Ok(Vec::new()) };
-        let line = match (&place.what, place.hidden) {
-            (What::Dir { .. }, _) => return Ok(Vec::new()),
-            (_, Hidden::Exact) => repo.line(&Excluded { path: place.path.clone(), directory: false }),
-            (_, Hidden::FirstSegment) => repo.legacy_line(first),
-        };
-        let links_only = place.hidden == Hidden::FirstSegment
-            && matches!(place.what, What::Symlink { .. })
-            && place.plugin == HISTORICAL_PLUGIN
-            && slot(&place.path).as_deref() == Some(HISTORICAL_FOLDER_LINK);
-        let common_dir = repo.common_dir().to_path_buf();
-        Ok(vec![Need { line, common_dir, slot: repo.below_root(&place.path), links_only }])
+    /// The line `place` owes: the one it carries when it is an owed line or a
+    /// reserved name; none for a folder or outside any repo.
+    fn owed(&mut self, place: &Place) -> io::Result<Option<Owed>> {
+        match &place.what {
+            What::Line { owed } => Ok(Some(owed.clone())),
+            What::Temp { owed } => Ok(owed.clone()),
+            What::Dir { .. } => Ok(None),
+            What::Symlink { .. } | What::File { .. } => self.owed_at(place),
+        }
     }
 
-    /// Add every line `places` need — one write per repo, none when all are
+    /// The line an entry at `place`'s path owes, hidden as its record says.
+    fn owed_at(&mut self, place: &Place) -> io::Result<Option<Owed>> {
+        let Some(repo) = self.repo(&place.cwd)? else { return Ok(None) };
+        let line = match place.hidden {
+            Hidden::Exact => repo.line(&Excluded { path: place.path.clone(), directory: false })?,
+            Hidden::FirstSegment => {
+                let Some(first) = place.path.split('/').next() else { return Ok(None) };
+                repo.legacy_line(first)?
+            }
+        };
+        let links_only = place.hidden == Hidden::FirstSegment
+            && place.plugin == HISTORICAL_PLUGIN
+            && slot(&place.path).as_deref() == Some(HISTORICAL_FOLDER_LINK);
+        Ok(Some(Owed { line, slot: repo.below_root(&place.path), links_only }))
+    }
+
+    /// A reservation of the name `path` in `cwd` for a temporary, with the
+    /// exact line that keeps git blind to it while it stands.
+    pub fn reserve(&mut self, cwd: &str, plugin: &str, path: String) -> io::Result<Place> {
+        let mut place = Place {
+            cwd: cwd.to_string(),
+            plugin: plugin.to_string(),
+            path,
+            what: What::Temp { owed: None },
+            hidden: Hidden::Exact,
+        };
+        place.what = What::Temp { owed: self.owed_at(&place)? };
+        Ok(place)
+    }
+
+    /// `place`'s line as an owed line on its own — None when it owes none.
+    pub fn owing(&mut self, place: &Place) -> io::Result<Option<Place>> {
+        Ok(self.owed(place)?.map(|owed| Place { what: What::Line { owed }, ..place.clone() }))
+    }
+
+    /// What stays recorded of `place` once nothing of it stands, while the
+    /// line it owes cannot go yet: that line alone ([`Self::owing`]). None
+    /// when it owes none. A place whose line cannot be read stays as it is.
+    pub fn line_left(&mut self, place: Place) -> Option<Place> {
+        match self.owing(&place) {
+            Ok(owing) => owing,
+            Err(e) => {
+                log::warn!("cwd arming: exclude lookup for {} failed: {e}", place.cwd);
+                Some(place)
+            }
+        }
+    }
+
+    /// Add every line `places` owe — one write per repo, none when all are
     /// there already.
     pub fn ensure<'a>(&mut self, places: impl IntoIterator<Item = &'a Place>) -> io::Result<()> {
         let mut add = Vec::new();
         for place in places {
-            add.extend(self.needs(place)?.into_iter().map(|need| need.line));
+            add.extend(self.owed(place)?.map(|owed| owed.line));
         }
         self.written += worktree_arm::update(&add, &[])?;
         Ok(())
     }
 
-    /// Let the lines `gone` needed go where nothing else needs them, and
-    /// answer the places whose lines could not be decided or taken out — the
-    /// ledger keeps those ([`Place::line_left`]), to try again. A line is decided once, over every
-    /// slot it hides: it goes only when none of them holds anything it could
-    /// still be hiding, in any worktree. An entry a remaining place keeps
-    /// hidden by its own line needs no other: an older build's line over a
-    /// planting goes the moment the planting's exact line takes over.
-    pub fn release(&mut self, gone: &[Held], remaining: &[&Place]) -> Kept {
+    /// Let the lines `gone` owed go where nothing else needs them, and answer
+    /// what stays recorded: the line of each place whose line stays
+    /// ([`Self::line_left`]). A line is decided once, over every entry it
+    /// hides, and goes only when none of them holds anything it could still
+    /// be hiding, in any worktree.
+    pub fn release(&mut self, gone: Vec<Held>, remaining: &[&Place]) -> Vec<Held> {
         if gone.is_empty() {
             return Vec::new();
         }
-        let keep_all = || gone.iter().map(|(ws, p)| (ws.clone(), p.clone().line_left())).collect();
         let mut needed: HashSet<ExcludeLine> = HashSet::new();
-        let covered: HashSet<PathBuf> = remaining
-            .iter()
-            .filter(|p| !matches!(p.what, What::Dir { .. }))
-            .map(|p| Path::new(&p.cwd).join(&p.path))
-            .collect();
+        // Each entry a remaining place keeps hidden by its own line.
+        let mut covered: HashMap<PathBuf, ExcludeLine> = HashMap::new();
         for place in remaining {
-            match self.needs(place) {
-                Ok(needs) => needed.extend(needs.into_iter().map(|need| need.line)),
-                // A remaining place whose lines cannot be read might need any
+            match self.owed(place) {
+                Ok(Some(owed)) => {
+                    covered.insert(Path::new(&place.cwd).join(&place.path), owed.line.clone());
+                    needed.insert(owed.line);
+                }
+                Ok(None) => {}
+                // A remaining place whose line cannot be read might need any
                 // of them: nothing goes this pass.
                 Err(e) => {
                     log::warn!("cwd arming: exclude lookup for {} failed: {e}", place.cwd);
-                    return keep_all();
+                    return self.left(gone, |_| true);
                 }
             }
         }
-        let mut retained: Vec<usize> = Vec::new();
-        let mut lines: HashMap<ExcludeLine, (Vec<Need>, Vec<usize>)> = HashMap::new();
+        let mut stays: HashSet<usize> = HashSet::new();
+        let mut lines: HashMap<ExcludeLine, (Vec<Owed>, Vec<usize>)> = HashMap::new();
         for (index, (_, place)) in gone.iter().enumerate() {
-            match self.needs(place) {
-                Ok(needs) => {
-                    for need in needs.into_iter().filter(|need| !needed.contains(&need.line)) {
-                        let (needs, owners) = lines.entry(need.line.clone()).or_default();
-                        needs.push(need);
-                        owners.push(index);
-                    }
+            match self.owed(place) {
+                Ok(Some(owed)) if !needed.contains(&owed.line) => {
+                    let (owed_here, owners) = lines.entry(owed.line.clone()).or_default();
+                    owed_here.push(owed);
+                    owners.push(index);
                 }
+                Ok(_) => {}
                 Err(e) => {
                     log::warn!("cwd arming: exclude lookup for {} failed: {e}", place.cwd);
-                    retained.push(index);
+                    stays.insert(index);
                 }
             }
         }
         let mut remove = Vec::new();
+        let mut install: HashSet<ExcludeLine> = HashSet::new();
         let mut removing: Vec<usize> = Vec::new();
-        for (line, (needs, owners)) in lines {
-            let mut standing = Some(false);
-            for need in &needs {
-                match self.standing(need, &covered) {
-                    Some(false) => {}
-                    Some(true) => standing = Some(true),
-                    None => {
-                        standing = None;
-                        break;
-                    }
-                }
-            }
-            match standing {
-                Some(false) => {
-                    remove.push(line);
-                    removing.extend(owners);
-                }
-                Some(true) => {}
-                None => retained.extend(owners),
+        for (line, (owed, owners)) in lines {
+            let mut through = Vec::new();
+            let free = owed.iter().all(|one| self.standing(one, &covered, &mut through) == Some(false));
+            if free {
+                remove.push(line);
+                install.extend(through);
+                removing.extend(owners);
+            } else {
+                stays.extend(owners);
             }
         }
-        match worktree_arm::update(&[], &remove) {
+        let install: Vec<ExcludeLine> = install.into_iter().collect();
+        match worktree_arm::update(&install, &remove) {
             Ok(written) => self.written += written,
             Err(e) => {
                 log::warn!("cwd arming: taking exclude lines out failed: {e}");
-                retained.extend(removing);
+                stays.extend(removing);
             }
         }
-        retained.sort_unstable();
-        retained.dedup();
-        retained.into_iter().map(|index| (gone[index].0.clone(), gone[index].1.clone().line_left())).collect()
+        self.left(gone, |index| stays.contains(&index))
     }
 
-    /// Whether anything a line could be hiding stands in some worktree of its
-    /// repo, besides what `covered` names — None when the worktrees cannot be
-    /// listed.
-    fn standing(&mut self, need: &Need, covered: &HashSet<PathBuf>) -> Option<bool> {
+    /// The line left of each of `gone` that `stays` picks, by index.
+    fn left(&mut self, gone: Vec<Held>, stays: impl Fn(usize) -> bool) -> Vec<Held> {
+        gone.into_iter()
+            .enumerate()
+            .filter(|(index, _)| stays(*index))
+            .filter_map(|(_, (ws, place))| self.line_left(place).map(|place| (ws, place)))
+            .collect()
+    }
+
+    /// Whether anything `owed` could be hiding stands in some worktree of its
+    /// repo — None when the worktrees cannot be listed. An entry `covered`
+    /// names stands hidden by a line of its own: that line goes in `through`,
+    /// to be written with the edit that lets this one go.
+    fn standing(
+        &mut self,
+        owed: &Owed,
+        covered: &HashMap<PathBuf, ExcludeLine>,
+        through: &mut Vec<ExcludeLine>,
+    ) -> Option<bool> {
+        let common_dir = owed.line.common_dir();
         let roots = self
             .roots
-            .entry(need.common_dir.clone())
-            .or_insert_with(|| match keepdeck_git::worktree::roots(&need.common_dir) {
+            .entry(common_dir.to_path_buf())
+            .or_insert_with(|| match keepdeck_git::worktree::roots(common_dir) {
                 Ok(roots) => Some(roots),
                 Err(e) => {
-                    log::warn!("cwd arming: listing the worktrees of {} failed: {e}", need.common_dir.display());
+                    log::warn!("cwd arming: listing the worktrees of {} failed: {e}", common_dir.display());
                     None
                 }
             })
             .as_ref()?;
         let mut standing = false;
-        for at in roots.iter().map(|root| root.join(&need.slot)).filter(|at| !covered.contains(at)) {
-            match fs::symlink_metadata(at) {
-                Ok(meta) if !need.links_only || meta.file_type().is_symlink() => standing = true,
+        for at in roots.iter().map(|root| root.join(&owed.slot)) {
+            match fs::symlink_metadata(&at) {
+                Ok(_) if covered.contains_key(&at) => through.push(covered[&at].clone()),
+                Ok(meta) if !owed.links_only || meta.file_type().is_symlink() => standing = true,
                 Ok(_) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound || e.raw_os_error() == Some(libc::ENOTDIR) => {}
                 Err(_) => return None,

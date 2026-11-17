@@ -84,6 +84,10 @@ tokio = { version = "1", features = ["sync", "time"] }
 # FILE rather than a pipe, because a pipe blocks its writer at 64 KB and its
 # reader until every inherited write end closes (src/agents.rs).
 tempfile = "3"
+# One spelling of a path's slot (cwd_arm::registry::slot): APFS and HFS+
+# resolve a composed and a decomposed name to one file, so the arming
+# engine folds both to one key before it decides who owns a slot.
+unicode-normalization = "0.1"
 
 # Our own AVCaptureDevice request with a REAL completion block (the plugin's
 # request passes a nil handler, which fails to raise the prompt in dev):

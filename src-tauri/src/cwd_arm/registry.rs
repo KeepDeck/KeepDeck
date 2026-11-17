@@ -2,7 +2,10 @@
 //! (`cwd-arms/<ws>.json`), listing the PLACES it planted — never, on its own,
 //! the proof that what stands there now is still ours. Proof is read from the
 //! disk each time ([`super::proof`]); a place says where to look, and for a
-//! file, what exactly was put there.
+//! file, what exactly was put there. Beside its plantings a record holds what
+//! a pass still owes: an exclude line kept after its planting went, which
+//! claims and changes nothing, and a name reserved for a temporary before it
+//! is made, so a crash never leaves one no record names.
 
 use std::fs;
 use std::io::{self, ErrorKind};
@@ -12,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::fs_beneath::Identity;
 use crate::state::write_atomic;
+use crate::worktree_arm::ExcludeLine;
 
 /// One place KeepDeck manages: a path relative to a pane directory, for one
 /// plugin, of one workspace.
@@ -49,9 +53,31 @@ pub(super) enum What {
     },
     /// A directory KeepDeck made on the way to a planting, exactly this one.
     Dir { identity: Identity },
-    /// Nothing planted: only the exclude line a planting that never landed
-    /// was given, kept until it can be let go.
-    Line,
+    /// Nothing of ours stands here, and nothing here is ever changed or
+    /// claimed: only an exclude line still owed — for a planting gone, one
+    /// that never landed, a temporary — kept until it can be let go.
+    Line { owed: Owed },
+    /// A name reserved for a temporary before it is made: unique to the
+    /// process that reserved it, so whatever file or link stands at it is
+    /// that temporary, left by a crash, and goes. Its line, when it has one,
+    /// is owed like any other.
+    Temp {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owed: Option<Owed>,
+    },
+}
+
+/// An exclude line owed, with all it takes to let it go again — even once
+/// the directory it was owed for is gone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Owed {
+    pub line: ExcludeLine,
+    /// The entry it hides, below the root of any worktree of its repo.
+    pub slot: PathBuf,
+    /// Whether only a link standing there keeps it: the older builds' line
+    /// for codex's whole-folder link, whose other occupants are the user's.
+    pub links_only: bool,
 }
 
 /// What exactly KeepDeck put at a file place.
@@ -63,9 +89,6 @@ pub(super) struct Receipt {
     pub identity: Identity,
     /// The sha256 of what it holds.
     pub digest: String,
-    /// The temporary's name beside the place, while `Prepared`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub temp: Option<String>,
     /// The file this one replaces, while `Prepared` over one of ours.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous: Option<Box<Landed>>,
@@ -107,9 +130,9 @@ pub(super) enum Hidden {
 pub(super) type Held = (String, Place);
 
 impl Place {
-    /// Whether this place is the slot `path` names in `cwd`.
+    /// Whether this place claims the slot `path` names in `cwd`.
     pub fn at(&self, cwd: &str, path: &str) -> bool {
-        self.cwd == cwd && slot(&self.path) == slot(path)
+        self.cwd == cwd && self.claim().is_some_and(|claim| Some(claim) == slot(path))
     }
 
     /// This place's slot in its directory.
@@ -117,29 +140,27 @@ impl Place {
         slot(&self.path)
     }
 
-    /// What stays recorded of a planting that is gone while its line could
-    /// not be let go yet: the exact line alone. An older build's line stays
-    /// with its place — whether it may go depends on what that place was.
-    pub fn line_left(self) -> Place {
+    /// The slot this place claims for its plugin: one a planting or a folder
+    /// of ours stands in. An owed line or a reserved name claims nothing.
+    pub fn claim(&self) -> Option<String> {
         match self.what {
-            What::Symlink { .. } | What::File { .. } if self.hidden == Hidden::Exact => {
-                Place { what: What::Line, ..self }
-            }
-            _ => self,
+            What::Line { .. } | What::Temp { .. } => None,
+            _ => self.slot(),
         }
     }
 }
 
 /// The one spelling of the slot a relative path names in its directory: its
-/// plain components joined by `/`, case folded — a case-insensitive volume
-/// makes `mcp.json` and `MCP.json` one file, and on a case-sensitive one this
-/// still calls them one: refusing a name is better than planting over
-/// another. `None` for a path that is not a slot (empty, absolute, leaving
-/// the directory). Two hard links are two slots; two Unicode spellings of one
-/// name may read as two, and then the proof of what stands there still
-/// refuses whatever is not provably the planter's own.
+/// plain components joined by `/`, case folded and in one Unicode form — a
+/// case-insensitive volume makes `mcp.json` and `MCP.json` one file, APFS and
+/// HFS+ make a composed `é` and a decomposed one the same name, and on a
+/// volume that tells them apart this still calls them one: refusing a name
+/// is better than planting over another. `None` for a path that is not a
+/// slot (empty, absolute, leaving the directory). Two hard links are two
+/// names, so two slots.
 pub(super) fn slot(path: &str) -> Option<String> {
-    super::relative_parts(path).map(|parts| parts.join("/").to_lowercase())
+    use unicode_normalization::UnicodeNormalization as _;
+    super::relative_parts(path).map(|parts| parts.join("/").to_lowercase().nfd().collect())
 }
 
 /// A directory as one spelling: its real path while it exists, else as
@@ -291,6 +312,8 @@ mod tests {
         assert_eq!(slot("cfg/./link"), Some("cfg/link".into()));
         assert_eq!(slot("cfg//Link"), Some("cfg/link".into()));
         assert_eq!(slot("CFG/link"), slot("cfg/LINK"));
+        assert_eq!(slot("cfg/caf\u{e9}"), slot("cfg/cafe\u{301}"), "composed and decomposed: one name");
+        assert_eq!(slot("cfg/CAF\u{c9}"), slot("cfg/cafe\u{301}"));
         assert_ne!(slot("cfg/link"), slot("cfg/link2"));
         for out in ["", "/abs", "../x", "a/../b"] {
             assert_eq!(slot(out), None, "{out:?}");
