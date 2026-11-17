@@ -9,18 +9,20 @@
 //! - nothing of the user's is ever written over or removed. A file already at
 //!   a path is ours only when this plugin's record names it AND our
 //!   `.keepdeck-managed` marker stands beside it — a marker alone proves
-//!   nothing, the user may keep a file beside it. A symlink where a plugin
-//!   declares a link is replaced when KeepDeck can show it made it: this
-//!   plugin's record names it, or it points at a skills view KeepDeck staged
-//!   or published, or at one skill of such a view — another workspace's,
-//!   another KeepDeck home's; refusing those kept a pane on someone else's
-//!   view for good. Removing a link removes nothing of what it points to. Any
-//!   other link, and a directory or a file, where a link is declared is the
-//!   user's: a link may be declared inside a folder they keep their own
-//!   skills in.
+//!   nothing, the user may keep a file beside it. A link is ours when this
+//!   plugin's record names it pointing exactly where it points — one the user
+//!   has repointed since is theirs — or when it points at a skills view
+//!   KeepDeck staged or published, or at one skill of such a view, on the
+//!   view's verified fingerprint: another workspace's, another KeepDeck
+//!   home's, and refusing those kept a pane on someone else's view for good.
+//!   Ours gives way to what is declared; removing a link removes nothing of
+//!   what it points to. Any other link, a directory or a file is the user's:
+//!   a link may be declared inside a folder they keep their own skills in.
 //!   Taking back is narrower: a link goes only while it still points where we
-//!   made it point. A parent on the way that is a file or a link is the
-//!   user's, and nothing is written through it;
+//!   made it point, and one another workspace still records is handed to it
+//!   instead. A folder on the way that is a file or a link is the user's —
+//!   unless it is a link of ours, which gives way to a real folder — and
+//!   nothing is planted or taken back through it;
 //! - a symlink may only point at something that exists inside the plugin's
 //!   own workspace directory or the skills directory handed to this plan —
 //!   judged, and made, on the real location;
@@ -41,9 +43,11 @@
 //!   with its last record.
 //!
 //! Each `arm` call speaks for ONE plugin in ONE directory, and for its whole
-//! set there: what it no longer declares is taken back. The host orders every
-//! call against worktree teardown; the lock here only keeps two calls from
-//! interleaving their manifest writes.
+//! set there: what it no longer declares is taken back, first — and a link of
+//! the plugin's where it now plants inside goes for every workspace that
+//! records it. Nothing is taken back while any record will not read. The
+//! host orders every call against worktree teardown; the lock here only
+//! keeps two calls from interleaving their manifest writes.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
@@ -189,6 +193,15 @@ impl Claims {
     fn claim(&mut self, record: &ArmRecord) {
         for line in self.lines(record) {
             *self.count.entry(line).or_default() += 1;
+        }
+    }
+
+    /// `record` needs its lines no more, and none of them goes with it.
+    fn forget(&mut self, record: &ArmRecord) {
+        for line in self.lines(record) {
+            if let Some(count) = self.count.get_mut(&line) {
+                *count = count.saturating_sub(1);
+            }
         }
     }
 
@@ -425,12 +438,12 @@ fn arm(
             return refuse_all("KeepDeck's record of what it planted here could not be read");
         }
     };
-    let (others, may_take_back): (Vec<ArmRecord>, bool) = match all_records(root) {
+    let (peers, may_take_back): (Vec<(String, Vec<ArmRecord>)>, bool) = match all_records(root) {
         // While a record will not read, nothing is taken back: it could be the
         // one naming what would go. Planting goes on.
         Ok(ledger) => {
             let readable = readable(&ledger).is_ok();
-            (ledger.records.into_iter().filter(|(id, _)| id != ws).flat_map(|(_, r)| r).collect(), readable)
+            (ledger.records.into_iter().filter(|(id, _)| id != ws).collect(), readable)
         }
         Err(e) => {
             log::warn!("cwd arming: reading the records failed: {e}");
@@ -444,17 +457,44 @@ fn arm(
     let mut written = mine.clone();
     // What this plugin planted here and declares no more goes first: a link it
     // planted where it now plants inside — `.agents/skills`, before a link per
-    // skill in it — would stand in their way. What will not go stays
-    // recorded, for the next pass.
-    let (mine, retained): (Vec<ArmRecord>, Vec<ArmRecord>) = if may_take_back {
+    // skill in it — would stand in their way. Such a link goes for every
+    // workspace that records it: this plugin plants inside it now, wherever
+    // it is spawned. What will not go stays recorded, for the next pass.
+    type Records = Vec<ArmRecord>;
+    let (mine, retained, others): (Records, Records, Records) = if may_take_back {
         let declared = |r: &ArmRecord| arms.iter().any(|arm| r.at(cwd, arm.path()));
+        let in_the_way = |r: &ArmRecord| {
+            r.cwd == cwd && r.plugin == plugin && arms.iter().any(|arm| inside(cwd, &r.path, arm.path()))
+        };
         let (undeclared, rest): (Vec<ArmRecord>, Vec<ArmRecord>) =
             mine.into_iter().partition(|r| r.cwd == cwd && r.plugin == plugin && !declared(r));
-        let kept: Vec<ArmRecord> = rest.iter().chain(others.iter()).cloned().collect();
-        let retained = take_back_all(&undeclared, &kept);
-        (rest, retained)
+        let peers: Vec<(String, Vec<ArmRecord>, Vec<ArmRecord>)> = peers
+            .into_iter()
+            .map(|(id, records)| {
+                let (gone, kept): (Records, Records) = records.into_iter().partition(in_the_way);
+                (id, gone, kept)
+            })
+            .collect();
+        let gone: Vec<ArmRecord> =
+            undeclared.iter().chain(peers.iter().flat_map(|(_, gone, _)| gone)).cloned().collect();
+        let kept: Vec<ArmRecord> =
+            rest.iter().chain(peers.iter().flat_map(|(_, _, kept)| kept)).cloned().collect();
+        let failed = take_back_all(&gone, &kept);
+        let mut others = Vec::new();
+        for (id, gone, kept) in peers {
+            let stayed = gone.iter().filter(|r| failed.contains(r)).cloned();
+            let theirs: Vec<ArmRecord> = kept.into_iter().chain(stayed).collect();
+            if !gone.is_empty() {
+                if let Err(e) = write_records(root, &id, &theirs) {
+                    log::warn!("cwd arming: recording {id} failed: {e}");
+                }
+            }
+            others.extend(theirs);
+        }
+        let retained = undeclared.into_iter().filter(|r| failed.contains(r)).collect();
+        (rest, retained, others)
     } else {
-        (mine, Vec::new())
+        (mine, Vec::new(), peers.into_iter().flat_map(|(_, records)| records).collect())
     };
 
     let mut report = CwdArmReport::default();
@@ -591,23 +631,22 @@ fn plant<'a>(
         return Ok(Err(format!("{path} is not a path inside this directory")));
     };
     let base = Path::new(cwd);
-    // Every directory on the way must be a real one, or not there yet: a file
-    // or a link there is the user's, and writing through it would land in
-    // their target.
-    let mut at = base.to_path_buf();
-    for part in &parts[..parts.len() - 1] {
-        at.push(part);
-        match fs::symlink_metadata(&at) {
-            Ok(meta) if !meta.file_type().is_dir() => {
-                let shown = at.strip_prefix(base).unwrap_or(&at).display().to_string();
-                return Ok(Err(format!("{shown} here is not a directory")));
-            }
-            _ => {}
+    // A link KeepDeck can show it made gives way on the way too: an older
+    // build's link to a whole folder this plugin now plants inside, or another
+    // KeepDeck home's.
+    while let Some(blocking) = blocking_the_way(base, &parts)? {
+        let current = match fs::symlink_metadata(base.join(&blocking)) {
+            Ok(meta) if meta.file_type().is_symlink() => Some(fs::read_link(base.join(&blocking))?),
+            _ => None,
+        };
+        let gives_way = current
+            .is_some_and(|current| keepdeck_link(cwd, &blocking, &record.plugin, &current, recorded.clone()));
+        if !gives_way {
+            return Ok(Err(format!("{blocking} here is not a directory")));
         }
+        fs::remove_file(base.join(&blocking))?;
     }
     let full = base.join(path);
-    let recorded_ours =
-        recorded.clone().any(|r| r.at(cwd, path) && r.plugin == record.plugin && r.kind == record.kind);
     match arm {
         CwdArm::File { content, .. } => {
             let dir = full.parent().unwrap_or(base).to_path_buf();
@@ -616,7 +655,12 @@ fn plant<'a>(
                 Ok(meta) if !meta.file_type().is_file() => {
                     return Ok(Err(format!("{path} here is not KeepDeck's")));
                 }
-                Ok(_) if !marker.exists() || !recorded_ours => {
+                Ok(_)
+                    if !marker.exists()
+                        || !recorded.clone().any(|r| {
+                            r.at(cwd, path) && r.plugin == record.plugin && r.kind == ArmKind::File
+                        }) =>
+                {
                     return Ok(Err(format!("{path} here is not KeepDeck's")));
                 }
                 Ok(_) => {}
@@ -644,8 +688,7 @@ fn plant<'a>(
                 Ok(meta) if meta.file_type().is_symlink() => {
                     let current = fs::read_link(&full)?;
                     if current != target {
-                        let points_at = full.parent().unwrap_or(base).join(&current);
-                        if !recorded_ours && !crate::skills::in_view(&points_at) {
+                        if !keepdeck_link(cwd, path, &record.plugin, &current, recorded) {
                             return Ok(Err(format!("{path} is your own — nothing was planted")));
                         }
                         fs::remove_file(&full)?;
@@ -677,13 +720,89 @@ fn plant<'a>(
     Ok(Ok(()))
 }
 
+/// A link two records share stays for the one kept — pointed where that one
+/// made it point, when the retiring one had pointed it elsewhere: left on a
+/// retired workspace's view, it would hold the kept one's pane there, and no
+/// record would name it any more.
+fn hand_over(retiring: &ArmRecord, kept: &ArmRecord) -> io::Result<()> {
+    let (Some(from), Some(to)) = (&retiring.target, &kept.target) else { return Ok(()) };
+    let base = Path::new(&retiring.cwd);
+    let Some(parts) = relative_parts(&retiring.path) else { return Ok(()) };
+    if from == to || blocking_the_way(base, &parts)?.is_some() {
+        return Ok(());
+    }
+    let full = base.join(&retiring.path);
+    if fs::read_link(&full).is_ok_and(|current| current == Path::new(from)) {
+        fs::remove_file(&full)?;
+        symlink_dir(Path::new(to), &full)?;
+    }
+    Ok(())
+}
+
+/// Whether the link at `path` in `cwd`, pointing at `current`, is one KeepDeck
+/// can show it made: `plugin`'s record there names exactly where it points —
+/// a link the user has repointed since is theirs — or it points at a skills
+/// view KeepDeck staged or published, or at one skill of such a view (another
+/// workspace's, another KeepDeck home's).
+fn keepdeck_link<'a>(
+    cwd: &str,
+    path: &str,
+    plugin: &str,
+    current: &Path,
+    mut recorded: impl Iterator<Item = &'a ArmRecord>,
+) -> bool {
+    let named = recorded.any(|r| {
+        r.at(cwd, path)
+            && r.plugin == plugin
+            && r.kind == ArmKind::Symlink
+            && r.target.as_deref().is_some_and(|target| Path::new(target) == current)
+    });
+    named || into_a_view(&Path::new(cwd).join(path), current)
+}
+
+/// Whether the link at `full`, pointing at `current`, points at a skills view
+/// KeepDeck staged or published, or at one skill of such a view.
+fn into_a_view(full: &Path, current: &Path) -> bool {
+    crate::skills::in_view(&full.parent().unwrap_or(full).join(current))
+}
+
+/// The first folder on the way to `parts` in `base` that is not a real one —
+/// a file or a link, through which planting or taking back would land in
+/// someone else's target — as a path relative to `base`; None while the way
+/// is real folders, or not there yet. The one rule both directions keep.
+fn blocking_the_way(base: &Path, parts: &[String]) -> io::Result<Option<String>> {
+    let mut at = base.to_path_buf();
+    for (depth, part) in parts[..parts.len() - 1].iter().enumerate() {
+        at.push(part);
+        match fs::symlink_metadata(&at) {
+            Ok(meta) if !meta.file_type().is_dir() => return Ok(Some(parts[..=depth].join("/"))),
+            Ok(_) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(None)
+}
+
+/// Whether the entry `inner` lies inside the entry `outer`, both in `cwd`.
+fn inside(cwd: &str, outer: &str, inner: &str) -> bool {
+    let (Some(outer_parts), Some(inner_parts)) = (relative_parts(outer), relative_parts(inner)) else {
+        return false;
+    };
+    inner_parts.len() > outer_parts.len()
+        && same_entry(Path::new(cwd), outer, &inner_parts[..outer_parts.len()].join("/"))
+}
+
 /// Take one recorded planting back out of its cwd, if it is still ours; the
 /// marker goes once no recorded file is left beside it. A file whose marker
 /// is gone is no longer provably ours and stays — but the exclude lines we
 /// added still go ([`take_back_all`] lets them go).
 fn take_back(record: &ArmRecord, remaining: &[&ArmRecord]) -> io::Result<()> {
     let base = Path::new(&record.cwd);
-    if relative_parts(&record.path).is_none() {
+    let Some(parts) = relative_parts(&record.path) else { return Ok(()) };
+    // A folder on the way that became a link or a file since: what stands
+    // past it is not where we planted, and nothing is touched through it.
+    if blocking_the_way(base, &parts)?.is_some() {
         return Ok(());
     }
     let full = base.join(&record.path);
@@ -824,9 +943,11 @@ fn take_back_all(gone: &[ArmRecord], kept: &[ArmRecord]) -> Vec<ArmRecord> {
     let mut claims = Claims::of(kept.iter().chain(gone));
     let mut failed: Vec<ArmRecord> = Vec::new();
     for (index, record) in gone.iter().enumerate() {
-        let shared = kept.iter().any(|r| r.at(&record.cwd, &record.path));
+        let sharer = kept.iter().find(|r| r.at(&record.cwd, &record.path));
         let already = gone[..index].iter().any(|r| r.at(&record.cwd, &record.path));
-        let planting = if shared || already {
+        let planting = if let Some(sharer) = sharer {
+            hand_over(record, sharer)
+        } else if already {
             Ok(())
         } else {
             let rest: Vec<&ArmRecord> = kept
@@ -835,7 +956,23 @@ fn take_back_all(gone: &[ArmRecord], kept: &[ArmRecord]) -> Vec<ArmRecord> {
                 .collect();
             take_back(record, &rest)
         };
-        if let Err(e) = planting.and_then(|()| claims.release(record)) {
+        // Its lines go only once its planting has: one left standing still
+        // needs them. An entry another KeepDeck home planted again keeps its
+        // line too — that home's own record needs it, and this ledger cannot
+        // see that one.
+        let released = planting.and_then(|()| {
+            let full = Path::new(&record.cwd).join(&record.path);
+            let standing = record.kind == ArmKind::Symlink
+                && record.hidden == Hidden::Planted
+                && fs::read_link(&full).is_ok_and(|current| into_a_view(&full, &current));
+            if standing {
+                claims.forget(record);
+                Ok(())
+            } else {
+                claims.release(record)
+            }
+        });
+        if let Err(e) = released {
             log::warn!("cwd arming: taking back {}/{} failed: {e}", record.cwd, record.path);
             failed.push(record.clone());
         }
@@ -1054,13 +1191,10 @@ mod tests {
         assert!(s.cwd.join(".agents/skills/theirs").is_dir());
     }
 
-    /// A skills view another KeepDeck home staged: its fingerprint file is
-    /// what marks it KeepDeck's.
+    /// A skills view another KeepDeck home staged, for real: its verified
+    /// fingerprint is what marks it KeepDeck's.
     fn foreign_view(s: &Scratch) -> PathBuf {
-        let view = s.base.join("home-dev/skills/staging/ws-1/skills");
-        fs::create_dir_all(view.join("only-one")).unwrap();
-        fs::write(view.join(crate::skills::FINGERPRINT_FILE), "sha256:0").unwrap();
-        view
+        crate::skills::test_support::staged_view(&s.base.join("home-dev/skills"), "ws-1", &["only-one"])
     }
 
     #[test]
@@ -1125,11 +1259,11 @@ mod tests {
     }
 
     #[test]
-    fn a_link_left_by_a_deleted_workspace_in_a_shared_folder_gives_way_to_ours() {
+    fn a_link_left_by_a_deleted_workspace_in_a_shared_folder_is_handed_to_the_survivor() {
         // Two workspaces on one folder; the one whose view the link pointed at
         // is deleted. The sweep keeps the link (the other still records the
-        // path) while its view goes, and the survivor's next launch used to
-        // be refused for good.
+        // path) and points it at the survivor's view: left on the deleted
+        // one's, the survivor's next launch used to be refused for good.
         let s = scratch();
         let survivor = s.base.join("home/skills/staging/ws-2/skills");
         fs::create_dir_all(&survivor).unwrap();
@@ -1141,12 +1275,104 @@ mod tests {
         arm_as("ws-1", &s.skills);
         prune(&s.root, &["ws-2".into()]).unwrap();
         fs::remove_dir_all(s.base.join("home/skills/staging/ws-1")).unwrap();
-        assert!(!s.cwd.join(".agents/skills").exists(), "the link dangles");
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), survivor, "handed to the survivor");
 
         let report = arm_as("ws-2", &survivor);
         assert_eq!(report.armed, vec![".agents/skills"]);
         assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), survivor);
         assert!(read_records(&s.root, "ws-2").unwrap().iter().any(|r| r.path == ".agents/skills"));
+    }
+
+    #[test]
+    fn a_link_the_user_repointed_since_is_theirs() {
+        let s = scratch();
+        s.arm("p.linker", "ws-1", &[link(".l", &s.skills)]);
+        let dotfiles = s.base.join("dotfiles");
+        fs::create_dir_all(&dotfiles).unwrap();
+        fs::remove_file(s.cwd.join(".l")).unwrap();
+        std::os::unix::fs::symlink(&dotfiles, s.cwd.join(".l")).unwrap();
+        let report = s.arm("p.linker", "ws-1", &[link(".l", &s.skills)]);
+        assert_eq!(report.refused[0].reason, ".l is your own — nothing was planted");
+        s.disarm();
+        assert_eq!(fs::read_link(s.cwd.join(".l")).unwrap(), dotfiles);
+    }
+
+    #[test]
+    fn a_file_that_only_bears_a_views_fingerprint_name_proves_nothing() {
+        let s = scratch();
+        let notes = s.base.join("notes");
+        fs::create_dir_all(notes.join("review")).unwrap();
+        fs::write(notes.join(".keepdeck-fingerprint"), "a note of the user's").unwrap();
+        fs::create_dir_all(s.cwd.join(".agents/skills")).unwrap();
+        std::os::unix::fs::symlink(notes.join("review"), s.cwd.join(".agents/skills/review")).unwrap();
+        let report = s.arm("p.linker", "ws-1", &[link(".agents/skills/review", &s.skills)]);
+        assert_eq!(report.refused[0].reason, ".agents/skills/review is your own — nothing was planted");
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills/review")).unwrap(), notes.join("review"));
+    }
+
+    #[test]
+    fn a_folder_link_another_workspace_records_goes_for_both_when_skills_move_inside() {
+        // Two workspaces on one folder, both with an older build's link to
+        // the whole .agents/skills: the first launch after the change plants
+        // inside it, for either of them, and neither keeps the old line.
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        fs::create_dir_all(s.skills.join("one")).unwrap();
+        older_builds_planting(&s, "ws-2", &wt);
+        let per_skill = [link(".agents/skills/one", &s.skills.join("one"))];
+        let report = arm(&s.root, "p.linker", "ws-1", &wt.to_string_lossy(), &per_skill, &s.allowed());
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        assert!(fs::symlink_metadata(wt.join(".agents/skills")).unwrap().is_dir());
+        assert!(recorded_paths(&s.root, "ws-2").is_empty(), "ws-2's record of the old link went with it");
+        assert_eq!(excluded(&s), ["/.agents/skills/one"]);
+    }
+
+    #[test]
+    fn another_homes_folder_link_gives_way_when_skills_move_inside() {
+        let s = scratch();
+        let foreign = foreign_view(&s);
+        fs::create_dir_all(s.skills.join("one")).unwrap();
+        fs::create_dir_all(s.cwd.join(".agents")).unwrap();
+        std::os::unix::fs::symlink(&foreign, s.cwd.join(".agents/skills")).unwrap();
+        let report = s.arm("p.linker", "ws-1", &[link(".agents/skills/one", &s.skills.join("one"))]);
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills/one")).unwrap(), s.skills.join("one"));
+        assert!(foreign.join("only-one").is_dir(), "removing a link removed nothing it pointed to");
+    }
+
+    #[test]
+    fn nothing_is_taken_back_through_a_folder_that_became_a_link() {
+        // The planted-in folder was swapped for a link to the user's own,
+        // where a link of the same name and target stands: not ours to touch.
+        let s = scratch();
+        fs::create_dir_all(s.skills.join("one")).unwrap();
+        s.arm("p.linker", "ws-1", &[link(".agents/skills/one", &s.skills.join("one"))]);
+        let theirs = s.base.join("dotfiles/skills");
+        fs::create_dir_all(&theirs).unwrap();
+        std::os::unix::fs::symlink(s.skills.join("one"), theirs.join("one")).unwrap();
+        fs::remove_dir_all(s.cwd.join(".agents/skills")).unwrap();
+        std::os::unix::fs::symlink(&theirs, s.cwd.join(".agents/skills")).unwrap();
+        s.disarm();
+        assert_eq!(fs::read_link(theirs.join("one")).unwrap(), s.skills.join("one"));
+    }
+
+    #[test]
+    fn a_line_stays_while_another_homes_link_stands_at_its_entry() {
+        // Another KeepDeck home planted the same skill's link since: taking
+        // ours back leaves it, and the line its own record needs.
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        let foreign = foreign_view(&s);
+        fs::create_dir_all(s.skills.join("only-one")).unwrap();
+        let cwd = wt.to_string_lossy().into_owned();
+        let ours = [link(".agents/skills/only-one", &s.skills.join("only-one"))];
+        arm(&s.root, "p.linker", "ws-1", &cwd, &ours, &s.allowed());
+        fs::remove_file(wt.join(".agents/skills/only-one")).unwrap();
+        std::os::unix::fs::symlink(foreign.join("only-one"), wt.join(".agents/skills/only-one")).unwrap();
+        arm(&s.root, "p.linker", "ws-1", &cwd, &[], &s.allowed());
+        assert_eq!(fs::read_link(wt.join(".agents/skills/only-one")).unwrap(), foreign.join("only-one"));
+        assert_eq!(excluded(&s), ["/.agents/skills/only-one"]);
+        assert!(!manifest(&s.root, "ws-1").exists());
     }
 
     #[test]
@@ -1445,6 +1671,7 @@ mod tests {
         arm(&s.root, "p.linker", "ws-1", &cwd, &per_skill, &s.allowed());
         lock_dir(&wt.join(".agents"), false);
         assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".agents/skills"], "the old link is still recorded");
+        assert_eq!(excluded(&s), ["/.agents/"], "and still hidden, while it stands");
         let report = arm(&s.root, "p.linker", "ws-1", &cwd, &per_skill, &s.allowed());
         assert!(report.refused.is_empty(), "{:?}", report.refused);
         assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".agents/skills/one"]);
