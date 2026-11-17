@@ -9,12 +9,15 @@
 //! directory. So at startup, before the webview restores a single pane:
 //!
 //! - every recorded link that is still exactly the one those builds made — to
-//!   a staging view, `<skills>/staging/<ws>/skills`, in plain names — and
-//!   every recorded config beside its `.keepdeck-managed` marker, is taken
-//!   back with the directory it leaves empty. A pane that still needs one gets
-//!   it back from its plugin the moment it starts. Whatever the arming engine
-//!   records at the same place is the new build's: it stays, and the old
-//!   record of it simply goes;
+//!   a staging view, `<skills>/staging/<ws>/skills`, in plain names — is
+//!   taken back with the directory it leaves empty. A pane that still needs
+//!   one gets it back from its plugin the moment it starts. Whatever the
+//!   arming engine records at the same place is the new build's: it stays,
+//!   and the old record of it simply goes;
+//! - a recorded config is left where it is: a marker beside it and an old
+//!   record are no proof the bytes there are still the ones those builds
+//!   wrote, and a file that cannot be proven ours is never removed. Its
+//!   record goes; the arming engine then refuses that path, saying so;
 //! - the exclude lines those builds added carried no mark, so nothing can tell
 //!   one from the same line the user wrote: they stay;
 //! - the old config homes are deleted. The CLI's login lives elsewhere; what
@@ -33,14 +36,18 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Component, Path};
 
-use crate::cwd_arm::MARKER_FILE;
 use crate::state::write_atomic;
 
+/// The marker older builds put beside a config they planted.
+#[cfg(test)]
+const MARKER_FILE: &str = ".keepdeck-managed";
 /// The directory the skills link sat in, and the link itself.
 const LINK_DIR: &str = ".agents";
 const LINK: &str = "skills";
 /// The directory the MCP config sat in, and the config itself.
+#[cfg(test)]
 const MCP_DIR: &str = ".kimi-code";
+#[cfg(test)]
 const MCP_FILE: &str = "mcp.json";
 /// The per-workspace config homes older builds kept under the skills root.
 const CONFIG_HOMES: &str = "opencode";
@@ -56,7 +63,8 @@ fn retire(home: &Path) {
     let skills = home.join("skills");
     let arms = crate::cwd_arm::records_root(home);
     sweep_manifests(&skills.join("armed"), |cwd| take_back_link(cwd, &skills, &arms));
-    sweep_manifests(&home.join("mcp").join("armed"), |cwd| take_back_config(cwd, &arms));
+    // A config is never taken back (see the module doc): its record just goes.
+    sweep_manifests(&home.join("mcp").join("armed"), |_| Ok(()));
     match fs::remove_dir_all(skills.join(CONFIG_HOMES)) {
         Err(e) if e.kind() != ErrorKind::NotFound => {
             log::warn!("legacy plantings: deleting the old config homes failed, retried next launch: {e}");
@@ -135,24 +143,6 @@ fn made_by_older_build(target: &Path, skills_root: &Path) -> bool {
         [Component::Normal(staging), Component::Normal(_), Component::Normal(skills)]
             if *staging == "staging" && *skills == LINK
     )
-}
-
-/// The MCP config, while our marker stands beside it and the arming engine
-/// records nothing there — without a marker it is the user's.
-fn take_back_config(cwd: &Path, arms: &Path) -> io::Result<()> {
-    let dir = cwd.join(MCP_DIR);
-    let marker = dir.join(MARKER_FILE);
-    if !marker.exists() || crate::cwd_arm::recorded_at(arms, cwd, &format!("{MCP_DIR}/{MCP_FILE}"))? {
-        return Ok(());
-    }
-    for file in [dir.join(MCP_FILE), marker] {
-        match fs::remove_file(file) {
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            other => other?,
-        }
-    }
-    let _ = fs::remove_dir(&dir);
-    Ok(())
 }
 
 #[cfg(all(test, unix))]
@@ -310,31 +300,27 @@ mod tests {
     #[test]
     fn a_manifest_keeps_only_the_cwds_that_failed() {
         let s = scratch();
+        let staged = s.staged();
         let wt = fake_worktree(&s.base);
-        let ours = wt.join(MCP_DIR);
-        fs::create_dir_all(&ours).unwrap();
-        fs::write(ours.join(MCP_FILE), "{}").unwrap();
-        fs::write(ours.join(MARKER_FILE), "").unwrap();
-        // A cwd whose marker cannot be judged: its directory is unreadable.
+        link(&staged, &wt.join(LINK_DIR).join(LINK));
+        // A cwd whose old link cannot be taken back: its directory is locked.
         let stuck = s.base.join("stuck");
-        fs::create_dir_all(stuck.join(MCP_DIR)).unwrap();
-        fs::write(stuck.join(MCP_DIR).join(MARKER_FILE), "").unwrap();
-        fs::write(stuck.join(MCP_DIR).join(MCP_FILE), "{}").unwrap();
-        let armed = s.home.join("mcp/armed");
+        link(&staged, &stuck.join(LINK_DIR).join(LINK));
+        let armed = s.home.join("skills/armed");
         manifest(&armed, "ws-1", &[&wt, &stuck]);
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(stuck.join(MCP_DIR), fs::Permissions::from_mode(0o500)).unwrap();
+        fs::set_permissions(stuck.join(LINK_DIR), fs::Permissions::from_mode(0o500)).unwrap();
 
         retire(&s.home);
 
-        fs::set_permissions(stuck.join(MCP_DIR), fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(!ours.exists());
+        fs::set_permissions(stuck.join(LINK_DIR), fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(fs::symlink_metadata(wt.join(LINK_DIR)).is_err());
         let left: Vec<String> = serde_json::from_slice(&fs::read(armed.join("ws-1")).unwrap()).unwrap();
         assert_eq!(left, vec![stuck.to_string_lossy().into_owned()]);
     }
 
     #[test]
-    fn takes_back_an_old_config_beside_its_marker_and_spares_one_without() {
+    fn an_old_config_is_left_where_it_is_and_only_its_record_goes() {
         let s = scratch();
         let wt = fake_worktree(&s.base);
         let ours = wt.join(MCP_DIR);
@@ -348,7 +334,7 @@ mod tests {
 
         retire(&s.home);
 
-        assert!(!ours.exists());
+        assert_eq!(fs::read_to_string(ours.join(MCP_FILE)).unwrap(), "{}", "a marker proves nothing");
         assert_eq!(fs::read_to_string(users.join(MCP_DIR).join(MCP_FILE)).unwrap(), "their own");
         assert!(!s.home.join("mcp/armed").exists());
     }
@@ -366,7 +352,7 @@ mod tests {
 
         retire(&s.home);
 
-        assert!(!dir.join(MCP_FILE).exists());
+        assert!(dir.join(MCP_FILE).exists());
         assert!(dir.join("state.db").exists());
     }
 
