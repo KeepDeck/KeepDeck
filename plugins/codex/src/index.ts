@@ -162,7 +162,7 @@ const CODEX_SKILLS_DIR = ".agents/skills";
  * exactly our links. No skills: an empty set, so links an earlier launch
  * planted are taken back. argv and env stay untouched.
  */
-export function codexArms(skills: SpawnSkillsInput | undefined): CwdArm[] {
+function codexArms(skills: SpawnSkillsInput | undefined): CwdArm[] {
   if (!skills) return [];
   return skills.skills.map(({ name }) => ({
     kind: "symlink",
