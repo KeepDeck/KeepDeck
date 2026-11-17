@@ -49,6 +49,9 @@ pub(super) enum What {
     },
     /// A directory KeepDeck made on the way to a planting, exactly this one.
     Dir { identity: Identity },
+    /// Nothing planted: only the exclude line a planting that never landed
+    /// was given, kept until it can be let go.
+    Line,
 }
 
 /// What exactly KeepDeck put at a file place.
@@ -88,7 +91,7 @@ pub(super) enum Landing {
 }
 
 /// How a place keeps git blind to itself.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum Hidden {
     /// The path's whole first segment, raw — what builds before this one
@@ -104,27 +107,39 @@ pub(super) enum Hidden {
 pub(super) type Held = (String, Place);
 
 impl Place {
-    /// Whether this place names the same entry as `path` in `cwd`.
+    /// Whether this place is the slot `path` names in `cwd`.
     pub fn at(&self, cwd: &str, path: &str) -> bool {
-        self.cwd == cwd && same_entry(Path::new(cwd), &self.path, path)
+        self.cwd == cwd && slot(&self.path) == slot(path)
+    }
+
+    /// This place's slot in its directory.
+    pub fn slot(&self) -> Option<String> {
+        slot(&self.path)
+    }
+
+    /// What stays recorded of a planting that is gone while its line could
+    /// not be let go yet: the exact line alone. An older build's line stays
+    /// with its place — whether it may go depends on what that place was.
+    pub fn line_left(self) -> Place {
+        match self.what {
+            What::Symlink { .. } | What::File { .. } if self.hidden == Hidden::Exact => {
+                Place { what: What::Line, ..self }
+            }
+            _ => self,
+        }
     }
 }
 
-/// Two relative paths in one directory name the same entry when they are
-/// spelled alike ignoring case, or when both exist as one entry on disk (a
-/// Unicode spelling the volume folds). Cautious by design: on a
-/// case-sensitive volume `a` and `A` are two files, and this still calls them
-/// one — refusing a name is better than writing over another planting.
-pub(super) fn same_entry(cwd: &Path, a: &str, b: &str) -> bool {
-    a == b || a.to_lowercase() == b.to_lowercase() || same_file(&cwd.join(a), &cwd.join(b))
-}
-
-fn same_file(a: &Path, b: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (fs::symlink_metadata(a), fs::symlink_metadata(b)) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
-    }
+/// The one spelling of the slot a relative path names in its directory: its
+/// plain components joined by `/`, case folded — a case-insensitive volume
+/// makes `mcp.json` and `MCP.json` one file, and on a case-sensitive one this
+/// still calls them one: refusing a name is better than planting over
+/// another. `None` for a path that is not a slot (empty, absolute, leaving
+/// the directory). Two hard links are two slots; two Unicode spellings of one
+/// name may read as two, and then the proof of what stands there still
+/// refuses whatever is not provably the planter's own.
+pub(super) fn slot(path: &str) -> Option<String> {
+    super::relative_parts(path).map(|parts| parts.join("/").to_lowercase())
 }
 
 /// A directory as one spelling: its real path while it exists, else as
@@ -180,18 +195,18 @@ impl Ledger {
     }
 
     /// Record `places` as the workspace's whole manifest, unless that is
-    /// what it already says.
-    pub fn write(&mut self, ws: &str, places: Vec<Place>) -> io::Result<()> {
+    /// what it already says. Answers whether it was written.
+    pub fn write(&mut self, ws: &str, places: Vec<Place>) -> io::Result<bool> {
         let current = self.of(ws);
         if current.len() == places.len() && current.iter().all(|p| places.contains(p)) {
-            return Ok(());
+            return Ok(false);
         }
         write(&self.root, ws, &places)?;
         match self.places.iter_mut().find(|(id, _)| id == ws) {
             Some((_, slot)) => *slot = places,
             None => self.places.push((ws.to_string(), places)),
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Set a dead workspace's unreadable manifest aside, never deleting it:
@@ -260,15 +275,26 @@ mod tests {
             what: What::Symlink { target: None },
             hidden: Hidden::Exact,
         };
-        ledger.write("ws-1", vec![place.clone()]).unwrap();
+        assert!(ledger.write("ws-1", vec![place.clone()]).unwrap());
         assert!(manifest(tmp.path(), "ws-1").exists());
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o555)).unwrap();
         let unchanged = ledger.write("ws-1", vec![place]);
         fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o755)).unwrap();
-        unchanged.unwrap();
+        assert!(!unchanged.unwrap(), "nothing written");
         ledger.write("ws-1", Vec::new()).unwrap();
         assert!(!manifest(tmp.path(), "ws-1").exists());
+    }
+
+    #[test]
+    fn a_slot_is_one_spelling_of_a_path_and_never_a_path_out() {
+        assert_eq!(slot("cfg/./link"), Some("cfg/link".into()));
+        assert_eq!(slot("cfg//Link"), Some("cfg/link".into()));
+        assert_eq!(slot("CFG/link"), slot("cfg/LINK"));
+        assert_ne!(slot("cfg/link"), slot("cfg/link2"));
+        for out in ["", "/abs", "../x", "a/../b"] {
+            assert_eq!(slot(out), None, "{out:?}");
+        }
     }
 
     #[test]

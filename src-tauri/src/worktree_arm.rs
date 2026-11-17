@@ -84,18 +84,19 @@ pub(crate) struct ExcludeLine {
 /// Add `add` and take out `remove` — each line marked as KeepDeck's, the same
 /// pattern the user wrote left as theirs — in one read and at most one write
 /// of each repo's exclude file (byte-faithful editing lives in
-/// `keepdeck_git::exclude`).
-pub(crate) fn update(add: &[ExcludeLine], remove: &[ExcludeLine]) -> io::Result<()> {
+/// `keepdeck_git::exclude`). Answers how many files were written.
+pub(crate) fn update(add: &[ExcludeLine], remove: &[ExcludeLine]) -> io::Result<usize> {
     let mut repos: Vec<&Path> = add.iter().chain(remove).map(|l| l.common_dir.as_path()).collect();
     repos.sort();
     repos.dedup();
     fn lines_in<'a>(of: &'a [ExcludeLine], repo: &Path) -> Vec<&'a str> {
         of.iter().filter(|l| l.common_dir == repo).map(|l| l.line.as_str()).collect()
     }
+    let mut written = 0;
     for repo in repos {
-        keepdeck_git::exclude::update(repo, &lines_in(add, repo), &lines_in(remove, repo))?;
+        written += usize::from(keepdeck_git::exclude::update(repo, &lines_in(add, repo), &lines_in(remove, repo))?);
     }
-    Ok(())
+    Ok(written)
 }
 
 /// `path` as a gitignore pattern matching only itself: git's wildcard and

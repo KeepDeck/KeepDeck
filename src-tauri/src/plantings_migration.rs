@@ -9,11 +9,13 @@
 //! directory. So at startup, before the webview restores a single pane:
 //!
 //! - every recorded link that is still exactly the one those builds made — to
-//!   a staging view, `<skills>/staging/<ws>/skills`, in plain names — is
-//!   taken back with the directory it leaves empty. A pane that still needs
-//!   one gets it back from its plugin the moment it starts. Whatever the
-//!   arming engine records at the same place is the new build's: it stays,
-//!   and the old record of it simply goes;
+//!   a staging view, `<skills>/staging/<ws>/skills` — is taken back by the
+//!   arming engine, which proves and removes it the way it gives way to one
+//!   ([`crate::cwd_arm::retire_historical_link`]); the folder it sat in
+//!   stays, as nothing proves it was theirs. A pane that still needs skills
+//!   gets them back from its plugin the moment it starts. Whatever the arming
+//!   engine records at the same place is the new build's: it stays, and the
+//!   old record of it simply goes;
 //! - a recorded config is left where it is: a marker beside it and an old
 //!   record are no proof the bytes there are still the ones those builds
 //!   wrote, and a file that cannot be proven ours is never removed. Its
@@ -34,7 +36,7 @@
 
 use std::fs;
 use std::io::{self, ErrorKind};
-use std::path::{Component, Path};
+use std::path::Path;
 
 use crate::state::write_atomic;
 
@@ -42,7 +44,9 @@ use crate::state::write_atomic;
 #[cfg(test)]
 const MARKER_FILE: &str = ".keepdeck-managed";
 /// The directory the skills link sat in, and the link itself.
+#[cfg(test)]
 const LINK_DIR: &str = ".agents";
+#[cfg(test)]
 const LINK: &str = "skills";
 /// The directory the MCP config sat in, and the config itself.
 #[cfg(test)]
@@ -60,9 +64,8 @@ pub fn run() {
 }
 
 fn retire(home: &Path) {
-    let skills = home.join("skills");
-    let arms = crate::cwd_arm::records_root(home);
-    sweep_manifests(&skills.join("armed"), |cwd| take_back_link(cwd, &skills, &arms));
+    let skills = crate::skills::root_in(home);
+    sweep_manifests(&skills.join("armed"), |cwd| crate::cwd_arm::retire_historical_link(home, cwd));
     // A config is never taken back (see the module doc): its record just goes.
     sweep_manifests(&home.join("mcp").join("armed"), |_| Ok(()));
     match fs::remove_dir_all(skills.join(CONFIG_HOMES)) {
@@ -110,41 +113,6 @@ fn sweep_manifests(dir: &Path, take_back: impl Fn(&Path) -> io::Result<()>) {
     let _ = fs::remove_dir(dir);
 }
 
-/// The skills link, while it is still the one an older build made and the
-/// arming engine records nothing there — anything else at that path is the
-/// user's, or the new build's.
-fn take_back_link(cwd: &Path, skills_root: &Path, arms: &Path) -> io::Result<()> {
-    let link = cwd.join(LINK_DIR).join(LINK);
-    match fs::symlink_metadata(&link) {
-        Ok(meta) if meta.file_type().is_symlink() => {
-            if !made_by_older_build(&fs::read_link(&link)?, skills_root)
-                || crate::cwd_arm::recorded_at(arms, cwd, &format!("{LINK_DIR}/{LINK}"))?
-            {
-                return Ok(());
-            }
-            fs::remove_file(&link)?;
-        }
-        Ok(_) => return Ok(()),
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    let _ = fs::remove_dir(cwd.join(LINK_DIR));
-    Ok(())
-}
-
-/// The one link an older build made: `<skills>/staging/<ws>/skills`, spelled
-/// in plain names only. Judged on the text, never resolved — a spelling with
-/// `..` that merely starts like the skills root may lead anywhere.
-fn made_by_older_build(target: &Path, skills_root: &Path) -> bool {
-    let Ok(rest) = target.strip_prefix(skills_root) else { return false };
-    let parts: Vec<Component> = rest.components().collect();
-    matches!(
-        parts.as_slice(),
-        [Component::Normal(staging), Component::Normal(_), Component::Normal(skills)]
-            if *staging == "staging" && *skills == LINK
-    )
-}
-
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -188,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn takes_back_an_old_link_with_its_dir_and_drops_the_manifest() {
+    fn takes_back_an_old_link_and_drops_the_manifest() {
         let s = scratch();
         let wt = fake_worktree(&s.base);
         let staged = s.staged();
@@ -197,7 +165,8 @@ mod tests {
 
         retire(&s.home);
 
-        assert!(fs::symlink_metadata(wt.join(LINK_DIR)).is_err());
+        assert!(fs::symlink_metadata(wt.join(LINK_DIR).join(LINK)).is_err());
+        assert!(wt.join(LINK_DIR).is_dir(), "the folder it sat in may be the user's");
         assert!(!s.home.join("skills/armed").exists());
         // The staging itself is the skills feature's, not this pass's.
         assert!(staged.exists());
@@ -314,7 +283,7 @@ mod tests {
         retire(&s.home);
 
         fs::set_permissions(stuck.join(LINK_DIR), fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(fs::symlink_metadata(wt.join(LINK_DIR)).is_err());
+        assert!(fs::symlink_metadata(wt.join(LINK_DIR).join(LINK)).is_err());
         let left: Vec<String> = serde_json::from_slice(&fs::read(armed.join("ws-1")).unwrap()).unwrap();
         assert_eq!(left, vec![stuck.to_string_lossy().into_owned()]);
     }

@@ -7,7 +7,7 @@ use std::process::Command;
 
 use super::lifecycle;
 use super::registry::{manifest, Hidden, Landing, Ledger, Place, Receipt, What};
-use super::{disarm, prune, recorded_at, ArmRefusal, CwdArm, CwdArmReport, CAPS};
+use super::{disarm, prune, retire_historical_link, ArmRefusal, CwdArm, CwdArmReport, CAPS};
 use crate::fs_beneath as fsb;
 
 struct Scratch {
@@ -41,6 +41,10 @@ impl Scratch {
         skill
     }
     fn arm_in(&self, cwd: &Path, plugin: &str, ws: &str, arms: &[CwdArm]) -> CwdArmReport {
+        self.pass(cwd, plugin, ws, arms).0
+    }
+    /// One pass, with what it cost.
+    fn pass(&self, cwd: &Path, plugin: &str, ws: &str, arms: &[CwdArm]) -> (CwdArmReport, lifecycle::Stats) {
         let own = self.home.join("plugin-workspaces").join(plugin).join(ws);
         fs::create_dir_all(&own).unwrap();
         let allowed = vec![own, self.skills(ws)];
@@ -135,7 +139,7 @@ fn a_prepared_file_never_authorizes_taking_back_what_stands_after_a_crash() {
     let s = scratch();
     s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
     let dir = fsb::open_dir(&s.cwd.join(".conf")).unwrap();
-    let staged = fsb::stage_at(&dir, "mcp.json".as_ref(), b"ours", 0o644).unwrap();
+    let staged = fsb::stage_at(&dir, &fsb::temporary_beside("mcp.json".as_ref()), b"ours", 0o644).unwrap();
     let receipt = Receipt {
         state: Landing::Prepared,
         identity: staged.identity.unwrap(),
@@ -158,7 +162,7 @@ fn a_file_published_before_a_crash_is_recognized_and_taken_back() {
     let s = scratch();
     s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
     let dir = fsb::open_dir(&s.cwd.join(".conf")).unwrap();
-    let staged = fsb::stage_at(&dir, "mcp.json".as_ref(), b"ours", 0o644).unwrap();
+    let staged = fsb::stage_at(&dir, &fsb::temporary_beside("mcp.json".as_ref()), b"ours", 0o644).unwrap();
     let receipt = Receipt {
         state: Landing::Prepared,
         identity: staged.identity.unwrap(),
@@ -183,7 +187,7 @@ fn a_crash_before_a_rewrite_was_published_keeps_the_file_it_was_replacing() {
     let at = places.iter().position(|p| p.path == ".conf/mcp.json").unwrap();
     let What::File { receipt: Some(old) } = places[at].what.clone() else { panic!() };
     let dir = fsb::open_dir(&s.cwd.join(".conf")).unwrap();
-    let staged = fsb::stage_at(&dir, "mcp.json".as_ref(), b"new", 0o644).unwrap();
+    let staged = fsb::stage_at(&dir, &fsb::temporary_beside("mcp.json".as_ref()), b"new", 0o644).unwrap();
     let previous = super::registry::Landed { identity: old.identity, digest: old.digest };
     places[at].what = What::File {
         receipt: Some(Receipt {
@@ -253,7 +257,23 @@ fn a_link_points_only_into_the_plugins_own_directory_or_this_plans_skills() {
     fs::create_dir_all(&elsewhere).unwrap();
     let out = s.arm("p.linker", "ws-1", &[link(".l", &elsewhere)]);
     assert_eq!(refused(&out, ".l"), ".l would point outside what this agent may link to");
-    assert!(fs::symlink_metadata(s.cwd.join(".l")).is_err(), "it was ours, and it is not declared as it was");
+    assert_eq!(fs::read_link(s.cwd.join(".l")).unwrap(), skills, "still declared: what stood keeps standing");
+    assert!(s.arm("p.linker", "ws-1", &[]).refused.is_empty());
+    assert!(fs::symlink_metadata(s.cwd.join(".l")).is_err(), "no longer declared: taken back");
+}
+
+#[test]
+fn a_link_is_planted_only_where_it_would_later_be_recognized_as_ours() {
+    // A plan's skills folder outside this workspace's own directories: a link
+    // there could be planted, but never told apart from the user's after.
+    let s = scratch();
+    let outside = s.base.join("outside-skills");
+    fs::create_dir_all(&outside).unwrap();
+    let cwd = s.cwd.to_string_lossy();
+    let (report, _) =
+        lifecycle::arm(&s.root, &s.home, "p.linker", "ws-1", &cwd, &[link(".l", &outside)], std::slice::from_ref(&outside));
+    assert_eq!(refused(&report, ".l"), ".l would point outside what this agent may link to");
+    assert!(fs::symlink_metadata(s.cwd.join(".l")).is_err());
 }
 
 #[test]
@@ -391,15 +411,26 @@ fn older_folder_link(s: &Scratch, ws: &str, cwd: &Path) {
 fn an_older_folder_link_becomes_a_link_per_skill_in_one_launch_for_every_workspace() {
     let s = scratch();
     let main = repo(&s);
-    let one = s.skill("ws-1", "one");
+    let (one, two) = (s.skill("ws-1", "one"), s.skill("ws-1", "two"));
     // The old link stands for ws-2, the workspace that launched first.
     older_folder_link(&s, "ws-2", &main);
-    let report = s.arm_in(&main, "keepdeck.codex", "ws-1", &[link(".agents/skills/one", &one)]);
-    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let set = [link(".agents/skills/one", &one), link(".agents/skills/two", &two)];
+    let report = s.arm_in(&main, "keepdeck.codex", "ws-1", &set);
+    assert!(report.refused.is_empty(), "it gives way once, for every skill inside: {:?}", report.refused);
     assert!(fs::symlink_metadata(main.join(".agents/skills")).unwrap().is_dir());
     assert_eq!(fs::read_link(main.join(".agents/skills/one")).unwrap(), one);
+    assert_eq!(fs::read_link(main.join(".agents/skills/two")).unwrap(), two);
     assert!(s.paths("ws-2").is_empty(), "ws-2's record of the old link went with it");
-    assert_eq!(excluded(&main), ["/.agents/skills/one"]);
+    assert_eq!(excluded(&main), ["/.agents/skills/one", "/.agents/skills/two"]);
+}
+
+#[test]
+fn only_codex_may_have_its_older_folder_link_give_way() {
+    let s = scratch();
+    older_folder_link(&s, "ws-1", &s.cwd);
+    let report = s.arm("p.other", "ws-1", &[link(".agents/skills/x", &s.skill("ws-1", "x"))]);
+    assert_eq!(refused(&report, ".agents/skills/x"), ".agents/skills here is not a directory");
+    assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), s.skills("ws-1"));
 }
 
 #[test]
@@ -441,8 +472,15 @@ fn one_path_belongs_to_one_plugin_and_two_spellings_are_one_path() {
     let other = s.arm("p.other", "ws-2", &[file(".x/MCP.json", "b")]);
     assert_eq!(refused(&other, ".x/MCP.json"), ".x/MCP.json is planted here by another agent");
     assert_eq!(fs::read_to_string(s.cwd.join(".x/mcp.json")).unwrap(), "a");
-    let twice = s.arm("p.filer", "ws-1", &[file(".y/a", "1"), file(".y/A", "2")]);
+    let twice = s.arm("p.filer", "ws-1", &[file(".y/a", "1"), file(".y/A", "2"), file(".y//./a", "3")]);
     assert_eq!(refused(&twice, ".y/A"), ".y/A is declared twice");
+    assert_eq!(refused(&twice, ".y//./a"), ".y//./a is declared twice");
+    let spelled = s.arm("p.filer", "ws-1", &[file(".z//b", "1")]);
+    assert!(spelled.refused.is_empty(), "{:?}", spelled.refused);
+    assert_eq!(s.paths("ws-1"), [".z/b"], "recorded in its one spelling");
+    let line = s.arm("p.filer", "ws-1", &[file(".n/a\nb", "1"), file(".n/c\rd", "1")]);
+    assert_eq!(refused(&line, ".n/a\nb"), ".n/a\nb has a name git cannot be told to ignore");
+    assert_eq!(refused(&line, ".n/c\rd"), ".n/c\rd has a name git cannot be told to ignore");
 }
 
 #[test]
@@ -616,13 +654,38 @@ fn disarm_leaves_a_root_a_live_workspace_still_is_however_it_is_spelled() {
 }
 
 #[test]
-fn what_is_recorded_answers_for_the_retirement_of_older_plantings() {
+fn an_older_builds_link_is_retired_by_the_engines_own_proof_and_its_folder_stays() {
     let s = scratch();
-    s.arm("p.filer", "ws-1", &[file(".conf/mcp.json", "{}")]);
-    assert!(recorded_at(&s.root, &s.cwd, ".conf/mcp.json").unwrap());
-    assert!(!recorded_at(&s.root, &s.cwd, ".agents/skills").unwrap());
+    fs::create_dir_all(s.cwd.join(".agents")).unwrap();
+    symlink(s.skills("ws-1"), s.cwd.join(".agents/skills")).unwrap();
+    retire_historical_link(&s.home, &s.cwd).unwrap();
+    assert!(fs::symlink_metadata(s.cwd.join(".agents/skills")).is_err());
+    assert!(s.cwd.join(".agents").is_dir(), "nothing proves the folder was theirs");
+}
+
+#[test]
+fn an_older_builds_link_the_engine_records_or_cannot_prove_stays() {
+    let s = scratch();
+    // Recorded: the engine settles it itself.
+    older_folder_link(&s, "ws-1", &s.cwd);
+    retire_historical_link(&s.home, &s.cwd).unwrap();
+    assert!(fs::symlink_metadata(s.cwd.join(".agents/skills")).is_ok());
+    // Reached through a link on the way: nothing is taken through it.
+    let elsewhere = s.base.join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    symlink(s.skills("ws-1"), elsewhere.join("skills")).unwrap();
+    let other = s.base.join("other");
+    fs::create_dir_all(&other).unwrap();
+    symlink(&elsewhere, other.join(".agents")).unwrap();
+    retire_historical_link(&s.home, &other).unwrap();
+    assert!(fs::symlink_metadata(elsewhere.join("skills")).is_ok());
+    // While a record will not read, it may claim the place.
     fs::write(manifest(&s.root, "ws-9"), "not json").unwrap();
-    assert!(recorded_at(&s.root, &s.cwd, ".agents/skills").is_err());
+    let third = s.base.join("third");
+    fs::create_dir_all(third.join(".agents")).unwrap();
+    symlink(s.skills("ws-1"), third.join(".agents/skills")).unwrap();
+    assert!(retire_historical_link(&s.home, &third).is_err());
+    assert!(fs::symlink_metadata(third.join(".agents/skills")).is_ok());
 }
 
 // ---- git: blind to exactly what is planted ----
@@ -647,7 +710,7 @@ fn a_line_that_cannot_be_added_first_plants_nothing() {
     lock(&main.join(".git/info"), true);
     let report = s.arm_in(&main, "p.linker", "ws-1", &[link(".agents/skills/x", &s.skill("ws-1", "x"))]);
     lock(&main.join(".git/info"), false);
-    assert_eq!(refused(&report, ".agents/skills/x"), "this could not be kept from git");
+    assert_eq!(refused(&report, ".agents/skills/x"), "this could not be kept from git — nothing was planted");
     assert!(!main.join(".agents").exists(), "neither the link nor the folders made for it");
 }
 
@@ -733,4 +796,121 @@ fn links_per_skill_live_beside_a_projects_own_skills_and_yield_to_one_of_the_sam
     for theirs in ["review", "deploy"] {
         assert_eq!(fs::read_to_string(main.join(".agents/skills").join(theirs).join("SKILL.md")).unwrap(), "theirs");
     }
+}
+
+// ---- what a pass changes, in what order, and what it costs ----
+
+#[test]
+fn a_rewrite_that_cannot_be_hidden_first_leaves_what_stood() {
+    let s = scratch();
+    let main = repo(&s);
+    s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "a")]);
+    let before = s.places("ws-1");
+    lock(&main.join(".git/info"), true);
+    let report = s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "b")]);
+    lock(&main.join(".git/info"), false);
+    assert_eq!(refused(&report, ".k/conf"), "this could not be kept from git — nothing was planted");
+    assert_eq!(fs::read_to_string(main.join(".k/conf")).unwrap(), "a");
+    assert_eq!(fs::read_dir(main.join(".k")).unwrap().count(), 1, "nothing staged beside it");
+    assert_eq!(s.places("ws-1"), before);
+    assert_eq!(excluded(&main), ["/.k/conf"]);
+}
+
+#[test]
+fn a_file_planted_in_a_repo_leaves_git_blind_to_it_alone() {
+    // Its temporary was hidden while it was staged, and let go once gone.
+    let s = scratch();
+    let main = repo(&s);
+    s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "a")]);
+    s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "b")]);
+    assert_eq!(excluded(&main), ["/.k/conf"]);
+    assert_eq!(s.places("ws-1").iter().filter(|p| matches!(p.what, What::Line)).count(), 0);
+}
+
+#[test]
+fn a_planting_that_cannot_be_read_now_stays_recorded_for_a_later_pass() {
+    // Published before a crash, its folder unreadable at the next pass: the
+    // record is what finds it again — it is never let go on an error.
+    let s = scratch();
+    s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
+    let dir = fsb::open_dir(&s.cwd.join(".conf")).unwrap();
+    let staged = fsb::stage_at(&dir, &fsb::temporary_beside("mcp.json".as_ref()), b"ours", 0o644).unwrap();
+    let receipt = Receipt {
+        state: Landing::Prepared,
+        identity: staged.identity.unwrap(),
+        digest: super::proof::digest(b"ours"),
+        temp: None,
+        previous: None,
+    };
+    let mut places = s.places("ws-1");
+    places.push(place(&s.cwd, "p.filer", ".conf/mcp.json", What::File { receipt: Some(receipt) }));
+    Ledger::read(&s.root).unwrap().write("ws-1", places).unwrap();
+    fsb::publish_at(&dir, &staged.name, "mcp.json".as_ref(), fsb::Publish::Exclusive).unwrap();
+    fs::set_permissions(s.cwd.join(".conf"), fs::Permissions::from_mode(0o000)).unwrap();
+    let err = s.disarm(&s.cwd);
+    fs::set_permissions(s.cwd.join(".conf"), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(err.is_err());
+    assert!(s.paths("ws-1").contains(&".conf/mcp.json".to_string()));
+    s.disarm(&s.cwd).unwrap();
+    assert!(!s.cwd.join(".conf").exists(), "found again by its record, and taken back");
+}
+
+#[test]
+fn a_dead_workspaces_record_that_cannot_be_set_aside_stops_the_sweep() {
+    let s = scratch();
+    s.arm("p.filer", "ws-1", &[file(".k/conf", "a")]);
+    fs::write(manifest(&s.root, "ws-9"), "not json").unwrap();
+    lock(&s.root, true);
+    prune(&s.root, &s.home, &[]).unwrap();
+    lock(&s.root, false);
+    assert_eq!(fs::read_to_string(s.cwd.join(".k/conf")).unwrap(), "a", "ws-9 might claim it");
+    prune(&s.root, &s.home, &[]).unwrap();
+    assert!(!s.cwd.join(".k").exists());
+}
+
+/// Older records of `ws`, each hidden by its whole first segment.
+fn older_places(s: &Scratch, ws: &str, cwd: &Path, places: Vec<Place>) {
+    let places = places.into_iter().map(|p| Place { hidden: Hidden::FirstSegment, ..p }).collect();
+    Ledger::read(&s.root).unwrap().write(ws, places).unwrap();
+    keepdeck_git::exclude::ensure_line(&cwd.join(".git"), "/.cfg/").unwrap();
+}
+
+#[test]
+fn an_older_line_is_decided_once_over_every_entry_it_hides() {
+    let s = scratch();
+    let main = repo(&s);
+    fs::create_dir_all(main.join(".cfg")).unwrap();
+    fs::write(main.join(".cfg/b"), "the user's, since").unwrap();
+    let file = || What::File { receipt: None };
+    older_places(&s, "ws-1", &main, vec![place(&main, "p.filer", ".cfg/a", file()), place(&main, "p.filer", ".cfg/b", file())]);
+    s.disarm(&main).unwrap();
+    assert_eq!(excluded(&main), ["/.cfg/"], "one of its entries still holds something");
+}
+
+#[test]
+fn only_codexs_older_folder_line_waits_for_a_link_alone() {
+    let s = scratch();
+    let main = repo(&s);
+    fs::create_dir_all(main.join(".cfg")).unwrap();
+    fs::write(main.join(".cfg/l"), "the user's, since").unwrap();
+    let older = place(&main, "p.linker", ".cfg/l", What::Symlink { target: None });
+    older_places(&s, "ws-1", &main, vec![older]);
+    s.disarm(&main).unwrap();
+    assert_eq!(excluded(&main), ["/.cfg/"], "anything standing there keeps another plugin's older line");
+}
+
+#[test]
+fn a_pass_over_an_unchanged_set_looks_once_per_entry_and_writes_nothing() {
+    let s = scratch();
+    let main = repo(&s);
+    let set: Vec<CwdArm> = (0..CAPS.entries_max)
+        .map(|i| link(&format!(".agents/skills/s{i}"), &s.skill("ws-1", &format!("s{i}"))))
+        .collect();
+    let (first, cost) = s.pass(&main, "keepdeck.codex", "ws-1", &set);
+    assert_eq!(first.armed.len(), CAPS.entries_max, "{:?}", first.refused);
+    assert_eq!((cost.manifests_written, cost.excludes_written), (2, 1), "one write of each, the folders made after");
+    let (again, cost) = s.pass(&main, "keepdeck.codex", "ws-1", &set);
+    assert_eq!(again.armed.len(), CAPS.entries_max);
+    let unchanged = lifecycle::Stats { observed: CAPS.entries_max, digested: 0, manifests_written: 0, excludes_written: 0 };
+    assert_eq!(cost, unchanged);
 }

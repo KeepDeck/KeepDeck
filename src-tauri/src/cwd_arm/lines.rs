@@ -21,7 +21,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::registry::{Held, Hidden, Place, What};
+use super::proof::{HISTORICAL_FOLDER_LINK, HISTORICAL_PLUGIN};
+use super::registry::{slot, Held, Hidden, Place, What};
 use crate::worktree_arm::{self, ExcludeLine, ExcludeRepo, Excluded};
 
 /// One line a place needs, and what in a worktree it could still be hiding.
@@ -30,7 +31,9 @@ struct Need {
     common_dir: PathBuf,
     /// The place's path below any worktree's root.
     slot: PathBuf,
-    /// Whether only a link standing at the slot keeps the line.
+    /// Whether only a link standing at the slot keeps the line: the older
+    /// builds' line for codex's whole-folder link, whose other occupants are
+    /// the user's own.
     links_only: bool,
 }
 
@@ -39,7 +42,12 @@ struct Need {
 pub(super) struct Lines {
     repos: HashMap<String, Option<ExcludeRepo>>,
     roots: HashMap<PathBuf, Option<Vec<PathBuf>>>,
+    /// How many exclude files this pass wrote.
+    pub written: usize,
 }
+
+/// What [`Lines::release`] could not let go.
+pub(super) type Kept = Vec<Held>;
 
 impl Lines {
     fn repo(&mut self, cwd: &str) -> io::Result<Option<ExcludeRepo>> {
@@ -60,7 +68,10 @@ impl Lines {
             (_, Hidden::Exact) => repo.line(&Excluded { path: place.path.clone(), directory: false }),
             (_, Hidden::FirstSegment) => repo.legacy_line(first),
         };
-        let links_only = place.hidden == Hidden::FirstSegment && matches!(place.what, What::Symlink { .. });
+        let links_only = place.hidden == Hidden::FirstSegment
+            && matches!(place.what, What::Symlink { .. })
+            && place.plugin == HISTORICAL_PLUGIN
+            && slot(&place.path).as_deref() == Some(HISTORICAL_FOLDER_LINK);
         let common_dir = repo.common_dir().to_path_buf();
         Ok(vec![Need { line, common_dir, slot: repo.below_root(&place.path), links_only }])
     }
@@ -72,13 +83,20 @@ impl Lines {
         for place in places {
             add.extend(self.needs(place)?.into_iter().map(|need| need.line));
         }
-        worktree_arm::update(&add, &[])
+        self.written += worktree_arm::update(&add, &[])?;
+        Ok(())
     }
 
     /// Let the lines `gone` needed go where nothing else needs them, and
     /// answer the places whose lines could not be decided or taken out — the
-    /// ledger keeps those, to try again.
-    pub fn release(&mut self, gone: &[Held], remaining: &[&Place]) -> Vec<Held> {
+    /// ledger keeps those ([`Place::line_left`]), to try again. A line is decided once, over every
+    /// slot it hides: it goes only when none of them holds anything it could
+    /// still be hiding, in any worktree.
+    pub fn release(&mut self, gone: &[Held], remaining: &[&Place]) -> Kept {
+        if gone.is_empty() {
+            return Vec::new();
+        }
+        let keep_all = || gone.iter().map(|(ws, p)| (ws.clone(), p.clone().line_left())).collect();
         let mut needed: HashSet<ExcludeLine> = HashSet::new();
         for place in remaining {
             match self.needs(place) {
@@ -87,41 +105,64 @@ impl Lines {
                 // of them: nothing goes this pass.
                 Err(e) => {
                     log::warn!("cwd arming: exclude lookup for {} failed: {e}", place.cwd);
-                    return gone.to_vec();
+                    return keep_all();
                 }
             }
         }
-        let mut retained = Vec::new();
-        let mut remove = Vec::new();
-        for (ws, place) in gone {
-            let needs = match self.needs(place) {
-                Ok(needs) => needs,
+        let mut retained: Vec<usize> = Vec::new();
+        let mut lines: Vec<(ExcludeLine, Vec<Need>, Vec<usize>)> = Vec::new();
+        for (index, (_, place)) in gone.iter().enumerate() {
+            match self.needs(place) {
+                Ok(needs) => {
+                    for need in needs.into_iter().filter(|need| !needed.contains(&need.line)) {
+                        match lines.iter_mut().find(|(line, _, _)| *line == need.line) {
+                            Some((_, needs, owners)) => {
+                                needs.push(need);
+                                owners.push(index);
+                            }
+                            None => lines.push((need.line.clone(), vec![need], vec![index])),
+                        }
+                    }
+                }
                 Err(e) => {
                     log::warn!("cwd arming: exclude lookup for {} failed: {e}", place.cwd);
-                    retained.push((ws.clone(), place.clone()));
-                    continue;
-                }
-            };
-            let mut undecided = false;
-            for need in needs {
-                if needed.contains(&need.line) || remove.contains(&need.line) {
-                    continue;
-                }
-                match self.standing(&need) {
-                    Some(false) => remove.push(need.line),
-                    Some(true) => {}
-                    None => undecided = true,
+                    retained.push(index);
                 }
             }
-            if undecided {
-                retained.push((ws.clone(), place.clone()));
+        }
+        let mut remove = Vec::new();
+        let mut removing: Vec<usize> = Vec::new();
+        for (line, needs, owners) in lines {
+            let mut standing = Some(false);
+            for need in &needs {
+                match self.standing(need) {
+                    Some(false) => {}
+                    Some(true) => standing = Some(true),
+                    None => {
+                        standing = None;
+                        break;
+                    }
+                }
+            }
+            match standing {
+                Some(false) => {
+                    remove.push(line);
+                    removing.extend(owners);
+                }
+                Some(true) => {}
+                None => retained.extend(owners),
             }
         }
-        if let Err(e) = worktree_arm::update(&[], &remove) {
-            log::warn!("cwd arming: taking exclude lines out failed: {e}");
-            return gone.to_vec();
+        match worktree_arm::update(&[], &remove) {
+            Ok(written) => self.written += written,
+            Err(e) => {
+                log::warn!("cwd arming: taking exclude lines out failed: {e}");
+                retained.extend(removing);
+            }
         }
-        retained
+        retained.sort_unstable();
+        retained.dedup();
+        retained.into_iter().map(|index| (gone[index].0.clone(), gone[index].1.clone().line_left())).collect()
     }
 
     /// Whether anything a line could be hiding stands in some worktree of its

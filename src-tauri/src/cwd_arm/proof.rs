@@ -12,7 +12,12 @@
 //!   build's), which therefore is never changed.
 //! - One historical case is recognized as such: the link older builds made
 //!   for codex to the whole `.agents/skills` folder, into this home's skills
-//!   staging. It may give way to a real folder, so links can go inside it.
+//!   staging. It may give way to a real folder — for codex only — so links can
+//!   go inside it.
+//!
+//! A link's text is judged as written AND on the disk: the part of it that
+//! exists must be itself, no link on the way leading somewhere else — so a
+//! path that only reads as ours never passes.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -29,16 +34,24 @@ pub(super) struct Roots {
 impl Roots {
     /// `home` is KeepDeck's home, real path.
     pub fn of(home: &Path, plugin: &str, ws: &str) -> Self {
-        Roots {
-            roots: [home.join("plugin-workspaces").join(plugin).join(ws), home.join("skills").join("staging").join(ws)],
-        }
+        Roots { roots: [crate::plugin_workspaces::path_in(home, plugin, ws), crate::skills::staging_in(home, ws)] }
     }
 
     /// Whether a link written as `text` points into these directories: an
-    /// absolute path, plain components only, under one of them.
+    /// absolute path, plain components only, one of them or under one, its
+    /// existing part truly where it reads. The one contract for a link KeepDeck
+    /// makes and one it later finds: what this admits it also recognizes.
     pub fn hold(&self, text: &Path) -> bool {
-        plain(text) && self.roots.iter().any(|root| text.starts_with(root) && text != root.as_path())
+        plain(text) && self.roots.iter().any(|root| text.starts_with(root)) && truly(text)
     }
+}
+
+/// Whether the existing part of `text` — the longest of its ancestors there,
+/// or itself — is where it reads: no link on it leading elsewhere. What does
+/// not exist yet (a skill since dropped) cannot lead anywhere.
+fn truly(text: &Path) -> bool {
+    let Some(existing) = text.ancestors().find(|at| at.symlink_metadata().is_ok()) else { return false };
+    std::fs::canonicalize(existing).is_ok_and(|real| real == existing)
 }
 
 /// An absolute path of plain components: nothing a reader resolves first.
@@ -47,18 +60,19 @@ fn plain(text: &Path) -> bool {
     matches!(parts.next(), Some(Component::RootDir)) && parts.all(|part| matches!(part, Component::Normal(_)))
 }
 
-/// Where older builds linked codex's whole skills folder.
+/// The plugin whose older builds linked a whole folder, and where.
+pub(super) const HISTORICAL_PLUGIN: &str = "keepdeck.codex";
 pub(super) const HISTORICAL_FOLDER_LINK: &str = ".agents/skills";
 
-/// Whether `text` is the link older builds made at [`HISTORICAL_FOLDER_LINK`]:
-/// to `<home>/skills/staging/<some workspace>/skills`, exactly.
-pub(super) fn historical_folder_link(home: &Path, path: &str, text: &Path) -> bool {
-    let staging = home.join("skills").join("staging");
-    let Ok(rest) = text.strip_prefix(&staging) else { return false };
-    let rest: Vec<Component> = rest.components().collect();
-    path == HISTORICAL_FOLDER_LINK
+/// Whether `text`, at `path` for `plugin`, is the link older builds made for
+/// codex at [`HISTORICAL_FOLDER_LINK`]: to some workspace's staged skills
+/// view in this home, exactly, and truly there.
+pub(super) fn historical_folder_link(home: &Path, plugin: &str, path: &str, text: &Path) -> bool {
+    plugin == HISTORICAL_PLUGIN
+        && super::registry::slot(path).as_deref() == Some(HISTORICAL_FOLDER_LINK)
         && plain(text)
-        && matches!(rest.as_slice(), [Component::Normal(_), Component::Normal(skills)] if *skills == "skills")
+        && crate::skills::is_view_in(home, text)
+        && truly(text)
 }
 
 /// The sha256 of `bytes`, as a receipt records it.
@@ -80,40 +94,64 @@ mod tests {
         Identity { dev: 1, ino, born: (born, 0) }
     }
 
+    /// A home of real directories: `skills/staging/ws-1/skills`, and a
+    /// plugin's workspace directory.
+    fn home() -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = std::fs::canonicalize(tmp.path()).unwrap().join("kd");
+        std::fs::create_dir_all(home.join("skills/staging/ws-1/skills")).unwrap();
+        std::fs::create_dir_all(home.join("plugin-workspaces/keepdeck.codex/ws-1")).unwrap();
+        (tmp, home)
+    }
+
     #[test]
     fn a_link_is_ours_only_into_this_plugins_and_workspaces_directories() {
-        let roots = Roots::of(Path::new("/home/kd"), "keepdeck.codex", "ws-1");
-        assert!(roots.hold(Path::new("/home/kd/skills/staging/ws-1/skills/review")));
-        assert!(roots.hold(Path::new("/home/kd/plugin-workspaces/keepdeck.codex/ws-1/conf")));
-        for theirs in [
-            "/home/kd/skills/staging/ws-2/skills/review",
-            "/home/kd/plugin-workspaces/keepdeck.kimi/ws-1/conf",
-            "/home/kd-dev/skills/staging/ws-1/skills/review",
-            "/home/kd/skills/staging/ws-1/../ws-2/skills",
-            "/home/kd/skills/staging/ws-10/skills",
-            "skills/staging/ws-1/skills",
-            "/home/kd/skills/staging/ws-1",
-            "/Users/me/dotfiles/skills/review",
+        let (_tmp, home) = home();
+        let roots = Roots::of(&home, "keepdeck.codex", "ws-1");
+        for ours in [
+            "skills/staging/ws-1/skills/review",
+            "skills/staging/ws-1/skills/dropped-since",
+            "plugin-workspaces/keepdeck.codex/ws-1",
+            "plugin-workspaces/keepdeck.codex/ws-1/conf",
         ] {
+            assert!(roots.hold(&home.join(ours)), "{ours}");
+        }
+        for theirs in [
+            "skills/staging/ws-2/skills/review",
+            "plugin-workspaces/keepdeck.kimi/ws-1/conf",
+            "skills/staging/ws-1/../ws-2/skills",
+            "skills/staging/ws-10/skills",
+        ] {
+            assert!(!roots.hold(&home.join(theirs)), "{theirs}");
+        }
+        for theirs in ["skills/staging/ws-1/skills", "/Users/me/dotfiles/skills/review"] {
             assert!(!roots.hold(Path::new(theirs)), "{theirs}");
         }
     }
 
     #[test]
-    fn only_the_historical_folder_link_into_this_homes_staging_is_recognized() {
-        let home = Path::new("/home/kd");
-        let at = HISTORICAL_FOLDER_LINK;
-        assert!(historical_folder_link(home, at, Path::new("/home/kd/skills/staging/ws-7/skills")));
-        assert!(!historical_folder_link(home, ".agents", Path::new("/home/kd/skills/staging/ws-7/skills")));
-        for other in [
-            "/home/kd/skills/staging/ws-7/skills/review",
-            "/home/kd/skills/staging/ws-7/other",
-            "/home/kd/skills/staging/ws-7/../../x/skills",
-            "/home/kd-dev/skills/staging/ws-7/skills",
-            "/Users/me/skills",
-        ] {
-            assert!(!historical_folder_link(home, at, Path::new(other)), "{other}");
+    fn a_link_that_only_reads_as_ours_through_a_link_on_its_way_is_not() {
+        let (tmp, home) = home();
+        let elsewhere = tmp.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, home.join("skills/staging/ws-1/skills/detour")).unwrap();
+        let roots = Roots::of(&home, "keepdeck.codex", "ws-1");
+        assert!(!roots.hold(&home.join("skills/staging/ws-1/skills/detour/review")));
+    }
+
+    #[test]
+    fn only_codexs_historical_folder_link_into_this_homes_staging_is_recognized() {
+        let (_tmp, home) = home();
+        let (codex, at) = (HISTORICAL_PLUGIN, HISTORICAL_FOLDER_LINK);
+        let historical = home.join("skills/staging/ws-1/skills");
+        assert!(historical_folder_link(&home, codex, at, &historical));
+        assert!(historical_folder_link(&home, codex, ".agents//skills", &historical), "one slot, any spelling");
+        assert!(!historical_folder_link(&home, "keepdeck.kimi", at, &historical), "codex's alone");
+        assert!(!historical_folder_link(&home, codex, ".agents", &historical));
+        for other in ["skills/staging/ws-1/skills/review", "skills/staging/ws-1/other"] {
+            assert!(!historical_folder_link(&home, codex, at, &home.join(other)), "{other}");
         }
+        assert!(!historical_folder_link(&home, codex, at, Path::new("/Users/me/skills")));
     }
 
     #[test]

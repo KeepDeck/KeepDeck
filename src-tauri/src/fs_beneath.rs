@@ -459,7 +459,7 @@ fn rename_exclusive(fd: libc::c_int, from: &CString, to: &CString) -> io::Result
 }
 
 /// A name beside `name` for a temporary of this process, never one in use.
-fn temporary_beside(name: &OsStr) -> OsString {
+pub(crate) fn temporary_beside(name: &OsStr) -> OsString {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let mut tmp = OsString::from(".");
@@ -476,13 +476,14 @@ pub(crate) struct Staged {
     pub identity: Option<Identity>,
 }
 
-/// Write `bytes` as a new temporary beside `name` inside `dir` — made with
-/// `mode` before its first byte, never through a link — and sync it: whole
-/// or not at all, and nothing outside `dir` is ever written. It takes `name`
-/// only with [`publish_at`]; until then it is no more than itself.
-pub(crate) fn stage_at(dir: &File, name: &OsStr, bytes: &[u8], mode: u32) -> io::Result<Staged> {
+/// Write `bytes` as the new file `tmp` inside `dir` — a name of
+/// [`temporary_beside`]'s, made with `mode` before its first byte, never
+/// through a link — and sync it: whole or not at all, and nothing outside
+/// `dir` is ever written. It takes its real name only with [`publish_at`];
+/// until then it is no more than itself.
+pub(crate) fn stage_at(dir: &File, tmp: &OsStr, bytes: &[u8], mode: u32) -> io::Result<Staged> {
     use std::io::Write as _;
-    let tmp = temporary_beside(name);
+    let tmp = tmp.to_os_string();
     let c_tmp = c_name(&tmp)?;
     let flags = libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     // SAFETY: a NUL-terminated name and an open directory, both alive for the
@@ -724,7 +725,7 @@ mod tests {
         symlink(&theirs, root.join("conf.json")).unwrap();
         let dir = open_dir(&root).unwrap();
 
-        let staged = stage_at(&dir, OsStr::new("conf.json"), b"ours", FILE_MODE).unwrap();
+        let staged = stage_at(&dir, &temporary_beside(OsStr::new("conf.json")), b"ours", FILE_MODE).unwrap();
         publish_at(&dir, &staged.name, OsStr::new("conf.json"), Publish::Replace).unwrap();
         assert_eq!(fs::read_to_string(&theirs).unwrap(), "theirs", "nothing written through the link");
         let meta = fs::symlink_metadata(root.join("conf.json")).unwrap();
@@ -748,7 +749,7 @@ mod tests {
         let dir = open_dir(&root).unwrap();
         fs::rename(&root, &moved).unwrap();
         symlink(&elsewhere, &root).unwrap();
-        let staged = stage_at(&dir, OsStr::new("x"), b"ours", FILE_MODE).unwrap();
+        let staged = stage_at(&dir, &temporary_beside(OsStr::new("x")), b"ours", FILE_MODE).unwrap();
         publish_at(&dir, &staged.name, OsStr::new("x"), Publish::Replace).unwrap();
         assert!(moved.join("x").is_file());
         assert!(!elsewhere.join("x").exists());
@@ -760,7 +761,7 @@ mod tests {
         fs::write(tmp.path().join("conf.json"), "theirs").unwrap();
         symlink(tmp.path().join("elsewhere"), tmp.path().join("link")).unwrap();
         let dir = open_dir(tmp.path()).unwrap();
-        let staged = stage_at(&dir, OsStr::new("conf.json"), b"ours", FILE_MODE).unwrap();
+        let staged = stage_at(&dir, &temporary_beside(OsStr::new("conf.json")), b"ours", FILE_MODE).unwrap();
         let file = publish_at(&dir, &staged.name, OsStr::new("conf.json"), Publish::Exclusive).unwrap_err();
         assert_eq!(file.kind(), ErrorKind::AlreadyExists);
         assert_eq!(fs::read_to_string(tmp.path().join("conf.json")).unwrap(), "theirs");
@@ -768,7 +769,7 @@ mod tests {
         remove_at(&dir, &staged.name, false).unwrap();
         let link = link_at(OsStr::new("/ours"), &dir, OsStr::new("link"), Publish::Exclusive).unwrap_err();
         assert_eq!(link.kind(), ErrorKind::AlreadyExists);
-        let staged = stage_at(&dir, OsStr::new("new.json"), b"ours", FILE_MODE).unwrap();
+        let staged = stage_at(&dir, &temporary_beside(OsStr::new("new.json")), b"ours", FILE_MODE).unwrap();
         publish_at(&dir, &staged.name, OsStr::new("new.json"), Publish::Exclusive).unwrap();
         assert_eq!(fs::read_to_string(tmp.path().join("new.json")).unwrap(), "ours");
         assert_eq!(identity_at(&dir, OsStr::new("new.json")).unwrap(), staged.identity, "the staged file itself");

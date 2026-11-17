@@ -21,13 +21,18 @@
 //!   codex's whole skills folder.
 //! - Every planting is recorded before it is made, a file as prepared until
 //!   it is seen in place, so a crash leaves a record that settles from what
-//!   stands, never a planting no record names.
-//! - Git is kept blind to exactly what is planted, never to the user's files
-//!   beside it ([`lines`]), from before it is published.
+//!   stands, never a planting no record names. A record that cannot be read
+//!   now is kept, never let go on an error.
+//! - Git is kept blind to exactly what is planted — its temporaries too —
+//!   never to the user's files beside it ([`lines`]), from before it is
+//!   published. If the lines or the record will not go in first, nothing
+//!   that stands is changed.
+//! - A path still declared keeps what stood there until its new planting
+//!   takes its place; only what is no longer declared is taken back.
 //! - While any workspace's record will not read, nothing that stands is
 //!   changed or taken back: that record could be the claim on it.
 //! - One path in one directory belongs to one plugin; a path is the entry it
-//!   names, not its spelling. Two workspaces sharing a directory plant there
+//!   names, not its spelling ([`registry::slot`]). Two workspaces sharing a directory plant there
 //!   side by side, so an agent started in it sees both sets.
 //!
 //! Not covered, by design: someone editing the very entry, or a folder on
@@ -130,10 +135,12 @@ pub fn cwd_arm(
         return Err(format!("unsafe workspace id: {ws_id:?}"));
     }
     let home = home()?;
-    let mut allowed = vec![home.join("plugin-workspaces").join(&plugin_id).join(&ws_id)];
+    let mut allowed = vec![crate::plugin_workspaces::path_in(&home, &plugin_id, &ws_id)];
     allowed.extend(skills_dir.map(PathBuf::from));
     let _guard = lock();
-    Ok(lifecycle::arm(&records_root(&home), &home, &plugin_id, &ws_id, &cwd, &arms, &allowed))
+    let (report, stats) = lifecycle::arm(&records_root(&home), &home, &plugin_id, &ws_id, &cwd, &arms, &allowed);
+    log::debug!("cwd arming: {plugin_id} in {cwd} for {ws_id}: {} armed, {} refused, {stats:?}", report.armed.len(), report.refused.len());
+    Ok(report)
 }
 
 /// Take back everything planted in these cwds, for every plugin and
@@ -169,16 +176,17 @@ pub(crate) fn records_root(home: &Path) -> PathBuf {
     home.join("cwd-arms")
 }
 
-/// Whether any workspace records `path` in `cwd` — asked by the retirement of
-/// what older builds planted, so it never takes back what this engine manages
-/// at the same place. An unreadable record answers with an error: it may.
-pub(crate) fn recorded_at(root: &Path, cwd: &Path, path: &str) -> io::Result<bool> {
+/// Take back the link builds before API 73 made in `cwd` for codex's whole
+/// skills folder — by the same proof, and through the same open folders, as
+/// the engine gives way to it — unless the engine records that place: then it
+/// is the engine's to settle. The folder it sat in stays: nothing proves it
+/// was theirs. An unreadable record is an error: it may claim that place.
+pub(crate) fn retire_historical_link(home: &Path, cwd: &Path) -> io::Result<()> {
     let _guard = lock();
-    let ledger = Ledger::read(root)?;
+    let home = std::fs::canonicalize(home)?;
+    let ledger = Ledger::read(&records_root(&home))?;
     whole(&ledger)?;
-    let cwd = canonical(&cwd.to_string_lossy());
-    let recorded = ledger.all().any(|(_, place)| place.at(&cwd, path));
-    Ok(recorded)
+    lifecycle::retire_historical_link(&home, &ledger, &cwd.to_string_lossy())
 }
 
 /// An error naming the record that will not read, when one will not.
@@ -220,16 +228,19 @@ fn disarm(root: &Path, home: &Path, roots: &[String], live: &[String]) -> io::Re
 /// will not read, nothing goes.
 fn prune(root: &Path, home: &Path, live: &[String]) -> io::Result<()> {
     let mut ledger = Ledger::read(root)?;
-    for ws in ledger.unreadable.iter().filter(|ws| !live.contains(ws)) {
-        if let Err(e) = ledger.set_aside(ws) {
+    let mut unreadable = Vec::new();
+    for ws in std::mem::take(&mut ledger.unreadable) {
+        if live.contains(&ws) {
+            unreadable.push(ws);
+        } else if let Err(e) = ledger.set_aside(&ws) {
             log::warn!("cwd arming: setting the unreadable record of {ws} aside failed: {e}");
+            unreadable.push(ws);
         }
     }
-    if let Some(ws) = ledger.unreadable.iter().find(|ws| live.contains(ws)) {
-        log::warn!("cwd arming: the record of live {ws} is unreadable — nothing swept");
+    if let Some(ws) = unreadable.first() {
+        log::warn!("cwd arming: the record of {ws} is unreadable — nothing swept");
         return Ok(());
     }
-    ledger.unreadable.clear();
     let failed = sweep(&mut ledger, home, |ws, _| !live.iter().any(|id| id == ws))?;
     if !failed.is_empty() {
         log::warn!("cwd arming: sweeping dead workspaces left {}", plantings(&failed));
