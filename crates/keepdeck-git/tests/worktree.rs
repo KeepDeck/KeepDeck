@@ -324,3 +324,24 @@ fn head_tracks_checkouts_inside_a_worktree() {
     fs::remove_dir_all(&repo_dir).ok();
     fs::remove_dir_all(&wt_root).ok();
 }
+
+#[test]
+fn roots_from_the_common_git_dir_are_every_live_working_tree() {
+    let base = unique_dir("roots");
+    let main = base.join("main");
+    fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "i"]);
+    let linked = base.join("linked\nodd");
+    let gone = base.join("gone");
+    git(&main, &["worktree", "add", "-q", "-b", "a", linked.to_str().unwrap()]);
+    git(&main, &["worktree", "add", "-q", "-b", "b", gone.to_str().unwrap()]);
+    fs::remove_dir_all(&gone).unwrap();
+
+    let mut roots = worktree::roots(&main.join(".git")).unwrap();
+    roots.sort();
+    let mut expected = vec![fs::canonicalize(&main).unwrap(), fs::canonicalize(&linked).unwrap()];
+    expected.sort();
+    assert_eq!(roots, expected, "the deleted worktree is not a root");
+    let _ = fs::remove_dir_all(&base);
+}

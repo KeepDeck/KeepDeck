@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use crate::cmd::{run_git, run_git_provisioning};
+use crate::cmd::{run_git, run_git_capped_bytes, run_git_provisioning};
 use crate::error::GitError;
 use crate::head;
 
@@ -140,6 +140,49 @@ pub fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, GitError> {
     Ok(parse_worktrees(&out))
 }
 
+/// How much of a NUL-separated listing [`roots`] reads: far past any real
+/// repo's worktrees. A longer answer is an error, never a partial list.
+const ROOTS_LISTING_MAX_BYTES: usize = 1024 * 1024;
+
+/// Every root holding a working tree of the repository whose COMMON git dir
+/// is `common_dir`: the main one (none for a bare repo) and each linked one
+/// still there — a prunable entry's directory is gone. Read losslessly
+/// (`--porcelain -z`), so a path with any byte in it is exactly that path. An
+/// answer that cannot be read whole is an error: a caller deciding that no
+/// worktree needs something must not decide on part of the list.
+pub fn roots(common_dir: &Path) -> Result<Vec<PathBuf>, GitError> {
+    let out = run_git_capped_bytes(common_dir, ["worktree", "list", "--porcelain", "-z"], ROOTS_LISTING_MAX_BYTES)?;
+    if out.truncated {
+        return Err(GitError::InvalidInput("the worktree listing is longer than any repo's".into()));
+    }
+    Ok(parse_roots(&out.bytes))
+}
+
+/// The roots in a `worktree list --porcelain -z` answer: blocks of
+/// NUL-terminated attributes, an empty one between blocks.
+fn parse_roots(bytes: &[u8]) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut roots = Vec::new();
+    let mut block: Vec<&[u8]> = Vec::new();
+    let mut close = |block: &mut Vec<&[u8]>| {
+        let root = block.iter().find_map(|attr| attr.strip_prefix(b"worktree "));
+        let gone = block.iter().any(|attr| *attr == b"bare" || attr.starts_with(b"prunable"));
+        if let (Some(root), false) = (root, gone) {
+            roots.push(PathBuf::from(OsStr::from_bytes(root)));
+        }
+        block.clear();
+    };
+    for attr in bytes.split(|b| *b == 0) {
+        if attr.is_empty() {
+            close(&mut block);
+        } else {
+            block.push(attr);
+        }
+    }
+    close(&mut block);
+    roots
+}
+
 /// Is `path` one of `repo`'s registered worktrees?
 ///
 /// Compared the way git's own records are: a listing reports realpaths, while a
@@ -235,6 +278,15 @@ pub fn changed_entries(path: &Path) -> Result<usize, GitError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_nul_separated_listing_names_each_live_root_byte_for_byte() {
+        let listing = b"worktree /repo\0HEAD 1111\0branch refs/heads/main\0\0\
+worktree /odd\nname\0HEAD 2222\0detached\0\0\
+worktree /gone\0HEAD 3333\0prunable gitdir file points to non-existent location\0\0\
+worktree /bare.git\0bare\0\0";
+        assert_eq!(parse_roots(listing), vec![PathBuf::from("/repo"), PathBuf::from("/odd\nname")]);
+    }
 
     #[test]
     fn parses_prunable_with_and_without_a_reason() {
