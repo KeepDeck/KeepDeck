@@ -54,7 +54,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::state::write_atomic;
-use crate::worktree_arm::{ensure_excluded, exclusion, remove_excluded};
+use crate::worktree_arm::{ensure_excluded, exclusion, remove_excluded, Excluded};
 
 /// Beside a planted file: with it AND a record, the file is ours to rewrite
 /// and to remove. Builds before plugin API 73 put the same marker beside what
@@ -134,18 +134,18 @@ impl ArmRecord {
         self.cwd == cwd && same_entry(Path::new(cwd), &self.path, path)
     }
 
-    /// What keeps git blind to this planting, as patterns relative to its cwd
-    /// (git syntax): the entry, and beside a file the marker that claims it.
-    fn hides(&self) -> Vec<String> {
+    /// What keeps git blind to this planting, relative to its cwd: the entry,
+    /// and beside a file the marker that claims it.
+    fn hides(&self) -> Vec<Excluded> {
         let Some(parts) = relative_parts(&self.path) else { return Vec::new() };
         match self.hidden {
-            Hidden::FirstSegment => vec![format!("{}/", parts[0])],
+            Hidden::FirstSegment => vec![Excluded { path: parts[0].clone(), directory: true }],
             Hidden::Planted => {
-                let mut hides = vec![parts.join("/")];
+                let mut hides = vec![Excluded { path: parts.join("/"), directory: false }];
                 if self.kind == ArmKind::File {
                     let mut marker = parts[..parts.len() - 1].to_vec();
                     marker.push(MARKER_FILE.to_string());
-                    hides.push(marker.join("/"));
+                    hides.push(Excluded { path: marker.join("/"), directory: false });
                 }
                 hides
             }
@@ -155,7 +155,7 @@ impl ArmRecord {
     /// The exclude lines this planting needs, each with its repo's git dir.
     fn exclusions(&self) -> Vec<(PathBuf, String)> {
         let cwd = Path::new(&self.cwd);
-        self.hides().iter().filter_map(|pattern| exclusion(cwd, pattern).ok().flatten()).collect()
+        self.hides().iter().filter_map(|excluded| exclusion(cwd, excluded).ok().flatten()).collect()
     }
 }
 
@@ -595,8 +595,8 @@ fn plant<'a>(
             }
         }
     }
-    for pattern in record.hides() {
-        exclude(base, &pattern);
+    for excluded in record.hides() {
+        exclude(base, &excluded);
     }
     Ok(Ok(()))
 }
@@ -657,8 +657,8 @@ fn take_back(record: &ArmRecord, remaining: &[&ArmRecord]) -> io::Result<()> {
 fn release_exclusion(record: &ArmRecord, remaining: &[&ArmRecord]) {
     let base = Path::new(&record.cwd);
     let needed: Vec<(PathBuf, String)> = remaining.iter().flat_map(|r| r.exclusions()).collect();
-    for pattern in record.hides() {
-        let unneeded = match exclusion(base, &pattern) {
+    for excluded in record.hides() {
+        let unneeded = match exclusion(base, &excluded) {
             Ok(Some(line)) => !needed.contains(&line),
             Ok(None) => false,
             Err(e) => {
@@ -667,7 +667,7 @@ fn release_exclusion(record: &ArmRecord, remaining: &[&ArmRecord]) {
             }
         };
         if unneeded {
-            if let Err(e) = remove_excluded(base, &pattern) {
+            if let Err(e) = remove_excluded(base, &excluded) {
                 log::warn!("cwd arming: exclude cleanup for {} failed: {e}", base.display());
             }
         }
@@ -813,8 +813,8 @@ fn remove_empty_up_to(dir: &Path, base: &Path) {
     }
 }
 
-fn exclude(base: &Path, pattern: &str) {
-    if let Err(e) = ensure_excluded(base, pattern) {
+fn exclude(base: &Path, excluded: &Excluded) {
+    if let Err(e) = ensure_excluded(base, excluded) {
         log::warn!("cwd arming: exclude line for {} failed: {e}", base.display());
     }
 }
