@@ -48,10 +48,17 @@ impl Roots {
 
 /// Whether the existing part of `text` — the longest of its ancestors there,
 /// or itself — is where it reads: no link on it leading elsewhere. What does
-/// not exist yet (a skill since dropped) cannot lead anywhere.
+/// not exist (a skill since dropped) cannot lead anywhere; what cannot be
+/// looked at might, so it is not judged ours.
 fn truly(text: &Path) -> bool {
-    let Some(existing) = text.ancestors().find(|at| at.symlink_metadata().is_ok()) else { return false };
-    std::fs::canonicalize(existing).is_ok_and(|real| real == existing)
+    for at in text.ancestors() {
+        match at.symlink_metadata() {
+            Ok(_) => return std::fs::canonicalize(at).is_ok_and(|real| real == at),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return false,
+        }
+    }
+    false
 }
 
 /// An absolute path of plain components: nothing a reader resolves first.
@@ -137,6 +144,18 @@ mod tests {
         std::os::unix::fs::symlink(&elsewhere, home.join("skills/staging/ws-1/skills/detour")).unwrap();
         let roots = Roots::of(&home, "keepdeck.codex", "ws-1");
         assert!(!roots.hold(&home.join("skills/staging/ws-1/skills/detour/review")));
+    }
+
+    #[test]
+    fn a_target_that_cannot_be_looked_at_is_not_judged_ours() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_tmp, home) = home();
+        let locked = home.join("skills/staging/ws-1/skills/locked");
+        std::fs::create_dir_all(locked.join("review")).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let held = Roots::of(&home, "keepdeck.codex", "ws-1").hold(&locked.join("review"));
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!held, "what lies past a folder that will not open is unknown");
     }
 
     #[test]
