@@ -242,13 +242,14 @@ export interface SpawnArmOutput {
 }
 
 /** How much one `arm.plan` may plant (API 73), in UTF-8 bytes: room for any
- * CLI's few config files and links, and a bound on what a plugin's word
- * writes into a user's directory. A set over `ENTRIES_MAX` or
+ * CLI's few config files and a link per shared skill (`ENTRIES_MAX` 256 since
+ * API 84; 32 before), and a bound on what a plugin's word writes into a
+ * user's directory. A set over `ENTRIES_MAX` or
  * `TOTAL_CONTENT_MAX_BYTES` is refused whole; one entry over its own cap is
  * refused alone. The native engine holds the same numbers — `armCaps.json`
  * is the file both sides' tests pin them to. */
 export const ARM_CAPS = {
-  ENTRIES_MAX: 32,
+  ENTRIES_MAX: 256,
   PATH_MAX_BYTES: 1024,
   TARGET_MAX_BYTES: 4096,
   CONTENT_MAX_BYTES: 256 * 1024,

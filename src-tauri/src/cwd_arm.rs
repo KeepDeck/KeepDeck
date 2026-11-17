@@ -64,9 +64,10 @@ const MARKER_FILE: &str = ".keepdeck-managed";
 static LOCK: Mutex<()> = Mutex::new(());
 
 /// How much one arming may plant, in UTF-8 bytes — the contract's `ARM_CAPS`
-/// (plugin API 73), pinned by both sides' tests to `armCaps.json`. A set past
-/// the count or the total is refused whole; one entry past its own cap alone.
-const ENTRIES_MAX: usize = 32;
+/// (plugin API 73; 256 entries since 84, room for a link per shared skill),
+/// pinned by both sides' tests to `armCaps.json`. A set past the count or the
+/// total is refused whole; one entry past its own cap alone.
+const ENTRIES_MAX: usize = 256;
 const PATH_MAX_BYTES: usize = 1024;
 const TARGET_MAX_BYTES: usize = 4096;
 const CONTENT_MAX_BYTES: usize = 256 * 1024;
