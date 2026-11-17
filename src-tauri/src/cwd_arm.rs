@@ -28,9 +28,12 @@
 //!   it names, not its spelling: a case-insensitive volume makes `mcp.json`
 //!   and `MCP.json` one file, and a cwd reached through a symlink is the same
 //!   cwd;
-//! - git is kept blind to what was planted (the path's first segment, in the
-//!   owning repo's `info/exclude`, marked as ours), and stops being blind once
-//!   nothing of ours is left under that line — in any worktree sharing it;
+//! - git is kept blind to exactly what was planted — the entry, and beside a
+//!   file the marker claiming it — by lines in the owning repo's
+//!   `info/exclude`, marked as ours; never to the user's own files beside
+//!   ours. A line goes once no planting needs it — in any worktree sharing
+//!   it. A record an older build wrote hid the path's whole first segment
+//!   (`/.agents/`): that line goes with the last such record;
 //! - every planting is recorded per workspace (`cwd-arms/<ws>.json`) BEFORE it
 //!   is made, so a crash leaves a record for nothing rather than a planting no
 //!   record names; a workspace that dies in a crash can still be swept at the
@@ -92,6 +95,20 @@ enum ArmKind {
     Symlink,
 }
 
+/// How a planting keeps git blind to itself.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Hidden {
+    /// The path's whole first segment, which hid the user's own files beside
+    /// ours too — what builds before this one did. Their records name no way,
+    /// so it is what such a record reads as, and its line goes with the last
+    /// of them.
+    #[default]
+    FirstSegment,
+    /// Exactly what was planted.
+    Planted,
+}
+
 /// One planting, as the manifest remembers it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,12 +122,38 @@ struct ArmRecord {
     /// A symlink's target, exactly as created — what proves the link ours.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     target: Option<String>,
+    #[serde(default)]
+    hidden: Hidden,
 }
 
 impl ArmRecord {
     /// Whether this record names the same entry as `path` in `cwd`.
     fn at(&self, cwd: &str, path: &str) -> bool {
         self.cwd == cwd && same_entry(Path::new(cwd), &self.path, path)
+    }
+
+    /// What keeps git blind to this planting, as patterns relative to its cwd
+    /// (git syntax): the entry, and beside a file the marker that claims it.
+    fn hides(&self) -> Vec<String> {
+        let Some(parts) = relative_parts(&self.path) else { return Vec::new() };
+        match self.hidden {
+            Hidden::FirstSegment => vec![format!("{}/", parts[0])],
+            Hidden::Planted => {
+                let mut hides = vec![parts.join("/")];
+                if self.kind == ArmKind::File {
+                    let mut marker = parts[..parts.len() - 1].to_vec();
+                    marker.push(MARKER_FILE.to_string());
+                    hides.push(marker.join("/"));
+                }
+                hides
+            }
+        }
+    }
+
+    /// The exclude lines this planting needs, each with its repo's git dir.
+    fn exclusions(&self) -> Vec<(PathBuf, String)> {
+        let cwd = Path::new(&self.cwd);
+        self.hides().iter().filter_map(|pattern| exclusion(cwd, pattern).ok().flatten()).collect()
     }
 }
 
@@ -384,8 +427,8 @@ fn arm(
     let (stale, kept): (Vec<ArmRecord>, Vec<ArmRecord>) = mine
         .into_iter()
         .partition(|r| r.cwd == cwd && r.plugin == plugin && !planted.iter().any(|p| p.path == r.path));
-    let mut records = kept;
-    records.retain(|r| !(r.cwd == cwd && r.plugin == plugin));
+    let (replanted, mut records): (Vec<ArmRecord>, Vec<ArmRecord>) =
+        kept.into_iter().partition(|r| r.cwd == cwd && r.plugin == plugin);
     records.extend(planted.iter().cloned());
     let remaining: Vec<&ArmRecord> = records.iter().chain(others.iter()).collect();
     for record in &stale {
@@ -394,6 +437,12 @@ fn arm(
                 log::warn!("cwd arming: taking back {}/{} failed: {e}", record.cwd, record.path);
             }
         }
+    }
+    // Planted again, a planting hides what its new record says: what the old
+    // one hid and nothing needs any more — an older build's whole first
+    // segment — stops being hidden.
+    for record in &replanted {
+        release_exclusion(record, &remaining);
     }
     if let Err(e) = write_records(root, ws, &records) {
         log::warn!("cwd arming: recording {ws} failed: {e}");
@@ -424,7 +473,14 @@ fn admit(cwd: &str, plugin: &str, arm: &CwdArm, allowed: &[PathBuf]) -> Result<A
             (ArmKind::Symlink, Some(real))
         }
     };
-    Ok(ArmRecord { cwd: cwd.to_string(), plugin: plugin.to_string(), path: path.to_string(), kind, target })
+    Ok(ArmRecord {
+        cwd: cwd.to_string(),
+        plugin: plugin.to_string(),
+        path: path.to_string(),
+        kind,
+        target,
+        hidden: Hidden::Planted,
+    })
 }
 
 /// Where a link may point: an absolute path without `..` that exists, whose
@@ -526,7 +582,9 @@ fn plant<'a>(
             }
         }
     }
-    exclude(base, &parts[0]);
+    for pattern in record.hides() {
+        exclude(base, &pattern);
+    }
     Ok(Ok(()))
 }
 
@@ -536,7 +594,9 @@ fn plant<'a>(
 /// provably ours and stays — but the exclude line we added still goes.
 fn take_back(record: &ArmRecord, remaining: &[&ArmRecord]) -> io::Result<()> {
     let base = Path::new(&record.cwd);
-    let Some(parts) = relative_parts(&record.path) else { return Ok(()) };
+    if relative_parts(&record.path).is_none() {
+        return Ok(());
+    }
     let full = base.join(&record.path);
     let dir = full.parent().unwrap_or(base).to_path_buf();
     match record.kind {
@@ -574,29 +634,29 @@ fn take_back(record: &ArmRecord, remaining: &[&ArmRecord]) -> io::Result<()> {
         }
     }
     remove_empty_up_to(&dir, base);
-    release_exclusion(base, &parts[0], remaining);
+    release_exclusion(record, remaining);
     Ok(())
 }
 
-/// Stop hiding `segment` of `base` from git, unless a remaining planting —
-/// in this cwd or another worktree of the same repo — shares the line.
-fn release_exclusion(base: &Path, segment: &str, remaining: &[&ArmRecord]) {
-    let line = match exclusion(base, segment) {
-        Ok(Some(line)) => line,
-        Ok(None) => return,
-        Err(e) => {
-            log::warn!("cwd arming: exclude lookup for {} failed: {e}", base.display());
-            return;
-        }
-    };
-    let shared = remaining.iter().any(|r| {
-        relative_parts(&r.path)
-            .and_then(|parts| exclusion(Path::new(&r.cwd), &parts[0]).ok().flatten())
-            .is_some_and(|theirs| theirs == line)
-    });
-    if !shared {
-        if let Err(e) = remove_excluded(base, segment) {
-            log::warn!("cwd arming: exclude cleanup for {} failed: {e}", base.display());
+/// Stop hiding from git what `record` hid, line by line — except a line a
+/// remaining planting, in this cwd or another worktree of the same repo,
+/// still needs.
+fn release_exclusion(record: &ArmRecord, remaining: &[&ArmRecord]) {
+    let base = Path::new(&record.cwd);
+    let needed: Vec<(PathBuf, String)> = remaining.iter().flat_map(|r| r.exclusions()).collect();
+    for pattern in record.hides() {
+        let unneeded = match exclusion(base, &pattern) {
+            Ok(Some(line)) => !needed.contains(&line),
+            Ok(None) => false,
+            Err(e) => {
+                log::warn!("cwd arming: exclude lookup for {} failed: {e}", base.display());
+                false
+            }
+        };
+        if unneeded {
+            if let Err(e) = remove_excluded(base, &pattern) {
+                log::warn!("cwd arming: exclude cleanup for {} failed: {e}", base.display());
+            }
         }
     }
 }
@@ -740,8 +800,8 @@ fn remove_empty_up_to(dir: &Path, base: &Path) {
     }
 }
 
-fn exclude(base: &Path, segment: &str) {
-    if let Err(e) = ensure_excluded(base, segment) {
+fn exclude(base: &Path, pattern: &str) {
+    if let Err(e) = ensure_excluded(base, pattern) {
         log::warn!("cwd arming: exclude line for {} failed: {e}", base.display());
     }
 }
@@ -1095,44 +1155,114 @@ mod tests {
         assert!(!manifest(&s.root, "ws-1").exists());
     }
 
+    /// The patterns in the `main` repo's exclude file, comments left out.
+    fn excluded(s: &Scratch) -> Vec<String> {
+        let text = fs::read_to_string(s.base.join("main/.git/info/exclude")).unwrap_or_default();
+        text.lines().filter(|l| !l.starts_with('#')).map(String::from).collect()
+    }
+
     #[test]
     fn git_is_blind_to_what_was_planted_until_nothing_is_left() {
         let s = scratch();
         let wt = fake_worktree(&s.base);
-        let exclude = s.base.join("main/.git/info/exclude");
         let cwd = wt.to_string_lossy().into_owned();
         arm(&s.root, "p.filer", "ws-1", &cwd, &[file(".agent-conf/mcp.json", "{}")], &s.allowed());
-        assert_eq!(fs::read_to_string(&exclude).unwrap().matches("/.agent-conf/").count(), 1);
+        assert_eq!(excluded(&s), ["/.agent-conf/mcp.json", "/.agent-conf/.keepdeck-managed"]);
         arm(&s.root, "p.filer", "ws-1", &cwd, &[], &s.allowed());
-        assert!(!fs::read_to_string(&exclude).unwrap_or_default().contains(".agent-conf"));
+        assert!(excluded(&s).is_empty());
+    }
+
+    #[test]
+    fn git_is_blind_to_our_links_only_never_to_the_users_files_beside_them() {
+        // A project's committed .agents/skills: a skill its team adds next
+        // must show up in git status, so nothing hides the folder.
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        fs::create_dir_all(wt.join(".agents/skills/team")).unwrap();
+        fs::create_dir_all(s.skills.join("ours")).unwrap();
+        let cwd = wt.to_string_lossy().into_owned();
+        let ours = [link(".agents/skills/ours", &s.skills.join("ours"))];
+        let report = arm(&s.root, "p.linker", "ws-1", &cwd, &ours, &s.allowed());
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        assert_eq!(excluded(&s), ["/.agents/skills/ours"]);
+        arm(&s.root, "p.linker", "ws-1", &cwd, &[], &s.allowed());
+        assert!(excluded(&s).is_empty());
+        assert!(wt.join(".agents/skills/team").is_dir());
+    }
+
+    #[test]
+    fn the_marker_stays_hidden_while_a_file_of_ours_is_beside_it() {
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        let cwd = wt.to_string_lossy().into_owned();
+        arm(&s.root, "p.filer", "ws-1", &cwd, &[file(".k/a", "1"), file(".k/b", "2")], &s.allowed());
+        assert_eq!(excluded(&s), ["/.k/a", "/.k/.keepdeck-managed", "/.k/b"]);
+        arm(&s.root, "p.filer", "ws-1", &cwd, &[file(".k/a", "1")], &s.allowed());
+        assert_eq!(excluded(&s), ["/.k/a", "/.k/.keepdeck-managed"]);
     }
 
     #[test]
     fn the_line_two_worktrees_of_one_repo_share_goes_with_the_last_planting() {
         let s = scratch();
         let (one, two) = (fake_worktree(&s.base), second_worktree(&s.base));
-        let exclude = s.base.join("main/.git/info/exclude");
-        let planting = [file(".agent-conf/mcp.json", "{}")];
+        let planting = [link(".l", &s.skills)];
         for wt in [&one, &two] {
-            arm(&s.root, "p.filer", "ws-1", &wt.to_string_lossy(), &planting, &s.allowed());
+            arm(&s.root, "p.linker", "ws-1", &wt.to_string_lossy(), &planting, &s.allowed());
         }
         disarm(&s.root, &[one.to_string_lossy().into_owned()], &[]).unwrap();
-        assert!(fs::read_to_string(&exclude).unwrap().contains("/.agent-conf/"), "the other still needs it");
+        assert_eq!(excluded(&s), ["/.l"], "the other still needs it");
         disarm(&s.root, &[two.to_string_lossy().into_owned()], &[]).unwrap();
-        assert!(!fs::read_to_string(&exclude).unwrap().contains("/.agent-conf/"));
+        assert!(excluded(&s).is_empty());
+    }
+
+    /// What a build before this one wrote: a record that names no way of
+    /// hiding, and the whole first segment hidden, marked as ours.
+    fn older_builds_planting(s: &Scratch, ws: &str, wt: &Path) {
+        let cwd = fs::canonicalize(wt).unwrap();
+        fs::create_dir_all(cwd.join(".agents")).unwrap();
+        std::os::unix::fs::symlink(&s.skills, cwd.join(".agents/skills")).unwrap();
+        let mut records = read_records(&s.root, ws).unwrap_or_default();
+        let record = serde_json::json!({
+            "cwd": cwd, "plugin": "p.linker", "path": ".agents/skills", "kind": "symlink", "target": s.skills,
+        });
+        records.push(serde_json::from_value(record).unwrap());
+        write_records(&s.root, ws, &records).unwrap();
+        keepdeck_git::exclude::ensure_line(&s.base.join("main/.git"), "/.agents/").unwrap();
+    }
+
+    #[test]
+    fn an_older_builds_whole_segment_line_goes_with_the_last_planting_it_hid() {
+        let s = scratch();
+        let (one, two) = (fake_worktree(&s.base), second_worktree(&s.base));
+        older_builds_planting(&s, "ws-1", &one);
+        older_builds_planting(&s, "ws-2", &two);
+        disarm(&s.root, &[one.to_string_lossy().into_owned()], &[]).unwrap();
+        assert_eq!(excluded(&s), ["/.agents/"], "the other worktree's older link still needs it");
+        disarm(&s.root, &[two.to_string_lossy().into_owned()], &[]).unwrap();
+        assert!(excluded(&s).is_empty());
+    }
+
+    #[test]
+    fn planted_again_a_path_is_hidden_exactly_and_the_older_builds_line_goes() {
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        older_builds_planting(&s, "ws-1", &wt);
+        let whole = [link(".agents/skills", &s.skills)];
+        let report = arm(&s.root, "p.linker", "ws-1", &wt.to_string_lossy(), &whole, &s.allowed());
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        assert_eq!(excluded(&s), ["/.agents/skills"]);
     }
 
     #[test]
     fn a_lost_marker_leaves_the_file_but_not_our_exclude_line() {
         let s = scratch();
         let wt = fake_worktree(&s.base);
-        let exclude = s.base.join("main/.git/info/exclude");
         let cwd = wt.to_string_lossy().into_owned();
         arm(&s.root, "p.filer", "ws-1", &cwd, &[file(".agent-conf/mcp.json", "{}")], &s.allowed());
         fs::remove_file(wt.join(".agent-conf").join(MARKER_FILE)).unwrap();
         disarm(&s.root, &[cwd], &[]).unwrap();
         assert!(wt.join(".agent-conf/mcp.json").exists(), "no longer provably ours");
-        assert!(!fs::read_to_string(&exclude).unwrap().contains("/.agent-conf/"));
+        assert!(excluded(&s).is_empty());
     }
 
     #[test]

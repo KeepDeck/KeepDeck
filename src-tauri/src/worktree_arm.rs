@@ -6,12 +6,12 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Idempotently append the armed directory's anchored line to the owning
-/// repo's SHARED `info/exclude`, so what was planted never shows up in git
-/// status or a commit. A cwd outside any checkout simply has nowhere to write
-/// and is left alone.
-pub(crate) fn ensure_excluded(armed_root: &Path, planted: &str) -> io::Result<()> {
-    match exclusion(armed_root, planted)? {
+/// Idempotently append `pattern`'s anchored line to the owning repo's SHARED
+/// `info/exclude`, so what was planted never shows up in git status or a
+/// commit. A cwd outside any checkout simply has nowhere to write and is left
+/// alone.
+pub(crate) fn ensure_excluded(armed_root: &Path, pattern: &str) -> io::Result<()> {
+    match exclusion(armed_root, pattern)? {
         Some((common_dir, line)) => keepdeck_git::exclude::ensure_line(&common_dir, &line),
         None => Ok(()),
     }
@@ -20,29 +20,29 @@ pub(crate) fn ensure_excluded(armed_root: &Path, planted: &str) -> io::Result<()
 /// Remove the line arming appended, only where it carries KeepDeck's marker —
 /// the same pattern the user wrote stays, and nothing else in their exclude
 /// file is touched (byte-faithful removal lives in `keepdeck_git::exclude`).
-pub(crate) fn remove_excluded(armed_root: &Path, planted: &str) -> io::Result<()> {
-    match exclusion(armed_root, planted)? {
+pub(crate) fn remove_excluded(armed_root: &Path, pattern: &str) -> io::Result<()> {
+    match exclusion(armed_root, pattern)? {
         Some((common_dir, line)) => keepdeck_git::exclude::remove_line(&common_dir, &line),
         None => Ok(()),
     }
 }
 
-/// The owning repo's COMMON git dir plus the anchored ignore pattern for an
-/// armed cwd — `/<planted>/` at the repo root, `/<subdir>/<planted>/` below
-/// it (forward slashes on every platform: the pattern is git syntax) — or
-/// `None` when no ancestor is a git checkout. Two linked worktrees of one
-/// repo share the common dir, so two plantings with the same exclusion share
-/// ONE line: it goes only with the last of them.
-pub(crate) fn exclusion(armed_root: &Path, planted: &str) -> io::Result<Option<(PathBuf, String)>> {
+/// The owning repo's COMMON git dir plus `pattern` (relative to the armed cwd,
+/// in git syntax: forward slashes, a trailing one for a directory only)
+/// anchored there — `/<pattern>` at the repo root, `/<subdir>/<pattern>` below
+/// it — or `None` when no ancestor is a git checkout. Two linked worktrees of
+/// one repo share the common dir, so two plantings with the same exclusion
+/// share ONE line: it goes only with the last of them.
+pub(crate) fn exclusion(armed_root: &Path, pattern: &str) -> io::Result<Option<(PathBuf, String)>> {
     let Some(repo) = keepdeck_git::exclude::owning_repo(armed_root)? else {
         return Ok(None);
     };
     let common_dir = std::fs::canonicalize(&repo.common_dir).unwrap_or(repo.common_dir);
     let repo = keepdeck_git::exclude::OwningRepo { common_dir, below_root: repo.below_root };
     let line = if repo.below_root.is_empty() {
-        format!("/{planted}/")
+        format!("/{pattern}")
     } else {
-        format!("/{}/{planted}/", repo.below_root)
+        format!("/{}/{pattern}", repo.below_root)
     };
     Ok(Some((repo.common_dir, line)))
 }
