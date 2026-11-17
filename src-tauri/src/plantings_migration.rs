@@ -33,10 +33,9 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Component, Path};
 
+use crate::cwd_arm::MARKER_FILE;
 use crate::state::write_atomic;
 
-/// The marker older builds put beside a config they planted.
-const MARKER_FILE: &str = ".keepdeck-managed";
 /// The directory the skills link sat in, and the link itself.
 const LINK_DIR: &str = ".agents";
 const LINK: &str = "skills";

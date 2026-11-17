@@ -57,8 +57,9 @@ use crate::state::write_atomic;
 use crate::worktree_arm::{ensure_excluded, exclusion, remove_excluded};
 
 /// Beside a planted file: with it AND a record, the file is ours to rewrite
-/// and to remove.
-const MARKER_FILE: &str = ".keepdeck-managed";
+/// and to remove. Builds before plugin API 73 put the same marker beside what
+/// they planted ([`crate::plantings_migration`] retires those).
+pub(crate) const MARKER_FILE: &str = ".keepdeck-managed";
 
 /// Manifest read-modify-writes, one at a time.
 static LOCK: Mutex<()> = Mutex::new(());
