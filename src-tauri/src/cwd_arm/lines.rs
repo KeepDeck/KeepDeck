@@ -91,13 +91,20 @@ impl Lines {
     /// answer the places whose lines could not be decided or taken out — the
     /// ledger keeps those ([`Place::line_left`]), to try again. A line is decided once, over every
     /// slot it hides: it goes only when none of them holds anything it could
-    /// still be hiding, in any worktree.
+    /// still be hiding, in any worktree. An entry a remaining place keeps
+    /// hidden by its own line needs no other: an older build's line over a
+    /// planting goes the moment the planting's exact line takes over.
     pub fn release(&mut self, gone: &[Held], remaining: &[&Place]) -> Kept {
         if gone.is_empty() {
             return Vec::new();
         }
         let keep_all = || gone.iter().map(|(ws, p)| (ws.clone(), p.clone().line_left())).collect();
         let mut needed: HashSet<ExcludeLine> = HashSet::new();
+        let covered: HashSet<PathBuf> = remaining
+            .iter()
+            .filter(|p| !matches!(p.what, What::Dir { .. }))
+            .map(|p| Path::new(&p.cwd).join(&p.path))
+            .collect();
         for place in remaining {
             match self.needs(place) {
                 Ok(needs) => needed.extend(needs.into_iter().map(|need| need.line)),
@@ -110,18 +117,14 @@ impl Lines {
             }
         }
         let mut retained: Vec<usize> = Vec::new();
-        let mut lines: Vec<(ExcludeLine, Vec<Need>, Vec<usize>)> = Vec::new();
+        let mut lines: HashMap<ExcludeLine, (Vec<Need>, Vec<usize>)> = HashMap::new();
         for (index, (_, place)) in gone.iter().enumerate() {
             match self.needs(place) {
                 Ok(needs) => {
                     for need in needs.into_iter().filter(|need| !needed.contains(&need.line)) {
-                        match lines.iter_mut().find(|(line, _, _)| *line == need.line) {
-                            Some((_, needs, owners)) => {
-                                needs.push(need);
-                                owners.push(index);
-                            }
-                            None => lines.push((need.line.clone(), vec![need], vec![index])),
-                        }
+                        let (needs, owners) = lines.entry(need.line.clone()).or_default();
+                        needs.push(need);
+                        owners.push(index);
                     }
                 }
                 Err(e) => {
@@ -132,10 +135,10 @@ impl Lines {
         }
         let mut remove = Vec::new();
         let mut removing: Vec<usize> = Vec::new();
-        for (line, needs, owners) in lines {
+        for (line, (needs, owners)) in lines {
             let mut standing = Some(false);
             for need in &needs {
-                match self.standing(need) {
+                match self.standing(need, &covered) {
                     Some(false) => {}
                     Some(true) => standing = Some(true),
                     None => {
@@ -166,8 +169,9 @@ impl Lines {
     }
 
     /// Whether anything a line could be hiding stands in some worktree of its
-    /// repo — None when the worktrees cannot be listed.
-    fn standing(&mut self, need: &Need) -> Option<bool> {
+    /// repo, besides what `covered` names — None when the worktrees cannot be
+    /// listed.
+    fn standing(&mut self, need: &Need, covered: &HashSet<PathBuf>) -> Option<bool> {
         let roots = self
             .roots
             .entry(need.common_dir.clone())
@@ -180,8 +184,8 @@ impl Lines {
             })
             .as_ref()?;
         let mut standing = false;
-        for root in roots {
-            match fs::symlink_metadata(root.join(&need.slot)) {
+        for at in roots.iter().map(|root| root.join(&need.slot)).filter(|at| !covered.contains(at)) {
+            match fs::symlink_metadata(at) {
                 Ok(meta) if !need.links_only || meta.file_type().is_symlink() => standing = true,
                 Ok(_) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound || e.raw_os_error() == Some(libc::ENOTDIR) => {}

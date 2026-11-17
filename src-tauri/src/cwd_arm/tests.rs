@@ -888,6 +888,22 @@ fn an_older_line_is_decided_once_over_every_entry_it_hides() {
 }
 
 #[test]
+fn an_older_line_goes_once_its_planting_is_hidden_by_its_own_exact_line() {
+    let s = scratch();
+    let main = repo(&s);
+    let skills = s.skills("ws-1");
+    fs::create_dir_all(main.join(".cfg")).unwrap();
+    symlink(&skills, main.join(".cfg/l")).unwrap();
+    older_places(&s, "ws-1", &main, vec![place(&main, "p.linker", ".cfg/l", What::Symlink { target: None })]);
+    let report = s.arm_in(&main, "p.linker", "ws-1", &[link(".cfg/l", &skills)]);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert_eq!(excluded(&main), ["/.cfg/l"], "the broad line no longer hides the user's files beside it");
+    assert!(s.places("ws-1").iter().all(|p| p.hidden == Hidden::Exact));
+    s.arm_in(&main, "p.linker", "ws-1", &[]);
+    assert!(excluded(&main).is_empty());
+}
+
+#[test]
 fn only_codexs_older_folder_line_waits_for_a_link_alone() {
     let s = scratch();
     let main = repo(&s);

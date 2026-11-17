@@ -346,14 +346,15 @@ pub(super) fn arm(
     }
 
     // 6. Settle the record.
-    let standing: HashSet<String> = present.iter().chain(&unconfirmed).filter_map(Place::slot).collect();
+    let standing: HashMap<String, &Place> =
+        present.iter().chain(&unconfirmed).filter_map(|p| Some((p.slot()?, p))).collect();
     let mut preserved: Vec<Place> = Vec::new();
     let mut replanted: Vec<Held> = Vec::new();
     let mut retiring: Vec<Held> = Vec::new();
     for place in here {
         let key = place.slot().unwrap_or_default();
-        if standing.contains(&key) {
-            if !present.iter().chain(&unconfirmed).any(|p| *p == place) {
+        if let Some(now) = standing.get(&key) {
+            if **now != place {
                 replanted.push((ws.to_string(), place));
             }
         } else if declared.contains(&key) {
@@ -390,7 +391,7 @@ pub(super) fn arm(
             gone.push((ws.to_string(), place(cwd, plugin, path, What::Line)));
         }
         let key = slot(&planting.admitted.path).expect("a slot");
-        if planting.refused.is_some() && !standing.contains(&key) {
+        if planting.refused.is_some() && !standing.contains_key(&key) {
             gone.push((ws.to_string(), Place { what: What::Line, ..exact(cwd, plugin, &planting.admitted) }));
         }
     }
@@ -473,6 +474,23 @@ fn admit(
     refusals: &mut [Option<String>],
 ) -> Vec<Admitted> {
     let slots: Vec<Option<String>> = arms.iter().map(|arm| slot(arm.path())).collect();
+    // Which declaration holds which: each path's ancestors looked up once.
+    let mut first: HashMap<&str, usize> = HashMap::new();
+    for (index, key) in slots.iter().enumerate() {
+        if let Some(key) = key {
+            first.entry(key.as_str()).or_insert(index);
+        }
+    }
+    let mut inside: Vec<Option<usize>> = vec![None; arms.len()];
+    let mut holds: Vec<Option<usize>> = vec![None; arms.len()];
+    for (index, key) in slots.iter().enumerate() {
+        let Some(key) = key else { continue };
+        let ancestors = key.match_indices('/').map(|(at, _)| &key[..at]);
+        if let Some(outer) = ancestors.filter_map(|ancestor| first.get(ancestor)).next() {
+            inside[index] = Some(*outer);
+            holds[*outer].get_or_insert(index);
+        }
+    }
     let mut seen: HashSet<&str> = HashSet::new();
     let mut admitted = Vec::new();
     for (index, arm) in arms.iter().enumerate() {
@@ -495,14 +513,11 @@ fn admit(
             if !seen.insert(key) {
                 return Err(format!("{path} is declared twice"));
             }
-            for (other, other_key) in arms.iter().zip(&slots) {
-                let Some(other_key) = other_key else { continue };
-                if key.starts_with(&format!("{other_key}/")) {
-                    return Err(format!("{path} lies inside {}, declared too", other.path()));
-                }
-                if other_key.starts_with(&format!("{key}/")) {
-                    return Err(format!("{path} holds {}, declared too", other.path()));
-                }
+            if let Some(outer) = inside[index] {
+                return Err(format!("{path} lies inside {}, declared too", arms[outer].path()));
+            }
+            if let Some(inner) = holds[index] {
+                return Err(format!("{path} holds {}, declared too", arms[inner].path()));
             }
             if theirs.contains(key) {
                 return Err(format!("{path} is planted here by another agent"));
