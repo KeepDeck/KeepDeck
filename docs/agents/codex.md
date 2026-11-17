@@ -52,7 +52,9 @@ target.
   beside the project's own skills: a same-name skill of the project's, or a
   link KeepDeck cannot show it made, stays and is reported instead; git is
   kept blind to exactly our links; and they are taken back with the
-  worktree.
+  worktree. Two workspaces sharing one directory plant there side by side,
+  so codex in it sees both workspaces' skills — a set of a pane's own needs
+  the app-server door (`skills/extraRoots/set`), not the directory.
 
 `-c`, `--no-daemon` and the other flags are global and must come before the `resume` or `fork`
 subcommand.

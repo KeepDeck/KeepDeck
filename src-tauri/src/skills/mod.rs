@@ -220,7 +220,8 @@ pub(crate) mod test_support {
     /// and all.
     pub(crate) fn staged_view(root: &Path, ws_id: &str, names: &[&str]) -> PathBuf {
         for name in names {
-            super::library::save(&global(root), name, &format!("---\ndescription: {name}\n---\n")).unwrap();
+            let skill = format!("---\ndescription: {name}\n---\n");
+            super::library::save(&global(root), name, &skill).unwrap();
         }
         let answer = super::staging::stage(&super::SkillsLocks::default(), root, ws_id, &[], false, &[]).unwrap();
         PathBuf::from(answer.view.unwrap().dir)

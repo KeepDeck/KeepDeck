@@ -40,7 +40,10 @@
 //!   is made, so a crash leaves a record for nothing rather than a planting no
 //!   record names; a workspace that dies in a crash can still be swept at the
 //!   next boot, and a directory two workspaces share loses a planting only
-//!   with its last record.
+//!   with its last record. Their plantings stand there side by side, so an
+//!   agent started in that directory sees both — codex both workspaces'
+//!   skills: the directory is one, and a set of a pane's own needs a door
+//!   other than the directory.
 //!
 //! Each `arm` call speaks for ONE plugin in ONE directory, and for its whole
 //! set there: what it no longer declares is taken back, first — and a link of
@@ -53,7 +56,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -70,13 +73,24 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 /// How much one arming may plant, in UTF-8 bytes — the contract's `ARM_CAPS`
 /// (plugin API 73; 256 entries since 84, room for a link per shared skill),
-/// pinned by both sides' tests to `armCaps.json`. A set past the count or the
-/// total is refused whole; one entry past its own cap alone.
-const ENTRIES_MAX: usize = 256;
-const PATH_MAX_BYTES: usize = 1024;
-const TARGET_MAX_BYTES: usize = 4096;
-const CONTENT_MAX_BYTES: usize = 256 * 1024;
-const TOTAL_CONTENT_MAX_BYTES: usize = 1024 * 1024;
+/// read from `armCaps.json`, the one file the plugin API reads it from too.
+/// The first `entries_max` entries are planted and each one past them is
+/// refused; a set past the content total is refused whole; one entry past its
+/// own cap alone.
+#[derive(Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+struct ArmCaps {
+    entries_max: usize,
+    path_max_bytes: usize,
+    target_max_bytes: usize,
+    content_max_bytes: usize,
+    total_content_max_bytes: usize,
+}
+
+static CAPS: LazyLock<ArmCaps> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../packages/plugin-api/src/context/armCaps.json"))
+        .expect("the plugin API's armCaps.json reads as the arm caps")
+});
 
 /// One thing a plugin wants in the pane's cwd (mirrors the TS `CwdArm`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -423,9 +437,10 @@ fn arm(
             CwdArm::Symlink { .. } => 0,
         })
         .sum();
-    if arms.len() > ENTRIES_MAX || content_bytes > TOTAL_CONTENT_MAX_BYTES {
+    if content_bytes > CAPS.total_content_max_bytes {
         return refuse_all("this agent declares more than KeepDeck plants in one folder");
     }
+    let (arms, past) = arms.split_at(arms.len().min(CAPS.entries_max));
     let cwd = match fs::canonicalize(cwd) {
         Ok(real) if real.is_dir() => real.to_string_lossy().into_owned(),
         _ => return refuse_all("this directory no longer exists"),
@@ -497,54 +512,70 @@ fn arm(
         (mine, Vec::new(), peers.into_iter().flat_map(|(_, records)| records).collect())
     };
 
-    let mut report = CwdArmReport::default();
-    let mut planted: Vec<ArmRecord> = Vec::new();
-    // The manifest as written so far: the records before this pass, plus each
-    // planting's record written before the planting is made.
-    let mut ledger = mine.clone();
+    // Each declared entry's refusal, or none: what may be planted is admitted
+    // first, every planting is recorded before it is made — all of this
+    // pass's in one write, so a crash leaves a record for nothing, never a
+    // planting no record names — and then planted.
+    let mut refusals: Vec<Option<String>> = Vec::with_capacity(arms.len());
+    let mut admitted: Vec<(usize, ArmRecord)> = Vec::new();
     let mut seen = BTreeSet::new();
-    for arm in arms {
+    for (index, arm) in arms.iter().enumerate() {
         let path = arm.path();
         let refusal = if !seen.insert(path.to_lowercase()) {
             Some(format!("{path} is declared twice"))
-        } else if mine
-            .iter()
-            .chain(others.iter())
-            .chain(planted.iter())
-            .any(|r| r.at(cwd, path) && r.plugin != plugin)
-        {
+        } else if mine.iter().chain(others.iter()).any(|r| r.at(cwd, path) && r.plugin != plugin) {
             Some(format!("{path} is planted here by another agent"))
         } else {
             match admit(cwd, plugin, arm, &allowed) {
                 Err(reason) => Some(reason),
                 Ok(record) => {
-                    let recorded = if ledger.contains(&record) {
-                        Ok(())
-                    } else {
-                        ledger.push(record.clone());
-                        write_records(root, ws, &ledger).map(|()| written = ledger.clone())
-                    };
-                    match recorded {
-                        Err(e) => {
-                            log::warn!("cwd arming: recording {ws} failed: {e}");
-                            Some("KeepDeck's record of what it plants here could not be written".to_string())
-                        }
-                        Ok(()) => match plant(cwd, arm, &record, mine.iter().chain(others.iter())) {
-                            Ok(Ok(())) => {
-                                planted.push(record);
-                                None
-                            }
-                            Ok(Err(reason)) => Some(reason),
-                            Err(e) => Some(e.to_string()),
-                        },
-                    }
+                    admitted.push((index, record));
+                    None
                 }
             }
         };
-        match refusal {
-            None => report.armed.push(path.to_string()),
-            Some(reason) => report.refused.push(ArmRefusal { path: path.to_string(), reason }),
+        refusals.push(refusal);
+    }
+    let mut ledger = mine.clone();
+    for (_, record) in &admitted {
+        if !ledger.contains(record) {
+            ledger.push(record.clone());
         }
+    }
+    let recorded = if ledger.len() == mine.len() {
+        Ok(())
+    } else {
+        write_records(root, ws, &ledger).map(|()| written = ledger.clone())
+    };
+    if let Err(e) = &recorded {
+        log::warn!("cwd arming: recording {ws} failed: {e}");
+    }
+    let mut planted: Vec<ArmRecord> = Vec::new();
+    for (index, record) in admitted {
+        refusals[index] = match &recorded {
+            Err(_) => Some("KeepDeck's record of what it plants here could not be written".to_string()),
+            Ok(()) => match plant(cwd, &arms[index], &record, mine.iter().chain(others.iter())) {
+                Ok(Ok(())) => {
+                    planted.push(record);
+                    None
+                }
+                Ok(Err(reason)) => Some(reason),
+                Err(e) => Some(e.to_string()),
+            },
+        };
+    }
+    let mut report = CwdArmReport::default();
+    for (arm, refusal) in arms.iter().zip(refusals) {
+        let path = arm.path().to_string();
+        match refusal {
+            None => report.armed.push(path),
+            Some(reason) => report.refused.push(ArmRefusal { path, reason }),
+        }
+    }
+
+    for arm in past {
+        let reason = format!("past the {} entries KeepDeck plants in one folder", CAPS.entries_max);
+        report.refused.push(ArmRefusal { path: arm.path().to_string(), reason });
     }
 
     // This plugin's records here before this pass retire: one not planted
@@ -577,10 +608,10 @@ fn admit(cwd: &str, plugin: &str, arm: &CwdArm, allowed: &[PathBuf]) -> Result<A
     if relative_parts(path).is_none() {
         return Err(format!("{path} is not a path inside this directory"));
     }
-    let oversized = path.len() > PATH_MAX_BYTES
+    let oversized = path.len() > CAPS.path_max_bytes
         || match arm {
-            CwdArm::File { content, .. } => content.len() > CONTENT_MAX_BYTES,
-            CwdArm::Symlink { target, .. } => target.len() > TARGET_MAX_BYTES,
+            CwdArm::File { content, .. } => content.len() > CAPS.content_max_bytes,
+            CwdArm::Symlink { target, .. } => target.len() > CAPS.target_max_bytes,
         };
     if oversized {
         return Err(format!("{path} is larger than KeepDeck plants"));
@@ -1724,6 +1755,19 @@ mod tests {
     }
 
     #[test]
+    fn nothing_is_planted_that_could_not_be_recorded_first() {
+        let s = scratch();
+        fs::create_dir_all(&s.root).unwrap();
+        lock_dir(&s.root, true);
+        let report = s.arm("p.mixed", "ws-1", &[link(".l", &s.skills), file(".k/conf", "{}")]);
+        lock_dir(&s.root, false);
+        assert!(report.armed.is_empty());
+        assert_eq!(report.refused[1].reason, "KeepDeck's record of what it plants here could not be written");
+        assert!(fs::symlink_metadata(s.cwd.join(".l")).is_err());
+        assert!(!s.cwd.join(".k").exists());
+    }
+
+    #[test]
     fn a_pass_that_changes_nothing_writes_nothing() {
         let s = scratch();
         let set = [link(".l", &s.skills), file(".k/conf", "{}")];
@@ -1808,28 +1852,31 @@ mod tests {
         assert!(!manifest(&s.root, "ws-1").exists(), "nor a record of it");
     }
 
-    /// The cross-language mirror: the plugin API's test pins `ARM_CAPS` to
-    /// the same file, so a bump on one side alone fails both suites.
     #[test]
-    fn the_caps_equal_the_contracts_arm_caps_json() {
-        let caps: std::collections::HashMap<String, usize> =
-            serde_json::from_str(include_str!("../../packages/plugin-api/src/context/armCaps.json")).unwrap();
-        assert_eq!(caps["ENTRIES_MAX"], ENTRIES_MAX);
-        assert_eq!(caps["PATH_MAX_BYTES"], PATH_MAX_BYTES);
-        assert_eq!(caps["TARGET_MAX_BYTES"], TARGET_MAX_BYTES);
-        assert_eq!(caps["CONTENT_MAX_BYTES"], CONTENT_MAX_BYTES);
-        assert_eq!(caps["TOTAL_CONTENT_MAX_BYTES"], TOTAL_CONTENT_MAX_BYTES);
+    fn past_the_entries_cap_each_further_entry_is_refused_and_the_rest_planted() {
+        // A library past what one folder takes: the links that fit stay, and
+        // each one past the cap is said, not the whole set dropped.
+        let s = scratch();
+        let many: Vec<CwdArm> =
+            (0..=CAPS.entries_max).map(|i| link(&format!(".agents/skills/s{i:04}"), &s.skills)).collect();
+        let report = s.arm("p.linker", "ws-1", &many);
+        assert_eq!(report.armed.len(), CAPS.entries_max);
+        let last = format!(".agents/skills/s{:04}", CAPS.entries_max);
+        let reason = format!("past the {} entries KeepDeck plants in one folder", CAPS.entries_max);
+        assert_eq!(report.refused, vec![ArmRefusal { path: last.clone(), reason }]);
+        assert!(fs::symlink_metadata(s.cwd.join(&last)).is_err());
     }
 
     #[test]
-    fn more_than_keepdeck_plants_is_refused_whole_and_one_oversized_entry_alone() {
+    fn more_content_than_keepdeck_plants_is_refused_whole_and_one_oversized_entry_alone() {
         let s = scratch();
-        let many: Vec<CwdArm> = (0..=ENTRIES_MAX).map(|i| file(&format!(".k/{i}"), "x")).collect();
+        let quarter = "x".repeat(CAPS.total_content_max_bytes / 4);
+        let many: Vec<CwdArm> = (0..5).map(|i| file(&format!(".k/{i}"), &quarter)).collect();
         let report = s.arm("p.filer", "ws-1", &many);
-        assert_eq!(report.refused.len(), ENTRIES_MAX + 1);
+        assert_eq!(report.refused.len(), 5);
         assert!(!s.cwd.join(".k").exists(), "nothing of the set was planted");
 
-        let big = "x".repeat(CONTENT_MAX_BYTES + 1);
+        let big = "x".repeat(CAPS.content_max_bytes + 1);
         let report = s.arm("p.filer", "ws-1", &[file(".k/big", &big), file(".k/small", "x")]);
         assert_eq!(report.refused[0].reason, ".k/big is larger than KeepDeck plants");
         assert_eq!(report.armed, vec![".k/small"]);
