@@ -81,7 +81,7 @@ pub const MANAGED: &str = "# keepdeck-managed";
 /// the unit (and a separating newline when the file didn't end with one) is
 /// added.
 pub fn ensure_line(common_dir: &Path, line: &str) -> io::Result<()> {
-    update(common_dir, &[line], &[])
+    update(common_dir, &[line], &[]).map(drop)
 }
 
 /// Remove `line` only where it sits right below [`MANAGED`]. The same pattern
@@ -89,13 +89,14 @@ pub fn ensure_line(common_dir: &Path, line: &str) -> io::Result<()> {
 /// a CRLF file keeps its CRLF endings, trailing blank lines and a missing
 /// final newline stay as they were.
 pub fn remove_line(common_dir: &Path, line: &str) -> io::Result<()> {
-    update(common_dir, &[], &[line])
+    update(common_dir, &[], &[line]).map(drop)
 }
 
 /// [`remove_line`] each of `remove` and [`ensure_line`] each of `add`, in ONE
 /// read and at most one write of the file — none when nothing changes.
-/// Patterns compare as git reads them ([`pattern`]).
-pub fn update(common_dir: &Path, add: &[&str], remove: &[&str]) -> io::Result<()> {
+/// Patterns compare as git reads them ([`pattern`]). Answers whether the file
+/// was written.
+pub fn update(common_dir: &Path, add: &[&str], remove: &[&str]) -> io::Result<bool> {
     let exclude = exclude_path(common_dir);
     let current = match fs::read_to_string(&exclude) {
         Ok(text) => text,
@@ -129,9 +130,9 @@ pub fn update(common_dir: &Path, add: &[&str], remove: &[&str]) -> io::Result<()
         changed = true;
     }
     if !changed {
-        return Ok(());
+        return Ok(false);
     }
-    write_atomic(&exclude, kept.as_bytes())
+    write_atomic(&exclude, kept.as_bytes()).map(|()| true)
 }
 
 /// A line of an exclude file as the pattern git reads from it: without its
@@ -302,7 +303,7 @@ mod tests {
         let dir = tmp();
         let common = dir.path().join(".git");
         ensure_line(&common, "/old").unwrap();
-        update(&common, &["/new/a", "/new/b"], &["/old"]).unwrap();
+        assert!(update(&common, &["/new/a", "/new/b"], &["/old"]).unwrap());
         let exclude = common.join("info").join("exclude");
         assert_eq!(fs::read_to_string(&exclude).unwrap(), format!("{MANAGED}\n/new/a\n{MANAGED}\n/new/b\n"));
         // Nothing to change: the file is not written at all.
@@ -311,6 +312,6 @@ mod tests {
         fs::set_permissions(&info, fs::Permissions::from_mode(0o555)).unwrap();
         let unchanged = update(&common, &["/new/a"], &["/gone"]);
         fs::set_permissions(&info, fs::Permissions::from_mode(0o755)).unwrap();
-        unchanged.unwrap();
+        assert!(!unchanged.unwrap(), "nothing written");
     }
 }
