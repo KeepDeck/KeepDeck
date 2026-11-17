@@ -37,7 +37,6 @@ pub use library::SkillDto;
 pub(crate) use library::require_safe;
 pub use staging::{SkillsLocks, StagingAnswer};
 pub(crate) use bundled::BUNDLED;
-pub(crate) use fingerprint::in_view;
 pub(crate) use gates::{GateKey, GateRegistry};
 
 /// Every skill in the library, global scope first, then workspaces, names
@@ -213,18 +212,6 @@ pub(crate) mod test_support {
 
     pub(crate) fn ws(root: &Path, id: &str) -> PathBuf {
         root.join("library").join("ws").join(id)
-    }
-
-    /// The view staged for real for `ws_id` from a global library of `names`
-    /// under the skills root `root` — what KeepDeck hands a CLI, fingerprint
-    /// and all.
-    pub(crate) fn staged_view(root: &Path, ws_id: &str, names: &[&str]) -> PathBuf {
-        for name in names {
-            let skill = format!("---\ndescription: {name}\n---\n");
-            super::library::save(&global(root), name, &skill).unwrap();
-        }
-        let answer = super::staging::stage(&super::SkillsLocks::default(), root, ws_id, &[], false, &[]).unwrap();
-        PathBuf::from(answer.view.unwrap().dir)
     }
 }
 

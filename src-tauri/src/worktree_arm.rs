@@ -35,6 +35,30 @@ impl ExcludeRepo {
         Ok(Some(Self { common_dir, below_root: repo.below_root }))
     }
 
+    /// The repo's COMMON git dir.
+    pub(crate) fn common_dir(&self) -> &Path {
+        &self.common_dir
+    }
+
+    /// `relative`, an entry's path below the armed cwd, as a path below the
+    /// root of any worktree of the repo.
+    pub(crate) fn below_root(&self, relative: &str) -> PathBuf {
+        Path::new(&self.below_root).join(relative)
+    }
+
+    /// The line builds before exact exclusion wrote for a planting whose
+    /// path began with `segment` — `/<subdir>/<segment>/`, raw, unescaped —
+    /// byte for byte what stands in users' exclude files, so it can be found
+    /// and taken out again.
+    pub(crate) fn legacy_line(&self, segment: &str) -> ExcludeLine {
+        let line = if self.below_root.is_empty() {
+            format!("/{segment}/")
+        } else {
+            format!("/{}/{segment}/", self.below_root)
+        };
+        ExcludeLine { common_dir: self.common_dir.clone(), line }
+    }
+
     /// The line keeping git blind to `excluded`: anchored at the armed cwd
     /// (`/<path>` at the repo root, `/<subdir>/<path>` below it), literal
     /// throughout, with a trailing `/` for a directory only.
@@ -57,19 +81,21 @@ pub(crate) struct ExcludeLine {
     line: String,
 }
 
-impl ExcludeLine {
-    /// Idempotently add the line, marked as KeepDeck's, so what was planted
-    /// never shows up in git status or a commit.
-    pub(crate) fn ensure(&self) -> io::Result<()> {
-        keepdeck_git::exclude::ensure_line(&self.common_dir, &self.line)
+/// Add `add` and take out `remove` — each line marked as KeepDeck's, the same
+/// pattern the user wrote left as theirs — in one read and at most one write
+/// of each repo's exclude file (byte-faithful editing lives in
+/// `keepdeck_git::exclude`).
+pub(crate) fn update(add: &[ExcludeLine], remove: &[ExcludeLine]) -> io::Result<()> {
+    let mut repos: Vec<&Path> = add.iter().chain(remove).map(|l| l.common_dir.as_path()).collect();
+    repos.sort();
+    repos.dedup();
+    fn lines_in<'a>(of: &'a [ExcludeLine], repo: &Path) -> Vec<&'a str> {
+        of.iter().filter(|l| l.common_dir == repo).map(|l| l.line.as_str()).collect()
     }
-
-    /// Take the line out where it carries KeepDeck's marker — the same
-    /// pattern the user wrote stays, and nothing else in their exclude file
-    /// is touched (byte-faithful removal lives in `keepdeck_git::exclude`).
-    pub(crate) fn remove(&self) -> io::Result<()> {
-        keepdeck_git::exclude::remove_line(&self.common_dir, &self.line)
+    for repo in repos {
+        keepdeck_git::exclude::update(repo, &lines_in(add, repo), &lines_in(remove, repo))?;
     }
+    Ok(())
 }
 
 /// `path` as a gitignore pattern matching only itself: git's wildcard and
@@ -142,9 +168,8 @@ mod tests {
             ("skills/trailing ", ["skills/trailing", "skills/trailing  "]),
         ];
         let at = ExcludeRepo::of(&repo).unwrap().unwrap();
-        for (name, _) in &cases {
-            at.line(&file(name)).ensure().unwrap();
-        }
+        let lines: Vec<ExcludeLine> = cases.iter().map(|(name, _)| at.line(&file(name))).collect();
+        update(&lines, &[]).unwrap();
         for (name, others) in &cases {
             assert!(ignored(&repo, name), "{name:?} itself is hidden");
             for other in others {
@@ -162,10 +187,22 @@ mod tests {
         assert!(git(&repo, &["init", "-q"]));
         let line = ExcludeRepo::of(&cwd).unwrap().unwrap().line(&Excluded { path: ".k".into(), directory: true });
         assert_eq!(line.line, "/pkg\\[1\\]/.k/");
-        line.ensure().unwrap();
+        update(&[line], &[]).unwrap();
         fs::create_dir_all(cwd.join(".k")).unwrap();
         fs::create_dir_all(repo.join("pkg1/.k")).unwrap();
         assert!(ignored(&repo, "pkg[1]/.k/a"));
         assert!(!ignored(&repo, "pkg1/.k/a"));
+    }
+
+    #[test]
+    fn a_legacy_line_is_the_raw_text_older_builds_wrote() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let cwd = repo.join("pkg[1]");
+        fs::create_dir_all(&cwd).unwrap();
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        let at = ExcludeRepo::of(&cwd).unwrap().unwrap();
+        assert_eq!(at.legacy_line(".agents").line, "/pkg[1]/.agents/");
+        assert_eq!(at.below_root(".agents/skills"), Path::new("pkg[1]/.agents/skills"));
     }
 }

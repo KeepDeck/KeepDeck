@@ -58,9 +58,11 @@ and adds `--session <new id>`. The launch carries:
 
 Kimi has no flag for injecting KeepDeck's MCP servers. It reads them from
 `.kimi-code/mcp.json` in its cwd, so the plugin renders that file
-(`src/mcp.ts`) and declares it through `arm.plan`; the host plants it beside
-a `.keepdeck-managed` marker, refuses a folder whose file is the user's, and
-takes it back when no pane needs it. The manifest marks `integration.mcp`
+(`src/mcp.ts`) and declares it through `arm.plan`; the host plants it,
+recording exactly which file it landed, refuses a folder whose file is not
+provably its own — the user's, or one an older KeepDeck recorded without a
+receipt, which stays as it is until the user moves it aside — and takes it
+back when no pane needs it. The manifest marks `integration.mcp`
 with `delivery: "cwd"`: one file per directory, so panes sharing a cwd get
 an anonymous keepdeck client rather than whichever secret was written last.
 

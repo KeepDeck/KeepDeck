@@ -109,9 +109,10 @@ core" epic.
 KeepDeck never edits a CLI's global configuration. Everything it injects
 travels per spawn, through flags or env, through a companion plugin that
 stays inert outside a KeepDeck pane, or through what an agent's `arm.plan`
-declares — planted by one engine for every agent (`src-tauri/src/cwd_arm.rs`),
-which writes over nothing of the user's, keeps git blind to it and takes it
-back with the pane's directory. The host names no CLI: since plugin API 73
+declares — planted by one engine for every agent (`src-tauri/src/cwd_arm/`),
+which writes over, moves and removes nothing it cannot prove is its own,
+keeps git blind to exactly what it plants and takes it back with the pane's
+directory. The host names no CLI: since plugin API 73
 the only CLI names in the core are migrations of what older builds wrote.
 
 ## Documents

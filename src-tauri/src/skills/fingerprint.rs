@@ -30,16 +30,6 @@ const PREFIX: &str = "sha256:";
 /// What the fingerprint file takes from a view: itself, and its text.
 pub(super) const FINGERPRINT_COST: Allowance = Allowance { entries: 1, bytes: (PREFIX.len() + 64) as u64 };
 
-/// Whether `path` is a view KeepDeck staged or published — any workspace's,
-/// any KeepDeck home's — or one skill of such a view, on the view's own word:
-/// a fingerprint a fresh digest of the view agrees with ([`verified`]); a file
-/// that only bears the name proves nothing. A skill the view has since dropped
-/// still counts. A path into a deleted view, or anywhere else, does not:
-/// nothing there says whose it was.
-pub(crate) fn in_view(path: &Path) -> bool {
-    verified(path).is_some() || path.parent().is_some_and(|dir| verified(dir).is_some())
-}
-
 /// The fingerprint of the view `dir`: of every entry in it but the
 /// fingerprint file itself. A view is never larger than `VIEW_MAX`; a folder
 /// that is refuses rather than being read whole.
@@ -148,23 +138,6 @@ mod tests {
     fn of(files: &[(&str, &str)]) -> String {
         let (_tmp, dir) = view(files);
         of_view(&dir).unwrap()
-    }
-
-    #[test]
-    fn a_view_and_its_skills_are_known_by_a_fingerprint_that_holds_and_nothing_else() {
-        let (tmp, dir) = view(&[("review/SKILL.md", "x")]);
-        fs::write(dir.join(FINGERPRINT_FILE), "sha256:0").unwrap();
-        assert!(!in_view(&dir.join("review")), "a file that only bears the name");
-        fs::write(dir.join(FINGERPRINT_FILE), of_view(&dir).unwrap()).unwrap();
-        assert!(in_view(&dir), "the view itself");
-        assert!(in_view(&dir.join("review")), "one of its skills");
-        assert!(in_view(&dir.join("dropped")), "a skill it has since dropped");
-        let elsewhere = tmp.path().join("dotfiles/review");
-        fs::create_dir_all(&elsewhere).unwrap();
-        fs::write(elsewhere.join("SKILL.md"), "x").unwrap();
-        assert!(!in_view(&elsewhere), "a folder with no fingerprint beside it");
-        assert!(!in_view(&tmp.path().join("gone/review")), "a path into nothing");
-        assert!(!in_view(&dir.join("review/SKILL.md")), "deeper than one skill");
     }
 
     #[test]
