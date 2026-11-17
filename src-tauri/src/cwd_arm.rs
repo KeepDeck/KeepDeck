@@ -375,6 +375,17 @@ fn arm(
     };
     let allowed: Vec<PathBuf> = allowed.iter().filter_map(|dir| fs::canonicalize(dir).ok()).collect();
 
+    // What this plugin planted here and declares no more goes first: a link it
+    // planted where it now plants inside — `.agents/skills`, before a link per
+    // skill in it — would stand in their way. One that will not go is kept,
+    // and tried again below.
+    let declared = |r: &ArmRecord| arms.iter().any(|arm| same_entry(Path::new(cwd), &r.path, arm.path()));
+    let (undeclared, rest): (Vec<ArmRecord>, Vec<ArmRecord>) =
+        mine.into_iter().partition(|r| r.cwd == cwd && r.plugin == plugin && !declared(r));
+    let kept: Vec<ArmRecord> = rest.iter().chain(others.iter()).cloned().collect();
+    let failed = take_back_all(&undeclared, &kept);
+    let mine: Vec<ArmRecord> = rest.into_iter().chain(failed).collect();
+
     let mut report = CwdArmReport::default();
     let mut planted: Vec<ArmRecord> = Vec::new();
     // The manifest as written so far: the records before this pass, plus each
@@ -1228,6 +1239,34 @@ mod tests {
         records.push(serde_json::from_value(record).unwrap());
         write_records(&s.root, ws, &records).unwrap();
         keepdeck_git::exclude::ensure_line(&s.base.join("main/.git"), "/.agents/").unwrap();
+    }
+
+    #[test]
+    fn a_link_planted_where_the_plugin_now_plants_inside_goes_in_the_same_pass() {
+        // codex linked the whole .agents/skills folder; now it links each
+        // skill inside it. The first launch after the change finds its own
+        // old link in the way: it goes first, not after a refused pass.
+        let s = scratch();
+        fs::create_dir_all(s.skills.join("one")).unwrap();
+        s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
+        let report = s.arm("p.linker", "ws-1", &[link(".agents/skills/one", &s.skills.join("one"))]);
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        assert!(fs::symlink_metadata(s.cwd.join(".agents/skills")).unwrap().is_dir());
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills/one")).unwrap(), s.skills.join("one"));
+        assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".agents/skills/one"]);
+    }
+
+    #[test]
+    fn an_older_builds_folder_link_becomes_a_link_per_skill_in_one_launch() {
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        fs::create_dir_all(s.skills.join("one")).unwrap();
+        older_builds_planting(&s, "ws-1", &wt);
+        let per_skill = [link(".agents/skills/one", &s.skills.join("one"))];
+        let report = arm(&s.root, "p.linker", "ws-1", &wt.to_string_lossy(), &per_skill, &s.allowed());
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        assert_eq!(fs::read_link(wt.join(".agents/skills/one")).unwrap(), s.skills.join("one"));
+        assert_eq!(excluded(&s), ["/.agents/skills/one"]);
     }
 
     #[test]
