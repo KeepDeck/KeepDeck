@@ -10,11 +10,14 @@
 //!   a path is ours only when this plugin's record names it AND our
 //!   `.keepdeck-managed` marker stands beside it — a marker alone proves
 //!   nothing, the user may keep a file beside it. A symlink where a plugin
-//!   declares a link is replaced, whatever it points at: removing a link
-//!   removes nothing of what it points to, and a link no record names is one
-//!   KeepDeck can no longer prove it made (its workspace deleted since,
-//!   another KeepDeck home's) — refusing it kept a pane on someone else's view
-//!   for good. A directory or a file where a link is declared is the user's.
+//!   declares a link is replaced when KeepDeck can show it made it: this
+//!   plugin's record names it, or it points at a skills view KeepDeck staged
+//!   or published, or at one skill of such a view — another workspace's,
+//!   another KeepDeck home's; refusing those kept a pane on someone else's
+//!   view for good. Removing a link removes nothing of what it points to. Any
+//!   other link, and a directory or a file, where a link is declared is the
+//!   user's: a link may be declared inside a folder they keep their own
+//!   skills in.
 //!   Taking back is narrower: a link goes only while it still points where we
 //!   made it point. A parent on the way that is a file or a link is the
 //!   user's, and nothing is written through it;
@@ -439,7 +442,7 @@ fn link_target(target: &str, allowed: &[PathBuf]) -> Option<String> {
 
 /// Plant one admitted arm. `Ok(Err(reason))` deliberately left it alone and
 /// says why. `recorded` is what the manifests said before this pass — the
-/// only proof a file already there is ours.
+/// only proof a file already there is ours, and one proof for a link.
 fn plant<'a>(
     cwd: &str,
     arm: &CwdArm,
@@ -466,13 +469,12 @@ fn plant<'a>(
         }
     }
     let full = base.join(path);
+    let recorded_ours =
+        recorded.clone().any(|r| r.at(cwd, path) && r.plugin == record.plugin && r.kind == record.kind);
     match arm {
         CwdArm::File { content, .. } => {
             let dir = full.parent().unwrap_or(base).to_path_buf();
             let marker = dir.join(MARKER_FILE);
-            let recorded_ours = recorded
-                .clone()
-                .any(|r| r.at(cwd, path) && r.plugin == record.plugin && r.kind == ArmKind::File);
             match fs::symlink_metadata(&full) {
                 Ok(meta) if !meta.file_type().is_file() => {
                     return Ok(Err(format!("{path} here is not KeepDeck's")));
@@ -500,9 +502,15 @@ fn plant<'a>(
         CwdArm::Symlink { .. } => {
             let target = Path::new(record.target.as_deref().unwrap_or_default());
             match fs::symlink_metadata(&full) {
-                // Any link here gives way to ours (see the module doc).
+                // A link KeepDeck can show it made gives way to ours; any
+                // other is the user's (see the module doc).
                 Ok(meta) if meta.file_type().is_symlink() => {
-                    if fs::read_link(&full)? != target {
+                    let current = fs::read_link(&full)?;
+                    if current != target {
+                        let points_at = full.parent().unwrap_or(base).join(&current);
+                        if !recorded_ours && !crate::skills::in_view(&points_at) {
+                            return Ok(Err(format!("{path} is your own — nothing was planted")));
+                        }
                         fs::remove_file(&full)?;
                         symlink_dir(target, &full)?;
                     }
@@ -921,13 +929,21 @@ mod tests {
         assert!(s.cwd.join(".agents/skills/theirs").is_dir());
     }
 
+    /// A skills view another KeepDeck home staged: its fingerprint file is
+    /// what marks it KeepDeck's.
+    fn foreign_view(s: &Scratch) -> PathBuf {
+        let view = s.base.join("home-dev/skills/staging/ws-1/skills");
+        fs::create_dir_all(view.join("only-one")).unwrap();
+        fs::write(view.join(crate::skills::FINGERPRINT_FILE), "sha256:0").unwrap();
+        view
+    }
+
     #[test]
-    fn a_link_no_record_names_gives_way_to_ours_and_its_target_is_left_whole() {
+    fn a_link_into_another_keepdeck_view_gives_way_to_ours_and_its_target_is_left_whole() {
         // Another KeepDeck home's view: the codex pane read that home's
         // skills, refused on every launch, until the user deleted the folder.
         let s = scratch();
-        let foreign = s.base.join("home-dev/skills/staging/ws-1/skills");
-        fs::create_dir_all(foreign.join("only-one")).unwrap();
+        let foreign = foreign_view(&s);
         fs::create_dir_all(s.cwd.join(".agents")).unwrap();
         std::os::unix::fs::symlink(&foreign, s.cwd.join(".agents/skills")).unwrap();
 
@@ -939,13 +955,48 @@ mod tests {
     }
 
     #[test]
-    fn a_dangling_link_gives_way_to_ours() {
+    fn a_link_to_one_skill_of_another_keepdeck_view_gives_way_to_ours() {
+        // One link per skill, inside a folder the user keeps: the one there
+        // was another home's — even for a skill its view has since dropped.
         let s = scratch();
-        fs::create_dir_all(s.cwd.join(".agents")).unwrap();
-        std::os::unix::fs::symlink(s.base.join("gone"), s.cwd.join(".agents/skills")).unwrap();
-        let report = s.arm("p.linker", "ws-1", &[link(".agents/skills", &s.skills)]);
-        assert_eq!(report.armed, vec![".agents/skills"]);
-        assert_eq!(fs::read_link(s.cwd.join(".agents/skills")).unwrap(), s.skills);
+        let foreign = foreign_view(&s);
+        fs::create_dir_all(s.skills.join("one")).unwrap();
+        fs::create_dir_all(s.cwd.join(".agents/skills")).unwrap();
+        for (name, target) in [("one", foreign.join("only-one")), ("dropped", foreign.join("dropped"))] {
+            std::os::unix::fs::symlink(&target, s.cwd.join(".agents/skills").join(name)).unwrap();
+        }
+        let report = s.arm(
+            "p.linker",
+            "ws-1",
+            &[link(".agents/skills/one", &s.skills.join("one")), link(".agents/skills/dropped", &s.skills)],
+        );
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills/one")).unwrap(), s.skills.join("one"));
+        assert_eq!(fs::read_link(s.cwd.join(".agents/skills/dropped")).unwrap(), s.skills);
+    }
+
+    #[test]
+    fn a_link_keepdeck_cannot_show_it_made_is_the_users() {
+        // The user's own skill, linked from their dotfiles, and a link that
+        // dangles into nothing: neither is KeepDeck's to replace or remove.
+        let s = scratch();
+        let dotfiles = s.base.join("dotfiles/skills/review");
+        fs::create_dir_all(&dotfiles).unwrap();
+        fs::create_dir_all(s.cwd.join(".agents/skills")).unwrap();
+        let theirs = [("review", dotfiles.clone()), ("gone", s.base.join("gone"))];
+        for (name, target) in &theirs {
+            std::os::unix::fs::symlink(target, s.cwd.join(".agents/skills").join(name)).unwrap();
+        }
+        let arms: Vec<CwdArm> =
+            theirs.iter().map(|(name, _)| link(&format!(".agents/skills/{name}"), &s.skills)).collect();
+        let report = s.arm("p.linker", "ws-1", &arms);
+        assert!(report.armed.is_empty());
+        assert_eq!(report.refused[0].reason, ".agents/skills/review is your own — nothing was planted");
+        assert_eq!(report.refused[1].reason, ".agents/skills/gone is your own — nothing was planted");
+        s.disarm();
+        for (name, target) in &theirs {
+            assert_eq!(&fs::read_link(s.cwd.join(".agents/skills").join(name)).unwrap(), target);
+        }
     }
 
     #[test]

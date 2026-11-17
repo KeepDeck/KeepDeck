@@ -37,6 +37,10 @@ pub use library::SkillDto;
 pub(crate) use library::require_safe;
 pub use staging::{SkillsLocks, StagingAnswer};
 pub(crate) use bundled::BUNDLED;
+pub(crate) use fingerprint::in_view;
+/// The name that marks a view KeepDeck's, for tests that stand one up.
+#[cfg(test)]
+pub(crate) use fingerprint::FINGERPRINT_FILE;
 pub(crate) use gates::{GateKey, GateRegistry};
 
 /// Every skill in the library, global scope first, then workspaces, names
