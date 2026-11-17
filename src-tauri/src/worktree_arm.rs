@@ -15,45 +15,61 @@ pub(crate) struct Excluded {
     pub(crate) directory: bool,
 }
 
-/// Idempotently append `excluded`'s anchored line to the owning repo's SHARED
-/// `info/exclude`, so what was planted never shows up in git status or a
-/// commit. A cwd outside any checkout simply has nowhere to write and is left
-/// alone.
-pub(crate) fn ensure_excluded(armed_root: &Path, excluded: &Excluded) -> io::Result<()> {
-    match exclusion(armed_root, excluded)? {
-        Some((common_dir, line)) => keepdeck_git::exclude::ensure_line(&common_dir, &line),
-        None => Ok(()),
+/// The repo an armed cwd's exclude lines go to: its COMMON git dir — two
+/// linked worktrees of one repo share it, so two plantings with the same
+/// exclusion share ONE line — and the cwd's place below the repo root.
+#[derive(Debug, Clone)]
+pub(crate) struct ExcludeRepo {
+    common_dir: PathBuf,
+    below_root: String,
+}
+
+impl ExcludeRepo {
+    /// The repo owning `armed_root`, or `None` when no ancestor is a git
+    /// checkout: a cwd outside any has nowhere to write and is left alone.
+    pub(crate) fn of(armed_root: &Path) -> io::Result<Option<Self>> {
+        let Some(repo) = keepdeck_git::exclude::owning_repo(armed_root)? else {
+            return Ok(None);
+        };
+        let common_dir = std::fs::canonicalize(&repo.common_dir).unwrap_or(repo.common_dir);
+        Ok(Some(Self { common_dir, below_root: repo.below_root }))
+    }
+
+    /// The line keeping git blind to `excluded`: anchored at the armed cwd
+    /// (`/<path>` at the repo root, `/<subdir>/<path>` below it), literal
+    /// throughout, with a trailing `/` for a directory only.
+    pub(crate) fn line(&self, excluded: &Excluded) -> ExcludeLine {
+        let path = if self.below_root.is_empty() {
+            excluded.path.clone()
+        } else {
+            format!("{}/{}", self.below_root, excluded.path)
+        };
+        let suffix = if excluded.directory { "/" } else { "" };
+        ExcludeLine { common_dir: self.common_dir.clone(), line: format!("/{}{suffix}", literal(&path)) }
     }
 }
 
-/// Remove the line arming appended, only where it carries KeepDeck's marker —
-/// the same pattern the user wrote stays, and nothing else in their exclude
-/// file is touched (byte-faithful removal lives in `keepdeck_git::exclude`).
-pub(crate) fn remove_excluded(armed_root: &Path, excluded: &Excluded) -> io::Result<()> {
-    match exclusion(armed_root, excluded)? {
-        Some((common_dir, line)) => keepdeck_git::exclude::remove_line(&common_dir, &line),
-        None => Ok(()),
-    }
+/// One line of a repo's SHARED `info/exclude` that KeepDeck adds and takes
+/// out as its own.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ExcludeLine {
+    common_dir: PathBuf,
+    line: String,
 }
 
-/// The owning repo's COMMON git dir plus the line keeping git blind to
-/// `excluded` — anchored at the armed cwd (`/<path>` at the repo root,
-/// `/<subdir>/<path>` below it), literal throughout, with a trailing `/` for
-/// a directory only — or `None` when no ancestor is a git checkout. Two linked
-/// worktrees of one repo share the common dir, so two plantings with the same
-/// exclusion share ONE line: it goes only with the last of them.
-pub(crate) fn exclusion(armed_root: &Path, excluded: &Excluded) -> io::Result<Option<(PathBuf, String)>> {
-    let Some(repo) = keepdeck_git::exclude::owning_repo(armed_root)? else {
-        return Ok(None);
-    };
-    let common_dir = std::fs::canonicalize(&repo.common_dir).unwrap_or(repo.common_dir);
-    let path = if repo.below_root.is_empty() {
-        excluded.path.clone()
-    } else {
-        format!("{}/{}", repo.below_root, excluded.path)
-    };
-    let suffix = if excluded.directory { "/" } else { "" };
-    Ok(Some((common_dir, format!("/{}{suffix}", literal(&path)))))
+impl ExcludeLine {
+    /// Idempotently add the line, marked as KeepDeck's, so what was planted
+    /// never shows up in git status or a commit.
+    pub(crate) fn ensure(&self) -> io::Result<()> {
+        keepdeck_git::exclude::ensure_line(&self.common_dir, &self.line)
+    }
+
+    /// Take the line out where it carries KeepDeck's marker — the same
+    /// pattern the user wrote stays, and nothing else in their exclude file
+    /// is touched (byte-faithful removal lives in `keepdeck_git::exclude`).
+    pub(crate) fn remove(&self) -> io::Result<()> {
+        keepdeck_git::exclude::remove_line(&self.common_dir, &self.line)
+    }
 }
 
 /// `path` as a gitignore pattern matching only itself: git's wildcard and
@@ -125,8 +141,9 @@ mod tests {
             ("skills/back\\slash", ["skills/backslash", "skills/back/slash"]),
             ("skills/trailing ", ["skills/trailing", "skills/trailing  "]),
         ];
+        let at = ExcludeRepo::of(&repo).unwrap().unwrap();
         for (name, _) in &cases {
-            ensure_excluded(&repo, &file(name)).unwrap();
+            at.line(&file(name)).ensure().unwrap();
         }
         for (name, others) in &cases {
             assert!(ignored(&repo, name), "{name:?} itself is hidden");
@@ -143,12 +160,12 @@ mod tests {
         let cwd = repo.join("pkg[1]");
         fs::create_dir_all(&cwd).unwrap();
         assert!(git(&repo, &["init", "-q"]));
-        ensure_excluded(&cwd, &Excluded { path: ".k".into(), directory: true }).unwrap();
+        let line = ExcludeRepo::of(&cwd).unwrap().unwrap().line(&Excluded { path: ".k".into(), directory: true });
+        assert_eq!(line.line, "/pkg\\[1\\]/.k/");
+        line.ensure().unwrap();
         fs::create_dir_all(cwd.join(".k")).unwrap();
         fs::create_dir_all(repo.join("pkg1/.k")).unwrap();
         assert!(ignored(&repo, "pkg[1]/.k/a"));
         assert!(!ignored(&repo, "pkg1/.k/a"));
-        let (_, line) = exclusion(&cwd, &Excluded { path: ".k".into(), directory: true }).unwrap().unwrap();
-        assert_eq!(line, "/pkg\\[1\\]/.k/");
     }
 }

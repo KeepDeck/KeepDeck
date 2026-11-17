@@ -45,7 +45,7 @@
 //! call against worktree teardown; the lock here only keeps two calls from
 //! interleaving their manifest writes.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Component, Path, PathBuf};
@@ -54,7 +54,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::state::write_atomic;
-use crate::worktree_arm::{ensure_excluded, exclusion, remove_excluded, Excluded};
+use crate::worktree_arm::{ExcludeLine, ExcludeRepo, Excluded};
 
 /// Beside a planted file: with it AND a record, the file is ours to rewrite
 /// and to remove. Builds before plugin API 73 put the same marker beside what
@@ -152,10 +152,67 @@ impl ArmRecord {
         }
     }
 
-    /// The exclude lines this planting needs, each with its repo's git dir.
-    fn exclusions(&self) -> Vec<(PathBuf, String)> {
-        let cwd = Path::new(&self.cwd);
-        self.hides().iter().filter_map(|excluded| exclusion(cwd, excluded).ok().flatten()).collect()
+    /// The exclude lines this planting needs in `repo`, its cwd's.
+    fn lines(&self, repo: &ExcludeRepo) -> Vec<ExcludeLine> {
+        self.hides().iter().map(|excluded| repo.line(excluded)).collect()
+    }
+}
+
+/// The exclude lines a set of plantings need, and how many need each — worked
+/// out once for a pass, each cwd's repo looked up once — so letting a line go
+/// asks no planting again: it goes when the last planting needing it does.
+#[derive(Default)]
+struct Claims {
+    repos: HashMap<String, Option<ExcludeRepo>>,
+    count: HashMap<ExcludeLine, usize>,
+}
+
+impl Claims {
+    fn of<'a>(records: impl IntoIterator<Item = &'a ArmRecord>) -> Self {
+        let mut claims = Self::default();
+        for record in records {
+            claims.claim(record);
+        }
+        claims
+    }
+
+    fn lines(&mut self, record: &ArmRecord) -> Vec<ExcludeLine> {
+        let repo = self.repos.entry(record.cwd.clone()).or_insert_with(|| {
+            ExcludeRepo::of(Path::new(&record.cwd)).unwrap_or_else(|e| {
+                log::warn!("cwd arming: exclude lookup for {} failed: {e}", record.cwd);
+                None
+            })
+        });
+        repo.as_ref().map(|repo| record.lines(repo)).unwrap_or_default()
+    }
+
+    fn claim(&mut self, record: &ArmRecord) {
+        for line in self.lines(record) {
+            *self.count.entry(line).or_default() += 1;
+        }
+    }
+
+    /// `record` needs its lines no more: those nothing else needs go. When
+    /// one will not, the record still claims all of them — it is kept, and
+    /// its release tried again on the next pass.
+    fn release(&mut self, record: &ArmRecord) -> io::Result<()> {
+        let lines = self.lines(record);
+        let mut unneeded = Vec::new();
+        for line in &lines {
+            if let Some(count) = self.count.get_mut(line) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    unneeded.push(line);
+                }
+            }
+        }
+        let outcome = unneeded.into_iter().try_for_each(ExcludeLine::remove);
+        if outcome.is_err() {
+            for line in lines {
+                *self.count.entry(line).or_default() += 1;
+            }
+        }
+        outcome
     }
 }
 
@@ -368,8 +425,13 @@ fn arm(
             return refuse_all("KeepDeck's record of what it planted here could not be read");
         }
     };
-    let others: Vec<ArmRecord> = match all_records(root) {
-        Ok(ledger) => ledger.records.into_iter().filter(|(id, _)| id != ws).flat_map(|(_, r)| r).collect(),
+    let (others, may_take_back): (Vec<ArmRecord>, bool) = match all_records(root) {
+        // While a record will not read, nothing is taken back: it could be the
+        // one naming what would go. Planting goes on.
+        Ok(ledger) => {
+            let readable = readable(&ledger).is_ok();
+            (ledger.records.into_iter().filter(|(id, _)| id != ws).flat_map(|(_, r)| r).collect(), readable)
+        }
         Err(e) => {
             log::warn!("cwd arming: reading the records failed: {e}");
             return refuse_all("KeepDeck's record of what it planted here could not be read");
@@ -377,16 +439,23 @@ fn arm(
     };
     let allowed: Vec<PathBuf> = allowed.iter().filter_map(|dir| fs::canonicalize(dir).ok()).collect();
 
+    // The manifest as it stands on disk, so a pass that changes nothing
+    // writes nothing.
+    let mut written = mine.clone();
     // What this plugin planted here and declares no more goes first: a link it
     // planted where it now plants inside — `.agents/skills`, before a link per
-    // skill in it — would stand in their way. One that will not go is kept,
-    // and tried again below.
-    let declared = |r: &ArmRecord| arms.iter().any(|arm| same_entry(Path::new(cwd), &r.path, arm.path()));
-    let (undeclared, rest): (Vec<ArmRecord>, Vec<ArmRecord>) =
-        mine.into_iter().partition(|r| r.cwd == cwd && r.plugin == plugin && !declared(r));
-    let kept: Vec<ArmRecord> = rest.iter().chain(others.iter()).cloned().collect();
-    let failed = take_back_all(&undeclared, &kept);
-    let mine: Vec<ArmRecord> = rest.into_iter().chain(failed).collect();
+    // skill in it — would stand in their way. What will not go stays
+    // recorded, for the next pass.
+    let (mine, retained): (Vec<ArmRecord>, Vec<ArmRecord>) = if may_take_back {
+        let declared = |r: &ArmRecord| arms.iter().any(|arm| r.at(cwd, arm.path()));
+        let (undeclared, rest): (Vec<ArmRecord>, Vec<ArmRecord>) =
+            mine.into_iter().partition(|r| r.cwd == cwd && r.plugin == plugin && !declared(r));
+        let kept: Vec<ArmRecord> = rest.iter().chain(others.iter()).cloned().collect();
+        let retained = take_back_all(&undeclared, &kept);
+        (rest, retained)
+    } else {
+        (mine, Vec::new())
+    };
 
     let mut report = CwdArmReport::default();
     let mut planted: Vec<ArmRecord> = Vec::new();
@@ -409,10 +478,13 @@ fn arm(
             match admit(cwd, plugin, arm, &allowed) {
                 Err(reason) => Some(reason),
                 Ok(record) => {
-                    if !ledger.contains(&record) {
+                    let recorded = if ledger.contains(&record) {
+                        Ok(())
+                    } else {
                         ledger.push(record.clone());
-                    }
-                    match write_records(root, ws, &ledger) {
+                        write_records(root, ws, &ledger).map(|()| written = ledger.clone())
+                    };
+                    match recorded {
                         Err(e) => {
                             log::warn!("cwd arming: recording {ws} failed: {e}");
                             Some("KeepDeck's record of what it plants here could not be written".to_string())
@@ -435,30 +507,26 @@ fn arm(
         }
     }
 
-    // What this plugin planted here before and no longer declares goes —
-    // unless another workspace still records it.
-    let (stale, kept): (Vec<ArmRecord>, Vec<ArmRecord>) = mine
-        .into_iter()
-        .partition(|r| r.cwd == cwd && r.plugin == plugin && !planted.iter().any(|p| p.path == r.path));
-    let (replanted, mut records): (Vec<ArmRecord>, Vec<ArmRecord>) =
-        kept.into_iter().partition(|r| r.cwd == cwd && r.plugin == plugin);
+    // This plugin's records here before this pass retire: one not planted
+    // again (refused this time) with its planting, unless another workspace
+    // still records it; one planted again under its new record only with the
+    // lines the old one hid that nothing needs now — an older build's whole
+    // first segment.
+    let (here, mut records): (Vec<ArmRecord>, Vec<ArmRecord>) =
+        mine.into_iter().partition(|r| r.cwd == cwd && r.plugin == plugin);
     records.extend(planted.iter().cloned());
-    let remaining: Vec<&ArmRecord> = records.iter().chain(others.iter()).collect();
-    for record in &stale {
-        if !remaining.iter().any(|r| r.at(&record.cwd, &record.path)) {
-            if let Err(e) = take_back(record, &remaining) {
-                log::warn!("cwd arming: taking back {}/{} failed: {e}", record.cwd, record.path);
-            }
+    if may_take_back {
+        let kept: Vec<ArmRecord> = records.iter().chain(others.iter()).cloned().collect();
+        records.extend(take_back_all(&here, &kept));
+    } else {
+        records.extend(here);
+    }
+    records.extend(retained);
+    let unchanged = records.len() == written.len() && records.iter().all(|r| written.contains(r));
+    if !unchanged {
+        if let Err(e) = write_records(root, ws, &records) {
+            log::warn!("cwd arming: recording {ws} failed: {e}");
         }
-    }
-    // Planted again, a planting hides what its new record says: what the old
-    // one hid and nothing needs any more — an older build's whole first
-    // segment — stops being hidden.
-    for record in &replanted {
-        release_exclusion(record, &remaining);
-    }
-    if let Err(e) = write_records(root, ws, &records) {
-        log::warn!("cwd arming: recording {ws} failed: {e}");
     }
     report
 }
@@ -595,16 +663,24 @@ fn plant<'a>(
             }
         }
     }
-    for excluded in record.hides() {
-        exclude(base, &excluded);
+    match ExcludeRepo::of(base) {
+        Ok(Some(repo)) => {
+            for line in record.lines(&repo) {
+                if let Err(e) = line.ensure() {
+                    log::warn!("cwd arming: exclude line for {} failed: {e}", base.display());
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => log::warn!("cwd arming: exclude lookup for {} failed: {e}", base.display()),
     }
     Ok(Ok(()))
 }
 
 /// Take one recorded planting back out of its cwd, if it is still ours; the
-/// marker goes once no recorded file is left beside it, the exclude line once
-/// nothing that shares it is left. A file whose marker is gone is no longer
-/// provably ours and stays — but the exclude line we added still goes.
+/// marker goes once no recorded file is left beside it. A file whose marker
+/// is gone is no longer provably ours and stays — but the exclude lines we
+/// added still go ([`take_back_all`] lets them go).
 fn take_back(record: &ArmRecord, remaining: &[&ArmRecord]) -> io::Result<()> {
     let base = Path::new(&record.cwd);
     if relative_parts(&record.path).is_none() {
@@ -647,31 +723,7 @@ fn take_back(record: &ArmRecord, remaining: &[&ArmRecord]) -> io::Result<()> {
         }
     }
     remove_empty_up_to(&dir, base);
-    release_exclusion(record, remaining);
     Ok(())
-}
-
-/// Stop hiding from git what `record` hid, line by line — except a line a
-/// remaining planting, in this cwd or another worktree of the same repo,
-/// still needs.
-fn release_exclusion(record: &ArmRecord, remaining: &[&ArmRecord]) {
-    let base = Path::new(&record.cwd);
-    let needed: Vec<(PathBuf, String)> = remaining.iter().flat_map(|r| r.exclusions()).collect();
-    for excluded in record.hides() {
-        let unneeded = match exclusion(base, &excluded) {
-            Ok(Some(line)) => !needed.contains(&line),
-            Ok(None) => false,
-            Err(e) => {
-                log::warn!("cwd arming: exclude lookup for {} failed: {e}", base.display());
-                false
-            }
-        };
-        if unneeded {
-            if let Err(e) = remove_excluded(base, &excluded) {
-                log::warn!("cwd arming: exclude cleanup for {} failed: {e}", base.display());
-            }
-        }
-    }
 }
 
 /// Take back what was planted in `roots`, except in a root one of `live` still
@@ -760,24 +812,30 @@ fn plantings(records: &[ArmRecord]) -> String {
     records.iter().map(|r| format!("{}/{}", r.cwd, r.path)).collect::<Vec<_>>().join(", ")
 }
 
-/// Take back every planting in `gone` that no `kept` record shares, each path
-/// once — and in an order that leaves a marker or an exclude line in place
-/// until the last of what it covers has gone. Best-effort per planting: every
-/// one is tried, and the records of those that could not be taken back are
-/// returned — the ledger keeps them, so nothing on disk loses its owner.
+/// Retire every record in `gone`: its planting is taken back unless a `kept`
+/// record or an earlier one of `gone` names the same entry (a planting shared,
+/// or planted again under a new record), and the exclude lines it needed go
+/// once nothing left needs them — in an order that leaves a marker or a line
+/// in place until the last of what it covers has gone. Best-effort per record:
+/// every one is tried, and those whose planting or lines would not go are
+/// returned — the ledger keeps them, so nothing on disk loses its owner and
+/// the next pass tries again. The one retirement every lifecycle phase uses.
 fn take_back_all(gone: &[ArmRecord], kept: &[ArmRecord]) -> Vec<ArmRecord> {
+    let mut claims = Claims::of(kept.iter().chain(gone));
     let mut failed: Vec<ArmRecord> = Vec::new();
     for (index, record) in gone.iter().enumerate() {
         let shared = kept.iter().any(|r| r.at(&record.cwd, &record.path));
         let already = gone[..index].iter().any(|r| r.at(&record.cwd, &record.path));
-        if shared || already {
-            continue;
-        }
-        let rest: Vec<&ArmRecord> = kept
-            .iter()
-            .chain(gone[index + 1..].iter().filter(|r| !r.at(&record.cwd, &record.path)))
-            .collect();
-        if let Err(e) = take_back(record, &rest) {
+        let planting = if shared || already {
+            Ok(())
+        } else {
+            let rest: Vec<&ArmRecord> = kept
+                .iter()
+                .chain(gone[index + 1..].iter().filter(|r| !r.at(&record.cwd, &record.path)))
+                .collect();
+            take_back(record, &rest)
+        };
+        if let Err(e) = planting.and_then(|()| claims.release(record)) {
             log::warn!("cwd arming: taking back {}/{} failed: {e}", record.cwd, record.path);
             failed.push(record.clone());
         }
@@ -810,12 +868,6 @@ fn remove_empty_up_to(dir: &Path, base: &Path) {
             break;
         }
         at = level.parent();
-    }
-}
-
-fn exclude(base: &Path, excluded: &Excluded) {
-    if let Err(e) = ensure_excluded(base, excluded) {
-        log::warn!("cwd arming: exclude line for {} failed: {e}", base.display());
     }
 }
 
@@ -1379,6 +1431,81 @@ mod tests {
         assert_eq!(s.disarm(), vec![s.cwd()]);
         assert!(!s.cwd.join(".agent-conf").exists());
         assert!(!manifest(&s.root, "ws-1").exists());
+    }
+
+    #[test]
+    fn a_planting_that_would_not_go_stays_recorded_and_goes_on_a_later_pass() {
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        fs::create_dir_all(s.skills.join("one")).unwrap();
+        older_builds_planting(&s, "ws-1", &wt);
+        let cwd = wt.to_string_lossy().into_owned();
+        let per_skill = [link(".agents/skills/one", &s.skills.join("one"))];
+        lock_dir(&wt.join(".agents"), true);
+        arm(&s.root, "p.linker", "ws-1", &cwd, &per_skill, &s.allowed());
+        lock_dir(&wt.join(".agents"), false);
+        assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".agents/skills"], "the old link is still recorded");
+        let report = arm(&s.root, "p.linker", "ws-1", &cwd, &per_skill, &s.allowed());
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".agents/skills/one"]);
+        assert_eq!(excluded(&s), ["/.agents/skills/one"]);
+    }
+
+    #[test]
+    fn nothing_is_taken_back_while_another_workspaces_record_will_not_read() {
+        let s = scratch();
+        s.arm("p.linker", "ws-1", &[link(".l", &s.skills)]);
+        fs::write(manifest(&s.root, "ws-9"), "not json").unwrap();
+        let report = s.arm("p.linker", "ws-1", &[]);
+        assert!(report.refused.is_empty());
+        assert!(fs::symlink_metadata(s.cwd.join(".l")).is_ok(), "ws-9 might record it");
+        assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".l"]);
+        fs::remove_file(manifest(&s.root, "ws-9")).unwrap();
+        s.arm("p.linker", "ws-1", &[]);
+        assert!(fs::symlink_metadata(s.cwd.join(".l")).is_err());
+    }
+
+    #[test]
+    fn a_retiring_record_lets_its_lines_go_even_while_its_planting_is_shared() {
+        // An older build's record and a new one name one link: the link
+        // stays for the new one, the older build's whole-folder line goes.
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        older_builds_planting(&s, "ws-1", &wt);
+        let cwd = wt.to_string_lossy().into_owned();
+        arm(&s.root, "p.linker", "ws-2", &cwd, &[link(".agents/skills", &s.skills)], &s.allowed());
+        arm(&s.root, "p.linker", "ws-1", &cwd, &[], &s.allowed());
+        assert_eq!(fs::read_link(wt.join(".agents/skills")).unwrap(), s.skills);
+        assert_eq!(excluded(&s), ["/.agents/skills"]);
+    }
+
+    #[test]
+    fn a_line_that_would_not_go_keeps_its_record_until_it_does() {
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        let cwd = wt.to_string_lossy().into_owned();
+        arm(&s.root, "p.linker", "ws-1", &cwd, &[link(".l", &s.skills)], &s.allowed());
+        let info = s.base.join("main/.git/info");
+        lock_dir(&info, true);
+        arm(&s.root, "p.linker", "ws-1", &cwd, &[], &s.allowed());
+        lock_dir(&info, false);
+        assert!(fs::symlink_metadata(wt.join(".l")).is_err(), "the link itself went");
+        assert_eq!(recorded_paths(&s.root, "ws-1"), vec![".l"], "kept for its line");
+        arm(&s.root, "p.linker", "ws-1", &cwd, &[], &s.allowed());
+        assert!(excluded(&s).is_empty());
+        assert!(!manifest(&s.root, "ws-1").exists());
+    }
+
+    #[test]
+    fn a_pass_that_changes_nothing_writes_nothing() {
+        let s = scratch();
+        let set = [link(".l", &s.skills), file(".k/conf", "{}")];
+        s.arm("p.mixed", "ws-1", &set);
+        lock_dir(&s.root, true);
+        let again = s.arm("p.mixed", "ws-1", &set);
+        lock_dir(&s.root, false);
+        assert!(again.refused.is_empty(), "{:?}", again.refused);
+        assert_eq!(again.armed, vec![".l", ".k/conf"]);
     }
 
     #[test]
