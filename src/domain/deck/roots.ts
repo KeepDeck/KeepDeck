@@ -110,7 +110,7 @@ export function panesRunningIn(workspaces: Workspace[], cwd: string): number {
 
 /** The workspace's pane spawn cwds, deduped: worktree roots and the
  * workspace cwd alike — wherever a CLI actually starts. Skills staging arms
- * each of these with the codex-facing `.agents/skills` symlink. A pane whose
+ * each of these with codex's skill links in `.agents/skills`. A pane whose
  * worktree is still being created has nowhere to arm yet, and answers
  * nothing rather than the workspace cwd. */
 export function skillRootsOf(ws: Workspace): string[] {

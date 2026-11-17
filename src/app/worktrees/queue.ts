@@ -10,12 +10,12 @@ export function createOrderQueue(): InOrder {
    * The one queue that orders arming against teardown.
    *
    * THE invariant this module exists for: staging arms every live spawn root
-   * with a `.agents/skills` symlink, and a removal deletes a root's whole
-   * directory. Run concurrently, an arming lands between git's recursive delete
-   * and its final `rmdir`, which then fails on a directory that is no longer a
-   * worktree — an orphaned branch and a husk nothing can clear. Because both
-   * sides pass through here, the ordering is a property of this object rather
-   * than a convention its callers have to keep.
+   * with codex's skill links in `.agents/skills`, and a removal deletes a
+   * root's whole directory. Run concurrently, an arming lands between git's
+   * recursive delete and its final `rmdir`, which then fails on a directory
+   * that is no longer a worktree — an orphaned branch and a husk nothing can
+   * clear. Because both sides pass through here, the ordering is a property
+   * of this object rather than a convention its callers have to keep.
    *
    * One queue for all workspaces, deliberately: staging is a directory copy and
    * a removal is a user closing panes, so nothing here is hot enough to split,

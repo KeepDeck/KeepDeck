@@ -148,17 +148,27 @@ const YOLO_SWITCH = ["--dangerously-bypass-approvals-and-sandbox"];
  * the `resume`/`fork` subcommand. */
 const disablePasteBurstArgs: string[] = ["-c", "disable_paste_burst=true"];
 
+/** Where codex reads a project's skills, one folder per skill. */
+const CODEX_SKILLS_DIR = ".agents/skills";
+
 /**
  * Shared skills: codex has no flag, env or config door for them
  * (openai/codex#15149, #22869), but it reads `.agents/skills` from its
- * starting cwd at session start. So the pane's cwd gets a symlink there to
- * the host's bare skills directory — declared here, planted by the host's
- * arming engine, which replaces any link already there, never a folder of
- * the user's, and keeps git blind to ours. No skills: an empty set, so a
- * link an earlier launch planted is taken back. argv and env stay untouched.
+ * starting cwd at session start — a folder projects keep and commit their own
+ * skills in. So each of ours gets its own symlink in there, to that skill in
+ * the host's bare skills directory, beside the project's: declared here,
+ * planted by the host's arming engine, which never replaces a skill of the
+ * project's or a link it cannot show is KeepDeck's, and keeps git blind to
+ * exactly our links. No skills: an empty set, so links an earlier launch
+ * planted are taken back. argv and env stay untouched.
  */
 export function codexArms(skills: SpawnSkillsInput | undefined): CwdArm[] {
-  return skills ? [{ kind: "symlink", path: ".agents/skills", target: skills.dir }] : [];
+  if (!skills) return [];
+  return skills.skills.map(({ name }) => ({
+    kind: "symlink",
+    path: `${CODEX_SKILLS_DIR}/${name}`,
+    target: `${skills.dir}/${name}`,
+  }));
 }
 
 /** What the plugin needs from the host — the parts of its context it uses. */

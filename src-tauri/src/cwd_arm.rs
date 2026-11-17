@@ -1243,6 +1243,37 @@ mod tests {
     }
 
     #[test]
+    fn links_per_skill_live_beside_a_projects_own_skills_and_yield_to_one_of_the_same_name() {
+        // A teammate committed .agents/skills with "review" and "deploy";
+        // KeepDeck's skills are "review" and "triage". Theirs stay as they
+        // are, ours go in beside them, and the same name is reported.
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        for theirs in ["review", "deploy"] {
+            fs::create_dir_all(wt.join(".agents/skills").join(theirs)).unwrap();
+            fs::write(wt.join(".agents/skills").join(theirs).join("SKILL.md"), "theirs").unwrap();
+        }
+        let ours: Vec<CwdArm> = ["review", "triage"]
+            .iter()
+            .map(|name| {
+                fs::create_dir_all(s.skills.join(name)).unwrap();
+                link(&format!(".agents/skills/{name}"), &s.skills.join(name))
+            })
+            .collect();
+        let cwd = wt.to_string_lossy().into_owned();
+        let report = arm(&s.root, "p.linker", "ws-1", &cwd, &ours, &s.allowed());
+        assert_eq!(report.armed, vec![".agents/skills/triage"]);
+        assert_eq!(report.refused[0].reason, ".agents/skills/review is your own — nothing was planted");
+        assert_eq!(excluded(&s), ["/.agents/skills/triage"]);
+        disarm(&s.root, &[cwd], &[]).unwrap();
+        assert!(fs::symlink_metadata(wt.join(".agents/skills/triage")).is_err());
+        for theirs in ["review", "deploy"] {
+            let skill = wt.join(".agents/skills").join(theirs).join("SKILL.md");
+            assert_eq!(fs::read_to_string(skill).unwrap(), "theirs");
+        }
+    }
+
+    #[test]
     fn a_link_planted_where_the_plugin_now_plants_inside_goes_in_the_same_pass() {
         // codex linked the whole .agents/skills folder; now it links each
         // skill inside it. The first launch after the change finds its own
