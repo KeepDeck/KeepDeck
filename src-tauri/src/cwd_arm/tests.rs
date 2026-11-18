@@ -238,7 +238,7 @@ fn a_file_an_older_build_recorded_without_a_receipt_is_never_changed() {
 /// The reservation the engine records for `staged`, beside `.conf/mcp.json`,
 /// before it is made (no repo: no line to owe).
 fn reserved(cwd: &Path, staged: &fsb::Staged) -> Place {
-    place(cwd, "p.filer", &format!(".conf/{}", staged.name.to_string_lossy()), What::Temp { owed: None })
+    place(cwd, "p.filer", &format!(".conf/{}", staged.name.to_string_lossy()), What::Temp { made: staged.identity })
 }
 
 fn place(cwd: &Path, plugin: &str, path: &str, what: What) -> Place {
@@ -248,6 +248,7 @@ fn place(cwd: &Path, plugin: &str, path: &str, what: What) -> Place {
         path: path.into(),
         what,
         hidden: Hidden::Exact,
+        owed: None,
     }
 }
 
@@ -406,6 +407,7 @@ fn older_folder_link(s: &Scratch, ws: &str, cwd: &Path) {
         path: ".agents/skills".into(),
         what: What::Symlink { target: Some(s.skills(ws).to_string_lossy().into_owned()) },
         hidden: Hidden::FirstSegment,
+        owed: None,
     });
     ledger.write(ws, places).unwrap();
     if let Ok(Some(repo)) = keepdeck_git::exclude::owning_repo(cwd) {
@@ -749,7 +751,7 @@ fn a_line_stays_while_anything_stands_at_its_entry_in_any_worktree() {
     fs::write(main.join(".m"), "theirs").unwrap();
     s.disarm(&wt).unwrap();
     assert_eq!(excluded(&main), ["/.l", "/.m"]);
-    assert!(s.places("ws-1").iter().all(|p| matches!(p.what, What::Line { .. })), "each line stays owed");
+    assert!(s.places("ws-1").iter().all(|p| matches!(p.what, What::Line)), "each line stays owed");
     fs::remove_file(main.join(".l")).unwrap();
     fs::remove_file(main.join(".m")).unwrap();
     s.disarm(&wt).unwrap();
@@ -819,7 +821,7 @@ fn a_rewrite_that_cannot_be_hidden_first_leaves_what_stood() {
     assert_eq!(refused(&report, ".k/conf"), "this could not be kept from git — nothing was planted");
     assert_eq!(fs::read_to_string(main.join(".k/conf")).unwrap(), "a");
     assert_eq!(fs::read_dir(main.join(".k")).unwrap().count(), 1, "nothing staged beside it");
-    let owed = |p: &Place| matches!(p.what, What::Line { .. } | What::Temp { .. });
+    let owed = |p: &Place| matches!(p.what, What::Line | What::Temp { .. });
     let standing: Vec<Place> = s.places("ws-1").into_iter().filter(|p| !owed(p)).collect();
     assert_eq!(standing, before);
     assert_eq!(excluded(&main), ["/.k/conf"]);
@@ -837,7 +839,7 @@ fn a_file_planted_in_a_repo_leaves_git_blind_to_it_alone() {
     s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "a")]);
     s.arm_in(&main, "p.filer", "ws-1", &[file(".k/conf", "b")]);
     assert_eq!(excluded(&main), ["/.k/conf"]);
-    assert_eq!(s.places("ws-1").iter().filter(|p| matches!(p.what, What::Line { .. } | What::Temp { .. })).count(), 0);
+    assert_eq!(s.places("ws-1").iter().filter(|p| matches!(p.what, What::Line | What::Temp { .. })).count(), 0);
 }
 
 #[test]
@@ -1037,26 +1039,128 @@ fn a_failed_setup_promotes_no_older_record() {
 
 #[test]
 fn a_reserved_names_leftover_goes_only_from_behind_the_fence() {
-    // A crash left a staged file and a replacement link at their reserved
-    // names; while another record will not read, they stay.
+    // A crash left a staged file at its reserved name, recorded as made
+    // there; while another record will not read, it stays.
     let s = scratch();
-    let skills = s.skills("ws-1");
     s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
-    fs::write(s.cwd.join(".conf/.a.1-1.keepdeck-tmp"), "staged").unwrap();
-    symlink(&skills, s.cwd.join(".conf/.b.1-2.keepdeck-tmp")).unwrap();
+    let dir = fsb::open_dir(&s.cwd.join(".conf")).unwrap();
+    let staged = fsb::stage_at(&dir, &fsb::temporary_beside("mcp.json".as_ref()), b"ours", 0o644).unwrap();
     let mut places = s.places("ws-1");
-    for name in [".conf/.a.1-1.keepdeck-tmp", ".conf/.b.1-2.keepdeck-tmp"] {
-        places.push(place(&s.cwd, "p.filer", name, What::Temp { owed: None }));
-    }
+    places.push(reserved(&s.cwd, &staged));
     Ledger::read(&s.root).unwrap().write("ws-1", places).unwrap();
     fs::write(manifest(&s.root, "ws-9"), "not json").unwrap();
     s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
-    assert!(s.cwd.join(".conf/.a.1-1.keepdeck-tmp").exists());
-    assert!(fs::symlink_metadata(s.cwd.join(".conf/.b.1-2.keepdeck-tmp")).is_ok());
+    assert!(s.cwd.join(".conf").join(&staged.name).exists());
     fs::remove_file(manifest(&s.root, "ws-9")).unwrap();
     s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
     assert_eq!(fs::read_dir(s.cwd.join(".conf")).unwrap().count(), 1, "only the planting stays");
     assert!(s.places("ws-1").iter().all(|p| !matches!(p.what, What::Temp { .. })));
+}
+
+#[test]
+fn a_reserved_name_proves_nothing_about_what_stands_at_it() {
+    // A file that was already there when the name was tried (the exclusive
+    // make failed), or a crash before the make was recorded; a link, even
+    // one into this workspace's own skills: none of it is shown to be ours.
+    let s = scratch();
+    let skills = s.skills("ws-1");
+    s.arm("p.filer", "ws-1", &[file(".conf/other", "x")]);
+    fs::write(s.cwd.join(".conf/.a.1-1.keepdeck-tmp"), "the user's").unwrap();
+    symlink(&skills, s.cwd.join(".conf/.b.1-2.keepdeck-tmp")).unwrap();
+    let mut places = s.places("ws-1");
+    for name in [".conf/.a.1-1.keepdeck-tmp", ".conf/.b.1-2.keepdeck-tmp"] {
+        places.push(place(&s.cwd, "p.filer", name, What::Temp { made: None }));
+    }
+    // A record of another file made there proves nothing about this one.
+    let other = fsb::identity_at(&fsb::open_dir(&s.cwd.join(".conf")).unwrap(), "other".as_ref()).unwrap();
+    assert!(other.is_some());
+    places.push(place(&s.cwd, "p.filer", ".conf/.a.1-1.keepdeck-tmp", What::Temp { made: other }));
+    Ledger::read(&s.root).unwrap().write("ws-1", places).unwrap();
+    s.disarm(&s.cwd).unwrap();
+    assert_eq!(fs::read_to_string(s.cwd.join(".conf/.a.1-1.keepdeck-tmp")).unwrap(), "the user's");
+    assert_eq!(fs::read_link(s.cwd.join(".conf/.b.1-2.keepdeck-tmp")).unwrap(), skills);
+}
+
+#[test]
+fn a_line_that_cannot_be_worked_out_is_still_owed_and_no_more() {
+    // An older record in a worktree whose git pointer will not read: its
+    // planting goes, its line is owed unresolved — and a link standing at
+    // that slot later is nothing that record may take back.
+    let s = scratch();
+    let main = repo(&s);
+    let wt = worktree(&main, "wt");
+    let skills = s.skills("ws-1");
+    fs::create_dir_all(wt.join(".cfg")).unwrap();
+    symlink(&skills, wt.join(".cfg/l")).unwrap();
+    older_places(&s, "ws-1", &main, vec![place(&wt, "p.linker", ".cfg/l", What::Symlink { target: None })]);
+    fs::set_permissions(wt.join(".git"), fs::Permissions::from_mode(0o000)).unwrap();
+    let first = s.disarm(&wt);
+    fs::set_permissions(wt.join(".git"), fs::Permissions::from_mode(0o644)).unwrap();
+    first.unwrap();
+    assert!(fs::symlink_metadata(wt.join(".cfg/l")).is_err());
+    assert!(matches!(s.places("ws-1")[..], [Place { what: What::Line, owed: None, .. }]));
+    symlink(&skills, wt.join(".cfg/l")).unwrap();
+    s.disarm(&wt).unwrap();
+    assert_eq!(fs::read_link(wt.join(".cfg/l")).unwrap(), skills, "no record planted this one");
+}
+
+#[test]
+fn a_link_of_ours_is_repointed_and_one_a_crash_left_missing_is_made_again() {
+    let s = scratch();
+    let (one, two) = (s.skill("ws-1", "one"), s.skill("ws-1", "two"));
+    s.arm("p.linker", "ws-1", &[link(".l", &one)]);
+    let report = s.arm("p.linker", "ws-1", &[link(".l", &two)]);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert_eq!(fs::read_link(s.cwd.join(".l")).unwrap(), two);
+    assert_eq!(fs::read_dir(&s.cwd).unwrap().count(), 1, "no temporary beside it");
+    // Interrupted between giving way and the new link: the name is empty.
+    fs::remove_file(s.cwd.join(".l")).unwrap();
+    assert!(s.arm("p.linker", "ws-1", &[link(".l", &one)]).refused.is_empty());
+    assert_eq!(fs::read_link(s.cwd.join(".l")).unwrap(), one);
+}
+
+#[test]
+fn a_failed_setup_adopts_nothing_that_was_not_recorded() {
+    let s = scratch();
+    let main = repo(&s);
+    let skills = s.skills("ws-1");
+    symlink(&skills, main.join(".l")).unwrap();
+    lock(&main.join(".git/info"), true);
+    let report = s.arm_in(&main, "p.linker", "ws-1", &[link(".l", &skills)]);
+    lock(&main.join(".git/info"), false);
+    assert_eq!(refused(&report, ".l"), "this could not be kept from git — nothing was planted");
+    assert!(s.places("ws-1").is_empty());
+    s.disarm(&main).unwrap();
+    assert_eq!(fs::read_link(main.join(".l")).unwrap(), skills, "never recorded, never taken back");
+}
+
+#[test]
+fn only_an_exact_line_of_its_own_covers_an_entry() {
+    // ws-1's link was swapped for one into ws-2's skills, which an older
+    // record of ws-2 names, hidden by a broad line no longer there. Letting
+    // ws-1's exact line go must not bring that broad line back.
+    let s = scratch();
+    let main = repo(&s);
+    s.arm_in(&main, "p.linker", "ws-1", &[link(".cfg/l", &s.skills("ws-1"))]);
+    fs::remove_file(main.join(".cfg/l")).unwrap();
+    symlink(s.skills("ws-2"), main.join(".cfg/l")).unwrap();
+    let older = place(&main, "p.linker", ".cfg/l", What::Symlink { target: None });
+    Ledger::read(&s.root).unwrap().write("ws-2", vec![Place { hidden: Hidden::FirstSegment, ..older }]).unwrap();
+    s.arm_in(&main, "p.linker", "ws-1", &[]);
+    assert_eq!(excluded(&main), ["/.cfg/l"], "the entry stays hidden exactly, its siblings visible");
+}
+
+#[test]
+fn a_line_goes_with_its_planting_after_the_worktree_is_gone() {
+    let s = scratch();
+    let main = repo(&s);
+    let wt = worktree(&main, "wt");
+    s.arm_in(&wt, "p.linker", "ws-1", &[link(".l", &s.skills("ws-1"))]);
+    assert_eq!(excluded(&main), ["/.l"]);
+    git(&main, &["worktree", "remove", "--force", wt.to_str().unwrap()]);
+    s.disarm(&wt).unwrap();
+    assert!(excluded(&main).is_empty(), "its record knew which repo and which line");
+    assert!(s.places("ws-1").is_empty());
 }
 
 #[test]

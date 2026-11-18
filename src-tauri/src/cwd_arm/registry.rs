@@ -33,6 +33,12 @@ pub(super) struct Place {
     /// which hid the path's whole first segment.
     #[serde(default)]
     pub hidden: Hidden,
+    /// The exclude line it owes, as written when it was recorded: what lets
+    /// that line go again whatever becomes of the directory. Absent in older
+    /// records, and in one whose line could not be worked out yet — then it
+    /// is worked out from `cwd` when it can be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owed: Option<Owed>,
 }
 
 /// What stands at a place.
@@ -54,16 +60,16 @@ pub(super) enum What {
     /// A directory KeepDeck made on the way to a planting, exactly this one.
     Dir { identity: Identity },
     /// Nothing of ours stands here, and nothing here is ever changed or
-    /// claimed: only an exclude line still owed — for a planting gone, one
+    /// claimed: only the exclude line still owed — for a planting gone, one
     /// that never landed, a temporary — kept until it can be let go.
-    Line { owed: Owed },
-    /// A name reserved for a temporary before it is made: unique to the
-    /// process that reserved it, so whatever file or link stands at it is
-    /// that temporary, left by a crash, and goes. Its line, when it has one,
-    /// is owed like any other.
+    Line,
+    /// A name reserved for a temporary before it is made. The reservation
+    /// alone proves nothing about what stands at it: a file there goes only
+    /// when it is the one `made` records, a link only when it points where
+    /// a link of ours does. Anything else is left as it is.
     Temp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        owed: Option<Owed>,
+        made: Option<Identity>,
     },
 }
 
@@ -78,6 +84,8 @@ pub(super) struct Owed {
     /// Whether only a link standing there keeps it: the older builds' line
     /// for codex's whole-folder link, whose other occupants are the user's.
     pub links_only: bool,
+    /// Whether it hides exactly its entry, and nothing beside it.
+    pub exact: bool,
 }
 
 /// What exactly KeepDeck put at a file place.
@@ -144,7 +152,7 @@ impl Place {
     /// of ours stands in. An owed line or a reserved name claims nothing.
     pub fn claim(&self) -> Option<String> {
         match self.what {
-            What::Line { .. } | What::Temp { .. } => None,
+            What::Line | What::Temp { .. } => None,
             _ => self.slot(),
         }
     }
@@ -295,6 +303,7 @@ mod tests {
             path: ".l".into(),
             what: What::Symlink { target: None },
             hidden: Hidden::Exact,
+            owed: None,
         };
         assert!(ledger.write("ws-1", vec![place.clone()]).unwrap());
         assert!(manifest(tmp.path(), "ws-1").exists());

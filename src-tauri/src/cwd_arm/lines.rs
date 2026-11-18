@@ -49,14 +49,15 @@ impl Lines {
         Ok(repo)
     }
 
-    /// The line `place` owes: the one it carries when it is an owed line or a
-    /// reserved name; none for a folder or outside any repo.
+    /// The line `place` owes: the one recorded with it, or — for an older
+    /// record, or one whose line could not be worked out when it was
+    /// recorded — the one its directory gives now. None for a folder or
+    /// outside any repo.
     fn owed(&mut self, place: &Place) -> io::Result<Option<Owed>> {
-        match &place.what {
-            What::Line { owed } => Ok(Some(owed.clone())),
-            What::Temp { owed } => Ok(owed.clone()),
-            What::Dir { .. } => Ok(None),
-            What::Symlink { .. } | What::File { .. } => self.owed_at(place),
+        match (&place.owed, &place.what) {
+            (Some(owed), _) => Ok(Some(owed.clone())),
+            (None, What::Dir { .. }) => Ok(None),
+            (None, _) => self.owed_at(place),
         }
     }
 
@@ -73,39 +74,48 @@ impl Lines {
         let links_only = place.hidden == Hidden::FirstSegment
             && place.plugin == HISTORICAL_PLUGIN
             && slot(&place.path).as_deref() == Some(HISTORICAL_FOLDER_LINK);
-        Ok(Some(Owed { line, slot: repo.below_root(&place.path), links_only }))
+        let exact = place.hidden == Hidden::Exact;
+        Ok(Some(Owed { line, slot: repo.below_root(&place.path), links_only, exact }))
+    }
+
+    /// `place` with the line it owes written into it, as it is recorded: from
+    /// then on, letting that line go never depends on its directory.
+    pub fn stamp(&mut self, place: Place) -> io::Result<Place> {
+        let owed = match place.what {
+            What::Dir { .. } => None,
+            _ => self.owed_at(&place)?,
+        };
+        Ok(Place { owed, ..place })
     }
 
     /// A reservation of the name `path` in `cwd` for a temporary, with the
     /// exact line that keeps git blind to it while it stands.
     pub fn reserve(&mut self, cwd: &str, plugin: &str, path: String) -> io::Result<Place> {
-        let mut place = Place {
+        self.stamp(Place {
             cwd: cwd.to_string(),
             plugin: plugin.to_string(),
             path,
-            what: What::Temp { owed: None },
+            what: What::Temp { made: None },
             hidden: Hidden::Exact,
-        };
-        place.what = What::Temp { owed: self.owed_at(&place)? };
-        Ok(place)
-    }
-
-    /// `place`'s line as an owed line on its own — None when it owes none.
-    pub fn owing(&mut self, place: &Place) -> io::Result<Option<Place>> {
-        Ok(self.owed(place)?.map(|owed| Place { what: What::Line { owed }, ..place.clone() }))
+            owed: None,
+        })
     }
 
     /// What stays recorded of `place` once nothing of it stands, while the
-    /// line it owes cannot go yet: that line alone ([`Self::owing`]). None
-    /// when it owes none. A place whose line cannot be read stays as it is.
+    /// line it owes cannot go yet: that line alone, which claims and changes
+    /// nothing. None when it owes none. A line that cannot be worked out now
+    /// stays owed all the same, to be worked out later — never as what the
+    /// place was.
     pub fn line_left(&mut self, place: Place) -> Option<Place> {
-        match self.owing(&place) {
-            Ok(owing) => owing,
+        let owed = match self.owed(&place) {
+            Ok(None) => return None,
+            Ok(owed) => owed,
             Err(e) => {
                 log::warn!("cwd arming: exclude lookup for {} failed: {e}", place.cwd);
-                Some(place)
+                None
             }
-        }
+        };
+        Some(Place { what: What::Line, owed, ..place })
     }
 
     /// Add every line `places` owe — one write per repo, none when all are
@@ -129,12 +139,15 @@ impl Lines {
             return Vec::new();
         }
         let mut needed: HashSet<ExcludeLine> = HashSet::new();
-        // Each entry a remaining place keeps hidden by its own line.
+        // Each entry a remaining place keeps hidden by an exact line of its
+        // own — a broad one hides what lies beside it too.
         let mut covered: HashMap<PathBuf, ExcludeLine> = HashMap::new();
         for place in remaining {
             match self.owed(place) {
                 Ok(Some(owed)) => {
-                    covered.insert(Path::new(&place.cwd).join(&place.path), owed.line.clone());
+                    if owed.exact {
+                        covered.insert(Path::new(&place.cwd).join(&place.path), owed.line.clone());
+                    }
                     needed.insert(owed.line);
                 }
                 Ok(None) => {}
@@ -198,8 +211,9 @@ impl Lines {
 
     /// Whether anything `owed` could be hiding stands in some worktree of its
     /// repo — None when the worktrees cannot be listed. An entry `covered`
-    /// names stands hidden by a line of its own: that line goes in `through`,
-    /// to be written with the edit that lets this one go.
+    /// names, by an exact line of this same repo, stands hidden by that line:
+    /// it goes in `through`, to be written with the edit that lets this one
+    /// go.
     fn standing(
         &mut self,
         owed: &Owed,
@@ -221,7 +235,9 @@ impl Lines {
         let mut standing = false;
         for at in roots.iter().map(|root| root.join(&owed.slot)) {
             match fs::symlink_metadata(&at) {
-                Ok(_) if covered.contains_key(&at) => through.push(covered[&at].clone()),
+                Ok(_) if covered.get(&at).is_some_and(|own| own.common_dir() == common_dir) => {
+                    through.push(covered[&at].clone());
+                }
                 Ok(meta) if !owed.links_only || meta.file_type().is_symlink() => standing = true,
                 Ok(_) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound || e.raw_os_error() == Some(libc::ENOTDIR) => {}

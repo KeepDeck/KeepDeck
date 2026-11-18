@@ -517,20 +517,6 @@ pub(crate) fn publish_at(dir: &File, staged: &OsStr, name: &OsStr, publish: Publ
     rename_at(dir, &c_name(staged)?, &c_name(name)?, publish)
 }
 
-/// Make the link `name` inside `dir` point at `target`: exclusively straight
-/// in, or — `through` a name the caller reserved ([`temporary_beside`]) — in
-/// place of what stands there, made as that name first and renamed over it,
-/// so at no moment is the name missing.
-pub(crate) fn link_at(target: &OsStr, dir: &File, name: &OsStr, through: Option<&OsStr>) -> io::Result<()> {
-    let Some(tmp) = through else { return symlink_at(target, dir, name) };
-    symlink_at(target, dir, tmp)?;
-    let renamed = rename_at(dir, &c_name(tmp)?, &c_name(name)?, Publish::Replace);
-    if renamed.is_err() {
-        let _ = remove_at(dir, tmp, false);
-    }
-    renamed
-}
-
 /// The bytes of the regular file `name` inside `dir`, read by descriptor and
 /// never past `budget` — None for anything else (a link, a directory, a FIFO)
 /// or a file larger than that.
@@ -763,7 +749,7 @@ mod tests {
         assert_eq!(fs::read_to_string(tmp.path().join("conf.json")).unwrap(), "theirs");
         assert_eq!(fs::read_to_string(tmp.path().join(&staged.name)).unwrap(), "ours", "left staged");
         remove_at(&dir, &staged.name, false).unwrap();
-        let link = link_at(OsStr::new("/ours"), &dir, OsStr::new("link"), None).unwrap_err();
+        let link = symlink_at(OsStr::new("/ours"), &dir, OsStr::new("link")).unwrap_err();
         assert_eq!(link.kind(), ErrorKind::AlreadyExists);
         let staged = stage_at(&dir, &temporary_beside(OsStr::new("new.json")), b"ours", FILE_MODE).unwrap();
         publish_at(&dir, &staged.name, OsStr::new("new.json"), Publish::Exclusive).unwrap();
@@ -771,16 +757,6 @@ mod tests {
         assert_eq!(identity_at(&dir, OsStr::new("new.json")).unwrap(), staged.identity, "the staged file itself");
         let names = names_in(&dir, usize::MAX).unwrap().unwrap();
         assert_eq!(names.len(), 3, "no temporary left behind: {names:?}");
-    }
-
-    #[test]
-    fn a_link_replaced_in_place_points_at_its_new_target_and_leaves_no_temporary() {
-        let tmp = tempfile::tempdir().unwrap();
-        symlink("/old", tmp.path().join("link")).unwrap();
-        let dir = open_dir(tmp.path()).unwrap();
-        link_at(OsStr::new("/new"), &dir, OsStr::new("link"), Some(&temporary_beside(OsStr::new("link")))).unwrap();
-        assert_eq!(fs::read_link(tmp.path().join("link")).unwrap(), Path::new("/new"));
-        assert_eq!(names_in(&dir, usize::MAX).unwrap().unwrap(), vec![OsString::from("link")]);
     }
 
     #[test]

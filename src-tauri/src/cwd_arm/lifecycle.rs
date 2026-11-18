@@ -8,18 +8,22 @@
 //! 1. Decide each declaration from what stands now, and name every
 //!    temporary it will make.
 //! 2. Set up, changing nothing that stands: first the record of what the
-//!    pass will owe — the new links, each new file's line, each temporary's
-//!    reserved name — then every exclude line all of it needs. If either
-//!    will not go, NOTHING that stands changes this pass: no planting, no
-//!    take-back, no line let go, no record promoted.
+//!    pass will owe — the new links, each new file's line, each staged
+//!    file's reserved name — then every exclude line all of it needs. Every
+//!    place is recorded with the line it owes, so letting that line go never
+//!    depends on its directory. If either will not go, NOTHING that stands
+//!    changes this pass: no planting, no take-back, no line let go, no
+//!    record promoted, nothing adopted.
 //! 3. Clear each link older builds left on the way, once.
 //! 4. Make the folders on the way and stage the files, and record them as
 //!    prepared.
-//! 5. Publish: only into an empty name, or over what is still provably ours.
-//!    A file is active once seen in place as staged.
+//! 5. Publish: only into an empty name, or over what is still provably ours
+//!    — a file renamed over it, a link after ours gave way. A file is active
+//!    once seen in place as staged.
 //! 6. Settle the record: a declared slot keeps what stood until a new planting
-//!    took its place; an undeclared one is taken back, with every reserved
-//!    name's leftover; lines nothing needs go.
+//!    took its place; an undeclared one is taken back, and a reserved name's
+//!    leftover with it when it is the very file recorded as made there;
+//!    lines nothing needs go.
 //!
 //! A crash between any two steps leaves only what a record names: a folder
 //! made on the way, which an empty folder of ours is, is the one thing that
@@ -34,7 +38,7 @@ use std::path::{Path, PathBuf};
 use super::disk::{self, Reach, Slot};
 use super::lines::Lines;
 use super::proof::{self, Roots};
-use super::registry::{canonical, slot, Held, Hidden, Landed, Landing, Ledger, Place, Receipt, What};
+use super::registry::{canonical, slot, Held, Hidden, Landed, Landing, Ledger, Owed, Place, Receipt, What};
 use super::{relative_parts, ArmRefusal, CwdArm, CwdArmReport, CAPS};
 use crate::fs_beneath::{self as fsb, Publish};
 
@@ -85,14 +89,38 @@ enum Act {
 struct Planting {
     admitted: Admitted,
     act: Act,
+    /// The exclude line it owes, worked out at setup: recorded with every
+    /// place made for it.
+    owed: Option<Owed>,
     /// The temporary a file is staged as, named before anything is made.
     temp: Option<OsString>,
+    /// Where its reservation sits in the pass's recorded intent.
+    reserved: Option<usize>,
     dir: Option<File>,
     staged: Option<fsb::Staged>,
     refused: Option<String>,
 }
 
 impl Planting {
+    /// A place of this planting's, exact, recorded with the line it owes.
+    fn place(&self, cwd: &str, plugin: &str, what: What) -> Place {
+        Place {
+            cwd: cwd.to_string(),
+            plugin: plugin.to_string(),
+            path: self.admitted.path.clone(),
+            what,
+            hidden: Hidden::Exact,
+            owed: self.owed.clone(),
+        }
+    }
+    /// The place it is when it stands as declared.
+    fn exact(&self, cwd: &str, plugin: &str) -> Place {
+        let what = match &self.admitted.want {
+            Want::Link(_) => What::Symlink { target: None },
+            Want::File { .. } => What::File { receipt: None },
+        };
+        self.place(cwd, plugin, what)
+    }
     fn leaf(&self) -> &OsStr {
         OsStr::new(self.admitted.parts.last().expect("a declared path has a name"))
     }
@@ -171,7 +199,7 @@ pub(super) fn arm(
         })
         .collect();
     let dirs: Vec<Place> = take(&mut here, |p| matches!(p.what, What::Dir { .. }));
-    let owed: Vec<Place> = take(&mut here, |p| matches!(p.what, What::Line { .. }));
+    let owed: Vec<Place> = take(&mut here, |p| matches!(p.what, What::Line));
     let leftovers: Vec<Place> = take(&mut here, |p| matches!(p.what, What::Temp { .. }));
     let mut by_slot: HashMap<String, Vec<usize>> = HashMap::new();
     for (index, place) in here.iter().enumerate() {
@@ -192,12 +220,14 @@ pub(super) fn arm(
         match decided {
             Ok(act) => {
                 let temp = match (&admitted.want, &act) {
-                    (Want::File { .. }, Act::Create { .. } | Act::Replace { .. }) | (Want::Link(_), Act::Replace { .. }) => {
+                    (Want::File { .. }, Act::Create { .. } | Act::Replace { .. }) => {
                         Some(fsb::temporary_beside(OsStr::new(admitted.parts.last().expect("a path has a name"))))
                     }
                     _ => None,
                 };
-                plantings.push(Planting { admitted, act, temp, dir: None, staged: None, refused: None });
+                let planting =
+                    Planting { admitted, act, owed: None, temp, reserved: None, dir: None, staged: None, refused: None };
+                plantings.push(planting);
             }
             Err(reason) => refusals[admitted.index] = Some(reason),
         }
@@ -210,15 +240,26 @@ pub(super) fn arm(
     };
     let mut setup: Result<(), &str> = Ok(());
     let mut intent: Vec<Place> = Vec::new();
-    for planting in plantings.iter().filter(|p| p.changes()) {
-        let path = planting.admitted.path.clone();
-        let owes = match &planting.admitted.want {
-            Want::Link(_) => Ok(Some(place(cwd, plugin, path, What::Symlink { target: None }))),
-            Want::File { .. } => lines.owing(&exact(cwd, plugin, &planting.admitted)),
-        };
-        let reserved = planting.temp_path().map(|temp| lines.reserve(cwd, plugin, temp)).transpose();
-        match (owes, reserved) {
-            (Ok(owes), Ok(reserved)) => intent.extend(owes.into_iter().chain(reserved)),
+    for planting in plantings.iter_mut() {
+        let stamped = lines.stamp(planting.exact(cwd, plugin));
+        let reserved = planting.temp_path().filter(|_| planting.changes()).map(|temp| lines.reserve(cwd, plugin, temp));
+        match (stamped, reserved.transpose()) {
+            (Ok(stamped), Ok(reserved)) => {
+                planting.owed = stamped.owed;
+                if planting.changes() {
+                    // A new link is recorded as itself; a new file, until it
+                    // is staged, as the line it owes.
+                    match planting.admitted.want {
+                        Want::Link(_) => intent.push(planting.exact(cwd, plugin)),
+                        Want::File { .. } if planting.owed.is_some() => intent.push(planting.place(cwd, plugin, What::Line)),
+                        Want::File { .. } => {}
+                    }
+                }
+                if let Some(reservation) = reserved {
+                    planting.reserved = Some(intent.len());
+                    intent.push(reservation);
+                }
+            }
             (Err(e), _) | (_, Err(e)) => {
                 log::warn!("cwd arming: hiding {ws}'s plantings in {cwd} from git failed: {e}");
                 setup = Err(UNHIDDEN);
@@ -235,7 +276,7 @@ pub(super) fn arm(
         }
     }
     if setup.is_ok() {
-        let exacts: Vec<Place> = plantings.iter().map(|p| exact(cwd, plugin, &p.admitted)).collect();
+        let exacts: Vec<Place> = plantings.iter().map(|p| p.exact(cwd, plugin)).collect();
         let reservations = intent.iter().filter(|p| matches!(p.what, What::Temp { .. }));
         if let Err(e) = lines.ensure(exacts.iter().chain(reservations)) {
             log::warn!("cwd arming: hiding {ws}'s plantings in {cwd} from git failed: {e}");
@@ -304,8 +345,11 @@ pub(super) fn arm(
                     let previous = if let Act::Replace { previous, .. } = &planting.act { previous.clone() } else { None };
                     let receipt =
                         Receipt { state: Landing::Prepared, identity, digest: digest.clone(), previous: previous.map(Box::new) };
-                    let what = What::File { receipt: Some(receipt) };
-                    prepared.push(place(cwd, plugin, planting.admitted.path.clone(), what));
+                    prepared.push(planting.place(cwd, plugin, What::File { receipt: Some(receipt) }));
+                    // Its reservation now proves what was made at that name.
+                    if let Some(at) = planting.reserved {
+                        intent[at].what = What::Temp { made: Some(identity) };
+                    }
                     planting.staged = Some(file);
                 }
                 Err(e) => {
@@ -342,11 +386,13 @@ pub(super) fn arm(
         }
         if matches!(planting.act, Act::Keep) {
             let key = slot(&planting.admitted.path).expect("a slot");
-            // A failed setup promotes no record: what stood stays as it was.
-            present.push(match (setup.is_ok(), place_at(&key)) {
-                (false, Some(place)) => place.clone(),
-                (_, place) => keep(place, cwd, plugin, &planting.admitted),
-            });
+            // A failed setup promotes no record and adopts nothing: what was
+            // recorded stays as it was, and what was not stays unrecorded.
+            match (setup, place_at(&key)) {
+                (Err(_), Some(place)) => present.push(place.clone()),
+                (Err(reason), None) => planting.refused = Some(reason.to_string()),
+                (Ok(()), place) => present.push(keep(place, cwd, plugin, planting)),
+            }
             continue;
         }
         let Some(dir) = &planting.dir else { continue };
@@ -717,29 +763,20 @@ fn active_receipt(landed: Landed) -> Receipt {
 /// The place a declaration that already stands as declared keeps: its own
 /// record, exact from now on, while it records the kind that stands — a fresh
 /// one when what stands now is of another kind than the record says.
-fn keep(place: Option<&Place>, cwd: &str, plugin: &str, admitted: &Admitted) -> Place {
-    match (place, &admitted.want) {
-        (Some(place), Want::Link(_)) if matches!(place.what, What::Symlink { .. }) => {
-            Place { hidden: Hidden::Exact, path: admitted.path.clone(), ..place.clone() }
-        }
-        (Some(place), Want::File { .. }) if matches!(place.what, What::File { receipt: Some(_) }) => {
-            Place { hidden: Hidden::Exact, path: admitted.path.clone(), ..place.clone() }
-        }
-        _ => exact(cwd, plugin, admitted),
+fn keep(place: Option<&Place>, cwd: &str, plugin: &str, planting: &Planting) -> Place {
+    let same_kind = |place: &Place| match &planting.admitted.want {
+        Want::Link(_) => matches!(place.what, What::Symlink { .. }),
+        Want::File { .. } => matches!(place.what, What::File { receipt: Some(_) }),
+    };
+    match place.filter(|place| same_kind(place)) {
+        Some(place) => Place { what: place.what.clone(), ..planting.exact(cwd, plugin) },
+        None => planting.exact(cwd, plugin),
     }
 }
 
-/// A fresh exact place for a declaration.
-fn exact(cwd: &str, plugin: &str, admitted: &Admitted) -> Place {
-    let what = match &admitted.want {
-        Want::Link(_) => What::Symlink { target: None },
-        Want::File { .. } => What::File { receipt: None },
-    };
-    place(cwd, plugin, admitted.path.clone(), what)
-}
-
+/// A place KeepDeck makes on its own account — a folder on the way.
 fn place(cwd: &str, plugin: &str, path: String, what: What) -> Place {
-    Place { cwd: cwd.to_string(), plugin: plugin.to_string(), path, what, hidden: Hidden::Exact }
+    Place { cwd: cwd.to_string(), plugin: plugin.to_string(), path, what, hidden: Hidden::Exact, owed: None }
 }
 
 /// Remove the link at `at` when it still points exactly at `link`.
@@ -784,14 +821,24 @@ fn publish(dir: &File, roots: &Roots, planting: &Planting, cwd: &str, plugin: &s
             return Published::Refused(late());
         }
     }
-    let publish = if matches!(planting.act, Act::Replace { .. }) { Publish::Replace } else { Publish::Exclusive };
+    let replace = matches!(planting.act, Act::Replace { .. });
     match (&admitted.want, staged) {
-        (Want::Link(target), _) => match fsb::link_at(target.as_os_str(), dir, leaf, through(planting, publish)) {
-            Ok(()) => Published::Landed(place(cwd, plugin, path.clone(), What::Symlink { target: None })),
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => Published::Refused(late()),
-            Err(e) => Published::Refused(e.to_string()),
-        },
+        (Want::Link(target), _) => {
+            // A link of ours gives way, then the new one goes into the empty
+            // name — only into an empty name: no temporary, nothing reserved.
+            if replace {
+                if let Err(e) = fsb::remove_at(dir, leaf, false) {
+                    return Published::Refused(e.to_string());
+                }
+            }
+            match fsb::symlink_at(target.as_os_str(), dir, leaf) {
+                Ok(()) => Published::Landed(planting.place(cwd, plugin, What::Symlink { target: None })),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => Published::Refused(late()),
+                Err(e) => Published::Refused(e.to_string()),
+            }
+        }
         (Want::File { digest, .. }, Some(file)) => {
+            let publish = if replace { Publish::Replace } else { Publish::Exclusive };
             if let Err(e) = fsb::publish_at(dir, &file.name, leaf, publish) {
                 discard(dir, Some(file));
                 return Published::Refused(if e.kind() == ErrorKind::AlreadyExists { late() } else { e.to_string() });
@@ -803,24 +850,16 @@ fn publish(dir: &File, roots: &Roots, planting: &Planting, cwd: &str, plugin: &s
                 _ => false,
             };
             if seen {
-                Published::Landed(place(cwd, plugin, path.clone(), What::File { receipt: Some(active_receipt(landed)) }))
+                Published::Landed(planting.place(cwd, plugin, What::File { receipt: Some(active_receipt(landed)) }))
             } else {
                 let previous = if let Act::Replace { previous, .. } = &planting.act { previous.clone() } else { None };
                 let receipt =
                     Receipt { state: Landing::Prepared, identity, digest: digest.clone(), previous: previous.map(Box::new) };
-                let prepared = place(cwd, plugin, path.clone(), What::File { receipt: Some(receipt) });
+                let prepared = planting.place(cwd, plugin, What::File { receipt: Some(receipt) });
                 Published::Unconfirmed(prepared, format!("{path} could not be seen in place after it was planted"))
             }
         }
         (Want::File { .. }, None) => unreachable!("a file to publish is always staged"),
-    }
-}
-
-/// The reserved name a link replacing one of ours is made as, first.
-fn through(planting: &Planting, publish: Publish) -> Option<&OsStr> {
-    match publish {
-        Publish::Replace => Some(planting.temp.as_deref().expect("a replacement has its temporary named")),
-        Publish::Exclusive => None,
     }
 }
 
@@ -864,7 +903,7 @@ pub(super) fn retire(home: &Path, whole: bool, gone: Vec<Held>) -> Outcome {
 /// that is gone takes its plantings with it; one that will not open is an
 /// error, so the place stays recorded.
 fn take_back(home: &Path, ws: &str, place: &Place) -> io::Result<()> {
-    if matches!(place.what, What::Line { .. }) {
+    if matches!(place.what, What::Line) {
         return Ok(());
     }
     let Some((_, cwd_fd)) = open_cwd(&place.cwd)? else { return Ok(()) };
@@ -881,8 +920,9 @@ fn take_back(home: &Path, ws: &str, place: &Place) -> io::Result<()> {
         (What::File { .. }, Slot::File { identity, digest }) => {
             active(&place).is_some_and(|landed| proof::is_landed(&landed, identity, digest.as_deref()))
         }
-        // A reserved name holds only the temporary it was reserved for.
-        (What::Temp { .. }, Slot::File { .. } | Slot::Link(_)) => true,
+        // A reserved name proves nothing by itself: only the very file
+        // recorded as made there is ours.
+        (What::Temp { made: Some(made) }, Slot::File { identity: Some(now), .. }) => now == *made,
         _ => false,
     };
     if ours {
@@ -897,7 +937,7 @@ fn take_back(home: &Path, ws: &str, place: &Place) -> io::Result<()> {
 pub(super) fn retire_dirs(whole: bool, dirs: Vec<Held>, holding: &[&Place]) -> Outcome {
     // Every folder something recorded lies in — an owed line lies nowhere.
     let mut around: HashSet<(&str, String)> = HashSet::new();
-    for place in holding.iter().filter(|p| !matches!(p.what, What::Line { .. })) {
+    for place in holding.iter().filter(|p| !matches!(p.what, What::Line)) {
         let Some(key) = place.slot() else { continue };
         around.extend(key.match_indices('/').map(|(at, _)| (place.cwd.as_str(), key[..at].to_string())));
     }
@@ -1031,7 +1071,9 @@ mod tests {
                 want: Want::File { digest: proof::digest(&bytes), bytes },
             },
             act: Act::Create { clear: None },
+            owed: None,
             temp: Some(temp),
+            reserved: None,
             dir: None,
             staged: Some(staged),
             refused: None,
@@ -1042,7 +1084,9 @@ mod tests {
         let link = Planting {
             admitted: Admitted { index: 1, path: "l".into(), parts: vec!["l".into()], want: Want::Link(base.join("x")) },
             act: Act::Create { clear: None },
+            owed: None,
             temp: None,
+            reserved: None,
             dir: None,
             staged: None,
             refused: None,
