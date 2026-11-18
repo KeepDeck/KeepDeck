@@ -1032,7 +1032,8 @@ fn a_failed_setup_promotes_no_older_record() {
     lock(&main.join(".git/info"), true);
     s.arm_in(&main, "p.linker", "ws-1", &[link(".cfg/l", &skills)]);
     lock(&main.join(".git/info"), false);
-    assert!(s.places("ws-1").iter().all(|p| p.hidden == Hidden::FirstSegment), "still hidden only as it was");
+    let claims: Vec<Place> = s.places("ws-1").into_iter().filter(|p| p.claim().is_some()).collect();
+    assert!(claims.iter().all(|p| p.hidden == Hidden::FirstSegment), "still hidden only as it was: {claims:?}");
     s.arm_in(&main, "p.linker", "ws-1", &[link(".cfg/l", &skills)]);
     assert!(s.places("ws-1").iter().all(|p| p.hidden == Hidden::Exact));
     assert_eq!(excluded(&main), ["/.cfg/l"]);
@@ -1130,9 +1131,9 @@ fn a_failed_setup_adopts_nothing_that_was_not_recorded() {
     let report = s.arm_in(&main, "p.linker", "ws-1", &[link(".l", &skills)]);
     lock(&main.join(".git/info"), false);
     assert_eq!(refused(&report, ".l"), "this could not be kept from git — nothing was planted");
-    assert!(s.places("ws-1").is_empty());
+    assert!(s.places("ws-1").iter().all(|p| p.claim().is_none()), "at most the line it meant to owe");
     s.disarm(&main).unwrap();
-    assert_eq!(fs::read_link(main.join(".l")).unwrap(), skills, "never recorded, never taken back");
+    assert_eq!(fs::read_link(main.join(".l")).unwrap(), skills, "never claimed, never taken back");
 }
 
 #[test]
@@ -1238,4 +1239,18 @@ fn an_older_folder_link_that_would_not_give_way_keeps_every_record_of_it() {
     lock(&main.join(".agents"), false);
     assert!(refused(&report, ".agents/skills/one").contains("could not give way"), "{:?}", report.refused);
     assert_eq!(s.places("ws-2"), before, "lowered for the step, restored when it did not happen");
+}
+
+#[test]
+fn a_take_back_that_could_not_be_lowered_on_record_first_takes_nothing_back() {
+    let s = scratch();
+    let skills = s.skills("ws-1");
+    s.arm("p.linker", "ws-1", &[link(".l", &skills)]);
+    lock(&s.root, true);
+    let swept = s.disarm(&s.cwd);
+    lock(&s.root, false);
+    assert!(swept.is_err());
+    assert_eq!(fs::read_link(s.cwd.join(".l")).unwrap(), skills, "no link goes while its record still claims it");
+    s.disarm(&s.cwd).unwrap();
+    assert!(fs::symlink_metadata(s.cwd.join(".l")).is_err());
 }

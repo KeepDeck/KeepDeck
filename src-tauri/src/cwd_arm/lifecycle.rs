@@ -28,8 +28,13 @@
 //!    leftover with it when it is the very file recorded as made there;
 //!    lines nothing needs go.
 //!
-//! A crash between any two steps leaves no record claiming what it did not
-//! see stand. What may stay behind unnamed: an empty folder made on the way,
+//! Two rules hold at every step, so a crash between any two leaves nothing
+//! wrongly claimed: no record names a link across a step that may remove it
+//! (a link is ours by where it points, so a stale record would claim
+//! whatever link stood there next — files, temporaries and folders are
+//! proven by their identity instead), and no exclude line is written before
+//! a record owes it. A crash leaves no record claiming what it did not see
+//! stand. What may stay behind unnamed: an empty folder made on the way,
 //! and a link of ours planted just before the crash — hidden by the line its
 //! intent owes, and adopted by the next pass that still declares it.
 
@@ -45,6 +50,7 @@ use super::proof::{self, Roots};
 use super::registry::{canonical, slot, Held, Hidden, Landed, Landing, Ledger, Owed, Place, Receipt, What};
 use super::{relative_parts, ArmRefusal, CwdArm, CwdArmReport, CAPS};
 use crate::fs_beneath::{self as fsb, Publish};
+use crate::worktree_arm::ExcludeLine;
 
 /// The mode a planted file is made with: what an editor would make it.
 const PLANTED_FILE_MODE: u32 = 0o644;
@@ -239,10 +245,14 @@ pub(super) fn arm(
 
     // 2. Set up: the record of what the pass will owe, then the lines.
     let mut lines = Lines::default();
-    // Before a step can make a record's claim false, that record says only
-    // the line it still owes: a link of ours about to give way to a new one,
-    // older builds' folder link about to be cleared — this workspace's record
-    // of it and every other's. A step that does not happen restores it.
+    // Before a step can make a record of a link false, that record says only
+    // the line it still owes — a link is ours by where it points, so a record
+    // left claiming a slot a crash emptied would claim whatever link stood
+    // there next. Lowered: a link of ours about to give way, older builds'
+    // folder link about to be cleared (this workspace's record of it and
+    // every other's), and every link no longer declared, about to be taken
+    // back. A step that does not happen restores them. (Files, temporaries
+    // and folders are proven by their identity: no lowering needed.)
     let doomed = doomed(&plantings);
     let dooms = |p: &Place| {
         p.cwd == cwd
@@ -250,8 +260,11 @@ pub(super) fn arm(
             && matches!(p.what, What::Symlink { .. })
             && p.slot().is_some_and(|key| doomed.contains(&key))
     };
+    let lowers = |p: &Place| {
+        dooms(p) || (matches!(p.what, What::Symlink { .. }) && !p.slot().is_some_and(|key| declared.contains(&key)))
+    };
     let recorded = |extra: &[Place]| -> Vec<Place> {
-        let standing = here.iter().filter(|p| !dooms(p));
+        let standing = here.iter().filter(|p| !lowers(p));
         elsewhere.iter().chain(standing).chain(&dirs).chain(&owed).chain(&leftovers).chain(extra).cloned().collect()
     };
     let mut setup: Result<(), &str> = Ok(());
@@ -262,7 +275,8 @@ pub(super) fn arm(
         match (stamped, reserved.transpose()) {
             (Ok(stamped), Ok(reserved)) => {
                 planting.owed = stamped.owed;
-                if planting.changes() {
+                let key = slot(&planting.admitted.path).expect("a slot");
+                if owes_ahead(planting, place_at(&key)) {
                     intent.extend(intended(planting, cwd, plugin));
                 }
                 if let Some(reservation) = reserved {
@@ -276,7 +290,7 @@ pub(super) fn arm(
             }
         }
     }
-    intent.extend(here.iter().filter(|p| dooms(p)).filter_map(|p| lines.line_left(p.clone())));
+    intent.extend(here.iter().filter(|p| lowers(p)).filter_map(|p| lines.line_left(p.clone())));
     if setup.is_ok() {
         match ledger.write(ws, dedup(recorded(&intent))) {
             Ok(wrote) => stats.manifests_written += usize::from(wrote),
@@ -812,19 +826,26 @@ fn clear_link(cwd_fd: &File, at: &str, link: &Path) -> io::Result<()> {
     fsb::remove_at(&way.dir, leaf, false)
 }
 
-/// The slots where a step of this pass may make a standing record's claim
-/// false: a link of ours given way to a new one, and older builds' folder
+/// The slots where a step of this pass may remove a link a record names: a
+/// link of ours replaced — by a link or a file — and older builds' folder
 /// link cleared.
 fn doomed(plantings: &[Planting]) -> HashSet<String> {
     let mut doomed = HashSet::new();
     for planting in plantings.iter().filter(|p| p.changes()) {
-        match (&planting.act, &planting.admitted.want) {
-            (Act::Replace { .. }, Want::Link(_)) => doomed.extend(slot(&planting.admitted.path)),
-            (Act::Create { clear: Some((at, _)) }, _) => doomed.extend(slot(at)),
+        match &planting.act {
+            Act::Replace { ours: Slot::Link(_), .. } => doomed.extend(slot(&planting.admitted.path)),
+            Act::Create { clear: Some((at, _)) } => doomed.extend(slot(at)),
             _ => {}
         }
     }
     doomed
+}
+
+/// Whether the line a planting owes goes on record before it is written:
+/// always for a change; for one already standing as declared, unless its
+/// record owes that very line already.
+fn owes_ahead(planting: &Planting, recorded: Option<&Place>) -> bool {
+    planting.changes() || recorded.and_then(|p| p.owed.as_ref()) != planting.owed.as_ref()
 }
 
 /// What a pass records of a planting before anything is made: only the line
@@ -1089,17 +1110,25 @@ fn take(places: &mut Vec<Place>, pick: impl Fn(&Place) -> bool) -> Vec<Place> {
     taken
 }
 
-/// One place per slot, kind and way of hiding, the last word kept.
+/// One place per slot, kind and way of hiding, the last word kept — and one
+/// owed line per line it owes: two lines owed at one slot (stamped before and
+/// after the directory was renamed) are two obligations.
 fn dedup(places: Vec<Place>) -> Vec<Place> {
-    let mut seen: HashSet<(String, String, String, std::mem::Discriminant<What>, Hidden)> = HashSet::new();
+    type Key = (String, String, String, std::mem::Discriminant<What>, Hidden, Option<ExcludeLine>);
+    let mut seen: HashSet<Key> = HashSet::new();
     let mut kept: Vec<Place> = Vec::new();
     for place in places.into_iter().rev() {
+        let line = match place.what {
+            What::Line => place.owed.as_ref().map(|owed| owed.line.clone()),
+            _ => None,
+        };
         let key = (
             place.cwd.clone(),
             place.plugin.clone(),
             place.slot().unwrap_or_default(),
             std::mem::discriminant(&place.what),
             place.hidden,
+            line,
         );
         if seen.insert(key) {
             kept.push(place);
@@ -1158,6 +1187,50 @@ mod tests {
         let plain = linking(Path::new("/b"), Act::Create { clear: None });
         let doomed = doomed(&[replacing, clearing, plain]);
         assert_eq!(doomed, HashSet::from(["l".to_string(), ".agents/skills".to_string()]));
+    }
+
+    #[test]
+    fn a_link_replaced_by_a_file_dooms_its_slot_too() {
+        let mut by_file = linking(Path::new("/b"), Act::Replace { ours: Slot::Link("/x".into()), previous: None });
+        by_file.admitted.want = Want::File { bytes: b"x".to_vec(), digest: proof::digest(b"x") };
+        let over_a_file = linking(Path::new("/b"), Act::Replace { ours: Slot::Other, previous: None });
+        assert_eq!(doomed(&[by_file]), HashSet::from(["l".to_string()]));
+        assert!(doomed(&[over_a_file]).is_empty(), "a file of ours is proven by its identity");
+    }
+
+    #[test]
+    fn a_line_goes_on_record_before_it_is_written_unless_the_record_owes_it() {
+        let line = crate::worktree_arm::test_support::exclude_line("/r/.git", "/l");
+        let owed = Owed { line, slot: "l".into(), links_only: false, exact: true };
+        let mut keep = linking(Path::new("/b"), Act::Keep);
+        keep.owed = Some(owed.clone());
+        let recorded = |owed: Option<Owed>| Place { owed, ..keep.exact("/r", "p") };
+        assert!(owes_ahead(&keep, None), "standing, but never recorded");
+        assert!(owes_ahead(&keep, Some(&recorded(None))), "recorded before lines were stamped");
+        assert!(!owes_ahead(&keep, Some(&recorded(Some(owed)))), "an unchanged pass writes nothing");
+        assert!(owes_ahead(&linking(Path::new("/b"), Act::Create { clear: None }), None));
+    }
+
+    #[test]
+    fn two_lines_owed_at_one_slot_are_two_obligations() {
+        let owed = |line: &str| Owed {
+            line: crate::worktree_arm::test_support::exclude_line("/r/.git", line),
+            slot: "l".into(),
+            links_only: false,
+            exact: true,
+        };
+        let at = |what: What, line: &str| Place {
+            cwd: "/r".into(),
+            plugin: "p".into(),
+            path: ".cfg/l".into(),
+            what,
+            hidden: Hidden::Exact,
+            owed: Some(owed(line)),
+        };
+        let kept = dedup(vec![at(What::Line, "/before/.cfg/l"), at(What::Line, "/after/.cfg/l")]);
+        assert_eq!(kept.len(), 2, "{kept:?}");
+        let links = dedup(vec![at(What::Symlink { target: None }, "/a"), at(What::Symlink { target: None }, "/b")]);
+        assert_eq!(links, vec![at(What::Symlink { target: None }, "/b")], "one planting per slot, the last word");
     }
 
     #[test]

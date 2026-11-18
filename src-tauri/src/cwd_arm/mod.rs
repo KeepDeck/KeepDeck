@@ -251,9 +251,12 @@ fn prune(root: &Path, home: &Path, live: &[String]) -> io::Result<()> {
 
 /// Retire every place `gone` picks, across workspaces, through the one
 /// lifecycle: plantings and reserved names first, then the folders made for
-/// them, then the lines nothing needs any more. Each workspace's record keeps
-/// what would not go, and every line still owed; only a planting that would
-/// not go is a failure.
+/// them, then the lines nothing needs any more. Before any link is taken
+/// back, each record of one says only the line it owes, so a crash between
+/// the two leaves no record claiming the slot; if that record will not go,
+/// nothing is taken back. Each workspace's record then keeps what would not
+/// go, and every line still owed; only a planting that would not go is a
+/// failure.
 fn sweep(ledger: &mut Ledger, home: &Path, gone: impl Fn(&str, &Place) -> bool) -> io::Result<Vec<Place>> {
     let mut leaving: Vec<Held> = Vec::new();
     let mut staying: Vec<Held> = Vec::new();
@@ -268,6 +271,15 @@ fn sweep(ledger: &mut Ledger, home: &Path, gone: impl Fn(&str, &Place) -> bool) 
     if leaving.is_empty() {
         return Ok(Vec::new());
     }
+    let mut lines = lines::Lines::default();
+    let lowered: Vec<Held> = leaving
+        .iter()
+        .filter_map(|(ws, place)| match place.what {
+            What::Symlink { .. } => lines.line_left(place.clone()).map(|line| (ws.clone(), line)),
+            _ => Some((ws.clone(), place.clone())),
+        })
+        .collect();
+    record(ledger, staying.iter().chain(&lowered))?;
     let (dirs, plantings): (Vec<Held>, Vec<Held>) =
         leaving.into_iter().partition(|(_, p)| matches!(p.what, What::Dir { .. }));
     let lifecycle::Outcome { mut released, mut retained } = lifecycle::retire(home, true, plantings);
@@ -277,15 +289,21 @@ fn sweep(ledger: &mut Ledger, home: &Path, gone: impl Fn(&str, &Place) -> bool) 
     retained.extend(dirs_out.retained);
     let failed: Vec<Place> = retained.iter().map(|(_, p)| p.clone()).collect();
     let remaining: Vec<&Place> = staying.iter().chain(&retained).map(|(_, p)| p).collect();
-    let owed = lines::Lines::default().release(released, &remaining);
+    let owed = lines.release(released, &remaining);
     retained.extend(owed);
+    record(ledger, staying.iter().chain(&retained))?;
+    Ok(failed)
+}
+
+/// Write every workspace's record as `places` hold it — a workspace none of
+/// them names is left with an empty one.
+fn record<'a>(ledger: &mut Ledger, places: impl Iterator<Item = &'a Held> + Clone) -> io::Result<()> {
     let workspaces: BTreeSet<String> = ledger.places.iter().map(|(ws, _)| ws.clone()).collect();
     for ws in workspaces {
-        let places: Vec<Place> =
-            staying.iter().chain(&retained).filter(|(id, _)| *id == ws).map(|(_, p)| p.clone()).collect();
-        ledger.write(&ws, places)?;
+        let own: Vec<Place> = places.clone().filter(|(id, _)| *id == ws).map(|(_, p)| p.clone()).collect();
+        ledger.write(&ws, own)?;
     }
-    Ok(failed)
+    Ok(())
 }
 
 /// The plantings in `places`, for a message: `cwd/path`, comma-separated.
