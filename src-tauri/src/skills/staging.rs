@@ -80,8 +80,20 @@ impl SkillsLocks {
 pub(super) fn view_workspace(staging: &Path, path: &Path) -> Option<String> {
     let mut parts = path.strip_prefix(staging).ok()?.components();
     let ws_id = parts.next()?.as_os_str().to_str()?;
-    (parts.next()?.as_os_str() == "skills" && !ws_id.starts_with('.')).then(|| ws_id.to_string())
+    (parts.next()?.as_os_str() == VIEW && !ws_id.starts_with('.')).then(|| ws_id.to_string())
 }
+
+/// The folder every workspace's staging lives in, under the skills `root`.
+pub(super) fn staging_dir(root: &Path) -> PathBuf {
+    root.join("staging")
+}
+
+/// The view inside one staging (or its build aside): what a CLI is pointed at.
+pub(super) fn view_of(staging: &Path) -> PathBuf {
+    staging.join(VIEW)
+}
+
+const VIEW: &str = "skills";
 
 /// A workspace's staging (mirrors the TS `SkillsStagingViews`, camelCase):
 /// the bare view's absolute path, and each staged skill's SKILL.md as text,
@@ -225,7 +237,7 @@ pub(super) fn stage(
     excluded: &[ExcludedSource],
 ) -> io::Result<StagingAnswer> {
     let library = root.join("library");
-    let final_dir = root.join("staging").join(ws_id);
+    let final_dir = staging_dir(root).join(ws_id);
 
     // Overlapping same-ws stagings share the tmp dir and the swap — serialize.
     let lock = locks.for_ws(ws_id);
@@ -243,12 +255,12 @@ pub(super) fn stage(
     // Build aside, then swap: the view is never seen half-copied — only, for
     // the moment between the swap's two renames, absent (see below for why an
     // unchanged view is not swapped at all).
-    let tmp = root.join("staging").join(format!(".tmp-{ws_id}"));
+    let tmp = staging_dir(root).join(format!(".tmp-{ws_id}"));
     match fs::remove_dir_all(&tmp) {
         Err(e) if e.kind() == ErrorKind::NotFound => {}
         other => other?,
     }
-    let view = tmp.join("skills");
+    let view = view_of(&tmp);
     if !sources.is_empty() {
         fs::create_dir_all(&view)?;
     }
@@ -315,7 +327,7 @@ pub(super) fn stage(
     // its plugin copies the view, so a newer view published meanwhile would not
     // match that text. An unchanged library therefore leaves the view as it is.
     let said = if sources.is_empty() { None } else { Some(fingerprint::of_view(&view)?) };
-    let published = final_dir.join("skills");
+    let published = view_of(&final_dir);
     if said.is_some() && said == fingerprint::verified(&published) {
         fs::remove_dir_all(&tmp)?;
     } else {
@@ -324,10 +336,10 @@ pub(super) fn stage(
         }
         fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
         // An emptied library swaps in nothing, so yesterday's view goes with it.
-        swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
+        swap_dir(&tmp, &final_dir, &staging_dir(root).join(format!(".old-{ws_id}")))?;
     }
     let view = (!staged.is_empty()).then(|| SkillStagingDto {
-        dir: final_dir.join("skills").to_string_lossy().into_owned(),
+        dir: published.to_string_lossy().into_owned(),
         skills: staged,
     });
     Ok(StagingAnswer { view, trims })
@@ -511,7 +523,7 @@ fn swap_dir(tmp: &Path, final_dir: &Path, trash: &Path) -> io::Result<()> {
 /// ([`SkillsLocks::holding`]) finishes first. The library is user content and
 /// is never touched.
 pub(super) fn prune_views(locks: &SkillsLocks, root: &Path, live: &[String]) -> io::Result<()> {
-    for dir in sorted_dirs(&root.join("staging"))? {
+    for dir in sorted_dirs(&staging_dir(root))? {
         let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
         let id = name
             .strip_prefix(".tmp-")

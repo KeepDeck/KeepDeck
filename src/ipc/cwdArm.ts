@@ -3,9 +3,10 @@ import { errorMessage, type CwdArm } from "@keepdeck/plugin-api";
 import { log } from "./log";
 
 /**
- * Planting what an agent's plugin declares in a pane's cwd (`cwd_arm.rs`):
- * the native side owns everything that makes it safe — markers, link scope,
- * the git exclude, the per-workspace record a crash sweep reads.
+ * Planting what an agent's plugin declares in a pane's cwd (`cwd_arm/`):
+ * the native side owns everything that makes it safe — the proof of what is
+ * its own, link scope, the git exclude, the per-workspace record a crash
+ * sweep reads.
  */
 
 /** A path not planted, and why — words the app puts on screen. */

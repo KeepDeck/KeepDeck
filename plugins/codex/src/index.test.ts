@@ -479,17 +479,26 @@ describe("codex panes run their own process", () => {
 describe("codex plugin — what it plants in the pane's cwd", () => {
   const skills = {
     dir: "/kd/staging/ws-1/skills",
-    skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
+    skills: [
+      { name: "review", content: "---\ndescription: Reviews\n---\n" },
+      { name: "triage", content: "---\ndescription: Triages\n---\n" },
+    ],
   };
 
-  it("links .agents/skills to the host's bare skills directory — codex's only door for them", async () => {
+  it("links each skill into .agents/skills — codex's only door, a folder the project may keep its own in", async () => {
+    // One link per skill, never the folder itself: a project's committed
+    // .agents/skills keeps its skills beside ours, and a pull that brings
+    // one in no longer deletes a link standing for the whole folder.
     const arm = present(activate(null).hooks["arm.plan"], "the arm.plan hook");
     const out: SpawnArmOutput = { cwd: [] };
     await arm({ ...input, skills }, out);
-    expect(out.cwd).toEqual([{ kind: "symlink", path: ".agents/skills", target: "/kd/staging/ws-1/skills" }]);
+    expect(out.cwd).toEqual([
+      { kind: "symlink", path: ".agents/skills/review", target: "/kd/staging/ws-1/skills/review" },
+      { kind: "symlink", path: ".agents/skills/triage", target: "/kd/staging/ws-1/skills/triage" },
+    ]);
   });
 
-  it("declares nothing without skills, so an earlier link is taken back", async () => {
+  it("declares nothing without skills, so links an earlier launch planted are taken back", async () => {
     const arm = present(activate(null).hooks["arm.plan"], "the arm.plan hook");
     const out: SpawnArmOutput = { cwd: [] };
     await arm(input, out);

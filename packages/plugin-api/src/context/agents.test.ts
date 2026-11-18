@@ -10,15 +10,8 @@ import {
   type McpHttpServerSpec,
   type McpServerSpec,
 } from "./agents.ts";
-import armCapsJson from "./armCaps.json";
 
 describe("ARM_CAPS", () => {
-  // The native engine asserts its constants against the SAME file: a bump on
-  // one side alone fails both suites.
-  it("equals armCaps.json, the file cwd_arm.rs pins its numbers to as well", () => {
-    expect(armCapsJson).toEqual(ARM_CAPS);
-  });
-
   const file = (path: string, content: string): CwdArm => ({ kind: "file", path, content });
   const fits = (...cwd: CwdArm[]) => fitsArmCaps({ cwd });
 

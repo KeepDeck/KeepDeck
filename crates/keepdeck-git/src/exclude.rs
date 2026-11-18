@@ -9,6 +9,7 @@
 //! byte — CRLF endings, comments, a missing final newline — survives
 //! untouched. The user's exclude file is theirs; KeepDeck edits its own line.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
@@ -81,50 +82,77 @@ pub const MANAGED: &str = "# keepdeck-managed";
 /// the unit (and a separating newline when the file didn't end with one) is
 /// added.
 pub fn ensure_line(common_dir: &Path, line: &str) -> io::Result<()> {
+    update(common_dir, &[line], &[]).map(drop)
+}
+
+/// Remove `line` only where it sits right below [`MANAGED`]. The same pattern
+/// anywhere else is not ours and stays. Every other byte survives untouched —
+/// a CRLF file keeps its CRLF endings, trailing blank lines and a missing
+/// final newline stay as they were.
+pub fn remove_line(common_dir: &Path, line: &str) -> io::Result<()> {
+    update(common_dir, &[], &[line]).map(drop)
+}
+
+/// [`remove_line`] each of `remove` and [`ensure_line`] each of `add`, in ONE
+/// read and at most one write of the file — none when nothing changes.
+/// Patterns compare as git reads them ([`pattern`]). Answers whether the file
+/// was written.
+pub fn update(common_dir: &Path, add: &[&str], remove: &[&str]) -> io::Result<bool> {
     let exclude = exclude_path(common_dir);
     let current = match fs::read_to_string(&exclude) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e),
     };
-    if current.lines().any(|l| l.trim() == line) {
-        return Ok(());
-    }
-    let sep = if current.is_empty() || current.ends_with('\n') { "" } else { "\n" };
-    write_atomic(&exclude, format!("{current}{sep}{MANAGED}\n{line}\n").as_bytes())
-}
-
-/// Remove `line` only where it sits right below [`MANAGED`] — both lines,
-/// trimmed comparison. The same pattern anywhere else is not ours and stays.
-/// Every other byte survives untouched — a CRLF file keeps its CRLF endings,
-/// trailing blank lines and a missing final newline stay as they were.
-pub fn remove_line(common_dir: &Path, line: &str) -> io::Result<()> {
-    let exclude = exclude_path(common_dir);
-    let current = match fs::read_to_string(&exclude) {
-        Ok(text) => text,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    let text = |segment: &str| segment.trim_end_matches(['\n', '\r']).trim().to_string();
+    let removing: HashSet<&str> = remove.iter().map(|line| pattern(line)).collect();
     let segments: Vec<&str> = current.split_inclusive('\n').collect();
     let mut kept = String::with_capacity(current.len());
-    let mut removed = false;
+    let mut changed = false;
     let mut index = 0;
     while index < segments.len() {
-        let ours = text(segments[index]) == MANAGED
-            && segments.get(index + 1).is_some_and(|next| text(next) == line);
+        let ours = segments[index].trim() == MANAGED
+            && segments.get(index + 1).is_some_and(|next| removing.contains(&pattern(next)));
         if ours {
-            removed = true;
+            changed = true;
             index += 2;
             continue;
         }
         kept.push_str(segments[index]);
         index += 1;
     }
-    if !removed {
-        return Ok(());
+    let mut there: HashSet<String> = kept.lines().map(|existing| pattern(existing).to_string()).collect();
+    for line in add {
+        if !there.insert(pattern(line).to_string()) {
+            continue;
+        }
+        if !kept.is_empty() && !kept.ends_with('\n') {
+            kept.push('\n');
+        }
+        kept.push_str(&format!("{MANAGED}\n{line}\n"));
+        changed = true;
     }
-    write_atomic(&exclude, kept.as_bytes())
+    if !changed {
+        return Ok(false);
+    }
+    write_atomic(&exclude, kept.as_bytes()).map(|()| true)
+}
+
+/// A line of an exclude file as the pattern git reads from it: without its
+/// line ending (`\n`, then one `\r`), and without trailing spaces — except one
+/// a backslash escapes, which git keeps. Nothing else is trimmed: a leading
+/// space or a trailing tab is part of the pattern. Two lines are one pattern
+/// exactly when these agree, byte for byte.
+pub fn pattern(line: &str) -> &str {
+    let line = line.strip_suffix('\n').unwrap_or(line);
+    let mut line = line.strip_suffix('\r').unwrap_or(line);
+    while let Some(rest) = line.strip_suffix(' ') {
+        let escapes = rest.len() - rest.trim_end_matches('\\').len();
+        if escapes % 2 == 1 {
+            break;
+        }
+        line = rest;
+    }
+    line
 }
 
 fn exclude_path(common_dir: &Path) -> PathBuf {
@@ -245,5 +273,47 @@ mod tests {
         fs::write(&exclude, format!("{ours}/.agents/\n")).unwrap();
         remove_line(&common, "/.agents/").unwrap();
         assert_eq!(fs::read_to_string(&exclude).unwrap(), "/.agents/\n");
+    }
+
+    #[test]
+    fn a_pattern_is_what_git_reads_from_its_line() {
+        assert_eq!(pattern("/a\r\n"), "/a");
+        assert_eq!(pattern("/a  "), "/a", "unescaped trailing spaces are not the pattern");
+        assert_eq!(pattern("/a\\ "), "/a\\ ", "an escaped one is");
+        assert_eq!(pattern("/a\\  "), "/a\\ ", "only the escaped one of two");
+        assert_eq!(pattern("/a\\\\ "), "/a\\\\", "an escaped backslash escapes no space");
+        assert_eq!(pattern(" /a"), " /a", "a leading space is part of it");
+        assert_eq!(pattern("/a\t"), "/a\t", "and so is a trailing tab");
+    }
+
+    #[test]
+    fn an_escaped_trailing_space_is_its_own_pattern_added_once_and_taken_out_again() {
+        let dir = tmp();
+        let common = dir.path().join(".git");
+        ensure_line(&common, "/skills/a\\ ").unwrap();
+        ensure_line(&common, "/skills/a\\ ").unwrap();
+        ensure_line(&common, "/skills/a").unwrap();
+        let exclude = common.join("info").join("exclude");
+        let text = fs::read_to_string(&exclude).unwrap();
+        assert_eq!(text, format!("{MANAGED}\n/skills/a\\ \n{MANAGED}\n/skills/a\n"));
+        remove_line(&common, "/skills/a\\ ").unwrap();
+        assert_eq!(fs::read_to_string(&exclude).unwrap(), format!("{MANAGED}\n/skills/a\n"));
+    }
+
+    #[test]
+    fn one_update_takes_out_and_adds_in_a_single_write_and_none_when_nothing_changes() {
+        let dir = tmp();
+        let common = dir.path().join(".git");
+        ensure_line(&common, "/old").unwrap();
+        assert!(update(&common, &["/new/a", "/new/b"], &["/old"]).unwrap());
+        let exclude = common.join("info").join("exclude");
+        assert_eq!(fs::read_to_string(&exclude).unwrap(), format!("{MANAGED}\n/new/a\n{MANAGED}\n/new/b\n"));
+        // Nothing to change: the file is not written at all.
+        use std::os::unix::fs::PermissionsExt;
+        let info = common.join("info");
+        fs::set_permissions(&info, fs::Permissions::from_mode(0o555)).unwrap();
+        let unchanged = update(&common, &["/new/a"], &["/gone"]);
+        fs::set_permissions(&info, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!unchanged.unwrap(), "nothing written");
     }
 }

@@ -47,7 +47,22 @@ pub fn plugin_workspaces_prune(grants: State<'_, PluginGrants>, live_ws_ids: Vec
 
 fn root() -> Result<PathBuf, String> {
     let home = crate::paths::keepdeck_home().ok_or("no home directory for plugin workspaces")?;
-    Ok(home.join("plugin-workspaces"))
+    Ok(root_in(&home))
+}
+
+/// Where every plugin's workspace directories live under KeepDeck's `home`.
+fn root_in(home: &Path) -> PathBuf {
+    home.join("plugin-workspaces")
+}
+
+/// The path of `plugin_id`'s directory for `ws_id` under `home` — the
+/// directory itself is made only by [`plugin_workspace_dir`].
+pub(crate) fn path_in(home: &Path, plugin_id: &str, ws_id: &str) -> PathBuf {
+    of(&root_in(home), plugin_id, ws_id)
+}
+
+fn of(root: &Path, plugin_id: &str, ws_id: &str) -> PathBuf {
+    root.join(plugin_id).join(ws_id)
 }
 
 pub(crate) fn dir_for(root: &Path, plugin_id: &str, ws_id: &str) -> Result<PathBuf, String> {
@@ -57,7 +72,7 @@ pub(crate) fn dir_for(root: &Path, plugin_id: &str, ws_id: &str) -> Result<PathB
     if !crate::fs_names::is_safe_segment(ws_id) {
         return Err(format!("unsafe workspace id: {ws_id:?}"));
     }
-    let dir = root.join(plugin_id).join(ws_id);
+    let dir = of(root, plugin_id, ws_id);
     create_owner_only(root, &[plugin_id, ws_id]).map_err(|e| format!("{}: {e}", dir.display()))?;
     Ok(dir)
 }

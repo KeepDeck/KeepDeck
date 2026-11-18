@@ -45,10 +45,16 @@ target.
   The same rule is the plugin's `bare.plan` floor, so a pane whose plan
   failed still launches with it.
 - **Skills:** Codex has no flag or env for them. It reads `.agents/skills`
-  from its starting directory, so the plugin's `arm.plan` declares a symlink
-  there to the host's bare skills directory, and the host's cwd arming engine
-  plants it before the spawn — leaving the user's own `.agents` alone and
-  taking the link back with the worktree.
+  from its starting directory — a folder projects keep and commit their own
+  skills in — so the plugin's `arm.plan` declares one symlink per skill in
+  there, `.agents/skills/<name>`, to that skill in the host's bare skills
+  directory. The host's cwd arming engine plants them before the spawn,
+  beside the project's own skills: a same-name skill of the project's, or a
+  link KeepDeck cannot show it made, stays and is reported instead; git is
+  kept blind to exactly our links; and they are taken back with the
+  worktree. Two workspaces sharing one directory plant there side by side,
+  so codex in it sees both workspaces' skills — a set of a pane's own needs
+  the app-server door (`skills/extraRoots/set`), not the directory.
 
 `-c`, `--no-daemon` and the other flags are global and must come before the `resume` or `fork`
 subcommand.

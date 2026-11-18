@@ -184,14 +184,32 @@ pub fn skills_prune(locks: tauri::State<'_, SkillsLocks>, live_ws_ids: Vec<Strin
 /// and in place: no stage swaps it and no prune removes it meanwhile. `None`
 /// when `path` is inside no staged view.
 pub(crate) fn reading_staged_view<T>(locks: &SkillsLocks, path: &Path, read: impl FnOnce() -> T) -> Option<T> {
-    let staging = std::fs::canonicalize(skills_root().ok()?.join("staging")).ok()?;
+    let staging = std::fs::canonicalize(staging::staging_dir(&skills_root().ok()?)).ok()?;
     let ws_id = staging::view_workspace(&staging, path)?;
     Some(locks.holding(&ws_id, read))
 }
 
 fn skills_root() -> Result<PathBuf, String> {
     let home = crate::paths::keepdeck_home().ok_or("no home directory for skills")?;
-    Ok(home.join("skills"))
+    Ok(root_in(&home))
+}
+
+/// KeepDeck's skills root under its `home`.
+pub(crate) fn root_in(home: &Path) -> PathBuf {
+    home.join("skills")
+}
+
+/// Where `ws_id`'s staging lives under `home`: its view and nothing else of
+/// another workspace's.
+pub(crate) fn staging_in(home: &Path, ws_id: &str) -> PathBuf {
+    staging::staging_dir(&root_in(home)).join(ws_id)
+}
+
+/// Whether `path` is exactly a workspace's staged view under `home` — the
+/// folder a CLI is pointed at, not a place inside it.
+pub(crate) fn is_view_in(home: &Path, path: &Path) -> bool {
+    let staging = staging::staging_dir(&root_in(home));
+    staging::view_workspace(&staging, path).is_some_and(|ws| staging::view_of(&staging.join(&ws)) == path)
 }
 
 #[cfg(test)]
