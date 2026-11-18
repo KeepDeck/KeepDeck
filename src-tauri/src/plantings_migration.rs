@@ -35,6 +35,11 @@
 //! else can find. Nothing
 //! here is ever written for a new build — the whole module is deletable once
 //! no install predates API 73.
+//!
+//! Known limit, accepted: when two old manifests list the same cwd and one of
+//! them cannot be rewritten, the other may take the link back while the
+//! stuck one still names that cwd; a link the user puts at that exact place
+//! into this home's staging before the next launch is then taken back too.
 
 use std::fs;
 use std::io::{self, ErrorKind};

@@ -38,7 +38,10 @@
 //!
 //! Not covered, by design: someone editing the very entry, or a folder on
 //! its way, during the moment of a pass; and two KeepDeck homes changing one
-//! repo's exclude file at the same time.
+//! repo's exclude file at the same time. Known limits, accepted: after a
+//! crash, an empty folder made on the way may stay behind unnamed, and a link
+//! of ours planted the instant before it stays unrecorded — hidden by the
+//! line its intent owes, adopted by the next pass that still declares it.
 //!
 //! Each `arm` call speaks for ONE plugin in ONE directory, and for its whole
 //! set there: what it no longer declares is taken back. The host orders every
@@ -272,14 +275,22 @@ fn sweep(ledger: &mut Ledger, home: &Path, gone: impl Fn(&str, &Place) -> bool) 
         return Ok(Vec::new());
     }
     let mut lines = lines::Lines::default();
-    let lowered: Vec<Held> = leaving
-        .iter()
-        .filter_map(|(ws, place)| match place.what {
-            What::Symlink { .. } => lines.line_left(place.clone()).map(|line| (ws.clone(), line)),
-            _ => Some((ws.clone(), place.clone())),
-        })
-        .collect();
-    if let Err(e) = record(ledger, staying.iter().chain(&lowered)) {
+    // Every record of a leaving link is lowered with it — another folder's
+    // record of the very same link too, whichever workspace holds it.
+    let links: BTreeSet<String> =
+        leaving.iter().filter(|(_, p)| matches!(p.what, What::Symlink { .. })).filter_map(|(_, p)| p.leaf()).collect();
+    let names_a_leaving_link =
+        |p: &Place| matches!(p.what, What::Symlink { .. }) && p.leaf().is_some_and(|own| links.contains(&own));
+    let mut lower = |held: &Held| match &held.1.what {
+        What::Symlink { .. } if names_a_leaving_link(&held.1) => {
+            lines.line_left(held.1.clone()).map(|line| (held.0.clone(), line))
+        }
+        _ => Some(held.clone()),
+    };
+    let lowered: Vec<Held> = leaving.iter().filter_map(&mut lower).collect();
+    // One to one with `staying`: None where a lowered record owes no line.
+    let lowered_staying: Vec<Option<Held>> = staying.iter().map(&mut lower).collect();
+    if let Err(e) = record(ledger, lowered_staying.iter().flatten().chain(&lowered)) {
         // Records already lowered go back as they were: their links still
         // stand, and nothing else would ever take them back.
         if let Err(back) = record(ledger, staying.iter().chain(&leaving)) {
@@ -290,6 +301,17 @@ fn sweep(ledger: &mut Ledger, home: &Path, gone: impl Fn(&str, &Place) -> bool) 
     let (dirs, plantings): (Vec<Held>, Vec<Held>) =
         leaving.into_iter().partition(|(_, p)| matches!(p.what, What::Dir { .. }));
     let lifecycle::Outcome { mut released, mut retained } = lifecycle::retire(home, true, plantings);
+    // A staying record of a link that would not go is restored; of one that
+    // went, it keeps only its line.
+    let stuck: BTreeSet<String> = retained.iter().filter_map(|(_, p)| p.leaf()).collect();
+    let staying: Vec<Held> = staying
+        .into_iter()
+        .zip(lowered_staying)
+        .filter_map(|(original, lowered)| {
+            let stays = !names_a_leaving_link(&original.1) || original.1.leaf().is_some_and(|own| stuck.contains(&own));
+            if stays { Some(original) } else { lowered }
+        })
+        .collect();
     let holding: Vec<&Place> = staying.iter().chain(&retained).map(|(_, p)| p).collect();
     let dirs_out = lifecycle::retire_dirs(true, dirs, &holding);
     released.extend(dirs_out.released);

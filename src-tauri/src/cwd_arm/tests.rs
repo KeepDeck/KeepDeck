@@ -1295,3 +1295,38 @@ fn a_sweep_whose_lowering_fails_partway_restores_every_record_it_lowered() {
     assert!(fs::symlink_metadata(main.join(".b")).is_err());
     assert!(excluded(&main).is_empty());
 }
+
+#[test]
+fn a_link_named_from_two_folders_is_claimed_by_neither_once_it_is_taken_back() {
+    // Records an earlier build could leave: one link named from the repo
+    // root and from the folder it sits in.
+    let s = scratch();
+    let main = repo(&s);
+    let skills = s.skills("ws-1");
+    s.arm_in(&main, "p.linker", "ws-1", &[link(".cfg/l", &skills)]);
+    let mut places = s.places("ws-1");
+    places.push(place(&main.join(".cfg"), "p.linker", "l", What::Symlink { target: None }));
+    Ledger::read(&s.root).unwrap().write("ws-1", places).unwrap();
+    s.disarm(&main).unwrap();
+    assert!(fs::symlink_metadata(main.join(".cfg/l")).is_err());
+    assert!(s.places("ws-1").iter().all(|p| p.claim().is_none()), "the nested record claims nothing now");
+    fs::create_dir_all(main.join(".cfg")).unwrap();
+    symlink(&skills, main.join(".cfg/l")).unwrap();
+    s.disarm(&main.join(".cfg")).unwrap();
+    assert_eq!(fs::read_link(main.join(".cfg/l")).unwrap(), skills, "a link put there since is the user's");
+}
+
+#[test]
+fn an_older_folder_link_cleared_from_the_root_leaves_no_record_of_it_from_inside() {
+    let s = scratch();
+    let main = repo(&s);
+    fs::create_dir_all(main.join(".agents")).unwrap();
+    symlink(s.skills("ws-1"), main.join(".agents/skills")).unwrap();
+    let inside = place(&main.join(".agents"), "keepdeck.codex", "skills", What::Symlink { target: None });
+    Ledger::read(&s.root).unwrap().write("ws-1", vec![Place { hidden: Hidden::FirstSegment, ..inside }]).unwrap();
+    let report = s.arm_in(&main, "keepdeck.codex", "ws-1", &[link(".agents/skills/one", &s.skill("ws-1", "one"))]);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(fs::symlink_metadata(main.join(".agents/skills")).unwrap().is_dir());
+    let stale: Vec<Place> = s.places("ws-1").into_iter().filter(|p| p.cwd.ends_with(".agents")).collect();
+    assert!(stale.iter().all(|p| p.claim().is_none()), "the cleared link is claimed from nowhere: {stale:?}");
+}

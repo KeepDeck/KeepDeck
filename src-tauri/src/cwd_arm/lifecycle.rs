@@ -259,19 +259,21 @@ pub(super) fn arm(
     // every other's), and every link no longer declared, about to be taken
     // back. A step that does not happen restores them. (Files, temporaries
     // and folders are proven by their identity: no lowering needed.)
-    let doomed = doomed(&plantings);
+    // By leaf: a record of the same link made from a nested folder is lowered
+    // with it.
+    let doomed: HashSet<String> = doomed(&plantings).iter().map(|key| leaf(cwd, key)).collect();
     let dooms = |p: &Place| {
-        p.cwd == cwd
-            && p.plugin == plugin
+        p.plugin == plugin
             && matches!(p.what, What::Symlink { .. })
-            && p.slot().is_some_and(|key| doomed.contains(&key))
+            && p.leaf().is_some_and(|own| doomed.contains(&own))
     };
     let lowers = |p: &Place| {
         dooms(p) || (matches!(p.what, What::Symlink { .. }) && !p.slot().is_some_and(|key| declared.contains(&key)))
     };
     let recorded = |extra: &[Place]| -> Vec<Place> {
         let standing = here.iter().filter(|p| !lowers(p));
-        elsewhere.iter().chain(standing).chain(&dirs).chain(&owed).chain(&leftovers).chain(extra).cloned().collect()
+        let others = elsewhere.iter().filter(|p| !dooms(p));
+        others.chain(standing).chain(&dirs).chain(&owed).chain(&leftovers).chain(extra).cloned().collect()
     };
     let mut setup: Result<(), &str> = Ok(());
     let mut intent: Vec<Place> = Vec::new();
@@ -296,7 +298,8 @@ pub(super) fn arm(
             }
         }
     }
-    intent.extend(here.iter().filter(|p| lowers(p)).filter_map(|p| lines.line_left(p.clone())));
+    let lowered_here = here.iter().filter(|p| lowers(p)).chain(elsewhere.iter().filter(|p| dooms(p)));
+    intent.extend(lowered_here.filter_map(|p| lines.line_left(p.clone())));
     if setup.is_ok() {
         match ledger.write(ws, dedup(recorded(&intent))) {
             Ok(wrote) => stats.manifests_written += usize::from(wrote),
@@ -345,6 +348,8 @@ pub(super) fn arm(
     let fence = whole && setup.is_ok();
 
     // 3. Clear each link older builds left on the way, once.
+    // Every leaf whose link a step of this pass removed.
+    let mut fell: HashSet<String> = HashSet::new();
     let mut cleared: Vec<String> = Vec::new();
     let mut not_cleared: HashMap<String, String> = HashMap::new();
     for planting in plantings.iter_mut().filter(|p| p.changes()) {
@@ -356,6 +361,7 @@ pub(super) fn arm(
             Some(reason) => Some(reason.clone()),
             None => match clear_link(&cwd_fd, at, link) {
                 Ok(()) => {
+                    fell.extend(slot(at).map(|key| leaf(cwd, &key)));
                     cleared.push(at.clone());
                     None
                 }
@@ -450,7 +456,11 @@ pub(super) fn arm(
             continue;
         }
         let Some(dir) = &planting.dir else { continue };
-        match publish(dir, &roots, planting, cwd, plugin, &mut stats) {
+        let published = publish(dir, &roots, planting, cwd, plugin, &mut stats);
+        if matches!(planting.act, Act::Replace { ours: Slot::Link(_), .. }) && !matches!(published, Published::Refused(_)) {
+            fell.extend(slot(&planting.admitted.path).map(|key| leaf(cwd, &key)));
+        }
+        match published {
             Published::Landed(place) => present.push(place),
             Published::Unconfirmed(place, reason) => {
                 unconfirmed.push(place);
@@ -503,15 +513,18 @@ pub(super) fn arm(
     gone.extend(forgotten);
     gone.extend(owed.into_iter().map(|p| (ws.to_string(), p)));
     gone.extend(held(intended));
-    // Another workspace's record of a link that was cleared goes to its line;
-    // one whose clearing did not happen is restored as it was.
+    // A record — from another folder, or another workspace's — of a link a
+    // step removed goes to its line; one whose step did not happen is
+    // restored as it was.
+    let fallen = |p: &Place| dooms(p) && p.leaf().is_some_and(|own| fell.contains(&own));
     let mut peers: Vec<(String, Vec<Place>)> = Vec::new();
     for (id, before) in lowered {
-        let (theirs, rest): (Vec<Place>, Vec<Place>) =
-            before.into_iter().partition(|p| dooms(p) && cleared.iter().any(|at| p.at(cwd, at)));
+        let (theirs, rest): (Vec<Place>, Vec<Place>) = before.into_iter().partition(|p| fallen(p));
         gone.extend(theirs.into_iter().map(|p| (id.clone(), p)));
         peers.push((id, rest));
     }
+    let (nested, elsewhere): (Vec<Place>, Vec<Place>) = elsewhere.into_iter().partition(|p| fallen(p));
+    gone.extend(held(nested));
     let mut kept: Vec<Place> = elsewhere;
     kept.extend(present);
     kept.extend(unconfirmed);
