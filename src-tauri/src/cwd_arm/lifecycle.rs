@@ -232,7 +232,8 @@ pub(super) fn arm(
     let mut plantings: Vec<Planting> = Vec::new();
     for admitted in admitted {
         let key = slot(&admitted.path).expect("an admitted path is a slot");
-        let decided = decide(&cwd_fd, home, &roots, &ledger, plugin, cwd, whole, &admitted, place_at(&key), &mut stats);
+        let scene = Scene { cwd_fd: &cwd_fd, home, roots: &roots, ledger: &ledger, plugin, cwd, whole };
+        let decided = decide(&scene, &admitted, place_at(&key), &mut stats);
         match decided {
             Ok(act) => {
                 let temp = match (&admitted.want, &act) {
@@ -674,20 +675,21 @@ fn link_target(target: &str, allowed: &[PathBuf], roots: &Roots) -> Option<PathB
     (allowed.iter().any(|dir| real.starts_with(dir)) && roots.hold(&real)).then_some(real)
 }
 
-/// What to do with one admitted declaration, read from the disk now.
-#[allow(clippy::too_many_arguments)]
-fn decide(
-    cwd_fd: &File,
-    home: &Path,
-    roots: &Roots,
-    ledger: &Ledger,
-    plugin: &str,
-    cwd: &str,
+/// What every decision of one pass is read against.
+struct Scene<'a> {
+    cwd_fd: &'a File,
+    home: &'a Path,
+    roots: &'a Roots,
+    ledger: &'a Ledger,
+    plugin: &'a str,
+    cwd: &'a str,
+    /// Whether every record read: nothing standing changes otherwise.
     whole: bool,
-    admitted: &Admitted,
-    place: Option<&Place>,
-    stats: &mut Stats,
-) -> Result<Act, String> {
+}
+
+/// What to do with one admitted declaration, read from the disk now.
+fn decide(scene: &Scene, admitted: &Admitted, place: Option<&Place>, stats: &mut Stats) -> Result<Act, String> {
+    let Scene { cwd_fd, home, roots, ledger, plugin, cwd, whole } = *scene;
     let path = &admitted.path;
     let locked = || format!("{path} cannot change while another workspace's record will not read");
     let way = disk::reach(cwd_fd, &admitted.parts, false).map_err(|e| e.to_string())?;
