@@ -63,10 +63,9 @@ pub(super) enum What {
     /// claimed: only the exclude line still owed — for a planting gone, one
     /// that never landed, a temporary — kept until it can be let go.
     Line,
-    /// A name reserved for a temporary before it is made. The reservation
+    /// A name reserved for a staged file before it is made. The reservation
     /// alone proves nothing about what stands at it: a file there goes only
-    /// when it is the one `made` records, a link only when it points where
-    /// a link of ours does. Anything else is left as it is.
+    /// when it is the one `made` records. Anything else is left as it is.
     Temp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         made: Option<Identity>,

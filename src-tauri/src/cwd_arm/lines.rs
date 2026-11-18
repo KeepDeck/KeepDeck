@@ -140,13 +140,14 @@ impl Lines {
         }
         let mut needed: HashSet<ExcludeLine> = HashSet::new();
         // Each entry a remaining place keeps hidden by an exact line of its
-        // own — a broad one hides what lies beside it too.
-        let mut covered: HashMap<PathBuf, ExcludeLine> = HashMap::new();
+        // own — a broad one hides what lies beside it too — by the repo and
+        // the entry that line names, whatever its directory is called now.
+        let mut covered: HashMap<(PathBuf, PathBuf), ExcludeLine> = HashMap::new();
         for place in remaining {
             match self.owed(place) {
                 Ok(Some(owed)) => {
                     if owed.exact {
-                        covered.insert(Path::new(&place.cwd).join(&place.path), owed.line.clone());
+                        covered.insert((owed.line.common_dir().to_path_buf(), owed.slot.clone()), owed.line.clone());
                     }
                     needed.insert(owed.line);
                 }
@@ -211,16 +212,20 @@ impl Lines {
 
     /// Whether anything `owed` could be hiding stands in some worktree of its
     /// repo — None when the worktrees cannot be listed. An entry `covered`
-    /// names, by an exact line of this same repo, stands hidden by that line:
-    /// it goes in `through`, to be written with the edit that lets this one
-    /// go.
+    /// names — this repo, this very entry — is hidden in every worktree by an
+    /// exact line of its own: that line goes in `through`, to be written with
+    /// the edit that lets this one go.
     fn standing(
         &mut self,
         owed: &Owed,
-        covered: &HashMap<PathBuf, ExcludeLine>,
+        covered: &HashMap<(PathBuf, PathBuf), ExcludeLine>,
         through: &mut Vec<ExcludeLine>,
     ) -> Option<bool> {
         let common_dir = owed.line.common_dir();
+        if let Some(own) = covered.get(&(common_dir.to_path_buf(), owed.slot.clone())) {
+            through.push(own.clone());
+            return Some(false);
+        }
         let roots = self
             .roots
             .entry(common_dir.to_path_buf())
@@ -235,9 +240,6 @@ impl Lines {
         let mut standing = false;
         for at in roots.iter().map(|root| root.join(&owed.slot)) {
             match fs::symlink_metadata(&at) {
-                Ok(_) if covered.get(&at).is_some_and(|own| own.common_dir() == common_dir) => {
-                    through.push(covered[&at].clone());
-                }
                 Ok(meta) if !owed.links_only || meta.file_type().is_symlink() => standing = true,
                 Ok(_) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound || e.raw_os_error() == Some(libc::ENOTDIR) => {}

@@ -139,6 +139,11 @@ pub(crate) mod test_support {
     use std::fs;
     use std::path::{Path, PathBuf};
 
+    /// An exclude line as a record would hold it.
+    pub(crate) fn exclude_line(common_dir: &str, line: &str) -> super::ExcludeLine {
+        super::ExcludeLine { common_dir: common_dir.into(), line: line.into() }
+    }
+
     /// A fake linked-worktree checkout: `main/.git/` (common dir) plus a
     /// worktree whose `.git` FILE points at `main/.git/worktrees/wt` with a
     /// `commondir` back-pointer — the layout `git worktree add` produces,

@@ -938,7 +938,8 @@ fn a_pass_over_an_unchanged_set_looks_once_per_entry_and_writes_nothing() {
         .collect();
     let (first, cost) = s.pass(&main, "keepdeck.codex", "ws-1", &set);
     assert_eq!(first.armed.len(), CAPS.entries_max, "{:?}", first.refused);
-    assert_eq!((cost.manifests_written, cost.excludes_written), (2, 1), "one write of each, the folders made after");
+    // The record: what the pass owes, the folders it made, what landed.
+    assert_eq!((cost.manifests_written, cost.excludes_written), (3, 1));
     let (again, cost) = s.pass(&main, "keepdeck.codex", "ws-1", &set);
     assert_eq!(again.armed.len(), CAPS.entries_max);
     let unchanged = lifecycle::Stats { observed: CAPS.entries_max, digested: 0, manifests_written: 0, excludes_written: 0 };
@@ -1201,4 +1202,40 @@ fn what_stands_as_declared_is_recorded_as_the_kind_it_is() {
     assert!(matches!(s.places("ws-1")[..], [Place { what: What::Symlink { .. }, .. }]));
     s.disarm(&s.cwd).unwrap();
     assert!(fs::symlink_metadata(s.cwd.join(".k")).is_err());
+}
+
+// ---- what a record may claim while a step is under way ----
+
+#[test]
+fn a_cwd_renamed_since_its_line_was_stamped_covers_only_what_that_line_hides() {
+    // A link stamped as /before/.cfg/l; `before` became `after`, left behind
+    // as a link to it. An older record of another workspace owes the broad
+    // /after/.cfg/: the stale exact line hides nothing there, so the broad
+    // one stays.
+    let s = scratch();
+    let main = repo(&s);
+    let before = main.join("before");
+    fs::create_dir_all(&before).unwrap();
+    s.arm_in(&before, "p.linker", "ws-1", &[link(".cfg/l", &s.skills("ws-1"))]);
+    let after = main.join("after");
+    fs::rename(&before, &after).unwrap();
+    symlink(&after, &before).unwrap();
+    let older = place(&after, "p.linker", ".cfg/l", What::Symlink { target: None });
+    Ledger::read(&s.root).unwrap().write("ws-2", vec![Place { hidden: Hidden::FirstSegment, ..older }]).unwrap();
+    keepdeck_git::exclude::ensure_line(&main.join(".git"), "/after/.cfg/").unwrap();
+    prune(&s.root, &s.home, &["ws-1".into()]).unwrap();
+    assert!(excluded(&main).contains(&"/after/.cfg/".to_string()), "{:?}", excluded(&main));
+}
+
+#[test]
+fn an_older_folder_link_that_would_not_give_way_keeps_every_record_of_it() {
+    let s = scratch();
+    let main = repo(&s);
+    older_folder_link(&s, "ws-2", &main);
+    let before = s.places("ws-2");
+    lock(&main.join(".agents"), true);
+    let report = s.arm_in(&main, "keepdeck.codex", "ws-1", &[link(".agents/skills/one", &s.skill("ws-1", "one"))]);
+    lock(&main.join(".agents"), false);
+    assert!(refused(&report, ".agents/skills/one").contains("could not give way"), "{:?}", report.refused);
+    assert_eq!(s.places("ws-2"), before, "lowered for the step, restored when it did not happen");
 }

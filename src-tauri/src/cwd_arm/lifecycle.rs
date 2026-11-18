@@ -8,12 +8,15 @@
 //! 1. Decide each declaration from what stands now, and name every
 //!    temporary it will make.
 //! 2. Set up, changing nothing that stands: first the record of what the
-//!    pass will owe — the new links, each new file's line, each staged
-//!    file's reserved name — then every exclude line all of it needs. Every
-//!    place is recorded with the line it owes, so letting that line go never
-//!    depends on its directory. If either will not go, NOTHING that stands
-//!    changes this pass: no planting, no take-back, no line let go, no
-//!    record promoted, nothing adopted.
+//!    pass will owe — each new planting's line (a planting itself is
+//!    recorded only once it stands), each staged file's reserved name — with
+//!    every record a later step may make false (a link of ours about to give
+//!    way, older builds' folder link about to be cleared, in every
+//!    workspace's record) lowered to the line it owes; then every exclude
+//!    line all of it needs. Every place is recorded with the line it owes,
+//!    so letting that line go never depends on its directory. If either will
+//!    not go, NOTHING that stands changes this pass: no planting, no
+//!    take-back, no line let go, no record promoted, nothing adopted.
 //! 3. Clear each link older builds left on the way, once.
 //! 4. Make the folders on the way and stage the files, and record them as
 //!    prepared.
@@ -25,9 +28,10 @@
 //!    leftover with it when it is the very file recorded as made there;
 //!    lines nothing needs go.
 //!
-//! A crash between any two steps leaves only what a record names: a folder
-//! made on the way, which an empty folder of ours is, is the one thing that
-//! may stay behind unnamed.
+//! A crash between any two steps leaves no record claiming what it did not
+//! see stand. What may stay behind unnamed: an empty folder made on the way,
+//! and a link of ours planted just before the crash — hidden by the line its
+//! intent owes, and adopted by the next pass that still declares it.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
@@ -235,8 +239,20 @@ pub(super) fn arm(
 
     // 2. Set up: the record of what the pass will owe, then the lines.
     let mut lines = Lines::default();
+    // Before a step can make a record's claim false, that record says only
+    // the line it still owes: a link of ours about to give way to a new one,
+    // older builds' folder link about to be cleared — this workspace's record
+    // of it and every other's. A step that does not happen restores it.
+    let doomed = doomed(&plantings);
+    let dooms = |p: &Place| {
+        p.cwd == cwd
+            && p.plugin == plugin
+            && matches!(p.what, What::Symlink { .. })
+            && p.slot().is_some_and(|key| doomed.contains(&key))
+    };
     let recorded = |extra: &[Place]| -> Vec<Place> {
-        elsewhere.iter().chain(&here).chain(&dirs).chain(&owed).chain(&leftovers).chain(extra).cloned().collect()
+        let standing = here.iter().filter(|p| !dooms(p));
+        elsewhere.iter().chain(standing).chain(&dirs).chain(&owed).chain(&leftovers).chain(extra).cloned().collect()
     };
     let mut setup: Result<(), &str> = Ok(());
     let mut intent: Vec<Place> = Vec::new();
@@ -247,13 +263,7 @@ pub(super) fn arm(
             (Ok(stamped), Ok(reserved)) => {
                 planting.owed = stamped.owed;
                 if planting.changes() {
-                    // A new link is recorded as itself; a new file, until it
-                    // is staged, as the line it owes.
-                    match planting.admitted.want {
-                        Want::Link(_) => intent.push(planting.exact(cwd, plugin)),
-                        Want::File { .. } if planting.owed.is_some() => intent.push(planting.place(cwd, plugin, What::Line)),
-                        Want::File { .. } => {}
-                    }
+                    intent.extend(intended(planting, cwd, plugin));
                 }
                 if let Some(reservation) = reserved {
                     planting.reserved = Some(intent.len());
@@ -266,12 +276,35 @@ pub(super) fn arm(
             }
         }
     }
+    intent.extend(here.iter().filter(|p| dooms(p)).filter_map(|p| lines.line_left(p.clone())));
     if setup.is_ok() {
         match ledger.write(ws, dedup(recorded(&intent))) {
             Ok(wrote) => stats.manifests_written += usize::from(wrote),
             Err(e) => {
                 log::warn!("cwd arming: recording {ws} failed: {e}");
                 setup = Err(UNWRITABLE);
+            }
+        }
+    }
+    // Every other workspace's record of a link about to be cleared, as it
+    // was before it was lowered to its line.
+    let mut lowered: Vec<(String, Vec<Place>)> = Vec::new();
+    if setup.is_ok() {
+        let peers: Vec<(String, Vec<Place>)> =
+            ledger.places.iter().filter(|(id, places)| id != ws && places.iter().any(dooms)).cloned().collect();
+        for (id, places) in peers {
+            let lower: Vec<Place> =
+                places.iter().cloned().filter_map(|p| if dooms(&p) { lines.line_left(p) } else { Some(p) }).collect();
+            match ledger.write(&id, lower) {
+                Ok(wrote) => {
+                    stats.manifests_written += usize::from(wrote);
+                    lowered.push((id, places));
+                }
+                Err(e) => {
+                    log::warn!("cwd arming: recording {id} failed: {e}");
+                    setup = Err(UNWRITABLE);
+                    break;
+                }
             }
         }
     }
@@ -380,6 +413,7 @@ pub(super) fn arm(
     // 5. Publish.
     let mut present: Vec<Place> = Vec::new();
     let mut unconfirmed: Vec<Place> = Vec::new();
+    let mut gave_way: HashSet<String> = HashSet::new();
     for planting in &mut plantings {
         if planting.refused.is_some() {
             continue;
@@ -402,6 +436,10 @@ pub(super) fn arm(
                 unconfirmed.push(place);
                 planting.refused = Some(reason);
             }
+            Published::GaveWay(reason) => {
+                gave_way.insert(slot(&planting.admitted.path).expect("a slot"));
+                planting.refused = Some(reason);
+            }
             Published::Refused(reason) => planting.refused = Some(reason),
         }
     }
@@ -414,21 +452,9 @@ pub(super) fn arm(
     // 6. Settle the record.
     let standing: HashMap<String, &Place> =
         present.iter().chain(&unconfirmed).filter_map(|p| Some((p.slot()?, p))).collect();
-    let mut preserved: Vec<Place> = Vec::new();
-    let mut replanted: Vec<Held> = Vec::new();
-    let mut retiring: Vec<Held> = Vec::new();
-    for place in here {
-        let key = place.slot().unwrap_or_default();
-        if let Some(now) = standing.get(&key) {
-            if **now != place {
-                replanted.push((ws.to_string(), place));
-            }
-        } else if declared.contains(&key) {
-            preserved.push(place);
-        } else {
-            retiring.push((ws.to_string(), place));
-        }
-    }
+    let Sorted { preserved, replaced, retiring } = sort_out(here, &standing, &gave_way, &declared);
+    let held = |places: Vec<Place>| places.into_iter().map(|p| (ws.to_string(), p)).collect::<Vec<Held>>();
+    let mut retiring = held(retiring);
     // Every reserved name goes with whatever a crash or a failed step left
     // at it; this pass's own new links and files' lines are owed no more
     // than what landed owes.
@@ -452,25 +478,19 @@ pub(super) fn arm(
     // forgotten, older owed lines, what this pass meant to plant but did not,
     // and every workspace's record of a link that gave way.
     let mut gone: Vec<Held> = released;
-    gone.extend(replanted);
+    gone.extend(held(replaced));
     gone.extend(dirs_out.released);
     gone.extend(forgotten);
     gone.extend(owed.into_iter().map(|p| (ws.to_string(), p)));
-    gone.extend(
-        intended
-            .into_iter()
-            .filter(|p| p.slot().and_then(|key| standing.get(&key)).is_none_or(|now| **now != *p))
-            .map(|p| (ws.to_string(), p)),
-    );
+    gone.extend(held(intended));
+    // Another workspace's record of a link that was cleared goes to its line;
+    // one whose clearing did not happen is restored as it was.
     let mut peers: Vec<(String, Vec<Place>)> = Vec::new();
-    for (id, places) in ledger.places.iter().filter(|(id, _)| id != ws) {
-        let (theirs, rest): (Vec<Place>, Vec<Place>) = places.iter().cloned().partition(|p| {
-            p.plugin == plugin && matches!(p.what, What::Symlink { .. }) && cleared.iter().any(|at| p.at(cwd, at))
-        });
-        if !theirs.is_empty() {
-            gone.extend(theirs.into_iter().map(|p| (id.clone(), p)));
-            peers.push((id.clone(), rest));
-        }
+    for (id, before) in lowered {
+        let (theirs, rest): (Vec<Place>, Vec<Place>) =
+            before.into_iter().partition(|p| dooms(p) && cleared.iter().any(|at| p.at(cwd, at)));
+        gone.extend(theirs.into_iter().map(|p| (id.clone(), p)));
+        peers.push((id, rest));
     }
     let mut kept: Vec<Place> = elsewhere;
     kept.extend(present);
@@ -792,6 +812,60 @@ fn clear_link(cwd_fd: &File, at: &str, link: &Path) -> io::Result<()> {
     fsb::remove_at(&way.dir, leaf, false)
 }
 
+/// The slots where a step of this pass may make a standing record's claim
+/// false: a link of ours given way to a new one, and older builds' folder
+/// link cleared.
+fn doomed(plantings: &[Planting]) -> HashSet<String> {
+    let mut doomed = HashSet::new();
+    for planting in plantings.iter().filter(|p| p.changes()) {
+        match (&planting.act, &planting.admitted.want) {
+            (Act::Replace { .. }, Want::Link(_)) => doomed.extend(slot(&planting.admitted.path)),
+            (Act::Create { clear: Some((at, _)) }, _) => doomed.extend(slot(at)),
+            _ => {}
+        }
+    }
+    doomed
+}
+
+/// What a pass records of a planting before anything is made: only the line
+/// it will owe. The planting itself is recorded once it stands — a record of
+/// a link that never landed would claim whatever link stood there later.
+fn intended(planting: &Planting, cwd: &str, plugin: &str) -> Option<Place> {
+    planting.owed.is_some().then(|| planting.place(cwd, plugin, What::Line))
+}
+
+/// Where this plugin's recorded places in the directory go once the pass has
+/// published.
+struct Sorted {
+    /// Still declared, and nothing new took their slot: what stood stays.
+    preserved: Vec<Place>,
+    /// Their slot holds another planting now, or ours gave way there and
+    /// nothing took its place: nothing of theirs stands, only their line.
+    replaced: Vec<Place>,
+    /// No longer declared: taken back.
+    retiring: Vec<Place>,
+}
+
+fn sort_out(
+    here: Vec<Place>,
+    standing: &HashMap<String, &Place>,
+    gave_way: &HashSet<String>,
+    declared: &HashSet<String>,
+) -> Sorted {
+    let mut sorted = Sorted { preserved: Vec::new(), replaced: Vec::new(), retiring: Vec::new() };
+    for place in here {
+        let key = place.slot().unwrap_or_default();
+        match standing.get(&key) {
+            Some(now) if **now == place => {}
+            Some(_) => sorted.replaced.push(place),
+            None if gave_way.contains(&key) => sorted.replaced.push(place),
+            None if declared.contains(&key) => sorted.preserved.push(place),
+            None => sorted.retiring.push(place),
+        }
+    }
+    sorted
+}
+
 /// How a publish ended.
 enum Published {
     /// In place, as planted.
@@ -799,6 +873,8 @@ enum Published {
     /// Renamed into place but not seen there as staged: its prepared record
     /// stays, for the next pass to settle from what stands.
     Unconfirmed(Place, String),
+    /// Ours gave way and the new one did not go in: nothing of ours stands.
+    GaveWay(String),
     Refused(String),
 }
 
@@ -831,10 +907,11 @@ fn publish(dir: &File, roots: &Roots, planting: &Planting, cwd: &str, plugin: &s
                     return Published::Refused(e.to_string());
                 }
             }
+            let failed = |reason: String| if replace { Published::GaveWay(reason) } else { Published::Refused(reason) };
             match fsb::symlink_at(target.as_os_str(), dir, leaf) {
                 Ok(()) => Published::Landed(planting.place(cwd, plugin, What::Symlink { target: None })),
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => Published::Refused(late()),
-                Err(e) => Published::Refused(e.to_string()),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => failed(late()),
+                Err(e) => failed(e.to_string()),
             }
         }
         (Want::File { digest, .. }, Some(file)) => {
@@ -1047,6 +1124,73 @@ mod tests {
     fn only_a_file_seen_in_place_counts_as_landed() {
         assert!(active(&receipt(Landing::Active)).is_some());
         assert!(active(&receipt(Landing::Prepared)).is_none(), "prepared proves nothing");
+    }
+
+    /// A link planting into `base`, as decided.
+    fn linking(base: &Path, act: Act) -> Planting {
+        let admitted = Admitted { index: 0, path: "l".into(), parts: vec!["l".into()], want: Want::Link(base.join("x")) };
+        Planting { admitted, act, owed: None, temp: None, reserved: None, dir: None, staged: None, refused: None }
+    }
+
+    #[test]
+    fn a_planting_is_recorded_ahead_only_as_the_line_it_will_owe() {
+        let mut planting = linking(Path::new("/b"), Act::Create { clear: None });
+        assert!(intended(&planting, "/r", "p").is_none(), "outside a repo it owes nothing ahead");
+        let line = crate::worktree_arm::test_support::exclude_line("/r/.git", "/l");
+        planting.owed = Some(Owed { line, slot: "l".into(), links_only: false, exact: true });
+        let ahead = intended(&planting, "/r", "p").unwrap();
+        assert!(matches!(ahead.what, What::Line), "never the link itself before it lands: {ahead:?}");
+    }
+
+    #[test]
+    fn a_step_that_may_falsify_a_record_dooms_its_slot_first() {
+        let ours = Slot::Link(PathBuf::from("/x"));
+        let replacing = linking(Path::new("/b"), Act::Replace { ours, previous: None });
+        let clearing = Planting {
+            admitted: Admitted {
+                index: 1,
+                path: ".agents/skills/one".into(),
+                parts: vec![".agents".into(), "skills".into(), "one".into()],
+                want: Want::Link("/b/one".into()),
+            },
+            ..linking(Path::new("/b"), Act::Create { clear: Some((".agents/skills".into(), "/h".into())) })
+        };
+        let plain = linking(Path::new("/b"), Act::Create { clear: None });
+        let doomed = doomed(&[replacing, clearing, plain]);
+        assert_eq!(doomed, HashSet::from(["l".to_string(), ".agents/skills".to_string()]));
+    }
+
+    #[test]
+    fn a_link_that_gave_way_leaves_its_record_only_the_line_it_owes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(tmp.path()).unwrap();
+        let home = base.join("home");
+        let own = home.join("plugin-workspaces/p/ws-1");
+        std::fs::create_dir_all(&own).unwrap();
+        let roots = Roots::of(&home, "p", "ws-1");
+        let dir = fsb::open_dir(&base).unwrap();
+        std::os::unix::fs::symlink(&own, base.join("l")).unwrap();
+        // The new link cannot go in once ours gave way: its target is longer
+        // than a link may hold.
+        let mut planting = linking(&base, Act::Replace { ours: Slot::Link(own.clone()), previous: None });
+        planting.admitted.want = Want::Link(PathBuf::from(format!("/{}", "a".repeat(4096))));
+        let mut stats = Stats::default();
+        let cwd = base.to_string_lossy().into_owned();
+        assert!(matches!(publish(&dir, &roots, &planting, &cwd, "p", &mut stats), Published::GaveWay(_)));
+        assert!(std::fs::symlink_metadata(base.join("l")).is_err());
+        let old = Place {
+            cwd: cwd.clone(),
+            plugin: "p".into(),
+            path: "l".into(),
+            what: What::Symlink { target: None },
+            hidden: Hidden::Exact,
+            owed: None,
+        };
+        let declared = HashSet::from(["l".to_string()]);
+        let sorted = sort_out(vec![old.clone()], &HashMap::new(), &HashSet::from(["l".to_string()]), &declared);
+        assert_eq!(sorted.replaced, vec![old.clone()], "never preserved as a link no longer there");
+        let sorted = sort_out(vec![old.clone()], &HashMap::new(), &HashSet::new(), &declared);
+        assert_eq!(sorted.preserved, vec![old], "still declared and still there: kept");
     }
 
     #[test]
