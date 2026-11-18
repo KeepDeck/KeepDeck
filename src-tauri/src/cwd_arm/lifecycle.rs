@@ -47,7 +47,7 @@ use std::path::{Path, PathBuf};
 use super::disk::{self, Reach, Slot};
 use super::lines::Lines;
 use super::proof::{self, Roots};
-use super::registry::{canonical, slot, Held, Hidden, Landed, Landing, Ledger, Owed, Place, Receipt, What};
+use super::registry::{canonical, leaf, slot, Held, Hidden, Landed, Landing, Ledger, Owed, Place, Receipt, What};
 use super::{relative_parts, ArmRefusal, CwdArm, CwdArmReport, CAPS};
 use crate::fs_beneath::{self as fsb, Publish};
 use crate::worktree_arm::ExcludeLine;
@@ -183,11 +183,17 @@ pub(super) fn arm(
     let whole = ledger.whole();
     let roots = Roots::of(home, plugin, ws);
     let allowed: Vec<PathBuf> = allowed.iter().filter_map(|dir| std::fs::canonicalize(dir).ok()).collect();
-    let theirs: HashSet<String> =
-        ledger.all().filter(|(_, p)| p.cwd == cwd && p.plugin != plugin).filter_map(|(_, p)| p.claim()).collect();
+    // Every entry a record other than this pass's own claims — another
+    // plugin's or workspace's, or any from another folder: one file is one
+    // planting, however many folders it can be named from.
+    let theirs: HashSet<String> = ledger
+        .all()
+        .filter(|(id, p)| !(*id == ws && p.cwd == cwd && p.plugin == plugin))
+        .filter_map(|(_, p)| p.leaf())
+        .collect();
 
     let mut refusals: Vec<Option<String>> = vec![None; arms.len()];
-    let admitted = admit(arms, &theirs, &allowed, &roots, &mut refusals);
+    let admitted = admit(arms, cwd, &theirs, &allowed, &roots, &mut refusals);
     let declared: HashSet<String> = arms.iter().filter_map(|arm| slot(arm.path())).collect();
 
     // This plugin's places here, settled from what stands.
@@ -568,6 +574,7 @@ pub(super) fn arm(
 /// the whole set; the rest get their refusal.
 fn admit(
     arms: &[CwdArm],
+    cwd: &str,
     theirs: &HashSet<String>,
     allowed: &[PathBuf],
     roots: &Roots,
@@ -619,8 +626,8 @@ fn admit(
             if let Some(inner) = holds[index] {
                 return Err(format!("{path} holds {}, declared too", arms[inner].path()));
             }
-            if theirs.contains(key) {
-                return Err(format!("{path} is planted here by another agent"));
+            if theirs.contains(&leaf(cwd, key)) {
+                return Err(format!("{path} is already planted — by another agent, workspace or folder"));
             }
             let want = match arm {
                 CwdArm::Symlink { target, .. } => Want::Link(
@@ -1111,26 +1118,32 @@ fn take(places: &mut Vec<Place>, pick: impl Fn(&Place) -> bool) -> Vec<Place> {
 }
 
 /// One place per slot, kind and way of hiding, the last word kept — and one
-/// owed line per line it owes: two lines owed at one slot (stamped before and
-/// after the directory was renamed) are two obligations.
+/// owed line per line owed. Two records of one claim stamped with different
+/// lines (before and after the directory was renamed) owe both: the older
+/// stamp stays, as an owed line.
 fn dedup(places: Vec<Place>) -> Vec<Place> {
-    type Key = (String, String, String, std::mem::Discriminant<What>, Hidden, Option<ExcludeLine>);
-    let mut seen: HashSet<Key> = HashSet::new();
+    type Claim = (String, String, String, std::mem::Discriminant<What>, Hidden);
+    let mut claims: HashMap<Claim, Option<ExcludeLine>> = HashMap::new();
+    let mut owed: HashSet<(String, String, String, Option<ExcludeLine>)> = HashSet::new();
     let mut kept: Vec<Place> = Vec::new();
     for place in places.into_iter().rev() {
-        let line = match place.what {
-            What::Line => place.owed.as_ref().map(|owed| owed.line.clone()),
-            _ => None,
+        let line = place.owed.as_ref().map(|owed| owed.line.clone());
+        let at = (place.cwd.clone(), place.plugin.clone(), place.slot().unwrap_or_default());
+        let place = if matches!(place.what, What::Line) {
+            place
+        } else {
+            let claim = (at.0.clone(), at.1.clone(), at.2.clone(), std::mem::discriminant(&place.what), place.hidden);
+            match claims.get(&claim) {
+                None => {
+                    claims.insert(claim, line);
+                    kept.push(place);
+                    continue;
+                }
+                Some(kept_line) if line.is_some() && *kept_line != line => Place { what: What::Line, ..place },
+                Some(_) => continue,
+            }
         };
-        let key = (
-            place.cwd.clone(),
-            place.plugin.clone(),
-            place.slot().unwrap_or_default(),
-            std::mem::discriminant(&place.what),
-            place.hidden,
-            line,
-        );
-        if seen.insert(key) {
+        if owed.insert((at.0, at.1, at.2, line)) {
             kept.push(place);
         }
     }
@@ -1230,7 +1243,10 @@ mod tests {
         let kept = dedup(vec![at(What::Line, "/before/.cfg/l"), at(What::Line, "/after/.cfg/l")]);
         assert_eq!(kept.len(), 2, "{kept:?}");
         let links = dedup(vec![at(What::Symlink { target: None }, "/a"), at(What::Symlink { target: None }, "/b")]);
-        assert_eq!(links, vec![at(What::Symlink { target: None }, "/b")], "one planting per slot, the last word");
+        let older = Place { what: What::Line, ..at(What::Symlink { target: None }, "/a") };
+        assert_eq!(links, vec![older, at(What::Symlink { target: None }, "/b")], "one claim, both lines still owed");
+        let same = dedup(vec![at(What::Symlink { target: None }, "/b"), at(What::Symlink { target: None }, "/b")]);
+        assert_eq!(same.len(), 1, "one claim, one line: the last word alone");
     }
 
     #[test]

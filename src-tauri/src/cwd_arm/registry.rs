@@ -137,9 +137,16 @@ pub(super) enum Hidden {
 pub(super) type Held = (String, Place);
 
 impl Place {
-    /// Whether this place claims the slot `path` names in `cwd`.
+    /// Whether this place claims the entry `path` names in `cwd` — the same
+    /// entry, whichever directory each was recorded from.
     pub fn at(&self, cwd: &str, path: &str) -> bool {
-        self.cwd == cwd && self.claim().is_some_and(|claim| Some(claim) == slot(path))
+        self.leaf().is_some_and(|own| slot(path).is_some_and(|slot| own == leaf(cwd, &slot)))
+    }
+
+    /// The entry this place claims, as one spelling of its whole path: two
+    /// records from nested directories that name one file name one leaf.
+    pub fn leaf(&self) -> Option<String> {
+        self.claim().map(|slot| leaf(&self.cwd, &slot))
     }
 
     /// This place's slot in its directory.
@@ -166,8 +173,19 @@ impl Place {
 /// slot (empty, absolute, leaving the directory). Two hard links are two
 /// names, so two slots.
 pub(super) fn slot(path: &str) -> Option<String> {
+    super::relative_parts(path).map(|parts| fold(&parts.join("/")))
+}
+
+/// The leaf a slot of `cwd` (a real path) is, in the one spelling of
+/// [`slot`].
+pub(super) fn leaf(cwd: &str, slot: &str) -> String {
+    format!("{}/{slot}", fold(cwd.trim_end_matches('/')))
+}
+
+/// Case folded, in one Unicode form.
+fn fold(text: &str) -> String {
     use unicode_normalization::UnicodeNormalization as _;
-    super::relative_parts(path).map(|parts| parts.join("/").to_lowercase().nfd().collect())
+    text.to_lowercase().nfd().collect()
 }
 
 /// A directory as one spelling: its real path while it exists, else as

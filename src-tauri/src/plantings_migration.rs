@@ -27,10 +27,12 @@
 //!   plugin's own directory — a re-login for a plugin that needs one, as
 //!   decided when API 73 was planned.
 //!
-//! A manifest is rewritten with only the cwds that failed, and goes once none
-//! is left, so the pass is done for good the first time it gets through and
-//! never comes back for a cwd it already finished; one that will not read is
-//! kept and said, as evidence of plantings nothing else can find. Nothing
+//! A cwd leaves its manifest before its planting is taken back, and comes
+//! back only when that fails: a manifest goes once none is left, so the pass
+//! is done for good the first time it gets through and never comes back —
+//! not even after a write that failed — for a cwd it already finished; one
+//! that will not read is kept and said, as evidence of plantings nothing
+//! else can find. Nothing
 //! here is ever written for a new build — the whole module is deletable once
 //! no install predates API 73.
 
@@ -77,7 +79,10 @@ fn retire(home: &Path) {
 }
 
 /// Read each `<dir>/<wsId>` manifest (a JSON list of cwds) and take its
-/// plantings back; what is left is only the cwds that failed.
+/// plantings back. A cwd leaves its manifest BEFORE its planting is taken
+/// back — a manifest that would not be rewritten takes nothing back, so a
+/// removal already done is never replayed from it — and comes back into it
+/// when the take-back fails.
 fn sweep_manifests(dir: &Path, take_back: impl Fn(&Path) -> io::Result<()>) {
     let Ok(entries) = fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
@@ -89,28 +94,35 @@ fn sweep_manifests(dir: &Path, take_back: impl Fn(&Path) -> io::Result<()>) {
             log::warn!("legacy plantings: {} is unreadable — kept", path.display());
             continue;
         };
-        let failed: Vec<&String> = cwds
-            .iter()
-            .filter(|cwd| match take_back(Path::new(cwd)) {
-                Ok(()) => false,
-                Err(e) => {
-                    log::warn!("legacy plantings: taking back from {cwd} failed: {e}");
-                    true
+        let mut left = cwds.clone();
+        for cwd in &cwds {
+            let without: Vec<String> = left.iter().filter(|c| *c != cwd).cloned().collect();
+            if let Err(e) = rewrite(&path, &without) {
+                log::warn!("legacy plantings: updating {} failed, {cwd} left as it is: {e}", path.display());
+                continue;
+            }
+            left = without;
+            if let Err(e) = take_back(Path::new(cwd)) {
+                log::warn!("legacy plantings: taking back from {cwd} failed: {e}");
+                left.push(cwd.clone());
+                if let Err(e) = rewrite(&path, &left) {
+                    log::warn!("legacy plantings: putting {cwd} back into {} failed: {e}", path.display());
                 }
-            })
-            .collect();
-        let left = if failed.is_empty() {
-            fs::remove_file(&path)
-        } else if failed.len() < cwds.len() {
-            serde_json::to_vec(&failed).map_err(io::Error::other).and_then(|bytes| write_atomic(&path, &bytes))
-        } else {
-            Ok(())
-        };
-        if let Err(e) = left {
-            log::warn!("legacy plantings: updating {} failed: {e}", path.display());
+            }
         }
     }
     let _ = fs::remove_dir(dir);
+}
+
+/// The manifest at `path` holding `cwds` — gone once it holds none.
+fn rewrite(path: &Path, cwds: &[String]) -> io::Result<()> {
+    if cwds.is_empty() {
+        return match fs::remove_file(path) {
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+            other => other,
+        };
+    }
+    serde_json::to_vec(cwds).map_err(io::Error::other).and_then(|bytes| write_atomic(path, &bytes))
 }
 
 #[cfg(all(test, unix))]
@@ -264,6 +276,28 @@ mod tests {
 
         assert!(fs::symlink_metadata(wt.join(LINK_DIR).join(LINK)).is_ok());
         assert!(s.home.join("skills/armed/ws-1").exists());
+    }
+
+    #[test]
+    fn a_link_is_taken_back_only_once_its_manifest_no_longer_names_it() {
+        let s = scratch();
+        let wt = fake_worktree(&s.base);
+        let staged = s.staged();
+        link(&staged, &wt.join(LINK_DIR).join(LINK));
+        let armed = s.home.join("skills/armed");
+        manifest(&armed, "ws-1", &[&wt]);
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&armed, fs::Permissions::from_mode(0o555)).unwrap();
+        retire(&s.home);
+        fs::set_permissions(&armed, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(fs::symlink_metadata(wt.join(LINK_DIR).join(LINK)).is_ok(), "nothing taken back from a stuck record");
+        retire(&s.home);
+        assert!(fs::symlink_metadata(wt.join(LINK_DIR).join(LINK)).is_err());
+        assert!(!armed.exists());
+        // Its record gone, a link put there since is nothing it may take.
+        link(&staged, &wt.join(LINK_DIR).join(LINK));
+        retire(&s.home);
+        assert!(fs::symlink_metadata(wt.join(LINK_DIR).join(LINK)).is_ok());
     }
 
     #[test]

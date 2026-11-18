@@ -279,7 +279,14 @@ fn sweep(ledger: &mut Ledger, home: &Path, gone: impl Fn(&str, &Place) -> bool) 
             _ => Some((ws.clone(), place.clone())),
         })
         .collect();
-    record(ledger, staying.iter().chain(&lowered))?;
+    if let Err(e) = record(ledger, staying.iter().chain(&lowered)) {
+        // Records already lowered go back as they were: their links still
+        // stand, and nothing else would ever take them back.
+        if let Err(back) = record(ledger, staying.iter().chain(&leaving)) {
+            log::warn!("cwd arming: restoring records after a failed write failed: {back}");
+        }
+        return Err(e);
+    }
     let (dirs, plantings): (Vec<Held>, Vec<Held>) =
         leaving.into_iter().partition(|(_, p)| matches!(p.what, What::Dir { .. }));
     let lifecycle::Outcome { mut released, mut retained } = lifecycle::retire(home, true, plantings);

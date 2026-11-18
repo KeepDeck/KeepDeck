@@ -462,7 +462,7 @@ fn two_workspaces_in_one_folder_each_plant_and_take_back_their_own() {
     assert!(s.arm("p.linker", "ws-2", &[link(".agents/skills/b", &b)]).refused.is_empty());
     let same =
         s.arm("p.linker", "ws-2", &[link(".agents/skills/b", &b), link(".agents/skills/a", &s.skill("ws-2", "a"))]);
-    assert_eq!(refused(&same, ".agents/skills/a"), ".agents/skills/a is your own — nothing was planted");
+    assert_eq!(refused(&same, ".agents/skills/a"), ".agents/skills/a is already planted — by another agent, workspace or folder");
     prune(&s.root, &s.home, &["ws-2".into()]).unwrap();
     assert!(fs::symlink_metadata(s.cwd.join(".agents/skills/a")).is_err(), "ws-1's own went with it");
     assert_eq!(fs::read_link(s.cwd.join(".agents/skills/b")).unwrap(), b, "ws-2's stays");
@@ -478,7 +478,7 @@ fn one_path_belongs_to_one_plugin_and_two_spellings_are_one_path() {
     let s = scratch();
     s.arm("p.filer", "ws-1", &[file(".x/mcp.json", "a")]);
     let other = s.arm("p.other", "ws-2", &[file(".x/MCP.json", "b")]);
-    assert_eq!(refused(&other, ".x/MCP.json"), ".x/MCP.json is planted here by another agent");
+    assert_eq!(refused(&other, ".x/MCP.json"), ".x/MCP.json is already planted — by another agent, workspace or folder");
     assert_eq!(fs::read_to_string(s.cwd.join(".x/mcp.json")).unwrap(), "a");
     let twice = s.arm("p.filer", "ws-1", &[file(".y/a", "1"), file(".y/A", "2"), file(".y//./a", "3")]);
     assert_eq!(refused(&twice, ".y/A"), ".y/A is declared twice");
@@ -954,7 +954,7 @@ fn a_slot_is_one_name_in_every_unicode_spelling() {
     let (one, two) = (s.skill("ws-1", "one"), s.skill("ws-1", "two"));
     assert!(s.arm("p.a", "ws-1", &[link(".x/caf\u{e9}", &one)]).refused.is_empty());
     let other = s.arm("p.b", "ws-1", &[link(".x/cafe\u{301}", &two)]);
-    assert_eq!(refused(&other, ".x/cafe\u{301}"), ".x/cafe\u{301} is planted here by another agent");
+    assert_eq!(refused(&other, ".x/cafe\u{301}"), ".x/cafe\u{301} is already planted — by another agent, workspace or folder");
     assert_eq!(fs::read_link(s.cwd.join(".x/caf\u{e9}")).unwrap(), one);
 }
 
@@ -1253,4 +1253,45 @@ fn a_take_back_that_could_not_be_lowered_on_record_first_takes_nothing_back() {
     assert_eq!(fs::read_link(s.cwd.join(".l")).unwrap(), skills, "no link goes while its record still claims it");
     s.disarm(&s.cwd).unwrap();
     assert!(fs::symlink_metadata(s.cwd.join(".l")).is_err());
+}
+
+// ---- one file, one claim, from any folder; records that outlive a failure ----
+
+#[test]
+fn one_file_is_claimed_once_from_whichever_folder_it_is_named() {
+    let s = scratch();
+    let skills = s.skills("ws-1");
+    assert!(s.arm("p.linker", "ws-1", &[link(".cfg/l", &skills)]).refused.is_empty());
+    let nested = s.arm_in(&s.cwd.join(".cfg"), "p.linker", "ws-1", &[link("l", &skills)]);
+    assert_eq!(refused(&nested, "l"), "l is already planted — by another agent, workspace or folder");
+    let links = s.places("ws-1").into_iter().filter(|p| matches!(p.what, What::Symlink { .. })).count();
+    assert_eq!(links, 1, "one record of one file");
+    // A record from the nested folder keeps older builds' retirement off the
+    // very link it names.
+    let s = scratch();
+    fs::create_dir_all(s.cwd.join(".agents")).unwrap();
+    symlink(s.skills("ws-1"), s.cwd.join(".agents/skills")).unwrap();
+    let nested = place(&s.cwd.join(".agents"), "keepdeck.codex", "skills", What::Symlink { target: None });
+    Ledger::read(&s.root).unwrap().write("ws-1", vec![nested]).unwrap();
+    retire_historical_link(&s.home, &s.cwd).unwrap();
+    assert!(fs::symlink_metadata(s.cwd.join(".agents/skills")).is_ok());
+}
+
+#[test]
+fn a_sweep_whose_lowering_fails_partway_restores_every_record_it_lowered() {
+    let s = scratch();
+    let main = repo(&s);
+    let (one, two) = (s.skills("ws-1"), s.skills("ws-2"));
+    s.arm_in(&main, "p.linker", "ws-1", &[link(".a", &one)]);
+    s.arm_in(&main, "p.linker", "ws-2", &[link(".b", &two)]);
+    let blocker = s.root.join("ws-2.json.tmp");
+    fs::create_dir_all(&blocker).unwrap();
+    assert!(s.disarm(&main).is_err());
+    fs::remove_dir(&blocker).unwrap();
+    assert!(fs::symlink_metadata(main.join(".a")).is_ok() && fs::symlink_metadata(main.join(".b")).is_ok());
+    assert!(s.places("ws-1").iter().any(|p| matches!(p.what, What::Symlink { .. })), "ws-1's claim is back");
+    s.disarm(&main).unwrap();
+    assert!(fs::symlink_metadata(main.join(".a")).is_err(), "and its link goes with the next sweep");
+    assert!(fs::symlink_metadata(main.join(".b")).is_err());
+    assert!(excluded(&main).is_empty());
 }
