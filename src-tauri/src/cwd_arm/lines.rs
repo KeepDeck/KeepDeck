@@ -26,7 +26,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::proof::{HISTORICAL_FOLDER_LINK, HISTORICAL_PLUGIN};
+use super::proof::HISTORICAL_FOLDER_LINK;
 use super::registry::{slot, Held, Hidden, Owed, Place, What};
 use crate::worktree_arm::{self, ExcludeLine, ExcludeRepo, Excluded};
 
@@ -71,9 +71,8 @@ impl Lines {
                 repo.legacy_line(first)?
             }
         };
-        let links_only = place.hidden == Hidden::FirstSegment
-            && place.plugin == HISTORICAL_PLUGIN
-            && slot(&place.path).as_deref() == Some(HISTORICAL_FOLDER_LINK);
+        let links_only =
+            place.hidden == Hidden::FirstSegment && slot(&place.path).as_deref() == Some(HISTORICAL_FOLDER_LINK);
         let exact = place.hidden == Hidden::Exact;
         Ok(Some(Owed { line, slot: repo.below_root(&place.path), links_only, exact }))
     }

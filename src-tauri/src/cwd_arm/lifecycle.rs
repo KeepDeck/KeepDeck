@@ -698,7 +698,7 @@ fn decide(
             // codex's whole skills folder, into this home's staging — and no
             // other agent's place there.
             let theirs = ledger.all().any(|(_, p)| p.at(cwd, &at) && p.plugin != plugin);
-            if proof::historical_folder_link(home, plugin, &at, &link) && !theirs {
+            if proof::historical_folder_link(home, &at, &link) && !theirs {
                 if !whole {
                     return Err(locked());
                 }
@@ -1101,7 +1101,7 @@ pub(super) fn retire_historical_link(home: &Path, ledger: &Ledger, cwd: &str) ->
     let Reach::Reached(way) = disk::reach(&cwd_fd, &parts, false)? else { return Ok(()) };
     let leaf = OsStr::new(parts.last().expect("a path has a name"));
     match disk::observe(&way.dir, leaf, 0)? {
-        Slot::Link(text) if proof::historical_folder_link(home, proof::HISTORICAL_PLUGIN, at, &text) => {
+        Slot::Link(text) if proof::historical_folder_link(home, at, &text) => {
             fsb::remove_at(&way.dir, leaf, false)
         }
         _ => Ok(()),

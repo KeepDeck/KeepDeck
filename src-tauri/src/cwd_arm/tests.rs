@@ -433,7 +433,7 @@ fn an_older_folder_link_becomes_a_link_per_skill_in_one_launch_for_every_workspa
 }
 
 #[test]
-fn only_codex_may_have_its_older_folder_link_give_way() {
+fn an_older_folder_link_another_plugins_record_names_is_not_anothers_to_clear() {
     let s = scratch();
     older_folder_link(&s, "ws-1", &s.cwd);
     let report = s.arm("p.other", "ws-1", &[link(".agents/skills/x", &s.skill("ws-1", "x"))]);
@@ -918,7 +918,7 @@ fn an_older_line_goes_once_its_planting_is_hidden_by_its_own_exact_line() {
 }
 
 #[test]
-fn only_codexs_older_folder_line_waits_for_a_link_alone() {
+fn only_the_older_folder_links_line_waits_for_a_link_alone() {
     let s = scratch();
     let main = repo(&s);
     fs::create_dir_all(main.join(".cfg")).unwrap();

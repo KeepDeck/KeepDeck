@@ -11,9 +11,10 @@
 //!   ours; neither is a file a record names without a receipt (an older
 //!   build's), which therefore is never changed.
 //! - One historical case is recognized as such: the link older builds made
-//!   for codex to the whole `.agents/skills` folder, into this home's skills
-//!   staging. It may give way to a real folder — for codex only — so links can
-//!   go inside it.
+//!   to the whole `.agents/skills` folder, into this home's skills staging.
+//!   It may give way to a real folder, so links can go inside it — for any
+//!   plugin planting there that no other plugin's record of it stands in the
+//!   way of: the link is provably KeepDeck's own, and the core names no CLI.
 //!
 //! A link's text is judged as written AND on the disk: the part of it that
 //! exists must be itself, no link on the way leading somewhere else — so a
@@ -67,16 +68,14 @@ fn plain(text: &Path) -> bool {
     matches!(parts.next(), Some(Component::RootDir)) && parts.all(|part| matches!(part, Component::Normal(_)))
 }
 
-/// The plugin whose older builds linked a whole folder, and where.
-pub(super) const HISTORICAL_PLUGIN: &str = "keepdeck.codex";
+/// Where older builds linked a whole skills folder.
 pub(super) const HISTORICAL_FOLDER_LINK: &str = ".agents/skills";
 
-/// Whether `text`, at `path` for `plugin`, is the link older builds made for
-/// codex at [`HISTORICAL_FOLDER_LINK`]: to some workspace's staged skills
-/// view in this home, exactly, and truly there.
-pub(super) fn historical_folder_link(home: &Path, plugin: &str, path: &str, text: &Path) -> bool {
-    plugin == HISTORICAL_PLUGIN
-        && super::registry::slot(path).as_deref() == Some(HISTORICAL_FOLDER_LINK)
+/// Whether `text`, at `path`, is the link older builds made at
+/// [`HISTORICAL_FOLDER_LINK`]: to some workspace's staged skills view in this
+/// home, exactly, and truly there.
+pub(super) fn historical_folder_link(home: &Path, path: &str, text: &Path) -> bool {
+    super::registry::slot(path).as_deref() == Some(HISTORICAL_FOLDER_LINK)
         && plain(text)
         && crate::skills::is_view_in(home, text)
         && truly(text)
@@ -159,18 +158,17 @@ mod tests {
     }
 
     #[test]
-    fn only_codexs_historical_folder_link_into_this_homes_staging_is_recognized() {
+    fn only_the_historical_folder_link_into_this_homes_staging_is_recognized() {
         let (_tmp, home) = home();
-        let (codex, at) = (HISTORICAL_PLUGIN, HISTORICAL_FOLDER_LINK);
+        let at = HISTORICAL_FOLDER_LINK;
         let historical = home.join("skills/staging/ws-1/skills");
-        assert!(historical_folder_link(&home, codex, at, &historical));
-        assert!(historical_folder_link(&home, codex, ".agents//skills", &historical), "one slot, any spelling");
-        assert!(!historical_folder_link(&home, "keepdeck.kimi", at, &historical), "codex's alone");
-        assert!(!historical_folder_link(&home, codex, ".agents", &historical));
+        assert!(historical_folder_link(&home, at, &historical));
+        assert!(historical_folder_link(&home, ".agents//skills", &historical), "one slot, any spelling");
+        assert!(!historical_folder_link(&home, ".agents", &historical));
         for other in ["skills/staging/ws-1/skills/review", "skills/staging/ws-1/other"] {
-            assert!(!historical_folder_link(&home, codex, at, &home.join(other)), "{other}");
+            assert!(!historical_folder_link(&home, at, &home.join(other)), "{other}");
         }
-        assert!(!historical_folder_link(&home, codex, at, Path::new("/Users/me/skills")));
+        assert!(!historical_folder_link(&home, at, Path::new("/Users/me/skills")));
     }
 
     #[test]
