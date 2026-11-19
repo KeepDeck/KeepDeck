@@ -1,0 +1,9 @@
+[package]
+name = "keepdeck-fsm"
+version = "0.1.0"
+edition = "2021"
+description = "A KeepDeck feature's domain logic as a state machine: two pure functions over the feature's own types."
+
+# No dependencies: a feature's rules are pure, so what it writes them against
+# is std only. Running a machine is keepdeck-fsm-runtime.
+[dependencies]
