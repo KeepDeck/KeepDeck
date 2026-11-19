@@ -75,8 +75,11 @@ export function teamResumeCohort(
   return cohort<TeamResumeSkip>(ws, teamId, (pane) => {
     const block = paneResumeBlock(ws, pane, facts.agentAvailable(pane.agentType));
     if (block) return block;
+    // The folder first: the sweep leaves a pane it found on a gone folder
+    // marked as rising, and reading the marker alone would call it on its
+    // way up when it is going nowhere.
+    if (facts.blocked(pane.id)) return "blocked";
     if (!idleReadsAsStopped(pane.idle, false)) return "waking";
-    if (remoteEndpointOf(pane) !== null) return "remote";
-    return facts.blocked(pane.id) ? "blocked" : null;
+    return remoteEndpointOf(pane) !== null ? "remote" : null;
   });
 }

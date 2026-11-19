@@ -34,7 +34,8 @@ const deck = (extra: Partial<Workspace> = {}): Workspace => ({
     on("team-1", { id: "rising", idle: { reason: "waking", origin: "restore" } }),
     on("team-1", { id: "remote", idle: { reason: "parked" }, location: { kind: "remote", endpoint: "ssh://box" } }),
     on("team-1", { id: "remote-live", location: { kind: "remote", endpoint: "ssh://box" } }),
-    on("team-1", { id: "folder-gone", idle: { reason: "parked" } }),
+    // As the sweep leaves it: still marked rising, its folder found gone.
+    on("team-1", { id: "folder-gone", idle: { reason: "waking", origin: "restore" } }),
     on("team-1", { id: "no-agent", agentType: "kimi", idle: { reason: "suspended", at: AT } }),
     on("team-2", { id: "creating" }),
   ],
