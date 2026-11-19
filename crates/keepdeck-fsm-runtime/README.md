@@ -86,7 +86,9 @@ while holding one waits for ever.
 ## An example
 
 A fetch with a deadline: the state needs the request sent and a timer, and
-whichever comes first wins. The handler fakes the network with a delay.
+whichever comes first wins. Each fetch gets the next request number, so an
+answer names the fetch it belongs to, and a late one changes nothing. The
+handler fakes the network with a delay.
 
 ```rust
 use keepdeck_fsm::{stay, to, Next, Owed};
@@ -97,13 +99,22 @@ use std::time::Duration;
 enum State {
     Idle,
     Fetching { request: u32 },
-    Got(String),
-    TimedOut,
+    Got { request: u32, body: String },
+    TimedOut { request: u32 },
+}
+
+impl State {
+    fn last_request(&self) -> u32 {
+        match *self {
+            State::Idle => 0,
+            State::Fetching { request } | State::Got { request, .. } | State::TimedOut { request } => request,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum Event {
-    Fetch(u32),
+    Fetch,
     Fetched(u32, String),
     Deadline(u32),
 }
@@ -117,11 +128,13 @@ const DEADLINE: Duration = Duration::from_secs(10);
 
 fn update(state: &State, event: Event) -> Next<State, Effect> {
     match (state, event) {
-        (State::Fetching { .. }, Event::Fetch(_)) => stay(),
-        (State::Idle | State::Got(_) | State::TimedOut, Event::Fetch(request)) => to(State::Fetching { request }),
-        (State::Fetching { request }, Event::Fetched(of, body)) if *request == of => to(State::Got(body)),
-        (State::Fetching { request }, Event::Deadline(of)) if *request == of => to(State::TimedOut),
-        // A late answer or a stale deadline changes nothing.
+        (State::Fetching { .. }, Event::Fetch) => stay(),
+        (State::Idle | State::Got { .. } | State::TimedOut { .. }, Event::Fetch) => {
+            to(State::Fetching { request: state.last_request() + 1 })
+        }
+        (&State::Fetching { request }, Event::Fetched(of, body)) if of == request => to(State::Got { request, body }),
+        (&State::Fetching { request }, Event::Deadline(of)) if of == request => to(State::TimedOut { request }),
+        // The answer or the deadline of an earlier fetch changes nothing.
         (_, Event::Fetched(..) | Event::Deadline(_)) => stay(),
     }
 }
@@ -129,18 +142,17 @@ fn update(state: &State, event: Event) -> Next<State, Effect> {
 fn work(state: &State) -> Owed<Effect, Event> {
     match *state {
         State::Fetching { request } => Owed::nothing().run(Effect::Get(request)).after(DEADLINE, Event::Deadline(request)),
-        State::Idle | State::Got(_) | State::TimedOut => Owed::nothing(),
+        State::Idle | State::Got { .. } | State::TimedOut { .. } => Owed::nothing(),
     }
 }
 
-/// The handler. Here the network answers after `delay`.
-struct Network {
-    delay: Duration,
-}
+/// The handler. Here the network takes 15 s to answer the first fetch, and
+/// 8 s after that.
+struct Network;
 
 impl Effects<Effect, Event> for Network {
     fn run(&mut self, Effect::Get(request): Effect, events: &Events<Event>) {
-        let delay = self.delay;
+        let delay = Duration::from_secs(if request == 1 { 15 } else { 8 });
         events.spawn(async move {
             tokio::time::sleep(delay).await;
             Some(Event::Fetched(request, format!("body {request}")))
@@ -151,19 +163,23 @@ impl Effects<Effect, Event> for Network {
 // Paused time: the timers run at once, and the test is exact.
 #[tokio::main(flavor = "current_thread", start_paused = true)]
 async fn main() {
-    // A quick answer beats the deadline.
-    let quick = Runtime::start(State::Idle, update, work, Network { delay: Duration::from_secs(1) });
-    quick.send(Event::Fetch(1));
-    let mut states = quick.state();
-    let got = states.wait_for(|at| matches!(at.value, State::Got(_))).await.expect("the machine").clone();
-    assert_eq!(got.value, State::Got("body 1".into()));
-    assert_eq!(got.version, 2, "Idle, then Fetching, then Got");
+    let machine = Runtime::start(State::Idle, update, work, Network);
+    let mut states = machine.state();
 
-    // A slow one loses to the deadline, and its late answer changes nothing.
-    let slow = Runtime::start(State::Idle, update, work, Network { delay: Duration::from_secs(60) });
-    slow.send(Event::Fetch(2));
-    tokio::time::sleep(Duration::from_secs(120)).await;
-    assert_eq!(slow.state().borrow().value, State::TimedOut);
+    // The first fetch loses to its deadline, at 10 s.
+    machine.send(Event::Fetch);
+    states.wait_for(|at| at.value == State::TimedOut { request: 1 }).await.expect("the machine");
+
+    // The second starts at once. At 15 s the first one's answer arrives, and
+    // changes nothing.
+    machine.send(Event::Fetch);
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    assert_eq!(machine.state().borrow().value, State::Fetching { request: 2 });
+
+    // At 18 s its own answer does. The state is copied out of the borrow.
+    let got = states.wait_for(|at| matches!(at.value, State::Got { .. })).await.expect("the machine").clone();
+    assert_eq!(got.value, State::Got { request: 2, body: "body 2".into() });
+    assert_eq!(got.version, 4, "Fetching, TimedOut, Fetching, Got");
 }
 ```
 
