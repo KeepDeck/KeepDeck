@@ -128,7 +128,6 @@ describe("opencode mail courier", () => {
     session: {
       get: (call: Record<string, unknown>) => Promise<unknown>;
       promptAsync: (call: Record<string, unknown>) => Promise<unknown>;
-      messages?: (call: Record<string, unknown>) => Promise<unknown>;
     };
     tui: {
       appendPrompt: (call: Record<string, unknown>) => Promise<unknown>;
@@ -139,6 +138,8 @@ describe("opencode mail courier", () => {
    * end gets "" — which is what the real deck answers most of the time. */
   /** sessionId → parent, as the client would answer. Absent = a root. */
   let parents: Record<string, string | undefined>;
+  /** sessionId → the agent and model it holds, as the client would answer. */
+  let selections: Record<string, Record<string, unknown>>;
   let pending: unknown[];
   /** Every question the courier asked, in order. */
   let asked: {
@@ -208,16 +209,17 @@ describe("opencode mail courier", () => {
     pending = [];
     asked = [];
     parents = {};
+    selections = {};
     // Sections shaped as the generated client's: a method called bare throws
     // here as it does in opencode (task-569).
     client = {
       session: sdkSection({
         // How the courier asks whether a session is somebody's child before
-        // adopting it as the pane's own conversation.
+        // adopting it as the pane's own conversation, and what it runs as.
         get: async (call: Record<string, unknown>) =>
           rejectsFlat(call, () => {
             const id = stringOf(recordOf(call.path, "call path").id, "session id");
-            return { data: { id, parentID: parents[id] } };
+            return { data: { id, parentID: parents[id], ...selections[id] } };
           }),
         promptAsync: async (call: Record<string, unknown>) =>
           rejectsFlat(call, () => {
@@ -309,29 +311,19 @@ describe("opencode mail courier", () => {
     expect(last(prompts)?.body).not.toHaveProperty("noReply");
   });
 
-  it("delivers as the user's own last prompt ran: agent, model and variant, read before anything lands", async () => {
+  it("delivers as the session's own selection says: agent, model and variant", async () => {
     // Without them opencode switches the session to the default agent and
-    // drops the variant (1.19.3, measured) — the context call included, since
-    // a noReply message sets the session's agent and model too.
-    const reads: number[] = [];
-    client.session.messages = async () => {
-      reads.push(prompts.length);
-      return {
-        data: [
-          {
-            info: {
-              role: "user",
-              agent: "custom",
-              model: { providerID: "probe", modelID: "alt", variant: "max" },
-            },
-            parts: [{ type: "text", text: "my own words" }],
-          },
-        ],
-      };
-    };
+    // runs the turn without the user's variant (1.19.3) — the context call
+    // included, since a noReply message sets the session's agent and model
+    // too. The brief as a conversation begins comes before the user's first
+    // message has landed, and the session already holds the composer's
+    // choice; nothing here can read the history, and nothing needs to
+    // (task-777).
+    selections.ses_root = { agent: "custom", model: { id: "alt", providerID: "probe", variant: "max" } };
     const courier = await start();
+    pending.push({ v: 1, context: "you are impl-1" });
     await courier.event(created("ses_root"));
-    pending.push({ v: 1, context: "you are impl-1", prompt: "ship it" });
+    pending.push({ v: 1, prompt: "ship it" });
     await courier.event(idle("ses_root"));
 
     const selection = {
@@ -339,7 +331,7 @@ describe("opencode mail courier", () => {
       model: { providerID: "probe", modelID: "alt" },
       variant: "max",
     };
-    expect(prompts.slice(-2)).toEqual([
+    expect(prompts).toEqual([
       {
         sessionID: "ses_root",
         body: {
@@ -350,9 +342,6 @@ describe("opencode mail courier", () => {
       },
       { sessionID: "ses_root", body: { ...selection, parts: [{ type: "text", text: "ship it" }] } },
     ]);
-    // Read once per delivery, before its first call — after, the newest
-    // message would be the one we just wrote.
-    expect(reads[reads.length - 1]).toBe(prompts.length - 2);
   });
 
   it("rides the user's own message when there is one, spending nothing", async () => {

@@ -25,13 +25,16 @@ nothing is installed on the user's side.
 - `mail-courier.js` asks the deck for mail and puts it into the session
   through the plugin's own server client (`promptAsync`). Standing context
   goes in with `noReply`, so it does not open a turn. Both calls repeat the
-  agent, model and variant of the newest message the user sent in that
-  session (`prompt-selection.js`). Without them opencode switches to the
-  default agent and drops the variant, and a `noReply` call does too. A
-  message counts as the user's when it has a text part that is neither
-  synthetic nor KeepDeck's mail frame. Limits: it is the last prompt the
-  user SENT (a model picked in the composer and not yet used is invisible),
-  and a files-only message is passed over.
+  agent, model and variant the session itself holds (`session.get`,
+  `prompt-selection.js`): the TUI creates a session with the composer's
+  choice and the server rewrites it with every prompt. Without them
+  opencode switches to the default agent and runs the turn without the
+  variant, writes "default" into the session, and the TUI then copies that
+  into its per-model choice for every later pane (task-777). Not the
+  session's messages: a brief delivered as the session is created comes
+  before the user's first message, and a pane fed mostly by mail buries the
+  user's last one hundreds of rows back. Limit: it is the choice the user
+  last SENT (a model picked in the composer and not yet used is invisible).
 - `pane-session.js` is shared by both. It owns which session is the pane's
   root, and the ancestry used to tell a subagent's session from the main
   one.
