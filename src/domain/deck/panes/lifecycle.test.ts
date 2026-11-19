@@ -7,6 +7,7 @@ import {
   paneIdleIsDurable,
   idleReadsAsStopped,
   paneSuspendBlock,
+  paneResumeBlock,
   paneResumeSessionId,
   paneSessionHandle,
   paneWakeOrigin,
@@ -151,6 +152,29 @@ describe("paneCanSuspend", () => {
     expect(
       paneCanSuspend({},{ id: "p", agentType: "claude", location: { kind: "remote", endpoint: "ws://vps:4500" } }, false),
     ).toBe(false);
+  });
+});
+
+describe("paneResumeBlock — the one reading behind a single Resume and a team's", () => {
+  const AT = "2026-11-19T10:00:00.000Z";
+  const parked: Pane = { id: "p", agentType: "claude", idle: { reason: "parked" } };
+  const suspended: Pane = { id: "p", agentType: "claude", idle: { reason: "suspended", at: AT } };
+  const live: Pane = { id: "p", agentType: "claude" };
+  const archived = { archived: { at: AT, phase: "archived" as const } };
+
+  it("asks back a pane that is down — parked, suspended or rising — when its agent is there", () => {
+    expect(paneResumeBlock({}, parked, true)).toBeNull();
+    expect(paneResumeBlock({}, suspended, true)).toBeNull();
+    expect(paneResumeBlock({}, { ...live, idle: { reason: "waking", origin: "restore" } }, true)).toBeNull();
+  });
+
+  it("names why not, in the order the person needs it", () => {
+    // An archived workspace outranks everything: restoring comes first.
+    expect(paneResumeBlock(archived, live, false)).toBe("archived");
+    // A directory still being created outranks "it is not down".
+    expect(paneResumeBlock(creating, { ...creatingMember }, true)).toBe("provisioning");
+    expect(paneResumeBlock({}, live, false)).toBe("running");
+    expect(paneResumeBlock({}, parked, false)).toBe("unavailable");
   });
 });
 

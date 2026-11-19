@@ -138,6 +138,28 @@ export function paneSuspendBlock(
   return panePlacement(ws, pane).kind === "provisioning" ? "provisioning" : null;
 }
 
+/** Why a pane cannot be asked back now — every [`ResumeRequest`] but the two
+ *  that are not about the pane itself. */
+export type PaneResumeBlock = Exclude<ResumeRequest, "resuming" | "gone">;
+
+/** Why a pane cannot be asked back right now, or null when it can — the one
+ *  reading behind a single Resume and a team's, so the two can never disagree
+ *  about a pane. `agentAvailable` is the catalog's half: whether a plugin
+ *  provides the pane's agent, which the model cannot know. Asked in the order
+ *  the person needs it: an archived workspace first (restoring it comes
+ *  before anything else), then a directory still being created, then a pane
+ *  that is not down at all, then a missing agent. */
+export function paneResumeBlock(
+  ws: Pick<Workspace, "teams" | "archived">,
+  pane: Pane,
+  agentAvailable: boolean,
+): PaneResumeBlock | null {
+  if (ws.archived) return "archived";
+  if (panePlacement(ws, pane).kind === "provisioning") return "provisioning";
+  if (!pane.idle) return "running";
+  return agentAvailable ? null : "unavailable";
+}
+
 /**
  * What is true of a pane BEFORE anything situational is asked about it, or
  * null when nothing is.

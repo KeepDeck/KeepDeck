@@ -11,7 +11,7 @@ import {
   type PaneRunIntent,
   type Workspace,
   paneBranch,
-  paneProvisioning,
+  paneResumeBlock,
   remoteEndpointOf,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
@@ -601,10 +601,8 @@ export function createAgentOrchestratorRuntime(
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
       const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
       if (!workspace || !pane) return "gone";
-      if (workspace.archived) return "archived";
-      if (paneProvisioning(workspace, pane)) return "provisioning";
-      if (!pane.idle) return "running";
-      if (!agents.commands().has(pane.agentType)) return "unavailable";
+      const block = paneResumeBlock(workspace, pane, agents.commands().has(pane.agentType));
+      if (block) return block;
       if (runView.clearNotes(paneId)) publish();
       startOwed.add(paneId);
       actions.requestPaneWake(wsId, paneId);
