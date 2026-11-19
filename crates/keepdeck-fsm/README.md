@@ -196,6 +196,33 @@ of the entity — `work` matches every stage, so the compiler flags it there —
 and tests do not always catch a missing line: that is the price of the short
 table.
 
+The two tables below differ only by a new event. The first compiles; the
+second, where `Pause` is not placed yet, does not:
+
+```rust
+enum Event { Start, Stop }
+
+fn step(running: bool, event: Event) -> Option<bool> {
+    match (running, event) {
+        (false, Event::Start) => Some(true),
+        (true, Event::Stop) => Some(false),
+        (_, Event::Start | Event::Stop) => None,
+    }
+}
+```
+
+```rust,compile_fail,E0004
+enum Event { Start, Stop, Pause }
+
+fn step(running: bool, event: Event) -> Option<bool> {
+    match (running, event) {
+        (false, Event::Start) => Some(true),
+        (true, Event::Stop) => Some(false),
+        (_, Event::Start | Event::Stop) => None,
+    }
+}
+```
+
 A feature whose events do not fit — an event that names no entity, a transition
 that changes more than one — writes `update` as a plain `match`.
 
@@ -213,6 +240,7 @@ shape `update` and `work`:
 | The value of a piece of work is its key: it names its owner and its attempt, and holds exactly what makes it different | While a state keeps needing an equal value, the work is not started again. Without the owner, the same work of two owners merges into one; without the attempt, a retry never runs | `listing_the_same_work_twice_owes_it_once`, `work_that_differs_in_anything_is_other_work`; runtime `owed_work_starts_once_and_new_work_starts_without_stopping_the_old` |
 | Work survives being done again | A machine started in a state does that state's work again, whatever was done before | runtime `a_machine_started_in_a_state_does_its_work` |
 | The result of work names its owner and its attempt, and `update` checks them | Work is never stopped, so its result can arrive after the state that needed it is gone | runtime `the_result_of_work_no_longer_needed_still_arrives` |
+| A feature may write its rules as a table for one entity only when every event names one entity and a transition changes only that one; the last line names the events | A plain `_` would let a new event compile and quietly change nothing | the compiler (E0004), pinned by the two doctests in "The table" |
 
 ## Testing a feature
 
