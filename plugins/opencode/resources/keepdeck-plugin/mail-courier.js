@@ -47,7 +47,7 @@ import { promptSelection } from "./prompt-selection.js";
 /** @typedef {{ id?: string, type?: string, text?: string, synthetic?: boolean, sessionID?: string, messageID?: string }} Part */
 /** @typedef {{ type: string, properties?: { sessionID?: string, info?: { id?: string, parentID?: string }, status?: string | { type?: string } } }} CourierEvent */
 /** @typedef {{ context?: string, prompt?: string }} MailAnswer */
-/** @typedef {{ session: { promptAsync: (query: { path: { id: string }, body: Record<string, unknown> }) => Promise<{ error?: unknown }>, create: (query: { body: Record<string, unknown> }) => Promise<{ error?: unknown, data?: { id?: string } }>, get?: (query: { path: { id: string } }) => Promise<{ error?: unknown, data?: { id?: string, parentID?: string } }>, messages?: (query: { path: { id: string }, query: { limit: number } }) => Promise<{ data?: import("./prompt-selection.js").MessageRow[] }> }, tui?: { appendPrompt?: (query: { body: { text: string } }) => Promise<{ error?: unknown }>, submitPrompt?: () => Promise<{ error?: unknown }>, publish: (query: { body: { type: string, properties: { sessionID: string } } }) => Promise<unknown> } }} CourierClient */
+/** @typedef {{ session: { promptAsync: (query: { path: { id: string }, body: Record<string, unknown> }) => Promise<{ error?: unknown }>, create: (query: { body: Record<string, unknown> }) => Promise<{ error?: unknown, data?: { id?: string } }>, get?: (query: { path: { id: string } }) => Promise<{ error?: unknown, data?: { id?: string, parentID?: string } & import("./prompt-selection.js").SessionInfo }> }, tui?: { appendPrompt?: (query: { body: { text: string } }) => Promise<{ error?: unknown }>, submitPrompt?: () => Promise<{ error?: unknown }>, publish: (query: { body: { type: string, properties: { sessionID: string } } }) => Promise<unknown> } }} CourierClient */
 
 /** @param {unknown} [input] */
 export async function startCourier(input = {}) {
@@ -132,9 +132,8 @@ export async function startCourier(input = {}) {
    */
   /** @param {MailAnswer} answer @param {string} sessionID @param {Record<string, unknown>} [chosen] */
   const viaSession = async (answer, sessionID, chosen) => {
-    // Both calls run as the user's own last prompt did — read before the
-    // context lands, or the newest message would be ours (prompt-selection.js).
-    // A session the courier just made has no prompt of the user's yet: its
+    // Both calls run as the session's own selection says (prompt-selection.js).
+    // A session the courier just made holds none of the user's yet: its
     // selection comes from the one they left, `chosen`.
     const selection = chosen ?? (await promptSelection(client, sessionID));
     let delivered = true;

@@ -89,21 +89,15 @@ describe("leaving a conversation, and mail on the home screen", () => {
 
   const client = () => ({
     session: sdkSection({
-      get: async ({ path }: { path: { id: string } }) => ({ data: { id: path.id, parentID: parents[path.id] } }),
-      messages: async ({ path }: { path: { id: string } }) => ({
-        data:
-          path.id === "ses_a"
-            ? [
-                {
-                  info: {
-                    role: "user",
-                    agent: "custom",
-                    model: { providerID: "probe", modelID: "alt", variant: "max" },
-                  },
-                  parts: [{ type: "text", text: "my own words" }],
-                },
-              ]
-            : [],
+      // The conversation the user leaves holds the agent and model they chose.
+      get: async ({ path }: { path: { id: string } }) => ({
+        data: {
+          id: path.id,
+          parentID: parents[path.id],
+          ...(path.id === "ses_a"
+            ? { agent: "custom", model: { id: "alt", providerID: "probe", variant: "max" } }
+            : {}),
+        },
       }),
       children: async () => ({ data: [] }),
       abort: async ({ path }: { path: { id: string } }) => {
@@ -392,8 +386,8 @@ describe("leaving a conversation, and mail on the home screen", () => {
     const order = kinds();
     expect(order.indexOf("session.bound")).toBeGreaterThanOrEqual(0);
     expect(order.indexOf("mail.ask")).toBeGreaterThan(order.indexOf("session.bound"));
-    // Into the new session, the brief with the mail, as the user's last
-    // prompt in the conversation they left ran.
+    // Into the new session, the brief with the mail, run as the conversation
+    // the user left runs.
     const chosen = { agent: "custom", model: { providerID: "probe", modelID: "alt" }, variant: "max" };
     expect(calls.prompts.map((p) => p.id)).toEqual(["ses_c", "ses_c"]);
     expect(calls.prompts[0].body).toMatchObject({ ...chosen, noReply: true });
