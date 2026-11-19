@@ -52,10 +52,13 @@ impl<E: Send + 'static> Events<E> {
     }
 }
 
-/// A state and its version: the number of changes since the machine started.
+/// A state and its version: the number of times `update` gave a new state
+/// since this machine started — an equal state counts too. A new start counts
+/// from 0 again.
 ///
 /// A reader that also fetches the state another way — a command, say — keeps
-/// whichever copy has the higher version.
+/// whichever copy has the higher version. Versions compare within one
+/// machine's life only.
 #[derive(Clone, Debug, PartialEq)]
 pub struct At<T> {
     pub version: u64,
@@ -79,8 +82,10 @@ enum Live {
 /// A running machine. Outside sees only its state: its effects go to the
 /// feature's handler and nowhere else.
 ///
-/// Handles are cheap to clone. The machine ends when the last one is
-/// dropped, and with it the stream of its states and its timers.
+/// Handles are cheap to clone. Dropping the last one is the stop: the
+/// machine still handles what was sent before, then ends, and with it the
+/// stream of its states and its timers. A send that races that drop may
+/// still get in.
 pub struct Runtime<S, E> {
     mailbox: mpsc::UnboundedSender<Mail<E>>,
     state: watch::Receiver<At<S>>,
@@ -158,6 +163,11 @@ where
     /// the latest, so a reader may miss the states in between; a fact that
     /// stays true once it is true cannot be missed. Ends when the machine's
     /// task is gone.
+    ///
+    /// A borrow of the state (`borrow`, or what `wait_for` returns) holds a
+    /// lock the machine needs to publish its next state. Copy out what you
+    /// need and let the borrow go before anything awaits: a reader that waits
+    /// on the machine while holding one waits for ever.
     pub fn state(&self) -> watch::Receiver<At<S>> {
         self.state.clone()
     }

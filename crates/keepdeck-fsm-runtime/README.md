@@ -36,9 +36,10 @@ machine.state()           the stream of states: At { version, value }
   first timer. `send` needs no runtime: a synchronous command may call it.
 - The machine starts in `initial` and first does the work `initial` needs. A
   machine restored after a restart does the work of its restored state again.
-- One machine per feature. Handles are cheap to clone. The machine ends when
-  the last handle is dropped, so whoever owns the feature's lifetime owns a
-  handle, and letting go of it is the stop. Its timers stop with it.
+- One machine per feature. Handles are cheap to clone. Whoever owns the
+  feature's lifetime owns a handle, and dropping the last one is the stop:
+  the machine still handles what was sent before, then ends, and its state
+  stream and timers end with it. A send that races that drop may still get in.
 
 ## The handler
 
@@ -62,7 +63,9 @@ asks for it, and the handler delivers it to whoever is waiting.
 ## The state stream
 
 `state()` is a tokio `watch` of `At { version, value }`. The version counts
-the changes since the start, and moves only when the state changes.
+each new state `update` gave since this start — an equal one too — and does
+not move when `update` keeps the state. A new start counts from 0 again, so
+versions compare within one machine's life.
 
 The stream keeps only the latest state, so a reader may miss the states in
 between. A fact that stays true once it is true cannot be missed: wait for
@@ -74,6 +77,11 @@ version.
 
 When the machine's task is gone — the last handle dropped, or a panic — the
 stream ends, and whoever waits on it is told.
+
+A borrow of the state — `borrow()`, or what `wait_for` returns — holds a lock
+the machine needs to publish its next state. Copy out what you need and let
+the borrow go before anything awaits: a reader that waits on the machine
+while holding one waits for ever.
 
 ## An example
 
@@ -176,7 +184,7 @@ are in the README of `keepdeck-fsm`.
 | A timer counts from when its state needs it. It is stopped when the machine leaves the states that need it, and its event arrives only if its arming is the current one | A firing can queue up behind the event that left its state, and a state entered again arms a new timer | `a_timer_counts_from_when_its_state_needs_it`, `a_timer_is_stopped_when_the_machine_leaves_its_state`, `a_timer_that_fires_while_its_state_is_being_left_is_dropped`, `a_stale_timer_is_dropped_while_the_same_timer_is_needed_again` (`src/lib.rs`) |
 | The state stream keeps only the latest state; a fact that stays true is not missed | The stream is "how things are now", not a log of changes | `the_state_stream_keeps_the_latest_state_and_a_fact_that_stays_true` |
 | Outside sees only the state. Effects go to the handler only; another feature learns about this one from its state | One output: nothing needs a second stream | `one_machine_learns_about_another_from_its_state` |
-| The machine's task owns the state stream: when the task is gone, by a panic too, the stream ends and its timers stop; the other machines go on. `Events` do not keep a machine alive | Otherwise whoever waits would wait for ever, and a dead machine's timers would sleep on | `a_machine_ends_with_its_last_handle_and_the_others_go_on`, `when_the_machine_panics_its_state_stream_ends_and_its_timers_stop`, `events_do_not_keep_a_machine_alive_and_say_when_it_is_gone` |
+| Dropping the last handle is the stop: what was sent before is still handled, then the machine ends. When its task is gone, by a panic too, its state stream ends and its timers stop; the other machines go on. `Events` do not keep a machine alive | Otherwise whoever waits would wait for ever, and a dead machine's timers would sleep on | `what_was_sent_before_the_last_handle_was_dropped_is_still_handled`, `a_machine_ends_with_its_last_handle_and_the_others_go_on`, `when_the_machine_panics_its_state_stream_ends_and_its_timers_stop`, `events_do_not_keep_a_machine_alive_and_say_when_it_is_gone` |
 | The framework recovers nothing. Work that fails or panics sends nothing; a feature that must know turns the failure into an event of its own. A panic in the machine is the app's concern | Recovery belongs to the feature that needs it, not to every feature | `work_that_panics_sends_nothing_and_the_machine_goes_on` |
 | `start` needs an entered tokio runtime, with its time driver if the states need timers; `send` needs none | The machine is a tokio task; a command may be synchronous. A missing time driver fails the machine, not quietly one deadline | `starting_a_machine_outside_a_tokio_runtime_panics`, `with_a_runtime_entered_a_machine_starts_and_send_needs_no_runtime`, `a_machine_whose_state_needs_a_timer_needs_the_time_driver` |
 

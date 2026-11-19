@@ -440,6 +440,19 @@ async fn a_machine_ends_with_its_last_handle_and_the_others_go_on() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn what_was_sent_before_the_last_handle_was_dropped_is_still_handled() {
+    let log = Seen::default();
+    let machine = Runtime::start(2, counter::update, counter::work, Record(log.clone()));
+    let mut states = machine.state();
+    machine.send(counter::Ev::Ping(1));
+    machine.send(counter::Ev::Set(4));
+    drop(machine); // before the machine's task has run at all
+    while states.changed().await.is_ok() {}
+    assert_eq!(seen(&log), [counter::Fx::Pong(1)]);
+    assert_eq!(*states.borrow(), At { version: 1, value: 4 }, "then it ended");
+}
+
+#[tokio::test(start_paused = true)]
 async fn events_do_not_keep_a_machine_alive_and_say_when_it_is_gone() {
     struct Keep(Arc<Mutex<Option<Events<counter::Ev>>>>);
     impl Effects<counter::Fx, counter::Ev> for Keep {
