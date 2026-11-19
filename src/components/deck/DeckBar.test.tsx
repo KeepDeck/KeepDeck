@@ -23,13 +23,27 @@ vi.mock("../notifications/NotificationBell", () => ({
   },
 }));
 
-const TEAM: BarLevel = {
+const TEAM: Extract<BarLevel, { kind: "team" }> = {
   kind: "team",
+  teamId: "team-1",
   name: "api",
   branch: "kd/api",
   canAddMember: true,
   addMemberTitle: "Add a member",
   onAddMember: () => {},
+  // The crumb's lines as `teamMenuView` describes them for a running team.
+  menu: [
+    { action: "resume", label: "Resume team", refusal: "No agent on this team is stopped." },
+    { action: "suspend", label: "Suspend team", refusal: null },
+    { action: "add-member", label: "Add member", refusal: null },
+    { action: "rename", label: "Rename", refusal: null },
+    { action: "disband", label: "Disband", refusal: null },
+  ],
+  onRename: () => {},
+  onResume: () => {},
+  onSuspend: () => {},
+  onDisband: () => {},
+  onRetry: () => {},
 };
 
 const WORKSPACE: NonNullable<DeckBarProps["workspace"]> = {
@@ -234,7 +248,7 @@ describe("DeckBar", () => {
     expect(calls[calls.length - 1]).toBe("team");
   });
 
-  it("inside a team, says where you are and offers a member — one door per level, no menu", () => {
+  it("inside a team, says where you are and offers a member — one door per level", () => {
     render();
     const left = present(host.querySelector(".deck__bar-left"), "the .deck__bar-left element");
     expect(left.querySelector(".deck__ws-name")?.textContent).toBe("Personal project");
@@ -265,7 +279,7 @@ describe("DeckBar", () => {
     // to be that something SHOWS, or it pins the very trap TipButton exists
     // to document.
     const name = "a team whose name is far too long for two hundred and forty pixels";
-    render({ level: { ...TEAM, name } as BarLevel });
+    render({ level: { ...TEAM, name } });
     vi.useFakeTimers();
     try {
       act(() => {
@@ -385,6 +399,60 @@ describe("DeckBar", () => {
     expect(button?.textContent).toBe("S");
     act(() => button?.click());
     expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("acts on the open team from its crumb's ⋯ — the card's own lines, the crumb's order", () => {
+    const calls: unknown[] = [];
+    render({
+      level: {
+        ...TEAM,
+        onAddMember: () => calls.push(["add-member"]),
+        onRename: (name) => calls.push(["rename", name]),
+        onResume: () => calls.push(["resume"]),
+        onSuspend: () => calls.push(["suspend"]),
+        onDisband: () => calls.push(["disband"]),
+      },
+    });
+    const items = () => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")];
+    const open = () => act(() => present(byLabel("Team api actions"), "the team crumb's menu").click());
+    open();
+    expect(items().map((i) => i.textContent)).toEqual([
+      "Resume teamNo agent on this team is stopped.",
+      "Suspend team",
+      "Add member",
+      "Rename",
+      "Disband",
+    ]);
+    // A refused line says why and does nothing — the menu stays open on it.
+    act(() => items()[0].click());
+    expect(calls).toEqual([]);
+    expect(items()).toHaveLength(5);
+    act(() => items()[1].click());
+    open();
+    act(() => items()[2].click());
+    open();
+    act(() => items()[4].click());
+    open();
+    act(() => items()[3].click());
+    const input = present(host.querySelector<HTMLInputElement>("input[aria-label='Rename team']"), "the team's rename field");
+    expect(input.value).toBe("api");
+    act(() => {
+      present(present(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"), "the value setter").set, "the value setter").call(input, " platform ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(calls).toEqual([["suspend"], ["add-member"], ["disband"], ["rename", "platform"]]);
+  });
+
+  it("drops a team rename left open when another team comes on screen", () => {
+    render();
+    act(() => {
+      present(host.querySelector(".deck__team-name"), "the team's name").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(host.querySelector("input[aria-label='Rename team']")).not.toBeNull();
+    render({ level: { ...TEAM, teamId: "team-2", name: "web" } });
+    expect(host.querySelector("input[aria-label='Rename team']")).toBeNull();
+    expect(host.querySelector(".deck__team-name")?.textContent).toBe("web");
   });
 
   it("renames, moves, archives and closes the workspace from its crumb's menu", () => {

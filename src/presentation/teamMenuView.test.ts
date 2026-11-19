@@ -117,6 +117,10 @@ describe("teamMenuView — one line-set for the card's ⋯ and the crumb's", () 
     });
   });
 
+  it("offers nothing for a team the orchestrator no longer holds", () => {
+    expect(teamMenuView(ws(), attached, null, "card")).toEqual([]);
+  });
+
   it("refuses a member to a full team in the cap's own message", () => {
     const items = teamMenuView(ws(MAX_PANES), attached, acts(), "card");
     expect(line(items, "add-member")?.refusal).toBe(TEAM_FULL_MESSAGE);

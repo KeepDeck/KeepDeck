@@ -160,7 +160,6 @@ describe("TEAM_CARD_WORDS", () => {
 
   it("names the card and its menu after the team, and says every dot and action", () => {
     expect(TEAM_CARD_WORDS.card("api")).toBe("Team api");
-    expect(TEAM_CARD_WORDS.menu("api")).toBe("Team api actions");
     expect(TEAM_CARD_WORDS.dot.failed).toBe("Needs attention");
   });
 });

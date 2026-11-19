@@ -1,3 +1,5 @@
+import type { TeamMenuItem } from "./teamMenuView";
+
 /**
  * What the deck bar says about the stage's level, decided apart from the
  * bar: the level itself (the view the controller composes and the bar
@@ -14,12 +16,21 @@ export type BarLevel =
   | { kind: "teams"; onAddTeam: (() => void) | null }
   | {
       kind: "team";
+      /** Which team — a rename left open on one must not survive a switch. */
+      teamId: string;
       name: string;
       branch: string | null;
       canAddMember: boolean;
       /** The add control's tooltip, which is also where a refusal is explained. */
       addMemberTitle: string;
       onAddMember(): void;
+      /** The crumb's ⋯ — the team's one line-set (`teamMenuView`). */
+      menu: readonly TeamMenuItem[];
+      onRename(name: string): void;
+      onResume(): void;
+      onSuspend(): void;
+      onDisband(): void;
+      onRetry(): void;
     };
 
 /** The bar's words for its level controls. */

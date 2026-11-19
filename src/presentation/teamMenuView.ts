@@ -61,6 +61,10 @@ export const TEAM_MENU_WORDS = {
     `No stopped agent can be resumed — ${byCount(n, "its folder is gone", "their folders are gone")}.`,
   noneRunning: "Nothing on this team is running.",
   runningRemote: "Its running agents run on a remote server — stopping the local client would not park them.",
+  /** The ⋯ as a screen reader names it, on either surface. */
+  ariaLabel: (name: string) => `Team ${name} actions`,
+  /** The field its Rename line opens, on either surface. */
+  renameField: "Rename team",
 } as const;
 
 function resumeLine(acts: TeamActs["resume"]): Pick<TeamMenuItem, "label" | "refusal"> {
@@ -89,13 +93,15 @@ function suspendRefusal(acts: TeamActs["suspend"]): string | null {
   return whys.includes("remote") ? TEAM_MENU_WORDS.runningRemote : TEAM_MENU_WORDS.noneRunning;
 }
 
-/** The lines of a team's ⋯ on `surface`, each with its refusal. */
+/** The lines of a team's ⋯ on `surface`, each with its refusal — none
+ * for a team the orchestrator no longer holds (`acts` null). */
 export function teamMenuView(
   ws: Workspace,
   team: Pick<Team, "id" | "location">,
-  acts: TeamActs,
+  acts: TeamActs | null,
   surface: TeamMenuSurface,
 ): TeamMenuItem[] {
+  if (!acts) return [];
   const line = (action: TeamMenuAction): TeamMenuItem => {
     switch (action) {
       case "resume":

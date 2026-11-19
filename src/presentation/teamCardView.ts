@@ -62,11 +62,8 @@ export const TEAM_CARD_WORDS = {
   } satisfies Record<TeamCardDot, string>,
   /** The card as a screen reader names it. */
   card: (name: string) => `Team ${name}`,
-  /** The ⋯ menu as a screen reader names it. */
-  menu: (name: string) => `Team ${name} actions`,
   /** How many agents are on the team. */
   agents: (size: number) => (size === 0 ? "No agents" : `${size} agent${size === 1 ? "" : "s"}`),
-  renameField: "Rename team",
   openHint: "Open the team — double-click to rename",
 } as const;
 
@@ -188,6 +185,6 @@ function teamCardView(
     dir: baseName(cwd),
     tasksLine: tasks ? teamCardTasksLine(tasks) : null,
     className: `team-card team-card--${dot}${creating ? " team-card--pending" : ""}`,
-    menu: acts ? teamMenuView(ws, team, acts, "card") : [],
+    menu: teamMenuView(ws, team, acts, "card"),
   };
 }

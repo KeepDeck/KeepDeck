@@ -21,6 +21,7 @@ import { useReadyTasksBoard } from "../../app/tasks/useBoardState";
 import type { GitPosition, TeamActs, Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
 import { TEAM_CARD_WORDS, teamCardsView, type TeamCardView } from "../../presentation/teamCardView";
+import { TEAM_MENU_WORDS } from "../../presentation/teamMenuView";
 import { BranchBadge } from "../../ui/badges";
 import { RenameInput } from "../../ui/RenameInput";
 import { MenuButton } from "../../ui/MenuButton";
@@ -139,7 +140,7 @@ function TeamCard({
           <RenameInput
             rename={rename}
             className="team-card__rename"
-            label={TEAM_CARD_WORDS.renameField}
+            label={TEAM_MENU_WORDS.renameField}
             contained
           />
         ) : (
@@ -164,7 +165,7 @@ function TeamCard({
             variant="ghost"
             size="sm"
             actions={actions}
-            ariaLabel={TEAM_CARD_WORDS.menu(card.name)}
+            ariaLabel={TEAM_MENU_WORDS.ariaLabel(card.name)}
           >
             ⋯
           </MenuButton>

@@ -67,6 +67,7 @@ import type { WorkspaceCrumbView } from "../presentation/workspaceCrumbView";
 import { stripView } from "../presentation/stripView";
 import { needsYouRows, type NeedsYouRow } from "../presentation/needsYouView";
 import { teamBranchOf, teamHead } from "../presentation/teamCardView";
+import { teamMenuView } from "../presentation/teamMenuView";
 import { pickFolder } from "../ipc/dialogs";
 import { useWelcomeFlow } from "./useWelcomeFlow";
 import { useArchiveFlow } from "./useArchiveFlow";
@@ -473,6 +474,7 @@ export function useAppController(runtime: AppRuntime) {
     active && openTeam
       ? {
           kind: "team",
+          teamId: openTeam.id,
           name: openTeam.name,
           branch: teamBranchOf(openTeam, teamHead(active, openTeam, gitHeads)),
           canAddMember,
@@ -480,6 +482,13 @@ export function useAppController(runtime: AppRuntime) {
           onAddMember: () => {
             if (canAddMember) void agentFlow.openFor(active, { kind: "member", teamId: openTeam.id });
           },
+          // The card's very lines, through the same doors the card's take.
+          menu: teamMenuView(active, openTeam, orchestrator.teamActs(active.id, openTeam.id), "crumb"),
+          onRename: (name: string) => deck.renameTeam(active.id, openTeam.id, name),
+          onResume: () => void orchestrator.resumeTeam(active.id, openTeam.id),
+          onSuspend: () => teamSuspendFlow.request(active.id, openTeam.id),
+          onDisband: () => closeFlow.requestDisbandTeam(active.id, openTeam.id),
+          onRetry: () => orchestrator.retryProvisioning(active.id, openTeam.id),
         }
       : {
           kind: "teams",
