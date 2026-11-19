@@ -33,7 +33,7 @@
   height: 10px;
 }
 
-/* THE count on a glyph's corner — the bell's unread.
+/* THE count on a glyph's corner — the bell's unread, the strip's archive.
    One anatomy; its tone says whether the count wants the person: quiet by
    default (things kept), `--alert` for things waiting to be read. Its
    words are `badgeCount`'s (presentation/countWords.ts); a site keeps only

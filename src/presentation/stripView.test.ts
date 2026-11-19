@@ -105,12 +105,33 @@ describe("stripView active workspace", () => {
     const view = stripView(deck, frames({}), "ws-b", {});
     expect(view.marks.map((mark) => mark.id)).toEqual(["ws-a", "ws-b"]);
     // ...and counts them, for the door at the strip's foot.
-    expect(view.archived).toBe(2);
+    expect(view.archivedDoor).toEqual({ count: "2", label: "2 archived workspaces — open the Workspaces window" });
     // Up from ws-b lands before ws-a — past the archived row between them,
     // which keeps its place in the deck's order.
     expect(view.active).toMatchObject({ moveUp: { before: "ws-a" }, moveDown: null });
-    // Every workspace archived: no marks, nobody on screen.
-    expect(stripView([put(workspace("ws-a", []))], frames({}), "", {})).toEqual({ marks: [], active: null, archived: 1 });
+    // Every workspace archived: no marks, nobody on screen — and the door,
+    // the one way back to them, said for one.
+    expect(stripView([put(workspace("ws-a", []))], frames({}), "", {})).toEqual({
+      marks: [],
+      active: null,
+      archivedDoor: { count: "1", label: "1 archived workspace — open the Workspaces window" },
+    });
+  });
+
+  it("caps the door's badge as every corner count is, while its label says how many", () => {
+    const deck = Array.from({ length: 100 }, (_, i): Workspace => ({
+      ...workspace(`ws-${i}`, []),
+      archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" },
+    }));
+    expect(stripView(deck, frames({}), "", {}).archivedDoor).toEqual({
+      count: "99+",
+      label: "100 archived workspaces — open the Workspaces window",
+    });
+  });
+
+  it("opens no door to the archive while nothing is archived", () => {
+    expect(stripView([ONE_TEAM_OF_THREE, workspace("ws-e", [])], frames({}), "ws-a", {}).archivedDoor).toBeNull();
+    expect(stripView([], frames({}), "", {}).archivedDoor).toBeNull();
   });
 });
 

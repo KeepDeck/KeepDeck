@@ -331,27 +331,6 @@
   margin: 0;
 }
 
-/* The strip foot's door into the archived workspaces. */
-.strip__archived {
-  flex: none;
-  width: 52px;
-  margin-bottom: 6px;
-  padding: 4px 0;
-  border: 1px solid var(--kd-seam);
-  border-radius: var(--kd-radius-control);
-  background: none;
-  color: var(--kd-text-3);
-  font: inherit;
-  font-size: var(--kd-font-small);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.strip__archived:hover {
-  color: var(--kd-text);
-  border-color: var(--kd-seam-strong);
-}
-
 /* The stage when every workspace is archived. */
 .all-archived {
   display: flex;

@@ -3,9 +3,12 @@ import { readStyles, ruleBody } from "./testSupport";
 
 describe("the corner count", () => {
   it("is drawn once: each site that carries one only places it on its glyph", () => {
-    // One badge in its tones; a site restating its size or colour is the
-    // second copy that drifts.
-    for (const [file, selector] of [["notifications.css", ".bell__badge"]] as const) {
+    // The bell's unread and the strip's archive are one badge in two tones;
+    // a site restating its size or colour is the second copy that drifts.
+    for (const [file, selector] of [
+      ["notifications.css", ".bell__badge"],
+      ["strip.css", ".strip__badge"],
+    ] as const) {
       const placed = Object.keys(ruleBody(readStyles(file), selector)).sort();
       expect(placed, selector).toEqual(["right", "top"]);
     }

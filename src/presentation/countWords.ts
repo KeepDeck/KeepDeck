@@ -18,8 +18,8 @@ export function counted(n: number, one: string, many = `${one}s`): string {
  * "99+" — it holds two digits, not a ledger. */
 const BADGE_MAX = 99;
 
-/** A count as a corner badge says it (the bell's unread): the number,
- * or "99+" past two digits. */
+/** A count as a corner badge says it (the bell's unread, the strip's
+ * archive): the number, or "99+" past two digits. */
 export function badgeCount(n: number): string {
   return n > BADGE_MAX ? `${BADGE_MAX}+` : String(n);
 }

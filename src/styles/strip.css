@@ -140,17 +140,40 @@
   margin-bottom: 2px;
 }
 
-.strip__mark--add .strip__tile {
+/* The column's two doors — «+» at its head, the archive at its foot — are
+   ways somewhere, not workspaces: a smaller, unfilled tile on the marks'
+   axis, in the quiet ink. */
+.strip__mark--add .strip__tile,
+.strip__mark--archive .strip__tile {
   width: 30px;
   height: 30px;
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--kd-seam-strong);
   color: var(--kd-text-3);
 }
 
-.strip__mark--add svg {
+.strip__mark--add svg,
+.strip__mark--archive svg {
   width: 14px;
   height: 14px;
+}
+
+.strip__mark--add .strip__tile {
+  box-shadow: inset 0 0 0 1px var(--kd-seam-strong);
+}
+
+/* The door into the archived workspaces, pinned at the column's foot as
+   «+» is at its head: no frame — as quiet as the archive is, no fill until
+   the pointer is on it — and how many it holds on its corner (user
+   decision 2026-11-19). Its name shows beside it while the column is open,
+   like every mark's. */
+.strip__mark--archive .strip__name {
+  color: var(--kd-text-3);
+}
+
+/* How many are archived (badges.css .kd-count-badge), on the box's corner. */
+.strip__badge {
+  top: -5px;
+  right: -7px;
 }
 
 /* The mark being dragged leaves its slot empty; the ghost carries it. */
@@ -368,6 +391,12 @@
   right: -2px;
   width: 8px;
   height: 8px;
+}
+
+/* What rides a tile's corner — a mark's dot, the archive's count — is
+   ringed in the strip's colour, so it stands off the tile under it. */
+.strip__tile .strip__dot,
+.strip__badge {
   box-shadow: 0 0 0 2px var(--kd-strip);
 }
 
