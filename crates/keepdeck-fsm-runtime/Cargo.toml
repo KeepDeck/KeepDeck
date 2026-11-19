@@ -1,0 +1,16 @@
+[package]
+name = "keepdeck-fsm-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Runs a keepdeck-fsm machine on its own tokio task: its handler, its timers and the stream of its states."
+
+[dependencies]
+keepdeck-fsm = { path = "../keepdeck-fsm" }
+# rt: the machine, its timers and the work it spawns are tokio tasks.
+# sync: its mailbox and the stream of its states. time: the timers.
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+
+[dev-dependencies]
+# The rules are tested under paused time (test-util), and the races on many
+# threads (rt-multi-thread).
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }

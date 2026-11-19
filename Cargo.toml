@@ -4,6 +4,7 @@ members = [
     "src-tauri",
     "crates/keepdeck-env",
     "crates/keepdeck-fsm",
+    "crates/keepdeck-fsm-runtime",
     "crates/keepdeck-pty",
     "crates/keepdeck-git",
     "crates/keepdeck-index",
