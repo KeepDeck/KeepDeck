@@ -63,7 +63,8 @@ them, not by how long they live: work from `work` is also done once.
 ## An example
 
 Uploads, each tried up to three times with a pause between attempts. One upload
-is one entity; the result of an attempt names its upload and its attempt.
+is one entity; the result of an attempt names its upload and its attempt. An id
+names one upload for good, so a late result can never finish another one.
 
 ```rust
 use keepdeck_fsm::{stay, to, Next, Owed};
@@ -132,7 +133,7 @@ fn update(state: &State, event: Event) -> Next<State, Effect> {
 fn step(id: Id, upload: Option<&Upload>, event: Event) -> (Option<Upload>, Option<Effect>) {
     use Upload::{Done, GaveUp, Sending, Waiting};
     match (upload, event) {
-        (None | Some(Done | GaveUp), Event::Start(_)) => (Some(Sending { attempt: 1 }), None),
+        (None, Event::Start(_)) => (Some(Sending { attempt: 1 }), None),
         (Some(&Sending { attempt }), Event::Sent(_, of, true)) if of == attempt => {
             (Some(Done), Some(Effect::Report(id, true)))
         }
@@ -141,9 +142,9 @@ fn step(id: Id, upload: Option<&Upload>, event: Event) -> (Option<Upload>, Optio
         }
         (Some(&Sending { attempt }), Event::Sent(_, of, false)) if of == attempt => (Some(Waiting { attempt }), None),
         (Some(&Waiting { attempt }), Event::Retry(_)) => (Some(Sending { attempt: attempt + 1 }), None),
-        // Everything else changes nothing: a start while busy, the result of an
-        // older attempt, a late timer. The events are named, so a new event
-        // does not compile until it is placed in this table.
+        // Everything else changes nothing: a start of an id already used, the
+        // result of an older attempt, a late timer. The events are named, so a
+        // new event does not compile until it is placed in this table.
         (_, Event::Start(_) | Event::Sent(..) | Event::Retry(_)) => (None, None),
     }
 }
@@ -175,8 +176,9 @@ let done = State([(7, Upload::Done)].into());
 assert_eq!(update(&sending, Event::Sent(7, 1, true)), to(done.clone()).run(Effect::Report(7, true)));
 assert_eq!(work(&done), Owed::nothing());
 
-// The result of an older attempt changes nothing.
+// The result of an older attempt changes nothing, and an id is not used twice.
 assert_eq!(update(&again, Event::Sent(7, 1, true)), stay());
+assert_eq!(update(&done, Event::Start(7)), stay());
 ```
 
 ### The table
@@ -239,7 +241,7 @@ shape `update` and `work`:
 | An effect comes from one path: from `update` or from `work`, never both | If a transition asks for an effect and the state it enters needs the same one, it is handed over twice in one step | runtime `the_same_effect_from_both_paths_is_handed_over_twice` |
 | The value of a piece of work is its key: it names its owner and its attempt, and holds exactly what makes it different | While a state keeps needing an equal value, the work is not started again. Without the owner, the same work of two owners merges into one; without the attempt, a retry never runs | `listing_the_same_work_twice_owes_it_once`, `work_that_differs_in_anything_is_other_work`; runtime `owed_work_starts_once_and_new_work_starts_without_stopping_the_old` |
 | Work survives being done again | A machine started in a state does that state's work again, whatever was done before | runtime `a_machine_started_in_a_state_does_its_work` |
-| The result of work names its owner and its attempt, and `update` checks them | Work is never stopped, so its result can arrive after the state that needed it is gone | runtime `the_result_of_work_no_longer_needed_still_arrives` |
+| The result of work names its owner and its attempt, `update` checks them, and an owner's id is never used again | Work is never stopped, so its result can arrive after the state that needed it is gone — even after a new operation has begun | runtime `the_result_of_work_no_longer_needed_still_arrives`; the examples in both READMEs |
 | A feature may write its rules as a table for one entity only when every event names one entity and a transition changes only that one; the last line names the events | A plain `_` would let a new event compile and quietly change nothing | the compiler (E0004), pinned by the two doctests in "The table" |
 
 ## Testing a feature
