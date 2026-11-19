@@ -9,6 +9,18 @@ dev-dependency.
 What a machine is, and how to write `update` and `work`, is in the README of
 `keepdeck-fsm`.
 
+## When not to use it
+
+- In a feature's own build. The feature's rules depend on `keepdeck-fsm`
+  only; the runtime is a dev-dependency there, for timing tests.
+- To test rules. `update` and `work` are plain functions, tested with no
+  runtime.
+- Where no tokio runtime is entered. `start` spawns the machine's task, so it
+  belongs inside the app's async runtime.
+
+What a machine itself is not for — UI decisions, recovery after a failure —
+is in the README of `keepdeck-fsm`.
+
 ## Starting a machine
 
 ```text
