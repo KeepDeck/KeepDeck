@@ -47,6 +47,11 @@ export function useTeamSuspendFlow(deps: {
   const shown = acts && asked ? stillTaken(acts.suspend, asked.named) : [];
   const confirming =
     ws && team ? teamSuspendConfirmView(team, membersOf(ws, team.id).length, shown, deps.activities) : null;
+  // A confirm left with nobody to stop is OVER, not hidden: were it kept,
+  // a named member coming back up would raise it again with no one having
+  // asked. Ended in the render that sees it go (React's own pattern for
+  // state that follows what is rendered), so no stale ask outlives it.
+  if (asked && !confirming) setAsked(null);
   return {
     confirming,
     request(wsId, teamId) {

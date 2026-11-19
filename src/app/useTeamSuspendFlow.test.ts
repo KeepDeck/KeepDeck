@@ -107,6 +107,20 @@ describe("useTeamSuspendFlow", () => {
     expect(suspendTeam).not.toHaveBeenCalled();
   });
 
+  it("ends — not hides — once nobody is left, so a named member coming back up raises nothing", () => {
+    act(() => flow.request("ws-1", "team-1"));
+    const stopped = { idle: { reason: "suspended" as const, at: "2026-11-19T10:00:00.000Z" } };
+    deck = deckOf([member("a", "team-1", stopped), member("b", "team-1", stopped), member("w", "team-2")]);
+    render();
+    expect(flow.confirming).toBeNull();
+
+    // A teammate's agent.resume brings "a" back: no Suspend was asked for.
+    deck = deckOf([member("a", "team-1"), member("b", "team-1", stopped), member("w", "team-2")]);
+    render();
+    expect(flow.confirming).toBeNull();
+    expect(suspendTeam).not.toHaveBeenCalled();
+  });
+
   it("goes away when its team is disbanded, and does not come back for a team of that name", () => {
     act(() => flow.request("ws-1", "team-1"));
     deck = [{ ...deckOf()[0], teams: deckOf()[0].teams?.filter((team) => team.id !== "team-1") }];
