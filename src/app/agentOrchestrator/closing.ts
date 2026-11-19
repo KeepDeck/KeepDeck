@@ -279,10 +279,9 @@ export function createAgentOrchestratorClosing({
     // named: one that became stoppable since never joins silently.
     const acts = teamActs(wsId, teamId);
     const taken = acts ? stillTaken(acts.suspend, named) : [];
-    if (taken.length === 0) return [];
+    if (taken.length === 0) return;
     log.info("web:orchestrator", `${teamId}: suspending ${taken.length} member(s)`);
     await stopPanes(wsId, taken);
-    return taken;
   };
 
   /** End ONE agent. Its place on its team goes with the pane; the team

@@ -24,8 +24,8 @@ import { membersOf } from "./collection";
 export interface TeamCohort<Skip> {
   /** The members the act takes. */
   take: string[];
-  /** The members it leaves, each with why. */
-  skip: { paneId: string; why: Skip }[];
+  /** Why it leaves each of the others — what its refusal is made from. */
+  skip: Skip[];
 }
 
 /** Both acts' verdicts on one team at once — what its menu offers, and
@@ -64,7 +64,7 @@ function cohort<Skip>(
   for (const pane of membersOf(ws, teamId)) {
     const reason = why(pane);
     if (reason === null) result.take.push(pane.id);
-    else result.skip.push({ paneId: pane.id, why: reason });
+    else result.skip.push(reason);
   }
   return result;
 }

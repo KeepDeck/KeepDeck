@@ -55,15 +55,15 @@ describe("teamSuspendCohort — every member a single Suspend would take", () =>
     expect(teamSuspendCohort(deck(), "team-1", facts)).toEqual({
       take: ["live", "rising"],
       skip: [
-        { paneId: "parked", why: "stopped" },
-        { paneId: "suspended", why: "stopped" },
-        { paneId: "remote", why: "stopped" },
-        { paneId: "remote-live", why: "remote" },
-        { paneId: "folder-gone", why: "stopped" },
-        { paneId: "no-agent", why: "stopped" },
+        "stopped", // parked
+        "stopped", // suspended
+        "stopped", // remote
+        "remote", // remote-live
+        "stopped", // folder-gone
+        "stopped", // no-agent
         // Rising, so a Suspend could take it — but not over the one still
         // taking it down, which the single Suspend refuses as in-flight.
-        { paneId: "reaping", why: "in-flight" },
+        "in-flight", // reaping
       ],
     });
   });
@@ -71,7 +71,7 @@ describe("teamSuspendCohort — every member a single Suspend would take", () =>
   it("leaves a member whose team is still creating its directory", () => {
     expect(teamSuspendCohort(deck(), "team-2", facts)).toEqual({
       take: [],
-      skip: [{ paneId: "creating", why: "provisioning" }],
+      skip: ["provisioning"], // creating
     });
   });
 
@@ -85,25 +85,25 @@ describe("teamResumeCohort — every member down by a decision that a single Res
     expect(teamResumeCohort(deck(), "team-1", facts)).toEqual({
       take: ["parked", "suspended"],
       skip: [
-        { paneId: "live", why: "running" },
-        { paneId: "rising", why: "waking" },
-        { paneId: "remote", why: "remote" },
-        { paneId: "remote-live", why: "running" },
-        { paneId: "folder-gone", why: "blocked" },
-        { paneId: "no-agent", why: "unavailable" },
-        { paneId: "reaping", why: "waking" },
+        "running", // live
+        "waking", // rising
+        "remote", // remote
+        "running", // remote-live
+        "blocked", // folder-gone
+        "unavailable", // no-agent
+        "waking", // reaping
       ],
     });
   });
 
   it("leaves a member whose team is still creating its directory", () => {
-    expect(teamResumeCohort(deck(), "team-2", facts).skip).toEqual([{ paneId: "creating", why: "provisioning" }]);
+    expect(teamResumeCohort(deck(), "team-2", facts).skip).toEqual(["provisioning"]);
   });
 
   it("takes nobody in an archived workspace — restoring it comes first", () => {
     const cohort = teamResumeCohort(deck({ archived: { at: AT, phase: "archived" } }), "team-1", facts);
     expect(cohort.take).toEqual([]);
-    expect(cohort.skip.every((entry) => entry.why === "archived")).toBe(true);
+    expect(cohort.skip.every((why) => why === "archived")).toBe(true);
   });
 });
 

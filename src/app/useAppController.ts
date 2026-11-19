@@ -485,7 +485,7 @@ export function useAppController(runtime: AppRuntime) {
           // The card's very lines, through the same doors the card's take.
           menu: teamMenuView(active, openTeam, orchestrator.teamActs(active.id, openTeam.id), "crumb"),
           onRename: (name: string) => deck.renameTeam(active.id, openTeam.id, name),
-          onResume: () => void orchestrator.resumeTeam(active.id, openTeam.id),
+          onResume: () => orchestrator.resumeTeam(active.id, openTeam.id),
           onSuspend: () => teamSuspendFlow.request(active.id, openTeam.id),
           onDisband: () => closeFlow.requestDisbandTeam(active.id, openTeam.id),
           onRetry: () => orchestrator.retryProvisioning(active.id, openTeam.id),

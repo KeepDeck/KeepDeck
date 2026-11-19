@@ -42,7 +42,7 @@ describe("useTeamSuspendFlow", () => {
   let flow: TeamSuspendFlow;
   let deck: Workspace[];
   let activities: Map<string, PaneActivity>;
-  const suspendTeam = vi.fn<(wsId: string, teamId: string, shown: readonly string[]) => Promise<readonly string[]>>();
+  const suspendTeam = vi.fn<(wsId: string, teamId: string, named: readonly string[]) => Promise<void>>();
 
   function Probe({ workspaces }: { workspaces: Workspace[] }) {
     flow = useTeamSuspendFlow({ workspaces, activities, teamActs: teamActsIn(workspaces), suspendTeam });
@@ -51,7 +51,7 @@ describe("useTeamSuspendFlow", () => {
   const render = () => act(() => root.render(createElement(Probe, { workspaces: deck })));
 
   beforeEach(() => {
-    suspendTeam.mockReset().mockResolvedValue([]);
+    suspendTeam.mockReset().mockResolvedValue();
     deck = deckOf();
     activities = new Map();
     root = createRoot(document.body.appendChild(document.createElement("div")));

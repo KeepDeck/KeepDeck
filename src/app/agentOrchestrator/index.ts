@@ -51,9 +51,9 @@ export interface AgentOrchestrator {
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
   /** Stop the members of a team its confirm NAMED (`named`) that the team's
    * Suspend would still take now ([`stillTaken`]) — never one it did not
-   * name. Answers the members a stop was requested for: the deck does not
-   * confirm a process exited, for one agent or for a team. */
-  suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<readonly string[]>;
+   * name. Settles once each stop was requested — the deck does not confirm
+   * a process exited, for one agent or for a team. */
+  suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<void>;
   /** Confirmed pane/workspace close, including optional worktree teardown. */
   close(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
   /** Put a workspace away: its agents stopped and kept, its directories
@@ -110,9 +110,9 @@ export interface AgentOrchestrator {
   /** Ask for a stopped pane back and report whether it can rise. */
   resume(wsId: string, paneId: string): ResumeRequest;
   /** Ask back every member of a team that is down by a decision — parked at
-   * launch or suspended — and that a single Resume would ask back. Answers
-   * the members asked; whether each rises lands on its card. */
-  resumeTeam(wsId: string, teamId: string): readonly string[];
+   * launch or suspended — and that a single Resume would ask back. Whether
+   * each rises lands on its card. */
+  resumeTeam(wsId: string, teamId: string): void;
   /** Whom a team's Suspend and Resume would take right now, and why each
    * other member stays — what its menu offers, read from the same facts its
    * doors judge by. Null for a team (or workspace) that is not there. */

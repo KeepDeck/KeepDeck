@@ -84,12 +84,10 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
     it("stops exactly the members it was shown, and no other team's", async () => {
       await live(team([{}, {}, { idle: { reason: "parked" } }]));
 
-      let requested: readonly string[] = [];
       await act(async () => {
-        requested = await agentRun.suspendTeam("ws-1", "team-1", ["m1", "m2"]);
+        await agentRun.suspendTeam("ws-1", "team-1", ["m1", "m2"]);
       });
 
-      expect(requested).toEqual(["m1", "m2"]);
       expect(idleOf("m1")).toMatchObject({ reason: "suspended" });
       expect(idleOf("m2")).toMatchObject({ reason: "suspended" });
       expect(idleOf("m3")).toEqual({ reason: "parked" });
@@ -120,12 +118,11 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
       });
       pty.closed = [];
 
-      let requested: readonly string[] = [];
       await act(async () => {
-        requested = await agentRun.suspendTeam("ws-1", "team-1", ["m1", "m2"]);
+        await agentRun.suspendTeam("ws-1", "team-1", ["m1", "m2"]);
       });
 
-      expect(requested).toEqual(["m1"]);
+      expect(idleOf("m1")).toMatchObject({ reason: "suspended" });
       expect(pty.closed).toEqual(["m1"]);
     });
 
@@ -148,16 +145,18 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
       // And the menu says so — it offers exactly what the door will take.
       expect(agentRun.teamActs("ws-1", "team-1")?.suspend).toEqual({
         take: ["m1"],
-        skip: [{ paneId: "m2", why: "in-flight" }],
+        skip: ["in-flight"],
       });
 
-      let whole!: Promise<readonly string[]>;
+      let whole!: Promise<void>;
       act(() => {
         whole = agentRun.suspendTeam("ws-1", "team-1", ["m1", "m2"]);
       });
+      // The team's stop took m1 alone: m2 is still rising, not stopped again.
+      expect(idleOf("m1")).toMatchObject({ reason: "suspended" });
+      expect(idleOf("m2")).toMatchObject({ reason: "waking" });
       act(() => release());
-
-      expect(await act(async () => whole)).toEqual(["m1"]);
+      await act(async () => whole);
       await act(async () => single);
       expect(pty.closed.filter((paneId) => paneId === "m2")).toHaveLength(1);
     });
@@ -183,21 +182,19 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
       expect(before?.resume.take).toEqual(["m2", "m3"]);
 
       // Suspend, named exactly what it offered, stops exactly that…
-      let requested: readonly string[] = [];
       await act(async () => {
-        requested = await agentRun.suspendTeam("ws-1", "team-1", before?.suspend.take ?? []);
+        await agentRun.suspendTeam("ws-1", "team-1", before?.suspend.take ?? []);
       });
-      expect(requested).toEqual(["m1"]);
-      expect(pty.closed).toEqual(["m1"]);
+      expect(pty.closed).toEqual(before?.suspend.take);
 
       // …and Resume, asked after it, asks back exactly what it offers now.
       const now = agentRun.teamActs("ws-1", "team-1");
       expect(now?.resume.take).toEqual(["m1", "m2", "m3"]);
-      let asked: readonly string[] = [];
-      act(() => {
-        asked = agentRun.resumeTeam("ws-1", "team-1");
-      });
-      expect(asked).toEqual(now?.resume.take);
+      act(() => agentRun.resumeTeam("ws-1", "team-1"));
+      const rising = ["m1", "m2", "m3"].filter((paneId) => idleOf(paneId)?.reason === "waking");
+      expect(rising).toEqual(now?.resume.take);
+      // Let the sweep finish the wakes it was asked for, inside the test.
+      await settle();
     });
 
     it("reads the sweep's folder verdict, as the doors do", async () => {
@@ -208,7 +205,7 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
 
       expect(agentRun.teamActs("ws-1", "team-1")?.resume).toEqual({
         take: [],
-        skip: [{ paneId: "m1", why: "blocked" }],
+        skip: ["blocked"],
       });
     });
 
@@ -226,13 +223,9 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
       );
       await settle();
 
-      let asked: readonly string[] = [];
-      act(() => {
-        asked = agentRun.resumeTeam("ws-1", "team-1");
-      });
+      act(() => agentRun.resumeTeam("ws-1", "team-1"));
       await settle();
 
-      expect(asked).toEqual(["m1", "m2"]);
       expect(idleOf("m1")).toBeUndefined();
       expect(idleOf("m2")).toBeUndefined();
       expect(peekPaneSpawnSpec("m1")?.args).toEqual(["--resume", "s-1"]);
@@ -256,15 +249,14 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
 
       expect(deck.viewByWs["ws-1"]?.suspendedTray).toBeUndefined();
       expect(deck.viewByWs["ws-1"]?.minimized).toEqual(["m2"]);
+      await settle();
     });
 
-    it("asks nobody back on a team with nobody down", async () => {
+    it("changes nothing on a team with nobody down", async () => {
       await live(team([{}, {}]));
-      let asked: readonly string[] = ["x"];
-      act(() => {
-        asked = agentRun.resumeTeam("ws-1", "team-1");
-      });
-      expect(asked).toEqual([]);
+      const before = deck.workspaces;
+      act(() => agentRun.resumeTeam("ws-1", "team-1"));
+      expect(deck.workspaces).toBe(before);
     });
   });
 });

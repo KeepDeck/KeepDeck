@@ -646,7 +646,6 @@ export function createAgentOrchestratorRuntime(
     resumeTeam(wsId, teamId) {
       const take = teamActs(wsId, teamId)?.resume.take ?? [];
       if (take.length > 0) askBack(wsId, take);
-      return take;
     },
     teamActs,
   };

@@ -70,10 +70,10 @@ export const TEAM_MENU_WORDS = {
 function resumeLine(acts: TeamActs["resume"]): Pick<TeamMenuItem, "label" | "refusal"> {
   const n = acts.take.length;
   if (n > 0) return { label: `Resume ${counted(n, "stopped agent")}`, refusal: null };
-  return { label: TEAM_MENU_WORDS.label.resume, refusal: resumeRefusal(acts.skip.map((entry) => entry.why)) };
+  return { label: TEAM_MENU_WORDS.label.resume, refusal: resumeRefusal(acts.skip) };
 }
 
-function resumeRefusal(whys: readonly TeamActs["resume"]["skip"][number]["why"][]): string {
+function resumeRefusal(whys: TeamActs["resume"]["skip"]): string {
   if (whys.length === 0) return TEAM_MENU_WORDS.noAgents;
   if (whys.includes("archived")) return resumeRefusalText("archived", TEAM_MENU_WORDS.subject);
   if (whys.includes("provisioning")) return resumeRefusalText("provisioning", TEAM_MENU_WORDS.subject);
@@ -87,7 +87,7 @@ function resumeRefusal(whys: readonly TeamActs["resume"]["skip"][number]["why"][
 
 function suspendRefusal(acts: TeamActs["suspend"]): string | null {
   if (acts.take.length > 0) return null;
-  const whys = acts.skip.map((entry) => entry.why);
+  const whys = acts.skip;
   if (whys.length === 0) return TEAM_MENU_WORDS.noAgents;
   if (whys.includes("provisioning")) return suspendRefusalText("provisioning", TEAM_MENU_WORDS.subject);
   if (whys.includes("in-flight")) return suspendRefusalText("in-flight", TEAM_MENU_WORDS.subject);

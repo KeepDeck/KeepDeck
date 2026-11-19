@@ -24,13 +24,13 @@ const ws = (members = 2): Workspace => ({
   })),
 });
 
-type Skip<K extends keyof TeamActs> = TeamActs[K]["skip"][number]["why"];
+type Skip<K extends keyof TeamActs> = TeamActs[K]["skip"][number];
 const acts = (
   suspend: { take?: string[]; skip?: Skip<"suspend">[] } = {},
   resume: { take?: string[]; skip?: Skip<"resume">[] } = {},
 ): TeamActs => ({
-  suspend: { take: suspend.take ?? [], skip: (suspend.skip ?? []).map((why, i) => ({ paneId: `s${i}`, why })) },
-  resume: { take: resume.take ?? [], skip: (resume.skip ?? []).map((why, i) => ({ paneId: `r${i}`, why })) },
+  suspend: { take: suspend.take ?? [], skip: suspend.skip ?? [] },
+  resume: { take: resume.take ?? [], skip: resume.skip ?? [] },
 });
 
 const line = (items: TeamMenuItem[], action: TeamMenuItem["action"]) => items.find((item) => item.action === action);
