@@ -118,6 +118,8 @@ describe("teamMenuView — one line-set for the card's ⋯ and the crumb's", () 
 
     it("says another suspend is already taking them down, in the single Suspend's own sentence", () => {
       expect(refusal("stopped", "in-flight")).toBe("This team is already being suspended.");
+      // A suspend already underway outranks one that could never park.
+      expect(refusal("remote", "in-flight")).toBe("This team is already being suspended.");
     });
   });
 

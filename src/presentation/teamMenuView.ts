@@ -15,9 +15,9 @@ import {
   type TeamActs,
   type Workspace,
 } from "../domain/deck";
-import { byCount, counted } from "./countWords";
-import { resumeRefusalText } from "./resumeWords";
-import { suspendRefusalText } from "./suspendWords";
+import { counted } from "./countWords";
+import { teamResumeRefusalText, type TeamResumeRefusal } from "./resumeWords";
+import { teamSuspendRefusalText } from "./suspendWords";
 
 export type TeamMenuAction = "add-member" | "rename" | "resume" | "suspend" | "disband" | "retry";
 
@@ -51,16 +51,9 @@ export const TEAM_MENU_WORDS = {
     disband: "Disband",
     retry: "Retry the worktree",
   } satisfies Record<TeamMenuAction, string>,
-  /** The team as the single-pane refusals name their subject — a reason
-   * the whole team shares is said in the single act's own sentence. */
-  subject: "This team",
+  /** Both act lines' refusal for a team with nobody on it — a fact about
+   * the team, not a reason of either act. */
   noAgents: "This team has no agents.",
-  noneStopped: "No agent on this team is stopped.",
-  noneResumable: "No stopped agent can be resumed right now.",
-  foldersGone: (n: number) =>
-    `No stopped agent can be resumed — ${byCount(n, "its folder is gone", "their folders are gone")}.`,
-  noneRunning: "Nothing on this team is running.",
-  runningRemote: "Its running agents run on a remote server — stopping the local client would not park them.",
   /** The ⋯ as a screen reader names it, on either surface. */
   ariaLabel: (name: string) => `Team ${name} actions`,
   /** The field its Rename line opens, on either surface. */
@@ -74,24 +67,30 @@ function resumeLine(acts: TeamActs["resume"]): Pick<TeamMenuItem, "label" | "ref
 }
 
 function resumeRefusal(whys: TeamActs["resume"]["skip"]): string {
-  if (whys.length === 0) return TEAM_MENU_WORDS.noAgents;
-  if (whys.includes("archived")) return resumeRefusalText("archived", TEAM_MENU_WORDS.subject);
-  if (whys.includes("provisioning")) return resumeRefusalText("provisioning", TEAM_MENU_WORDS.subject);
+  return whys.length === 0 ? TEAM_MENU_WORDS.noAgents : teamResumeRefusalText(resumeReason(whys));
+}
+
+/** Which reason a team's Resume refusal gives: one the whole team shares
+ * first, then whether anybody is down at all, then why those who are
+ * cannot come back. */
+function resumeReason(whys: TeamActs["resume"]["skip"]): TeamResumeRefusal {
+  if (whys.includes("archived")) return { kind: "archived" };
+  if (whys.includes("provisioning")) return { kind: "provisioning" };
   // Down, but not something Resume can bring back: its folder is gone, it
   // runs on a server, or no installed agent can start it.
   const stuck = whys.filter((why) => why === "blocked" || why === "remote" || why === "unavailable");
-  if (stuck.length === 0) return TEAM_MENU_WORDS.noneStopped;
+  if (stuck.length === 0) return { kind: "none-stopped" };
   const gone = stuck.filter((why) => why === "blocked").length;
-  return gone === stuck.length ? TEAM_MENU_WORDS.foldersGone(gone) : TEAM_MENU_WORDS.noneResumable;
+  return gone === stuck.length ? { kind: "folders-gone", count: gone } : { kind: "none-resumable" };
 }
 
 function suspendRefusal(acts: TeamActs["suspend"]): string | null {
   if (acts.take.length > 0) return null;
   const whys = acts.skip;
   if (whys.length === 0) return TEAM_MENU_WORDS.noAgents;
-  if (whys.includes("provisioning")) return suspendRefusalText("provisioning", TEAM_MENU_WORDS.subject);
-  if (whys.includes("in-flight")) return suspendRefusalText("in-flight", TEAM_MENU_WORDS.subject);
-  return whys.includes("remote") ? TEAM_MENU_WORDS.runningRemote : TEAM_MENU_WORDS.noneRunning;
+  // A reason the whole team shares first, then one only some hold.
+  const reason = (["provisioning", "in-flight", "remote"] as const).find((why) => whys.includes(why)) ?? "stopped";
+  return teamSuspendRefusalText(reason);
 }
 
 /** The lines of a team's ⋯ on `surface`, each with its refusal — none

@@ -23,7 +23,7 @@ export interface TeamSuspendConfirmView {
 
 function stopSentence(n: number, size: number): string {
   if (n < size) return `This requests a stop for ${n} of its ${size} agents.`;
-  return n === 1 ? "This requests a stop for its agent." : `This requests a stop for all ${n} agents.`;
+  return byCount(n, "This requests a stop for its agent.", `This requests a stop for all ${n} agents.`);
 }
 
 /** Whose work a stop may cut short, or null when nobody's. */
@@ -66,7 +66,9 @@ export function teamSuspendConfirmView(
       risk ? `${stopSentence(n, size)} ${risk}` : stopSentence(n, size),
       `${byCount(n, "It keeps", "Each keeps")} its pane, its place on the team, the board and the worktree. Resume requests a start again; when its conversation is recorded, its agent is asked to reopen it where it can.`,
     ].join("\n\n"),
-    confirmLabel: n === 1 ? "Suspend" : `Suspend all ${n}`,
+    // "Suspend all N", agreed with its count like every count on the deck:
+    // one agent is not "all 1".
+    confirmLabel: byCount(n, "Suspend", `Suspend all ${n}`),
     cancelLabel: "Cancel",
     shown,
   };
