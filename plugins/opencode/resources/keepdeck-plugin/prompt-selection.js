@@ -5,8 +5,9 @@
  *
  * `promptAsync` with no agent picks the config's DEFAULT agent, and with no
  * variant runs the turn without the one the user chose (`max`, say): the
- * server takes the variant from the call alone, never from the session, and
- * then writes "default" into the session (session/prompt.ts:646-689 at
+ * server takes the variant from the call, or from the agent's own configured
+ * one on that agent's model — never from the session — and writes what it
+ * took, "default" for none, into the session (session/prompt.ts:635-689 at
  * v1.19.3). A `noReply` context call is no exception. The TUI then copies
  * that empty variant from the newest user message into its per-model choice
  * on the next session it opens, which is how one delivery reset the effort of
@@ -31,16 +32,19 @@
 /** @typedef {{ agent?: string, model?: { id?: string, providerID?: string, variant?: string } }} SessionInfo */
 /** @typedef {{ session?: { get?: (query: { path: { id: string } }) => Promise<{ data?: SessionInfo, error?: unknown }> } }} SelectionClient */
 
-/** The selection fields a prompt body takes, from a session's info.
- * "default" is how opencode stores no variant, and is sent as none.
+/** The selection fields a prompt body takes, from a session's info. The
+ * agent stands on its own — a session can be made with an agent and no model
+ * yet — and a variant only with the model it belongs to. "default" is how
+ * opencode stores no variant, and is sent as none.
  * @param {SessionInfo | undefined} info
  */
 const selectionOf = (info) => {
+  const agent = typeof info?.agent === "string" && info.agent ? { agent: info.agent } : {};
   const model = info?.model;
-  if (!model?.providerID || !model?.id) return {};
+  if (!model?.providerID || !model?.id) return agent;
   const { variant } = model;
   return {
-    ...(typeof info?.agent === "string" && info.agent ? { agent: info.agent } : {}),
+    ...agent,
     model: { providerID: model.providerID, modelID: model.id },
     ...(typeof variant === "string" && variant && variant !== "default" ? { variant } : {}),
   };

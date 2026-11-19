@@ -29,8 +29,9 @@ nothing is installed on the user's side.
   `prompt-selection.js`): the TUI creates a session with the composer's
   choice and the server rewrites it with every prompt. Without them
   opencode switches to the default agent and runs the turn without the
-  variant, writes "default" into the session, and the TUI then copies that
-  into its per-model choice for every later pane (task-777). Not the
+  variant (unless the agent configures one of its own), writes "default"
+  into the session, and the TUI then copies that into its per-model choice
+  for every later pane (task-777). Not the
   session's messages: a brief delivered as the session is created comes
   before the user's first message, and a pane fed mostly by mail buries the
   user's last one hundreds of rows back. Limit: it is the choice the user

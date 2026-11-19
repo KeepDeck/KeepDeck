@@ -39,8 +39,15 @@ describe("the selection a delivery repeats", () => {
     expect(await promptSelection(client, "s")).toEqual({ model: { providerID: "probe", modelID: "alt" } });
   });
 
-  it("is nothing — a bare delivery — when the session holds no model, or cannot be read", async () => {
-    expect(await promptSelection(clientOver({ agent: "custom" }).client, "s")).toEqual({});
+  it("keeps the agent of a session made with no model yet", async () => {
+    // Without it opencode runs the delivery as the config's default agent.
+    expect(await promptSelection(clientOver({ agent: "custom" }).client, "s")).toEqual({ agent: "custom" });
+    expect(
+      await promptSelection(clientOver({ agent: "custom", model: { providerID: "probe", variant: "max" } }).client, "s"),
+    ).toEqual({ agent: "custom" });
+  });
+
+  it("is nothing — a bare delivery — when the session holds no selection, or cannot be read", async () => {
     expect(await promptSelection(clientOver({ model: { providerID: "probe" } }).client, "s")).toEqual({});
     const failing = { session: sdkSection({ get: async () => ({ error: { name: "NotFoundError" } }) }) };
     expect(await promptSelection(failing, "s")).toEqual({});
