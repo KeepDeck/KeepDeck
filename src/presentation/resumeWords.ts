@@ -4,7 +4,7 @@
  * say the same thing about the same state. The reason is the domain's
  * (`ResumeRequest`); the words are here.
  */
-import type { ResumeRequest } from "../domain/deck";
+import type { ResumeRequest, TeamActs } from "../domain/deck";
 import { byCount, counted } from "./countWords";
 
 /** One sentence per refusal, so every surface that can ask for a pane back
@@ -27,11 +27,13 @@ export function resumeRefusalText(
   }
 }
 
-/** A team's Resume named by whom it takes — the same words on every door
- * that asks a team back (its ⋯, its empty grid), so the two cannot count
- * the same act differently. */
-export function teamResumeLabel(taking: number): string {
-  return `Resume ${counted(taking, "stopped agent")}`;
+/** A team's Resume as every door that asks a team back offers it (its ⋯,
+ * its empty grid): named by whom it takes — or null when it would take
+ * nobody, and a door has no Resume to offer. One answer, so no two doors
+ * can offer or count the same act differently. */
+export function teamResumeOffer(resume: Pick<TeamActs["resume"], "take">): string | null {
+  const taking = resume.take.length;
+  return taking > 0 ? `Resume ${counted(taking, "stopped agent")}` : null;
 }
 
 /** Why a team's Resume has nobody to ask back — the reason that holds for

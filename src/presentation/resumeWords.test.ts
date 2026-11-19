@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResumeRequest } from "../domain/deck";
-import { resumeRefusalText, teamResumeLabel, teamResumeRefusalText } from "./resumeWords";
+import { resumeRefusalText, teamResumeOffer, teamResumeRefusalText } from "./resumeWords";
 
 describe("resumeRefusalText", () => {
   it("gives every refusal its own sentence", () => {
@@ -55,9 +55,13 @@ describe("teamResumeRefusalText — a team's Resume refused, beside the single o
   });
 });
 
-describe("teamResumeLabel — a team's Resume named by whom it takes", () => {
-  it("counts the stopped agents it asks back, agreeing the noun with the count", () => {
-    expect(teamResumeLabel(1)).toBe("Resume 1 stopped agent");
-    expect(teamResumeLabel(4)).toBe("Resume 4 stopped agents");
+describe("teamResumeOffer — a team's Resume as a door offers it", () => {
+  it("names it by the stopped agents it asks back, agreeing the noun with the count", () => {
+    expect(teamResumeOffer({ take: ["a"] })).toBe("Resume 1 stopped agent");
+    expect(teamResumeOffer({ take: ["a", "b", "c", "d"] })).toBe("Resume 4 stopped agents");
+  });
+
+  it("offers nothing when it would take nobody", () => {
+    expect(teamResumeOffer({ take: [] })).toBeNull();
   });
 });

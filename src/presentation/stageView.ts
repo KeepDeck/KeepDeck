@@ -25,7 +25,7 @@ import {
   type Workspace,
   type WorkspaceView,
 } from "../domain/deck";
-import { teamResumeLabel } from "./resumeWords";
+import { teamResumeOffer } from "./resumeWords";
 import { emptyGridMessage } from "./trayView";
 
 export interface StageWord {
@@ -75,8 +75,8 @@ export interface StageResume {
 }
 
 function stageResume(teamId: string, acts: TeamActs | null): StageResume | null {
-  const taking = acts?.resume.take.length ?? 0;
-  return taking > 0 ? { teamId, label: teamResumeLabel(taking) } : null;
+  const label = acts && teamResumeOffer(acts.resume);
+  return label ? { teamId, label } : null;
 }
 
 export function stageContent(

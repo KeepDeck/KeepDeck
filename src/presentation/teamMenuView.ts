@@ -15,7 +15,7 @@ import {
   type TeamActs,
   type Workspace,
 } from "../domain/deck";
-import { teamResumeLabel, teamResumeRefusalText, type TeamResumeRefusal } from "./resumeWords";
+import { teamResumeOffer, teamResumeRefusalText, type TeamResumeRefusal } from "./resumeWords";
 import { teamSuspendRefusalText } from "./suspendWords";
 
 export type TeamMenuAction = "add-member" | "rename" | "resume" | "suspend" | "disband" | "retry";
@@ -60,9 +60,12 @@ export const TEAM_MENU_WORDS = {
 } as const;
 
 function resumeLine(acts: TeamActs["resume"]): Pick<TeamMenuItem, "label" | "refusal"> {
-  const n = acts.take.length;
-  if (n > 0) return { label: teamResumeLabel(n), refusal: null };
-  return { label: TEAM_MENU_WORDS.label.resume, refusal: resumeRefusal(acts.skip) };
+  const offer = teamResumeOffer(acts);
+  // The menu keeps the line when there is nothing to offer — refused, in
+  // its own name, saying why.
+  return offer !== null
+    ? { label: offer, refusal: null }
+    : { label: TEAM_MENU_WORDS.label.resume, refusal: resumeRefusal(acts.skip) };
 }
 
 function resumeRefusal(whys: TeamActs["resume"]["skip"]): string {

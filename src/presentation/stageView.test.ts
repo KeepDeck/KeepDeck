@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { Pane, TeamActFacts, Workspace } from "../domain/deck";
 import { teamActsIn } from "../domain/deck/reducer.testSupport";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { teamResumeLabel } from "./resumeWords";
 import { NO_TEAMS_WORD, TEAM_SESSIONS_WORDS, stageContent, teamSessionsHint } from "./stageView";
 
 const member = (id: string, teamId: string, role: string): Pane => ({ id, agentType: "claude", team: { teamId, role } });
@@ -72,14 +71,14 @@ describe("stageContent — the empty grid's Resume", () => {
     expect(stageContent(allDown, trayed, 0, actsOf(allDown))).toEqual({
       kind: "word",
       word: { title: "Every agent on this team is suspended", sub: "Restore one below to inspect it" },
-      resume: { teamId: "team-1", label: teamResumeLabel(2) },
+      resume: { teamId: "team-1", label: "Resume 2 stopped agents" },
     });
   });
 
   it("counts only whom it would take, when some of the hidden are merely minimized", () => {
     const mixed = ws({ panes: [down("p1"), member("p2", "team-1", "p2")] });
     const content = stageContent(mixed, { teamOpen: "team-1", suspendedTray: ["p1"], minimized: ["p2"] }, 0, actsOf(mixed));
-    expect(content).toMatchObject({ kind: "word", resume: { teamId: "team-1", label: teamResumeLabel(1) } });
+    expect(content).toMatchObject({ kind: "word", resume: { teamId: "team-1", label: "Resume 1 stopped agent" } });
   });
 
   it("offers nothing when its Resume would take nobody — all running, folders gone, or the team still being made", () => {
