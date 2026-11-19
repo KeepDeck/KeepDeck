@@ -7,6 +7,8 @@ import {
   paneIdleIsDurable,
   idleReadsAsStopped,
   paneSuspendBlock,
+  paneSuspendRefusal,
+  paneResumeBlock,
   paneResumeSessionId,
   paneSessionHandle,
   paneWakeOrigin,
@@ -52,6 +54,30 @@ describe("paneHasProcess", () => {
     ).toBe(false);
     // The half the limits poller used to drop: mid-create, never ran.
     expect(paneHasProcess(creating, creatingMember)).toBe(false);
+  });
+});
+
+describe("paneSuspendRefusal — the one decision a single and a team's Suspend ask", () => {
+  const live: Pane = { id: "p", agentType: "claude" };
+  const parked: Pane = { ...live, idle: { reason: "parked" } };
+  const remote: Pane = { ...live, location: { kind: "remote", endpoint: "ssh://box" } };
+  const reaping = { blocked: false, suspending: true };
+  const free = { blocked: false, suspending: false };
+
+  it("refuses a pane another suspend is still reaping BEFORE any block — it may be rising again", () => {
+    expect(paneSuspendRefusal({}, { ...live, idle: { reason: "waking", origin: "manual" } }, reaping)).toBe("in-flight");
+    expect(paneSuspendRefusal({}, parked, reaping)).toBe("in-flight");
+    expect(paneSuspendRefusal({}, remote, reaping)).toBe("in-flight");
+    expect(paneSuspendRefusal(creating, creatingMember, reaping)).toBe("in-flight");
+  });
+
+  it("is otherwise the pane's own block, or nothing", () => {
+    expect(paneSuspendRefusal({}, parked, free)).toBe("stopped");
+    // The sweep's folder verdict on a pane it was waking: going nowhere.
+    expect(paneSuspendRefusal({}, { ...live, idle: { reason: "waking", origin: "restore" } }, { blocked: true, suspending: false })).toBe("stopped");
+    expect(paneSuspendRefusal({}, remote, free)).toBe("remote");
+    expect(paneSuspendRefusal(creating, creatingMember, free)).toBe("provisioning");
+    expect(paneSuspendRefusal({}, live, free)).toBeNull();
   });
 });
 
@@ -151,6 +177,29 @@ describe("paneCanSuspend", () => {
     expect(
       paneCanSuspend({},{ id: "p", agentType: "claude", location: { kind: "remote", endpoint: "ws://vps:4500" } }, false),
     ).toBe(false);
+  });
+});
+
+describe("paneResumeBlock — the one reading behind a single Resume and a team's", () => {
+  const AT = "2026-11-19T10:00:00.000Z";
+  const parked: Pane = { id: "p", agentType: "claude", idle: { reason: "parked" } };
+  const suspended: Pane = { id: "p", agentType: "claude", idle: { reason: "suspended", at: AT } };
+  const live: Pane = { id: "p", agentType: "claude" };
+  const archived = { archived: { at: AT, phase: "archived" as const } };
+
+  it("asks back a pane that is down — parked, suspended or rising — when its agent is there", () => {
+    expect(paneResumeBlock({}, parked, true)).toBeNull();
+    expect(paneResumeBlock({}, suspended, true)).toBeNull();
+    expect(paneResumeBlock({}, { ...live, idle: { reason: "waking", origin: "restore" } }, true)).toBeNull();
+  });
+
+  it("names why not, in the order the person needs it", () => {
+    // An archived workspace outranks everything: restoring comes first.
+    expect(paneResumeBlock(archived, live, false)).toBe("archived");
+    // A directory still being created outranks "it is not down".
+    expect(paneResumeBlock(creating, { ...creatingMember }, true)).toBe("provisioning");
+    expect(paneResumeBlock({}, live, false)).toBe("running");
+    expect(paneResumeBlock({}, parked, false)).toBe("unavailable");
   });
 });
 

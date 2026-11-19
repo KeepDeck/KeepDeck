@@ -8,6 +8,7 @@ import type {
   WorkspaceRef,
 } from "../workspaceInstance";
 import { appendPane, paneStopsWithArchive, removePane, type Pane } from "./panes";
+import { suspendedAt } from "./panes/stamp";
 import { teamsOf } from "./teams/collection";
 import { claimPath, normalizePath, sameDirectory, teamOccupyingPath } from "./teams/claims";
 import type { Team } from "./teams/model";
@@ -639,7 +640,7 @@ function suspendedForArchive(ws: Workspace, at: string): Pane[] {
   const panes = ws.panes.map((pane): Pane => {
     if (!paneStopsWithArchive(ws, pane)) return pane;
     marked = true;
-    return { ...pane, idle: { reason: "suspended", at } };
+    return suspendedAt(pane, at);
   });
   return marked ? panes : ws.panes;
 }

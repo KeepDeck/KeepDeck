@@ -6,6 +6,7 @@ import type {
   PlacementRefusal,
   ResumeRequest,
   SpawnConfig,
+  TeamActs,
   TeamLocation,
   Workspace,
   WorktreeTarget,
@@ -48,6 +49,11 @@ export interface AgentOrchestrator {
   retryProvisioning(wsId: string, teamId: string): void;
   /** Stop an agent while preserving its resumable pane. */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
+  /** Stop the members of a team its confirm NAMED (`named`) that the team's
+   * Suspend would still take now ([`stillTaken`]) — never one it did not
+   * name. Settles once each stop was requested — the deck does not confirm
+   * a process exited, for one agent or for a team. */
+  suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<void>;
   /** Confirmed pane/workspace close, including optional worktree teardown. */
   close(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
   /** Put a workspace away: its agents stopped and kept, its directories
@@ -103,6 +109,14 @@ export interface AgentOrchestrator {
   startFresh(wsId: string, paneId: string, role?: string): void;
   /** Ask for a stopped pane back and report whether it can rise. */
   resume(wsId: string, paneId: string): ResumeRequest;
+  /** Ask back every member of a team that is down by a decision — parked at
+   * launch or suspended — and that a single Resume would ask back. Whether
+   * each rises lands on its card. */
+  resumeTeam(wsId: string, teamId: string): void;
+  /** Whom a team's Suspend and Resume would take right now, and why each
+   * other member stays — what its menu offers, read from the same facts its
+   * doors judge by. Null for a team (or workspace) that is not there. */
+  teamActs(wsId: string, teamId: string): TeamActs | null;
 }
 
 export interface AgentRunView {

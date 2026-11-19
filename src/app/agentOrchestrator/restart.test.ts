@@ -156,7 +156,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     act(() => {
       restarting = agentRun.restart("ws-1", "pane-1", "fresh");
     });
-    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
     await act(async () => {
       release();
       await restarting;
@@ -255,7 +255,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     });
     // The plan is built before the reap, so let it settle, then suspend.
     await act(async () => {});
-    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
     await act(async () => {
       release();
       await restarting;
@@ -398,8 +398,8 @@ describe("agent orchestrator —restarting an exited agent", () => {
     });
     // Suspended, then asked for back — the pane is now `waking`, which is the
     // wake half's entry condition.
-    act(() => deck.suspendPane("ws-1", "pane-1"));
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     vi.mocked(buildResumeSpec).mockClear();
     await settle();
     // The sweep did NOT start a second build for the pane mid-restart.
@@ -491,7 +491,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     act(() => {
       pending = agentRun.restart("ws-1", "pane-1", "fresh");
     });
-    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
     let outcome: unknown;
     await act(async () => {
       release();

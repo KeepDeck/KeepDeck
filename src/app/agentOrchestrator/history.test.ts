@@ -149,7 +149,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
         session: { id: "s-1", boundAt: "2026-07-19T00:00:00.000Z" },
       }),
     );
-    act(() => deck.suspendPane("ws-1", "pane-77"));
+    act(() => deck.suspendPanes("ws-1", ["pane-77"]));
 
     await expect(
       act(async () => agentRun.resumeSession("ws-1", handle(), { role: "lead" })),
@@ -179,8 +179,8 @@ describe("agent orchestrator —continuing a recorded session", () => {
       });
       deck.joinTeam("ws-1", "pane-77", "team-gone", "lead");
     });
-    act(() => deck.suspendPane("ws-1", "pane-77"));
-    act(() => deck.requestPaneWake("ws-1", "pane-77"));
+    act(() => deck.suspendPanes("ws-1", ["pane-77"]));
+    act(() => deck.requestPanesWake("ws-1", ["pane-77"]));
     await settle();
     expect(agentRun.blocked).toEqual({ "pane-77": "/gone/worktree" });
 

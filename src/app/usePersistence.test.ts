@@ -205,7 +205,7 @@ describe("usePersistence", () => {
     await act(async () => vi.runOnlyPendingTimers());
     ipc.saveDeckState.mockClear();
 
-    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
 
     // No timer advance: the intent must not ride the debounce, because ⌘Q
     // never reaches the webview and there is no flush on the Rust side.
@@ -220,11 +220,11 @@ describe("usePersistence", () => {
     ipc.loadDeckState.mockResolvedValue(STORED);
     await mount();
     act(() => deck.clearPaneIdle("ws-1", "pane-1"));
-    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
     await act(async () => vi.runOnlyPendingTimers());
     ipc.saveDeckState.mockClear();
 
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
 
     expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
     expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("suspended");

@@ -3,6 +3,7 @@ import { MAX_PANES, TEAM_FULL_MESSAGE, teamHeldPath, type GitPosition, type Team
 import type { PaneActivity } from "../domain/status";
 import { board as taskBoard, task } from "../domain/tasks/testSupport";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { teamActsIn } from "../domain/deck/reducer.testSupport";
 import { teamCardsView, teamHead, TEAM_CARD_WORDS } from "./teamCardView";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -66,8 +67,12 @@ function card(
     if (activity) live.set(pane.id, activity);
   });
   const heads = new Map(head ? [[teamHeldPath(team) ?? deck.cwd, head]] : []);
-  return present(teamCardsView(deck, live, heads, null).find((c) => c.id === team.id), `the ${team.id} card`);
+  return present(teamCardsView(deck, live, heads, null, acts(deck)).find((c) => c.id === team.id), `the ${team.id} card`);
 }
+
+/** The orchestrator's answer for `deck`, as a card is handed it. */
+const acts = (deck: Workspace) => (teamId: string) => teamActsIn([deck])(deck.id, teamId);
+const actionsOf = (view: { menu: readonly { action: string }[] }) => view.menu.map((item) => item.action);
 
 describe("teamCardView", () => {
   it("is seven things: dot, name, menu, branch, size, directory, tasks — and nothing about the members", () => {
@@ -82,8 +87,7 @@ describe("teamCardView", () => {
       dot: "working",
       tasksLine: null,
       className: "team-card team-card--working",
-      actions: ["add-member", "rename", "disband"],
-      refusals: {},
+      menu: expect.any(Array),
     });
   });
 
@@ -110,15 +114,15 @@ describe("teamCardView", () => {
       branch: "kd/web",
       cwd: "/repo/.wt/web",
       dot: "creating",
-      actions: ["add-member", "rename", "disband"],
     });
+    expect(actionsOf(view)).toEqual(["add-member", "rename", "resume", "suspend", "disband"]);
   });
 
   it("offers Retry — in the menu, and only — once the create failed", () => {
     const view = card(ws([failed], { "team-3": 1 }), failed, [undefined]);
     expect(view.dot).toBe("failed");
     expect(view.className).toContain("team-card--pending");
-    expect(view.actions).toEqual(["add-member", "rename", "disband", "retry"]);
+    expect(actionsOf(view)).toEqual(["add-member", "rename", "resume", "suspend", "disband", "retry"]);
     // The error's words are not the card's: nothing here carries them.
     expect(JSON.stringify(view)).not.toContain("branch exists");
   });
@@ -156,9 +160,7 @@ describe("TEAM_CARD_WORDS", () => {
 
   it("names the card and its menu after the team, and says every dot and action", () => {
     expect(TEAM_CARD_WORDS.card("api")).toBe("Team api");
-    expect(TEAM_CARD_WORDS.menu("api")).toBe("Team api actions");
     expect(TEAM_CARD_WORDS.dot.failed).toBe("Needs attention");
-    expect(TEAM_CARD_WORDS.action.retry).toBe("Retry the worktree");
   });
 });
 
@@ -170,13 +172,13 @@ describe("teamCardsView and teamHead", () => {
       task({ id: "task-1", teamId: "team-1", status: "todo" }),
       task({ id: "task-2", teamId: "team-1", status: "review" }),
     ]);
-    const cards = teamCardsView(deck, new Map([["team-1-p1", working]]), heads, board);
+    const cards = teamCardsView(deck, new Map([["team-1-p1", working]]), heads, board, acts(deck));
     expect(cards.map((c) => [c.id, c.branch, c.dot, c.tasksLine])).toEqual([
       ["team-1", "kd/api-live", "working", "1 open · 1 in review"],
       ["team-2", "kd/web", "creating", null],
     ]);
     // With no board read, no card says anything about tasks.
-    expect(teamCardsView(deck, new Map(), heads, null).map((c) => c.tasksLine)).toEqual([null, null]);
+    expect(teamCardsView(deck, new Map(), heads, null, acts(deck)).map((c) => c.tasksLine)).toEqual([null, null]);
   });
 
   it("reads a team's head at its own directory, else at the workspace's", () => {
@@ -191,11 +193,18 @@ describe("teamCardsView and teamHead", () => {
   });
 });
 
-describe("a full team's card", () => {
-  it("refuses a member in the cap's words, and nothing else", () => {
+describe("a card's menu", () => {
+  it("is the team's one line-set, refusals and all — a full team refuses a member in the cap's words", () => {
     const full = ws([attached], { "team-1": MAX_PANES });
     const view = card(full, attached, []);
-    expect(view.refusals).toEqual({ "add-member": TEAM_FULL_MESSAGE });
-    expect(view.actions).toContain("add-member");
+    expect(view.menu.find((item) => item.action === "add-member")?.refusal).toBe(TEAM_FULL_MESSAGE);
+    // Its members are running: Suspend takes them, Resume has nobody.
+    expect(view.menu.find((item) => item.action === "suspend")?.refusal).toBeNull();
+    expect(view.menu.find((item) => item.action === "resume")?.refusal).toBe("No agent on this team is stopped.");
+  });
+
+  it("is empty for a team the orchestrator no longer holds", () => {
+    const deck = ws([attached], { "team-1": 1 });
+    expect(teamCardsView(deck, new Map(), new Map(), null, () => null)[0].menu).toEqual([]);
   });
 });

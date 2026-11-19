@@ -707,7 +707,7 @@ describe("closing a pane that is already stopped", () => {
   it("reports it as stopped, and offers no suspend", async () => {
     const wsId = seed();
     act(() =>
-      deck.suspendPane(wsId, "pane-1"),
+      deck.suspendPanes(wsId, ["pane-1"]),
     );
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
@@ -719,8 +719,8 @@ describe("closing a pane that is already stopped", () => {
     // The dialog would otherwise say "it is stopped" about a pane that is
     // seconds from a live terminal, which is every pane just after launch.
     const wsId = seed();
-    act(() => deck.suspendPane(wsId, "pane-1"));
-    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => deck.suspendPanes(wsId, ["pane-1"]));
+    act(() => deck.requestPanesWake(wsId, ["pane-1"]));
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
     expect(agentSnapshot().stopped).toBe(false);
@@ -752,8 +752,8 @@ describe("closing a pane that is already stopped", () => {
     const wsId = seed();
     // The state the sweep actually leaves behind: still marked as rising,
     // because only the runtime block says it will never get there.
-    act(() => deck.suspendPane(wsId, "pane-1"));
-    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => deck.suspendPanes(wsId, ["pane-1"]));
+    act(() => deck.requestPanesWake(wsId, ["pane-1"]));
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
     expect(agentSnapshot().stopped).toBe(true);
@@ -788,7 +788,7 @@ describe("what the dialog promises is what confirming does", () => {
     // when the box below is ticked, and it is unticked on every open: the
     // dialog was describing an outcome the default path does not produce.
     const wsId = seed();
-    act(() => deck.suspendPane(wsId, "pane-2"));
+    act(() => deck.suspendPanes(wsId, ["pane-2"]));
     await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
 
     expect(lastOffer().targets).toHaveLength(1); // its team does own one
@@ -828,8 +828,8 @@ describe("what the dialog promises is what confirming does", () => {
     const wsId = seed();
     // A pane on its way up: suspendable, and the one state a mid-dialog
     // probe result can flip.
-    act(() => deck.suspendPane(wsId, "pane-1"));
-    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => deck.suspendPanes(wsId, ["pane-1"]));
+    act(() => deck.requestPanesWake(wsId, ["pane-1"]));
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     expect(flow.canSuspendInstead).toBe(true);
 
@@ -853,8 +853,8 @@ describe("what the dialog promises is what confirming does", () => {
     // with no process — an answer neither an all-live nor an all-snapshot
     // rule would give.
     const wsId = seed();
-    act(() => deck.suspendPane(wsId, "pane-1"));
-    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => deck.suspendPanes(wsId, ["pane-1"]));
+    act(() => deck.requestPanesWake(wsId, ["pane-1"]));
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     const opened = flow.closeMessage;
     expect(opened).toContain("It is starting up; closing removes the pane.");
@@ -877,7 +877,7 @@ describe("what the dialog promises is what confirming does", () => {
     expect(flow.closing).toBeNull(); // still probing
 
     // The pane stops while the probe is out.
-    act(() => deck.suspendPane(wsId, "pane-2"));
+    act(() => deck.suspendPanes(wsId, ["pane-2"]));
     await act(async () => release());
 
     expect(flow.closing).not.toBeNull();
@@ -892,8 +892,8 @@ describe("what the dialog promises is what confirming does", () => {
     // is starting up", missing from the branch that counts.
     const wsId = seed();
     for (const paneId of ["pane-1", "pane-0", "pane-2"]) {
-      act(() => deck.suspendPane(wsId, paneId));
-      act(() => deck.requestPaneWake(wsId, paneId));
+      act(() => deck.suspendPanes(wsId, [paneId]));
+      act(() => deck.requestPanesWake(wsId, [paneId]));
     }
 
     await act(async () => flow.requestCloseWorkspace(wsId));
@@ -911,19 +911,19 @@ describe("what the dialog promises is what confirming does", () => {
     // being told one branch over: a suspended agent has no session left to
     // end, and a workspace of them ends none at all.
     const wsId = seed();
-    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.suspendPanes(wsId, ["pane-1"]));
     await act(async () => flow.requestCloseWorkspace(wsId));
     expect(flow.closeMessage).toBe("This ends 2 agents and their sessions.");
 
-    act(() => deck.suspendPane(wsId, "pane-0"));
-    act(() => deck.suspendPane(wsId, "pane-2"));
+    act(() => deck.suspendPanes(wsId, ["pane-0"]));
+    act(() => deck.suspendPanes(wsId, ["pane-2"]));
     await act(async () => flow.requestCloseWorkspace(wsId));
     expect(flow.closeMessage).toBe("This ends no sessions; closing removes 3 agents.");
   });
 
   it("counts only a team's own members for a disband", async () => {
     const wsId = seed();
-    act(() => deck.suspendPane(wsId, "pane-0"));
+    act(() => deck.suspendPanes(wsId, ["pane-0"]));
     await act(async () => flow.requestDisbandTeam(wsId, "team-1"));
     expect(flow.closeMessage).toBe(
       "This ends 1 agent and its session. The team is removed.",
@@ -940,8 +940,8 @@ describe("what the dialog promises is what confirming does", () => {
     expect(flow.closeMessage).not.toContain("will be ended");
 
     const wsId = seed();
-    act(() => deck.suspendPane(wsId, "pane-1"));
-    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => deck.suspendPanes(wsId, ["pane-1"]));
+    act(() => deck.requestPanesWake(wsId, ["pane-1"]));
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     expect(flow.closeMessage).toContain("It is starting up");
     expect(flow.closeMessage).not.toContain("will be ended");

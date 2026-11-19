@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SuspendOutcome } from "../domain/deck";
-import { suspendRefusalText } from "./suspendWords";
+import { suspendRefusalText, teamSuspendRefusalText } from "./suspendWords";
 
 describe("suspendRefusalText", () => {
   it("gives every refusal its own sentence", () => {
@@ -33,5 +33,19 @@ describe("suspendRefusalText", () => {
     for (const outcome of every) {
       expect(suspendRefusalText(outcome, "Reviewer")).toContain("Reviewer");
     }
+  });
+});
+
+describe("teamSuspendRefusalText — a team's Suspend refused, beside the single one", () => {
+  it("says a reason one pane shares with the team in the single sentence, naming the team", () => {
+    expect(teamSuspendRefusalText("provisioning")).toBe(suspendRefusalText("provisioning", "This team"));
+    expect(teamSuspendRefusalText("in-flight")).toBe(suspendRefusalText("in-flight", "This team"));
+  });
+
+  it("says the team's own reasons of its running agents, in their number", () => {
+    expect(teamSuspendRefusalText("stopped")).toBe("Nothing on this team is running.");
+    expect(teamSuspendRefusalText("remote")).toBe(
+      "Its running agents run on a remote server — stopping the local client would not park them.",
+    );
   });
 });

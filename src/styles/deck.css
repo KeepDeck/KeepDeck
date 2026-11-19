@@ -129,7 +129,9 @@ button.deck__ws-name--up:hover {
   height: 10px;
 }
 
-.deck__ws-rename {
+/* A crumb's rename field — the workspace's and the team's — sized to sit
+   where the name was. */
+.deck__crumb-rename {
   width: 180px;
   height: 26px;
   padding: 0 7px;
@@ -317,4 +319,9 @@ button.deck__ws-name--up:hover {
 .deck__grid-empty-sub {
   font-size: var(--kd-font-small);
   color: var(--kd-text-3);
+}
+/* The empty grid's one act, set off from the words above it as a stopped
+   pane's card sets off its Resume. */
+.deck__grid-empty-act {
+  margin-top: 10px;
 }

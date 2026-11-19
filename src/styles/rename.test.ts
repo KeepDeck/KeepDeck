@@ -11,7 +11,7 @@ describe("the inline-rename field", () => {
       "var(--kd-focus)",
     );
     const sites: [string, string][] = [
-      ["deck.css", ".deck__ws-rename"],
+      ["deck.css", ".deck__crumb-rename"],
       ["pane.css", ".pane__rename"],
       ["teamCards.css", ".team-card__rename"],
     ];

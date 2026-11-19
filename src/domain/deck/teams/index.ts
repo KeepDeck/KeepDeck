@@ -11,3 +11,4 @@ export * from "./claims";
 export * from "./membership";
 export * from "./placement";
 export * from "./sessionResume";
+export * from "./teamActs";

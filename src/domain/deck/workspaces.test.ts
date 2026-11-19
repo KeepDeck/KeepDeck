@@ -36,8 +36,10 @@ import {
   parkPane,
   renamePane,
   requestPaneWake,
+  requestPanesWake,
   setPaneAutoTitle,
   suspendPane,
+  suspendPanes,
   type Pane,
 } from "./panes";
 import type { Team } from "./teams";
@@ -813,6 +815,80 @@ describe("setWorkspacePluginSlot", () => {
   });
 });
 
+
+describe("suspendPanes — a team's cohort, one change", () => {
+  const AT = "2026-11-19T10:00:00.000Z";
+  const start = (): Workspace[] => [
+    {
+      ...ws("a", []),
+      teams: [teamAt("team-1", "/repo"), creatingTeam("team-2", "/wt/a-2")],
+      panes: [
+        memberOf("a-p1", "team-1"),
+        memberOf("a-p2", "team-1"),
+        { ...memberOf("a-p3", "team-1"), idle: { reason: "parked" } },
+        memberOf("a-p4", "team-2"),
+        memberOf("a-p5", "team-1"),
+      ],
+    },
+    ws("b", [1]),
+  ];
+
+  it("marks exactly the listed panes suspendPane admits, and nothing outside the list", () => {
+    const before = start();
+    const after = suspendPanes(before, "a", ["a-p1", "a-p2", "a-p3", "a-p4"], AT);
+    const idle = after[0].panes.map((pane) => pane.idle);
+    expect(idle).toEqual([
+      { reason: "suspended", at: AT },
+      { reason: "suspended", at: AT },
+      // Already down: suspendPane's own guard refuses it, so it keeps its marker.
+      { reason: "parked" },
+      // Its team is still creating its directory: refused, untouched.
+      undefined,
+      // Not in the list: a member is never taken because it is on the team.
+      undefined,
+    ]);
+    expect(after[1]).toBe(before[1]);
+  });
+
+  it("returns the same array when nothing in the list is admitted", () => {
+    const before = start();
+    expect(suspendPanes(before, "a", ["a-p3", "a-p4", "nope"], AT)).toBe(before);
+    expect(suspendPanes(before, "a", [], AT)).toBe(before);
+  });
+});
+
+describe("requestPanesWake — a team's cohort asked back, one change", () => {
+  const AT = "2026-11-19T10:00:00.000Z";
+  const start = (archived = false): Workspace[] => [
+    {
+      ...ws("a", []),
+      ...(archived && { archived: { at: AT, phase: "archived" as const } }),
+      panes: [
+        { id: "a-p1", agentType: "claude", idle: { reason: "parked" } },
+        { id: "a-p2", agentType: "claude", idle: { reason: "suspended", at: AT } },
+        { id: "a-p3", agentType: "claude" },
+        { id: "a-p4", agentType: "claude", idle: { reason: "suspended", at: AT } },
+      ],
+    },
+  ];
+
+  it("wakes each listed pane by requestPaneWake's own rule — the marker it rose from carried whole", () => {
+    const after = requestPanesWake(start(), "a", ["a-p1", "a-p2", "a-p3"]);
+    expect(after[0].panes.map((pane) => pane.idle)).toEqual([
+      { reason: "waking", origin: "manual", from: { reason: "parked" } },
+      { reason: "waking", origin: "manual", from: { reason: "suspended", at: AT } },
+      // Live: nothing to learn.
+      undefined,
+      // Not in the list.
+      { reason: "suspended", at: AT },
+    ]);
+  });
+
+  it("brings nobody back in an archived workspace — the same array", () => {
+    const before = start(true);
+    expect(requestPanesWake(before, "a", ["a-p1", "a-p2"])).toBe(before);
+  });
+});
 
 describe("suspendPane", () => {
   const AT = "2026-07-25T10:00:00.000Z";

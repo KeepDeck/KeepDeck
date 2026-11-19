@@ -135,12 +135,12 @@ function buildDeckActions(store: DeckStore) {
     hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
     clearPaneIdle: (wsId: string, paneId: string) =>
       dispatch({ type: "clearPaneIdle", wsId, paneId }),
-    suspendPane: (wsId: string, paneId: string) =>
-      dispatch({ type: "suspendPane", wsId, paneId, at: nowIso() }),
+    suspendPanes: (wsId: string, paneIds: readonly string[]) =>
+      dispatch({ type: "suspendPanes", wsId, paneIds, at: nowIso() }),
     moveSuspendedToTray: (wsId: string, paneId: string) =>
       dispatch({ type: "moveSuspendedToTray", wsId, paneId }),
-    requestPaneWake: (wsId: string, paneId: string) =>
-      dispatch({ type: "requestPaneWake", wsId, paneId }),
+    requestPanesWake: (wsId: string, paneIds: readonly string[]) =>
+      dispatch({ type: "requestPanesWake", wsId, paneIds }),
     failPaneWake: (wsId: string, paneId: string) =>
       dispatch({ type: "failPaneWake", wsId, paneId }),
     parkPane: (wsId: string, paneId: string) =>

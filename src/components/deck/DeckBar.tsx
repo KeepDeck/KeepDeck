@@ -46,7 +46,6 @@ import type { Contribution } from "../../plugins/registries/contributions";
 import type { TopBarActionContribution } from "@keepdeck/plugin-api";
 import { fitBarGroup, PLUGIN_ACTION_SLOTS } from "../../domain/deck/topBar";
 import { Button } from "../../ui/Button";
-import { BranchBadge } from "../../ui/badges";
 import { MenuButton } from "../../ui/MenuButton";
 import { BAR_TIP_DELAY_MS, TipButton } from "../../ui/TipButton";
 import { Tooltip } from "../../ui/Tooltip";
@@ -61,6 +60,7 @@ import {
   TasksIcon,
 } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
+import { TeamCrumb } from "./TeamCrumb";
 import { WorkspaceCrumb } from "./WorkspaceCrumb";
 import type { WorkspaceCrumbView } from "../../presentation/workspaceCrumbView";
 import { BAR_WORDS, type BarLevel } from "../../presentation/barView";
@@ -161,22 +161,9 @@ export function DeckBar({
                 <span className="deck__crumb-sep" aria-hidden>
                   <ChevronIcon />
                 </span>
-                {/* The app's own tip, not a `title`: the native one only
-                    comes after the system's long delay (see TipButton), and
-                    an ellipsized team name must be quick to recover. */}
-                <Tooltip tip={level.name} delayMs={BAR_TIP_DELAY_MS}>
-                  <span className="deck__team-name" aria-current="page">
-                    {level.name}
-                  </span>
-                </Tooltip>
-                {level.branch !== null && (
-                  <BranchBadge
-                    className="deck__team-branch"
-                    size="sm"
-                    label={level.branch}
-                    title={level.branch}
-                  />
-                )}
+                {/* Keyed by team: a rename left open on one must not
+                    survive a switch and reappear on the next. */}
+                <TeamCrumb key={level.teamId} {...level} />
               </>
             )}
           </nav>

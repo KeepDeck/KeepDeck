@@ -52,7 +52,7 @@ export function WorkspaceCrumb({
   return (
     <span className="deck__ws">
       {rename.editing === workspace.id ? (
-        <RenameInput rename={rename} className="deck__ws-rename" label={WORKSPACE_WORDS.renameField} />
+        <RenameInput rename={rename} className="deck__crumb-rename" label={WORKSPACE_WORDS.renameField} />
       ) : onUp ? (
         <button
           type="button"

@@ -13,9 +13,19 @@
  * - an open team with NOBODY on it, its directory in place: the sessions it
  *   can continue — the way to put its first member on it;
  * - any other open team with an empty grid — every member hidden, or its
- *   directory still being made: the word for that.
+ *   directory still being made: the word for that, and — when the team's
+ *   Resume would take somebody — the door to ask them back, so a team that
+ *   is all down is one press from being all up.
  */
-import { openTeamOf, stagePanes, teamsOf, type Workspace, type WorkspaceView } from "../domain/deck";
+import {
+  openTeamOf,
+  stagePanes,
+  teamsOf,
+  type TeamActs,
+  type Workspace,
+  type WorkspaceView,
+} from "../domain/deck";
+import { teamResumeOffer } from "./resumeWords";
 import { emptyGridMessage } from "./trayView";
 
 export interface StageWord {
@@ -54,13 +64,28 @@ export type StageContent =
   | { kind: "cards" }
   | { kind: "grid" }
   | { kind: "team-sessions"; teamId: string; cwd: string }
-  | { kind: "word"; word: StageWord };
+  | { kind: "word"; word: StageWord; resume: StageResume | null };
+
+/** The empty grid's one act: the open team's Resume, offered exactly when
+ * the orchestrator says it would take somebody — the same answer its ⋯
+ * offers, in the same words. */
+export interface StageResume {
+  teamId: string;
+  label: string;
+}
+
+function stageResume(teamId: string, acts: TeamActs | null): StageResume | null {
+  const label = acts && teamResumeOffer(acts.resume);
+  return label ? { teamId, label } : null;
+}
 
 export function stageContent(
   ws: Workspace,
   view: WorkspaceView | undefined,
   /** How many of the open team's panes are live on its grid. */
   liveCount: number,
+  /** Whom a team's acts would take right now — the orchestrator's answer. */
+  actsOf: (teamId: string) => TeamActs | null,
 ): StageContent {
   // No team is no team, whatever panes a legacy file still carries: a pane
   // outside every team has no card to be reached from, so the cards level
@@ -73,5 +98,5 @@ export function stageContent(
   if (panes.length === 0 && team.location?.kind === "attached") {
     return { kind: "team-sessions", teamId: team.id, cwd: team.location.cwd };
   }
-  return { kind: "word", word: emptyGridMessage(panes, view) };
+  return { kind: "word", word: emptyGridMessage(panes, view), resume: stageResume(team.id, actsOf(team.id)) };
 }

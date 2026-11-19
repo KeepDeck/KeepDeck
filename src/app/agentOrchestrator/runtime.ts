@@ -3,6 +3,7 @@ import type { SpawnPlanContext } from "../spawnSpecs";
 import {
   agentReach,
   findPane,
+  findTeam,
   findWorkspace,
   paneExecutionCwd,
   paneRunIntent,
@@ -11,8 +12,11 @@ import {
   type PaneRunIntent,
   type Workspace,
   paneBranch,
-  paneProvisioning,
+  paneResumeBlock,
   remoteEndpointOf,
+  teamActsOf,
+  type TeamActFacts,
+  type TeamActs,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -194,6 +198,35 @@ export function createAgentOrchestratorRuntime(
     actions.failPaneWake(wsId, pane.id);
   }
 
+  /** What a team act reads beyond the deck — the same facts a single act
+   * reads: the sweep's folder verdict, the live agent catalog, and whether a
+   * suspend is still reaping the pane. Read at the call, never cached. */
+  const teamFacts: TeamActFacts = {
+    blocked: (paneId) => runView.isBlocked(paneId),
+    agentAvailable: (agentType) => agents.commands().has(agentType),
+    suspending: (paneId) => closing.suspending(paneId),
+  };
+
+  /** Whom a team's acts take right now — the ONE decision: what its menu
+   * offers, and what its doors (resumeTeam here, suspendTeam in closing)
+   * act on. */
+  function teamActs(wsId: string, teamId: string): TeamActs | null {
+    const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+    return workspace && findTeam(workspace, teamId) ? teamActsOf(workspace, teamId, teamFacts) : null;
+  }
+
+  /** Ask for panes back by the person's request — a single Resume, a
+   * team's, or a fresh start: their old notes go (a stale "couldn't resume"
+   * must not stand over a fresh try), a start is owed to each (so the
+   * unopened-workspace economy cannot hold it), and the marker and the
+   * suspended tray change in one transition — a rising pane never sits on
+   * the shelf of stopped ones, whichever door asked. The sweep does the rest. */
+  function askBack(wsId: string, paneIds: readonly string[]): void {
+    if (paneIds.filter((paneId) => runView.clearNotes(paneId)).length > 0) publish();
+    for (const paneId of paneIds) startOwed.add(paneId);
+    actions.requestPanesWake(wsId, paneIds);
+  }
+
   // Each of the two asks the other one question, so one is bound late.
   let archiving: AgentOrchestratorArchiving | undefined;
   const closing = createAgentOrchestratorClosing({
@@ -206,6 +239,10 @@ export function createAgentOrchestratorRuntime(
     lifecycle,
     workspaceForgetters: deps.workspaceForgetters,
     archiving: (workspace) => archiving?.archiving(workspace) ?? false,
+    publish: () => publish(),
+    // Bound late like `archiving`: the decision reads closing's own
+    // reservation, and closing's door acts on the decision.
+    teamActs: (wsId, teamId) => teamActs(wsId, teamId),
   });
   archiving = createAgentOrchestratorArchiving({
     deck,
@@ -556,6 +593,7 @@ export function createAgentOrchestratorRuntime(
     createWorkspace: creation.createWorkspace,
     retryProvisioning: creation.retryProvisioning,
     suspend: closing.suspend,
+    suspendTeam: closing.suspendTeam,
     close: closing.close,
     archive: (workspace) => archiving.archive(workspace),
     restore: (workspace) => archiving.restore(workspace),
@@ -592,23 +630,24 @@ export function createAgentOrchestratorRuntime(
         publish();
         return;
       }
-      if (runView.clearNotes(paneId)) publish();
-      startOwed.add(paneId);
+      // A new conversation: the session goes before the pane is asked back,
+      // so no wake can come back into the old one.
       actions.resetPaneSession(wsId, paneId);
-      actions.requestPaneWake(wsId, paneId);
+      askBack(wsId, [paneId]);
     },
     resume(wsId, paneId) {
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
       const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
       if (!workspace || !pane) return "gone";
-      if (workspace.archived) return "archived";
-      if (paneProvisioning(workspace, pane)) return "provisioning";
-      if (!pane.idle) return "running";
-      if (!agents.commands().has(pane.agentType)) return "unavailable";
-      if (runView.clearNotes(paneId)) publish();
-      startOwed.add(paneId);
-      actions.requestPaneWake(wsId, paneId);
+      const block = paneResumeBlock(workspace, pane, agents.commands().has(pane.agentType));
+      if (block) return block;
+      askBack(wsId, [paneId]);
       return "resuming";
     },
+    resumeTeam(wsId, teamId) {
+      const take = teamActs(wsId, teamId)?.resume.take ?? [];
+      if (take.length > 0) askBack(wsId, take);
+    },
+    teamActs,
   };
 }

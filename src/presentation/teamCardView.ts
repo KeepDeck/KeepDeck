@@ -11,10 +11,9 @@
  * pending rim, and a team of one is a team like any other — nothing here
  * asks how many members there are except to print the number.
  *
- * The ACTIONS are described, not performed (the `trayView` precedent): the
- * stage turns each into the callback it owns. One set on every card, plus
- * Retry when the create failed — the one thing a card offers that depends
- * on its state, and it is in the menu, never on the card.
+ * The MENU is described, not performed (the `trayView` precedent): its lines
+ * are the team's one line-set (`teamMenuView`), the crumb's too, and the
+ * stage turns each into the callback it owns.
  *
  * The dot is the pane ladder folded over the members
  * (`foldFrame`), with the two states only a team has slotted in:
@@ -29,17 +28,18 @@
 import {
   baseName,
   createFailed,
-  memberRefusal,
   membersOf,
   teamHeldPath,
   teamsOf,
   type GitPosition,
   type Team,
+  type TeamActs,
   type Workspace,
 } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
 import { tasksOfTeam, type Task, type TaskBoard } from "../domain/tasks";
 import { teamCardTasksLine } from "./tasks/teamCardTasksLine";
+import { teamMenuView, type TeamMenuItem } from "./teamMenuView";
 
 export type TeamCardDot =
   | "failed"
@@ -49,22 +49,8 @@ export type TeamCardDot =
   | "done"
   | "none";
 
-export type TeamCardAction = "add-member" | "rename" | "disband" | "retry";
-
-/** The menu every card carries, in the order it is offered. Opening is not
- * in it: the whole card is the way in, and a menu line saying so again was
- * a line the person had to read past. */
-const EVERY_CARD: readonly TeamCardAction[] = ["add-member", "rename", "disband"];
-
 /** Every word a team card says — the card maps, it never spells. */
 export const TEAM_CARD_WORDS = {
-  /** The menu's line for each action. */
-  action: {
-    "add-member": "Add member",
-    rename: "Rename",
-    disband: "Disband",
-    retry: "Retry the worktree",
-  } satisfies Record<TeamCardAction, string>,
   /** The dot's tooltip, and what a screen reader says for it. */
   dot: {
     failed: "Needs attention",
@@ -76,11 +62,8 @@ export const TEAM_CARD_WORDS = {
   } satisfies Record<TeamCardDot, string>,
   /** The card as a screen reader names it. */
   card: (name: string) => `Team ${name}`,
-  /** The ⋯ menu as a screen reader names it. */
-  menu: (name: string) => `Team ${name} actions`,
   /** How many agents are on the team. */
   agents: (size: number) => (size === 0 ? "No agents" : `${size} agent${size === 1 ? "" : "s"}`),
-  renameField: "Rename team",
   openHint: "Open the team — double-click to rename",
 } as const;
 
@@ -105,11 +88,10 @@ export interface TeamCardView {
   tasksLine: string | null;
   /** The card's classes: its dot's tone, and the pending rim. */
   className: string;
-  actions: readonly TeamCardAction[];
-  /** Why an offered action is refused right now, by action — the menu
-   * shows it disabled with these words. A full team refuses a member in
-   * the cap's own message, the one every door says it with. */
-  refusals: Partial<Record<TeamCardAction, string>>;
+  /** The ⋯ menu's lines, each with why it is refused right now. Opening is
+   * not one: the whole card is the way in. Empty for a team the
+   * orchestrator no longer holds. */
+  menu: readonly TeamMenuItem[];
 }
 
 /** The branch a team works on, as every surface says it: the live head's
@@ -162,12 +144,16 @@ export function teamCardsView(
   heads: ReadonlyMap<string, GitPosition>,
   /** The workspace's task board, or null while it is not read. */
   board: TaskBoard | null,
+  /** Whom each team's Suspend and Resume would take — the orchestrator's
+   * answer, the one its doors act on. */
+  actsOf: (teamId: string) => TeamActs | null,
 ): TeamCardView[] {
   return teamsOf(ws).map((team) =>
     teamCardView(
       ws,
       team,
       membersOf(ws, team.id).map((pane) => activities.get(pane.id)),
+      actsOf(team.id),
       teamHead(ws, team, heads),
       board ? tasksOfTeam(board, team.id) : null,
     ),
@@ -179,6 +165,7 @@ function teamCardView(
   team: Team,
   /** The members' live activity, in any order; absent entries are fine. */
   activities: Iterable<PaneActivity | undefined>,
+  acts: TeamActs | null,
   /** The live git head at the team's directory, when the app has read one. */
   head?: GitPosition,
   /** The team's tasks, or null while the board is not read. */
@@ -186,7 +173,6 @@ function teamCardView(
 ): TeamCardView {
   const location = team.location;
   const creating = location?.kind === "provisioning";
-  const treeFailed = createFailed(location);
   const dot = teamDot(team, activities);
   const cwd = teamHeldPath(team) ?? ws.cwd;
   return {
@@ -199,12 +185,6 @@ function teamCardView(
     dir: baseName(cwd),
     tasksLine: tasks ? teamCardTasksLine(tasks) : null,
     className: `team-card team-card--${dot}${creating ? " team-card--pending" : ""}`,
-    actions: treeFailed ? [...EVERY_CARD, "retry"] : EVERY_CARD,
-    refusals: refusalsFor(ws, team),
+    menu: teamMenuView(ws, team, acts, "card"),
   };
-}
-
-function refusalsFor(ws: Workspace, team: Team): Partial<Record<TeamCardAction, string>> {
-  const full = memberRefusal(ws, team.id);
-  return full === null ? {} : { "add-member": full };
 }

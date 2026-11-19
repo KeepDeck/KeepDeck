@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResumeRequest } from "../domain/deck";
-import { resumeRefusalText } from "./resumeWords";
+import { resumeRefusalText, teamResumeOffer, teamResumeRefusalText } from "./resumeWords";
 
 describe("resumeRefusalText", () => {
   it("gives every refusal its own sentence", () => {
@@ -34,5 +34,34 @@ describe("resumeRefusalText", () => {
     for (const outcome of every) {
       expect(resumeRefusalText(outcome, "Reviewer")).toContain("Reviewer");
     }
+  });
+});
+
+describe("teamResumeRefusalText — a team's Resume refused, beside the single one", () => {
+  it("says a reason every member shares in the single sentence, naming the team", () => {
+    expect(teamResumeRefusalText({ kind: "archived" })).toBe(resumeRefusalText("archived", "This team"));
+    expect(teamResumeRefusalText({ kind: "provisioning" })).toBe(resumeRefusalText("provisioning", "This team"));
+  });
+
+  it("tells nobody-down apart from down-but-not-coming-back, and agrees the folders with their count", () => {
+    expect(teamResumeRefusalText({ kind: "none-stopped" })).toBe("No agent on this team is stopped.");
+    expect(teamResumeRefusalText({ kind: "none-resumable" })).toBe("No stopped agent can be resumed right now.");
+    expect(teamResumeRefusalText({ kind: "folders-gone", count: 1 })).toBe(
+      "No stopped agent can be resumed — its folder is gone.",
+    );
+    expect(teamResumeRefusalText({ kind: "folders-gone", count: 2 })).toBe(
+      "No stopped agent can be resumed — their folders are gone.",
+    );
+  });
+});
+
+describe("teamResumeOffer — a team's Resume as a door offers it", () => {
+  it("names it by the stopped agents it asks back, agreeing the noun with the count", () => {
+    expect(teamResumeOffer({ take: ["a"] })).toBe("Resume 1 stopped agent");
+    expect(teamResumeOffer({ take: ["a", "b", "c", "d"] })).toBe("Resume 4 stopped agents");
+  });
+
+  it("offers nothing when it would take nobody", () => {
+    expect(teamResumeOffer({ take: [] })).toBeNull();
   });
 });

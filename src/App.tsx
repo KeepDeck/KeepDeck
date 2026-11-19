@@ -69,6 +69,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
     canCloseDialog,
     closeFlow,
     archiveFlow,
+    teamSuspendFlow,
     markActs,
     workspacesWindow,
     deck,
@@ -216,6 +217,9 @@ function App({ runtime }: { runtime: AppRuntime }) {
             onAddTeamMember={addTeamMember}
             onRenameTeam={deck.renameTeam}
             onDisbandTeam={closeFlow.requestDisbandTeam}
+            teamActsOf={orchestrator.teamActs}
+            onResumeTeam={orchestrator.resumeTeam}
+            onSuspendTeam={teamSuspendFlow.request}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}
@@ -443,6 +447,18 @@ function App({ runtime }: { runtime: AppRuntime }) {
               cancelLabel={archiveFlow.confirming.cancelLabel}
               onConfirm={archiveFlow.confirm}
               onCancel={archiveFlow.cancel}
+            />
+          )}
+          {teamSuspendFlow.confirming && (
+            // Reversible — Resume asks each agent back — so, like Archive,
+            // not styled as a destructive act.
+            <ConfirmDialog
+              title={teamSuspendFlow.confirming.title}
+              message={teamSuspendFlow.confirming.message}
+              confirmLabel={teamSuspendFlow.confirming.confirmLabel}
+              cancelLabel={teamSuspendFlow.confirming.cancelLabel}
+              onConfirm={teamSuspendFlow.confirm}
+              onCancel={teamSuspendFlow.cancel}
             />
           )}
           {closeFlow.closing && (

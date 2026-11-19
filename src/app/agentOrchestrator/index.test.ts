@@ -479,11 +479,26 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     expect(ipc.probeWorktree).not.toHaveBeenCalled();
   });
 
+  it("comes off the suspended tray when asked back, whichever door asked", async () => {
+    // A rising pane does not sit on the shelf of stopped ones: a single
+    // Resume (a teammate's agent.resume included) takes the same transition
+    // as a team's.
+    act(() => deck.hydrate({ ...withPane(), viewByWs: { "ws-1": { suspendedTray: ["pane-1"] } } }));
+    await settle();
+
+    act(() => {
+      agentRun.resume("ws-1", "pane-1");
+    });
+
+    expect(pane().idle).toMatchObject({ reason: "waking", origin: "manual" });
+    expect(deck.viewByWs["ws-1"]?.suspendedTray).toBeUndefined();
+  });
+
   it("resumes into its worktree with its recorded session", async () => {
     act(() => deck.hydrate(withPane()));
     await settle();
 
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
 
     expect(pane().idle).toBeUndefined();
@@ -497,7 +512,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     act(() => deck.hydrate(withPane()));
     await settle();
 
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
 
     expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
@@ -515,7 +530,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     act(() => deck.hydrate(withPane()));
     await settle();
 
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
 
     expect(pane().idle).toEqual({
@@ -543,7 +558,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     act(() => deck.hydrate(withPane()));
     await settle();
 
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
 
     expect(pane().idle).toMatchObject({ reason: "suspended" });
@@ -593,7 +608,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     act(() => deck.hydrate(withPane()));
     await settle();
 
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
 
     expect(pane().idle).toEqual({
@@ -614,7 +629,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     });
     act(() => deck.hydrate(withPane()));
     await settle();
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
     await settle();
 

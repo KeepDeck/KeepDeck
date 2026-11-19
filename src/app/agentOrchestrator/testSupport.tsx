@@ -351,6 +351,8 @@ export let agentRun: AgentRunView &
     AgentOrchestrator,
     | "reachOf"
     | "resume"
+    | "resumeTeam"
+    | "teamActs"
     | "startFresh"
     | "createPane"
     | "createTeam"
@@ -359,6 +361,7 @@ export let agentRun: AgentRunView &
     | "resumeSession"
     | "forkSession"
     | "suspend"
+    | "suspendTeam"
     | "restart"
     | "recoverRejectedResume"
     | "retryPlanBuild"
@@ -488,6 +491,8 @@ export function Probe() {
     ...useAgentRunView(wiring.orchestrator),
     reachOf: wiring.orchestrator.reachOf,
     resume: wiring.orchestrator.resume,
+    resumeTeam: wiring.orchestrator.resumeTeam,
+    teamActs: wiring.orchestrator.teamActs,
     startFresh: wiring.orchestrator.startFresh,
     createPane: wiring.orchestrator.createPane,
     createTeam: wiring.orchestrator.createTeam,
@@ -496,6 +501,7 @@ export function Probe() {
     resumeSession: wiring.orchestrator.resumeSession,
     forkSession: wiring.orchestrator.forkSession,
     suspend: wiring.orchestrator.suspend,
+    suspendTeam: wiring.orchestrator.suspendTeam,
     restart: wiring.orchestrator.restart,
     archive: wiring.orchestrator.archive,
     restore: wiring.orchestrator.restore,

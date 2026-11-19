@@ -96,9 +96,7 @@ export function paneStopsWithArchive(ws: PlacementOwner, pane: Pane): boolean {
  * (`suspendRefusalText`). */
 export type SuspendOutcome =
   | "suspended"
-  | PaneSuspendBlock
-  /** A suspend for this pane is already reaping its process. */
-  | "in-flight"
+  | PaneSuspendRefusal
   /** The pane (or its workspace) is no longer in the deck. */
   | "gone";
 
@@ -136,6 +134,47 @@ export function paneSuspendBlock(
   if (idleReadsAsStopped(pane.idle, blocked)) return "stopped";
   if (remoteEndpointOf(pane) !== null) return "remote";
   return panePlacement(ws, pane).kind === "provisioning" ? "provisioning" : null;
+}
+
+/** Why a Suspend refuses a pane right now: its block, or — FIRST — a
+ *  suspend still reaping its process. The pane may be rising again by then
+ *  (asked back mid-reap), so its block alone would let it be stopped twice.
+ *  The one decision a single Suspend and a team's both ask of a pane. */
+export type PaneSuspendRefusal = PaneSuspendBlock | "in-flight";
+
+export function paneSuspendRefusal(
+  ws: PlacementOwner,
+  pane: Pane,
+  facts: {
+    /** The sweep's folder verdict — as [`paneSuspendBlock`] takes it. */
+    blocked: boolean;
+    /** Whether a suspend is still reaping this pane's process. */
+    suspending: boolean;
+  },
+): PaneSuspendRefusal | null {
+  return facts.suspending ? "in-flight" : paneSuspendBlock(ws, pane, facts.blocked);
+}
+
+/** Why a pane cannot be asked back now — every [`ResumeRequest`] but the two
+ *  that are not about the pane itself. */
+export type PaneResumeBlock = Exclude<ResumeRequest, "resuming" | "gone">;
+
+/** Why a pane cannot be asked back right now, or null when it can — the one
+ *  reading behind a single Resume and a team's, so the two can never disagree
+ *  about a pane. `agentAvailable` is the catalog's half: whether a plugin
+ *  provides the pane's agent, which the model cannot know. Asked in the order
+ *  the person needs it: an archived workspace first (restoring it comes
+ *  before anything else), then a directory still being created, then a pane
+ *  that is not down at all, then a missing agent. */
+export function paneResumeBlock(
+  ws: Pick<Workspace, "teams" | "archived">,
+  pane: Pane,
+  agentAvailable: boolean,
+): PaneResumeBlock | null {
+  if (ws.archived) return "archived";
+  if (panePlacement(ws, pane).kind === "provisioning") return "provisioning";
+  if (!pane.idle) return "running";
+  return agentAvailable ? null : "unavailable";
 }
 
 /**
