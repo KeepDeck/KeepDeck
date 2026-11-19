@@ -29,12 +29,10 @@ import {
   failPaneWake,
   parkPane,
   renamePane,
-  requestPaneWake,
   requestPanesWake,
   resetPaneSession,
   setPaneAutoTitle,
   setPaneSession,
-  suspendPane,
   suspendPanes,
 } from "./panes";
 import { paneBranch, paneExecutionCwd } from "./roots";
@@ -458,15 +456,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         clearPaneIdle(state.workspaces, action.wsId, action.paneId),
       );
-    case "suspendPane":
-      // suspendPane returns the same ref for a pane that is absent, already
-      // idle or still provisioning — a repeated gesture re-renders nothing.
-      return withWorkspaces(
-        state,
-        suspendPane(state.workspaces, action.wsId, action.paneId, action.at),
-      );
     case "suspendPanes":
-      // One change for the whole cohort — one snapshot, one save.
+      // One change for the whole cohort — one snapshot, one save. The same
+      // ref back for panes that are absent, already down or still
+      // provisioning, so a repeated gesture re-renders nothing.
       return withWorkspaces(
         state,
         suspendPanes(state.workspaces, action.wsId, action.paneIds, action.at),
@@ -481,11 +474,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         hidePaneView(state.viewByWs, state.workspaces, action.wsId, action.paneId, "suspendedTray"),
       );
     }
-    case "requestPaneWake":
-      return withWorkspaces(
-        state,
-        requestPaneWake(state.workspaces, action.wsId, action.paneId),
-      );
     case "requestPanesWake": {
       // The marker and the tray in ONE change: a pane that is rising and a
       // pane still shelved as suspended are never both true at once. Only

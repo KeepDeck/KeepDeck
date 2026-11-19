@@ -82,9 +82,9 @@ describe("deckReducer restore actions ([F7])", () => {
 
   it("suspends a live pane without changing its placement by default", () => {
     const next = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
-      type: "suspendPane",
+      type: "suspendPanes",
       wsId: "ws-1",
-      paneId: "pane-2",
+      paneIds: ["pane-2"],
       at: "2026-07-25T10:00:00.000Z",
     });
     expect(next.workspaces[0].panes[1]).toEqual({
@@ -100,7 +100,7 @@ describe("deckReducer restore actions ([F7])", () => {
    * the marker, then the tray. */
   const suspendToTray = (from: DeckState) =>
     deckReducer(
-      deckReducer(from, { type: "suspendPane", wsId: "ws-1", paneId: "pane-2", at: "2026-07-25T10:00:00.000Z" }),
+      deckReducer(from, { type: "suspendPanes", wsId: "ws-1", paneIds: ["pane-2"], at: "2026-07-25T10:00:00.000Z" }),
       { type: "moveSuspendedToTray", wsId: "ws-1", paneId: "pane-2" },
     );
 
@@ -281,9 +281,9 @@ describe("deckReducer restore actions ([F7])", () => {
     const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     expect(
       deckReducer(start, {
-        type: "suspendPane",
+        type: "suspendPanes",
         wsId: "ws-1",
-        paneId: "nope",
+        paneIds: ["nope"],
         at: "2026-07-25T10:00:00.000Z",
       }),
     ).toBe(start);
@@ -293,16 +293,16 @@ describe("deckReducer restore actions ([F7])", () => {
     const suspended = deckReducer(
       state({ workspaces: [idleWs], activeId: "ws-1" }),
       {
-        type: "suspendPane",
+        type: "suspendPanes",
         wsId: "ws-1",
-        paneId: "pane-2",
+        paneIds: ["pane-2"],
         at: "2026-07-25T10:00:00.000Z",
       },
     );
     const woken = deckReducer(suspended, {
-      type: "requestPaneWake",
+      type: "requestPanesWake",
       wsId: "ws-1",
-      paneId: "pane-2",
+      paneIds: ["pane-2"],
     });
     expect(woken.workspaces[0].panes[1]).toEqual({
       id: "pane-2",
@@ -320,45 +320,45 @@ describe("deckReducer restore actions ([F7])", () => {
     const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     expect(
       deckReducer(start, {
-        type: "requestPaneWake",
+        type: "requestPanesWake",
         wsId: "ws-1",
-        paneId: "pane-2",
+        paneIds: ["pane-2"],
       }),
     ).toBe(start);
     expect(
       deckReducer(start, {
-        type: "requestPaneWake",
+        type: "requestPanesWake",
         wsId: "ws-1",
-        paneId: "nope",
+        paneIds: ["nope"],
       }),
     ).toBe(start);
   });
 
   it("wakes nobody in an archived workspace — the wake would rise on restore by itself", () => {
     const suspended = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
-      type: "suspendPane",
+      type: "suspendPanes",
       wsId: "ws-1",
-      paneId: "pane-2",
+      paneIds: ["pane-2"],
       at: "2026-07-25T10:00:00.000Z",
     });
     const archived = deckReducer(suspended, { type: "archiveWorkspace", id: "ws-1", at: "2026-07-25T11:00:00.000Z" });
-    expect(deckReducer(archived, { type: "requestPaneWake", wsId: "ws-1", paneId: "pane-2" })).toBe(archived);
+    expect(deckReducer(archived, { type: "requestPanesWake", wsId: "ws-1", paneIds: ["pane-2"] })).toBe(archived);
   });
 
   it("returns failed manual wakes to their original idle state", () => {
     const suspended = deckReducer(
       state({ workspaces: [idleWs], activeId: "ws-1" }),
       {
-        type: "suspendPane",
+        type: "suspendPanes",
         wsId: "ws-1",
-        paneId: "pane-2",
+        paneIds: ["pane-2"],
         at: "2026-07-25T10:00:00.000Z",
       },
     );
     const waking = deckReducer(suspended, {
-      type: "requestPaneWake",
+      type: "requestPanesWake",
       wsId: "ws-1",
-      paneId: "pane-2",
+      paneIds: ["pane-2"],
     });
     const failed = deckReducer(waking, {
       type: "failPaneWake",
@@ -371,9 +371,9 @@ describe("deckReducer restore actions ([F7])", () => {
     });
 
     const asked = deckReducer(failed, {
-      type: "requestPaneWake",
+      type: "requestPanesWake",
       wsId: "ws-1",
-      paneId: "pane-1",
+      paneIds: ["pane-1"],
     });
     expect(
       deckReducer(asked, {

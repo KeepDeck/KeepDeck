@@ -5,6 +5,7 @@ import {
   normalizePath,
   paneSuspendBlock,
   teamHeldPath,
+  teamSuspendCohort,
   teamsOf,
   type Pane,
   type Team,
@@ -66,6 +67,7 @@ export type WorkspaceForgetter = (wsId: string) => Promise<void>;
 
 export interface AgentOrchestratorClosing {
   suspend: AgentOrchestrator["suspend"];
+  suspendTeam: AgentOrchestrator["suspendTeam"];
   close: AgentOrchestrator["close"];
   /** Whether a confirmed disband or workspace close holds `teamId` — from
    * the confirmation until the team is out of the deck. The create runner
@@ -233,6 +235,23 @@ export function createAgentOrchestratorClosing({
     ]).has(normalizePath(path));
   }
 
+  /** The tail a single Suspend and a team's share, for panes already judged:
+   * held against any other suspend for as long as it runs; the marker for all
+   * of them in one change; then — by the placement setting — the tray (a tray
+   * entry only ever follows a marker that landed); then each process ended. */
+  async function stopPanes(wsId: string, paneIds: readonly string[]): Promise<void> {
+    for (const paneId of paneIds) suspending.add(paneId);
+    try {
+      actions.suspendPanes(wsId, paneIds);
+      if (suspendPolicy.moveToTray()) {
+        for (const paneId of paneIds) actions.moveSuspendedToTray(wsId, paneId);
+      }
+      await Promise.all(paneIds.map((paneId) => endPaneProcess({ sessions, lifecycle }, paneId)));
+    } finally {
+      for (const paneId of paneIds) suspending.delete(paneId);
+    }
+  }
+
   const suspend: AgentOrchestrator["suspend"] = async (wsId, paneId) => {
     if (suspending.has(paneId)) return "in-flight";
     const workspace = deck.getSnapshot().workspaces.find((candidate) => candidate.id === wsId);
@@ -240,18 +259,25 @@ export function createAgentOrchestratorClosing({
     if (!workspace || !pane) return "gone";
     const refusal = paneSuspendBlock(workspace, pane, isBlocked(paneId));
     if (refusal) return refusal;
-    suspending.add(paneId);
-    try {
-      log.info("web:orchestrator", `${paneId}: suspending`);
-      // The marker first, then — by the placement setting — the tray: a
-      // tray entry only ever follows a suspend that landed.
-      actions.suspendPane(wsId, paneId);
-      if (suspendPolicy.moveToTray()) actions.moveSuspendedToTray(wsId, paneId);
-      await endPaneProcess({ sessions, lifecycle }, paneId);
-      return "suspended";
-    } finally {
-      suspending.delete(paneId);
-    }
+    log.info("web:orchestrator", `${paneId}: suspending`);
+    await stopPanes(wsId, [paneId]);
+    return "suspended";
+  };
+
+  const suspendTeam: AgentOrchestrator["suspendTeam"] = async (wsId, teamId, shown) => {
+    const workspace = deck.getSnapshot().workspaces.find((candidate) => candidate.id === wsId);
+    if (!workspace) return [];
+    // Judged again now, against the live deck: the confirm stood open for a
+    // while. Only members the person was SHOWN — one that became stoppable
+    // since never joins silently — and none another suspend is already
+    // stopping.
+    const taken = teamSuspendCohort(workspace, teamId, { blocked: isBlocked }).take.filter(
+      (paneId) => shown.includes(paneId) && !suspending.has(paneId),
+    );
+    if (taken.length === 0) return [];
+    log.info("web:orchestrator", `${teamId}: suspending ${taken.length} member(s)`);
+    await stopPanes(wsId, taken);
+    return taken;
   };
 
   /** End ONE agent. Its place on its team goes with the pane; the team
@@ -445,5 +471,5 @@ export function createAgentOrchestratorClosing({
   const closingWorkspace: AgentOrchestratorClosing["closingWorkspace"] = (workspace) =>
     closingWorkspaces.has(workspaceKey(workspace));
 
-  return { suspend, close, closing, holdsPath, closingWorkspace };
+  return { suspend, suspendTeam, close, closing, holdsPath, closingWorkspace };
 }

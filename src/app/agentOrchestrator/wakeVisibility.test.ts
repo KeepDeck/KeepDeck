@@ -226,7 +226,7 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
     });
     act(() => deck.hydrate(blockedDeck()));
     await settle();
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-1");
 
@@ -255,7 +255,7 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
     });
     act(() => deck.hydrate(blockedDeck()));
     await settle();
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
 
     act(() => agentRun.resume("ws-1", "pane-1"));

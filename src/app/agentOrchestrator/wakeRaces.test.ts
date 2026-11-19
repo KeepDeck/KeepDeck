@@ -127,7 +127,7 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
     await act(async () => {});
 
-    deck.requestPaneWake("ws-1", "pane-1");
+    deck.requestPanesWake("ws-1", ["pane-1"]);
     release();
     await settle();
 
@@ -174,7 +174,7 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
     await act(async () => {});
 
-    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
     release();
     await settle();
 
@@ -199,7 +199,7 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
     await act(async () => {});
 
-    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
     release();
     await settle();
 

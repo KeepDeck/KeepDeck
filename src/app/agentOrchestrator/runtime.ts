@@ -13,6 +13,7 @@ import {
   paneBranch,
   paneResumeBlock,
   remoteEndpointOf,
+  teamResumeCohort,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -192,6 +193,18 @@ export function createAgentOrchestratorRuntime(
     // wake lands on the plan-error tile instead of a terminal.
     dropPaneSpawnSpec(pane.id);
     actions.failPaneWake(wsId, pane.id);
+  }
+
+  /** Ask for panes back by the person's request — a single Resume, a
+   * team's, or a fresh start: their old notes go (a stale "couldn't resume"
+   * must not stand over a fresh try), a start is owed to each (so the
+   * unopened-workspace economy cannot hold it), and the marker and the
+   * suspended tray change in one transition — a rising pane never sits on
+   * the shelf of stopped ones, whichever door asked. The sweep does the rest. */
+  function askBack(wsId: string, paneIds: readonly string[]): void {
+    if (paneIds.filter((paneId) => runView.clearNotes(paneId)).length > 0) publish();
+    for (const paneId of paneIds) startOwed.add(paneId);
+    actions.requestPanesWake(wsId, paneIds);
   }
 
   // Each of the two asks the other one question, so one is bound late.
@@ -556,6 +569,7 @@ export function createAgentOrchestratorRuntime(
     createWorkspace: creation.createWorkspace,
     retryProvisioning: creation.retryProvisioning,
     suspend: closing.suspend,
+    suspendTeam: closing.suspendTeam,
     close: closing.close,
     archive: (workspace) => archiving.archive(workspace),
     restore: (workspace) => archiving.restore(workspace),
@@ -592,10 +606,10 @@ export function createAgentOrchestratorRuntime(
         publish();
         return;
       }
-      if (runView.clearNotes(paneId)) publish();
-      startOwed.add(paneId);
+      // A new conversation: the session goes before the pane is asked back,
+      // so no wake can come back into the old one.
       actions.resetPaneSession(wsId, paneId);
-      actions.requestPaneWake(wsId, paneId);
+      askBack(wsId, [paneId]);
     },
     resume(wsId, paneId) {
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
@@ -603,10 +617,18 @@ export function createAgentOrchestratorRuntime(
       if (!workspace || !pane) return "gone";
       const block = paneResumeBlock(workspace, pane, agents.commands().has(pane.agentType));
       if (block) return block;
-      if (runView.clearNotes(paneId)) publish();
-      startOwed.add(paneId);
-      actions.requestPaneWake(wsId, paneId);
+      askBack(wsId, [paneId]);
       return "resuming";
+    },
+    resumeTeam(wsId, teamId) {
+      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      if (!workspace) return [];
+      const { take } = teamResumeCohort(workspace, teamId, {
+        blocked: runView.isBlocked,
+        agentAvailable: (agentType) => agents.commands().has(agentType),
+      });
+      if (take.length > 0) askBack(wsId, take);
+      return take;
     },
   };
 }

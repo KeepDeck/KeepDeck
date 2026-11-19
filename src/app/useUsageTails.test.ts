@@ -179,13 +179,13 @@ describe("usage tails — a suspended pane's watcher", () => {
     expect(ipc.watchSessionFile).toHaveBeenCalledTimes(1);
     expect(ipc.watchSessionFile.mock.calls[0][1].token).toBe("token-1");
 
-    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
     await settle();
     expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
 
     // The resume: a new process, a new token.
     specs.token = "token-2";
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     act(() => deck.clearPaneIdle("ws-1", "pane-1"));
     await settle();
 
@@ -200,8 +200,8 @@ describe("usage tails — a suspended pane's watcher", () => {
     await settle();
     ipc.unwatchSessionFile.mockClear();
 
-    act(() => deck.suspendPane("ws-1", "pane-1"));
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => deck.suspendPanes("ws-1", ["pane-1"]));
+    act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
 
     // It was released by the suspend and not re-armed while still idle —

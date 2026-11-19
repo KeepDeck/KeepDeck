@@ -48,6 +48,11 @@ export interface AgentOrchestrator {
   retryProvisioning(wsId: string, teamId: string): void;
   /** Stop an agent while preserving its resumable pane. */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
+  /** Stop the members of a team the person was SHOWN (`shown`) that a single
+   * Suspend would still take now — never one they were not shown. Answers
+   * the members a stop was requested for: the deck does not confirm a
+   * process exited, for one agent or for a team. */
+  suspendTeam(wsId: string, teamId: string, shown: readonly string[]): Promise<readonly string[]>;
   /** Confirmed pane/workspace close, including optional worktree teardown. */
   close(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
   /** Put a workspace away: its agents stopped and kept, its directories
@@ -103,6 +108,10 @@ export interface AgentOrchestrator {
   startFresh(wsId: string, paneId: string, role?: string): void;
   /** Ask for a stopped pane back and report whether it can rise. */
   resume(wsId: string, paneId: string): ResumeRequest;
+  /** Ask back every member of a team that is down by a decision — parked at
+   * launch or suspended — and that a single Resume would ask back. Answers
+   * the members asked; whether each rises lands on its card. */
+  resumeTeam(wsId: string, teamId: string): readonly string[];
 }
 
 export interface AgentRunView {
