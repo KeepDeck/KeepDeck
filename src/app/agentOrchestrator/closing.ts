@@ -3,7 +3,7 @@ import {
   findWorkspaceByRef,
   membersOf,
   normalizePath,
-  paneSuspendBlock,
+  paneSuspendRefusal,
   stillTaken,
   teamHeldPath,
   teamsOf,
@@ -262,11 +262,13 @@ export function createAgentOrchestratorClosing({
   }
 
   const suspend: AgentOrchestrator["suspend"] = async (wsId, paneId) => {
-    if (suspending.has(paneId)) return "in-flight";
     const workspace = deck.getSnapshot().workspaces.find((candidate) => candidate.id === wsId);
     const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
     if (!workspace || !pane) return "gone";
-    const refusal = paneSuspendBlock(workspace, pane, isBlocked(paneId));
+    const refusal = paneSuspendRefusal(workspace, pane, {
+      blocked: isBlocked(paneId),
+      suspending: suspending.has(paneId),
+    });
     if (refusal) return refusal;
     log.info("web:orchestrator", `${paneId}: suspending`);
     await stopPanes(wsId, [paneId]);

@@ -11,11 +11,11 @@
 import {
   idleReadsAsStopped,
   paneResumeBlock,
-  paneSuspendBlock,
+  paneSuspendRefusal,
   remoteEndpointOf,
   type Pane,
   type PaneResumeBlock,
-  type PaneSuspendBlock,
+  type PaneSuspendRefusal,
 } from "../panes";
 import type { Workspace } from "../workspaces";
 import { membersOf } from "./collection";
@@ -44,10 +44,9 @@ export interface TeamActFacts {
   suspending(paneId: string): boolean;
 }
 
-/** Why a team's Suspend leaves a member: a single Suspend's own refusal —
- * the in-flight one included, a pane another suspend is still taking down
- * (it may be rising again by now, and is not stopped twice). */
-export type TeamSuspendSkip = PaneSuspendBlock | "in-flight";
+/** Why a team's Suspend leaves a member: exactly a single Suspend's
+ * refusal of it. */
+export type TeamSuspendSkip = PaneSuspendRefusal;
 
 /** Why a team's Resume leaves a member down or alone: a single Resume's own
  * refusal, or one of the team's — it is already on its way up, it runs on
@@ -69,15 +68,14 @@ function cohort<Skip>(
   return result;
 }
 
-/** Who a team's Suspend takes: every member a single Suspend would — in
- * its order, the reservation first. */
+/** Who a team's Suspend takes: every member a single Suspend would. */
 export function teamSuspendCohort(
   ws: Workspace,
   teamId: string,
   facts: Pick<TeamActFacts, "blocked" | "suspending">,
 ): TeamCohort<TeamSuspendSkip> {
-  return cohort<TeamSuspendSkip>(ws, teamId, (pane) =>
-    facts.suspending(pane.id) ? "in-flight" : paneSuspendBlock(ws, pane, facts.blocked(pane.id)),
+  return cohort(ws, teamId, (pane) =>
+    paneSuspendRefusal(ws, pane, { blocked: facts.blocked(pane.id), suspending: facts.suspending(pane.id) }),
   );
 }
 

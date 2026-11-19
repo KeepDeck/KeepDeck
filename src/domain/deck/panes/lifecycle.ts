@@ -96,9 +96,7 @@ export function paneStopsWithArchive(ws: PlacementOwner, pane: Pane): boolean {
  * (`suspendRefusalText`). */
 export type SuspendOutcome =
   | "suspended"
-  | PaneSuspendBlock
-  /** A suspend for this pane is already reaping its process. */
-  | "in-flight"
+  | PaneSuspendRefusal
   /** The pane (or its workspace) is no longer in the deck. */
   | "gone";
 
@@ -136,6 +134,25 @@ export function paneSuspendBlock(
   if (idleReadsAsStopped(pane.idle, blocked)) return "stopped";
   if (remoteEndpointOf(pane) !== null) return "remote";
   return panePlacement(ws, pane).kind === "provisioning" ? "provisioning" : null;
+}
+
+/** Why a Suspend refuses a pane right now: its block, or — FIRST — a
+ *  suspend still reaping its process. The pane may be rising again by then
+ *  (asked back mid-reap), so its block alone would let it be stopped twice.
+ *  The one decision a single Suspend and a team's both ask of a pane. */
+export type PaneSuspendRefusal = PaneSuspendBlock | "in-flight";
+
+export function paneSuspendRefusal(
+  ws: PlacementOwner,
+  pane: Pane,
+  facts: {
+    /** The sweep's folder verdict — as [`paneSuspendBlock`] takes it. */
+    blocked: boolean;
+    /** Whether a suspend is still reaping this pane's process. */
+    suspending: boolean;
+  },
+): PaneSuspendRefusal | null {
+  return facts.suspending ? "in-flight" : paneSuspendBlock(ws, pane, facts.blocked);
 }
 
 /** Why a pane cannot be asked back now — every [`ResumeRequest`] but the two
