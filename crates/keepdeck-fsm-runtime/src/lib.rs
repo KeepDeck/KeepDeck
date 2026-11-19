@@ -80,7 +80,7 @@ enum Live {
 /// feature's handler and nowhere else.
 ///
 /// Handles are cheap to clone. The machine ends when the last one is
-/// dropped, and with it the stream of its states.
+/// dropped, and with it the stream of its states and its timers.
 pub struct Runtime<S, E> {
     mailbox: mpsc::UnboundedSender<Mail<E>>,
     state: watch::Receiver<At<S>>,
@@ -104,6 +104,8 @@ where
     /// nothing, so the signature itself says they are pure.
     ///
     /// Call it where a tokio runtime is entered: the machine is a tokio task.
+    /// A machine whose states need timers also needs that runtime's time
+    /// driver; without it, the machine panics when it arms its first timer.
     pub fn start<F, X>(initial: S, update: fn(&S, E) -> Next<S, F>, work: fn(&S) -> Owed<F, E>, mut effects: X) -> Self
     where
         F: Clone + PartialEq + Send + 'static,
@@ -140,7 +142,6 @@ where
                     started.reconcile(owed, &mut effects, &events);
                 }
             }
-            started.stop_timers();
         });
         Runtime { mailbox, state }
     }
@@ -162,7 +163,8 @@ where
     }
 }
 
-/// The owed work that runs now, and the number of the last timer armed.
+/// The owed work that runs now, and the number of the last timer armed. Its
+/// timers stop when it is dropped — when the machine ends, by a panic too.
 struct Started<F, E> {
     work: Vec<(Work<F, E>, Live)>,
     armings: u64,
@@ -187,9 +189,9 @@ where
 
     /// Keep what runs equal to what is owed. An effect no longer owed is left
     /// to finish, and its result still comes back. A timer no longer owed is
-    /// stopped only so it does not sleep on: a firing already on its way is
-    /// dropped by its arming (see `fired`). New work starts in the
-    /// order it is listed.
+    /// stopped; a firing already on its way is dropped by its arming (see
+    /// `fired`). New work starts in the order it is listed, and a timer counts
+    /// from here, not from when its task first runs.
     fn reconcile<X: Effects<F, E>>(&mut self, owed: Owed<F, E>, effects: &mut X, events: &Events<E>) {
         let owed: Vec<_> = owed.into_iter().collect();
         self.work.retain(|(work, live)| {
@@ -210,11 +212,12 @@ where
                 }
                 Work::After(delay, _) => {
                     self.armings += 1;
-                    let (arming, delay, machine) = (self.armings, *delay, events.0.clone());
+                    let (arming, machine) = (self.armings, events.0.clone());
+                    let due = tokio::time::sleep(*delay);
                     Live::Timer(
                         arming,
                         tokio::spawn(async move {
-                            tokio::time::sleep(delay).await;
+                            due.await;
                             if let Some(machine) = machine.upgrade() {
                                 let _ = machine.send(Mail::Timer(arming));
                             }
@@ -225,12 +228,70 @@ where
             self.work.push((work, live));
         }
     }
+}
 
-    fn stop_timers(self) {
-        for (_, live) in self.work {
+impl<F, E> Drop for Started<F, E> {
+    fn drop(&mut self) {
+        for (_, live) in &self.work {
             if let Live::Timer(_, timer) = live {
                 timer.abort();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! A timer's firing, put in the mailbox directly: the queue a race makes,
+    //! made exact.
+    use super::*;
+    use keepdeck_fsm::{stay, to};
+    use std::time::Duration;
+
+    const SECOND: Duration = Duration::from_secs(1);
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Wait {
+        Armed,
+        Left,
+        Fired,
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    enum Ev {
+        Leave,
+        Back,
+        Fire,
+    }
+
+    fn update(wait: &Wait, event: Ev) -> Next<Wait, ()> {
+        match (wait, event) {
+            (Wait::Armed, Ev::Leave) => to(Wait::Left),
+            (Wait::Left, Ev::Back) => to(Wait::Armed),
+            (Wait::Armed | Wait::Left, Ev::Fire) => to(Wait::Fired),
+            (Wait::Left | Wait::Fired, Ev::Leave) | (Wait::Armed | Wait::Fired, Ev::Back) | (Wait::Fired, Ev::Fire) => stay(),
+        }
+    }
+    fn work(wait: &Wait) -> Owed<(), Ev> {
+        match wait {
+            Wait::Armed => Owed::nothing().after(SECOND, Ev::Fire),
+            Wait::Left | Wait::Fired => Owed::nothing(),
+        }
+    }
+    struct Nothing;
+    impl Effects<(), Ev> for Nothing {
+        fn run(&mut self, (): (), _: &Events<Ev>) {}
+    }
+
+    /// The machine's first timer is armed under 1, so its firing carries 1.
+    #[tokio::test(start_paused = true)]
+    async fn a_stale_timer_is_dropped_while_the_same_timer_is_needed_again() {
+        let machine = Runtime::start(Wait::Armed, update, work, Nothing);
+        machine.send(Ev::Leave);
+        machine.send(Ev::Back); // the same timer is needed again, under arming 2
+        machine.mailbox.send(Mail::Timer(1)).expect("the machine"); // arming 1 fired, behind both
+        tokio::time::sleep(SECOND / 2).await;
+        assert_eq!(machine.state().borrow().value, Wait::Armed, "the firing of arming 1 was dropped");
+        tokio::time::sleep(SECOND).await;
+        assert_eq!(machine.state().borrow().value, Wait::Fired, "arming 2 fired");
     }
 }

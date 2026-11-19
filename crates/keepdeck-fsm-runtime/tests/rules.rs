@@ -2,7 +2,9 @@
 //! in the README names its test here.
 use keepdeck_fsm::{stay, to, Next, Owed};
 use keepdeck_fsm_runtime::{At, Effects, Events, Runtime};
+use std::future::Future;
 use std::sync::{mpsc as std_mpsc, Arc, Mutex};
+use std::task::{Context, Waker};
 use std::time::Duration;
 use tokio::sync::watch;
 
@@ -14,6 +16,23 @@ type Seen<F> = Arc<Mutex<Vec<F>>>;
 
 fn seen<F: Clone>(log: &Seen<F>) -> Vec<F> {
     log.lock().unwrap().clone()
+}
+
+/// The tasks alive on this runtime: a machine, its timers, its spawned work.
+fn alive_tasks() -> usize {
+    tokio::runtime::Handle::current().metrics().num_alive_tasks()
+}
+
+/// Wait in real time until `done`, failing after ten seconds: a bound, not an
+/// order — what the test waits for is the signal, never the clock.
+async fn until(what: &str, done: impl Fn() -> bool) {
+    for _ in 0..10_000 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(MOMENT).await;
+    }
+    panic!("never: {what}");
 }
 
 /// A handler that only records what it is handed.
@@ -108,8 +127,11 @@ mod listen {
 }
 
 mod wait {
-    //! A state that needs a timer, left and entered again.
+    //! A state that needs a timer, and an event that leaves it while its
+    //! handler is held.
     use super::*;
+
+    pub const TIMER: Duration = Duration::from_millis(100);
 
     #[derive(Clone, Debug, PartialEq)]
     pub enum Wait {
@@ -120,38 +142,48 @@ mod wait {
     #[derive(Clone, Debug, PartialEq)]
     pub enum Ev {
         Leave,
-        Back,
         Fire,
+        /// A fence: handled after everything already in the mailbox.
+        Check,
     }
     #[derive(Clone, Debug, PartialEq)]
     pub enum Fx {
         Slow,
+        Checked,
     }
 
     pub fn update(wait: &Wait, event: Ev) -> Next<Wait, Fx> {
         match (wait, event) {
             (Wait::Armed, Ev::Leave) => to(Wait::Left).run(Fx::Slow),
-            (Wait::Left, Ev::Back) => to(Wait::Armed),
             // A timer delivered once its state is left would show here.
             (Wait::Armed | Wait::Left, Ev::Fire) => to(Wait::Fired),
-            (Wait::Left | Wait::Fired, Ev::Leave) | (Wait::Armed | Wait::Fired, Ev::Back) | (Wait::Fired, Ev::Fire) => stay(),
+            (_, Ev::Check) => stay().run(Fx::Checked),
+            (Wait::Left | Wait::Fired, Ev::Leave) | (Wait::Fired, Ev::Fire) => stay(),
         }
     }
     pub fn work(wait: &Wait) -> Owed<Fx, Ev> {
         match wait {
-            Wait::Armed => Owed::nothing().after(SECOND, Ev::Fire),
+            Wait::Armed => Owed::nothing().after(TIMER, Ev::Fire),
             Wait::Left | Wait::Fired => Owed::nothing(),
         }
     }
 
-    /// Holds the machine's task on the first `Slow` until released.
-    pub struct Gate(pub Option<std_mpsc::Receiver<()>>);
+    /// Records what it is handed, and holds the machine's task on the first
+    /// `Slow` until released.
+    pub struct Gate(pub Option<std_mpsc::Receiver<()>>, pub Seen<Fx>);
     impl Effects<Fx, Ev> for Gate {
-        fn run(&mut self, Fx::Slow: Fx, _: &Events<Ev>) {
-            if let Some(release) = self.0.take() {
-                let _ = release.recv();
+        fn run(&mut self, effect: Fx, _: &Events<Ev>) {
+            if effect == Fx::Slow {
+                if let Some(release) = self.0.take() {
+                    let _ = release.recv();
+                }
             }
+            self.1.lock().unwrap().push(effect);
         }
+    }
+
+    pub fn free() -> Gate {
+        Gate(None, Seen::default())
     }
 }
 
@@ -229,46 +261,76 @@ async fn the_result_of_work_no_longer_needed_still_arrives() {
 // ---------------------------------------------------------------- timers
 
 #[tokio::test(start_paused = true)]
-async fn a_timer_is_dropped_when_the_machine_leaves_its_state() {
-    let machine = Runtime::start(wait::Wait::Armed, wait::update, wait::work, wait::Gate(None));
-    tokio::time::sleep(SECOND / 2).await;
+async fn a_timer_is_stopped_when_the_machine_leaves_its_state() {
+    let machine = Runtime::start(wait::Wait::Armed, wait::update, wait::work, wait::free());
+    tokio::time::sleep(MOMENT).await;
+    assert_eq!(alive_tasks(), 2, "the machine and its timer");
     machine.send(wait::Ev::Leave);
+    tokio::time::sleep(MOMENT).await;
+    assert_eq!(alive_tasks(), 1, "the timer of the state left is stopped");
     tokio::time::sleep(HOUR).await;
     assert_eq!(machine.state().borrow().value, wait::Wait::Left);
 }
 
 /// The state is left while its timer fires: the firing queues up behind the
-/// event that left it, and is dropped.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+/// event that left it, and is dropped. Real threads, so the timer can fire
+/// while the machine's task is held; each step waits for its signal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_timer_that_fires_while_its_state_is_being_left_is_dropped() {
     let (release, released) = std_mpsc::channel();
-    let machine = Runtime::start(wait::Wait::Armed, wait::update, wait::work, wait::Gate(Some(released)));
-    tokio::time::sleep(Duration::from_millis(700)).await;
-    machine.send(wait::Ev::Leave); // its Slow holds the machine's task
-    tokio::time::sleep(Duration::from_millis(600)).await; // the timer fires at 1 s
-    assert_eq!(machine.state().borrow().value, wait::Wait::Left, "the new state is out before its effects are done");
+    let log = Seen::default();
+    let machine = Runtime::start(wait::Wait::Armed, wait::update, wait::work, wait::Gate(Some(released), log.clone()));
+    let checked = || seen(&log).iter().filter(|fx| **fx == wait::Fx::Checked).count();
+    machine.send(wait::Ev::Check);
+    until("the machine has armed its timer", || checked() == 1).await;
+    // tokio keeps a task just spawned in its spawner's LIFO slot, which no
+    // other worker can take: let the idle worker give the timer its first
+    // poll before the gate holds that worker.
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    machine.send(wait::Ev::Leave); // its Slow holds the machine's task before Armed's timer is stopped
+    let states = machine.state();
+    until("Left is out, and its Slow holds the machine", || states.borrow().value == wait::Wait::Left).await;
+    until("the timer fired, behind Leave", || alive_tasks() == 1).await;
     release.send(()).expect("the gate");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(machine.state().borrow().value, wait::Wait::Left);
+    machine.send(wait::Ev::Check);
+    until("the fence was handled", || checked() == 2).await;
+    assert_eq!(machine.state().borrow().value, wait::Wait::Left, "the firing was dropped");
 }
 
-/// The state is left and entered again while its first timer fires: the same
-/// timer is needed again, but under a new arming, so the old firing is dropped
-/// and only the new one counts.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_stale_timer_is_dropped_while_the_same_timer_is_needed_again() {
-    let (release, released) = std_mpsc::channel();
-    let machine = Runtime::start(wait::Wait::Armed, wait::update, wait::work, wait::Gate(Some(released)));
-    tokio::time::sleep(Duration::from_millis(700)).await;
-    machine.send(wait::Ev::Leave); // its Slow holds the machine's task
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    machine.send(wait::Ev::Back);
-    tokio::time::sleep(Duration::from_millis(500)).await; // the first timer fires at 1 s, behind Back
-    release.send(()).expect("the gate");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(machine.state().borrow().value, wait::Wait::Armed, "the first firing was dropped");
-    tokio::time::sleep(SECOND).await;
-    assert_eq!(machine.state().borrow().value, wait::Wait::Fired, "the new arming fired");
+#[tokio::test(start_paused = true)]
+async fn a_timer_counts_from_when_its_state_needs_it() {
+    #[derive(Clone, Debug, PartialEq)]
+    enum Ev {
+        Fire,
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    enum Fx {
+        Pause,
+    }
+    fn update(_: &bool, Ev::Fire: Ev) -> Next<bool, Fx> {
+        to(true)
+    }
+    /// The timer, then work that holds the only thread while ten seconds pass.
+    fn work(fired: &bool) -> Owed<Fx, Ev> {
+        match fired {
+            false => Owed::nothing().after(SECOND, Ev::Fire).run(Fx::Pause),
+            true => Owed::nothing(),
+        }
+    }
+    struct Pausing;
+    impl Effects<Fx, Ev> for Pausing {
+        fn run(&mut self, Fx::Pause: Fx, _: &Events<Ev>) {
+            // A long pause before the timer's task first runs: the paused clock
+            // moves on while this handler holds the only thread.
+            let mut pause = std::pin::pin!(tokio::time::advance(10 * SECOND));
+            let _ = pause.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+        }
+    }
+    let armed = tokio::time::Instant::now();
+    let machine = Runtime::start(false, update, work, Pausing);
+    let mut states = machine.state();
+    states.wait_for(|at| at.value).await.expect("the machine");
+    assert_eq!(armed.elapsed(), 10 * SECOND, "due at 1 s, it fired as soon as its task ran");
 }
 
 // ---------------------------------------------------------------- the state stream
@@ -347,14 +409,18 @@ async fn one_machine_learns_about_another_from_its_state() {
 // ---------------------------------------------------------------- when the machine is gone
 
 #[tokio::test(start_paused = true)]
-async fn when_the_machine_panics_its_state_stream_ends() {
-    fn broken(_: &u32, _: counter::Ev) -> Next<u32, counter::Fx> {
+async fn when_the_machine_panics_its_state_stream_ends_and_its_timers_stop() {
+    fn broken(_: &wait::Wait, _: wait::Ev) -> Next<wait::Wait, wait::Fx> {
         panic!("a bug in update")
     }
-    let machine = Runtime::start(2, broken, counter::work, Record(Seen::default()));
+    let machine = Runtime::start(wait::Wait::Armed, broken, wait::work, wait::free());
     let mut states = machine.state();
-    machine.send(counter::Ev::Ping(1));
+    tokio::time::sleep(MOMENT).await;
+    assert_eq!(alive_tasks(), 2, "the machine and its timer");
+    machine.send(wait::Ev::Check);
     assert!(states.changed().await.is_err(), "whoever waits is told");
+    tokio::time::sleep(MOMENT).await;
+    assert_eq!(alive_tasks(), 0, "its timer stopped with it");
 }
 
 #[tokio::test(start_paused = true)]
@@ -435,4 +501,19 @@ fn with_a_runtime_entered_a_machine_starts_and_send_needs_no_runtime() {
     let mut states = machine.state();
     let state = tokio.block_on(states.wait_for(|at| at.value == 4)).expect("the machine").clone();
     assert_eq!(state, At { version: 1, value: 4 });
+}
+
+#[test]
+fn a_machine_whose_state_needs_a_timer_needs_the_time_driver() {
+    let tokio = tokio::runtime::Builder::new_current_thread().build().expect("a runtime with no timers");
+    let machine = {
+        let _entered = tokio.enter();
+        Runtime::start(wait::Wait::Armed, wait::update, wait::work, wait::free())
+    };
+    let mut states = machine.state();
+    // On its own thread, so a machine that does not end fails the test instead of hanging it.
+    let (ended, end) = std_mpsc::channel();
+    std::thread::spawn(move || ended.send(tokio.block_on(states.changed()).is_err()));
+    assert_eq!(end.recv_timeout(10 * SECOND), Ok(true), "it panicked arming its timer, and its stream ended");
+    drop(machine);
 }
