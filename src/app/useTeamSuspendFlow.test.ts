@@ -42,10 +42,17 @@ describe("useTeamSuspendFlow", () => {
   let flow: TeamSuspendFlow;
   let deck: Workspace[];
   let activities: Map<string, PaneActivity>;
+  /** Panes a suspend is still reaping — read by the decision at the call. */
+  let reaping: Set<string>;
   const suspendTeam = vi.fn<(wsId: string, teamId: string, named: readonly string[]) => Promise<void>>();
 
   function Probe({ workspaces }: { workspaces: Workspace[] }) {
-    flow = useTeamSuspendFlow({ workspaces, activities, teamActs: teamActsIn(workspaces), suspendTeam });
+    flow = useTeamSuspendFlow({
+      workspaces,
+      activities,
+      teamActs: teamActsIn(workspaces, { suspending: (paneId) => reaping.has(paneId) }),
+      suspendTeam,
+    });
     return null;
   }
   const render = () => act(() => root.render(createElement(Probe, { workspaces: deck })));
@@ -54,6 +61,7 @@ describe("useTeamSuspendFlow", () => {
     suspendTeam.mockReset().mockResolvedValue();
     deck = deckOf();
     activities = new Map();
+    reaping = new Set();
     root = createRoot(document.body.appendChild(document.createElement("div")));
     render();
   });
@@ -74,6 +82,22 @@ describe("useTeamSuspendFlow", () => {
     render();
     act(() => flow.request("ws-1", "team-1"));
     expect(flow.confirming?.message).toContain("1 is in the middle of a turn — that work may be lost.");
+  });
+
+  it("hands the door exactly what it showed — not one that became stoppable after it last drew", async () => {
+    act(() => flow.request("ws-1", "team-1"));
+    expect(flow.confirming?.shown).toEqual(["a", "b"]);
+
+    // Another suspend takes "b" down while the dialog stands: it drops out.
+    reaping = new Set(["b"]);
+    render();
+    expect(flow.confirming?.shown).toEqual(["a"]);
+
+    // That reap ends with no render in between; the person clicks what they
+    // see — one agent — and one agent is what the door is handed.
+    reaping = new Set();
+    await act(async () => flow.confirm());
+    expect(suspendTeam).toHaveBeenCalledWith("ws-1", "team-1", ["a"]);
   });
 
   it("cancel stops nobody", () => {

@@ -161,6 +161,28 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
       expect(pty.closed.filter((paneId) => paneId === "m2")).toHaveLength(1);
     });
 
+    it("tells the views when a suspend's reservation comes off — it changes what the team may take", async () => {
+      await live(team([{}, {}]));
+      let release!: () => void;
+      pty.hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let single!: Promise<unknown>;
+      act(() => {
+        single = agentRun.suspend("ws-1", "m2");
+      });
+      expect(agentRun.teamActs("ws-1", "team-1")?.suspend.skip).toEqual(["in-flight"]);
+      const drawn = agentRun;
+
+      // Nothing in the deck changes when the reap ends — the views must
+      // still hear of it, or the menu goes on saying "already being
+      // suspended".
+      act(() => release());
+      await act(async () => single);
+      expect(agentRun).not.toBe(drawn);
+      expect(agentRun.teamActs("ws-1", "team-1")?.suspend.skip).toEqual(["stopped"]);
+    });
+
     it("moves every stopped member to the tray when that is the placement", async () => {
       catalog.moveSuspendedToTray = true;
       await live(team([{}, {}]));

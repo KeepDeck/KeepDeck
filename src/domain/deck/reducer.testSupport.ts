@@ -1,6 +1,6 @@
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { initialDeckState, type DeckState } from "./reducer";
-import { findTeam, teamActsOf, type Team, type TeamActs } from "./teams";
+import { findTeam, teamActsOf, type Team, type TeamActFacts, type TeamActs } from "./teams";
 import type { Workspace } from "./workspaces";
 
 export const workspace = (id: string, paneIds: string[]): Workspace => ({
@@ -43,12 +43,13 @@ export const deckState = (partial: Partial<DeckState>): DeckState => ({
 });
 
 /** A stage's `teamActsOf` over `workspaces` — the orchestrator's answer
- * with every folder present and every agent installed. */
+ * with every folder present, every agent installed and no suspend reaping,
+ * unless `facts` says otherwise. */
 export const teamActsIn =
-  (workspaces: readonly Workspace[]) =>
+  (workspaces: readonly Workspace[], facts: Partial<TeamActFacts> = {}) =>
   (wsId: string, teamId: string): TeamActs | null => {
     const ws = workspaces.find((candidate) => candidate.id === wsId);
     return ws && findTeam(ws, teamId)
-      ? teamActsOf(ws, teamId, { blocked: () => false, agentAvailable: () => true, suspending: () => false })
+      ? teamActsOf(ws, teamId, { blocked: () => false, agentAvailable: () => true, suspending: () => false, ...facts })
       : null;
   };

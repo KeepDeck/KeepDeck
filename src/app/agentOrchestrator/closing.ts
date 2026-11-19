@@ -62,6 +62,9 @@ interface ClosingDeps {
   /** Whether an archive is stopping this workspace's agents right now — a
    * close waits for it to finish rather than racing it. */
   archiving?: (workspace: WorkspaceRef) => boolean;
+  /** Tell the run view's readers something they read changed — here, a
+   * suspend's reservation coming off. */
+  publish(): void;
   /** Whom a team's acts take right now — the orchestrator's ONE decision,
    * the one its menu offers; this door acts on it, never on a rule of its
    * own. */
@@ -120,6 +123,7 @@ export function createAgentOrchestratorClosing({
   lifecycle,
   workspaceForgetters = [],
   archiving = () => false,
+  publish,
   teamActs,
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
@@ -258,6 +262,10 @@ export function createAgentOrchestratorClosing({
       await Promise.all(paneIds.map((paneId) => endPaneProcess({ sessions, lifecycle }, paneId)));
     } finally {
       for (const paneId of paneIds) suspending.delete(paneId);
+      // The release changes no deck, yet changes what a team act may take
+      // (a member asked back mid-reap is stoppable again): its readers are
+      // told, or a standing confirm and the menus go stale.
+      publish();
     }
   }
 

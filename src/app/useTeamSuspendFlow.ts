@@ -63,8 +63,11 @@ export function useTeamSuspendFlow(deps: {
     },
     confirm() {
       setAsked(null);
-      if (!ws || !team || !asked || !confirming) return;
-      void deps.suspendTeam(ws.id, team.id, asked.named);
+      if (!ws || !team || !confirming) return;
+      // What the person CONFIRMED is what the dialog showed: the door judges
+      // that scope again, and never widens it — a member that became
+      // stoppable after the last render was not on the dialog.
+      void deps.suspendTeam(ws.id, team.id, confirming.shown);
     },
     cancel: () => setAsked(null),
   };

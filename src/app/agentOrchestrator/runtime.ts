@@ -239,6 +239,7 @@ export function createAgentOrchestratorRuntime(
     lifecycle,
     workspaceForgetters: deps.workspaceForgetters,
     archiving: (workspace) => archiving?.archiving(workspace) ?? false,
+    publish: () => publish(),
     // Bound late like `archiving`: the decision reads closing's own
     // reservation, and closing's door acts on the decision.
     teamActs: (wsId, teamId) => teamActs(wsId, teamId),
