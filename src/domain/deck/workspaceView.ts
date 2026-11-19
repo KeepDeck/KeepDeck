@@ -108,6 +108,24 @@ export function hidePaneView(
   return result;
 }
 
+/** Take `paneIds` off one hidden-placement list — the inverse of
+ * [`hidePaneView`], for a pane that leaves the deck and for one that wakes
+ * out of the suspended tray. The other list is never touched: a pane the
+ * person minimized stays minimized whatever woke it. The highlight is left
+ * as it is: `resolveSelectedPaneId` reads it against what is on the grid.
+ * The SAME map when none of them was on the list. */
+export function unhidePaneView(
+  viewByWs: WorkspaceViewMap,
+  wsId: string,
+  field: HiddenViewField,
+  paneIds: readonly string[],
+): WorkspaceViewMap {
+  const current = viewByWs[wsId]?.[field];
+  if (!current?.some((id) => paneIds.includes(id))) return viewByWs;
+  const next = current.filter((id) => !paneIds.includes(id));
+  return setViewField(viewByWs, wsId, field, next.length > 0 ? next : undefined);
+}
+
 /** Give a workspace with no highlight one: the open team's first member.
  * Nothing at the cards level — no pane is in front of the person there. */
 export function withDefaultSelection(

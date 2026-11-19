@@ -128,6 +128,19 @@ export function requestPaneWake(
   );
 }
 
+/** Ask for each of `paneIds` back, in ONE change — a team's resume: one
+ * snapshot, one save. Each pane goes through [`requestPaneWake`]'s own rule,
+ * so a bulk ask and a single one cannot disagree about any pane. The ids are
+ * the caller's exact cohort; nothing outside them is touched. The SAME array
+ * when none of them had anything to learn. */
+export function requestPanesWake(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneIds: readonly string[],
+): Workspace[] {
+  return paneIds.reduce((next, paneId) => requestPaneWake(next, workspaceId, paneId), workspaces);
+}
+
 /** A wake the user asked for could not be prepared — put the pane back down
  * instead of letting it come up as something else. Only a MANUAL wake is
  * reversed: a boot restore that can't build a resume plan takes the documented
@@ -213,6 +226,19 @@ export function suspendPane(
       p.id === paneId ? suspendedAt(p, at) : p,
     ),
   );
+}
+
+/** Suspend each of `paneIds` that [`suspendPane`]'s own guard admits, in
+ * ONE change — a team's suspend: one snapshot, one save, so no crash can
+ * leave half a team marked. The ids are the caller's exact cohort; nothing
+ * outside them is touched. The SAME array when none was admitted. */
+export function suspendPanes(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneIds: readonly string[],
+  at: string,
+): Workspace[] {
+  return paneIds.reduce((next, paneId) => suspendPane(next, workspaceId, paneId, at), workspaces);
 }
 
 /** Record the agent session a live pane is bound to — the resume key persisted

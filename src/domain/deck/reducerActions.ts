@@ -49,11 +49,17 @@ export type DeckAction =
   | { type: "hydrate"; state: DeckState }
   | { type: "clearPaneIdle"; wsId: string; paneId: string }
   | { type: "suspendPane"; wsId: string; paneId: string; at: string }
+  /** Suspend a team's cohort — exactly these panes, each by suspendPane's
+   * own guard — in one change. */
+  | { type: "suspendPanes"; wsId: string; paneIds: readonly string[]; at: string }
   /** Put a SUSPENDED pane in the workspace's tray — the view's half of a
    * suspend, its own transition (the marker is `suspendPane`'s), undone by
    * `restoreSuspendedPane`. A pane that is not suspended stays where it is. */
   | { type: "moveSuspendedToTray"; wsId: string; paneId: string }
   | { type: "requestPaneWake"; wsId: string; paneId: string }
+  /** Ask for a team's cohort back in one change, and take the woken ones
+   * off the suspended tray with it. */
+  | { type: "requestPanesWake"; wsId: string; paneIds: readonly string[] }
   | { type: "failPaneWake"; wsId: string; paneId: string }
   | { type: "parkPane"; wsId: string; paneId: string }
   | { type: "resetPaneSession"; wsId: string; paneId: string }

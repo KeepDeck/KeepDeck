@@ -104,6 +104,75 @@ describe("deckReducer restore actions ([F7])", () => {
       { type: "moveSuspendedToTray", wsId: "ws-1", paneId: "pane-2" },
     );
 
+  it("suspends a team's cohort in ONE transition", () => {
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
+    const next = deckReducer(start, {
+      type: "suspendPanes",
+      wsId: "ws-1",
+      paneIds: ["pane-1", "pane-2"],
+      at: "2026-11-19T10:00:00.000Z",
+    });
+    expect(next.workspaces[0].panes.map((pane) => pane.idle)).toEqual([
+      { reason: "suspended", at: "2026-11-19T10:00:00.000Z" },
+      { reason: "suspended", at: "2026-11-19T10:00:00.000Z" },
+    ]);
+    expect(deckReducer(start, { type: "suspendPanes", wsId: "ws-1", paneIds: [], at: "x" })).toBe(start);
+  });
+
+  it("wakes a team's cohort and takes exactly the woken panes off the suspended tray — minimize stays", () => {
+    const AT = "2026-11-19T10:00:00.000Z";
+    const down: Workspace = {
+      ...idleWs,
+      panes: [
+        { id: "pane-1", agentType: "claude", idle: { reason: "suspended", at: AT }, team: { teamId: "team-1", role: "lead" } },
+        { id: "pane-2", agentType: "claude", idle: { reason: "suspended", at: AT }, team: { teamId: "team-1", role: "impl-1" } },
+        { id: "pane-3", agentType: "claude", idle: { reason: "suspended", at: AT }, team: { teamId: "team-1", role: "impl-2" } },
+      ],
+    };
+    const start = state({
+      workspaces: [down],
+      activeId: "ws-1",
+      viewByWs: { "ws-1": open({ suspendedTray: ["pane-1", "pane-2", "pane-3"], minimized: ["pane-2"] }) },
+    });
+    const next = deckReducer(start, { type: "requestPanesWake", wsId: "ws-1", paneIds: ["pane-1", "pane-2"] });
+    expect(next.workspaces[0].panes.map((pane) => pane.idle?.reason)).toEqual(["waking", "waking", "suspended"]);
+    expect(next.viewByWs).toEqual({ "ws-1": open({ suspendedTray: ["pane-3"], minimized: ["pane-2"] }) });
+  });
+
+  it("leaves a listed pane that did not wake where it is — its placement is not this ask's", () => {
+    const AT = "2026-11-19T10:00:00.000Z";
+    // A live pane can sit in the tray: resumed elsewhere (agent.resume) after a tray suspend.
+    const mixed: Workspace = {
+      ...idleWs,
+      panes: [
+        { id: "pane-1", agentType: "claude", idle: { reason: "suspended", at: AT }, team: { teamId: "team-1", role: "lead" } },
+        { id: "pane-2", agentType: "claude", team: { teamId: "team-1", role: "impl-1" } },
+      ],
+    };
+    const start = state({
+      workspaces: [mixed],
+      activeId: "ws-1",
+      viewByWs: { "ws-1": open({ suspendedTray: ["pane-1", "pane-2"] }) },
+    });
+    const next = deckReducer(start, { type: "requestPanesWake", wsId: "ws-1", paneIds: ["pane-1", "pane-2"] });
+    expect(next.viewByWs).toEqual({ "ws-1": open({ suspendedTray: ["pane-2"] }) });
+  });
+
+  it("leaves an archived workspace's cohort down AND shelved — the same state back", () => {
+    const AT = "2026-11-19T10:00:00.000Z";
+    const archived: Workspace = {
+      ...idleWs,
+      archived: { at: AT, phase: "archived" },
+      panes: [{ id: "pane-1", agentType: "claude", idle: { reason: "suspended", at: AT }, team: { teamId: "team-1", role: "lead" } }],
+    };
+    const start = state({
+      workspaces: [archived],
+      activeId: "ws-1",
+      viewByWs: { "ws-1": open({ suspendedTray: ["pane-1"] }) },
+    });
+    expect(deckReducer(start, { type: "requestPanesWake", wsId: "ws-1", paneIds: ["pane-1"] })).toBe(start);
+  });
+
   it("moves a suspended pane to the tray, and leaves a pane that is not suspended where it is", () => {
     const start = state({
       workspaces: [idleWs],

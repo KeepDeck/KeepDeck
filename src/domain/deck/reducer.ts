@@ -30,10 +30,12 @@ import {
   parkPane,
   renamePane,
   requestPaneWake,
+  requestPanesWake,
   resetPaneSession,
   setPaneAutoTitle,
   setPaneSession,
   suspendPane,
+  suspendPanes,
 } from "./panes";
 import { paneBranch, paneExecutionCwd } from "./roots";
 import { stagePanes } from "./stage";
@@ -52,6 +54,7 @@ import {
   backToCards,
   hidePaneView,
   setViewField,
+  unhidePaneView,
   withDefaultSelection,
   type WorkspaceView,
 } from "./workspaceView";
@@ -271,27 +274,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         const firstLive = survivors.find((p) => !hidden.has(p.id));
         viewByWs = setViewField(viewByWs, wsId, "select", (firstLive ?? survivors[0])?.id);
       }
-      // Drop the closed pane from the minimized set so it can't linger as a
+      // Drop the closed pane from both hidden lists so it can't linger as a
       // stale chip/bar (the layout ignores stale ids at render, but the
-      // stored set is kept tidy here, mirroring the focus/select cleanup).
-      if (view?.minimized?.includes(paneId)) {
-        const next = view.minimized.filter((id) => id !== paneId);
-        viewByWs = setViewField(
-          viewByWs,
-          wsId,
-          "minimized",
-          next.length > 0 ? next : undefined,
-        );
-      }
-      if (view?.suspendedTray?.includes(paneId)) {
-        const next = view.suspendedTray.filter((id) => id !== paneId);
-        viewByWs = setViewField(
-          viewByWs,
-          wsId,
-          "suspendedTray",
-          next.length > 0 ? next : undefined,
-        );
-      }
+      // stored lists are kept tidy here, mirroring the focus/select cleanup).
+      viewByWs = unhidePaneView(viewByWs, wsId, "minimized", [paneId]);
+      viewByWs = unhidePaneView(viewByWs, wsId, "suspendedTray", [paneId]);
       return { ...state, workspaces, viewByWs, journal };
     }
     case "closeWorkspace": {
@@ -377,15 +364,8 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
     case "restoreSuspendedPane": {
       const { wsId, paneId } = action;
       const view = state.viewByWs[wsId];
-      const current = view?.suspendedTray;
-      if (!current?.includes(paneId)) return state;
-      const next = current.filter((id) => id !== paneId);
-      let viewByWs = setViewField(
-        state.viewByWs,
-        wsId,
-        "suspendedTray",
-        next.length > 0 ? next : undefined,
-      );
+      if (!view?.suspendedTray?.includes(paneId)) return state;
+      let viewByWs = unhidePaneView(state.viewByWs, wsId, "suspendedTray", [paneId]);
       // Manual minimize placement is independent and can coexist after a
       // Grid→List suspend. Do not strand selection on a pane that remains
       // hidden when Grid applies that marker.
@@ -485,7 +465,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         suspendPane(state.workspaces, action.wsId, action.paneId, action.at),
       );
-    case "moveSuspendedToTray": {
+    case "suspendPanes":
+      // One change for the whole cohort — one snapshot, one save.
+      return withWorkspaces(
+        state,
+        suspendPanes(state.workspaces, action.wsId, action.paneIds, action.at),
+      );
+        case "moveSuspendedToTray": {
       // Only a pane the suspend actually stopped goes to the tray: a refused
       // or never-made suspend leaves no marker, and so no tray entry.
       const pane = findPane(state.workspaces, action.wsId, action.paneId);
@@ -500,6 +486,22 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         requestPaneWake(state.workspaces, action.wsId, action.paneId),
       );
+    case "requestPanesWake": {
+      // The marker and the tray in ONE change: a pane that is rising and a
+      // pane still shelved as suspended are never both true at once. Only
+      // the panes the ask actually woke leave the tray — one in an archived
+      // workspace stays down, and stays shelved.
+      const workspaces = requestPanesWake(state.workspaces, action.wsId, action.paneIds);
+      if (workspaces === state.workspaces) return state;
+      const woken = action.paneIds.filter(
+        (paneId) => findPane(workspaces, action.wsId, paneId)?.idle?.reason === "waking",
+      );
+      return {
+        ...state,
+        workspaces,
+        viewByWs: unhidePaneView(state.viewByWs, action.wsId, "suspendedTray", woken),
+      };
+    }
     case "failPaneWake":
       return withWorkspaces(
         state,
