@@ -169,6 +169,40 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
     });
   });
 
+  describe("teamActs — what the menu offers is what the doors take", () => {
+    it("answers the members each door then takes", async () => {
+      await live(team([{}, { idle: { reason: "parked" } }, { idle: { reason: "suspended", at: AT } }]));
+
+      const acts = agentRun.teamActs("ws-1", "team-1");
+      expect(acts?.suspend.take).toEqual(["m1"]);
+      expect(acts?.resume.take).toEqual(["m2", "m3"]);
+
+      let asked: readonly string[] = [];
+      act(() => {
+        asked = agentRun.resumeTeam("ws-1", "team-1");
+      });
+      expect(asked).toEqual(acts?.resume.take);
+    });
+
+    it("reads the sweep's folder verdict, as the doors do", async () => {
+      ipc.probeWorktree.mockResolvedValue({ exists: false, isWorktree: false, empty: false, branch: null });
+      act(() => deck.hydrate(team([{ idle: { reason: "waking", origin: "restore" } }])));
+      await settle();
+      expect(agentRun.blocked).toEqual({ m1: "/repo/wt-1" });
+
+      expect(agentRun.teamActs("ws-1", "team-1")?.resume).toEqual({
+        take: [],
+        skip: [{ paneId: "m1", why: "blocked" }],
+      });
+    });
+
+    it("answers nothing for a team that is not there", async () => {
+      await live(team([{}]));
+      expect(agentRun.teamActs("ws-1", "team-9")).toBeNull();
+      expect(agentRun.teamActs("ws-9", "team-1")).toBeNull();
+    });
+  });
+
   describe("resumeTeam", () => {
     it("asks back the parked and the suspended, and the sweep brings each into its own session", async () => {
       act(() =>

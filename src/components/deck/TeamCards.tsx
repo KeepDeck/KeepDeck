@@ -9,26 +9,23 @@
  * everything else a card can do. One anatomy for every state; a team of
  * one is drawn like any other.
  *
- * The live activity arrives from the controller's one subscription (the
- * snapshot is stable between edges), so the projection recomputes only
- * when an edge lands, the deck changes shape, or a head moves. The task
- * board is a local store read where it is used, like the usage chips'.
+ * The projection is recomputed on every render: besides the deck, the
+ * activity and the heads it reads whom each team's Suspend and Resume would
+ * take — the orchestrator's live answer (`actsOf`), which moves with the
+ * sweep's folder verdict and the agent catalog, neither of them a prop
+ * here. It is a handful of teams. The task board is a local store read
+ * where it is used, like the usage chips'.
  */
-import { useMemo } from "react";
 import { useRuntimePart } from "../../app/runtimeContext";
 import { useReadyTasksBoard } from "../../app/tasks/useBoardState";
-import type { GitPosition, Workspace } from "../../domain/deck";
+import type { GitPosition, TeamActs, Workspace } from "../../domain/deck";
 import type { PaneActivity } from "../../domain/status";
-import {
-  TEAM_CARD_WORDS,
-  teamCardsView,
-  type TeamCardAction,
-  type TeamCardView,
-} from "../../presentation/teamCardView";
+import { TEAM_CARD_WORDS, teamCardsView, type TeamCardView } from "../../presentation/teamCardView";
 import { BranchBadge } from "../../ui/badges";
 import { RenameInput } from "../../ui/RenameInput";
-import { MenuButton, type MenuAction } from "../../ui/MenuButton";
+import { MenuButton } from "../../ui/MenuButton";
 import { useInlineRename, type InlineRename } from "../../ui/useInlineRename";
+import { teamMenuActions } from "./teamMenuActions";
 
 export interface TeamCardsProps {
   workspace: Workspace;
@@ -37,6 +34,8 @@ export interface TeamCardsProps {
   activities: ReadonlyMap<string, PaneActivity>;
   /** Live git heads by directory — a card's branch follows the head. */
   gitHeads: ReadonlyMap<string, GitPosition>;
+  /** Whom each team's Suspend and Resume would take right now. */
+  actsOf(teamId: string): TeamActs | null;
   /** Whether this layer may hold the keyboard; a rename in flight is
    * dropped the moment it may not (a dialog over it, another workspace). */
   keyboardFocusEnabled: boolean;
@@ -47,25 +46,29 @@ export interface TeamCardsProps {
   onDisband(teamId: string): void;
   /** Re-issue the failed worktree create behind a card. */
   onRetry(teamId: string): void;
+  /** Ask the team's stopped agents back — no question asked. */
+  onResume(teamId: string): void;
+  /** Ask to stop the team's running agents — its confirm decides. */
+  onSuspend(teamId: string): void;
 }
 
 export function TeamCards({
   workspace,
   activities,
   gitHeads,
+  actsOf,
   keyboardFocusEnabled,
   onEnter,
   onAddMember,
   onRename,
   onDisband,
   onRetry,
+  onResume,
+  onSuspend,
 }: TeamCardsProps) {
   const tasks = useRuntimePart("tasks");
   const board = useReadyTasksBoard(tasks, workspace.id);
-  const cards = useMemo(
-    () => teamCardsView(workspace, activities, gitHeads, board),
-    [workspace, gitHeads, activities, board],
-  );
+  const cards = teamCardsView(workspace, activities, gitHeads, board, actsOf);
   // One rename behaviour for every surface that has one ([F11]); an empty
   // commit is "back to the auto name", which renameTeam implements.
   const rename = useInlineRename((teamId, name) => onRename(teamId, name), keyboardFocusEnabled);
@@ -80,6 +83,8 @@ export function TeamCards({
           onAddMember={onAddMember}
           onDisband={onDisband}
           onRetry={onRetry}
+          onResume={onResume}
+          onSuspend={onSuspend}
         />
       ))}
     </div>
@@ -93,6 +98,8 @@ function TeamCard({
   onAddMember,
   onDisband,
   onRetry,
+  onResume,
+  onSuspend,
 }: {
   card: TeamCardView;
   rename: InlineRename;
@@ -100,37 +107,17 @@ function TeamCard({
   onAddMember(teamId: string): void;
   onDisband(teamId: string): void;
   onRetry(teamId: string): void;
+  onResume(teamId: string): void;
+  onSuspend(teamId: string): void;
 }) {
-  // The described action → the callback that owns it. Exhaustive: an
-  // action the projection learns to describe cannot be one the card
-  // forgets to perform.
-  const perform = (action: TeamCardAction) => {
-    switch (action) {
-      case "add-member":
-        onAddMember(card.id);
-        break;
-      case "rename":
-        rename.start(card.id, card.name);
-        break;
-      case "disband":
-        onDisband(card.id);
-        break;
-      case "retry":
-        onRetry(card.id);
-        break;
-      default: {
-        const unhandled: never = action;
-        throw new Error(`unhandled team card action: ${String(unhandled)}`);
-      }
-    }
-  };
-  const actions: MenuAction[] = card.actions.map((action) => ({
-    id: action,
-    label: TEAM_CARD_WORDS.action[action],
-    disabled: card.refusals[action] !== undefined,
-    refusal: card.refusals[action],
-    onSelect: () => perform(action),
-  }));
+  const actions = teamMenuActions(card.menu, {
+    addMember: () => onAddMember(card.id),
+    rename: () => rename.start(card.id, card.name),
+    resume: () => onResume(card.id),
+    suspend: () => onSuspend(card.id),
+    disband: () => onDisband(card.id),
+    retry: () => onRetry(card.id),
+  });
   const editing = rename.editing === card.id;
   return (
     <article

@@ -3,6 +3,7 @@ import type { SpawnPlanContext } from "../spawnSpecs";
 import {
   agentReach,
   findPane,
+  findTeam,
   findWorkspace,
   paneExecutionCwd,
   paneRunIntent,
@@ -13,7 +14,9 @@ import {
   paneBranch,
   paneResumeBlock,
   remoteEndpointOf,
+  teamActsOf,
   teamResumeCohort,
+  type TeamActFacts,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -194,6 +197,14 @@ export function createAgentOrchestratorRuntime(
     dropPaneSpawnSpec(pane.id);
     actions.failPaneWake(wsId, pane.id);
   }
+
+  /** What a team act reads beyond the deck — the same facts a single act
+   * reads: the sweep's folder verdict and the live agent catalog. Read at
+   * the call, never cached. */
+  const teamFacts: TeamActFacts = {
+    blocked: (paneId) => runView.isBlocked(paneId),
+    agentAvailable: (agentType) => agents.commands().has(agentType),
+  };
 
   /** Ask for panes back by the person's request — a single Resume, a
    * team's, or a fresh start: their old notes go (a stale "couldn't resume"
@@ -623,12 +634,13 @@ export function createAgentOrchestratorRuntime(
     resumeTeam(wsId, teamId) {
       const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
       if (!workspace) return [];
-      const { take } = teamResumeCohort(workspace, teamId, {
-        blocked: runView.isBlocked,
-        agentAvailable: (agentType) => agents.commands().has(agentType),
-      });
+      const { take } = teamResumeCohort(workspace, teamId, teamFacts);
       if (take.length > 0) askBack(wsId, take);
       return take;
+    },
+    teamActs(wsId, teamId) {
+      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      return workspace && findTeam(workspace, teamId) ? teamActsOf(workspace, teamId, teamFacts) : null;
     },
   };
 }

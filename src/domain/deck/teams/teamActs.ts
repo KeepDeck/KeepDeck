@@ -28,6 +28,13 @@ export interface TeamCohort<Skip> {
   skip: { paneId: string; why: Skip }[];
 }
 
+/** Both acts' verdicts on one team at once — what its menu offers, and
+ * so what its doors will take. */
+export interface TeamActs {
+  suspend: TeamCohort<PaneSuspendBlock>;
+  resume: TeamCohort<TeamResumeSkip>;
+}
+
 /** What the act cannot know from the deck alone: the sweep's verdict that a
  * pane's directory is gone, and whether a plugin provides an agent. */
 export interface TeamActFacts {
@@ -82,4 +89,9 @@ export function teamResumeCohort(
     if (!idleReadsAsStopped(pane.idle, false)) return "waking";
     return remoteEndpointOf(pane) !== null ? "remote" : null;
   });
+}
+
+/** Both of a team's acts at once — what its menu offers. */
+export function teamActsOf(ws: Workspace, teamId: string, facts: TeamActFacts): TeamActs {
+  return { suspend: teamSuspendCohort(ws, teamId, facts), resume: teamResumeCohort(ws, teamId, facts) };
 }

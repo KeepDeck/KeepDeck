@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import type { Workspace } from "../domain/deck";
+import { teamActsIn } from "../domain/deck/reducer.testSupport";
 import {
   createAgentStatusTracker,
   createUsageManager,
@@ -182,6 +184,8 @@ const callbacks = {
   onAddTeamMember: vi.fn(),
   onRenameTeam: vi.fn(),
   onDisbandTeam: vi.fn(),
+  onResumeTeam: vi.fn(),
+  onSuspendTeam: vi.fn(),
   onPaneTitle: vi.fn(),
   onStartFresh: vi.fn(),
   onResumeAgent: vi.fn(),
@@ -207,6 +211,7 @@ const browser = {
 
 interface DeckPropsOverrides extends Record<string, unknown> {
   viewByWs?: Record<string, Record<string, unknown>>;
+  workspaces?: Workspace[];
 }
 
 const props = (overrides: DeckPropsOverrides = {}) => ({
@@ -243,6 +248,7 @@ const props = (overrides: DeckPropsOverrides = {}) => ({
   },
   failedPanes: new Set<string>(),
   restartEpochs: {},
+  teamActsOf: teamActsIn(overrides.workspaces ?? workspaces),
   ...callbacks,
   ...overrides,
   viewByWs: openView(overrides.viewByWs),
@@ -553,19 +559,49 @@ describe("DeckStage — the teams level", () => {
     menuOf("team-1");
     // No "Open" line: the whole card is the way in. Opening the menu is not
     // entering the team either.
-    expect(menuItems()).toEqual(["Add member", "Rename", "Disband"]);
+    // Every line is there; one that cannot act says why under it.
+    expect(menuItems()).toEqual([
+      "Add member",
+      "Rename",
+      "Resume teamNo agent on this team is stopped.",
+      "Suspend team",
+      "Disband",
+    ]);
     expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
-    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][2].click());
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][4].click());
     expect(callbacks.onDisbandTeam).toHaveBeenCalledWith("ws-1", "team-1");
 
     menuOf("team-2");
-    expect(menuItems()).toEqual(["Add member", "Rename", "Disband", "Retry the worktree"]);
-    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][3].click());
+    expect(menuItems()).toEqual([
+      "Add member",
+      "Rename",
+      "Resume teamThis team has no agents.",
+      "Suspend teamThis team has no agents.",
+      "Disband",
+      "Retry the worktree",
+    ]);
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][5].click());
     expect(callbacks.onRetryProvision).toHaveBeenCalledWith("ws-1", "team-2");
 
     menuOf("team-2");
     act(() => [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")][0].click());
     expect(callbacks.onAddTeamMember).toHaveBeenCalledWith("ws-1", "team-2");
+    expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
+  });
+
+  it("asks a team's stopped agents back, and its running ones to stop, by the team", () => {
+    const parked = [{ ...cards[0], panes: [cards[0].panes[0], { ...cards[0].panes[1], idle: { reason: "parked" as const } }] }];
+    render({ workspaces: parked, viewByWs: { "ws-1": { teamOpen: undefined } } });
+    const pick = (label: string) => {
+      act(() => present(card("team-1").querySelector<HTMLButtonElement>("button[aria-label='Team api actions']"), "the api menu").click());
+      const line = [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")].find((item) => item.textContent === label);
+      act(() => present(line, `the ${label} line`).click());
+    };
+
+    pick("Resume 1 stopped agent");
+    expect(callbacks.onResumeTeam).toHaveBeenCalledWith("ws-1", "team-1");
+    pick("Suspend team");
+    expect(callbacks.onSuspendTeam).toHaveBeenCalledWith("ws-1", "team-1");
     expect(callbacks.onEnterTeam).not.toHaveBeenCalled();
   });
 

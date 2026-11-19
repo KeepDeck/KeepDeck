@@ -70,6 +70,7 @@ import { teamBranchOf, teamHead } from "../presentation/teamCardView";
 import { pickFolder } from "../ipc/dialogs";
 import { useWelcomeFlow } from "./useWelcomeFlow";
 import { useArchiveFlow } from "./useArchiveFlow";
+import { useTeamSuspendFlow } from "./useTeamSuspendFlow";
 import { deckPresence } from "../presentation/deckPresence";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -105,6 +106,9 @@ export function useAppController(runtime: AppRuntime) {
   const spawnCtx = useSpawnContext(runtime.spawnContext);
   const orchestrator = runtime.orchestrator;
   const runView = useAgentRunView(orchestrator);
+  // One subscription for the whole app — the strip, the team cards and the
+  // team confirm; what the activity MEANS is each one's view's.
+  const paneActivities = usePaneActivities(runtime.statusTracker);
   const browserShared = useBrowserSharedSeam();
   const specByPane = runView.specs;
   const failedPanes = runView.planFailed;
@@ -167,6 +171,12 @@ export function useAppController(runtime: AppRuntime) {
     archive: orchestrator.archive,
     onRefused: pushAlert,
   });
+  const teamSuspendFlow = useTeamSuspendFlow({
+    workspaces: deck.workspaces,
+    activities: paneActivities,
+    teamActs: orchestrator.teamActs,
+    suspendTeam: orchestrator.suspendTeam,
+  });
   /** A rename asked for from a mark's menu, for the crumb to start — the
    * workspace it names, until the crumb has taken it. */
   const [renameAsk, setRenameAsk] = useState<string | null>(null);
@@ -178,6 +188,7 @@ export function useAppController(runtime: AppRuntime) {
     agentFlow.sharedAsk,
     closeFlow.closing,
     archiveFlow.confirming,
+    teamSuspendFlow.confirming,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
@@ -341,9 +352,6 @@ export function useAppController(runtime: AppRuntime) {
   useActivityNotifications(shownWorkspaces, agents);
   // And the launch that left an agent unable to report at all.
   useUnconnectedLaunchNotifications(shownWorkspaces, agents);
-  // One subscription for the whole strip; what the activity MEANS for a mark
-  // is `stripView`'s.
-  const paneActivities = usePaneActivities(runtime.statusTracker);
   const needsYou = {
     rows: needsYouRows(shownWorkspaces, paneActivities, agents),
     onOpen: (row: NeedsYouRow) =>
@@ -491,6 +499,7 @@ export function useAppController(runtime: AppRuntime) {
     canOpenDialog,
     closeFlow,
     archiveFlow,
+    teamSuspendFlow,
     /** A mark's right-click menu: the crumb's acts, for any workspace in
      * the strip — a rename goes to the crumb, where the name is. */
     markActs: {

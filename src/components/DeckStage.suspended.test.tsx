@@ -3,6 +3,8 @@ import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import type { Workspace } from "../domain/deck";
+import { teamActsIn } from "../domain/deck/reducer.testSupport";
 import {
   createAgentStatusTracker,
   createUsageManager,
@@ -68,6 +70,8 @@ const callbacks = {
   onAddTeamMember: vi.fn(),
   onRenameTeam: vi.fn(),
   onDisbandTeam: vi.fn(),
+  onResumeTeam: vi.fn(),
+  onSuspendTeam: vi.fn(),
   onContinueSession: vi.fn(),
   onSelectPane: vi.fn(),
   onToggleFocus: vi.fn(),
@@ -100,6 +104,7 @@ const browser = {
 
 interface DeckPropsOverrides extends Record<string, unknown> {
   viewByWs?: Record<string, Record<string, unknown>>;
+  workspaces?: Workspace[];
 }
 
 const props = (overrides: DeckPropsOverrides = {}) => ({
@@ -136,6 +141,7 @@ const props = (overrides: DeckPropsOverrides = {}) => ({
   },
   failedPanes: new Set<string>(),
   restartEpochs: {},
+  teamActsOf: teamActsIn(overrides.workspaces ?? workspaces),
   ...callbacks,
   ...overrides,
   viewByWs: openView(overrides.viewByWs),

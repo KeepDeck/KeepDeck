@@ -6,6 +6,7 @@ import type {
   PlacementRefusal,
   ResumeRequest,
   SpawnConfig,
+  TeamActs,
   TeamLocation,
   Workspace,
   WorktreeTarget,
@@ -112,6 +113,10 @@ export interface AgentOrchestrator {
    * launch or suspended — and that a single Resume would ask back. Answers
    * the members asked; whether each rises lands on its card. */
   resumeTeam(wsId: string, teamId: string): readonly string[];
+  /** Whom a team's Suspend and Resume would take right now, and why each
+   * other member stays — what its menu offers, read from the same facts its
+   * doors judge by. Null for a team (or workspace) that is not there. */
+  teamActs(wsId: string, teamId: string): TeamActs | null;
 }
 
 export interface AgentRunView {

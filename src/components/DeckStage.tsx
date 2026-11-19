@@ -13,6 +13,7 @@ import {
   visiblePanes,
   type GitPosition,
   type Pane,
+  type TeamActs,
   type Workspace,
   type WorkspaceView,
   paneBody,
@@ -106,6 +107,13 @@ interface DeckStageProps {
   onRenameTeam(wsId: string, teamId: string, name: string): void;
   /** Ask to disband a team — the close flow's own question. */
   onDisbandTeam(wsId: string, teamId: string): void;
+  /** Whom a team's Suspend and Resume would take right now — the
+   * orchestrator's answer, which its menu offers. */
+  teamActsOf(wsId: string, teamId: string): TeamActs | null;
+  /** Ask a team's stopped agents back. */
+  onResumeTeam(wsId: string, teamId: string): void;
+  /** Ask to stop a team's running agents — through its confirm. */
+  onSuspendTeam(wsId: string, teamId: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
   /** Idle panes blocked from waking: paneId → the missing directory
@@ -208,6 +216,9 @@ export function DeckStage({
   onAddTeamMember,
   onRenameTeam,
   onDisbandTeam,
+  teamActsOf,
+  onResumeTeam,
+  onSuspendTeam,
   onPaneTitle,
   idleBlocked,
   wakeFailed,
@@ -542,12 +553,15 @@ export function DeckStage({
                   workspace={ws}
                   activities={activities}
                   gitHeads={gitHeads}
+                  actsOf={(teamId) => teamActsOf(ws.id, teamId)}
                   keyboardFocusEnabled={keyboardFocusEnabled && isActive}
                   onEnter={(teamId) => onEnterTeam(ws.id, teamId)}
                   onAddMember={(teamId) => onAddTeamMember(ws.id, teamId)}
                   onRename={(teamId, name) => onRenameTeam(ws.id, teamId, name)}
                   onDisband={(teamId) => onDisbandTeam(ws.id, teamId)}
                   onRetry={(teamId) => onRetryProvision(ws.id, teamId)}
+                  onResume={(teamId) => onResumeTeam(ws.id, teamId)}
+                  onSuspend={(teamId) => onSuspendTeam(ws.id, teamId)}
                 />
               )}
             </div>

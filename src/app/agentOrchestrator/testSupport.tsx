@@ -352,6 +352,7 @@ export let agentRun: AgentRunView &
     | "reachOf"
     | "resume"
     | "resumeTeam"
+    | "teamActs"
     | "startFresh"
     | "createPane"
     | "createTeam"
@@ -491,6 +492,7 @@ export function Probe() {
     reachOf: wiring.orchestrator.reachOf,
     resume: wiring.orchestrator.resume,
     resumeTeam: wiring.orchestrator.resumeTeam,
+    teamActs: wiring.orchestrator.teamActs,
     startFresh: wiring.orchestrator.startFresh,
     createPane: wiring.orchestrator.createPane,
     createTeam: wiring.orchestrator.createTeam,
