@@ -12,7 +12,7 @@
  * every member down — goes away instead of asking about nothing.
  */
 import { useState } from "react";
-import { findTeam, findWorkspaceByRef, membersOf, type Workspace } from "../domain/deck";
+import { findTeam, findWorkspaceByRef, membersOf, stillTaken, type Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { teamSuspendConfirmView, type TeamSuspendConfirmView } from "../presentation/teamSuspendView";
@@ -43,8 +43,8 @@ export function useTeamSuspendFlow(deps: {
   const [asked, setAsked] = useState<Asked | null>(null);
   const ws = asked ? findWorkspaceByRef(deps.workspaces, asked.workspace) : undefined;
   const team = ws && asked ? findTeam(ws, asked.teamId) : undefined;
-  const take = ws && team ? (deps.teamActs(ws.id, team.id)?.suspend.take ?? []) : [];
-  const shown = asked ? take.filter((paneId) => asked.named.includes(paneId)) : [];
+  const acts = ws && team ? deps.teamActs(ws.id, team.id) : null;
+  const shown = acts && asked ? stillTaken(acts.suspend, asked.named) : [];
   const confirming =
     ws && team ? teamSuspendConfirmView(team, membersOf(ws, team.id).length, shown, deps.activities) : null;
   return {
@@ -58,8 +58,8 @@ export function useTeamSuspendFlow(deps: {
     },
     confirm() {
       setAsked(null);
-      if (!ws || !team || !confirming) return;
-      void deps.suspendTeam(ws.id, team.id, confirming.shown);
+      if (!ws || !team || !asked || !confirming) return;
+      void deps.suspendTeam(ws.id, team.id, asked.named);
     },
     cancel: () => setAsked(null),
   };

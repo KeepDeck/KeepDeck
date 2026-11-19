@@ -4,9 +4,10 @@ import {
   membersOf,
   normalizePath,
   paneSuspendBlock,
+  stillTaken,
   teamHeldPath,
-  teamSuspendCohort,
   teamsOf,
+  type TeamActs,
   type Pane,
   type Team,
   type Workspace,
@@ -61,6 +62,10 @@ interface ClosingDeps {
   /** Whether an archive is stopping this workspace's agents right now — a
    * close waits for it to finish rather than racing it. */
   archiving?: (workspace: WorkspaceRef) => boolean;
+  /** Whom a team's acts take right now — the orchestrator's ONE decision,
+   * the one its menu offers; this door acts on it, never on a rule of its
+   * own. */
+  teamActs(wsId: string, teamId: string): TeamActs | null;
 }
 
 export type WorkspaceForgetter = (wsId: string) => Promise<void>;
@@ -68,6 +73,9 @@ export type WorkspaceForgetter = (wsId: string) => Promise<void>;
 export interface AgentOrchestratorClosing {
   suspend: AgentOrchestrator["suspend"];
   suspendTeam: AgentOrchestrator["suspendTeam"];
+  /** Whether a suspend is still reaping this pane's process — a fact a
+   * team act's decision reads. */
+  suspending(paneId: string): boolean;
   close: AgentOrchestrator["close"];
   /** Whether a confirmed disband or workspace close holds `teamId` — from
    * the confirmation until the team is out of the deck. The create runner
@@ -112,6 +120,7 @@ export function createAgentOrchestratorClosing({
   lifecycle,
   workspaceForgetters = [],
   archiving = () => false,
+  teamActs,
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
   /**
@@ -264,16 +273,12 @@ export function createAgentOrchestratorClosing({
     return "suspended";
   };
 
-  const suspendTeam: AgentOrchestrator["suspendTeam"] = async (wsId, teamId, shown) => {
-    const workspace = deck.getSnapshot().workspaces.find((candidate) => candidate.id === wsId);
-    if (!workspace) return [];
-    // Judged again now, against the live deck: the confirm stood open for a
-    // while. Only members the person was SHOWN — one that became stoppable
-    // since never joins silently — and none another suspend is already
-    // stopping.
-    const taken = teamSuspendCohort(workspace, teamId, { blocked: isBlocked }).take.filter(
-      (paneId) => shown.includes(paneId) && !suspending.has(paneId),
-    );
+  const suspendTeam: AgentOrchestrator["suspendTeam"] = async (wsId, teamId, named) => {
+    // Judged again now — the confirm stood open for a while — by the very
+    // decision the menu offered, and only over the members the confirm
+    // named: one that became stoppable since never joins silently.
+    const acts = teamActs(wsId, teamId);
+    const taken = acts ? stillTaken(acts.suspend, named) : [];
     if (taken.length === 0) return [];
     log.info("web:orchestrator", `${teamId}: suspending ${taken.length} member(s)`);
     await stopPanes(wsId, taken);
@@ -471,5 +476,13 @@ export function createAgentOrchestratorClosing({
   const closingWorkspace: AgentOrchestratorClosing["closingWorkspace"] = (workspace) =>
     closingWorkspaces.has(workspaceKey(workspace));
 
-  return { suspend, suspendTeam, close, closing, holdsPath, closingWorkspace };
+  return {
+    suspend,
+    suspendTeam,
+    suspending: (paneId) => suspending.has(paneId),
+    close,
+    closing,
+    holdsPath,
+    closingWorkspace,
+  };
 }

@@ -49,6 +49,6 @@ export const teamActsIn =
   (wsId: string, teamId: string): TeamActs | null => {
     const ws = workspaces.find((candidate) => candidate.id === wsId);
     return ws && findTeam(ws, teamId)
-      ? teamActsOf(ws, teamId, { blocked: () => false, agentAvailable: () => true })
+      ? teamActsOf(ws, teamId, { blocked: () => false, agentAvailable: () => true, suspending: () => false })
       : null;
   };

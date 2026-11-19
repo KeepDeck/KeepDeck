@@ -49,11 +49,11 @@ export interface AgentOrchestrator {
   retryProvisioning(wsId: string, teamId: string): void;
   /** Stop an agent while preserving its resumable pane. */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
-  /** Stop the members of a team the person was SHOWN (`shown`) that a single
-   * Suspend would still take now — never one they were not shown. Answers
-   * the members a stop was requested for: the deck does not confirm a
-   * process exited, for one agent or for a team. */
-  suspendTeam(wsId: string, teamId: string, shown: readonly string[]): Promise<readonly string[]>;
+  /** Stop the members of a team its confirm NAMED (`named`) that the team's
+   * Suspend would still take now ([`stillTaken`]) — never one it did not
+   * name. Answers the members a stop was requested for: the deck does not
+   * confirm a process exited, for one agent or for a team. */
+  suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<readonly string[]>;
   /** Confirmed pane/workspace close, including optional worktree teardown. */
   close(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
   /** Put a workspace away: its agents stopped and kept, its directories

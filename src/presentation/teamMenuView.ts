@@ -90,6 +90,7 @@ function suspendRefusal(acts: TeamActs["suspend"]): string | null {
   const whys = acts.skip.map((entry) => entry.why);
   if (whys.length === 0) return TEAM_MENU_WORDS.noAgents;
   if (whys.includes("provisioning")) return suspendRefusalText("provisioning", TEAM_MENU_WORDS.subject);
+  if (whys.includes("in-flight")) return suspendRefusalText("in-flight", TEAM_MENU_WORDS.subject);
   return whys.includes("remote") ? TEAM_MENU_WORDS.runningRemote : TEAM_MENU_WORDS.noneRunning;
 }
 

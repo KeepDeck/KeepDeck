@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createWorkspaceInstance } from "../../workspaceInstance";
 import type { Pane } from "../panes";
 import type { Workspace } from "../workspaces";
-import { teamResumeCohort, teamSuspendCohort, type TeamActFacts } from "./teamActs";
+import { stillTaken, teamResumeCohort, teamSuspendCohort, type TeamActFacts } from "./teamActs";
 
 const AT = "2026-11-19T10:00:00.000Z";
 const on = (teamId: string, pane: Omit<Pane, "agentType" | "team"> & Partial<Pane>): Pane => ({
@@ -37,6 +37,8 @@ const deck = (extra: Partial<Workspace> = {}): Workspace => ({
     // As the sweep leaves it: still marked rising, its folder found gone.
     on("team-1", { id: "folder-gone", idle: { reason: "waking", origin: "restore" } }),
     on("team-1", { id: "no-agent", agentType: "kimi", idle: { reason: "suspended", at: AT } }),
+    // Still being reaped by a suspend, and asked back meanwhile: rising.
+    on("team-1", { id: "reaping", idle: { reason: "waking", origin: "manual" } }),
     on("team-2", { id: "creating" }),
   ],
   ...extra,
@@ -45,6 +47,7 @@ const deck = (extra: Partial<Workspace> = {}): Workspace => ({
 const facts: TeamActFacts = {
   blocked: (paneId) => paneId === "folder-gone",
   agentAvailable: (agentType) => agentType === "claude",
+  suspending: (paneId) => paneId === "reaping",
 };
 
 describe("teamSuspendCohort — every member a single Suspend would take", () => {
@@ -58,6 +61,9 @@ describe("teamSuspendCohort — every member a single Suspend would take", () =>
         { paneId: "remote-live", why: "remote" },
         { paneId: "folder-gone", why: "stopped" },
         { paneId: "no-agent", why: "stopped" },
+        // Rising, so a Suspend could take it — but not over the one still
+        // taking it down, which the single Suspend refuses as in-flight.
+        { paneId: "reaping", why: "in-flight" },
       ],
     });
   });
@@ -85,6 +91,7 @@ describe("teamResumeCohort — every member down by a decision that a single Res
         { paneId: "remote-live", why: "running" },
         { paneId: "folder-gone", why: "blocked" },
         { paneId: "no-agent", why: "unavailable" },
+        { paneId: "reaping", why: "waking" },
       ],
     });
   });
@@ -97,5 +104,16 @@ describe("teamResumeCohort — every member down by a decision that a single Res
     const cohort = teamResumeCohort(deck({ archived: { at: AT, phase: "archived" } }), "team-1", facts);
     expect(cohort.take).toEqual([]);
     expect(cohort.skip.every((entry) => entry.why === "archived")).toBe(true);
+  });
+});
+
+describe("stillTaken — what a confirm counts and its door acts on", () => {
+  it("keeps the named members the act still takes, in the act's order", () => {
+    expect(stillTaken({ take: ["a", "b", "c"] }, ["c", "a", "x"])).toEqual(["a", "c"]);
+  });
+
+  it("never adds one it was not asked about, and drops one it no longer takes", () => {
+    expect(stillTaken({ take: ["new"] }, ["a"])).toEqual([]);
+    expect(stillTaken({ take: [] }, ["a", "b"])).toEqual([]);
   });
 });

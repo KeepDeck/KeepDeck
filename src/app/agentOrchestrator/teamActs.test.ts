@@ -145,6 +145,11 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
         agentRun.resume("ws-1", "m2");
       });
       expect(idleOf("m2")).toMatchObject({ reason: "waking" });
+      // And the menu says so — it offers exactly what the door will take.
+      expect(agentRun.teamActs("ws-1", "team-1")?.suspend).toEqual({
+        take: ["m1"],
+        skip: [{ paneId: "m2", why: "in-flight" }],
+      });
 
       let whole!: Promise<readonly string[]>;
       act(() => {
@@ -173,15 +178,26 @@ describe("agent orchestrator —a team's Suspend and Resume", () => {
     it("answers the members each door then takes", async () => {
       await live(team([{}, { idle: { reason: "parked" } }, { idle: { reason: "suspended", at: AT } }]));
 
-      const acts = agentRun.teamActs("ws-1", "team-1");
-      expect(acts?.suspend.take).toEqual(["m1"]);
-      expect(acts?.resume.take).toEqual(["m2", "m3"]);
+      const before = agentRun.teamActs("ws-1", "team-1");
+      expect(before?.suspend.take).toEqual(["m1"]);
+      expect(before?.resume.take).toEqual(["m2", "m3"]);
 
+      // Suspend, named exactly what it offered, stops exactly that…
+      let requested: readonly string[] = [];
+      await act(async () => {
+        requested = await agentRun.suspendTeam("ws-1", "team-1", before?.suspend.take ?? []);
+      });
+      expect(requested).toEqual(["m1"]);
+      expect(pty.closed).toEqual(["m1"]);
+
+      // …and Resume, asked after it, asks back exactly what it offers now.
+      const now = agentRun.teamActs("ws-1", "team-1");
+      expect(now?.resume.take).toEqual(["m1", "m2", "m3"]);
       let asked: readonly string[] = [];
       act(() => {
         asked = agentRun.resumeTeam("ws-1", "team-1");
       });
-      expect(asked).toEqual(acts?.resume.take);
+      expect(asked).toEqual(now?.resume.take);
     });
 
     it("reads the sweep's folder verdict, as the doors do", async () => {

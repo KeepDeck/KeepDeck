@@ -31,16 +31,23 @@ export interface TeamCohort<Skip> {
 /** Both acts' verdicts on one team at once — what its menu offers, and
  * so what its doors will take. */
 export interface TeamActs {
-  suspend: TeamCohort<PaneSuspendBlock>;
+  suspend: TeamCohort<TeamSuspendSkip>;
   resume: TeamCohort<TeamResumeSkip>;
 }
 
 /** What the act cannot know from the deck alone: the sweep's verdict that a
- * pane's directory is gone, and whether a plugin provides an agent. */
+ * pane's directory is gone, whether a plugin provides an agent, and whether
+ * a suspend is still reaping a pane's process. */
 export interface TeamActFacts {
   blocked(paneId: string): boolean;
   agentAvailable(agentType: string): boolean;
+  suspending(paneId: string): boolean;
 }
+
+/** Why a team's Suspend leaves a member: a single Suspend's own refusal —
+ * the in-flight one included, a pane another suspend is still taking down
+ * (it may be rising again by now, and is not stopped twice). */
+export type TeamSuspendSkip = PaneSuspendBlock | "in-flight";
 
 /** Why a team's Resume leaves a member down or alone: a single Resume's own
  * refusal, or one of the team's — it is already on its way up, it runs on
@@ -62,13 +69,23 @@ function cohort<Skip>(
   return result;
 }
 
-/** Who a team's Suspend takes: every member a single Suspend would. */
+/** Who a team's Suspend takes: every member a single Suspend would — in
+ * its order, the reservation first. */
 export function teamSuspendCohort(
   ws: Workspace,
   teamId: string,
-  facts: Pick<TeamActFacts, "blocked">,
-): TeamCohort<PaneSuspendBlock> {
-  return cohort(ws, teamId, (pane) => paneSuspendBlock(ws, pane, facts.blocked(pane.id)));
+  facts: Pick<TeamActFacts, "blocked" | "suspending">,
+): TeamCohort<TeamSuspendSkip> {
+  return cohort<TeamSuspendSkip>(ws, teamId, (pane) =>
+    facts.suspending(pane.id) ? "in-flight" : paneSuspendBlock(ws, pane, facts.blocked(pane.id)),
+  );
+}
+
+/** Whom an act asked about `named` members takes now: those of them it
+ * would still take — never one it was not asked about. What a confirm
+ * counts and what its door then acts on, so the two cannot differ. */
+export function stillTaken(cohort: Pick<TeamCohort<unknown>, "take">, named: readonly string[]): string[] {
+  return cohort.take.filter((paneId) => named.includes(paneId));
 }
 
 /** Who a team's Resume takes: every member down by a decision — parked at

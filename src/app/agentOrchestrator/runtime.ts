@@ -15,8 +15,8 @@ import {
   paneResumeBlock,
   remoteEndpointOf,
   teamActsOf,
-  teamResumeCohort,
   type TeamActFacts,
+  type TeamActs,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -199,12 +199,21 @@ export function createAgentOrchestratorRuntime(
   }
 
   /** What a team act reads beyond the deck — the same facts a single act
-   * reads: the sweep's folder verdict and the live agent catalog. Read at
-   * the call, never cached. */
+   * reads: the sweep's folder verdict, the live agent catalog, and whether a
+   * suspend is still reaping the pane. Read at the call, never cached. */
   const teamFacts: TeamActFacts = {
     blocked: (paneId) => runView.isBlocked(paneId),
     agentAvailable: (agentType) => agents.commands().has(agentType),
+    suspending: (paneId) => closing.suspending(paneId),
   };
+
+  /** Whom a team's acts take right now — the ONE decision: what its menu
+   * offers, and what its doors (resumeTeam here, suspendTeam in closing)
+   * act on. */
+  function teamActs(wsId: string, teamId: string): TeamActs | null {
+    const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
+    return workspace && findTeam(workspace, teamId) ? teamActsOf(workspace, teamId, teamFacts) : null;
+  }
 
   /** Ask for panes back by the person's request — a single Resume, a
    * team's, or a fresh start: their old notes go (a stale "couldn't resume"
@@ -230,6 +239,9 @@ export function createAgentOrchestratorRuntime(
     lifecycle,
     workspaceForgetters: deps.workspaceForgetters,
     archiving: (workspace) => archiving?.archiving(workspace) ?? false,
+    // Bound late like `archiving`: the decision reads closing's own
+    // reservation, and closing's door acts on the decision.
+    teamActs: (wsId, teamId) => teamActs(wsId, teamId),
   });
   archiving = createAgentOrchestratorArchiving({
     deck,
@@ -632,15 +644,10 @@ export function createAgentOrchestratorRuntime(
       return "resuming";
     },
     resumeTeam(wsId, teamId) {
-      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
-      if (!workspace) return [];
-      const { take } = teamResumeCohort(workspace, teamId, teamFacts);
+      const take = teamActs(wsId, teamId)?.resume.take ?? [];
       if (take.length > 0) askBack(wsId, take);
       return take;
     },
-    teamActs(wsId, teamId) {
-      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
-      return workspace && findTeam(workspace, teamId) ? teamActsOf(workspace, teamId, teamFacts) : null;
-    },
+    teamActs,
   };
 }

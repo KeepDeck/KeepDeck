@@ -115,6 +115,10 @@ describe("teamMenuView — one line-set for the card's ⋯ and the crumb's", () 
       expect(refusal("provisioning")).toBe("This team is still creating its worktree.");
       expect(refusal()).toBe("This team has no agents.");
     });
+
+    it("says another suspend is already taking them down, in the single Suspend's own sentence", () => {
+      expect(refusal("stopped", "in-flight")).toBe("This team is already being suspended.");
+    });
   });
 
   it("offers nothing for a team the orchestrator no longer holds", () => {
