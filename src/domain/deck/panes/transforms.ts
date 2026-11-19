@@ -19,6 +19,7 @@ import {
   type PaneStopped,
 } from "./index";
 import { findPane, mapWorkspace, type Workspace } from "../workspaces";
+import { suspendedAt } from "./stamp";
 
 export function renamePane(
   workspaces: Workspace[],
@@ -209,7 +210,7 @@ export function suspendPane(
   if (!ws || !pane || !paneCanSuspend(ws, pane, false)) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
-      p.id === paneId ? { ...p, idle: { reason: "suspended", at } } : p,
+      p.id === paneId ? suspendedAt(p, at) : p,
     ),
   );
 }
