@@ -2,11 +2,11 @@
  * Who a team act takes — and every member it leaves, with why.
  *
  * A team's Suspend and Resume are not new rules about panes: each member is
- * judged by the very predicate a single Suspend or Resume asks of it
- * (`paneSuspendBlock`, `paneResumeBlock`), so a team act can never disagree
- * with a single one about any pane. What is the team's own is only the
- * cohort: which members, and the reasons the rest are left out — the reasons
- * the menu's refusal and the result's words are made from.
+ * judged by the very decision a single Suspend or Resume asks of it
+ * (`paneSuspendRefusal`, `paneResumeBlock`), so a team act can never
+ * disagree with a single one about any pane. What is the team's own is only
+ * the cohort: which members, and the reasons the rest are left out — the
+ * reasons the menu's refusal is made from.
  */
 import {
   idleReadsAsStopped,
