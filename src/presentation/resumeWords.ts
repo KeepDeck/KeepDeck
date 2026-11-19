@@ -5,7 +5,7 @@
  * (`ResumeRequest`); the words are here.
  */
 import type { ResumeRequest } from "../domain/deck";
-import { byCount } from "./countWords";
+import { byCount, counted } from "./countWords";
 
 /** One sentence per refusal, so every surface that can ask for a pane back
  * explains a "no" the same way. */
@@ -25,6 +25,13 @@ export function resumeRefusalText(
     case "gone":
       return `${label} is no longer open.`;
   }
+}
+
+/** A team's Resume named by whom it takes — the same words on every door
+ * that asks a team back (its ⋯, its empty grid), so the two cannot count
+ * the same act differently. */
+export function teamResumeLabel(taking: number): string {
+  return `Resume ${counted(taking, "stopped agent")}`;
 }
 
 /** Why a team's Resume has nobody to ask back — the reason that holds for

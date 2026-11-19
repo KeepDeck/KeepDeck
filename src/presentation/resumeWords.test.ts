@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResumeRequest } from "../domain/deck";
-import { resumeRefusalText, teamResumeRefusalText } from "./resumeWords";
+import { resumeRefusalText, teamResumeLabel, teamResumeRefusalText } from "./resumeWords";
 
 describe("resumeRefusalText", () => {
   it("gives every refusal its own sentence", () => {
@@ -52,5 +52,12 @@ describe("teamResumeRefusalText — a team's Resume refused, beside the single o
     expect(teamResumeRefusalText({ kind: "folders-gone", count: 2 })).toBe(
       "No stopped agent can be resumed — their folders are gone.",
     );
+  });
+});
+
+describe("teamResumeLabel — a team's Resume named by whom it takes", () => {
+  it("counts the stopped agents it asks back, agreeing the noun with the count", () => {
+    expect(teamResumeLabel(1)).toBe("Resume 1 stopped agent");
+    expect(teamResumeLabel(4)).toBe("Resume 4 stopped agents");
   });
 });

@@ -15,8 +15,7 @@ import {
   type TeamActs,
   type Workspace,
 } from "../domain/deck";
-import { counted } from "./countWords";
-import { teamResumeRefusalText, type TeamResumeRefusal } from "./resumeWords";
+import { teamResumeLabel, teamResumeRefusalText, type TeamResumeRefusal } from "./resumeWords";
 import { teamSuspendRefusalText } from "./suspendWords";
 
 export type TeamMenuAction = "add-member" | "rename" | "resume" | "suspend" | "disband" | "retry";
@@ -62,7 +61,7 @@ export const TEAM_MENU_WORDS = {
 
 function resumeLine(acts: TeamActs["resume"]): Pick<TeamMenuItem, "label" | "refusal"> {
   const n = acts.take.length;
-  if (n > 0) return { label: `Resume ${counted(n, "stopped agent")}`, refusal: null };
+  if (n > 0) return { label: teamResumeLabel(n), refusal: null };
   return { label: TEAM_MENU_WORDS.label.resume, refusal: resumeRefusal(acts.skip) };
 }
 
