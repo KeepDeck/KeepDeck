@@ -297,6 +297,35 @@ describe("DeckStage — suspended agents", () => {
     );
   });
 
+  it("asks the whole team back from the empty grid once every agent is in the tray", () => {
+    const allDown = [
+      {
+        ...workspaces[0],
+        panes: workspaces[0].panes.map((pane) => ({
+          ...pane,
+          idle: { reason: "suspended" as const, at: "2026-07-25T09:00:00.000Z" },
+        })),
+      },
+    ];
+    render({ workspaces: allDown, viewByWs: { "ws-1": { suspendedTray: ["pane-1", "pane-2"] } } });
+    const door = present(
+      document.querySelector<HTMLButtonElement>(".deck__grid-empty .deck__grid-empty-act"),
+      "the empty grid's Resume",
+    );
+    expect(door.textContent).toBe("Resume 2 stopped agents");
+    act(() => door.click());
+    expect(callbacks.onResumeTeam).toHaveBeenCalledWith("ws-1", "team-1");
+    expect(callbacks.onResumeAgent).not.toHaveBeenCalled();
+  });
+
+  it("offers no Resume over a grid whose agents are only minimized — they are running", () => {
+    render({ viewByWs: { "ws-1": { minimized: ["pane-1", "pane-2"] } } });
+    expect(document.querySelector(".deck__grid-empty-title")?.textContent).toBe(
+      "Every agent on this team is minimized",
+    );
+    expect(document.querySelector(".deck__grid-empty-act")).toBeNull();
+  });
+
   it("delegates tray restore to the dedicated transition", () => {
     render({
       workspaces: suspended,

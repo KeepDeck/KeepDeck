@@ -24,6 +24,7 @@ import {
 } from "../domain/deck";
 import type { PaneActivity, PaneFramePlace } from "../domain/status";
 import { teamNamesIn, teamOf } from "../domain/mail";
+import { Button } from "../ui/Button";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
@@ -258,7 +259,9 @@ export function DeckStage({
         const panes = stagePanes(ws, view);
         const live = visiblePanes(panes, view);
         // What goes over the grid, asked once.
-        const content = stageContent(ws, view, live.length);
+        const content = stageContent(ws, view, live.length, (teamId) => teamActsOf(ws.id, teamId));
+        // The empty grid's door, when the model offers one.
+        const gridResume = content.kind === "word" ? content.resume : null;
 
         // A workspace with no team: nothing to lay out, and the word for it.
         if (content.kind === "no-teams") {
@@ -524,6 +527,11 @@ export function DeckStage({
                 <div className="deck__grid-empty" role="status">
                   <span className="deck__grid-empty-title">{content.word.title}</span>
                   <span className="deck__grid-empty-sub">{content.word.sub}</span>
+                  {gridResume && (
+                    <Button className="deck__grid-empty-act" onClick={() => onResumeTeam(ws.id, gridResume.teamId)}>
+                      {gridResume.label}
+                    </Button>
+                  )}
                 </div>
               )}
               {content.kind === "team-sessions" && (
