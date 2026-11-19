@@ -11,6 +11,7 @@
 import { blockedAgents, paneDisplayTitle, type TitleAgent, type Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import { activityBadge } from "./activityBadge";
+import { badgeCount } from "./countWords";
 import { formatAge } from "../domain/usage";
 
 /** A row's state — one that needs a person (`needsPerson`). */
@@ -66,7 +67,7 @@ export function needsYouAge(row: NeedsYouRow, now: number): string {
 /** The bell for `unread` unread notifications. */
 export function bellTrigger(unread: number): BellTrigger {
   return {
-    badge: unread > 0 ? (unread > 99 ? "99+" : String(unread)) : null,
+    badge: unread > 0 ? badgeCount(unread) : null,
     label: unread > 0 ? `${ATTENTION_WORDS.notifications} (${unread} unread)` : ATTENTION_WORDS.notifications,
   };
 }
