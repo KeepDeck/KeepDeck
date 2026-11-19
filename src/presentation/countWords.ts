@@ -13,3 +13,13 @@ export function byCount(n: number, one: string, many: string): string {
 export function counted(n: number, one: string, many = `${one}s`): string {
   return `${n} ${byCount(n, one, many)}`;
 }
+
+/** The largest count a corner badge spells out; past it the badge says
+ * "99+" — it holds two digits, not a ledger. */
+const BADGE_MAX = 99;
+
+/** A count as a corner badge says it (the bell's unread, the strip's
+ * archive): the number, or "99+" past two digits. */
+export function badgeCount(n: number): string {
+  return n > BADGE_MAX ? `${BADGE_MAX}+` : String(n);
+}

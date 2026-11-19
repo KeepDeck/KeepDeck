@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PlusIcon } from "@keepdeck/ui-kit/icons";
+import { ArchiveIcon, PlusIcon } from "@keepdeck/ui-kit/icons";
 import { DisclosureChevron } from "@keepdeck/ui-kit/DisclosureChevron";
 import { collectMarkRects, markGroups } from "../../ui/stripDnd";
 import {
@@ -301,15 +301,21 @@ export function WorkspaceStrip({
             );
           })}
         </ul>
-        {view.archived > 0 && (
+        {view.archivedDoor && (
           <button
             type="button"
-            className="strip__archived"
+            className="strip__mark strip__mark--archive"
             onClick={onOpenArchived}
-            aria-label={STRIP_WORDS.archivedDoorLabel(view.archived)}
-            title={STRIP_WORDS.archivedDoorLabel(view.archived)}
+            aria-label={view.archivedDoor.label}
+            title={view.archivedDoor.label}
           >
-            {STRIP_WORDS.archivedDoor(view.archived)}
+            <span className="strip__tile" aria-hidden>
+              <ArchiveIcon />
+              <span className="kd-count-badge strip__badge">{view.archivedDoor.count}</span>
+            </span>
+            <span className="strip__name" aria-hidden>
+              {STRIP_WORDS.archivedDoor}
+            </span>
           </button>
         )}
         {version !== null && (

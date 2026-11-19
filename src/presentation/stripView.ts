@@ -28,7 +28,7 @@ import {
   type WorkspaceView,
 } from "../domain/deck";
 import { foldFrame, type PaneActivity } from "../domain/status";
-import { counted } from "./countWords";
+import { badgeCount, counted } from "./countWords";
 import { workspaceMarks } from "./workspaceMark";
 import type { ActiveWorkspace } from "./workspaceCrumbView";
 import { TEAM_CARD_WORDS, teamDot, type TeamCardDot } from "./teamCardView";
@@ -67,11 +67,19 @@ export interface WorkspaceMark {
   moveDown: WorkspacePlace | null;
 }
 
+/** The door at the strip's foot into the archived workspaces (the
+ * Workspaces window). */
+export interface ArchivedDoor {
+  /** How many are archived, as the badge on its corner says it. */
+  count: string;
+  /** Its tooltip and accessible name. */
+  label: string;
+}
+
 export interface StripView {
   marks: readonly WorkspaceMark[];
-  /** How many workspaces are archived — the count on the strip foot's door
-   * into the Workspaces window; none, no door. */
-  archived: number;
+  /** Null while no workspace is archived: then there is no door. */
+  archivedDoor: ArchivedDoor | null;
   /** Null only for a deck with no workspace at all. */
   active: ActiveWorkspace | null;
 }
@@ -85,8 +93,9 @@ export const STRIP_WORDS = {
   /** The chevron that opens or closes a workspace's team list. */
   showTeams: (workspace: string) => `Show teams of ${workspace}`,
   hideTeams: (workspace: string) => `Hide teams of ${workspace}`,
-  /** The strip foot's door into the archived workspaces. */
-  archivedDoor: (count: number) => `${count} archived`,
+  /** The strip foot's door into the archived workspaces: its name beside it
+   * while the strip is open, and its tooltip and accessible name. */
+  archivedDoor: "Archived",
   archivedDoorLabel: (count: number) => `${counted(count, "archived workspace")} — open the Workspaces window`,
 } as const;
 
@@ -158,5 +167,10 @@ export function stripView(
       moveDown: steps.down,
     };
   });
-  return { marks, active, archived: workspaces.length - shown.length };
+  return { marks, active, archivedDoor: archivedDoor(workspaces.length - shown.length) };
+}
+
+/** The door into the archived workspaces, while there is any to go to. */
+function archivedDoor(count: number): ArchivedDoor | null {
+  return count > 0 ? { count: badgeCount(count), label: STRIP_WORDS.archivedDoorLabel(count) } : null;
 }

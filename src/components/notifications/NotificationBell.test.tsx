@@ -61,7 +61,10 @@ describe("NotificationBell", () => {
       notify({ title: "one", source: paneSource });
       notify({ title: "two", source: { type: "app" } });
     });
-    expect(document.querySelector(".bell__badge")?.textContent).toBe("2");
+    const badge = document.querySelector(".bell__badge");
+    expect(badge?.textContent).toBe("2");
+    // The house corner count, in the tone of something waiting to be read.
+    expect(badge?.className).toBe("kd-count-badge kd-count-badge--alert bell__badge");
   });
 
   it("says whether its panel is open, and names its unread count", () => {

@@ -110,7 +110,7 @@ export function NotificationBell({
       >
         <BellIcon />
         {trigger.badge !== null && (
-          <span className="bell__badge" aria-hidden>
+          <span className="kd-count-badge kd-count-badge--alert bell__badge" aria-hidden>
             {trigger.badge}
           </span>
         )}

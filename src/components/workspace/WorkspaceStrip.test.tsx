@@ -58,7 +58,7 @@ const VIEW: StripView = {
     mark("d", "Delta"),
   ],
   active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } },
-  archived: 0,
+  archivedDoor: null,
 };
 
 const callbacks = {
@@ -164,15 +164,29 @@ describe("WorkspaceStrip", () => {
     expect(callbacks.onAdd).toHaveBeenCalledOnce();
   });
 
-  it("opens the archived workspaces from a door at its foot, there only while any is archived", () => {
-    render();
-    expect(host.querySelector(".strip__archived")).toBeNull();
-    render({ view: { ...VIEW, archived: 3 } });
-    const door = present(host.querySelector<HTMLButtonElement>(".strip__archived"), "the archived door");
-    expect(door.textContent).toBe("3 archived");
-    expect(door.getAttribute("aria-label")).toBe("3 archived workspaces — open the Workspaces window");
+  it("opens the archived workspaces from a box at its foot, its count on the corner, only while the view has a door", () => {
+    render({ version: "0.33.2" });
+    expect(host.querySelector(".strip__mark--archive")).toBeNull();
+    const label = "12 archived workspaces — open the Workspaces window";
+    render({ version: "0.33.2", view: { ...VIEW, archivedDoor: { count: "12", label } } });
+    const door = present(byLabel(label), "the archived door");
+    expect(door.className).toBe("strip__mark strip__mark--archive");
+    expect(door.title).toBe(label);
+    // The box and its count are the picture; the name shows in the open strip.
+    expect(door.querySelector(".strip__tile svg")).not.toBeNull();
+    const badge = door.querySelector(".strip__tile .strip__badge");
+    expect(badge?.textContent).toBe("12");
+    // The house corner count, quiet: what is archived waits for nobody.
+    expect(badge?.className).toBe("kd-count-badge strip__badge");
+    expect(door.querySelector(".strip__name")?.textContent).toBe("Archived");
+    // At the foot, as «+» is at the head: outside the list that scrolls and
+    // reorders, just above the build.
+    expect(door.closest(".strip__marks")).toBeNull();
+    expect(door.hasAttribute("data-ws-id")).toBe(false);
+    expect(door.nextElementSibling?.className).toBe("strip__foot");
     act(() => door.click());
     expect(callbacks.onOpenArchived).toHaveBeenCalledOnce();
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
   });
 
   it("signs the strip with the build, and stays silent without one", () => {
@@ -510,7 +524,7 @@ describe("WorkspaceStrip as the team switcher", () => {
       mark("c", "Gamma"),
     ],
     active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } },
-  archived: 0,
+  archivedDoor: null,
   };
   const render = () =>
     act(() =>
@@ -956,7 +970,7 @@ describe("WorkspaceStrip dragging from the open strip", () => {
       mark("d", "Delta"),
     ]);
     return createElement(WorkspaceStrip, {
-      view: { marks, active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } }, archived: 0 },
+      view: { marks, active: { id: "a", name: "Alpha", moveUp: null, moveDown: { after: "b" } }, archivedDoor: null },
       version: null,
       ...callbacks,
       onReorder: (id: string, place: WorkspacePlace) => setMarks((current) => moveWorkspace([...current], id, place)),

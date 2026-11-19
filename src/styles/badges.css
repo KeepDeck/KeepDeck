@@ -33,6 +33,32 @@
   height: 10px;
 }
 
+/* THE count on a glyph's corner — the bell's unread, the strip's archive.
+   One anatomy; its tone says whether the count wants the person: quiet by
+   default (things kept), `--alert` for things waiting to be read. Its
+   words are `badgeCount`'s (presentation/countWords.ts); a site keeps only
+   its place on its glyph. */
+.kd-count-badge {
+  position: absolute;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--kd-radius-control);
+  background-color: var(--kd-hover);
+  color: var(--kd-text-2);
+  font-size: var(--kd-font-small);
+  line-height: 14px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.kd-count-badge--alert {
+  background-color: var(--kd-err);
+  color: var(--kd-text);
+}
+
 /* THE tag: a short word in a row of words — a task's label, a blocker,
    an attachment. Filled by default; `--outline` for one that links
    somewhere. Both carry a 1px edge (transparent when filled), so a filled
