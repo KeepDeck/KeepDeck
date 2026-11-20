@@ -34,10 +34,18 @@ export interface CommandRun {
  * the fork Promise (and the whole fork chain) pending forever. */
 const RUN_TIMEOUT_MS = 60_000;
 
+/** A command stopped after its timeout whose end could not be confirmed: it
+ * may still be running, and writing. Nothing it may touch is cleaned up
+ * behind it — that would race its last writes. */
+export class StillRunning extends Error {}
+
 /** Run `opencode <args>` to completion on a host PTY, returning its full
  * output text and exit code. A non-TUI command (export/import) writes plain
  * text; the PTY only maps `\n`→`\r\n` (harmless JSON whitespace). Rejects on a
- * spawn failure or if the process does not exit within `RUN_TIMEOUT_MS`. */
+ * spawn failure, or once the process is over after `RUN_TIMEOUT_MS` — its
+ * stop awaited to the end, a spawn still on its way included, so the caller
+ * cleans up only after it. A stop that could not be confirmed rejects with
+ * [`StillRunning`]. */
 export async function runOpencode(
   ctx: ExecPorts,
   args: readonly string[],
@@ -46,41 +54,40 @@ export async function runOpencode(
   const chunks: Uint8Array[] = [];
   return new Promise((resolve, reject) => {
     let settled = false;
-    let handle: PluginSessionHandle | undefined;
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       fn();
     };
+    const spawned: Promise<PluginSessionHandle> = ctx.services.sessions.spawn(
+      { command: "opencode", args: [...args], ...(cwd ? { cwd } : {}), cols: 120, rows: 40 },
+      (event) => {
+        if (event.type === "output") chunks.push(event.bytes);
+        else finish(() => resolve({ text: decode(chunks), code: event.code }));
+      },
+    );
+    const named = `opencode ${args.slice(0, 2).join(" ")}`;
     const timer = setTimeout(() => {
-      // A settled run has nothing to kill — its exit beat the timer.
+      // A settled run has nothing to stop — its exit beat the timer.
       if (settled) return;
-      // Settle the kill BEFORE rejecting: the caller's finally overwrites
-      // the scratch file this very process may still be reading, so the
-      // rejection must not outrun the close.
-      const killed = handle?.close().catch(() => {}) ?? Promise.resolve();
-      void killed.then(() =>
-        finish(() =>
-          reject(new Error(`opencode ${args.slice(0, 2).join(" ")} timed out after ${RUN_TIMEOUT_MS}ms`)),
-        ),
+      // The process — one whose spawn is still on its way too — is stopped
+      // and its end awaited BEFORE the rejection: the caller then removes
+      // what this very process may still be reading or writing.
+      void spawned.then(
+        (handle) =>
+          handle.close().then(
+            () => finish(() => reject(new Error(`${named} timed out after ${RUN_TIMEOUT_MS}ms`))),
+            (cause: unknown) =>
+              finish(() =>
+                reject(new StillRunning(`${named} timed out, and its stop could not be confirmed (${String(cause)})`)),
+              ),
+          ),
+        // It never started: there is nothing running to wait for.
+        () => finish(() => reject(new Error(`${named} timed out after ${RUN_TIMEOUT_MS}ms`))),
       );
     }, RUN_TIMEOUT_MS);
-    ctx.services.sessions
-      .spawn(
-        { command: "opencode", args: [...args], ...(cwd ? { cwd } : {}), cols: 120, rows: 40 },
-        (event) => {
-          if (event.type === "output") chunks.push(event.bytes);
-          else finish(() => resolve({ text: decode(chunks), code: event.code }));
-        },
-      )
-      .then((h) => {
-        handle = h;
-        // The timeout already fired while spawn was in flight — kill the
-        // process we just started so it doesn't leak.
-        if (settled) void h.close().catch(() => {});
-      })
-      .catch((e) => finish(() => reject(e instanceof Error ? e : new Error(String(e)))));
+    spawned.catch((e: unknown) => finish(() => reject(e instanceof Error ? e : new Error(String(e)))));
   });
 }
 

@@ -26,7 +26,7 @@ import {
   type PluginFsWrite,
   type PluginLogger,
 } from "@keepdeck/plugin-api";
-import { runOpencode, tail, type ExecPorts } from "./exec";
+import { runOpencode, StillRunning, tail, type ExecPorts } from "./exec";
 import type { ForkRecipe } from "./forkRecipe";
 
 /** OS-temp scratch for the one import file. `/tmp` is auto-reaped and, unlike
@@ -66,18 +66,19 @@ export async function forkInto<Document>(
   request: ForkRequest,
 ): Promise<string> {
   const { cwd, sessionId } = request;
-  const refuse = (words: string, detail?: string): never => {
+  const refuse = (words: string, detail?: string, running = false): never => {
     ports.log.warn(`opencode fork of ${sessionId} into ${cwd} refused: ${detail ?? words}`);
-    throw new Error(words);
+    throw running ? new StillRunning(words) : new Error(words);
   };
-  const failedCopy = (detail: string) => refuse(`The copy failed: ${detail}`, detail);
+  const failedCopy = (detail: string, running = false) => refuse(`The copy failed: ${detail}`, detail, running);
   /** A command run in the target; one that could not run or never ended is
-   * a failed copy like any other. */
+   * a failed copy like any other — and one that may still be running stays
+   * known as such. */
   const run = async (args: readonly string[]) => {
     try {
       return await runOpencode(ports, args, cwd);
     } catch (cause) {
-      return failedCopy(errorMessage(cause));
+      return failedCopy(errorMessage(cause), cause instanceof StillRunning);
     }
   };
 
@@ -108,6 +109,9 @@ export async function forkInto<Document>(
   await ports.services.fsWrite.writeFile(file, JSON.stringify(clone.document));
   /** Whether the minted id may now hold this fork's clone. */
   let ours = true;
+  /** An import whose end could not be confirmed may still be writing: its
+   * clone and the scratch it reads stay. */
+  let running = false;
   try {
     const imported = recipe.readImport(
       await run(recipe.importArgs(file, cwd)),
@@ -133,21 +137,27 @@ export async function forkInto<Document>(
     }
     return clone.newSessionId;
   } catch (refusal) {
+    running = refusal instanceof StillRunning;
     // The import may have written the clone even so — 1.x's always claims
     // to — and a refused fork must not leave a stray session in the user's
     // history. The id was free before the import, so what is under it now is
     // this fork's; deleting one that was never written is a harmless "not
-    // found".
-    if (ours) await dropClone(ports, recipe, clone.newSessionId, cwd);
+    // found". Not while the import may still be running: a delete before its
+    // last write would leave that write behind.
+    if (ours && !running) await dropClone(ports, recipe, clone.newSessionId, cwd);
     throw refusal;
   } finally {
-    // The scratch held the WHOLE conversation; its purpose ends with the
-    // import, on the failure path too.
-    await ports.services.fsWrite
-      .remove(file)
-      .catch((cause: unknown) =>
-        ports.log.warn(`could not remove the fork scratch ${file}: ${errorMessage(cause)}`),
-      );
+    if (running) {
+      ports.log.warn(`the import may still be running: the fork scratch ${file} and its clone ${clone.newSessionId} are kept`);
+    } else {
+      // The scratch held the WHOLE conversation; its purpose ends with the
+      // import, on the failure path too.
+      await ports.services.fsWrite
+        .remove(file)
+        .catch((cause: unknown) =>
+          ports.log.warn(`could not remove the fork scratch ${file}: ${errorMessage(cause)}`),
+        );
+    }
   }
 }
 

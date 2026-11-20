@@ -296,7 +296,7 @@ describe("a command that never exits", () => {
     }
   });
 
-  it("an import that hangs is killed BEFORE the scratch it reads is removed", async () => {
+  it("an import that hangs is over BEFORE the scratch it reads is removed", async () => {
     vi.useFakeTimers();
     try {
       const fake = v1({ hang: (run) => verb(run) === "import" });
@@ -304,8 +304,46 @@ describe("a command that never exits", () => {
       forking.catch(() => {});
       await vi.advanceTimersByTimeAsync(60_000);
       await expect(forking).rejects.toThrow(/The copy failed: opencode import .* timed out/);
-      expect(fake.kills.count).toBeGreaterThanOrEqual(1);
-      expect(fake.removed).toEqual([SCRATCH]);
+      const stopped = fake.order.findIndex((step) => step.startsWith("stopped import"));
+      expect(stopped).toBeGreaterThanOrEqual(0);
+      expect(fake.order.indexOf(`removed ${SCRATCH}`)).toBeGreaterThan(stopped);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for a spawn still on its way at the timeout, and stops it before the refusal", async () => {
+    vi.useFakeTimers();
+    try {
+      let started: () => void = () => {};
+      const fake = v1({
+        hang: (run) => verb(run) === "export",
+        spawnAfter: (run) => (verb(run) === "export" ? new Promise<void>((resolve) => (started = resolve)) : undefined),
+      });
+      let refused = false;
+      const forking = forkInto(fake.ports, recipeV1, request);
+      forking.catch(() => (refused = true));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(refused).toBe(false);
+      started();
+      await expect(forking).rejects.toThrow(/timed out/);
+      expect(fake.kills.count).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the clone and the scratch when the hung import's stop cannot be confirmed", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = v1({ hang: (run) => verb(run) === "import", unconfirmed: (run) => verb(run) === "import" });
+      const forking = forkInto(fake.ports, recipeV1, request);
+      forking.catch(() => {});
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(forking).rejects.toThrow(/its stop could not be confirmed/);
+      expect(fake.removed).toEqual([]);
+      expect(fake.runs.some((run) => run.args.includes("delete"))).toBe(false);
+      expect(fake.warns.some((warn) => warn.includes("may still be running"))).toBe(true);
     } finally {
       vi.useRealTimers();
     }
