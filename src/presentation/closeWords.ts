@@ -123,16 +123,30 @@ export function closeMessageFor(
   return verbs + opening + alternative + note;
 }
 
+/** A worktree left in place, in one line: what names it, and why. */
+function leftLine(name: string, why: string): string {
+  return `${name}: ${why}`;
+}
+
+/** The heading over worktrees a close could not delete. */
+function notDeletedTitle(count: number): string {
+  return `Failed to delete worktree${count === 1 ? "" : "s"}`;
+}
+
 /** One worktree a teardown left in place, in one line: the branch when it is
  * known, else the folder, and why. */
 export function teardownFailureText(failure: WorktreeTeardownFailure): string {
   const name = failure.target.branch ?? failure.target.path;
-  return failure.kind === "held-elsewhere"
-    ? `${name}: another workspace still works in this folder`
-    : `${name}: ${failure.reason}`;
+  return leftLine(name, failure.kind === "held-elsewhere" ? "another workspace still works in this folder" : failure.reason);
 }
 
 /** The alert after a close whose worktree teardown left some in place. */
 export function worktreesNotDeletedText(failures: readonly WorktreeTeardownFailure[]): string {
-  return `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.map(teardownFailureText).join("\n")}`;
+  return `${notDeletedTitle(failures.length)}:\n${failures.map(teardownFailureText).join("\n")}`;
+}
+
+/** The notice the lifecycle leaves when a close's cleanup could not delete a
+ * worktree: the folder, and the reason the cleanup was given. */
+export function worktreeNotDeletedNotice(path: string, reason: string): { title: string; body: string } {
+  return { title: notDeletedTitle(1), body: leftLine(path, reason) };
 }

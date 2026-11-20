@@ -3,9 +3,19 @@ import type { WorktreeTeardownFailure } from "../domain/deck";
 import {
   closeMessageFor,
   teardownFailureText,
+  worktreeNotDeletedNotice,
   worktreesNotDeletedText,
   type CloseWordsTarget,
 } from "./closeWords";
+
+describe("worktreeNotDeletedNotice", () => {
+  it("says the folder and the reason the cleanup was given, under the close's own heading", () => {
+    expect(worktreeNotDeletedNotice("/wt/1", "could not remove /wt/1: busy")).toEqual({
+      title: "Failed to delete worktree",
+      body: "/wt/1: could not remove /wt/1: busy",
+    });
+  });
+});
 
 describe("closeMessageFor", () => {
   type AgentFacts = Extract<CloseWordsTarget, { kind: "agent" }>["pane"];

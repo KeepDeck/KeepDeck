@@ -3,6 +3,20 @@ import type { Cmd } from "../../ipc/generated/lifecycle/Cmd";
 import type { CommandOwner } from "../lifecycleSnapshot";
 import { createBoardsOwner } from "./boards";
 import { createMailOwner } from "./mail";
+import { createNoticesOwner } from "./notices";
+
+describe("the notices' owner", () => {
+  it("leaves one notice per worktree a cleanup could not delete, replaced rather than stacked", async () => {
+    const notify = vi.fn(() => true);
+    const owner = createNoticesOwner({ notify });
+    const cmd: Cmd = { kind: "worktreeNotDeleted", workspace: "ws-a", path: "/wt/1", reason: "busy" };
+    expect(await carry(owner, cmd)).toEqual({ kind: "applied", revision: null });
+    await carry(owner, cmd);
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ title: "Failed to delete worktree", body: "/wt/1: busy", severity: "warning", tag: "worktree-not-deleted:/wt/1" }));
+    expect((await carry(owner, { kind: "retainPanes", panes: [] })).kind).toBe("rejected");
+  });
+});
 
 const carry = (owner: CommandOwner, cmd: Cmd) => owner.carry({ id: { op: 1, index: 0 }, owner: "boards", cmd });
 
