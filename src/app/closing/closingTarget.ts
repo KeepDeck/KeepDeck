@@ -7,13 +7,11 @@
  * a documented history of being corrected on its own.
  */
 import {
-  createIsOut,
   idleReadsAsStopped,
   paneSuspendBlock,
   paneWakesAutomatically,
   teamOfPane,
   type Pane,
-  type Team,
   type Workspace,
   type WorktreeTarget,
 } from "../../domain/deck";

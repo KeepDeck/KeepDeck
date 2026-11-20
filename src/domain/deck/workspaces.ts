@@ -1,8 +1,3 @@
-import {
-  classifyLocation,
-  type DirectoryState,
-  type PathProbe,
-} from "../agents";
 import type {
   WorkspaceInstance,
   WorkspaceRef,
@@ -10,7 +5,7 @@ import type {
 import { appendPane, paneStopsWithArchive, removePane, type Pane } from "./panes";
 import { suspendedAt } from "./panes/stamp";
 import { teamsOf } from "./teams/collection";
-import { claimPath, normalizePath, sameDirectory, teamOccupyingPath } from "./teams/claims";
+import { normalizePath, sameDirectory } from "./teams/claims";
 import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is

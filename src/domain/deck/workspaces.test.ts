@@ -10,7 +10,6 @@ import {
   closeWorkspace,
   findWorkspace,
   findWorkspaceOfPane,
-  firstFreeTeamWorktree,
   moveWorkspace,
   parentDir,
   stepPlaces,
@@ -24,7 +23,6 @@ import {
   restoreWorkspace,
   settleArchive,
   visibleWorkspaces,
-  directoryState,
   setWorkspacePluginSlot,
   worktreeTargets,
   type Workspace,
@@ -622,129 +620,6 @@ describe("gitWatchPaths", () => {
         },
       ]),
     ).toEqual(new Set());
-  });
-});
-
-describe("directoryState", () => {
-  it("says what a location field needs: worked in, being created, or free", () => {
-    const deck: Workspace[] = [
-      {
-        ...ws("a", []),
-        teams: [teamAt("team-1", "/wt/live", "kd/a/1"), creatingTeam("team-2", "/wt/pending")],
-        panes: [memberOf("a-p1", "team-1"), memberOf("a-p2", "team-2"), { id: "a-p3", agentType: "claude" }],
-      },
-    ];
-    const here = deck[0];
-    // A team WORKS there — not a refusal: the field offers the attach, and
-    // the create asks the person whose directory it is.
-    expect(directoryState(deck, here, "/wt/live")).toBe("worked-in");
-    expect(directoryState(deck, here, "  /wt/live/ ")).toBe("worked-in");
-    // A create is heading there: nothing to attach to, and no second one.
-    expect(directoryState(deck, here, "/wt/pending")).toBe("being-created");
-    expect(directoryState(deck, here, "/wt/free")).toBe("free");
-    expect(directoryState(deck, here, "   ")).toBe("free");
-  });
-
-  it("a create that FAILED is not one still running", () => {
-    // Its card waits for Retry; telling the person to "try again in a
-    // moment" would be a wait that never ends.
-    const failed = creatingTeam("team-2", "/wt/pending");
-    if (failed.location?.kind !== "provisioning") throw new Error("a creating team provisions");
-    const deck: Workspace[] = [
-      {
-        ...ws("a", []),
-        teams: [{ ...failed, location: { ...failed.location, error: "boom" } }],
-        panes: [],
-      },
-    ];
-    expect(directoryState(deck, deck[0], "/wt/pending")).toBe("worked-in");
-  });
-});
-
-describe("firstFreeTeamWorktree", () => {
-  /** Rust-style naming: index i → folder `kd-a-<i>`, branch `kd/a/<i>`. */
-  const suggest = async (i: number) => ({
-    branch: `kd/a/${i}`,
-    folder: `kd-a-${i}`,
-  });
-  /** A deck whose teams hold `/base/kd-a-<n>` for each given n. */
-  const holding = (...nums: number[]): Workspace[] => [
-    {
-      ...ws("a", []),
-      teams: nums.map((n) => teamAt(`team-${n}`, `/base/kd-a-${n}`)),
-      panes: nums.map((n) => memberOf(`a-p${n}`, `team-${n}`)),
-    },
-  ];
-
-  it("returns the start index untouched when it's free", async () => {
-    expect(await firstFreeTeamWorktree(holding(1), "/base", suggest, 2)).toEqual({
-      path: "/base/kd-a-2",
-      branch: "kd/a/2",
-    });
-  });
-
-  it("skips occupied paths — folder and branch advance together", async () => {
-    expect(await firstFreeTeamWorktree(holding(2, 3), "/base", suggest, 2)).toEqual({
-      path: "/base/kd-a-4",
-      branch: "kd/a/4",
-    });
-  });
-
-  it("skips a provisioning intent's target path too", async () => {
-    const deck: Workspace[] = [
-      {
-        ...ws("a", []),
-        teams: [creatingTeam("team-1", "/base/kd-a-2")],
-        panes: [memberOf("a-p1", "team-1")],
-      },
-    ];
-    expect((await firstFreeTeamWorktree(deck, "/base", suggest, 2))?.path).toBe(
-      "/base/kd-a-3",
-    );
-  });
-
-  it("normalizes the base dir's trailing slash", async () => {
-    expect((await firstFreeTeamWorktree([], "/base///", suggest, 1))?.path).toBe(
-      "/base/kd-a-1",
-    );
-  });
-
-  it("gives up when suggestions dry up, or when every try is occupied", async () => {
-    expect(await firstFreeTeamWorktree([], "/base", async () => null, 1)).toBeNull();
-    // A suggest stuck on one occupied name must hit the cap, not spin forever.
-    const stuck = async () => ({ branch: "kd/a/2", folder: "kd-a-2" });
-    expect(await firstFreeTeamWorktree(holding(2), "/base", stuck, 2)).toBeNull();
-  });
-
-  it("skips a candidate the probe classifies as blocked (leftover dir with files)", async () => {
-    const probe = async (path: string) => ({
-      exists: path === "/base/kd-a-1",
-      isWorktree: false,
-      empty: false,
-      branch: null,
-    });
-    expect(await firstFreeTeamWorktree([], "/base", suggest, 1, probe)).toEqual({
-      path: "/base/kd-a-2",
-      branch: "kd/a/2",
-    });
-  });
-
-  it("keeps a candidate that probes as an idle worktree — attaching is a valid outcome", async () => {
-    const probe = async () => ({
-      exists: true,
-      isWorktree: true,
-      empty: false,
-      branch: "kd/a/1",
-    });
-    expect((await firstFreeTeamWorktree([], "/base", suggest, 1, probe))?.path).toBe(
-      "/base/kd-a-1",
-    );
-  });
-
-  it("a null probe result (backend down) keeps the candidate", async () => {
-    expect(
-      (await firstFreeTeamWorktree([], "/base", suggest, 1, async () => null))?.path,
-    ).toBe("/base/kd-a-1");
   });
 });
 
