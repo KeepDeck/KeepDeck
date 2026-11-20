@@ -57,7 +57,7 @@ export interface AgentInfo {
   chartColor?: string;
   /** The agent's brand mark, when its plugin ships one. */
   icon?: AgentIcon;
-  /** CLI command to spawn (passed back to `session_spawn`). */
+  /** CLI command to spawn (passed back to `pty_open`). */
   command: string;
   /** Functional support projected from the plugin manifest. Runtime
    * contributions contain implementations only, never a parallel list. */

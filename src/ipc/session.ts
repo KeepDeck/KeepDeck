@@ -35,55 +35,6 @@ export interface SpawnOptions {
   cwd?: string | null;
   cols: number;
   rows: number;
-  /** The pane this terminal is. The bridge takes a pane's reports only from
-   * processes running in its terminal — a daemon that inherited the pane's
-   * environment and detached is not one. Omit for a terminal that is no
-   * pane's. */
-  pane?: string | null;
-}
-
-/** A live PTY session backed by the Rust core. */
-export interface Session {
-  readonly id: string;
-  write(data: string): Promise<void>;
-  resize(cols: number, rows: number): Promise<void>;
-  close(): Promise<void>;
-}
-
-const encoder = new TextEncoder();
-
-/**
- * Spawn a session and stream its events to `onEvent`. Output and the final exit
- * arrive over a per-session channel, so panes never share an event bus.
- */
-export async function spawnSession(
-  opts: SpawnOptions,
-  onEvent: (event: SessionEvent) => void,
-): Promise<Session> {
-  const channel = new Channel<WireSessionEvent>();
-  channel.onmessage = (event) => onEvent(fromWire(event));
-
-  const id = await invoke<string>("session_spawn", {
-    spec: {
-      command: opts.command ?? null,
-      args: opts.args ?? [],
-      env: opts.env ?? [],
-      envDefaults: opts.envDefaults ?? [],
-      cwd: opts.cwd ?? null,
-      cols: opts.cols,
-      rows: opts.rows,
-      pane: opts.pane ?? null,
-    },
-    onEvent: channel,
-  });
-
-  return {
-    id,
-    write: (data) =>
-      invoke("session_write", { id, data: Array.from(encoder.encode(data)) }),
-    resize: (cols, rows) => invoke("session_resize", { id, cols, rows }),
-    close: () => invoke("session_close", { id }),
-  };
 }
 
 /**
@@ -94,5 +45,5 @@ export async function spawnSession(
  */
 export function vouchPaneProcess(pane: string, reporter: string | undefined): Promise<void> {
   const pid = reporter !== undefined && /^\d+$/.test(reporter) ? Number(reporter) : null;
-  return invoke("session_vouch", { pane, pid });
+  return invoke("pty_vouch", { pane, pid });
 }

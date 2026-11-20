@@ -9,9 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * boundary, run the real module, pin the exact wire calls. Keys here are
  * the camelCase forms Tauri maps onto the Rust params (wsId → ws_id) —
  * skills commands take TOP-LEVEL params (Tauri converts case), unlike
- * session_spawn's spec STRUCT (raw serde), whose pins live in
- * session.test.ts + session.rs. Copy the matching pattern when adding a
- * command.
+ * pty_open's spec STRUCT (raw serde), whose pins live in session.rs. Copy
+ * the matching pattern when adding a command.
  */
 const tauri = vi.hoisted(() => ({
   // Signature declared so `mock.lastCall` is typed — the round-trip case below

@@ -16,7 +16,7 @@ use crate::lifecycle::supervised;
 use crate::session::{deliver, resolve_command, DeliveryEnd, SessionEvent, SpawnSpec};
 use keepdeck_fsm_runtime::{Effects, Events, Runtime};
 use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AttemptId, PermitId, SessionId};
+use keepdeck_lifecycle::ids::{AttemptId, PaneId, PermitId, SessionId};
 use keepdeck_lifecycle::machine::{Event as LifecycleEvent, LaunchOwner};
 use keepdeck_lifecycle::model::{Answer, Refusal, Reply};
 use keepdeck_pty::sessions::{self, Effect, Event, Over, Sessions};
@@ -216,8 +216,18 @@ impl SessionMachine {
             Reply::Answered { answer: Answer::Refused { refusal } } => return Err(OpenError::Refused(refusal)),
             Reply::Answered { .. } | Reply::Unavailable | Reply::Unknown => return Err(OpenError::Unavailable),
         };
+        let command = resolve_command(spec.command, std::env::var("SHELL").ok());
+        // The one line that settles "which build / which args did this pane
+        // get" when a session-identity repro comes in. Env values stay
+        // private — the key names are what debugging needs.
+        log::info!(
+            "spawn: cmd={command} args={:?} env={:?} cwd={:?}",
+            spec.args,
+            spec.env.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+            spec.cwd,
+        );
         let pty = PtySpec {
-            command: resolve_command(spec.command, std::env::var("SHELL").ok()),
+            command,
             args: spec.args,
             env: spec.env,
             env_defaults: spec.env_defaults,
@@ -225,6 +235,7 @@ impl SessionMachine {
             size: TermSize { cols: spec.cols, rows: spec.rows },
         };
         let this = self.clone();
+        let pane = owner.pane();
         let crossed = supervised(move || {
             let mut consumer: Option<Consumer> = None;
             let crossed = this.boundary.cross(attempt, || {
@@ -235,7 +246,7 @@ impl SessionMachine {
                     session.force_stop();
                     return Err("the sessions machine is gone".into());
                 }
-                let id = this.table.insert(session).map_err(|refused| {
+                let id = this.table.insert(session, pane).map_err(|refused| {
                     refused.force_stop();
                     "the app is exiting".to_string()
                 })?;
@@ -300,4 +311,11 @@ pub fn pty_resize(sessions: tauri::State<'_, SessionMachine>, id: SessionId, col
 #[tauri::command]
 pub async fn pty_stop(sessions: tauri::State<'_, SessionMachine>, id: SessionId) -> Result<Stopped, String> {
     Ok(sessions.stop_and_wait(id).await)
+}
+
+/// The webview's binding ledger says which process `pane`'s reports are
+/// pinned to (null: none any more). See [`Table::vouch`].
+#[tauri::command]
+pub fn pty_vouch(sessions: tauri::State<'_, SessionMachine>, pane: PaneId, pid: Option<u32>) {
+    sessions.table.vouch(pane, pid);
 }

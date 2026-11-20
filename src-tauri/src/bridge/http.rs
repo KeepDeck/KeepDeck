@@ -67,8 +67,10 @@ pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, St
                 &waiters,
                 &move |pid| {
                     sessions
-                        .state::<crate::session::SessionRegistry>()
+                        .state::<crate::session_machine::SessionMachine>()
+                        .table
                         .pane_of(pid)
+                        .map(|pane| pane.to_string())
                 },
                 &move |inbound| super::emit_inbound(&app, inbound),
             );

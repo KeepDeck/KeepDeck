@@ -98,7 +98,6 @@ impl Rig {
             cwd: Some(self.cwd.clone()),
             cols: 80,
             rows: 24,
-            pane: None,
         }
     }
 

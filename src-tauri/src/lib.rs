@@ -125,7 +125,6 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(history::HistoryIndex::default())
         .manage(usage_ledger::UsageLedgerState::default())
-        .manage(session::SessionRegistry::default())
         .manage(artifacts::ArtifactsState::new())
         .manage(tasks::TasksState::new())
         .manage(exec_once::OnceRunner::new())
@@ -279,6 +278,7 @@ pub fn run() {
             session_machine::pty_write,
             session_machine::pty_resize,
             session_machine::pty_stop,
+            session_machine::pty_vouch,
             apps::list_applications,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,
@@ -298,11 +298,6 @@ pub fn run() {
             mcp::library::mcp_library_save,
             mcp::library::mcp_library_delete,
             mcp::library::mcp_library_rename,
-            session::session_spawn,
-            session::session_write,
-            session::session_resize,
-            session::session_close,
-            session::session_vouch,
             state::deck_state_load,
             state::deck_state_save,
             state::deck_state_quarantine,
@@ -404,15 +399,13 @@ pub fn run() {
         //
         // Both events, because either can be the last one this process sees:
         // `ExitRequested` on the ordinary quit path, `Exit` when the run loop
-        // is torn down under us. `shutdown` empties the registry, so whichever
+        // is torn down under us. `shutdown` empties the table, so whichever
         // comes second finds nothing to do.
         .run(|app, event| {
             if matches!(
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
-                app.state::<session::SessionRegistry>()
-                    .shutdown(keepdeck_pty::STOP_GRACE);
                 app.state::<session_machine::SessionMachine>()
                     .table
                     .shutdown(keepdeck_pty::STOP_GRACE);

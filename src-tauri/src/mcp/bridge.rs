@@ -46,7 +46,7 @@ struct McpRequest {
     /// must read as an anonymous client rather than as nobody at all.
     client: Option<String>,
     /// The pane whose terminal the connecting process belongs to
-    /// ([`crate::session::SessionRegistry::pane_of`]), asked once at
+    /// ([`crate::session_machine::Table::pane_of`]), asked once at
     /// connect. A fact, not a verdict: the webview counts a secret only from
     /// its own pane's terminal, and only it knows which pane a secret is.
     host: Option<String>,
@@ -185,7 +185,7 @@ pub(crate) fn webview_handler(app: AppHandle) -> LineHandler {
     Arc::new(move |peer| {
         let app = app.clone();
         let mut client: Option<String> = None;
-        let host = peer.and_then(|pid| app.state::<crate::session::SessionRegistry>().pane_of(pid));
+        let host = peer.and_then(|pid| app.state::<crate::session_machine::SessionMachine>().table.pane_of(pid)).map(|pane| pane.to_string());
         Box::new(move |line: &str| {
         if let Some(token) = client_token(line) {
             client = Some(token);
