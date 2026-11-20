@@ -38,6 +38,7 @@ import { createRunViewStore } from "./view";
 import { createStartupSilenceWatch } from "./startupSilence";
 import type { AgentOrchestrator, AgentOrchestratorDeps, StagedSkillsAsk } from ".";
 import { errorMessage } from "@keepdeck/plugin-api";
+import { intentOutcomeText } from "../../presentation/lifecycleWords";
 
 const SPAWN_PLACEHOLDER_SIZE = { cols: 80, rows: 24 };
 
@@ -209,6 +210,13 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
       startOwed.add(paneId);
       if (runView.clearNotes(paneId)) publish();
       schedule();
+    },
+    startRefused(paneId, outcome) {
+      const why = intentOutcomeText(outcome);
+      if (why === null) return;
+      log.warn("web:orchestrator", `${paneId}: start fresh refused — ${why}`);
+      runView.markWakeFailed(paneId, why);
+      publish();
     },
   });
 

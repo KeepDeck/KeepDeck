@@ -62,6 +62,9 @@ export interface LifecycleDoorsDeps {
   /** A restart the machine took on: the funnel owes the pane its next
    * process, on its recorded session or fresh. */
   restarting(paneId: string, resume: boolean): void;
+  /** A start fresh that did not go ahead: the pane keeps what it had, and
+   * its card says why. */
+  startRefused(paneId: string, outcome: Exclude<IntentOutcome, { kind: "accepted" }>): void;
 }
 
 export type LifecycleDoors = Pick<
@@ -269,12 +272,14 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
       if (!ws) return GONE;
       const root = teamAt(ws, { kind: "root" }) ?? newTeamId();
       const outcome = await ask({ kind: "relocate", workspace: wsId, pane: paneId, root, role: role ?? null });
-      if (outcome.kind === "accepted") {
-        // A new conversation in the root: the pane rises again, by the
-        // person's own ask.
-        deps.actions.requestPanesWake(wsId, [paneId]);
-        deps.askedBack([paneId]);
+      if (outcome.kind !== "accepted") {
+        deps.startRefused(paneId, outcome);
+        return outcome;
       }
+      // A new conversation in the root: the pane rises again, by the
+      // person's own ask.
+      deps.askedBack([paneId]);
+      deps.actions.requestPanesWake(wsId, [paneId]);
       return outcome;
     },
     resume: resumeOne,

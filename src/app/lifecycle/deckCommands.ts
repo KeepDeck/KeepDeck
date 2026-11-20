@@ -13,6 +13,7 @@
 import {
   findTeam,
   findWorkspace,
+  memberRefusal,
   membersOf,
   nextAutoTeamName,
   sessionClaimant,
@@ -50,6 +51,9 @@ export function createDeckCommands(
   function admit(ws: Workspace, teamId: string, members: readonly Member[]): string | null {
     let roles = ws;
     for (const member of members) {
+      // The team's own cap, in its own words, before the role is asked.
+      const full = memberRefusal(roles, teamId);
+      if (full !== null) return full;
       const admitted = admitRole(roles, teamId, member.draft.role);
       if (!admitted.ok) return roleRefusalMessage(admitted.why, admitted.role, admitted.open);
       member.draft.role = admitted.role;
@@ -140,6 +144,11 @@ export function createDeckCommands(
       actions.createTeam(cmd.workspace, { id: cmd.to, name: nextAutoTeamName(ws), location: { kind: "attached", cwd: ws.cwd } });
     }
     const current = workspace(cmd.workspace);
+    const full = current && findTeam(current, cmd.to) ? memberRefusal(current, cmd.to) : null;
+    if (full !== null) {
+      if (minted) actions.dissolveTeam(cmd.workspace, cmd.to);
+      return rejected(full);
+    }
     const admitted =
       current && findTeam(current, cmd.to)
         ? cmd.role !== null

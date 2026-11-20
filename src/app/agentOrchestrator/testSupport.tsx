@@ -5,6 +5,7 @@ import { vi } from "vitest";
 import type { DeckState, Pane, PaneIdle, SpawnConfig, TeamLocation } from "../../domain/deck";
 import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
 import type { Cmd } from "../../ipc/generated/lifecycle/Cmd";
+import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
 import { createDeckActions } from "../deckActions";
 import { createDeckCommands } from "../lifecycle/deckCommands";
@@ -235,22 +236,22 @@ export const machine = {
     for (const listener of [...machine.listeners]) listener();
   },
   /** The deck owner the fake carries its commands through — the real one,
-   * bound per mount. */
-  carry: null as ((cmd: Cmd) => Promise<unknown>) | null,
+   * bound per mount — and the deck it reads to choose a root team. */
+  carry: null as ((cmd: Cmd) => Promise<Outcome>) | null,
+  deck: null as (() => DeckState) | null,
   async send(intent: Intent): Promise<Reply> {
     machine.intents.push(intent);
     if (machine.answer) return machine.answer;
     machine.op += 1;
     // What the machine then asks of the deck, for the intents whose deck
     // half is one command: carried through the real deck owner, as the
-    // snapshot would carry it.
-    const cmd: Cmd | null =
-      intent.kind === "resume"
-        ? { kind: "clearSuspended", workspace: intent.workspace, pane: intent.pane }
-        : intent.kind === "suspend"
-          ? { kind: "markSuspended", workspace: intent.workspace, pane: intent.pane }
-          : null;
-    if (cmd && machine.carry) await machine.carry(cmd);
+    // snapshot would carry it — and a refusal of it answers the intent, as
+    // the machine's op answers it.
+    const cmd = deckHalfOf(intent);
+    const outcome = cmd && machine.carry ? await machine.carry(cmd) : null;
+    if (outcome?.kind === "rejected") {
+      return { kind: "answered", answer: { kind: "refused", refusal: { kind: "rejected", reason: outcome.reason } } };
+    }
     return { kind: "answered", answer: { kind: "accepted", op: machine.op, minted: { workspace: null, team: null, panes: [] } } };
   },
   async lease(ask: LeaseAsk): Promise<Reply> {
@@ -274,6 +275,25 @@ export const machine = {
     machine.listeners.clear();
   },
 };
+
+/** The deck half of an intent, as the machine sends it: the marker of a
+ * suspend or a resume, and a relocate's move — onto the team already on the
+ * workspace root, or one made under the intent's root id. */
+function deckHalfOf(intent: Intent): Cmd | null {
+  switch (intent.kind) {
+    case "resume":
+      return { kind: "clearSuspended", workspace: intent.workspace, pane: intent.pane };
+    case "suspend":
+      return { kind: "markSuspended", workspace: intent.workspace, pane: intent.pane };
+    case "relocate": {
+      const ws = machine.deck?.().workspaces.find((candidate) => candidate.id === intent.workspace);
+      const root = ws?.teams?.find((team) => team.location?.kind === "attached" && team.location.cwd === ws.cwd);
+      return { kind: "movePane", workspace: intent.workspace, pane: intent.pane, to: root?.id ?? intent.root, newRoot: !root, role: intent.role };
+    }
+    default:
+      return null;
+  }
+}
 
 export const ipcHarness = ipc;
 export const gateHarness = gate;
@@ -439,6 +459,7 @@ export function Probe() {
     const store = createDeckStore();
     const owner = createDeckCommands(store, createDeckActions(store));
     machine.carry = (cmd) => owner.carry({ id: { op: machine.op, index: 0 }, owner: "deck", cmd });
+    machine.deck = store.getSnapshot;
     return {
       store,
       orchestrator: createAgentOrchestrator({

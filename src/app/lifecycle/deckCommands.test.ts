@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findTeam, findWorkspace } from "../../domain/deck";
+import { findTeam, findWorkspace, MAX_PANES, TEAM_FULL_MESSAGE } from "../../domain/deck";
 import type { Cmd } from "../../ipc/generated/lifecycle/Cmd";
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import { createDeckActions } from "../deckActions";
@@ -143,6 +143,15 @@ describe("the deck's owner of lifecycle commands", () => {
   it("refuses a command that is not the deck's", async () => {
     const { carry } = rig();
     expect((await carry({ kind: "forgetBoards", workspace: "ws-a" })).kind).toBe("rejected");
+  });
+
+  it("refuses a seat or a move onto a team at its cap, in the team's own words", async () => {
+    const { carry, ws } = rig();
+    await carry(workspace);
+    await carry(team(Array.from({ length: MAX_PANES }, (_, i) => member(`pane-${i + 1}`, i === 0 ? "lead" : `impl-${i}`))));
+    const seat = await carry({ kind: "addPane", workspace: "ws-a", team: "team-n", pane: "pane-99", draft: member("pane-99", "reviewer").draft });
+    expect(seat).toEqual({ kind: "rejected", reason: TEAM_FULL_MESSAGE });
+    expect(ws()?.panes).toHaveLength(MAX_PANES);
   });
 
   it("marks a suspended pane, and shelves it in the tray only when that is the person's placement", async () => {

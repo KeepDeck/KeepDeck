@@ -12,6 +12,7 @@ import {
   emptyJournal,
   gate,
   ipc,
+  machine,
   peekPaneSpawnSpec,
   pty,
   resetPaneSpawnSpecs,
@@ -37,7 +38,6 @@ describe("agent orchestrator —session policy", () => {
     });
     catalog.ready = true;
     catalog.parkOnLaunch = false;
-    catalog.moveSuspendedToTray = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(present(document.getElementById("host"), "the host element"));
@@ -254,7 +254,9 @@ describe("agent orchestrator —session policy", () => {
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
 
     ipc.probeWorktree.mockResolvedValue({ exists: true, isWorktree: false, empty: false, branch: null });
-    act(() => agentRun.startFresh("ws-1", "pane-1"));
+    await act(async () => {
+      await agentRun.startFresh("ws-1", "pane-1");
+    });
     await settle();
 
     const ws = deck.workspaces[0];
@@ -282,12 +284,18 @@ describe("agent orchestrator —session policy", () => {
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
     act(() => deck.archiveWorkspace("ws-1"));
 
-    act(() => agentRun.startFresh("ws-1", "pane-1"));
+    // The machine refuses a move in an archived workspace; the page writes
+    // nothing of its own around the refusal.
+    machine.answer = { kind: "answered", answer: { kind: "refused", refusal: { kind: "archived" } } };
+    await act(async () => {
+      expect((await agentRun.startFresh("ws-1", "pane-1")).kind).toBe("refused");
+    });
     await settle();
 
     const pane = deck.workspaces[0].panes[0];
     expect(pane.session).toEqual({ id: "s-1", boundAt: "t" });
     expect(pane.team?.teamId).toBe("team-1");
+    expect(pane.idle).not.toMatchObject({ reason: "waking", origin: "manual" });
     expect(deck.workspaces[0].teams?.map((team) => team.id)).toEqual(["team-1"]);
   });
 
@@ -328,7 +336,9 @@ describe("agent orchestrator —session policy", () => {
     await settle();
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
 
-    act(() => agentRun.startFresh("ws-1", "pane-1"));
+    await act(async () => {
+      await agentRun.startFresh("ws-1", "pane-1");
+    });
     await settle();
 
     const moved = deck.workspaces[0].panes[0];
@@ -374,7 +384,9 @@ describe("agent orchestrator —session policy", () => {
       ipc.probeWorktree.mockResolvedValue({ exists: false, isWorktree: false, empty: false, branch: null });
       act(() => deck.hydrate(blockedWithRoot(role, rootRoles)));
       await settle();
-      act(() => agentRun.startFresh("ws-1", "pane-1"));
+      await act(async () => {
+        await agentRun.startFresh("ws-1", "pane-1");
+      });
       await settle();
       return deck.workspaces[0].panes[0];
     };
@@ -402,7 +414,9 @@ describe("agent orchestrator —session policy", () => {
 
     it("takes the role the person picked instead, once the pane's own was refused", async () => {
       await startFreshWith("lead", ["lead"]);
-      act(() => agentRun.startFresh("ws-1", "pane-1", "impl-1"));
+      await act(async () => {
+        await agentRun.startFresh("ws-1", "pane-1", "impl-1");
+      });
       await settle();
       expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-root", role: "impl-1" });
     });
@@ -486,11 +500,12 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     act(() => deck.hydrate({ ...withPane(), viewByWs: { "ws-1": { suspendedTray: ["pane-1"] } } }));
     await settle();
 
-    act(() => {
-      agentRun.resume("ws-1", "pane-1");
+    await act(async () => {
+      await agentRun.resume("ws-1", "pane-1");
     });
 
-    expect(pane().idle).toMatchObject({ reason: "waking", origin: "manual" });
+    // Rising, or already up: the machine's command took the marker off.
+    expect(pane().idle?.reason).not.toBe("suspended");
     expect(deck.viewByWs["ws-1"]?.suspendedTray).toBeUndefined();
   });
 
@@ -569,11 +584,15 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
     act(() => deck.hydrate(withPane()));
     await settle();
-    act(() => agentRun.resume("ws-1", "pane-1"));
+    await act(async () => {
+      await agentRun.resume("ws-1", "pane-1");
+    });
     await settle();
     expect(agentRun.wakeFailed["pane-1"]).toBeDefined();
 
-    act(() => agentRun.resume("ws-1", "pane-1"));
+    await act(async () => {
+      await agentRun.resume("ws-1", "pane-1");
+    });
     await settle();
 
     expect(agentRun.wakeFailed["pane-1"]).toBeUndefined();
@@ -647,10 +666,14 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     );
     act(() => deck.hydrate(withPane()));
     await settle();
-    act(() => agentRun.resume("ws-1", "pane-1"));
+    await act(async () => {
+      await agentRun.resume("ws-1", "pane-1");
+    });
     await settle();
 
-    act(() => agentRun.startFresh("ws-1", "pane-1"));
+    await act(async () => {
+      await agentRun.startFresh("ws-1", "pane-1");
+    });
     await settle();
 
     expect(agentRun.blocked).toEqual({});
