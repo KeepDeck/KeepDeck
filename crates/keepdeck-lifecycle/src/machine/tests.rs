@@ -1022,6 +1022,44 @@ fn the_first_free_place_skips_what_the_disk_holds_and_two_creations_get_two_numb
     assert_eq!(next, Some(Dir::new("/wt/kd-app-4")));
 }
 
+/// Two workspaces may be one repository: a place one holds is not given to
+/// the other.
+#[test]
+fn a_place_held_in_one_workspace_is_not_given_in_another() {
+    let mut facts = deck();
+    facts.workspaces.push(WorkspaceFacts {
+        id: WorkspaceId("ws-b".into()),
+        name: "app".into(),
+        cwd: Dir::new("/repo"),
+        worktree_base: Some(Dir::new("/wt")),
+        archived: false,
+        archiving: false,
+        teams: vec![],
+        panes: vec![],
+    });
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    let other = WorkspaceId("ws-b".into());
+    // A creation still probing in the first workspace holds its candidate.
+    sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::New { place: None, base: None }, draft: draft(), members: vec![] });
+    sim.write_journals();
+    sim.intent(Intent::CreateTeam { workspace: other.clone(), team: team("m"), site: Site::New { place: None, base: None }, draft: draft(), members: vec![] });
+    sim.write_journals();
+    let probed: Vec<Dir> = sim
+        .owed()
+        .into_iter()
+        .filter_map(|effect| match effect {
+            Effect::Probe { path, .. } => Some(path),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(probed.len(), 2, "{probed:?}");
+    assert_ne!(probed[0], probed[1], "one place, given once");
+    assert!(!probed.contains(&Dir::new("/wt/kd-app-1")), "team-1's folder, held in the other workspace");
+    let typed = Place { path: Dir::new("/wt/kd-app-1"), branch: "fresh".into() };
+    assert!(super::queries::check(&sim.state, &typed).is_some(), "a typed place meets the same rule");
+}
+
 #[test]
 fn a_place_typed_by_hand_meets_the_same_rule_and_is_refused_not_moved() {
     let mut sim = Sim::booted();

@@ -291,10 +291,14 @@ pub fn still_creating_for(op: &Op, teams: &[TeamId]) -> bool {
     create_of(op).is_some_and(|create| teams.contains(&create.team) && create.stage == CreateStage::Creating && !create.created)
 }
 
-/// Every folder and branch held for a place in this workspace.
-pub(super) fn held(state: &State, workspace: &crate::ids::WorkspaceId) -> Held {
+/// Every folder and branch held for a place — by any workspace. A path is
+/// one place on disk whichever workspace asks, and two workspaces may be one
+/// repository (its folder opened twice, or two of its worktrees), so their
+/// branches are each other's too: the machine cannot tell them apart, and a
+/// number skipped costs nothing where a place given twice costs a checkout.
+pub(super) fn held(state: &State) -> Held {
     let mut held = Held::default();
-    for team in state.world.teams.values().filter(|team| &team.workspace == workspace) {
+    for team in state.world.teams.values() {
         match &team.at {
             TeamAt::Attached { cwd, branch } => {
                 held.paths.insert(cwd.clone());
@@ -307,7 +311,7 @@ pub(super) fn held(state: &State, workspace: &crate::ids::WorkspaceId) -> Held {
             TeamAt::Unplaced => {}
         }
     }
-    for op in state.ops.values().filter(|op| &op.workspace == workspace) {
+    for op in state.ops.values() {
         if let Some(create) = create_of(op) {
             if let Some(ticket) = &create.ticket {
                 held.paths.insert(ticket.path.clone());
@@ -350,7 +354,7 @@ fn place(state: &mut State, id: OpId) -> Option<Refusal> {
         return None;
     }
     let ws = state.world.workspaces.get(&workspace)?.clone();
-    let mut held = held(state, &workspace);
+    let mut held = held(state);
     let candidate = match &create.site {
         Site::New { place: Some(manual), .. } => {
             // A place typed by hand meets the same rule — held by anyone,

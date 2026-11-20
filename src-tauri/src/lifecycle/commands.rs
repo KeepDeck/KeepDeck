@@ -98,7 +98,7 @@ pub fn lifecycle_location(lifecycle: tauri::State<'_, Lifecycle>, workspace: Wor
         return Location { place: candidate, held: None };
     };
     if let Some(place) = candidate {
-        let held = queries::check(&state, &workspace, &place)
+        let held = queries::check(&state, &place)
             .or_else(|| doors.probe(&repo, &place.path, &place.branch).then_some(PlaceHeld::Disk));
         return Location { place: Some(place), held };
     }

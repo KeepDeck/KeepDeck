@@ -225,15 +225,15 @@ pub struct Location {
 pub fn suggest(state: &State, workspace: &WorkspaceId, from: u32) -> Option<(u32, Place)> {
     let ws = state.world.workspaces.get(workspace)?;
     let base = ws.base.as_ref()?;
-    let held = create::held(state, workspace);
+    let held = create::held(state);
     let n = places::first_free(&held, base, &ws.name, from);
     Some((n, Place { path: places::path(base, &ws.name, n), branch: places::branch(&ws.name, n) }))
 }
 
-/// What holds a place typed by hand, if anything does.
-pub fn check(state: &State, workspace: &WorkspaceId, place: &Place) -> Option<PlaceHeld> {
-    let teams = state.world.teams.values().filter(|team| &team.workspace == workspace);
-    for team in teams {
+/// What holds a place typed by hand, if anything does — in any workspace,
+/// by the rule a creation meets ([`create::held`]).
+pub fn check(state: &State, place: &Place) -> Option<PlaceHeld> {
+    for team in state.world.teams.values() {
         match &team.at {
             TeamAt::Attached { cwd, branch } if *cwd == place.path || branch.as_deref() == Some(place.branch.as_str()) => {
                 return Some(PlaceHeld::Team);
@@ -244,7 +244,7 @@ pub fn check(state: &State, workspace: &WorkspaceId, place: &Place) -> Option<Pl
             _ => {}
         }
     }
-    let held = create::held(state, workspace);
+    let held = create::held(state);
     held.holds(&place.path, &place.branch).then_some(PlaceHeld::Cleanup)
 }
 
@@ -357,11 +357,11 @@ mod tests {
         let state = booted();
         assert_eq!(suggest(&state, &ws(), 1), Some((2, Place { path: Dir::new("/wt/kd-app-2"), branch: "kd/app/2".into() })));
         let taken = Place { path: Dir::new("/wt/kd-app-1"), branch: "other".into() };
-        assert_eq!(check(&state, &ws(), &taken), Some(PlaceHeld::Team));
+        assert_eq!(check(&state, &taken), Some(PlaceHeld::Team));
         let branch = Place { path: Dir::new("/wt/new"), branch: "kd/app/1".into() };
-        assert_eq!(check(&state, &ws(), &branch), Some(PlaceHeld::Team), "the branch is the place's key too");
+        assert_eq!(check(&state, &branch), Some(PlaceHeld::Team), "the branch is the place's key too");
         let free = Place { path: Dir::new("/wt/new"), branch: "new".into() };
-        assert_eq!(check(&state, &ws(), &free), None);
+        assert_eq!(check(&state, &free), None);
     }
 
     #[test]
