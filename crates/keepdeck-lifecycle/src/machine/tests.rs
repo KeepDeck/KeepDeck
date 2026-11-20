@@ -1240,12 +1240,42 @@ fn the_wire_examples_are_written_beside_the_exported_types() {
         Outcome::Rejected { reason: "role taken".into() },
         Outcome::Forked { discard: Discard { plugin: "keepdeck.claude".into(), once_started: vec!["~/.kd/spec.json".into()], if_never_started: vec!["~/.claude/projects/-repo/fork.jsonl".into()] } },
     ];
+    // Rust's own verdicts on sources against a forgotten set — the page's
+    // one accessor must agree with each.
+    let forgotten = Forgotten {
+        workspaces: [WorkspaceId("ws-gone".into())].into(),
+        teams: [team("gone")].into(),
+        panes: [PaneId(9)].into(),
+    };
+    let sources = [
+        ("ws-gone", None, None),
+        ("ws-a", Some("team-gone"), None),
+        ("ws-a", Some("team-1"), Some("pane-9")),
+        ("ws-a", Some("team-1"), Some("pane-1")),
+        ("ws-a", None, Some("pane-1")),
+        ("ws-a", None, None),
+    ];
+    let verdicts: Vec<serde_json::Value> = sources
+        .iter()
+        .map(|&(workspace, team_id, pane)| {
+            let team_id = team_id.map(|t| TeamId(t.into()));
+            let pane_id = pane.and_then(PaneId::parse);
+            let verdict = forgotten.source(&WorkspaceId(workspace.into()), team_id.as_ref(), pane_id.as_ref());
+            json!({ "source": { "workspaceId": workspace, "team": team_id.map(|t| t.0), "pane": pane }, "forgotten": verdict })
+        })
+        .collect();
     let typed = |name: &str, ty: &str, value: serde_json::Value| {
         format!("export const {name}: {ty} = {};\n", serde_json::to_string_pretty(&value).unwrap())
     };
     let text = [
         "// Written by the lifecycle crate's test `the_wire_examples_are_written_beside_the_exported_types`. Do not edit.\n".to_string(),
-        "import type { Due } from \"./Due\";\nimport type { Outcome } from \"./Outcome\";\nimport type { Refusal } from \"./Refusal\";\nimport type { Reply } from \"./Reply\";\nimport type { Versioned } from \"./Versioned\";\n".to_string(),
+        "import type { Due } from \"./Due\";\nimport type { Forgotten } from \"./Forgotten\";\nimport type { Outcome } from \"./Outcome\";\nimport type { Refusal } from \"./Refusal\";\nimport type { Reply } from \"./Reply\";\nimport type { Versioned } from \"./Versioned\";\n".to_string(),
+        typed("forgotten", "Forgotten", json!(forgotten)),
+        typed(
+            "verdicts",
+            "{ source: { workspaceId: string; team: string | null; pane: string | null }; forgotten: boolean }[]",
+            json!(verdicts),
+        ),
         typed("refusals", "Refusal[]", json!(every_refusal())),
         typed("replies", "Reply[]", json!(replies)),
         typed("outcomes", "Outcome[]", json!(outcomes)),

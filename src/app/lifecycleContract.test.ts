@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { NoAnswer, Refusal } from "../domain/lifecycle";
-import { refusals, replies } from "../ipc/generated/lifecycle/examples";
+import { isForgotten, type Forgotten, type NoAnswer, type Refusal } from "../domain/lifecycle";
+import { forgotten, refusals, replies, verdicts } from "../ipc/generated/lifecycle/examples";
+import type { Forgotten as WireForgotten } from "../ipc/generated/lifecycle/Forgotten";
 import type { Refusal as WireRefusal } from "../ipc/generated/lifecycle/Refusal";
 import type { Reply } from "../ipc/generated/lifecycle/Reply";
 import { noAnswerText, refusalText } from "../presentation/lifecycleWords";
@@ -12,9 +13,16 @@ import { noAnswerText, refusalText } from "../presentation/lifecycleWords";
  * has its example.
  */
 describe("the lifecycle's wire, as the page takes it", () => {
-  it("names the same refusals and silences in the domain as on the wire", () => {
+  it("names the same refusals, silences and forgotten set in the domain as on the wire", () => {
     expectTypeOf<Refusal>().toEqualTypeOf<WireRefusal>();
     expectTypeOf<NoAnswer>().toEqualTypeOf<Exclude<Reply, { kind: "answered" }>>();
+    expectTypeOf<Forgotten>().toEqualTypeOf<WireForgotten>();
+  });
+
+  it("calls a source forgotten exactly when Rust does", () => {
+    for (const { source, forgotten: verdict } of verdicts) {
+      expect(isForgotten(forgotten, { workspace: source.workspaceId, team: source.team, pane: source.pane }), JSON.stringify(source)).toBe(verdict);
+    }
   });
 
   it("has words for every refusal and every silence Rust sends", () => {

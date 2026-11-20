@@ -1,0 +1,116 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CommandId } from "../ipc/generated/lifecycle/CommandId";
+import type { Due } from "../ipc/generated/lifecycle/Due";
+import { dues, versioned } from "../ipc/generated/lifecycle/examples";
+import type { Outcome } from "../ipc/generated/lifecycle/Outcome";
+import type { Owner } from "../ipc/generated/lifecycle/Owner";
+import type { Versioned } from "../ipc/generated/lifecycle/Versioned";
+import { createLifecycleSnapshot, type CommandOwners } from "./lifecycleSnapshot";
+
+const BACKOFF = { firstMs: 100, maxMs: 400 };
+const APPLIED: Outcome = { kind: "applied", revision: null };
+
+/** The example snapshot at `version`, owing exactly `commands`. */
+function at(version: number, commands: Due[], forgotten = versioned.snapshot.forgotten): Versioned {
+  return { version, snapshot: { ...versioned.snapshot, forgotten, commands } };
+}
+
+/** Owners that record what they carried and answer each as told. */
+function owners(outcome: (due: Due) => Promise<Outcome> = () => Promise.resolve(APPLIED)) {
+  const carried: Due[] = [];
+  const owner = { carry: vi.fn((due: Due) => (carried.push(due), outcome(due))) };
+  const every: CommandOwners = { deck: owner, boards: owner, mail: owner, runState: owner, notices: owner, forkStep: owner };
+  return { every, carried, owner };
+}
+
+function rig(outcome?: (due: Due) => Promise<Outcome>) {
+  const { every, carried } = owners(outcome);
+  const answers: [CommandId, Outcome][] = [];
+  const answer = vi.fn((id: CommandId, given: Outcome) => (answers.push([id, given]), Promise.resolve()));
+  const store = createLifecycleSnapshot({ owners: every, answer, backoff: BACKOFF });
+  return { store, carried, answers, answer };
+}
+
+const removePane = dues.find((due) => due.cmd.kind === "removePane");
+const forgetMail = dues.find((due) => due.cmd.kind === "forgetPaneMail");
+if (!removePane || !forgetMail) throw new Error("the examples carry every command");
+
+describe("the lifecycle snapshot", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps the newest version and lets an older one go", () => {
+    const { store } = rig();
+    const seen = vi.fn();
+    store.subscribe(seen);
+    store.receive(at(5, []));
+    store.receive(at(4, [removePane]));
+    expect(store.current()?.commands).toEqual([]);
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads «forgotten» off the newest snapshot, and nothing before the first", () => {
+    const { store } = rig();
+    const pane9 = { workspace: "ws-a", pane: "pane-9" };
+    expect(store.forgotten(pane9)).toBe(false);
+    store.receive(at(1, [], { workspaces: [], teams: [], panes: ["pane-9"] }));
+    expect(store.forgotten(pane9)).toBe(true);
+  });
+
+  it("hands each command to its own owner once, however often the snapshot names it", async () => {
+    const { store, carried } = rig();
+    store.receive(at(1, [removePane, forgetMail]));
+    store.receive(at(2, [removePane, forgetMail]));
+    await vi.runOnlyPendingTimersAsync();
+    expect(carried.map((due) => [due.cmd.kind, due.owner])).toEqual([
+      ["removePane", "deck" satisfies Owner],
+      ["forgetPaneMail", "mail" satisfies Owner],
+    ]);
+  });
+
+  it("sends an answer again on its own timer while its command stays, and stops once it is gone", async () => {
+    const { store, answer } = rig();
+    store.receive(at(1, [removePane]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(answer).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(BACKOFF.firstMs);
+    expect(answer).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(BACKOFF.firstMs * 2);
+    expect(answer).toHaveBeenCalledTimes(3);
+    // Doubled up to the last wait, no further.
+    await vi.advanceTimersByTimeAsync(BACKOFF.maxMs);
+    await vi.advanceTimersByTimeAsync(BACKOFF.maxMs);
+    expect(answer).toHaveBeenCalledTimes(5);
+    store.receive(at(2, []));
+    await vi.advanceTimersByTimeAsync(BACKOFF.maxMs * 4);
+    expect(answer).toHaveBeenCalledTimes(5);
+  });
+
+  it("answers a command the restarted machine asks again with the answer it had, carrying nothing twice", async () => {
+    const forked: Outcome = { kind: "rejected", reason: "the role lead is taken" };
+    const { store, carried, answers } = rig(() => Promise.resolve(forked));
+    store.receive(at(9, [removePane]));
+    await vi.advanceTimersByTimeAsync(0);
+    store.receive(at(10, []));
+    store.restarted();
+    store.receive(at(1, [removePane]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(carried).toHaveLength(1);
+    expect(answers.map(([, outcome]) => outcome)).toEqual([forked, forked]);
+  });
+
+  it("answers an owner that failed with a refusal in its words", async () => {
+    const { store, answers } = rig(() => Promise.reject(new Error("the deck could not take it")));
+    store.receive(at(1, [removePane]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(answers[0]?.[1]).toEqual({ kind: "rejected", reason: "the deck could not take it" });
+  });
+
+  it("sends a lost answer again", async () => {
+    const { store, answer } = rig();
+    answer.mockImplementationOnce(() => Promise.reject(new Error("ipc down")));
+    store.receive(at(1, [removePane]));
+    await vi.advanceTimersByTimeAsync(BACKOFF.firstMs);
+    expect(answer).toHaveBeenCalledTimes(2);
+  });
+});

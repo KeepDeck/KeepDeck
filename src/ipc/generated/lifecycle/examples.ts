@@ -1,10 +1,74 @@
 // Written by the lifecycle crate's test `the_wire_examples_are_written_beside_the_exported_types`. Do not edit.
 
 import type { Due } from "./Due";
+import type { Forgotten } from "./Forgotten";
 import type { Outcome } from "./Outcome";
 import type { Refusal } from "./Refusal";
 import type { Reply } from "./Reply";
 import type { Versioned } from "./Versioned";
+
+export const forgotten: Forgotten = {
+  "panes": [
+    "pane-9"
+  ],
+  "teams": [
+    "team-gone"
+  ],
+  "workspaces": [
+    "ws-gone"
+  ]
+};
+
+export const verdicts: { source: { workspaceId: string; team: string | null; pane: string | null }; forgotten: boolean }[] = [
+  {
+    "forgotten": true,
+    "source": {
+      "pane": null,
+      "team": null,
+      "workspaceId": "ws-gone"
+    }
+  },
+  {
+    "forgotten": true,
+    "source": {
+      "pane": null,
+      "team": "team-gone",
+      "workspaceId": "ws-a"
+    }
+  },
+  {
+    "forgotten": true,
+    "source": {
+      "pane": "pane-9",
+      "team": "team-1",
+      "workspaceId": "ws-a"
+    }
+  },
+  {
+    "forgotten": false,
+    "source": {
+      "pane": "pane-1",
+      "team": "team-1",
+      "workspaceId": "ws-a"
+    }
+  },
+  {
+    "forgotten": false,
+    "source": {
+      "pane": "pane-1",
+      "team": null,
+      "workspaceId": "ws-a"
+    }
+  },
+  {
+    "forgotten": false,
+    "source": {
+      "pane": null,
+      "team": null,
+      "workspaceId": "ws-a"
+    }
+  }
+];
 
 export const refusals: Refusal[] = [
   {

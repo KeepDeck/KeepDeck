@@ -28,3 +28,31 @@ export type Refusal =
 /** The waiting door with no answer to hand back: the machine was not there
  * to ask, or ended before it answered. */
 export type NoAnswer = { kind: "unavailable" } | { kind: "unknown" };
+
+/** What the lifecycle has forgotten — the set only grows. A write whose
+ * source is in it is refused at its commit; what was accepted before goes
+ * with the cleanup of whatever forgot it. */
+export interface Forgotten {
+  workspaces: string[];
+  teams: string[];
+  panes: string[];
+}
+
+/** Who a write is for: its workspace and, when it has them, its team and
+ * pane — as the app knows the writer, never in the writer's own words. */
+export interface WriteSource {
+  workspace: string;
+  team?: string | null;
+  pane?: string | null;
+}
+
+/** Whether a write from `source` is refused: its workspace, its team or its
+ * pane is forgotten. The page's one reading of the set — the same verdict
+ * as Rust's `Forgotten::source`, held to it by the contract test. */
+export function isForgotten(forgotten: Forgotten, source: WriteSource): boolean {
+  return (
+    forgotten.workspaces.includes(source.workspace) ||
+    (source.team != null && forgotten.teams.includes(source.team)) ||
+    (source.pane != null && forgotten.panes.includes(source.pane))
+  );
+}
