@@ -1,15 +1,25 @@
-//! The app's doors for the lifecycle handler. Until the doors are wired
-//! (git, the stores, the sessions machine), none of them runs: the app never
-//! handshakes before integration, so the barrier stays up and the machine
-//! hands out no effect that would reach here.
+//! The app's doors for the lifecycle handler. The sessions machine's are
+//! wired: an exact stop, and the start boundary's cancel. Git and the stores
+//! come with their own tasks; until then those doors refuse — and none is
+//! reached, since the app does not handshake before integration and the
+//! barrier stays up.
 
 use super::Doors;
+use crate::session_machine::SessionMachine;
 use keepdeck_lifecycle::dir::Dir;
 use keepdeck_lifecycle::ids::{AttemptId, SessionId, WorkspaceId};
 use keepdeck_lifecycle::journal::Ticket;
 use keepdeck_lifecycle::machine::Clean;
 
-pub struct AppDoors;
+pub struct AppDoors {
+    sessions: SessionMachine,
+}
+
+impl AppDoors {
+    pub fn new(sessions: SessionMachine) -> AppDoors {
+        AppDoors { sessions }
+    }
+}
 
 fn unwired(what: &str) -> String {
     log::error!("lifecycle: the {what} door is not wired yet");
@@ -34,12 +44,11 @@ impl Doors for AppDoors {
         Err(unwired("cleanup"))
     }
 
-    fn stop(&self, _session: SessionId) {
-        unwired("session stop");
+    fn stop(&self, session: SessionId) {
+        self.sessions.stop(session);
     }
 
     fn cancel(&self, attempts: &[AttemptId]) -> Vec<AttemptId> {
-        unwired("start boundary");
-        attempts.to_vec()
+        self.sessions.boundary.cancel(attempts)
     }
 }

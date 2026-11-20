@@ -49,6 +49,7 @@ mod journal;
 mod exec_once;
 mod keyed_locks;
 mod lifecycle;
+mod session_machine;
 mod state;
 mod jsonl_log;
 mod price_catalogue;
@@ -201,10 +202,16 @@ pub fn run() {
             // The lifecycle machine: started once, on the journal root's
             // claim, and held for the app's whole life. A copy without the
             // claim only shows, and keeps trying for it.
+            // The sessions machine first: the lifecycle's doors stop its
+            // sessions and cancel at its start boundary.
             let root = lifecycle::journal_root().ok_or("no KeepDeck home to hold the lifecycle journal")?;
-            let doors = std::sync::Arc::new(lifecycle::AppDoors);
+            let sessions = tauri::async_runtime::block_on(async { session_machine::SessionMachine::start() });
+            let doors = std::sync::Arc::new(lifecycle::AppDoors::new(sessions.clone()));
             let lifecycle = tauri::async_runtime::block_on(async move { lifecycle::Lifecycle::start_at(root, doors) });
             let claimed = lifecycle.claimed();
+            let link_app = app.handle().clone();
+            sessions.link(move || link_app.state::<lifecycle::Lifecycle>().door());
+            app.manage(sessions);
             app.manage(lifecycle);
             if !claimed {
                 lifecycle::Lifecycle::retry_claim(app.handle().clone());
@@ -259,6 +266,10 @@ pub fn run() {
             lifecycle::lifecycle_preview,
             lifecycle::lifecycle_claims,
             lifecycle::lifecycle_location,
+            session_machine::pty_open,
+            session_machine::pty_write,
+            session_machine::pty_resize,
+            session_machine::pty_stop,
             apps::list_applications,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,
@@ -403,6 +414,9 @@ pub fn run() {
             ) {
                 app.state::<session::SessionRegistry>()
                     .shutdown(keepdeck_pty::STOP_GRACE);
+                app.state::<session_machine::SessionMachine>()
+                    .table
+                    .shutdown(keepdeck_pty::STOP_GRACE);
             }
         });
 }
@@ -451,6 +465,8 @@ mod tests {
         "GateRegistry",
         // `let lifecycle = … Lifecycle::start_at(root, doors) …; app.manage(lifecycle);`
         "Lifecycle",
+        // `let sessions = … SessionMachine::start() …; app.manage(sessions);`
+        "SessionMachine",
     ];
 
     /// The final path segment of a type expression: `crate::artifacts::

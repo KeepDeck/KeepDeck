@@ -17,11 +17,13 @@ mod store;
 mod tests;
 
 pub use commands::*;
+pub use door::Door;
 pub use doors::AppDoors;
+pub(crate) use handler::supervised;
 pub use handler::Doors;
 
 use crate::fs_claim::{self, ClaimedRoot};
-use door::{Door, Waiters};
+use door::Waiters;
 use handler::Handler;
 use keepdeck_fsm_runtime::Runtime;
 use keepdeck_lifecycle::journal::{self, Entry};

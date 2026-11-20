@@ -96,7 +96,7 @@ fn output_messages(bytes: &[u8]) -> impl Iterator<Item = SessionEvent> + '_ {
 
 /// Why a session's delivery stopped.
 #[derive(Debug, PartialEq, Eq)]
-enum DeliveryEnd {
+pub(crate) enum DeliveryEnd {
     /// The child exited; its exit was the last event sent.
     Exited,
     /// The page dropped the channel (reload, close).
@@ -113,7 +113,7 @@ enum DeliveryEnd {
 /// answers `false` once the channel is gone. The drop marker is read per
 /// chunk as the queue hands it over — it travels as a chunk of its own there —
 /// before any merging.
-fn deliver(
+pub(crate) fn deliver(
     events: &Consumer,
     session_id: &str,
     mut send: impl FnMut(SessionEvent) -> bool,
@@ -337,7 +337,7 @@ fn unknown_session(id: &str) -> io::Error {
 
 /// Resolve the program to spawn: an explicit non-blank command wins, else the
 /// caller's shell, else `/bin/sh`. Pure so it can be unit tested.
-fn resolve_command(command: Option<String>, shell: Option<String>) -> String {
+pub(crate) fn resolve_command(command: Option<String>, shell: Option<String>) -> String {
     nonblank(command)
         .or_else(|| nonblank(shell))
         .unwrap_or_else(|| "/bin/sh".to_string())
