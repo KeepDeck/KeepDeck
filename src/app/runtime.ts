@@ -61,7 +61,7 @@ import {
   sendIntent,
   subscribeLifecycle,
 } from "../ipc/lifecycle";
-import { claimingTeams, isForgotten, type WriteSource } from "../domain/lifecycle";
+import { claimingTeams } from "../domain/lifecycle";
 import { createLifecycleSnapshot } from "./lifecycleSnapshot";
 import { connectLifecycle } from "./lifecycle/connection";
 import { createDeckCommands } from "./lifecycle/deckCommands";
@@ -299,7 +299,8 @@ export function createAppRuntime(
   const tasks = createTasksFeature({
     registry,
     workspaces: () => deckStore.getSnapshot().workspaces,
-    forgotten: forgottenNow,
+    // The lifecycle's fence, read at each call: the snapshot is built below.
+    forgotten: (source) => lifecycleSnapshot.forgotten(source),
     settings: { tasks: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
     socket: { up: () => mcp.service.status().socket !== null, subscribe: mcp.service.subscribe },
     store: createDbBoardStore({
@@ -449,7 +450,7 @@ export function createAppRuntime(
         nudge: nudgeBridgePane,
         hasCompanion: (paneId) => attribution.hasCompanion(paneId),
       },
-      lifecycle: { forgotten: forgottenNow },
+      lifecycle: { forgotten: (source) => lifecycleSnapshot.forgotten(source) },
     },
   );
   // Where an arming pass's refusals land for the skills surface to read.
@@ -481,13 +482,6 @@ export function createAppRuntime(
     },
     answer: reportApplied,
   });
-  /** The lifecycle's fence for the page's own stores: a write for a pane,
-   * team or workspace the machine has forgotten — a close under way — is
-   * refused. Before the first snapshot nothing is forgotten. */
-  function forgottenNow(source: WriteSource): boolean {
-    const snapshot = lifecycleSnapshot.current();
-    return snapshot !== null && isForgotten(snapshot.forgotten, source);
-  }
   // The library takes only the staleness half of the worktree manager: a write
   // has to drop the staged views the next pane spawn would inject.
   const skills = createSkillsLibrary({
