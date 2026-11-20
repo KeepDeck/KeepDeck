@@ -49,6 +49,10 @@ export interface TasksFeature {
   /** A closing workspace's board: forgotten by the owner that holds it,
    * which drops it on disk once its writes are done. */
   forgetWorkspace(workspaceId: string): Promise<void>;
+  /** Hold every loaded board to its workspace's teams as they are now —
+   * the lifecycle's command once it has reconciled the deck. Nothing to do
+   * with no owner up: a board loads against the teams it finds. */
+  retainTeams(): void;
   /** Stops reconciling and takes the owner and the commands down. Does
    * NOT close the store: its life follows the setting and the process,
    * never the page (`beforeunload` fires on every dev reload). */
@@ -211,6 +215,9 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
       const owner = service ?? retiring;
       if (owner) await owner.forget(workspaceId);
       else await deps.store.drop({ workspaceId });
+    },
+    retainTeams() {
+      (service ?? retiring)?.retainTeams();
     },
     dispose() {
       if (disposed) return;

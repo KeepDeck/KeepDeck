@@ -179,8 +179,8 @@ describe("createTasksFeature", () => {
     // The deck changing alone touches no board.
     const before = service.peek("ws-1");
     expect(before?.kind === "ready" && before.board.tasks.map((t) => t.title)).toEqual(["api's", "web's"]);
-    // The lifecycle's DeleteTeamTasks reaches the owner.
-    service.retainTeams();
+    // The lifecycle's DeleteTeamTasks reaches the owner, through the feature.
+    h.feature.retainTeams();
     await flush();
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.map((t) => t.title)).toEqual(["api's"]);
