@@ -1315,7 +1315,13 @@ fn a_quarantined_deck_holds_a_restored_close_whole_its_forgetting_included() {
             removals: vec![],
         },
         joined: vec![],
-        commands: vec![],
+        // A launch that loaded the deck had already sent the forgetting, and
+        // died before the owner carried it.
+        commands: vec![crate::journal::Sent {
+            command: crate::command::Command { id: CommandId { op: OpId(7), index: 0 }, cmd: Cmd::ForgetBoards { workspace: ws() } },
+            settled: false,
+            rejected: None,
+        }],
         done: vec![],
     };
     let mut sim = Sim::new(Some(vec![close]));
@@ -1324,8 +1330,10 @@ fn a_quarantined_deck_holds_a_restored_close_whole_its_forgetting_included() {
     sim.drive();
     let forgetting = |cmd: &Cmd| matches!(cmd, Cmd::ForgetBoards { .. } | Cmd::ForgetPaneMail { .. } | Cmd::DeleteTeamTasks { .. });
     assert!(!sim.carried.iter().any(forgetting), "no owner forgets on a quarantined deck: {:?}", sim.carried);
+    assert!(!sim.pending().iter().any(|due| forgetting(&due.cmd)), "not even handed to its owner");
     assert!(sim.cleaned.is_empty(), "nothing removed: {:?}", sim.cleaned);
     assert!(sim.disk.contains_key(&OpId(7)), "the close waits whole, its entry on disk, for a launch that reads the deck");
+    assert!(sim.disk[&OpId(7)].commands.iter().any(|sent| sent.command.id == CommandId { op: OpId(7), index: 0 } && !sent.settled), "kept, under its id");
 }
 
 #[test]

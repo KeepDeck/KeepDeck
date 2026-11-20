@@ -158,6 +158,12 @@ pub fn snapshot(state: &State) -> Snapshot {
     let mut commands = Vec::new();
     for (&op_id, op) in &state.ops {
         for (index, sent) in op.sent.iter().enumerate() {
+            // A forgetting restored from the journal into a launch whose deck
+            // did not load for work stays owed: kept, under its id, and not
+            // handed to its owner until a launch that reads the deck whole.
+            if sent.cmd.forgets() && !state.boot.cleans() {
+                continue;
+            }
             if !sent.settled(saved) && !matches!(sent.outcome, Some(crate::command::Outcome::Rejected { .. })) {
                 let id = CommandId { op: op_id, index: index as u32 };
                 commands.push(Due { id, owner: sent.cmd.owner(), cmd: sent.cmd.clone() });

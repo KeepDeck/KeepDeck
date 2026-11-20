@@ -112,6 +112,16 @@ pub enum Cmd {
 }
 
 impl Cmd {
+    /// Its owner removes data with it — a team's tasks, a workspace's
+    /// boards, a pane's mail. Such a command is a cleanup, and waits with
+    /// the rest of one for a launch whose deck loaded for work.
+    pub fn forgets(&self) -> bool {
+        matches!(
+            self,
+            Cmd::DeleteTeamTasks { .. } | Cmd::ForgetBoards { .. } | Cmd::RetainTeams { .. } | Cmd::ForgetPaneMail { .. } | Cmd::RetainPanes { .. }
+        )
+    }
+
     pub fn owner(&self) -> Owner {
         match self {
             Cmd::AddWorkspace { .. }
