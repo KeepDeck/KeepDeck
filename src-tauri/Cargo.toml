@@ -107,3 +107,13 @@ keepdeck-fsm = { path = "../crates/keepdeck-fsm" }
 tokio = { version = "1", features = ["test-util"] }
 # Tauri's test runtime: the app composes on it as it does on the window's.
 tauri = { version = "2", features = ["test"] }
+
+[features]
+# The host harness: the app on Tauri's test runtime, serving the page's tests
+# over a pipe (src/harness.rs, the kd-host binary). Never part of a release.
+host-harness = ["tauri/test"]
+
+[[bin]]
+name = "kd-host"
+path = "src/bin/kd_host.rs"
+required-features = ["host-harness"]

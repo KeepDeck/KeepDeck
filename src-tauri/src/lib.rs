@@ -13,6 +13,8 @@ mod fswatch;
 mod fs_beneath;
 mod fs_claim;
 mod fs_names;
+#[cfg(feature = "host-harness")]
+pub mod harness;
 mod head_watch;
 mod http;
 mod links;
