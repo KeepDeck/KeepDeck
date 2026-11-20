@@ -50,6 +50,25 @@ describe("agent orchestrator —session policy", () => {
 
   const pane = () => deck.workspaces[0].panes[0];
 
+  it("launches nothing while the machine's barrier is up, and the pane once it lifts", async () => {
+    // Before the machine has reconciled the deck it may still be undoing
+    // what a crash left: the sweep asks no lease and opens no process until
+    // the snapshot says the barrier is down.
+    machine.open = false;
+    act(() => deck.hydrate(restored({})));
+    await settle();
+    expect(machine.leases).toEqual([]);
+    expect(pty.acquired).toEqual([]);
+
+    act(() => {
+      machine.open = true;
+      machine.publish();
+    });
+    await settle();
+    expect(machine.leases).toHaveLength(1);
+    expect(pty.acquired.map((launch) => launch.paneId)).toEqual(["pane-1"]);
+  });
+
   it("publishes the resumed pane's plan, not just the process", async () => {
     // The plan reaching the cache is not the point — the DECK reads the
     // published view to decide whether to mount a terminal at all. A resume
