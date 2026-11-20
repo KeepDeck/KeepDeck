@@ -107,7 +107,7 @@ pub fn run() {
     plugin_permissions::host_environment();
     // Trim past runs' log files before the plugin opens this run's own.
     let collected = logging::collect_garbage();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(logging::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -123,7 +123,93 @@ pub fn run() {
             plugins_fs::handle_request(plugins_fs::plugins_root().as_deref(), &origin, &request)
         })
         .menu(menu::build)
-        .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
+        .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()));
+    compose(builder, move |app| {
+        logging::install_panic_hook();
+        logging::banner();
+        // The notification stack gets exactly one chance to resolve who we
+        // are and takes it lazily, on the first banner (see
+        // `notify_identity`). Tauri has ALREADY built the config-declared
+        // window and its webview by the time this closure runs, so being
+        // early in `setup` is not what keeps us ahead of that first
+        // banner — the main thread simply has not yielded to the run loop
+        // yet, so no frontend code has executed. Anything added above this
+        // line that pumps the run loop (a modal, a main-thread drain)
+        // would let the webview reach `sendNotification` first and burn
+        // the attempt.
+        #[cfg(target_os = "macos")]
+        notify_identity::prepare(&app.config().identifier);
+        // The updater's config (pubkey + endpoints) lives only in the
+        // release overlay (tauri.release.conf.json); a dev build carries
+        // no `plugins.updater` section and the plugin refuses to init
+        // without one, so it is registered only when configured. The
+        // frontend treats the plugin's absence as "updates disabled".
+        if app.config().plugins.0.contains_key("updater") {
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+        }
+        if collected > 0 {
+            log::info!("log gc: removed {collected} old file(s)");
+        }
+        open_files.log();
+        // Image pastes leave temp PNGs a pane's CLI reads asynchronously —
+        // they can only be reaped at the NEXT startup, here.
+        clipboard::sweep_stale_clipboard_files();
+        // Adopt state a legacy install left in the identifier-keyed
+        // dirs — before the webview boots and asks for the deck, and
+        // before it can enable the artifacts store: that adoption
+        // moves a tree only into an EMPTY seat, so an enable that
+        // claimed the home's store first would make the legacy one
+        // unadoptable forever. Setup runs to completion before the
+        // webview gets the loop, which is what keeps the order.
+        migration::run(app.handle());
+        // What builds before plugin API 73 planted in pane directories
+        // goes before the webview restores a pane: each one's plugin
+        // declares what it still needs the moment it starts.
+        plantings_migration::run();
+        // Model prices: the journal the usage ledger is priced from asks
+        // the catalogue once a day, off the main thread.
+        price_catalogue::start(app.handle());
+        Ok(())
+    })
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    // The app is going — take the agents with it.
+    //
+    // Nothing ever did this. Dropping the window closes each PTY, which
+    // hangs up the terminal and nothing more: a CLI that owns its own
+    // children lives on, orphaned, holding whatever it held. It is
+    // invisible until the next launch, when codex finds "an active
+    // writer" on the rollout it wants to resume — the writer being the
+    // codex the last run left behind.
+    //
+    // Both events, because either can be the last one this process sees:
+    // `ExitRequested` on the ordinary quit path, `Exit` when the run loop
+    // is torn down under us. `shutdown` empties the table, so whichever
+    // comes second finds nothing to do.
+    .run(|app, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            app.state::<session_machine::SessionMachine>()
+                .table
+                .shutdown(keepdeck_pty::STOP_GRACE);
+        }
+    });
+}
+
+/// The app's own composition: the state it manages, what its setup starts
+/// for the commands to reach — the bridge, the gates, the sessions and
+/// lifecycle machines — and its one list of commands. Built on the window's
+/// builder by [`run`], whose `shell` runs first in setup: what only the
+/// windowed app does — its banner and notifications, the updater, the legacy
+/// migrations, the price catalogue.
+fn compose(
+    builder: tauri::Builder<tauri::Wry>,
+    shell: impl FnOnce(&mut tauri::App) -> Result<(), Box<dyn std::error::Error>> + Send + 'static,
+) -> tauri::Builder<tauri::Wry> {
+    builder
         .manage(history::HistoryIndex::default())
         .manage(usage_ledger::UsageLedgerState::default())
         .manage(artifacts::ArtifactsState::new())
@@ -146,56 +232,12 @@ pub fn run() {
         .manage(mcp::bridge::McpBridge::default())
         .manage(mcp::library::McpLibraryLock::default())
         .setup(move |app| {
-            logging::install_panic_hook();
-            logging::banner();
-            // The notification stack gets exactly one chance to resolve who we
-            // are and takes it lazily, on the first banner (see
-            // `notify_identity`). Tauri has ALREADY built the config-declared
-            // window and its webview by the time this closure runs, so being
-            // early in `setup` is not what keeps us ahead of that first
-            // banner — the main thread simply has not yielded to the run loop
-            // yet, so no frontend code has executed. Anything added above this
-            // line that pumps the run loop (a modal, a main-thread drain)
-            // would let the webview reach `sendNotification` first and burn
-            // the attempt.
-            #[cfg(target_os = "macos")]
-            notify_identity::prepare(&app.config().identifier);
-            // The updater's config (pubkey + endpoints) lives only in the
-            // release overlay (tauri.release.conf.json); a dev build carries
-            // no `plugins.updater` section and the plugin refuses to init
-            // without one, so it is registered only when configured. The
-            // frontend treats the plugin's absence as "updates disabled".
-            if app.config().plugins.0.contains_key("updater") {
-                app.handle()
-                    .plugin(tauri_plugin_updater::Builder::new().build())?;
-            }
-            if collected > 0 {
-                log::info!("log gc: removed {collected} old file(s)");
-            }
-            open_files.log();
-            // Image pastes leave temp PNGs a pane's CLI reads asynchronously —
-            // they can only be reaped at the NEXT startup, here.
-            clipboard::sweep_stale_clipboard_files();
-            // Adopt state a legacy install left in the identifier-keyed
-            // dirs — before the webview boots and asks for the deck, and
-            // before it can enable the artifacts store: that adoption
-            // moves a tree only into an EMPTY seat, so an enable that
-            // claimed the home's store first would make the legacy one
-            // unadoptable forever. Setup runs to completion before the
-            // webview gets the loop, which is what keeps the order.
-            migration::run(app.handle());
-            // What builds before plugin API 73 planted in pane directories
-            // goes before the webview restores a pane: each one's plugin
-            // declares what it still needs the moment it starts.
-            plantings_migration::run();
+            shell(app)?;
             // The CLI bridge: agents report their session ids through this
             // run's inbox; the lock and watcher live as managed state for
             // the app's lifetime.
             let bridge = bridge::start(app.handle())?;
             app.manage(bridge);
-            // Model prices: the journal the usage ledger is priced from asks
-            // the catalogue once a day, off the main thread.
-            price_catalogue::start(app.handle());
             let gate_app = app.handle().clone();
             app.manage(skills::GateRegistry::new(move || {
                 gate_app
@@ -387,31 +429,6 @@ pub fn run() {
             plugin_permissions::plugin_permissions_forget,
             plugin_http::plugin_http_get,
         ])
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        // The app is going — take the agents with it.
-        //
-        // Nothing ever did this. Dropping the window closes each PTY, which
-        // hangs up the terminal and nothing more: a CLI that owns its own
-        // children lives on, orphaned, holding whatever it held. It is
-        // invisible until the next launch, when codex finds "an active
-        // writer" on the rollout it wants to resume — the writer being the
-        // codex the last run left behind.
-        //
-        // Both events, because either can be the last one this process sees:
-        // `ExitRequested` on the ordinary quit path, `Exit` when the run loop
-        // is torn down under us. `shutdown` empties the table, so whichever
-        // comes second finds nothing to do.
-        .run(|app, event| {
-            if matches!(
-                event,
-                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
-            ) {
-                app.state::<session_machine::SessionMachine>()
-                    .table
-                    .shutdown(keepdeck_pty::STOP_GRACE);
-            }
-        });
 }
 
 #[cfg(test)]
