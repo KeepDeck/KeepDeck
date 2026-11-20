@@ -10,8 +10,8 @@ describe("sharedDirectoryAsk", () => {
     expect(title).toBe("That directory is already a team's");
     expect(message).toContain("api");
     expect(message).toContain("/wt/api");
-    // The promise the teardown actually keeps — `directoriesStillHeld` is
-    // what makes this sentence true, so it is pinned with it.
+    // The promise a close keeps: the lifecycle machine never offers a
+    // folder another team still works in, so it is pinned with it.
     expect(message).toContain("Neither team's worktree is deleted");
   });
 

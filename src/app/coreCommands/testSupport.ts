@@ -59,8 +59,7 @@ function locationAt(ws: Workspace, site: Site): TeamLocation {
 
 export const HOST = { kind: "host" } as const;
 
-// Repo inspection is per-test switchable; suggestions follow the real Rust
-// naming (kd/<ws>/<i> ↔ kd-<ws>-<i>); probes report every path free.
+// Repo inspection is per-test switchable; probes report every path free.
 const hoistedRepoMode = vi.hoisted(() => ({
   isRepo: false,
   inspect: null as null | (() => Promise<{
@@ -78,20 +77,12 @@ vi.mock("../../ipc/worktree", () => ({
       head: "abc",
       branch: "main",
     }),
-  suggestWorktree: async (workspace: string, index: number) => ({
-    branch: `kd/${workspace}/${index}`,
-    folder: `kd-${workspace}-${index}`,
-  }),
   probeWorktree: async () => ({
     exists: false,
     isWorktree: false,
     empty: false,
     branch: null,
   }),
-  createWorktree: async () => {
-    throw new Error("not under test");
-  },
-  removeWorktree: async () => {},
 }));
 
 const hoistedSettingsState = vi.hoisted(() => ({
