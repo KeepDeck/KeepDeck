@@ -304,8 +304,10 @@ pub(crate) fn create_by_ticket(locks: &RepoLocks, repo_path: &Path, path: &Path,
     let (base, base_branch_ref) = resolve_base(repo_path, base, None)?;
     let lock = locks.for_repo(repo_path);
     let _guard = locks.acquire(&lock);
-    if ticket_checkout_stands(repo_path, path, branch)? {
-        return Ok(());
+    match at_ticket(repo_path, path, branch)? {
+        AtTicket::Its => return Ok(()),
+        AtTicket::Another(other) => return Err(format!("{} is a checkout of {other} already, not of {branch}", path.display())),
+        AtTicket::Nothing => {}
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create worktree parent dir: {e}"))?;
@@ -314,31 +316,37 @@ pub(crate) fn create_by_ticket(locks: &RepoLocks, repo_path: &Path, path: &Path,
 }
 
 /// Whether a ticket's checkout stands — git's word, nothing made: a
-/// checkout of the repository at the ticket's path, on its branch. What a
-/// close may then delete as this ticket's.
-pub(crate) fn find_by_ticket(locks: &RepoLocks, repo_path: &Path, path: &Path, branch: &str) -> Result<(), String> {
+/// checkout of the repository at the ticket's path, on its branch, is what
+/// a close may delete as this ticket's (`true`). Nothing there, or another
+/// branch's checkout, is `false`. A repository git cannot read says
+/// nothing: an error, never `false`.
+pub(crate) fn find_by_ticket(locks: &RepoLocks, repo_path: &Path, path: &Path, branch: &str) -> Result<bool, String> {
     let lock = locks.for_repo(repo_path);
     let _guard = locks.acquire(&lock);
-    if ticket_checkout_stands(repo_path, path, branch)? {
-        Ok(())
-    } else {
-        Err(format!("no checkout of {branch} stands at {}", path.display()))
-    }
+    Ok(matches!(at_ticket(repo_path, path, branch)?, AtTicket::Its))
 }
 
-/// A checkout of the repository at `path` on `branch` is a ticket's: an add
-/// that finished, its result recorded or not. A checkout of anything else
-/// there is refused; none there is `false`.
-fn ticket_checkout_stands(repo_path: &Path, path: &Path, branch: &str) -> Result<bool, String> {
+/// What git's list of the repository's checkouts has at a ticket's path.
+enum AtTicket {
+    Nothing,
+    /// A checkout on the ticket's branch: an add that finished, its result
+    /// recorded or not.
+    Its,
+    /// A checkout of something else: this branch, or a detached HEAD.
+    Another(String),
+}
+
+/// An error only when git could not read the repository's checkouts.
+fn at_ticket(repo_path: &Path, path: &Path, branch: &str) -> Result<AtTicket, String> {
     let here = worktree::list(repo_path)
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|row| worktree::paths_match(&row.path, path));
-    match here.map(|row| row.branch) {
-        None => Ok(false),
-        Some(Some(found)) if found == branch => Ok(true),
-        Some(other) => Err(format!("{} is a checkout of {} already, not of {branch}", path.display(), other.as_deref().unwrap_or("a detached HEAD"))),
-    }
+    Ok(match here.map(|row| row.branch) {
+        None => AtTicket::Nothing,
+        Some(Some(found)) if found == branch => AtTicket::Its,
+        Some(other) => AtTicket::Another(other.unwrap_or_else(|| "a detached HEAD".into())),
+    })
 }
 
 /// The branches born in a checkout, read from its reflog — before it is
@@ -1386,7 +1394,8 @@ mod tests {
     }
 
     /// Finding a ticket's checkout makes nothing: it stands at the ticket's
-    /// path on the ticket's branch, or it is not this ticket's.
+    /// path on the ticket's branch, or it does not — and a repository git
+    /// cannot read says neither.
     #[test]
     fn a_tickets_checkout_is_found_only_where_it_stands_on_its_branch_and_never_made() {
         let repo = init_repo("door-find");
@@ -1394,12 +1403,14 @@ mod tests {
         let wt = repo.with_file_name(format!("{}-wt", repo.file_name().unwrap().to_string_lossy()));
         let _ = std::fs::remove_dir_all(&wt);
 
-        assert!(find_by_ticket(&locks, &repo, &wt, "kd/find/1").is_err(), "none stands");
+        assert_eq!(find_by_ticket(&locks, &repo, &wt, "kd/find/1"), Ok(false), "none stands");
         assert!(!wt.exists(), "nothing was made");
         assert!(!branch_listed(&repo, "kd/find/1"));
         create_by_ticket(&locks, &repo, &wt, "kd/find/1", None).expect("created");
-        find_by_ticket(&locks, &repo, &wt, "kd/find/1").expect("this ticket's");
-        assert!(find_by_ticket(&locks, &repo, &wt, "kd/find/2").is_err(), "another branch's checkout");
+        assert_eq!(find_by_ticket(&locks, &repo, &wt, "kd/find/1"), Ok(true), "this ticket's");
+        assert_eq!(find_by_ticket(&locks, &repo, &wt, "kd/find/2"), Ok(false), "another branch's checkout");
+        let unreadable = repo.with_file_name(format!("{}-gone", repo.file_name().unwrap().to_string_lossy()));
+        assert!(find_by_ticket(&locks, &unreadable, &wt, "kd/find/1").is_err(), "no repository to read: nothing known");
         let _ = std::fs::remove_dir_all(&wt);
         let _ = std::fs::remove_dir_all(&repo);
     }

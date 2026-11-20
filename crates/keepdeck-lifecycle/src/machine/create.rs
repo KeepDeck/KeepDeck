@@ -480,6 +480,31 @@ fn handed_over(state: &State, create: &Create) -> bool {
     written.is_some_and(|entry| matches!(&entry.work, Work::Close { consent, .. } if consent.folders.iter().any(|folder| folder.path == ticket.path)))
 }
 
+/// Git's word on a restored, taken-over creation's checkout. Standing, it
+/// is handed over as a made one is; not standing, nothing is. When git
+/// could not read the repository nothing is known: the creation and the
+/// close that took it over are both owed, their entries kept, and the next
+/// launch joins them and asks again.
+pub fn found(state: &mut State, id: OpId, found: Result<bool, String>, fx: &mut Fx) {
+    match found {
+        Ok(true) => created(state, id, Ok(()), fx),
+        Ok(false) => created(state, id, Err("no checkout of this ticket stands at its path".into()), fx),
+        Err(reason) => {
+            let Some(op) = state.ops.get_mut(&id) else { return };
+            let Some(create) = create_mut(op) else { return };
+            if create.stage != CreateStage::Creating || create.created {
+                return;
+            }
+            let taker = create.taken_by;
+            fx.warn(format!("{id}: whether its checkout stands is not known: {reason}"));
+            op.owed = true;
+            if let Some(close) = taker.and_then(|close| state.ops.get_mut(&close)) {
+                close.owed = true;
+            }
+        }
+    }
+}
+
 pub fn created(state: &mut State, id: OpId, result: StepResult, fx: &mut Fx) {
     let Some(op) = state.ops.get_mut(&id) else { return };
     let workspace = op.workspace.clone();

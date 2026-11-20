@@ -261,6 +261,10 @@ pub enum Event {
     /// What is on disk at a candidate place.
     Probed { op: OpId, path: Dir, taken: bool },
     Created { op: OpId, result: StepResult },
+    /// Git's word on a ticket's checkout: it stands (`Ok(true)`), it does not
+    /// — nothing there, or another branch's checkout (`Ok(false)`) — or git
+    /// could not read the repository, and nothing is known (`Err`).
+    Found { op: OpId, found: Result<bool, String> },
     BranchesRead { op: OpId, path: Dir, result: Result<Vec<String>, String> },
     StepDone { op: OpId, step: Step, result: StepResult },
     /// The spawn door's start boundary, for the attempts a Close took over.
@@ -282,7 +286,7 @@ pub enum Effect {
     CreateWorktree { op: OpId, ticket: Ticket },
     /// Git's word on whether the ticket's checkout stands — at its path, on
     /// its branch: what its add made before a crash. Nothing is made. Its
-    /// answer comes back as `Created`, an error when no such checkout stands.
+    /// answer comes back as `Found`.
     FindWorktree { op: OpId, ticket: Ticket },
     ReadBranches { op: OpId, repo: Dir, path: Dir },
     /// One removal or cleanup step; its result comes back as `StepDone`.
@@ -419,6 +423,7 @@ fn step(state: &mut State, event: Event, fx: &mut Fx) {
         Event::JournalRemoved { op, attempt, result } => journal_removed(state, op, attempt, result, fx),
         Event::Probed { op, path, taken } => create::probed(state, op, path, taken, fx),
         Event::Created { op, result } => create::created(state, op, result, fx),
+        Event::Found { op, found } => create::found(state, op, found, fx),
         Event::BranchesRead { op, path, result } => teardown::branches_read(state, op, path, result, fx),
         Event::StepDone { op, step, result } => teardown::step_done(state, op, step, result, fx),
         Event::Cancelled { op, started } => boundary::cancelled(state, op, started),

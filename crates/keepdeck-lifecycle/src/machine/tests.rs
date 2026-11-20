@@ -252,7 +252,8 @@ impl Sim {
         for effect in self.owed() {
             let event = match effect {
                 Effect::Probe { op, path, .. } => Event::Probed { op, path, taken: false },
-                Effect::CreateWorktree { op, .. } | Effect::FindWorktree { op, .. } => Event::Created { op, result: Ok(()) },
+                Effect::CreateWorktree { op, .. } => Event::Created { op, result: Ok(()) },
+                Effect::FindWorktree { op, .. } => Event::Found { op, found: Ok(true) },
                 Effect::ReadBranches { op, path, .. } => Event::BranchesRead { op, path, result: Ok(Vec::new()) },
                 Effect::Clean { op, step, how, .. } => {
                     if !self.cleaned.contains(&how) {
@@ -703,7 +704,7 @@ fn a_creation_taken_over_before_a_crash_hands_its_checkout_over_after_it_only_on
     let owed = sim.owed();
     assert!(owed.contains(&Effect::FindWorktree { op: OpId(5), ticket: ticket.clone() }), "{owed:?}");
     assert!(!owed.iter().any(|effect| matches!(effect, Effect::CreateWorktree { .. })), "nothing is made");
-    sim.send(Event::Created { op: OpId(5), result: Ok(()) });
+    sim.send(Event::Found { op: OpId(5), found: Ok(true) });
     let holds = |sim: &Sim| matches!(&sim.disk[&OpId(7)].work, Work::Close { consent, .. } if consent.folders.iter().any(|folder| folder.path == ticket.path));
     for _ in 0..3 {
         if holds(&sim) {
@@ -717,12 +718,25 @@ fn a_creation_taken_over_before_a_crash_hands_its_checkout_over_after_it_only_on
     sim.drive();
     assert!(deleted(&sim), "the close deletes it: {:?}", sim.cleaned);
 
-    // No such checkout stands: nothing is handed over, nothing deleted.
+    // Git says no such checkout stands: nothing is handed over, nothing
+    // deleted.
     let mut sim = Sim::booted_with(deck(), entries());
-    sim.send(Event::Created { op: OpId(5), result: Err("no checkout of kd/app/5 stands there".into()) });
+    sim.send(Event::Found { op: OpId(5), found: Ok(false) });
     sim.drive();
     assert!(!deleted(&sim), "{:?}", sim.cleaned);
     assert!(sim.disk.is_empty(), "both done: {:?}", sim.disk.keys());
+
+    // Git could not read the repository: nothing is known. Both stay owed,
+    // their entries kept, and the next launch asks again.
+    let mut sim = Sim::booted_with(deck(), entries());
+    sim.send(Event::Found { op: OpId(5), found: Err("the repository's volume is not mounted".into()) });
+    sim.drive();
+    assert!(!deleted(&sim), "{:?}", sim.cleaned);
+    assert!(sim.state.ops[&OpId(5)].owed && sim.state.ops[&OpId(7)].owed, "both owed");
+    assert!(!sim.owed().iter().any(|effect| matches!(effect, Effect::RemoveJournal { .. })), "no entry goes");
+    assert_eq!(sim.disk.keys().copied().collect::<Vec<_>>(), [OpId(5), OpId(7)]);
+    let next = Sim::booted_with(deck(), sim.disk.values().cloned().collect());
+    assert!(next.owed().contains(&Effect::FindWorktree { op: OpId(5), ticket: ticket.clone() }), "asked again");
 }
 
 /// Git refuses the taken-over creation — the path is another branch's
