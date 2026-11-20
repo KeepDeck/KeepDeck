@@ -1,4 +1,6 @@
-import { spawnSession, type Session } from "../ipc/session";
+import { openSession, type Session } from "../ipc/session";
+import type { LaunchOwner } from "../ipc/generated/lifecycle/LaunchOwner";
+import type { PermitId } from "../ipc/generated/lifecycle/PermitId";
 import { log } from "../ipc/log";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -16,9 +18,14 @@ import { errorMessage } from "@keepdeck/plugin-api";
  * assumptions about React internals.
  *
  * One global manager, not one per workspace: pane ids are unique across the
- * deck (a single mint sequence), and the Rust `SessionRegistry` behind the IPC
- * is already app-global. If remote hosts ever arrive, the key grows a host
- * part here.
+ * deck (the lifecycle machine mints them), and the sessions machine behind
+ * the IPC is already app-global. If remote hosts ever arrive, the key grows a
+ * host part here.
+ *
+ * A process starts only through the spawn door, by the launch permit the
+ * machine leased its owner ([`PaneLaunch`]): whether a pane may run is the
+ * funnel's question, asked before this is reached, and the door's admission
+ * answers it again at the system spawn.
  *
  * Output is mirrored into a bounded per-pane ring buffer at all times, so a
  * re-attaching view (remount) replays recent history into its fresh xterm
@@ -39,6 +46,13 @@ export interface PaneSpawnSpec {
   cwd?: string | null;
   cols: number;
   rows: number;
+}
+
+/** The launch lease a spawn spends: the permit the machine granted, and the
+ * owner it granted it to. */
+export interface PaneLaunch {
+  permit: PermitId;
+  owner: LaunchOwner;
 }
 
 /** A view's ears: everything a session reports back to its pane. */
@@ -182,7 +196,7 @@ function identity(spec: PaneSpawnSpec): string {
  * user action ([U4]). A different identity (the pane moved cwd, e.g.
  * start-fresh after a lost worktree) closes the old session and spawns anew.
  */
-export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
+export function acquirePane(paneId: string, spec: PaneSpawnSpec, launch: PaneLaunch): void {
   const existing = entries.get(paneId);
   if (existing && existing.key === identity(spec) && existing.failed === null) {
     return;
@@ -214,7 +228,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
   // session, and none of them carries output bytes.
   log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
 
-  spawnSession(
+  openSession(
     {
       command: spec.command,
       args: spec.args,
@@ -223,8 +237,9 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       cwd: spec.cwd,
       cols: spec.cols,
       rows: spec.rows,
-      pane: paneId,
     },
+    launch.permit,
+    launch.owner,
     (event) => {
       if (entry.closed) return;
       if (event.type === "output") {
@@ -268,9 +283,9 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
   )
     .then((session) => {
       if (entry.closed) {
-        // The pane was closed while the spawn was in flight — reap the
+        // The pane was closed while the spawn was in flight — stop the
         // process the moment it exists.
-        void session.close().catch(() => {});
+        void session.stop().catch(() => {});
         return;
       }
       entry.session = session;
@@ -389,9 +404,10 @@ export function resizePane(paneId: string, cols: number, rows: number): void {
 }
 
 /**
- * End the pane's session for real — THE only path that kills the process.
- * Resolves once the close IPC settles (a worktree delete may need the cwd
- * freed). Safe on unknown/already-closed panes.
+ * Let a pane's session go: its entry, its buffer, and — when the process is
+ * still there — a stop of that exact session. A close the lifecycle runs has
+ * already stopped it through the sessions machine; this only drops what the
+ * page held. Safe on unknown/already-closed panes.
  */
 export function closePane(paneId: string): Promise<void> {
   const entry = entries.get(paneId);
@@ -410,10 +426,13 @@ export function closePane(paneId: string): Promise<void> {
   entry.session = null;
   if (!session) return Promise.resolve();
   log.info("web:pty", `${paneId}: close`);
-  return session.close().catch((e) => {
-    // Usually "already gone" (the process exited and reaped itself).
-    log.debug("web:pty", `${paneId}: close failed: ${errorMessage(e)}`);
-  });
+  return session.stop().then(
+    () => {},
+    (e: unknown) => {
+      // Usually "already gone" (the process exited and reaped itself).
+      log.debug("web:pty", `${paneId}: close failed: ${errorMessage(e)}`);
+    },
+  );
 }
 
 /** Test hook: drop every entry, closing what's live. */
