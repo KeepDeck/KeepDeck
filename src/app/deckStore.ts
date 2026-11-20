@@ -8,6 +8,10 @@ import {
 
 export interface DeckStore {
   getSnapshot(): DeckState;
+  /** How many times the deck has changed this run. A deck command's answer
+   * names the revision its change landed at; a save names the revision it
+   * wrote — the lifecycle holds a change durable once a save reaches it. */
+  revision(): number;
   subscribe(listener: () => void): () => void;
   /** Apply one domain transition synchronously and return its resulting state. */
   dispatch(action: DeckAction): DeckState;
@@ -37,10 +41,12 @@ export function createDeckStore(
   titleAgents: () => readonly TitleAgent[] = () => [],
 ): DeckStore {
   let state = initialState;
+  let revision = 0;
   const listeners = new Set<() => void>();
 
   return {
     getSnapshot: () => state,
+    revision: () => revision,
     titleAgents,
     subscribe(listener) {
       listeners.add(listener);
@@ -50,6 +56,7 @@ export function createDeckStore(
       const next = deckReducer(state, action);
       if (next === state) return state;
       state = next;
+      revision += 1;
       for (const listener of [...listeners]) listener();
       return state;
     },

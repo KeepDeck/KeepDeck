@@ -25,6 +25,7 @@ describe("the app-lifetime worktree sweep trigger", () => {
       getSnapshot: () => ({
         restoring,
         frozen: frozen ? { kind: "unreadable" } : null,
+        load: frozen ? "readFailed" : null,
       }),
       subscribe(listener) {
         persistenceListeners.add(listener);

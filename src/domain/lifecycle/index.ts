@@ -29,6 +29,15 @@ export type Refusal =
  * to ask, or ended before it answered. */
 export type NoAnswer = { kind: "unavailable" } | { kind: "unknown" };
 
+/** How the deck loaded at boot — what the handshake tells the machine, so
+ * it never reconciles against a deck that is not the person's:
+ * - `loaded`: read whole, or there was none yet;
+ * - `quarantined`: unreadable, set aside, started empty;
+ * - `quarantineFailed`: unreadable, and could not be set aside;
+ * - `newer`: written by a newer build, so this one only shows;
+ * - `readFailed`: could not be read at all. */
+export type DeckLoad = "loaded" | "quarantined" | "newer" | "readFailed" | "quarantineFailed";
+
 /** What the lifecycle has forgotten — the set only grows. A write whose
  * source is in it is refused at its commit; what was accepted before goes
  * with the cleanup of whatever forgot it. */

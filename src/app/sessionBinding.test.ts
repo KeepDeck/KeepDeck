@@ -71,6 +71,7 @@ describe("createSessionBinding", () => {
     const dispatch = vi.fn<DeckStore["dispatch"]>(() => state);
     const store: DeckStore = {
       getSnapshot: () => state,
+      revision: () => 0,
       subscribe: () => () => {},
       titleAgents: () => [],
       dispatch,

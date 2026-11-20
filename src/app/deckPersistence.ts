@@ -1,5 +1,6 @@
 import { deckImmediateKey, hydrateDeck, serializeDeck } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
+import type { DeckLoad } from "../domain/lifecycle";
 import { log } from "../ipc/log";
 import {
   loadDeckState,
@@ -18,6 +19,9 @@ const SAVE_MAX_WAIT_MS = 2_000;
 export interface DeckPersistenceSnapshot {
   restoring: boolean;
   frozen: DeckPark | null;
+  /** How the deck loaded; null while it is still loading. With the deck as
+   * hydrated, this is the boot snapshot the lifecycle's handshake reads. */
+  load: DeckLoad | null;
 }
 
 export type DeckPark =
@@ -34,14 +38,17 @@ export interface DeckPersistence {
  *
  * `onNotices` hears what the migration ladder did to the file that the
  * person should know about — once, on the launch that did it: hydration
- * hands the notices over and never writes them back. */
+ * hands the notices over and never writes them back. `onSaved` hears the
+ * deck revision of every snapshot once it is on disk. */
 export function createDeckPersistence(
   deck: DeckStore,
   onNotices: (notices: readonly string[]) => void = () => {},
+  onSaved: (revision: number) => void = () => {},
 ): DeckPersistence {
   const actions = createDeckActions(deck);
   const listeners = new Set<() => void>();
-  let snapshot: DeckPersistenceSnapshot = { restoring: true, frozen: null };
+  let snapshot: DeckPersistenceSnapshot = { restoring: true, frozen: null, load: null };
+  let load: DeckLoad = "loaded";
   let loaded = false;
   let frozen = false;
   let disposed = false;
@@ -57,7 +64,8 @@ export function createDeckPersistence(
   function emit(next: DeckPersistenceSnapshot): void {
     if (
       next.restoring === snapshot.restoring &&
-      next.frozen === snapshot.frozen
+      next.frozen === snapshot.frozen &&
+      next.load === snapshot.load
     ) {
       return;
     }
@@ -99,6 +107,7 @@ export function createDeckPersistence(
     if (saving) return;
     const serializedAtStart = serialized;
     const immediateAtStart = immediate;
+    const revisionAtStart = deck.revision();
     saving = true;
     void saveDeckState(serializedAtStart).then(
       () => {
@@ -106,6 +115,7 @@ export function createDeckPersistence(
         lastSaved = serializedAtStart;
         lastImmediate = immediateAtStart;
         saving = false;
+        onSaved(revisionAtStart);
         if (serialized !== serializedAtStart) flushNow();
       },
       (error) => {
@@ -160,6 +170,7 @@ export function createDeckPersistence(
           `deck revision ${result.version} needs a reader ≥ ${result.minVersion} — session parked, saving disabled`,
         );
         frozen = true;
+        load = "newer";
         emit({
           restoring: true,
           frozen: {
@@ -167,6 +178,7 @@ export function createDeckPersistence(
             version: result.version,
             minVersion: result.minVersion,
           },
+          load: null,
         });
         return;
       }
@@ -175,13 +187,20 @@ export function createDeckPersistence(
           "web:persist",
           "deck state unusable → quarantined, starting empty",
         );
-        void quarantineDeckState().catch((error) =>
-          log.error(
-            "web:persist",
-            `quarantine itself failed: ${errorMessage(error)}`,
-          ),
+        // Waited on: whether the unreadable file was set aside is part of
+        // how the deck loaded.
+        return quarantineDeckState().then(
+          () => {
+            load = "quarantined";
+          },
+          (error) => {
+            load = "quarantineFailed";
+            log.error(
+              "web:persist",
+              `quarantine itself failed: ${errorMessage(error)}`,
+            );
+          },
         );
-        return;
       }
       seedAgentSeq(result.deck.nextAgentSeq);
       docExtras = result.deck.docExtras;
@@ -201,13 +220,14 @@ export function createDeckPersistence(
         `deck state load failed → session parked, saving disabled: ${errorMessage(error)}`,
       );
       frozen = true;
-      emit({ restoring: true, frozen: { kind: "unreadable" } });
+      load = "readFailed";
+      emit({ restoring: true, frozen: { kind: "unreadable" }, load: null });
     })
     .finally(() => {
       if (disposed) return;
       loaded = true;
       deckChanged();
-      emit({ restoring: false, frozen: snapshot.frozen });
+      emit({ restoring: false, frozen: snapshot.frozen, load });
     });
 
   return {
