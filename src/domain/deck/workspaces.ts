@@ -200,29 +200,6 @@ export interface UnheldRemovalRequest {
   keepHeadAs?: string;
 }
 
-/** A git worktree (and its branch, when one is known) to tear down when an
- * agent or workspace closes. */
-export interface WorktreeTarget {
-  /** The repository (the workspace cwd) the git ops run against. */
-  repo: string;
-  /** The worktree directory to remove. */
-  path: string;
-  /** The branch to delete BY NAME once the worktree is gone, when the pane
-   * still tracks one. Absent for a detached-HEAD worktree — the dir is still
-   * removed, and no branch is named here. Naming is not the whole story:
-   * the delete flow also reaps branches BORN in the worktree (the user's
-   * checkbox says "and its branches"), so absence means "nothing to name",
-   * never "no branch will be touched". */
-  branch?: string;
-}
-
-/** Why a worktree teardown left its target in place — a kind, never a
- * sentence (the words are presentation's `teardownFailureText`): another
- * live workspace still works in the folder, or git refused. */
-export type WorktreeTeardownFailure =
-  | { kind: "held-elsewhere"; target: WorktreeTarget }
-  | { kind: "git-refused"; target: WorktreeTarget; reason: string };
-
 /** Runtime git position for a path, supplied by the app layer when available.
  * This is intentionally not pane domain state: panes own durable worktree
  * intent/branch, while current HEAD is observed at runtime. */
@@ -231,53 +208,6 @@ export interface GitPosition {
   head?: string;
 }
 
-/**
- * The worktrees a workspace's TEAMS hold — just the one team when `teamId`
- * is given (a disband), else every team (a workspace close). A directory is
- * a team's, never a pane's, so a member closing is never asked about one.
- *
- * A team on the workspace root holds no worktree of its own: the root is
- * never a deletion target, structurally — a team there disbands without
- * the offer. A team whose create is still out has no directory yet to
- * name (the close flow covers it by its ticket), and a non-worktree
- * workspace's teams all run in the root — an empty result is the signal
- * that there's nothing to offer deleting.
- *
- * The directory is ALWAYS offered; only the NAMED branch varies with what's
- * known about the worktree's HEAD:
- * - runtime HEAD observed on a branch → that currently checked-out branch;
- * - runtime HEAD observed but DETACHED → none named (naming one would be
- *   ambiguous on a bare commit — the dir is not: skipping it, as this once
- *   did, stranded the directory on disk with the delete checkbox gone);
- * - HEAD not observed → the team's durable owned branch, when it has one.
- *
- * Naming is only the explicit half: the delete flow additionally reaps
- * branches born in the worktree (`reapCreatedBranches`) — see
- * [`WorktreeTarget.branch`].
- */
-export function worktreeTargets(
-  ws: Workspace,
-  teamId?: string,
-  gitPositions?: ReadonlyMap<string, GitPosition>,
-): WorktreeTarget[] {
-  const root = normalizePath(ws.cwd);
-  return teamsOf(ws)
-    .filter((team) => teamId === undefined || team.id === teamId)
-    .flatMap((team) => {
-      const location = team.location;
-      if (location?.kind !== "attached" || normalizePath(location.cwd) === root) {
-        return [];
-      }
-      const observed = gitPositions?.get(location.cwd);
-      return [
-        {
-          repo: ws.cwd,
-          path: location.cwd,
-          branch: observed ? observed.branch : location.branch,
-        },
-      ];
-    });
-}
 
 /** Set (or, via `undefined`, delete) one plugin's opaque persisted slot in a
  * workspace's plugin bag. The slot's CONTENT is never inspected here — only

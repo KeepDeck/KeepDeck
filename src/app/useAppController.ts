@@ -31,7 +31,7 @@ import { usePersistence } from "./usePersistence";
 import { useBrowserSharedSeam } from "./useSessionsBrowser";
 import { useSettings } from "./useSettings";
 import { useSpawnContext } from "./useSpawnContext";
-import { suspendRefusalText } from "../presentation/suspendWords";
+import { suspendResultText } from "../presentation/suspendWords";
 import { useUpdate } from "./useUpdate";
 import { buildDockTabs } from "../components/dock/useDockTabs";
 import { DEFAULT_SETTINGS } from "../domain/settings";
@@ -55,6 +55,7 @@ import {
   type WorkspaceUpdateResult,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
+import { previewIntent } from "../ipc/lifecycle";
 import { readAppInfo } from "./appInfo";
 import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen } from "../presentation/layering";
 import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
@@ -154,10 +155,10 @@ export function useAppController(runtime: AppRuntime) {
     onTeamFailed: (message) => pushAlert("Could not start the team", message),
   }, runView.blocked, runtime.agentDoors);
   const closeFlow = useCloseFlow(deck, {
-    onError: (message) => pushAlert("Worktree error", message),
+    onError: (message) => pushAlert("Can't close", message),
     onSuspendRefused: (message) =>
       pushAlert("Can't suspend this agent", message),
-    gitPositions: gitHeads,
+    preview: previewIntent,
     blockedPanes: runView.blocked,
     suspendAgent: orchestrator.suspend,
     closeAgents: orchestrator.close,
@@ -399,12 +400,9 @@ export function useAppController(runtime: AppRuntime) {
         agents,
       );
       if (!target) return;
-      void orchestrator.suspend(target.wsId, target.paneId).then((outcome) => {
-        if (outcome === "suspended") return;
-        pushAlert(
-          "Can't suspend this agent",
-          suspendRefusalText(outcome, target.label),
-        );
+      void orchestrator.suspend(target.wsId, target.paneId).then((result) => {
+        const why = suspendResultText(result, target.label);
+        if (why !== null) pushAlert("Can't suspend this agent", why);
       });
     },
     toggleMaximize: () => {

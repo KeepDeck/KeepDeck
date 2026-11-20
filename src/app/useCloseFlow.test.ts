@@ -2,25 +2,70 @@
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PathProbe } from "../domain/agents";
-import type { GitPosition, Pane, Team } from "../domain/deck";
+import { createIsOut, findWorkspace, membersOf, teamsOf, type Pane, type Team, type Workspace } from "../domain/deck";
+import type { IntentOutcome, SuspendResult } from "../domain/lifecycle";
 import { createWorkspaceInstance, type WorkspaceRef } from "../domain/workspaceInstance";
+import type { Intent } from "../ipc/generated/lifecycle/Intent";
+import type { Preview } from "../ipc/generated/lifecycle/Preview";
+import { intentOutcomeText, refusalText } from "../presentation/lifecycleWords";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { createDeckStore } from "./deckStore";
 import { useCloseFlow } from "./useCloseFlow";
-import type { SuspendOutcome, WorktreeTeardownFailure } from "../domain/deck";
 import type { CloseRequest } from "./agentOrchestrator";
 import { present } from "@keepdeck/plugin-api/testing";
 
+const ACCEPTED: IntentOutcome = { kind: "accepted", op: 1, minted: { workspace: null, team: null, panes: [] } };
+/** The consent of a close that deletes nothing. */
+const NOTHING = { folders: [], tickets: [] };
+
 /** The teardown, as this hook sees it: a request, recorded. What the close
- * then DOES — the token revocations, the reaping, the worktree removal and
- * their order — belongs to the orchestrator and is asserted there. This file
- * is about the CONFIRMATION: which panes, which directories, and whether the
+ * then DOES belongs to the lifecycle machine and is asserted there. This
+ * file is about the CONFIRMATION: which panes, which offer, and whether the
  * user meant it. */
-const closeAgents = vi.fn<(request: CloseRequest) => Promise<WorktreeTeardownFailure[]>>(() =>
-  Promise.resolve([]),
-);
+const closeAgents = vi.fn(async (_request: CloseRequest): Promise<IntentOutcome> => ACCEPTED);
+
+/** The machine's offer for a team set, as it would make it from this deck:
+ * every team's worktree but the root's, and a ticket per create still out. */
+function offerOf(ws: Workspace, teams: readonly Team[]): Pick<Preview, "folders" | "creations"> {
+  return {
+    folders: teams.flatMap((team) =>
+      team.location?.kind === "attached" && team.location.cwd !== ws.cwd
+        ? [{ repo: ws.cwd, path: team.location.cwd, branch: team.location.branch ?? null }]
+        : [],
+    ),
+    creations: teams.flatMap((team, at) => (createIsOut(team.location) ? [100 + at] : [])),
+  };
+}
+
+/** `lifecycle_preview`, faked over the deck the hook reads. */
+function machinePreview(intent: Intent): Preview {
+  const ws = findWorkspace(deck.workspaces, intent.kind === "closeAgent" || intent.kind === "disband" || intent.kind === "closeWorkspace" ? intent.workspace : "");
+  const none: Preview = { refusal: { kind: "notFound" }, stops: [], folders: [], creations: [], lastOf: null };
+  if (!ws) return none;
+  switch (intent.kind) {
+    case "closeAgent": {
+      const pane = ws.panes.find((candidate) => candidate.id === intent.pane);
+      const teamId = pane?.team?.teamId;
+      const team = teamId ? teamsOf(ws).find((candidate) => candidate.id === teamId) : undefined;
+      const last = team && membersOf(ws, team.id).length === 1 ? team : undefined;
+      return {
+        refusal: null,
+        stops: [intent.pane],
+        folders: [],
+        creations: [],
+        lastOf: last ? [last.id, { refusal: null, stops: [intent.pane], ...offerOf(ws, [last]), lastOf: null }] : null,
+      };
+    }
+    case "disband":
+      return { refusal: null, stops: membersOf(ws, intent.team).map((pane) => pane.id), ...offerOf(ws, teamsOf(ws).filter((team) => team.id === intent.team)), lastOf: null };
+    case "closeWorkspace":
+      return { refusal: null, stops: ws.panes.map((pane) => pane.id), ...offerOf(ws, teamsOf(ws)), lastOf: null };
+    default:
+      return none;
+  }
+}
+const preview = vi.fn(async (intent: Intent) => machinePreview(intent));
 /** The registry ask, faked at the seam: most tests leave it answering
  * "none" per entry (an ordinary close — the warning must NOT appear), and
  * the background tests aim it per test. The REAL seam batches one query
@@ -55,31 +100,10 @@ function deferredCarriers() {
 }
 /** The last close this test asked for. */
 const requested = () => closeAgents.mock.calls[0][0];
-/** The last close, which must be one that carries a teardown. */
-const requestedTeardown = () => {
-  const request = requested();
-  if (request.kind === "agent") throw new Error("an agent close carries no teardown");
-  return request;
-};
-
-const probes = vi.hoisted(() => ({
-  probeWorktree: vi.fn<(path: string) => Promise<PathProbe>>(),
-}));
-vi.mock("../ipc/worktree", () => ({
-  probeWorktree: probes.probeWorktree,
-}));
-
-/** A probe answer: the dir is there (a plain worktree) or it's gone. */
-function probed(exists: boolean): PathProbe {
-  return { exists, isWorktree: exists, empty: false, branch: null };
-}
 
 let deck: Deck;
 let flow: ReturnType<typeof useCloseFlow>;
-let runtimeHeads: Map<string, GitPosition>;
-const suspendAgent = vi.fn<
-  (wsId: string, paneId: string) => Promise<SuspendOutcome>
->(() => Promise.resolve("suspended"));
+const suspendAgent = vi.fn(async (_wsId: string, _paneId: string): Promise<SuspendResult> => ({ kind: "suspending" }));
 
 /** What the hook reported to the user this test, by heading. */
 const errors: string[] = [];
@@ -108,7 +132,7 @@ function Probe() {
   flow = useCloseFlow(deck, {
     onError: (message) => errors.push(message),
     onSuspendRefused: (message) => refusals.push(message),
-    gitPositions: runtimeHeads,
+    preview,
     blockedPanes,
     suspendAgent,
     closeAgents,
@@ -208,11 +232,10 @@ describe("useCloseFlow", () => {
   beforeEach(() => {
     closeAgents.mockClear();
     suspendAgent.mockClear();
+    preview.mockClear();
+    errors.length = 0;
     backgroundCarriers.mockReset();
     backgroundCarriers.mockResolvedValue(["none"]);
-    probes.probeWorktree.mockReset();
-    probes.probeWorktree.mockResolvedValue(probed(true));
-    runtimeHeads = new Map();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
@@ -232,6 +255,7 @@ describe("useCloseFlow", () => {
       kind: "agent",
       workspace: ref(),
       paneId: "pane-1",
+      consent: NOTHING,
     });
   });
 
@@ -355,23 +379,24 @@ describe("useCloseFlow", () => {
       const wsId = seed();
       await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
       expect(flow.canCloseAgentOnly).toBe(true);
+      expect(preview).toHaveBeenCalledWith({ kind: "closeAgent", workspace: "ws-1", pane: "pane-2", consent: NOTHING });
       expect(lastOffer()).toEqual({
         teamId: "team-2",
         name: "wt",
-        targets: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
-        pending: 0,
+        folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
+        tickets: [],
       });
       expect(flow.worktreeCount).toBe(1);
       expect(flow.closeMessage).toContain("It is the last agent on “wt”");
 
       act(() => flow.setDeleteWorktree(true));
       act(() => flow.confirmClose());
+      // The offer the dialog showed IS the consent.
       expect(requested()).toEqual({
         kind: "team",
         workspace: ref(),
         teamId: "team-2",
-        deleteWorktrees: true,
-        worktrees: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
+        consent: { folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }], tickets: [] },
       });
     });
 
@@ -385,6 +410,7 @@ describe("useCloseFlow", () => {
         kind: "agent",
         workspace: ref(),
         paneId: "pane-2",
+        consent: NOTHING,
       });
       expect(flow.closing).toBeNull();
     });
@@ -394,7 +420,7 @@ describe("useCloseFlow", () => {
       act(() => deck.closeAgent(wsId, "pane-0"));
       await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
       expect(flow.canCloseAgentOnly).toBe(true);
-      expect(lastOffer().targets).toEqual([]);
+      expect(lastOffer().folders).toEqual([]);
       expect(flow.worktreeCount).toBe(0);
       act(() => flow.confirmClose());
       expect(requested()).toMatchObject({ kind: "team", teamId: "team-1" });
@@ -419,7 +445,7 @@ describe("useCloseFlow", () => {
       teamId: "team-2",
       name: "wt",
       count: 1,
-      targets: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
+      folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
     });
     expect(flow.closeMessage).toBe(
       "This ends 1 agent and its session. The team is removed.",
@@ -431,45 +457,53 @@ describe("useCloseFlow", () => {
       kind: "team",
       workspace: ref(),
       teamId: "team-2",
-      deleteWorktrees: true,
-      worktrees: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
+      consent: { folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }], tickets: [] },
     });
   });
 
-  it("says what a teardown left in place, in presentation's words", async () => {
-    const target = { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" };
-    closeAgents.mockResolvedValueOnce([{ kind: "held-elsewhere", target }]);
+  it("says the machine's refusal of a confirmed close", async () => {
+    const leaving: IntentOutcome = { kind: "refused", refusal: { kind: "alreadyClosing" } };
+    closeAgents.mockResolvedValueOnce(leaving);
     const wsId = seed();
     await act(async () => flow.requestDisbandTeam(wsId, "team-2"));
-    act(() => flow.setDeleteWorktree(true));
     await act(async () => flow.confirmClose());
-    expect(errors).toEqual([
-      "Failed to delete worktree:\nkd/ws/2: another workspace still works in this folder",
-    ]);
+    expect(errors).toEqual([intentOutcomeText(leaving)]);
+  });
+
+  it("opens no dialog for a close the machine would refuse now, and says why", async () => {
+    preview.mockResolvedValueOnce({ refusal: { kind: "alreadyClosing" }, stops: [], folders: [], creations: [], lastOf: null });
+    const wsId = seed();
+    await act(async () => flow.requestDisbandTeam(wsId, "team-2"));
+    expect(flow.closing).toBeNull();
+    expect(errors).toEqual([refusalText({ kind: "alreadyClosing" })]);
+  });
+
+  it("offers exactly the machine's offer — the hook adds no folder of its own", async () => {
+    // The machine knows a folder this deck still draws is gone, or held by
+    // another close: its offer leaves it out, and so does the dialog.
+    preview.mockResolvedValueOnce({ refusal: null, stops: ["pane-2"], folders: [], creations: [], lastOf: null });
+    const wsId = seed();
+    await act(async () => flow.requestDisbandTeam(wsId, "team-2"));
+    expect(flow.worktreeCount).toBe(0);
+    act(() => flow.setDeleteWorktree(true));
+    act(() => flow.confirmClose());
+    expect(requested()).toMatchObject({ consent: NOTHING });
   });
 
   it("offers to delete a worktree that is still being created", async () => {
-    // A team mid-create has no cwd, so `worktreeTargets` cannot describe it
-    // and the checkbox was never rendered — the create then landed a
-    // directory and branch that no surface would ever name again.
+    // A team mid-create has no folder to name yet, but the create lands a
+    // directory and branch that no surface would ever name again: the
+    // machine offers its ticket.
     const wsId = creating();
     await act(async () => flow.requestCloseAgent(wsId, "pane-9", "Agent 1"));
 
-    // No target — there is no directory to name yet — but the offer stands.
-    expect(lastOffer().targets).toEqual([]);
-    expect(lastOffer().pending).toBe(1);
+    expect(lastOffer().folders).toEqual([]);
+    expect(lastOffer().tickets).toEqual([100]);
     expect(flow.worktreeCount).toBe(1);
 
     act(() => flow.setDeleteWorktree(true));
     act(() => flow.confirmClose());
-    // The decision travels; the list does not have to be complete, because
-    // the close finishes it against the live deck.
-    expect(requested()).toMatchObject({
-      kind: "team",
-      teamId: "team-9",
-      deleteWorktrees: true,
-      worktrees: [],
-    });
+    expect(requested()).toMatchObject({ kind: "team", teamId: "team-9", consent: { folders: [], tickets: [100] } });
   });
 
   it("does not ask to delete an in-flight create the user left unticked", async () => {
@@ -477,7 +511,7 @@ describe("useCloseFlow", () => {
     await act(async () => flow.requestCloseAgent(wsId, "pane-9", "Agent 1"));
     act(() => flow.confirmClose());
 
-    expect(requested()).toMatchObject({ kind: "team", deleteWorktrees: false });
+    expect(requested()).toMatchObject({ kind: "team", consent: NOTHING });
   });
 
   it("a create that already FAILED is not counted as a worktree to delete", async () => {
@@ -491,14 +525,13 @@ describe("useCloseFlow", () => {
     // Which panes a workspace holds is a fact about the deck at the moment
     // the close runs — reading it here would be a second answer to it.
     const wsId = seed();
-    // The dialog opens only after the worktree probe answers.
+    // The dialog opens only after the machine's preview answers.
     await act(async () => flow.requestCloseWorkspace(wsId));
     act(() => flow.confirmClose());
     expect(requested()).toEqual({
       kind: "workspace",
       workspace: ref(),
-      deleteWorktrees: false,
-      worktrees: [],
+      consent: NOTHING,
     });
   });
 
@@ -542,73 +575,32 @@ describe("useCloseFlow", () => {
     expect(flow.closeMessage).toContain("may still be carried");
   });
 
-  it("uses the observed current branch when discarding an owned worktree", async () => {
-    runtimeHeads.set("/wt/2", { branch: "feature/current" });
-    const wsId = seed();
-    await act(async () => flow.requestCloseWorkspace(wsId));
-    act(() => flow.setDeleteWorktree(true));
-    act(() => flow.confirmClose());
-    await act(async () => {});
-
-    expect(requestedTeardown().worktrees).toEqual([
-      { repo: "/repo", path: "/wt/2", branch: "feature/current" },
-    ]);
-  });
-
-  it("a gone worktree is not offered for deletion", async () => {
-    probes.probeWorktree.mockResolvedValue(probed(false));
-    const wsId = seed();
-    await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
-
-    expect(probes.probeWorktree).toHaveBeenCalledWith("/wt/2");
-    expect(flow.closing).not.toBeNull();
-    expect(lastOffer().targets).toEqual([]);
-
-    // Even a forced checkbox can't discard: the snapshot holds no targets.
-    act(() => flow.setDeleteWorktree(true));
-    act(() => flow.confirmClose());
-    await act(async () => {});
-    expect(requestedTeardown().worktrees).toEqual([]);
-  });
-
-  it("a workspace close keeps only the worktrees that still exist", async () => {
-    probes.probeWorktree.mockImplementation((path) =>
-      Promise.resolve(probed(path !== "/wt/2")),
-    );
+  it("a workspace close offers every team's worktree the machine names, and hands back all of it", async () => {
     const wsId = seed([{ id: "pane-3", cwd: "/wt/3", branch: "kd/ws/3" }]);
     await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.worktreeCount).toBe(2);
     act(() => flow.setDeleteWorktree(true));
     act(() => flow.confirmClose());
-    await act(async () => {});
-
-    expect(requestedTeardown().worktrees).toEqual([
-      { repo: "/repo", path: "/wt/3", branch: "kd/ws/3" },
-    ]);
+    expect(requested()).toMatchObject({
+      consent: {
+        folders: [
+          { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" },
+          { repo: "/repo", path: "/wt/3", branch: "kd/ws/3" },
+        ],
+        tickets: [],
+      },
+    });
   });
 
-  it("an unanswerable probe keeps the delete offer", async () => {
-    probes.probeWorktree.mockRejectedValue(new Error("ipc down"));
+  it("a newer close request wins over a slower preview", async () => {
+    let answer!: (offer: Preview) => void;
+    preview.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
     const wsId = seed();
-    await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
-
-    expect(lastOffer().targets).toEqual([
-      { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" },
-    ]);
-  });
-
-  it("a newer close request wins over a slower probe", async () => {
-    let answer!: (probe: PathProbe) => void;
-    probes.probeWorktree.mockImplementationOnce(
-      () => new Promise((resolve) => (answer = resolve)),
-    );
-    const wsId = seed();
-    // The worktree team's request hangs on its probe... The plain pane's
-    // request only owes the registry ask (a microtask), so it opens first.
     act(() => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     expect(flow.closing).toMatchObject({ kind: "agent", paneId: "pane-1" });
 
-    await act(async () => answer(probed(true)));
+    await act(async () => answer(machinePreview({ kind: "closeAgent", workspace: "ws-1", pane: "pane-2", consent: NOTHING })));
     expect(flow.closing).toMatchObject({ kind: "agent", paneId: "pane-1" });
   });
 
@@ -689,12 +681,11 @@ describe("closing a pane that is already stopped", () => {
 
   beforeEach(() => {
     closeAgents.mockClear();
-    suspendAgent.mockClear().mockResolvedValue("suspended");
-    probes.probeWorktree.mockReset().mockResolvedValue(probed(true));
+    suspendAgent.mockClear().mockResolvedValue({ kind: "suspending" });
+    preview.mockClear();
     errors.length = 0;
     refusals.length = 0;
     blockedPanes = {};
-    runtimeHeads = new Map();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
@@ -730,7 +721,7 @@ describe("closing a pane that is already stopped", () => {
     // The dialog is already dismissed by then, so a silent refusal leaves the
     // user with a pane that neither closed nor stopped and no explanation.
     const wsId = seed();
-    suspendAgent.mockResolvedValueOnce("remote");
+    suspendAgent.mockResolvedValueOnce({ kind: "blocked", why: "remote" });
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
     await act(async () => flow.suspendInstead());
@@ -767,12 +758,11 @@ describe("what the dialog promises is what confirming does", () => {
 
   beforeEach(() => {
     closeAgents.mockClear();
-    suspendAgent.mockClear().mockResolvedValue("suspended");
-    probes.probeWorktree.mockReset().mockResolvedValue(probed(true));
+    suspendAgent.mockClear().mockResolvedValue({ kind: "suspending" });
+    preview.mockClear();
     errors.length = 0;
     refusals.length = 0;
     blockedPanes = {};
-    runtimeHeads = new Map();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(present(document.getElementById("host"), "the host element"));
     act(() => root.render(createElement(Probe)));
@@ -791,12 +781,12 @@ describe("what the dialog promises is what confirming does", () => {
     act(() => deck.suspendPanes(wsId, ["pane-2"]));
     await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
 
-    expect(lastOffer().targets).toHaveLength(1); // its team does own one
+    expect(lastOffer().folders).toHaveLength(1); // its team does own one
     expect(flow.closeMessage).not.toContain("worktree");
 
     act(() => flow.confirmClose());
     await act(async () => {});
-    expect(requestedTeardown().worktrees).toEqual([]);
+    expect(requested()).toMatchObject({ kind: "team", consent: NOTHING });
   });
 
   it("offers the alternative only when it is really on offer", async () => {
@@ -840,7 +830,7 @@ describe("what the dialog promises is what confirming does", () => {
     expect(flow.canSuspendInstead).toBe(true);
     // And taking it is still safe: the suspend flow re-checks and refuses,
     // where the refusal has somewhere to be said.
-    suspendAgent.mockResolvedValueOnce("stopped");
+    suspendAgent.mockResolvedValueOnce({ kind: "blocked", why: "stopped" });
     await act(async () => flow.suspendInstead());
     expect(refusals).toHaveLength(1);
   });
@@ -865,18 +855,18 @@ describe("what the dialog promises is what confirming does", () => {
     expect(flow.canSuspendInstead).toBe(true); // the row does not reshuffle
   });
 
-  it("snapshots at OPEN, not at request — the probe runs in between", async () => {
-    // `park` defers the dialog until the worktree probe answers, so facts
+  it("snapshots at OPEN, not at request — the preview runs in between", async () => {
+    // `park` defers the dialog until the machine's preview answers, so facts
     // read before that call describe a pane the user never saw a dialog for.
     const wsId = seed();
     let release!: () => void;
-    probes.probeWorktree.mockImplementationOnce(
-      () => new Promise((resolve) => (release = () => resolve(probed(true)))),
+    preview.mockImplementationOnce(
+      (intent) => new Promise((resolve) => (release = () => resolve(machinePreview(intent)))),
     );
     act(() => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
-    expect(flow.closing).toBeNull(); // still probing
+    expect(flow.closing).toBeNull(); // still previewing
 
-    // The pane stops while the probe is out.
+    // The pane stops while the preview is out.
     act(() => deck.suspendPanes(wsId, ["pane-2"]));
     await act(async () => release());
 

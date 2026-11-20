@@ -13,23 +13,15 @@ import {
   teamOfPane,
   type Pane,
   type Workspace,
-  type WorktreeTarget,
 } from "../../domain/deck";
+import type { Consent } from "../../domain/lifecycle";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 
-/** A team's worktree, as a close could take it: the directories that
- * exist, snapshotted — and probed for existence — at open time, and
- * whether the team's create is still genuinely OUT. A team mid-create has
- * no directory yet, so `targets` cannot describe it — but a create that
- * lands after the close leaves a directory and branch nothing will ever
- * name again, so the offer has to cover it; what it actually made is only
- * known once it settles. */
-export interface TeamTeardownOffer {
-  targets: WorktreeTarget[];
-  /** How many of the teams' creates are still out — each one a worktree
-   * the offer covers without being able to name. */
-  pending: number;
-}
+/** What a team's close may delete, as the lifecycle machine offered it when
+ * the dialog opened: the folders it names, and the creations still out
+ * whose worktrees go too — the very consent the confirm hands back, when
+ * the box is ticked. */
+export type TeamTeardownOffer = Consent;
 
 /** A pending close awaiting confirmation ([U6]) — an agent, a team, or a
  * whole workspace. Closing tears down live PTY session(s) immediately, so
@@ -103,3 +95,8 @@ export function paneFactsOf(
   };
 }
 
+/** How many worktrees an offer covers: the folders it names and the
+ * creations still out, each of which makes one it cannot name yet. */
+export function offerSize(offer: TeamTeardownOffer): number {
+  return offer.folders.length + offer.tickets.length;
+}
