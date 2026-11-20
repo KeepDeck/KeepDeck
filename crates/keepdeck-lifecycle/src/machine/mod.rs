@@ -278,7 +278,8 @@ pub enum Effect {
     ReadBranches { op: OpId, repo: Dir, path: Dir },
     /// One removal or cleanup step; its result comes back as `StepDone`.
     Clean { op: OpId, workspace: WorkspaceId, step: Step, how: Clean },
-    Stop { session: SessionId, quick: bool },
+    /// Stop this exact session, by the sessions machine's one stop rule.
+    Stop { session: SessionId },
     /// Cancel these admitted launches at the spawn door's start boundary.
     Cancel { op: OpId, attempts: Vec<AttemptId> },
     Warn { message: String },

@@ -177,7 +177,7 @@ pub fn work(state: &State, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event>
             LaunchOwner::Plugin { workspace, .. } => state.forgotten.workspaces.contains(workspace),
         };
         if forgotten {
-            owed = owed.run(Effect::Stop { session, quick: false });
+            owed = owed.run(Effect::Stop { session });
         }
     }
     owed

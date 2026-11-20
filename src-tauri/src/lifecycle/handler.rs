@@ -25,7 +25,7 @@ pub trait Doors: Send + Sync + 'static {
     fn read_branches(&self, repo: &Dir, path: &Dir) -> Result<Vec<String>, String>;
     fn clean(&self, workspace: &WorkspaceId, how: &Clean) -> Result<(), String>;
     /// Ask the sessions machine to stop this exact session.
-    fn stop(&self, session: SessionId, quick: bool);
+    fn stop(&self, session: SessionId);
     /// Cancel admitted launches at the start boundary; answers those whose
     /// process already exists.
     fn cancel(&self, attempts: &[AttemptId]) -> Vec<AttemptId>;
@@ -106,7 +106,7 @@ impl Effects<Effect, Event> for Handler {
                     Some(Event::StepDone { op, step, result })
                 });
             }
-            Effect::Stop { session, quick } => self.doors.stop(session, quick),
+            Effect::Stop { session } => self.doors.stop(session),
             Effect::Cancel { op, attempts } => {
                 let doors = self.doors.clone();
                 events.spawn(async move {

@@ -338,7 +338,7 @@ fn a_close_answers_only_once_its_entry_is_on_disk_then_forgets_and_retires_befor
     assert!(sim.pending_matching(|cmd| matches!(cmd, Cmd::RemovePane { .. })).is_empty());
     assert!(!sim.owed().iter().any(|effect| matches!(effect, Effect::Stop { .. })));
     sim.apply(|cmd| matches!(cmd, Cmd::Retire { .. }));
-    assert!(sim.owed().contains(&Effect::Stop { session, quick: false }));
+    assert!(sim.owed().contains(&Effect::Stop { session }));
     assert_eq!(sim.pending_matching(|cmd| matches!(cmd, Cmd::RemovePane { .. })).len(), 1);
     sim.drive();
     assert!(sim.state.ops.is_empty(), "done: {:?}", sim.state.ops);
@@ -756,7 +756,7 @@ fn a_close_revokes_unspent_permits_and_takes_admitted_launches_to_the_start_boun
     sim.send(Event::Cancelled { op, started: vec![attempt] });
     assert!(sim.timers().contains(&Event::Timer(Timer::Registration { op })));
     let session = sim.appear(LaunchOwner::Pane { pane: PaneId(2) }, Some(attempt), Some("/wt/kd-app-1"));
-    assert!(sim.owed().contains(&Effect::Stop { session, quick: false }));
+    assert!(sim.owed().contains(&Effect::Stop { session }));
     sim.drive();
     assert!(sim.state.ops.is_empty());
 }
@@ -767,7 +767,7 @@ fn a_session_that_shows_up_after_its_close_is_stopped_at_once() {
     sim.intent(close_agent(2));
     sim.drive();
     let session = sim.appear(LaunchOwner::Pane { pane: PaneId(2) }, None, Some("/wt/kd-app-1"));
-    assert!(sim.owed().contains(&Effect::Stop { session, quick: false }));
+    assert!(sim.owed().contains(&Effect::Stop { session }));
 }
 
 #[test]

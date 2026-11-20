@@ -15,7 +15,7 @@ use crate::command::Cmd;
 use crate::dir::Dir;
 use crate::ids::{AttemptId, OpId, PaneId, TeamId, WorkspaceId};
 use crate::journal::{Removal, Step, Target, Work};
-use crate::model::{self, Answer, Consent, Forget, Minted, Rows, Stop};
+use crate::model::{self, Answer, Consent, Forget, Minted, Rows};
 use crate::world::{TeamAt, World};
 use keepdeck_fsm::Owed;
 use serde::{Deserialize, Serialize};
@@ -677,10 +677,9 @@ pub fn work(state: &State, id: OpId, op: &Op, teardown: &Teardown, mut owed: Owe
             owed = owed.after(RETIRE_WAIT, Event::Timer(Timer::Retire { op: id }));
         }
         TearPhase::Stopping => {
-            let quick = teardown.strategy().stop == Stop::Quick;
             for (&session, row) in &state.sessions {
                 if !row.ended && teardown.covers(op, row) {
-                    owed = owed.run(Effect::Stop { session, quick });
+                    owed = owed.run(Effect::Stop { session });
                 }
             }
             if !teardown.taken.is_empty() {

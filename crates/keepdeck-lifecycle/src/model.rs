@@ -282,16 +282,8 @@ pub enum Reply {
     Unknown,
 }
 
-/// How a teardown ends the processes it takes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stop {
-    /// TERM, KILL after the grace, «unconfirmed» after the bound.
-    Stop,
-    /// The quick stop of a suspend or a restart: the pane's exact session.
-    Quick,
-}
-
-/// What a teardown does to the deck's rows.
+/// What a teardown does to the deck's rows. Every teardown stops its
+/// sessions by the one stop rule of the sessions machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rows {
     RemovePane,
@@ -321,7 +313,6 @@ pub enum Forget {
 /// What one teardown does — chosen by the operation itself, never passed in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Strategy {
-    pub stop: Stop,
     pub rows: Rows,
     /// Folders are deleted by consent, and only those nobody else holds.
     pub delete_by_consent: bool,
@@ -345,20 +336,14 @@ pub enum Teardown {
 
 impl Teardown {
     pub fn strategy(self) -> Strategy {
-        let strategy = |stop, rows, delete_by_consent, forget, take_plantings| Strategy {
-            stop,
-            rows,
-            delete_by_consent,
-            forget,
-            take_plantings,
-        };
+        let strategy = |rows, delete_by_consent, forget, take_plantings| Strategy { rows, delete_by_consent, forget, take_plantings };
         match self {
-            Teardown::CloseAgent => strategy(Stop::Stop, Rows::RemovePane, false, Forget::PaneMail, true),
-            Teardown::Disband => strategy(Stop::Stop, Rows::RemoveTeam, true, Forget::Team, true),
-            Teardown::CloseWorkspace => strategy(Stop::Stop, Rows::RemoveWorkspace, true, Forget::Workspace, true),
-            Teardown::Archive => strategy(Stop::Quick, Rows::MarkArchived, false, Forget::Nothing, true),
-            Teardown::Restart => strategy(Stop::Quick, Rows::Keep, false, Forget::Nothing, false),
-            Teardown::Suspend => strategy(Stop::Quick, Rows::MarkSuspended, false, Forget::Nothing, false),
+            Teardown::CloseAgent => strategy(Rows::RemovePane, false, Forget::PaneMail, true),
+            Teardown::Disband => strategy(Rows::RemoveTeam, true, Forget::Team, true),
+            Teardown::CloseWorkspace => strategy(Rows::RemoveWorkspace, true, Forget::Workspace, true),
+            Teardown::Archive => strategy(Rows::MarkArchived, false, Forget::Nothing, true),
+            Teardown::Restart => strategy(Rows::Keep, false, Forget::Nothing, false),
+            Teardown::Suspend => strategy(Rows::MarkSuspended, false, Forget::Nothing, false),
         }
     }
 }
@@ -432,7 +417,7 @@ mod tests {
         assert!(!close_agent.delete_by_consent, "closing one agent never deletes a folder");
 
         let disband = Teardown::Disband.strategy();
-        assert_eq!((disband.rows, disband.forget, disband.stop), (Rows::RemoveTeam, Forget::Team, Stop::Stop));
+        assert_eq!((disband.rows, disband.forget), (Rows::RemoveTeam, Forget::Team));
         assert!(disband.delete_by_consent);
 
         let workspace = Teardown::CloseWorkspace.strategy();
@@ -440,13 +425,13 @@ mod tests {
         assert!(workspace.delete_by_consent && workspace.take_plantings);
 
         let archive = Teardown::Archive.strategy();
-        assert_eq!((archive.rows, archive.forget, archive.stop), (Rows::MarkArchived, Forget::Nothing, Stop::Quick));
+        assert_eq!((archive.rows, archive.forget), (Rows::MarkArchived, Forget::Nothing));
         assert!(!archive.delete_by_consent && archive.take_plantings, "archive keeps folders and takes plantings back");
 
         let restart = Teardown::Restart.strategy();
-        assert_eq!((restart.rows, restart.forget, restart.stop), (Rows::Keep, Forget::Nothing, Stop::Quick));
+        assert_eq!((restart.rows, restart.forget), (Rows::Keep, Forget::Nothing));
         let suspend = Teardown::Suspend.strategy();
-        assert_eq!((suspend.rows, suspend.stop), (Rows::MarkSuspended, Stop::Quick));
+        assert_eq!(suspend.rows, Rows::MarkSuspended);
         assert!(!restart.take_plantings && !suspend.take_plantings);
     }
 

@@ -39,7 +39,7 @@ impl Doors for FakeDoors {
         self.cleaned.lock().unwrap().push(how.clone());
         Ok(())
     }
-    fn stop(&self, _session: SessionId, _quick: bool) {}
+    fn stop(&self, _session: SessionId) {}
     fn cancel(&self, _attempts: &[AttemptId]) -> Vec<AttemptId> {
         Vec::new()
     }

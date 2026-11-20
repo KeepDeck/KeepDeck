@@ -34,7 +34,7 @@ impl Doors for AppDoors {
         Err(unwired("cleanup"))
     }
 
-    fn stop(&self, _session: SessionId, _quick: bool) {
+    fn stop(&self, _session: SessionId) {
         unwired("session stop");
     }
 
