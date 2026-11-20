@@ -8,6 +8,7 @@
 //! which event made them true, so the order events arrive in changes nothing.
 
 mod boot;
+mod boundary;
 mod capture;
 mod create;
 mod launch;
@@ -416,7 +417,7 @@ fn step(state: &mut State, event: Event, fx: &mut Fx) {
         Event::Created { op, result } => create::created(state, op, result, fx),
         Event::BranchesRead { op, path, result } => teardown::branches_read(state, op, path, result, fx),
         Event::StepDone { op, step, result } => teardown::step_done(state, op, step, result, fx),
-        Event::Cancelled { op, started } => teardown::cancelled(state, op, started),
+        Event::Cancelled { op, started } => boundary::cancelled(state, op, started),
         Event::SessionAppeared { session, attempt, owner, dir } => launch::appeared(state, session, attempt, owner, dir),
         Event::SessionEnded { session } => {
             if let Some(row) = state.sessions.get_mut(&session) {
@@ -438,7 +439,8 @@ fn timer(state: &mut State, timer: Timer) {
         Timer::Permit { permit } => {
             state.permits.remove(&permit);
         }
-        Timer::Retire { op } | Timer::Leases { op } | Timer::Registration { op } => teardown::waited(state, op, &timer),
+        Timer::Retire { op } | Timer::Leases { op } => teardown::waited(state, op, &timer),
+        Timer::Registration { op } => boundary::waited(state, op),
         Timer::Fork { op } => create::fork_deadline(state, op),
     }
 }

@@ -7,10 +7,11 @@
 //! pane's launch is bound to the fork's conversation; any other end takes
 //! back everything the fork made.
 
+use super::boundary::Boundary;
 use super::{answer_op, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, FORK_DEADLINE};
 use crate::command::{Cmd, Member, Outcome, Revision, TeamPlace};
 use crate::dir::Dir;
-use crate::ids::{OpId, PaneId, SessionId, TeamId, WorkspaceId};
+use crate::ids::{AttemptId, OpId, PaneId, SessionId, TeamId, WorkspaceId};
 use crate::journal::{Discard, Step, Ticket, Work};
 use crate::model::{Answer, Draft, Folder, Minted, Refusal, SessionKey, Site};
 use crate::places::{self, Held};
@@ -192,6 +193,10 @@ pub struct Fork {
     pub failed: bool,
     /// The deck holds its pane — and its team, if it made one.
     pub added: bool,
+    /// Taken back: the launches admitted into its checkout before, taken to
+    /// the start boundary.
+    #[serde(default)]
+    pub boundary: Boundary,
 }
 
 impl Fork {
@@ -211,6 +216,7 @@ impl Fork {
             done: Vec::new(),
             failed: false,
             added: false,
+            boundary: Boundary::default(),
         }
     }
 
@@ -880,11 +886,22 @@ fn fork_folder_sessions(state: &State, fork: &Fork) -> Vec<SessionId> {
         .collect()
 }
 
-/// The fork's checkout may go: nothing runs in it, nor is about to.
+/// The fork's checkout may go: nothing runs in it, and every launch admitted
+/// into it is settled at the start boundary — its own, or another's.
 fn fork_folder_quiet(state: &State, fork: &Fork) -> bool {
     let Some(ticket) = fork.create.as_ref().and_then(|create| create.ticket.as_ref()) else { return true };
-    state.sessions_down
-        || (fork_folder_sessions(state, fork).is_empty() && !state.attempts.values().any(|attempt| attempt.dir.as_ref() == Some(&ticket.path)))
+    let elsewhere = |attempt: &AttemptId| !fork.boundary.taken.contains(attempt) && !fork.boundary.started.contains(attempt);
+    let others = state.attempts.iter().any(|(attempt, row)| row.dir.as_ref() == Some(&ticket.path) && elsewhere(attempt));
+    state.sessions_down || (fork_folder_sessions(state, fork).is_empty() && fork.boundary.settled(&state.attempts) && !others)
+}
+
+/// The launches admitted into a fork's checkout before it was taken back
+/// go to its start boundary: cancelled there, or awaited and stopped.
+fn take_to_boundary(state: &mut State, id: OpId) {
+    let State { ops, attempts, .. } = state;
+    let Some(fork) = ops.get_mut(&id).and_then(fork_mut) else { return };
+    let Some(path) = fork.create.as_ref().and_then(|create| create.ticket.as_ref()).map(|ticket| ticket.path.clone()) else { return };
+    fork.boundary.take(attempts, id, |row| row.dir.as_ref() == Some(&path));
 }
 
 /// The pane's launch is still alive, or about to be.
@@ -1124,6 +1141,7 @@ fn hook_settled(op: &Op, fork: &Fork) -> bool {
 /// worktree of the team made for it, its rows on the deck.
 fn undo_fork(state: &mut State, id: OpId, fx: &mut Fx) {
     let saved = state.saved;
+    take_to_boundary(state, id);
     let op = state.ops.get_mut(&id).expect("the op");
     let workspace = op.workspace.clone();
     // The hook's own result, late — after its deadline turned the fork back:
@@ -1200,6 +1218,8 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
             }
         }
         ForkStage::Undoing => {
+            // The launches it took over are cancelled at the boundary at once.
+            owed = fork.boundary.work(id, owed);
             let quiet = hook_settled(op, fork) && !fork_pane_busy(state, fork.pane);
             if quiet && !fork.failed {
                 // What the hook started in the checkout stops before anything

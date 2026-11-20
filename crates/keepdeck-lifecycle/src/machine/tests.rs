@@ -1594,6 +1594,63 @@ fn a_fork_rolled_back_stops_what_runs_in_its_checkout_and_removes_one_step_after
     assert!(sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Checkout { .. }, .. })), "then the checkout goes");
 }
 
+/// A launch admitted into the fork's checkout before the fork was taken
+/// back: taken to the start boundary — cancelled if its process does not
+/// exist, stopped by id if it does — before the checkout goes.
+#[test]
+fn a_launch_admitted_into_a_forks_checkout_before_its_undo_goes_to_the_start_boundary() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Continue {
+        workspace: ws(),
+        landing: Landing::NewTeam { team: team("f"), site: Site::New { place: None, base: None }, draft: draft() },
+        source: SessionKey { agent: "claude".into(), session: "s1".into() },
+        how: Continuation::Fork,
+        member: draft(),
+    });
+    let mut checkout = None;
+    for _ in 0..8 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            match effect {
+                Effect::Probe { op, path, .. } => sim.send(Event::Probed { op, path, taken: false }),
+                Effect::CreateWorktree { op, ticket } => {
+                    checkout = Some(ticket.path.clone());
+                    sim.send(Event::Created { op, result: Ok(()) });
+                }
+                _ => {}
+            }
+        }
+        sim.apply(|cmd| !matches!(cmd, Cmd::Fork { .. }));
+        sim.save();
+    }
+    let checkout = checkout.expect("the fork's worktree");
+    let op = *sim.state.ops.keys().next().unwrap();
+    // A helper's launch is admitted into the checkout while the hook runs.
+    let owner = LaunchOwner::Plugin { plugin: "claude".into(), workspace: ws() };
+    let ask = sim.next_ask();
+    sim.send(Event::Lease { ask, lease: LeaseAsk::Launch { workspace: ws(), owner: owner.clone(), dir: Some(checkout.clone()) } });
+    let Some(Answer::Leased { permit }) = sim.answer(ask) else { panic!() };
+    let ask = sim.next_ask();
+    sim.send(Event::Admit { ask, permit, owner: owner.clone(), dir: Some(checkout.clone()) });
+    let Some(Answer::Admitted { attempt }) = sim.answer(ask) else { panic!() };
+    // The hook fails; the fork is taken back.
+    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Rejected { reason: "store layout".into() });
+    sim.send(Event::HookEnded { op });
+    sim.flush_journals();
+    assert!(sim.owed().contains(&Effect::Cancel { op, attempts: vec![attempt] }), "cancelled at the start boundary: {:?}", sim.owed());
+    let removes_checkout = |sim: &Sim| sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Checkout { .. }, .. }));
+    assert!(!removes_checkout(&sim), "not before the boundary's word");
+    // Its process had started: awaited, then stopped by id.
+    sim.send(Event::Cancelled { op, started: vec![attempt] });
+    assert!(sim.timers().contains(&Event::Timer(Timer::Registration { op })));
+    assert!(!removes_checkout(&sim));
+    let session = sim.appear(owner, Some(attempt), Some(checkout.as_str()));
+    assert!(sim.owed().contains(&Effect::Stop { session }));
+    assert!(!removes_checkout(&sim));
+    sim.send(Event::SessionEnded { session });
+    assert!(removes_checkout(&sim), "then the checkout goes");
+}
+
 /// A fork into a folder that is there, onto a new team: the hook is called
 /// in that folder.
 #[test]

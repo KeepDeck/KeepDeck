@@ -8,12 +8,13 @@
 //! → the plan for each folder, on disk before its first step → the steps →
 //! the entry removed, or kept as a debt the next launch retries.
 
+use super::boundary::Boundary;
 use super::launch::{LaunchOwner, Session};
 use super::{answer_op, capture, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer};
-use super::{LEASE_WAIT, REGISTRATION_WAIT, RETIRE_WAIT};
+use super::{LEASE_WAIT, RETIRE_WAIT};
 use crate::command::Cmd;
 use crate::dir::Dir;
-use crate::ids::{AttemptId, OpId, PaneId, TeamId, WorkspaceId};
+use crate::ids::{OpId, PaneId, TeamId, WorkspaceId};
 use crate::journal::{Removal, Step, Target, Work};
 use crate::model::{self, Answer, Consent, Forget, Minted, Rows};
 use crate::world::{TeamAt, World};
@@ -45,7 +46,6 @@ pub enum TearPhase {
 pub struct Waited {
     pub retire: bool,
     pub leases: bool,
-    pub registration: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -64,10 +64,8 @@ pub struct Teardown {
     pub plan: Vec<Step>,
     pub done: Vec<Step>,
     pub failed: Vec<Step>,
-    /// Admitted launches it took over, waiting for the start boundary's word.
-    pub taken: BTreeSet<AttemptId>,
-    /// Of those, the ones whose process exists: their sessions are awaited.
-    pub started: BTreeSet<AttemptId>,
+    /// Admitted launches it took over to the start boundary.
+    pub boundary: Boundary,
     pub waited: Waited,
     /// Restored from the journal at boot: no session of a past launch is
     /// waited for.
@@ -89,8 +87,7 @@ impl Teardown {
             plan: Vec::new(),
             done: Vec::new(),
             failed: Vec::new(),
-            taken: BTreeSet::new(),
-            started: BTreeSet::new(),
+            boundary: Boundary::default(),
             waited: Waited::default(),
             restored: false,
         }
@@ -384,15 +381,10 @@ fn begin_stopping(state: &mut State, id: OpId) {
         Some(owner) => !in_scope(owner, &permit.workspace, permit.dir.as_ref()),
         None => true,
     });
-    let mut taken = BTreeSet::new();
-    for (&attempt, row) in state.attempts.iter_mut() {
-        if row.by.is_none() && in_scope(&row.owner, &row.workspace, row.dir.as_ref()) {
-            row.by = Some(id);
-            taken.insert(attempt);
-        }
-    }
+    let mut boundary = Boundary::default();
+    boundary.take(&mut state.attempts, id, |row| in_scope(&row.owner, &row.workspace, row.dir.as_ref()));
     if let Some(teardown) = teardown_mut(state, id) {
-        teardown.taken = taken;
+        teardown.boundary = boundary;
     }
 }
 
@@ -403,12 +395,11 @@ fn stopped(state: &State, id: OpId) -> bool {
     let op = &state.ops[&id];
     let Kind::Teardown(teardown) = &op.kind else { return false };
     let sessions = state.sessions_down || state.sessions.values().all(|session| session.ended || !teardown.covers(op, session));
-    let boundary = teardown.taken.is_empty();
-    let registered = teardown.waited.registration || teardown.started.iter().all(|attempt| !state.attempts.contains_key(attempt));
+    let boundary = teardown.boundary.settled(&state.attempts);
     let leases = teardown.waited.leases || !leases_out(state, op, teardown);
     let creations = !state.ops.iter().any(|(&other, op)| other != id && super::create::still_creating_for(op, &teardown.teams));
     let joined = teardown.joined.iter().all(|child| joined_done(state, *child));
-    sessions && boundary && registered && leases && creations && joined
+    sessions && boundary && leases && creations && joined
 }
 
 /// A joined operation is done enough once its sessions are stopped and its
@@ -664,27 +655,11 @@ pub fn step_done(state: &mut State, id: OpId, step: Step, result: StepResult, fx
     }
 }
 
-pub fn cancelled(state: &mut State, id: OpId, started: Vec<AttemptId>) {
-    let Some(teardown) = teardown_mut(state, id) else { return };
-    let taken = std::mem::take(&mut teardown.taken);
-    for attempt in taken {
-        if started.contains(&attempt) {
-            teardown.started.insert(attempt);
-        }
-    }
-    // The cancelled ones never start: they are done at the boundary.
-    let cancelled: Vec<AttemptId> = state.attempts.iter().filter(|(a, row)| row.by == Some(id) && !started.contains(a)).map(|(&a, _)| a).collect();
-    for attempt in cancelled {
-        state.attempts.remove(&attempt);
-    }
-}
-
 pub fn waited(state: &mut State, id: OpId, timer: &Timer) {
     let Some(teardown) = teardown_mut(state, id) else { return };
     match timer {
         Timer::Retire { .. } if teardown.phase == TearPhase::Retiring => teardown.waited.retire = true,
         Timer::Leases { .. } if teardown.phase == TearPhase::Stopping => teardown.waited.leases = true,
-        Timer::Registration { .. } if teardown.phase == TearPhase::Stopping => teardown.waited.registration = true,
         _ => {}
     }
 }
@@ -700,12 +675,7 @@ pub fn work(state: &State, id: OpId, op: &Op, teardown: &Teardown, mut owed: Owe
                     owed = owed.run(Effect::Stop { session });
                 }
             }
-            if !teardown.taken.is_empty() {
-                owed = owed.run(Effect::Cancel { op: id, attempts: teardown.taken.iter().copied().collect() });
-            }
-            if !teardown.started.is_empty() && !teardown.waited.registration {
-                owed = owed.after(REGISTRATION_WAIT, Event::Timer(Timer::Registration { op: id }));
-            }
+            owed = teardown.boundary.work(id, owed);
             if !teardown.waited.leases && leases_out(state, op, teardown) {
                 owed = owed.after(LEASE_WAIT, Event::Timer(Timer::Leases { op: id }));
             }
