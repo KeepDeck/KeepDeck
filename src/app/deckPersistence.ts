@@ -30,6 +30,11 @@ export type DeckPark =
 export interface DeckPersistence {
   getSnapshot(): DeckPersistenceSnapshot;
   subscribe(listener: () => void): () => void;
+  /** Whether this copy may write deck.json now. A second KeepDeck on the
+   * settings folder only shows, and Rust refuses its writes: while it may
+   * not, nothing is attempted; once it may, what changed meanwhile is
+   * saved. */
+  mayWrite(may: boolean): void;
   dispose(): void;
 }
 
@@ -50,6 +55,8 @@ export function createDeckPersistence(
   let load: DeckLoad = "loaded";
   let loaded = false;
   let frozen = false;
+  /** False while this copy only shows: another holds the settings folder. */
+  let writable = true;
   let disposed = false;
   let lastSaved: string | null = null;
   let lastImmediate: string | null = null;
@@ -100,7 +107,7 @@ export function createDeckPersistence(
   }
 
   function flushNow(): void {
-    if (disposed || frozen) return;
+    if (disposed || frozen || !writable) return;
     clearTimer();
     dirtySince = null;
     if (saving) return;
@@ -130,7 +137,7 @@ export function createDeckPersistence(
   }
 
   function reconcileSave(): void {
-    if (!loaded || serialized === lastSaved || frozen || disposed) return;
+    if (!loaded || serialized === lastSaved || frozen || disposed || !writable) return;
     if (immediate !== lastImmediate) {
       flushNow();
       return;
@@ -233,6 +240,12 @@ export function createDeckPersistence(
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    mayWrite(may) {
+      if (may === writable) return;
+      writable = may;
+      if (may) reconcileSave();
+      else clearTimer();
     },
     dispose() {
       if (disposed) return;

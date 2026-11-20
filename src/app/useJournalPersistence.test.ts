@@ -57,6 +57,7 @@ function mutablePersistence(initial: DeckPersistenceSnapshot): {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      mayWrite() {},
       dispose() {},
     },
     set(next) {

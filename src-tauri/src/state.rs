@@ -10,6 +10,7 @@
 //! rejects is quarantined to a `.bak` sibling instead of being overwritten
 //! by the next save.
 
+use crate::lifecycle::Lifecycle;
 use std::cmp::Reverse;
 use std::fs;
 use std::io::{self, ErrorKind, Write as _};
@@ -30,16 +31,42 @@ pub fn deck_state_load() -> Result<Option<String>, String> {
 }
 
 /// Persist the deck JSON (already serialized and versioned by the webview).
+/// Only the copy holding the settings folder's claim writes it.
 #[tauri::command(async)]
-pub fn deck_state_save(json: String) -> Result<(), String> {
-    save_atomic(&state_path()?, &json).map_err(|e| e.to_string())
+pub fn deck_state_save(lifecycle: tauri::State<'_, Lifecycle>, json: String) -> Result<(), String> {
+    save_deck(lifecycle.claimed(), &state_path()?, &json)
 }
 
 /// The webview failed to parse/validate the stored deck — keep the evidence
-/// as `deck.json.bak` so the next save can't silently destroy it.
+/// as `deck.json.bak` so the next save can't silently destroy it. Only the
+/// copy holding the settings folder's claim moves it.
 #[tauri::command(async)]
-pub fn deck_state_quarantine() -> Result<(), String> {
-    quarantine(&state_path()?).map_err(|e| e.to_string())
+pub fn deck_state_quarantine(lifecycle: tauri::State<'_, Lifecycle>) -> Result<(), String> {
+    quarantine_deck(lifecycle.claimed(), &state_path()?)
+}
+
+/// What a copy without the claim hears: another KeepDeck on this settings
+/// folder owns deck.json, and this one only shows it.
+const VIEW_ONLY: &str = "another KeepDeck holds this settings folder: this copy only shows the deck and writes nothing";
+
+/// deck.json changes only in the copy holding the claim — a second KeepDeck
+/// reads it to show, and must not overwrite the first one's deck.
+fn deck_writable(claimed: bool) -> Result<(), String> {
+    if claimed {
+        Ok(())
+    } else {
+        Err(VIEW_ONLY.to_owned())
+    }
+}
+
+fn save_deck(claimed: bool, path: &Path, json: &str) -> Result<(), String> {
+    deck_writable(claimed)?;
+    save_atomic(path, json).map_err(|e| e.to_string())
+}
+
+fn quarantine_deck(claimed: bool, path: &Path) -> Result<(), String> {
+    deck_writable(claimed)?;
+    quarantine(path).map_err(|e| e.to_string())
 }
 
 /// The last-known usage snapshot (account rate-limit windows), or `None`.
@@ -300,7 +327,7 @@ fn prune_backups(path: &Path, lane: BackupLane) {
 
 #[cfg(test)]
 mod tests {
-    use super::{load, quarantine, save_atomic, snapshot, PRE_UPDATE, QUARANTINE};
+    use super::{load, quarantine, quarantine_deck, save_atomic, save_deck, snapshot, PRE_UPDATE, QUARANTINE};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -332,6 +359,26 @@ mod tests {
         );
         // The tmp staging file never survives a completed save.
         assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    /// A second KeepDeck on the settings folder shows the deck the first one
+    /// owns: it neither overwrites deck.json nor moves it aside.
+    #[test]
+    fn a_copy_without_the_claim_neither_saves_nor_quarantines_the_deck() {
+        let path = temp_deck();
+        save_atomic(&path, r#"{"version":1}"#).unwrap();
+
+        assert!(save_deck(false, &path, r#"{"version":1,"activeId":"ws-2"}"#).is_err());
+        assert!(quarantine_deck(false, &path).is_err());
+        assert_eq!(load(&path).unwrap().as_deref(), Some(r#"{"version":1}"#), "left as the first copy wrote it");
+        assert!(quarantines_of(&path).is_empty());
+
+        // The copy holding the claim does both.
+        save_deck(true, &path, r#"{"version":2}"#).unwrap();
+        assert_eq!(load(&path).unwrap().as_deref(), Some(r#"{"version":2}"#));
+        quarantine_deck(true, &path).unwrap();
+        assert_eq!(load(&path).unwrap(), None);
+        assert_eq!(quarantines_of(&path).len(), 1);
     }
 
     /// Every kept generation of `path` in ONE lane — the lanes are separate on

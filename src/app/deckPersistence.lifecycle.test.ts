@@ -84,4 +84,23 @@ describe("the deck's boot snapshot and saved revisions", () => {
     await vi.runAllTimersAsync();
     expect(saved).toHaveBeenCalledWith(changed);
   });
+
+  it("writes nothing while this copy only shows, and saves what changed once it holds the folder", async () => {
+    vi.useFakeTimers();
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    const store = createDeckStore();
+    persistence = createDeckPersistence(store);
+    await vi.runAllTimersAsync();
+    ipc.saveDeckState.mockClear();
+
+    persistence.mayWrite(false);
+    store.dispatch({ type: "renamePane", wsId: "ws-1", paneId: "pane-1", name: "api" });
+    await vi.runAllTimersAsync();
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+
+    persistence.mayWrite(true);
+    await vi.runAllTimersAsync();
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    expect(ipc.saveDeckState.mock.calls[0][0]).toContain('"api"');
+  });
 });

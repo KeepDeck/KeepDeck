@@ -542,10 +542,13 @@ export function createAppRuntime(
     subscribeLoaded: deckPersistence.subscribe,
     warn: (message) => log.warn("web:lifecycle", message),
   });
-  // A second KeepDeck on this settings folder only shows: said once.
+  // A second KeepDeck on this settings folder only shows: it writes no
+  // deck.json until it holds the folder, and says so once.
   let viewOnlySaid = false;
   const stopViewOnly = lifecycleSnapshot.subscribe(() => {
-    if (viewOnlySaid || lifecycleSnapshot.current()?.viewOnly !== true) return;
+    const viewOnly = lifecycleSnapshot.current()?.viewOnly === true;
+    deckPersistence.mayWrite(!viewOnly);
+    if (viewOnlySaid || !viewOnly) return;
     viewOnlySaid = true;
     notify({ ...VIEW_ONLY_NOTICE, severity: "warning", source: { type: "app" } });
   });
