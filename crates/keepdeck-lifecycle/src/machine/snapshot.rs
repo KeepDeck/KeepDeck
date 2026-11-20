@@ -4,7 +4,7 @@
 //! answers, a deck command until it is durable or rejected.
 
 use super::{capture, Forgotten, Kind, State, TearPhase};
-use crate::command::Command;
+use crate::command::{Cmd, Owner};
 use crate::ids::{CommandId, PaneId, TeamId, WorkspaceId};
 use crate::model::Teardown;
 use crate::world::TeamAt;
@@ -75,7 +75,17 @@ pub struct Snapshot {
     pub gates: BTreeMap<TeamId, TeamGates>,
     pub panes: BTreeMap<PaneId, PanePhase>,
     /// Commands owed to owners, in order.
-    pub commands: Vec<Command>,
+    pub commands: Vec<Due>,
+}
+
+/// A command due to its owner, the owner named — so TS routes by it and
+/// keeps no copy of which owner carries out which command.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
+pub struct Due {
+    pub id: CommandId,
+    pub owner: Owner,
+    pub cmd: Cmd,
 }
 
 /// A snapshot with the version of the state it was read from — TS keeps the
@@ -148,7 +158,8 @@ pub fn snapshot(state: &State) -> Snapshot {
     for (&op_id, op) in &state.ops {
         for (index, sent) in op.sent.iter().enumerate() {
             if !sent.settled(saved) && !matches!(sent.outcome, Some(crate::command::Outcome::Rejected { .. })) {
-                commands.push(Command { id: CommandId { op: op_id, index: index as u32 }, cmd: sent.cmd.clone() });
+                let id = CommandId { op: op_id, index: index as u32 };
+                commands.push(Due { id, owner: sent.cmd.owner(), cmd: sent.cmd.clone() });
             }
         }
     }

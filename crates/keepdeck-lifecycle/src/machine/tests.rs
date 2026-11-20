@@ -2,9 +2,9 @@
 //! plays the world: it hands the machine the events its effects and owners
 //! would send, one step at a time or all of them until nothing is owed.
 
-use super::snapshot::{snapshot, TeamPhase};
+use super::snapshot::{snapshot, Due, TeamPhase};
 use super::*;
-use crate::command::{Cmd, Command, Outcome, Revision};
+use crate::command::{Cmd, Outcome, Revision};
 use crate::journal::{Discard, Entry, Step, Target, Work};
 use crate::model::{self, Answer, Consent, Continuation, Draft, Folder, Intent, Landing, Place, Refusal, SessionKey, Site};
 use crate::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
@@ -155,11 +155,11 @@ impl Sim {
             .collect()
     }
 
-    fn pending(&self) -> Vec<Command> {
+    fn pending(&self) -> Vec<Due> {
         snapshot(&self.state).commands
     }
 
-    fn pending_matching(&self, pred: impl Fn(&Cmd) -> bool) -> Vec<Command> {
+    fn pending_matching(&self, pred: impl Fn(&Cmd) -> bool) -> Vec<Due> {
         self.pending().into_iter().filter(|command| pred(&command.cmd)).collect()
     }
 
@@ -1099,4 +1099,164 @@ fn the_snapshot_says_a_team_is_leaving_and_closes_its_gates() {
     assert_eq!(snap.teams[&team("1")], TeamPhase::Leaving);
     assert!(!snap.gates[&team("1")].add_member && !snap.gates[&team("1")].close);
     assert!(snap.gates[&team("r")].add_member);
+}
+
+// ------------------------------------------------------- the wire, for TS
+
+/// One of every refusal. A new kind fails to compile here until it has its
+/// example — and so, through the TS contract test, its words.
+fn every_refusal() -> Vec<Refusal> {
+    let every = vec![
+        Refusal::AlreadyClosing,
+        Refusal::Busy,
+        Refusal::NotFound,
+        Refusal::BarrierUp,
+        Refusal::JournalUnavailable,
+        Refusal::JournalStuck,
+        Refusal::LocationHeld,
+        Refusal::TargetLeaving,
+        Refusal::Archived,
+        Refusal::SessionsDown,
+        Refusal::ForkStepExpired,
+        Refusal::Rejected { reason: "role taken".into() },
+    ];
+    for refusal in &every {
+        match refusal {
+            Refusal::AlreadyClosing
+            | Refusal::Busy
+            | Refusal::NotFound
+            | Refusal::BarrierUp
+            | Refusal::JournalUnavailable
+            | Refusal::JournalStuck
+            | Refusal::LocationHeld
+            | Refusal::TargetLeaving
+            | Refusal::Archived
+            | Refusal::SessionsDown
+            | Refusal::ForkStepExpired
+            | Refusal::Rejected { .. } => {}
+        }
+    }
+    every
+}
+
+/// One of every command, each under its owner.
+fn every_due() -> Vec<Due> {
+    let w = ws;
+    let p = PaneId;
+    let every = vec![
+        Cmd::AddWorkspace { workspace: w(), draft: draft() },
+        Cmd::AddTeam {
+            workspace: w(),
+            team: team("n"),
+            draft: draft(),
+            place: crate::command::TeamPlace::Attached { cwd: Dir::new("/repo"), branch: None },
+            members: vec![crate::command::Member { pane: p(4), draft: draft() }],
+        },
+        Cmd::RetryTeam { workspace: w(), team: team("n") },
+        Cmd::SettleTeam { workspace: w(), team: team("n"), cwd: Dir::new("/wt/kd-app-2"), branch: Some("kd/app/2".into()) },
+        Cmd::FailTeam { workspace: w(), team: team("n"), reason: "no space".into() },
+        Cmd::AddPane { workspace: w(), team: team("1"), pane: p(5), draft: draft() },
+        Cmd::MovePane { workspace: w(), pane: p(5), to: team("r"), new_root: false },
+        Cmd::RemovePane { workspace: w(), pane: p(5) },
+        Cmd::RemoveTeam { workspace: w(), team: team("n") },
+        Cmd::RemoveWorkspace { workspace: w() },
+        Cmd::MarkArchived { workspace: w() },
+        Cmd::ClearArchived { workspace: w() },
+        Cmd::MarkSuspended { workspace: w(), pane: p(1) },
+        Cmd::ClearSuspended { workspace: w(), pane: p(1) },
+        Cmd::DeleteTeamTasks { workspace: w(), team: team("n") },
+        Cmd::ForgetBoards { workspace: w() },
+        Cmd::RetainTeams { teams: vec![team("1"), team("r")] },
+        Cmd::ForgetPaneMail { workspace: w(), pane: p(5) },
+        Cmd::ForgetWorkspaceMail { workspace: w() },
+        Cmd::RetainPanes { panes: vec![p(1), p(2)] },
+        Cmd::Retire { workspace: w(), pane: p(2) },
+        Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "claude".into(), session: "s-1".into() } },
+        Cmd::DropBuild { op: OpId(3) },
+        Cmd::ReportBinding { workspace: w(), pane: p(6), op: OpId(3) },
+        Cmd::WorktreeNotDeleted { workspace: w(), path: Dir::new("/wt/kd-app-1"), reason: "busy".into() },
+        Cmd::Fork { workspace: w(), pane: p(1), source: SessionKey { agent: "claude".into(), session: "s-1".into() }, cwd: Dir::new("/repo") },
+    ];
+    for cmd in &every {
+        match cmd {
+            Cmd::AddWorkspace { .. }
+            | Cmd::AddTeam { .. }
+            | Cmd::RetryTeam { .. }
+            | Cmd::SettleTeam { .. }
+            | Cmd::FailTeam { .. }
+            | Cmd::AddPane { .. }
+            | Cmd::MovePane { .. }
+            | Cmd::RemovePane { .. }
+            | Cmd::RemoveTeam { .. }
+            | Cmd::RemoveWorkspace { .. }
+            | Cmd::MarkArchived { .. }
+            | Cmd::ClearArchived { .. }
+            | Cmd::MarkSuspended { .. }
+            | Cmd::ClearSuspended { .. }
+            | Cmd::DeleteTeamTasks { .. }
+            | Cmd::ForgetBoards { .. }
+            | Cmd::RetainTeams { .. }
+            | Cmd::ForgetPaneMail { .. }
+            | Cmd::ForgetWorkspaceMail { .. }
+            | Cmd::RetainPanes { .. }
+            | Cmd::Retire { .. }
+            | Cmd::PrepareResume { .. }
+            | Cmd::DropBuild { .. }
+            | Cmd::ReportBinding { .. }
+            | Cmd::WorktreeNotDeleted { .. }
+            | Cmd::Fork { .. } => {}
+        }
+    }
+    every
+        .into_iter()
+        .enumerate()
+        .map(|(index, cmd)| Due { id: crate::ids::CommandId { op: OpId(1), index: index as u32 }, owner: cmd.owner(), cmd })
+        .collect()
+}
+
+/// What Rust sends TS, one of every kind, written beside the exported types
+/// as a typed module: TS compiles each example against its type, and the
+/// contract tests handle each as it arrives here.
+#[test]
+fn the_wire_examples_are_written_beside_the_exported_types() {
+    let mut sim = Sim::booted();
+    sim.intent(close_agent(2));
+    sim.round();
+    let versioned = super::snapshot::Versioned { version: 7, snapshot: snapshot(&sim.state) };
+    assert!(!versioned.snapshot.commands.is_empty(), "the example carries commands owed");
+    let answers = vec![
+        Answer::Accepted { op: OpId(9), minted: model::Minted { workspace: None, team: Some(team("n")), panes: vec![PaneId(4)] } },
+        Answer::Leased { permit: crate::ids::PermitId(2) },
+        Answer::Admitted { attempt: crate::ids::AttemptId(3) },
+        Answer::Booted { finishing: vec![OpId(1)] },
+    ];
+    let mut replies: Vec<model::Reply> = answers.into_iter().map(|answer| model::Reply::Answered { answer }).collect();
+    replies.extend(every_refusal().into_iter().map(|refusal| model::Reply::Answered { answer: Answer::Refused { refusal } }));
+    replies.push(model::Reply::Unavailable);
+    replies.push(model::Reply::Unknown);
+    let outcomes = vec![
+        Outcome::Applied { revision: Some(Revision(4)) },
+        Outcome::Unchanged { revision: None },
+        Outcome::Rejected { reason: "role taken".into() },
+        Outcome::Forked { discard: Discard { plugin: "keepdeck.claude".into(), once_started: vec!["~/.kd/spec.json".into()], if_never_started: vec!["~/.claude/projects/-repo/fork.jsonl".into()] } },
+    ];
+    let typed = |name: &str, ty: &str, value: serde_json::Value| {
+        format!("export const {name}: {ty} = {};\n", serde_json::to_string_pretty(&value).unwrap())
+    };
+    let text = [
+        "// Written by the lifecycle crate's test `the_wire_examples_are_written_beside_the_exported_types`. Do not edit.\n".to_string(),
+        "import type { Due } from \"./Due\";\nimport type { Outcome } from \"./Outcome\";\nimport type { Refusal } from \"./Refusal\";\nimport type { Reply } from \"./Reply\";\nimport type { Versioned } from \"./Versioned\";\n".to_string(),
+        typed("refusals", "Refusal[]", json!(every_refusal())),
+        typed("replies", "Reply[]", json!(replies)),
+        typed("outcomes", "Outcome[]", json!(outcomes)),
+        typed("dues", "Due[]", json!(every_due())),
+        typed("versioned", "Versioned", json!(versioned)),
+    ]
+    .join("\n");
+    let dir = std::path::PathBuf::from(std::env::var("TS_RS_EXPORT_DIR").expect("set by .cargo/config.toml")).join("lifecycle");
+    let file = dir.join("examples.ts");
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(text.as_str()) {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&file, text).unwrap();
+    }
 }
