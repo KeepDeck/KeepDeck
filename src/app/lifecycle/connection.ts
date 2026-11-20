@@ -28,6 +28,8 @@ export interface LifecycleConnectionDeps {
   loaded(): { workspaces: readonly Workspace[]; load: DeckLoad } | null;
   /** Be told when the load settles. */
   subscribeLoaded(listener: () => void): () => void;
+  /** The machine took the handshake: it is up, and has heard the deck. */
+  booted(): void;
   warn(message: string): void;
 }
 
@@ -69,6 +71,8 @@ export function connectLifecycle(deps: LifecycleConnectionDeps): LifecycleConnec
       deps.warn(`lifecycle: the boot handshake got no answer (${reply.kind})`);
     } else if (reply.answer.kind === "refused") {
       deps.warn(`lifecycle: the boot handshake was refused (${reply.answer.refusal.kind})`);
+    } else if (!disposed && mine === attempt) {
+      deps.booted();
     }
   }
 

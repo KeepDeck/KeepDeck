@@ -31,6 +31,7 @@ function rig() {
   };
   const snapshot = { receive: vi.fn(), restarted: vi.fn() };
   const warn = vi.fn();
+  const booted = vi.fn();
   const connection = connectLifecycle({
     ports,
     snapshot,
@@ -39,6 +40,7 @@ function rig() {
       loadListeners.add(listener);
       return () => loadListeners.delete(listener);
     },
+    booted,
     warn,
   });
   return {
@@ -46,6 +48,7 @@ function rig() {
     ports,
     snapshot,
     warn,
+    booted,
     connection,
     load(load: DeckLoad) {
       loaded = { workspaces: [ws], load };
@@ -89,6 +92,9 @@ describe("connectLifecycle", () => {
     await settled();
     expect(r.snapshot.restarted).toHaveBeenCalledTimes(1);
     expect(r.order).toEqual(["subscribe", "handshake", "subscribe", "handshake"]);
+    // Each machine that took the handshake is said to be up — the cue to
+    // tell it again what is on disk.
+    expect(r.booted).toHaveBeenCalledTimes(2);
   });
 
   it("says a handshake that got no answer, or a refusal — nothing else stands in for it", async () => {
@@ -97,5 +103,6 @@ describe("connectLifecycle", () => {
     r.load("loaded");
     await settled();
     expect(r.warn).toHaveBeenCalledWith(expect.stringContaining("no answer"));
+    expect(r.booted).not.toHaveBeenCalled();
   });
 });

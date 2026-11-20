@@ -64,6 +64,7 @@ import {
 import { claimingTeams } from "../domain/lifecycle";
 import { createLifecycleSnapshot } from "./lifecycleSnapshot";
 import { connectLifecycle } from "./lifecycle/connection";
+import { createSavedDeckReporter } from "./lifecycle/savedDeck";
 import { createDeckCommands } from "./lifecycle/deckCommands";
 import { createBoardsOwner } from "./lifecycle/boards";
 import { createMailOwner } from "./lifecycle/mail";
@@ -197,6 +198,13 @@ export function createAppRuntime(
   const deckActions = createDeckActions(deckStore);
   const paneInputFocus = createPaneInputFocusController();
   const paneViewActions = createPaneViewActions(deckStore, deckActions, paneInputFocus);
+  // A deck command is durable only once a saved deck at or past its
+  // revision is on disk: the machine hears every save — again after a
+  // report that failed, and again whenever it starts over.
+  const savedDeck = createSavedDeckReporter({
+    report: reportDeckSaved,
+    warn: (message) => log.warn("web:lifecycle", message),
+  });
   // What the migration ladder did to the deck file is said once, here, on
   // the launch that did it — a team dissolved is not something to find out
   // from an empty badge.
@@ -207,11 +215,7 @@ export function createAppRuntime(
         notify({ title: "Deck migrated", body, source: { type: "app" } });
       }
     },
-    // A deck command is durable only once a saved deck at or past its
-    // revision is on disk: the machine hears every save.
-    (revision) => {
-      void reportDeckSaved(revision).catch((e: unknown) => log.warn("web:lifecycle", `reporting a saved deck failed: ${String(e)}`));
-    },
+    (revision) => savedDeck.saved(revision),
   );
   // The MCP feature: the transport service and the user's library, wired to
   // each other once behind one door.
@@ -540,6 +544,7 @@ export function createAppRuntime(
       return load === null ? null : { workspaces: deckStore.getSnapshot().workspaces, load };
     },
     subscribeLoaded: deckPersistence.subscribe,
+    booted: () => savedDeck.again(),
     warn: (message) => log.warn("web:lifecycle", message),
   });
   // A second KeepDeck on this settings folder only shows: it writes no
@@ -741,6 +746,7 @@ export function createAppRuntime(
       stopViewOnly();
       stopStandingWords();
       lifecycleConnection.dispose();
+      savedDeck.dispose();
       mail.dispose();
       disposeArtifactCommands?.();
       for (const stop of stopArtifactWiring) stop();
