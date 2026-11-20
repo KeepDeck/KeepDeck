@@ -499,7 +499,7 @@ fn plan_steps(state: &mut State, id: OpId) {
         }
         Forget::Workspace => {
             forget.push(Cmd::ForgetBoards { workspace: workspace.clone() });
-            forget.push(Cmd::ForgetWorkspaceMail { workspace: workspace.clone() });
+            forget.extend(teardown.panes.iter().map(|&pane| Cmd::ForgetPaneMail { workspace: workspace.clone(), pane }));
         }
     }
     let Some(op) = state.ops.get_mut(&id) else { return };

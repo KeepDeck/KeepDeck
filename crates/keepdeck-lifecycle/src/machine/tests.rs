@@ -1168,7 +1168,6 @@ fn every_due() -> Vec<Due> {
         Cmd::ForgetBoards { workspace: w() },
         Cmd::RetainTeams { teams: vec![team("1"), team("r")] },
         Cmd::ForgetPaneMail { workspace: w(), pane: p(5) },
-        Cmd::ForgetWorkspaceMail { workspace: w() },
         Cmd::RetainPanes { panes: vec![p(1), p(2)] },
         Cmd::Retire { workspace: w(), pane: p(2) },
         Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "claude".into(), session: "s-1".into() } },
@@ -1197,7 +1196,6 @@ fn every_due() -> Vec<Due> {
             | Cmd::ForgetBoards { .. }
             | Cmd::RetainTeams { .. }
             | Cmd::ForgetPaneMail { .. }
-            | Cmd::ForgetWorkspaceMail { .. }
             | Cmd::RetainPanes { .. }
             | Cmd::Retire { .. }
             | Cmd::PrepareResume { .. }

@@ -80,8 +80,9 @@ pub enum Cmd {
     /// Boot's reconciliation: the tasks of teams no longer on the deck go.
     RetainTeams { teams: Vec<TeamId> },
     // ------------------------------------------------------------ mail
+    /// A closed pane's mail goes — every pane of a closed team or workspace
+    /// is named, as its teardown captured them.
     ForgetPaneMail { workspace: WorkspaceId, pane: PaneId },
-    ForgetWorkspaceMail { workspace: WorkspaceId },
     /// Boot's reconciliation: the mail of panes no longer on the deck goes.
     RetainPanes { panes: Vec<PaneId> },
     // ------------------------------------------------------------ launch state
@@ -120,7 +121,7 @@ impl Cmd {
             | Cmd::MarkSuspended { .. }
             | Cmd::ClearSuspended { .. } => Owner::Deck,
             Cmd::DeleteTeamTasks { .. } | Cmd::ForgetBoards { .. } | Cmd::RetainTeams { .. } => Owner::Boards,
-            Cmd::ForgetPaneMail { .. } | Cmd::ForgetWorkspaceMail { .. } | Cmd::RetainPanes { .. } => Owner::Mail,
+            Cmd::ForgetPaneMail { .. } | Cmd::RetainPanes { .. } => Owner::Mail,
             Cmd::Retire { .. } | Cmd::PrepareResume { .. } | Cmd::DropBuild { .. } | Cmd::ReportBinding { .. } => {
                 Owner::RunState
             }
