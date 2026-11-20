@@ -305,8 +305,8 @@ pub fn mcp_library_list(lock: tauri::State<'_, McpLibraryLock>) -> Result<Vec<Mc
 /// `writer`: the agent writing, as the app knows it; none for the person.
 /// The library's lock and the commit gate are the app's managed state.
 #[tauri::command(async)]
-pub fn mcp_library_save(
-    app: tauri::AppHandle,
+pub fn mcp_library_save<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,

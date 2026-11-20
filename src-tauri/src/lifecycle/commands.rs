@@ -26,7 +26,7 @@ fn state_now(lifecycle: &Lifecycle) -> State {
 /// The snapshot now, then each change, on this channel — the one channel TS
 /// hears the machine on — and that the machine stopped, if it does.
 #[tauri::command]
-pub async fn lifecycle_subscribe(app: tauri::AppHandle, lifecycle: tauri::State<'_, Lifecycle>, on_heard: Channel<Heard>) -> Result<(), String> {
+pub async fn lifecycle_subscribe<R: tauri::Runtime>(app: tauri::AppHandle<R>, lifecycle: tauri::State<'_, Lifecycle>, on_heard: Channel<Heard>) -> Result<(), String> {
     let states = lifecycle.door().machine().state();
     let running_now = move || {
         use tauri::Manager;

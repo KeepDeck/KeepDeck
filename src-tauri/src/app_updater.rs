@@ -74,8 +74,8 @@ struct ChangelogManifest {
 const CHANGELOG_SCHEMA: u32 = 1;
 
 #[tauri::command]
-pub async fn app_update_check(
-    app: tauri::AppHandle,
+pub async fn app_update_check<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: tauri::State<'_, AppUpdaterState>,
     registry: tauri::State<'_, downloads::DownloadRegistry>,
 ) -> Result<Option<AvailableUpdateDto>, String> {

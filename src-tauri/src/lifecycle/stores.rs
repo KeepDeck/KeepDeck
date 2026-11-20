@@ -38,17 +38,17 @@ pub(crate) fn each(steps: impl IntoIterator<Item = (&'static str, Result<(), Str
     }
 }
 
-pub struct AppStores {
-    app: tauri::AppHandle,
+pub struct AppStores<R: tauri::Runtime> {
+    app: tauri::AppHandle<R>,
 }
 
-impl AppStores {
-    pub fn new(app: tauri::AppHandle) -> AppStores {
+impl<R: tauri::Runtime> AppStores<R> {
+    pub fn new(app: tauri::AppHandle<R>) -> AppStores<R> {
         AppStores { app }
     }
 }
 
-impl StoreDoors for AppStores {
+impl<R: tauri::Runtime> StoreDoors for AppStores<R> {
     fn disarm(&self, dir: &Dir) -> Result<(), String> {
         crate::cwd_arm::disarm_dir(dir.as_str())
     }

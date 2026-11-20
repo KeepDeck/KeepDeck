@@ -89,7 +89,7 @@ impl AppInfo {
 }
 
 #[tauri::command]
-fn app_info(app: tauri::AppHandle) -> AppInfo {
+fn app_info<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> AppInfo {
     AppInfo::current(app.config().plugins.0.contains_key("updater"))
 }
 
@@ -205,10 +205,10 @@ pub fn run() {
 /// builder by [`run`], whose `shell` runs first in setup: what only the
 /// windowed app does — its banner and notifications, the updater, the legacy
 /// migrations, the price catalogue.
-fn compose(
-    builder: tauri::Builder<tauri::Wry>,
-    shell: impl FnOnce(&mut tauri::App) -> Result<(), Box<dyn std::error::Error>> + Send + 'static,
-) -> tauri::Builder<tauri::Wry> {
+fn compose<R: tauri::Runtime>(
+    builder: tauri::Builder<R>,
+    shell: impl FnOnce(&mut tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> + Send + 'static,
+) -> tauri::Builder<R> {
     builder
         .manage(history::HistoryIndex::default())
         .manage(usage_ledger::UsageLedgerState::default())
@@ -443,6 +443,108 @@ mod tests {
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert!(!info.version.is_empty(), "version must not be empty");
         assert!(!info.updater, "dev builds must report the updater as absent");
+    }
+
+    /// The app composes on any runtime — on Tauri's test runtime as on the
+    /// window's — which is what lets the host harness serve the page's tests
+    /// from the app itself rather than from a copy of it.
+    #[test]
+    fn the_app_composes_on_the_test_runtime() {
+        compose(tauri::test::mock_builder(), |_| Ok(()))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("the app builds on the test runtime");
+    }
+
+    /// The names a command is invoked by in `src`: the string literal a call
+    /// to `invoke` (or a wrapper named `invoke…`) opens with, type arguments
+    /// skipped however nested.
+    fn invoked_names(src: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        let bytes = src.as_bytes();
+        let mut i = 0;
+        while let Some(rel) = src[i..].find("invoke") {
+            let start = i + rel;
+            i = start + "invoke".len();
+            let before = start.checked_sub(1).map(|k| bytes[k]);
+            if before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                continue;
+            }
+            let mut j = i;
+            while j < bytes.len() && bytes[j].is_ascii_alphanumeric() {
+                j += 1;
+            }
+            if bytes.get(j) == Some(&b'<') {
+                let mut depth = 0usize;
+                while j < bytes.len() {
+                    match bytes[j] {
+                        b'<' => depth += 1,
+                        b'>' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                j += 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+            }
+            if bytes.get(j) != Some(&b'(') {
+                continue;
+            }
+            let rest = src[j + 1..].trim_start();
+            let Some(literal) = rest.strip_prefix('"') else { continue };
+            if let Some(end) = literal.find('"') {
+                let name = &literal[..end];
+                if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                    names.push(name.to_string());
+                }
+            }
+        }
+        names
+    }
+
+    /// The commands the app registers: the paths in `generate_handler!`,
+    /// by their final segment.
+    fn registered_names(lib_src: &str) -> Vec<String> {
+        let start = lib_src.find("tauri::generate_handler![").expect("the handler list");
+        let list = &lib_src[start + "tauri::generate_handler![".len()..];
+        let list = &list[..list.find(']').expect("the handler list's end")];
+        list.split(',').map(|path| final_segment(path.trim()).to_string()).filter(|name| !name.is_empty()).collect()
+    }
+
+    /// Every command the page invokes is one the app registers. The page's
+    /// calls and the app's list are each read from their own source, so no
+    /// third list can drift from either; a name that drifts — a rename on
+    /// one side — fails here instead of as "command not found" at run time.
+    #[test]
+    fn every_command_the_page_invokes_is_registered() {
+        let registered = registered_names(include_str!("lib.rs"));
+        assert!(registered.len() > 100, "handler scan: too few names, the scan broke: {}", registered.len());
+        let page = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src");
+        let mut missing: Vec<String> = Vec::new();
+        let mut invoked = 0usize;
+        let mut stack = vec![page];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("reading {dir:?}: {e}")).flatten() {
+                let path = entry.path();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if (name.ends_with(".ts") || name.ends_with(".tsx")) && !name.contains(".test") && !name.contains("testSupport") && !name.contains("test-support") {
+                    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {path:?}: {e}"));
+                    for command in invoked_names(&src) {
+                        invoked += 1;
+                        if !registered.contains(&command) {
+                            missing.push(format!("{command} (in {name})"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(invoked > 100, "page scan: too few invocations, the scan broke: {invoked}");
+        assert!(missing.is_empty(), "the page invokes commands the app does not register:\n  {}", missing.join("\n  "));
     }
 
     // ── The wiring pin ──────────────────────────────────────────────

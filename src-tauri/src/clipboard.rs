@@ -22,7 +22,7 @@ const CREATE_ATTEMPTS: usize = 8;
 /// `(async)` so the PNG encode (often multi-MB) + disk write run on Tauri's
 /// worker pool, not the main thread — a large image paste must not freeze the UI.
 #[tauri::command(async)]
-pub fn clipboard_image_to_temp(app: tauri::AppHandle) -> Option<String> {
+pub fn clipboard_image_to_temp<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Option<String> {
     let image = app.clipboard().read_image().ok()?;
     save_rgba_png(image.rgba(), image.width(), image.height())
 }

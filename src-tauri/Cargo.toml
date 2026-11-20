@@ -105,3 +105,5 @@ objc2-foundation = "0.3"
 keepdeck-fsm = { path = "../crates/keepdeck-fsm" }
 # Paused time: a cleanup's limit is tested without waiting it out.
 tokio = { version = "1", features = ["test-util"] }
+# Tauri's test runtime: the app composes on it as it does on the window's.
+tauri = { version = "2", features = ["test"] }

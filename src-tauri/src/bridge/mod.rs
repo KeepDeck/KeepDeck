@@ -37,7 +37,7 @@ mod wire;
 
 use std::fs::{self, File};
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use wire::{printable, Inbound, SESSION_BOUND_EVENT};
 // Only what the rest of the crate actually consumes: the session tailer emits
@@ -70,7 +70,7 @@ pub struct Bridge {
 }
 
 /// Boot the bridge: sweep orphaned run dirs, publish this run's own, serve.
-pub fn start(app: &AppHandle) -> Result<Bridge, String> {
+pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<Bridge, String> {
     let home = crate::paths::keepdeck_home().ok_or("no home directory for the bridge")?;
     // Pre-bridge installs dropped postbacks into one shared spool; reap it
     // once so it doesn't sit around forever.
@@ -167,7 +167,7 @@ pub fn bridge_nudge(bridge: tauri::State<Bridge>, pane: String) {
 /// questions: the route knows how bytes arrive, this knows what a report
 /// MEANS. That separation is what let the file lane be removed without
 /// anything downstream noticing.
-fn emit_inbound(app: &AppHandle, inbound: Inbound) {
+fn emit_inbound<R: Runtime>(app: &AppHandle<R>, inbound: Inbound) {
     match inbound {
         Inbound::SessionBound(bound) => {
             log::info!(

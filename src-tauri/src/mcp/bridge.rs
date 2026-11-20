@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::mcp::server::LineHandler;
 
@@ -181,7 +181,7 @@ fn client_token(line: &str) -> Option<String> {
 ///
 /// One handler per connection, because the client's own name arrives ON that
 /// connection and must not be read into anyone else's requests.
-pub(crate) fn webview_handler(app: AppHandle) -> LineHandler {
+pub(crate) fn webview_handler<R: Runtime>(app: AppHandle<R>) -> LineHandler {
     Arc::new(move |peer| {
         let app = app.clone();
         let mut client: Option<String> = None;

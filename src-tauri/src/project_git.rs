@@ -620,8 +620,8 @@ fn spawn_git_watch(
 /// [`PROJECT_GIT_CHANGE_EVENT`]. Scoped exactly like a read. Idempotent per
 /// registered path — re-registering replaces the old watcher set.
 #[tauri::command(async)]
-pub fn project_git_watch(
-    app: AppHandle,
+pub fn project_git_watch<R: tauri::Runtime>(
+    app: AppHandle<R>,
     watchers: State<ProjectGitWatchers>,
     path: String,
     roots: Vec<String>,

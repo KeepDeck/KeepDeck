@@ -28,7 +28,7 @@ pub struct SpawnContextDto {
 
 /// The spawn-plan context, resolved once at webview boot.
 #[tauri::command]
-pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> {
+pub fn session_spawn_context<R: tauri::Runtime>(app: AppHandle<R>) -> Result<SpawnContextDto, String> {
     // Managed at setup; absent only if the bridge failed to start, in which
     // case identity mechanisms are off ("" / 0 = unavailable).
     let bridge = app.try_state::<crate::bridge::Bridge>();

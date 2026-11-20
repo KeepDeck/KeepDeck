@@ -123,7 +123,7 @@ impl Lifecycle {
 
     /// Without the claim: try for it again until it is had, then start over
     /// and tell TS.
-    pub fn retry_claim(app: tauri::AppHandle) {
+    pub fn retry_claim<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
         tauri::async_runtime::spawn(async move {
             loop {
                 use tauri::Manager;

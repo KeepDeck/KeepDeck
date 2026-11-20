@@ -165,8 +165,8 @@ impl Library<'_> {
 /// this is a CREATE, a name that is already taken). The library's lock and
 /// the commit gate are the app's managed state.
 #[tauri::command(async)]
-pub fn skills_save(
-    app: tauri::AppHandle,
+pub fn skills_save<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,

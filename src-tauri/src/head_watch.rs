@@ -98,8 +98,8 @@ fn spawn_watcher(
 /// pool — a deck with N worktree panes registers N watches on boot, and those
 /// serial subprocesses must not stall the main IPC thread.
 #[tauri::command(async)]
-pub fn worktree_watch(
-    app: AppHandle,
+pub fn worktree_watch<R: tauri::Runtime>(
+    app: AppHandle<R>,
     watchers: State<HeadWatchers>,
     path: String,
 ) -> Result<(), String> {

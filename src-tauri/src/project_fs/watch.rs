@@ -65,8 +65,8 @@ fn spawn_project_watch(
 /// a read: the path must sit inside the caller's fs roots ([`resolve_within`]).
 /// Idempotent per registered path — re-registering replaces the old watcher.
 #[tauri::command(async)]
-pub fn project_fs_watch(
-    app: AppHandle,
+pub fn project_fs_watch<R: tauri::Runtime>(
+    app: AppHandle<R>,
     watchers: State<ProjectFsWatchers>,
     path: String,
     roots: Vec<String>,
