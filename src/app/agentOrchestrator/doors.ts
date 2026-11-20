@@ -16,6 +16,7 @@ import {
   findWorkspace,
   findWorkspaceByRef,
   nextAutoTeamName,
+  paneResumeBlock,
   sameDirectory,
   teamIdsOf,
   teamsOf,
@@ -41,6 +42,7 @@ import type {
   ContinueOptions,
   CreatePaneRequest,
   CreateTeamRequest,
+  ResumeOutcome,
   TranscriptLocatorPort,
 } from ".";
 
@@ -53,6 +55,8 @@ export interface LifecycleDoorsDeps {
   continuations: Pick<ContinuationPlans, "expect">;
   transcripts: TranscriptLocatorPort;
   teamActs(wsId: string, teamId: string): TeamActs | null;
+  /** Whether a plugin provides this agent now. */
+  agentAvailable(agentType: string): boolean;
   /** Panes the person asked back: their old notes go and a start is owed. */
   askedBack(paneIds: readonly string[]): void;
   /** A restart the machine took on: the funnel owes the pane its next
@@ -171,10 +175,27 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     });
   }
 
-  /** The panes the person asked back, once the machine took the ask. */
-  function askedBack(outcome: IntentOutcome, paneIds: readonly string[]): IntentOutcome {
-    if (outcome.kind === "accepted") deps.askedBack(paneIds);
-    return outcome;
+  /** Ask one stopped pane back. A suspended pane is the machine's to bring
+   * back; one parked by the launch policy, or whose wake failed, rises by
+   * the page's own ask, as wake and park always were. */
+  async function resumeOne(wsId: string, paneId: string): Promise<ResumeOutcome> {
+    const ws = findWorkspace(workspaces(), wsId);
+    const pane = ws?.panes.find((candidate) => candidate.id === paneId);
+    if (!ws || !pane) return { kind: "blocked", why: "gone" };
+    const block = paneResumeBlock(ws, pane, deps.agentAvailable(pane.agentType));
+    if (block) return { kind: "blocked", why: block };
+    // The old notes go and a start is owed BEFORE the pane can rise: the
+    // machine's command may reach the deck, and the funnel act on it, before
+    // its answer here does — a note cleared after would erase the verdict of
+    // the very attempt this ask started.
+    deps.askedBack([paneId]);
+    if (pane.idle?.reason === "suspended") {
+      const outcome = await ask({ kind: "resume", workspace: wsId, pane: paneId });
+      if (outcome.kind !== "accepted") return outcome;
+    } else {
+      deps.actions.requestPanesWake(wsId, [paneId]);
+    }
+    return { kind: "resuming" };
   }
 
   return {
@@ -256,12 +277,10 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
       }
       return outcome;
     },
-    async resume(wsId, paneId) {
-      return askedBack(await ask({ kind: "resume", workspace: wsId, pane: paneId }), [paneId]);
-    },
+    resume: resumeOne,
     async resumeTeam(wsId, teamId) {
       const take = deps.teamActs(wsId, teamId)?.resume.take ?? [];
-      return Promise.all(take.map(async (paneId) => askedBack(await ask({ kind: "resume", workspace: wsId, pane: paneId }), [paneId])));
+      return Promise.all(take.map((paneId) => resumeOne(wsId, paneId)));
     },
   };
 }

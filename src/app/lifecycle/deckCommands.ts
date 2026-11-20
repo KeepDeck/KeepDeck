@@ -33,7 +33,13 @@ import type { CommandOwner } from "../lifecycleSnapshot";
 
 type Member = { pane: string; draft: PaneDraft };
 
-export function createDeckCommands(store: DeckStore, actions: DeckActions): CommandOwner {
+export function createDeckCommands(
+  store: DeckStore,
+  actions: DeckActions,
+  /** Where the person keeps suspended agents: in the tray, or where they
+   * stood. Read at each suspend. */
+  placement: { suspendedToTray(): boolean } = { suspendedToTray: () => false },
+): CommandOwner {
   const answer = (kind: "applied" | "unchanged"): Outcome => ({ kind, revision: store.revision() });
   const changed = (before: number): Outcome => answer(store.revision() === before ? "unchanged" : "applied");
   const rejected = (reason: string): Outcome => ({ kind: "rejected", reason });
@@ -202,7 +208,12 @@ export function createDeckCommands(store: DeckStore, actions: DeckActions): Comm
       case "clearArchived":
         return through(() => actions.restoreWorkspace(cmd.workspace));
       case "markSuspended":
-        return through(() => actions.suspendPanes(cmd.workspace, [cmd.pane]));
+        // The marker first; the tray entry only ever follows a marker that
+        // landed.
+        return through(() => {
+          actions.suspendPanes(cmd.workspace, [cmd.pane]);
+          if (placement.suspendedToTray()) actions.moveSuspendedToTray(cmd.workspace, cmd.pane);
+        });
       case "clearSuspended":
         return through(() => actions.requestPanesWake(cmd.workspace, [cmd.pane]));
       default:

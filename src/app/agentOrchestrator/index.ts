@@ -1,6 +1,6 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { CwdArmAsk, McpAccessAsk, SpawnPlan } from "../spawnSpecs";
-import type { AgentReach, PaneLocation, SpawnConfig, TeamActs } from "../../domain/deck";
+import type { AgentReach, PaneLocation, ResumeRequest, SpawnConfig, TeamActs } from "../../domain/deck";
 import type { Consent, IntentOutcome, Site } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
@@ -80,10 +80,12 @@ export interface AgentOrchestrator {
    * and start a fresh conversation there; `role` is the person's pick when
    * its own cannot come along. */
   startFresh(wsId: string, paneId: string, role?: string): Promise<IntentOutcome>;
-  /** Ask for a suspended pane back. */
-  resume(wsId: string, paneId: string): Promise<IntentOutcome>;
+  /** Ask for a stopped pane back: a suspended one through the machine, one
+   * parked by the launch policy (or whose wake failed) by the page's own
+   * ask. Refused up front when the pane cannot rise now. */
+  resume(wsId: string, paneId: string): Promise<ResumeOutcome>;
   /** Ask back every member a team's Resume would take now. */
-  resumeTeam(wsId: string, teamId: string): Promise<IntentOutcome[]>;
+  resumeTeam(wsId: string, teamId: string): Promise<ResumeOutcome[]>;
   /** Whom a team's Suspend and Resume would take right now, and why each
    * other member stays — what its menu offers, read from the same facts its
    * doors judge by. Null for a team (or workspace) that is not there. */
@@ -137,6 +139,13 @@ export interface OccupiedNote {
   /** The conversation's own name, when the registry knew one. */
   name: string | null;
 }
+
+/** How asking a stopped pane back ended: it is rising, it cannot rise now
+ * (why, in the deck's own terms), or the machine refused or did not answer. */
+export type ResumeOutcome =
+  | { kind: "resuming" }
+  | { kind: "blocked"; why: Exclude<ResumeRequest, "resuming"> }
+  | Exclude<IntentOutcome, { kind: "accepted" }>;
 
 /** An agent as a request describes it: what the deck writes for it. */
 export interface AgentDraft {

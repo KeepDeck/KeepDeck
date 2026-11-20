@@ -137,7 +137,7 @@ describe("agent orchestrator —waking across workspace switches", () => {
     await settle();
     expect(paneOf("ws-2").idle).toEqual({ reason: "parked" });
 
-    expect(agentRun.resume("ws-2", "ws-2-pane")).toBe("resuming");
+    expect(await agentRun.resume("ws-2", "ws-2-pane")).toEqual({ kind: "resuming" });
     await settle();
 
     expect(paneOf("ws-2").idle).toBeUndefined();
@@ -237,7 +237,9 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
       empty: false,
       branch: null,
     });
-    act(() => agentRun.resume("ws-1", "pane-1"));
+    await act(async () => {
+      await agentRun.resume("ws-1", "pane-1");
+    });
     await settle();
 
     expect(agentRun.blocked["pane-1"]).toBeUndefined();
@@ -258,7 +260,9 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
     act(() => deck.requestPanesWake("ws-1", ["pane-1"]));
     await settle();
 
-    act(() => agentRun.resume("ws-1", "pane-1"));
+    await act(async () => {
+      await agentRun.resume("ws-1", "pane-1");
+    });
     await settle();
 
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-1");
@@ -344,7 +348,7 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     expect(peekPaneSpawnSpec("here")).toBeDefined();
     expect(peekPaneSpawnSpec("unmarked")).toBeUndefined();
     // Asking by name is refused at the door, and the pane keeps its marker.
-    expect(agentRun.resume("ws-2", "suspended")).toBe("archived");
+    expect(await agentRun.resume("ws-2", "suspended")).toEqual({ kind: "blocked", why: "archived" });
     expect(deck.workspaces[1].panes.find((p) => p.id === "suspended")?.idle).toEqual({
       reason: "suspended",
       at: "2026-11-16T00:00:00.000Z",
@@ -360,13 +364,12 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     act(() => deck.archiveWorkspace("ws-1"));
 
     // Down at once — mail sent now would never be read — though nothing
-    // has ended its process yet: the gate ends nothing.
+    // has ended its process: the gate ends nothing, and stopping it is the
+    // archive's, the lifecycle machine's.
     expect(pty.live.has("running")).toBe(true);
     expect(agentRun.reachOf("running")).toEqual({ kind: "down", why: "workspace-archived" });
-    // The archive's pass does; a marker with no pass behind it is finished
-    // the way one the last run left is.
     await settle();
-    expect(pty.closed).toContain("running");
+    expect(pty.closed).not.toContain("running");
   });
 
   it("does not call a pane's plugin missing before the catalog has loaded", async () => {

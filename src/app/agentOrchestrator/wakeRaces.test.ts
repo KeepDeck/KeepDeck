@@ -19,11 +19,8 @@ import {
   restored,
   settle,
 } from "./testSupport";
-import type {
-  DeckState,
-  PaneIdle,
-  ResumeRequest,
-} from "./testSupport";
+import type { DeckState, PaneIdle } from "./testSupport";
+import type { ResumeOutcome } from ".";
 import { present } from "@keepdeck/plugin-api/testing";
 
 describe("agent orchestrator —a request that lands mid-flight", () => {
@@ -79,11 +76,11 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     await act(async () => {});
 
     // The pane is mid-probe; ask for it by name (the `agent.resume` path).
-    let asked: ResumeRequest | undefined;
-    act(() => {
-      asked = agentRun.resume("ws-1", "pane-1");
+    let asked: ResumeOutcome | undefined;
+    await act(async () => {
+      asked = await agentRun.resume("ws-1", "pane-1");
     });
-    expect(asked).toBe("resuming");
+    expect(asked).toEqual({ kind: "resuming" });
     release();
     await settle();
 
@@ -151,8 +148,8 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
     await act(async () => {});
 
-    act(() => {
-      agentRun.resume("ws-1", "pane-1");
+    await act(async () => {
+      await agentRun.resume("ws-1", "pane-1");
     });
     releaseBuild();
     await settle();
@@ -283,8 +280,8 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     await settle();
     expect(background().idle).toMatchObject({ reason: "suspended" });
 
-    act(() => {
-      agentRun.resume("ws-2", "pane-2");
+    await act(async () => {
+      await agentRun.resume("ws-2", "pane-2");
     });
     await settle();
 
@@ -305,8 +302,8 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     await settle();
     pty.acquired = [];
 
-    act(() => {
-      agentRun.resume("ws-2", "pane-2");
+    await act(async () => {
+      await agentRun.resume("ws-2", "pane-2");
     });
     await settle();
 
@@ -323,8 +320,8 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
       deck.hydrate(twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" })),
     );
     await settle();
-    act(() => {
-      agentRun.resume("ws-2", "pane-2");
+    await act(async () => {
+      await agentRun.resume("ws-2", "pane-2");
     });
     await settle();
     expect(pty.acquired.map((a) => a.paneId)).toContain("pane-2");
@@ -352,8 +349,8 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
       deck.hydrate(twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" })),
     );
     await settle();
-    act(() => {
-      agentRun.resume("ws-2", "pane-2");
+    await act(async () => {
+      await agentRun.resume("ws-2", "pane-2");
     });
     await settle();
     expect(agentRun.blocked["pane-2"]).toBe("/other");
@@ -398,7 +395,7 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
       deck.workspaces[1].panes[0].agentType = "retired-cli";
     });
 
-    expect(agentRun.resume("ws-2", "pane-2")).toBe("unavailable");
+    expect(await agentRun.resume("ws-2", "pane-2")).toEqual({ kind: "blocked", why: "unavailable" });
     expect(background().idle).toEqual({
       reason: "suspended",
       at: "2026-07-25T09:00:00.000Z",

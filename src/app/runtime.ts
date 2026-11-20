@@ -463,7 +463,9 @@ export function createAppRuntime(
   // a command is carried only after this runtime is whole.
   const lifecycleSnapshot = createLifecycleSnapshot({
     owners: {
-      deck: createDeckCommands(deckStore, deckActions),
+      deck: createDeckCommands(deckStore, deckActions, {
+        suspendedToTray: () => getSettings()?.suspendedAgentPlacement === "tray",
+      }),
       boards: createBoardsOwner({ forgetWorkspace: tasks.forgetWorkspace, retainTeams: tasks.retainTeams }),
       mail: createMailOwner({
         forget: (paneIds) => mail.current()?.forget(paneIds),

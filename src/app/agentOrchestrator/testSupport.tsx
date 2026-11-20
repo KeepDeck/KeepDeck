@@ -2,18 +2,16 @@
 import { emptyJournal as emptyJournalImpl } from "../../domain/journal";
 import { act, useState } from "react";
 import { vi } from "vitest";
-import type {
-  DeckState,
-  Pane,
-  PaneIdle,
-  SpawnConfig,
-  ResumeRequest,
-  TeamLocation,
-  WorktreeTarget,
-  WorktreeTeardownFailure,
-} from "../../domain/deck";
+import type { DeckState, Pane, PaneIdle, SpawnConfig, TeamLocation } from "../../domain/deck";
 import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
-import type { SuspendOutcome } from "../../domain/deck";
+import type { Cmd } from "../../ipc/generated/lifecycle/Cmd";
+import type { Intent } from "../../ipc/generated/lifecycle/Intent";
+import { createDeckActions } from "../deckActions";
+import { createDeckCommands } from "../lifecycle/deckCommands";
+import type { LeaseAsk } from "../../ipc/generated/lifecycle/LeaseAsk";
+import type { PanePhase } from "../../ipc/generated/lifecycle/PanePhase";
+import type { Reply } from "../../ipc/generated/lifecycle/Reply";
+import type { Snapshot } from "../../ipc/generated/lifecycle/Snapshot";
 // From the module, not the barrel: the barrel is mocked below, and these are
 // plain shapes and pure predicates with no cache state to fake.
 import {
@@ -32,16 +30,10 @@ import {
 import type { Deck } from "../useDeck";
 import { useDeck } from "../useDeck";
 import { createDeckStore } from "../deckStore";
-import {
-  createAgentOrchestrator,
-  type AgentOrchestrator,
-  type AgentRunView,
-  type RestartOutcome,
-} from ".";
+import { createAgentOrchestrator, type AgentOrchestrator, type AgentRunView } from ".";
 import { useAgentRunView } from "../useAgentRunView";
 import type { SpawnPluginAccess } from "../spawnSpecs";
 import { createSpawnPluginsFake } from "../spawnSpecs/planTestSupport";
-import type { ProvisionRequest } from "../worktrees";
 
 const ipc = vi.hoisted(() => ({
   probeWorktree: vi.fn(),
@@ -141,11 +133,11 @@ vi.mock("../spawnSpecs", () => {
       },
     ),
     // The plugin's store surgery, in miniature: it caches a plan for the pane
-    // and says whether it could. What the surgery DOES is the plugin's test.
+    // and answers what it declared. What the surgery DOES is the plugin's test.
     buildForkSpec: vi.fn(async (_p: unknown, _a: string, facts: { paneId: string }) => {
       specs.set(facts.paneId, { args: [], env: [] });
       notify();
-      return true;
+      return { plugin: "p", onceStarted: [], ifNeverStarted: [] };
     }),
     peekPaneSpawnSpec: (id: string) => specs.get(id),
     // A refused manual wake drops the half-built plan, or the pane's next
@@ -169,11 +161,6 @@ vi.mock("../spawnSpecs", () => {
     }),
   };
 });
-/** The fake worktree manager records post-provision steps for fork tests. */
-const steps = vi.hoisted(() => ({
-  register: vi.fn(),
-  clear: vi.fn(),
-}));
 /** Record the deferred staged-skill question carried by spawn facts. */
 const skillsAsked = vi.fn((_workspace: { id: string; instance: string }) =>
   Promise.resolve(null),
@@ -209,38 +196,89 @@ const transcripts = {
       transcripts.indexed.get(`${agent}:${sessionId}`) ?? null,
   ),
 };
-/** What the backend keeps per workspace, one forgetter per keeper. */
-const forgetters = {
-  artifacts: vi.fn(async (_wsId: string) => {}),
-  mcp: vi.fn(async (_wsId: string) => {}),
+/**
+ * The lifecycle machine as the orchestrator reaches it, faked: every intent
+ * is recorded and answered as `answer` says (accepted by default, naming
+ * the ids it would make); every lease is granted a fresh permit unless a
+ * test refuses it; the snapshot is open — the barrier down — with the pane
+ * phases a test sets.
+ */
+export const machine = {
+  intents: [] as Intent[],
+  leases: [] as LeaseAsk[],
+  released: [] as number[],
+  hookEnded: vi.fn(),
+  op: 0,
+  permit: 0,
+  /** What the next intents are answered; null answers every one accepted. */
+  answer: null as Reply | null,
+  /** What the next leases are answered; null grants each a permit. */
+  leaseAnswer: null as Reply | null,
+  open: true,
+  phases: {} as Record<string, PanePhase>,
+  listeners: new Set<() => void>(),
+  snapshot(): Snapshot {
+    return {
+      open: machine.open,
+      viewOnly: false,
+      sessionsDown: false,
+      forgotten: { workspaces: [], teams: [], panes: [] },
+      workspaces: {},
+      teams: {},
+      gates: {},
+      panes: machine.phases,
+      commands: [],
+    };
+  },
+  /** The machine's state moved: the snapshot listeners hear it. */
+  publish() {
+    for (const listener of [...machine.listeners]) listener();
+  },
+  /** The deck owner the fake carries its commands through — the real one,
+   * bound per mount. */
+  carry: null as ((cmd: Cmd) => Promise<unknown>) | null,
+  async send(intent: Intent): Promise<Reply> {
+    machine.intents.push(intent);
+    if (machine.answer) return machine.answer;
+    machine.op += 1;
+    // What the machine then asks of the deck, for the intents whose deck
+    // half is one command: carried through the real deck owner, as the
+    // snapshot would carry it.
+    const cmd: Cmd | null =
+      intent.kind === "resume"
+        ? { kind: "clearSuspended", workspace: intent.workspace, pane: intent.pane }
+        : intent.kind === "suspend"
+          ? { kind: "markSuspended", workspace: intent.workspace, pane: intent.pane }
+          : null;
+    if (cmd && machine.carry) await machine.carry(cmd);
+    return { kind: "answered", answer: { kind: "accepted", op: machine.op, minted: { workspace: null, team: null, panes: [] } } };
+  },
+  async lease(ask: LeaseAsk): Promise<Reply> {
+    machine.leases.push(ask);
+    if (machine.leaseAnswer) return machine.leaseAnswer;
+    machine.permit += 1;
+    return { kind: "answered", answer: { kind: "leased", permit: machine.permit } };
+  },
+  async release(permit: number): Promise<void> {
+    machine.released.push(permit);
+  },
+  reset() {
+    machine.intents = [];
+    machine.leases = [];
+    machine.released = [];
+    machine.hookEnded.mockClear();
+    machine.answer = null;
+    machine.leaseAnswer = null;
+    machine.open = true;
+    machine.phases = {};
+    machine.listeners.clear();
+  },
 };
-
-/** What each pane's create has put on disk, as `provisioning` publishes it the
- *  moment `git worktree add` returns. */
-const published = vi.hoisted(
-  () =>
-    new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
-);
-
-/** Each owner's create in flight, as `awaitSettled` reports its end — a test
- *  puts a promise here to hold a create open across a flow that waits. */
-const settling = vi.hoisted(
-  () => new Map<string, Promise<"resolved" | "failed" | "abandoned">>(),
-);
-
-/** The archive's take-back of plantings: who asked, and what it answers
- *  (a test sets `ok` to false to see the failure recorded). */
-const disarms = vi.hoisted(() => ({ asked: [] as string[], ok: true }));
 
 export const ipcHarness = ipc;
 export const gateHarness = gate;
 export const plansHarness = plans;
-export const stepsHarness = steps;
 export const lifecycleHarness = lifecycle;
-export const forgettersHarness = forgetters;
-export const publishedHarness = published;
-export const settlingHarness = settling;
-export const disarmsHarness = disarms;
 export const skillsAskedHarness = skillsAsked;
 export const transcriptsHarness = transcripts;
 export {
@@ -248,13 +286,8 @@ export {
   gateHarness as gate,
   ipcHarness as ipc,
   plansHarness as plans,
-  publishedHarness as published,
-  settlingHarness as settling,
-  disarmsHarness as disarms,
-  stepsHarness as steps,
   skillsAskedHarness as skillsAsked,
   lifecycleHarness as lifecycle,
-  forgettersHarness as forgetters,
 };
 export const buildForkSpec = buildForkSpecImpl;
 export const buildResumeSpec = buildResumeSpecImpl;
@@ -281,6 +314,8 @@ export const pty = {
     cwd?: string | null;
     args?: string[];
     env?: [string, string][];
+    /** The lease the spawn spent. */
+    launch?: { permit: number; owner: unknown };
   }[],
   live: new Set<string>(),
   /** Panes whose process has printed something — the "the CLI painted"
@@ -297,6 +332,7 @@ export const pty = {
       args?: string[];
       env?: [string, string][];
     },
+    launch: { permit: number; owner: unknown },
   ) {
     pty.acquired.push({
       paneId,
@@ -304,6 +340,7 @@ export const pty = {
       cwd: spec.cwd,
       args: spec.args,
       env: spec.env,
+      launch,
     });
     pty.live.add(paneId);
     pty.notify();
@@ -342,6 +379,10 @@ export const pty = {
     // Listeners go with the rest: an orchestrator from a previous mount would
     // otherwise keep reconciling its own dead deck on every state change.
     pty.listeners.clear();
+    // The machine the processes are leased from goes with them: every suite
+    // resets the pty per test, and a lease or an intent of the last test must
+    // not answer this one.
+    machine.reset();
   },
 };
 
@@ -368,21 +409,8 @@ export let agentRun: AgentRunView &
     | "close"
     | "archive"
     | "restore"
+    | "dismissOccupied"
   >;
-/** The worktree creates the orchestrator asked for, recorded instead of run.
- *  Per mount like the deck beside it, so no `describe` has to remember to
- *  clear it. */
-export let provisions: ProvisionRequest[][];
-/** The workspace name each of those create batches was issued under — what
- *  the auto branch name is built from, read live at the call. */
-export let provisionedAs: string[];
-/** The worktree removals a confirmed close asked for, per mount. */
-export let discards: WorktreeTarget[][];
-/** What the removal reports back as un-deletable. */
-let discardFailures: WorktreeTeardownFailure[] = [];
-export const setDiscardFailures = (failures: WorktreeTeardownFailure[]) => {
-  discardFailures = failures;
-};
 export const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
 // What the orchestrator's gate consults — swappable per test. The id set is
@@ -390,7 +418,6 @@ export const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 // policy is read live, so a test may flip it while the deck stands.
 export const catalog = {
   parkOnLaunch: false,
-  moveSuspendedToTray: false,
   agents: ["claude", "codex", "opencode"].map((id) => ({
     id,
     label: id,
@@ -410,14 +437,10 @@ export const catalog = {
 export function Probe() {
   const [wiring] = useState(() => {
     const store = createDeckStore();
-    const asked: ProvisionRequest[][] = [];
-    const issuedAs: string[] = [];
-    const discarded: WorktreeTarget[][] = [];
+    const owner = createDeckCommands(store, createDeckActions(store));
+    machine.carry = (cmd) => owner.carry({ id: { op: machine.op, index: 0 }, owner: "deck", cmd });
     return {
       store,
-      asked,
-      issuedAs,
-      discarded,
       orchestrator: createAgentOrchestrator({
         deck: store,
         spawnContext: { get: () => ctx, subscribe: () => () => {} },
@@ -434,9 +457,6 @@ export function Probe() {
           parkOnLaunch: () => catalog.parkOnLaunch,
           subscribe: () => () => {},
         },
-        suspendPolicy: {
-          moveToTray: () => catalog.moveSuspendedToTray,
-        },
         sessions: {
           subscribe: pty.subscribe,
           state: (paneId: string) => pty.state(paneId),
@@ -452,41 +472,23 @@ export function Probe() {
         armCwd: async () => {},
         lifecycle,
         transcripts,
-        workspaceForgetters: [forgetters.artifacts, forgetters.mcp],
-        worktrees: {
-          provision: (requests, workspaceName) => {
-            asked.push([...requests]);
-            issuedAs.push(workspaceName);
-            return Promise.resolve();
+        skills: { skillsFor: skillsAsked },
+        bindings: { subscribe: () => () => {} },
+        machine: {
+          send: machine.send,
+          lease: machine.lease,
+          release: machine.release,
+          snapshot: machine.snapshot,
+          subscribe(listener: () => void) {
+            machine.listeners.add(listener);
+            return () => machine.listeners.delete(listener);
           },
-          awaitCreated: (paneId) => {
-            const made = published.get(paneId);
-            if (!made) return Promise.resolve(null);
-            published.delete(paneId);
-            return made;
-          },
-          awaitSettled: (ownerId) => settling.get(ownerId) ?? Promise.resolve("none"),
-          disarmArchived: (workspace) => {
-            disarms.asked.push(workspace.id);
-            return Promise.resolve(disarms.ok);
-          },
-          // Not the orchestrator's: the Workspaces window asks it directly.
-          removeUnheld: () => Promise.resolve({ kind: "removed" as const }),
-          registerPostProvision: steps.register,
-          clearPostProvision: steps.clear,
-          skillsFor: skillsAsked,
-          remove: (targets) => {
-            discarded.push(targets);
-            return Promise.resolve(discardFailures);
-          },
+          hookEnded: machine.hookEnded,
         },
       }),
     };
   });
   deck = useDeck(wiring.store);
-  provisions = wiring.asked;
-  provisionedAs = wiring.issuedAs;
-  discards = wiring.discarded;
   agentRun = {
     ...useAgentRunView(wiring.orchestrator),
     reachOf: wiring.orchestrator.reachOf,
@@ -508,6 +510,7 @@ export function Probe() {
     recoverRejectedResume: wiring.orchestrator.recoverRejectedResume,
     retryPlanBuild: wiring.orchestrator.retryPlanBuild,
     close: wiring.orchestrator.close,
+    dismissOccupied: wiring.orchestrator.dismissOccupied,
   };
   return null;
 }
@@ -546,14 +549,4 @@ export const settle = async () => {
 };
 
 
-export type {
-  DeckState,
-  Pane,
-  PaneIdle,
-  SessionHandle,
-  SpawnConfig,
-  SpawnPluginAccess,
-  SuspendOutcome,
-  RestartOutcome,
-  ResumeRequest,
-};
+export type { DeckState, Pane, PaneIdle, SessionHandle, SpawnConfig, SpawnPluginAccess };

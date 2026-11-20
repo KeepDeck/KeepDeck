@@ -7,9 +7,9 @@ import { createDeckStore } from "../deckStore";
 import { createDeckCommands } from "./deckCommands";
 
 /** The real deck, its real actions, and the owner over them. */
-function rig() {
+function rig(toTray = false) {
   const store = createDeckStore();
-  const owner = createDeckCommands(store, createDeckActions(store));
+  const owner = createDeckCommands(store, createDeckActions(store), { suspendedToTray: () => toTray });
   const carry = (cmd: Cmd): Promise<Outcome> => owner.carry({ id: { op: 1, index: 0 }, owner: "deck", cmd });
   const ws = () => findWorkspace(store.getSnapshot().workspaces, "ws-a");
   return { store, carry, ws };
@@ -143,5 +143,17 @@ describe("the deck's owner of lifecycle commands", () => {
   it("refuses a command that is not the deck's", async () => {
     const { carry } = rig();
     expect((await carry({ kind: "forgetBoards", workspace: "ws-a" })).kind).toBe("rejected");
+  });
+
+  it("marks a suspended pane, and shelves it in the tray only when that is the person's placement", async () => {
+    for (const toTray of [false, true]) {
+      const { store, carry } = rig(toTray);
+      await carry(workspace);
+      await carry(team([member("pane-1", "lead")]));
+      expect((await carry({ kind: "markSuspended", workspace: "ws-a", pane: "pane-1" })).kind).toBe("applied");
+      const state = store.getSnapshot();
+      expect(state.workspaces[0].panes[0].idle).toMatchObject({ reason: "suspended" });
+      expect(state.viewByWs["ws-a"]?.suspendedTray ?? []).toEqual(toTray ? ["pane-1"] : []);
+    }
   });
 });
