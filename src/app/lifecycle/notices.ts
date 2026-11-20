@@ -5,7 +5,7 @@
  */
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import { worktreeNotDeletedNotice } from "../../presentation/closeWords";
-import type { CommandOwner } from "../lifecycleSnapshot";
+import { ownerRefused, type CommandOwner } from "../lifecycleSnapshot";
 import type { NotificationCenter } from "../notificationCenter";
 
 const DONE: Outcome = { kind: "applied", revision: null };
@@ -14,7 +14,7 @@ export function createNoticesOwner(center: Pick<NotificationCenter, "notify">): 
   return {
     carry({ cmd }) {
       if (cmd.kind !== "worktreeNotDeleted") {
-        return Promise.resolve({ kind: "rejected", reason: `the notices carry no ${cmd.kind} command` });
+        return Promise.resolve(ownerRefused({ kind: "wrongOwner", command: cmd.kind }));
       }
       center.notify({
         ...worktreeNotDeletedNotice(cmd.path, cmd.reason),

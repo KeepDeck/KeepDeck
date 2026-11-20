@@ -4,7 +4,7 @@
 
 use super::snapshot::{snapshot, Due, TeamGates, TeamPhase};
 use super::*;
-use crate::command::{Cmd, Outcome, Revision};
+use crate::command::{Cmd, Outcome, Revision, Why};
 use crate::journal::{Discard, Entry, Step, Target, Work};
 use crate::model::{self, Answer, Consent, Continuation, Draft, Folder, Intent, Landing, Place, Refusal, SessionKey, Site};
 use crate::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
@@ -24,6 +24,11 @@ fn team(name: &str) -> TeamId {
 /// CLI: its agent is a neutral one.
 fn draft() -> Draft {
     Draft(json!({ "agentType": "cli-a" }))
+}
+
+/// An owner's refusal of `kind`, as the machine carries it: opaque.
+fn why(kind: &str) -> Why {
+    Why(json!({ "kind": kind }))
 }
 
 fn pane_facts(n: u64, team_name: Option<&str>) -> PaneFacts {
@@ -861,8 +866,8 @@ fn a_relocate_takes_the_member_to_the_root_team_under_the_role_the_person_picked
 fn a_seat_the_role_rule_refuses_hears_the_owners_own_kind() {
     let mut sim = Sim::booted();
     let ask = sim.intent(seat("1"));
-    sim.reply(|cmd| matches!(cmd, Cmd::AddPane { .. }), Outcome::Rejected { reason: "taken".into() });
-    assert_eq!(sim.refusal(ask), Some(Refusal::Rejected { reason: "taken".into() }));
+    sim.reply(|cmd| matches!(cmd, Cmd::AddPane { .. }), Outcome::Rejected { why: why("role") });
+    assert_eq!(sim.refusal(ask), Some(Refusal::Rejected { why: why("role") }));
     assert_eq!(sim.state.world.members(&team("1")).len(), 2, "no pane was added");
     sim.drive();
     assert!(sim.state.ops.is_empty());
@@ -900,7 +905,7 @@ fn a_close_after_a_rejected_seat_keeps_the_old_membership_without_waiting_for_a_
     let mut sim = Sim::booted();
     sim.intent(seat("1"));
     sim.close(disband("1", Consent::default()));
-    sim.reply(|cmd| matches!(cmd, Cmd::AddPane { .. }), Outcome::Rejected { reason: "misfit".into() });
+    sim.reply(|cmd| matches!(cmd, Cmd::AddPane { .. }), Outcome::Rejected { why: why("role") });
     let entry = sim.owed().into_iter().find_map(|effect| match effect {
         Effect::WriteJournal { entry, .. } => Some(entry),
         _ => None,
@@ -1475,14 +1480,14 @@ fn a_refused_command_comes_back_from_the_journal_refused() {
     let mut first = Sim::booted();
     first.close(disband("1", Consent::default()));
     first.write_journals();
-    first.reply(|cmd| matches!(cmd, Cmd::Retire { pane, .. } if *pane == PaneId(1)), Outcome::Rejected { reason: "gone".into() });
+    first.reply(|cmd| matches!(cmd, Cmd::Retire { pane, .. } if *pane == PaneId(1)), Outcome::Rejected { why: why("gone") });
     first.flush_journals();
     let entry = first.disk.values().next().cloned().expect("on disk");
     let retire = entry.commands.iter().find(|sent| matches!(sent.command.cmd, Cmd::Retire { pane, .. } if pane == PaneId(1))).expect("sent");
-    assert_eq!((retire.settled, retire.rejected.as_deref()), (true, Some("gone")));
+    assert_eq!((retire.settled, retire.rejected.as_ref()), (true, Some(&why("gone"))));
     let sim = Sim::booted_with(deck(), vec![entry]);
     let op = sim.state.ops.values().next().expect("restored");
-    assert!(op.sent.iter().any(|sent| sent.rejected() == Some("gone")), "a refusal, not an application");
+    assert!(op.sent.iter().any(|sent| sent.rejected() == Some(&why("gone"))), "a refusal, not an application");
 }
 
 #[test]
@@ -1820,7 +1825,7 @@ fn a_launch_admitted_into_a_forks_checkout_before_its_undo_goes_to_the_start_bou
     sim.send(Event::Admit { ask, permit, owner: owner.clone(), dir: Some(checkout.clone()) });
     let Some(Answer::Admitted { attempt }) = sim.answer(ask) else { panic!() };
     // The hook fails; the fork is taken back.
-    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Rejected { reason: "store layout".into() });
+    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Rejected { why: why("failed") });
     sim.send(Event::HookEnded { op });
     sim.flush_journals();
     assert!(sim.owed().contains(&Effect::Cancel { op, attempts: vec![attempt] }), "cancelled at the start boundary: {:?}", sim.owed());
@@ -1872,12 +1877,23 @@ fn a_fork_onto_a_new_team_in_an_existing_folder_calls_its_hook_there_and_settles
 #[test]
 fn a_fork_hook_that_fails_takes_back_nothing_it_did_not_report() {
     let (mut sim, ask, op) = forking();
-    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Rejected { reason: "store layout".into() });
+    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Rejected { why: why("failed") });
     sim.send(Event::HookEnded { op });
-    assert_eq!(sim.refusal(ask), Some(Refusal::Rejected { reason: "store layout".into() }));
+    assert_eq!(sim.refusal(ask), Some(Refusal::Rejected { why: why("failed") }));
     sim.drive();
     assert!(!sim.log.iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Discard { .. }, .. })), "a refused fork leaves the store untouched");
     assert!(sim.state.ops.is_empty());
+}
+
+/// A fork step that answers without carrying the conversation — neither
+/// forked nor refused — leaves a fork that did not finish: said as its own
+/// kind, no words of the machine's.
+#[test]
+fn a_fork_step_that_carried_nothing_is_a_fork_unfinished() {
+    let (mut sim, ask, op) = forking();
+    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Applied { revision: None });
+    sim.send(Event::HookEnded { op });
+    assert_eq!(sim.refusal(ask), Some(Refusal::ForkUnfinished));
 }
 
 // ---------------------------------------------------------------- the commit check
@@ -2264,8 +2280,9 @@ fn every_refusal() -> Vec<Refusal> {
         Refusal::Archived,
         Refusal::SessionsDown,
         Refusal::ForkStepExpired,
+        Refusal::ForkUnfinished,
         Refusal::Changed,
-        Refusal::Rejected { reason: "role taken".into() },
+        Refusal::Rejected { why: Why(json!({ "kind": "role", "why": "taken", "role": "lead" })) },
     ];
     for refusal in &every {
         match refusal {
@@ -2280,6 +2297,7 @@ fn every_refusal() -> Vec<Refusal> {
             | Refusal::Archived
             | Refusal::SessionsDown
             | Refusal::ForkStepExpired
+            | Refusal::ForkUnfinished
             | Refusal::Changed
             | Refusal::Rejected { .. } => {}
         }
@@ -2383,7 +2401,7 @@ fn the_wire_examples_are_written_beside_the_exported_types() {
     let outcomes = vec![
         Outcome::Applied { revision: Some(Revision(4)) },
         Outcome::Unchanged { revision: None },
-        Outcome::Rejected { reason: "role taken".into() },
+        Outcome::Rejected { why: Why(json!({ "kind": "role", "why": "taken", "role": "lead" })) },
         Outcome::Forked { discard: Discard { plugin: "keepdeck.cli-a".into(), once_started: vec!["/kd/spec.json".into()], if_never_started: vec!["/store/fork.jsonl".into()] } },
     ];
     // Rust's own verdicts on sources against a forgotten set — the page's

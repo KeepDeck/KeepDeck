@@ -250,7 +250,7 @@ export const machine = {
     const cmd = deckHalfOf(intent);
     const outcome = cmd && machine.carry ? await machine.carry(cmd) : null;
     if (outcome?.kind === "rejected") {
-      return { kind: "answered", answer: { kind: "refused", refusal: { kind: "rejected", reason: outcome.reason } } };
+      return { kind: "answered", answer: { kind: "refused", refusal: { kind: "rejected", why: outcome.why } } };
     }
     return { kind: "answered", answer: { kind: "accepted", op: machine.op, minted: { workspace: null, team: null, panes: [] } } };
   },

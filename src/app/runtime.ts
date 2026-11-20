@@ -486,6 +486,7 @@ export function createAppRuntime(
       forkStep: { carry: (due) => orchestrator.runState.forkStep.carry(due) },
     },
     answer: reportApplied,
+    warn: (message) => log.warn("web:lifecycle", message),
   });
   // The library takes only the staleness half of the worktree manager: a write
   // has to drop the staged views the next pane spawn would inject.

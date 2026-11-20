@@ -11,10 +11,10 @@ import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
 import {
-  memberRefusal,
   nextAutoTeamName,
   paneId,
   sameDirectory,
+  teamFull,
   teamIdsOf,
   teamNameTaken,
   updateWorkspace,
@@ -23,8 +23,8 @@ import {
   type Workspace,
 } from "../../domain/deck";
 import { testTeamId } from "../../domain/deck/teams/testSupport";
-import type { IntentOutcome, Minted, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
-import { admitRole, roleRefusalMessage } from "../../domain/mail";
+import { roleRefused, type IntentOutcome, type Minted, type OwnerRefusal, type ResumeOutcome, type Site, type SuspendResult } from "../../domain/lifecycle";
+import { admitRole } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { CreatePaneRequest, CreateTeamRequest } from "../agentOrchestrator";
@@ -33,7 +33,7 @@ import { fakeSkillsLibrary } from "../skillsLibrary.fake";
 import { registerCoreCommands, type CommandDeck } from ".";
 
 const GONE: IntentOutcome = { kind: "refused", refusal: { kind: "notFound" } };
-const rejected = (reason: string): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", reason } });
+const rejected = (why: OwnerRefusal): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", why } });
 
 /** Where the deck draws a team the machine made at `site`: attached to the
  * root or a folder that exists, or a worktree card heading for its place —
@@ -188,17 +188,16 @@ export function setup(workspaces: Workspace[]) {
   const createPane = vi.fn(async ({ workspace: ref, pane, site, team, role, teamName }: CreatePaneRequest): Promise<IntentOutcome> => {
     const ws = lifetime(ref);
     if (!ws) return GONE;
-    if (team !== undefined && !ws.teams?.some((candidate) => candidate.id === team)) return rejected("the team is gone");
+    if (team !== undefined && !ws.teams?.some((candidate) => candidate.id === team)) return rejected({ kind: "gone", what: "team" });
     const teamId = team ?? testTeamId(teamIdsOf(workspaces));
     const fresh = team === undefined ? { id: teamId, name: teamName ?? nextAutoTeamName(ws), location: locationAt(ws, site ?? { kind: "root" }) } : null;
     const landing: Workspace = fresh ? { ...ws, teams: [...(ws.teams ?? []), fresh] } : ws;
-    const full = memberRefusal(landing, teamId);
-    if (full !== null) return rejected(full);
+    if (teamFull(landing, teamId)) return rejected({ kind: "teamFull" });
     // The one rule the real deck owner asks, asked here too rather than
     // re-spelled: a hand-rolled "taken → suggest" lived here once and
     // answered "created" for a role the landing would refuse.
     const admitted = admitRole(landing, teamId, role);
-    if (!admitted.ok) return rejected(roleRefusalMessage(admitted.why, admitted.role, admitted.open));
+    if (!admitted.ok) return rejected(roleRefused(admitted));
     const id = nextPaneId();
     ws.teams = landing.teams;
     ws.panes.push({ id, ...pane, team: { teamId, role: admitted.role } });
@@ -213,7 +212,7 @@ export function setup(workspaces: Workspace[]) {
     const ws = lifetime(ref);
     if (!ws) return GONE;
     const teamName = name.trim() || nextAutoTeamName(ws);
-    if (teamNameTaken(ws, teamName)) return rejected("the deck took no such team");
+    if (teamNameTaken(ws, teamName)) return rejected({ kind: "notTaken", what: "team" });
     const id = testTeamId(teamIdsOf(workspaces));
     ws.teams = [...(ws.teams ?? []), { id, name: teamName, location: locationAt(ws, site) }];
     return accepted({ team: id });

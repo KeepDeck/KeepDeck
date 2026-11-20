@@ -1,6 +1,7 @@
 //! What the lifecycle is asked to do, what it answers, the consent a
 //! destructive operation carries, and what each teardown does.
 
+use crate::command::Why;
 use crate::dir::Dir;
 use crate::ids::{AttemptId, OpId, PaneId, PermitId, TeamId, WorkspaceId};
 use serde::{Deserialize, Serialize};
@@ -254,13 +255,16 @@ pub enum Refusal {
     SessionsDown,
     /// The fork step did not answer within its deadline.
     ForkStepExpired,
+    /// The fork did not finish: the step answered with no conversation
+    /// carried, or the fork was taken back before its pane ran.
+    ForkUnfinished,
     /// A Close would now do more than its dialog showed — an agent seated or
     /// moved into it since, or a worktree it would now offer: it is asked
     /// again on a new preview.
     Changed,
     /// A data owner refused its command, with the owner's own kind (a role
     /// already taken, a session another pane holds), carried back verbatim.
-    Rejected { reason: String },
+    Rejected { why: Why },
 }
 
 /// The ids an accepted intent was given.
@@ -470,9 +474,10 @@ mod tests {
 
     #[test]
     fn a_refusal_from_an_owner_carries_its_own_kind_back() {
-        let refused = Answer::Refused { refusal: Refusal::Rejected { reason: "taken".into() } };
+        let why = Why(json!({ "kind": "role", "why": "taken", "role": "lead" }));
+        let refused = Answer::Refused { refusal: Refusal::Rejected { why } };
         let wire = serde_json::to_value(&refused).unwrap();
-        assert_eq!(wire, json!({ "kind": "refused", "refusal": { "kind": "rejected", "reason": "taken" } }));
+        assert_eq!(wire, json!({ "kind": "refused", "refusal": { "kind": "rejected", "why": { "kind": "role", "why": "taken", "role": "lead" } } }));
         assert_eq!(serde_json::from_value::<Answer>(wire).unwrap(), refused);
     }
 }

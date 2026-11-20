@@ -5,7 +5,7 @@
  * forgetting once.
  */
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
-import type { CommandOwner } from "../lifecycleSnapshot";
+import { ownerRefused, type CommandOwner } from "../lifecycleSnapshot";
 
 export interface MailPort {
   forget(paneIds: ReadonlySet<string>): void;
@@ -25,7 +25,7 @@ export function createMailOwner(mail: MailPort): CommandOwner {
           mail.retain(new Set(cmd.panes));
           return Promise.resolve(DONE);
         default:
-          return Promise.resolve({ kind: "rejected", reason: `the mail carries no ${cmd.kind} command` });
+          return Promise.resolve(ownerRefused({ kind: "wrongOwner", command: cmd.kind }));
       }
     },
   };

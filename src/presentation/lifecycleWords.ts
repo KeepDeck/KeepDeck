@@ -6,7 +6,10 @@
  * everywhere. Each kind has its own sentence — none is borrowed from a
  * neighbour that merely sounds close.
  */
-import type { IntentOutcome, NoAnswer, Refusal, Standing } from "../domain/lifecycle";
+import { TEAM_FULL_MESSAGE } from "../domain/deck";
+import { ownerRefusalOf, type IntentOutcome, type NoAnswer, type OwnerRefusal, type Refusal, type Standing } from "../domain/lifecycle";
+import { roleRefusalMessage } from "../domain/mail";
+import { sessionHeldText } from "./resumeWords";
 
 export function refusalText(refusal: Refusal): string {
   switch (refusal.kind) {
@@ -32,11 +35,38 @@ export function refusalText(refusal: Refusal): string {
       return "KeepDeck lost control of its sessions — nothing starts until it restarts.";
     case "forkStepExpired":
       return "The agent did not prepare the fork in time; nothing of it was kept.";
+    case "forkUnfinished":
+      return "The fork did not finish, so nothing of it was kept.";
     case "changed":
       return "It changed while you were deciding — an agent joined it, or there is more to delete. Nothing was closed; look at it again.";
     case "rejected":
-      // An owner's own refusal, in the owner's words, carried back as given.
-      return refusal.reason;
+      return ownerRefusalText(ownerRefusalOf(refusal.why));
+  }
+}
+
+/** An owner's refusal, said by its kind. */
+export function ownerRefusalText(refusal: OwnerRefusal): string {
+  switch (refusal.kind) {
+    case "gone":
+      return `That ${refusal.what} is gone.`;
+    case "unreadable":
+      return `The new ${refusal.what}'s details could not be read, so nothing was added.`;
+    case "notTaken":
+      return refusal.what === "move" ? "The deck did not take the move." : `The deck did not take the new ${refusal.what}.`;
+    case "teamFull":
+      return TEAM_FULL_MESSAGE;
+    case "role":
+      return roleRefusalMessage(refusal.why, refusal.role, refusal.open);
+    case "sessionHeld":
+      return sessionHeldText();
+    case "noBranch":
+      return "A team's worktree settles only on its own branch, and none was named.";
+    case "wrongOwner":
+      return "KeepDeck sent this to the wrong place, so nothing was done.";
+    case "failed":
+      return "It could not be done — KeepDeck's log says why.";
+    case "unknown":
+      return "It was refused.";
   }
 }
 

@@ -7,30 +7,30 @@
  *
  * A new pane is admitted in the same step it is written: its role by the
  * one role rule, the conversation it resumes by the one claim rule. A
- * refusal is answered in that rule's words, and nothing of the pane is
- * written. A new team lands with its first members whole or not at all.
+ * refusal is answered as that rule's kind — never words: the page says it —
+ * and nothing of the pane is written. A new team lands with its first
+ * members whole or not at all.
  */
 import {
   findTeam,
   findWorkspace,
-  memberRefusal,
   membersOf,
   nextAutoTeamName,
   sessionClaimant,
+  teamFull,
   type Pane,
   type TeamLocation,
   type Workspace,
 } from "../../domain/deck";
-import { paneDraftOf, teamDraftOf, workspaceDraftOf, type PaneDraft } from "../../domain/lifecycle";
-import { admitRole, carryRole, roleRefusalMessage } from "../../domain/mail";
+import { paneDraftOf, roleRefused, teamDraftOf, workspaceDraftOf, type OwnerRefusal, type PaneDraft } from "../../domain/lifecycle";
+import { admitRole, carryRole } from "../../domain/mail";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { Cmd } from "../../ipc/generated/lifecycle/Cmd";
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import type { TeamPlace } from "../../ipc/generated/lifecycle/TeamPlace";
-import { sessionHeldText } from "../../presentation/resumeWords";
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
-import type { CommandOwner } from "../lifecycleSnapshot";
+import { ownerRefused, type CommandOwner } from "../lifecycleSnapshot";
 
 type Member = { pane: string; draft: PaneDraft };
 
@@ -43,26 +43,25 @@ export function createDeckCommands(
 ): CommandOwner {
   const answer = (kind: "applied" | "unchanged"): Outcome => ({ kind, revision: store.revision() });
   const changed = (before: number): Outcome => answer(store.revision() === before ? "unchanged" : "applied");
-  const rejected = (reason: string): Outcome => ({ kind: "rejected", reason });
+  const rejected = ownerRefused;
   const workspace = (id: string): Workspace | undefined => findWorkspace(store.getSnapshot().workspaces, id);
 
   /** The role rule and the claim rule, asked together, against the deck as
    * it would be with `members` ahead of it on the team: why not, or null. */
-  function admit(ws: Workspace, teamId: string, members: readonly Member[]): string | null {
+  function admit(ws: Workspace, teamId: string, members: readonly Member[]): OwnerRefusal | null {
     let roles = ws;
     for (const member of members) {
-      // The team's own cap, in its own words, before the role is asked.
-      const full = memberRefusal(roles, teamId);
-      if (full !== null) return full;
+      // The team's own cap, before the role is asked.
+      if (teamFull(roles, teamId)) return { kind: "teamFull" };
       const admitted = admitRole(roles, teamId, member.draft.role);
-      if (!admitted.ok) return roleRefusalMessage(admitted.why, admitted.role, admitted.open);
+      if (!admitted.ok) return roleRefused(admitted);
       member.draft.role = admitted.role;
       const resumes = member.draft.session;
       // Against the deck as it would be — the members ahead of this one
       // included, or two of them could take one conversation.
       const prospective = store.getSnapshot().workspaces.map((other) => (other.id === roles.id ? roles : other));
       if (resumes && sessionClaimant(prospective, { agent: member.draft.agentType, sessionId: resumes.id }, () => false)) {
-        return sessionHeldText();
+        return { kind: "sessionHeld" };
       }
       roles = { ...roles, panes: [...roles.panes, paneOf(member, teamId)] };
     }
@@ -97,11 +96,11 @@ export function createDeckCommands(
 
   function addTeam(cmd: Extract<Cmd, { kind: "addTeam" }>): Outcome {
     const ws = workspace(cmd.workspace);
-    if (!ws) return rejected("the workspace is gone");
+    if (!ws) return rejected({ kind: "gone", what: "workspace" });
     const members: Member[] = [];
     for (const member of cmd.members) {
       const draft = paneDraftOf(member.draft);
-      if (!draft) return rejected("the new agent's draft could not be read");
+      if (!draft) return rejected({ kind: "unreadable", what: "agent" });
       members.push({ pane: member.pane, draft });
     }
     if (findTeam(ws, cmd.team)) {
@@ -113,33 +112,34 @@ export function createDeckCommands(
       const refusal = admit(ws, cmd.team, missing);
       if (refusal !== null) return rejected(refusal);
       const before = store.revision();
-      return seat(cmd.workspace, cmd.team, missing) ? changed(before) : rejected("the deck took no such agent");
+      return seat(cmd.workspace, cmd.team, missing) ? changed(before) : rejected({ kind: "notTaken", what: "agent" });
     }
     const team = teamDraftOf(cmd.draft);
-    if (!team) return rejected("the new team's draft could not be read");
+    if (!team) return rejected({ kind: "unreadable", what: "team" });
     const before = store.revision();
     actions.createTeam(cmd.workspace, { id: cmd.team, name: team.name, location: locationOf(ws, cmd.place) });
     const created = workspace(cmd.workspace);
-    const refusal = created && findTeam(created, cmd.team) ? admit(created, cmd.team, members) : "the deck took no such team";
+    const refusal: OwnerRefusal | null =
+      created && findTeam(created, cmd.team) ? admit(created, cmd.team, members) : { kind: "notTaken", what: "team" };
     if (refusal !== null || !seat(cmd.workspace, cmd.team, members)) {
       actions.dissolveTeam(cmd.workspace, cmd.team);
-      return rejected(refusal ?? "the deck took no such agent");
+      return rejected(refusal ?? { kind: "notTaken", what: "agent" });
     }
     return changed(before);
   }
 
   function addPane(cmd: Extract<Cmd, { kind: "addPane" }>): Outcome {
     const ws = workspace(cmd.workspace);
-    if (!ws) return rejected("the workspace is gone");
+    if (!ws) return rejected({ kind: "gone", what: "workspace" });
     if (ws.panes.some((pane) => pane.id === cmd.pane)) return answer("unchanged");
-    if (!findTeam(ws, cmd.team)) return rejected("the team is gone");
+    if (!findTeam(ws, cmd.team)) return rejected({ kind: "gone", what: "team" });
     const draft = paneDraftOf(cmd.draft);
-    if (!draft) return rejected("the new agent's draft could not be read");
+    if (!draft) return rejected({ kind: "unreadable", what: "agent" });
     const member = { pane: cmd.pane, draft };
     const refusal = admit(ws, cmd.team, [member]);
     if (refusal !== null) return rejected(refusal);
     const before = store.revision();
-    return seat(cmd.workspace, cmd.team, [member]) ? changed(before) : rejected("the deck took no such agent");
+    return seat(cmd.workspace, cmd.team, [member]) ? changed(before) : rejected({ kind: "notTaken", what: "agent" });
   }
 
   /** A member to the workspace's root team — the team made here under the
@@ -149,7 +149,7 @@ export function createDeckCommands(
   function movePane(cmd: Extract<Cmd, { kind: "movePane" }>): Outcome {
     const ws = workspace(cmd.workspace);
     const pane = ws?.panes.find((candidate) => candidate.id === cmd.pane);
-    if (!ws || !pane) return rejected("the agent is gone");
+    if (!ws || !pane) return rejected({ kind: "gone", what: "agent" });
     if (pane.team?.teamId === cmd.to) return answer("unchanged");
     const before = store.revision();
     const minted = cmd.newRoot && !findTeam(ws, cmd.to);
@@ -157,10 +157,9 @@ export function createDeckCommands(
       actions.createTeam(cmd.workspace, { id: cmd.to, name: nextAutoTeamName(ws), location: { kind: "attached", cwd: ws.cwd } });
     }
     const current = workspace(cmd.workspace);
-    const full = current && findTeam(current, cmd.to) ? memberRefusal(current, cmd.to) : null;
-    if (full !== null) {
+    if (current && findTeam(current, cmd.to) && teamFull(current, cmd.to)) {
       if (minted) actions.dissolveTeam(cmd.workspace, cmd.to);
-      return rejected(full);
+      return rejected({ kind: "teamFull" });
     }
     const admitted =
       current && findTeam(current, cmd.to)
@@ -172,7 +171,7 @@ export function createDeckCommands(
     const moved = workspace(cmd.workspace)?.panes.find((candidate) => candidate.id === cmd.pane)?.team?.teamId === cmd.to;
     if (!moved) {
       if (minted) actions.dissolveTeam(cmd.workspace, cmd.to);
-      return rejected(admitted && !admitted.ok ? roleRefusalMessage(admitted.why, admitted.role, admitted.open) : "the deck took no such move");
+      return rejected(admitted && !admitted.ok ? roleRefused(admitted) : { kind: "notTaken", what: "move" });
     }
     actions.resetPaneSession(cmd.workspace, cmd.pane);
     return changed(before);
@@ -199,7 +198,7 @@ export function createDeckCommands(
       case "addWorkspace": {
         if (workspace(cmd.workspace)) return answer("unchanged");
         const draft = workspaceDraftOf(cmd.draft);
-        if (!draft) return rejected("the new workspace's draft could not be read");
+        if (!draft) return rejected({ kind: "unreadable", what: "workspace" });
         return through(() => actions.createWorkspace({ id: cmd.workspace, instance: createWorkspaceInstance(), ...draft, panes: [] }));
       }
       case "addTeam":
@@ -208,7 +207,7 @@ export function createDeckCommands(
         return through(() => actions.setTeamProvisioningError(cmd.workspace, cmd.team, null));
       case "settleTeam": {
         const branch = cmd.branch;
-        if (branch === null) return rejected("a team's worktree settles on its branch");
+        if (branch === null) return rejected({ kind: "noBranch" });
         return through(() => actions.resolveTeamProvisioning(cmd.workspace, cmd.team, { cwd: cmd.cwd, branch }));
       }
       case "failTeam":
@@ -239,7 +238,7 @@ export function createDeckCommands(
       case "clearSuspended":
         return through(() => actions.requestPanesWake(cmd.workspace, [cmd.pane]));
       default:
-        return rejected(`the deck carries no ${cmd.kind} command`);
+        return rejected({ kind: "wrongOwner", command: cmd.kind });
     }
   }
 

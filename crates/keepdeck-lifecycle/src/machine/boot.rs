@@ -176,7 +176,7 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
         .iter()
         .map(|sent| {
             let outcome = match (&sent.rejected, sent.settled) {
-                (Some(reason), _) => Some(Outcome::Rejected { reason: reason.clone() }),
+                (Some(why), _) => Some(Outcome::Rejected { why: why.clone() }),
                 (None, true) => Some(Outcome::Unchanged { revision: None }),
                 (None, false) => None,
             };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findTeam, findWorkspace, MAX_PANES, TEAM_FULL_MESSAGE } from "../../domain/deck";
+import { findTeam, findWorkspace, MAX_PANES } from "../../domain/deck";
 import type { Cmd } from "../../ipc/generated/lifecycle/Cmd";
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import { createDeckActions } from "../deckActions";
@@ -32,7 +32,10 @@ describe("the deck's owner of lifecycle commands", () => {
     expect(await carry(workspace)).toEqual({ kind: "applied", revision: store.revision() });
     expect(ws()?.name).toBe("app");
     expect(await carry(workspace)).toEqual({ kind: "unchanged", revision: store.revision() });
-    expect((await carry({ kind: "addWorkspace", workspace: "ws-b", draft: { name: 3 } })).kind).toBe("rejected");
+    expect(await carry({ kind: "addWorkspace", workspace: "ws-b", draft: { name: 3 } })).toEqual({
+      kind: "rejected",
+      why: { kind: "unreadable", what: "workspace" },
+    });
   });
 
   it("lands a team with its first members whole, or nothing of it", async () => {
@@ -48,7 +51,7 @@ describe("the deck's owner of lifecycle commands", () => {
 
     // A shape the role rule refuses: the second lead.
     const refused = await carry(team([member("pane-3", "lead"), member("pane-4", "lead")], "team-m", 2));
-    expect(refused).toEqual({ kind: "rejected", reason: expect.stringContaining("lead") });
+    expect(refused).toEqual({ kind: "rejected", why: expect.objectContaining({ kind: "role", why: "taken", role: "lead" }) });
     const after = ws();
     expect(after && findTeam(after, "team-m")).toBeUndefined();
     expect(after?.panes.map((pane) => pane.id)).toEqual(["pane-1", "pane-2"]);
@@ -59,7 +62,7 @@ describe("the deck's owner of lifecycle commands", () => {
     await carry(workspace);
     await carry(team([member("pane-1", "lead", { session: { id: "s-1" } })]));
     const twice = await carry({ kind: "addPane", workspace: "ws-a", team: "team-n", pane: "pane-2", draft: member("pane-2", "reviewer", { session: { id: "s-1" } }).draft });
-    expect(twice).toEqual({ kind: "rejected", reason: "That conversation is already open in another agent." });
+    expect(twice).toEqual({ kind: "rejected", why: { kind: "sessionHeld" } });
     expect(ws()?.panes.map((pane) => pane.id)).toEqual(["pane-1"]);
   });
 
@@ -67,7 +70,7 @@ describe("the deck's owner of lifecycle commands", () => {
     const { carry, ws } = rig();
     await carry(workspace);
     const both = await carry(team([member("pane-1", "lead", { session: { id: "s-1" } }), member("pane-2", "reviewer", { session: { id: "s-1" } })]));
-    expect(both).toEqual({ kind: "rejected", reason: "That conversation is already open in another agent." });
+    expect(both).toEqual({ kind: "rejected", why: { kind: "sessionHeld" } });
     const after = ws();
     expect(after && findTeam(after, "team-n")).toBeUndefined();
     expect(after?.panes).toEqual([]);
@@ -166,15 +169,18 @@ describe("the deck's owner of lifecycle commands", () => {
 
   it("refuses a command that is not the deck's", async () => {
     const { carry } = rig();
-    expect((await carry({ kind: "forgetBoards", workspace: "ws-a" })).kind).toBe("rejected");
+    expect(await carry({ kind: "forgetBoards", workspace: "ws-a" })).toEqual({
+      kind: "rejected",
+      why: { kind: "wrongOwner", command: "forgetBoards" },
+    });
   });
 
-  it("refuses a seat or a move onto a team at its cap, in the team's own words", async () => {
+  it("refuses a seat or a move onto a team at its cap, as the team's own kind", async () => {
     const { carry, ws } = rig();
     await carry(workspace);
     await carry(team(Array.from({ length: MAX_PANES }, (_, i) => member(`pane-${i + 1}`, i === 0 ? "lead" : `impl-${i}`))));
     const seat = await carry({ kind: "addPane", workspace: "ws-a", team: "team-n", pane: "pane-99", draft: member("pane-99", "reviewer").draft });
-    expect(seat).toEqual({ kind: "rejected", reason: TEAM_FULL_MESSAGE });
+    expect(seat).toEqual({ kind: "rejected", why: { kind: "teamFull" } });
     expect(ws()?.panes).toHaveLength(MAX_PANES);
   });
 

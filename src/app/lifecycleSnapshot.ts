@@ -11,7 +11,7 @@
  * drops a command once it has its answer (a deck command, once the deck is
  * also saved), so an answer lost on the way is never the end of it.
  */
-import { isForgotten, type WriteSource } from "../domain/lifecycle";
+import { isForgotten, type OwnerRefusal, type WriteSource } from "../domain/lifecycle";
 import type { CommandId } from "../ipc/generated/lifecycle/CommandId";
 import type { Due } from "../ipc/generated/lifecycle/Due";
 import type { Outcome } from "../ipc/generated/lifecycle/Outcome";
@@ -22,17 +22,25 @@ import type { Versioned } from "../ipc/generated/lifecycle/Versioned";
 /** A data owner the machine commands: carries one command out with its own
  * actions and says how it went. Idempotent — a command asked again after an
  * app restart finds its work done and says so. A refusal is an outcome
- * (`rejected`, in the owner's words), not a throw. */
+ * (`ownerRefused`, a kind), not a throw. */
 export interface CommandOwner {
   carry(due: Due): Promise<Outcome>;
 }
 
 export type CommandOwners = Record<Owner, CommandOwner>;
 
+/** An owner's refusal, as the machine carries it back: its kind and data,
+ * never words. */
+export function ownerRefused(why: OwnerRefusal): Outcome {
+  return { kind: "rejected", why };
+}
+
 export interface LifecycleSnapshotDeps {
   owners: CommandOwners;
   /** An owner's answer, to the machine. */
   answer(id: CommandId, outcome: Outcome): Promise<void>;
+  /** What an owner's carrying-out threw: for the log, never for the person. */
+  warn(message: string): void;
   /** The wait before an answer is sent again: the first, doubled each time
    * up to the last. */
   backoff?: { firstMs: number; maxMs: number };
@@ -58,12 +66,14 @@ function nameOf(id: CommandId): string {
   return `${id.op}:${id.index}`;
 }
 
-/** Why an owner's carrying-out failed, as the refusal the machine reads. */
-function failed(error: unknown): Outcome {
-  return { kind: "rejected", reason: error instanceof Error ? error.message : String(error) };
-}
-
 export function createLifecycleSnapshot(deps: LifecycleSnapshotDeps): LifecycleSnapshot {
+  /** An owner's carrying-out that threw: the machine hears it failed; what
+   * was thrown goes to the log. */
+  function failed(command: Due, error: unknown): Outcome {
+    deps.warn(`lifecycle: ${command.owner} failed to carry ${command.cmd.kind} out — ${error instanceof Error ? error.message : String(error)}`);
+    return ownerRefused({ kind: "failed" });
+  }
+
   const backoff = deps.backoff ?? BACKOFF;
   let held: Versioned | null = null;
   const listeners = new Set<() => void>();
@@ -106,10 +116,10 @@ export function createLifecycleSnapshot(deps: LifecycleSnapshotDeps): LifecycleS
     try {
       carried = deps.owners[command.owner].carry(command);
     } catch (error) {
-      carried = Promise.resolve(failed(error));
+      carried = Promise.resolve(failed(command, error));
     }
     void carried
-      .catch(failed)
+      .catch((error: unknown) => failed(command, error))
       .then((outcome) => {
         carrying.delete(name);
         answer(command.id, outcome);

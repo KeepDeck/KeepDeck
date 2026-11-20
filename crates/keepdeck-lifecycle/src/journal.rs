@@ -7,7 +7,7 @@
 //! holds the entry, its codec and the port of the store; writing to disk is
 //! the store's, in the app.
 
-use crate::command::Command;
+use crate::command::{Command, Why};
 use crate::dir::Dir;
 use crate::ids::{OpId, PaneId, TeamId, WorkspaceId};
 use crate::model::{Consent, SessionKey};
@@ -129,7 +129,7 @@ pub struct Sent {
     pub command: Command,
     pub settled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rejected: Option<String>,
+    pub rejected: Option<Why>,
 }
 
 /// One operation's entry.

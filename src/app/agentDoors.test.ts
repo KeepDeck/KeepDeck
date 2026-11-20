@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentDialogResult } from "../domain/agents";
 import { NO_AGENT_MESSAGE, TEAM_FULL_MESSAGE, WORKSPACE_GONE_MESSAGE, type Workspace } from "../domain/deck";
-import type { IntentOutcome } from "../domain/lifecycle";
+import type { IntentOutcome, OwnerRefusal } from "../domain/lifecycle";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { intentOutcomeText } from "../presentation/lifecycleWords";
+import { intentOutcomeText, ownerRefusalText } from "../presentation/lifecycleWords";
 import type { CreatePaneRequest, CreateTeamRequest } from "./agentOrchestrator";
 import { createAgentDoors } from "./agentDoors";
 
@@ -30,7 +30,7 @@ const accepted = (team: string | null = null): IntentOutcome => ({
   op: 1,
   minted: { workspace: null, team, panes: team ? [] : ["pane-9"] },
 });
-const refusedWith = (reason: string): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", reason } });
+const refusedWith = (why: OwnerRefusal): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", why } });
 
 function setup(ws: Workspace = workspace(), teamsAt: Record<string, string[]> = {}) {
   const createPane = vi.fn(async (_request: CreatePaneRequest) => accepted());
@@ -158,7 +158,7 @@ describe("agent doors — a member", () => {
 
   it("says the landing's refusal in the one spelling every door uses", async () => {
     const h = setup();
-    h.createPane.mockResolvedValueOnce(refusedWith(TEAM_FULL_MESSAGE));
+    h.createPane.mockResolvedValueOnce(refusedWith({ kind: "teamFull" }));
     expect(await h.member({ role: "impl-1" })).toEqual({ kind: "refused", door: "member", message: TEAM_FULL_MESSAGE });
   });
 
@@ -190,17 +190,17 @@ describe("agent doors — a member", () => {
 
   it("reports a continuation the machine refused, by the door it came through", async () => {
     const h = setup();
-    h.resumeSession.mockResolvedValueOnce(refusedWith("That conversation is already open in another agent."));
+    h.resumeSession.mockResolvedValueOnce(refusedWith({ kind: "sessionHeld" }));
     expect(await h.member({ role: "impl-1", session: { mode: "resume", handle } })).toEqual({
       kind: "refused",
       door: "resume",
       message: "That conversation is already open in another agent.",
     });
-    h.forkSession.mockResolvedValueOnce(refusedWith("no clone"));
+    h.forkSession.mockResolvedValueOnce(refusedWith({ kind: "failed" }));
     expect(await h.member({ role: "impl-1", session: { mode: "fork", handle } })).toEqual({
       kind: "refused",
       door: "fork",
-      message: "no clone",
+      message: ownerRefusalText({ kind: "failed" }),
     });
   });
 

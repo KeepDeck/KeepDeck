@@ -13,7 +13,7 @@
 //! not outlive its workspace.
 
 use keepdeck_fsm::Work as Owe;
-use keepdeck_lifecycle::command::{Cmd, Outcome, Owner, Revision};
+use keepdeck_lifecycle::command::{Cmd, Outcome, Owner, Revision, Why};
 use keepdeck_lifecycle::dir::Dir;
 use keepdeck_lifecycle::ids::{AskId, AttemptId, CommandId, OpId, PaneId, PermitId, SessionId, TeamId, WorkspaceId};
 use keepdeck_lifecycle::journal::{Discard, Step};
@@ -250,7 +250,7 @@ impl World {
             }
             self.answered_cmds.insert(command.id);
             let outcome = if self.rng.chance(self.doors.reject) {
-                Outcome::Rejected { reason: "no".into() }
+                Outcome::Rejected { why: Why(serde_json::json!({ "kind": "notTaken", "what": "agent" })) }
             } else {
                 self.applied(&command.cmd, command.owner)
             };

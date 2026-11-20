@@ -4,12 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { presetPick, type AgentDialogResult, type AgentInfo } from "../domain/agents";
 import { TEAM_FULL_MESSAGE, type Workspace } from "../domain/deck";
-import type { IntentOutcome } from "../domain/lifecycle";
+import type { IntentOutcome, OwnerRefusal } from "../domain/lifecycle";
 import type { JournalRecords } from "../domain/journal";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { indexSearch, type SearchHit } from "../ipc/history";
 import { claimsOn, locationFor } from "../ipc/lifecycle";
-import { intentOutcomeText } from "../presentation/lifecycleWords";
+import { intentOutcomeText, ownerRefusalText } from "../presentation/lifecycleWords";
 import { inspectRepo } from "../ipc/worktree";
 import { createAgentDoors } from "./agentDoors";
 import { useAgentDialog } from "./useAgentDialog";
@@ -85,7 +85,7 @@ const resumeSession = vi.fn(async () => accepted());
 const forkSession = vi.fn(async () => accepted());
 /** The "+ Team" door's own landing: a team and nothing else. */
 const createTeam = vi.fn(async (_request: CreateTeamRequest) => accepted("team-1"));
-const refusedWith = (reason: string): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", reason } });
+const refusedWith = (why: OwnerRefusal): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", why } });
 /** A deck as this file needs one: the workspaces the hook reads, and the
  * team entry the doors make after a "+ Team" — recorded, so a case can say
  * whether it happened. */
@@ -534,7 +534,7 @@ describe("useAgentDialog suggestions", () => {
     const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, MEMBER));
-    createPane.mockResolvedValueOnce(refusedWith(TEAM_FULL_MESSAGE));
+    createPane.mockResolvedValueOnce(refusedWith({ kind: "teamFull" }));
 
     await act(async () =>
       flow.confirm({
@@ -670,7 +670,7 @@ describe("useAgentDialog start-from routing", () => {
   it("reports a failed resume — a dialog that just closes reads as success", async () => {
     const ws = withTeam();
     await mountAndOpen(ws);
-    resumeSession.mockResolvedValueOnce(refusedWith("the agent could not prepare a resume plan"));
+    resumeSession.mockResolvedValueOnce(refusedWith({ kind: "failed" }));
     await act(async () =>
       flow.confirm({
         agentType: "claude",
@@ -680,16 +680,14 @@ describe("useAgentDialog start-from routing", () => {
         session: { mode: "resume", handle },
       }),
     );
-    expect(notices.onResumeFailed).toHaveBeenCalledWith(
-      expect.stringContaining("could not prepare a resume plan"),
-    );
+    expect(notices.onResumeFailed).toHaveBeenCalledWith(ownerRefusalText({ kind: "failed" }));
     expect(notices.onForkFailed).not.toHaveBeenCalled();
   });
 
   it("reports a failed fork through its OWN notice, not the resume one", async () => {
     const ws = withTeam();
     await mountAndOpen(ws);
-    forkSession.mockResolvedValueOnce(refusedWith("opencode fork: unexpected id layout"));
+    forkSession.mockResolvedValueOnce(refusedWith({ kind: "failed" }));
     await act(async () =>
       flow.confirm({
         agentType: "claude",
@@ -699,9 +697,7 @@ describe("useAgentDialog start-from routing", () => {
         session: { mode: "fork", handle },
       }),
     );
-    expect(notices.onForkFailed).toHaveBeenCalledWith(
-      expect.stringContaining("unexpected id layout"),
-    );
+    expect(notices.onForkFailed).toHaveBeenCalledWith(ownerRefusalText({ kind: "failed" }));
     expect(notices.onResumeFailed).not.toHaveBeenCalled();
   });
 
@@ -1028,7 +1024,7 @@ describe("useAgentDialog targets", () => {
     const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, { kind: "member", teamId: "team-1" }));
-    createPane.mockResolvedValueOnce(refusedWith(TEAM_FULL_MESSAGE));
+    createPane.mockResolvedValueOnce(refusedWith({ kind: "teamFull" }));
     await act(async () => flow.confirm({ ...fresh(), role: "impl-1" }));
     expect(notices.onCreateFailed).toHaveBeenLastCalledWith(TEAM_FULL_MESSAGE);
 

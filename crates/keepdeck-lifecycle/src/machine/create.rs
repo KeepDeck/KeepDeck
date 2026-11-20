@@ -562,9 +562,10 @@ fn outcome_of(op: &Op, pred: impl Fn(&Cmd) -> bool) -> Option<Option<&Outcome>> 
     op.sent.iter().find(|sent| pred(&sent.cmd)).map(|sent| sent.outcome.as_ref())
 }
 
-fn reason(outcome: &Outcome) -> Option<String> {
+/// The owner's refusal an outcome carries, if it is one.
+fn refused(outcome: &Outcome) -> Option<Refusal> {
     match outcome {
-        Outcome::Rejected { reason } => Some(reason.clone()),
+        Outcome::Rejected { why } => Some(Refusal::Rejected { why: why.clone() }),
         _ => None,
     }
 }
@@ -574,8 +575,8 @@ pub fn advance_workspace(state: &mut State, id: OpId, fx: &mut Fx) {
     let op = state.ops.get_mut(&id).expect("the op");
     let workspace = op.workspace.clone();
     if let Some(Some(outcome)) = outcome_of(op, |cmd| matches!(cmd, Cmd::AddWorkspace { .. })) {
-        if let Some(reason) = reason(outcome) {
-            answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+        if let Some(refusal) = refused(outcome) {
+            answer_op(op, fx, Answer::refused(refusal));
             state.world.workspaces.remove(&workspace);
             state.ops.remove(&id);
             return;
@@ -674,8 +675,8 @@ fn add_team(state: &mut State, id: OpId, fx: &mut Fx) {
             }
             Some(None) => return,
             Some(Some(outcome)) => {
-                if let Some(reason) = reason(outcome) {
-                    answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+                if let Some(refusal) = refused(outcome) {
+                    answer_op(op, fx, Answer::refused(refusal));
                     finish(state, id);
                     return;
                 }
@@ -696,8 +697,8 @@ fn add_team(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         Some(None) => {}
         Some(Some(outcome)) => {
-            if let Some(reason) = reason(outcome) {
-                answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+            if let Some(refusal) = refused(outcome) {
+                answer_op(op, fx, Answer::refused(refusal));
                 finish(state, id);
                 return;
             }
@@ -810,8 +811,8 @@ pub fn advance_seat(state: &mut State, id: OpId, fx: &mut Fx) {
             }
             Some(None) => return,
             Some(Some(outcome)) => {
-                if let Some(reason) = reason(outcome) {
-                    answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+                if let Some(refusal) = refused(outcome) {
+                    answer_op(op, fx, Answer::refused(refusal));
                     finish(state, id);
                     return;
                 }
@@ -824,12 +825,12 @@ pub fn advance_seat(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         Some(None) => {}
         Some(Some(outcome)) => {
-            if let Some(reason) = reason(outcome) {
+            if let Some(refusal) = refused(outcome) {
                 if op.ask.is_some() && seat.resume.is_some() {
                     // The plan built for it has nowhere to run.
                     op.send(Cmd::Retire { workspace, pane: seat.pane });
                 }
-                answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+                answer_op(op, fx, Answer::refused(refusal));
             } else if op.ask.is_some() {
                 answer_op(op, fx, Answer::Accepted { op: id, minted: Minted { panes: vec![seat.pane], ..Minted::default() } });
                 state.world.panes.insert(seat.pane, Pane { workspace, team: Some(seat.team.clone()), remote: false, suspended: false });
@@ -859,8 +860,8 @@ pub fn advance_relocate(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         Some(None) => {}
         Some(Some(outcome)) => {
-            if let Some(reason) = reason(outcome) {
-                answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+            if let Some(refusal) = refused(outcome) {
+                answer_op(op, fx, Answer::refused(refusal));
             } else if op.ask.is_some() {
                 // A new root team runs in the workspace's own folder.
                 let root = attached_cwd(state, &workspace, &Site::Root);
@@ -1041,9 +1042,11 @@ pub fn advance_fork(state: &mut State, id: OpId, fx: &mut Fx) {
                     fork.stage = ForkStage::Adding;
                 }
                 Some(Some(outcome)) => {
-                    let reason = reason(&outcome).unwrap_or_else(|| "the fork step gave no result".into());
+                    // A step that answered with no conversation carried
+                    // refused it, in its own kind, or did not finish it.
+                    let refusal = refused(&outcome).unwrap_or(Refusal::ForkUnfinished);
                     fork.stage = ForkStage::Undoing;
-                    answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+                    answer_op(op, fx, Answer::refused(refusal));
                 }
             }
         }
@@ -1122,8 +1125,8 @@ fn make_fork_team(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         Some(None) => {}
         Some(Some(outcome)) => {
-            if let Some(reason) = reason(&outcome) {
-                answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+            if let Some(refusal) = refused(&outcome) {
+                answer_op(op, fx, Answer::refused(refusal));
                 if let Some(fork) = fork_mut(op) {
                     fork.stage = ForkStage::Undoing;
                 }
@@ -1187,8 +1190,8 @@ fn add_fork_pane(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         Some(None) => {}
         Some(Some(outcome)) => {
-            if let Some(reason) = reason(&outcome) {
-                answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
+            if let Some(refusal) = refused(&outcome) {
+                answer_op(op, fx, Answer::refused(refusal));
                 if let Some(fork) = fork_mut(op) {
                     fork.stage = ForkStage::Undoing;
                 }
@@ -1231,7 +1234,7 @@ fn undo_fork(state: &mut State, id: OpId, fx: &mut Fx) {
         fork.discard = late;
     }
     let fork = fork.clone();
-    answer_op(op, fx, Answer::refused(if fork.expired { Refusal::ForkStepExpired } else { Refusal::Rejected { reason: "the fork did not finish".into() } }));
+    answer_op(op, fx, Answer::refused(if fork.expired { Refusal::ForkStepExpired } else { Refusal::ForkUnfinished }));
     if !hook_settled(&state.ops[&id], &fork) || fork_pane_busy(state, fork.pane) {
         return;
     }

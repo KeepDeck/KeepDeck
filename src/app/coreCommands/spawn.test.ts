@@ -94,7 +94,7 @@ describe("agent.spawn", () => {
     // to prevent.
     const { registry, createPane } = setup([workspace({})]);
 
-    createPane.mockResolvedValueOnce({ kind: "refused", refusal: { kind: "rejected", reason: TEAM_FULL_MESSAGE } });
+    createPane.mockResolvedValueOnce({ kind: "refused", refusal: { kind: "rejected", why: { kind: "teamFull" } } });
     const full = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
     expect(full.ok).toBe(false);
     if (!full.ok) expect(full.error.message).toBe(TEAM_FULL_MESSAGE);

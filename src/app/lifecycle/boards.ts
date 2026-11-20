@@ -8,7 +8,7 @@
  * forgetting once.
  */
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
-import type { CommandOwner } from "../lifecycleSnapshot";
+import { ownerRefused, type CommandOwner } from "../lifecycleSnapshot";
 
 export interface BoardsPort {
   /** Forget a workspace's board and drop its file. */
@@ -31,7 +31,7 @@ export function createBoardsOwner(boards: BoardsPort): CommandOwner {
           boards.retainTeams();
           return DONE;
         default:
-          return { kind: "rejected", reason: `the task boards carry no ${cmd.kind} command` };
+          return ownerRefused({ kind: "wrongOwner", command: cmd.kind });
       }
     },
   };

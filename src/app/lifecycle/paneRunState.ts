@@ -19,7 +19,7 @@
 import type { Discard } from "../../ipc/generated/lifecycle/Discard";
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import type { SessionKey } from "../../ipc/generated/lifecycle/SessionKey";
-import type { CommandOwner } from "../lifecycleSnapshot";
+import { ownerRefused, type CommandOwner } from "../lifecycleSnapshot";
 
 export interface RunStatePorts {
   /** Build the fork plan of `pane` from `source`, into `cwd`, through the
@@ -83,14 +83,14 @@ export function createPaneRunState(ports: RunStatePorts): PaneRunState {
           await whenBound(cmd.pane);
           return DONE;
         default:
-          return { kind: "rejected", reason: `the launch state carries no ${cmd.kind} command` };
+          return ownerRefused({ kind: "wrongOwner", command: cmd.kind });
       }
     },
   };
 
   const forkStep: CommandOwner = {
     async carry({ id, cmd }) {
-      if (cmd.kind !== "fork") return { kind: "rejected", reason: `the fork step carries no ${cmd.kind} command` };
+      if (cmd.kind !== "fork") return ownerRefused({ kind: "wrongOwner", command: cmd.kind });
       attempts.set(id.op, cmd.pane);
       let discard: Discard;
       try {

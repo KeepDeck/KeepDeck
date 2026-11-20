@@ -27,8 +27,9 @@ function rig(outcome?: (due: Due) => Promise<Outcome>) {
   const { every, carried } = owners(outcome);
   const answers: [CommandId, Outcome][] = [];
   const answer = vi.fn((id: CommandId, given: Outcome) => (answers.push([id, given]), Promise.resolve()));
-  const store = createLifecycleSnapshot({ owners: every, answer, backoff: BACKOFF });
-  return { store, carried, answers, answer };
+  const warn = vi.fn();
+  const store = createLifecycleSnapshot({ owners: every, answer, backoff: BACKOFF, warn });
+  return { store, carried, answers, answer, warn };
 }
 
 const removePane = dues.find((due) => due.cmd.kind === "removePane");
@@ -87,7 +88,7 @@ describe("the lifecycle snapshot", () => {
   });
 
   it("answers a command the restarted machine asks again with the answer it had, carrying nothing twice", async () => {
-    const forked: Outcome = { kind: "rejected", reason: "the role lead is taken" };
+    const forked: Outcome = { kind: "rejected", why: { kind: "role", why: "taken", role: "lead" } };
     const { store, carried, answers } = rig(() => Promise.resolve(forked));
     store.receive(at(9, [removePane]));
     await vi.advanceTimersByTimeAsync(0);
@@ -99,11 +100,12 @@ describe("the lifecycle snapshot", () => {
     expect(answers.map(([, outcome]) => outcome)).toEqual([forked, forked]);
   });
 
-  it("answers an owner that failed with a refusal in its words", async () => {
-    const { store, answers } = rig(() => Promise.reject(new Error("the deck could not take it")));
+  it("answers an owner that failed with the failed kind, and logs what it threw — never words for the person", async () => {
+    const { store, answers, warn } = rig(() => Promise.reject(new Error("the deck could not take it")));
     store.receive(at(1, [removePane]));
     await vi.advanceTimersByTimeAsync(0);
-    expect(answers[0]?.[1]).toEqual({ kind: "rejected", reason: "the deck could not take it" });
+    expect(answers[0]?.[1]).toEqual({ kind: "rejected", why: { kind: "failed" } });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("the deck could not take it"));
   });
 
   it("sends a lost answer again", async () => {

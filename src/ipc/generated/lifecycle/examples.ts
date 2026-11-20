@@ -105,11 +105,18 @@ export const refusals: Refusal[] = [
     "kind": "forkStepExpired"
   },
   {
+    "kind": "forkUnfinished"
+  },
+  {
     "kind": "changed"
   },
   {
     "kind": "rejected",
-    "reason": "role taken"
+    "why": {
+      "kind": "role",
+      "role": "lead",
+      "why": "taken"
+    }
   }
 ];
 
@@ -254,6 +261,15 @@ export const replies: Reply[] = [
     "answer": {
       "kind": "refused",
       "refusal": {
+        "kind": "forkUnfinished"
+      }
+    },
+    "kind": "answered"
+  },
+  {
+    "answer": {
+      "kind": "refused",
+      "refusal": {
         "kind": "changed"
       }
     },
@@ -264,7 +280,11 @@ export const replies: Reply[] = [
       "kind": "refused",
       "refusal": {
         "kind": "rejected",
-        "reason": "role taken"
+        "why": {
+          "kind": "role",
+          "role": "lead",
+          "why": "taken"
+        }
       }
     },
     "kind": "answered"
@@ -288,7 +308,11 @@ export const outcomes: Outcome[] = [
   },
   {
     "kind": "rejected",
-    "reason": "role taken"
+    "why": {
+      "kind": "role",
+      "role": "lead",
+      "why": "taken"
+    }
   },
   {
     "discard": {

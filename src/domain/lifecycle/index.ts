@@ -11,6 +11,7 @@
 
 export * from "./drafts";
 export * from "./facts";
+export * from "./ownerRefusals";
 export * from "./paneOutcomes";
 export * from "./requests";
 export * from "./standing";
@@ -28,10 +29,14 @@ export type Refusal =
   | { kind: "archived" }
   | { kind: "sessionsDown" }
   | { kind: "forkStepExpired" }
+  /** The fork did not finish: no conversation was carried, or it was taken
+   * back before its pane ran. */
+  | { kind: "forkUnfinished" }
   /** A Close would now do more than its dialog showed: it is asked again. */
   | { kind: "changed" }
-  /** A data owner refused its command — its own kind, carried back as given. */
-  | { kind: "rejected"; reason: string };
+  /** A data owner refused its command — its own kind, carried back as given
+   * and read by `ownerRefusalOf`. */
+  | { kind: "rejected"; why: unknown };
 
 /** What a team allows now, as the machine says it: for each of its own
  * actions, the refusal its intent would meet — null when it would go. */

@@ -171,10 +171,25 @@ pub enum Outcome {
     Applied { revision: Option<Revision> },
     /// What the command does was already there — a repeat after a restart.
     Unchanged { revision: Option<Revision> },
-    Rejected { reason: String },
+    Rejected { why: Why },
     /// The fork step carried the conversation; this is what to remove if the
     /// fork does not finish.
     Forked { discard: Discard },
+}
+
+/// Why an owner refused a command: a kind and its data, in the owners'
+/// vocabulary. The machine carries it — into the refused intent's answer,
+/// into the journal — and reads nothing in it, as with a draft; the words
+/// are the page's, so no build's English is kept on disk for another.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/", type = "unknown")]
+pub struct Why(pub serde_json::Value);
+
+/// For the log.
+impl std::fmt::Display for Why {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 impl Outcome {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { NoAnswer, Refusal, Standing } from "../domain/lifecycle";
-import { intentOutcomeText, noAnswerText, refusalText, standingNotice } from "./lifecycleWords";
+import { TEAM_FULL_MESSAGE } from "../domain/deck";
+import type { NoAnswer, OwnerRefusal, Refusal, Standing } from "../domain/lifecycle";
+import { intentOutcomeText, noAnswerText, ownerRefusalText, refusalText, standingNotice } from "./lifecycleWords";
+import { sessionHeldText } from "./resumeWords";
 
 const refusals: Refusal[] = [
   { kind: "alreadyClosing" },
@@ -14,7 +16,9 @@ const refusals: Refusal[] = [
   { kind: "archived" },
   { kind: "sessionsDown" },
   { kind: "forkStepExpired" },
-  { kind: "rejected", reason: "the role lead is taken" },
+  { kind: "forkUnfinished" },
+  { kind: "changed" },
+  { kind: "rejected", why: { kind: "role", why: "taken", role: "lead" } },
 ];
 const silences: NoAnswer[] = [{ kind: "unavailable" }, { kind: "unknown" }];
 
@@ -25,8 +29,28 @@ describe("the lifecycle's words", () => {
     expect(new Set(said).size).toBe(said.length);
   });
 
-  it("carry an owner's own refusal as it gave it", () => {
-    expect(refusalText({ kind: "rejected", reason: "the role lead is taken" })).toBe("the role lead is taken");
+  it("say an owner's refusal by its kind, and one this build does not know without guessing", () => {
+    const owners: OwnerRefusal[] = [
+      { kind: "gone", what: "workspace" },
+      { kind: "gone", what: "team" },
+      { kind: "gone", what: "agent" },
+      { kind: "unreadable", what: "agent" },
+      { kind: "notTaken", what: "team" },
+      { kind: "notTaken", what: "move" },
+      { kind: "teamFull" },
+      { kind: "role", why: "taken", role: "lead" },
+      { kind: "sessionHeld" },
+      { kind: "noBranch" },
+      { kind: "wrongOwner", command: "addTeam" },
+      { kind: "failed" },
+      { kind: "unknown" },
+    ];
+    const said = owners.map(ownerRefusalText);
+    expect(new Set(said).size).toBe(said.length);
+    expect(refusalText({ kind: "rejected", why: { kind: "teamFull" } })).toBe(TEAM_FULL_MESSAGE);
+    expect(refusalText({ kind: "rejected", why: { kind: "sessionHeld" } })).toBe(sessionHeldText());
+    expect(refusalText({ kind: "rejected", why: "an older build's sentence" })).toBe(ownerRefusalText({ kind: "unknown" }));
+    expect(ownerRefusalText({ kind: "failed" })).not.toMatch(/Error|undefined/);
   });
 
   it("tell a write that did not happen from one that may still", () => {

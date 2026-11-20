@@ -16,7 +16,7 @@ pub mod queries;
 pub mod snapshot;
 mod teardown;
 
-use crate::command::{Cmd, Command, Outcome, Owner, Revision};
+use crate::command::{Cmd, Command, Outcome, Owner, Revision, Why};
 use crate::dir::Dir;
 use crate::ids::{AskId, AttemptId, CommandId, Counter, OpId, PaneId, PermitId, SessionId, TeamId, WorkspaceId};
 use crate::journal::{Entry, Step, Ticket};
@@ -107,9 +107,9 @@ impl Sent {
         }
     }
 
-    pub fn rejected(&self) -> Option<&str> {
+    pub fn rejected(&self) -> Option<&Why> {
         match &self.outcome {
-            Some(Outcome::Rejected { reason }) => Some(reason),
+            Some(Outcome::Rejected { why }) => Some(why),
             _ => None,
         }
     }
@@ -193,7 +193,7 @@ impl Op {
             .map(|(index, sent)| crate::journal::Sent {
                 command: Command { id: CommandId { op: id, index: index as u32 }, cmd: sent.cmd.clone() },
                 settled: sent.settled(saved),
-                rejected: sent.rejected().map(str::to_owned),
+                rejected: sent.rejected().cloned(),
             })
             .collect();
         let (joined, done) = match &self.kind {
