@@ -3,7 +3,7 @@
 use keepdeck_fsm::{stay, to, Next, Owed};
 use keepdeck_fsm_runtime::{At, Effects, Events, Runtime};
 use std::future::Future;
-use std::sync::{mpsc as std_mpsc, Arc, Mutex};
+use std::sync::{mpsc as std_mpsc, Arc, Mutex, OnceLock};
 use std::task::{Context, Waker};
 use std::time::Duration;
 use tokio::sync::watch;
@@ -28,6 +28,19 @@ struct Record<F>(Seen<F>);
 impl<F: Send + 'static, E> Effects<F, E> for Record<F> {
     fn run(&mut self, effect: F, _: &Events<E>) {
         self.0.lock().unwrap().push(effect);
+    }
+}
+
+/// The machine's state stream, handed to a handler once the machine exists.
+type Stream<S> = Arc<OnceLock<watch::Receiver<At<S>>>>;
+
+/// A handler that records each effect with the state published at the moment
+/// it is handed over — what a store asked by the handler would read.
+struct Witness<S, F>(Stream<S>, Seen<(F, S)>);
+impl<S: Clone + Send + Sync + 'static, F: Send + 'static, E> Effects<F, E> for Witness<S, F> {
+    fn run(&mut self, effect: F, _: &Events<E>) {
+        let published = self.0.get().expect("the state stream").borrow().value.clone();
+        self.1.lock().unwrap().push((effect, published));
     }
 }
 
@@ -197,6 +210,25 @@ async fn a_step_hands_over_updates_effects_then_the_new_work_each_in_the_order_l
     tokio::time::sleep(MOMENT).await;
     let order = [listen::Fx::Kick(1), listen::Fx::Kick(2), listen::Fx::Listen(1), listen::Fx::Listen(2)];
     assert_eq!(seen(&log), order);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_step_publishes_its_state_before_its_effects_and_new_work_are_handed_over() {
+    use listen::{Ev, Fx, Mode};
+    let (stream, log) = (Stream::default(), Seen::default());
+    let machine = Runtime::start(Mode::Idle, listen::update, listen::work, Witness(stream.clone(), log.clone()));
+    assert!(stream.set(machine.state()).is_ok());
+    machine.send(Ev::Go);
+    tokio::time::sleep(MOMENT).await;
+    let each = [Fx::Kick(1), Fx::Kick(2), Fx::Listen(1), Fx::Listen(2)].map(|fx| (fx, Mode::Listening));
+    assert_eq!(seen(&log), each, "update's effects and the new work each saw the state they came from");
+
+    let (stream, log) = (Stream::default(), Seen::default());
+    let restored = Runtime::start(Mode::Listening, listen::update, listen::work, Witness(stream.clone(), log.clone()));
+    assert!(stream.set(restored.state()).is_ok());
+    tokio::time::sleep(MOMENT).await;
+    let each = [Fx::Listen(1), Fx::Listen(2)].map(|fx| (fx, Mode::Listening));
+    assert_eq!(seen(&log), each, "the state a machine starts in is published before its work");
 }
 
 // ---------------------------------------------------------------- work is its own key, and is never stopped

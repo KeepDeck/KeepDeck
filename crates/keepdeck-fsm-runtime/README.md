@@ -230,6 +230,7 @@ are in the README of `keepdeck-fsm`.
 | Rule | Why | Test |
 |---|---|---|
 | A step hands over `update`'s effects in the order listed, then the new work the state needs, in the order listed. "Started earlier" gives order; "finished earlier" holds only by cause | The hand-over is synchronous so that the order holds; the work finishes asynchronously | `a_step_hands_over_updates_effects_then_the_new_work_each_in_the_order_listed` |
+| A step publishes its new state before it hands over its effects and its new work; a machine publishes the state it starts in before its first work | Whoever the handler asks when it is handed an effect sees the state that effect came from, or a later one — a fact the step made true is already visible | `a_step_publishes_its_state_before_its_effects_and_new_work_are_handed_over` |
 | An event may change no state and still do its effects; the version moves only with a change | A command that does something without changing anything needs no fake state | `an_event_that_changes_no_state_still_does_its_effect_once` |
 | A machine started in a state does that state's work | Whatever the state needs is done whenever the machine is in it, a restart included | `a_machine_started_in_a_state_does_its_work` |
 | Work is started once while an equal piece is owed; new work starts without stopping the old | A piece of work's value is its key | `owed_work_starts_once_and_new_work_starts_without_stopping_the_old` |
