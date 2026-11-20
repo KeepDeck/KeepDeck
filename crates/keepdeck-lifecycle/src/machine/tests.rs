@@ -1254,6 +1254,235 @@ fn a_seat_on_a_team_of_another_workspace_is_refused_as_not_found() {
     assert_eq!(sim.refusal(ask), Some(Refusal::NotFound));
 }
 
+// ------------------------------------------------------- acceptance: races with Close
+
+fn relocate_to_root(pane: u64) -> Intent {
+    Intent::Relocate { workspace: ws(), pane: PaneId(pane), root: team("new-root"), role: None }
+}
+
+/// The close entry the machine writes, once it writes one.
+fn close_entry_panes(sim: &Sim) -> Option<Vec<PaneId>> {
+    sim.owed().into_iter().find_map(|effect| match effect {
+        Effect::WriteJournal { entry, .. } => match entry.work {
+            Work::Close { panes, .. } => Some(panes),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+#[test]
+fn a_close_waits_for_a_relocate_begun_before_it_and_takes_the_membership_its_answer_left() {
+    let mut sim = Sim::booted();
+    let moved = sim.intent(relocate_to_root(2));
+    let close = sim.close(disband("1", Consent::default()));
+    assert_eq!(sim.refusal(close), None);
+    // The owner has not answered — it may be stopped: the close waits.
+    assert_eq!(close_entry_panes(&sim), None, "no entry while the move is unanswered");
+    // Applied is not enough: the membership counts once it is on disk.
+    sim.apply(|cmd| matches!(cmd, Cmd::MovePane { .. }));
+    assert!(matches!(sim.answer(moved), Some(Answer::Accepted { .. })));
+    assert_eq!(close_entry_panes(&sim), None, "applied, not yet saved");
+    sim.save();
+    assert_eq!(close_entry_panes(&sim), Some(vec![PaneId(1)]), "the moved member left with its answer");
+    sim.drive();
+    assert_eq!(sim.state.world.panes[&PaneId(2)].team, Some(team("r")), "the moved member stays, on the root team");
+    assert_eq!(sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::MovePane { .. })).count(), 1, "the move is not sent again");
+}
+
+#[test]
+fn a_relocate_onto_a_team_being_closed_is_refused() {
+    let mut sim = Sim::booted();
+    sim.close(disband("r", Consent::default()));
+    let moved = sim.intent(relocate_to_root(2));
+    assert_eq!(sim.refusal(moved), Some(Refusal::TargetLeaving));
+    sim.drive();
+    assert_eq!(sim.state.world.panes[&PaneId(2)].team, Some(team("1")), "it stays where it was");
+}
+
+#[test]
+fn one_conversation_resumed_twice_is_taken_once() {
+    let mut sim = Sim::booted();
+    let resume = |sim: &mut Sim| {
+        sim.intent(Intent::Continue {
+            workspace: ws(),
+            landing: Landing::Team { team: team("r") },
+            source: SessionKey { agent: "claude".into(), session: "s9".into() },
+            how: Continuation::Resume,
+            member: draft(),
+        })
+    };
+    let first = resume(&mut sim);
+    let second = resume(&mut sim);
+    assert_eq!(sim.refusal(first), None);
+    assert_eq!(sim.refusal(second), Some(Refusal::Busy));
+    sim.drive();
+    assert_eq!(sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::AddPane { .. })).count(), 1, "one pane holds it");
+}
+
+#[test]
+fn a_write_from_a_disbanded_team_is_refused_while_its_workspace_lives() {
+    let mut sim = Sim::booted();
+    sim.close(disband("1", Consent::default()));
+    sim.drive();
+    let forgotten = |team_name: Option<&str>| sim.state.forgotten.source(&ws(), team_name.map(team).as_ref(), None);
+    assert!(forgotten(Some("1")), "the disbanded team's artifact write");
+    assert!(!forgotten(Some("r")), "the team that stays");
+    assert!(!forgotten(None), "the workspace's own");
+}
+
+#[test]
+fn a_disband_deletes_its_tasks_once_and_an_archive_keeps_them() {
+    let mut sim = Sim::booted();
+    sim.close(disband("1", Consent::default()));
+    sim.drive();
+    let deletes = sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::DeleteTeamTasks { .. })).count();
+    assert_eq!(deletes, 1);
+
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive();
+    assert!(sim.carried.iter().all(|cmd| !matches!(cmd, Cmd::DeleteTeamTasks { .. } | Cmd::ForgetBoards { .. })), "{:?}", sim.carried);
+}
+
+#[test]
+fn a_close_without_consent_deletes_no_folder() {
+    let mut sim = Sim::booted();
+    let ask = sim.close(disband("1", Consent::default()));
+    sim.drive();
+    assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })));
+    assert!(
+        !sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. } | Clean::Branch { .. })),
+        "the folder and its branch stay: {:?}",
+        sim.cleaned
+    );
+}
+
+#[test]
+fn a_creation_git_refused_is_failed_with_retry_and_the_retry_makes_it() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::New { place: None, base: None }, draft: draft(), members: vec![] });
+    for _ in 0..3 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            if let Effect::Probe { op, path, .. } = effect {
+                sim.send(Event::Probed { op, path, taken: false });
+            }
+        }
+        sim.apply(|_| true);
+        sim.save();
+    }
+    let op = *sim.state.ops.keys().next().unwrap();
+    sim.send(Event::Created { op, result: Err("a branch of that name exists".into()) });
+    sim.drive();
+    assert!(sim.carried.iter().any(|cmd| matches!(cmd, Cmd::FailTeam { .. })));
+    assert_eq!(snapshot(&sim.state).teams[&team("n")], TeamPhase::Failed);
+    assert_eq!(snapshot(&sim.state).gates[&team("n")].retry, None);
+    let retry = sim.intent(Intent::Retry { workspace: ws(), team: team("n") });
+    sim.drive();
+    assert!(matches!(sim.answer(retry), Some(Answer::Accepted { .. })));
+    assert_eq!(snapshot(&sim.state).teams[&team("n")], TeamPhase::Live);
+}
+
+#[test]
+fn a_planting_lease_is_granted_on_a_live_folder_and_refused_on_one_a_close_holds() {
+    let mut sim = Sim::booted();
+    let arm = |sim: &mut Sim| {
+        let ask = sim.next_ask();
+        sim.send(Event::Lease { ask, lease: LeaseAsk::Arm { workspace: ws(), dir: Dir::new("/wt/kd-app-1") } });
+        sim.answer(ask).expect("an answer")
+    };
+    assert!(matches!(arm(&mut sim), Answer::Leased { .. }));
+    sim.close(disband("1", consent_for_team_1()));
+    assert_eq!(arm(&mut sim), Answer::refused(Refusal::TargetLeaving));
+}
+
+#[test]
+fn a_remote_pane_launches_with_no_folder_and_its_close_completes() {
+    let mut facts = deck();
+    facts.workspaces[0].panes.push(PaneFacts { id: PaneId(4), team: Some(team("r")), remote: true, suspended: false });
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    let owner = LaunchOwner::Remote { pane: PaneId(4) };
+    let ask = sim.next_ask();
+    sim.send(Event::Lease { ask, lease: LeaseAsk::Launch { workspace: ws(), owner: owner.clone(), dir: None } });
+    let Some(Answer::Leased { permit }) = sim.answer(ask) else { panic!("{:?}", sim.answer(ask)) };
+    let ask = sim.next_ask();
+    sim.send(Event::Admit { ask, permit, owner: owner.clone(), dir: None });
+    assert!(matches!(sim.answer(ask), Some(Answer::Admitted { .. })));
+    let close = sim.close(close_agent(4));
+    sim.drive();
+    assert!(matches!(sim.answer(close), Some(Answer::Accepted { .. })));
+    assert!(!sim.state.world.panes.contains_key(&PaneId(4)));
+}
+
+/// The late plan of a disband: a fork begun before the disband lands its
+/// pane — the close waits for it, as for a seat — and the close then takes
+/// that pane: its plan is retired, its mail forgotten, and nothing of it
+/// outlives the team.
+#[test]
+fn a_fork_whose_plan_lands_during_its_teams_disband_leaves_with_the_team() {
+    let (mut sim, _ask, op) = forking();
+    let close = sim.close(disband("r", Consent::default()));
+    assert_eq!(sim.refusal(close), None);
+    let forked = PaneId(4);
+    assert!(shown(&sim, &disband("r", Consent::default())).stops.contains(&forked), "the dialog counted the pane still landing");
+    // The plan lands late.
+    sim.apply(|cmd| matches!(cmd, Cmd::Fork { .. }));
+    sim.send(Event::HookEnded { op });
+    sim.drive();
+    assert!(matches!(sim.answer(close), Some(Answer::Accepted { .. })));
+    let at = |wanted: &Cmd| sim.carried.iter().position(|cmd| cmd == wanted);
+    let added = at(&Cmd::AddPane { workspace: ws(), team: team("r"), pane: forked, draft: draft() }).expect("the fork landed first");
+    let retired = at(&Cmd::Retire { workspace: ws(), pane: forked }).expect("its plan is retired");
+    assert!(added < retired);
+    assert!(sim.carried.contains(&Cmd::ForgetPaneMail { workspace: ws(), pane: forked }));
+    assert!(!sim.state.world.panes.contains_key(&forked) && !sim.state.world.teams.contains_key(&team("r")));
+    assert!(sim.state.forgotten.panes.contains(&forked));
+}
+
+#[test]
+fn a_suspend_during_a_disband_is_refused_and_the_disband_still_stops_the_pane() {
+    let mut sim = Sim::booted();
+    let session = sim.appear(LaunchOwner::Pane { pane: PaneId(1) }, None, Some("/wt/kd-app-1"));
+    sim.close(disband("1", Consent::default()));
+    let suspend = sim.intent(Intent::Suspend { workspace: ws(), pane: PaneId(1) });
+    assert_eq!(sim.refusal(suspend), Some(Refusal::AlreadyClosing));
+    for _ in 0..4 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    assert!(sim.owed().contains(&Effect::Stop { session }));
+}
+
+#[test]
+fn a_run_launch_admitted_before_a_workspace_close_is_stopped_when_it_appears_and_none_is_leased_after() {
+    let mut sim = Sim::booted();
+    let owner = LaunchOwner::Plugin { plugin: "run".into(), workspace: ws() };
+    let lease = |sim: &mut Sim| {
+        let ask = sim.next_ask();
+        sim.send(Event::Lease { ask, lease: LeaseAsk::Launch { workspace: ws(), owner: owner.clone(), dir: Some(Dir::new("/repo")) } });
+        sim.answer(ask).expect("an answer")
+    };
+    let Answer::Leased { permit } = lease(&mut sim) else { panic!() };
+    let ask = sim.next_ask();
+    sim.send(Event::Admit { ask, permit, owner: owner.clone(), dir: Some(Dir::new("/repo")) });
+    let Some(Answer::Admitted { attempt }) = sim.answer(ask) else { panic!() };
+    sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    for _ in 0..3 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    let op = *sim.state.ops.keys().next().unwrap();
+    sim.send(Event::Cancelled { op, started: vec![attempt] });
+    let session = sim.appear(owner.clone(), Some(attempt), Some("/repo"));
+    assert!(sim.owed().contains(&Effect::Stop { session }), "the late Run is stopped");
+    sim.drive();
+    assert!(matches!(lease(&mut sim), Answer::Refused { .. }), "nothing launches in a closed workspace");
+}
+
 // ------------------------------------------------------- the wire, for TS
 
 /// One of every refusal. A new kind fails to compile here until it has its
