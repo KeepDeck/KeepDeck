@@ -10,7 +10,7 @@
 //! machine's state let go at once — no store lock waits on the machine.
 
 use serde::Deserialize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Who a write comes from: its workspace and, when it has them, its team and
 /// pane. Set by the app for the writer, never taken from the writer's own
@@ -51,6 +51,8 @@ impl std::fmt::Display for Refused {
     }
 }
 
+impl std::error::Error for Refused {}
+
 #[derive(Clone)]
 pub struct Gate {
     port: Arc<dyn Forgetting>,
@@ -67,6 +69,49 @@ impl Gate {
             return Err(Refused { workspace: source.workspace.clone() });
         }
         Ok(())
+    }
+
+    /// One write into a library scope — the MCP and the skills library
+    /// alike: under the library's `lock`, the gate asked about the `writer`
+    /// (an agent as the app knows it; none for the person at the UI) and the
+    /// workspace whose scope it is (none: the global scope), then `write`.
+    pub fn write_under<T>(
+        &self,
+        lock: &Mutex<()>,
+        writer: Option<&Source>,
+        workspace: Option<&str>,
+        write: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _held = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(writer) = writer {
+            self.admit(writer).map_err(|refused| refused.to_string())?;
+        }
+        if let Some(workspace) = workspace {
+            self.admit(&Source::from(workspace)).map_err(|refused| refused.to_string())?;
+        }
+        write()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::Forget;
+    use super::*;
+
+    #[test]
+    fn a_library_write_runs_only_when_neither_its_writer_nor_its_scope_is_forgotten() {
+        let forget = Forget::default();
+        let gate = forget.gate();
+        let lock = Mutex::new(());
+        let agent = Source { workspace: "ws-1".into(), team: None, pane: Some("pane-3".into()) };
+        let wrote = |writer: Option<&Source>, scope: Option<&str>| gate.write_under(&lock, writer, scope, || Ok(())).is_ok();
+        assert!(wrote(Some(&agent), Some("ws-1")));
+        forget.forget("pane-3");
+        assert!(!wrote(Some(&agent), None), "a closed agent writes nowhere, the global scope included");
+        assert!(wrote(None, Some("ws-1")), "the person still writes into the workspace");
+        forget.forget("ws-2");
+        assert!(!wrote(None, Some("ws-2")), "a forgotten workspace's scope takes nothing");
+        assert!(wrote(None, None), "the global scope is no one's to forget");
     }
 }
 

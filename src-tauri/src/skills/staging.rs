@@ -27,6 +27,8 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
+use crate::forgotten::Gate;
+
 use super::bundled::BundledSkill;
 use super::fingerprint::{self, FINGERPRINT_COST, FINGERPRINT_FILE};
 use super::library::{sorted_dirs, SKILL_FILE};
@@ -230,6 +232,7 @@ impl ExcludedSource {
 
 pub(super) fn stage(
     locks: &SkillsLocks,
+    gate: &Gate,
     root: &Path,
     ws_id: &str,
     tier: &[BundledSkill],
@@ -242,6 +245,9 @@ pub(super) fn stage(
     // Overlapping same-ws stagings share the tmp dir and the swap — serialize.
     let lock = locks.for_ws(ws_id);
     let _staging = locks.acquire(&lock);
+    // Under the workspace's lock, the one its forgetting removes the views
+    // under: a forgotten workspace gets no staging built back.
+    gate.admit(&crate::forgotten::Source::from(ws_id)).map_err(io::Error::other)?;
 
     // The registry result arrives as a plain bool from the tauri glue —
     // staging logic stays feature-free (the one-directional boundary).
@@ -562,7 +568,24 @@ mod tests {
         claimed: bool,
         excluded: &[ExcludedSource],
     ) -> Option<SkillStagingDto> {
-        stage(&SkillsLocks::default(), root, ws_id, tier, claimed, excluded).unwrap().view
+        stage(&SkillsLocks::default(), &open(), root, ws_id, tier, claimed, excluded).unwrap().view
+    }
+
+    /// A commit gate with nothing forgotten.
+    fn open() -> Gate {
+        crate::forgotten::testing::Forget::default().gate()
+    }
+
+    #[test]
+    fn a_forgotten_workspace_gets_no_staging_built_back() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("r")).unwrap();
+        let forget = crate::forgotten::testing::Forget::default();
+        forget.forget("ws-1");
+        let refused = stage(&SkillsLocks::default(), &forget.gate(), &root, "ws-1", &[], false, &[]).unwrap_err();
+        assert!(refused.to_string().contains("closed"), "{refused}");
+        assert!(!staging_dir(&root).exists(), "nothing staged");
+        assert!(staged(&root, "ws-2", &[], false, &[]).is_some(), "another workspace stages on");
     }
 
     #[test]
@@ -668,8 +691,8 @@ mod tests {
             let a = std::sync::Arc::clone(&root);
             let b = std::sync::Arc::clone(&root);
             let (la, lb) = (locks.clone(), locks.clone());
-            let ta = std::thread::spawn(move || stage(&la, &a, "ws-1", &[], false, &[]).unwrap().view.unwrap());
-            let tb = std::thread::spawn(move || stage(&lb, &b, "ws-1", &[], false, &[]).unwrap().view.unwrap());
+            let ta = std::thread::spawn(move || stage(&la, &open(), &a, "ws-1", &[], false, &[]).unwrap().view.unwrap());
+            let tb = std::thread::spawn(move || stage(&lb, &open(), &b, "ws-1", &[], false, &[]).unwrap().view.unwrap());
             ta.join().unwrap();
             tb.join().unwrap();
             // Whatever the interleaving, the published staging is complete.
@@ -704,7 +727,7 @@ mod tests {
         save(&global(&root), "review", &fm("new")).unwrap();
         let restaged = locks.holding("ws-1", || {
             let (root, locks) = (root.clone(), locks.clone());
-            let restaged = on_a_thread(move || drop(stage(&locks, &root, "ws-1", &[], false, &[]).unwrap()));
+            let restaged = on_a_thread(move || drop(stage(&locks, &open(), &root, "ws-1", &[], false, &[]).unwrap()));
             assert!(restaged.recv_timeout(UNHELD).is_err(), "the stage ran while the view was held");
             assert_eq!(fs::read_to_string(&skill).unwrap(), fm("old"), "the view moved under its reader");
             restaged
@@ -978,7 +1001,7 @@ mod tests {
     // ---- what fits, and what is said ----
 
     fn answer(root: &Path) -> StagingAnswer {
-        stage(&SkillsLocks::default(), root, "ws-1", &[], false, &[]).unwrap()
+        stage(&SkillsLocks::default(), &open(), root, "ws-1", &[], false, &[]).unwrap()
     }
 
     fn trim(scope: &'static str, skill: &str, kind: TrimKind) -> StagingTrim {

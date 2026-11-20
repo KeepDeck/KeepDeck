@@ -25,6 +25,7 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use crate::forgotten::{Gate, Source};
 use crate::state::write_atomic_mode;
 
 const SERVER_FILE_EXT: &str = "json";
@@ -46,6 +47,24 @@ impl McpLibraryLock {
     fn hold(&self) -> MutexGuard<'_, ()> {
         self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+/// One write into a scope: under the library's lock, the commit gate asked
+/// first — a closed agent writes nowhere, and a forgotten workspace's scope,
+/// which its forgetting removes under this same lock, takes nothing more.
+fn write_in(
+    lock: &McpLibraryLock,
+    gate: &Gate,
+    root: &Path,
+    writer: Option<&Source>,
+    scope: &str,
+    ws_id: Option<&str>,
+    write: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), String> {
+    gate.write_under(&lock.0, writer, ws_id, || {
+        let dir = scope_dir(root, scope, ws_id)?;
+        write(&dir).map_err(|e| e.to_string())
+    })
 }
 
 /// One library server on the wire (mirrors the TS `StoredMcpServer`,
@@ -277,50 +296,53 @@ pub fn mcp_library_list(lock: tauri::State<'_, McpLibraryLock>) -> Result<Vec<Mc
 /// Write one server's file (content is composed and validated by the webview;
 /// this side refuses unsafe path segments — and, when the caller says this is
 /// a CREATE, a name that is already taken).
+/// `writer`: the agent writing, as the app knows it; none for the person.
 #[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
 pub fn mcp_library_save(
     lock: tauri::State<'_, McpLibraryLock>,
+    gate: tauri::State<'_, Gate>,
+    writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
     name: String,
     content: String,
     expect_new: bool,
 ) -> Result<(), String> {
-    let _held = lock.hold();
-    let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
-    let written = if expect_new {
-        create(&dir, &name, &content)
-    } else {
-        save(&dir, &name, &content)
-    };
-    written.map_err(|e| e.to_string())
+    write_in(&lock, &gate, &library_root()?, writer.as_ref(), &scope, ws_id.as_deref(), |dir| {
+        if expect_new {
+            create(dir, &name, &content)
+        } else {
+            save(dir, &name, &content)
+        }
+    })
 }
 
 /// Remove one server. Missing is fine.
 #[tauri::command(async)]
 pub fn mcp_library_delete(
     lock: tauri::State<'_, McpLibraryLock>,
+    gate: tauri::State<'_, Gate>,
+    writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
     name: String,
 ) -> Result<(), String> {
-    let _held = lock.hold();
-    let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
-    delete(&dir, &name).map_err(|e| e.to_string())
+    write_in(&lock, &gate, &library_root()?, writer.as_ref(), &scope, ws_id.as_deref(), |dir| delete(dir, &name))
 }
 
 /// Rename one server. Refuses to move onto an existing one.
 #[tauri::command(async)]
 pub fn mcp_library_rename(
     lock: tauri::State<'_, McpLibraryLock>,
+    gate: tauri::State<'_, Gate>,
+    writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
     from: String,
     to: String,
 ) -> Result<(), String> {
-    let _held = lock.hold();
-    let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
-    rename(&dir, &from, &to).map_err(|e| e.to_string())
+    write_in(&lock, &gate, &library_root()?, writer.as_ref(), &scope, ws_id.as_deref(), |dir| rename(dir, &from, &to))
 }
 
 /// Workspace deletion's hook: drop that workspace's library scope. The deck
@@ -360,6 +382,25 @@ mod tests {
 
     fn ws(root: &Path, id: &str) -> PathBuf {
         root.join("ws").join(id)
+    }
+
+    #[test]
+    fn a_forgotten_writer_or_scope_writes_nothing_into_the_library() {
+        let (_tmp, root) = root();
+        let lock = McpLibraryLock::default();
+        let forget = crate::forgotten::testing::Forget::default();
+        let gate = forget.gate();
+        forget.forget("ws-gone");
+        forget.forget("pane-7");
+        let closed = Source { workspace: "ws-1".into(), team: None, pane: Some("pane-7".into()) };
+        let into = |writer: Option<&Source>, ws_id: &str| {
+            write_in(&lock, &gate, &root, writer, "workspace", Some(ws_id), |dir| save(dir, "git", "{}"))
+        };
+        assert!(into(None, "ws-gone").unwrap_err().contains("closed"));
+        assert!(into(Some(&closed), "ws-1").is_err());
+        assert!(!ws(&root, "ws-gone").exists() && !ws(&root, "ws-1").exists(), "nothing written");
+        into(None, "ws-1").expect("the person writes into a live workspace");
+        assert!(ws(&root, "ws-1").join("git.json").is_file());
     }
 
     #[test]

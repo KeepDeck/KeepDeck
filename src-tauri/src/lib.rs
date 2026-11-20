@@ -131,6 +131,7 @@ pub fn run() {
         .manage(exec_once::OnceRunner::new())
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
+        .manage(skills::SkillsLibraryLock::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(session_tail::UsageTails::default())
         .manage(rpc_child::RpcChildPool::default())
