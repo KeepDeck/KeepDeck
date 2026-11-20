@@ -175,7 +175,7 @@ fn restore(state: &mut State, entry: &Entry, closing: &BTreeSet<TeamId>, closing
         .collect();
     let book = Some(Book { written: Some(entry.clone()), ..Book::default() });
     let kind = match &entry.work {
-        Work::Close { target, teams, panes, consent, removals } => {
+        Work::Close { target, teams, panes, consent, removals, space } => {
             let kind = match target {
                 Target::Agent { .. } => model::Teardown::CloseAgent,
                 Target::Team { .. } => model::Teardown::Disband,
@@ -183,6 +183,7 @@ fn restore(state: &mut State, entry: &Entry, closing: &BTreeSet<TeamId>, closing
             };
             let mut teardown = Teardown::new(kind, target.clone(), teams.clone(), panes.clone(), consent.clone());
             teardown.removals = removals.clone();
+            teardown.space = space.clone();
             teardown.joined = entry.joined.clone();
             teardown.done = entry.done.clone();
             teardown.restored = true;

@@ -64,6 +64,10 @@ pub struct Teardown {
     pub plan: Vec<Step>,
     pub done: Vec<Step>,
     pub failed: Vec<Step>,
+    /// What the branch names it holds are unique within: its workspace's
+    /// repository, taken while the workspace's row stands and journaled with
+    /// them — its reservations outlive that row.
+    pub space: Option<Dir>,
     /// Admitted launches it took over to the start boundary.
     pub boundary: Boundary,
     pub waited: Waited,
@@ -87,6 +91,7 @@ impl Teardown {
             plan: Vec::new(),
             done: Vec::new(),
             failed: Vec::new(),
+            space: None,
             boundary: Boundary::default(),
             waited: Waited::default(),
             restored: false,
@@ -109,6 +114,9 @@ impl Teardown {
     /// workspace's everything are read again when the queue lets it go, so
     /// the membership is the one the additive operations before it left.
     pub fn capture(&mut self, world: &World, workspace: &WorkspaceId) {
+        if let Some(row) = world.workspaces.get(workspace) {
+            self.space = Some(row.branch_space().clone());
+        }
         match self.kind {
             model::Teardown::CloseWorkspace | model::Teardown::Archive => {
                 self.teams = world.teams_of(workspace);
@@ -151,6 +159,7 @@ impl Teardown {
                 panes: self.panes.clone(),
                 consent: self.consent.clone(),
                 removals: self.removals.clone(),
+                space: self.space.clone(),
             }),
         }
     }

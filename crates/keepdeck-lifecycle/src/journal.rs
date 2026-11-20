@@ -93,6 +93,10 @@ pub enum Work {
         panes: Vec<PaneId>,
         consent: Consent,
         removals: Vec<Removal>,
+        /// The repository its branch names are unique within: what they are
+        /// held against while its cleanup is owed, its workspace gone or not.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<Dir>,
     },
     Archive { panes: Vec<PaneId> },
     RemoveUnheld { path: Dir, tag: Option<String>, removal: Option<Removal> },
@@ -330,6 +334,7 @@ mod tests {
                     path: Dir::new("/repo/wt"),
                     branches: vec!["kd/a1/1".into()],
                 }],
+                space: Some(Dir::new("/repo/.git")),
             },
             joined: vec![],
             commands: vec![Sent {
@@ -449,6 +454,7 @@ mod tests {
             panes: vec![],
             consent: Consent::default(),
             removals: vec![],
+            space: None,
         };
         workspace_close.joined = vec![OpId(4), OpId(5)];
         save(&mut store, &workspace_close);

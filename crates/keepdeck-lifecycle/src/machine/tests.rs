@@ -1182,27 +1182,36 @@ fn a_branch_is_held_within_its_repository_and_not_across_unrelated_ones() {
     );
 }
 
-/// A closed workspace's cleanup still owes a branch, and its row is gone:
-/// nothing tells which repository it was, so the branch stays held against
-/// every one until the debt is paid.
-#[test]
-fn a_branch_a_closed_workspaces_cleanup_still_owes_stays_held_without_its_row() {
-    let mut facts = deck();
-    facts.workspaces[0].repo = Some(Dir::new("/repo/.git"));
-    facts.workspaces.push(WorkspaceFacts {
-        id: WorkspaceId("ws-b".into()),
+/// Two more workspaces: one of an unrelated repository, one another checkout
+/// of the first's.
+fn beside_another_and_a_twin(facts: &mut DeckFacts) -> (WorkspaceId, WorkspaceId) {
+    let workspace = |id: &str, cwd: &str, repo: &str| WorkspaceFacts {
+        id: WorkspaceId(id.into()),
         name: "other".into(),
-        cwd: Dir::new("/other"),
+        cwd: Dir::new(cwd),
         worktree_base: Some(Dir::new("/elsewhere")),
         archived: false,
         archiving: false,
-        repo: Some(Dir::new("/other/.git")),
+        repo: Some(Dir::new(repo)),
         teams: vec![],
         panes: vec![],
-    });
+    };
+    facts.workspaces.push(workspace("ws-b", "/other", "/other/.git"));
+    facts.workspaces.push(workspace("ws-c", "/wt/kd-app-9", "/repo/.git"));
+    (WorkspaceId("ws-b".into()), WorkspaceId("ws-c".into()))
+}
+
+/// A closed workspace's cleanup still owes a branch, and its row is gone:
+/// the close keeps its repository with the reservation, so the branch stays
+/// held for another checkout of that repository, and an unrelated one is
+/// free of it.
+#[test]
+fn a_branch_a_closed_workspaces_cleanup_still_owes_stays_held_within_its_repository_without_its_row() {
+    let mut facts = deck();
+    facts.workspaces[0].repo = Some(Dir::new("/repo/.git"));
+    let (other, twin) = beside_another_and_a_twin(&mut facts);
     let mut sim = Sim::booted_with(facts, Vec::new());
     sim.drive();
-    let other = WorkspaceId("ws-b".into());
     let typed = Place { path: Dir::new("/elsewhere/kd-other-1"), branch: "kd/app/1".into() };
     assert_eq!(super::queries::check(&sim.state, &other, &typed), None, "an unrelated repository's branch, while it lives");
     let whole = Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() };
@@ -1226,7 +1235,42 @@ fn a_branch_a_closed_workspaces_cleanup_still_owes_stays_held_without_its_row() 
         sim.save();
     }
     assert!(!sim.state.world.workspaces.contains_key(&ws()), "the closed workspace's row is gone");
-    assert!(super::queries::check(&sim.state, &other, &typed).is_some(), "its owed branch is still held");
+    assert!(super::queries::check(&sim.state, &twin, &typed).is_some(), "its owed branch is still held in its repository");
+    assert_eq!(super::queries::check(&sim.state, &other, &typed), None, "and not in an unrelated one");
+    let op = *sim.state.ops.keys().next().unwrap();
+    assert!(matches!(&sim.disk[&op].work, Work::Close { space: Some(space), .. } if *space == Dir::new("/repo/.git")), "kept on disk");
+}
+
+/// The same reservation restored from its entry after the workspace's row
+/// went: its branches — the plan's, and the consent's before a plan is
+/// read — are counted by the repository the entry keeps.
+#[test]
+fn a_restored_close_holds_its_branches_by_the_repository_its_entry_keeps() {
+    let mut facts = deck();
+    let (other, twin) = beside_another_and_a_twin(&mut facts);
+    facts.workspaces.remove(0);
+    let close = Entry {
+        op: OpId(7),
+        workspace: ws(),
+        work: Work::Close {
+            target: Target::Workspace,
+            teams: vec![team("1")],
+            panes: vec![],
+            consent: consent_for_team_1(),
+            removals: vec![crate::journal::Removal { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), branches: vec!["feature".into()] }],
+            space: Some(Dir::new("/repo/.git")),
+        },
+        joined: vec![],
+        commands: vec![],
+        done: vec![],
+    };
+    let sim = Sim::booted_with(facts, vec![close]);
+    assert!(sim.state.ops.contains_key(&OpId(7)), "restored, its cleanup owed");
+    for branch in ["feature", "kd/app/1"] {
+        let typed = Place { path: Dir::new("/elsewhere/kd-other-1"), branch: branch.into() };
+        assert!(super::queries::check(&sim.state, &twin, &typed).is_some(), "{branch}: held in its repository");
+        assert_eq!(super::queries::check(&sim.state, &other, &typed), None, "{branch}: not in an unrelated one");
+    }
 }
 
 #[test]
@@ -1250,7 +1294,7 @@ fn pane_numbers_start_above_the_deck_and_the_journal_and_never_come_back_in_a_la
     let entry = Entry {
         op: OpId(4),
         workspace: ws(),
-        work: Work::Close { target: Target::Agent { pane: PaneId(40) }, teams: vec![], panes: vec![PaneId(40)], consent: Consent::default(), removals: vec![] },
+        work: Work::Close { target: Target::Agent { pane: PaneId(40) }, teams: vec![], panes: vec![PaneId(40)], consent: Consent::default(), removals: vec![], space: None },
         joined: vec![],
         commands: vec![],
         done: vec![],
@@ -1413,6 +1457,7 @@ fn a_quarantined_deck_holds_a_restored_close_whole_its_forgetting_included() {
             panes: vec![PaneId(1), PaneId(2), PaneId(3)],
             consent: Consent { stops: vec![PaneId(1), PaneId(2), PaneId(3)], ..consent_for_team_1() },
             removals: vec![],
+            space: None,
         },
         joined: vec![],
         // A launch that loaded the deck had already sent the forgetting, and

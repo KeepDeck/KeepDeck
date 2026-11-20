@@ -304,58 +304,70 @@ pub fn still_creating_for(op: &Op, teams: &[TeamId]) -> bool {
     create_of(op).is_some_and(|create| teams.contains(&create.team) && create.stage == CreateStage::Creating && !create.created)
 }
 
-/// Whether `owner`'s reserved branches count against `asking`'s: they are
-/// checkouts of one repository — or `owner`'s workspace is gone, closed
-/// with its cleanup still owed. Nothing then tells which repository it was,
-/// so its branches stay held against every one until the debt is paid: a
-/// name withheld costs nothing, a branch given twice costs a checkout.
-pub(super) fn shares_branches(state: &State, asking: &WorkspaceId, owner: &WorkspaceId) -> bool {
-    let space = |ws: &WorkspaceId| state.world.workspaces.get(ws).map(|row| row.branch_space());
-    match (space(asking), space(owner)) {
+/// The repository a workspace's branch names are unique within, while its
+/// row stands.
+fn space_of<'a>(state: &'a State, workspace: &WorkspaceId) -> Option<&'a Dir> {
+    state.world.workspaces.get(workspace).map(|row| row.branch_space())
+}
+
+/// Whether a branch reserved in `theirs` counts against a new one in
+/// `mine`: one repository. A reservation that does not know its repository
+/// (an entry written before it was kept) is held against every one: a name
+/// withheld costs nothing, a branch given twice costs a checkout.
+fn counts(mine: Option<&Dir>, theirs: Option<&Dir>) -> bool {
+    match (mine, theirs) {
         (Some(mine), Some(theirs)) => mine == theirs,
         (Some(_), None) => true,
         (None, _) => false,
     }
 }
 
+/// Whether `owner`'s branches count against `asking`'s: checkouts of one
+/// repository.
+pub(super) fn shares_branches(state: &State, asking: &WorkspaceId, owner: &WorkspaceId) -> bool {
+    counts(space_of(state, asking), space_of(state, owner))
+}
+
 /// Every folder and branch held against a place for `workspace`. A path is
 /// one place on disk, so every workspace's count. A branch name is unique
 /// within a repository: the branches of every workspace on the same one —
 /// its folder opened twice, or two of its worktrees — count, and an
-/// unrelated repository's do not.
+/// unrelated repository's do not. A close's are counted by the repository
+/// it keeps with them, its workspace's row gone or not.
 pub(super) fn held(state: &State, workspace: &WorkspaceId) -> Held {
-    let shares = |other: &WorkspaceId| shares_branches(state, workspace, other);
+    let mine = space_of(state, workspace);
     let mut held = Held::default();
-    let mut hold = |path: &Dir, branches: &mut dyn Iterator<Item = String>, owner: &WorkspaceId| {
+    let mut hold = |path: &Dir, branches: &mut dyn Iterator<Item = String>, theirs: Option<&Dir>| {
         held.paths.insert(path.clone());
-        if shares(owner) {
+        if counts(mine, theirs) {
             held.branches.extend(branches);
         }
     };
     for team in state.world.teams.values() {
+        let theirs = space_of(state, &team.workspace);
         match &team.at {
-            TeamAt::Attached { cwd, branch } => hold(cwd, &mut branch.clone().into_iter(), &team.workspace),
-            TeamAt::Creating { ticket, .. } | TeamAt::Failed { ticket } => {
-                hold(&ticket.path, &mut std::iter::once(ticket.branch.clone()), &team.workspace)
-            }
+            TeamAt::Attached { cwd, branch } => hold(cwd, &mut branch.clone().into_iter(), theirs),
+            TeamAt::Creating { ticket, .. } | TeamAt::Failed { ticket } => hold(&ticket.path, &mut std::iter::once(ticket.branch.clone()), theirs),
             TeamAt::Unplaced => {}
         }
     }
     for op in state.ops.values() {
         if let Some(create) = create_of(op) {
+            let theirs = space_of(state, &op.workspace);
             if let Some(ticket) = &create.ticket {
-                hold(&ticket.path, &mut std::iter::once(ticket.branch.clone()), &op.workspace);
+                hold(&ticket.path, &mut std::iter::once(ticket.branch.clone()), theirs);
             }
             if let Some((path, branch)) = &create.probing {
-                hold(path, &mut std::iter::once(branch.clone()), &op.workspace);
+                hold(path, &mut std::iter::once(branch.clone()), theirs);
             }
         }
         if let Some(teardown) = op.teardown() {
+            let theirs = teardown.space.as_ref();
             for removal in &teardown.removals {
-                hold(&removal.path, &mut removal.branches.iter().cloned(), &op.workspace);
+                hold(&removal.path, &mut removal.branches.iter().cloned(), theirs);
             }
             for folder in &teardown.consent.folders {
-                hold(&folder.path, &mut folder.branch.clone().into_iter(), &op.workspace);
+                hold(&folder.path, &mut folder.branch.clone().into_iter(), theirs);
             }
         }
     }
