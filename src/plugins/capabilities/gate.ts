@@ -112,7 +112,9 @@ export interface GitBackend {
  * injects the scope), while the services the gate RETURNS match the public,
  * scope-free contracts the plugin calls. */
 export interface ServiceBackends {
-  sessions: PluginSessions;
+  /** A plugin's PTY sessions, started for the plugin the gate is for: the
+   * host launches them under that plugin's own lease. */
+  sessions: { spawn(pluginId: string, ...args: Parameters<PluginSessions["spawn"]>): ReturnType<PluginSessions["spawn"]> };
   /** The host's bounded, terminal-less run. Admitted by the SAME rule as
    * `sessions.spawn` — a plugin that may run a command in a pane may run it
    * without one; nothing here widens what may be run. */
@@ -267,7 +269,7 @@ export function createCapabilityGate(
           execCovers(manifest.capabilities, subject),
           `sessions.spawn: "${subject}" requires an "exec" capability covering it, which the manifest does not declare`,
         );
-        return backend.sessions.spawn(spawnOpts, onEvent);
+        return backend.sessions.spawn(manifest.id, spawnOpts, onEvent);
       },
     },
     exec: {

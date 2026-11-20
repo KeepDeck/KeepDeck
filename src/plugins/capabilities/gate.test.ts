@@ -138,7 +138,8 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const result = gate.sessions.spawn(opts, onEvent);
 
     expect(backend.sessions.spawn).toHaveBeenCalledTimes(1);
-    expect(backend.sessions.spawn).toHaveBeenCalledWith(opts, onEvent);
+    // The host launches it as THIS plugin's process.
+    expect(backend.sessions.spawn).toHaveBeenCalledWith("p", opts, onEvent);
     // Verbatim forwarding: the gate hands back the exact promise the backend
     // produced, not a rewrapped one, and it resolves to the backend's own
     // handle — never re-wrapped.

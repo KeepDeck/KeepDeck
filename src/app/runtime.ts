@@ -179,7 +179,15 @@ export function createAppRuntime(
   registry: CommandRegistry = commands,
 ) {
   const downloads = new DownloadManager(downloadBackend);
-  const plugins = createPluginManager(downloads);
+  // A plugin's own process belongs to the workspace on screen when it is
+  // started; the deck store is built below, and read only at a launch.
+  const plugins = createPluginManager(downloads, {
+    lease: askLease,
+    workspace: () => {
+      const { activeId, workspaces } = deckStore.getSnapshot();
+      return workspaces.some((ws) => ws.id === activeId) ? activeId : null;
+    },
+  });
   /** How a pane reads, for anything that has to name one. Read per call — a
    * plugin can be installed or removed while the deck is up. */
   const agentLabels = () => plugins.pluginRegistries.agents.list().map(({ entry }) => titleAgentOf(entry));

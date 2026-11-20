@@ -87,7 +87,8 @@ import {
 } from "./plugins/agentVersionGate";
 import { allocatePorts } from "../ipc/ports";
 import { scanPlugins } from "../ipc/plugins";
-import { spawnSession } from "../ipc/session";
+import { openSession } from "../ipc/session";
+import { createPluginSessions, type PluginSessionsDeps } from "./plugins/pluginSessions";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import {
   getSettings,
@@ -241,7 +242,11 @@ export function makeWatchFanout(
   };
 }
 
-export function createPluginManager(appDownloads: DownloadManager) {
+export function createPluginManager(
+  appDownloads: DownloadManager,
+  /** How a plugin's own process is launched — see `createPluginSessions`. */
+  launches: Omit<PluginSessionsDeps, "open">,
+) {
   const pluginRegistries = createContributionRegistries();
 
   // ------------------------------------------------------------- deck access
@@ -408,27 +413,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
         pluginRpcRequest(pluginId, server, method, params),
       stop: (pluginId) => pluginRpcStop(pluginId),
     },
-    sessions: {
-      async spawn(opts, onEvent) {
-        return spawnSession(
-          {
-            command: opts.command ?? null,
-            args: opts.args ?? [],
-            env: opts.env ?? [],
-            cwd: opts.cwd ?? null,
-            cols: opts.cols,
-            rows: opts.rows,
-          },
-          (event) => {
-            if (event.type === "output") {
-              onEvent({ type: "output", bytes: event.bytes });
-            } else {
-              onEvent({ type: "exit", code: event.code });
-            }
-          },
-        );
-      },
-    },
+    sessions: createPluginSessions({ ...launches, open: openSession }),
     ports: { allocate: (key) => allocatePorts(key) },
     http: {
       get: (pluginId, request) => pluginHttpGet(pluginId, request),
