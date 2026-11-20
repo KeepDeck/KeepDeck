@@ -15,6 +15,7 @@ function rig(build: () => Promise<Discard> = () => Promise.resolve(DISCARD)) {
     buildFork: vi.fn(build),
     buildResume: vi.fn(() => Promise.resolve()),
     dropPlan: vi.fn(),
+    letGo: vi.fn(() => Promise.resolve()),
     bindings: {
       subscribe(listener) {
         accept = listener;
@@ -75,5 +76,23 @@ describe("the pane's run state, as the machine commands it", () => {
     await carry(runState, { kind: "prepareResume", workspace: "ws-a", pane: "pane-2", source: SOURCE });
     expect(ports.buildResume).toHaveBeenCalledWith({ workspace: "ws-a", pane: "pane-2", source: SOURCE });
     expect((await carry(runState, fork)).kind).toBe("rejected");
+  });
+
+  it("lets go of a stopped pane's process as the machine says, and answers once it has", async () => {
+    // The answer waits for the letting go: the machine's operation is not
+    // over until the slot a next launch would find taken is empty.
+    let done = () => {};
+    const { ports, runState, carry } = rig();
+    vi.mocked(ports.letGo).mockReturnValue(new Promise<void>((resolve) => (done = resolve)));
+    let answered = false;
+    const carried = carry(runState, { kind: "release", workspace: "ws-a", pane: "pane-1", inPlace: true }).then((outcome) => {
+      answered = true;
+      return outcome;
+    });
+    await Promise.resolve();
+    expect(ports.letGo).toHaveBeenCalledWith({ workspace: "ws-a", pane: "pane-1", replacedInPlace: true });
+    expect(answered).toBe(false);
+    done();
+    expect(await carried).toEqual({ kind: "applied", revision: null });
   });
 });

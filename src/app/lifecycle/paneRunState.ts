@@ -30,6 +30,10 @@ export interface RunStatePorts {
   /** End a pane's plan and the secrets in it; a build still running for it
    * lands nowhere. */
   dropPlan(pane: string): void;
+  /** Let go of what the page holds for a pane's process, now that it is
+   * over: its session slot, and — for a process replaced in place — the
+   * terminal it was shown in. */
+  letGo(args: { workspace: string; pane: string; replacedInPlace: boolean }): Promise<void>;
   /** The bindings the binding lane accepted. */
   bindings: { subscribe(listener: (bound: { paneId: string }) => void): () => void };
   /** Tell the machine the fork step's hook call has ended. */
@@ -69,6 +73,9 @@ export function createPaneRunState(ports: RunStatePorts): PaneRunState {
       switch (cmd.kind) {
         case "retire":
           ports.dropPlan(cmd.pane);
+          return DONE;
+        case "release":
+          await ports.letGo({ workspace: cmd.workspace, pane: cmd.pane, replacedInPlace: cmd.inPlace });
           return DONE;
         case "prepareResume":
           await ports.buildResume({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source });

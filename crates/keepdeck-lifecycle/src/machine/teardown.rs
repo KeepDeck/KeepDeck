@@ -461,6 +461,27 @@ fn after_stop(state: &mut State, id: OpId) {
     let Some(teardown) = teardown_mut(state, id) else { return };
     teardown.reading = reading;
     teardown.phase = TearPhase::Reading;
+    release(state, id);
+}
+
+/// Its sessions are over: the launch lets go of what it holds for each pane's
+/// process — the slot a next launch of the pane would find taken, whatever
+/// state the process left it in. Keyed by the pane: a slot can hold no
+/// session (a launch cancelled at the start boundary), and none of its panes
+/// gets a new one while this lives. A pane of a past launch has nothing held
+/// in this one.
+fn release(state: &mut State, id: OpId) {
+    let Some(op) = state.ops.get_mut(&id) else { return };
+    let workspace = op.workspace.clone();
+    let Some(teardown) = op.teardown() else { return };
+    if teardown.restored {
+        return;
+    }
+    // A teardown that keeps its rows replaces its pane's process in place.
+    let in_place = teardown.strategy().rows == Rows::Keep;
+    for pane in teardown.panes.clone() {
+        op.send(Cmd::Release { workspace: workspace.clone(), pane, in_place });
+    }
 }
 
 pub fn branches_read(state: &mut State, id: OpId, path: Dir, result: Result<Vec<String>, String>, fx: &mut Fx) {

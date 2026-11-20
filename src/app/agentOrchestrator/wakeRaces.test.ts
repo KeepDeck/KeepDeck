@@ -312,6 +312,29 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     expect(agentRun.specs["pane-2"]).toBeDefined();
   });
 
+  it("starts the off-screen pane it restarts, once the machine has let go of its process", async () => {
+    // A restart owes the pane its next process, and the debt must outlive
+    // the wait for the machine's stop and release: dropped on the way, the
+    // unopened-workspace economy holds the pane, and the restart it accepted
+    // never comes.
+    act(() =>
+      deck.hydrate(twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" })),
+    );
+    await settle();
+    await act(async () => {
+      await agentRun.resume("ws-2", "pane-2");
+    });
+    await settle();
+    const before = pty.acquired.length;
+
+    await act(async () => {
+      await agentRun.restart("ws-2", "pane-2", "fresh");
+    });
+    await settle();
+    expect(pty.acquired.slice(before).map((a) => a.paneId)).toEqual(["pane-2"]);
+    expect(pty.isLive("pane-2")).toBe(true);
+  });
+
   it("stops owing a start once the pane has a process", async () => {
     // The debt exempts a pane from the unopened-workspace economy. Left
     // behind, it would keep exempting that pane for the session — respawning

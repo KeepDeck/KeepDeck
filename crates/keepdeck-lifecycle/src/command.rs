@@ -97,6 +97,10 @@ pub enum Cmd {
     /// End what this launch keeps for the pane — its plan and the secrets in
     /// it — before its process goes.
     Retire { workspace: WorkspaceId, pane: PaneId },
+    /// The pane's process is over: let go of what the launch holds for it —
+    /// the slot a next launch of the pane would otherwise find taken.
+    /// `in_place`: the pane stays and its process is replaced (a restart).
+    Release { workspace: WorkspaceId, pane: PaneId, in_place: bool },
     /// Build the plan that resumes `source` in the pane about to be added.
     PrepareResume { workspace: WorkspaceId, pane: PaneId, source: SessionKey },
     /// Drop what the fork attempt of `op` built; a late build of it is refused.
@@ -140,7 +144,7 @@ impl Cmd {
             | Cmd::ClearSuspended { .. } => Owner::Deck,
             Cmd::DeleteTeamTasks { .. } | Cmd::ForgetBoards { .. } | Cmd::RetainTeams { .. } => Owner::Boards,
             Cmd::ForgetPaneMail { .. } | Cmd::RetainPanes { .. } => Owner::Mail,
-            Cmd::Retire { .. } | Cmd::PrepareResume { .. } | Cmd::DropBuild { .. } | Cmd::ReportBinding { .. } => {
+            Cmd::Retire { .. } | Cmd::Release { .. } | Cmd::PrepareResume { .. } | Cmd::DropBuild { .. } | Cmd::ReportBinding { .. } => {
                 Owner::RunState
             }
             Cmd::WorktreeNotDeleted { .. } => Owner::Notices,

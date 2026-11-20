@@ -237,27 +237,33 @@ export const machine = {
   publish() {
     for (const listener of [...machine.listeners]) listener();
   },
-  /** The deck owner the fake carries its commands through — the real one,
-   * bound per mount — and the deck it reads to choose a root team. */
+  /** The deck owner and the run-state owner the fake carries its commands
+   * through — the real ones, bound per mount — and the deck it reads to
+   * choose a root team. */
   carry: null as ((cmd: Cmd) => Promise<Outcome>) | null,
+  carryRunState: null as ((cmd: Cmd) => Promise<Outcome>) | null,
   deck: null as (() => DeckState) | null,
   async send(intent: Intent): Promise<Reply> {
     machine.intents.push(intent);
     if (machine.answer) return machine.answer;
     machine.op += 1;
-    // The real machine stops these panes' processes by their exact session
-    // before its deck half lands; the page's registry hears each end.
-    for (const paneId of stoppedBy(intent)) pty.exit(paneId, 143);
-    // What the machine then asks of the deck, for the intents whose deck
-    // half is one command: carried through the real deck owner, as the
-    // snapshot would carry it — and a refusal of it answers the intent, as
-    // the machine's op answers it.
+    const accepted: Reply = { kind: "answered", answer: { kind: "accepted", op: machine.op, minted: { workspace: null, team: null, panes: [] } } };
+    if (TEARDOWNS.has(intent.kind)) {
+      // The real machine answers a teardown as it takes it on, and runs it
+      // after: the door hears "accepted" before any process goes.
+      void tearDown(intent);
+      return accepted;
+    }
+    // What the machine asks of the deck, for the intents whose deck half is
+    // one command: carried through the real deck owner, as the snapshot
+    // would carry it — and a refusal of it answers the intent, as the
+    // machine's op answers it.
     const cmd = deckHalfOf(intent);
     const outcome = cmd && machine.carry ? await machine.carry(cmd) : null;
     if (outcome?.kind === "rejected") {
       return { kind: "answered", answer: { kind: "refused", refusal: { kind: "rejected", why: outcome.why } } };
     }
-    return { kind: "answered", answer: { kind: "accepted", op: machine.op, minted: { workspace: null, team: null, panes: [] } } };
+    return accepted;
   },
   async lease(ask: LeaseAsk): Promise<Reply> {
     machine.leases.push(ask);
@@ -280,6 +286,33 @@ export const machine = {
     machine.listeners.clear();
   },
 };
+
+/** The intents the machine runs as a teardown: it stops their panes. */
+const TEARDOWNS: ReadonlySet<Intent["kind"]> = new Set(["suspend", "restart", "closeAgent", "disband", "closeWorkspace", "archive"]);
+
+/**
+ * A teardown, as the real one runs once it took it on: each pane's plan is
+ * retired before its process goes; the processes are stopped by their exact
+ * session, and the page's registry hears each end; the deck half lands; and
+ * once the sessions are over, the launch lets go of each pane's slot — in
+ * place for a restart, whose pane stays.
+ */
+async function tearDown(intent: Intent): Promise<void> {
+  const stopped = stoppedBy(intent);
+  const runState = async (cmd: Cmd) => {
+    if (machine.carryRunState) await machine.carryRunState(cmd);
+  };
+  for (const pane of stopped) await runState({ kind: "retire", workspace: intent.workspace, pane });
+  for (const pane of stopped) pty.stop(pane);
+  // The page hears the ends before the machine lets go of the slots: in
+  // between, the funnel sees each stopped slot still taken.
+  await Promise.resolve();
+  const cmd = deckHalfOf(intent);
+  if (cmd && machine.carry) await machine.carry(cmd);
+  for (const pane of stopped) {
+    await runState({ kind: "release", workspace: intent.workspace, pane, inPlace: intent.kind === "restart" });
+  }
+}
 
 /** The panes whose process the machine stops for an intent, as the real one
  * does: one pane's suspend, restart and close; a team's members on a
@@ -363,12 +396,22 @@ export const emptyJournal = emptyJournalImpl;
  *  pane's slot taken. */
 function startingDoor() {
   const door = createSessionDoor();
+  /** Spawns not answered yet: a test holding starts sees them starting. */
+  const pending = new Set<Spawn>();
   const open: OpenSession = (opts, permit, owner, onEvent) => {
     const started = door.open(opts, permit, owner, onEvent);
-    door.spawns[door.spawns.length - 1].resolve(door.makeSession());
+    const spawn = door.spawns[door.spawns.length - 1];
+    if (pty.holdStarts) pending.add(spawn);
+    else spawn.resolve(door.makeSession());
     return started;
   };
-  return { door, registry: createPtyManager(open) };
+  return { door, pending, registry: createPtyManager(open) };
+}
+
+/** The pane's latest process, as the door started it. */
+function latestSpawn(paneId: string): Spawn | undefined {
+  const own = sessions.door.spawns.filter((candidate) => paneOf(candidate) === paneId);
+  return own[own.length - 1];
 }
 
 let sessions = startingDoor();
@@ -393,11 +436,25 @@ export const pty = {
       launch: { permit: spawn.permit, owner: spawn.owner },
     }));
   },
-  /** The pane's process ends — by itself, or stopped by the machine — as
-   *  the sessions machine reports it. */
+  /** Starts are left starting until a test lets them through, or a stop
+   *  cancels them. */
+  holdStarts: false,
+  /** Panes whose next stop is never confirmed: the process did not exit
+   *  within the stop's bound, and no exit is ever reported. */
+  unconfirmed: new Set<string>(),
+  /** The pane's process ends by itself, as the sessions machine reports it. */
   exit(paneId: string, code: number | null = 0) {
-    const own = sessions.door.spawns.filter((candidate) => paneOf(candidate) === paneId);
-    own[own.length - 1]?.onEvent(exitEvent(code));
+    latestSpawn(paneId)?.onEvent(exitEvent(code));
+  },
+  /** The machine stops the pane's process by its exact session, as the
+   *  sessions machine carries it out: a start still in flight is cancelled at
+   *  the start boundary — its spawn refused, no process, no exit to come — a
+   *  running process ends, and one whose end is not confirmed says nothing. */
+  stop(paneId: string) {
+    const spawn = latestSpawn(paneId);
+    if (!spawn || pty.unconfirmed.has(paneId)) return;
+    if (sessions.pending.delete(spawn)) spawn.reject(new Error("the launch was cancelled at the start boundary"));
+    else spawn.onEvent(exitEvent(143));
   },
   state(paneId: string) {
     return sessions.registry.state(paneId);
@@ -407,6 +464,8 @@ export const pty = {
     return sessions.registry.state(paneId).kind === "live";
   },
   reset() {
+    pty.holdStarts = false;
+    pty.unconfirmed.clear();
     sessions = startingDoor();
     // The machine the processes are leased from goes with them: every suite
     // resets the pty per test, and a lease or an intent of the last test must
@@ -519,6 +578,7 @@ export function Probe() {
     };
   });
   deck = useDeck(wiring.store);
+  machine.carryRunState = (cmd) => wiring.orchestrator.runState.runState.carry({ id: { op: machine.op, index: 0 }, owner: "runState", cmd });
   agentRun = {
     ...useAgentRunView(wiring.orchestrator),
     reachOf: wiring.orchestrator.reachOf,

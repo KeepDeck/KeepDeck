@@ -599,12 +599,9 @@ export const dues: Due[] = [
   },
   {
     "cmd": {
-      "kind": "prepareResume",
+      "inPlace": true,
+      "kind": "release",
       "pane": "pane-2",
-      "source": {
-        "agent": "cli-a",
-        "session": "s-1"
-      },
       "workspace": "ws-a"
     },
     "id": {
@@ -615,11 +612,27 @@ export const dues: Due[] = [
   },
   {
     "cmd": {
+      "kind": "prepareResume",
+      "pane": "pane-2",
+      "source": {
+        "agent": "cli-a",
+        "session": "s-1"
+      },
+      "workspace": "ws-a"
+    },
+    "id": {
+      "index": 21,
+      "op": 1
+    },
+    "owner": "runState"
+  },
+  {
+    "cmd": {
       "kind": "dropBuild",
       "op": 3
     },
     "id": {
-      "index": 21,
+      "index": 22,
       "op": 1
     },
     "owner": "runState"
@@ -632,7 +645,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 22,
+      "index": 23,
       "op": 1
     },
     "owner": "runState"
@@ -645,7 +658,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 23,
+      "index": 24,
       "op": 1
     },
     "owner": "notices"
@@ -662,7 +675,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 24,
+      "index": 25,
       "op": 1
     },
     "owner": "forkStep"
@@ -683,6 +696,19 @@ export const versioned: Versioned = {
           "op": 2
         },
         "owner": "deck"
+      },
+      {
+        "cmd": {
+          "inPlace": false,
+          "kind": "release",
+          "pane": "pane-2",
+          "workspace": "ws-a"
+        },
+        "id": {
+          "index": 2,
+          "op": 2
+        },
+        "owner": "runState"
       }
     ],
     "forgotten": {

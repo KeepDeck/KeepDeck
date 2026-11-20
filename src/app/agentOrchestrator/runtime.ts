@@ -180,6 +180,19 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     return workspace && findTeam(workspace, teamId) ? teamActsOf(workspace, teamId, teamFacts) : null;
   }
 
+  /**
+   * Let go of what the page holds for a pane's process, now that it is over:
+   * its session slot, which a next launch of the pane would otherwise find
+   * taken. A process replaced in place also re-mounts the pane's terminal for
+   * the next one — the re-mount is what tells the pane's restart card that
+   * the restart happened. The one tail of every way a process ends for good:
+   * the machine's stop, and a rejected resume's recovery.
+   */
+  async function letGo({ workspace, pane, replacedInPlace }: { workspace: string; pane: string; replacedInPlace: boolean }): Promise<void> {
+    await sessions.close(pane);
+    if (replacedInPlace && findPane(deck.getSnapshot().workspaces, workspace, pane)) runView.bumpEpoch(pane);
+  }
+
   const continuations = createContinuationPlans({ plugins, spawnContext, skillsAsk, mcpAccess, armCwd });
   const runState = createPaneRunState({
     buildResume: continuations.buildResume,
@@ -190,6 +203,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
       dropPaneSpawnSpec(pane);
       deps.lifecycle.retire(pane);
     },
+    letGo,
     bindings: deps.bindings,
     hookEnded: machine.hookEnded,
   });
@@ -225,7 +239,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
   const recovery = createRecovery({
     deck,
     actions,
-    sessions,
+    letGo,
     plugins,
     spawnContext,
     lifecycle: deps.lifecycle,
@@ -390,14 +404,11 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
         const intent = intentOf(ws, pane, state.activeId, commands);
         const process = sessions.state(pane.id).kind;
         if (intent.kind === "run" && !pane.idle) {
-          // A restart's old process is over: let go of it, so the next one
-          // can start in its place.
-          if (restarting.has(pane.id) && (process === "exited" || process === "failed")) {
-            void sessions.close(pane.id).then(schedule);
-            continue;
-          }
+          // A slot still taken is never started into: the process is there,
+          // or the machine has not let go of the one it stopped. A start is
+          // owed no more — unless a restart waits for that letting go.
           if (process !== "none") {
-            startOwed.delete(pane.id);
+            if (!restarting.has(pane.id)) startOwed.delete(pane.id);
             continue;
           }
           const cwd = paneExecutionCwd(ws, pane);

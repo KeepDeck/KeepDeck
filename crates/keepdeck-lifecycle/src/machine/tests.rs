@@ -366,6 +366,122 @@ fn a_close_answers_only_once_its_entry_is_on_disk_then_forgets_and_retires_befor
     assert!(sim.log.iter().any(|effect| matches!(effect, Effect::Answer { .. })));
 }
 
+// ---------------------------------------------------------------- letting go of a stopped pane
+
+/// What the owners were asked to let go of, in order: each pane, and whether
+/// its process is replaced in place.
+fn released(sim: &Sim) -> Vec<(PaneId, bool)> {
+    sim.carried
+        .iter()
+        .filter_map(|cmd| match cmd {
+            Cmd::Release { pane, in_place, .. } => Some((*pane, *in_place)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The launch lets go of a stopped pane once its session is over — never
+/// while the process still runs in the slot it would empty — and once.
+#[test]
+fn a_stop_releases_its_pane_once_its_session_is_over_and_never_before() {
+    let mut sim = Sim::booted();
+    let session = sim.appear(LaunchOwner::Pane { pane: PaneId(1) }, None, Some("/wt/kd-app-1"));
+    sim.intent(Intent::Suspend { workspace: ws(), pane: PaneId(1) });
+    sim.write_journals();
+    sim.apply(|cmd| matches!(cmd, Cmd::Retire { .. }));
+    assert!(sim.owed().contains(&Effect::Stop { session }), "stopping");
+    assert_eq!(sim.pending_matching(|cmd| matches!(cmd, Cmd::MarkSuspended { .. })).len(), 1, "the row is marked first");
+    assert!(sim.pending_matching(|cmd| matches!(cmd, Cmd::Release { .. })).is_empty(), "not while its session lives");
+    sim.send(Event::SessionEnded { session });
+    let due: Vec<Cmd> = sim.pending_matching(|cmd| matches!(cmd, Cmd::Release { .. })).into_iter().map(|due| due.cmd).collect();
+    assert_eq!(due, vec![Cmd::Release { workspace: ws(), pane: PaneId(1), in_place: false }]);
+    sim.drive();
+    assert_eq!(released(&sim), vec![(PaneId(1), false)], "once");
+}
+
+/// A pane with no session in this launch is let go of all the same: its slot
+/// may hold a launch the start boundary cancelled, or an exit card.
+#[test]
+fn a_stop_releases_a_pane_that_has_no_session() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Suspend { workspace: ws(), pane: PaneId(1) });
+    sim.drive();
+    assert_eq!(released(&sim), vec![(PaneId(1), false)]);
+}
+
+/// Only a restart keeps its pane and replaces the process in it.
+#[test]
+fn only_a_restart_releases_its_pane_in_place() {
+    for (intent, in_place) in [
+        (Intent::Restart { workspace: ws(), pane: PaneId(1) }, true),
+        (Intent::Suspend { workspace: ws(), pane: PaneId(1) }, false),
+        (close_agent(1), false),
+    ] {
+        let mut sim = Sim::booted();
+        sim.appear(LaunchOwner::Pane { pane: PaneId(1) }, None, Some("/wt/kd-app-1"));
+        sim.close(intent.clone());
+        sim.drive();
+        assert_eq!(released(&sim), vec![(PaneId(1), in_place)], "{intent:?}");
+    }
+}
+
+/// A teardown of many lets go of each of its panes, and of no other.
+#[test]
+fn a_teardown_of_many_releases_each_of_its_panes() {
+    let mut sim = Sim::booted();
+    sim.close(disband("1", consent_for_team_1()));
+    sim.drive();
+    assert_eq!(released(&sim), vec![(PaneId(1), false), (PaneId(2), false)], "the team's members");
+
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive();
+    assert_eq!(released(&sim), vec![(PaneId(1), false), (PaneId(2), false), (PaneId(3), false)], "the workspace's panes");
+}
+
+/// The page's answer is part of the operation: a stop is not over until its
+/// panes are let go of.
+#[test]
+fn a_stop_is_not_over_until_its_pane_is_released() {
+    let mut sim = Sim::booted();
+    let session = sim.appear(LaunchOwner::Pane { pane: PaneId(1) }, None, Some("/wt/kd-app-1"));
+    sim.intent(Intent::Suspend { workspace: ws(), pane: PaneId(1) });
+    sim.send(Event::SessionEnded { session });
+    for _ in 0..5 {
+        sim.write_journals();
+        sim.apply(|cmd| !matches!(cmd, Cmd::Release { .. }));
+        sim.save();
+    }
+    assert!(!sim.state.ops.is_empty(), "it waits for the release");
+    sim.drive();
+    assert!(sim.state.ops.is_empty(), "and ends once answered: {:?}", sim.state.ops);
+}
+
+/// A teardown restored from its entry has nothing of this launch to let go
+/// of: no slot here ever held its panes' processes.
+#[test]
+fn a_teardown_restored_at_boot_releases_nothing() {
+    let close = Entry {
+        op: OpId(7),
+        workspace: ws(),
+        work: Work::Close {
+            target: Target::Agent { pane: PaneId(1) },
+            teams: vec![],
+            panes: vec![PaneId(1)],
+            consent: Consent::default(),
+            removals: vec![],
+            space: None,
+        },
+        joined: vec![],
+        commands: vec![],
+        done: vec![],
+    };
+    let mut sim = Sim::booted_with(deck(), vec![close]);
+    sim.drive();
+    assert!(sim.state.ops.is_empty(), "the close ran to its end: {:?}", sim.state.ops);
+    assert_eq!(released(&sim), vec![]);
+}
+
 #[test]
 fn retire_that_is_never_answered_holds_a_close_only_until_its_timer() {
     let mut sim = Sim::booted();
@@ -2387,6 +2503,7 @@ fn every_due() -> Vec<Due> {
         Cmd::ForgetPaneMail { workspace: w(), pane: p(5) },
         Cmd::RetainPanes { panes: vec![p(1), p(2)] },
         Cmd::Retire { workspace: w(), pane: p(2) },
+        Cmd::Release { workspace: w(), pane: p(2), in_place: true },
         Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() } },
         Cmd::DropBuild { op: OpId(3) },
         Cmd::ReportBinding { workspace: w(), pane: p(6), op: OpId(3) },
@@ -2415,6 +2532,7 @@ fn every_due() -> Vec<Due> {
             | Cmd::ForgetPaneMail { .. }
             | Cmd::RetainPanes { .. }
             | Cmd::Retire { .. }
+            | Cmd::Release { .. }
             | Cmd::PrepareResume { .. }
             | Cmd::DropBuild { .. }
             | Cmd::ReportBinding { .. }

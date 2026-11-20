@@ -29,14 +29,15 @@ import type {
   McpAccessAsk,
   OccupiedNote,
   PaneLifecyclePort,
-  SessionRegistryPort,
   StagedSkillsAsk,
 } from ".";
 
 export interface RecoveryDeps {
   deck: DeckStore;
   actions: DeckActions;
-  sessions: SessionRegistryPort;
+  /** Let go of what the page holds for a pane's process that is over — the
+   * one tail the machine's stops take too. */
+  letGo(args: { workspace: string; pane: string; replacedInPlace: boolean }): Promise<void>;
   plugins: SpawnPluginAccess;
   spawnContext: SpawnContextSource;
   lifecycle: PaneLifecyclePort;
@@ -77,12 +78,11 @@ export function createRecovery(deps: RecoveryDeps): Recovery {
     return { ref, pane, cwd, branch: paneBranch(workspace, pane), sessionId: paneResumeSessionId(pane) };
   }
 
-  /** The exited process is let go of, and the terminal re-mounts for the
-   * next one — if the pane is still there. */
+  /** The exited process is retired and let go of; the pane's next process
+   * replaces it in place. */
   async function letGo(wsId: string, paneId: string): Promise<void> {
     deps.lifecycle.retire(paneId);
-    await deps.sessions.close(paneId);
-    if (targetOf(wsId, paneId)) deps.bumpEpoch(paneId);
+    await deps.letGo({ workspace: wsId, pane: paneId, replacedInPlace: true });
   }
 
   const recoverRejectedResume: AgentOrchestrator["recoverRejectedResume"] = (wsId, paneId, code) => {
