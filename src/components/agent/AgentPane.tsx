@@ -258,7 +258,7 @@ export function AgentPane({
   // A successful restart remounts the whole pane via its epoch. Until then
   // both choices stay inert, and a pane that stops resets the machine —
   // see [`useRestart`], where those two rules live with their reasoning.
-  const { restarting, restartFailed, restart } = useRestart(onRestart, idle);
+  const { restarting, restartFailed, refusal: restartRefusal, restart } = useRestart(onRestart, idle);
   // The suspended card and the activity tooltip both date themselves, so the
   // clock has to move even when nothing else re-renders this pane: a quiet
   // deck would otherwise read "now" for as long as it stayed quiet. Either
@@ -476,6 +476,11 @@ export function AgentPane({
                 {restartFailed && (
                   <span className="pane__exit-restart-error" role="alert">
                     Restart failed
+                  </span>
+                )}
+                {restartRefusal !== null && (
+                  <span className="pane__exit-restart-error" role="alert">
+                    {restartRefusal}
                   </span>
                 )}
               </div>

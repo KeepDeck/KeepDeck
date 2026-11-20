@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { IntentOutcome } from "../../domain/lifecycle";
+import { intentOutcomeText } from "../../presentation/lifecycleWords";
 
 /**
  * The restart card's own state machine.
@@ -26,8 +27,11 @@ import type { IntentOutcome } from "../../domain/lifecycle";
 export interface RestartState {
   /** A restart is in flight; both choices stay inert until it settles. */
   restarting: boolean;
-  /** The last attempt was refused, so the user may try again. */
+  /** The last attempt failed or went unanswered, so the user may try again. */
   restartFailed: boolean;
+  /** Why the machine refused the last attempt, in its words; null when it
+   * did not refuse. A refusal said, never a card gone quiet. */
+  refusal: string | null;
   /** Ask for one. Ignored while another is in flight, or with no handler. */
   restart(mode: AgentRestartMode): void;
 }
@@ -41,12 +45,14 @@ export function useRestart(
   const inFlight = useRef(false);
   const [restarting, setRestarting] = useState(false);
   const [restartFailed, setRestartFailed] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   useEffect(() => {
     if (!idle) return;
     inFlight.current = false;
     setRestarting(false);
     setRestartFailed(false);
+    setRefusal(null);
   }, [idle]);
 
   const restart = (mode: AgentRestartMode) => {
@@ -54,6 +60,7 @@ export function useRestart(
     inFlight.current = true;
     setRestarting(true);
     setRestartFailed(false);
+    setRefusal(null);
 
     const recover = () => {
       inFlight.current = false;
@@ -66,6 +73,7 @@ export function useRestart(
       if (outcome.kind === "unanswered") return recover();
       inFlight.current = false;
       setRestarting(false);
+      setRefusal(intentOutcomeText(outcome));
     };
     try {
       void Promise.resolve(onRestart(mode)).then(settle, recover);
@@ -74,5 +82,5 @@ export function useRestart(
     }
   };
 
-  return { restarting, restartFailed, restart };
+  return { restarting, restartFailed, refusal, restart };
 }

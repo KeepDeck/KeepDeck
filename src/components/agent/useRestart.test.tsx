@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { IntentOutcome } from "../../domain/lifecycle";
+import { intentOutcomeText } from "../../presentation/lifecycleWords";
 import { useRestart } from "./useRestart";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -63,6 +64,20 @@ describe("useRestart", () => {
     await act(async () => h.read().restart("fresh"));
     expect(h.read().restarting).toBe(false);
     expect(h.read().restartFailed).toBe(false);
+    // And says why, in the machine's words — never a card gone quiet.
+    expect(h.read().refusal).toBe(intentOutcomeText(REFUSED));
+    // The next attempt starts clean.
+    await act(async () => h.read().restart("fresh"));
+    expect(h.read().refusal).toBe(intentOutcomeText(REFUSED));
+  });
+
+  it("clears a refusal once the pane stops", async () => {
+    const h = harness(async () => REFUSED);
+    roots.push(h.root);
+    await act(async () => h.read().restart("fresh"));
+    expect(h.read().refusal).not.toBeNull();
+    h.park({ reason: "suspended" });
+    expect(h.read().refusal).toBeNull();
   });
 
   it("lets the user try again after a failure, or a restart the machine never answered", async () => {
