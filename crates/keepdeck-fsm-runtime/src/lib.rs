@@ -124,13 +124,8 @@ where
             let owed = work(&publish.borrow().value);
             started.reconcile(owed, &mut effects, &events);
             while let Some(mail) = mail.recv().await {
-                let event = match mail {
-                    Mail::Event(event) => event,
-                    Mail::Timer(arming) => match started.fired(arming) {
-                        Some(event) => event,
-                        // An arming of a state already left: dropped.
-                        None => continue,
-                    },
+                let Some(event) = started.event_of(mail) else {
+                    continue;
                 };
                 let next = update(&publish.borrow().value, event);
                 let moved = next.state.is_some();
@@ -189,18 +184,23 @@ where
         Started { work: Vec::new(), armings: 0 }
     }
 
-    /// The event of the timer armed under `arming`, if that arming still runs.
-    fn fired(&self, arming: u64) -> Option<E> {
-        self.work.iter().find_map(|(work, live)| match (work, live) {
-            (Work::After(_, event), Live::Timer(armed, _)) if *armed == arming => Some(event.clone()),
-            (Work::After(..) | Work::Run(_), Live::Timer(..) | Live::Effect) => None,
-        })
+    /// The event a piece of mail brings: an event as sent; a timer's event
+    /// only if its arming still runs — the firing of a state already left, or
+    /// of an earlier arming, is dropped.
+    fn event_of(&self, mail: Mail<E>) -> Option<E> {
+        match mail {
+            Mail::Event(event) => Some(event),
+            Mail::Timer(arming) => self.work.iter().find_map(|(work, live)| match (work, live) {
+                (Work::After(_, event), Live::Timer(armed, _)) if *armed == arming => Some(event.clone()),
+                (Work::After(..) | Work::Run(_), Live::Timer(..) | Live::Effect) => None,
+            }),
+        }
     }
 
     /// Keep what runs equal to what is owed. An effect no longer owed is left
     /// to finish, and its result still comes back. A timer no longer owed is
     /// stopped; a firing already on its way is dropped by its arming (see
-    /// `fired`). New work starts in the order it is listed, and a timer counts
+    /// `event_of`). New work starts in the order it is listed, and a timer counts
     /// from here, not from when its task first runs.
     fn reconcile<X: Effects<F, E>>(&mut self, owed: Owed<F, E>, effects: &mut X, events: &Events<E>) {
         let owed: Vec<_> = owed.into_iter().collect();
@@ -290,6 +290,19 @@ mod tests {
     struct Nothing;
     impl Effects<(), Ev> for Nothing {
         fn run(&mut self, (): (), _: &Events<Ev>) {}
+    }
+
+    /// A real firing that reached the mailbox before its state was left:
+    /// when the machine gets to it, the state no longer needs the timer.
+    #[tokio::test(start_paused = true)]
+    async fn a_timer_that_fires_while_its_state_is_being_left_is_dropped() {
+        let (mailbox, mut mail) = mpsc::unbounded_channel();
+        let events = Events(mailbox.downgrade());
+        let mut started = Started::none();
+        started.reconcile(work(&Wait::Armed), &mut Nothing, &events);
+        let firing = mail.recv().await.expect("the timer fired");
+        started.reconcile(work(&Wait::Left), &mut Nothing, &events);
+        assert_eq!(started.event_of(firing), None);
     }
 
     /// The machine's first timer is armed under 1, so its firing carries 1.

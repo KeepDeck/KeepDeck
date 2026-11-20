@@ -186,8 +186,8 @@ async fn main() {
 ## Rules
 
 Each rule has a test named after it, in `tests/rules.rs` — or in
-`src/lib.rs` where the test puts a timer's firing in the mailbox itself, to
-make the queue a race would make. The rules for writing `update` and `work`
+`src/lib.rs` where the test builds the mailbox a race would leave, exactly,
+instead of waiting for threads to race. The rules for writing `update` and `work`
 are in the README of `keepdeck-fsm`.
 
 | Rule | Why | Test |
@@ -197,7 +197,7 @@ are in the README of `keepdeck-fsm`.
 | A machine started in a state does that state's work | Whatever the state needs is done whenever the machine is in it, a restart included | `a_machine_started_in_a_state_does_its_work` |
 | Work is started once while an equal piece is owed; new work starts without stopping the old | A piece of work's value is its key | `owed_work_starts_once_and_new_work_starts_without_stopping_the_old` |
 | Work is never stopped, even when no state needs it any more; its result, if it has one, still arrives | Some work cannot be stopped halfway | `the_result_of_work_no_longer_needed_still_arrives` |
-| A timer counts from when its state needs it. It is stopped when the machine leaves the states that need it, and its event arrives only if its arming is the current one | A firing can queue up behind the event that left its state, and a state entered again arms a new timer | `a_timer_counts_from_when_its_state_needs_it`, `a_timer_is_stopped_when_the_machine_leaves_its_state`, `a_timer_that_fires_while_its_state_is_being_left_is_dropped`, `a_stale_timer_is_dropped_while_the_same_timer_is_needed_again` (`src/lib.rs`) |
+| A timer counts from when its state needs it. It is stopped when the machine leaves the states that need it, and its event arrives only if its arming is the current one | A firing can queue up behind the event that left its state, and a state entered again arms a new timer | `a_timer_counts_from_when_its_state_needs_it`, `a_timer_is_stopped_when_the_machine_leaves_its_state`, `a_timer_that_fires_while_its_state_is_being_left_is_dropped` and `a_stale_timer_is_dropped_while_the_same_timer_is_needed_again` (both `src/lib.rs`) |
 | The state stream keeps only the latest state; a fact that stays true is not missed | The stream is "how things are now", not a log of changes | `the_state_stream_keeps_the_latest_state_and_a_fact_that_stays_true` |
 | Outside sees only the state. Effects go to the handler only; another feature learns about this one from its state | One output: nothing needs a second stream | `one_machine_learns_about_another_from_its_state` |
 | Dropping the last handle is the stop: what was sent before is still handled, then the machine ends. When its task is gone, by a panic too, its state stream ends and its timers stop; the other machines go on. `Events` do not keep a machine alive | Otherwise whoever waits would wait for ever, and a dead machine's timers would sleep on | `what_was_sent_before_the_last_handle_was_dropped_is_still_handled`, `a_machine_ends_with_its_last_handle_and_the_others_go_on`, `when_the_machine_panics_its_state_stream_ends_and_its_timers_stop`, `events_do_not_keep_a_machine_alive_and_say_when_it_is_gone` |
