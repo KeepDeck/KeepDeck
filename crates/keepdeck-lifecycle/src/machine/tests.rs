@@ -751,6 +751,30 @@ fn a_close_takes_over_a_creation_and_waits_for_its_git_step() {
     assert!(sim.cleaned.contains(&Clean::Branch { repo: ticket.repo, name: ticket.branch }));
 }
 
+/// A creation a Close takes over while it is still choosing its place has
+/// made nothing — no ticket, nothing on disk: it is refused at once and
+/// ends, and the disk's late answer finds nobody (architect, task-884).
+#[test]
+fn a_creation_taken_over_while_it_chooses_its_place_is_refused_and_ends() {
+    let mut sim = Sim::booted();
+    let create = sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::New { place: None, base: None }, draft: draft(), members: vec![] });
+    let (op, path) = sim
+        .owed()
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::Probe { op, path, .. } => Some((op, path)),
+            _ => None,
+        })
+        .expect("the disk is asked about the place");
+    let close = sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    assert_eq!(sim.refusal(close), None, "the close takes it over");
+    assert_eq!(sim.refusal(create), Some(Refusal::TargetLeaving), "answered at once");
+    sim.send(Event::Probed { op, path, taken: false });
+    sim.drive();
+    assert!(sim.state.ops.is_empty(), "{:?}", sim.state.ops);
+    assert!(sim.state.world.workspaces.is_empty());
+}
+
 /// A failed creation's card proves nothing about its ticket's path: it is
 /// not offered, and a consent naming it deletes nothing.
 #[test]

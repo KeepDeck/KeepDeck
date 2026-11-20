@@ -598,6 +598,15 @@ pub fn advance_create(state: &mut State, id: OpId, fx: &mut Fx) {
     let saved = state.saved;
     match stage {
         CreateStage::Placing => {
+            // A Close took it over before it made anything: no ticket, and
+            // nowhere left to add the team. The disk's answer to a place still
+            // being asked about finds nobody.
+            if create_of(&state.ops[&id]).is_some_and(|create| create.abandoned) {
+                let op = state.ops.get_mut(&id).expect("the op");
+                answer_op(op, fx, Answer::refused(Refusal::TargetLeaving));
+                state.ops.remove(&id);
+                return;
+            }
             if let Some(refusal) = place(state, id) {
                 let op = state.ops.get_mut(&id).expect("the op");
                 answer_op(op, fx, Answer::refused(refusal));
