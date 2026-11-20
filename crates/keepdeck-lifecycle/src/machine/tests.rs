@@ -1182,6 +1182,53 @@ fn a_branch_is_held_within_its_repository_and_not_across_unrelated_ones() {
     );
 }
 
+/// A closed workspace's cleanup still owes a branch, and its row is gone:
+/// nothing tells which repository it was, so the branch stays held against
+/// every one until the debt is paid.
+#[test]
+fn a_branch_a_closed_workspaces_cleanup_still_owes_stays_held_without_its_row() {
+    let mut facts = deck();
+    facts.workspaces[0].repo = Some(Dir::new("/repo/.git"));
+    facts.workspaces.push(WorkspaceFacts {
+        id: WorkspaceId("ws-b".into()),
+        name: "other".into(),
+        cwd: Dir::new("/other"),
+        worktree_base: Some(Dir::new("/elsewhere")),
+        archived: false,
+        archiving: false,
+        repo: Some(Dir::new("/other/.git")),
+        teams: vec![],
+        panes: vec![],
+    });
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    let other = WorkspaceId("ws-b".into());
+    let typed = Place { path: Dir::new("/elsewhere/kd-other-1"), branch: "kd/app/1".into() };
+    assert_eq!(super::queries::check(&sim.state, &other, &typed), None, "an unrelated repository's branch, while it lives");
+    let whole = Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() };
+    let asked = shown(&sim, &whole);
+    sim.intent(Intent::CloseWorkspace { workspace: ws(), consent: Consent { stops: asked.stops, folders: asked.folders, tickets: asked.creations } });
+    let branch = Step::Branch { repo: Dir::new("/repo"), name: "kd/app/1".into() };
+    for _ in 0..20 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            let event = match effect {
+                Effect::ReadBranches { op, path, .. } => Event::BranchesRead { op, path, result: Ok(Vec::new()) },
+                Effect::Stop { session, .. } => Event::SessionEnded { session },
+                // The branch's step is still owed.
+                Effect::Clean { step, .. } if step == branch => continue,
+                Effect::Clean { op, step, .. } => Event::StepDone { op, step, result: Ok(()) },
+                _ => continue,
+            };
+            sim.send(event);
+        }
+        sim.apply(|_| true);
+        sim.save();
+    }
+    assert!(!sim.state.world.workspaces.contains_key(&ws()), "the closed workspace's row is gone");
+    assert!(super::queries::check(&sim.state, &other, &typed).is_some(), "its owed branch is still held");
+}
+
 #[test]
 fn a_place_typed_by_hand_meets_the_same_rule_and_is_refused_not_moved() {
     let mut sim = Sim::booted();

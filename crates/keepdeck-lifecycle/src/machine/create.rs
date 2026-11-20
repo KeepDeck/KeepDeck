@@ -304,11 +304,18 @@ pub fn still_creating_for(op: &Op, teams: &[TeamId]) -> bool {
     create_of(op).is_some_and(|create| teams.contains(&create.team) && create.stage == CreateStage::Creating && !create.created)
 }
 
-/// Whether two workspaces' branches are one namespace: they are checkouts
-/// of one repository.
-pub(super) fn shares_branches(state: &State, a: &WorkspaceId, b: &WorkspaceId) -> bool {
+/// Whether `owner`'s reserved branches count against `asking`'s: they are
+/// checkouts of one repository — or `owner`'s workspace is gone, closed
+/// with its cleanup still owed. Nothing then tells which repository it was,
+/// so its branches stay held against every one until the debt is paid: a
+/// name withheld costs nothing, a branch given twice costs a checkout.
+pub(super) fn shares_branches(state: &State, asking: &WorkspaceId, owner: &WorkspaceId) -> bool {
     let space = |ws: &WorkspaceId| state.world.workspaces.get(ws).map(|row| row.branch_space());
-    space(a).is_some() && space(a) == space(b)
+    match (space(asking), space(owner)) {
+        (Some(mine), Some(theirs)) => mine == theirs,
+        (Some(_), None) => true,
+        (None, _) => false,
+    }
 }
 
 /// Every folder and branch held against a place for `workspace`. A path is
