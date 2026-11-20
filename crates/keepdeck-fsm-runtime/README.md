@@ -248,9 +248,9 @@ are in the README of `keepdeck-fsm`.
 A feature tests its rules as plain functions (see `keepdeck-fsm`). Timing — a
 timer, an answer that comes late, the order of a step — is tested on this
 runtime under tokio's paused time, as the example above does: timers fire at
-once, in order, and the test is exact. A race — a firing that meets an event —
-needs real threads: `#[tokio::test(flavor = "multi_thread")]`, run several
-times.
+once, in order, and the test is exact. A race between a timer and an event is
+this runtime's own rule, held by its tests: a feature has none of its own to
+test.
 
 The feature crate takes the runtime as a dev-dependency only, so it stays out
 of the feature's own build:
@@ -258,7 +258,7 @@ of the feature's own build:
 ```toml
 [dev-dependencies]
 keepdeck-fsm-runtime = { path = "../keepdeck-fsm-runtime" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
+tokio = { version = "1", features = ["macros", "rt", "test-util"] }
 ```
 
 ```sh
