@@ -17,6 +17,12 @@ export interface DirectoryHolder {
   workspace?: string;
 }
 
+/** The team of `ws` working in folder `cwd` — the one a new member asking
+ * for that folder joins. Only `ws`'s own: a workspace's root is its own. */
+export function teamWorkingIn(ws: Pick<Workspace, "teams">, cwd: string): Team | undefined {
+  return (ws.teams ?? []).find((team) => team.location?.kind === "attached" && sameDirectory(team.location.cwd, cwd));
+}
+
 /** The first of `teamIds` — the teams the machine says work in a folder —
  * that the deck still holds, named as a person reads it. Null for none.
  * `scope: "here"` asks about the workspace's own root, which every

@@ -3,7 +3,7 @@ import { emptyJournal as emptyJournalImpl } from "../../domain/journal";
 import { act, useState } from "react";
 import { vi } from "vitest";
 import type { DeckState, Pane, PaneIdle, SpawnConfig, TeamLocation } from "../../domain/deck";
-import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
+import { MAX_PANES as MAX_PANES_IMPL, teamWorkingIn } from "../../domain/deck";
 import type { Cmd } from "../../ipc/generated/lifecycle/Cmd";
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -287,7 +287,7 @@ function deckHalfOf(intent: Intent): Cmd | null {
       return { kind: "markSuspended", workspace: intent.workspace, pane: intent.pane };
     case "relocate": {
       const ws = machine.deck?.().workspaces.find((candidate) => candidate.id === intent.workspace);
-      const root = ws?.teams?.find((team) => team.location?.kind === "attached" && team.location.cwd === ws.cwd);
+      const root = ws ? teamWorkingIn(ws, ws.cwd) : undefined;
       return { kind: "movePane", workspace: intent.workspace, pane: intent.pane, to: root?.id ?? intent.root, newRoot: !root, role: intent.role };
     }
     default:

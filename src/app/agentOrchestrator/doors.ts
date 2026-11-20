@@ -19,9 +19,8 @@ import {
   nextAutoTeamName,
   paneResumeBlock,
   paneSuspendRefusal,
-  sameDirectory,
   teamIdsOf,
-  teamsOf,
+  teamWorkingIn,
   workspaceName,
   worktreeBaseDirOf,
   type TeamActFacts,
@@ -81,6 +80,7 @@ export type LifecycleDoors = Pick<
   | "close"
   | "archive"
   | "restore"
+  | "removeUnheld"
   | "restart"
   | "resumeSession"
   | "forkSession"
@@ -95,9 +95,7 @@ const GONE: IntentOutcome = { kind: "refused", refusal: { kind: "notFound" } };
 /** The team already working at `site` in `ws`, the one a new agent joins. */
 function teamAt(ws: Workspace, site: Site): string | null {
   const cwd = site.kind === "root" ? ws.cwd : site.kind === "existing" ? site.cwd : null;
-  if (cwd === null) return null;
-  const holder = teamsOf(ws).find((team) => team.location?.kind === "attached" && sameDirectory(team.location.cwd, cwd));
-  return holder?.id ?? null;
+  return cwd === null ? null : (teamWorkingIn(ws, cwd)?.id ?? null);
 }
 
 function draftOf(agent: AgentDraft, role: string, session?: string): PaneDraft {
@@ -259,6 +257,11 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     async restore(ref) {
       const ws = lifetime(ref);
       return ws ? ask({ kind: "restore", workspace: ws.id }) : GONE;
+    },
+    async removeUnheld(ref, request) {
+      const ws = lifetime(ref);
+      if (!ws) return GONE;
+      return ask({ kind: "removeUnheld", workspace: ws.id, path: request.path, tag: request.keepHeadAs ?? null });
     },
     async restart(wsId, paneId, mode) {
       const pane = findPane(workspaces(), wsId, paneId);

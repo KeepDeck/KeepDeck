@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { RepoCheckout, Team, Workspace } from "../domain/deck";
+import type { Claim, IntentOutcome } from "../domain/lifecycle";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { keptHeadName, worktreeFolder, worktreeRemovalConfirm, worktreeTableView } from "./worktreeTableView";
+import { intentOutcomeText } from "./lifecycleWords";
+import { keptHeadName, unheldRemovalWords, worktreeFolder, worktreeRemovalConfirm, worktreeTableView } from "./worktreeTableView";
 
 const NOW = Date.parse("2026-11-16T12:00:00.000Z");
 const attached = (id: string, name: string, cwd: string): Team => ({ id, name, location: { kind: "attached", cwd } });
@@ -33,10 +35,22 @@ const OLD = ws("ws-3", "Old", [attached("t3", "legacy", "/wt/legacy")], {
 });
 const DECK = [WEB, SITE, OLD];
 
+/** The machine's claims, as it would answer for these folders. */
+const CLAIMS: Record<string, Claim[]> = {
+  "/wt/api": [{ kind: "team", team: "t1" }],
+  "/wt/docs/": [{ kind: "session", session: 4 }, { kind: "team", team: "t2" }],
+  "/wt/legacy": [{ kind: "team", team: "t3" }],
+  "/wt/new": [{ kind: "creation", op: 7 }],
+  "/wt/going": [{ kind: "team", team: "t1" }, { kind: "removal", op: 8 }],
+  "/wt/stale": [{ kind: "team", team: "t-gone" }],
+};
+const claimsOf = (path: string) => CLAIMS[path] ?? [];
+
 describe("worktreeTableView", () => {
   it("names who holds each checkout — this workspace's team, another's, an archive's — and offers Remove only when nobody does", () => {
     const { rows } = worktreeTableView(
       [row("/repo", { branch: "main" }), row("/wt/api"), row("/wt/docs/"), row("/wt/legacy"), row("/wt/orphan", { changed: 3 })],
+      claimsOf,
       WEB,
       DECK,
     );
@@ -48,9 +62,9 @@ describe("worktreeTableView", () => {
       ["no team", "free", true],
     ]);
     expect([rows[4].state, rows[4].stateKind]).toEqual(["3 uncommitted", "changed"]);
-    expect(worktreeTableView([row("/repo", { branch: "main" })], WEB, DECK)).toMatchObject({ acts: false, removable: false });
-    expect(worktreeTableView([row("/wt/orphan")], WEB, DECK)).toMatchObject({ acts: true, removable: true });
-    expect(worktreeTableView([row("/wt/api")], WEB, DECK)).toMatchObject({ acts: true, removable: false });
+    expect(worktreeTableView([row("/repo", { branch: "main" })], claimsOf, WEB, DECK)).toMatchObject({ acts: false, removable: false });
+    expect(worktreeTableView([row("/wt/orphan")], claimsOf, WEB, DECK)).toMatchObject({ acts: true, removable: true });
+    expect(worktreeTableView([row("/wt/api")], claimsOf, WEB, DECK)).toMatchObject({ acts: true, removable: false });
     // A team can be opened from its row — unless its workspace is archived.
     expect(rows.map((r) => r.team)).toEqual([
       null,
@@ -58,6 +72,16 @@ describe("worktreeTableView", () => {
       { wsId: "ws-2", teamId: "t2" },
       null,
       null,
+    ]);
+  });
+
+  it("says a worktree is being made or removed — ahead of any team on it — and offers no Remove for either", () => {
+    const { rows } = worktreeTableView([row("/wt/new"), row("/wt/going"), row("/wt/stale")], claimsOf, WEB, DECK);
+    expect(rows.map((r) => [r.holder, r.holderKind, r.removable, r.team])).toEqual([
+      ["being created", "busy", false, null],
+      ["being removed", "busy", false, null],
+      // A team the deck no longer holds names nobody.
+      ["no team", "free", true, null],
     ]);
   });
 
@@ -70,6 +94,7 @@ describe("worktreeTableView", () => {
         row("/d", { locked: true }),
         row("/e", { branch: null, detached: true }),
       ],
+      claimsOf,
       WEB,
       DECK,
     );
@@ -115,5 +140,20 @@ describe("worktreeRemovalConfirm", () => {
   it("names a tag git takes, whatever the names hold", () => {
     expect(keptHeadName(ws("w", "Проект: 1/2", []), "/wt/a b..c.lock", NOW)).toBe("archive/1-2/a-b-c-lock-2026-11-16");
     expect(keptHeadName(ws("w", "Проект", []), "/wt/x", NOW)).toBe("archive/workspace/x-2026-11-16");
+  });
+});
+
+describe("unheldRemovalWords", () => {
+  const accepted: IntentOutcome = { kind: "accepted", op: 3, minted: { workspace: null, team: null, panes: [] } };
+
+  it("says the removal is under way, and the tag its commit is kept under", () => {
+    expect(unheldRemovalWords(accepted, undefined)).toBe("Removing it.");
+    expect(unheldRemovalWords(accepted, "archive/web/a-2026-11-16")).toBe("Removing it. Its commit is kept as archive/web/a-2026-11-16.");
+  });
+
+  it("says a folder held by now was left alone, and any other refusal in the machine's words", () => {
+    expect(unheldRemovalWords({ kind: "refused", refusal: { kind: "busy" } }, undefined)).toBe("Something holds it now, so it was left as it is.");
+    const barred: IntentOutcome = { kind: "refused", refusal: { kind: "barrierUp" } };
+    expect(unheldRemovalWords(barred, undefined)).toBe(intentOutcomeText(barred));
   });
 });

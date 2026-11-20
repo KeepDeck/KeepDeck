@@ -27,6 +27,7 @@ import {
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
 import { inspectRepo, listBranches, listWorktrees, probeWorktree } from "./ipc/worktree";
+import { claimsOn } from "./ipc/lifecycle";
 import {
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
@@ -412,6 +413,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
               onUpdate={workspacesWindow.onUpdate}
               pickFolder={pickFolder}
               listWorktrees={listWorktrees}
+              claimsOn={claimsOn}
               onRemoveWorktree={workspacesWindow.onRemoveWorktree}
               onNewTeam={workspacesWindow.onNewTeam}
               onOpenTeam={workspacesWindow.onOpenTeam}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { RepoCheckout, UnheldRemoval, UnheldRemovalRequest, Workspace } from "../../domain/deck";
+import type { RepoCheckout, UnheldRemovalRequest, Workspace } from "../../domain/deck";
+import type { Claim, IntentOutcome } from "../../domain/lifecycle";
 import {
   unheldRemovalWords,
   WORKTREE_WORDS,
@@ -15,7 +16,9 @@ export interface WorktreesSectionProps {
   workspace: Workspace;
   workspaces: readonly Workspace[];
   listWorktrees(repo: string): Promise<RepoCheckout[]>;
-  onRemove(request: UnheldRemovalRequest): Promise<UnheldRemoval>;
+  /** What the lifecycle says holds a folder. */
+  claimsOn(path: string): Promise<Claim[]>;
+  onRemove(request: UnheldRemovalRequest): Promise<IntentOutcome>;
   /** Make a new team in a worktree of its own — the "+ Team" door. Null
    * while the workspace cannot take one (archived). */
   onNewTeam: (() => void) | null;
@@ -33,28 +36,37 @@ export function WorktreesSection({
   workspace,
   workspaces,
   listWorktrees,
+  claimsOn,
   onRemove,
   onNewTeam,
   onOpenTeam,
 }: WorktreesSectionProps) {
   const [listed, setListed] = useState<RepoCheckout[] | "loading" | "none">("loading");
+  const [claims, setClaims] = useState<ReadonlyMap<string, Claim[]>>(new Map());
   const [reads, setReads] = useState(0);
   const [asked, setAsked] = useState<RepoCheckout | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const repo = workspace.cwd;
 
+  // The list, then the machine's claims on each row, read together: a row
+  // never shows as free for want of its claims. Claims that cannot be read
+  // count as none — the machine refuses a removal of a held folder itself.
   useEffect(() => {
     let current = true;
-    listWorktrees(repo).then(
-      (rows) => current && setListed(rows),
-      () => current && setListed("none"),
-    );
+    listWorktrees(repo)
+      .then(async (rows) => {
+        const held = await Promise.all(rows.map((row) => claimsOn(row.path).catch((): Claim[] => [])));
+        if (!current) return;
+        setClaims(new Map(rows.map((row, at) => [row.path, held[at]])));
+        setListed(rows);
+      })
+      .catch(() => current && setListed("none"));
     return () => {
       current = false;
     };
-  }, [listWorktrees, repo, reads]);
+  }, [listWorktrees, claimsOn, repo, reads]);
 
-  const table = Array.isArray(listed) ? worktreeTableView(listed, workspace, workspaces) : null;
+  const table = Array.isArray(listed) ? worktreeTableView(listed, (path) => claims.get(path) ?? [], workspace, workspaces) : null;
   const confirm = asked ? worktreeRemovalConfirm(asked, workspace, Date.now()) : null;
 
   return (
@@ -140,14 +152,10 @@ export function WorktreesSection({
           onCancel={() => setAsked(null)}
           onConfirm={() => {
             const row = asked;
+            const keepHeadAs = confirm.keepHeadAs;
             setAsked(null);
-            void onRemove({
-              repo,
-              path: row.path,
-              discardDirty: confirm.discardDirty,
-              ...(confirm.keepHeadAs && { keepHeadAs: confirm.keepHeadAs }),
-            }).then((outcome) => {
-              setSaid(unheldRemovalWords(outcome));
+            void onRemove({ path: row.path, ...(keepHeadAs && { keepHeadAs }) }).then((outcome) => {
+              setSaid(unheldRemovalWords(outcome, keepHeadAs));
               setReads((n) => n + 1);
             });
           }}

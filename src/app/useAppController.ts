@@ -543,8 +543,8 @@ export function useAppController(runtime: AppRuntime) {
       onCloseWorkspace: closeFlow.requestCloseWorkspace,
       /** The page's edits — one transition, the domain's answer handed back
        * so the page can say why one was refused. */
-      /** A checkout nobody holds, removed through the worktree owner's queue. */
-      onRemoveWorktree: runtime.worktrees.removeUnheld,
+      /** A checkout nobody holds, removed by one operation of the machine. */
+      onRemoveWorktree: orchestrator.removeUnheld,
       /** "New team in a worktree": the "+ Team" door, on that workspace —
        * brought on screen first, the window let go so the dialog is not
        * behind it. */

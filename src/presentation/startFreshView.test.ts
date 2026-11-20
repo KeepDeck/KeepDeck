@@ -26,7 +26,7 @@ const deck = (role: string | undefined, rootRoles?: string[]): Workspace => ({
   panes: [pane("mover", "team-lost", role), ...(rootRoles ?? []).map((r, i) => pane(`r${i}`, "team-root", r))],
 });
 
-const rolesFor = (ws: Workspace) => startFreshRoles([ws], ws, ws.panes[0]);
+const rolesFor = (ws: Workspace) => startFreshRoles(ws, ws.panes[0]);
 const offered = (ws: Workspace) => present(rolesFor(ws), "the role choices").optionsFor("x").map((option) => option.value);
 
 describe("startFreshRoles — what the folder-gone card asks before the move", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createWorkspaceInstance } from "../../workspaceInstance";
-import { directoryHolder, normalizePath, sameDirectory, teamHeldPath } from "./claims";
+import { directoryHolder, normalizePath, sameDirectory, teamHeldPath, teamWorkingIn } from "./claims";
 
 describe("a team's directory as a path", () => {
   it("is the folder a team runs in, or the one its create is heading for — none without a location", () => {
@@ -16,6 +16,20 @@ describe("a team's directory as a path", () => {
     expect(normalizePath("/")).toBe("/");
     expect(sameDirectory("/repo/", "/repo")).toBe(true);
     expect(sameDirectory("/repo", "/repo2")).toBe(false);
+  });
+});
+
+describe("teamWorkingIn", () => {
+  it("finds this workspace's team attached at a folder, however the folder is spelled, and no team still being made there", () => {
+    const ws = {
+      teams: [
+        { id: "team-p", name: "p", location: { kind: "provisioning" as const, intent: { repo: "/repo", path: "/wt/a", index: 1 } } },
+        { id: "team-a", name: "a", location: { kind: "attached" as const, cwd: "/wt/a" } },
+      ],
+    };
+    expect(teamWorkingIn(ws, "/wt/a/")?.id).toBe("team-a");
+    expect(teamWorkingIn(ws, "/wt/b")).toBeUndefined();
+    expect(teamWorkingIn({}, "/wt/a")).toBeUndefined();
   });
 });
 

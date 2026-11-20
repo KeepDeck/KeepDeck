@@ -488,7 +488,7 @@ export function DeckStage({
               onRename={(name) => onRenamePane(ws.id, pane.id, name)}
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
               startFreshRoles={
-                idleBlocked[pane.id] ? startFreshRoles(workspaces, ws, pane) : null
+                idleBlocked[pane.id] ? startFreshRoles(ws, pane) : null
               }
               onStartFresh={(role) => onStartFresh(ws.id, pane.id, role)}
               onResume={() => onResumeAgent(ws.id, pane.id)}
