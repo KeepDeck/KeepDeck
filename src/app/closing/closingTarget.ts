@@ -105,17 +105,3 @@ export function paneFactsOf(
   };
 }
 
-/**
- * The teams whose worktree create is genuinely STILL OUT — no directory
- * yet, so `worktreeTargets` cannot see them, but one that lands after the
- * close would leave a directory behind.
- *
- * `error` is what separates them from the two look-alikes that also keep a
- * `provisioning` intent: a create that already failed (and rolled its own
- * directory back), and one interrupted by a quit and restored as a failed
- * card. Counting those made the checkbox promise to delete worktrees that do
- * not exist.
- */
-export function pendingCreates(teams: readonly Team[]): number {
-  return teams.filter((team) => createIsOut(team.location)).length;
-}

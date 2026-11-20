@@ -1,17 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mintAgentSeq, mintTeamId, mintWorkspaceId } from "./ids";
+import { mintTeamId, mintWorkspaceId } from "./ids";
 import { present } from "@keepdeck/plugin-api/testing";
-
-describe("id mints", () => {
-  it("never hands the same agent seq out twice", () => {
-    // Pane ids key the PTY input registry and the agent↔worktree records, so a
-    // repeat would bind two panes to one process.
-    const first = mintAgentSeq();
-    expect(mintAgentSeq()).toBe(first + 1);
-    expect(mintAgentSeq()).toBe(first + 2);
-  });
-
-});
 
 describe("mintWorkspaceId", () => {
   afterEach(() => vi.restoreAllMocks());

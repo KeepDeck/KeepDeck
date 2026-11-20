@@ -1,21 +1,7 @@
 /**
- * App-wide pane id mint. Pane seq numbers must be unique for the whole app
- * lifetime — pane ids key the PTY input registry and the agent↔worktree
- * records — so the counter lives at module scope (like the paneInput
- * registry) instead of as a ref inside a component.
+ * The ids the page mints itself — random tokens, which need no counter and no
+ * coordination. A pane's id is a counter, and the lifecycle machine mints it.
  */
-let nextAgentSeq = 1;
-
-/** Reserve the next agent seq number. */
-export function mintAgentSeq(): number {
-  return nextAgentSeq++;
-}
-
-/** Raise the agent mint to at least `min` (deck restore, [F7]). Never lowers —
- * ids issued before a (late) hydrate must stay unique. */
-export function seedAgentSeq(min: number): void {
-  nextAgentSeq = Math.max(nextAgentSeq, min);
-}
 
 /**
  * `prefix-` and a random token, drawn again while `taken` holds it. Random

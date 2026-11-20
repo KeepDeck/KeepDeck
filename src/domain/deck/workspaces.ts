@@ -472,67 +472,6 @@ export function updateWorkspace(
 
 /** Set a pane's manual display name; an empty name clears it, reverting to the
  * auto title / derived label ([F11]). */
-/**
- * What the deck says about `path` for a location field — see
- * [`DirectoryState`]. The ONE deck reader behind every such field: the agent
- * dialog's worktree path and the fork target's alike, so the two cannot
- * answer the same directory differently.
- */
-export function directoryState(
-  workspaces: readonly Workspace[],
-  /** The workspace the field belongs to — its root is its own, and a team
-   * abroad on it is not a claim here. */
-  ws: Workspace,
-  path: string,
-): DirectoryState {
-  const claim = claimPath(workspaces, ws, path);
-  if (claim.kind === "free") return "free";
-  return claim.creating ? "being-created" : "worked-in";
-}
-
-/** One worktree branch/folder name suggestion (mirrors the Rust
- * `WorktreeSuggestion`); `suggest` in [`firstFreeTeamWorktree`] yields these per
- * index, `null` when no suggestion could be produced. */
-export interface WorktreeNameSuggestion {
-  branch: string;
-  folder: string;
-}
-
-/** How many suggestion indices [`firstFreeTeamWorktree`] tries before giving up.
- * Occupied paths are bounded by the open pane count, so any real deck resolves
- * in a handful of steps — the cap only backstops a pathological `suggest`. */
-const MAX_SUGGESTION_TRIES = 100;
-
-/**
- * The first suggested worktree path under `baseDir` NOT held by an open pane,
- * with its matching branch — folder and branch advance together so the pair
- * stays consistent (`kd-ws-3` ↔ `kd/ws/3`). A path that merely exists on disk
- * stays suggestible (attaching to an idle worktree is a valid outcome) —
- * EXCEPT when `probe` classifies it as blocked (a non-empty non-worktree dir,
- * e.g. a leftover folder): suggesting one would open the dialog straight onto
- * an error. `probe` must never reject; a `null` probe result (backend down)
- * keeps the candidate — the dialog's live hint still guards the actual create.
- * `null` when `suggest` yields nothing or every try is taken.
- */
-export async function firstFreeTeamWorktree(
-  workspaces: Workspace[],
-  baseDir: string,
-  suggest: (index: number) => Promise<WorktreeNameSuggestion | null>,
-  startIndex: number,
-  probe?: (path: string) => Promise<PathProbe | null>,
-): Promise<{ path: string; branch: string } | null> {
-  const base = normalizePath(baseDir);
-  for (let i = startIndex; i < startIndex + MAX_SUGGESTION_TRIES; i++) {
-    const s = await suggest(i);
-    if (!s) return null;
-    const path = `${base}/${s.folder}`;
-    if (teamOccupyingPath(workspaces, path)) continue;
-    const p = probe ? await probe(path) : null;
-    if (p && classifyLocation(path, p) === "blocked") continue;
-    return { path, branch: s.branch };
-  }
-  return null;
-}
 
 /** The directory containing `path`, or `""` when there is no usable parent
  * (a bare name, or a direct child of the filesystem root) — string-only, no
