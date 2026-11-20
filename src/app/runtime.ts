@@ -549,9 +549,15 @@ export function createAppRuntime(
     viewOnlySaid = true;
     notify({ ...VIEW_ONLY_NOTICE, severity: "warning", source: { type: "app" } });
   });
-  // What an arming pass refused in a folder stands while a pane runs
-  // there; the lifecycle takes the plantings back with the last of them.
-  const stopRefusalRetain = deckStore.subscribe(() => armRefusals.retain(paneFolders(deckStore.getSnapshot().workspaces)));
+  // What was said about the deck's folders and workspaces stands only while
+  // they do: an arming pass's refusals while a pane runs in the folder (the
+  // lifecycle takes the plantings back with the last of them), a skills
+  // stage's trims while the workspace lifetime it staged lives.
+  const stopStandingWords = deckStore.subscribe(() => {
+    const workspaces = deckStore.getSnapshot().workspaces;
+    armRefusals.retain(paneFolders(workspaces));
+    stagingTrims.keep(workspaces.map((ws) => ws.instance));
+  });
   /** The teams the lifecycle machine says work in a folder — what the
    * "+ Team" question and `team.create`'s refusal name. */
   const teamsIn = async (path: string) => claimingTeams(await claimsOn(path));
@@ -730,7 +736,7 @@ export function createAppRuntime(
       paneUnbinds?.dispose();
       pluginDeckBridge.dispose();
       stopViewOnly();
-      stopRefusalRetain();
+      stopStandingWords();
       lifecycleConnection.dispose();
       mail.dispose();
       disposeArtifactCommands?.();
