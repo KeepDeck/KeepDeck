@@ -11,6 +11,7 @@ import {
   deck,
   emptyJournal,
   ipc,
+  machine,
   pty,
   resetPaneSpawnSpecs,
   settle,
@@ -203,6 +204,21 @@ describe("agent orchestrator — a pane the machine stopped in this run", () => 
     });
     await settle();
     expect(launches("pane-1")).toBe(2);
+    expect(agentRun.epochs["pane-1"] ?? 0).toBeGreaterThan(before);
+  });
+
+  it("remounts a restarted pane when its old process is let go of, even if the new one cannot start yet", async () => {
+    // The remount belongs to the letting go, not to the launch: a restart
+    // the machine took on whose next lease is refused must still free its
+    // card, or its Restart stays inert with nothing coming.
+    const before = agentRun.epochs["pane-1"] ?? 0;
+    machine.leaseAnswer = { kind: "answered", answer: { kind: "refused", refusal: { kind: "sessionsDown" } } };
+    await act(async () => {
+      await agentRun.restart("ws-1", "pane-1", "fresh");
+    });
+    await settle();
+    expect(launches("pane-1")).toBe(1);
+    expect(pty.state("pane-1").kind).toBe("none");
     expect(agentRun.epochs["pane-1"] ?? 0).toBeGreaterThan(before);
   });
 
