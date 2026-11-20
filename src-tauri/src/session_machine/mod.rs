@@ -12,7 +12,7 @@ mod tests;
 pub use boundary::{Boundary, NotStarted};
 pub use table::Table;
 
-use crate::lifecycle::supervised;
+use crate::supervised::supervised;
 use crate::session::{deliver, resolve_command, DeliveryEnd, SessionEvent, SpawnSpec};
 use keepdeck_fsm_runtime::{Effects, Events, Runtime};
 use keepdeck_lifecycle::dir::Dir;

@@ -52,6 +52,7 @@ mod keyed_locks;
 mod lifecycle;
 mod session_machine;
 mod state;
+mod supervised;
 mod jsonl_log;
 mod price_catalogue;
 mod usage_ledger;

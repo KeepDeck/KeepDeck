@@ -23,7 +23,6 @@ pub use door::Door;
 pub use doors::AppDoors;
 pub use forgetting::MachineForgetting;
 pub use stores::{AppStores, StoreDoors};
-pub(crate) use handler::supervised;
 pub use handler::Doors;
 
 use crate::fs_claim::{self, ClaimedRoot};

@@ -5,6 +5,7 @@
 
 use super::door::Waiters;
 use super::store::DiskJournal;
+use crate::supervised::supervised;
 use keepdeck_fsm_runtime::{Effects, Events};
 use keepdeck_lifecycle::dir::Dir;
 use keepdeck_lifecycle::ids::{AttemptId, SessionId};
@@ -71,16 +72,6 @@ async fn bounded<T>(limit: Option<Duration>, work: impl std::future::Future<Outp
         Some(limit) => tokio::time::timeout(limit, work)
             .await
             .unwrap_or_else(|_| Err(format!("not done within {} s; left owed", limit.as_secs()))),
-    }
-}
-
-/// Blocking work with no cancel: its outcome comes only once it has really
-/// ended, and a panic is an outcome too. Shared by every machine's handler.
-pub(crate) async fn supervised<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
-    match tokio::task::spawn_blocking(work).await {
-        Ok(result) => result,
-        Err(error) if error.is_panic() => Err("the work panicked".into()),
-        Err(_) => Err("the work was cancelled".into()),
     }
 }
 
