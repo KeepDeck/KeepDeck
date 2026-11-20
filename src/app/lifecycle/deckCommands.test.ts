@@ -79,13 +79,26 @@ describe("the deck's owner of lifecycle commands", () => {
     const { carry, ws } = rig();
     await carry(workspace);
     await carry(team([member("pane-1", "lead", { session: { id: "s-1" } }), member("pane-2", "reviewer")]));
-    expect((await carry({ kind: "movePane", workspace: "ws-a", pane: "pane-1", to: "team-root", newRoot: true })).kind).toBe("applied");
+    expect((await carry({ kind: "movePane", workspace: "ws-a", pane: "pane-1", to: "team-root", newRoot: true, role: null })).kind).toBe("applied");
     const moved = ws()?.panes.find((pane) => pane.id === "pane-1");
     expect(moved?.team).toEqual({ teamId: "team-root", role: "lead" });
     expect(moved?.session).toBeUndefined();
     const current = ws();
     expect(current && findTeam(current, "team-root")?.location).toEqual({ kind: "attached", cwd: "/repo" });
-    expect((await carry({ kind: "movePane", workspace: "ws-a", pane: "pane-1", to: "team-root", newRoot: true })).kind).toBe("unchanged");
+    expect((await carry({ kind: "movePane", workspace: "ws-a", pane: "pane-1", to: "team-root", newRoot: true, role: null })).kind).toBe("unchanged");
+  });
+
+  it("moves a member under the role the person picked on the root team, and refuses one it cannot hold", async () => {
+    const { carry, ws } = rig();
+    await carry(workspace);
+    await carry(team([member("pane-1", "lead"), member("pane-2", "reviewer")]));
+    expect((await carry({ kind: "movePane", workspace: "ws-a", pane: "pane-2", to: "team-root", newRoot: true, role: "lead" })).kind).toBe("applied");
+    expect(ws()?.panes.find((pane) => pane.id === "pane-2")?.team).toEqual({ teamId: "team-root", role: "lead" });
+    // The root team has its lead now: a second pick of it is refused, the
+    // member left where it was.
+    const refused = await carry({ kind: "movePane", workspace: "ws-a", pane: "pane-1", to: "team-root", newRoot: false, role: "lead" });
+    expect(refused.kind).toBe("rejected");
+    expect(ws()?.panes.find((pane) => pane.id === "pane-1")?.team?.teamId).toBe("team-n");
   });
 
   it("removes a pane, a team with its members, and a workspace — a repeat finds them gone", async () => {

@@ -65,8 +65,16 @@ pub enum Cmd {
     AddPane { workspace: WorkspaceId, team: TeamId, pane: PaneId, draft: Draft },
     /// A member moves to the workspace's root team — made by the deck under
     /// the id `to` when `new_root` — and its old session is reset in the
-    /// same step.
-    MovePane { workspace: WorkspaceId, pane: PaneId, to: TeamId, new_root: bool },
+    /// same step. `role` is the person's pick on that team; none carries the
+    /// member's own.
+    MovePane {
+        workspace: WorkspaceId,
+        pane: PaneId,
+        to: TeamId,
+        new_root: bool,
+        #[serde(default)]
+        role: Option<String>,
+    },
     RemovePane { workspace: WorkspaceId, pane: PaneId },
     RemoveTeam { workspace: WorkspaceId, team: TeamId },
     RemoveWorkspace { workspace: WorkspaceId },

@@ -105,8 +105,16 @@ pub enum Intent {
         member: Draft,
     },
     /// A member whose team's folder is gone moves to the workspace's root
-    /// team; `root` names that team if the workspace has none yet.
-    Relocate { workspace: WorkspaceId, pane: PaneId, root: TeamId },
+    /// team; `root` names that team if the workspace has none yet. `role` is
+    /// the role the person picked for it there, when its own cannot come
+    /// along; none keeps its own.
+    Relocate {
+        workspace: WorkspaceId,
+        pane: PaneId,
+        root: TeamId,
+        #[serde(default)]
+        role: Option<String>,
+    },
     CloseAgent { workspace: WorkspaceId, pane: PaneId, consent: Consent },
     Disband { workspace: WorkspaceId, team: TeamId, consent: Consent },
     CloseWorkspace { workspace: WorkspaceId, consent: Consent },
@@ -366,7 +374,7 @@ mod tests {
     fn only_seat_continue_and_relocate_are_additive_and_only_suspend_and_resume_are_gated() {
         let additive = [
             Intent::Seat { workspace: ws(), team: team(), member: draft() },
-            Intent::Relocate { workspace: ws(), pane: PaneId(1), root: team() },
+            Intent::Relocate { workspace: ws(), pane: PaneId(1), root: team(), role: None },
             Intent::Continue {
                 workspace: ws(),
                 landing: Landing::Team { team: team() },

@@ -120,8 +120,9 @@ export function createDeckCommands(store: DeckStore, actions: DeckActions): Comm
   }
 
   /** A member to the workspace's root team — the team made here under the
-   * machine's id when there is none yet — carrying the role the person gave
-   * it, its old conversation reset in the same step. */
+   * machine's id when there is none yet — under the role the person picked
+   * there, or carrying its own when they picked none; its old conversation
+   * reset in the same step. */
   function movePane(cmd: Extract<Cmd, { kind: "movePane" }>): Outcome {
     const ws = workspace(cmd.workspace);
     const pane = ws?.panes.find((candidate) => candidate.id === cmd.pane);
@@ -133,7 +134,12 @@ export function createDeckCommands(store: DeckStore, actions: DeckActions): Comm
       actions.createTeam(cmd.workspace, { id: cmd.to, name: nextAutoTeamName(ws), location: { kind: "attached", cwd: ws.cwd } });
     }
     const current = workspace(cmd.workspace);
-    const admitted = current && findTeam(current, cmd.to) ? carryRole(current, cmd.to, pane.team?.role, pane.id) : null;
+    const admitted =
+      current && findTeam(current, cmd.to)
+        ? cmd.role !== null
+          ? admitRole(current, cmd.to, cmd.role, pane.id)
+          : carryRole(current, cmd.to, pane.team?.role, pane.id)
+        : null;
     if (admitted?.ok) actions.joinTeam(cmd.workspace, cmd.pane, cmd.to, admitted.role);
     const moved = workspace(cmd.workspace)?.panes.find((candidate) => candidate.id === cmd.pane)?.team?.teamId === cmd.to;
     if (!moved) {

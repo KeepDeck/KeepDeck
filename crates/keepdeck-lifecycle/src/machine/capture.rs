@@ -294,7 +294,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             };
             state.ops.insert(id, Op::new(workspace, ask, journaled, kind));
         }
-        Intent::Relocate { workspace, pane, root } => {
+        Intent::Relocate { workspace, pane, root, role } => {
             let Some(row) = state.world.panes.get(&pane).filter(|row| row.workspace == workspace) else {
                 return refuse(fx, ask, Refusal::NotFound);
             };
@@ -315,7 +315,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             if let Some(refusal) = existing_root.as_ref().and_then(|team| landing_blocked(state, &workspace, team)) {
                 return refuse(fx, ask, refusal);
             }
-            let relocate = create::Relocate::new(pane, from, existing_root.clone().unwrap_or(root), existing_root.is_none());
+            let relocate = create::Relocate::new(pane, from, existing_root.clone().unwrap_or(root), existing_root.is_none(), role);
             let id = state.mint_op();
             state.ops.insert(id, Op::new(workspace, ask, false, Kind::Relocate(relocate)));
         }

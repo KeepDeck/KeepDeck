@@ -395,6 +395,7 @@ export const dues: Due[] = [
       "kind": "movePane",
       "newRoot": false,
       "pane": "pane-5",
+      "role": "reviewer",
       "to": "team-r",
       "workspace": "ws-a"
     },

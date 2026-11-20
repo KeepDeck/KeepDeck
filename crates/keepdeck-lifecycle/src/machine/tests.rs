@@ -612,6 +612,19 @@ fn a_seat_on_a_leaving_or_archived_target_is_refused() {
 }
 
 #[test]
+fn a_relocate_takes_the_member_to_the_root_team_under_the_role_the_person_picked() {
+    let mut sim = Sim::booted();
+    let ask = sim.intent(Intent::Relocate { workspace: ws(), pane: PaneId(2), root: team("new-root"), role: Some("reviewer".into()) });
+    sim.apply(|cmd| matches!(cmd, Cmd::MovePane { .. }));
+    assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })));
+    assert!(
+        sim.carried.contains(&Cmd::MovePane { workspace: ws(), pane: PaneId(2), to: team("r"), new_root: false, role: Some("reviewer".into()) }),
+        "the workspace's own root team, and the pick: {:?}",
+        sim.carried
+    );
+}
+
+#[test]
 fn a_seat_the_role_rule_refuses_hears_the_owners_own_kind() {
     let mut sim = Sim::booted();
     let ask = sim.intent(seat("1"));
@@ -1158,7 +1171,7 @@ fn every_due() -> Vec<Due> {
         Cmd::SettleTeam { workspace: w(), team: team("n"), cwd: Dir::new("/wt/kd-app-2"), branch: Some("kd/app/2".into()) },
         Cmd::FailTeam { workspace: w(), team: team("n"), reason: "no space".into() },
         Cmd::AddPane { workspace: w(), team: team("1"), pane: p(5), draft: draft() },
-        Cmd::MovePane { workspace: w(), pane: p(5), to: team("r"), new_root: false },
+        Cmd::MovePane { workspace: w(), pane: p(5), to: team("r"), new_root: false, role: Some("reviewer".into()) },
         Cmd::RemovePane { workspace: w(), pane: p(5) },
         Cmd::RemoveTeam { workspace: w(), team: team("n") },
         Cmd::RemoveWorkspace { workspace: w() },

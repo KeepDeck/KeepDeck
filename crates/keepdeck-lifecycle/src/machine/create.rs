@@ -128,18 +128,21 @@ impl Seat {
     }
 }
 
-/// A member moved to the workspace's root team.
+/// A member moved to the workspace's root team, under the role the person
+/// picked there if its own cannot come along.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Relocate {
     pub pane: PaneId,
     pub from: Option<TeamId>,
     pub to: TeamId,
     pub new_root: bool,
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 impl Relocate {
-    pub fn new(pane: PaneId, from: Option<TeamId>, to: TeamId, new_root: bool) -> Relocate {
-        Relocate { pane, from, to, new_root }
+    pub fn new(pane: PaneId, from: Option<TeamId>, to: TeamId, new_root: bool, role: Option<String>) -> Relocate {
+        Relocate { pane, from, to, new_root, role }
     }
 }
 
@@ -697,7 +700,13 @@ pub fn advance_relocate(state: &mut State, id: OpId, fx: &mut Fx) {
     let relocate = relocate.clone();
     match outcome_of(op, |cmd| matches!(cmd, Cmd::MovePane { .. })) {
         None => {
-            op.send(Cmd::MovePane { workspace, pane: relocate.pane, to: relocate.to.clone(), new_root: relocate.new_root });
+            op.send(Cmd::MovePane {
+                workspace,
+                pane: relocate.pane,
+                to: relocate.to.clone(),
+                new_root: relocate.new_root,
+                role: relocate.role.clone(),
+            });
         }
         Some(None) => {}
         Some(Some(outcome)) => {
