@@ -286,6 +286,15 @@ async fn the_state_stream_keeps_the_latest_state_and_a_fact_that_stays_true() {
     assert_eq!(fact, At { version: 4, value: 8 }, "the states between are not kept; the fact still holds");
 }
 
+#[tokio::test(start_paused = true)]
+async fn the_version_counts_each_new_state_an_equal_one_too() {
+    let machine = Runtime::start(2, counter::update, counter::work, Record(Seen::default()));
+    machine.send(counter::Ev::Set(2)); // an equal value, but update gave a new state
+    machine.send(counter::Ev::Set(4));
+    tokio::time::sleep(MOMENT).await;
+    assert_eq!(*machine.state().borrow(), At { version: 2, value: 4 });
+}
+
 mod watcher {
     //! A machine that waits for a fact in another machine's state.
     use super::*;

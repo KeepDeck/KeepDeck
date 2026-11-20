@@ -161,10 +161,16 @@ where
     /// stays true once it is true cannot be missed. Ends when the machine's
     /// task is gone.
     ///
+    /// A fresh receiver has seen nothing yet: its first `changed` returns at
+    /// once if the state changed since the start. Wait for a fact with
+    /// `wait_for`, or mark the current state seen first.
+    ///
     /// A borrow of the state (`borrow`, or what `wait_for` returns) holds a
-    /// lock the machine needs to publish its next state. Copy out what you
-    /// need and let the borrow go before anything awaits: a reader that waits
-    /// on the machine while holding one waits for ever.
+    /// lock the machine needs to publish its next state, so copy out what you
+    /// need and let it go before anything awaits. In a spawned task a borrow
+    /// held across an await does not compile: it is not `Send`. Where it does
+    /// compile — under `block_on` — the machine blocks its thread at its next
+    /// publish, and a one-thread runtime stops whole.
     pub fn state(&self) -> watch::Receiver<At<S>> {
         self.state.clone()
     }

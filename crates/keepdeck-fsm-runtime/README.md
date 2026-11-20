@@ -80,10 +80,45 @@ version.
 When the machine's task is gone — the last handle dropped, or a panic — the
 stream ends, and whoever waits on it is told.
 
+A receiver from `state()` has seen nothing yet: its first `changed()` returns
+at once if the state changed since the start. Wait for a fact with
+`wait_for`, or mark the current state seen with `borrow_and_update()` first.
+
 A borrow of the state — `borrow()`, or what `wait_for` returns — holds a lock
 the machine needs to publish its next state. Copy out what you need and let
-the borrow go before anything awaits: a reader that waits on the machine
-while holding one waits for ever.
+the borrow go before anything awaits. In a spawned task the mistake does not
+compile: a borrow is not `Send`. The two readers below differ only in that;
+the first compiles, the second does not:
+
+```rust,no_run
+use keepdeck_fsm_runtime::Runtime;
+
+fn read(machine: &Runtime<u32, ()>) {
+    let states = machine.state();
+    tokio::spawn(async move {
+        let value = states.borrow().value; // copied out: the borrow ends here
+        tokio::task::yield_now().await;
+        value
+    });
+}
+```
+
+```rust,compile_fail
+use keepdeck_fsm_runtime::Runtime;
+
+fn read(machine: &Runtime<u32, ()>) {
+    let states = machine.state();
+    tokio::spawn(async move {
+        let state = states.borrow(); // held across the await
+        tokio::task::yield_now().await;
+        state.value
+    });
+}
+```
+
+Where it does compile — a test's own body under `block_on` — the machine
+blocks its thread at its next publish, and on a one-thread runtime that stops
+everything, the reader included.
 
 ## An example
 
@@ -201,6 +236,8 @@ are in the README of `keepdeck-fsm`.
 | Work is never stopped, even when no state needs it any more; its result, if it has one, still arrives | Some work cannot be stopped halfway | `the_result_of_work_no_longer_needed_still_arrives` |
 | A timer counts from when its state needs it. It is stopped when the machine leaves the states that need it, and its event arrives only if its arming is the current one | A firing can queue up behind the event that left its state, and a state entered again arms a new timer | `a_timer_counts_from_when_its_state_needs_it`, `a_timer_is_stopped_when_the_machine_leaves_its_state`, `a_timer_that_fires_while_its_state_is_being_left_is_dropped` and `a_stale_timer_is_dropped_while_the_same_timer_is_needed_again` (both `src/lib.rs`) |
 | The state stream keeps only the latest state; a fact that stays true is not missed | The stream is "how things are now", not a log of changes | `the_state_stream_keeps_the_latest_state_and_a_fact_that_stays_true` |
+| The version counts each new state `update` gives — an equal one too — from 0 at each start | A reader that also fetches the state by a command keeps the higher version, within one machine's life | `the_version_counts_each_new_state_an_equal_one_too` |
+| A borrow of the state is not held across an await | It holds the lock the machine publishes under: held across an await, it stops the machine. In a spawned task it does not compile | the two doctests in "The state stream" |
 | Outside sees only the state. Effects go to the handler only; another feature learns about this one from its state | One output: nothing needs a second stream | `one_machine_learns_about_another_from_its_state` |
 | Dropping the last handle is the stop: what was sent before is still handled, then the machine ends. When its task is gone, by a panic too, its state stream ends and its timers stop; the other machines go on. `Events` do not keep a machine alive | Otherwise whoever waits would wait for ever, and a dead machine's timers would sleep on | `what_was_sent_before_the_last_handle_was_dropped_is_still_handled`, `a_machine_ends_with_its_last_handle_and_the_others_go_on`, `when_the_machine_panics_its_state_stream_ends_and_its_timers_stop`, `events_do_not_keep_a_machine_alive_and_say_when_it_is_gone` |
 | The framework recovers nothing. Work that fails or panics sends nothing; a feature that must know turns the failure into an event of its own. A panic in the machine is the app's concern | Recovery belongs to the feature that needs it, not to every feature | `work_that_panics_sends_nothing_and_the_machine_goes_on` |
