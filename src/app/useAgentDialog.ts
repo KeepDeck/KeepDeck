@@ -14,36 +14,29 @@ import {
 import { log } from "../ipc/log";
 import {
   baseName,
-  directoryState,
   findTeam,
   findWorkspace,
   findWorkspaceByRef,
-  firstFreeTeamWorktree,
   nextAutoTeamName,
-  paneId,
+  normalizePath,
   paneSessionHandle,
-  parentDir,
   sessionClaimant,
+  type DirectoryHolder,
   type SessionClaimKey,
   teamOfPane,
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit, recordedYolo } from "../domain/journal";
+import { directoryStateOf } from "../domain/lifecycle";
 import { rolesOnTeam } from "../domain/mail";
 
 import { indexSearch } from "../ipc/history";
+import { claimsOn, locationFor } from "../ipc/lifecycle";
 import type { Page } from "./usePagedSessionSearch";
-import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
+import { inspectRepo } from "../ipc/worktree";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
-import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
-import {
-  firstFreeTeamWorktreeFor,
-  nextAgentIndex,
-  nextAgentType,
-  nextYolo,
-} from "./newAgentDefaults";
-import type { DirectoryHolder } from "./agentOrchestrator";
+import { nextAgentType, nextYolo } from "./newAgentDefaults";
 import type {
   AgentDoors,
   ContinueRequest,
@@ -109,8 +102,6 @@ export type AgentDialogOpening =
  * captured at open time. */
 export interface AgentDialogSpec {
   workspace: WorkspaceRef;
-  agentId: string;
-  index: number;
   /** What the dialog is for — a new team with a suggested name, or a member
    * of a team that exists, named so the title can say so. */
   target: AgentDialogTarget;
@@ -131,12 +122,20 @@ export interface AgentDialogSpec {
   /** The workspace repo when its cwd is a git repo — enables the worktree
    * location field; null → the agent just runs in the workspace cwd. */
   repo: { cwd: string; branch: string | null } | null;
-  /** Prefilled worktree path — non-empty only when the workspace has a base
-   * folder ([F2]: suggest a default only then). */
+  /** Prefilled worktree path — the machine's next free place, which it has
+   * only when the workspace has a base folder ([F2]: suggest one only then). */
   suggestedPath: string;
-  /** Prefilled branch for a new worktree. */
+  /** Prefilled branch for a new worktree — that place's. */
   suggestedBranch: string;
 }
+
+/** Who a dialog's log lines are about: the team a member joins, or the
+ * workspace a team is made in — the agent's id is the machine's, after. */
+const dialogTag = (spec: AgentDialogSpec) => (spec.target.kind === "member" ? spec.target.teamId : spec.workspace.id);
+
+/** The machine's next free place for a new team's worktree in `wsId`, IPC
+ * failures flattened to none. */
+const nextPlace = (wsId: string) => locationFor(wsId, null).then((location) => location.place, () => null);
 
 /**
  * The agent dialog's presentation: opens it with per-workspace suggestions,
@@ -175,18 +174,8 @@ export function useAgentDialog(
   const deckRef = useRef(deck);
   deckRef.current = deck;
 
-  /** Per-index name suggestion for `ws`, IPC failures flattened to null. */
-  const suggestFor = (ws: Workspace) => (index: number) =>
-    suggestWorktree(ws.name, index).catch(() => null);
-
-  /** Disk probe for suggestion filtering, IPC failures flattened to null
-   * (= don't filter — the dialog's live hint still guards the create). */
-  const probeFor = (path: string) => probeWorktree(path).catch(() => null);
-
   const openFor = async (ws: Workspace, opening: AgentDialogOpening = { kind: "new-team" }) => {
     const workspace = { id: ws.id, instance: ws.instance };
-    const seq = mintAgentSeq();
-    const index = nextAgentIndex(ws);
     const defaultType = nextAgentType(agents, ws);
     if (opening.kind === "member") {
       // A member runs in its team's directory: nothing to inspect, no
@@ -197,8 +186,6 @@ export function useAgentDialog(
       if (!team) return;
       const spec: AgentDialogSpec = {
         workspace,
-        agentId: paneId(seq),
-        index,
         target: {
           kind: "member",
           teamId: team.id,
@@ -226,7 +213,7 @@ export function useAgentDialog(
       const starts = dialogStartingYolo(spec.defaultYolo, opening.session?.mode ?? "new", pick);
       log.info(
         "web:agents",
-        `${spec.agentId}: member dialog opened — YOLO starts ${starts ? "on" : "off"}, ` +
+        `${dialogTag(spec)}: member dialog opened — YOLO starts ${starts ? "on" : "off"}, ` +
           (pick?.ranYolo === undefined ? "the global default" : "as its source session ran"),
       );
       setDialog(spec);
@@ -235,29 +222,11 @@ export function useAgentDialog(
     // Offer the worktree location only when the workspace cwd is a git repo.
     const info = await inspectRepo(ws.cwd).catch(() => null);
     const repo = info?.isRepo ? { cwd: ws.cwd, branch: info.branch } : null;
-    let suggestedPath = "";
-    let suggestedBranch = "";
-    if (repo) {
-      if (ws.worktreeBaseDir) {
-        // [F2]: prefill a path ONLY when the workspace has a base folder, so
-        // the dialog opens on the first usable suggestion rather than onto an
-        // occupied- or blocked-path error.
-        const free = await firstFreeTeamWorktreeFor(
-          deckRef.current.workspaces,
-          ws,
-          index,
-        );
-        if (free) {
-          suggestedPath = free.path;
-          suggestedBranch = free.branch;
-        }
-      } else {
-        // No base folder → start empty (= main repo), but still suggest a
-        // branch for when the user picks a path by hand.
-        const s = await suggestFor(ws)(index);
-        if (s) suggestedBranch = s.branch;
-      }
-    }
+    // [F2]: prefill a path ONLY when the workspace has a base folder — the
+    // machine's next free place, so the dialog opens on a usable suggestion
+    // rather than onto an occupied- or blocked-path error. Without one it
+    // opens empty (= main repo).
+    const place = repo && ws.worktreeBaseDir ? await nextPlace(ws.id) : null;
     // The workspace may have closed while repo/path IPC was in flight. Its
     // public id can already name a replacement, so only the exact lifetime is
     // allowed to open this dialog.
@@ -268,8 +237,6 @@ export function useAgentDialog(
     if (askRef.current) return;
     setDialog({
       workspace,
-      agentId: paneId(seq),
-      index,
       // Named the way the deck would name it unasked, so the field opens
       // filled and a person who does not care presses Create.
       target: {
@@ -283,8 +250,8 @@ export function useAgentDialog(
       defaultYolo: nextYolo(),
       remoteEnabled: getSettings()?.remoteAgents === true,
       repo,
-      suggestedPath,
-      suggestedBranch,
+      suggestedPath: place?.path ?? "",
+      suggestedBranch: place?.branch ?? "",
     });
   };
 
@@ -314,7 +281,7 @@ export function useAgentDialog(
 
   /** Show a door's answer: nothing for done, a notice for a refusal, and
    * the standing question for a directory another team works in — whose
-   * answer re-issues the owner's own create and shows THAT answer. */
+   * answer issues the owner's own create and shows THAT answer. */
   const show = (outcome: DoorOutcome): void => {
     switch (outcome.kind) {
       case "done":
@@ -328,7 +295,7 @@ export function useAgentDialog(
           path: outcome.path,
           confirm: () => {
             setSharedAsk(null);
-            show(outcome.anyway());
+            void outcome.anyway().then(show, (error: unknown) => notice("team", errorMessage(error)));
           },
           cancel: () => setSharedAsk(null),
         });
@@ -358,18 +325,12 @@ export function useAgentDialog(
     const continued = landed !== null && result.session
       ? `, ${result.session.mode} of ${result.session.handle.sessionId}`
       : "";
-    log.info("web:agents", `${dlg.agentId}: ${dlg.target.kind} dialog confirmed — ${landed ?? "no agent"}${continued}, YOLO ${yolo}`);
+    log.info("web:agents", `${dialogTag(dlg)}: ${dlg.target.kind} dialog confirmed — ${landed ?? "no agent"}${continued}, YOLO ${yolo}`);
     // Closed first, whatever the door answers: a refusal is a notice and a
     // question is its own dialog, and neither stacks on top of this one.
     setDialog(null);
     void agentDoors
-      .confirm({
-        workspace: dlg.workspace,
-        agentId: dlg.agentId,
-        index: dlg.index,
-        target: dlg.target,
-        result,
-      })
+      .confirm({ workspace: dlg.workspace, target: dlg.target, result })
       .then(show, (error: unknown) =>
         // The owner answers refusals as outcomes; a throw is a defect on its
         // side. Heard rather than swallowed — the dialog is already closed,
@@ -379,56 +340,32 @@ export function useAgentDialog(
   };
 
   /**
-   * The next suggested location not held by an open pane (nor blocked on
-   * disk) — the dialog's "Use next available" action for an occupied or
-   * blocked path. Suggests inside the workspace base folder when set, else
-   * right next to the unusable path; null when neither gives a base (or
-   * suggestions fail).
+   * The machine's next free place — the dialog's "Use next available"
+   * action for an occupied or blocked path: not held by a team, a create or
+   * a cleanup, nor taken on disk. Null when the machine has none to offer
+   * (no base folder, or the IPC failed).
    */
-  const nextFree = async (currentPath: string) => {
+  const nextFree = async () => {
     const dlg = dialog;
-    if (!dlg) return null;
-    const currentDeck = deckRef.current;
-    const ws = findWorkspaceByRef(currentDeck.workspaces, dlg.workspace);
-    if (!ws) return null;
-    const base = ws.worktreeBaseDir ?? parentDir(currentPath);
-    if (!base) return null;
-    const free = await firstFreeTeamWorktree(
-      currentDeck.workspaces,
-      base,
-      suggestFor(ws),
-      dlg.index,
-      probeFor,
-    );
-    return findWorkspaceByRef(deckRef.current.workspaces, dlg.workspace)
-      ? free
-      : null;
+    if (!dlg || !findWorkspaceByRef(deckRef.current.workspaces, dlg.workspace)) return null;
+    const place = await nextPlace(dlg.workspace.id);
+    return findWorkspaceByRef(deckRef.current.workspaces, dlg.workspace) ? place : null;
   };
 
   /**
    * The branch a worktree path implies — the dialog's live branch suggestion,
    * so the branch follows the worktree name until the user edits it. The
-   * canonical branch when the folder matches this workspace's own naming
-   * (`kd-<ws>-<n>` ↔ `kd/<ws>/<n>` — matched via the suggest IPC, the single
-   * source of the scheme, not a TS re-implementation), else the folder name
-   * verbatim (the backend sanitizes an explicit branch at create time). Null
-   * when the path yields no usable name.
+   * machine's own branch for the folder it suggested (its naming scheme is
+   * its own, not re-spelled here), else the folder name verbatim (the backend
+   * sanitizes an explicit branch at create time). Null when the path yields
+   * no usable name.
    */
   const branchFor = async (path: string): Promise<string | null> => {
     const dlg = dialog;
     if (!dlg) return null;
-    const ws = findWorkspaceByRef(deckRef.current.workspaces, dlg.workspace);
-    if (!ws) return null;
     const folder = baseName(path);
     if (!folder) return null;
-    const tail = /-(\d+)$/.exec(folder);
-    if (tail) {
-      const s = await suggestFor(ws)(Number(tail[1]));
-      if (!findWorkspaceByRef(deckRef.current.workspaces, dlg.workspace))
-        return null;
-      if (s?.folder === folder) return s.branch;
-    }
-    return folder;
+    return dlg.suggestedPath && baseName(dlg.suggestedPath) === folder ? dlg.suggestedBranch : folder;
   };
 
   /**
@@ -476,18 +413,12 @@ export function useAgentDialog(
   );
 
   /**
-   * What the deck says about a candidate directory for THIS dialog — the
-   * location field's one deck question, owned here beside every other one
-   * (`nextFree`, `branchFor`, `sessionClaim`) rather than assembled in JSX
-   * from a workspace a view would have to guess at.
+   * What the lifecycle says holds a candidate directory — the location
+   * field's one question about who is there, owned here beside every other
+   * one (`nextFree`, `branchFor`, `sessionClaim`) rather than assembled in
+   * a view.
    */
-  const directoryAt = (path: string): DirectoryState => {
-    const dlg = dialog;
-    if (!dlg) return "free";
-    const workspaces = deckRef.current.workspaces;
-    const ws = findWorkspaceByRef(workspaces, dlg.workspace);
-    return ws ? directoryState(workspaces, ws, path) : "free";
-  };
+  const directoryAt = async (path: string): Promise<DirectoryState> => directoryStateOf(await claimsOn(normalizePath(path)));
 
   const cancel = () => setDialog(null);
 
@@ -495,7 +426,7 @@ export function useAgentDialog(
    * opening starts and its confirm ends (task-576). */
   const yoloToggled = (on: boolean) => {
     if (!dialog) return;
-    log.info("web:agents", `${dialog.agentId}: YOLO toggled ${on ? "on" : "off"} in the dialog`);
+    log.info("web:agents", `${dialogTag(dialog)}: YOLO toggled ${on ? "on" : "off"} in the dialog`);
   };
 
   /** A busy or stalled card's Fork: the member dialog for the pane's team,

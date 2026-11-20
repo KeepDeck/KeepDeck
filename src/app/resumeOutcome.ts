@@ -4,8 +4,8 @@ import {
   type Workspace,
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
-import type { ResumeRequest } from "../domain/deck";
-import { resumeRefusalText } from "../presentation/resumeWords";
+import type { ResumeOutcome } from "../domain/lifecycle";
+import { resumeOutcomeText } from "../presentation/resumeWords";
 
 /**
  * The one sentence each refusal of "bring this pane back" gets.
@@ -27,13 +27,13 @@ import { resumeRefusalText } from "../presentation/resumeWords";
  * it inline is deriving a domain label mid-render, and it must read the deck
  * BEFORE the request mutates it, which is easy to get wrong in JSX.
  */
-export function askForPaneBack(
-  resume: (wsId: string, paneId: string) => ResumeRequest,
+export async function askForPaneBack(
+  resume: (wsId: string, paneId: string) => Promise<ResumeOutcome>,
   workspaces: Workspace[],
   agents: AgentInfo[],
   wsId: string,
   paneId: string,
-): string | null {
+): Promise<string | null> {
   // The label comes from the deck as it stands NOW — the request below can
   // change it, and the sentence is about the pane the user clicked.
   const ws = findWorkspace(workspaces, wsId);
@@ -42,6 +42,5 @@ export function askForPaneBack(
     ws && index >= 0
       ? paneDisplayTitle(ws.panes[index], index, agents)
       : "That agent";
-  const outcome = resume(wsId, paneId);
-  return outcome === "resuming" ? null : resumeRefusalText(outcome, label);
+  return resumeOutcomeText(await resume(wsId, paneId), label);
 }

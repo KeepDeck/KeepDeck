@@ -11,6 +11,8 @@
 
 export * from "./drafts";
 export * from "./facts";
+export * from "./paneOutcomes";
+export * from "./requests";
 
 /** Why an intent was refused. */
 export type Refusal =
@@ -31,6 +33,15 @@ export type Refusal =
 /** The waiting door with no answer to hand back: the machine was not there
  * to ask, or ended before it answered. */
 export type NoAnswer = { kind: "unavailable" } | { kind: "unknown" };
+
+/** What holds a folder, as the machine names it: a team working there, a
+ * session running there, a worktree being made there, or one being
+ * removed. */
+export type Claim =
+  | { kind: "team"; team: string }
+  | { kind: "session"; session: number }
+  | { kind: "creation"; op: number }
+  | { kind: "removal"; op: number };
 
 /** Where the machine has a pane: running as usual, on its way out, being
  * restarted, being suspended, or suspended. */

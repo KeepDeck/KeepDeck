@@ -2,10 +2,10 @@ import type { AgentInfo } from "../../domain/agents";
 import type { CommandRegistry } from "../../domain/commands";
 import type { PaneActivity } from "../../domain/status";
 import type { AgentReach } from "../../domain/deck";
-import type { CreatePaneOutcome, CreatePaneRequest, CreateTeamOutcome, CreateTeamRequest } from "../agentOrchestrator";
+import type { IntentOutcome, ResumeOutcome, SuspendResult } from "../../domain/lifecycle";
+import type { CreatePaneRequest, CreateTeamRequest } from "../agentOrchestrator";
 import type { McpLibrary } from "../mcpLibrary";
 import type { SkillsLibrary } from "../skillsLibrary";
-import type { ResumeRequest, SuspendOutcome } from "../../domain/deck";
 import type { Deck } from "../useDeck";
 import { registerMcpCommands } from "./mcp";
 import { registerPaneCommands } from "./panes";
@@ -53,19 +53,22 @@ export interface CoreCommandDeps {
    * dialog as ⌘W, so the destructive step keeps its human confirmation. */
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
   /** Stop an agent, keeping its pane — the same flow as ⇧⌘W. Resolves to
-   * whether it actually suspended. */
-  suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
+   * whether it is being suspended, or why not. */
+  suspendAgent(wsId: string, paneId: string): Promise<SuspendResult>;
   /** Ask for a stopped agent back — the same gesture as its card's Resume,
    * reporting what it did. */
-  resumeAgent(wsId: string, paneId: string): ResumeRequest;
+  resumeAgent(wsId: string, paneId: string): Promise<ResumeOutcome>;
   /** Land a new agent pane, worktree create and all — the same entry point
    * the agent dialog uses, so a spawn asked for by voice or MCP goes
    * through the same sequence as one asked for by hand. */
-  createPane(request: CreatePaneRequest): CreatePaneOutcome;
+  createPane(request: CreatePaneRequest): Promise<IntentOutcome>;
   /** Make a team that holds a directory and nobody yet — the same door
    * "+ Team" goes through, so a team asked for by voice or MCP is born the
    * way one asked for by hand is: empty, agents to follow one at a time. */
-  createTeam(request: CreateTeamRequest): CreateTeamOutcome;
+  createTeam(request: CreateTeamRequest): Promise<IntentOutcome>;
+  /** The teams the lifecycle machine says work in a folder — what an
+   * occupied directory is refused by, naming its team. */
+  teamsIn(path: string): Promise<string[]>;
   /** Put the person inside a team — its workspace on screen, the team open
    * on the stage — the operation a team card performs. */
   activateTeam(wsId: string, teamId: string): void;

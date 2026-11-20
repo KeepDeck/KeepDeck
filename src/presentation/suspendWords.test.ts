@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SuspendOutcome } from "../domain/deck";
-import { suspendRefusalText, teamSuspendRefusalText } from "./suspendWords";
+import { intentOutcomeText } from "./lifecycleWords";
+import { suspendRefusalText, suspendResultText, teamSuspendRefusalText } from "./suspendWords";
 
 describe("suspendRefusalText", () => {
   it("gives every refusal its own sentence", () => {
@@ -33,6 +34,15 @@ describe("suspendRefusalText", () => {
     for (const outcome of every) {
       expect(suspendRefusalText(outcome, "Reviewer")).toContain("Reviewer");
     }
+  });
+});
+
+describe("suspendResultText", () => {
+  it("says nothing of a suspend under way, the deck's sentence for its refusal, and the machine's for its own", () => {
+    expect(suspendResultText({ kind: "suspending" }, "Claude 1")).toBeNull();
+    expect(suspendResultText({ kind: "blocked", why: "remote" }, "Claude 1")).toBe(suspendRefusalText("remote", "Claude 1"));
+    const refused = { kind: "refused", refusal: { kind: "targetLeaving" } } as const;
+    expect(suspendResultText(refused, "Claude 1")).toBe(intentOutcomeText(refused));
   });
 });
 

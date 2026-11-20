@@ -52,6 +52,7 @@ import { artifactsDisable, artifactsEnable } from "../ipc/artifacts";
 import {
   askLease,
   bootHandshake,
+  claimsOn,
   onLifecycleRestarted,
   releaseLease,
   reportApplied,
@@ -60,6 +61,7 @@ import {
   sendIntent,
   subscribeLifecycle,
 } from "../ipc/lifecycle";
+import { claimingTeams } from "../domain/lifecycle";
 import { createLifecycleSnapshot } from "./lifecycleSnapshot";
 import { connectLifecycle } from "./lifecycle/connection";
 import { createDeckCommands } from "./lifecycle/deckCommands";
@@ -544,6 +546,9 @@ export function createAppRuntime(
     viewOnlySaid = true;
     notify({ ...VIEW_ONLY_NOTICE, severity: "warning", source: { type: "app" } });
   });
+  /** The teams the lifecycle machine says work in a folder — what the
+   * "+ Team" question and `team.create`'s refusal name. */
+  const teamsIn = async (path: string) => claimingTeams(await claimsOn(path));
   const application = createApplicationController({
     registry,
     deck: deckStore,
@@ -554,6 +559,7 @@ export function createAppRuntime(
     skills,
     mcpLibrary: mcp.library,
     activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
+    teamsIn,
   });
   const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
   const logger: HostLoggerPort = log;
@@ -745,6 +751,7 @@ export function createAppRuntime(
         workspaces: () => deckStore.getSnapshot().workspaces,
         openTeam: deckActions.openTeam,
       },
+      teamsIn,
     }),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),

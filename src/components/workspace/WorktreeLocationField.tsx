@@ -135,7 +135,7 @@ function LocationHint({
       return (
         <>
           <span className="form__error">
-            A worktree is still being created there
+            A worktree is still being created or removed there
           </span>
           <div className="form__choices">
             <button

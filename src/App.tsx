@@ -232,14 +232,9 @@ function App({ runtime }: { runtime: AppRuntime }) {
             failedPanes={failedPanes}
             onStartFresh={orchestrator.startFresh}
             onResumeAgent={(wsId, paneId) => {
-              const refused = askForPaneBack(
-                orchestrator.resume,
-                deck.workspaces,
-                agents,
-                wsId,
-                paneId,
-              );
-              if (refused) pushAlert("Can't resume this agent", refused);
+              void askForPaneBack(orchestrator.resume, deck.workspaces, agents, wsId, paneId).then((refused) => {
+                if (refused) pushAlert("Can't resume this agent", refused);
+              });
             }}
             onRetryProvision={orchestrator.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {

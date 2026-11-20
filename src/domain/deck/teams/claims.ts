@@ -5,7 +5,38 @@
  * lifecycle machine's answer (`lifecycle_claims`, `lifecycle_location`),
  * never derived here.
  */
+import type { Workspace } from "../workspaces";
 import type { Team } from "./model";
+
+/** A team already working in a folder, as the deck names it: its id and
+ * name, and its workspace's name when that is not the asking one. */
+export interface DirectoryHolder {
+  teamId: string;
+  teamName: string;
+  /** Set only for a team in another workspace. */
+  workspace?: string;
+}
+
+/** The first of `teamIds` — the teams the machine says work in a folder —
+ * that the deck still holds, named as a person reads it. Null for none.
+ * `scope: "here"` asks about the workspace's own root, which every
+ * workspace on a repository holds for itself: a team on the same folder in
+ * another workspace does not hold it. */
+export function directoryHolder(
+  workspaces: readonly Workspace[],
+  teamIds: readonly string[],
+  here: string,
+  scope: "anywhere" | "here",
+): DirectoryHolder | null {
+  const asked = scope === "here" ? workspaces.filter((ws) => ws.id === here) : workspaces;
+  for (const teamId of teamIds) {
+    for (const ws of asked) {
+      const team = (ws.teams ?? []).find((candidate) => candidate.id === teamId);
+      if (team) return { teamId, teamName: team.name, ...(ws.id !== here && { workspace: ws.name }) };
+    }
+  }
+  return null;
+}
 
 /** The path a team holds for occupancy: the directory it runs in, or the one
  * its create is heading for. A team with no directory yet holds none. */

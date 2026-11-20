@@ -93,13 +93,12 @@ interface AgentDialogProps {
    * worktree name while the user hasn't edited it. Null = no usable name
    * (the previous suggestion stays). */
   branchForPath(path: string): Promise<string | null>;
-  /** What the deck says about a candidate path — see [`DirectoryState`].
-   * Injected (the dialog stays free of deck state) and owned by the dialog's
-   * hook, which knows which workspace is asking. */
-  directoryAt(path: string): DirectoryState;
-  /** The next suggested location not held by an open pane — the "Use next
-   * available" action for an occupied or blocked path; null when none can be
-   * offered. */
+  /** What the lifecycle says holds a candidate path — see
+   * [`DirectoryState`]. Injected (the dialog stays free of IPC) and owned by
+   * the dialog's hook. */
+  directoryAt(path: string): Promise<DirectoryState>;
+  /** The machine's next free place — the "Use next available" action for
+   * an occupied or blocked path; null when none can be offered. */
   nextFreeLocation(
     currentPath: string,
   ): Promise<{ path: string; branch: string } | null>;

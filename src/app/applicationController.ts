@@ -21,6 +21,7 @@ import {
 import type { AgentOrchestrator } from "./agentOrchestrator";
 import type { PaneInputFocusPort } from "../presentation/paneInputFocusController";
 import type { PaneViewPort } from "../presentation/paneViewActions";
+import { intentOutcomeText } from "../presentation/lifecycleWords";
 
 /** The plugin side the controller drives: the one bootstrap at start, and
  * a plugin's dock tab revealed for its notification. */
@@ -91,6 +92,8 @@ export interface ApplicationControllerDeps {
    * roster degrades to what it always was rather than becoming a required
    * wiring step for every caller. */
   activityOf?: (paneId: string) => PaneActivity | undefined;
+  /** The teams the lifecycle machine says work in a folder. */
+  teamsIn(path: string): Promise<string[]>;
 }
 
 export function createApplicationController({
@@ -103,6 +106,7 @@ export function createApplicationController({
   mcpLibrary,
   registry = commands,
   activityOf = () => undefined,
+  teamsIn,
 }: ApplicationControllerDeps): ApplicationController {
   const actions = createDeckActions(deck);
   let ui: ApplicationUi | null = null;
@@ -152,6 +156,7 @@ export function createApplicationController({
         resumeAgent: orchestrator.resume,
         createPane: orchestrator.createPane,
         createTeam: orchestrator.createTeam,
+        teamsIn,
         activateTeam,
         requestDisbandTeam: (wsId, teamId) => requireUi().requestDisbandTeam(wsId, teamId),
         retryProvisioning: orchestrator.retryProvisioning,
@@ -266,9 +271,14 @@ export function createApplicationController({
       }
     },
 
+    // The form closes at once; the workspace lands, active, by the
+    // machine's command — or the machine's refusal is said.
     createWorkspace(config) {
-      orchestrator.createWorkspace(config);
       ui?.setCreating(false);
+      void orchestrator.createWorkspace(config).then((outcome) => {
+        const why = intentOutcomeText(outcome);
+        if (why !== null) ui?.pushAlert("Couldn't create the workspace", why);
+      });
     },
 
     dispose() {

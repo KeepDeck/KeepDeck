@@ -20,7 +20,7 @@ import {
   settle,
 } from "./testSupport";
 import type { DeckState, PaneIdle } from "./testSupport";
-import type { ResumeOutcome } from ".";
+import type { ResumeOutcome } from "../../domain/lifecycle";
 import { present } from "@keepdeck/plugin-api/testing";
 
 describe("agent orchestrator —a request that lands mid-flight", () => {

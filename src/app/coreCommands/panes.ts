@@ -1,8 +1,8 @@
 import type { CommandRegistry } from "../../domain/commands";
 import { paneDisplayTitle, teamOfPane } from "../../domain/deck";
 import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
-import { resumeRefusalText } from "../../presentation/resumeWords";
-import { suspendRefusalText } from "../../presentation/suspendWords";
+import { resumeOutcomeText } from "../../presentation/resumeWords";
+import { suspendResultText } from "../../presentation/suspendWords";
 import { requiredStr, str, text } from "./args";
 import type { CoreCommandDeps } from ".";
 import { targetPane, targetWorkspace } from "./targets";
@@ -113,10 +113,8 @@ export function registerPaneCommands(
         // A caller that hears "ok" must be able to believe it, and one that
         // hears "no" deserves the real reason — the same sentence the hotkey
         // shows, not a second guess at it.
-        const outcome = await deps.suspendAgent(ws.id, pane.id);
-        if (outcome !== "suspended") {
-          throw new Error(suspendRefusalText(outcome, label));
-        }
+        const refused = suspendResultText(await deps.suspendAgent(ws.id, pane.id), label);
+        if (refused !== null) throw new Error(refused);
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),
@@ -137,7 +135,7 @@ export function registerPaneCommands(
       ],
       // The inverse of `agent.suspend`. Without it an automation that parks an
       // agent has stranded it: nothing it can address brings the pane back.
-      run: (args) => {
+      run: async (args) => {
         const deck = deps.deck();
         const agents = deps.agents();
         const ws = targetWorkspace(deck, str(args, "workspace"));
@@ -145,11 +143,9 @@ export function registerPaneCommands(
         const label = paneDisplayTitle(pane, ws.panes.indexOf(pane), agents);
         // The flow decides and reports; guessing the answer here is what let
         // the sibling command claim success for a resume that did nothing.
-        // A switch rather than a chain of ifs, so a new outcome is a compile
-        // error here instead of silently reporting success for it.
-        const outcome = deps.resumeAgent(ws.id, pane.id);
-        if (outcome === "resuming") return { workspaceId: ws.id, paneId: pane.id };
-        throw new Error(resumeRefusalText(outcome, label));
+        const refused = resumeOutcomeText(await deps.resumeAgent(ws.id, pane.id), label);
+        if (refused !== null) throw new Error(refused);
+        return { workspaceId: ws.id, paneId: pane.id };
       },
     }),
     registry.register({

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ResumeRequest } from "../domain/deck";
-import { resumeRefusalText, teamResumeOffer, teamResumeRefusalText } from "./resumeWords";
+import { intentOutcomeText } from "./lifecycleWords";
+import { resumeOutcomeText, resumeRefusalText, teamResumeOffer, teamResumeRefusalText } from "./resumeWords";
 
 describe("resumeRefusalText", () => {
   it("gives every refusal its own sentence", () => {
@@ -34,6 +35,15 @@ describe("resumeRefusalText", () => {
     for (const outcome of every) {
       expect(resumeRefusalText(outcome, "Reviewer")).toContain("Reviewer");
     }
+  });
+});
+
+describe("resumeOutcomeText", () => {
+  it("says nothing of a pane rising, the deck's sentence for its refusal, and the machine's for its own", () => {
+    expect(resumeOutcomeText({ kind: "resuming" }, "Claude 1")).toBeNull();
+    expect(resumeOutcomeText({ kind: "blocked", why: "archived" }, "Claude 1")).toBe(resumeRefusalText("archived", "Claude 1"));
+    const unanswered = { kind: "unanswered", reply: { kind: "unavailable" } } as const;
+    expect(resumeOutcomeText(unanswered, "Claude 1")).toBe(intentOutcomeText(unanswered));
   });
 });
 

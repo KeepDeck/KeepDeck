@@ -18,15 +18,17 @@ import {
   landingTeamName,
   nextAutoTeamName,
   paneResumeBlock,
+  paneSuspendRefusal,
   sameDirectory,
   teamIdsOf,
   teamsOf,
   workspaceName,
   worktreeBaseDirOf,
+  type TeamActFacts,
   type TeamActs,
   type Workspace,
 } from "../../domain/deck";
-import type { IntentOutcome, PaneDraft, Site } from "../../domain/lifecycle";
+import type { AgentDraft, IntentOutcome, PaneDraft, ResumeOutcome, Site } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -38,12 +40,10 @@ import { mintTeamId, mintWorkspaceId } from "../ids";
 import type { ContinuationPlans } from "../lifecycle/continuationPlans";
 import { intentOutcomeOf } from "../lifecycle/outcome";
 import type {
-  AgentDraft,
   AgentOrchestrator,
   ContinueOptions,
   CreatePaneRequest,
   CreateTeamRequest,
-  ResumeOutcome,
   TranscriptLocatorPort,
 } from ".";
 
@@ -56,8 +56,10 @@ export interface LifecycleDoorsDeps {
   continuations: Pick<ContinuationPlans, "expect">;
   transcripts: TranscriptLocatorPort;
   teamActs(wsId: string, teamId: string): TeamActs | null;
-  /** Whether a plugin provides this agent now. */
-  agentAvailable(agentType: string): boolean;
+  /** What a pane's Suspend and Resume read beyond the deck — the ones a
+   * team's acts read: the funnel's folder verdict, the catalog, and whether
+   * the machine is suspending it. */
+  facts: TeamActFacts;
   /** Panes the person asked back: their old notes go and a start is owed. */
   askedBack(paneIds: readonly string[]): void;
   /** A restart the machine took on: the funnel owes the pane its next
@@ -186,7 +188,7 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     const ws = findWorkspace(workspaces(), wsId);
     const pane = ws?.panes.find((candidate) => candidate.id === paneId);
     if (!ws || !pane) return { kind: "blocked", why: "gone" };
-    const block = paneResumeBlock(ws, pane, deps.agentAvailable(pane.agentType));
+    const block = paneResumeBlock(ws, pane, deps.facts.agentAvailable(pane.agentType));
     if (block) return { kind: "blocked", why: block };
     // The old notes go and a start is owed BEFORE the pane can rise: the
     // machine's command may reach the deck, and the funnel act on it, before
@@ -219,7 +221,21 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
       });
     },
     retryProvisioning: (wsId, teamId) => ask({ kind: "retry", workspace: wsId, team: teamId }),
-    suspend: (wsId, paneId) => ask({ kind: "suspend", workspace: wsId, pane: paneId }),
+    /** Stop one pane and keep it. What the page can tell refuses it now —
+     * the same refusal a team's Suspend reads for each member — is said in
+     * the deck's own terms; the rest is the machine's to decide. */
+    async suspend(wsId, paneId) {
+      const ws = findWorkspace(workspaces(), wsId);
+      const pane = ws?.panes.find((candidate) => candidate.id === paneId);
+      if (!ws || !pane) return { kind: "blocked", why: "gone" };
+      const refusal = paneSuspendRefusal(ws, pane, {
+        blocked: deps.facts.blocked(paneId),
+        suspending: deps.facts.suspending(paneId),
+      });
+      if (refusal) return { kind: "blocked", why: refusal };
+      const outcome = await ask({ kind: "suspend", workspace: wsId, pane: paneId });
+      return outcome.kind === "accepted" ? { kind: "suspending" } : outcome;
+    },
     async suspendTeam(wsId, teamId, named) {
       const take = (deps.teamActs(wsId, teamId)?.suspend.take ?? []).filter((paneId) => named.includes(paneId));
       return Promise.all(take.map((paneId) => ask({ kind: "suspend", workspace: wsId, pane: paneId })));

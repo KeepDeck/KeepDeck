@@ -5,7 +5,9 @@ import {
   type Workspace,
 } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import type { IntentOutcome } from "../domain/lifecycle";
 import type { Notification } from "../domain/notifications";
+import { intentOutcomeText } from "../presentation/lifecycleWords";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions } from "./deckActions";
 import {
@@ -33,19 +35,14 @@ function dependencies() {
     bootstrapPlugins: vi.fn<ApplicationPlugins["bootstrapPlugins"]>(async () => {}),
     revealPluginDockTab: vi.fn<ApplicationPlugins["revealPluginDockTab"]>(() => true),
   } satisfies ApplicationPlugins;
+  const accepted: IntentOutcome = { kind: "accepted", op: 1, minted: { workspace: null, team: "team-1", panes: [] } };
   const orchestrator = {
-    suspend: vi.fn<ApplicationOrchestrator["suspend"]>(async () => "suspended"),
-    resume: vi.fn<ApplicationOrchestrator["resume"]>(() => "resuming"),
-    createPane: vi.fn<ApplicationOrchestrator["createPane"]>(() => ({
-      kind: "created",
-      teamId: "team-1",
-    })),
-    createTeam: vi.fn<ApplicationOrchestrator["createTeam"]>(() => ({
-      kind: "created",
-      teamId: "team-1",
-    })),
-    retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(),
-    createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(() => workspace()),
+    suspend: vi.fn<ApplicationOrchestrator["suspend"]>(async () => ({ kind: "suspending" })),
+    resume: vi.fn<ApplicationOrchestrator["resume"]>(async () => ({ kind: "resuming" })),
+    createPane: vi.fn<ApplicationOrchestrator["createPane"]>(async () => accepted),
+    createTeam: vi.fn<ApplicationOrchestrator["createTeam"]>(async () => accepted),
+    retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(async () => accepted),
+    createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(async () => accepted),
     reachOf: vi.fn<ApplicationOrchestrator["reachOf"]>(() => ({ kind: "running" })),
   } satisfies ApplicationOrchestrator;
   return { plugins, orchestrator };
@@ -92,6 +89,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry,
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
@@ -142,6 +140,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry,
+      teamsIn: async () => [],
     });
     controller.bindUi(ui());
     controller.start();
@@ -191,6 +190,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
@@ -234,6 +234,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
@@ -279,6 +280,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
@@ -288,7 +290,7 @@ describe("application controller", () => {
     expect(view.openUsage).toHaveBeenLastCalledWith("weekly", 1_000);
   });
 
-  it("creates the workspace and closes the form — a create is never refused", () => {
+  it("asks for the workspace and closes the form, and says the machine's refusal", async () => {
     const deck = createDeckStore();
     const { plugins, orchestrator } = dependencies();
     const controller = createApplicationController({
@@ -300,14 +302,22 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
 
     controller.createWorkspace({ name: "Workspace", cwd: "/repo", worktreeBaseDir: null });
+    await Promise.resolve();
 
     expect(orchestrator.createWorkspace).toHaveBeenCalledWith({ name: "Workspace", cwd: "/repo", worktreeBaseDir: null });
     expect(view.setCreating).toHaveBeenCalledWith(false);
     expect(view.pushAlert).not.toHaveBeenCalled();
+
+    // The machine's refusal is said, in its words.
+    const barred: IntentOutcome = { kind: "refused", refusal: { kind: "barrierUp" } };
+    orchestrator.createWorkspace.mockResolvedValueOnce(barred);
+    controller.createWorkspace({ name: "Other", cwd: "/other", worktreeBaseDir: null });
+    await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledWith("Couldn't create the workspace", intentOutcomeText(barred)));
   });
 });

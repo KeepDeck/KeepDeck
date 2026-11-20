@@ -3,28 +3,25 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { presetPick, type AgentDialogResult, type AgentInfo } from "../domain/agents";
-import {
-  TEAM_FULL_MESSAGE,
-  placementRefusalMessage,
-  type Workspace,
-} from "../domain/deck";
+import { TEAM_FULL_MESSAGE, type Workspace } from "../domain/deck";
+import type { IntentOutcome } from "../domain/lifecycle";
 import type { JournalRecords } from "../domain/journal";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { indexSearch, type SearchHit } from "../ipc/history";
+import { claimsOn, locationFor } from "../ipc/lifecycle";
+import { intentOutcomeText } from "../presentation/lifecycleWords";
 import { inspectRepo } from "../ipc/worktree";
 import { createAgentDoors } from "./agentDoors";
 import { useAgentDialog } from "./useAgentDialog";
-import type {
-  CreatePaneOutcome,
-  CreatePaneRequest,
-  CreateTeamOutcome,
-  CreateTeamRequest,
-} from "./agentOrchestrator";
+import type { CreatePaneRequest, CreateTeamRequest } from "./agentOrchestrator";
 import { present } from "@keepdeck/plugin-api/testing";
 
-// Per-path disk probes for suggestion filtering: paths in the map probe as a
-// non-empty non-worktree dir (blocked); anything else as missing (free).
-const blockedDirs = vi.hoisted(() => new Set<string>());
+// The machine's answers the dialog reads: its next free place, and who holds
+// a folder. Each case seeds what it needs.
+vi.mock("../ipc/lifecycle", () => ({
+  locationFor: vi.fn(async () => ({ place: { path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" }, held: null })),
+  claimsOn: vi.fn(async () => []),
+}));
 
 // The log lines the hook writes, to read what a confirmed dialog said.
 const logged = vi.hoisted((): string[] => []);
@@ -43,29 +40,13 @@ vi.mock("../ipc/history", async (importOriginal) => ({
   indexSearch: vi.fn(async () => ({ hits: [], total: 0 })),
 }));
 
-// The hook reaches the backend for repo inspection, name suggestions and path
-// probes; pin all three (suggestions follow the real Rust naming:
-// kd/<ws>/<i> ↔ kd-<ws>-<i>).
+// The hook reaches the backend for repo inspection.
 vi.mock("../ipc/worktree", () => ({
   inspectRepo: vi.fn(async () => ({
     isRepo: true,
     head: "abc",
     branch: "main",
   })),
-  suggestWorktree: async (workspace: string, index: number) => ({
-    branch: `kd/${workspace}/${index}`,
-    folder: `kd-${workspace}-${index}`,
-  }),
-  probeWorktree: async (path: string) => ({
-    exists: blockedDirs.has(path),
-    isWorktree: false,
-    empty: false,
-    branch: null,
-  }),
-  createWorktree: async () => {
-    throw new Error("not under test");
-  },
-  removeWorktree: async () => {},
 }));
 
 const workspace = (over: Partial<Workspace>): Workspace => ({
@@ -91,19 +72,20 @@ const MEMBER = { kind: "member" as const, teamId: "team-1" };
 /** The one owner of what a new pane's arrival entails, as this hook sees it.
  * Requests are recorded, not landed: what the dialog OFFERS is this file's
  * subject; what the orchestrator then does with it is its own. */
-const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
-  () => ({ kind: "created", teamId: "team-1" }),
-);
+const accepted = (team: string | null = null): IntentOutcome => ({
+  kind: "accepted",
+  op: 1,
+  minted: { workspace: null, team, panes: team ? [] : ["pane-9"] },
+});
+const createPane = vi.fn(async (_request: CreatePaneRequest) => accepted());
 /** The continuations the dialog's "Start from" routes into. Recorded here
  * too: this file's subject is the ROUTING — which continuation, with which
  * target — and what each one then does is the orchestrator's own test. */
-const resumeSession = vi.fn(() => Promise.resolve());
-const forkSession = vi.fn(() => Promise.resolve());
+const resumeSession = vi.fn(async () => accepted());
+const forkSession = vi.fn(async () => accepted());
 /** The "+ Team" door's own landing: a team and nothing else. */
-const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(() => ({
-  kind: "created",
-  teamId: "team-1",
-}));
+const createTeam = vi.fn(async (_request: CreateTeamRequest) => accepted("team-1"));
+const refusedWith = (reason: string): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", reason } });
 /** A deck as this file needs one: the workspaces the hook reads, and the
  * team entry the doors make after a "+ Team" — recorded, so a case can say
  * whether it happened. */
@@ -129,6 +111,12 @@ const doors = createAgentDoors({
     workspaces: () => currentDeck.workspaces,
     openTeam: (wsId, teamId) => currentDeck.openTeam(wsId, teamId),
   },
+  // Who works in a folder, as the machine would say: the teams the deck
+  // draws attached there.
+  teamsIn: async (path) =>
+    currentDeck.workspaces.flatMap((ws) =>
+      (ws.teams ?? []).filter((team) => team.location?.kind === "attached" && team.location.cwd === path).map((team) => team.id),
+    ),
 });
 /** Where a failed continuation reports. A dialog that just closes on a failed
  * fork reads as success, so the wiring is worth asserting. */
@@ -168,7 +156,8 @@ describe("useAgentDialog suggestions", () => {
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
-    blockedDirs.clear();
+    vi.mocked(locationFor).mockClear();
+    vi.mocked(claimsOn).mockClear();
     catalog = [];
     logged.length = 0;
     createPane.mockClear();
@@ -213,12 +202,11 @@ describe("useAgentDialog suggestions", () => {
     await confirm("claude", false);
     await confirm("plain", false);
 
-    // Each line names the pane the trace hangs on — the one the dialog made.
-    const pane = (n: number) => createPane.mock.calls[n][0].pane.id;
+    // Each line names the team the trace hangs on — the one the member joins.
     expect(logged.filter((line) => line.includes("dialog confirmed"))).toEqual([
-      `web:agents ${pane(0)}: member dialog confirmed — claude, YOLO on`,
-      `web:agents ${pane(1)}: member dialog confirmed — claude, YOLO off`,
-      `web:agents ${pane(2)}: member dialog confirmed — plain, YOLO off (the agent declares no YOLO)`,
+      "web:agents team-1: member dialog confirmed — claude, YOLO on",
+      "web:agents team-1: member dialog confirmed — claude, YOLO off",
+      "web:agents team-1: member dialog confirmed — plain, YOLO off (the agent declares no YOLO)",
     ]);
   });
 
@@ -357,111 +345,73 @@ describe("useAgentDialog suggestions", () => {
     });
     await act(async () => flow.forkPaneSession("ws-1", "p2"));
 
-    const fresh = offered().pane.id;
-    const plainFork = present(flow.dialog, "the second fork dialog").agentId;
     expect(logged.filter((line) => line.startsWith("web:agents "))).toEqual([
-      `web:agents ${fresh}: member dialog opened — YOLO starts off, the global default`,
-      `web:agents ${fresh}: YOLO toggled on in the dialog`,
-      `web:agents ${fresh}: YOLO toggled off in the dialog`,
-      `web:agents ${fresh}: YOLO toggled on in the dialog`,
-      `web:agents ${fresh}: member dialog confirmed — claude, YOLO on`,
-      `web:agents ${fork.agentId}: member dialog opened — YOLO starts on, as its source session ran`,
+      "web:agents team-1: member dialog opened — YOLO starts off, the global default",
+      "web:agents team-1: YOLO toggled on in the dialog",
+      "web:agents team-1: YOLO toggled off in the dialog",
+      "web:agents team-1: YOLO toggled on in the dialog",
+      "web:agents team-1: member dialog confirmed — claude, YOLO on",
+      "web:agents team-1: member dialog opened — YOLO starts on, as its source session ran",
       // What was continued is said beside the YOLO it sent: a start no flip
       // explains is the session's own.
-      `web:agents ${fork.agentId}: member dialog confirmed — claude, fork of s-9, YOLO on`,
-      `web:agents ${plainFork}: member dialog opened — YOLO starts off, as its source session ran`,
+      "web:agents team-1: member dialog confirmed — claude, fork of s-9, YOLO on",
+      "web:agents team-1: member dialog opened — YOLO starts off, as its source session ran",
     ]);
   });
 
-  it("prefills the first suggestion NOT held by a team", async () => {
-    // One pane → the naive suggestion is index 2, but a team already runs in
-    // kd-KeepDeck-2 (the reported bug): the prefill must skip to -3.
-    const ws = workspace({
-      teams: [
-        {
-          id: "team-1",
-          name: "two",
-          location: { kind: "attached", cwd: "/base/kd-KeepDeck-2", branch: "kd/KeepDeck/2" },
-        },
-      ],
-      panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
-    });
+  it("prefills the machine's next free place for a new team", async () => {
+    // Which number is free — not a team's, a create's, a cleanup's, nor
+    // taken on disk — is the machine's rule; the dialog opens on its answer.
+    vi.mocked(locationFor).mockResolvedValueOnce({ place: { path: "/base/kd-KeepDeck-3", branch: "kd/KeepDeck/3" }, held: null });
+    const ws = workspace({});
     await mount(ws);
     await act(async () => flow.openFor(ws));
+    expect(locationFor).toHaveBeenCalledWith("ws-1", null);
     expect(flow.dialog?.suggestedPath).toBe("/base/kd-KeepDeck-3");
     expect(flow.dialog?.suggestedBranch).toBe("kd/KeepDeck/3");
   });
 
-  it("prefill also skips a dir blocked on disk (the leftover-folder bug)", async () => {
-    // No pane holds kd-KeepDeck-1, but the folder exists with files (e.g. a
-    // worktree removed outside the app): the prefill must not open the dialog
-    // onto the blocked-path error — it skips to the first usable suggestion.
-    blockedDirs.add("/base/kd-KeepDeck-1");
+  it("nextFree answers the machine's next free place", async () => {
     const ws = workspace({});
     await mount(ws);
     await act(async () => flow.openFor(ws));
-    expect(flow.dialog?.suggestedPath).toBe("/base/kd-KeepDeck-2");
-    expect(flow.dialog?.suggestedBranch).toBe("kd/KeepDeck/2");
+    vi.mocked(locationFor).mockResolvedValueOnce({ place: { path: "/base/kd-KeepDeck-4", branch: "kd/KeepDeck/4" }, held: null });
+    expect(await flow.nextFree()).toEqual({ path: "/base/kd-KeepDeck-4", branch: "kd/KeepDeck/4" });
+    // A machine that cannot answer offers nothing; the field keeps its hint.
+    vi.mocked(locationFor).mockRejectedValueOnce(new Error("down"));
+    expect(await flow.nextFree()).toBeNull();
   });
 
-  it("nextFree skips blocked dirs too", async () => {
-    blockedDirs.add("/base/kd-KeepDeck-2");
-    const ws = workspace({
-      teams: [
-        {
-          id: "team-1",
-          name: "one",
-          location: { kind: "attached", cwd: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" },
-        },
-      ],
-      panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
-    });
-    await mount(ws);
-    await act(async () => flow.openFor(ws));
-    const free = await flow.nextFree("/base/kd-KeepDeck-1");
-    expect(free).toEqual({
-      path: "/base/kd-KeepDeck-3",
-      branch: "kd/KeepDeck/3",
-    });
-  });
-
-  it("without a base folder the path stays empty but a branch is still suggested", async () => {
+  it("without a base folder the path stays empty, and the machine is not asked", async () => {
     const ws = workspace({ worktreeBaseDir: null });
     await mount(ws);
     await act(async () => flow.openFor(ws));
     expect(flow.dialog?.suggestedPath).toBe("");
-    expect(flow.dialog?.suggestedBranch).toBe("kd/KeepDeck/1");
+    expect(flow.dialog?.suggestedBranch).toBe("");
+    expect(locationFor).not.toHaveBeenCalled();
   });
 
-  it("branchFor maps a canonical folder to its canonical branch, else the folder name", async () => {
+  it("branchFor gives the machine's branch for the folder it suggested, else the folder name", async () => {
     const ws = workspace({});
     await mount(ws);
     await act(async () => flow.openFor(ws)); // branchFor works on the open dialog
-    // The exact kd-<ws>-<n> shape resolves through the suggest IPC…
-    expect(await flow.branchFor("/anywhere/kd-KeepDeck-7")).toBe("kd/KeepDeck/7");
-    // …anything else — including a near-miss with a numeric tail — is taken
-    // verbatim as the branch (the backend sanitizes at create time).
+    expect(await flow.branchFor("/elsewhere/kd-KeepDeck-1")).toBe("kd/KeepDeck/1");
+    // Anything else is taken verbatim as the branch (the backend sanitizes
+    // at create time).
     expect(await flow.branchFor("/anywhere/fix-login")).toBe("fix-login");
-    expect(await flow.branchFor("/anywhere/foo-3")).toBe("foo-3");
+    expect(await flow.branchFor("/anywhere/kd-KeepDeck-7")).toBe("kd-KeepDeck-7");
     expect(await flow.branchFor("")).toBeNull();
   });
 
-  it("nextFree suggests beside the occupied path when the workspace has no base folder", async () => {
-    const ws = workspace({
-      worktreeBaseDir: null,
-      teams: [{ id: "team-1", name: "two", location: { kind: "attached", cwd: "/elsewhere/kd-KeepDeck-2" } }],
-      panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
-    });
+  it("asks the machine who holds a folder, as one spelling names it", async () => {
+    const ws = workspace({});
     await mount(ws);
-    await act(async () => flow.openFor(ws));
-    const free = await flow.nextFree("/elsewhere/kd-KeepDeck-2");
-    expect(free).toEqual({
-      path: "/elsewhere/kd-KeepDeck-3",
-      branch: "kd/KeepDeck/3",
-    });
+    vi.mocked(claimsOn).mockResolvedValueOnce([{ kind: "creation", op: 3 }]);
+    expect(await flow.directoryAt("/base/kd-KeepDeck-2/")).toBe("held");
+    expect(claimsOn).toHaveBeenCalledWith("/base/kd-KeepDeck-2");
   });
 
-  it("a picked base branch rides the new team's provisioning intent", async () => {
+  it("a picked base branch rides the new team's site", async () => {
     const ws = workspace({});
     const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
@@ -485,9 +435,10 @@ describe("useAgentDialog suggestions", () => {
     // A team and nothing else lands: no pane is offered.
     expect(createPane).not.toHaveBeenCalled();
     expect(createTeam).toHaveBeenCalledTimes(1);
-    expect(createTeam.mock.calls[0][0].placement).toMatchObject({
-      kind: "provisioning",
-      intent: { path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1", base: "develop" },
+    expect(createTeam.mock.calls[0][0].site).toEqual({
+      kind: "new",
+      place: { path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" },
+      base: "develop",
     });
   });
 
@@ -541,7 +492,7 @@ describe("useAgentDialog suggestions", () => {
     // Remote is the pane's own placement; its thin client joins the team
     // by id like any member — no directory of its own is asked for.
     expect(offered().team).toBe("team-1");
-    expect("placement" in offered()).toBe(false);
+    expect("site" in offered()).toBe(false);
   });
 
   it("does not open after the workspace is replaced during repo inspection", async () => {
@@ -583,7 +534,7 @@ describe("useAgentDialog suggestions", () => {
     const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, MEMBER));
-    createPane.mockReturnValueOnce({ kind: "full" });
+    createPane.mockResolvedValueOnce(refusedWith(TEAM_FULL_MESSAGE));
 
     await act(async () =>
       flow.confirm({
@@ -682,10 +633,12 @@ describe("useAgentDialog start-from routing", () => {
         session: { mode: "resume", handle },
       }),
     );
+    // No role picked: it rides as asked — empty — for the role rule to refuse.
     expect(resumeSession).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
       team: "team-1",
       name: "api",
       yolo: false,
+      role: "",
     });
     expect(forkSession).not.toHaveBeenCalled();
     expect(createPane).not.toHaveBeenCalled(); // the journal flow owns the pane
@@ -710,13 +663,14 @@ describe("useAgentDialog start-from routing", () => {
       team: "team-1",
       name: undefined,
       yolo: true,
+      role: "",
     });
   });
 
   it("reports a failed resume — a dialog that just closes reads as success", async () => {
     const ws = withTeam();
     await mountAndOpen(ws);
-    resumeSession.mockRejectedValueOnce(new Error("Agent could not prepare a resume plan"));
+    resumeSession.mockResolvedValueOnce(refusedWith("the agent could not prepare a resume plan"));
     await act(async () =>
       flow.confirm({
         agentType: "claude",
@@ -735,7 +689,7 @@ describe("useAgentDialog start-from routing", () => {
   it("reports a failed fork through its OWN notice, not the resume one", async () => {
     const ws = withTeam();
     await mountAndOpen(ws);
-    forkSession.mockRejectedValueOnce(new Error("opencode fork: unexpected id layout"));
+    forkSession.mockResolvedValueOnce(refusedWith("opencode fork: unexpected id layout"));
     await act(async () =>
       flow.confirm({
         agentType: "claude",
@@ -782,7 +736,7 @@ describe("useAgentDialog start-from routing", () => {
         "ws-1",
         handle,
         { kind: "dir", cwd: "/repo" },
-        { name: undefined, yolo: false, team: "team-1" },
+        { name: undefined, yolo: false, role: "", team: "team-1" },
       );
     }
     expect(createPane).not.toHaveBeenCalled();
@@ -806,7 +760,7 @@ describe("useAgentDialog start-from routing", () => {
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },
-      { name: undefined, yolo: true, team: "team-1" },
+      { name: undefined, yolo: true, role: "", team: "team-1" },
     );
   });
 
@@ -881,9 +835,9 @@ describe("useAgentDialog targets", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     createPane.mockClear();
-    createPane.mockImplementation(() => ({ kind: "created", teamId: "team-1" }));
+    createPane.mockImplementation(async () => accepted());
     createTeam.mockClear();
-    createTeam.mockImplementation(() => ({ kind: "created", teamId: "team-2" }));
+    createTeam.mockImplementation(async () => accepted("team-2"));
     forkSession.mockClear();
     notices.onCreateFailed.mockClear();
     notices.onTeamFailed.mockClear();
@@ -980,7 +934,7 @@ describe("useAgentDialog targets", () => {
 
     await act(async () => flow.confirm({ ...fresh(), role: "impl-1" }));
     expect(offered()).toMatchObject({ team: "team-1", role: "impl-1" });
-    expect("placement" in offered()).toBe(false);
+    expect("site" in offered()).toBe(false);
     expect("teamName" in offered()).toBe(false);
     expect(createTeam).not.toHaveBeenCalled();
     // Joining a team is not entering it: the stage stays where it was.
@@ -1060,34 +1014,31 @@ describe("useAgentDialog targets", () => {
     // A team, at the directory the dialog chose, and no pane: the agents
     // come later, one at a time, through "+ Member".
     expect(createTeam).toHaveBeenCalledTimes(1);
-    expect(createTeam.mock.calls[0][0]).toMatchObject({
+    expect(createTeam.mock.calls[0][0]).toEqual({
       workspace: { id: "ws-1", instance: ws.instance },
       name: "docs",
-      placement: {
-        kind: "provisioning",
-        intent: { repo: "/repo", path: "/base/kd-KeepDeck-2", branch: "kd/KeepDeck/2", base: "develop" },
-      },
+      site: { kind: "new", place: { path: "/base/kd-KeepDeck-2", branch: "kd/KeepDeck/2" }, base: "develop" },
     });
     expect(createPane).not.toHaveBeenCalled();
     expect(deck.openTeam).toHaveBeenCalledWith("ws-1", "team-2");
   });
 
-  it("says so when the team is full, when the directory is another team's, and when the name is taken", async () => {
+  it("says so when the team is full, when the machine refuses the place, and when the name is taken", async () => {
     const ws = teamed();
     const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws, { kind: "member", teamId: "team-1" }));
-    createPane.mockReturnValueOnce({ kind: "full" });
-    await act(async () => flow.confirm(fresh()));
+    createPane.mockResolvedValueOnce(refusedWith(TEAM_FULL_MESSAGE));
+    await act(async () => flow.confirm({ ...fresh(), role: "impl-1" }));
     expect(notices.onCreateFailed).toHaveBeenLastCalledWith(TEAM_FULL_MESSAGE);
 
     await act(async () => flow.openFor(ws));
-    createTeam.mockReturnValueOnce({ kind: "held", why: "creating" });
+    const held: IntentOutcome = { kind: "refused", refusal: { kind: "locationHeld" } };
+    createTeam.mockResolvedValueOnce(held);
     await act(async () => flow.confirm({ ...fresh(), teamName: "docs" }));
-    expect(notices.onTeamFailed).toHaveBeenLastCalledWith(placementRefusalMessage("creating"));
+    expect(notices.onTeamFailed).toHaveBeenLastCalledWith(intentOutcomeText(held));
 
     await act(async () => flow.openFor(ws));
-    createTeam.mockReturnValueOnce({ kind: "taken" });
     await act(async () => flow.confirm({ ...fresh(), teamName: "api" }));
     expect(notices.onTeamFailed).toHaveBeenLastCalledWith(
       expect.stringContaining("“api” already exists"),
@@ -1095,31 +1046,32 @@ describe("useAgentDialog targets", () => {
     expect(deck.openTeam).not.toHaveBeenCalled();
   });
 
-  it("asks instead of failing when the directory is another team's, and re-issues the create with the answer", async () => {
+  /** "+ Team" at the folder team-1 already works in. */
+  const intoTeamOnes = (): AgentDialogResult => ({
+    ...fresh(),
+    teamName: "docs",
+    location: { kind: "existing", path: "/base/kd-KeepDeck-1", branch: "kd/KeepDeck/1" },
+  });
+
+  it("asks instead of failing when the directory is another team's, and makes the team on the answer", async () => {
     const ws = teamed();
     const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws));
-    createTeam.mockReturnValueOnce({
-      kind: "shared",
-      directory: "/repo",
-      holder: { teamId: "team-1", teamName: "api" },
-    });
-    await act(async () => flow.confirm({ ...fresh(), teamName: "docs" }));
-    // Not a failure — nobody has been asked yet.
+    await act(async () => flow.confirm(intoTeamOnes()));
+    // Not a failure — nobody has been asked yet, and nothing was made.
     expect(notices.onTeamFailed).not.toHaveBeenCalled();
+    expect(createTeam).not.toHaveBeenCalled();
     expect(flow.sharedAsk).toMatchObject({
-      path: "/repo",
+      path: "/base/kd-KeepDeck-1",
       holder: { teamId: "team-1", teamName: "api" },
     });
     // The "+ Team" dialog is closed while the question stands.
     expect(flow.dialog).toBeNull();
 
-    createTeam.mockReturnValueOnce({ kind: "created", teamId: "team-2" });
     await act(async () => present(flow.sharedAsk, "the shared-name ask").confirm());
-    // The SAME create, now carrying the answer.
-    expect(createTeam).toHaveBeenLastCalledWith(
-      expect.objectContaining({ name: "docs", shared: true }),
+    expect(createTeam).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "docs", site: { kind: "existing", cwd: "/base/kd-KeepDeck-1" } }),
     );
     expect(deck.openTeam).toHaveBeenCalledWith("ws-1", "team-2");
     expect(flow.sharedAsk).toBeNull();
@@ -1130,12 +1082,7 @@ describe("useAgentDialog targets", () => {
     const deck = deckOf(ws);
     await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws));
-    createTeam.mockReturnValueOnce({
-      kind: "shared",
-      directory: "/repo",
-      holder: { teamId: "team-1", teamName: "api" },
-    });
-    await act(async () => flow.confirm({ ...fresh(), teamName: "docs" }));
+    await act(async () => flow.confirm(intoTeamOnes()));
     createTeam.mockClear();
     await act(async () => present(flow.sharedAsk, "the shared-name ask").cancel());
     expect(flow.sharedAsk).toBeNull();

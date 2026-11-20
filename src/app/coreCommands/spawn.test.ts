@@ -16,6 +16,7 @@ import {
   WORKSPACE_GONE_MESSAGE,
   paneProvisioning,
 } from "../../domain/deck";
+import { intentOutcomeText } from "../../presentation/lifecycleWords";
 import { deliverTask } from "./deliverTask";
 import { workspaceArchivedMessage } from "./targets";
 import { registerPaneInput } from "../paneInput";
@@ -47,26 +48,30 @@ describe("agent.spawn", () => {
     expect(deck.selectPane).toHaveBeenCalledWith("ws-1", stringOf(value.paneId, "pane id"));
   });
 
-  it("provisions the first free worktree in a repo workspace with a base dir", async () => {
+  it("asks for a new worktree at the machine's next free place in a repo workspace with a base dir", async () => {
     repoMode.isRepo = true;
-    const { registry, deck } = setup([
+    const { registry, deck, createPane } = setup([
       workspace({ worktreeBaseDir: "/wt", panes: [{ id: "p0", agentType: "claude" }] }),
     ]);
     const result = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(createPane.mock.calls[0][0].site).toEqual({ kind: "new", place: null, base: null });
     const pane = deck.workspaces[0].panes[1];
     const card = paneProvisioning(deck.workspaces[0], pane);
-    expect(card).toMatchObject({
-      intent: { repo: "/repo", branch: "kd/web/2", index: 2 },
+    // The answer names the pane the machine made and the worktree ahead —
+    // read off the pane as the deck holds it.
+    expect(recordOf(result.value, "spawn result")).toMatchObject({
+      paneId: pane.id,
+      worktree: { path: card?.intent.path, branch: card?.intent.branch },
     });
-    expect(card?.intent.path.endsWith("kd-web-2")).toBe(true);
-    // The answer names the worktree ahead — read off the pane as the deck
-    // holds it, not off the literal the command built before landing it.
-    expect(recordOf(result.value, "spawn result").worktree).toEqual({
-      path: card?.intent.path,
-      branch: "kd/web/2",
-    });
+  });
+
+  it("asks for the root without a base folder, or outside a repository", async () => {
+    repoMode.isRepo = true;
+    const { registry, createPane } = setup([workspace({ worktreeBaseDir: null })]);
+    await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
+    expect(createPane.mock.calls[0][0].site).toBeUndefined();
   });
 
   it("refuses a role the deck does not know, even for a team of its own", async () => {
@@ -85,19 +90,20 @@ describe("agent.spawn", () => {
 
   it("reports a refusal instead of a paneId that was never added", async () => {
     // The landing's own refusals, which this command translates. Reporting a
-    // paneId for a pane that is not in the deck is the failure the switch
-    // exists to prevent — and the worktree is already on disk by then.
+    // paneId for a pane that is not in the deck is the failure this exists
+    // to prevent.
     const { registry, createPane } = setup([workspace({})]);
 
-    createPane.mockReturnValueOnce({ kind: "full" });
+    createPane.mockResolvedValueOnce({ kind: "refused", refusal: { kind: "rejected", reason: TEAM_FULL_MESSAGE } });
     const full = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
     expect(full.ok).toBe(false);
     if (!full.ok) expect(full.error.message).toBe(TEAM_FULL_MESSAGE);
 
-    createPane.mockReturnValueOnce({ kind: "gone" });
-    const gone = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
-    expect(gone.ok).toBe(false);
-    if (!gone.ok) expect(gone.error.message).toBe(WORKSPACE_GONE_MESSAGE);
+    const held = { kind: "refused", refusal: { kind: "locationHeld" } } as const;
+    createPane.mockResolvedValueOnce(held);
+    const refused = await registry.execute("agent.spawn", { role: "lead", workspace: "web" }, HOST);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.message).toBe(intentOutcomeText(held));
   });
 
   it("honors the global YOLO default, gated on the agent's support", async () => {
@@ -208,7 +214,8 @@ describe("agent.spawn", () => {
       new Promise((resolve) => {
         finishInspect = resolve;
       });
-    const workspaces = [workspace({})];
+    // A base folder: the repo inspect is the await the archive lands across.
+    const workspaces = [workspace({ worktreeBaseDir: "/wt" })];
     const { registry, createPane } = setup(workspaces);
 
     const pending = registry.execute("agent.spawn", { role: "lead", workspace: "web", agentType: "codex" }, HOST);
@@ -232,7 +239,7 @@ describe("agent.spawn", () => {
       new Promise((resolve) => {
         finishInspect = resolve;
       });
-    const workspaces = [workspace({})];
+    const workspaces = [workspace({ worktreeBaseDir: "/wt" })];
     const { registry, deck, createPane } = setup(workspaces);
 
     const pending = registry.execute(

@@ -11,7 +11,7 @@
  * makes a promise about what a later close will do, and a promise assembled
  * inside a view can only be checked by rendering the view.
  */
-import type { DirectoryHolder } from "./agentOrchestrator";
+import type { DirectoryHolder } from "../domain/deck";
 
 /** Who is in the directory, said once. */
 function holderPhrase(holder: DirectoryHolder): string {

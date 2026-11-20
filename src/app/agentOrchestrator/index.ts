@@ -1,7 +1,7 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { CwdArmAsk, McpAccessAsk, SpawnPlan } from "../spawnSpecs";
-import type { AgentReach, PaneLocation, ResumeRequest, SpawnConfig, TeamActs } from "../../domain/deck";
-import type { Consent, IntentOutcome, Site } from "../../domain/lifecycle";
+import type { AgentReach, SpawnConfig, TeamActs } from "../../domain/deck";
+import type { AgentDraft, Consent, IntentOutcome, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -46,7 +46,7 @@ export interface AgentOrchestrator {
   /** Ask again for a team's worktree whose creation failed. */
   retryProvisioning(wsId: string, teamId: string): Promise<IntentOutcome>;
   /** Stop an agent while preserving its resumable pane. */
-  suspend(wsId: string, paneId: string): Promise<IntentOutcome>;
+  suspend(wsId: string, paneId: string): Promise<SuspendResult>;
   /** Suspend the members of a team its confirm NAMED that the team's Suspend
    * would still take now — never one it did not name. */
   suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<IntentOutcome[]>;
@@ -138,22 +138,6 @@ export interface OccupiedNote {
   registry: "live" | "unknown";
   /** The conversation's own name, when the registry knew one. */
   name: string | null;
-}
-
-/** How asking a stopped pane back ended: it is rising, it cannot rise now
- * (why, in the deck's own terms), or the machine refused or did not answer. */
-export type ResumeOutcome =
-  | { kind: "resuming" }
-  | { kind: "blocked"; why: Exclude<ResumeRequest, "resuming"> }
-  | Exclude<IntentOutcome, { kind: "accepted" }>;
-
-/** An agent as a request describes it: what the deck writes for it. */
-export interface AgentDraft {
-  agentType: string;
-  name?: string;
-  yolo?: boolean;
-  /** A remote endpoint is its own; a folder never is. */
-  location?: PaneLocation;
 }
 
 export interface CreatePaneRequest {

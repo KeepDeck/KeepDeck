@@ -11,28 +11,51 @@ import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
 import {
-  MAX_PANES,
+  memberRefusal,
   nextAutoTeamName,
+  paneId,
+  sameDirectory,
   teamIdsOf,
   teamNameTaken,
   updateWorkspace,
   type AgentReach,
+  type TeamLocation,
   type Workspace,
 } from "../../domain/deck";
 import { testTeamId } from "../../domain/deck/teams/testSupport";
-import { admitRole } from "../../domain/mail";
+import type { IntentOutcome, Minted, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
+import { admitRole, roleRefusalMessage } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
-import type {
-  CreatePaneOutcome,
-  CreatePaneRequest,
-  CreateTeamOutcome,
-  CreateTeamRequest,
-} from "../agentOrchestrator";
+import type { CreatePaneRequest, CreateTeamRequest } from "../agentOrchestrator";
 import { fakeMcpLibrary } from "../mcpLibrary.fake";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
 import { registerCoreCommands, type CommandDeck } from ".";
-import type { ResumeRequest, SuspendOutcome } from "../../domain/deck";
+
+const GONE: IntentOutcome = { kind: "refused", refusal: { kind: "notFound" } };
+const rejected = (reason: string): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", reason } });
+
+/** Where the deck draws a team the machine made at `site`: attached to the
+ * root or a folder that exists, or a worktree card heading for its place —
+ * the one typed, else the workspace's first. */
+function locationAt(ws: Workspace, site: Site): TeamLocation {
+  switch (site.kind) {
+    case "root":
+      return { kind: "attached", cwd: ws.cwd };
+    case "existing":
+      return { kind: "attached", cwd: site.cwd };
+    case "new":
+      return {
+        kind: "provisioning",
+        intent: {
+          repo: ws.cwd,
+          path: site.place?.path ?? `${ws.worktreeBaseDir ?? "/wt"}/kd-${ws.name}-1`,
+          branch: site.place?.branch ?? `kd/${ws.name}/1`,
+          index: 0,
+        },
+      };
+  }
+}
 
 export const HOST = { kind: "host" } as const;
 
@@ -149,77 +172,67 @@ export function setup(workspaces: Workspace[]) {
   const activateTeam = vi.fn();
   const requestDisbandTeam = vi.fn();
   const retryProvisioning = vi.fn();
-  const suspendAgent = vi.fn<
-    (wsId: string, paneId: string) => Promise<SuspendOutcome>
-  >(() => Promise.resolve("suspended"));
-  const resumeAgent = vi.fn<(wsId: string, paneId: string) => ResumeRequest>(
-    () => "resuming",
-  );
-  // The landing, as a double: a request naming a team joins it (a team not
-  // here refuses, a full one refuses), any other request mints a team at
-  // the directory it asked for (the root when it asked for none) under the
-  // name it gave, and the pane joins under the role it asked for when free
-  // — the shape the real landing leaves, minus the join-the-holder rule the
-  // orchestrator's own suite pins.
-  const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
-    ({ workspace: ref, pane, placement, team, role, teamName }) => {
-      const ws = workspaces.find(
-        (candidate) =>
-          candidate.id === ref.id && candidate.instance === ref.instance,
-      );
-      if (!ws) return { kind: "gone" };
-      let teamId: string;
-      if (team !== undefined) {
-        if (!ws.teams?.some((candidate) => candidate.id === team)) {
-          return { kind: "held", why: "refused" };
-        }
-        teamId = team;
-      } else {
-        teamId = testTeamId(teamIdsOf(workspaces));
-        ws.teams = [
-          ...(ws.teams ?? []),
-          {
-            id: teamId,
-            name: teamName ?? teamId,
-            location: placement ?? { kind: "attached", cwd: ws.cwd },
-          },
-        ];
-      }
-      if (ws.panes.filter((candidate) => candidate.team?.teamId === teamId).length >= MAX_PANES) {
-        return { kind: "full" };
-      }
-      // The one rule the real landing asks, asked here too rather than
-      // re-spelled: a hand-rolled "taken → suggest" lived here once and
-      // answered "created" for a role the landing would refuse.
-      const admitted = admitRole(ws, teamId, role);
-      if (!admitted.ok) return { kind: "role", why: admitted.why, role: admitted.role, open: admitted.open };
-      ws.panes.push({ ...pane, team: { teamId, role: admitted.role } });
-      return { kind: "created", teamId };
-    },
-  );
+  const suspendAgent = vi.fn(async (_wsId: string, _paneId: string): Promise<SuspendResult> => ({ kind: "suspending" }));
+  const resumeAgent = vi.fn(async (_wsId: string, _paneId: string): Promise<ResumeOutcome> => ({ kind: "resuming" }));
+  const lifetime = (ref: CreatePaneRequest["workspace"]) =>
+    workspaces.find((candidate) => candidate.id === ref.id && candidate.instance === ref.instance);
+  let ops = 0;
+  /** What the machine answers for what it made: the next op, and its ids. */
+  const accepted = (minted: Partial<Minted>): IntentOutcome => {
+    ops += 1;
+    return { kind: "accepted", op: ops, minted: { workspace: null, team: null, panes: [], ...minted } };
+  };
+  /** The next pane id no workspace holds. */
+  const nextPaneId = () =>
+    paneId(1 + Math.max(0, ...workspaces.flatMap((ws) => ws.panes.map((pane) => Number(/^pane-(\d+)$/.exec(pane.id)?.[1] ?? 0)))));
+  // The landing, as a double of the machine and the deck owner together: a
+  // request naming a team joins it (a team not here refuses), any other
+  // request makes a team at the site it asked for (the root when it asked
+  // for none) under the name it gave, and the pane joins under the role it
+  // asked for — refused by the deck's own cap and role rule, in their own
+  // words, before anything is written. The ids are the test's predictable
+  // ones where production's are the machine's.
+  const createPane = vi.fn(async ({ workspace: ref, pane, site, team, role, teamName }: CreatePaneRequest): Promise<IntentOutcome> => {
+    const ws = lifetime(ref);
+    if (!ws) return GONE;
+    if (team !== undefined && !ws.teams?.some((candidate) => candidate.id === team)) return rejected("the team is gone");
+    const teamId = team ?? testTeamId(teamIdsOf(workspaces));
+    const fresh = team === undefined ? { id: teamId, name: teamName ?? nextAutoTeamName(ws), location: locationAt(ws, site ?? { kind: "root" }) } : null;
+    const landing: Workspace = fresh ? { ...ws, teams: [...(ws.teams ?? []), fresh] } : ws;
+    const full = memberRefusal(landing, teamId);
+    if (full !== null) return rejected(full);
+    // The one rule the real deck owner asks, asked here too rather than
+    // re-spelled: a hand-rolled "taken → suggest" lived here once and
+    // answered "created" for a role the landing would refuse.
+    const admitted = admitRole(landing, teamId, role);
+    if (!admitted.ok) return rejected(roleRefusalMessage(admitted.why, admitted.role, admitted.open));
+    const id = nextPaneId();
+    ws.teams = landing.teams;
+    ws.panes.push({ id, ...pane, team: { teamId, role: admitted.role } });
+    return accepted({ team: fresh?.id ?? null, panes: [id] });
+  });
   /**
-   * The team door, as a double: a team minted EMPTY at the directory it asked
-   * for, under the name it gave ("Team N" for none).
-   *
-   * Nothing the real door DECIDES is re-implemented here — the auto-name
-   * comes from `nextAutoTeamName`, the helper production names with, and
-   * whether a directory is free is the lifecycle machine's, so a refusal is
-   * reached by stubbing this mock's return. The id is the test's predictable
-   * `testTeamId` where production's comes from the machine.
+   * The team door, as a double: a team made EMPTY at the site it asked for,
+   * under the name it gave ("Team N" for none) — refused, as the deck
+   * refuses it, under a name a team here holds.
    */
-  const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(
-    ({ workspace: ref, name, placement }) => {
-      const ws = workspaces.find(
-        (candidate) =>
-          candidate.id === ref.id && candidate.instance === ref.instance,
-      );
-      if (!ws) return { kind: "gone" };
-      const teamName = name.trim() || nextAutoTeamName(ws);
-      if (teamNameTaken(ws, teamName)) return { kind: "taken" };
-      const id = testTeamId(teamIdsOf(workspaces));
-      ws.teams = [...(ws.teams ?? []), { id, name: teamName, location: placement }];
-      return { kind: "created", teamId: id };
-    },
+  const createTeam = vi.fn(async ({ workspace: ref, name, site }: CreateTeamRequest): Promise<IntentOutcome> => {
+    const ws = lifetime(ref);
+    if (!ws) return GONE;
+    const teamName = name.trim() || nextAutoTeamName(ws);
+    if (teamNameTaken(ws, teamName)) return rejected("the deck took no such team");
+    const id = testTeamId(teamIdsOf(workspaces));
+    ws.teams = [...(ws.teams ?? []), { id, name: teamName, location: locationAt(ws, site) }];
+    return accepted({ team: id });
+  });
+  /** The machine's word on who works in a folder: here, the teams the deck
+   * draws attached there. */
+  const teamsIn = vi.fn(async (path: string) =>
+    workspaces.flatMap((ws) =>
+      (ws.teams ?? [])
+        .filter((candidate) => candidate.location?.kind === "attached" && sameDirectory(candidate.location.cwd, path))
+        .map((candidate) => candidate.id),
+    ),
   );
   const openSettings = vi.fn(() => true);
   const openUsage = vi.fn(() => true);
@@ -245,6 +258,7 @@ export function setup(workspaces: Workspace[]) {
     resumeAgent,
     createPane,
     createTeam,
+    teamsIn,
     activateTeam,
     requestDisbandTeam,
     retryProvisioning,
@@ -266,6 +280,7 @@ export function setup(workspaces: Workspace[]) {
     resumeAgent,
     createPane,
     createTeam,
+    teamsIn,
     activateTeam,
     requestDisbandTeam,
     retryProvisioning,

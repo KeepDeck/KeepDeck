@@ -199,7 +199,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     continuations,
     transcripts: deps.transcripts,
     teamActs,
-    agentAvailable: (agentType) => agents.commands().has(agentType),
+    facts: teamFacts,
     askedBack(paneIds) {
       if (paneIds.filter((paneId) => runView.clearNotes(paneId)).length > 0) publish();
       for (const paneId of paneIds) startOwed.add(paneId);

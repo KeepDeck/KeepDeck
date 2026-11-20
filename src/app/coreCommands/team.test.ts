@@ -9,7 +9,8 @@ import {
   workspace,
 } from "./testSupport";
 import { beforeEach, describe, expect, it } from "vitest";
-import { WORKSPACE_GONE_MESSAGE, type Workspace } from "../../domain/deck";
+import type { Workspace } from "../../domain/deck";
+import { intentOutcomeText } from "../../presentation/lifecycleWords";
 import { recordOf } from "../../testing/values.test-support";
 
 beforeEach(() => {
@@ -45,16 +46,13 @@ describe("team.create", () => {
       worktree: { path: "/wt/kd-web-1", branch: "kd/web/1" },
     });
     const ws = deck.workspaces[0];
-    expect(ws.teams?.[0]).toMatchObject({
-      name: "api",
-      location: { kind: "provisioning", intent: { repo: "/repo", branch: "kd/web/1", index: 1 } },
-    });
     // The same door "+ Team" goes through, and no agent behind it: the
     // agents come through team.add, one at a time, each under its role.
+    // The place is the machine's next free one.
     expect(createTeam).toHaveBeenCalledExactlyOnceWith({
       workspace: { id: "ws-1", instance: ws.instance },
       name: "api",
-      placement: ws.teams?.[0].location,
+      site: { kind: "new", place: null, base: null },
     });
     expect(ws.panes).toEqual([]);
   });
@@ -104,46 +102,43 @@ describe("team.create", () => {
   });
 
   it("refuses a directory a team here works in unasked — naming the team, and the way to mean it", async () => {
-    const { registry, createTeam } = setup([teamed()]);
-    createTeam.mockReturnValueOnce({
-      kind: "shared",
-      directory: "/wt/api",
-      holder: { teamId: "team-1", teamName: "api" },
-    });
+    const { registry, createTeam, teamsIn } = setup([teamed()]);
     const result = await registry.execute(
       "team.create",
       { workspace: "web", name: "second", directory: "/wt/api/" },
       HOST,
     );
     expect(result.ok).toBe(false);
+    // The machine is asked about the folder as one spelling names it.
+    expect(teamsIn).toHaveBeenCalledWith("/wt/api");
     // Joining is what an agent usually means, so the refusal names the team
     // team.add would put it on — and the flag for when it meant the other.
     expect(message(result)).toContain("team-1");
     expect(message(result)).toContain("shared: true");
+    expect(createTeam).not.toHaveBeenCalled();
   });
 
-  it("says a worktree create is heading there, which no flag can overrule", async () => {
+  it("says the machine's refusal of a held place, which no flag can overrule", async () => {
     const { registry, createTeam } = setup([teamed()]);
-    createTeam.mockReturnValueOnce({ kind: "held", why: "creating" });
+    const held = { kind: "refused", refusal: { kind: "locationHeld" } } as const;
+    createTeam.mockResolvedValueOnce(held);
     const result = await registry.execute(
       "team.create",
       { workspace: "web", name: "second", directory: "/wt/pending", shared: true },
       HOST,
     );
     expect(result.ok).toBe(false);
-    expect(message(result)).toContain("still being created");
+    expect(message(result)).toBe(intentOutcomeText(held));
   });
 
   it("never points an agent at a team.add it cannot reach — a holder abroad is named as such", async () => {
     // team.add resolves a team inside the CALLING workspace only. Saying
     // "team.add puts an agent on it" about a team in another workspace sends
     // the agent to an error; the two cases were two messages for that reason.
-    const { registry, createTeam } = setup([teamed()]);
-    createTeam.mockReturnValueOnce({
-      kind: "shared",
-      directory: "/wt/api",
-      holder: { teamId: "team-1", teamName: "api", workspace: "site" },
-    });
+    const { registry } = setup([
+      workspace({}),
+      workspace({ id: "ws-2", name: "site", teams: [{ id: "team-9", name: "api", location: { kind: "attached", cwd: "/wt/api" } }] }),
+    ]);
     const result = await registry.execute(
       "team.create",
       { workspace: "web", name: "second", directory: "/wt/api" },
@@ -216,14 +211,15 @@ describe("team.create", () => {
     // The landing's own refusal, translated: a caller that got a teamId
     // for a team no workspace holds would go on addressing it.
     const { registry, createTeam } = setup([workspace({})]);
-    createTeam.mockReturnValueOnce({ kind: "gone" });
+    const gone = { kind: "refused", refusal: { kind: "notFound" } } as const;
+    createTeam.mockResolvedValueOnce(gone);
     const result = await registry.execute(
       "team.create",
       { workspace: "web", directory: "root" },
       HOST,
     );
     expect(result.ok).toBe(false);
-    expect(message(result)).toBe(WORKSPACE_GONE_MESSAGE);
+    expect(message(result)).toBe(intentOutcomeText(gone));
   });
 });
 

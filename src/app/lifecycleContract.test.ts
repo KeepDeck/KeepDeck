@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   isForgotten,
+  type Claim,
   type Consent,
   type DeckFacts,
   type DeckLoad,
@@ -12,6 +13,7 @@ import {
   type Site,
 } from "../domain/lifecycle";
 import type { PanePhase as WirePanePhase } from "../ipc/generated/lifecycle/PanePhase";
+import type { Claim as WireClaim } from "../ipc/generated/lifecycle/Claim";
 import type { Consent as WireConsent } from "../ipc/generated/lifecycle/Consent";
 import type { DeckFacts as WireDeckFacts } from "../ipc/generated/lifecycle/DeckFacts";
 import type { Minted as WireMinted } from "../ipc/generated/lifecycle/Minted";
@@ -40,6 +42,7 @@ describe("the lifecycle's wire, as the page takes it", () => {
     expectTypeOf<Consent>().toEqualTypeOf<WireConsent>();
     expectTypeOf<Site>().toEqualTypeOf<WireSite>();
     expectTypeOf<PanePhase>().toEqualTypeOf<WirePanePhase>();
+    expectTypeOf<Claim>().toEqualTypeOf<WireClaim>();
   });
 
   it("calls a source forgotten exactly when Rust does", () => {
