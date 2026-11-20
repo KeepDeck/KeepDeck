@@ -4,7 +4,7 @@
 use super::{capture, create, Kind, State};
 use crate::dir::Dir;
 use crate::ids::{OpId, PaneId, SessionId, TeamId, WorkspaceId};
-use crate::model::{Folder, Intent, Place, Refusal};
+use crate::model::{Consent, Folder, Intent, Place, Refusal};
 use crate::places;
 use crate::world::TeamAt;
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,67 @@ fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<F
     (folders, creations)
 }
 
+/// What a disband or a workspace close would end and may delete now: the
+/// facts its dialog shows, and what its confirm is held to.
+pub struct Offer {
+    pub stops: Vec<PaneId>,
+    pub folders: Vec<Folder>,
+    pub creations: Vec<OpId>,
+}
+
+impl Offer {
+    fn preview(self, refusal: Option<Refusal>) -> Preview {
+        Preview { refusal, stops: self.stops, folders: self.folders, creations: self.creations, last_of: None }
+    }
+
+    /// Whether a Close confirmed on `consent` would do more than its dialog
+    /// showed: end an agent it did not show, or — when the person agreed to
+    /// delete — offer a worktree or a creation it did not. What has gone
+    /// since only narrows it.
+    pub fn outgrows(&self, consent: &Consent) -> bool {
+        let unseen_stop = self.stops.iter().any(|pane| !consent.stops.contains(pane));
+        let deletes = !consent.folders.is_empty() || !consent.tickets.is_empty();
+        let unseen_folder = self.folders.iter().any(|folder| !consent.folders.iter().any(|agreed| agreed.path == folder.path));
+        let unseen_creation = self.creations.iter().any(|op| !consent.tickets.contains(op));
+        unseen_stop || (deletes && (unseen_folder || unseen_creation))
+    }
+}
+
+/// The panes still landing in the workspace — on `team`, or on any team for
+/// a whole-workspace close — that are not members yet. A Close begun now
+/// waits for them and takes them.
+fn landing(state: &State, workspace: &WorkspaceId, team: Option<&TeamId>) -> Vec<PaneId> {
+    state
+        .ops
+        .values()
+        .filter(|op| &op.workspace == workspace)
+        .filter_map(|op| create::landing(op, state.saved))
+        .filter(|(onto, _)| team.is_none_or(|team| onto == team))
+        .map(|(_, pane)| pane)
+        .collect()
+}
+
+fn with_landing(mut stops: Vec<PaneId>, landing: Vec<PaneId>) -> Vec<PaneId> {
+    for pane in landing {
+        if !stops.contains(&pane) {
+            stops.push(pane);
+        }
+    }
+    stops
+}
+
+pub fn disband_offer(state: &State, workspace: &WorkspaceId, team: &TeamId) -> Offer {
+    let (folders, creations) = deletable(state, workspace, std::slice::from_ref(team));
+    let stops = with_landing(state.world.members(team), landing(state, workspace, Some(team)));
+    Offer { stops, folders, creations }
+}
+
+pub fn close_workspace_offer(state: &State, workspace: &WorkspaceId) -> Offer {
+    let (folders, creations) = deletable(state, workspace, &state.world.teams_of(workspace));
+    let stops = with_landing(state.world.panes_of(workspace), landing(state, workspace, None));
+    Offer { stops, folders, creations }
+}
+
 pub fn preview(state: &State, intent: &Intent) -> Preview {
     if !state.open() {
         return empty(Some(Refusal::BarrierUp));
@@ -89,14 +150,11 @@ pub fn preview(state: &State, intent: &Intent) -> Preview {
                 return empty(Some(Refusal::NotFound));
             }
             let refusal = capture::team_leaving(state, team).then_some(Refusal::AlreadyClosing);
-            let (folders, creations) = deletable(state, workspace, std::slice::from_ref(team));
-            Preview { refusal, stops: state.world.members(team), folders, creations, last_of: None }
+            disband_offer(state, workspace, team).preview(refusal)
         }
         Intent::CloseWorkspace { .. } => {
             let refusal = capture::workspace_leaving(state, workspace).then_some(Refusal::AlreadyClosing);
-            let teams = state.world.teams_of(workspace);
-            let (folders, creations) = deletable(state, workspace, &teams);
-            Preview { refusal, stops: state.world.panes_of(workspace), folders, creations, last_of: None }
+            close_workspace_offer(state, workspace).preview(refusal)
         }
         Intent::Archive { .. } => {
             let refusal = if state.world.workspaces[workspace].archived || capture::archiving(state, workspace) {

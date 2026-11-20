@@ -17,7 +17,7 @@ import { present } from "@keepdeck/plugin-api/testing";
 
 const ACCEPTED: IntentOutcome = { kind: "accepted", op: 1, minted: { workspace: null, team: null, panes: [] } };
 /** The consent of a close that deletes nothing. */
-const NOTHING = { folders: [], tickets: [] };
+const NOTHING = { stops: [], folders: [], tickets: [] };
 
 /** The teardown, as this hook sees it: a request, recorded. What the close
  * then DOES belongs to the lifecycle machine and is asserted there. This
@@ -383,6 +383,7 @@ describe("useCloseFlow", () => {
       expect(lastOffer()).toEqual({
         teamId: "team-2",
         name: "wt",
+        stops: ["pane-2"],
         folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }],
         tickets: [],
       });
@@ -396,7 +397,7 @@ describe("useCloseFlow", () => {
         kind: "team",
         workspace: ref(),
         teamId: "team-2",
-        consent: { folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }], tickets: [] },
+        consent: { stops: ["pane-2"], folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }], tickets: [] },
       });
     });
 
@@ -457,7 +458,7 @@ describe("useCloseFlow", () => {
       kind: "team",
       workspace: ref(),
       teamId: "team-2",
-      consent: { folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }], tickets: [] },
+      consent: { stops: ["pane-2"], folders: [{ repo: "/repo", path: "/wt/2", branch: "kd/ws/2" }], tickets: [] },
     });
   });
 
@@ -487,7 +488,7 @@ describe("useCloseFlow", () => {
     expect(flow.worktreeCount).toBe(0);
     act(() => flow.setDeleteWorktree(true));
     act(() => flow.confirmClose());
-    expect(requested()).toMatchObject({ consent: NOTHING });
+    expect(requested()).toMatchObject({ consent: { ...NOTHING, stops: ["pane-2"] } });
   });
 
   it("offers to delete a worktree that is still being created", async () => {
@@ -511,7 +512,7 @@ describe("useCloseFlow", () => {
     await act(async () => flow.requestCloseAgent(wsId, "pane-9", "Agent 1"));
     act(() => flow.confirmClose());
 
-    expect(requested()).toMatchObject({ kind: "team", consent: NOTHING });
+    expect(requested()).toMatchObject({ kind: "team", consent: { ...NOTHING, stops: ["pane-9"] } });
   });
 
   it("a create that already FAILED is not counted as a worktree to delete", async () => {
@@ -521,9 +522,10 @@ describe("useCloseFlow", () => {
     expect(flow.worktreeCount).toBe(0);
   });
 
-  it("closing a workspace names the workspace, not its panes", async () => {
-    // Which panes a workspace holds is a fact about the deck at the moment
-    // the close runs — reading it here would be a second answer to it.
+  it("closing a workspace names the workspace, and hands back the agents the machine showed", async () => {
+    // Which panes a workspace holds is the machine's answer, not a reading
+    // of the deck here: the consent carries its preview's agents back, and
+    // the machine asks again if it would now end one more.
     const wsId = seed();
     // The dialog opens only after the machine's preview answers.
     await act(async () => flow.requestCloseWorkspace(wsId));
@@ -531,8 +533,24 @@ describe("useCloseFlow", () => {
     expect(requested()).toEqual({
       kind: "workspace",
       workspace: ref(),
-      consent: NOTHING,
+      consent: { ...NOTHING, stops: ["pane-1", "pane-0", "pane-2"] },
     });
+  });
+
+  it("asks again on a fresh preview when the machine says the close outgrew its dialog", async () => {
+    const wsId = seed();
+    await act(async () => flow.requestDisbandTeam(wsId, "team-1"));
+    expect(flow.closing).toMatchObject({ kind: "team", count: 2 });
+    // While the dialog stood, an agent was seated on the team.
+    act(() => deck.addAgentPane(wsId, { id: "pane-7", agentType: "claude", team: { teamId: "team-1", role: "impl-2" } }));
+    closeAgents.mockResolvedValueOnce({ kind: "refused", refusal: { kind: "changed" } });
+    preview.mockClear();
+
+    await act(async () => flow.confirmClose());
+
+    expect(errors).toEqual([]);
+    expect(preview).toHaveBeenCalledWith({ kind: "disband", workspace: "ws-1", team: "team-1", consent: NOTHING });
+    expect(flow.closing).toMatchObject({ kind: "team", teamId: "team-1", count: 3 });
   });
 
   it("a workspace with NO carried pane keeps its sentence to the character", async () => {
@@ -786,7 +804,7 @@ describe("what the dialog promises is what confirming does", () => {
 
     act(() => flow.confirmClose());
     await act(async () => {});
-    expect(requested()).toMatchObject({ kind: "team", consent: NOTHING });
+    expect(requested()).toMatchObject({ kind: "team", consent: { ...NOTHING, stops: ["pane-2"] } });
   });
 
   it("offers the alternative only when it is really on offer", async () => {

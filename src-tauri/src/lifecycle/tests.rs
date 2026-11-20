@@ -154,7 +154,8 @@ async fn a_door_that_panics_is_an_outcome_and_the_step_stays_owed() {
     let doors = Arc::new(FakeDoors { panic_on_clean: true, ..FakeDoors::default() });
     let lifecycle = booted(dir.path(), doors).await;
     // The reconciliation's own cleanup panics: it is said, and done with.
-    let reply = lifecycle.door().ask(|ask| Event::Intent { ask, intent: Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() } }).await;
+    let consent = Consent { stops: vec![PaneId(1), PaneId(2)], ..Consent::default() };
+    let reply = lifecycle.door().ask(|ask| Event::Intent { ask, intent: Intent::CloseWorkspace { workspace: ws(), consent } }).await;
     assert!(matches!(reply, Reply::Answered { answer: Answer::Accepted { .. } }));
     let door = lifecycle.door();
     for _ in 0..200 {

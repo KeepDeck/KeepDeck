@@ -22,7 +22,7 @@ import type { Deck } from "./useDeck";
 
 /** A close that deletes nothing: an agent's alone, or one whose box was
  * left unticked. */
-const NOTHING: Consent = { folders: [], tickets: [] };
+const NOTHING: Consent = { stops: [], folders: [], tickets: [] };
 
 /**
  * Owns the confirmed-close flow: all three close paths ([U6]) park a
@@ -138,7 +138,11 @@ export function useCloseFlow(
     panes.flatMap((pane) => (pane.session?.id ? [{ agentType: pane.agentType, sessionId: pane.session.id }] : []));
 
   /** The machine's offer, as the consent a ticked box would give. */
-  const offerOf = (offer: Preview): TeamTeardownOffer => ({ folders: offer.folders, tickets: offer.creations });
+  const offerOf = (offer: Preview): TeamTeardownOffer => ({
+    stops: offer.stops,
+    folders: offer.folders,
+    tickets: offer.creations,
+  });
 
   const refOf = (ws: Workspace): WorkspaceRef => ({ id: ws.id, instance: ws.instance });
 
@@ -194,13 +198,17 @@ export function useCloseFlow(
   };
 
   /** The dialog is gone: retire its generation so a straggling registry
-   * answer cannot paint into whatever opens next, and hand the close off. */
-  const dismissWith = (request: CloseRequest) => {
+   * answer cannot paint into whatever opens next, and hand the close off.
+   * A close the world outgrew while the dialog stood — an agent seated or
+   * moved into it, a worktree it would now offer — is asked again: the same
+   * dialog opens on a fresh preview. Any other refusal is said. */
+  const dismissWith = (request: CloseRequest, askAgain: () => void) => {
     requestSeq.current++;
     setCarrier(null);
     setClosing(null);
     setDeleteWorktree(false);
     void closeAgents(request).then((outcome) => {
+      if (outcome.kind === "refused" && outcome.refusal.kind === "changed") return askAgain();
       const why = intentOutcomeText(outcome);
       if (why !== null) onError(why);
     });
@@ -211,24 +219,34 @@ export function useCloseFlow(
     // The destructive choice is settled here and nowhere later: the offer
     // the dialog showed, frozen as the consent, against the box the user
     // actually ticked. The machine re-checks it at the confirm: what is gone
-    // narrows it, and nothing it did not show is ever added.
-    const consent = (offer: TeamTeardownOffer): Consent =>
-      deleteWorktree ? { folders: offer.folders, tickets: offer.tickets } : NOTHING;
+    // narrows it, and anything it did not show asks again.
+    const consent = ({ stops, folders, tickets }: TeamTeardownOffer): Consent =>
+      deleteWorktree ? { stops, folders, tickets } : { ...NOTHING, stops };
+    const wsId = closing.workspace.id;
     switch (closing.kind) {
-      case "agent":
+      case "agent": {
         // The last member's primary verb is disbanding: the pane goes, the
         // team with it, and the box decides the directory.
+        const { paneId, label } = closing;
         dismissWith(
           closing.last
             ? { kind: "team", workspace: closing.workspace, teamId: closing.last.teamId, consent: consent(closing.last) }
-            : { kind: "agent", workspace: closing.workspace, paneId: closing.paneId, consent: NOTHING },
+            : { kind: "agent", workspace: closing.workspace, paneId, consent: NOTHING },
+          () => requestCloseAgent(wsId, paneId, label),
         );
         return;
-      case "team":
-        dismissWith({ kind: "team", workspace: closing.workspace, teamId: closing.teamId, consent: consent(closing) });
+      }
+      case "team": {
+        const { teamId } = closing;
+        dismissWith({ kind: "team", workspace: closing.workspace, teamId, consent: consent(closing) }, () =>
+          requestDisbandTeam(wsId, teamId),
+        );
         return;
+      }
       case "workspace":
-        dismissWith({ kind: "workspace", workspace: closing.workspace, consent: consent(closing) });
+        dismissWith({ kind: "workspace", workspace: closing.workspace, consent: consent(closing) }, () =>
+          requestCloseWorkspace(wsId),
+        );
         return;
     }
   };
@@ -238,7 +256,8 @@ export function useCloseFlow(
    * disband, and this is not one. */
   const closeAgentOnly = () => {
     if (closing?.kind !== "agent" || !closing.last) return;
-    dismissWith({ kind: "agent", workspace: closing.workspace, paneId: closing.paneId, consent: NOTHING });
+    const { workspace, paneId, label } = closing;
+    dismissWith({ kind: "agent", workspace, paneId, consent: NOTHING }, () => requestCloseAgent(workspace.id, paneId, label));
   };
 
   const cancelClose = () => {

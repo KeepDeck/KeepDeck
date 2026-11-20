@@ -63,11 +63,16 @@ pub enum Landing {
     NewTeam { team: TeamId, site: Site, draft: Draft },
 }
 
-/// What a confirmed Close may delete: exactly what its dialog offered and the
-/// person agreed to. Empty — keep every folder.
+/// What a confirmed Close may do: end the agents its dialog showed, and
+/// delete exactly what it offered and the person agreed to. No folders —
+/// keep every folder.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "lifecycle/")]
 pub struct Consent {
+    /// The agents the dialog showed it ends. A disband or a workspace close
+    /// that would now end one more is asked again.
+    #[serde(default)]
+    pub stops: Vec<PaneId>,
     /// The folders, as the preview found them.
     pub folders: Vec<Folder>,
     /// Creations still out when the dialog opened: what their tickets make is
@@ -238,6 +243,10 @@ pub enum Refusal {
     SessionsDown,
     /// The fork step did not answer within its deadline.
     ForkStepExpired,
+    /// A Close would now do more than its dialog showed — an agent seated or
+    /// moved into it since, or a worktree it would now offer: it is asked
+    /// again on a new preview.
+    Changed,
     /// A data owner refused its command, with the owner's own kind (a role
     /// already taken, a session another pane holds), carried back verbatim.
     Rejected { reason: String },
@@ -444,7 +453,7 @@ mod tests {
     fn an_intent_crosses_the_wire_as_a_tagged_object_with_the_decks_own_ids() {
         let intent = Intent::CloseAgent { workspace: ws(), pane: PaneId(7), consent: Consent::default() };
         let wire = serde_json::to_value(&intent).unwrap();
-        assert_eq!(wire, json!({ "kind": "closeAgent", "workspace": "ws-a1", "pane": "pane-7", "consent": { "folders": [], "tickets": [] } }));
+        assert_eq!(wire, json!({ "kind": "closeAgent", "workspace": "ws-a1", "pane": "pane-7", "consent": { "stops": [], "folders": [], "tickets": [] } }));
         assert_eq!(serde_json::from_value::<Intent>(wire).unwrap(), intent);
     }
 

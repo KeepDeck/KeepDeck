@@ -313,6 +313,7 @@ mod tests {
                 teams: vec![team.clone()],
                 panes: vec![PaneId(3), PaneId(4)],
                 consent: Consent {
+                    stops: vec![PaneId(3), PaneId(4)],
                     folders: vec![Folder {
                         repo: Dir::new("/repo"),
                         path: Dir::new("/repo/wt"),

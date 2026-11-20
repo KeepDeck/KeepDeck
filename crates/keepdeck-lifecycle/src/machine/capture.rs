@@ -9,6 +9,7 @@
 //! archived.
 
 use super::create::{self, Seat};
+use super::queries;
 use super::teardown::{self, Teardown, Unheld};
 use super::{answer_op, Fx, Kind, Op, Session, State};
 use crate::dir::Dir;
@@ -369,6 +370,11 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             if let Some(refusal) = disband_blocked(state, &workspace, &team) {
                 return refuse(fx, ask, refusal);
             }
+            // Held to what its dialog showed: a member seated or moved in since
+            // is asked about again.
+            if queries::disband_offer(state, &workspace, &team).outgrows(&consent) {
+                return refuse(fx, ask, Refusal::Changed);
+            }
             // A member's close under way is joined, not refused.
             let (joinable, blocking) = disband_holders(state, &team);
             let mut teardown = Teardown::new(model::Teardown::Disband, crate::journal::Target::Team { team: team.clone() }, vec![team], Vec::new(), consent);
@@ -385,6 +391,9 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             let blocking: Vec<OpId> = holders.iter().copied().filter(|id| !joinable.contains(id)).collect();
             if let Some(refusal) = close_conflict(state, &blocking) {
                 return refuse(fx, ask, refusal);
+            }
+            if queries::close_workspace_offer(state, &workspace).outgrows(&consent) {
+                return refuse(fx, ask, Refusal::Changed);
             }
             let mut teardown = Teardown::new(model::Teardown::CloseWorkspace, crate::journal::Target::Workspace, Vec::new(), Vec::new(), consent);
             teardown.joined = joinable;

@@ -32,6 +32,8 @@ export function refusalText(refusal: Refusal): string {
       return "KeepDeck lost control of its sessions — nothing starts until it restarts.";
     case "forkStepExpired":
       return "The agent did not prepare the fork in time; nothing of it was kept.";
+    case "changed":
+      return "It changed while you were deciding — an agent joined it, or there is more to delete. Nothing was closed; look at it again.";
     case "rejected":
       // An owner's own refusal, in the owner's words, carried back as given.
       return refusal.reason;

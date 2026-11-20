@@ -4,4 +4,4 @@
  * Why an intent was refused. Kinds and data only: the words for each are
  * the presentation's, one set per kind.
  */
-export type Refusal = { "kind": "alreadyClosing" } | { "kind": "busy" } | { "kind": "notFound" } | { "kind": "barrierUp" } | { "kind": "journalUnavailable" } | { "kind": "journalStuck" } | { "kind": "locationHeld" } | { "kind": "targetLeaving" } | { "kind": "archived" } | { "kind": "sessionsDown" } | { "kind": "forkStepExpired" } | { "kind": "rejected", reason: string, };
+export type Refusal = { "kind": "alreadyClosing" } | { "kind": "busy" } | { "kind": "notFound" } | { "kind": "barrierUp" } | { "kind": "journalUnavailable" } | { "kind": "journalStuck" } | { "kind": "locationHeld" } | { "kind": "targetLeaving" } | { "kind": "archived" } | { "kind": "sessionsDown" } | { "kind": "forkStepExpired" } | { "kind": "changed" } | { "kind": "rejected", reason: string, };

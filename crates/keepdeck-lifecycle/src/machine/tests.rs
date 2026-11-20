@@ -53,7 +53,7 @@ fn deck() -> DeckFacts {
 fn consent_for_team_1() -> Consent {
     Consent {
         folders: vec![Folder { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), branch: Some("kd/app/1".into()) }],
-        tickets: vec![],
+        ..Consent::default()
     }
 }
 
@@ -107,6 +107,16 @@ impl Sim {
         let ask = self.next_ask();
         self.send(Event::Intent { ask, intent });
         ask
+    }
+
+    /// A Close as its dialog confirms it: the agents the preview showed are
+    /// the ones the person agreed to end.
+    fn close(&mut self, mut intent: Intent) -> AskId {
+        let shown = super::queries::preview(&self.state, &intent).stops;
+        if let Intent::CloseAgent { consent, .. } | Intent::Disband { consent, .. } | Intent::CloseWorkspace { consent, .. } = &mut intent {
+            consent.stops = shown;
+        }
+        self.intent(intent)
     }
 
     /// The answer an ask got — and it got exactly one, if any.
@@ -363,7 +373,7 @@ fn retire_that_is_never_answered_holds_a_close_only_until_its_timer() {
 #[test]
 fn a_disband_deletes_its_folder_by_consent_and_forgets_its_tasks_and_mail() {
     let mut sim = Sim::booted();
-    let ask = sim.intent(disband("1", consent_for_team_1()));
+    let ask = sim.close(disband("1", consent_for_team_1()));
     sim.drive();
     assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })));
     let (repo, path) = (Dir::new("/repo"), Dir::new("/wt/kd-app-1"));
@@ -383,7 +393,7 @@ fn a_disband_deletes_its_folder_by_consent_and_forgets_its_tasks_and_mail() {
 #[test]
 fn a_close_plans_each_folder_before_its_first_step_and_removes_the_checkout_before_its_branches() {
     let mut sim = Sim::booted();
-    sim.intent(disband("1", consent_for_team_1()));
+    sim.close(disband("1", consent_for_team_1()));
     for _ in 0..4 {
         sim.write_journals();
         sim.apply(|_| true);
@@ -419,7 +429,7 @@ fn a_close_plans_each_folder_before_its_first_step_and_removes_the_checkout_befo
 #[test]
 fn a_failed_cleanup_step_keeps_the_entry_and_the_place_and_says_the_worktree_was_not_deleted() {
     let mut sim = Sim::booted();
-    sim.intent(disband("1", consent_for_team_1()));
+    sim.close(disband("1", consent_for_team_1()));
     for _ in 0..30 {
         sim.write_journals();
         sim.apply(|_| true);
@@ -498,10 +508,10 @@ fn a_late_result_of_an_old_write_changes_nothing() {
 #[test]
 fn the_first_capture_leads_and_the_next_hears_already_closing_or_busy() {
     let mut sim = Sim::booted();
-    sim.intent(disband("1", Consent::default()));
+    sim.close(disband("1", Consent::default()));
     let member = sim.intent(close_agent(1));
     assert_eq!(sim.refusal(member), Some(Refusal::AlreadyClosing));
-    let twice = sim.intent(disband("1", Consent::default()));
+    let twice = sim.close(disband("1", Consent::default()));
     assert_eq!(sim.refusal(twice), Some(Refusal::AlreadyClosing));
     let restart = sim.intent(Intent::Restart { workspace: ws(), pane: PaneId(2) });
     assert_eq!(sim.refusal(restart), Some(Refusal::AlreadyClosing));
@@ -515,15 +525,16 @@ fn the_first_capture_leads_and_the_next_hears_already_closing_or_busy() {
 #[test]
 fn a_workspace_close_joins_a_disband_under_way_and_leaves_its_consent_alone() {
     let mut sim = Sim::booted();
-    sim.intent(disband("1", consent_for_team_1()));
+    sim.close(disband("1", consent_for_team_1()));
     sim.write_journals();
-    let close = sim.intent(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    let close = sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
     assert_eq!(sim.refusal(close), None, "joined, not refused");
     let ops: Vec<&Op> = sim.state.ops.values().collect();
     let joined = ops.iter().find_map(|op| op.teardown().filter(|t| t.kind == model::Teardown::CloseWorkspace).map(|t| t.joined.clone())).unwrap();
     assert_eq!(joined.len(), 1);
     let disband = ops.iter().find_map(|op| op.teardown().filter(|t| t.kind == model::Teardown::Disband)).unwrap();
-    assert_eq!(disband.consent, consent_for_team_1(), "its own consent stays");
+    assert_eq!(disband.consent.folders, consent_for_team_1().folders, "its own consent stays");
+    assert_eq!(disband.consent.stops, vec![PaneId(1), PaneId(2)]);
     sim.drive();
     assert!(sim.state.world.workspaces.is_empty());
 }
@@ -545,8 +556,8 @@ fn a_close_takes_over_a_creation_and_waits_for_its_git_step() {
     assert!(matches!(sim.answer(create), Some(Answer::Accepted { .. })));
     let create_op = *sim.state.ops.keys().next().unwrap();
     assert!(sim.owed().iter().any(|effect| matches!(effect, Effect::CreateWorktree { .. })));
-    let consent = Consent { folders: vec![], tickets: vec![create_op] };
-    let close = sim.intent(disband("n", consent));
+    let consent = Consent { tickets: vec![create_op], ..Consent::default() };
+    let close = sim.close(disband("n", consent));
     assert_eq!(sim.refusal(close), None, "a Close may take over a creation");
     for _ in 0..6 {
         sim.write_journals();
@@ -566,7 +577,7 @@ fn a_close_takes_over_an_archive() {
     let mut sim = Sim::booted();
     sim.intent(Intent::Archive { workspace: ws() });
     sim.write_journals();
-    let close = sim.intent(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    let close = sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
     assert_eq!(sim.refusal(close), None);
     sim.drive();
     assert!(sim.state.world.workspaces.is_empty());
@@ -601,7 +612,7 @@ fn five_seats_in_a_row_land_on_a_team_still_being_created() {
 #[test]
 fn a_seat_on_a_leaving_or_archived_target_is_refused() {
     let mut sim = Sim::booted();
-    sim.intent(disband("1", Consent::default()));
+    sim.close(disband("1", Consent::default()));
     let ask = sim.intent(seat("1"));
     assert_eq!(sim.refusal(ask), Some(Refusal::TargetLeaving));
 
@@ -639,7 +650,7 @@ fn a_seat_the_role_rule_refuses_hears_the_owners_own_kind() {
 fn a_close_queues_behind_a_seat_begun_before_it_and_takes_the_seated_pane() {
     let mut sim = Sim::booted();
     let seat_ask = sim.intent(seat("1"));
-    let close = sim.intent(disband("1", Consent::default()));
+    let close = sim.close(disband("1", Consent::default()));
     // The close holds the team at once: nothing new lands on it.
     let late = sim.intent(seat("1"));
     assert_eq!(sim.refusal(late), Some(Refusal::TargetLeaving));
@@ -666,7 +677,7 @@ fn a_close_queues_behind_a_seat_begun_before_it_and_takes_the_seated_pane() {
 fn a_close_after_a_rejected_seat_keeps_the_old_membership_without_waiting_for_a_save() {
     let mut sim = Sim::booted();
     sim.intent(seat("1"));
-    sim.intent(disband("1", Consent::default()));
+    sim.close(disband("1", Consent::default()));
     sim.reply(|cmd| matches!(cmd, Cmd::AddPane { .. }), Outcome::Rejected { reason: "misfit".into() });
     let entry = sim.owed().into_iter().find_map(|effect| match effect {
         Effect::WriteJournal { entry, .. } => Some(entry),
@@ -675,6 +686,84 @@ fn a_close_after_a_rejected_seat_keeps_the_old_membership_without_waiting_for_a_
     let Some(entry) = entry else { panic!("the entry without a save: {:?}", sim.owed()) };
     let Work::Close { panes, .. } = &entry.work else { panic!() };
     assert_eq!(panes, &vec![PaneId(1), PaneId(2)]);
+}
+
+/// What a Close dialog previewed is what the person agreed to end.
+fn shown(sim: &Sim, intent: &Intent) -> super::queries::Preview {
+    super::queries::preview(&sim.state, intent)
+}
+
+#[test]
+fn a_seat_or_relocate_after_the_dialog_asked_needs_a_new_confirmation() {
+    // A member is seated on team 1 after its disband was previewed.
+    let mut sim = Sim::booted();
+    let asked = shown(&sim, &disband("1", Consent::default())).stops;
+    assert_eq!(asked, vec![PaneId(1), PaneId(2)]);
+    sim.intent(seat("1"));
+    let stale = sim.intent(disband("1", Consent { stops: asked, ..Consent::default() }));
+    assert_eq!(sim.refusal(stale), Some(Refusal::Changed));
+    assert!(sim.state.ops.values().all(|op| op.teardown().is_none()), "nothing was taken");
+    // Asked again, the new preview shows the member still landing, and it goes.
+    assert_eq!(shown(&sim, &disband("1", Consent::default())).stops.len(), 3);
+    let again = sim.close(disband("1", Consent::default()));
+    assert_eq!(sim.refusal(again), None);
+
+    // A member is moved onto the root team while the root's disband is asked.
+    let mut sim = Sim::booted();
+    let asked = shown(&sim, &disband("r", Consent::default())).stops;
+    sim.intent(Intent::Relocate { workspace: ws(), pane: PaneId(2), root: team("new-root"), role: None });
+    let stale = sim.intent(disband("r", Consent { stops: asked, ..Consent::default() }));
+    assert_eq!(sim.refusal(stale), Some(Refusal::Changed));
+
+    // The same for a whole workspace's close.
+    let mut sim = Sim::booted();
+    let whole = Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() };
+    let asked = shown(&sim, &whole).stops;
+    sim.intent(seat("r"));
+    let stale = sim.intent(Intent::CloseWorkspace { workspace: ws(), consent: Consent { stops: asked, ..Consent::default() } });
+    assert_eq!(sim.refusal(stale), Some(Refusal::Changed));
+}
+
+#[test]
+fn a_member_that_left_since_the_dialog_asked_only_narrows_the_close() {
+    let mut sim = Sim::booted();
+    let asked = shown(&sim, &disband("1", Consent::default())).stops;
+    sim.close(close_agent(2));
+    sim.drive();
+    assert_eq!(sim.state.world.members(&team("1")), vec![PaneId(1)]);
+    let close = sim.intent(disband("1", Consent { stops: asked, ..consent_for_team_1() }));
+    assert_eq!(sim.refusal(close), None);
+    sim.drive();
+    assert!(!sim.state.world.teams.contains_key(&team("1")));
+    assert!(sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. })), "its agreed folder goes: {:?}", sim.cleaned);
+}
+
+#[test]
+fn a_worktree_offered_since_the_dialog_asked_asks_again_only_when_deleting_was_agreed() {
+    let mut sim = Sim::booted();
+    let whole = Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() };
+    let asked = shown(&sim, &whole);
+    let agreed = Consent { stops: asked.stops.clone(), folders: asked.folders.clone(), tickets: asked.creations.clone() };
+    assert!(!agreed.folders.is_empty());
+    // A new team's worktree starts being made after the dialog asked.
+    sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::New { place: None, base: None }, draft: draft(), members: vec![] });
+    for _ in 0..3 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            if let Effect::Probe { op, path, .. } = effect {
+                sim.send(Event::Probed { op, path, taken: false });
+            }
+        }
+        sim.apply(|_| true);
+        sim.save();
+    }
+    assert_eq!(shown(&sim, &whole).creations.len(), 1, "the dialog would now offer it");
+
+    let stale = sim.intent(Intent::CloseWorkspace { workspace: ws(), consent: agreed });
+    assert_eq!(sim.refusal(stale), Some(Refusal::Changed), "deleting what it showed would leave what it did not");
+    // Keeping every folder, it deletes nothing it did not show: it goes.
+    let kept = sim.intent(Intent::CloseWorkspace { workspace: ws(), consent: Consent { stops: asked.stops, ..Consent::default() } });
+    assert_eq!(sim.refusal(kept), None);
 }
 
 // ---------------------------------------------------------------- commands and their answers
@@ -757,7 +846,7 @@ fn a_close_revokes_unspent_permits_and_takes_admitted_launches_to_the_start_boun
     let Answer::Leased { permit: unspent } = lease(&mut sim, 1, "/wt/kd-app-1") else { panic!() };
     let Answer::Leased { permit } = lease(&mut sim, 2, "/wt/kd-app-1") else { panic!() };
     let Answer::Admitted { attempt } = admit(&mut sim, permit, 2, "/wt/kd-app-1") else { panic!() };
-    sim.intent(disband("1", Consent::default()));
+    sim.close(disband("1", Consent::default()));
     assert_eq!(admit(&mut sim, unspent, 1, "/wt/kd-app-1"), Answer::refused(Refusal::TargetLeaving), "the target is taken");
     for _ in 0..3 {
         sim.write_journals();
@@ -892,7 +981,7 @@ fn a_new_team_or_workspace_id_already_taken_is_refused() {
 #[test]
 fn a_restored_close_asks_again_under_the_same_ids_and_forgets_even_what_the_deck_still_holds() {
     let mut first = Sim::booted();
-    first.intent(disband("1", Consent::default()));
+    first.close(disband("1", Consent::default()));
     first.write_journals();
     first.apply(|cmd| matches!(cmd, Cmd::Retire { .. }));
     first.write_journals();
@@ -1099,7 +1188,7 @@ fn a_write_from_a_forgotten_workspace_team_or_pane_is_refused_and_only_that() {
     assert!(forgotten(&sim, Some("1"), Some(2)), "the pane is forgotten");
     assert!(!forgotten(&sim, Some("1"), Some(1)), "its team and the other member are not");
     assert!(!forgotten(&sim, None, None));
-    sim.intent(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
     sim.drive();
     assert!(forgotten(&sim, None, None), "the whole workspace, once it is closed");
 }
@@ -1109,7 +1198,7 @@ fn a_write_from_a_forgotten_workspace_team_or_pane_is_refused_and_only_that() {
 #[test]
 fn the_snapshot_says_a_team_is_leaving_and_closes_its_gates() {
     let mut sim = Sim::booted();
-    sim.intent(disband("1", Consent::default()));
+    sim.close(disband("1", Consent::default()));
     let snap = snapshot(&sim.state);
     assert_eq!(snap.teams[&team("1")], TeamPhase::Leaving);
     assert_eq!(snap.gates[&team("1")], TeamGates { add_member: Some(Refusal::TargetLeaving), close: Some(Refusal::AlreadyClosing), retry: Some(Refusal::NotFound) });
@@ -1124,13 +1213,13 @@ fn a_gate_says_exactly_what_its_intent_then_meets() {
         let gates = snapshot(&sim.state).gates[&team(name)].clone();
         let seat = sim.intent(seat(name));
         let retry = sim.intent(Intent::Retry { workspace: ws(), team: team(name) });
-        let close = sim.intent(disband(name, Consent::default()));
+        let close = sim.close(disband(name, Consent::default()));
         assert_eq!((sim.refusal(seat), sim.refusal(close), sim.refusal(retry)), (gates.add_member.clone(), gates.close.clone(), gates.retry.clone()), "{name}");
         gates
     };
 
     let mut sim = Sim::booted();
-    sim.intent(disband("1", Consent::default()));
+    sim.close(disband("1", Consent::default()));
     assert_eq!(gate_then_intent(&mut sim, "1").add_member, Some(Refusal::TargetLeaving));
 
     // An archive under way: nothing lands and no creation is retried, but a
@@ -1182,6 +1271,7 @@ fn every_refusal() -> Vec<Refusal> {
         Refusal::Archived,
         Refusal::SessionsDown,
         Refusal::ForkStepExpired,
+        Refusal::Changed,
         Refusal::Rejected { reason: "role taken".into() },
     ];
     for refusal in &every {
@@ -1197,6 +1287,7 @@ fn every_refusal() -> Vec<Refusal> {
             | Refusal::Archived
             | Refusal::SessionsDown
             | Refusal::ForkStepExpired
+            | Refusal::Changed
             | Refusal::Rejected { .. } => {}
         }
     }

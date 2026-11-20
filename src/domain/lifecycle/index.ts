@@ -27,6 +27,8 @@ export type Refusal =
   | { kind: "archived" }
   | { kind: "sessionsDown" }
   | { kind: "forkStepExpired" }
+  /** A Close would now do more than its dialog showed: it is asked again. */
+  | { kind: "changed" }
   /** A data owner refused its command — its own kind, carried back as given. */
   | { kind: "rejected"; reason: string };
 
@@ -80,6 +82,9 @@ export interface Folder {
 /** What a close was consented to: exactly the folders the dialog showed,
  * and the creations still running it named — frozen when it opened. */
 export interface Consent {
+  /** The agents the dialog showed it ends: a disband or a workspace close
+   * that would now end one more is asked again. */
+  stops: string[];
   folders: Folder[];
   tickets: number[];
 }

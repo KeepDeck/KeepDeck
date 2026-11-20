@@ -234,6 +234,21 @@ pub fn membership_pending(op: &Op, saved: Option<Revision>) -> bool {
     }
 }
 
+/// The pane an additive operation is still bringing in, and the team it
+/// lands on — while its membership is not settled. A Close begun now waits
+/// for it and takes it, so the Close's dialog shows it.
+pub fn landing(op: &Op, saved: Option<Revision>) -> Option<(TeamId, PaneId)> {
+    if !membership_pending(op, saved) {
+        return None;
+    }
+    match &op.kind {
+        Kind::Seat(seat) => Some((seat.team.clone(), seat.pane)),
+        Kind::Fork(fork) => Some((fork.team.clone(), fork.pane)),
+        Kind::Relocate(relocate) => Some((relocate.to.clone(), relocate.pane)),
+        _ => None,
+    }
+}
+
 pub fn touched_teams(op: &Op) -> Vec<TeamId> {
     match &op.kind {
         Kind::Seat(seat) => vec![seat.team.clone()],
