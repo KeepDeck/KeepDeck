@@ -4,7 +4,7 @@
 
 use super::create::{Create, CreateStage, Fork, ForkStage};
 use super::teardown::{TearPhase, Teardown, Unheld};
-use super::{Book, Clean, Effect, Event, Fx, Kind, Op, Sent, State};
+use super::{Book, Clean, Effect, Event, Forgotten, Fx, Kind, Op, Sent, State};
 use crate::command::{Cmd, Outcome};
 use crate::ids::{AskId, Counter, OpId, PaneId, TeamId};
 use crate::journal::{Entry, Step, Target, Ticket, Work};
@@ -151,6 +151,23 @@ fn entry_panes(entry: &Entry) -> Vec<PaneId> {
     panes
 }
 
+/// What a close's entry forgets: what it ends — its membership final in the
+/// entry, no deck needed. Part of the machine's state from its start, so the
+/// commit check refuses a write for it before the deck has loaded and any
+/// door has opened.
+pub(super) fn forget_closed(forgotten: &mut Forgotten, entry: &Entry) {
+    let Work::Close { target, teams, panes, .. } = &entry.work else { return };
+    match target {
+        Target::Workspace => {
+            forgotten.workspaces.insert(entry.workspace.clone());
+            forgotten.teams.extend(teams.iter().cloned());
+        }
+        Target::Team { .. } => forgotten.teams.extend(teams.iter().cloned()),
+        Target::Agent { .. } => {}
+    }
+    forgotten.panes.extend(panes.iter().copied());
+}
+
 /// The close in the journal that took the creation `creation` over by the
 /// person's consent to its ticket, while its entry does not hold the
 /// ticket's checkout.
@@ -199,18 +216,6 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
             teardown.restored = true;
             teardown.phase = TearPhase::Retiring;
             teardown.waited.retire = true;
-            match kind {
-                model::Teardown::CloseWorkspace => {
-                    state.forgotten.workspaces.insert(entry.workspace.clone());
-                    state.forgotten.teams.extend(teams.iter().cloned());
-                    state.forgotten.panes.extend(panes.iter().copied());
-                }
-                model::Teardown::Disband => {
-                    state.forgotten.teams.extend(teams.iter().cloned());
-                    state.forgotten.panes.extend(panes.iter().copied());
-                }
-                _ => state.forgotten.panes.extend(panes.iter().copied()),
-            }
             Kind::Teardown(Box::new(teardown))
         }
         Work::Archive { panes } => {

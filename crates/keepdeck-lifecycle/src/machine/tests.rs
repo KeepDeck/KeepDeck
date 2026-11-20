@@ -1916,6 +1916,32 @@ fn a_write_from_a_forgotten_workspace_team_or_pane_is_refused_and_only_that() {
     assert!(forgotten(&sim, None, None), "the whole workspace, once it is closed");
 }
 
+/// A launch that died with closes in its journal: what they end is forgotten
+/// from the machine's start — before the deck has loaded, before any door
+/// opens — so no write lands for it in the window before the handshake.
+#[test]
+fn the_journals_closes_are_forgotten_from_the_machines_start() {
+    let close = |op: u64, workspace: &str, target: Target, teams: Vec<TeamId>, panes: Vec<PaneId>| Entry {
+        op: OpId(op),
+        workspace: WorkspaceId(workspace.into()),
+        work: Work::Close { target, teams, panes, consent: Consent::default(), removals: vec![], space: None },
+        joined: vec![],
+        commands: vec![],
+        done: vec![],
+    };
+    let state = State::start(Some(vec![
+        close(1, "ws-gone", Target::Workspace, vec![team("g")], vec![PaneId(5)]),
+        close(2, "ws-b", Target::Team { team: team("d") }, vec![team("d")], vec![PaneId(6)]),
+        close(3, "ws-b", Target::Agent { pane: PaneId(7) }, vec![], vec![PaneId(7)]),
+    ]));
+    let forgotten = &snapshot(&state).forgotten;
+    assert!(forgotten.workspaces.contains(&WorkspaceId("ws-gone".into())));
+    assert_eq!(forgotten.teams, [team("d"), team("g")].into_iter().collect());
+    assert_eq!(forgotten.panes, [PaneId(5), PaneId(6), PaneId(7)].into_iter().collect());
+    assert!(!forgotten.workspaces.contains(&WorkspaceId("ws-b".into())), "a team's or an agent's close forgets no workspace");
+    assert!(state.forgotten.source(&WorkspaceId("ws-b".into()), Some(&team("d")), None), "the commit check refuses now");
+}
+
 // ---------------------------------------------------------------- the snapshot
 
 #[test]

@@ -323,6 +323,10 @@ impl State {
             op: Counter::above(journal.iter().flatten().map(|entry| entry.op.0)),
             ..Counters::default()
         };
+        let mut forgotten = Forgotten::default();
+        for entry in journal.iter().flatten() {
+            boot::forget_closed(&mut forgotten, entry);
+        }
         State {
             boot: match journal {
                 Some(entries) => boot::Boot::Waiting { journal: entries },
@@ -331,7 +335,7 @@ impl State {
             sessions_down: false,
             world: World::default(),
             ops: BTreeMap::new(),
-            forgotten: Forgotten::default(),
+            forgotten,
             permits: BTreeMap::new(),
             attempts: BTreeMap::new(),
             sessions: BTreeMap::new(),
