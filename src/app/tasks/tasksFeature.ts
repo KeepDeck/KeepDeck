@@ -18,12 +18,14 @@ import type { Workspace } from "../../domain/deck";
 import { createEnablePolicy } from "../enablePolicy";
 import type { EnableStatus } from "../enableStatus";
 import { unsavedBoardsText } from "./refusalText";
-import { registerTaskCommands } from "./taskCommands";
+import { registerTaskCommands, type TaskCommandDeps } from "./taskCommands";
 import { createTasksService, type TaskEvent, type TasksService, type TasksStorePort } from "./tasksService";
 
 export interface TasksFeatureDeps {
   registry: CommandRegistry;
   workspaces(): readonly Workspace[];
+  /** The lifecycle's fence for the agents' task commands. */
+  forgotten: TaskCommandDeps["forgotten"];
   /** The toggle: null until the settings load settles. */
   settings: { tasks(): boolean | null; subscribe(listener: () => void): () => void };
   /** The deck's MCP socket — the agents' door to the commands. */
@@ -124,7 +126,7 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
     }
     const commandsWanted = service !== null && deps.socket.up();
     if (commandsWanted && unregister === null && service !== null) {
-      unregister = registerTaskCommands(deps.registry, { tasks: service, workspaces: deps.workspaces });
+      unregister = registerTaskCommands(deps.registry, { tasks: service, workspaces: deps.workspaces, forgotten: deps.forgotten });
     } else if (!commandsWanted && unregister !== null) {
       unregister();
       unregister = null;

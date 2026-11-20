@@ -44,6 +44,7 @@ function setup() {
   const feature = createTasksFeature({
     registry,
     workspaces: () => workspaces,
+    forgotten: () => false,
     settings: {
       tasks: () => tasks,
       subscribe: (l) => {

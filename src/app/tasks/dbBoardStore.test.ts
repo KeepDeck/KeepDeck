@@ -45,6 +45,9 @@ describe("createDbBoardStore — the board reaches the database", () => {
     await store.write({ workspaceId: "ws-1", board: comment(once, "two") });
     expect(db.requests.map((r) => r.boards[0].tasks[0].comments.map((c) => c.body))).toEqual([["one"], ["two"]]);
     expect(db.requests[1].boards[0].expectedRev).toBe(1);
+    // Written for the board's workspace: a forgotten one is refused under
+    // the store's lock.
+    expect(db.writers).toEqual([{ workspace: "ws-1" }, { workspace: "ws-1" }]);
   });
 
   it("knows when each part of a task landed: as the database read it, then as each write lands", async () => {
