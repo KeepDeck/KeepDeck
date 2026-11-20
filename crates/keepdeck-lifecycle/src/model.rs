@@ -95,7 +95,18 @@ pub struct Folder {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[ts(export, export_to = "lifecycle/")]
 pub enum Intent {
-    CreateWorkspace { workspace: WorkspaceId, name: String, cwd: Dir, worktree_base: Option<Dir>, draft: Draft },
+    CreateWorkspace {
+        workspace: WorkspaceId,
+        name: String,
+        cwd: Dir,
+        worktree_base: Option<Dir>,
+        draft: Draft,
+        /// Its repository's git common dir — the host fills it, the page
+        /// does not know it.
+        #[serde(default)]
+        #[ts(skip)]
+        repo: Option<Dir>,
+    },
     /// The workspace's name or worktree base changed: new places are named
     /// and put after them.
     Describe { workspace: WorkspaceId, name: String, worktree_base: Option<Dir> },

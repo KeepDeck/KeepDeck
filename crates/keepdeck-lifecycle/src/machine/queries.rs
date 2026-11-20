@@ -219,26 +219,28 @@ pub struct Location {
 pub fn suggest(state: &State, workspace: &WorkspaceId, from: u32) -> Option<(u32, Place)> {
     let ws = state.world.workspaces.get(workspace)?;
     let base = ws.base.as_ref()?;
-    let held = create::held(state);
+    let held = create::held(state, workspace);
     let n = places::first_free(&held, base, &ws.name, from);
     Some((n, Place { path: places::path(base, &ws.name, n), branch: places::branch(&ws.name, n) }))
 }
 
-/// What holds a place typed by hand, if anything does — in any workspace,
-/// by the rule a creation meets ([`create::held`]).
-pub fn check(state: &State, place: &Place) -> Option<PlaceHeld> {
+/// What holds a place typed by hand for `workspace`, if anything does, by
+/// the rule a creation meets ([`create::held`]): any workspace's path, and
+/// the branches of its own repository.
+pub fn check(state: &State, workspace: &WorkspaceId, place: &Place) -> Option<PlaceHeld> {
     for team in state.world.teams.values() {
+        let branches = create::shares_branches(state, workspace, &team.workspace);
         match &team.at {
-            TeamAt::Attached { cwd, branch } if *cwd == place.path || branch.as_deref() == Some(place.branch.as_str()) => {
+            TeamAt::Attached { cwd, branch } if *cwd == place.path || (branches && branch.as_deref() == Some(place.branch.as_str())) => {
                 return Some(PlaceHeld::Team);
             }
-            TeamAt::Creating { ticket, .. } | TeamAt::Failed { ticket } if ticket.path == place.path || ticket.branch == place.branch => {
+            TeamAt::Creating { ticket, .. } | TeamAt::Failed { ticket } if ticket.path == place.path || (branches && ticket.branch == place.branch) => {
                 return Some(PlaceHeld::Creation);
             }
             _ => {}
         }
     }
-    let held = create::held(state);
+    let held = create::held(state, workspace);
     held.holds(&place.path, &place.branch).then_some(PlaceHeld::Cleanup)
 }
 
@@ -315,6 +317,7 @@ mod tests {
                 worktree_base: Some(Dir::new("/wt")),
                 archived: false,
                 archiving: false,
+                repo: None,
                 teams: vec![
                     TeamFacts { id: team("1"), at: attached("/wt/kd-app-1", Some("kd/app/1")) },
                     TeamFacts { id: team("2"), at: attached("/wt/shared", None) },
@@ -360,11 +363,11 @@ mod tests {
         let state = booted();
         assert_eq!(suggest(&state, &ws(), 1), Some((2, Place { path: Dir::new("/wt/kd-app-2"), branch: "kd/app/2".into() })));
         let taken = Place { path: Dir::new("/wt/kd-app-1"), branch: "other".into() };
-        assert_eq!(check(&state, &taken), Some(PlaceHeld::Team));
+        assert_eq!(check(&state, &ws(), &taken), Some(PlaceHeld::Team));
         let branch = Place { path: Dir::new("/wt/new"), branch: "kd/app/1".into() };
-        assert_eq!(check(&state, &branch), Some(PlaceHeld::Team), "the branch is the place's key too");
+        assert_eq!(check(&state, &ws(), &branch), Some(PlaceHeld::Team), "the branch is the place's key too");
         let free = Place { path: Dir::new("/wt/new"), branch: "new".into() };
-        assert_eq!(check(&state, &free), None);
+        assert_eq!(check(&state, &ws(), &free), None);
     }
 
     #[test]

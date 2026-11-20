@@ -58,6 +58,7 @@ fn deck() -> DeckFacts {
             worktree_base: Some(Dir::new("/wt")),
             archived: false,
             archiving: false,
+            repo: None,
             teams: vec![TeamFacts { id: TeamId("team-r".into()), at: TeamAtFacts::Attached { cwd: Dir::new("/repo"), branch: None } }],
             panes: vec![
                 PaneFacts { id: PaneId(1), team: Some(TeamId("team-r".into())), remote: false, suspended: false },

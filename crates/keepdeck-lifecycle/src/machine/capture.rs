@@ -267,11 +267,11 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
     }
     let journaled = intent.journaled();
     match intent {
-        Intent::CreateWorkspace { workspace, name, cwd, worktree_base, draft } => {
+        Intent::CreateWorkspace { workspace, name, cwd, worktree_base, draft, repo } => {
             if known || state.forgotten.workspaces.contains(&workspace) || !state.holders_of_workspace(&workspace).is_empty() {
                 return refuse(fx, ask, Refusal::Busy);
             }
-            state.world.workspaces.insert(workspace.clone(), Workspace { name, cwd, base: worktree_base, archived: false });
+            state.world.workspaces.insert(workspace.clone(), Workspace { name, cwd, base: worktree_base, archived: false, repo });
             let id = state.mint_op();
             let mut op = Op::new(workspace.clone(), ask, false, Kind::CreateWorkspace);
             op.send(crate::command::Cmd::AddWorkspace { workspace, draft });

@@ -10,7 +10,7 @@
 use super::{answer_op, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, FORK_DEADLINE};
 use crate::command::{Cmd, Member, Outcome, Revision, TeamPlace};
 use crate::dir::Dir;
-use crate::ids::{OpId, PaneId, SessionId, TeamId};
+use crate::ids::{OpId, PaneId, SessionId, TeamId, WorkspaceId};
 use crate::journal::{Discard, Step, Ticket, Work};
 use crate::model::{Answer, Draft, Folder, Minted, Refusal, SessionKey, Site};
 use crate::places::{self, Held};
@@ -298,22 +298,32 @@ pub fn still_creating_for(op: &Op, teams: &[TeamId]) -> bool {
     create_of(op).is_some_and(|create| teams.contains(&create.team) && create.stage == CreateStage::Creating && !create.created)
 }
 
-/// Every folder and branch held for a place — by any workspace. A path is
-/// one place on disk whichever workspace asks, and two workspaces may be one
-/// repository (its folder opened twice, or two of its worktrees), so their
-/// branches are each other's too: the machine cannot tell them apart, and a
-/// number skipped costs nothing where a place given twice costs a checkout.
-pub(super) fn held(state: &State) -> Held {
+/// Whether two workspaces' branches are one namespace: they are checkouts
+/// of one repository.
+pub(super) fn shares_branches(state: &State, a: &WorkspaceId, b: &WorkspaceId) -> bool {
+    let space = |ws: &WorkspaceId| state.world.workspaces.get(ws).map(|row| row.branch_space());
+    space(a).is_some() && space(a) == space(b)
+}
+
+/// Every folder and branch held against a place for `workspace`. A path is
+/// one place on disk, so every workspace's count. A branch name is unique
+/// within a repository: the branches of every workspace on the same one —
+/// its folder opened twice, or two of its worktrees — count, and an
+/// unrelated repository's do not.
+pub(super) fn held(state: &State, workspace: &WorkspaceId) -> Held {
+    let shares = |other: &WorkspaceId| shares_branches(state, workspace, other);
     let mut held = Held::default();
+    let mut hold = |path: &Dir, branches: &mut dyn Iterator<Item = String>, owner: &WorkspaceId| {
+        held.paths.insert(path.clone());
+        if shares(owner) {
+            held.branches.extend(branches);
+        }
+    };
     for team in state.world.teams.values() {
         match &team.at {
-            TeamAt::Attached { cwd, branch } => {
-                held.paths.insert(cwd.clone());
-                held.branches.extend(branch.clone());
-            }
+            TeamAt::Attached { cwd, branch } => hold(cwd, &mut branch.clone().into_iter(), &team.workspace),
             TeamAt::Creating { ticket, .. } | TeamAt::Failed { ticket } => {
-                held.paths.insert(ticket.path.clone());
-                held.branches.insert(ticket.branch.clone());
+                hold(&ticket.path, &mut std::iter::once(ticket.branch.clone()), &team.workspace)
             }
             TeamAt::Unplaced => {}
         }
@@ -321,22 +331,18 @@ pub(super) fn held(state: &State) -> Held {
     for op in state.ops.values() {
         if let Some(create) = create_of(op) {
             if let Some(ticket) = &create.ticket {
-                held.paths.insert(ticket.path.clone());
-                held.branches.insert(ticket.branch.clone());
+                hold(&ticket.path, &mut std::iter::once(ticket.branch.clone()), &op.workspace);
             }
             if let Some((path, branch)) = &create.probing {
-                held.paths.insert(path.clone());
-                held.branches.insert(branch.clone());
+                hold(path, &mut std::iter::once(branch.clone()), &op.workspace);
             }
         }
         if let Some(teardown) = op.teardown() {
             for removal in &teardown.removals {
-                held.paths.insert(removal.path.clone());
-                held.branches.extend(removal.branches.iter().cloned());
+                hold(&removal.path, &mut removal.branches.iter().cloned(), &op.workspace);
             }
             for folder in &teardown.consent.folders {
-                held.paths.insert(folder.path.clone());
-                held.branches.extend(folder.branch.clone());
+                hold(&folder.path, &mut folder.branch.clone().into_iter(), &op.workspace);
             }
         }
     }
@@ -361,7 +367,7 @@ fn place(state: &mut State, id: OpId) -> Option<Refusal> {
         return None;
     }
     let ws = state.world.workspaces.get(&workspace)?.clone();
-    let mut held = held(state);
+    let mut held = held(state, &workspace);
     let candidate = match &create.site {
         Site::New { place: Some(manual), .. } => {
             // A place typed by hand meets the same rule — held by anyone,

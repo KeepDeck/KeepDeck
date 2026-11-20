@@ -41,6 +41,7 @@ fn deck() -> DeckFacts {
             worktree_base: Some(Dir::new("/wt")),
             archived: false,
             archiving: false,
+            repo: None,
             teams: vec![
                 TeamFacts { id: team("1"), at: TeamAtFacts::Attached { cwd: Dir::new("/wt/kd-app-1"), branch: Some("kd/app/1".into()) } },
                 TeamFacts { id: team("r"), at: TeamAtFacts::Attached { cwd: Dir::new("/repo"), branch: None } },
@@ -1070,6 +1071,7 @@ fn a_place_held_in_one_workspace_is_not_given_in_another() {
         worktree_base: Some(Dir::new("/wt")),
         archived: false,
         archiving: false,
+            repo: None,
         teams: vec![],
         panes: vec![],
     });
@@ -1093,7 +1095,38 @@ fn a_place_held_in_one_workspace_is_not_given_in_another() {
     assert_ne!(probed[0], probed[1], "one place, given once");
     assert!(!probed.contains(&Dir::new("/wt/kd-app-1")), "team-1's folder, held in the other workspace");
     let typed = Place { path: Dir::new("/wt/kd-app-1"), branch: "fresh".into() };
-    assert!(super::queries::check(&sim.state, &typed).is_some(), "a typed place meets the same rule");
+    assert!(super::queries::check(&sim.state, &other, &typed).is_some(), "a typed place meets the same rule");
+}
+
+/// A branch name is unique within its repository: another checkout of the
+/// same one is held to it, an unrelated repository is not.
+#[test]
+fn a_branch_is_held_within_its_repository_and_not_across_unrelated_ones() {
+    let mut facts = deck();
+    facts.workspaces[0].repo = Some(Dir::new("/repo/.git"));
+    let workspace = |id: &str, cwd: &str, repo: &str| WorkspaceFacts {
+        id: WorkspaceId(id.into()),
+        name: "app".into(),
+        cwd: Dir::new(cwd),
+        worktree_base: Some(Dir::new("/elsewhere")),
+        archived: false,
+        archiving: false,
+        repo: Some(Dir::new(repo)),
+        teams: vec![],
+        panes: vec![],
+    };
+    facts.workspaces.push(workspace("ws-b", "/other", "/other/.git"));
+    facts.workspaces.push(workspace("ws-c", "/wt/kd-app-9", "/repo/.git"));
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    // team-1 of the first workspace stands on kd/app/1.
+    let typed = Place { path: Dir::new("/elsewhere/kd-app-x"), branch: "kd/app/1".into() };
+    assert_eq!(super::queries::check(&sim.state, &WorkspaceId("ws-b".into()), &typed), None, "an unrelated repository's branch");
+    assert_eq!(
+        super::queries::check(&sim.state, &WorkspaceId("ws-c".into()), &typed),
+        Some(super::queries::PlaceHeld::Team),
+        "another checkout of the same repository"
+    );
 }
 
 #[test]
@@ -1142,7 +1175,7 @@ fn a_new_team_or_workspace_id_already_taken_is_refused() {
     let mut sim = Sim::booted();
     let ask = sim.intent(Intent::CreateTeam { workspace: ws(), team: team("1"), site: Site::Root, draft: draft(), members: vec![] });
     assert_eq!(sim.refusal(ask), Some(Refusal::Busy));
-    let ask = sim.intent(Intent::CreateWorkspace { workspace: ws(), name: "x".into(), cwd: Dir::new("/x"), worktree_base: None, draft: draft() });
+    let ask = sim.intent(Intent::CreateWorkspace { workspace: ws(), name: "x".into(), cwd: Dir::new("/x"), worktree_base: None, draft: draft(), repo: None });
     assert_eq!(sim.refusal(ask), Some(Refusal::Busy));
 }
 
@@ -1630,6 +1663,7 @@ fn a_close_previews_exactly_the_refusal_its_confirm_meets() {
         worktree_base: None,
         archived: false,
         archiving: false,
+            repo: None,
         teams: vec![],
         panes: vec![],
     });

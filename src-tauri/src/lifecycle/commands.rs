@@ -41,15 +41,30 @@ pub async fn lifecycle_subscribe(lifecycle: tauri::State<'_, Lifecycle>, on_snap
 }
 
 #[tauri::command]
-pub async fn lifecycle_boot_handshake(lifecycle: tauri::State<'_, Lifecycle>, deck: DeckFacts, load: Load) -> Result<Reply, String> {
+pub async fn lifecycle_boot_handshake(lifecycle: tauri::State<'_, Lifecycle>, mut deck: DeckFacts, load: Load) -> Result<Reply, String> {
+    for workspace in &mut deck.workspaces {
+        workspace.repo = repo_of(&workspace.cwd);
+    }
     let door = lifecycle.door();
     Ok(door.ask(|ask| Event::Handshake { ask, deck, load }).await)
 }
 
 #[tauri::command]
-pub async fn lifecycle_intent(lifecycle: tauri::State<'_, Lifecycle>, intent: Intent) -> Result<Reply, String> {
+pub async fn lifecycle_intent(lifecycle: tauri::State<'_, Lifecycle>, mut intent: Intent) -> Result<Reply, String> {
+    if let Intent::CreateWorkspace { cwd, repo, .. } = &mut intent {
+        *repo = repo_of(cwd);
+    }
     let door = lifecycle.door();
     Ok(door.ask(|ask| Event::Intent { ask, intent }).await)
+}
+
+/// The repository a workspace's folder is a checkout of — its common git
+/// dir, one for all of its checkouts: what its branch names are unique
+/// within. The page does not know it; the host tells the machine. None
+/// outside git.
+fn repo_of(cwd: &Dir) -> Option<Dir> {
+    let repo = crate::worktree_arm::ExcludeRepo::of(std::path::Path::new(cwd.as_str())).ok()??;
+    Some(Dir::new(&repo.common_dir().to_string_lossy()))
 }
 
 #[tauri::command]
@@ -98,7 +113,7 @@ pub fn lifecycle_location(lifecycle: tauri::State<'_, Lifecycle>, workspace: Wor
         return Location { place: candidate, held: None };
     };
     if let Some(place) = candidate {
-        let held = queries::check(&state, &place)
+        let held = queries::check(&state, &workspace, &place)
             .or_else(|| doors.probe(&repo, &place.path, &place.branch).then_some(PlaceHeld::Disk));
         return Location { place: Some(place), held };
     }

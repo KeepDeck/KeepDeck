@@ -33,6 +33,12 @@ pub struct WorkspaceFacts {
     pub archiving: bool,
     pub teams: Vec<TeamFacts>,
     pub panes: Vec<PaneFacts>,
+    /// The repository it is a checkout of — its git common dir, which every
+    /// checkout of one repository shares. The host fills it; the page does
+    /// not know it. None outside git.
+    #[serde(default)]
+    #[ts(skip)]
+    pub repo: Option<Dir>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -71,6 +77,17 @@ pub struct Workspace {
     pub cwd: Dir,
     pub base: Option<Dir>,
     pub archived: bool,
+    /// Its repository's git common dir, when the host found one.
+    #[serde(default)]
+    pub repo: Option<Dir>,
+}
+
+impl Workspace {
+    /// What its branch names are unique within: its repository, or — outside
+    /// git, or not yet known — its own folder.
+    pub fn branch_space(&self) -> &Dir {
+        self.repo.as_ref().unwrap_or(&self.cwd)
+    }
 }
 
 /// Where a team runs, as the machine knows it.
@@ -115,7 +132,7 @@ impl World {
         for ws in &facts.workspaces {
             world.workspaces.insert(
                 ws.id.clone(),
-                Workspace { name: ws.name.clone(), cwd: ws.cwd.clone(), base: ws.worktree_base.clone(), archived: ws.archived },
+                Workspace { name: ws.name.clone(), cwd: ws.cwd.clone(), base: ws.worktree_base.clone(), archived: ws.archived, repo: ws.repo.clone() },
             );
             for team in &ws.teams {
                 let at = match &team.at {
@@ -189,6 +206,7 @@ mod tests {
                 worktree_base: Some(Dir::new("/wt")),
                 archived: false,
                 archiving: false,
+                repo: None,
                 teams: vec![
                     TeamFacts {
                         id: TeamId("team-1".into()),
