@@ -48,6 +48,7 @@ mod recent_projects;
 mod journal;
 mod exec_once;
 mod keyed_locks;
+mod lifecycle;
 mod state;
 mod jsonl_log;
 mod price_catalogue;
@@ -197,6 +198,17 @@ pub fn run() {
                     .state::<artifacts::ArtifactsState>()
                     .is_claimed()
             }));
+            // The lifecycle machine: started once, on the journal root's
+            // claim, and held for the app's whole life. A copy without the
+            // claim only shows, and keeps trying for it.
+            let root = lifecycle::journal_root().ok_or("no KeepDeck home to hold the lifecycle journal")?;
+            let doors = std::sync::Arc::new(lifecycle::AppDoors);
+            let lifecycle = tauri::async_runtime::block_on(async move { lifecycle::Lifecycle::start_at(root, doors) });
+            let claimed = lifecycle.claimed();
+            app.manage(lifecycle);
+            if !claimed {
+                lifecycle::Lifecycle::retry_claim(app.handle().clone());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -236,6 +248,17 @@ pub fn run() {
             bridge::bridge_nudge,
             bridge::bridge_pane_dir,
             bridge::bridge_reply,
+            lifecycle::lifecycle_subscribe,
+            lifecycle::lifecycle_boot_handshake,
+            lifecycle::lifecycle_intent,
+            lifecycle::lifecycle_lease,
+            lifecycle::lifecycle_release,
+            lifecycle::lifecycle_applied,
+            lifecycle::lifecycle_hook_ended,
+            lifecycle::lifecycle_deck_saved,
+            lifecycle::lifecycle_preview,
+            lifecycle::lifecycle_claims,
+            lifecycle::lifecycle_location,
             apps::list_applications,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,
@@ -426,6 +449,8 @@ mod tests {
         "Bridge",
         // `app.manage(skills::GateRegistry::new(...));`
         "GateRegistry",
+        // `let lifecycle = … Lifecycle::start_at(root, doors) …; app.manage(lifecycle);`
+        "Lifecycle",
     ];
 
     /// The final path segment of a type expression: `crate::artifacts::

@@ -122,16 +122,28 @@ pub enum PlaceHeld {
     Creation,
     /// A cleanup not done yet holds it.
     Cleanup,
+    /// Something is on disk there: the folder, or a branch of that name.
+    Disk,
 }
 
-/// The first place a new team of this workspace would get now, from `from`
-/// — the hint of the agent dialog; the decision is the creation's own.
-pub fn suggest(state: &State, workspace: &WorkspaceId, from: u32) -> Option<Place> {
+/// The answer of the place hint: the place a new team would get, or what
+/// holds the place typed by hand.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "lifecycle/")]
+pub struct Location {
+    pub place: Option<Place>,
+    pub held: Option<PlaceHeld>,
+}
+
+/// The first place a new team of this workspace would get now, from `from`,
+/// with its number — the hint of the agent dialog; the decision is the
+/// creation's own. A place the disk holds is skipped by asking past its number.
+pub fn suggest(state: &State, workspace: &WorkspaceId, from: u32) -> Option<(u32, Place)> {
     let ws = state.world.workspaces.get(workspace)?;
     let base = ws.base.as_ref()?;
     let held = create::held(state, workspace);
     let n = places::first_free(&held, base, &ws.name, from);
-    Some(Place { path: places::path(base, &ws.name, n), branch: places::branch(&ws.name, n) })
+    Some((n, Place { path: places::path(base, &ws.name, n), branch: places::branch(&ws.name, n) }))
 }
 
 /// What holds a place typed by hand, if anything does.
@@ -259,7 +271,7 @@ mod tests {
     #[test]
     fn the_hint_and_a_typed_place_meet_the_same_rule() {
         let state = booted();
-        assert_eq!(suggest(&state, &ws(), 1), Some(Place { path: Dir::new("/wt/kd-app-2"), branch: "kd/app/2".into() }));
+        assert_eq!(suggest(&state, &ws(), 1), Some((2, Place { path: Dir::new("/wt/kd-app-2"), branch: "kd/app/2".into() })));
         let taken = Place { path: Dir::new("/wt/kd-app-1"), branch: "other".into() };
         assert_eq!(check(&state, &ws(), &taken), Some(PlaceHeld::Team));
         let branch = Place { path: Dir::new("/wt/new"), branch: "kd/app/1".into() };

@@ -1069,6 +1069,26 @@ fn a_fork_hook_that_fails_takes_back_nothing_it_did_not_report() {
     assert!(sim.state.ops.is_empty());
 }
 
+// ---------------------------------------------------------------- the commit check
+
+#[test]
+fn a_write_from_a_forgotten_workspace_team_or_pane_is_refused_and_only_that() {
+    let mut sim = Sim::booted();
+    let forgotten = |sim: &Sim, team_name: Option<&str>, pane: Option<u64>| {
+        let team = team_name.map(team);
+        sim.state.forgotten.source(&ws(), team.as_ref(), pane.map(PaneId).as_ref())
+    };
+    assert!(!forgotten(&sim, Some("1"), Some(2)));
+    sim.intent(close_agent(2));
+    sim.write_journals();
+    assert!(forgotten(&sim, Some("1"), Some(2)), "the pane is forgotten");
+    assert!(!forgotten(&sim, Some("1"), Some(1)), "its team and the other member are not");
+    assert!(!forgotten(&sim, None, None));
+    sim.intent(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    sim.drive();
+    assert!(forgotten(&sim, None, None), "the whole workspace, once it is closed");
+}
+
 // ---------------------------------------------------------------- the snapshot
 
 #[test]

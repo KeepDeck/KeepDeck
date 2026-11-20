@@ -78,6 +78,16 @@ pub struct Snapshot {
     pub commands: Vec<Command>,
 }
 
+/// A snapshot with the version of the state it was read from — TS keeps the
+/// higher one, within one machine's life.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
+pub struct Versioned {
+    #[ts(type = "number")]
+    pub version: u64,
+    pub snapshot: Snapshot,
+}
+
 pub fn snapshot(state: &State) -> Snapshot {
     let mut workspaces = BTreeMap::new();
     for (id, ws) in &state.world.workspaces {

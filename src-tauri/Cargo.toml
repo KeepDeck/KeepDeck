@@ -32,6 +32,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
+keepdeck-fsm-runtime = { path = "../crates/keepdeck-fsm-runtime" }
+keepdeck-lifecycle = { path = "../crates/keepdeck-lifecycle" }
 keepdeck-index = { path = "../crates/keepdeck-index" }
 keepdeck-tasks = { path = "../crates/keepdeck-tasks" }
 keepdeck-usage = { path = "../crates/keepdeck-usage" }
@@ -79,7 +81,9 @@ tar = "0.4"
 sha2 = "0.10"
 base64 = "0.22"
 minisign-verify = "0.2"
-tokio = { version = "1", features = ["sync", "time"] }
+# rt: the lifecycle machine's blocking work (spawn_blocking); macros: its
+# waiting door's select between the answer and the machine's end.
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 # Not only for tests: the `--version` probe sends a child's output to a temp
 # FILE rather than a pipe, because a pipe blocks its writer at 64 KB and its
 # reader until every inherited write end closes (src/agents.rs).
@@ -95,3 +99,7 @@ unicode-normalization = "0.1"
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = "0.3"
+
+[dev-dependencies]
+# The lifecycle's waiting door is tested on a tiny machine of its own.
+keepdeck-fsm = { path = "../crates/keepdeck-fsm" }

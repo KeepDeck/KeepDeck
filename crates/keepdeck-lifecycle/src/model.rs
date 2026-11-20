@@ -268,6 +268,20 @@ impl Answer {
     }
 }
 
+/// What a waiting door hands back: the machine's answer, or what the door
+/// knows when there is none to give.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
+pub enum Reply {
+    Answered { answer: Answer },
+    /// The machine was gone before the ask was sent: nothing was done.
+    Unavailable,
+    /// The machine went after the ask was sent, unanswered: the next launch
+    /// settles it.
+    Unknown,
+}
+
 /// How a teardown ends the processes it takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stop {

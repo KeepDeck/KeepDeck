@@ -3,4 +3,4 @@
 /**
  * What holds a place, as the machine knows it; the disk's word is the door's.
  */
-export type PlaceHeld = "team" | "creation" | "cleanup";
+export type PlaceHeld = "team" | "creation" | "cleanup" | "disk";

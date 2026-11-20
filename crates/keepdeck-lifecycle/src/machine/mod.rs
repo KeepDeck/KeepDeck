@@ -54,6 +54,15 @@ pub struct Forgotten {
 }
 
 impl Forgotten {
+    /// The commit check: a write from this source is refused. The source is
+    /// the writer's trusted one — its workspace and, when it has them, its
+    /// team and pane — so the check needs nothing but the set.
+    pub fn source(&self, workspace: &WorkspaceId, team: Option<&TeamId>, pane: Option<&PaneId>) -> bool {
+        self.workspaces.contains(workspace)
+            || team.is_some_and(|team| self.teams.contains(team))
+            || pane.is_some_and(|pane| self.panes.contains(pane))
+    }
+
     pub fn pane(&self, world: &World, pane: &PaneId) -> bool {
         if self.panes.contains(pane) {
             return true;
