@@ -106,6 +106,16 @@ fn blocked(state: &State, workspace: &WorkspaceId, owner: Option<&LaunchOwner>, 
     None
 }
 
+/// A pane has one session at a time: while its last one is still alive —
+/// stopping, too — or a launch of it is admitted, no second launch is let
+/// in. A restart with resume waits for the old process to be gone, at most
+/// the stop's own bound. Read at the lease and again at the admission.
+fn pane_busy(state: &State, owner: &LaunchOwner) -> bool {
+    let Some(pane) = owner.pane() else { return false };
+    state.sessions.values().any(|row| !row.ended && row.owner.pane() == Some(pane))
+        || state.attempts.values().any(|attempt| attempt.owner.pane() == Some(pane))
+}
+
 pub fn lease(state: &mut State, ask: AskId, lease: LeaseAsk, fx: &mut Fx) {
     let (workspace, owner, dir) = match lease {
         LeaseAsk::Launch { workspace, owner, dir } => (workspace, Some(owner), dir),
@@ -114,15 +124,8 @@ pub fn lease(state: &mut State, ask: AskId, lease: LeaseAsk, fx: &mut Fx) {
     if let Some(refusal) = blocked(state, &workspace, owner.as_ref(), dir.as_ref()) {
         return refused(fx, ask, refusal);
     }
-    // A pane has one session at a time: while its last one is still alive —
-    // stopping, too — no second launch is let in. A restart with resume waits
-    // for the old process to be gone, at most the stop's own bound.
-    if let Some(pane) = owner.as_ref().and_then(LaunchOwner::pane) {
-        let busy = state.sessions.values().any(|row| !row.ended && row.owner.pane() == Some(pane))
-            || state.attempts.values().any(|attempt| attempt.owner.pane() == Some(pane));
-        if busy {
-            return refused(fx, ask, Refusal::Busy);
-        }
+    if owner.as_ref().is_some_and(|owner| pane_busy(state, owner)) {
+        return refused(fx, ask, Refusal::Busy);
     }
     let (n, next) = state.next.permit.next();
     state.next.permit = next;
@@ -139,6 +142,11 @@ pub fn admit(state: &mut State, ask: AskId, permit: PermitId, owner: LaunchOwner
     let workspace = given.workspace.clone();
     if let Some(refusal) = blocked(state, &workspace, Some(&owner), dir.as_ref()) {
         return refused(fx, ask, refusal);
+    }
+    // Two permits for one pane, both leased before either was spent: only
+    // the first admission goes.
+    if pane_busy(state, &owner) {
+        return refused(fx, ask, Refusal::Busy);
     }
     state.permits.remove(&permit);
     let (n, next) = state.next.attempt.next();

@@ -875,6 +875,37 @@ fn a_session_that_shows_up_after_its_close_is_stopped_at_once() {
 }
 
 #[test]
+fn a_checkout_with_a_launch_admitted_into_it_is_not_unheld() {
+    let mut sim = Sim::booted();
+    let owner = LaunchOwner::Plugin { plugin: "run".into(), workspace: ws() };
+    let dir = Dir::new("/wt/kd-app-old");
+    let ask = sim.next_ask();
+    sim.send(Event::Lease { ask, lease: LeaseAsk::Launch { workspace: ws(), owner: owner.clone(), dir: Some(dir.clone()) } });
+    let Some(Answer::Leased { permit }) = sim.answer(ask) else { panic!() };
+    let ask = sim.next_ask();
+    sim.send(Event::Admit { ask, permit, owner: owner.clone(), dir: Some(dir.clone()) });
+    let Some(Answer::Admitted { attempt }) = sim.answer(ask) else { panic!() };
+    // Admitted, not yet a session: the process may cross into it any moment.
+    let remove = sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir.clone(), tag: None });
+    assert_eq!(sim.refusal(remove), Some(Refusal::Busy));
+    // Once the launch is a session and over, the folder is free.
+    let session = sim.appear(owner, Some(attempt), Some("/wt/kd-app-old"));
+    sim.send(Event::SessionEnded { session });
+    let remove = sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir, tag: None });
+    assert_eq!(sim.refusal(remove), None);
+}
+
+#[test]
+fn two_permits_for_one_pane_admit_only_one_launch() {
+    let mut sim = Sim::booted();
+    let Answer::Leased { permit: first } = lease(&mut sim, 1, "/wt/kd-app-1") else { panic!() };
+    let Answer::Leased { permit: second } = lease(&mut sim, 1, "/wt/kd-app-1") else { panic!("both leased before either is spent") };
+    assert!(matches!(admit(&mut sim, first, 1, "/wt/kd-app-1"), Answer::Admitted { .. }));
+    assert_eq!(admit(&mut sim, second, 1, "/wt/kd-app-1"), Answer::refused(Refusal::Busy));
+    assert_eq!(sim.state.attempts.len(), 1);
+}
+
+#[test]
 fn a_pane_gets_no_second_launch_while_its_last_session_is_still_alive() {
     let mut sim = Sim::booted();
     let session = sim.appear(LaunchOwner::Pane { pane: PaneId(3) }, None, Some("/repo"));

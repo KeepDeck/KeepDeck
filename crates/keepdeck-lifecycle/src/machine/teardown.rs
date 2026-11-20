@@ -182,8 +182,8 @@ pub fn abandon(op: &mut Op, _by: OpId) {
 }
 
 /// Whether anyone but `except` holds this folder: a team placed there, a
-/// live session in it, a creation's ticket or candidate, another
-/// operation's deletion.
+/// live session in it, a launch admitted into it and not taken over by
+/// `except`, a creation's ticket or candidate, another operation's deletion.
 pub fn folder_held(state: &State, dir: &Dir, except: Option<OpId>) -> bool {
     let leaving: BTreeSet<TeamId> = except
         .and_then(|id| state.ops.get(&id))
@@ -202,10 +202,13 @@ pub fn folder_held(state: &State, dir: &Dir, except: Option<OpId>) -> bool {
             && session.dir.as_ref() == Some(dir)
             && !except.and_then(|id| state.ops.get(&id)).is_some_and(|op| matches!(&op.kind, Kind::Teardown(t) if t.covers(op, session)))
     });
+    // Admitted, not yet a session: the process may cross into the folder at
+    // any moment, unless the asking teardown took the launch to its boundary.
+    let launches = state.attempts.values().any(|attempt| attempt.dir.as_ref() == Some(dir) && (attempt.by.is_none() || attempt.by != except));
     let ops = state.ops.iter().any(|(&id, op)| {
         Some(id) != except && (op.scope().folders.contains(dir) || super::create::holds_folder(op, dir))
     });
-    teams || sessions || ops
+    teams || sessions || launches || ops
 }
 
 impl Op {
