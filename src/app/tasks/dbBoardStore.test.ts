@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { encodeBoard, transition, type TaskBoard } from "../../domain/tasks";
 import { board, lead, mintSequence, task } from "../../domain/tasks/testSupport";
 import { createDbBoardStore } from "./dbBoardStore";
+import { WriteForgotten } from "./tasksService";
 import { testDatabase, isTestStoreError } from "./testDatabase";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -74,6 +75,13 @@ describe("createDbBoardStore — the board reaches the database", () => {
     await expect(store.write({ workspaceId: "ws-1", board: afterB })).rejects.toThrow("another program");
     await store.write({ workspaceId: "ws-1", board: comment(afterB, "C") });
     expect(db.boards()[0].tasks[0].comments.map((c) => c.body)).toEqual(["B", "C"]);
+  });
+
+  it("says a write the lifecycle forgot is final — its own kind of refusal, never to be retried", async () => {
+    const { db, store } = await open();
+    const b = await readBoard(store);
+    db.refuseNextApply({ code: "forgotten" });
+    await expect(store.write({ workspaceId: "ws-1", board: comment(b, "late") })).rejects.toBeInstanceOf(WriteForgotten);
   });
 
   it("sends a request whose answer was lost again — the same request, applied once — before the next", async () => {

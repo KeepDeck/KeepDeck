@@ -363,6 +363,21 @@ describe("createTasksService", () => {
     expect(taskTitlesOf(present(store.files.get("ws-1"), "the saved ws-1 board file"))).toEqual(["kept", "not saved yet"]);
   });
 
+  it("takes a write the lifecycle forgot as final: nothing marked unsaved, nothing retried", async () => {
+    const { service, store, tick } = setup();
+    await service.create("ws-1", { teamId: "team-1", title: "kept" }, lead);
+    const written = store.writes.length;
+    store.forgetNextWrite();
+    await service.create("ws-1", { teamId: "team-1", title: "too late" }, lead);
+    const state = service.peek("ws-1");
+    expect(state?.kind === "ready" && state.unsaved).toBeNull();
+    expect(service.unsaved()).toEqual([]);
+    tick();
+    await flush();
+    // No retry came: the refused write was the last one tried.
+    expect(store.writes).toHaveLength(written);
+  });
+
   it("flush answers the boards it still could not write; a landed retry clears them", async () => {
     const { service, store, tick } = setup();
     store.failNextWrite("disk full");

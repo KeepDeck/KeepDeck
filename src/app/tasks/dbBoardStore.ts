@@ -28,7 +28,7 @@ import { migrateBoards, type MigrationOutcome, type MigrationPort } from "./migr
 import { BOARD_NOT_OPEN, BOARD_READ_STALE, decodeFaultText, migrationRefusalText, storeErrorText } from "./refusalText";
 import { boardChange, HistoryRewritten } from "./storeDiff";
 import { boardFromStored } from "./storeWire";
-import type { BoardRead, Recovery, TasksStorePort } from "./tasksService";
+import { WriteForgotten, type BoardRead, type Recovery, type TasksStorePort } from "./tasksService";
 
 /** What this owner needs from the Rust store. */
 export interface TaskDatabasePort extends MigrationPort {
@@ -198,7 +198,9 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       }
       refused = whole === null ? null : await send(workspace, place, { requestId: deps.mintUid(), boards: [whole] }, target);
     }
-    if (refused !== null) throw new Error(storeErrorText(refused));
+    if (refused === null) return;
+    if (refused.code === "forgotten") throw new WriteForgotten(storeErrorText(refused));
+    throw new Error(storeErrorText(refused));
   };
 
   /** Where the database stands, settled: the boards moved into it (or

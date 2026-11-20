@@ -56,8 +56,14 @@ export type BoardRead =
  * composition root and nowhere else. HOW a board reaches the disk (the
  * change against what the database confirmed, the request that may be
  * sent again) is the port's: this owner hands it the board it decided. */
+/** A write the store refused because the lifecycle has forgotten what it
+ * was for — a close under way. Final: nothing about it is retried. */
+export class WriteForgotten extends Error {}
+
 export interface TasksStorePort {
   read(args: { workspaceId: string }): Promise<BoardRead>;
+  /** Write a board. Rejects with [`WriteForgotten`] when the lifecycle has
+   * forgotten its workspace — a refusal never to be retried. */
   write(args: { workspaceId: string; board: TaskBoard }): Promise<void>;
   /** Remove a workspace's board from disk. Idempotent. */
   drop(args: { workspaceId: string }): Promise<void>;
@@ -361,6 +367,9 @@ export function createTasksService(deps: TasksServiceDeps): TasksService {
       try {
         await deps.store.write({ workspaceId, board });
       } catch (e: unknown) {
+        // The lifecycle forgot it: nothing is marked unsaved and nothing is
+        // tried again — its board goes with the close.
+        if (e instanceof WriteForgotten) return FORGOTTEN_WRITE;
         const error = errorMessage(e);
         log.warn("web:tasks", `${workspaceId}: writing the board failed: ${error}`);
         // A board forgotten while this was on the wire has nothing to
