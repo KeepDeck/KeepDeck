@@ -940,6 +940,38 @@ fn a_close_takes_over_an_archive() {
     assert!(sim.cleaned.contains(&Clean::Stores { workspace: ws() }), "its stores' data goes, by its own name: {:?}", sim.cleaned);
 }
 
+/// A Close taking over an archive takes over what the archive was waiting
+/// for at the start boundary too: it goes on — and lets go of no slot — only
+/// once the boundary has answered for those launches.
+#[test]
+fn a_close_taking_over_an_archive_waits_for_the_launches_the_archive_took_to_the_boundary() {
+    let mut sim = Sim::booted();
+    let Answer::Leased { permit } = lease(&mut sim, 1, "/wt/kd-app-1") else { panic!() };
+    let Answer::Admitted { attempt } = admit(&mut sim, permit, 1, "/wt/kd-app-1") else { panic!() };
+    sim.intent(Intent::Archive { workspace: ws() });
+    for _ in 0..3 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    let archive = *sim.state.ops.keys().next().unwrap();
+    assert!(sim.owed().contains(&Effect::Cancel { op: archive, attempts: vec![attempt] }), "the archive took it: {:?}", sim.owed());
+    let close = sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    assert_eq!(sim.refusal(close), None);
+    let close_op = *sim.state.ops.keys().last().unwrap();
+    for _ in 0..6 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    assert!(sim.owed().contains(&Effect::Cancel { op: close_op, attempts: vec![attempt] }), "the close waits for the boundary's word: {:?}", sim.owed());
+    assert!(sim.pending_matching(|cmd| matches!(cmd, Cmd::Release { .. })).is_empty(), "and lets go of nothing before it");
+    sim.send(Event::Cancelled { op: close_op, started: vec![] });
+    sim.drive();
+    assert!(sim.state.ops.is_empty(), "{:?}", sim.state.ops);
+    assert!(sim.state.world.workspaces.is_empty());
+}
+
 // ---------------------------------------------------------------- additive operations
 
 #[test]

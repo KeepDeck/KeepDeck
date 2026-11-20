@@ -536,10 +536,14 @@ fn close_conflict(state: &State, holders: &[OpId]) -> Option<Refusal> {
 fn open_teardown(state: &mut State, ask: AskId, workspace: WorkspaceId, teardown: Teardown, holders: Vec<OpId>, journaled: bool) {
     let id = state.mint_op();
     let mut op = Op::new(workspace, ask, journaled, Kind::Teardown(Box::new(teardown)));
-    // A creation or an archive the Close takes over stops where it is.
+    // A creation or an archive the Close takes over stops where it is; the
+    // launches it took to the start boundary are the Close's to wait for.
+    let State { ops, attempts, .. } = &mut *state;
     for holder in holders {
-        if let Some(taken) = state.ops.get_mut(&holder) {
-            teardown::abandon(taken, id);
+        let Some(taken) = ops.get_mut(&holder) else { continue };
+        teardown::abandon(taken, id);
+        if let (Some(from), Some(to)) = (taken.boundary_mut(), op.boundary_mut()) {
+            to.inherit(attempts, id, from);
         }
     }
     if let Kind::Teardown(teardown) = &mut op.kind {

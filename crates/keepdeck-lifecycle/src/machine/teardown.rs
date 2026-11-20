@@ -390,10 +390,11 @@ fn begin_stopping(state: &mut State, id: OpId) {
         Some(owner) => !in_scope(owner, &permit.workspace, permit.dir.as_ref()),
         None => true,
     });
-    let mut boundary = Boundary::default();
-    boundary.take(&mut state.attempts, id, |row| in_scope(&row.owner, &row.workspace, row.dir.as_ref()));
-    if let Some(teardown) = teardown_mut(state, id) {
-        teardown.boundary = boundary;
+    // Added to what it already waits for: the launches an operation it took
+    // over had taken to the boundary are its own since.
+    let State { ops, attempts, .. } = state;
+    if let Some(teardown) = ops.get_mut(&id).and_then(Op::teardown_mut) {
+        teardown.boundary.take(attempts, id, |row| in_scope(&row.owner, &row.workspace, row.dir.as_ref()));
     }
 }
 

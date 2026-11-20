@@ -60,6 +60,20 @@ impl Boundary {
         }
     }
 
+    /// Take over, for `op`, what `from` was waiting for at the boundary — the
+    /// boundary of an operation a Close took over. The launches it took are
+    /// `op`'s now: their cancel is asked again by `op`, and their word comes
+    /// to it. A launch nobody waits for any more is one a stop can overtake.
+    pub fn inherit(&mut self, attempts: &mut BTreeMap<AttemptId, Attempt>, op: OpId, from: &mut Boundary) {
+        for attempt in from.taken.iter().chain(&from.started) {
+            if let Some(row) = attempts.get_mut(attempt) {
+                row.by = Some(op);
+            }
+        }
+        self.taken.append(&mut from.taken);
+        self.started.append(&mut from.started);
+    }
+
     /// The boundary's word: the `started` ones are awaited, the others never
     /// start and are done.
     pub fn cancelled(&mut self, attempts: &mut BTreeMap<AttemptId, Attempt>, op: OpId, started: &[AttemptId]) {
