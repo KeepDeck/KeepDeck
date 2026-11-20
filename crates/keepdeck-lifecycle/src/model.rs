@@ -82,9 +82,6 @@ pub struct Folder {
     pub repo: Dir,
     pub path: Dir,
     pub branch: Option<String>,
-    /// The checkout was there when the person agreed. A branch of a checkout
-    /// that is gone is deleted only on this evidence.
-    pub present: bool,
 }
 
 /// What a door asks the lifecycle to do — the closed set; an operation the

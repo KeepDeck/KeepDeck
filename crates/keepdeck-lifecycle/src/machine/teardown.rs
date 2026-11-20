@@ -451,19 +451,16 @@ pub fn branches_read(state: &mut State, id: OpId, path: Dir, result: Result<Vec<
         return;
     }
     let Some(folder) = teardown.consent.folders.iter().find(|folder| folder.path == path).cloned() else { return };
-    let (present, mut branches) = match result {
-        Ok(born) => (true, born),
-        Err(error) => {
-            fx.warn(format!("{id}: the branches of {} could not be read ({error})", path.as_str()));
-            (false, Vec::new())
-        }
-    };
+    let mut branches = result.unwrap_or_else(|error| {
+        fx.warn(format!("{id}: the branches of {} could not be read ({error})", path.as_str()));
+        Vec::new()
+    });
     if let Some(branch) = folder.branch {
         if !branches.contains(&branch) {
             branches.push(branch);
         }
     }
-    teardown.removals.push(Removal { repo: folder.repo, path, present: present && folder.present, branches });
+    teardown.removals.push(Removal { repo: folder.repo, path, branches });
 }
 
 /// The steps of the cleanup, in their order: plantings out, checkouts, then
@@ -706,10 +703,7 @@ pub fn work(state: &State, id: OpId, op: &Op, teardown: &Teardown, mut owed: Owe
                         let Some(removal) = teardown.removals.iter().find(|removal| &removal.path == path) else { continue };
                         Clean::Checkout { repo: removal.repo.clone(), path: path.clone() }
                     }
-                    Step::Branch { repo, name } => {
-                        let present = teardown.removals.iter().find(|removal| &removal.repo == repo).is_some_and(|removal| removal.present);
-                        Clean::Branch { repo: repo.clone(), name: name.clone(), confirmed_absent: !present }
-                    }
+                    Step::Branch { repo, name } => Clean::Branch { repo: repo.clone(), name: name.clone() },
                     Step::Disarm { dir } => Clean::Disarm { dir: dir.clone() },
                     Step::Stores => Clean::Stores,
                     Step::Discard | Step::Tag { .. } => continue,
@@ -745,8 +739,8 @@ impl Unheld {
 
     fn steps(&self) -> Vec<Step> {
         let mut steps = Vec::new();
-        if self.tag.is_some() {
-            steps.push(Step::Tag { path: self.path.clone() });
+        if let Some(name) = &self.tag {
+            steps.push(Step::Tag { path: self.path.clone(), name: name.clone() });
         }
         steps.push(Step::Checkout { path: self.path.clone() });
         steps
@@ -786,7 +780,7 @@ pub fn work_unheld(state: &State, id: OpId, op: &Op, unheld: &Unheld, mut owed: 
             continue;
         }
         let how = match &step {
-            Step::Tag { path } => Clean::TagHead { path: path.clone(), tag: unheld.tag.clone().unwrap_or_default() },
+            Step::Tag { path, name } => Clean::TagHead { repo: repo.clone(), path: path.clone(), tag: name.clone() },
             Step::Checkout { path } => Clean::Checkout { repo: repo.clone(), path: path.clone() },
             _ => continue,
         };

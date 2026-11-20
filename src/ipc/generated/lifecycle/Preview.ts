@@ -21,8 +21,7 @@ refusal: Refusal | null,
  */
 stops: Array<PaneId>, 
 /**
- * The folders it may delete. Whether each is still there is the disk's
- * word, read by the door (`present`).
+ * The folders it may delete.
  */
 folders: Array<Folder>, 
 /**

@@ -38,16 +38,14 @@ pub enum Target {
     Workspace,
 }
 
-/// The plan for removing one worktree, written before its first step: what
-/// was there when the person agreed, and the branches born in it — read from
-/// its reflog, which git erases with the checkout.
+/// The plan for removing one worktree, written before its first step: the
+/// checkout, and the branches born in it — read from its reflog, which git
+/// erases with the checkout. Whether a branch is still somebody's is git's
+/// word at the moment of its deletion, not the plan's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Removal {
     pub repo: Dir,
     pub path: Dir,
-    /// The checkout was there at consent; a branch of a checkout that is gone
-    /// is deleted only on this evidence.
-    pub present: bool,
     pub branches: Vec<String>,
 }
 
@@ -62,8 +60,8 @@ pub enum Step {
     Disarm { dir: Dir },
     /// The workspace's data in the stores of Rust removed.
     Stores,
-    /// A folder's HEAD tagged before it goes.
-    Tag { path: Dir },
+    /// A folder's HEAD kept as the tag `name` before it goes.
+    Tag { path: Dir, name: String },
     /// The fork's scaffolding removed.
     Discard,
 }
@@ -319,14 +317,12 @@ mod tests {
                         repo: Dir::new("/repo"),
                         path: Dir::new("/repo/wt"),
                         branch: Some("kd/a1/1".into()),
-                        present: true,
                     }],
                     tickets: vec![],
                 },
                 removals: vec![Removal {
                     repo: Dir::new("/repo"),
                     path: Dir::new("/repo/wt"),
-                    present: true,
                     branches: vec!["kd/a1/1".into()],
                 }],
             },

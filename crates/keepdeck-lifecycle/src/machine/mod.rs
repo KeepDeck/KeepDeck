@@ -290,10 +290,12 @@ pub enum Effect {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Clean {
     Checkout { repo: Dir, path: Dir },
-    Branch { repo: Dir, name: String, confirmed_absent: bool },
+    /// A branch the consent covers; kept if it is checked out elsewhere.
+    Branch { repo: Dir, name: String },
     Disarm { dir: Dir },
     Stores,
-    TagHead { path: Dir, tag: String },
+    /// A checkout's HEAD kept as a tag; a tag name in use is refused.
+    TagHead { repo: Dir, path: Dir, tag: String },
     Discard { plugin: String, paths: Vec<String> },
     /// Boot's reconciliation: the stores keep only these workspaces' data.
     Retain { workspaces: Vec<WorkspaceId> },

@@ -50,7 +50,7 @@ fn deck() -> DeckFacts {
 
 fn consent_for_team_1() -> Consent {
     Consent {
-        folders: vec![Folder { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), branch: Some("kd/app/1".into()), present: true }],
+        folders: vec![Folder { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), branch: Some("kd/app/1".into()) }],
         tickets: vec![],
     }
 }
@@ -367,7 +367,7 @@ fn a_disband_deletes_its_folder_by_consent_and_forgets_its_tasks_and_mail() {
     let (repo, path) = (Dir::new("/repo"), Dir::new("/wt/kd-app-1"));
     assert!(sim.cleaned.contains(&Clean::Disarm { dir: path.clone() }));
     assert!(sim.cleaned.contains(&Clean::Checkout { repo: repo.clone(), path }));
-    assert!(sim.cleaned.contains(&Clean::Branch { repo, name: "kd/app/1".into(), confirmed_absent: false }));
+    assert!(sim.cleaned.contains(&Clean::Branch { repo, name: "kd/app/1".into() }));
     assert!(!sim.cleaned.contains(&Clean::Stores), "a team's close leaves the workspace's stores alone");
     assert!(sim.carried.contains(&Cmd::DeleteTeamTasks { workspace: ws(), team: team("1") }));
     assert!(sim.carried.contains(&Cmd::ForgetPaneMail { workspace: ws(), pane: PaneId(1) }));

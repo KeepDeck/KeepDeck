@@ -22,8 +22,7 @@ pub struct Preview {
     pub refusal: Option<Refusal>,
     /// The panes whose processes it stops.
     pub stops: Vec<PaneId>,
-    /// The folders it may delete. Whether each is still there is the disk's
-    /// word, read by the door (`present`).
+    /// The folders it may delete.
     pub folders: Vec<Folder>,
     /// Creations still out: what their tickets make is deleted too.
     pub creations: Vec<OpId>,
@@ -61,7 +60,7 @@ fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<F
             !leaving.contains(other) && matches!(&row.at, TeamAt::Attached { cwd, .. } if *cwd == path)
         });
         if !shared {
-            folders.push(Folder { repo: ws.cwd.clone(), path, branch, present: true });
+            folders.push(Folder { repo: ws.cwd.clone(), path, branch });
         }
     }
     (folders, creations)

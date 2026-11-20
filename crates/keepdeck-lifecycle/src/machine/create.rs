@@ -634,7 +634,7 @@ fn work_create(state: &State, id: OpId, op: &Op, create: &Create, mut owed: Owed
             };
             let how = match &step {
                 Step::Checkout { path } => Clean::Checkout { repo: ticket.repo.clone(), path: path.clone() },
-                _ => Clean::Branch { repo: ticket.repo.clone(), name: ticket.branch.clone(), confirmed_absent: false },
+                _ => Clean::Branch { repo: ticket.repo.clone(), name: ticket.branch.clone() },
             };
             if !create.undone.contains(&step) {
                 owed = owed.run(Effect::Clean { op: id, workspace: op.workspace.clone(), step, how });

@@ -11,7 +11,6 @@ use keepdeck_lifecycle::machine::snapshot::{snapshot, Versioned};
 use keepdeck_lifecycle::machine::{Event, LeaseAsk, Load, State};
 use keepdeck_lifecycle::model::{Intent, Place, Reply};
 use keepdeck_lifecycle::world::DeckFacts;
-use std::path::Path;
 use tauri::ipc::Channel;
 
 /// How many places the hint asks the disk about before it gives up.
@@ -79,21 +78,9 @@ pub fn lifecycle_deck_saved(lifecycle: tauri::State<'_, Lifecycle>, revision: Re
     lifecycle.door().tell(Event::DeckSaved { revision });
 }
 
-/// The disk's word on each offered folder: is it still there.
-fn mark_present(preview: &mut Preview) {
-    for folder in &mut preview.folders {
-        folder.present = Path::new(folder.path.as_str()).exists();
-    }
-    if let Some((_, disband)) = &mut preview.last_of {
-        mark_present(disband);
-    }
-}
-
-#[tauri::command(async)]
+#[tauri::command]
 pub fn lifecycle_preview(lifecycle: tauri::State<'_, Lifecycle>, intent: Intent) -> Preview {
-    let mut preview = queries::preview(&state_now(&lifecycle), &intent);
-    mark_present(&mut preview);
-    preview
+    queries::preview(&state_now(&lifecycle), &intent)
 }
 
 #[tauri::command]

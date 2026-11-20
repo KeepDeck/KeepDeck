@@ -4,9 +4,4 @@ import type { Dir } from "./Dir";
 /**
  * A worktree a Close may delete.
  */
-export type Folder = { repo: Dir, path: Dir, branch: string | null, 
-/**
- * The checkout was there when the person agreed. A branch of a checkout
- * that is gone is deleted only on this evidence.
- */
-present: boolean, };
+export type Folder = { repo: Dir, path: Dir, branch: string | null, };
