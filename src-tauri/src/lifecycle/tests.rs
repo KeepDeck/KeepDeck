@@ -35,7 +35,7 @@ impl Doors for FakeDoors {
     fn read_branches(&self, _repo: &Dir, _path: &Dir) -> Result<Vec<String>, String> {
         Ok(Vec::new())
     }
-    fn clean(&self, _workspace: &WorkspaceId, how: &Clean) -> Result<(), String> {
+    fn clean(&self, how: &Clean) -> Result<(), String> {
         if self.panic_on_clean {
             panic!("a door that panics");
         }

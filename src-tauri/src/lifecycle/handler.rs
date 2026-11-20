@@ -7,7 +7,7 @@ use super::door::Waiters;
 use super::store::DiskJournal;
 use keepdeck_fsm_runtime::{Effects, Events};
 use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AttemptId, SessionId, WorkspaceId};
+use keepdeck_lifecycle::ids::{AttemptId, SessionId};
 use keepdeck_lifecycle::journal::{self, JournalStore, Ticket};
 use keepdeck_lifecycle::machine::{Clean, Effect, Event};
 use std::sync::Arc;
@@ -28,7 +28,7 @@ pub trait Doors: Send + Sync + 'static {
     fn find_worktree(&self, ticket: &Ticket) -> Result<bool, String>;
     /// The branches born in a checkout, from its reflog.
     fn read_branches(&self, repo: &Dir, path: &Dir) -> Result<Vec<String>, String>;
-    fn clean(&self, workspace: &WorkspaceId, how: &Clean) -> Result<(), String>;
+    fn clean(&self, how: &Clean) -> Result<(), String>;
     /// Ask the sessions machine to stop this exact session.
     fn stop(&self, session: SessionId);
     /// Cancel admitted launches at the start boundary; answers those whose
@@ -58,7 +58,7 @@ const STORE_CLEAN_LIMIT: Duration = Duration::from_secs(30);
 fn clean_limit(how: &Clean) -> Option<Duration> {
     match how {
         Clean::Checkout { .. } | Clean::Branch { .. } | Clean::TagHead { .. } => None,
-        Clean::Disarm { .. } | Clean::Stores | Clean::Retain { .. } | Clean::Discard { .. } => Some(STORE_CLEAN_LIMIT),
+        Clean::Disarm { .. } | Clean::Stores { .. } | Clean::Retain { .. } | Clean::Discard { .. } => Some(STORE_CLEAN_LIMIT),
     }
 }
 
@@ -137,11 +137,11 @@ impl Effects<Effect, Event> for Handler {
                     Some(Event::BranchesRead { op, path: read, result })
                 });
             }
-            Effect::Clean { op, workspace, step, how } => {
+            Effect::Clean { op, step, how } => {
                 let doors = self.doors.clone();
                 events.spawn(async move {
                     let limit = clean_limit(&how);
-                    let result = bounded(limit, supervised(move || doors.clean(&workspace, &how))).await;
+                    let result = bounded(limit, supervised(move || doors.clean(&how))).await;
                     Some(Event::StepDone { op, step, result })
                 });
             }
@@ -164,13 +164,15 @@ impl Effects<Effect, Event> for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use keepdeck_lifecycle::ids::WorkspaceId;
 
     #[tokio::test(start_paused = true)]
     async fn a_store_cleanup_past_its_limit_is_left_owed_and_a_git_step_has_no_clock() {
         let stuck = || std::future::pending::<Result<(), String>>();
-        let late = bounded(clean_limit(&Clean::Stores), stuck()).await;
+        let stores = Clean::Stores { workspace: WorkspaceId("ws-a".into()) };
+        let late = bounded(clean_limit(&stores), stuck()).await;
         assert!(late.unwrap_err().contains("left owed"));
-        assert_eq!(bounded(clean_limit(&Clean::Stores), async { Ok(()) }).await, Ok(()));
+        assert_eq!(bounded(clean_limit(&stores), async { Ok(()) }).await, Ok(()));
         let checkout = Clean::Checkout { repo: Dir::new("/repo"), path: Dir::new("/wt") };
         assert_eq!(clean_limit(&checkout), None);
         let slow_git = tokio::time::timeout(STORE_CLEAN_LIMIT * 10, bounded(None, stuck())).await;

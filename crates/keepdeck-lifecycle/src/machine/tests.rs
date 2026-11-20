@@ -387,7 +387,7 @@ fn a_disband_deletes_its_folder_by_consent_and_forgets_its_tasks_and_mail() {
     assert!(sim.cleaned.contains(&Clean::Disarm { dir: path.clone() }));
     assert!(sim.cleaned.contains(&Clean::Checkout { repo: repo.clone(), path }));
     assert!(sim.cleaned.contains(&Clean::Branch { repo, name: "kd/app/1".into() }));
-    assert!(!sim.cleaned.contains(&Clean::Stores), "a team's close leaves the workspace's stores alone");
+    assert!(!sim.cleaned.iter().any(|clean| matches!(clean, Clean::Stores { .. })), "a team's close leaves the workspace's stores alone");
     assert!(sim.carried.contains(&Cmd::DeleteTeamTasks { workspace: ws(), team: team("1") }));
     assert!(sim.carried.contains(&Cmd::ForgetPaneMail { workspace: ws(), pane: PaneId(1) }));
     assert!(sim.carried.contains(&Cmd::ForgetPaneMail { workspace: ws(), pane: PaneId(2) }));
@@ -455,7 +455,7 @@ fn a_branch_waits_for_its_own_checkout_not_the_first_of_its_repository() {
                 Effect::Stop { session, .. } => Event::SessionEnded { session },
                 // The first checkout of the repository goes; the second stays.
                 Effect::Clean { op, step, how: Clean::Checkout { path, .. }, .. } if path == Dir::new("/wt/kd-app-1") => Event::StepDone { op, step, result: Ok(()) },
-                Effect::Clean { op, step, how: Clean::Disarm { .. } | Clean::Stores, .. } => Event::StepDone { op, step, result: Ok(()) },
+                Effect::Clean { op, step, how: Clean::Disarm { .. } | Clean::Stores { .. } } => Event::StepDone { op, step, result: Ok(()) },
                 Effect::Clean { step, .. } if step == second => panic!("the second branch went before its checkout"),
                 _ => continue,
             };
@@ -809,6 +809,7 @@ fn a_close_takes_over_an_archive() {
     sim.drive();
     assert!(sim.state.world.workspaces.is_empty());
     assert!(sim.state.ops.is_empty());
+    assert!(sim.cleaned.contains(&Clean::Stores { workspace: ws() }), "its stores' data goes, by its own name: {:?}", sim.cleaned);
 }
 
 // ---------------------------------------------------------------- additive operations
@@ -1517,6 +1518,30 @@ fn an_open_fork_at_boot_is_rolled_back_by_both_discard_lists() {
     assert!(sim.disk.is_empty());
 }
 
+/// An open fork whose pane is gone from the deck, with no team of its own:
+/// it knows no team it landed on — none is made up — and is taken back.
+#[test]
+fn an_open_fork_with_neither_pane_nor_team_knows_no_team_and_is_taken_back() {
+    let entry = Entry {
+        op: OpId(6),
+        workspace: ws(),
+        work: Work::Fork {
+            pane: PaneId(77),
+            source: SessionKey { agent: "claude".into(), session: "s".into() },
+            team: None,
+            ticket: None,
+            discard: Some(Discard { plugin: "claude".into(), once_started: vec![], if_never_started: vec!["/c/copy".into()] }),
+        },
+        joined: vec![],
+        commands: vec![],
+        done: vec![],
+    };
+    let mut sim = Sim::booted_with(deck(), vec![entry]);
+    assert!(matches!(&sim.state.ops[&OpId(6)].kind, Kind::Fork(fork) if fork.team.is_none()), "no team made up");
+    sim.drive();
+    assert!(sim.disk.is_empty(), "taken back");
+}
+
 #[test]
 fn a_quarantined_deck_removes_nothing_a_restored_operation_owes_and_keeps_its_entry() {
     let fork = Entry {
@@ -2138,7 +2163,7 @@ fn an_archive_takes_the_plantings_back_keeps_folders_and_layout_and_restore_brin
     sim.intent(Intent::Archive { workspace: ws() });
     sim.drive();
     assert!(sim.cleaned.contains(&Clean::Disarm { dir: Dir::new("/wt/kd-app-1") }), "the plantings go, as today: {:?}", sim.cleaned);
-    assert!(!sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. } | Clean::Branch { .. } | Clean::Stores)));
+    assert!(!sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. } | Clean::Branch { .. } | Clean::Stores { .. })));
     assert!(sim.carried.contains(&Cmd::MarkArchived { workspace: ws() }));
     assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::RemovePane { .. } | Cmd::RemoveTeam { .. })), "the layout stays");
     assert_eq!(sim.state.world.panes.len(), 3);

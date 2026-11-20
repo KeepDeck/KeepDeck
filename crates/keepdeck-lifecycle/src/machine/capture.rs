@@ -363,7 +363,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
                     let team = match &landing {
                         Landing::Team { team } | Landing::NewTeam { team, .. } => team.clone(),
                     };
-                    Kind::Fork(Box::new(create::Fork::new(team, pane, member, source, new_team)))
+                    Kind::Fork(Box::new(create::Fork::new(Some(team), pane, member, source, new_team)))
                 }
             };
             state.ops.insert(id, Op::new(workspace, ask, journaled, kind));

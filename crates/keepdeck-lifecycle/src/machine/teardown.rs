@@ -705,10 +705,10 @@ pub fn work(state: &State, id: OpId, op: &Op, teardown: &Teardown, mut owed: Owe
                     }
                     Step::Branch { repo, name } => Clean::Branch { repo: repo.clone(), name: name.clone() },
                     Step::Disarm { dir } => Clean::Disarm { dir: dir.clone() },
-                    Step::Stores => Clean::Stores,
+                    Step::Stores => Clean::Stores { workspace: op.workspace.clone() },
                     Step::Discard | Step::Tag { .. } => continue,
                 };
-                owed = owed.run(Effect::Clean { op: id, workspace: op.workspace.clone(), step, how });
+                owed = owed.run(Effect::Clean { op: id, step, how });
             }
         }
         _ => {}
@@ -772,7 +772,7 @@ pub fn advance_unheld(state: &mut State, id: OpId, fx: &mut Fx) {
     }
 }
 
-pub fn work_unheld(state: &State, id: OpId, op: &Op, unheld: &Unheld, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
+pub fn work_unheld(state: &State, id: OpId, unheld: &Unheld, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
     if !unheld.answered || unheld.failed || !state.boot.open() {
         return owed;
     }
@@ -786,7 +786,7 @@ pub fn work_unheld(state: &State, id: OpId, op: &Op, unheld: &Unheld, mut owed: 
             Step::Checkout { path } => Clean::Checkout { repo: repo.clone(), path: path.clone() },
             _ => continue,
         };
-        owed = owed.run(Effect::Clean { op: id, workspace: op.workspace.clone(), step, how });
+        owed = owed.run(Effect::Clean { op: id, step, how });
         break;
     }
     owed

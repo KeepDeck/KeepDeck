@@ -7,7 +7,7 @@ use super::{Doors, StoreDoors};
 use crate::session_machine::SessionMachine;
 use crate::worktree::{self, RepoLocks};
 use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AttemptId, SessionId, WorkspaceId};
+use keepdeck_lifecycle::ids::{AttemptId, SessionId};
 use keepdeck_lifecycle::journal::Ticket;
 use keepdeck_lifecycle::machine::Clean;
 use std::path::Path;
@@ -46,13 +46,13 @@ impl Doors for AppDoors {
         worktree::born_branches(&self.locks, path(repo), path(at))
     }
 
-    fn clean(&self, workspace: &WorkspaceId, how: &Clean) -> Result<(), String> {
+    fn clean(&self, how: &Clean) -> Result<(), String> {
         match how {
             Clean::Checkout { repo, path: at } => worktree::remove_planned_checkout(&self.locks, path(repo), path(at)),
             Clean::Branch { repo, name } => worktree::remove_planned_branch(&self.locks, path(repo), name),
             Clean::TagHead { repo, path: at, tag } => worktree::tag_head(path(repo), path(at), tag),
             Clean::Disarm { dir } => self.stores.disarm(dir),
-            Clean::Stores => self.stores.forget(workspace),
+            Clean::Stores { workspace } => self.stores.forget(workspace),
             Clean::Retain { workspaces } => self.stores.retain(workspaces),
             Clean::Discard { plugin, paths } => self.stores.discard(plugin, paths),
         }

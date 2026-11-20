@@ -184,7 +184,9 @@ pub enum ForkStage {
 /// A conversation carried into a new pane.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Fork {
-    pub team: TeamId,
+    /// The team it lands on. None only for a fork restored after its pane
+    /// went, with no team of its own: one that is only ever taken back.
+    pub team: Option<TeamId>,
     pub pane: PaneId,
     pub draft: Draft,
     pub source: SessionKey,
@@ -206,7 +208,7 @@ pub struct Fork {
 }
 
 impl Fork {
-    pub fn new(team: TeamId, pane: PaneId, draft: Draft, source: SessionKey, create: Option<Create>) -> Fork {
+    pub fn new(team: Option<TeamId>, pane: PaneId, draft: Draft, source: SessionKey, create: Option<Create>) -> Fork {
         let stage = if create.is_some() { ForkStage::Placing } else { ForkStage::Journaling };
         Fork {
             team,
@@ -266,7 +268,7 @@ pub fn landing(op: &Op, saved: Option<Revision>) -> Option<(TeamId, PaneId)> {
     }
     match &op.kind {
         Kind::Seat(seat) => Some((seat.team.clone(), seat.pane)),
-        Kind::Fork(fork) => Some((fork.team.clone(), fork.pane)),
+        Kind::Fork(fork) => fork.team.clone().map(|team| (team, fork.pane)),
         Kind::Relocate(relocate) => Some((relocate.to.clone(), relocate.pane)),
         _ => None,
     }
@@ -275,7 +277,7 @@ pub fn landing(op: &Op, saved: Option<Revision>) -> Option<(TeamId, PaneId)> {
 pub fn touched_teams(op: &Op) -> Vec<TeamId> {
     match &op.kind {
         Kind::Seat(seat) => vec![seat.team.clone()],
-        Kind::Fork(fork) => vec![fork.team.clone()],
+        Kind::Fork(fork) => fork.team.iter().cloned().collect(),
         Kind::Relocate(relocate) => relocate.from.iter().cloned().chain([relocate.to.clone()]).collect(),
         _ => Vec::new(),
     }
@@ -790,7 +792,7 @@ fn work_create(state: &State, id: OpId, op: &Op, create: &Create, mut owed: Owed
                 _ => Clean::Branch { repo: ticket.repo.clone(), name: ticket.branch.clone() },
             };
             if !create.undone.contains(&step) {
-                owed = owed.run(Effect::Clean { op: id, workspace: op.workspace.clone(), step, how });
+                owed = owed.run(Effect::Clean { op: id, step, how });
             }
         }
     }
@@ -951,7 +953,7 @@ pub fn fork_step_done(fork: &mut Fork, step: Step, result: StepResult, fx: &mut 
 fn fork_cwd(state: &State, fork: &Fork) -> Option<Dir> {
     match fork.create.as_ref().and_then(|create| create.ticket.as_ref()) {
         Some(ticket) => Some(ticket.path.clone()),
-        None => state.world.team_cwd(&fork.team),
+        None => fork.team.as_ref().and_then(|team| state.world.team_cwd(team)),
     }
 }
 
@@ -1173,7 +1175,7 @@ fn add_fork_pane(state: &mut State, id: OpId, fx: &mut Fx) {
                     },
                 };
                 let op = state.ops.get_mut(&id).expect("the op");
-                op.send(Cmd::SettleTeam { workspace, team, cwd, branch });
+                op.send(Cmd::SettleTeam { workspace, team: create.team, cwd, branch });
             }
             Some(None) => {}
             Some(Some(_)) => {
@@ -1186,7 +1188,16 @@ fn add_fork_pane(state: &mut State, id: OpId, fx: &mut Fx) {
     }
     match outcome_of(op, |cmd| matches!(cmd, Cmd::AddPane { .. })).map(|outcome| outcome.cloned()) {
         None => {
-            op.send(Cmd::AddPane { workspace, team, pane, draft });
+            // Only a fork restored after its pane went knows no team, and it
+            // is only ever taken back.
+            let Some(landing) = team else {
+                answer_op(op, fx, Answer::refused(Refusal::NotFound));
+                if let Some(fork) = fork_mut(op) {
+                    fork.stage = ForkStage::Undoing;
+                }
+                return;
+            };
+            op.send(Cmd::AddPane { workspace, team: landing, pane, draft });
         }
         Some(None) => {}
         Some(Some(outcome)) => {
@@ -1198,7 +1209,7 @@ fn add_fork_pane(state: &mut State, id: OpId, fx: &mut Fx) {
                 return;
             }
             answer_op(op, fx, Answer::Accepted { op: id, minted: Minted { panes: vec![pane], ..Minted::default() } });
-            state.world.panes.insert(pane, Pane { workspace, team: Some(team), remote: false, suspended: false });
+            state.world.panes.insert(pane, Pane { workspace, team, remote: false, suspended: false });
             let op = state.ops.get_mut(&id).expect("the op");
             if let Some(fork) = fork_mut(op) {
                 fork.added = true;
@@ -1292,7 +1303,7 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
             if let Some(discard) = &fork.discard {
                 if !discard.once_started.is_empty() && !fork.done.contains(&Step::Discard) && !fork.failed {
                     let how = Clean::Discard { plugin: discard.plugin.clone(), paths: discard.once_started.clone() };
-                    owed = owed.run(Effect::Clean { op: id, workspace: op.workspace.clone(), step: Step::Discard, how });
+                    owed = owed.run(Effect::Clean { op: id, step: Step::Discard, how });
                 }
             }
         }
@@ -1336,7 +1347,7 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
                         }
                         _ => continue,
                     };
-                    owed = owed.run(Effect::Clean { op: id, workspace: op.workspace.clone(), step, how });
+                    owed = owed.run(Effect::Clean { op: id, step, how });
                 }
             }
         }

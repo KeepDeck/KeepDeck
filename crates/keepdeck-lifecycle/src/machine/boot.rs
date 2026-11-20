@@ -120,6 +120,9 @@ pub fn handshake(state: &mut State, ask: AskId, deck: DeckFacts, load: Load, fx:
         live.sort();
         live.dedup();
         let id = state.mint_op();
+        // The one operation of no workspace: it keeps the stores to every
+        // live one. It runs on the operations' own machinery — commands,
+        // a step, its end — and no workspace's lookup ever matches it.
         let mut op = Op {
             workspace: crate::ids::WorkspaceId(String::new()),
             ask: None,
@@ -271,7 +274,7 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
                 create
             });
             let landing = team.clone().or_else(|| state.world.panes.get(pane).and_then(|row| row.team.clone()));
-            let mut fork = Fork::new(landing.unwrap_or_else(|| TeamId(String::new())), *pane, Draft(serde_json::Value::Null), source.clone(), made);
+            let mut fork = Fork::new(landing, *pane, Draft(serde_json::Value::Null), source.clone(), made);
             fork.discard = discard.clone();
             fork.done = entry.done.clone();
             // An open fork at boot did not finish; its hook died with the
@@ -311,10 +314,5 @@ pub fn work(id: OpId, reconcile: &Reconcile, owed: Owed<Effect, Event>) -> Owed<
     if reconcile.done {
         return owed;
     }
-    owed.run(Effect::Clean {
-        op: id,
-        workspace: crate::ids::WorkspaceId(String::new()),
-        step: Step::Stores,
-        how: Clean::Retain { workspaces: reconcile.workspaces.clone() },
-    })
+    owed.run(Effect::Clean { op: id, step: Step::Stores, how: Clean::Retain { workspaces: reconcile.workspaces.clone() } })
 }

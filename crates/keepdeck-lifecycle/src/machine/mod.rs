@@ -290,7 +290,7 @@ pub enum Effect {
     FindWorktree { op: OpId, ticket: Ticket },
     ReadBranches { op: OpId, repo: Dir, path: Dir },
     /// One removal or cleanup step; its result comes back as `StepDone`.
-    Clean { op: OpId, workspace: WorkspaceId, step: Step, how: Clean },
+    Clean { op: OpId, step: Step, how: Clean },
     /// Stop this exact session, by the sessions machine's one stop rule.
     Stop { session: SessionId },
     /// Cancel these admitted launches at the spawn door's start boundary.
@@ -306,7 +306,8 @@ pub enum Clean {
     /// A branch the consent covers; kept if it is checked out elsewhere.
     Branch { repo: Dir, name: String },
     Disarm { dir: Dir },
-    Stores,
+    /// This workspace's data, out of the stores of Rust.
+    Stores { workspace: WorkspaceId },
     /// A checkout's HEAD kept as a tag; a tag name in use is refused.
     TagHead { repo: Dir, path: Dir, tag: String },
     Discard { plugin: String, paths: Vec<String> },
@@ -622,7 +623,7 @@ pub fn work(state: &State) -> Owed<Effect, Event> {
             Kind::Create(create) => create::work(state, id, op, create, owed),
             Kind::Fork(fork) => create::work_fork(state, id, op, fork, owed),
             Kind::Teardown(teardown) => teardown::work(state, id, op, teardown, owed),
-            Kind::RemoveUnheld(unheld) => teardown::work_unheld(state, id, op, unheld, owed),
+            Kind::RemoveUnheld(unheld) => teardown::work_unheld(state, id, unheld, owed),
             Kind::Reconcile(reconcile) => boot::work(id, reconcile, owed),
             Kind::CreateWorkspace | Kind::Seat(_) | Kind::Relocate(_) | Kind::Restore | Kind::Resume { .. } => owed,
         };
