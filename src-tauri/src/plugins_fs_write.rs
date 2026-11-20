@@ -230,10 +230,12 @@ fn remove(path: String, roots: Roots) -> Result<(), String> {
     }
     .map_err(|e| e.to_string())?;
     // `remove_dir` refuses a folder with anything in it, so a parent that
-    // something else still uses — another session's files — stays.
+    // something else still uses — another session's files — stays. A level
+    // that holds workspaces' directories is KeepDeck's, empty or not.
     let mut parent = target.parent();
     while let Some(level) = parent {
-        if level == dir.root || !level.starts_with(&dir.root) || fs::remove_dir(level).is_err() {
+        let keepdecks = crate::plugin_workspaces::holds_workspace_dirs(level);
+        if level == dir.root || !level.starts_with(&dir.root) || keepdecks || fs::remove_dir(level).is_err() {
             break;
         }
         parent = level.parent();
@@ -796,8 +798,11 @@ mod tests {
         }
         assert!(gone.is_dir() && live.is_dir() && aside.is_dir(), "everything stands");
         assert!(remove(s(&gone), roots.clone()).is_err(), "a forgotten workspace's");
+        fs::remove_dir(&gone).unwrap();
         remove(s(&live), roots).expect("a live workspace's own directory");
         assert!(!live.exists());
+        // The plugin's level and the root, now empty, are still KeepDeck's.
+        assert!(plugin.is_dir() && root.is_dir(), "no emptied level of KeepDeck's is pruned");
     }
 
     /// KeepDeck's home as a declared prefix, with a forgotten workspace's
