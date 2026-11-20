@@ -1,54 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Controllable spawn fake: each call is recorded with its event channel and a
- * deferred result, so tests drive resolution, output and exit explicitly. */
-const harness = vi.hoisted(() => {
-  interface FakeSpawn {
-    opts: { command?: string | null; cwd?: string | null };
-    permit: number;
-    owner: unknown;
-    onEvent: (event: { type: string; bytes?: Uint8Array; code?: number | null }) => void;
-    resolve: (session: unknown) => void;
-    reject: (err: unknown) => void;
-  }
-  const spawns: FakeSpawn[] = [];
-  return {
-    spawns,
-    openSession: (
-      opts: FakeSpawn["opts"],
-      permit: number,
-      owner: unknown,
-      onEvent: FakeSpawn["onEvent"],
-    ): Promise<unknown> =>
-      new Promise((resolve, reject) => {
-        spawns.push({ opts, permit, owner, onEvent, resolve, reject });
-      }),
-    makeSession: () => ({
-      id: spawns.length,
-      write: vi.fn(() => Promise.resolve()),
-      resize: vi.fn(() => Promise.resolve()),
-      stop: vi.fn(() => Promise.resolve("exited")),
-    }),
-    reset: () => {
-      spawns.length = 0;
-    },
-  };
-});
-
-vi.mock("../ipc/session", () => ({ openSession: harness.openSession }));
 vi.mock("../ipc/log", () => ({
   log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
 import { log } from "../ipc/log";
-import {
-  acquirePane,
-  attachPane,
-  closePane,
-  isPaneLaunched,
-  resetPtyManager,
-  writePane,
-} from "./ptyManager";
+import { createPtyManager, type PtyManager } from "./ptyManager";
+import { createSessionDoor, exitEvent, type SessionDoor } from "./ptyManager.testSupport";
+
+/** The door to the sessions machine — each test drives its spawns' results,
+ * output and exits — and a fresh real registry behind it. */
+let harness: SessionDoor;
+let registry: PtyManager;
 
 const SPEC = { command: "claude", cwd: "/repo", cols: 80, rows: 24 };
 /** The lease the funnel got for the pane. */
@@ -72,8 +35,8 @@ function output(index: number, ...bytes: number[]) {
 }
 
 beforeEach(() => {
-  resetPtyManager();
-  harness.reset();
+  harness = createSessionDoor();
+  registry = createPtyManager(harness.open);
   vi.clearAllMocks();
 });
 
@@ -82,37 +45,37 @@ describe("acquirePane", () => {
     // The bridge takes a pane's reports only from processes in its terminal;
     // the door keys the terminal by the owner the lease was granted to.
     const launch = { permit: 7, owner: { kind: "pane", pane: "pane-7" } } as const;
-    acquirePane("pane-7", SPEC, launch);
+    registry.acquire("pane-7", SPEC, launch);
     expect(harness.spawns[0]).toMatchObject({ permit: 7, owner: launch.owner });
   });
 
   it("spawns once for a double acquire with the same identity", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     expect(harness.spawns).toHaveLength(1);
   });
 
   it("does not respawn an exited session on re-acquire (restart is explicit)", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
-    harness.spawns[0].onEvent({ type: "exit", code: 0 });
-    acquirePane("pane-1", SPEC, LAUNCH);
+    harness.spawns[0].onEvent(exitEvent(0));
+    registry.acquire("pane-1", SPEC, LAUNCH);
     expect(harness.spawns).toHaveLength(1);
   });
 
   it("respawns exactly once after an explicit close and ignores the retired run", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
     const firstSink = makeSink();
-    attachPane("pane-1", firstSink);
-    harness.spawns[0].onEvent({ type: "exit", code: 0 });
+    registry.attach("pane-1", firstSink);
+    harness.spawns[0].onEvent(exitEvent(0));
 
-    await closePane("pane-1");
-    acquirePane("pane-1", SPEC, LAUNCH);
+    await registry.close("pane-1");
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const restartedSink = makeSink();
-    attachPane("pane-1", restartedSink);
+    registry.attach("pane-1", restartedSink);
 
     expect(harness.spawns).toHaveLength(2);
     output(0, 7);
@@ -123,11 +86,11 @@ describe("acquirePane", () => {
   });
 
   it("closes the old session and respawns when the identity changes", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const session = harness.makeSession();
     harness.spawns[0].resolve(session);
     await settle();
-    acquirePane("pane-1", { ...SPEC, cwd: "/elsewhere" }, LAUNCH);
+    registry.acquire("pane-1", { ...SPEC, cwd: "/elsewhere" }, LAUNCH);
     expect(session.stop).toHaveBeenCalled();
     expect(harness.spawns).toHaveLength(2);
   });
@@ -135,32 +98,32 @@ describe("acquirePane", () => {
 
 describe("attachPane", () => {
   it("replays output buffered while no view was attached", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     output(0, 1, 2, 3);
     const sink = makeSink();
-    attachPane("pane-1", sink);
+    registry.attach("pane-1", sink);
     expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]));
   });
 
   it("streams live output to the attached sink", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const sink = makeSink();
-    attachPane("pane-1", sink);
+    registry.attach("pane-1", sink);
     output(0, 7);
     expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([7]));
   });
 
   it("announces readiness both on spawn resolution and on late attach", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const early = makeSink();
-    attachPane("pane-1", early);
+    registry.attach("pane-1", early);
     expect(early.onReady).not.toHaveBeenCalled();
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
     expect(early.onReady).toHaveBeenCalledTimes(1);
 
     const late = makeSink();
-    attachPane("pane-1", late);
+    registry.attach("pane-1", late);
     expect(late.onReady).toHaveBeenCalledTimes(1);
   });
 
@@ -169,9 +132,9 @@ describe("attachPane", () => {
     // orchestrator decides it should. Neither waits for the other, so a
     // listener that arrives first used to attach to nothing and sit empty.
     const sink = makeSink();
-    attachPane("pane-1", sink);
+    registry.attach("pane-1", sink);
 
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
     expect(sink.onReady).toHaveBeenCalled();
@@ -186,11 +149,11 @@ describe("attachPane", () => {
     // terminal is not remounted for that, so dropping its listener on close
     // would leave it showing a session nobody is feeding.
     const sink = makeSink();
-    acquirePane("pane-1", SPEC, LAUNCH);
-    attachPane("pane-1", sink);
-    await closePane("pane-1");
+    registry.acquire("pane-1", SPEC, LAUNCH);
+    registry.attach("pane-1", sink);
+    await registry.close("pane-1");
 
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[1].resolve(harness.makeSession());
     await settle();
     output(1, 5);
@@ -198,46 +161,46 @@ describe("attachPane", () => {
   });
 
   it("a death nobody heard reaches its FIRST listener as live; later attaches replay", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
     output(0, 9);
     // The exit lands with no sink attached (the detach/re-attach window).
-    harness.spawns[0].onEvent({ type: "exit", code: 1 });
+    harness.spawns[0].onEvent(exitEvent(1));
 
     const first = makeSink();
-    attachPane("pane-1", first);
+    registry.attach("pane-1", first);
     expect(first.onOutput).toHaveBeenCalledWith(new Uint8Array([9]));
     expect(first.onExit).toHaveBeenCalledWith(1, false); // once-per-death fires
 
     const second = makeSink();
-    attachPane("pane-1", second);
+    registry.attach("pane-1", second);
     expect(second.onExit).toHaveBeenCalledWith(1, true); // now it's history
   });
 
   it("marks the live death and its re-announcements apart (once-per-death reactions)", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const live = makeSink();
-    attachPane("pane-1", live);
+    registry.attach("pane-1", live);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
-    harness.spawns[0].onEvent({ type: "exit", code: 137 });
+    harness.spawns[0].onEvent(exitEvent(137));
     // The attached view hears the actual death, unreplayed.
     expect(live.onExit).toHaveBeenCalledWith(137, false);
 
     // A remount over the same (exited, not closed) pane: acquire reuses the
     // entry, attach re-announces — flagged as a replay.
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const remounted = makeSink();
-    attachPane("pane-1", remounted);
+    registry.attach("pane-1", remounted);
     expect(remounted.onExit).toHaveBeenCalledWith(137, true);
     expect(remounted.onExit).toHaveBeenCalledTimes(1);
   });
 
   it("tells current and future sinks about a spawn failure — live once, replays after", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const sink = makeSink();
-    attachPane("pane-1", sink);
+    registry.attach("pane-1", sink);
     harness.spawns[0].reject(new Error("no such command"));
     await settle();
     expect(sink.onSpawnError).toHaveBeenCalledWith(
@@ -246,7 +209,7 @@ describe("attachPane", () => {
     );
 
     const late = makeSink();
-    attachPane("pane-1", late);
+    registry.attach("pane-1", late);
     expect(late.onSpawnError).toHaveBeenCalledWith(
       "no such command",
       true,
@@ -254,25 +217,25 @@ describe("attachPane", () => {
   });
 
   it("a spawn failure nobody heard is live for its first listener", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[0].reject(new Error("boom"));
     await settle(); // fails with no sink attached — the detached window
 
     const first = makeSink();
-    attachPane("pane-1", first);
+    registry.attach("pane-1", first);
     expect(first.onSpawnError).toHaveBeenCalledWith("boom", false);
 
     const second = makeSink();
-    attachPane("pane-1", second);
+    registry.attach("pane-1", second);
     expect(second.onSpawnError).toHaveBeenCalledWith("boom", true);
   });
 
   it("a stale detach does not disconnect the newer sink (StrictMode order)", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const first = makeSink();
-    const detachFirst = attachPane("pane-1", first);
+    const detachFirst = registry.attach("pane-1", first);
     const second = makeSink();
-    attachPane("pane-1", second);
+    registry.attach("pane-1", second);
     detachFirst();
     output(0, 5);
     expect(second.onOutput).toHaveBeenCalledWith(new Uint8Array([5]));
@@ -280,7 +243,7 @@ describe("attachPane", () => {
   });
 
   it("drops the oldest chunks once the replay budget overflows", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const half = 512 * 1024;
     harness.spawns[0].onEvent({
       type: "output",
@@ -295,7 +258,7 @@ describe("attachPane", () => {
       bytes: new Uint8Array(half).fill(3),
     });
     const sink = makeSink();
-    attachPane("pane-1", sink);
+    registry.attach("pane-1", sink);
     expect(sink.onOutput).toHaveBeenCalledTimes(2);
     expect(sink.onOutput.mock.calls[0][0][0]).toBe(2);
     expect(sink.onOutput.mock.calls[1][0][0]).toBe(3);
@@ -307,7 +270,7 @@ describe("startup diagnostics", () => {
     vi.mocked(log.info).mock.calls.map(([, message]) => message as string);
 
   it("logs the spawn resolution once, and only after the spawn settles", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     expect(messages().some((m) => m.includes("spawn resolved"))).toBe(false);
 
     harness.spawns[0].resolve(harness.makeSession());
@@ -317,7 +280,7 @@ describe("startup diagnostics", () => {
   });
 
   it("logs the first output once, not once per chunk, and without the bytes", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     output(0, 65, 66);
     output(0, 67);
 
@@ -329,29 +292,29 @@ describe("startup diagnostics", () => {
 
 describe("launch signal", () => {
   it("reports launch on the first output only, and marks the pane launched", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const sink = makeSink();
-    attachPane("pane-1", sink);
-    expect(isPaneLaunched("pane-1")).toBe(false);
+    registry.attach("pane-1", sink);
+    expect(registry.isLaunched("pane-1")).toBe(false);
 
     output(0, 1);
     output(0, 2);
 
     expect(sink.onLaunched).toHaveBeenCalledTimes(1);
-    expect(isPaneLaunched("pane-1")).toBe(true);
+    expect(registry.isLaunched("pane-1")).toBe(true);
   });
 
   it("marks the pane launched even when the sink's onOutput throws", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const sink = makeSink();
     sink.onOutput.mockImplementation(() => {
       throw new Error("boom");
     });
-    attachPane("pane-1", sink);
+    registry.attach("pane-1", sink);
 
     output(0, 1);
 
-    expect(isPaneLaunched("pane-1")).toBe(true);
+    expect(registry.isLaunched("pane-1")).toBe(true);
     expect(sink.onLaunched).toHaveBeenCalledTimes(1);
     expect(log.error).toHaveBeenCalledWith(
       "web:pty",
@@ -360,39 +323,39 @@ describe("launch signal", () => {
   });
 
   it("keeps buffering for replay when the sink throws on every chunk", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const throwing = makeSink();
     throwing.onOutput.mockImplementation(() => {
       throw new Error("boom");
     });
-    attachPane("pane-1", throwing);
+    registry.attach("pane-1", throwing);
 
     output(0, 7);
 
     const late = makeSink();
-    attachPane("pane-1", late);
+    registry.attach("pane-1", late);
     expect(late.onOutput).toHaveBeenCalledTimes(1);
     expect(late.onOutput.mock.calls[0][0][0]).toBe(7);
   });
 
   it("does not report launch before any output — a spawned PTY has not yet painted", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const sink = makeSink();
-    attachPane("pane-1", sink);
+    registry.attach("pane-1", sink);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
 
     expect(sink.onReady).toHaveBeenCalledTimes(1);
     expect(sink.onLaunched).not.toHaveBeenCalled();
-    expect(isPaneLaunched("pane-1")).toBe(false);
+    expect(registry.isLaunched("pane-1")).toBe(false);
   });
 
   it("tells a late sink the session already launched, after the replay", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     output(0, 9);
 
     const late = makeSink();
-    attachPane("pane-1", late);
+    registry.attach("pane-1", late);
 
     expect(late.onLaunched).toHaveBeenCalledTimes(1);
     // The replayed output lands before the launch announcement, so the view
@@ -403,40 +366,40 @@ describe("launch signal", () => {
   });
 
   it("forgets the launch when the identity changes — the new session must show its own overlay", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
     output(0, 4);
-    expect(isPaneLaunched("pane-1")).toBe(true);
+    expect(registry.isLaunched("pane-1")).toBe(true);
 
-    acquirePane("pane-1", { ...SPEC, cwd: "/elsewhere" }, LAUNCH);
-    expect(isPaneLaunched("pane-1")).toBe(false);
+    registry.acquire("pane-1", { ...SPEC, cwd: "/elsewhere" }, LAUNCH);
+    expect(registry.isLaunched("pane-1")).toBe(false);
   });
 
   it("is false for an unknown or closed pane", () => {
-    expect(isPaneLaunched("pane-none")).toBe(false);
-    acquirePane("pane-1", SPEC, LAUNCH);
+    expect(registry.isLaunched("pane-none")).toBe(false);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     output(0, 1);
-    void closePane("pane-1");
-    expect(isPaneLaunched("pane-1")).toBe(false);
+    void registry.close("pane-1");
+    expect(registry.isLaunched("pane-1")).toBe(false);
   });
 });
 
 describe("closePane", () => {
   it("closes the live session and forgets the pane", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const session = harness.makeSession();
     harness.spawns[0].resolve(session);
     await settle();
-    await closePane("pane-1");
+    await registry.close("pane-1");
     expect(session.stop).toHaveBeenCalled();
-    writePane("pane-1", "x");
+    registry.write("pane-1", "x");
     expect(session.write).not.toHaveBeenCalled();
   });
 
   it("reaps a spawn that resolves after the pane was closed", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
-    void closePane("pane-1");
+    registry.acquire("pane-1", SPEC, LAUNCH);
+    void registry.close("pane-1");
     const session = harness.makeSession();
     harness.spawns[0].resolve(session);
     await settle();
@@ -444,10 +407,10 @@ describe("closePane", () => {
   });
 
   it("silences events from a closed pane", () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const sink = makeSink();
-    attachPane("pane-1", sink);
-    void closePane("pane-1");
+    registry.attach("pane-1", sink);
+    void registry.close("pane-1");
     output(0, 1);
     expect(sink.onOutput).not.toHaveBeenCalled();
   });
@@ -455,11 +418,11 @@ describe("closePane", () => {
 
 describe("writePane", () => {
   it("writes through to the live session", async () => {
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     const session = harness.makeSession();
     harness.spawns[0].resolve(session);
     await settle();
-    writePane("pane-1", "ls\n");
+    registry.write("pane-1", "ls\n");
     // A write joins the pane's queue rather than going out on the spot — see
     // `writePane` for why order has to be built here. It reaches the session
     // a turn of the loop later, and never later than that when nothing is
@@ -469,9 +432,9 @@ describe("writePane", () => {
   });
 
   it("is a no-op for unknown panes and pending spawns", () => {
-    expect(() => writePane("pane-none", "x")).not.toThrow();
-    acquirePane("pane-1", SPEC, LAUNCH);
-    expect(() => writePane("pane-1", "x")).not.toThrow();
+    expect(() => registry.write("pane-none", "x")).not.toThrow();
+    registry.acquire("pane-1", SPEC, LAUNCH);
+    expect(() => registry.write("pane-1", "x")).not.toThrow();
   });
 });
 
@@ -485,7 +448,7 @@ describe("write ordering", () => {
     const pending: { data: string; done: () => void }[] = [];
     const landed: string[] = [];
     const session = {
-      id: "hostile",
+      ...harness.makeSession(),
       write: vi.fn(
         (data: string) =>
           new Promise<void>((resolve) => {
@@ -498,8 +461,6 @@ describe("write ordering", () => {
             });
           }),
       ),
-      resize: vi.fn(() => Promise.resolve()),
-      stop: vi.fn(() => Promise.resolve("exited")),
     };
     return { session, pending, landed };
   }
@@ -510,12 +471,12 @@ describe("write ordering", () => {
     // itself on an empty composer, and the text then arrives and SITS there —
     // indistinguishable, from up here, from a delivery.
     const { session, pending, landed } = hostileSession();
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[0].resolve(session);
     await settle();
 
-    writePane("pane-1", "the paste");
-    writePane("pane-1", "\r");
+    registry.write("pane-1", "the paste");
+    registry.write("pane-1", "\r");
     await settle();
 
     // One at a time is the whole fix: with two in flight the environment
@@ -534,15 +495,15 @@ describe("write ordering", () => {
     // The queue must not become a way for a retired session to keep receiving
     // bytes: a close is immediate and the tail goes with it.
     const { session, pending } = hostileSession();
-    acquirePane("pane-1", SPEC, LAUNCH);
+    registry.acquire("pane-1", SPEC, LAUNCH);
     harness.spawns[0].resolve(session);
     await settle();
 
-    writePane("pane-1", "first");
-    writePane("pane-1", "second");
+    registry.write("pane-1", "first");
+    registry.write("pane-1", "second");
     await settle();
 
-    await closePane("pane-1");
+    await registry.close("pane-1");
     pending.pop()?.done();
     await settle();
 
