@@ -366,7 +366,7 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     // Down at once — mail sent now would never be read — though nothing
     // has ended its process: the gate ends nothing, and stopping it is the
     // archive's, the lifecycle machine's.
-    expect(pty.live.has("running")).toBe(true);
+    expect(pty.isLive("running")).toBe(true);
     expect(agentRun.reachOf("running")).toEqual({ kind: "down", why: "workspace-archived" });
     await settle();
     expect(pty.closed).not.toContain("running");

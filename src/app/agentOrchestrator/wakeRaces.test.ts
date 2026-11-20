@@ -328,10 +328,7 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
 
     // Its process dies. Nothing asked for it again, so nothing restarts it.
     pty.acquired = [];
-    act(() => {
-      pty.live.delete("pane-2");
-      pty.notify();
-    });
+    act(() => pty.exit("pane-2", 0));
     await settle();
     expect(pty.acquired).toEqual([]);
   });

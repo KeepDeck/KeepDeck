@@ -243,6 +243,9 @@ export const machine = {
     machine.intents.push(intent);
     if (machine.answer) return machine.answer;
     machine.op += 1;
+    // The real machine stops these panes' processes by their exact session
+    // before its deck half lands; the page's registry hears each end.
+    for (const paneId of stoppedBy(intent)) pty.exit(paneId, 143);
     // What the machine then asks of the deck, for the intents whose deck
     // half is one command: carried through the real deck owner, as the
     // snapshot would carry it — and a refusal of it answers the intent, as
@@ -276,8 +279,30 @@ export const machine = {
   },
 };
 
+/** The panes whose process the machine stops for an intent, as the real one
+ * does: one pane's suspend, restart and close; a team's members on a
+ * disband; every pane of a workspace closed or archived. */
+function stoppedBy(intent: Intent): string[] {
+  const ws = machine.deck?.().workspaces.find((candidate) => candidate.id === intent.workspace);
+  if (!ws) return [];
+  switch (intent.kind) {
+    case "suspend":
+    case "restart":
+    case "closeAgent":
+      return [intent.pane];
+    case "disband":
+      return ws.panes.filter((pane) => pane.team?.teamId === intent.team).map((pane) => pane.id);
+    case "closeWorkspace":
+    case "archive":
+      return ws.panes.map((pane) => pane.id);
+    default:
+      return [];
+  }
+}
+
 /** The deck half of an intent, as the machine sends it: the marker of a
- * suspend or a resume, and a relocate's move — onto the team already on the
+ * suspend or a resume, of an archive or a restore; an agent's close taking
+ * its pane off; and a relocate's move — onto the team already on the
  * workspace root, or one made under the intent's root id. */
 function deckHalfOf(intent: Intent): Cmd | null {
   switch (intent.kind) {
@@ -285,6 +310,12 @@ function deckHalfOf(intent: Intent): Cmd | null {
       return { kind: "clearSuspended", workspace: intent.workspace, pane: intent.pane };
     case "suspend":
       return { kind: "markSuspended", workspace: intent.workspace, pane: intent.pane };
+    case "closeAgent":
+      return { kind: "removePane", workspace: intent.workspace, pane: intent.pane };
+    case "archive":
+      return { kind: "markArchived", workspace: intent.workspace };
+    case "restore":
+      return { kind: "clearArchived", workspace: intent.workspace };
     case "relocate": {
       const ws = machine.deck?.().workspaces.find((candidate) => candidate.id === intent.workspace);
       const root = ws ? teamWorkingIn(ws, ws.cwd) : undefined;
@@ -322,8 +353,18 @@ export const MAX_PANES = MAX_PANES_IMPL;
 export const createWorkspaceInstance = createWorkspaceInstanceImpl;
 export const emptyJournal = emptyJournalImpl;
 
+/** A pane's process as the real registry (`ptyManager`) holds it. */
+type FakeSession = { key: string; state: { kind: "live" } | { kind: "exited"; code: number | null } };
+
 /** The session registry as the orchestrator sees it: what it started, and
- *  what each pane's process is doing. */
+ *  what each pane's process is doing — with the real registry's semantics,
+ *  not a simpler picture of them. A started process is live; one that ENDS
+ *  (on its own, or stopped by the machine) stays "exited" — its slot still
+ *  taken — until an explicit close empties it. An acquire on a slot already
+ *  taken by the same identity (command + cwd) is a no-op, as the real one is:
+ *  an exited process is never silently respawned. A two-state picture here
+ *  (live, or none) once hid that a stop which moved out of the page left
+ *  every stopped pane's slot taken. */
 export const pty = {
   /** The WHOLE spec, args and env included. Recording only the pane id left
    *  the step the orchestrator absorbed from TerminalPane unguarded: nothing
@@ -337,12 +378,16 @@ export const pty = {
     /** The lease the spawn spent. */
     launch?: { permit: number; owner: unknown };
   }[],
-  live: new Set<string>(),
+  sessions: new Map<string, FakeSession>(),
   /** Panes whose process has printed something — the "the CLI painted"
    *  signal, which a test sets by hand because no real bytes flow here. */
   launched: new Set<string>(),
   isLaunched(paneId: string) {
     return pty.launched.has(paneId);
+  },
+  /** Whether the pane's process is running now. */
+  isLive(paneId: string) {
+    return pty.sessions.get(paneId)?.state.kind === "live";
   },
   acquire(
     paneId: string,
@@ -354,6 +399,10 @@ export const pty = {
     },
     launch: { permit: number; owner: unknown },
   ) {
+    const key = `${spec.command ?? ""}\u0000${spec.cwd ?? ""}`;
+    // The real registry reuses a slot the same identity holds — live or
+    // exited — and replaces only a different one.
+    if (pty.sessions.get(paneId)?.key === key) return;
     pty.acquired.push({
       paneId,
       command: spec.command,
@@ -362,7 +411,15 @@ export const pty = {
       env: spec.env,
       launch,
     });
-    pty.live.add(paneId);
+    pty.sessions.set(paneId, { key, state: { kind: "live" } });
+    pty.notify();
+  },
+  /** The pane's process ends — by itself, or stopped by the machine. The
+   *  slot stays taken, "exited", until a close. */
+  exit(paneId: string, code: number | null = 0) {
+    const session = pty.sessions.get(paneId);
+    if (session?.state.kind !== "live") return;
+    session.state = { kind: "exited", code };
     pty.notify();
   },
   closed: [] as string[],
@@ -371,7 +428,7 @@ export const pty = {
   hold: null as Promise<void> | null,
   close(paneId: string) {
     pty.closed.push(paneId);
-    pty.live.delete(paneId);
+    pty.sessions.delete(paneId);
     // The real registry drops the entry and fires its listeners SYNCHRONOUSLY,
     // before the teardown IPC settles. A no-op stub here made the sweep that
     // this notification drives invisible to every test in the file — which is
@@ -387,13 +444,10 @@ export const pty = {
   notify() {
     for (const listener of [...pty.listeners]) listener();
   },
-  state: (paneId: string) =>
-    pty.live.has(paneId)
-      ? ({ kind: "live" } as const)
-      : ({ kind: "none" } as const),
+  state: (paneId: string) => pty.sessions.get(paneId)?.state ?? ({ kind: "none" } as const),
   reset() {
     pty.acquired = [];
-    pty.live.clear();
+    pty.sessions.clear();
     pty.closed = [];
     pty.hold = null;
     // Listeners go with the rest: an orchestrator from a previous mount would
