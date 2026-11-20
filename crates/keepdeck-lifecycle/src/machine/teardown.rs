@@ -285,8 +285,11 @@ pub fn advance(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         TearPhase::Cleaning => clean(state, id, fx),
         TearPhase::Abandoned => {
+            // It ends once nothing it started is still out: its journal
+            // write, and what it asked of the owners — a slot it let go of
+            // is one the page may not have emptied yet, and nobody else asks.
             let op = &state.ops[&id];
-            if op.book.as_ref().is_none_or(|book| book.flying.is_none()) {
+            if op.book.as_ref().is_none_or(|book| book.flying.is_none()) && op.all_settled(state.saved) {
                 finish(state, id);
             }
         }

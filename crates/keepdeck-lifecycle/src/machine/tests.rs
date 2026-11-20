@@ -972,6 +972,38 @@ fn a_close_taking_over_an_archive_waits_for_the_launches_the_archive_took_to_the
     assert!(sim.state.world.workspaces.is_empty());
 }
 
+/// An archive a Close takes over after its stop ends only once the page has
+/// answered what it asked — its slots let go of — even when the Close that
+/// took it over never gets its entry on disk.
+#[test]
+fn an_archive_taken_over_after_its_stop_has_its_panes_let_go_of_though_the_close_fails() {
+    let mut sim = Sim::booted();
+    let session = sim.appear(LaunchOwner::Pane { pane: PaneId(1) }, None, Some("/wt/kd-app-1"));
+    sim.intent(Intent::Archive { workspace: ws() });
+    for _ in 0..6 {
+        sim.write_journals();
+        if sim.owed().contains(&Effect::Stop { session }) {
+            sim.send(Event::SessionEnded { session });
+        }
+        sim.apply(|cmd| !matches!(cmd, Cmd::Release { .. }));
+        sim.save();
+    }
+    assert_eq!(sim.pending_matching(|cmd| matches!(cmd, Cmd::Release { .. })).len(), 3, "its slots, still to be let go of");
+    let close = sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    let close_op = *sim.state.ops.keys().last().unwrap();
+    let Some(Effect::WriteJournal { op, attempt, .. }) = sim.owed().into_iter().find(|effect| matches!(effect, Effect::WriteJournal { op, .. } if *op == close_op)) else {
+        panic!("the close's first write: {:?}", sim.owed())
+    };
+    sim.send(Event::JournalWritten { op, attempt, result: Err("disk full".into()) });
+    let Some(Effect::RemoveJournal { attempt, .. }) = sim.owed().into_iter().find(|effect| matches!(effect, Effect::RemoveJournal { op, .. } if *op == close_op)) else {
+        panic!("a rollback")
+    };
+    sim.send(Event::JournalRemoved { op, attempt, result: Ok(()) });
+    assert_eq!(sim.refusal(close), Some(Refusal::JournalUnavailable));
+    sim.drive();
+    assert_eq!(released(&sim), vec![(PaneId(1), false), (PaneId(2), false), (PaneId(3), false)]);
+}
+
 // ---------------------------------------------------------------- additive operations
 
 #[test]
