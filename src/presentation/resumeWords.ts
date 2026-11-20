@@ -7,6 +7,12 @@
 import type { ResumeRequest, TeamActs } from "../domain/deck";
 import { byCount, counted } from "./countWords";
 
+/** Why a new pane may not resume the conversation it asked for: another
+ * pane holds it — one conversation, one pane. */
+export function sessionHeldText(): string {
+  return "That conversation is already open in another agent.";
+}
+
 /** One sentence per refusal, so every surface that can ask for a pane back
  * explains a "no" the same way. */
 export function resumeRefusalText(
