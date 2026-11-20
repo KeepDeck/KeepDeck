@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PANES, TEAM_FULL_MESSAGE, type Workspace } from "../domain/deck";
+import type { TeamGates } from "../domain/lifecycle";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { refusalText } from "../presentation/lifecycleWords";
 import { addTeamDoorOpen, bellDoorOpen, dockDoorOpen, memberDoor } from "./doors";
 
 const workspace: Workspace = {
@@ -41,16 +43,24 @@ describe("memberDoor", () => {
     })),
   });
 
+  const open: TeamGates = { addMember: null, close: null, retry: null };
+
   it("opens onto a team with room, stays shut under a dialog without a word", () => {
-    expect(memberDoor(withMembers(3), "t", false)).toEqual({ open: true, refusal: null });
-    expect(memberDoor(withMembers(3), "t", true)).toEqual({ open: false, refusal: null });
+    expect(memberDoor(withMembers(3), "t", open, false)).toEqual({ open: true, refusal: null });
+    expect(memberDoor(withMembers(3), "t", null, false)).toEqual({ open: true, refusal: null });
+    expect(memberDoor(withMembers(3), "t", open, true)).toEqual({ open: false, refusal: null });
   });
 
   it("refuses a full team in the cap's own words, dialog or not", () => {
     const full = withMembers(MAX_PANES);
-    expect(memberDoor(full, "t", false)).toEqual({ open: false, refusal: TEAM_FULL_MESSAGE });
-    expect(memberDoor(full, "t", true)).toEqual({ open: false, refusal: TEAM_FULL_MESSAGE });
+    expect(memberDoor(full, "t", open, false)).toEqual({ open: false, refusal: TEAM_FULL_MESSAGE });
+    expect(memberDoor(full, "t", open, true)).toEqual({ open: false, refusal: TEAM_FULL_MESSAGE });
     // Another team in the same workspace is not full.
-    expect(memberDoor(full, "other", false).open).toBe(true);
+    expect(memberDoor(full, "other", open, false).open).toBe(true);
+  });
+
+  it("refuses a team the machine shuts in the words of the refusal it would meet", () => {
+    const leaving: TeamGates = { ...open, addMember: { kind: "targetLeaving" } };
+    expect(memberDoor(withMembers(3), "t", leaving, false)).toEqual({ open: false, refusal: refusalText({ kind: "targetLeaving" }) });
   });
 });

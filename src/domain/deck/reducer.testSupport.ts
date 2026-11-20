@@ -43,13 +43,19 @@ export const deckState = (partial: Partial<DeckState>): DeckState => ({
 });
 
 /** A stage's `teamActsOf` over `workspaces` — the orchestrator's answer
- * with every folder present, every agent installed and no suspend reaping,
- * unless `facts` says otherwise. */
+ * with every folder present, every agent installed, no suspend reaping and
+ * no word from the machine yet, unless `facts` says otherwise. */
 export const teamActsIn =
   (workspaces: readonly Workspace[], facts: Partial<TeamActFacts> = {}) =>
   (wsId: string, teamId: string): TeamActs | null => {
     const ws = workspaces.find((candidate) => candidate.id === wsId);
     return ws && findTeam(ws, teamId)
-      ? teamActsOf(ws, teamId, { blocked: () => false, agentAvailable: () => true, suspending: () => false, ...facts })
+      ? teamActsOf(ws, teamId, {
+          blocked: () => false,
+          agentAvailable: () => true,
+          suspending: () => false,
+          gates: () => null,
+          ...facts,
+        })
       : null;
   };

@@ -30,6 +30,14 @@ export type Refusal =
   /** A data owner refused its command — its own kind, carried back as given. */
   | { kind: "rejected"; reason: string };
 
+/** What a team allows now, as the machine says it: for each of its own
+ * actions, the refusal its intent would meet — null when it would go. */
+export interface TeamGates {
+  addMember: Refusal | null;
+  close: Refusal | null;
+  retry: Refusal | null;
+}
+
 /** The waiting door with no answer to hand back: the machine was not there
  * to ask, or ended before it answered. */
 export type NoAnswer = { kind: "unavailable" } | { kind: "unknown" };

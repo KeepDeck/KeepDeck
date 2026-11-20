@@ -286,7 +286,8 @@ export function useAppController(runtime: AppRuntime) {
     overlayCovers,
   });
   // The one door to another member, for the bar, ⌘T and the cards alike.
-  const openMemberDoor = (ws: Workspace, teamId: string) => memberDoor(ws, teamId, windows.modal);
+  const openMemberDoor = (ws: Workspace, teamId: string) =>
+    memberDoor(ws, teamId, orchestrator.teamActs(ws.id, teamId)?.gates ?? null, windows.modal);
   const barMemberDoor = active && openTeam ? openMemberDoor(active, openTeam.id) : null;
   const canAddMember = barMemberDoor?.open ?? false;
   const canAddTeam = !!active && addTeamDoorOpen(active) && !windows.modal;

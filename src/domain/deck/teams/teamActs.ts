@@ -17,6 +17,7 @@ import {
   type PaneResumeBlock,
   type PaneSuspendRefusal,
 } from "../panes";
+import type { TeamGates } from "../../lifecycle";
 import type { Workspace } from "../workspaces";
 import { membersOf } from "./collection";
 
@@ -29,19 +30,22 @@ export interface TeamCohort<Skip> {
 }
 
 /** Both acts' verdicts on one team at once — what its menu offers, and
- * so what its doors will take. */
+ * so what its doors will take — beside what the machine says the team's
+ * own actions would meet (null before it has said). */
 export interface TeamActs {
   suspend: TeamCohort<TeamSuspendSkip>;
   resume: TeamCohort<TeamResumeSkip>;
+  gates: TeamGates | null;
 }
 
 /** What the act cannot know from the deck alone: the sweep's verdict that a
- * pane's directory is gone, whether a plugin provides an agent, and whether
- * a suspend is still reaping a pane's process. */
+ * pane's directory is gone, whether a plugin provides an agent, whether
+ * a suspend is still reaping a pane's process, and the machine's gates. */
 export interface TeamActFacts {
   blocked(paneId: string): boolean;
   agentAvailable(agentType: string): boolean;
   suspending(paneId: string): boolean;
+  gates(teamId: string): TeamGates | null;
 }
 
 /** Why a team's Suspend leaves a member: exactly a single Suspend's
@@ -108,5 +112,9 @@ export function teamResumeCohort(
 
 /** Both of a team's acts at once — what its menu offers. */
 export function teamActsOf(ws: Workspace, teamId: string, facts: TeamActFacts): TeamActs {
-  return { suspend: teamSuspendCohort(ws, teamId, facts), resume: teamResumeCohort(ws, teamId, facts) };
+  return {
+    suspend: teamSuspendCohort(ws, teamId, facts),
+    resume: teamResumeCohort(ws, teamId, facts),
+    gates: facts.gates(teamId),
+  };
 }

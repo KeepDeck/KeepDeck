@@ -11,8 +11,10 @@ import {
   type PanePhase,
   type Refusal,
   type Site,
+  type TeamGates,
 } from "../domain/lifecycle";
 import type { PanePhase as WirePanePhase } from "../ipc/generated/lifecycle/PanePhase";
+import type { TeamGates as WireTeamGates } from "../ipc/generated/lifecycle/TeamGates";
 import type { Claim as WireClaim } from "../ipc/generated/lifecycle/Claim";
 import type { Consent as WireConsent } from "../ipc/generated/lifecycle/Consent";
 import type { DeckFacts as WireDeckFacts } from "../ipc/generated/lifecycle/DeckFacts";
@@ -43,6 +45,7 @@ describe("the lifecycle's wire, as the page takes it", () => {
     expectTypeOf<Site>().toEqualTypeOf<WireSite>();
     expectTypeOf<PanePhase>().toEqualTypeOf<WirePanePhase>();
     expectTypeOf<Claim>().toEqualTypeOf<WireClaim>();
+    expectTypeOf<TeamGates>().toEqualTypeOf<WireTeamGates>();
   });
 
   it("calls a source forgotten exactly when Rust does", () => {

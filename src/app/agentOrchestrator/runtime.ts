@@ -166,11 +166,13 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
   }
 
   /** What a team act reads beyond the deck: the funnel's folder verdict, the
-   * live agent catalog, and whether the machine is suspending a pane. */
+   * live agent catalog, whether the machine is suspending a pane, and what
+   * it says the team's own actions would meet. */
   const teamFacts: TeamActFacts = {
     blocked: (paneId) => runView.isBlocked(paneId),
     agentAvailable: (agentType) => agents.commands().has(agentType),
     suspending: (paneId) => phaseOf(paneId) === "suspending",
+    gates: (teamId) => machine.snapshot()?.gates[teamId] ?? null,
   };
 
   function teamActs(wsId: string, teamId: string): TeamActs | null {
