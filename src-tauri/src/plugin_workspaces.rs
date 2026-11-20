@@ -106,15 +106,30 @@ fn root_in(home: &Path) -> PathBuf {
 /// The workspace whose plugin directory holds the real path `real` — one
 /// under `<home>/plugin-workspaces/<plugin>/<workspace>` — if one does.
 pub(crate) fn workspace_holding(real: &Path) -> Option<String> {
+    workspace_under(&real_root()?, real)
+}
+
+/// Whether the real path `real` holds workspaces' plugin directories
+/// without being inside one: their root, a plugin's level in it, or
+/// anything above the root. Those levels are KeepDeck's to make and remove;
+/// what is inside one workspace's directory is that workspace's.
+pub(crate) fn holds_workspace_dirs(real: &Path) -> bool {
+    real_root().is_some_and(|root| holds_under(&root, real))
+}
+
+fn real_root() -> Option<PathBuf> {
     let root = root().ok()?;
-    let root = crate::containment::real_prefix(&root).unwrap_or(root);
-    workspace_under(&root, real)
+    Some(crate::containment::real_prefix(&root).unwrap_or(root))
 }
 
 fn workspace_under(root: &Path, real: &Path) -> Option<String> {
     let mut parts = real.strip_prefix(root).ok()?.components();
     let _plugin = parts.next()?;
     Some(parts.next()?.as_os_str().to_string_lossy().into_owned())
+}
+
+fn holds_under(root: &Path, real: &Path) -> bool {
+    root.starts_with(real) || real.strip_prefix(root).is_ok_and(|level| level.components().count() < 2)
 }
 
 /// The path of `plugin_id`'s directory for `ws_id` under `home` — the
@@ -228,6 +243,21 @@ fn prune(root: &Path, gone: impl Fn(&str) -> bool) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The root and a plugin's level hold workspaces' directories, and so
+    /// does anything above the root; a workspace's directory and what is in
+    /// it are that workspace's.
+    #[test]
+    fn the_levels_above_a_workspaces_directory_are_keepdecks() {
+        let root = Path::new("/home/kd/plugin-workspaces");
+        for level in ["/", "/home/kd", "/home/kd/plugin-workspaces", "/home/kd/plugin-workspaces/keepdeck.claude"] {
+            assert!(holds_under(root, Path::new(level)), "{level}");
+        }
+        for inside in ["/home/kd/plugin-workspaces/keepdeck.claude/ws-1", "/home/kd/plugin-workspaces/keepdeck.claude/ws-1/notes", "/home/kd/elsewhere"] {
+            assert!(!holds_under(root, Path::new(inside)), "{inside}");
+        }
+        assert_eq!(workspace_under(root, Path::new("/home/kd/plugin-workspaces/keepdeck.claude/ws-1/notes")).as_deref(), Some("ws-1"));
+    }
 
     #[test]
     fn makes_the_dir_on_ask_under_its_plugin_and_workspace() {

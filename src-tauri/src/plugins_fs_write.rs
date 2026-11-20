@@ -633,9 +633,15 @@ impl Roots {
     }
 
     /// An entry removed or moved: proven by its parent, and judged as itself
-    /// — a link is the link, never its target.
+    /// — a link is the link, never its target. Removing or moving it takes
+    /// its whole subtree, so a level holding workspaces' directories — whose
+    /// workspaces no one entry names — is never one: those levels are
+    /// KeepDeck's to make and remove.
     fn entry(&self, path: &str, op: &str) -> Result<WriteTarget, String> {
         let target = resolve_entry(path, &self.prefixes, op)?;
+        if crate::plugin_workspaces::holds_workspace_dirs(&target.path) {
+            return Err(format!("fsWrite.{op}: \"{path}\" holds workspaces' plugin directories, which only KeepDeck makes and removes"));
+        }
         self.admit(&target, op, path)?;
         Ok(target)
     }
@@ -770,6 +776,28 @@ mod tests {
         assert_eq!(fs::read_to_string(gone.join("b.txt")).unwrap(), "b");
         remove(s(&into), roots).expect("the link goes; nothing in the forgotten directory does");
         assert_eq!(fs::read_to_string(gone.join("b.txt")).unwrap(), "b");
+    }
+
+    /// Removing or moving a level that holds workspaces' directories takes
+    /// every workspace under it, forgotten or not: refused through any root.
+    /// One workspace's own directory is that workspace's to judge.
+    #[test]
+    fn no_level_holding_workspaces_directories_is_removed_or_moved() {
+        let (home, gone, live, roots) = forgotten_beside_live();
+        let root = home.join("plugin-workspaces");
+        let plugin = root.join("keepdeck.claude");
+        let aside = home.join("aside");
+        fs::create_dir_all(&aside).unwrap();
+        for level in [&root, &plugin] {
+            let refused = remove(s(level), roots.clone()).unwrap_err();
+            assert!(refused.contains("only KeepDeck"), "{refused}");
+            assert!(move_entry(s(level), s(&home.join("moved")), roots.clone()).is_err(), "{}", level.display());
+            assert!(move_entry(s(&aside), s(level), roots.clone()).is_err(), "swapped over {}", level.display());
+        }
+        assert!(gone.is_dir() && live.is_dir() && aside.is_dir(), "everything stands");
+        assert!(remove(s(&gone), roots.clone()).is_err(), "a forgotten workspace's");
+        remove(s(&live), roots).expect("a live workspace's own directory");
+        assert!(!live.exists());
     }
 
     /// KeepDeck's home as a declared prefix, with a forgotten workspace's
