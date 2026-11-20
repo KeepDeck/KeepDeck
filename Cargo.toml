@@ -5,6 +5,7 @@ members = [
     "crates/keepdeck-env",
     "crates/keepdeck-fsm",
     "crates/keepdeck-fsm-runtime",
+    "crates/keepdeck-lifecycle",
     "crates/keepdeck-pty",
     "crates/keepdeck-git",
     "crates/keepdeck-index",

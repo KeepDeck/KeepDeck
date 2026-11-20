@@ -2800,6 +2800,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "keepdeck-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "keepdeck-pty"
 version = "0.1.0"
 dependencies = [
