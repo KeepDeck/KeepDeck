@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { WriteSource } from "../domain/lifecycle";
+import { sourceWire } from "./writeSource";
 import type { Applied } from "./generated/tasks/Applied";
 import type { ChangeSet } from "./generated/tasks/ChangeSet";
 import type { LegacyBoard } from "./generated/tasks/LegacyBoard";
@@ -59,10 +60,7 @@ export async function tasksLoadAll(): Promise<StoredBoard[]> {
  * The store refuses, under its own lock, a writer the lifecycle has
  * forgotten. It crosses as the Rust `Source` spells it. */
 export async function tasksApply(source: WriteSource, change: ChangeSet): Promise<Applied> {
-  return await invoke<Applied>("tasks_apply", {
-    source: { workspaceId: source.workspace, team: source.team ?? null, pane: source.pane ?? null },
-    change,
-  });
+  return await invoke<Applied>("tasks_apply", { source: sourceWire(source), change });
 }
 
 export async function tasksSearch(query: string, boards: string[], limit: number): Promise<SearchHit[]> {

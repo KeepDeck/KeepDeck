@@ -58,39 +58,44 @@ describe("the skills invoke-key contract", () => {
     await fetchSkills();
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_list");
 
-    await saveSkill({ kind: "global" }, "review", "content", false);
+    await saveSkill({ kind: "global" }, "review", "content", false, null);
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_save", {
       scope: "global",
       wsId: null,
       name: "review",
       content: "content",
       expectNew: false,
+      writer: null,
     });
 
     // A create says so, and the backend refuses a name already taken — the
-    // guard that survives a library the dialog could not read.
-    await saveSkill({ kind: "global" }, "fresh", "content", true);
+    // guard that survives a library the dialog could not read. An agent's
+    // write names it, as the store's gate reads a writer.
+    await saveSkill({ kind: "global" }, "fresh", "content", true, { workspace: "ws-2", pane: "pane-4" });
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_save", {
       scope: "global",
       wsId: null,
       name: "fresh",
       content: "content",
       expectNew: true,
+      writer: { workspaceId: "ws-2", team: null, pane: "pane-4" },
     });
 
-    await deleteSkill({ kind: "workspace", wsId: "ws-2" }, "review");
+    await deleteSkill({ kind: "workspace", wsId: "ws-2" }, "review", null);
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_delete", {
       scope: "workspace",
       wsId: "ws-2",
       name: "review",
+      writer: null,
     });
 
-    await renameSkill({ kind: "global" }, "old", "new");
+    await renameSkill({ kind: "global" }, "old", "new", null);
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_rename", {
       scope: "global",
       wsId: null,
       from: "old",
       to: "new",
+      writer: null,
     });
 
     const excluded = [{ scope: "global" as const, wsId: null, name: "bare" }];
@@ -119,11 +124,11 @@ describe("the skills invoke-key contract", () => {
 
   it("save, delete and rename surface their failures", async () => {
     tauri.invoke.mockRejectedValue(new Error("boom"));
-    await expect(saveSkill({ kind: "global" }, "x", "c", false)).rejects.toThrow(
+    await expect(saveSkill({ kind: "global" }, "x", "c", false, null)).rejects.toThrow(
       "boom",
     );
-    await expect(deleteSkill({ kind: "global" }, "x")).rejects.toThrow("boom");
-    await expect(renameSkill({ kind: "global" }, "a", "b")).rejects.toThrow("boom");
+    await expect(deleteSkill({ kind: "global" }, "x", null)).rejects.toThrow("boom");
+    await expect(renameSkill({ kind: "global" }, "a", "b", null)).rejects.toThrow("boom");
   });
 
   it("a scope survives the round trip through the wire, both kinds", async () => {
@@ -134,14 +139,14 @@ describe("the skills invoke-key contract", () => {
       { kind: "global" },
       { kind: "workspace", wsId: "ws-1" },
     ] as const) {
-      await deleteSkill(scope, "review");
+      await deleteSkill(scope, "review", null);
       const sent = wireSkillScope(tauri.invoke.mock.lastCall?.[1]);
       expect(sameSkillScope(skillScopeOf(sent), scope), scope.kind).toBe(true);
     }
     // And the global arm sends null, never "" — an empty id is the domain's
     // marker for a MALFORMED row, so sending one would manufacture exactly the
     // thing `skillScopeOf` exists to keep out of every live library.
-    await deleteSkill({ kind: "global" }, "review");
+    await deleteSkill({ kind: "global" }, "review", null);
     expect(tauri.invoke.mock.lastCall?.[1]).toMatchObject({ wsId: null });
   });
 
@@ -177,19 +182,19 @@ describe("the bundled scope at the IPC boundary", () => {
     // bundled rows to the viewer; the Rust side owns the real refusal);
     // this pin keeps the mapper's loud failure deliberate.
     await expect(
-      saveSkill({ kind: "bundled" }, "artifacts", "x", true),
+      saveSkill({ kind: "bundled" }, "artifacts", "x", true, null),
     ).rejects.toThrow(/bundled skills ship with KeepDeck/);
     await expect(
-      deleteSkill({ kind: "bundled" }, "artifacts"),
+      deleteSkill({ kind: "bundled" }, "artifacts", null),
     ).rejects.toThrow(/bundled skills ship with KeepDeck/);
     await expect(
-      renameSkill({ kind: "bundled" }, "a", "b"),
+      renameSkill({ kind: "bundled" }, "a", "b", null),
     ).rejects.toThrow(/bundled skills ship with KeepDeck/);
     // Nothing crossed the wire (the list call is a prior test's residue —
     // clear and assert from clean).
     tauri.invoke.mockClear();
     await expect(
-      saveSkill({ kind: "bundled" }, "artifacts", "x", true),
+      saveSkill({ kind: "bundled" }, "artifacts", "x", true, null),
     ).rejects.toThrow(/bundled skills ship with KeepDeck/);
     expect(tauri.invoke).not.toHaveBeenCalled();
   });

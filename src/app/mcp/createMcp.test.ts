@@ -46,6 +46,7 @@ describe("the MCP feature behind one door", () => {
       mcp.library.create(
         { kind: "global" },
         { name: "keepdeck", body: { transport: "stdio", command: "x", args: [], env: {} } },
+        null,
       ),
     ).rejects.toThrow(/KeepDeck ships with/);
   });

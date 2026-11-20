@@ -169,6 +169,7 @@ describe("mcp.create and mcp.update", () => {
     expect(mcpLibrary.create).toHaveBeenCalledWith(
       { kind: "global" },
       { name: "github", body: github },
+      null,
     );
   });
 
@@ -202,7 +203,7 @@ describe("mcp.create and mcp.update", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain('No server "github"');
-    expect(mcpLibrary.update).toHaveBeenCalledWith({ kind: "global" }, { name: "github", body: github });
+    expect(mcpLibrary.update).toHaveBeenCalledWith({ kind: "global" }, { name: "github", body: github }, null);
   });
 });
 
@@ -238,7 +239,7 @@ describe("mcp.rename and mcp.delete", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual({ name: "gh" });
-    expect(mcpLibrary.rename).toHaveBeenCalledWith({ kind: "global" }, "github", "gh");
+    expect(mcpLibrary.rename).toHaveBeenCalledWith({ kind: "global" }, "github", "gh", null);
   });
 
   it("delete removes within the scope and echoes the name", async () => {
@@ -253,6 +254,6 @@ describe("mcp.rename and mcp.delete", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual({ name: "github" });
     // A host caller's "this workspace" is the one on screen.
-    expect(mcpLibrary.remove).toHaveBeenCalledWith({ kind: "workspace", wsId: "ws-1" }, "github");
+    expect(mcpLibrary.remove).toHaveBeenCalledWith({ kind: "workspace", wsId: "ws-1" }, "github", null);
   });
 });

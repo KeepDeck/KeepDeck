@@ -3,7 +3,7 @@ import { MCP_SPEC_SHAPE, mcpServerSummary, parseMcpServerFile } from "../../doma
 import type { McpLibrary } from "../mcpLibrary";
 import type { CommandDeck } from ".";
 import { requiredStr, text } from "./args";
-import { SCOPE, libraryScopeOf } from "./scope";
+import { SCOPE, libraryScopeOf, libraryWriterOf } from "./scope";
 
 /**
  * The MCP-server library as commands — the CRUD half of the deck's control
@@ -60,6 +60,7 @@ export function registerMcpCommands(
   const library = deps.library;
   const scope = (args: CommandArgs, source: CommandSource) =>
     libraryScopeOf(args, source, deps.deck);
+  const writer = (source: CommandSource) => libraryWriterOf(source, deps.deck);
 
   return [
     registry.register({
@@ -92,7 +93,7 @@ export function registerMcpCommands(
       args: [SCOPE, NAME, SPEC],
       run: async (args, source) => {
         const name = requiredStr(args, NAME.name);
-        await library.create(scope(args, source), { name, body: bodyOf(args) });
+        await library.create(scope(args, source), { name, body: bodyOf(args) }, writer(source));
         return { name };
       },
     }),
@@ -103,7 +104,7 @@ export function registerMcpCommands(
       args: [SCOPE, NAME, SPEC],
       run: async (args, source) => {
         const name = requiredStr(args, NAME.name);
-        await library.update(scope(args, source), { name, body: bodyOf(args) });
+        await library.update(scope(args, source), { name, body: bodyOf(args) }, writer(source));
         return { name };
       },
     }),
@@ -118,7 +119,7 @@ export function registerMcpCommands(
       ],
       run: async (args, source) => {
         const to = requiredStr(args, "to");
-        await library.rename(scope(args, source), requiredStr(args, "from"), to);
+        await library.rename(scope(args, source), requiredStr(args, "from"), to, writer(source));
         return { name: to };
       },
     }),
@@ -129,7 +130,7 @@ export function registerMcpCommands(
       args: [SCOPE, NAME],
       run: async (args, source) => {
         const name = requiredStr(args, NAME.name);
-        await library.remove(scope(args, source), name);
+        await library.remove(scope(args, source), name, writer(source));
         return { name };
       },
     }),

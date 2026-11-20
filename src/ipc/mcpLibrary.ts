@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { WriteSource } from "../domain/lifecycle";
 import type { McpScope } from "../domain/mcp";
+import { writerWire } from "./writeSource";
 
 /** One stored library server (mirrors the Rust `McpServerDto`). */
 export interface StoredMcpServer {
@@ -32,17 +34,18 @@ export async function saveMcpServer(
   name: string,
   content: string,
   expectNew: boolean,
+  writer: WriteSource | null,
 ): Promise<void> {
-  await invoke("mcp_library_save", { ...wire(scope), name, content, expectNew });
+  await invoke("mcp_library_save", { ...wire(scope), name, content, expectNew, writer: writerWire(writer) });
 }
 
 /** Remove one server's file. Throws on failure. */
-export async function deleteMcpServer(scope: McpScope, name: string): Promise<void> {
-  await invoke("mcp_library_delete", { ...wire(scope), name });
+export async function deleteMcpServer(scope: McpScope, name: string, writer: WriteSource | null): Promise<void> {
+  await invoke("mcp_library_delete", { ...wire(scope), name, writer: writerWire(writer) });
 }
 
 /** Rename one server by moving its file. Throws on failure (a name collision
  * included). */
-export async function renameMcpServer(scope: McpScope, from: string, to: string): Promise<void> {
-  await invoke("mcp_library_rename", { ...wire(scope), from, to });
+export async function renameMcpServer(scope: McpScope, from: string, to: string, writer: WriteSource | null): Promise<void> {
+  await invoke("mcp_library_rename", { ...wire(scope), from, to, writer: writerWire(writer) });
 }

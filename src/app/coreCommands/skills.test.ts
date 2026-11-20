@@ -304,6 +304,7 @@ describe("skills.update", () => {
         body: "New body\n",
         extraFrontmatter: [],
       },
+      null,
     );
   });
 
@@ -335,7 +336,7 @@ describe("skills.rename and skills.delete", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual({ name: "deep-review" });
-    expect(skills.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review");
+    expect(skills.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review", null);
     expect(skills.read).not.toHaveBeenCalled();
   });
 
@@ -349,7 +350,7 @@ describe("skills.rename and skills.delete", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(skills.remove).toHaveBeenCalledWith({ kind: "global" }, "review");
+    expect(skills.remove).toHaveBeenCalledWith({ kind: "global" }, "review", null);
     expect(skills.read).not.toHaveBeenCalled();
   });
 
@@ -394,6 +395,7 @@ describe("arguments are read the same way as everywhere else in the set", () => 
       // The body is the exception, kept verbatim: it is content, and trimming
       // it would edit what the caller wrote.
       { name: "deploy", description: "Ships it", body: " Run it\n", extraFrontmatter: [] },
+      null,
     );
   });
 

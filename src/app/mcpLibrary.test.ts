@@ -16,6 +16,9 @@ import { present } from "@keepdeck/plugin-api/testing";
 
 const GLOBAL: McpScope = { kind: "global" };
 const WS: McpScope = { kind: "workspace", wsId: "ws-1" };
+/** The person at the UI writes as nobody; an agent as its pane. */
+const PERSON = null;
+const AGENT = { workspace: "ws-1", team: "team-1", pane: "pane-1" };
 
 const row = (scope: McpScope, name: string, content: string): LibraryMcpServer => ({
   scope,
@@ -90,22 +93,23 @@ describe("listing and reading", () => {
 });
 
 describe("authoring", () => {
-  it("creates by composing the file and telling the storage it is NEW", async () => {
+  it("creates by composing the file and telling the storage it is NEW — under the writer it was given", async () => {
     const { library, storage } = libraryOver();
-    await library.create(GLOBAL, { ...github("ghp"), name: "gh2" });
-    const [scope, name, content, expectNew] = present(storage.save.mock.calls[0], "the first save call");
+    await library.create(GLOBAL, { ...github("ghp"), name: "gh2" }, AGENT);
+    const [scope, name, content, expectNew, writer] = present(storage.save.mock.calls[0], "the first save call");
     expect(scope).toEqual(GLOBAL);
     expect(name).toBe("gh2");
     expect(JSON.parse(content)).toMatchObject({ transport: "stdio", command: "npx" });
     expect(expectNew).toBe(true);
+    expect(writer).toEqual(AGENT);
   });
 
   it("refuses a name a client could not carry, and says the rule", async () => {
     const { library, storage } = libraryOver();
-    await expect(library.create(GLOBAL, { ...github("x"), name: "my.server" })).rejects.toThrow(
+    await expect(library.create(GLOBAL, { ...github("x"), name: "my.server" }, PERSON)).rejects.toThrow(
       /not a valid server name — letters, digits/,
     );
-    await expect(library.create(GLOBAL, { ...github("x"), name: " " })).rejects.toThrow(
+    await expect(library.create(GLOBAL, { ...github("x"), name: " " }, PERSON)).rejects.toThrow(
       "needs a name",
     );
     expect(storage.save).not.toHaveBeenCalled();
@@ -115,10 +119,10 @@ describe("authoring", () => {
     // The injection files bundled servers first and lets the first claim
     // win, so a library `keepdeck` would silently never reach a pane.
     const { library, storage } = libraryOver();
-    await expect(library.create(GLOBAL, { ...github("x"), name: "keepdeck" })).rejects.toThrow(
+    await expect(library.create(GLOBAL, { ...github("x"), name: "keepdeck" }, PERSON)).rejects.toThrow(
       /KeepDeck ships with/,
     );
-    await expect(library.rename(GLOBAL, "fs", "keepdeck")).rejects.toThrow(/KeepDeck ships with/);
+    await expect(library.rename(GLOBAL, "fs", "keepdeck", PERSON)).rejects.toThrow(/KeepDeck ships with/);
     expect(storage.save).not.toHaveBeenCalled();
     expect(storage.rename).not.toHaveBeenCalled();
   });
@@ -126,43 +130,51 @@ describe("authoring", () => {
   it("refuses a body the codec could not carry, before any byte moves", async () => {
     const { library, storage } = libraryOver();
     await expect(
-      library.create(GLOBAL, {
-        name: "x",
-        body: { transport: "stdio", command: "  ", args: [], env: {} },
-      }),
+      library.create(
+        GLOBAL,
+        {
+          name: "x",
+          body: { transport: "stdio", command: "  ", args: [], env: {} },
+        },
+        PERSON,
+      ),
     ).rejects.toThrow("needs a command");
     await expect(
-      library.create(GLOBAL, { name: "y", body: { transport: "http", url: "", headers: {} } }),
+      library.create(GLOBAL, { name: "y", body: { transport: "http", url: "", headers: {} } }, PERSON),
     ).rejects.toThrow("needs a URL");
     await expect(
-      library.create(GLOBAL, {
-        name: "z",
-        body: { transport: "http", url: "https://x/", headers: { Authorization: "Basic a" }, bearerToken: "t" },
-      }),
+      library.create(
+        GLOBAL,
+        {
+          name: "z",
+          body: { transport: "http", url: "https://x/", headers: { Authorization: "Basic a" }, bearerToken: "t" },
+        },
+        PERSON,
+      ),
     ).rejects.toThrow("one credential");
     expect(storage.save).not.toHaveBeenCalled();
   });
 
   it("updates only what exists, in the scope named", async () => {
     const { library, storage } = libraryOver();
-    await library.update(WS, github("ghp_new"));
-    expect(storage.save).toHaveBeenLastCalledWith(WS, "github", expect.any(String), false);
-    await expect(library.update(WS, { ...github("x"), name: "fs" })).rejects.toThrow('No server "fs"');
+    await library.update(WS, github("ghp_new"), PERSON);
+    expect(storage.save).toHaveBeenLastCalledWith(WS, "github", expect.any(String), false, PERSON);
+    await expect(library.update(WS, { ...github("x"), name: "fs" }, PERSON)).rejects.toThrow('No server "fs"');
   });
 
   it("renames by moving, refusing a collision it can see", async () => {
     const { library, storage } = libraryOver();
-    await library.rename(GLOBAL, "fs", "files");
-    expect(storage.rename).toHaveBeenCalledWith(GLOBAL, "fs", "files");
-    await expect(library.rename(GLOBAL, "fs", "github")).rejects.toThrow("already taken");
-    await expect(library.rename(GLOBAL, "nope", "x")).rejects.toThrow('No server "nope"');
+    await library.rename(GLOBAL, "fs", "files", AGENT);
+    expect(storage.rename).toHaveBeenCalledWith(GLOBAL, "fs", "files", AGENT);
+    await expect(library.rename(GLOBAL, "fs", "github", PERSON)).rejects.toThrow("already taken");
+    await expect(library.rename(GLOBAL, "nope", "x", PERSON)).rejects.toThrow('No server "nope"');
   });
 
   it("removes only what exists — the storage would call a miss a success", async () => {
     const { library, storage } = libraryOver();
-    await library.remove(GLOBAL, "fs");
-    expect(storage.remove).toHaveBeenCalledWith(GLOBAL, "fs");
-    await expect(library.remove(WS, "fs")).rejects.toThrow('No server "fs"');
+    await library.remove(GLOBAL, "fs", AGENT);
+    expect(storage.remove).toHaveBeenCalledWith(GLOBAL, "fs", AGENT);
+    await expect(library.remove(WS, "fs", PERSON)).rejects.toThrow('No server "fs"');
   });
 
   it("tells its subscribers after every write, a failed one included", async () => {
@@ -171,10 +183,10 @@ describe("authoring", () => {
     });
     const listener = vi.fn();
     library.subscribe(listener);
-    await library.create(GLOBAL, { ...github("x"), name: "gh2" });
-    await library.update(WS, github("y"));
-    await library.rename(GLOBAL, "fs", "files");
-    await expect(library.remove(GLOBAL, "fs")).rejects.toThrow("locked");
+    await library.create(GLOBAL, { ...github("x"), name: "gh2" }, PERSON);
+    await library.update(WS, github("y"), PERSON);
+    await library.rename(GLOBAL, "fs", "files", PERSON);
+    await expect(library.remove(GLOBAL, "fs", PERSON)).rejects.toThrow("locked");
     expect(listener).toHaveBeenCalledTimes(4);
     expect(storage.save).toHaveBeenCalledTimes(2);
   });

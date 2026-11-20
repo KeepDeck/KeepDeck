@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { createArmRefusalStore } from "./armRefusals";
-import { createCwdArming } from "./cwdArming";
 
 describe("createArmRefusalStore", () => {
   it("replaces what it said about one agent in one folder, and keeps the rest", () => {

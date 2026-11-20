@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { WriteSource } from "../domain/lifecycle";
 import type { SkillScope, StagingTrim } from "../domain/skills";
+import { writerWire } from "./writeSource";
 
 /** One stored library skill (mirrors the Rust `SkillDto`). A `bundled`
  * row is READ-ONLY: the tier ships with the app; mutations refuse
@@ -74,19 +76,20 @@ export async function saveSkill(
   name: string,
   content: string,
   expectNew: boolean,
+  writer: WriteSource | null,
 ): Promise<void> {
-  await invoke("skills_save", { ...wire(scope), name, content, expectNew });
+  await invoke("skills_save", { ...wire(scope), name, content, expectNew, writer: writerWire(writer) });
 }
 
 /** Remove one skill (its whole directory). Throws on failure. */
-export async function deleteSkill(scope: SkillScope, name: string): Promise<void> {
-  await invoke("skills_delete", { ...wire(scope), name });
+export async function deleteSkill(scope: SkillScope, name: string, writer: WriteSource | null): Promise<void> {
+  await invoke("skills_delete", { ...wire(scope), name, writer: writerWire(writer) });
 }
 
 /** Rename one skill by moving its directory — assets travel along. Throws
  * on failure (a name collision included). */
-export async function renameSkill(scope: SkillScope, from: string, to: string): Promise<void> {
-  await invoke("skills_rename", { ...wire(scope), from, to });
+export async function renameSkill(scope: SkillScope, from: string, to: string, writer: WriteSource | null): Promise<void> {
+  await invoke("skills_rename", { ...wire(scope), from, to, writer: writerWire(writer) });
 }
 
 /** Rebuild and fetch a workspace's staging; `excluded` rows stage nowhere.
