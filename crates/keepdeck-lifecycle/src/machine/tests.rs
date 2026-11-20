@@ -1294,6 +1294,78 @@ fn a_fork_hook_past_its_deadline_drops_the_build_and_holds_the_rollback_until_th
     sim.send(Event::HookEnded { op });
     sim.drive();
     assert!(sim.state.ops.is_empty());
+    // What the late hook made is still taken back — both lists, as for any
+    // fork that did not finish.
+    assert!(
+        sim.cleaned.contains(&Clean::Discard { plugin: "claude".into(), paths: vec!["/c/scratch".into(), "/c/copy".into()] }),
+        "the late result's scaffolding: {:?}",
+        sim.cleaned
+    );
+}
+
+/// The fork's helpers in its own checkout: a process the hook left running
+/// there stops before the checkout goes, and the scaffolding goes first.
+#[test]
+fn a_fork_rolled_back_stops_what_runs_in_its_checkout_and_removes_one_step_after_the_other() {
+    let mut sim = Sim::booted();
+    let ask = sim.intent(Intent::Continue {
+        workspace: ws(),
+        landing: Landing::NewTeam { team: team("f"), site: Site::New { place: None, base: None }, draft: draft() },
+        source: SessionKey { agent: "claude".into(), session: "s1".into() },
+        how: Continuation::Fork,
+        member: draft(),
+    });
+    let mut checkout = None;
+    for _ in 0..8 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            match effect {
+                Effect::Probe { op, path, .. } => sim.send(Event::Probed { op, path, taken: false }),
+                Effect::CreateWorktree { op, ticket } => {
+                    checkout = Some(ticket.path.clone());
+                    sim.send(Event::Created { op, result: Ok(()) });
+                }
+                _ => {}
+            }
+        }
+        sim.apply(|cmd| !matches!(cmd, Cmd::Fork { .. }));
+        sim.save();
+    }
+    let checkout = checkout.expect("the fork's worktree");
+    let op = *sim.state.ops.keys().next().unwrap();
+    // The hook starts a helper in the checkout, then fails.
+    let helper = sim.appear(LaunchOwner::Plugin { plugin: "claude".into(), workspace: ws() }, None, Some(checkout.as_str()));
+    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Rejected { reason: "store layout".into() });
+    sim.send(Event::HookEnded { op });
+    sim.flush_journals();
+    assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })), "a new team's fork is answered before its hook");
+    assert!(matches!(&sim.state.ops[&op].kind, Kind::Fork(fork) if fork.stage == ForkStage::Undoing));
+    assert!(sim.owed().contains(&Effect::Stop { session: helper }), "the helper stops first");
+    assert!(!sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Checkout { .. }, .. })), "not while it runs");
+    sim.send(Event::SessionEnded { session: helper });
+    assert!(sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Checkout { .. }, .. })), "then the checkout goes");
+}
+
+/// A fork into a folder that is there, onto a new team: the hook is called
+/// in that folder.
+#[test]
+fn a_fork_onto_a_new_team_in_an_existing_folder_calls_its_hook_there() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Continue {
+        workspace: ws(),
+        landing: Landing::NewTeam { team: team("e"), site: Site::Existing { cwd: Dir::new("/repo/tools") }, draft: draft() },
+        source: SessionKey { agent: "claude".into(), session: "s1".into() },
+        how: Continuation::Fork,
+        member: draft(),
+    });
+    for _ in 0..6 {
+        sim.write_journals();
+        sim.apply(|cmd| !matches!(cmd, Cmd::Fork { .. }));
+        sim.save();
+    }
+    let forks = sim.pending_matching(|cmd| matches!(cmd, Cmd::Fork { .. }));
+    assert_eq!(forks.len(), 1, "the hook is called: {:?}", sim.pending());
+    assert!(matches!(&forks[0].cmd, Cmd::Fork { cwd, .. } if cwd == &Dir::new("/repo/tools")));
 }
 
 #[test]

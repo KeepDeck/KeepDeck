@@ -10,7 +10,7 @@
 use super::{answer_op, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, FORK_DEADLINE};
 use crate::command::{Cmd, Member, Outcome, Revision, TeamPlace};
 use crate::dir::Dir;
-use crate::ids::{OpId, PaneId, TeamId};
+use crate::ids::{OpId, PaneId, SessionId, TeamId};
 use crate::journal::{Discard, Step, Ticket, Work};
 use crate::model::{Answer, Draft, Minted, Refusal, SessionKey, Site};
 use crate::places::{self, Held};
@@ -809,12 +809,33 @@ pub fn fork_step_done(fork: &mut Fork, step: Step, result: StepResult, fx: &mut 
     }
 }
 
-/// The folder the fork carries the conversation into.
+/// The folder the fork carries the conversation into: the worktree its new
+/// team's ticket makes, or else its team's own folder — an existing team's,
+/// or a new team's placed on the root or on a folder that is there.
 fn fork_cwd(state: &State, fork: &Fork) -> Option<Dir> {
-    match &fork.create {
-        Some(create) => create.ticket.as_ref().map(|ticket| ticket.path.clone()),
+    match fork.create.as_ref().and_then(|create| create.ticket.as_ref()) {
+        Some(ticket) => Some(ticket.path.clone()),
         None => state.world.team_cwd(&fork.team),
     }
+}
+
+/// The live sessions in the fork's own checkout, its pane's aside — what the
+/// hook started there. They stop before the checkout goes.
+fn fork_folder_sessions(state: &State, fork: &Fork) -> Vec<SessionId> {
+    let Some(ticket) = fork.create.as_ref().and_then(|create| create.ticket.as_ref()) else { return Vec::new() };
+    state
+        .sessions
+        .iter()
+        .filter(|(_, row)| !row.ended && row.dir.as_ref() == Some(&ticket.path) && row.owner.pane() != Some(fork.pane))
+        .map(|(&session, _)| session)
+        .collect()
+}
+
+/// The fork's checkout may go: nothing runs in it, nor is about to.
+fn fork_folder_quiet(state: &State, fork: &Fork) -> bool {
+    let Some(ticket) = fork.create.as_ref().and_then(|create| create.ticket.as_ref()) else { return true };
+    state.sessions_down
+        || (fork_folder_sessions(state, fork).is_empty() && !state.attempts.values().any(|attempt| attempt.dir.as_ref() == Some(&ticket.path)))
 }
 
 /// The pane's launch is still alive, or about to be.
@@ -1049,7 +1070,16 @@ fn undo_fork(state: &mut State, id: OpId, fx: &mut Fx) {
     let saved = state.saved;
     let op = state.ops.get_mut(&id).expect("the op");
     let workspace = op.workspace.clone();
+    // The hook's own result, late — after its deadline turned the fork back:
+    // what it made is still to be taken back, its lists to the journal first.
+    let late = match outcome_of(op, |cmd| matches!(cmd, Cmd::Fork { .. })) {
+        Some(Some(Outcome::Forked { discard })) => Some(discard.clone()),
+        _ => None,
+    };
     let Some(fork) = fork_mut(op) else { return };
+    if fork.discard.is_none() {
+        fork.discard = late;
+    }
     let fork = fork.clone();
     answer_op(op, fx, Answer::refused(if fork.expired { Refusal::ForkStepExpired } else { Refusal::Rejected { reason: "the fork did not finish".into() } }));
     if (fork.hook_sent && !fork.hook_ended) || fork_pane_busy(state, fork.pane) {
@@ -1116,17 +1146,32 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
         ForkStage::Undoing => {
             let quiet = !(fork.hook_sent && !fork.hook_ended) && !fork_pane_busy(state, fork.pane);
             if quiet && !fork.failed {
+                // What the hook started in the checkout stops before it goes.
+                for session in fork_folder_sessions(state, fork) {
+                    owed = owed.run(Effect::Stop { session });
+                }
+                let recorded = op.book.as_ref().and_then(|book| book.written.as_ref()).is_some_and(|entry| matches!(&entry.work, Work::Fork { discard: Some(_), .. }));
+                let discarded = fork.discard.is_none() || fork.done.contains(&Step::Discard);
                 for step in undo_steps(fork) {
                     if fork.done.contains(&step) {
                         continue;
                     }
                     let how = match &step {
                         Step::Discard => {
+                            // The lists reach the journal before anything goes.
+                            if !recorded {
+                                continue;
+                            }
                             let discard = fork.discard.as_ref().expect("a discard");
                             let paths = discard.once_started.iter().chain(&discard.if_never_started).cloned().collect();
                             Clean::Discard { plugin: discard.plugin.clone(), paths }
                         }
                         Step::Checkout { path } => {
+                            // One step after the other: the scaffolding first, and
+                            // nothing running in the checkout, nor about to.
+                            if !discarded || !fork_folder_quiet(state, fork) {
+                                continue;
+                            }
                             let repo = fork.create.as_ref().and_then(|create| create.ticket.as_ref()).map(|ticket| ticket.repo.clone());
                             let Some(repo) = repo else { continue };
                             Clean::Checkout { repo, path: path.clone() }
