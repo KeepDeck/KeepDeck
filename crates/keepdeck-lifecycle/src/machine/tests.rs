@@ -252,7 +252,7 @@ impl Sim {
         for effect in self.owed() {
             let event = match effect {
                 Effect::Probe { op, path, .. } => Event::Probed { op, path, taken: false },
-                Effect::CreateWorktree { op, .. } => Event::Created { op, result: Ok(()) },
+                Effect::CreateWorktree { op, .. } | Effect::FindWorktree { op, .. } => Event::Created { op, result: Ok(()) },
                 Effect::ReadBranches { op, path, .. } => Event::BranchesRead { op, path, result: Ok(Vec::new()) },
                 Effect::Clean { op, step, how, .. } => {
                     if !self.cleaned.contains(&how) {
@@ -668,6 +668,61 @@ fn a_handed_over_checkout_is_on_the_closes_entry_before_the_creations_entry_goes
     sim.write_journals();
     assert!(close_written_with_folder(&sim));
     assert!(removes_creation(&sim), "then it goes");
+}
+
+/// A crash between git's Ok for a taken-over creation and its close's entry
+/// holding the checkout: both entries survive. The restored creation joins
+/// its close: git is asked whether the checkout stands, nothing is made,
+/// and it is handed over only on git's word. Its entry goes once the
+/// close's holds the folder.
+#[test]
+fn a_creation_taken_over_before_a_crash_hands_its_checkout_over_after_it_only_on_gits_word() {
+    let ticket = Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-5"), branch: "kd/app/5".into(), base: None };
+    let entry = |op: u64, work: Work| Entry { op: OpId(op), workspace: ws(), work, joined: vec![], commands: vec![], done: vec![] };
+    let entries = || {
+        vec![
+            entry(5, Work::Create { team: team("n"), ticket: ticket.clone() }),
+            entry(
+                7,
+                Work::Close {
+                    target: Target::Team { team: team("n") },
+                    teams: vec![team("n")],
+                    panes: vec![],
+                    consent: Consent { tickets: vec![OpId(5)], ..Consent::default() },
+                    removals: vec![],
+                    space: Some(Dir::new("/repo")),
+                },
+            ),
+        ]
+    };
+    let deleted = |sim: &Sim| sim.cleaned.iter().any(|how| matches!(how, Clean::Checkout { path, .. } if *path == ticket.path));
+    let removes_creation = |sim: &Sim| sim.owed().iter().any(|effect| matches!(effect, Effect::RemoveJournal { op: OpId(5), .. }));
+
+    // Git says the checkout stands: handed over, then deleted.
+    let mut sim = Sim::booted_with(deck(), entries());
+    let owed = sim.owed();
+    assert!(owed.contains(&Effect::FindWorktree { op: OpId(5), ticket: ticket.clone() }), "{owed:?}");
+    assert!(!owed.iter().any(|effect| matches!(effect, Effect::CreateWorktree { .. })), "nothing is made");
+    sim.send(Event::Created { op: OpId(5), result: Ok(()) });
+    let holds = |sim: &Sim| matches!(&sim.disk[&OpId(7)].work, Work::Close { consent, .. } if consent.folders.iter().any(|folder| folder.path == ticket.path));
+    for _ in 0..3 {
+        if holds(&sim) {
+            break;
+        }
+        assert!(!removes_creation(&sim), "its entry stays while the close's lacks the folder");
+        sim.write_journals();
+    }
+    assert!(holds(&sim), "the close's entry holds the checkout");
+    assert!(removes_creation(&sim), "then the creation's goes");
+    sim.drive();
+    assert!(deleted(&sim), "the close deletes it: {:?}", sim.cleaned);
+
+    // No such checkout stands: nothing is handed over, nothing deleted.
+    let mut sim = Sim::booted_with(deck(), entries());
+    sim.send(Event::Created { op: OpId(5), result: Err("no checkout of kd/app/5 stands there".into()) });
+    sim.drive();
+    assert!(!deleted(&sim), "{:?}", sim.cleaned);
+    assert!(sim.disk.is_empty(), "both done: {:?}", sim.disk.keys());
 }
 
 /// Git refuses the taken-over creation — the path is another branch's

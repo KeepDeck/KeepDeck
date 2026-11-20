@@ -280,6 +280,10 @@ pub enum Effect {
     RemoveJournal { op: OpId, attempt: u32 },
     Probe { op: OpId, repo: Dir, path: Dir, branch: String },
     CreateWorktree { op: OpId, ticket: Ticket },
+    /// Git's word on whether the ticket's checkout stands — at its path, on
+    /// its branch: what its add made before a crash. Nothing is made. Its
+    /// answer comes back as `Created`, an error when no such checkout stands.
+    FindWorktree { op: OpId, ticket: Ticket },
     ReadBranches { op: OpId, repo: Dir, path: Dir },
     /// One removal or cleanup step; its result comes back as `StepDone`.
     Clean { op: OpId, workspace: WorkspaceId, step: Step, how: Clean },

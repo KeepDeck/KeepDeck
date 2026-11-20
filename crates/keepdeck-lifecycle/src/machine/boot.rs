@@ -85,7 +85,7 @@ pub fn handshake(state: &mut State, ask: AskId, deck: DeckFacts, load: Load, fx:
         .collect();
     let mut finishing = Vec::new();
     for entry in &journal {
-        if let Some(op) = restore(state, entry, &closing, &closing_workspaces) {
+        if let Some(op) = restore(state, entry, &journal, &closing, &closing_workspaces) {
             state.ops.insert(entry.op, op);
             finishing.push(entry.op);
         }
@@ -151,6 +151,16 @@ fn entry_panes(entry: &Entry) -> Vec<PaneId> {
     panes
 }
 
+/// The close in the journal that took the creation `creation` over by the
+/// person's consent to its ticket, while its entry does not hold the
+/// ticket's checkout.
+fn taken_over(journal: &[Entry], creation: OpId, ticket: &Ticket) -> Option<OpId> {
+    journal.iter().find_map(|close| match &close.work {
+        Work::Close { consent, .. } if consent.tickets.contains(&creation) && !consent.folders.iter().any(|folder| folder.path == ticket.path) => Some(close.op),
+        _ => None,
+    })
+}
+
 fn closed_teams(entry: &Entry) -> Vec<TeamId> {
     match &entry.work {
         Work::Close { teams, .. } => teams.clone(),
@@ -160,7 +170,7 @@ fn closed_teams(entry: &Entry) -> Vec<TeamId> {
 
 /// An operation from its entry. Its restored phase asks for its work again;
 /// its commands not settled are asked again under the same ids.
-fn restore(state: &mut State, entry: &Entry, closing: &BTreeSet<TeamId>, closing_workspaces: &BTreeSet<crate::ids::WorkspaceId>) -> Option<Op> {
+fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeSet<TeamId>, closing_workspaces: &BTreeSet<crate::ids::WorkspaceId>) -> Option<Op> {
     let sent = entry
         .commands
         .iter()
@@ -217,11 +227,23 @@ fn restore(state: &mut State, entry: &Entry, closing: &BTreeSet<TeamId>, closing
             let covered = closing.contains(team) || closing_workspaces.contains(&entry.workspace);
             let on_deck = state.world.teams.contains_key(team);
             if covered {
-                // The Close covering it deletes what its ticket made, by its
-                // own consent; the creation has nothing left to do.
                 create.abandoned = true;
-                create.created = true;
                 create.stage = CreateStage::Creating;
+                match taken_over(journal, entry.op, ticket) {
+                    // The person agreed to delete what this ticket made, and
+                    // the close's entry does not hold the checkout yet — the
+                    // launch died between git's answer and that write. Git
+                    // is asked whether the checkout stands, and only then is
+                    // it handed over; until the close's entry holds it, this
+                    // entry stays its trace.
+                    Some(close) => {
+                        create.taken_by = Some(close);
+                        create.find_only = true;
+                    }
+                    // Handed over already, or not agreed to: nothing is left
+                    // for the creation to do.
+                    None => create.created = true,
+                }
             } else if on_deck {
                 // `git worktree add` may have finished unrecorded: the
                 // checkout at the ticket is this ticket's, and is picked up.

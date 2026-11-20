@@ -304,20 +304,41 @@ pub(crate) fn create_by_ticket(locks: &RepoLocks, repo_path: &Path, path: &Path,
     let (base, base_branch_ref) = resolve_base(repo_path, base, None)?;
     let lock = locks.for_repo(repo_path);
     let _guard = locks.acquire(&lock);
-    let here = worktree::list(repo_path)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|row| worktree::paths_match(&row.path, path));
-    if let Some(row) = here {
-        return match row.branch.as_deref() {
-            Some(found) if found == branch => Ok(()),
-            other => Err(format!("{} is a checkout of {} already, not of {branch}", path.display(), other.unwrap_or("a detached HEAD"))),
-        };
+    if ticket_checkout_stands(repo_path, path, branch)? {
+        return Ok(());
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create worktree parent dir: {e}"))?;
     }
     add_worktree_with_base(repo_path, path, branch, &base, base_branch_ref.as_deref())
+}
+
+/// Whether a ticket's checkout stands — git's word, nothing made: a
+/// checkout of the repository at the ticket's path, on its branch. What a
+/// close may then delete as this ticket's.
+pub(crate) fn find_by_ticket(locks: &RepoLocks, repo_path: &Path, path: &Path, branch: &str) -> Result<(), String> {
+    let lock = locks.for_repo(repo_path);
+    let _guard = locks.acquire(&lock);
+    if ticket_checkout_stands(repo_path, path, branch)? {
+        Ok(())
+    } else {
+        Err(format!("no checkout of {branch} stands at {}", path.display()))
+    }
+}
+
+/// A checkout of the repository at `path` on `branch` is a ticket's: an add
+/// that finished, its result recorded or not. A checkout of anything else
+/// there is refused; none there is `false`.
+fn ticket_checkout_stands(repo_path: &Path, path: &Path, branch: &str) -> Result<bool, String> {
+    let here = worktree::list(repo_path)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|row| worktree::paths_match(&row.path, path));
+    match here.map(|row| row.branch) {
+        None => Ok(false),
+        Some(Some(found)) if found == branch => Ok(true),
+        Some(other) => Err(format!("{} is a checkout of {} already, not of {branch}", path.display(), other.as_deref().unwrap_or("a detached HEAD"))),
+    }
 }
 
 /// The branches born in a checkout, read from its reflog — before it is
@@ -1360,6 +1381,25 @@ mod tests {
         assert!(create_by_ticket(&locks, &repo, &other, "kd/ticket/3", None).is_err());
         assert!(!other.join(".git").exists(), "nothing was made");
         assert!(!branch_listed(&repo, "kd/ticket/3-2"), "no stepped name");
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    /// Finding a ticket's checkout makes nothing: it stands at the ticket's
+    /// path on the ticket's branch, or it is not this ticket's.
+    #[test]
+    fn a_tickets_checkout_is_found_only_where_it_stands_on_its_branch_and_never_made() {
+        let repo = init_repo("door-find");
+        let locks = RepoLocks::default();
+        let wt = repo.with_file_name(format!("{}-wt", repo.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&wt);
+
+        assert!(find_by_ticket(&locks, &repo, &wt, "kd/find/1").is_err(), "none stands");
+        assert!(!wt.exists(), "nothing was made");
+        assert!(!branch_listed(&repo, "kd/find/1"));
+        create_by_ticket(&locks, &repo, &wt, "kd/find/1", None).expect("created");
+        find_by_ticket(&locks, &repo, &wt, "kd/find/1").expect("this ticket's");
+        assert!(find_by_ticket(&locks, &repo, &wt, "kd/find/2").is_err(), "another branch's checkout");
         let _ = std::fs::remove_dir_all(&wt);
         let _ = std::fs::remove_dir_all(&repo);
     }

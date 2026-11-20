@@ -38,6 +38,10 @@ impl Doors for AppDoors {
         worktree::create_by_ticket(&self.locks, path(&ticket.repo), path(&ticket.path), &ticket.branch, ticket.base.as_deref())
     }
 
+    fn find_worktree(&self, ticket: &Ticket) -> Result<(), String> {
+        worktree::find_by_ticket(&self.locks, path(&ticket.repo), path(&ticket.path), &ticket.branch)
+    }
+
     fn read_branches(&self, repo: &Dir, at: &Dir) -> Result<Vec<String>, String> {
         worktree::born_branches(&self.locks, path(repo), path(at))
     }

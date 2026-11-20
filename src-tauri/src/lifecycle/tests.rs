@@ -29,6 +29,9 @@ impl Doors for FakeDoors {
     fn create_worktree(&self, _ticket: &Ticket) -> Result<(), String> {
         Ok(())
     }
+    fn find_worktree(&self, _ticket: &Ticket) -> Result<(), String> {
+        Ok(())
+    }
     fn read_branches(&self, _repo: &Dir, _path: &Dir) -> Result<Vec<String>, String> {
         Ok(Vec::new())
     }

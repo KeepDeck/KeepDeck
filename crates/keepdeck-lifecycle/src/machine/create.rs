@@ -64,6 +64,11 @@ pub struct Create {
     pub taken_by: Option<OpId>,
     /// `git worktree add` has answered.
     pub created: bool,
+    /// Restored, taken over by a close whose entry does not hold its
+    /// checkout yet: git is asked whether the checkout stands, never to make
+    /// one, before it is handed over.
+    #[serde(default)]
+    pub find_only: bool,
     /// The steps of an undo that are done.
     pub undone: Vec<Step>,
     pub undo_failed: bool,
@@ -86,6 +91,7 @@ impl Create {
             abandoned: false,
             taken_by: None,
             created: false,
+            find_only: false,
             undone: Vec::new(),
             undo_failed: false,
         }
@@ -716,7 +722,8 @@ fn work_create(state: &State, id: OpId, op: &Op, create: &Create, mut owed: Owed
     }
     if create.stage == CreateStage::Creating && !create.created {
         if let Some(ticket) = &create.ticket {
-            owed = owed.run(Effect::CreateWorktree { op: id, ticket: ticket.clone() });
+            let (op, ticket) = (id, ticket.clone());
+            owed = owed.run(if create.find_only { Effect::FindWorktree { op, ticket } } else { Effect::CreateWorktree { op, ticket } });
         }
     }
     if create.stage == CreateStage::Undoing && !create.undo_failed && state.boot.cleans() {

@@ -22,6 +22,9 @@ pub trait Doors: Send + Sync + 'static {
     /// `git worktree add` by the ticket; a checkout already at the ticket's
     /// path is this ticket's and is picked up.
     fn create_worktree(&self, ticket: &Ticket) -> Result<(), String>;
+    /// Whether the ticket's checkout stands at its path on its branch;
+    /// nothing is made.
+    fn find_worktree(&self, ticket: &Ticket) -> Result<(), String>;
     /// The branches born in a checkout, from its reflog.
     fn read_branches(&self, repo: &Dir, path: &Dir) -> Result<Vec<String>, String>;
     fn clean(&self, workspace: &WorkspaceId, how: &Clean) -> Result<(), String>;
@@ -115,6 +118,13 @@ impl Effects<Effect, Event> for Handler {
                 let doors = self.doors.clone();
                 events.spawn(async move {
                     let result = supervised(move || doors.create_worktree(&ticket)).await;
+                    Some(Event::Created { op, result })
+                });
+            }
+            Effect::FindWorktree { op, ticket } => {
+                let doors = self.doors.clone();
+                events.spawn(async move {
+                    let result = supervised(move || doors.find_worktree(&ticket)).await;
                     Some(Event::Created { op, result })
                 });
             }
