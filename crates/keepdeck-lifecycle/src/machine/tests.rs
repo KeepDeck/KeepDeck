@@ -1346,6 +1346,25 @@ fn a_disband_deletes_its_tasks_once_and_an_archive_keeps_them() {
 }
 
 #[test]
+fn an_archive_takes_the_plantings_back_keeps_folders_and_layout_and_restore_brings_it_back() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive();
+    assert!(sim.cleaned.contains(&Clean::Disarm { dir: Dir::new("/wt/kd-app-1") }), "the plantings go, as today: {:?}", sim.cleaned);
+    assert!(!sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. } | Clean::Branch { .. } | Clean::Stores)));
+    assert!(sim.carried.contains(&Cmd::MarkArchived { workspace: ws() }));
+    assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::RemovePane { .. } | Cmd::RemoveTeam { .. })), "the layout stays");
+    assert_eq!(sim.state.world.panes.len(), 3);
+
+    let restore = sim.intent(Intent::Restore { workspace: ws() });
+    sim.drive();
+    assert!(matches!(sim.answer(restore), Some(Answer::Accepted { .. })));
+    assert!(sim.carried.contains(&Cmd::ClearArchived { workspace: ws() }));
+    assert!(!sim.state.world.workspaces[&ws()].archived);
+    assert_eq!(sim.state.world.members(&team("1")), vec![PaneId(1), PaneId(2)]);
+}
+
+#[test]
 fn a_close_without_consent_deletes_no_folder() {
     let mut sim = Sim::booted();
     let ask = sim.close(disband("1", Consent::default()));
