@@ -203,10 +203,12 @@ pub fn run() {
             // claim, and held for the app's whole life. A copy without the
             // claim only shows, and keeps trying for it.
             // The sessions machine first: the lifecycle's doors stop its
-            // sessions and cancel at its start boundary.
+            // sessions and cancel at its start boundary. Its git doors take
+            // the same repository locks as the rest of the app.
             let root = lifecycle::journal_root().ok_or("no KeepDeck home to hold the lifecycle journal")?;
             let sessions = tauri::async_runtime::block_on(async { session_machine::SessionMachine::start() });
-            let doors = std::sync::Arc::new(lifecycle::AppDoors::new(sessions.clone()));
+            let locks = app.state::<worktree::RepoLocks>().inner().clone();
+            let doors = std::sync::Arc::new(lifecycle::AppDoors::new(sessions.clone(), locks));
             let lifecycle = tauri::async_runtime::block_on(async move { lifecycle::Lifecycle::start_at(root, doors) });
             let claimed = lifecycle.claimed();
             let link_app = app.handle().clone();

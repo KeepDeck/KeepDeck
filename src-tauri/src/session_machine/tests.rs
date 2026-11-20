@@ -49,7 +49,8 @@ async fn rig() -> Rig {
     let work = tempfile::tempdir().unwrap();
     let cwd = work.path().to_string_lossy().into_owned();
     let sessions = SessionMachine::start();
-    let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(AppDoors::new(sessions.clone())));
+    let doors = AppDoors::new(sessions.clone(), crate::worktree::RepoLocks::default());
+    let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
     let door = lifecycle.door();
     sessions.link(move || door.clone());
     let reply = lifecycle.door().ask(|ask| Event::Handshake { ask, deck: deck(&cwd), load: Load::Loaded }).await;

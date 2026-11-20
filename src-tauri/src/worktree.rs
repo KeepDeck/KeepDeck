@@ -412,38 +412,7 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
         return Err("worktree create needs a path".to_string());
     }
 
-    // The base is ALWAYS pinned to a commit sha here — a picked branch NAME
-    // must not flow into `worktree add -b` verbatim: git would record a
-    // name-sourced creation, which reflog provenance deliberately refuses to
-    // trust, and the born branch would never be attributed back to this
-    // worktree at close time. Pinning also keeps a whole batch on one commit
-    // even if the base moves mid-batch. The local branch identity is retained
-    // separately in a private base ref for dynamic fork-point resolution.
-    let base_rev = spec.base.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let has_explicit_base = base_rev.is_some();
-    let base_rev = base_rev.unwrap_or("HEAD");
-    let base_branch_rev = spec
-        .base_branch
-        .as_deref()
-        .map(str::trim)
-        .filter(|branch| !branch.is_empty())
-        .unwrap_or(base_rev);
-    let base_branch_ref = repo::local_branch_ref(&repo_path, base_branch_rev)
-        .map_err(|e| format!("cannot identify base branch: {e}"))?;
-    if spec
-        .base_branch
-        .as_deref()
-        .is_some_and(|branch| !branch.trim().is_empty())
-        && base_branch_ref.is_none()
-    {
-        return Err(format!(
-            "cannot identify local base branch '{base_branch_rev}'"
-        ));
-    }
-    let base = repo::resolve_commit(&repo_path, base_rev).map_err(|e| match base_rev {
-        "HEAD" if !has_explicit_base => e.to_string(),
-        rev => format!("cannot resolve base '{rev}': {e}"),
-    })?;
+    let (base, base_branch_ref) = resolve_base(&repo_path, spec.base.as_deref(), spec.base_branch.as_deref())?;
 
     let chosen_branch = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
 
@@ -479,6 +448,118 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
         path: target.to_string_lossy().into_owned(),
         branch,
     })
+}
+
+/// The commit a new worktree starts at, and the local branch it was picked
+/// as, if one was.
+///
+/// The base is ALWAYS pinned to a commit sha — a picked branch NAME must not
+/// flow into `worktree add -b` verbatim: git would record a name-sourced
+/// creation, which reflog provenance deliberately refuses to trust, and the
+/// born branch would never be attributed back to its worktree at close time.
+/// Pinning also keeps a whole batch on one commit even if the base moves
+/// mid-batch. The local branch identity is retained separately in a private
+/// base ref for dynamic fork-point resolution.
+fn resolve_base(repo_path: &Path, base: Option<&str>, base_branch: Option<&str>) -> Result<(String, Option<String>), String> {
+    let base_rev = base.map(str::trim).filter(|s| !s.is_empty());
+    let has_explicit_base = base_rev.is_some();
+    let base_rev = base_rev.unwrap_or("HEAD");
+    let named_branch = base_branch.map(str::trim).filter(|branch| !branch.is_empty());
+    let base_branch_rev = named_branch.unwrap_or(base_rev);
+    let base_branch_ref = repo::local_branch_ref(repo_path, base_branch_rev)
+        .map_err(|e| format!("cannot identify base branch: {e}"))?;
+    if named_branch.is_some() && base_branch_ref.is_none() {
+        return Err(format!("cannot identify local base branch '{base_branch_rev}'"));
+    }
+    let base = repo::resolve_commit(repo_path, base_rev).map_err(|e| match base_rev {
+        "HEAD" if !has_explicit_base => e.to_string(),
+        rev => format!("cannot resolve base '{rev}': {e}"),
+    })?;
+    Ok((base, base_branch_ref))
+}
+
+// ── The lifecycle machine's git doors ───────────────────────────────────
+//
+// Each is one step of an operation the machine journaled, carried out under
+// the repository's lock. They decide nothing: what to create or remove, and
+// with what consent, is the machine's plan.
+
+/// Whether something is on disk at a candidate place: a folder with anything
+/// in it, or a branch of that name. An empty folder is a free place, as git
+/// can create a worktree into one. A git that cannot answer says "taken" —
+/// a place is never handed out on a guess.
+pub(crate) fn place_taken(repo: &Path, path: &Path, branch: &str) -> bool {
+    let folder = path.exists() && std::fs::read_dir(path).map(|mut entries| entries.next().is_some()).unwrap_or(true);
+    folder || repo::branch_exists(repo, branch).unwrap_or(true)
+}
+
+/// Create a ticket's worktree: on the branch the ticket names — never
+/// another — from its base, pinned. A checkout already at the ticket's path
+/// on that branch is this ticket's (an add that finished before its result
+/// was recorded) and is picked up; anything else there is refused.
+pub(crate) fn create_by_ticket(locks: &RepoLocks, repo_path: &Path, path: &Path, branch: &str, base: Option<&str>) -> Result<(), String> {
+    if !repo::is_git_repo(repo_path) {
+        return Err(format!("not a git repository: {}", repo_path.display()));
+    }
+    let (base, base_branch_ref) = resolve_base(repo_path, base, None)?;
+    let lock = locks.for_repo(repo_path);
+    let _guard = locks.acquire(&lock);
+    let here = worktree::list(repo_path)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|row| worktree::paths_match(&row.path, path));
+    if let Some(row) = here {
+        return match row.branch.as_deref() {
+            Some(found) if found == branch => Ok(()),
+            other => Err(format!("{} is a checkout of {} already, not of {branch}", path.display(), other.unwrap_or("a detached HEAD"))),
+        };
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("create worktree parent dir: {e}"))?;
+    }
+    add_worktree_with_base(repo_path, path, branch, &base, base_branch_ref.as_deref())
+}
+
+/// The branches born in a checkout, read from its reflog — before it is
+/// removed, which erases that evidence. A checkout that is not there is an
+/// error: the plan then records it absent.
+pub(crate) fn born_branches(locks: &RepoLocks, repo_path: &Path, path: &Path) -> Result<Vec<String>, String> {
+    let lock = locks.for_repo(repo_path);
+    let _guard = locks.acquire(&lock);
+    if !path.exists() && is_registered_worktree(repo_path, path) != Some(true) {
+        return Err(format!("{} is not a checkout of {}", path.display(), repo_path.display()));
+    }
+    provenance::created_branches(repo_path, path).map_err(|e| e.to_string())
+}
+
+/// Remove a checkout by its plan. The consent covers its uncommitted work; a
+/// checkout already gone is removed; a leftover git could not finish is a
+/// step not done.
+pub(crate) fn remove_planned_checkout(locks: &RepoLocks, repo_path: &Path, path: &Path) -> Result<(), String> {
+    let lock = locks.for_repo(repo_path);
+    let _guard = locks.acquire(&lock);
+    match remove_checkout(repo_path, path, true)? {
+        None => Ok(()),
+        Some(leftover) => Err(leftover),
+    }
+}
+
+/// Delete a branch the consent covers, under git's own ref lock. A branch
+/// checked out elsewhere is somebody's and is kept; one already gone is done.
+pub(crate) fn remove_planned_branch(locks: &RepoLocks, repo_path: &Path, name: &str) -> Result<(), String> {
+    let lock = locks.for_repo(repo_path);
+    let _guard = locks.acquire(&lock);
+    let in_use = worktree::list(repo_path).map_err(|e| e.to_string())?.into_iter().any(|row| row.branch.as_deref() == Some(name));
+    if in_use {
+        log::warn!("worktree: branch '{name}' is checked out in another worktree of {}; keeping it", repo_path.display());
+        return Ok(());
+    }
+    delete_branch_if_present(repo_path, name, true)
+}
+
+/// Keep a checkout's HEAD as a tag before it goes; a name in use is refused.
+pub(crate) fn tag_head(repo_path: &Path, path: &Path, name: &str) -> Result<(), String> {
+    save_head(repo_path, path, name).map(drop)
 }
 
 /// Undo a worktree this function just created: remove it, drop the
@@ -598,17 +679,41 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
         Vec::new()
     };
 
+    let leftover = remove_checkout(&repo_path, &path, spec.discard_dirty)?;
+    // Branch removal is separate: a branch can't be deleted while its worktree
+    // is checked out, so it only runs now that the worktree is gone.
+    let primary = spec
+        .branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let failures = reap_branches(&repo_path, primary, &created, spec.discard_unmerged);
+    let problems: Vec<String> = leftover.into_iter().chain(failures).collect();
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("\n"))
+    }
+}
+
+/// Remove the checkout at `path` and its registration — the step every
+/// removal takes, the old command's and the lifecycle's alike. The caller
+/// holds the repository's lock. `Ok(Some(why))`: git deregistered the
+/// checkout but its leftover directory stays; `Err`: git refused before
+/// touching anything, and the checkout is intact. A checkout already gone is
+/// removed.
+pub(crate) fn remove_checkout(repo_path: &Path, path: &Path, discard_dirty: bool) -> Result<Option<String>, String> {
     // Read BEFORE the removal: half the evidence [`husk_verdict`] needs to tell
     // a git that refused from a git that gave up midway.
-    let registered = is_registered_worktree(&repo_path, &path);
+    let registered = is_registered_worktree(repo_path, path);
 
     let mut leftover = None;
-    match worktree::remove(&repo_path, &path, spec.discard_dirty) {
+    match worktree::remove(repo_path, path, discard_dirty) {
         Ok(()) => {}
         // Git refuses to `remove` a worktree whose dir is already gone; only a
         // failure with the dir still present is a real error.
         Err(_) if !path.exists() => {}
-        Err(e) if husk_verdict(registered, is_registered_worktree(&repo_path, &path)) => {
+        Err(e) if husk_verdict(registered, is_registered_worktree(repo_path, path)) => {
             // Git deregistered the directory, so no later `git worktree remove`
             // can address it and the prune + branch reap below must run either
             // way. Finishing the DELETE is a separate question: git can abandon
@@ -616,8 +721,8 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
             // aborts its recursion where it stands — so the leftover may still
             // hold every file the user had, and only `discard_dirty` is
             // consent to lose them.
-            leftover = if spec.discard_dirty {
-                clear_husk(&path).err().map(|why| format!("{e}; {why}"))
+            leftover = if discard_dirty {
+                clear_husk(path).err().map(|why| format!("{e}; {why}"))
             } else {
                 Some(format!(
                     "{e}; '{}' was left in place: finishing the deletion needs a forced removal",
@@ -642,23 +747,10 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     }
     // Drop the administrative record (best-effort) — after the remove above,
     // or INSTEAD of it when the dir vanished externally.
-    if let Err(e) = worktree::prune(&repo_path) {
+    if let Err(e) = worktree::prune(repo_path) {
         log::warn!("worktree: prune after remove failed in {}: {e}", repo_path.display());
     }
-    // Branch removal is separate: a branch can't be deleted while its worktree
-    // is checked out, so it only runs now that the worktree is gone.
-    let primary = spec
-        .branch
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let failures = reap_branches(&repo_path, primary, &created, spec.discard_unmerged);
-    let problems: Vec<String> = leftover.into_iter().chain(failures).collect();
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("\n"))
-    }
+    Ok(leftover)
 }
 
 /// Did git abandon the removal PAST its own point of no return?
@@ -2060,6 +2152,99 @@ mod tests {
 
         git(&repo, &["worktree", "unlock", wt.to_str().unwrap()]);
         let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    // ── The lifecycle machine's git doors ───────────────────────────────
+
+    fn branch_listed(repo: &Path, name: &str) -> bool {
+        !git_out(repo, &["branch", "--list", name]).trim().is_empty()
+    }
+
+    #[test]
+    fn a_place_is_free_only_with_no_folder_content_and_no_branch_of_its_name() {
+        let repo = init_repo("door-probe");
+        let place = repo.with_file_name(format!("{}-place", repo.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&place);
+        assert!(!place_taken(&repo, &place, "kd/probe/1"), "nothing there");
+        std::fs::create_dir_all(&place).unwrap();
+        assert!(!place_taken(&repo, &place, "kd/probe/1"), "an empty folder takes a worktree");
+        std::fs::write(place.join("x"), "x").unwrap();
+        assert!(place_taken(&repo, &place, "kd/probe/1"), "a folder with something in it");
+        std::fs::remove_dir_all(&place).unwrap();
+        git(&repo, &["branch", "kd/probe/1"]);
+        assert!(place_taken(&repo, &place, "kd/probe/1"), "a branch of the name");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn a_ticket_makes_its_own_branch_or_nothing_and_its_finished_checkout_is_picked_up() {
+        let repo = init_repo("door-ticket");
+        let locks = RepoLocks::default();
+        let wt = repo.with_file_name(format!("{}-wt", repo.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&wt);
+
+        create_by_ticket(&locks, &repo, &wt, "kd/ticket/1", None).expect("created");
+        assert_eq!(git_out(&wt, &["branch", "--show-current"]).trim(), "kd/ticket/1");
+        // A repeat after a lost result: the checkout is this ticket's.
+        create_by_ticket(&locks, &repo, &wt, "kd/ticket/1", None).expect("picked up");
+        // The same place for another branch is someone else's checkout.
+        assert!(create_by_ticket(&locks, &repo, &wt, "kd/ticket/2", None).is_err());
+
+        // A taken branch is never stepped over: the ticket names THE branch.
+        let other = wt.with_file_name(format!("{}-other", wt.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&other);
+        git(&repo, &["branch", "kd/ticket/3"]);
+        assert!(create_by_ticket(&locks, &repo, &other, "kd/ticket/3", None).is_err());
+        assert!(!other.join(".git").exists(), "nothing was made");
+        assert!(!branch_listed(&repo, "kd/ticket/3-2"), "no stepped name");
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn the_born_branches_are_read_before_the_checkout_goes_and_a_missing_one_is_an_error() {
+        let (repo, wt, branch) = repo_with_worktree("door-born");
+        git(&wt, &["switch", "-q", "-c", "kd/born-side"]);
+        let locks = RepoLocks::default();
+        let mut born = born_branches(&locks, &repo, &wt).expect("read");
+        born.sort();
+        assert_eq!(born, ["kd/born-side".to_string(), branch]);
+
+        let nowhere = repo.with_file_name("keepdeck-door-born-nowhere");
+        assert!(born_branches(&locks, &repo, &nowhere).is_err(), "not a checkout");
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn a_planned_checkout_goes_with_its_uncommitted_work_and_a_gone_one_is_done() {
+        let (repo, wt, _branch) = repo_with_worktree("door-checkout");
+        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
+        let locks = RepoLocks::default();
+        remove_planned_checkout(&locks, &repo, &wt).expect("removed under consent");
+        assert!(!wt.exists());
+        assert!(is_registered_worktree(&repo, &wt) == Some(false));
+        remove_planned_checkout(&locks, &repo, &wt).expect("a repeat finds it gone");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn a_planned_branch_goes_unmerged_but_one_checked_out_elsewhere_is_kept() {
+        let (repo, wt, branch) = repo_with_worktree("door-branch");
+        std::fs::write(wt.join("feature.txt"), "work").unwrap();
+        git(&wt, &["add", "."]);
+        git(&wt, &["commit", "-q", "-m", "unmerged"]);
+        let locks = RepoLocks::default();
+
+        // Still checked out: somebody's, kept — and that is not a failure.
+        remove_planned_branch(&locks, &repo, &branch).expect("kept");
+        assert!(branch_listed(&repo, &branch));
+
+        remove_planned_checkout(&locks, &repo, &wt).expect("checkout gone");
+        remove_planned_branch(&locks, &repo, &branch).expect("deleted, unmerged commits and all");
+        assert!(!branch_listed(&repo, &branch));
+        remove_planned_branch(&locks, &repo, &branch).expect("a repeat finds it gone");
         let _ = std::fs::remove_dir_all(&repo);
     }
 }
