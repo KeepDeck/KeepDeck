@@ -252,6 +252,12 @@ impl Sim {
 
     /// One round of a world that does what it is asked.
     fn round(&mut self) -> bool {
+        self.round_with(&|_| Ok(()))
+    }
+
+    /// One round of a world that does what it is asked, each cleanup step
+    /// with the result `step` gives it.
+    fn round_with(&mut self, step: &dyn Fn(&Clean) -> StepResult) -> bool {
         let before = self.state.clone();
         self.write_journals();
         for effect in self.owed() {
@@ -260,11 +266,12 @@ impl Sim {
                 Effect::CreateWorktree { op, .. } => Event::Created { op, result: Ok(()) },
                 Effect::FindWorktree { op, .. } => Event::Found { op, found: Ok(true) },
                 Effect::ReadBranches { op, path, .. } => Event::BranchesRead { op, path, result: Ok(Vec::new()) },
-                Effect::Clean { op, step, how, .. } => {
-                    if !self.cleaned.contains(&how) {
+                Effect::Clean { op, step: done, how, .. } => {
+                    let result = step(&how);
+                    if result.is_ok() && !self.cleaned.contains(&how) {
                         self.cleaned.push(how);
                     }
-                    Event::StepDone { op, step, result: Ok(()) }
+                    Event::StepDone { op, step: done, result }
                 }
                 Effect::Stop { session, .. } => Event::SessionEnded { session },
                 Effect::Cancel { op, .. } => Event::Cancelled { op, started: Vec::new() },
@@ -283,8 +290,13 @@ impl Sim {
     }
 
     fn drive(&mut self) {
+        self.drive_with(&|_| Ok(()));
+    }
+
+    /// Drive a world whose cleanup steps answer as `step` says.
+    fn drive_with(&mut self, step: &dyn Fn(&Clean) -> StepResult) {
         for _ in 0..100 {
-            if !self.round() {
+            if !self.round_with(step) {
                 return;
             }
         }
@@ -2292,6 +2304,137 @@ fn an_archive_takes_the_plantings_back_keeps_folders_and_layout_and_restore_brin
     assert_eq!(sim.state.world.members(&team("1")), vec![PaneId(1), PaneId(2)]);
 }
 
+/// An archive ends every process of the workspace, keeps every pane and
+/// team where it stood, and lets go of each pane's slot.
+#[test]
+fn an_archive_stops_every_session_of_its_workspace_and_keeps_the_layout() {
+    let mut sim = Sim::booted();
+    let sessions: Vec<SessionId> =
+        [(1, "/wt/kd-app-1"), (3, "/repo")].into_iter().map(|(pane, dir)| sim.appear(LaunchOwner::Pane { pane: PaneId(pane) }, None, Some(dir))).collect();
+    let ask = sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive();
+    assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })));
+    for session in &sessions {
+        assert!(sim.state.sessions[session].ended, "{session:?} stopped, and over");
+    }
+    assert!(sim.state.world.workspaces[&ws()].archived);
+    assert_eq!(sim.state.world.panes.len(), 3, "every pane stays");
+    assert_eq!(sim.state.world.members(&team("1")), vec![PaneId(1), PaneId(2)], "and every team");
+    assert_eq!(released(&sim), vec![(PaneId(1), false), (PaneId(2), false), (PaneId(3), false)]);
+}
+
+/// Nothing is restarted, suspended or resumed in a workspace put away.
+#[test]
+fn a_pane_of_an_archived_workspace_is_not_restarted_suspended_or_resumed() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive();
+    for intent in [
+        Intent::Restart { workspace: ws(), pane: PaneId(1) },
+        Intent::Suspend { workspace: ws(), pane: PaneId(2) },
+        Intent::Resume { workspace: ws(), pane: PaneId(1) },
+    ] {
+        let ask = sim.intent(intent.clone());
+        assert_eq!(sim.refusal(ask), Some(Refusal::Archived), "{intent:?}");
+    }
+}
+
+/// One exclusive operation on a workspace at a time, and only a Close takes
+/// over a creation: an archive asked while a team is being created hears
+/// «busy» — main's archive waited the creation out; the lifecycle design
+/// chose this instead — and goes once the creation is done, putting away
+/// what landed with the rest.
+#[test]
+fn an_archive_asked_while_a_team_is_being_created_hears_busy_and_goes_once_it_is_made() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::New { place: None, base: None }, draft: draft(), members: vec![] });
+    for _ in 0..3 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            if let Effect::Probe { op, path, .. } = effect {
+                sim.send(Event::Probed { op, path, taken: false });
+            }
+        }
+        sim.apply(|_| true);
+        sim.save();
+    }
+    assert!(sim.owed().iter().any(|effect| matches!(effect, Effect::CreateWorktree { .. })), "git is out");
+    let early = sim.intent(Intent::Archive { workspace: ws() });
+    assert_eq!(sim.refusal(early), Some(Refusal::Busy));
+    sim.drive();
+    let archive = sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive();
+    assert!(matches!(sim.answer(archive), Some(Answer::Accepted { .. })));
+    assert!(sim.state.ops.is_empty(), "{:?}", sim.state.ops);
+    assert!(sim.state.world.workspaces[&ws()].archived);
+    assert!(sim.state.world.teams.contains_key(&team("n")), "what landed stays, put away with the rest");
+}
+
+/// A workspace a confirmed close is ending is not archived on its way out.
+#[test]
+fn an_archive_of_a_workspace_a_close_is_ending_hears_already_closing() {
+    let mut sim = Sim::booted();
+    sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    let archive = sim.intent(Intent::Archive { workspace: ws() });
+    assert_eq!(sim.refusal(archive), Some(Refusal::AlreadyClosing));
+}
+
+/// A folder a team of ANOTHER workspace still works in is not offered: a
+/// path is one place on disk, whoever's workspace it is.
+#[test]
+fn a_folder_a_team_of_another_workspace_works_in_is_not_offered() {
+    let mut facts = deck();
+    let (other, _) = beside_another_and_a_twin(&mut facts);
+    let index = facts.workspaces.iter().position(|ws| ws.id == other).unwrap();
+    facts.workspaces[index].teams.push(TeamFacts { id: team("b"), at: TeamAtFacts::Attached { cwd: Dir::new("/wt/kd-app-1"), branch: Some("kd/app/1".into()) } });
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    assert!(shown(&sim, &disband("1", Consent::default())).folders.is_empty(), "team b keeps it");
+}
+
+/// A workspace that is gone has nothing to end and nothing to delete.
+#[test]
+fn a_gone_workspace_offers_nothing() {
+    let sim = Sim::booted();
+    let gone = WorkspaceId("ws-gone".into());
+    let offer = shown(&sim, &Intent::CloseWorkspace { workspace: gone, consent: Consent::default() });
+    assert!(offer.stops.is_empty() && offer.folders.is_empty());
+}
+
+/// The step results of a world where the cleanup steps `fails` names fail,
+/// as a refusing git or a planting that would not go.
+fn failing(fails: impl Fn(&Clean) -> bool) -> impl Fn(&Clean) -> StepResult {
+    move |how| if fails(how) { Err("refused".into()) } else { Ok(()) }
+}
+
+/// Taking the plantings back comes first, but a failure there does not keep
+/// the checkout: it is removed all the same, and the failed step stays owed.
+#[test]
+fn a_checkout_is_removed_even_when_taking_its_plantings_back_failed() {
+    let mut sim = Sim::booted();
+    sim.close(disband("1", consent_for_team_1()));
+    sim.drive_with(&failing(|how| matches!(how, Clean::Disarm { .. })));
+    assert!(!sim.cleaned.iter().any(|how| matches!(how, Clean::Disarm { .. })), "the planting stayed");
+    assert!(sim.cleaned.contains(&Clean::Checkout { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1") }), "{:?}", sim.cleaned);
+    let op = sim.state.ops.values().next().expect("owed, not done");
+    assert!(op.owed, "the failed step is owed to the next launch");
+}
+
+/// A removal that fails holds its own operation for the next launch, and
+/// nothing else: a later teardown elsewhere runs to its end.
+#[test]
+fn a_failed_removal_does_not_hold_up_another_teardown() {
+    let mut sim = Sim::booted();
+    sim.close(disband("1", consent_for_team_1()));
+    sim.drive_with(&failing(|how| matches!(how, Clean::Checkout { .. })));
+    assert_eq!(sim.state.ops.len(), 1, "the failed one waits");
+    let suspend = sim.intent(Intent::Suspend { workspace: ws(), pane: PaneId(3) });
+    sim.drive();
+    assert!(matches!(sim.answer(suspend), Some(Answer::Accepted { .. })));
+    assert_eq!(sim.state.ops.len(), 1, "the other one ended: {:?}", sim.state.ops);
+    assert!(sim.state.world.panes[&PaneId(3)].suspended);
+}
+
 #[test]
 fn a_close_without_consent_deletes_no_folder() {
     let mut sim = Sim::booted();
@@ -2323,6 +2466,7 @@ fn a_creation_git_refused_is_failed_with_retry_and_the_retry_makes_it() {
     sim.send(Event::Created { op, result: Err("a branch of that name exists".into()) });
     sim.drive();
     assert!(sim.carried.iter().any(|cmd| matches!(cmd, Cmd::FailTeam { .. })));
+    assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::SettleTeam { .. })), "no fallback to another folder: {:?}", sim.carried);
     assert_eq!(snapshot(&sim.state).teams[&team("n")], TeamPhase::Failed);
     assert_eq!(snapshot(&sim.state).gates[&team("n")].retry, None);
     let retry = sim.intent(Intent::Retry { workspace: ws(), team: team("n") });
