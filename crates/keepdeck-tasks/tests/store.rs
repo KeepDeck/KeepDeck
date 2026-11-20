@@ -699,8 +699,10 @@ fn a_board_of_any_size_is_dropped_whole() {
 fn dropping_a_workspace_takes_its_board() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = active_store(dir.path());
+    assert_eq!(store.workspace_of("b1").unwrap().as_deref(), Some("ws-1"));
     assert!(store.drop_workspace("ws-1").unwrap());
     assert_eq!(store.load_workspace("ws-1").unwrap(), None);
+    assert_eq!(store.workspace_of("b1").unwrap(), None, "no board, no workspace");
     assert!(!store.drop_workspace("ws-1").unwrap());
 }
 

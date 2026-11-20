@@ -16,9 +16,10 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use keepdeck_tasks::{LegacyBoard, Store, StoreError};
+use keepdeck_tasks::{Applied, ChangeSet, LegacyBoard, Store, StoreError};
 use sha2::{Digest, Sha256};
 
+use crate::forgotten::{Gate, Source};
 use crate::fs_claim::{claim, ClaimedRoot};
 use crate::state::write_atomic;
 
@@ -189,6 +190,17 @@ impl TasksStore {
         rows.map_err(|e| format!("the task database kept the board of {workspace_id}: {e}"))
     }
 
+    /// Apply a change, unless what it is for is forgotten: the writer, the
+    /// workspace of a board it writes, or the team of a task on one. Asked
+    /// under the database's lock, the one a workspace's drop takes — a
+    /// change already in lands before the drop and goes with it.
+    pub fn apply(&self, gate: &Gate, source: &Source, change: &ChangeSet) -> Result<Applied, StoreError> {
+        self.with_db(|db| {
+            admitted(db, gate, source, change)?;
+            db.apply(change)
+        })
+    }
+
     fn drop_files(&self, workspace_id: &str) -> Result<(), String> {
         self.with_enabled(|root, data| {
             require_safe(workspace_id)?;
@@ -200,6 +212,26 @@ impl TasksStore {
             }
         })
     }
+}
+
+/// The commit gate's questions about one change. A board that belongs to
+/// no workspace — or to none any more — has nothing to forget; the store
+/// itself answers a write to a board that is not there.
+fn admitted(db: &mut Store, gate: &Gate, source: &Source, change: &ChangeSet) -> Result<(), StoreError> {
+    let refused = |_| StoreError::Forgotten;
+    gate.admit(source).map_err(refused)?;
+    for board in &change.boards {
+        let workspace = match &board.workspace {
+            Some(workspace) => Some(workspace.clone()),
+            None => db.workspace_of(&board.board)?,
+        };
+        let Some(workspace) = workspace else { continue };
+        gate.admit(&Source::from(workspace.as_str())).map_err(refused)?;
+        for team in board.tasks.iter().filter_map(|task| task.team_id.clone()) {
+            gate.admit(&Source { workspace: workspace.clone(), team: Some(team), pane: None }).map_err(refused)?;
+        }
+    }
+    Ok(())
 }
 
 /// The checksum the migration keeps for each source file.
@@ -292,6 +324,69 @@ mod tests {
         let path = dir.path().join("tasks/ws").join(workspace);
         std::fs::create_dir_all(&path).unwrap();
         std::fs::write(path.join("board.json"), json).unwrap();
+    }
+
+    fn new_board(request: &str, workspace: &str, team: Option<&str>) -> ChangeSet {
+        let task = keepdeck_tasks::TaskWrite {
+            uid: format!("u-{request}"),
+            board_pos: 0,
+            team_id: team.map(str::to_owned),
+            title: "t".into(),
+            body: String::new(),
+            body_v: 1,
+            kind: "task".into(),
+            status: "todo".into(),
+            priority: "normal".into(),
+            assignee: None,
+            author: "lead".into(),
+            created: 1,
+            updated: 1,
+            key: Some("task-1".into()),
+            labels: None,
+            artifacts: None,
+            comments: vec![],
+            log: vec![],
+            briefs: vec![],
+        };
+        ChangeSet {
+            request_id: request.into(),
+            boards: vec![keepdeck_tasks::BoardChange {
+                board: format!("b-{workspace}"),
+                workspace: Some(workspace.into()),
+                expected_rev: 0,
+                next_id: 2,
+                tasks: vec![task],
+                removed: vec![],
+                relations_put: vec![],
+                relations_removed: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn a_change_for_a_forgotten_writer_workspace_or_team_is_refused_and_nothing_lands() {
+        let (_dir, store) = enabled_store();
+        store.with_db(|db| db.import(&[], &[]).and_then(|()| db.activate_migration())).unwrap();
+        let forget = crate::forgotten::testing::Forget::default();
+        let gate = forget.gate();
+        let lead = Source { workspace: "ws-1".into(), team: Some("team-a".into()), pane: Some("pane-1".into()) };
+        forget.forget("pane-9");
+        forget.forget("team-gone");
+        forget.forget("ws-gone");
+
+        let gone_writer = Source { pane: Some("pane-9".into()), ..lead.clone() };
+        assert_eq!(store.apply(&gate, &gone_writer, &new_board("r1", "ws-1", None)), Err(StoreError::Forgotten));
+        assert_eq!(store.apply(&gate, &lead, &new_board("r2", "ws-gone", None)), Err(StoreError::Forgotten));
+        assert_eq!(store.apply(&gate, &lead, &new_board("r3", "ws-1", Some("team-gone"))), Err(StoreError::Forgotten));
+        assert_eq!(store.with_db(|db| db.load_all()).unwrap(), vec![], "nothing landed");
+
+        assert!(store.apply(&gate, &lead, &new_board("r4", "ws-1", Some("team-a"))).is_ok());
+        // The board's workspace is the store's word once the board exists.
+        forget.forget("ws-1");
+        let mut later = new_board("r5", "ws-1", None);
+        later.boards[0].workspace = None;
+        later.boards[0].expected_rev = 1;
+        assert_eq!(store.apply(&gate, &Source::from("ws-2"), &later), Err(StoreError::Forgotten));
     }
 
     #[test]

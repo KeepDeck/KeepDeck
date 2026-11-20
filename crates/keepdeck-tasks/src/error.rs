@@ -48,6 +48,10 @@ pub enum StoreError {
     /// the step's own fault, not the disk's — not tried again as it is.
     /// The copy taken before it is beside the database.
     MigrationFailed { migration: String, detail: String },
+    /// What the change was for — its workspace, a team of a task on it, or
+    /// the pane writing it — is closed. Nothing more is written for it:
+    /// never tried again.
+    Forgotten,
 }
 
 impl StoreError {
@@ -77,6 +81,7 @@ impl std::fmt::Display for StoreError {
             StoreError::MigrationFailed { migration, detail } => {
                 write!(f, "the task database could not be brought to this KeepDeck's schema (step {migration}): {detail}")
             }
+            StoreError::Forgotten => write!(f, "what this change is for is closed; nothing more is written for it"),
         }
     }
 }

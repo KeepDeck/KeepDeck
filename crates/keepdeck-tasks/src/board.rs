@@ -506,6 +506,13 @@ fn append_brief(conn: &mut SqliteConnection, uid: &str, brief: &StoredBrief) -> 
     }
 }
 
+/// The workspace a board belongs to: `None` when there is no such board or
+/// it belongs to none.
+pub fn workspace_of(conn: &mut SqliteConnection, board: &str) -> Result<Option<String>> {
+    let workspace: Option<Option<String>> = boards::table.find(board).select(boards::workspace).first(conn).optional()?;
+    Ok(workspace.flatten())
+}
+
 /// Drop a workspace's board and everything on it. Links leaving its tasks
 /// go with them; links from elsewhere INTO them stay, their far end gone —
 /// what becomes of those is the domain's rule.

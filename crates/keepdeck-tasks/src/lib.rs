@@ -210,6 +210,10 @@ impl Store {
         self.write(|conn| board::drop_workspace(conn, workspace))
     }
 
+    pub fn workspace_of(&mut self, board: &str) -> Result<Option<String>> {
+        self.read(|conn| board::workspace_of(conn, board))
+    }
+
     fn require_active(&mut self) -> Result<()> {
         match self.read(import::migration_state)? {
             MigrationState::Active => Ok(()),

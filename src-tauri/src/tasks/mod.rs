@@ -85,9 +85,16 @@ pub fn tasks_load_all(state: State<TasksState>) -> Result<Vec<StoredBoard>, Stor
     state.store.with_db(|db| db.load_all())
 }
 
+/// A change from `source` — the writer, set by the app: its workspace, and
+/// its team and pane when it has them.
 #[tauri::command(async)]
-pub fn tasks_apply(state: State<TasksState>, change: ChangeSet) -> Result<Applied, StoreError> {
-    state.store.with_db(|db| db.apply(&change))
+pub fn tasks_apply(
+    state: State<TasksState>,
+    gate: State<crate::forgotten::Gate>,
+    source: crate::forgotten::Source,
+    change: ChangeSet,
+) -> Result<Applied, StoreError> {
+    state.store.apply(&gate, &source, &change)
 }
 
 #[tauri::command(async)]
