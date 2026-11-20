@@ -98,6 +98,11 @@ mod tests {
         assert_eq!(branch("x.lock", 1), "kd/x/1");
         assert_eq!(branch("@@@", 1), "kd/agent/1", "nothing left: a fixed word, never empty");
         assert_eq!(sanitize_component("--dots.-"), "dots");
+        assert_eq!(sanitize_component("we~ird^ref:name"), "we-ird-ref-name", "a run of illegal characters is one dash");
+        assert_eq!(sanitize_component("a...b"), "a.b", "one pass of `..` can leave another");
+        assert_eq!(sanitize_component("a.lock.lock"), "a", "one strip of `.lock` can leave another");
+        assert_eq!(sanitize_component("release-1.2"), "release-1.2", "a dot that is not reserved stays");
+        assert_eq!(sanitize_component(""), "agent");
     }
 
     #[test]
