@@ -327,7 +327,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     // directory would put the pane on whichever came first.
     act(() => {
       deck.createTeam("ws-1", { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo/wt" } });
-      deck.createTeam("ws-1", { id: "team-2", name: "web", location: { kind: "attached", cwd: "/repo/wt" } }, { shared: true });
+      deck.createTeam("ws-1", { id: "team-2", name: "web", location: { kind: "attached", cwd: "/repo/wt" } });
     });
     await act(async () => agentRun.resumeSession("ws-1", handle(), { team: "team-2", role: "lead" }));
     expect(deck.workspaces[0].panes[0].team).toEqual({ teamId: "team-2", role: "lead" });
@@ -704,7 +704,7 @@ describe("agent orchestrator —forking a recorded session", () => {
   it("dir target: lands on the team named by id, not the first team on the same directory", async () => {
     act(() => {
       deck.createTeam("ws-1", { id: "team-1", name: "api", location: { kind: "attached", cwd: "/elsewhere" } });
-      deck.createTeam("ws-1", { id: "team-2", name: "web", location: { kind: "attached", cwd: "/elsewhere" } }, { shared: true });
+      deck.createTeam("ws-1", { id: "team-2", name: "web", location: { kind: "attached", cwd: "/elsewhere" } });
     });
     await act(async () =>
       agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/elsewhere" }, { team: "team-2", role: "peer-1" }),
