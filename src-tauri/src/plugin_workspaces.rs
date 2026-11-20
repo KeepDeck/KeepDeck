@@ -308,8 +308,8 @@ mod tests {
         assert!(!root.join("keepdeck.claude/ws-2").exists());
         assert!(!root.join("keepdeck.opencode/ws-2").exists());
         assert!(!root.join("keepdeck.kimi").exists(), "an emptied plugin folder goes too");
-        assert_eq!(grants.write_roots("keepdeck.claude").unwrap(), [dir_for(&root, "keepdeck.claude", "ws-1").unwrap().to_string_lossy()]);
-        assert!(grants.write_roots("keepdeck.kimi").is_err(), "no root left where nothing is left");
+        assert_eq!(grants.write_roots("keepdeck.claude", |_| true).unwrap(), [dir_for(&root, "keepdeck.claude", "ws-1").unwrap().to_string_lossy()]);
+        assert!(grants.write_roots("keepdeck.kimi", |_| true).is_err(), "no root left where nothing is left");
     }
 
     #[test]
@@ -335,8 +335,8 @@ mod tests {
         let lock = PluginDirsLock::default();
         assert!(hand_out(&lock, &grants, &forget.gate(), &root, "keepdeck.claude", "ws-gone").unwrap_err().contains("closed"));
         assert!(!root.exists(), "nothing made");
-        assert!(grants.write_roots("keepdeck.claude").is_err(), "nothing granted");
+        assert!(grants.write_roots("keepdeck.claude", |_| true).is_err(), "nothing granted");
         let dir = hand_out(&lock, &grants, &forget.gate(), &root, "keepdeck.claude", "ws-1").unwrap();
-        assert_eq!(grants.write_roots("keepdeck.claude").unwrap(), [dir]);
+        assert_eq!(grants.write_roots("keepdeck.claude", |_| true).unwrap(), [dir]);
     }
 }

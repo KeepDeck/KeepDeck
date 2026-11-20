@@ -5,6 +5,7 @@
 //! lock — the one its writes take.
 
 use crate::artifacts::ArtifactsState;
+use crate::forgotten::Gate;
 use crate::mcp::library::McpLibraryLock;
 use crate::plugin_permissions::PluginGrants;
 use crate::plugin_workspaces::PluginDirsLock;
@@ -76,8 +77,8 @@ impl StoreDoors for AppStores {
     }
 
     fn discard(&self, plugin: &str, paths: &[String]) -> Result<(), String> {
-        let (dirs_lock, grants) = (self.app.state::<PluginDirsLock>(), self.app.state::<PluginGrants>());
-        each(paths.iter().map(|path| ("fork scaffolding", crate::plugins_fs_write::remove_as(&dirs_lock, &grants, plugin, path))))
+        let (dirs_lock, grants, gate) = (self.app.state::<PluginDirsLock>(), self.app.state::<PluginGrants>(), self.app.state::<Gate>());
+        each(paths.iter().map(|path| ("fork scaffolding", crate::plugins_fs_write::remove_as(&dirs_lock, &grants, &gate, plugin, path))))
     }
 }
 
