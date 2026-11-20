@@ -32,6 +32,48 @@ export type Refusal =
  * to ask, or ended before it answered. */
 export type NoAnswer = { kind: "unavailable" } | { kind: "unknown" };
 
+/** The ids the machine gave what an accepted intent makes. */
+export interface Minted {
+  workspace: string | null;
+  team: string | null;
+  panes: string[];
+}
+
+/** How an intent the page sent ended: the machine took it on (and named
+ * what it makes), refused it, or gave no answer. Whatever it does after
+ * reaches the deck as its commands. */
+export type IntentOutcome =
+  | { kind: "accepted"; op: number; minted: Minted }
+  | { kind: "refused"; refusal: Refusal }
+  | { kind: "unanswered"; reply: NoAnswer };
+
+/** A folder a close may delete. */
+export interface Folder {
+  repo: string;
+  path: string;
+  branch: string | null;
+}
+
+/** What a close was consented to: exactly the folders the dialog showed,
+ * and the creations still running it named — frozen when it opened. */
+export interface Consent {
+  folders: Folder[];
+  tickets: number[];
+}
+
+/** A place a new team's worktree goes: its folder and its branch. */
+export interface Place {
+  path: string;
+  branch: string;
+}
+
+/** Where a new team runs: the workspace root, a folder that exists, or a
+ * new worktree — at a place typed by hand, or the machine's next free one. */
+export type Site =
+  | { kind: "root" }
+  | { kind: "existing"; cwd: string }
+  | { kind: "new"; place: Place | null; base: string | null };
+
 /** How the deck loaded at boot — what the handshake tells the machine, so
  * it never reconciles against a deck that is not the person's:
  * - `loaded`: read whole, or there was none yet;

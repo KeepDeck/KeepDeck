@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NoAnswer, Refusal } from "../domain/lifecycle";
-import { noAnswerText, refusalText } from "./lifecycleWords";
+import { intentOutcomeText, noAnswerText, refusalText } from "./lifecycleWords";
 
 const refusals: Refusal[] = [
   { kind: "alreadyClosing" },
@@ -39,5 +39,11 @@ describe("the lifecycle's words", () => {
   it("say each way the door comes back without an answer apart from every refusal", () => {
     const said = silences.map(noAnswerText);
     expect(new Set([...said, ...refusals.map(refusalText)]).size).toBe(said.length + refusals.length);
+  });
+
+  it("word an intent's outcome by what ended it, and say nothing for one taken on", () => {
+    expect(intentOutcomeText({ kind: "accepted", op: 1, minted: { workspace: null, team: null, panes: [] } })).toBeNull();
+    expect(intentOutcomeText({ kind: "refused", refusal: { kind: "archived" } })).toBe(refusalText({ kind: "archived" }));
+    expect(intentOutcomeText({ kind: "unanswered", reply: { kind: "unknown" } })).toBe(noAnswerText({ kind: "unknown" }));
   });
 });

@@ -6,7 +6,7 @@
  * everywhere. Each kind has its own sentence — none is borrowed from a
  * neighbour that merely sounds close.
  */
-import type { NoAnswer, Refusal } from "../domain/lifecycle";
+import type { IntentOutcome, NoAnswer, Refusal } from "../domain/lifecycle";
 
 export function refusalText(refusal: Refusal): string {
   switch (refusal.kind) {
@@ -47,3 +47,23 @@ export function noAnswerText(reply: NoAnswer): string {
       return "KeepDeck's lifecycle stopped before it answered — whether this was done shows once KeepDeck restarts.";
   }
 }
+
+/** Why an intent did not go ahead, in the words every surface says — null
+ * for one the machine took on. */
+export function intentOutcomeText(outcome: IntentOutcome): string | null {
+  switch (outcome.kind) {
+    case "accepted":
+      return null;
+    case "refused":
+      return refusalText(outcome.refusal);
+    case "unanswered":
+      return noAnswerText(outcome.reply);
+  }
+}
+
+/** What a second KeepDeck on this settings folder says once: it shows, and
+ * changes nothing. */
+export const VIEW_ONLY_NOTICE = {
+  title: "Another KeepDeck is running",
+  body: "It holds this settings folder, so this window only shows the deck — nothing here starts, closes or changes.",
+};
