@@ -240,14 +240,16 @@ impl Fork {
 /// The ops that change a team's membership and have not settled it yet. A
 /// fork changes it from its acceptance: placing and making the team it lands
 /// on are part of bringing its pane in, so a Close begun meanwhile waits
-/// for it, as for any other landing.
+/// for it, as for any other landing. One rolling back after its first
+/// journal write failed brings nothing in.
 pub fn membership_pending(op: &Op, saved: Option<Revision>) -> bool {
     let unsettled = |pred: fn(&Cmd) -> bool| op.sent.iter().any(|sent| pred(&sent.cmd) && !sent.settled(saved));
     match &op.kind {
         Kind::Seat(_) => op.ask.is_some() || unsettled(|cmd| matches!(cmd, Cmd::AddPane { .. })),
         Kind::Relocate(_) => op.ask.is_some() || unsettled(|cmd| matches!(cmd, Cmd::MovePane { .. })),
         Kind::Fork(fork) => match fork.stage {
-            ForkStage::Placing | ForkStage::Journaling | ForkStage::Making | ForkStage::RollingBack | ForkStage::Forking => !fork.expired,
+            ForkStage::Placing | ForkStage::Journaling | ForkStage::Making | ForkStage::Forking => !fork.expired,
+            ForkStage::RollingBack => false,
             ForkStage::Adding => true,
             ForkStage::Binding | ForkStage::Finishing | ForkStage::Undoing => unsettled(|cmd| matches!(cmd, Cmd::AddPane { .. })),
         },
