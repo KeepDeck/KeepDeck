@@ -63,6 +63,30 @@ describe("the deck's owner of lifecycle commands", () => {
     expect(ws()?.panes.map((pane) => pane.id)).toEqual(["pane-1"]);
   });
 
+  it("refuses two first members resuming one conversation, writing nothing", async () => {
+    const { carry, ws } = rig();
+    await carry(workspace);
+    const both = await carry(team([member("pane-1", "lead", { session: { id: "s-1" } }), member("pane-2", "reviewer", { session: { id: "s-1" } })]));
+    expect(both).toEqual({ kind: "rejected", reason: "That conversation is already open in another agent." });
+    const after = ws();
+    expect(after && findTeam(after, "team-n")).toBeUndefined();
+    expect(after?.panes).toEqual([]);
+  });
+
+  it("seats the first members a team asked again is missing, and answers unchanged only when none is", async () => {
+    const { carry, ws } = rig();
+    await carry(workspace);
+    // A deck that kept the team with only part of its first members.
+    await carry(team([member("pane-1", "lead")]));
+    const whole = team([member("pane-1", "lead"), member("pane-2", "reviewer")]);
+    expect((await carry(whole)).kind).toBe("applied");
+    expect(ws()?.panes.map((pane) => [pane.id, pane.team?.teamId])).toEqual([
+      ["pane-1", "team-n"],
+      ["pane-2", "team-n"],
+    ]);
+    expect((await carry(whole)).kind).toBe("unchanged");
+  });
+
   it("seats a pane under the role rule, and answers a repeat unchanged", async () => {
     const { carry, ws } = rig();
     await carry(workspace);

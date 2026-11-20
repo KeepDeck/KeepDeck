@@ -58,7 +58,10 @@ export function createDeckCommands(
       if (!admitted.ok) return roleRefusalMessage(admitted.why, admitted.role, admitted.open);
       member.draft.role = admitted.role;
       const resumes = member.draft.session;
-      if (resumes && sessionClaimant(store.getSnapshot().workspaces, { agent: member.draft.agentType, sessionId: resumes.id }, () => false)) {
+      // Against the deck as it would be — the members ahead of this one
+      // included, or two of them could take one conversation.
+      const prospective = store.getSnapshot().workspaces.map((other) => (other.id === roles.id ? roles : other));
+      if (resumes && sessionClaimant(prospective, { agent: member.draft.agentType, sessionId: resumes.id }, () => false)) {
         return sessionHeldText();
       }
       roles = { ...roles, panes: [...roles.panes, paneOf(member, teamId)] };
@@ -95,14 +98,24 @@ export function createDeckCommands(
   function addTeam(cmd: Extract<Cmd, { kind: "addTeam" }>): Outcome {
     const ws = workspace(cmd.workspace);
     if (!ws) return rejected("the workspace is gone");
-    if (findTeam(ws, cmd.team)) return answer("unchanged");
-    const team = teamDraftOf(cmd.draft);
     const members: Member[] = [];
     for (const member of cmd.members) {
       const draft = paneDraftOf(member.draft);
       if (!draft) return rejected("the new agent's draft could not be read");
       members.push({ pane: member.pane, draft });
     }
+    if (findTeam(ws, cmd.team)) {
+      // Asked again: the team is there. Unchanged only if its first members
+      // are too — a deck that kept the team without some of them gets them
+      // now, or the command would be settled with its members never seated.
+      const missing = members.filter((member) => !ws.panes.some((pane) => pane.id === member.pane));
+      if (missing.length === 0) return answer("unchanged");
+      const refusal = admit(ws, cmd.team, missing);
+      if (refusal !== null) return rejected(refusal);
+      const before = store.revision();
+      return seat(cmd.workspace, cmd.team, missing) ? changed(before) : rejected("the deck took no such agent");
+    }
+    const team = teamDraftOf(cmd.draft);
     if (!team) return rejected("the new team's draft could not be read");
     const before = store.revision();
     actions.createTeam(cmd.workspace, { id: cmd.team, name: team.name, location: locationOf(ws, cmd.place) });
