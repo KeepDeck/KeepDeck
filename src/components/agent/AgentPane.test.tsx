@@ -675,6 +675,16 @@ describe("AgentPane — plan-error tile", () => {
     expect(document.body.textContent).not.toContain("Couldn't start this agent");
     expect(document.body.textContent).toContain("Waking up");
   });
+
+  it("mounts no terminal while its plan is still building — mounting is what spawns", () => {
+    // A resume's plan lands before its process starts: until then the pane
+    // shows the waiting card, and nothing it could spawn exists.
+    vi.mocked(TerminalPane).mockClear();
+    act(() => root.render(createElement(PaneUnderTest, { ...baseProps, body: "waiting" as PaneBody })));
+    expect(TerminalPane).not.toHaveBeenCalled();
+    act(() => root.render(createElement(PaneUnderTest, { ...baseProps, body: "terminal" as PaneBody })));
+    expect(TerminalPane).toHaveBeenCalled();
+  });
 });
 
 describe("AgentPane — the unavailable-agent card", () => {

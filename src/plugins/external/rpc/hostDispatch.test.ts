@@ -709,6 +709,28 @@ describe("sessions over the RPC seam", () => {
     await expect(starting).rejects.toThrow("disposed");
     expect(close).toHaveBeenCalledTimes(1);
   });
+
+  it("a guest plugin leaving stops each of its sessions once — one it closed itself is not stopped again", async () => {
+    const closes = new Map<string, ReturnType<typeof vi.fn>>();
+    let next = 0;
+    const spawn = vi.fn(async () => {
+      const id = `s-${++next}`;
+      const close = vi.fn(async () => {});
+      closes.set(id, close);
+      return { id, write: vi.fn(async () => {}), resize: vi.fn(async () => {}), close };
+    });
+    const ctx = fakePluginContext({ services: { sessions: { spawn } } });
+    const dispatch = createHostDispatch(ctx, () => {});
+    const opts = [{ command: "x", cols: 80, rows: 24 }];
+    await dispatch.call("services.sessions.spawn", opts);
+    await dispatch.call("services.sessions.spawn", opts);
+
+    await dispatch.call("services.sessions.close", ["s-1"]);
+    dispatch.dispose();
+
+    expect(closes.get("s-1")).toHaveBeenCalledTimes(1);
+    expect(closes.get("s-2")).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("speech captures over the RPC seam", () => {

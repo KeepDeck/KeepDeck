@@ -212,6 +212,16 @@ describe("stop / restart / remove", () => {
     await vi.waitFor(() => expect(close).toHaveBeenCalled());
   });
 
+  it("restartRun stops the live run exactly once before the new one starts", async () => {
+    const id = await manager.launchRun(WS1, TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+
+    await manager.restartRun(id);
+    expect(pty.spawned).toHaveLength(2);
+    expect(pty.spawned[0].close).toHaveBeenCalledTimes(1);
+    expect(pty.spawned[1].close).not.toHaveBeenCalled();
+  });
+
   it("restartRun respawns with a fresh port and a clean buffer", async () => {
     ports.allocate.mockResolvedValueOnce(17_040).mockResolvedValueOnce(17_050);
     const id = await manager.launchRun(WS1, TARGET, DEV);

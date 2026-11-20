@@ -24,7 +24,7 @@ import {
   buildLivePaneSpec,
 } from ".";
 // Straight from the module: the barrel deliberately does not carry it.
-import { resetPaneSpawnSpecs } from "./cache";
+import { peekPanePlanError, resetPaneSpawnSpecs } from "./cache";
 import { present } from "@keepdeck/plugin-api/testing";
 
 
@@ -184,6 +184,30 @@ describe("the plan builders — live pane, resume, fork", () => {
     expect(seen["pane-2"]?.args).toEqual(["--cwd", "/wt/one"]);
     // A pane on no team starts in the workspace root.
     expect(seen["pane-3"]?.args).toEqual(["--cwd", "/repo"]);
+  });
+
+  it("a resume whose plan cannot be built is never degraded to a fresh conversation", async () => {
+    // H6b: the conversation is the point. A resume.plan that throws marks the
+    // pane failed and caches nothing — and the fresh-plan sweep leaves a
+    // failed pane alone, so no bare spawn args ever reach its terminal.
+    register({
+      ...adopting,
+      hooks: {
+        ...adopting.hooks,
+        "resume.plan": () => {
+          throw new Error("the transcript store moved");
+        },
+      },
+    });
+    await expect(
+      buildResumeSpec(plugins, "claude", { paneId: "pane-9", workspace: W1, cwd: "/repo" }, ctx, "old-id", "manual"),
+    ).rejects.toThrow("the transcript store moved");
+    expect(peekPaneSpawnSpec("pane-9")).toBeUndefined();
+    expect(peekPanePlanError("pane-9")).toBe(true);
+
+    await mount(ws([{ id: "pane-9", agentType: "claude" }]));
+    expect(seen["pane-9"]).toBeUndefined();
+    expect(peekPaneSpawnSpec("pane-9")).toBeUndefined();
   });
 
   it("buildResumeSpec caches a resume plan the wake can read back", async () => {
