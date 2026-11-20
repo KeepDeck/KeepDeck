@@ -10,9 +10,11 @@ use crate::model::Teardown;
 use crate::world::TeamAt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum WorkspacePhase {
     Live,
     Closing,
@@ -21,8 +23,9 @@ pub enum WorkspacePhase {
     Restoring,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum TeamPhase {
     Creating,
     Failed,
@@ -35,8 +38,9 @@ pub enum TeamPhase {
     Owed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum PanePhase {
     Live,
     Leaving,
@@ -46,14 +50,18 @@ pub enum PanePhase {
 }
 
 /// What a team allows now — the rule is here; TS only maps it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub struct TeamGates {
     pub add_member: bool,
     pub close: bool,
     pub retry: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Snapshot {
     /// The barrier is down.
     pub open: bool,

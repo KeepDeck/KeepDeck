@@ -45,7 +45,8 @@ pub const FORK_DEADLINE: Duration = Duration::from_secs(120);
 /// What has been forgotten — only grows. A write whose source is here is
 /// refused at its commit; what was accepted before is removed by the
 /// operation's cleanup.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Forgotten {
     pub workspaces: BTreeSet<WorkspaceId>,
     pub teams: BTreeSet<TeamId>,

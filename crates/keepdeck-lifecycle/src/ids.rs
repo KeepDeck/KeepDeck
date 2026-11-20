@@ -9,20 +9,24 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use ts_rs::TS;
+
+// A newtype is its inner value on the wire — serde's own default — so the
+// ids below need no attribute for it.
 
 /// `ws-` and a random token; older decks hold `ws-N`, which stays valid.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct WorkspaceId(pub String);
 
 /// `team-` and a random token; older decks hold `team-N`, which stays valid.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct TeamId(pub String);
 
 /// A pane, `pane-N` on the deck. N is never issued twice in one launch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(into = "String", try_from = "String")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, TS)]
+#[ts(export, export_to = "lifecycle/", type = "string")]
 pub struct PaneId(pub u64);
 
 const PANE_PREFIX: &str = "pane-";
@@ -33,17 +37,16 @@ impl fmt::Display for PaneId {
     }
 }
 
-impl From<PaneId> for String {
-    fn from(id: PaneId) -> String {
-        id.to_string()
+impl Serialize for PaneId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
     }
 }
 
-impl TryFrom<String> for PaneId {
-    type Error = String;
-
-    fn try_from(text: String) -> Result<Self, String> {
-        PaneId::parse(&text).ok_or_else(|| format!("not a pane id: {text:?}"))
+impl<'de> Deserialize<'de> for PaneId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        PaneId::parse(&text).ok_or_else(|| serde::de::Error::custom(format!("not a pane id: {text:?}")))
     }
 }
 
@@ -59,8 +62,8 @@ impl PaneId {
 }
 
 /// One operation of the machine; its journal entry is `op-N.json`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/", type = "number")]
 pub struct OpId(pub u64);
 
 impl fmt::Display for OpId {
@@ -72,33 +75,33 @@ impl fmt::Display for OpId {
 /// The exact name of one command to a data owner: its operation and its
 /// place among that operation's commands. Two commands of one kind never
 /// share it, and a restored operation asks again under the same names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct CommandId {
     pub op: OpId,
     pub index: u32,
 }
 
 /// A launch permit: one owner, one target, spent by one admission.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/", type = "number")]
 pub struct PermitId(pub u64);
 
 /// An admitted launch attempt — what the spawn door's start boundary keys on,
 /// and the id a session carries back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/", type = "number")]
 pub struct AttemptId(pub u64);
 
 /// A door waiting for its answer: the door draws it before it sends, and the
 /// answer finds it once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
 pub struct AskId(pub u64);
 
 /// A session of the sessions machine — opaque here. Never reused within a
 /// launch, and meaningless in the next one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/", type = "number")]
 pub struct SessionId(pub u64);
 
 /// A counter that only grows: what mints pane, operation, permit and attempt

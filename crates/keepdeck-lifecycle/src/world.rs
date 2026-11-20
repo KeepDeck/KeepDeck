@@ -8,14 +8,18 @@ use crate::ids::{OpId, PaneId, TeamId, WorkspaceId};
 use crate::journal::Ticket;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
 /// What the deck says, at the boot handshake.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct DeckFacts {
     pub workspaces: Vec<WorkspaceFacts>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub struct WorkspaceFacts {
     pub id: WorkspaceId,
     pub name: String,
@@ -31,15 +35,17 @@ pub struct WorkspaceFacts {
     pub panes: Vec<PaneFacts>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct TeamFacts {
     pub id: TeamId,
     pub at: TeamAtFacts,
 }
 
 /// Where the deck says a team runs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum TeamAtFacts {
     Attached { cwd: Dir, branch: Option<String> },
     /// A creation the deck saved as going on; boot reconciles it with the
@@ -49,7 +55,8 @@ pub enum TeamAtFacts {
     Unplaced,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct PaneFacts {
     pub id: PaneId,
     pub team: Option<TeamId>,

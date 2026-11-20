@@ -2806,6 +2806,7 @@ dependencies = [
  "keepdeck-fsm",
  "serde",
  "serde_json",
+ "ts-rs",
 ]
 
 [[package]]

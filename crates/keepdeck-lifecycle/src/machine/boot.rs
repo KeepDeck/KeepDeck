@@ -15,8 +15,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// How the deck loaded, as TS says at the handshake.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Load {
     /// Loaded, or there was none: normal running and reconciliation.
     Loaded,

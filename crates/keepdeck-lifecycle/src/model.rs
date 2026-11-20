@@ -4,24 +4,27 @@
 use crate::dir::Dir;
 use crate::ids::{AttemptId, OpId, PaneId, PermitId, TeamId, WorkspaceId};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// A row the deck owns — a workspace, a team or a pane as the deck spells it —
 /// carried verbatim. The lifecycle never reads it: the deck's applicator
 /// builds its row from it, with the ids the machine gave.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/", type = "unknown")]
 pub struct Draft(pub serde_json::Value);
 
 /// A new worktree's folder and branch.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Place {
     pub path: Dir,
     pub branch: String,
 }
 
 /// Where a new team runs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Site {
     /// The workspace's own folder.
     Root,
@@ -33,15 +36,17 @@ pub enum Site {
 }
 
 /// A recorded conversation: which agent, and its id in that agent's store.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct SessionKey {
     pub agent: String,
     pub session: String,
 }
 
 /// How a recorded conversation continues in a new pane.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Continuation {
     /// The same conversation, in the folder it was recorded in.
     Resume,
@@ -50,8 +55,9 @@ pub enum Continuation {
 }
 
 /// The team a continued conversation lands on.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Landing {
     Team { team: TeamId },
     NewTeam { team: TeamId, site: Site, draft: Draft },
@@ -59,7 +65,8 @@ pub enum Landing {
 
 /// What a confirmed Close may delete: exactly what its dialog offered and the
 /// person agreed to. Empty — keep every folder.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Consent {
     /// The folders, as the preview found them.
     pub folders: Vec<Folder>,
@@ -69,7 +76,8 @@ pub struct Consent {
 }
 
 /// A worktree a Close may delete.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Folder {
     pub repo: Dir,
     pub path: Dir,
@@ -81,8 +89,9 @@ pub struct Folder {
 
 /// What a door asks the lifecycle to do — the closed set; an operation the
 /// set does not name is a new variant here, never a flag from TS.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Intent {
     CreateWorkspace { workspace: WorkspaceId, name: String, cwd: Dir, worktree_base: Option<Dir>, draft: Draft },
     /// The workspace's name or worktree base changed: new places are named
@@ -195,8 +204,9 @@ impl Intent {
 
 /// Why an intent was refused. Kinds and data only: the words for each are
 /// the presentation's, one set per kind.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Refusal {
     /// Its target is already being closed.
     AlreadyClosing,
@@ -229,7 +239,8 @@ pub enum Refusal {
 }
 
 /// The ids an accepted intent was given.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Minted {
     pub workspace: Option<WorkspaceId>,
     pub team: Option<TeamId>,
@@ -239,8 +250,9 @@ pub struct Minted {
 /// The one answer each ask gets, once its work allows: an intent accepted —
 /// a journaled one only once its entry is on disk — a launch permit given, a
 /// launch admitted, or a refusal.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Answer {
     Accepted { op: OpId, minted: Minted },
     Leased { permit: PermitId },

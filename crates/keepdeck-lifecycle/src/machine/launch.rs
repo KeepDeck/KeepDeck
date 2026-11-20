@@ -13,10 +13,12 @@ use crate::ids::{AskId, AttemptId, OpId, PaneId, PermitId, SessionId, WorkspaceI
 use crate::model::{Answer, Refusal};
 use keepdeck_fsm::Owed;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Who a launch is for.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum LaunchOwner {
     Pane { pane: PaneId },
     /// A plugin's own process, through the SDK: no pane.
@@ -38,8 +40,9 @@ impl LaunchOwner {
 }
 
 /// A lease asked for.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum LeaseAsk {
     /// Permission to launch `owner` in `dir` (none for a remote pane).
     Launch { workspace: WorkspaceId, owner: LaunchOwner, dir: Option<Dir> },

@@ -1,15 +1,29 @@
 //! A directory as the lifecycle compares it.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// A directory's key: surrounding whitespace and trailing slashes do not make
 /// another directory ("/repo/" and "/repo" are one folder). Not a
 /// canonicalizer — no file system is read. The deck spells the same key in
 /// TS (`normalizePath`) for the rules that stay there; here it is the key of
 /// every claim, place and deletion target the arbiter holds.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(into = "String", from = "String")]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, TS)]
+#[ts(export, export_to = "lifecycle/", type = "string")]
 pub struct Dir(String);
+
+impl Serialize for Dir {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+/// A folder read from the wire is keyed like one built here.
+impl<'de> Deserialize<'de> for Dir {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Dir::new(&String::deserialize(deserializer)?))
+    }
+}
 
 impl Dir {
     pub fn new(path: &str) -> Dir {
@@ -20,18 +34,6 @@ impl Dir {
 
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-
-impl From<String> for Dir {
-    fn from(path: String) -> Dir {
-        Dir::new(&path)
-    }
-}
-
-impl From<Dir> for String {
-    fn from(dir: Dir) -> String {
-        dir.0
     }
 }
 

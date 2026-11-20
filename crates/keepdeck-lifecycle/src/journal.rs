@@ -71,7 +71,9 @@ pub enum Step {
 /// What a fork's hook said to remove when its fork does not finish. Paths of
 /// the plugin's own store, removed as the plugin: no launch arguments, no
 /// secrets.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Discard {
     pub plugin: String,
     /// What is removed once the launch is bound, and on any rollback.

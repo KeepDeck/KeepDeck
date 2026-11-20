@@ -7,10 +7,12 @@ use crate::ids::{CommandId, OpId, PaneId, TeamId, WorkspaceId};
 use crate::journal::Discard;
 use crate::model::{Draft, SessionKey};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Who carries a command out, with its own existing actions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Owner {
     /// The deck's reducer — the one writer of deck.json.
     Deck,
@@ -26,8 +28,9 @@ pub enum Owner {
 }
 
 /// Where a team row says it runs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum TeamPlace {
     Attached { cwd: Dir, branch: Option<String> },
     /// Its worktree is being created by the ticket of `op`.
@@ -35,15 +38,17 @@ pub enum TeamPlace {
 }
 
 /// A pane added with its team.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Member {
     pub pane: PaneId,
     pub draft: Draft,
 }
 
 /// One command, by its owner.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Cmd {
     // ------------------------------------------------------------ the deck
     AddWorkspace { workspace: WorkspaceId, draft: Draft },
@@ -126,21 +131,23 @@ impl Cmd {
 }
 
 /// A command under its exact name.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Command {
     pub id: CommandId,
     pub cmd: Cmd,
 }
 
 /// The deck's revision a deck command's answer was taken at.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "lifecycle/", type = "number")]
 pub struct Revision(pub u64);
 
 /// What an owner answers. A deck command is durable only once a saved deck
 /// at or past its revision is reported; a rejected one is settled at once.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Outcome {
     Applied { revision: Option<Revision> },
     /// What the command does was already there — a repeat after a restart.

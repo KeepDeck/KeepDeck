@@ -14,7 +14,9 @@ use std::collections::BTreeSet;
 /// freezes it as the consent; at the confirm the machine checks it again
 /// under its capture — what is gone narrows it, a change of what the
 /// operation is asks for a new preview.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub struct Preview {
     /// Refused now, and why.
     pub refusal: Option<Refusal>,
@@ -110,8 +112,9 @@ pub fn preview(state: &State, intent: &Intent) -> Preview {
 }
 
 /// What holds a place, as the machine knows it; the disk's word is the door's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum PlaceHeld {
     /// A team runs there.
     Team,
@@ -150,8 +153,9 @@ pub fn check(state: &State, workspace: &WorkspaceId, place: &Place) -> Option<Pl
 }
 
 /// One holder of a folder, for the worktree table.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
 pub enum Claim {
     Team { team: TeamId },
     Session { session: SessionId },
