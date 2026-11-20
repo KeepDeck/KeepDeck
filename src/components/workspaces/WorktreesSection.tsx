@@ -42,20 +42,21 @@ export function WorktreesSection({
   onOpenTeam,
 }: WorktreesSectionProps) {
   const [listed, setListed] = useState<RepoCheckout[] | "loading" | "none">("loading");
-  const [claims, setClaims] = useState<ReadonlyMap<string, Claim[]>>(new Map());
+  const [claims, setClaims] = useState<ReadonlyMap<string, Claim[] | null>>(new Map());
   const [reads, setReads] = useState(0);
-  const [asked, setAsked] = useState<RepoCheckout | null>(null);
+  /** The row asked about, and when — the moment its kept-commit tag names. */
+  const [asked, setAsked] = useState<{ row: RepoCheckout; at: number } | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const repo = workspace.cwd;
 
   // The list, then the machine's claims on each row, read together: a row
   // never shows as free for want of its claims. Claims that cannot be read
-  // count as none — the machine refuses a removal of a held folder itself.
+  // stay unknown, and such a row is not offered for removal.
   useEffect(() => {
     let current = true;
     listWorktrees(repo)
       .then(async (rows) => {
-        const held = await Promise.all(rows.map((row) => claimsOn(row.path).catch((): Claim[] => [])));
+        const held = await Promise.all(rows.map((row) => claimsOn(row.path).catch((): Claim[] | null => null)));
         if (!current) return;
         setClaims(new Map(rows.map((row, at) => [row.path, held[at]])));
         setListed(rows);
@@ -66,8 +67,8 @@ export function WorktreesSection({
     };
   }, [listWorktrees, claimsOn, repo, reads]);
 
-  const table = Array.isArray(listed) ? worktreeTableView(listed, (path) => claims.get(path) ?? [], workspace, workspaces) : null;
-  const confirm = asked ? worktreeRemovalConfirm(asked, workspace, Date.now()) : null;
+  const table = Array.isArray(listed) ? worktreeTableView(listed, (path) => claims.get(path) ?? null, workspace, workspaces) : null;
+  const confirm = asked ? worktreeRemovalConfirm(asked.row, workspace, asked.at) : null;
 
   return (
     <section className="workspaces__sec">
@@ -125,7 +126,7 @@ export function WorktreesSection({
                       </Button>
                     )}
                     {row.removable && Array.isArray(listed) && (
-                      <Button size="sm" variant="ghost" onClick={() => setAsked(listed[at])}>
+                      <Button size="sm" variant="ghost" onClick={() => setAsked({ row: listed[at], at: Date.now() })}>
                         {WORKTREE_WORDS.remove}
                       </Button>
                     )}
@@ -151,7 +152,7 @@ export function WorktreesSection({
           destructive
           onCancel={() => setAsked(null)}
           onConfirm={() => {
-            const row = asked;
+            const { row } = asked;
             const keepHeadAs = confirm.keepHeadAs;
             setAsked(null);
             void onRemove({ path: row.path, ...(keepHeadAs && { keepHeadAs }) }).then((outcome) => {

@@ -80,8 +80,20 @@ describe("worktreeTableView", () => {
     expect(rows.map((r) => [r.holder, r.holderKind, r.removable, r.team])).toEqual([
       ["being created", "busy", false, null],
       ["being removed", "busy", false, null],
-      // A team the deck no longer holds names nobody.
-      ["no team", "free", true, null],
+      // A team the deck does not show still holds it, by the machine's word:
+      // in use, and not offered for a removal the machine would refuse.
+      ["in use", "busy", false, null],
+    ]);
+  });
+
+  it("holds a checkout a session runs in, or whose claims could not be read — «free» is the machine's word only", () => {
+    const claims = (path: string) =>
+      path === "/wt/running" ? [{ kind: "session" as const, session: 4 }] : path === "/wt/unread" ? null : [];
+    const { rows } = worktreeTableView([row("/wt/running"), row("/wt/unread"), row("/wt/orphan")], claims, WEB, DECK);
+    expect(rows.map((r) => [r.holder, r.holderKind, r.removable])).toEqual([
+      ["in use", "busy", false],
+      ["unknown", "busy", false],
+      ["no team", "free", true],
     ]);
   });
 

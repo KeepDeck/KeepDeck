@@ -32,6 +32,10 @@ export const WORKTREE_WORDS = {
   root: "workspace folder",
   creating: "being created",
   removing: "being removed",
+  /** A session runs there, or a team this deck does not show holds it. */
+  inUse: "in use",
+  /** What holds it could not be read: not offered for removal. */
+  unknown: "unknown",
 } as const;
 
 export interface WorktreeRowView {
@@ -81,8 +85,10 @@ type Holder = Pick<WorktreeRowView, "holder" | "holderKind" | "team">;
 
 /** Who holds `path`: a workspace's own folder, the machine's word on it — a
  * worktree being made or removed there, a team (here, or in another
- * workspace — an archived one said so) — or nobody. */
-function holderOf(path: string, claims: readonly Claim[], workspace: Workspace, workspaces: readonly Workspace[]): Holder {
+ * workspace — an archived one said so), a session running there or a team
+ * this deck does not show — or nobody. Claims that could not be read
+ * (`null`) hold it too: «free» is the machine's answer, never a guess. */
+function holderOf(path: string, claims: readonly Claim[] | null, workspace: Workspace, workspaces: readonly Workspace[]): Holder {
   const roots = workspaces.filter((ws) => sameDirectory(ws.cwd, path));
   if (roots.length > 0) {
     const elsewhere = roots.filter((ws) => ws.id !== workspace.id).map((ws) => ws.name);
@@ -92,12 +98,17 @@ function holderOf(path: string, claims: readonly Claim[], workspace: Workspace, 
       team: null,
     };
   }
+  if (claims === null) return { holder: WORKTREE_WORDS.unknown, holderKind: "busy", team: null };
   if (claims.some((claim) => claim.kind === "creation")) return { holder: WORKTREE_WORDS.creating, holderKind: "busy", team: null };
   if (claims.some((claim) => claim.kind === "removal")) return { holder: WORKTREE_WORDS.removing, holderKind: "busy", team: null };
   const holding = claimingTeams(claims)
     .map((teamId) => findTeamInDeck(workspaces, teamId))
     .find((found) => found !== undefined);
-  if (!holding) return { holder: WORKTREE_WORDS.free, holderKind: "free", team: null };
+  if (!holding) {
+    return claims.length === 0
+      ? { holder: WORKTREE_WORDS.free, holderKind: "free", team: null }
+      : { holder: WORKTREE_WORDS.inUse, holderKind: "busy", team: null };
+  }
   const here = holding.workspace.id === workspace.id;
   return {
     holder: here
@@ -122,10 +133,10 @@ function stateOf(row: RepoCheckout): Pick<WorktreeRowView, "state" | "stateKind"
 }
 
 /** The table of the listed checkouts, `claimsOf` giving the machine's
- * claims on each — none for a path it was not asked about. */
+ * claims on each — `null` where they could not be read. */
 export function worktreeTableView(
   listed: readonly RepoCheckout[],
-  claimsOf: (path: string) => readonly Claim[],
+  claimsOf: (path: string) => readonly Claim[] | null,
   workspace: Workspace,
   workspaces: readonly Workspace[],
 ): WorktreeTableView {
