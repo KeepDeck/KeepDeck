@@ -10,6 +10,7 @@
  */
 
 export * from "./drafts";
+export * from "./facts";
 
 /** Why an intent was refused. */
 export type Refusal =

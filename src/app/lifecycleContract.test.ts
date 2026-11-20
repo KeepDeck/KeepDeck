@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { isForgotten, type DeckLoad, type Forgotten, type NoAnswer, type Refusal } from "../domain/lifecycle";
+import { isForgotten, type DeckFacts, type DeckLoad, type Forgotten, type NoAnswer, type Refusal } from "../domain/lifecycle";
+import type { DeckFacts as WireDeckFacts } from "../ipc/generated/lifecycle/DeckFacts";
 import { forgotten, refusals, replies, verdicts } from "../ipc/generated/lifecycle/examples";
 import type { Forgotten as WireForgotten } from "../ipc/generated/lifecycle/Forgotten";
 import type { Load } from "../ipc/generated/lifecycle/Load";
@@ -19,6 +20,7 @@ describe("the lifecycle's wire, as the page takes it", () => {
     expectTypeOf<NoAnswer>().toEqualTypeOf<Exclude<Reply, { kind: "answered" }>>();
     expectTypeOf<Forgotten>().toEqualTypeOf<WireForgotten>();
     expectTypeOf<DeckLoad>().toEqualTypeOf<Load>();
+    expectTypeOf<DeckFacts>().toEqualTypeOf<WireDeckFacts>();
   });
 
   it("calls a source forgotten exactly when Rust does", () => {
