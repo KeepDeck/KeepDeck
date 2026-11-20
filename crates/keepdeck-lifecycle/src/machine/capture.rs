@@ -48,7 +48,14 @@ impl Op {
             Kind::RemoveUnheld(unheld) => {
                 scope.folders.insert(unheld.path.clone());
             }
-            Kind::Seat(_) | Kind::Fork(_) | Kind::Relocate(_) | Kind::Resume { .. } | Kind::Reconcile(_) => {}
+            // A fork taken back: its checkout is leaving, and nothing new is
+            // let into it.
+            Kind::Fork(fork) => {
+                if fork.stage == create::ForkStage::Undoing {
+                    scope.folders.extend(fork.create.as_ref().and_then(|create| create.ticket.as_ref()).map(|ticket| ticket.path.clone()));
+                }
+            }
+            Kind::Seat(_) | Kind::Relocate(_) | Kind::Resume { .. } | Kind::Reconcile(_) => {}
         }
         scope
     }

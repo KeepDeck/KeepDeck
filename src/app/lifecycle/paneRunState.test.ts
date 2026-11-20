@@ -41,14 +41,16 @@ describe("the pane's run state, as the machine commands it", () => {
     expect(ports.hookEnded).toHaveBeenCalledWith(3);
   });
 
-  it("drops a dropped attempt's plan, and refuses its build when it lands late", async () => {
+  it("drops a dropped attempt's plan, and still hands back what its late build made", async () => {
     let finish: (discard: Discard) => void = () => {};
     const { ports, runState, forkStep, carry } = rig(() => new Promise((resolve) => (finish = resolve)));
     const forking = carry(forkStep, fork);
     expect(await carry(runState, { kind: "dropBuild", op: 3 })).toEqual({ kind: "applied", revision: null });
     expect(ports.dropPlan).toHaveBeenCalledWith("pane-7");
     finish(DISCARD);
-    expect(await forking).toEqual({ kind: "rejected", reason: "the fork attempt was dropped before its plan was built" });
+    // The plan goes again, never spawned; the lists go to the machine, whose
+    // rollback takes back what the hook made.
+    expect(await forking).toEqual({ kind: "forked", discard: DISCARD });
     expect(ports.dropPlan).toHaveBeenCalledTimes(2);
     expect(ports.hookEnded).toHaveBeenCalledWith(3);
   });

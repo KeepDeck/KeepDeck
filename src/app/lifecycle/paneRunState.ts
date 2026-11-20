@@ -100,9 +100,9 @@ export function createPaneRunState(ports: RunStatePorts): PaneRunState {
       }
       if (dropped.has(id.op)) {
         // Built for an attempt the machine already dropped: its plan goes
-        // again, and the machine hears no scaffolding it has stopped asking for.
+        // again, never to be spawned. What the hook made is still there, and
+        // the machine's rollback takes it back from these lists.
         ports.dropPlan(cmd.pane);
-        return { kind: "rejected", reason: "the fork attempt was dropped before its plan was built" };
       }
       return { kind: "forked", discard };
     },

@@ -1091,6 +1091,13 @@ fn add_fork_pane(state: &mut State, id: OpId, fx: &mut Fx) {
     }
 }
 
+/// The fork's hook is done with, both ways: its call has ended and its
+/// answer is in — the two arrive apart, in either order, and a late answer
+/// carries the lists of what it made.
+fn hook_settled(op: &Op, fork: &Fork) -> bool {
+    !fork.hook_sent || (fork.hook_ended && outcome_of(op, |cmd| matches!(cmd, Cmd::Fork { .. })).flatten().is_some())
+}
+
 /// A fork that did not finish takes back all it made, once its hook has
 /// really ended and nothing of its launch runs: both discard lists, the
 /// worktree of the team made for it, its rows on the deck.
@@ -1110,7 +1117,7 @@ fn undo_fork(state: &mut State, id: OpId, fx: &mut Fx) {
     }
     let fork = fork.clone();
     answer_op(op, fx, Answer::refused(if fork.expired { Refusal::ForkStepExpired } else { Refusal::Rejected { reason: "the fork did not finish".into() } }));
-    if (fork.hook_sent && !fork.hook_ended) || fork_pane_busy(state, fork.pane) {
+    if !hook_settled(&state.ops[&id], &fork) || fork_pane_busy(state, fork.pane) {
         return;
     }
     let made_team = fork.create.as_ref().filter(|create| create.ticket.is_some() || fork.added).map(|create| create.team.clone());
@@ -1172,22 +1179,25 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
             }
         }
         ForkStage::Undoing => {
-            let quiet = !(fork.hook_sent && !fork.hook_ended) && !fork_pane_busy(state, fork.pane);
+            let quiet = hook_settled(op, fork) && !fork_pane_busy(state, fork.pane);
             if quiet && !fork.failed {
-                // What the hook started in the checkout stops before it goes.
+                // What the hook started in the checkout stops before anything
+                // of it goes; the scope keeps anything new from starting there.
                 for session in fork_folder_sessions(state, fork) {
                     owed = owed.run(Effect::Stop { session });
                 }
                 let recorded = op.book.as_ref().and_then(|book| book.written.as_ref()).is_some_and(|entry| matches!(&entry.work, Work::Fork { discard: Some(_), .. }));
                 let discarded = fork.discard.is_none() || fork.done.contains(&Step::Discard);
+                let folder_quiet = fork_folder_quiet(state, fork);
                 for step in undo_steps(fork) {
                     if fork.done.contains(&step) {
                         continue;
                     }
                     let how = match &step {
                         Step::Discard => {
-                            // The lists reach the journal before anything goes.
-                            if !recorded {
+                            // The lists reach the journal before anything goes,
+                            // and nothing of the hook runs while they go.
+                            if !recorded || !folder_quiet {
                                 continue;
                             }
                             let discard = fork.discard.as_ref().expect("a discard");
@@ -1197,7 +1207,7 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
                         Step::Checkout { path } => {
                             // One step after the other: the scaffolding first, and
                             // nothing running in the checkout, nor about to.
-                            if !discarded || !fork_folder_quiet(state, fork) {
+                            if !discarded || !folder_quiet {
                                 continue;
                             }
                             let repo = fork.create.as_ref().and_then(|create| create.ticket.as_ref()).map(|ticket| ticket.repo.clone());

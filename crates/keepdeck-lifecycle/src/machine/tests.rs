@@ -1465,16 +1465,36 @@ fn a_fork_rolled_back_stops_what_runs_in_its_checkout_and_removes_one_step_after
     }
     let checkout = checkout.expect("the fork's worktree");
     let op = *sim.state.ops.keys().next().unwrap();
-    // The hook starts a helper in the checkout, then fails.
-    let helper = sim.appear(LaunchOwner::Plugin { plugin: "claude".into(), workspace: ws() }, None, Some(checkout.as_str()));
-    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Rejected { reason: "store layout".into() });
+    assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })), "a new team's fork is answered before its hook");
+    // The hook runs past its deadline.
+    sim.send(Event::Timer(Timer::Fork { op }));
+    assert!(matches!(&sim.state.ops[&op].kind, Kind::Fork(fork) if fork.stage == ForkStage::Undoing));
+    let cleans = |sim: &Sim| sim.owed().into_iter().filter(|effect| matches!(effect, Effect::Clean { .. })).count();
+    // Its end arrives before its answer: nothing goes yet, the checkout
+    // quiet as it is — the answer may still name what it made.
     sim.send(Event::HookEnded { op });
     sim.flush_journals();
-    assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })), "a new team's fork is answered before its hook");
-    assert!(matches!(&sim.state.ops[&op].kind, Kind::Fork(fork) if fork.stage == ForkStage::Undoing));
+    assert_eq!(cleans(&sim), 0, "the hook's answer is not in");
+    // A helper the hook started registers late in the checkout; then the
+    // late answer, with its lists: still nothing goes while the helper runs.
+    let helper = sim.appear(LaunchOwner::Plugin { plugin: "claude".into(), workspace: ws() }, None, Some(checkout.as_str()));
+    sim.apply(|cmd| matches!(cmd, Cmd::Fork { .. }));
+    sim.flush_journals();
     assert!(sim.owed().contains(&Effect::Stop { session: helper }), "the helper stops first");
-    assert!(!sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Checkout { .. }, .. })), "not while it runs");
+    assert_eq!(cleans(&sim), 0, "neither the scaffolding nor the checkout while it runs");
+    // Nothing new is let into the checkout meanwhile.
+    let late = sim.next_ask();
+    sim.send(Event::Lease { ask: late, lease: LeaseAsk::Launch { workspace: ws(), owner: LaunchOwner::Plugin { plugin: "claude".into(), workspace: ws() }, dir: Some(checkout.clone()) } });
+    assert_eq!(sim.refusal(late), Some(Refusal::TargetLeaving));
     sim.send(Event::SessionEnded { session: helper });
+    let discard = sim.owed().into_iter().find_map(|effect| match effect {
+        Effect::Clean { op, step, how: Clean::Discard { paths, .. }, .. } => Some((op, step, paths)),
+        _ => None,
+    });
+    let Some((op_id, step, paths)) = discard else { panic!("then the scaffolding goes: {:?}", sim.owed()) };
+    assert_eq!(paths, vec!["/c/scratch".to_string(), "/c/copy".to_string()]);
+    assert!(!sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Checkout { .. }, .. })), "one step after the other");
+    sim.send(Event::StepDone { op: op_id, step, result: Ok(()) });
     assert!(sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Checkout { .. }, .. })), "then the checkout goes");
 }
 
