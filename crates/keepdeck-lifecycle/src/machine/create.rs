@@ -434,6 +434,21 @@ fn hand_over(state: &mut State, close: OpId, creation: OpId, ticket: Ticket) {
     }
 }
 
+/// Whether a taken-over creation may let its entry go: the checkout it
+/// handed to its close is on that close's entry on disk — or it handed
+/// nothing. Until then its own entry is the trace of a checkout the close
+/// is to delete, and a crash must not lose both.
+fn handed_over(state: &State, create: &Create) -> bool {
+    let (Some(close), Some(ticket)) = (create.taken_by, &create.ticket) else { return true };
+    let Some(op) = state.ops.get(&close) else { return true };
+    let Some(teardown) = op.teardown() else { return true };
+    if !teardown.consent.folders.iter().any(|folder| folder.path == ticket.path) {
+        return true;
+    }
+    let written = op.book.as_ref().and_then(|book| book.written.as_ref());
+    written.is_some_and(|entry| matches!(&entry.work, Work::Close { consent, .. } if consent.folders.iter().any(|folder| folder.path == ticket.path)))
+}
+
 pub fn created(state: &mut State, id: OpId, result: StepResult, fx: &mut Fx) {
     let Some(op) = state.ops.get_mut(&id) else { return };
     let workspace = op.workspace.clone();
@@ -544,7 +559,7 @@ pub fn advance_create(state: &mut State, id: OpId, fx: &mut Fx) {
         CreateStage::Creating => {
             let op = &state.ops[&id];
             if let Kind::Create(create) = &op.kind {
-                if create.abandoned && create.created {
+                if create.abandoned && create.created && handed_over(state, create) {
                     finish(state, id);
                 }
             }

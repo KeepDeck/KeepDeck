@@ -52,8 +52,10 @@ fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<F
                 creations.push(*op);
                 continue;
             }
-            TeamAt::Failed { ticket } => (ticket.path.clone(), Some(ticket.branch.clone())),
-            TeamAt::Unplaced => continue,
+            // A failed creation proves nothing about its ticket's path: git
+            // may have refused because another checkout stands there. What it
+            // made itself, it took back itself; the folder is not offered.
+            TeamAt::Failed { .. } | TeamAt::Unplaced => continue,
         };
         if path == ws.cwd || folders.iter().any(|folder: &Folder| folder.path == path) {
             continue;

@@ -617,6 +617,59 @@ fn a_close_takes_over_a_creation_and_waits_for_its_git_step() {
     assert!(sim.cleaned.contains(&Clean::Branch { repo: ticket.repo, name: ticket.branch }));
 }
 
+/// A failed creation's card proves nothing about its ticket's path: it is
+/// not offered, and a consent naming it deletes nothing.
+#[test]
+fn a_failed_creation_offers_no_folder_to_delete() {
+    let mut facts = deck();
+    facts.workspaces[0].teams.push(TeamFacts { id: team("p"), at: TeamAtFacts::Provisioning { path: Dir::new("/wt/kd-app-5"), branch: Some("kd/app/5".into()) } });
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    assert_eq!(snapshot(&sim.state).teams[&team("p")], TeamPhase::Failed);
+    assert!(shown(&sim, &disband("p", Consent::default())).folders.is_empty(), "not offered");
+    let forged = Consent { folders: vec![Folder { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-5"), branch: Some("kd/app/5".into()) }], ..Consent::default() };
+    sim.close(disband("p", forged));
+    sim.drive();
+    assert!(!sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. } | Clean::Branch { .. })), "{:?}", sim.cleaned);
+}
+
+/// A taken-over creation hands its checkout to its close: its own entry —
+/// the other trace of that checkout — stays until the close's entry on disk
+/// carries the folder.
+#[test]
+fn a_handed_over_checkout_is_on_the_closes_entry_before_the_creations_entry_goes() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::New { place: None, base: None }, draft: draft(), members: vec![] });
+    for _ in 0..3 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            if let Effect::Probe { op, path, .. } = effect {
+                sim.send(Event::Probed { op, path, taken: false });
+            }
+        }
+        sim.apply(|_| true);
+        sim.save();
+    }
+    let create_op = *sim.state.ops.keys().next().unwrap();
+    sim.close(disband("n", Consent { tickets: vec![create_op], ..Consent::default() }));
+    for _ in 0..6 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    let close_op = *sim.state.ops.keys().last().unwrap();
+    sim.send(Event::Created { op: create_op, result: Ok(()) });
+    let removes_creation = |sim: &Sim| sim.owed().iter().any(|effect| matches!(effect, Effect::RemoveJournal { op, .. } if *op == create_op));
+    let close_written_with_folder = |sim: &Sim| {
+        sim.disk.get(&close_op).is_some_and(|entry| matches!(&entry.work, Work::Close { consent, .. } if !consent.folders.is_empty()))
+    };
+    assert!(!close_written_with_folder(&sim));
+    assert!(!removes_creation(&sim), "the creation's entry stays while the close's is still without the folder");
+    sim.write_journals();
+    assert!(close_written_with_folder(&sim));
+    assert!(removes_creation(&sim), "then it goes");
+}
+
 /// Git refuses the taken-over creation — the path is another branch's
 /// checkout. Nothing proves the folder this ticket's, and it is not deleted.
 #[test]
