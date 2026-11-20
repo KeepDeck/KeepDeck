@@ -2817,6 +2817,7 @@ name = "keepdeck-pty"
 version = "0.1.0"
 dependencies = [
  "keepdeck-env",
+ "keepdeck-fsm",
  "libc",
  "portable-pty",
 ]

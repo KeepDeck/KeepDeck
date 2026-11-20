@@ -12,6 +12,7 @@
 //! to arrive before the exit event.
 
 mod output;
+pub mod sessions;
 
 pub use output::{parse_drop_marker, Consumer, OutputQueue, Producer, PushOutcome, OUTPUT_CAP_BYTES};
 
