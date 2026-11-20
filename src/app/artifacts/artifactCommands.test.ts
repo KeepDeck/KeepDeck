@@ -130,6 +130,8 @@ describe("registerArtifactCommands", () => {
     expect(artifactPublish).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "ws-1",
+        team: null,
+        pane: "pane-1",
         cwd: "/repo",
         slug: "auth-flow",
       }),
@@ -314,8 +316,11 @@ describe("registerArtifactCommands", () => {
     });
     const { run } = setup([pane()]);
     await run("artifact.delete", { id: "x" }, paneSource());
+    // The agent's pane rides beside the workspace, for the store's gate.
     expect(artifactDelete).toHaveBeenCalledWith({
       workspaceId: "ws-1",
+      team: null,
+      pane: "pane-1",
       slug: "x",
     });
   });

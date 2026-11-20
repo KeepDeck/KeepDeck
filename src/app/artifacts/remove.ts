@@ -1,8 +1,9 @@
-import { artifactDelete, type ArtifactDeleteResult } from "../../ipc/artifacts";
+import { artifactDelete, type ArtifactDeleteResult, type ArtifactWriter } from "../../ipc/artifacts";
 
 /** Which artifact, and — when the caller is answering a question about a
- * row it showed — which incarnation of it. */
-export interface ArtifactDeleteRef {
+ * row it showed — which incarnation of it. An agent's delete names its
+ * team and pane for the store's gate. */
+export interface ArtifactDeleteRef extends ArtifactWriter {
   workspaceId: string;
   slug: string;
   expectedGeneration?: string;
