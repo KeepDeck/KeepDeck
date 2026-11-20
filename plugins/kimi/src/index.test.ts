@@ -13,7 +13,7 @@ import { present } from "@keepdeck/plugin-api/testing";
 
 // The fork's store surgery has its own suite (fork.test.ts); here only the
 // launch the fork plan hands back matters.
-vi.mock("./fork", () => ({ kimiForkPlan: vi.fn(async () => "session_forked") }));
+vi.mock("./fork", () => ({ kimiForkPlan: vi.fn(async () => ({ sessionId: "session_forked", clone: "/k/sessions/wd_x/session_forked" })) }));
 
 interface ActivationOptions {
   manifestPath?: string | null;
@@ -73,6 +73,7 @@ function activate(options: ActivationOptions = {}) {
         writeFile: absent("fsWrite"),
         copyFile: absent("fsWrite"),
         appendLine: absent("fsWrite"),
+        remove: absent("fsWrite"),
       },
       sessionStore: { read: absent("sessionStore") },
       http: { get: absent("http") },
@@ -136,6 +137,8 @@ describe("Kimi CLI plugin", () => {
       fork,
     );
     expect(fork.args).toEqual(["--session", "session_forked"]);
+    // The clone is declared: a rollback leaves nothing of the fork.
+    expect(fork.discard).toEqual({ ifNeverStarted: ["/k/sessions/wd_x/session_forked"] });
     for (const out of [spawn, resume, fork]) {
       expect(out.envDefaults).toEqual([["KIMI_CODE_TRUST_WORKSPACE", "1"]]);
       expect(out.env).toEqual([]);

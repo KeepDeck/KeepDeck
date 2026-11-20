@@ -12,8 +12,16 @@ import { rebaseState, rebaseWire } from "./forkRebase";
 export interface ForkPorts {
   services: {
     fs: Pick<PluginFs, "readDir" | "readFile">;
-    fsWrite: Pick<PluginFsWrite, "writeFile" | "copyFile" | "appendLine">;
+    fsWrite: Pick<PluginFsWrite, "writeFile" | "copyFile" | "appendLine" | "remove">;
   };
+}
+
+/** A fork made: the session it opens, and its clone — everything the fork
+ * leaves in kimi's store besides an index line, which kimi skips once the
+ * clone is gone. */
+export interface KimiFork {
+  sessionId: string;
+  clone: string;
 }
 
 /**
@@ -43,7 +51,7 @@ export interface ForkPorts {
 export async function kimiForkPlan(
   ctx: ForkPorts,
   input: ForkPlanInput,
-): Promise<string> {
+): Promise<KimiFork> {
   const wire = input.transcriptPath;
   if (!wire) {
     throw new Error(
@@ -98,18 +106,44 @@ export async function kimiForkPlan(
 
   // Write order is the contract: the artifacts that ACTIVATE a session
   // (state.json — the resume gate — and the index line) land LAST, after the
-  // conversation files. A failure mid-sequence then leaves only inert files
-  // kimi never discovers — never a half-alive session.
-  //
+  // conversation files. A failure before the index line takes the clone back
+  // out — throwing leaves the store as it was — and none can leave a
+  // half-alive session.
+  try {
+    await clone(ctx, { srcSessionDir, dstSessionDir, workspaceId, state: rebased.state, workDirKey }, input);
+  } catch (error) {
+    await ctx.services.fsWrite.remove(dstSessionDir).catch(() => {});
+    throw error;
+  }
+
+  // The index is how `--session <id>` finds the clone at all. Its line keeps
+  // the name `workDir` whatever the state file calls it: the index has its
+  // own schema, and kimi refuses a line that does not carry that key.
+  const indexPath = `${sessionsRoot.slice(0, -"/sessions".length)}/session_index.jsonl`;
+  await ctx.services.fsWrite.appendLine(
+    indexPath,
+    JSON.stringify({
+      sessionId: newId,
+      sessionDir: dstSessionDir,
+      workDir: input.cwd,
+    }),
+  );
+  return { sessionId: newId, clone: dstSessionDir };
+}
+
+/** Lay the clone out and read it back — everything before the index line. */
+async function clone(
+  ctx: ForkPorts,
+  at: { srcSessionDir: string; dstSessionDir: string; workspaceId: string; state: unknown; workDirKey: string },
+  input: ForkPlanInput,
+): Promise<void> {
+  const { srcSessionDir, dstSessionDir, workspaceId, state, workDirKey } = at;
   // The clone is the WHOLE session dir, not a fixed file list: real sessions
   // carry blobs/ (pasted images the wire references by blobref:), tasks/,
   // plans/ and agents/agent-N/ subagent trees — a wire-only copy would
   // dangle. state.json is skipped here (the rebased version lands last).
   await copyTree(ctx, srcSessionDir, dstSessionDir, workspaceId);
-  await ctx.services.fsWrite.writeFile(
-    `${dstSessionDir}/state.json`,
-    JSON.stringify(rebased.state, null, 2),
-  );
+  await ctx.services.fsWrite.writeFile(`${dstSessionDir}/state.json`, JSON.stringify(state, null, 2));
 
   // Read the clone back before the index line makes it findable: a session
   // that exists with a real id but opens elsewhere is the failure nobody can
@@ -134,28 +168,12 @@ export async function kimiForkPlan(
           }
         })();
   if (landedWorkDir !== input.cwd) {
-    // The copy stays: `fsWrite` has no delete. Inert, not ignored — unlisted
-    // without an index line, and overwritten by a later fork to the same target.
     throw new Error(
       `kimi fork of ${input.sessionId}: the clone landed in ${
         typeof landedWorkDir === "string" ? landedWorkDir : "an unreadable state"
       }, not ${input.cwd} — not activating it`,
     );
   }
-
-  // The index is how `--session <id>` finds the clone at all. Its line keeps
-  // the name `workDir` whatever the state file calls it: the index has its
-  // own schema, and kimi refuses a line that does not carry that key.
-  const indexPath = `${sessionsRoot.slice(0, -"/sessions".length)}/session_index.jsonl`;
-  await ctx.services.fsWrite.appendLine(
-    indexPath,
-    JSON.stringify({
-      sessionId: newId,
-      sessionDir: dstSessionDir,
-      workDir: input.cwd,
-    }),
-  );
-  return newId;
 }
 
 /** Copy every file under `srcDir` into the mirrored path under `dstDir`,

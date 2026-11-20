@@ -27,6 +27,7 @@ interface Fx {
   writes: Map<string, string>;
   copies: [string, string][];
   appends: [string, string][];
+  removed: string[];
 }
 
 /** A realistic session tree: wire + blobs (pasted image) + a subagent's own
@@ -76,6 +77,7 @@ function fixture(
   const writes = new Map<string, string>();
   const copies: [string, string][] = [];
   const appends: [string, string][] = [];
+  const removed: string[] = [];
   const ctx: ForkPorts = {
     services: {
       fs: {
@@ -122,10 +124,13 @@ function fixture(
         appendLine: async (path, line) => {
           appends.push([path, line]);
         },
+        remove: async (path) => {
+          removed.push(path);
+        },
       },
     },
   };
-  return { ctx, writes, copies, appends };
+  return { ctx, writes, copies, appends, removed };
 }
 
 const forkInput = (cwd: string): ForkPlanInput => ({
@@ -167,7 +172,7 @@ describe("wdKey", () => {
 describe("kimiForkPlan", () => {
   it("clones the session under a fresh id: patched state, wire copy, index line", async () => {
     const fx = fixture();
-    const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
+    const { sessionId: newId } = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
 
     expect(newId).toMatch(/^session_[0-9a-f-]{36}$/);
     const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
@@ -197,7 +202,7 @@ describe("kimiForkPlan", () => {
     const { workDir: _gone, ...rest } = STATE;
     const fx = fixture(JSON.stringify({ ...rest, cwd: "/old/place" }));
 
-    const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
+    const { sessionId: newId } = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
     const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
     const state = JSON.parse(present(fx.writes.get(`${dstDir}/state.json`), "the entry for `${dstDir}/state.json`"));
 
@@ -273,7 +278,7 @@ describe("kimiForkPlan", () => {
 
   it("clones the WHOLE session tree — blobs, subagents, logs — never a fixed file list", async () => {
     const fx = fixture();
-    const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
+    const { sessionId: newId } = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
     const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
     const dsts = fx.copies.map(([, dst]) => dst);
     expect(dsts).toContain(`${dstDir}/agents/main/blobs/img1`);
@@ -286,7 +291,7 @@ describe("kimiForkPlan", () => {
 
   it("rebases every agent's wire onto the clone, the main one's prompt dropped", async () => {
     const fx = fixture(JSON.stringify(STATE), undefined, 7);
-    const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
+    const { sessionId: newId } = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
     const ws = await wdKey("/new/target");
     const dstDir = `${HOME}/sessions/${ws}/${newId}`;
     const records = (agent: string) =>
@@ -335,6 +340,9 @@ describe("kimiForkPlan", () => {
     // The activation artifacts never landed: no state.json, no index line.
     expect([...fx.writes.keys()].some((path) => path.endsWith("/state.json"))).toBe(false);
     expect(fx.appends).toHaveLength(0);
+    // And the throw leaves the store as it was: the half-made clone goes.
+    expect(fx.removed).toHaveLength(1);
+    expect(fx.removed[0]).toMatch(new RegExp(`^${HOME}/sessions/${await wdKey("/t")}/session_[0-9a-f-]{36}$`));
   });
 
   it("refuses a clone that landed anywhere but the requested target", async () => {
