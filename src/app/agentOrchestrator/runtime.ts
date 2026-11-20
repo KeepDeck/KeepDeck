@@ -30,6 +30,8 @@ import {
   subscribeSpawnSpecs,
   type SpawnPlanContext,
 } from "../spawnSpecs";
+import { createContinuationPlans } from "../lifecycle/continuationPlans";
+import { createPaneRunState } from "../lifecycle/paneRunState";
 import { createLifecycleDoors } from "./doors";
 import { createRecovery } from "./recovery";
 import { createRunViewStore } from "./view";
@@ -175,10 +177,26 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     return workspace && findTeam(workspace, teamId) ? teamActsOf(workspace, teamId, teamFacts) : null;
   }
 
+  const continuations = createContinuationPlans({ plugins, spawnContext, skillsAsk, mcpAccess, armCwd });
+  const runState = createPaneRunState({
+    buildResume: continuations.buildResume,
+    buildFork: continuations.buildFork,
+    // A pane's plan, and what its process bound, end together: the
+    // machine retires both before each stop.
+    dropPlan(pane) {
+      dropPaneSpawnSpec(pane);
+      deps.lifecycle.retire(pane);
+    },
+    bindings: deps.bindings,
+    hookEnded: machine.hookEnded,
+  });
+
   const doors = createLifecycleDoors({
     deck,
     actions,
     send: machine.send,
+    continuations,
+    transcripts: deps.transcripts,
     teamActs,
     askedBack(paneIds) {
       if (paneIds.filter((paneId) => runView.clearNotes(paneId)).length > 0) publish();
@@ -451,5 +469,6 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     retryPlanBuild: recovery.retryPlanBuild,
     dismissOccupied: recovery.dismissOccupied,
     teamActs,
+    runState,
   };
 }

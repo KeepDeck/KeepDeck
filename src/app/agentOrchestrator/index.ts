@@ -10,6 +10,7 @@ import type { PermitId } from "../../ipc/generated/lifecycle/PermitId";
 import type { Reply } from "../../ipc/generated/lifecycle/Reply";
 import type { Snapshot } from "../../ipc/generated/lifecycle/Snapshot";
 import type { DeckStore } from "../deckStore";
+import type { PaneRunState } from "../lifecycle/paneRunState";
 import type { PaneLaunch, PaneSessionState, PaneSpawnSpec } from "../ptyManager";
 import type { SpawnContextSource } from "../spawnContextSource";
 import type { SpawnPluginAccess } from "../spawnSpecs";
@@ -87,6 +88,10 @@ export interface AgentOrchestrator {
    * other member stays — what its menu offers, read from the same facts its
    * doors judge by. Null for a team (or workspace) that is not there. */
   teamActs(wsId: string, teamId: string): TeamActs | null;
+  /** The owners of the machine's launch-state and fork-step commands: a
+   * pane's plan ended before each stop, a continued session's plan built
+   * for the pane the machine minted. */
+  runState: PaneRunState;
 }
 
 export interface AgentRunView {
@@ -231,7 +236,7 @@ export interface PaneLifecyclePort {
 }
 
 /** The lifecycle machine, as the orchestrator reaches it: its intents, its
- * launch leases, and the snapshot it publishes. */
+ * launch leases, the snapshot it publishes, and the fork step's end. */
 export interface LifecycleMachinePort {
   send(intent: Intent): Promise<Reply>;
   lease(ask: LeaseAsk): Promise<Reply>;
@@ -239,6 +244,20 @@ export interface LifecycleMachinePort {
   /** The newest snapshot, or null before the first. */
   snapshot(): Snapshot | null;
   subscribe(listener: () => void): () => void;
+  /** The fork step's hook call has ended — its outcome or not. */
+  hookEnded(op: number): void;
+}
+
+/** Where a recorded session's transcript file is, when the journal never
+ * learned it — the session index's answer. */
+export interface TranscriptLocatorPort {
+  locateTranscript(agent: string, sessionId: string): Promise<string | null>;
+}
+
+/** The bindings the binding lane accepted — a continued pane's session
+ * reported by its own process. */
+export interface BindingsPort {
+  subscribe(listener: (bound: { paneId: string }) => void): () => void;
 }
 
 export interface AgentOrchestratorDeps {
@@ -258,6 +277,8 @@ export interface AgentOrchestratorDeps {
   armCwd: CwdArmAsk;
   lifecycle: PaneLifecyclePort;
   machine: LifecycleMachinePort;
+  transcripts: TranscriptLocatorPort;
+  bindings: BindingsPort;
 }
 
 export function createAgentOrchestrator(deps: AgentOrchestratorDeps): AgentOrchestrator {

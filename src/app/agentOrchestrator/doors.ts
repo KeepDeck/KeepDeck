@@ -33,13 +33,25 @@ import type { Reply } from "../../ipc/generated/lifecycle/Reply";
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
 import { mintTeamId, mintWorkspaceId } from "../ids";
+import type { ContinuationPlans } from "../lifecycle/continuationPlans";
 import { intentOutcomeOf } from "../lifecycle/outcome";
-import type { AgentDraft, AgentOrchestrator, ContinueOptions, CreatePaneRequest, CreateTeamRequest } from ".";
+import type {
+  AgentDraft,
+  AgentOrchestrator,
+  ContinueOptions,
+  CreatePaneRequest,
+  CreateTeamRequest,
+  TranscriptLocatorPort,
+} from ".";
 
 export interface LifecycleDoorsDeps {
   deck: DeckStore;
   actions: DeckActions;
   send(intent: Intent): Promise<Reply>;
+  /** Note what a continued session's plan is built from, before its intent
+   * goes. */
+  continuations: Pick<ContinuationPlans, "expect">;
+  transcripts: TranscriptLocatorPort;
   teamActs(wsId: string, teamId: string): TeamActs | null;
   /** Panes the person asked back: their old notes go and a start is owed. */
   askedBack(paneIds: readonly string[]): void;
@@ -130,16 +142,30 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
   ): Promise<IntentOutcome> {
     const ws = findWorkspace(workspaces(), wsId);
     if (!ws) return GONE;
+    const yolo = opts.yolo ?? record.yolo;
     const member = draftOf(
-      { agentType: record.agent, name: opts.name, yolo: opts.yolo ?? record.yolo },
+      { agentType: record.agent, name: opts.name, yolo },
       opts.role,
       how === "resume" ? record.sessionId : undefined,
     );
+    // The file a fork copies: what the binding reported, else what the
+    // plugin declared to the index. Still unknown is the plugin's to refuse
+    // — a fork that needs no file goes on without it.
+    const transcriptPath =
+      how === "fork" ? (record.transcriptPath ?? (await deps.transcripts.locateTranscript(record.agent, record.sessionId)) ?? undefined) : undefined;
+    const source = { agent: record.agent, session: record.sessionId };
+    deps.continuations.expect(ws.id, source, {
+      workspace: { id: ws.id, instance: ws.instance },
+      cwd: record.cwd,
+      ...(record.branch !== undefined && { branch: record.branch }),
+      ...(yolo !== undefined && { yolo }),
+      ...(transcriptPath !== undefined && { transcriptPath }),
+    });
     return ask({
       kind: "continue",
       workspace: ws.id,
       landing: landingOf(ws, opts.team, site, opts.name),
-      source: { agent: record.agent, session: record.sessionId },
+      source,
       how,
       member,
     });
