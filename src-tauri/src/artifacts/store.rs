@@ -30,7 +30,13 @@
 //! Enforcement (§6 of the design) lives in [`enforce_publish_path`] —
 //! per-call STATELESS, a pure function of the invoke payload; no cwd or
 //! boundary is ever cached on the enabled state.
+//!
+//! A publish or a delete asks the commit gate under the data mutex: a write
+//! from a forgotten workspace, team or pane is refused. The workspace's drop
+//! takes the same mutex, so a write already in lands before it and goes
+//! with it.
 
+use crate::forgotten::{Gate, Source};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -158,6 +164,7 @@ struct Enabled {
     _root: ClaimedRoot,
     /// Serializes every read-modify-write of manifest data.
     data: Mutex<()>,
+    gate: Gate,
 }
 
 impl Default for ArtifactsStore {
@@ -172,7 +179,7 @@ impl ArtifactsStore {
     /// Enable: claim the root (idempotent — enabling while enabled IS the
     /// state asked for). Contention surfaces the refusal text verbatim so
     /// the toggle can report WHY.
-    pub fn enable(&self, root: &Path) -> Result<(), String> {
+    pub fn enable(&self, root: &Path, gate: Gate) -> Result<(), String> {
         let mut enabled = self.enabled.lock().expect("artifacts store poisoned");
         if enabled.is_some() {
             return Ok(());
@@ -181,6 +188,7 @@ impl ArtifactsStore {
         *enabled = Some(Enabled {
             _root: claimed,
             data: Mutex::new(()),
+            gate,
         });
         Ok(())
     }
@@ -195,13 +203,20 @@ impl ArtifactsStore {
         &self,
         run: impl FnOnce(&Path, &Mutex<()>) -> StoreResult<T>,
     ) -> StoreResult<T> {
+        self.with_gate(|root, data, _| run(root, data))
+    }
+
+    fn with_gate<T>(
+        &self,
+        run: impl FnOnce(&Path, &Mutex<()>, &Gate) -> StoreResult<T>,
+    ) -> StoreResult<T> {
         let enabled = self.enabled.lock().expect("artifacts store poisoned");
         let Some(state) = enabled.as_ref() else {
             return Err(StoreError::new(
                 "artifact store is off — turn Fleet artifacts on first",
             ));
         };
-        run(state._root.root(), &state.data)
+        run(state._root.root(), &state.data, &state.gate)
     }
 
     /// Publish: plan against the current manifest under the resolved slug
@@ -209,11 +224,13 @@ impl ArtifactsStore {
     /// collision — [`resolve_slug`]), then write.
     pub fn publish(
         &self,
-        workspace_id: &str,
+        source: impl Into<Source>,
         request: PublishRequest<'_>,
         now_ms: u64,
     ) -> StoreResult<PublishOutcome> {
-        self.with_enabled(|root, data| {
+        let source = source.into();
+        let workspace_id = source.workspace.as_str();
+        self.with_gate(|root, data, gate| {
             let title = validate_title(request.title)?;
             // The stored state's own bounds, not just the wire's: these
             // strings are read back in a list and a history, where a
@@ -228,6 +245,7 @@ impl ArtifactsStore {
             let format = request.format;
             let bytes = read_source(root, &request)?;
             let _guard = data.lock().expect("artifacts data poisoned");
+            gate.admit(&source).map_err(|refused| StoreError::new(refused.to_string()))?;
 
             // The planning contract: `existing` is the artifact under the
             // EXPLICIT slug (absent for minted requests); suffix occupancy
@@ -416,12 +434,15 @@ impl ArtifactsStore {
     /// not an answer about a thing it was shown.
     pub fn delete(
         &self,
-        workspace_id: &str,
+        source: impl Into<Source>,
         slug: &str,
         expected: Option<&str>,
     ) -> StoreResult<DeleteOutcome> {
-        self.with_enabled(|root, data| {
+        let source = source.into();
+        let workspace_id = source.workspace.as_str();
+        self.with_gate(|root, data, gate| {
             let _guard = data.lock().expect("artifacts data poisoned");
+            gate.admit(&source).map_err(|refused| StoreError::new(refused.to_string()))?;
             let dir = artifact_dir(root, workspace_id, slug);
             let manifest = load_manifest(root, workspace_id, slug)?;
             match manifest {
@@ -943,6 +964,7 @@ fn enforce_and_read(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::forgotten::testing::Forget;
     use std::sync::Arc;
 
     /// The cross-language caps mirror: the TS domain's model.test.ts
@@ -963,11 +985,35 @@ mod tests {
     }
 
     fn store_with_root(tag: &str) -> (ArtifactsStore, tempfile::TempDir, PathBuf) {
+        let (store, dir, root, _) = store_with_gate(tag);
+        (store, dir, root)
+    }
+
+    fn store_with_gate(tag: &str) -> (ArtifactsStore, tempfile::TempDir, PathBuf, Forget) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join(format!("artifacts-{tag}"));
         let store = ArtifactsStore::default();
-        store.enable(&root).expect("enable");
-        (store, dir, root)
+        let forget = Forget::default();
+        store.enable(&root, forget.gate()).expect("enable");
+        (store, dir, root, forget)
+    }
+
+    #[test]
+    fn a_forgotten_source_neither_publishes_nor_deletes_and_its_workspace_drop_takes_what_came_before() {
+        let (store, _dir, root, forget) = store_with_gate("gate");
+        let pane = |id: &str| Source { workspace: WS.into(), team: None, pane: Some(id.into()) };
+        store.publish(pane("pane-1"), content_request(Some("kept"), b"<p/>"), 1000).unwrap();
+        forget.forget("pane-1");
+        let refused = store.publish(pane("pane-1"), content_request(Some("late"), b"<p/>"), 2000).unwrap_err();
+        assert!(refused.0.contains("closed"), "{}", refused.0);
+        assert!(store.delete(pane("pane-1"), "kept", None).is_err());
+        assert!(!root.join("ws/ws-1/late").exists(), "nothing of the refused write");
+        assert!(store.publish(pane("pane-2"), content_request(Some("other"), b"<p/>"), 3000).is_ok(), "a teammate writes on");
+
+        forget.forget(WS);
+        assert!(store.publish(WS, content_request(Some("after"), b"<p/>"), 4000).is_err());
+        store.drop_workspace(WS).unwrap();
+        assert!(!root.join("ws/ws-1").exists());
     }
 
     /// Every publish in these tests belongs to the same workspace.

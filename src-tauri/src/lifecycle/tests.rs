@@ -104,6 +104,24 @@ fn close_agent(pane: u64) -> Intent {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_stores_gate_refuses_a_closed_panes_writes_and_no_one_elses() {
+    use crate::forgotten::{Gate, Source};
+    let dir = tempfile::tempdir().unwrap();
+    let lifecycle = Arc::new(booted(dir.path(), Arc::new(FakeDoors::default())).await);
+    let asked = lifecycle.clone();
+    let gate = Gate::new(super::MachineForgetting::new(move || asked.door()));
+    let from = |pane: &str| Source { workspace: "ws-a".into(), team: Some("team-r".into()), pane: Some(pane.into()) };
+    assert!(gate.admit(&from("pane-2")).is_ok(), "nothing is forgotten yet");
+
+    let reply = lifecycle.door().ask(|ask| Event::Intent { ask, intent: close_agent(2) }).await;
+    assert!(matches!(reply, Reply::Answered { answer: Answer::Accepted { .. } }));
+    owners_until_idle(&lifecycle).await;
+    assert!(gate.admit(&from("pane-2")).is_err(), "the closed pane");
+    assert!(gate.admit(&from("pane-1")).is_ok(), "its teammate");
+    assert!(gate.admit(&Source::from("ws-a")).is_ok(), "its workspace");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_close_is_answered_only_with_its_entry_on_disk_and_the_entry_goes_when_it_is_done() {
     let dir = tempfile::tempdir().unwrap();
     let lifecycle = booted(dir.path(), Arc::new(FakeDoors::default())).await;

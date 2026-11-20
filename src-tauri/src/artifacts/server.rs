@@ -580,7 +580,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join(format!("artifacts-{tag}"));
         let store = ArtifactsStore::default();
-        store.enable(&root).unwrap();
+        store.enable(&root, crate::forgotten::testing::Forget::default().gate()).unwrap();
         let server = DisplayServer::start(&root).unwrap();
         (server, store, root, dir)
     }
@@ -1060,7 +1060,7 @@ mod tests {
         let (server, store, root, dir) = fixture("idem");
         let first = server.port();
         store.disable();
-        store.enable(&root).unwrap();
+        store.enable(&root, crate::forgotten::testing::Forget::default().gate()).unwrap();
         assert_eq!(server.port(), first);
         // And two INDEPENDENT servers (separate instances) get different
         // ephemeral ports — the kernel's guarantee, asserted so a future

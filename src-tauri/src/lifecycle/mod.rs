@@ -11,6 +11,7 @@
 mod commands;
 mod door;
 mod doors;
+mod forgetting;
 mod handler;
 mod store;
 #[cfg(test)]
@@ -19,6 +20,7 @@ mod tests;
 pub use commands::*;
 pub use door::Door;
 pub use doors::AppDoors;
+pub use forgetting::MachineForgetting;
 pub(crate) use handler::supervised;
 pub use handler::Doors;
 

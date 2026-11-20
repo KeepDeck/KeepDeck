@@ -8,6 +8,7 @@ mod containment;
 mod dnd;
 mod downloads;
 mod fd_limit;
+mod forgotten;
 mod fswatch;
 mod fs_beneath;
 mod fs_claim;
@@ -213,6 +214,10 @@ pub fn run() {
             let claimed = lifecycle.claimed();
             let link_app = app.handle().clone();
             sessions.link(move || link_app.state::<lifecycle::Lifecycle>().door());
+            // The stores' commit gate answers from the machine's forgotten set.
+            let gate_app = app.handle().clone();
+            let forgetting = lifecycle::MachineForgetting::new(move || gate_app.state::<lifecycle::Lifecycle>().door());
+            app.manage(forgotten::Gate::new(forgetting));
             app.manage(sessions);
             app.manage(lifecycle);
             if !claimed {
@@ -469,6 +474,8 @@ mod tests {
         "Lifecycle",
         // `let sessions = … SessionMachine::start() …; app.manage(sessions);`
         "SessionMachine",
+        // `app.manage(forgotten::Gate::new(forgetting));`
+        "Gate",
     ];
 
     /// The final path segment of a type expression: `crate::artifacts::
