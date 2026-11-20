@@ -7,6 +7,7 @@ import {
   type PaneStopped,
 } from "./panes";
 import type { AgentType } from "../agents";
+import type { PanePhase } from "../lifecycle";
 import type { Workspace } from "./workspaces";
 
 /**
@@ -76,7 +77,11 @@ export type PaneHoldReason =
    * launch policy is an exception — until the person restores it. Stopping
    * what still runs is the archive's own job; this only keeps anything new
    * from starting. */
-  | { kind: "workspace-archived" };
+  | { kind: "workspace-archived" }
+  /** The lifecycle machine has it in hand — taking it down, suspending or
+   * restarting it, or holding it suspended. Nothing starts until the machine
+   * says it is live again. */
+  | { kind: "lifecycle"; phase: Exclude<PanePhase, "live"> };
 
 /** What the decision cannot read off the pane itself. */
 export interface PaneRunEnv {
@@ -112,6 +117,9 @@ export interface PaneRunEnv {
    * acquired — and a restart never sets it at all.
    */
   startOwed: boolean;
+  /** The lifecycle machine's phase of this pane; null before its snapshot
+   * names it. Anything but `live` holds the pane, whoever asks. */
+  phase: PanePhase | null;
 }
 
 export function paneRunIntent(
@@ -122,6 +130,9 @@ export function paneRunIntent(
   // First, ahead of every exemption below: an archived workspace runs
   // nothing, whoever asks and whatever is owed.
   if (env.workspaceArchived) return hold({ kind: "workspace-archived" });
+  // The machine's own hold, the same way: whatever it is doing to the pane,
+  // nothing new starts behind it.
+  if (env.phase !== null && env.phase !== "live") return hold({ kind: "lifecycle", phase: env.phase });
   // The shared head — see [`paneBlock`]. Ordered by what makes the others
   // moot, and asked in one place because the card ladder needs the same three
   // answers in the same order.
@@ -209,7 +220,11 @@ export type AgentDown =
   /** Its process ended. */
   | "exited"
   /** Its spawn, or the plan for it, failed. */
-  | "failed-to-start";
+  | "failed-to-start"
+  /** The lifecycle is taking it down. */
+  | "leaving"
+  /** The lifecycle is suspending it. */
+  | "suspending";
 
 export function agentReach(
   intent: PaneRunIntent,
@@ -220,6 +235,10 @@ export function agentReach(
   if (intent.kind === "hold") {
     const reason = intent.reason;
     switch (reason.kind) {
+      case "lifecycle":
+        // A restart brings it back by itself; the rest wait on somebody.
+        if (reason.phase === "restarting") return STARTING;
+        return down(reason.phase === "suspended" ? "suspended" : reason.phase);
       case "provisioning":
         return reason.failed ? down("provisioning-failed") : STARTING;
       case "agent-unavailable":

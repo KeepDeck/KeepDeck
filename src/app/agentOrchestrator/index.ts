@@ -1,118 +1,88 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { CwdArmAsk, McpAccessAsk, SpawnPlan } from "../spawnSpecs";
-import type {
-  AgentReach,
-  Pane,
-  PlacementRefusal,
-  ResumeRequest,
-  SpawnConfig,
-  TeamActs,
-  TeamLocation,
-  Workspace,
-  WorktreeTarget,
-  WorktreeTeardownFailure,
-} from "../../domain/deck";
+import type { AgentReach, PaneLocation, SpawnConfig, TeamActs } from "../../domain/deck";
+import type { Consent, IntentOutcome, Site } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
-import type { RoleRefusal } from "../../domain/mail";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
+import type { Intent } from "../../ipc/generated/lifecycle/Intent";
+import type { LeaseAsk } from "../../ipc/generated/lifecycle/LeaseAsk";
+import type { PermitId } from "../../ipc/generated/lifecycle/PermitId";
+import type { Reply } from "../../ipc/generated/lifecycle/Reply";
+import type { Snapshot } from "../../ipc/generated/lifecycle/Snapshot";
 import type { DeckStore } from "../deckStore";
-import type { PaneSessionState, PaneSpawnSpec } from "../ptyManager";
+import type { PaneLaunch, PaneSessionState, PaneSpawnSpec } from "../ptyManager";
 import type { SpawnContextSource } from "../spawnContextSource";
 import type { SpawnPluginAccess } from "../spawnSpecs";
-import type { ArchiveOutcome, RestoreOutcome, SuspendOutcome } from "../../domain/deck";
-import type { WorktreeProvisioner } from "../worktrees";
+import type { StagedSkills } from "../worktrees";
 import { createAgentOrchestratorRuntime } from "./runtime";
 
 /**
- * The owner of an agent pane's run lifecycle.
- *
- * It answers one question for every pane — should a process be behind it,
- * and if not, why — and drives the primitives that make reality match.
+ * The owner of an agent pane's run: whether a process should be behind it,
+ * and if not, why — the one funnel that plans, wakes and launches by lease.
  * Deliberately outside React: the processes it governs outlive any render.
+ *
+ * Every change to the deck's shape — a workspace, team or agent made or
+ * closed, a suspend, a resume, an archive, a restart, a session continued, a
+ * member moved — is an intent to the lifecycle machine through these doors,
+ * answered by an [`IntentOutcome`]; what the machine then does reaches the
+ * deck as its commands. Wake and park stay the page's.
  */
 export interface AgentOrchestrator {
   /** Stable render snapshot for panes that are not running. */
   getView(): AgentRunView;
   subscribe(listener: () => void): () => void;
   /** Whether this pane's agent would read something sent to it now — the
-   * run decision the sweep makes, met with its process — or null for a pane
+   * run decision the funnel makes, met with its process — or null for a pane
    * the deck does not hold. */
   reachOf(paneId: string): AgentReach | null;
-  /** Land and provision a pane through the common creation sequence. */
-  createPane(request: CreatePaneRequest): CreatePaneOutcome;
-  /** Make a team that holds a directory and nobody yet — the "+ Team"
-   * door; its worktree create starts behind the card. */
-  createTeam(request: CreateTeamRequest): CreateTeamOutcome;
-  /** Register a workspace and optimistically land its agent panes. */
-  createWorkspace(config: SpawnConfig): Workspace;
-  /** Re-issue a team's failed worktree create — the card is the team's. */
-  retryProvisioning(wsId: string, teamId: string): void;
+  /** Seat a new agent: on the team it names, the team already working at the
+   * place it asks for, or a new team made there. */
+  createPane(request: CreatePaneRequest): Promise<IntentOutcome>;
+  /** Make a team that holds a place and nobody yet — the "+ Team" door. */
+  createTeam(request: CreateTeamRequest): Promise<IntentOutcome>;
+  /** Make a workspace, born empty. */
+  createWorkspace(config: SpawnConfig): Promise<IntentOutcome>;
+  /** Ask again for a team's worktree whose creation failed. */
+  retryProvisioning(wsId: string, teamId: string): Promise<IntentOutcome>;
   /** Stop an agent while preserving its resumable pane. */
-  suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
-  /** Stop the members of a team its confirm NAMED (`named`) that the team's
-   * Suspend would still take now ([`stillTaken`]) — never one it did not
-   * name. Settles once each stop was requested — the deck does not confirm
-   * a process exited, for one agent or for a team. */
-  suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<void>;
-  /** Confirmed pane/workspace close, including optional worktree teardown. */
-  close(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
-  /** Put a workspace away: its agents stopped and kept, its directories
-   * kept, nothing of it run until it is restored. Answers once the stop
-   * pass has done what it could. */
-  archive(workspace: WorkspaceRef): Promise<ArchiveOutcome>;
-  /** Bring an archived workspace back, into view; nobody in it is woken. */
-  restore(workspace: WorkspaceRef): RestoreOutcome;
-  /** Restart an exited pane fresh or against its recorded session. */
-  restart(
-    wsId: string,
-    paneId: string,
-    mode: AgentRestartMode,
-  ): Promise<RestartOutcome>;
+  suspend(wsId: string, paneId: string): Promise<IntentOutcome>;
+  /** Suspend the members of a team its confirm NAMED that the team's Suspend
+   * would still take now — never one it did not name. */
+  suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<IntentOutcome[]>;
+  /** A confirmed close, with exactly what its dialog was consented to. */
+  close(request: CloseRequest): Promise<IntentOutcome>;
+  /** Put a workspace away: its agents stopped and kept, its folders kept. */
+  archive(workspace: WorkspaceRef): Promise<IntentOutcome>;
+  /** Bring an archived workspace back; nobody in it is woken. */
+  restore(workspace: WorkspaceRef): Promise<IntentOutcome>;
+  /** Restart a pane's agent: the machine stops its exact session, and the
+   * funnel launches it again — on its recorded session, or fresh. */
+  restart(wsId: string, paneId: string, mode: AgentRestartMode): Promise<IntentOutcome>;
   /** Recover a rejected boot-time resume: ask the live registry before
-   * touching the binding — a session held by an outside process keeps it
-   * and offers the choice, an absent one earns one quiet retry, and only
-   * the second silent death (or no registry to ask) falls back fresh.
-   * Answers whether it took the pane over (the caller then stays quiet). */
-  recoverRejectedResume(
-    wsId: string,
-    paneId: string,
-    code: number | null,
-  ): boolean;
+   * touching the binding — a session held by an outside process keeps it and
+   * offers the choice, an absent one earns one quiet retry, and only the
+   * second silent death (or no registry to ask) falls back fresh. Answers
+   * whether it took the pane over (the caller then stays quiet). */
+  recoverRejectedResume(wsId: string, paneId: string, code: number | null): boolean;
   /** Retry a failed spawn-plan build. */
   retryPlanBuild(paneId: string): void;
   /** Stop offering the occupied choice: the pane stays visible and bound,
    * nothing is erased — the ordinary exit card takes over. */
   dismissOccupied(paneId: string): void;
-  /** Continue a journal session in a new pane. `role` is the address the
-   * pane asks for on the team it lands on — honoured when the catalog knows
-   * it and it is free, refused otherwise ([`admitRole`], thrown as the
-   * refusal's words) — absent included: nothing picks one. `team` is the team
-   * it joins, by id; absent, the team holding the session's directory. */
-  resumeSession(
-    wsId: string,
-    record: SessionHandle,
-    opts?: { name?: string; yolo?: boolean; role?: string; team?: string },
-  ): Promise<void>;
-  /** Fork a journal session into a new pane and target directory/worktree.
-   * `role` and `team` as for `resumeSession`; `team` goes with a `dir`
-   * target — the directory the copy is made in. */
-  forkSession(
-    wsId: string,
-    record: SessionHandle,
-    target: ForkTarget,
-    opts?: { name?: string; branch?: string; yolo?: boolean; role?: string; team?: string },
-  ): Promise<void>;
-  /** Take a blocked pane off the team whose directory is gone, onto the
-   * workspace root's, and start a fresh conversation there. The pane keeps
-   * its role ([`carryRole`]); one the root's team cannot take is refused,
-   * and `role` is the one the person picks in its place. */
-  startFresh(wsId: string, paneId: string, role?: string): void;
-  /** Ask for a stopped pane back and report whether it can rise. */
-  resume(wsId: string, paneId: string): ResumeRequest;
-  /** Ask back every member of a team that is down by a decision — parked at
-   * launch or suspended — and that a single Resume would ask back. Whether
-   * each rises lands on its card. */
-  resumeTeam(wsId: string, teamId: string): void;
+  /** Continue a journal session in a new pane: on the team it names, the
+   * team working in the session's folder, or a new team made there. `role`
+   * is the pane's address on that team. */
+  resumeSession(wsId: string, record: SessionHandle, opts: ContinueOptions): Promise<IntentOutcome>;
+  /** Fork a journal session into a new pane in `target`. */
+  forkSession(wsId: string, record: SessionHandle, target: ForkTarget, opts: ContinueOptions): Promise<IntentOutcome>;
+  /** Move a pane whose team's folder is gone onto the workspace root's team
+   * and start a fresh conversation there; `role` is the person's pick when
+   * its own cannot come along. */
+  startFresh(wsId: string, paneId: string, role?: string): Promise<IntentOutcome>;
+  /** Ask for a suspended pane back. */
+  resume(wsId: string, paneId: string): Promise<IntentOutcome>;
+  /** Ask back every member a team's Resume would take now. */
+  resumeTeam(wsId: string, teamId: string): Promise<IntentOutcome[]>;
   /** Whom a team's Suspend and Resume would take right now, and why each
    * other member stays — what its menu offers, read from the same facts its
    * doors judge by. Null for a team (or workspace) that is not there. */
@@ -163,140 +133,69 @@ export interface OccupiedNote {
   name: string | null;
 }
 
-export interface CreatePaneRequest {
-  /** Exact workspace lifetime, guarding asynchronous creation decisions. */
-  workspace: WorkspaceRef;
-  /** The pane as the request describes it. A remote endpoint is its own;
-   * a directory never is. */
-  pane: Pane;
-  /** The directory the pane asks to run in — an existing one (the workspace
-   * root included) or a create heading for one. The landing turns it into
-   * the team the pane joins: the team already holding that directory, or a
-   * new one made for it. Absent: the workspace root. */
-  placement?: TeamLocation;
-  /** The team to JOIN, by id — whatever its placement, a create still out
-   * included. Wins over `placement`. A team that is not here, holds no
-   * directory, or is being closed refuses `held`. */
-  team?: string;
-  /** The role the pane takes on its team: honoured when the catalog knows
-   * it, it is free on the team and the team's shape can take it — refused
-   * otherwise (`role`), absent included: nothing picks one. */
-  role?: string;
-  /** The name for a team the landing MINTS — when the caller is creating
-   * one and named it; the pane's own name otherwise. Ignored when the pane
-   * joins a team that already holds the directory. */
-  teamName?: string;
-  /** A step to run after the team's worktree lands and before its card
-   * resolves — a journal fork's store surgery. Filed under the TEAM the
-   * landing mints, which is why it rides the request rather than being
-   * registered ahead of it under an id the caller would have to guess. */
-  postProvision?: (worktree: { cwd: string; branch: string }) => Promise<void>;
+/** An agent as a request describes it: what the deck writes for it. */
+export interface AgentDraft {
+  agentType: string;
+  name?: string;
+  yolo?: boolean;
+  /** A remote endpoint is its own; a folder never is. */
+  location?: PaneLocation;
 }
 
-export type CreatePaneOutcome =
-  /** Landed, on the team named — the one holding the directory, or freshly
-   * minted for it. */
-  | { kind: "created"; teamId: string }
-  | { kind: "gone" }
-  /** The team the pane would join already has MAX_PANES members. */
-  | { kind: "full" }
-  /** The directory the pane asked for is nothing it can land on — `why`
-   * says which of the reasons it was, so every door tells the truth in the
-   * same words ([`createRefusalMessage`]). */
-  | { kind: "held"; why: PlacementRefusal }
-  /** The role the pane asked for cannot be its address on that team: it is
-   * taken, or the catalog does not know it. Refused, never replaced — a
-   * role asked for is honoured or refused ([`admitRole`]). */
-  | { kind: "role"; why: RoleRefusal; role: string; open: string[] };
+export interface CreatePaneRequest {
+  /** Exact workspace lifetime: a request that outlived it reaches nothing. */
+  workspace: WorkspaceRef;
+  pane: AgentDraft;
+  /** Its role on the team it lands on — honoured or refused, never replaced. */
+  role: string;
+  /** The team to JOIN, by id. Wins over `site`. */
+  team?: string;
+  /** Where the agent asks to run. Absent: the workspace root. */
+  site?: Site;
+  /** The name for a team the request makes; the deck's auto name for none. */
+  teamName?: string;
+}
 
-/** A team born with its directory and nobody on it — the "+ Team" door.
- * Agents come later, each through `createPane` naming the team. */
+/** A team born with its place and nobody on it — the "+ Team" door. */
 export interface CreateTeamRequest {
   workspace: WorkspaceRef;
   /** What the team is called; blank takes the deck's auto name. */
   name: string;
-  /** The directory the team holds — an existing one (the workspace root
-   * included) or a create heading for one. */
-  placement: TeamLocation;
-  /** The person has SEEN whose directory this is and asked for the team
-   * anyway. Only ever answers a `shared` outcome — it lets a second team
-   * onto a directory a team already works in, and nothing else: a create
-   * still heading for a worktree, and a directory a teardown is removing,
-   * refuse with or without it. */
-  shared?: true;
+  site: Site;
 }
 
-/** The team already working in a directory a create asked for. Named so the
- * surface can say WHOSE it is before asking for consent; `workspace` is set
- * only when the holder is in another one. */
-export interface DirectoryHolder {
-  teamId: string;
-  teamName: string;
-  workspace?: string;
-}
-
-export type CreateTeamOutcome =
-  | { kind: "created"; teamId: string }
-  | { kind: "gone" }
-  /** The directory is a team's already, and consent CAN place a second team
-   * on it: teams share a directory when the person says so. Carries who is
-   * there, and the directory as the create read it, so the surface can name
-   * both and re-issue with `shared` — never deriving either itself. */
-  | { kind: "shared"; holder: DirectoryHolder; directory: string }
-  /** The directory cannot take this team however willing the person is —
-   * `why` says which reason, in the vocabulary every door shares. */
-  | { kind: "held"; why: PlacementRefusal }
-  /** A team here already answers to that name. */
-  | { kind: "taken" };
-
-/** The destructive half of a close that can take worktrees with it. */
-export interface WorktreeTeardown {
-  /** Destructive choice from the confirmation surface. */
-  deleteWorktrees: boolean;
-  /** Worktrees probed when the confirmation surface opened. */
-  worktrees: WorktreeTarget[];
+/** How a continued session lands: its name, mode and role in the new pane,
+ * and the team it joins by id — absent, the team working in its folder. */
+export interface ContinueOptions {
+  name?: string;
+  yolo?: boolean;
+  role: string;
+  team?: string;
 }
 
 /**
- * A confirmed close. Addressed by `WorkspaceRef`, never by id alone: a
- * confirmation that outlived its workspace resolves to nothing, whatever
- * the deck holds by then.
+ * A confirmed close, addressed by `WorkspaceRef` — a confirmation that
+ * outlived its workspace reaches nothing — and carrying exactly what its
+ * dialog was consented to.
  *
  * Three verbs, because they end three different things:
- * - `agent` ends ONE agent — its process, its session, its place on its
- *   team. Never a worktree: the directory is the team's, and a member
- *   leaving does not take it, so there is no teardown to ask about.
- * - `team` disbands: ends every member, removes the team, and — on the
- *   opt-in — its worktree.
- * - `workspace` disbands every team the workspace holds, then the
- *   workspace.
+ * - `agent` ends ONE agent: its process, its session, its place on its team.
+ * - `team` disbands: every member, the team, and the folders consented to.
+ * - `workspace` disbands every team, then the workspace.
  */
 export type CloseRequest =
-  | { kind: "agent"; workspace: WorkspaceRef; paneId: string }
-  | ({ kind: "team"; workspace: WorkspaceRef; teamId: string } & WorktreeTeardown)
-  | ({ kind: "workspace"; workspace: WorkspaceRef } & WorktreeTeardown);
-
-export type RestartOutcome =
-  | "restarted"
-  | "in-flight"
-  | "gone"
-  | "stopped"
-  /** The pane's worktree is still being created: there is no directory to
-   * restart into, and its card offers Retry instead. */
-  | "provisioning";
-
+  | { kind: "agent"; workspace: WorkspaceRef; paneId: string; consent: Consent }
+  | { kind: "team"; workspace: WorkspaceRef; teamId: string; consent: Consent }
+  | { kind: "workspace"; workspace: WorkspaceRef; consent: Consent };
 
 /** Delay the MCP lookup until a spawn plan is actually built — and ask per
  * build, never once: the transport can go up or down between two spawns.
  * Owned by the MCP feature, and passed straight through to the spawn plan;
  * re-exported so the orchestrator's own deps read in one place. */
 export type { CwdArmAsk, McpAccessAsk };
-export { createRefusalMessage, type CreateRefusal } from "./refusals";
 
 /** Delay staged-skill lookup until a spawn plan is actually built. */
-export type StagedSkillsAsk = (
-  workspace: WorkspaceRef,
-) => () => ReturnType<WorktreeProvisioner["skillsFor"]>;
+export type StagedSkillsAsk = (workspace: WorkspaceRef) => () => ReturnType<StagedSkills["skillsFor"]>;
 
 export interface AgentCatalogPort {
   /** Agent id → fallback executable. */
@@ -306,17 +205,11 @@ export interface AgentCatalogPort {
   subscribe(listener: () => void): () => void;
 }
 
-export type WorktreeProbePort = (
-  dir: string,
-) => Promise<{ exists: boolean }>;
+export type WorktreeProbePort = (dir: string) => Promise<{ exists: boolean }>;
 
 export interface LaunchPolicyPort {
   parkOnLaunch(): boolean;
   subscribe(listener: () => void): () => void;
-}
-
-export interface SuspendPolicyPort {
-  moveToTray(): boolean;
 }
 
 export interface SessionRegistryPort {
@@ -326,23 +219,26 @@ export interface SessionRegistryPort {
    * painted. Separate from [`state`] because the first byte and the spawn
    * promise are independent notifications with no guaranteed order. */
   isLaunched(paneId: string): boolean;
-  acquire(paneId: string, spec: PaneSpawnSpec): void;
+  acquire(paneId: string, spec: PaneSpawnSpec, launch: PaneLaunch): void;
+  /** Let go of what the page holds for a pane whose process is over. */
   close(paneId: string): Promise<void>;
 }
 
 /** Retire a pane's per-process state (usage, activity, and which session it
- * has bound) when its process retires — an injected port like every other
- * collaborator, so orchestrator tests hand in a fake instead of mocking a
- * module that writes to the app's live stores. */
+ * has bound) when its process retires. */
 export interface PaneLifecyclePort {
   retire(paneId: string): void;
 }
 
-/** Where a recorded session's transcript file is, when the journal never
- * learned it — the session index's answer, which walks the agent's store
- * again before it says null. */
-export interface TranscriptLocatorPort {
-  locateTranscript(agent: string, sessionId: string): Promise<string | null>;
+/** The lifecycle machine, as the orchestrator reaches it: its intents, its
+ * launch leases, and the snapshot it publishes. */
+export interface LifecycleMachinePort {
+  send(intent: Intent): Promise<Reply>;
+  lease(ask: LeaseAsk): Promise<Reply>;
+  release(permit: PermitId): Promise<void>;
+  /** The newest snapshot, or null before the first. */
+  snapshot(): Snapshot | null;
+  subscribe(listener: () => void): () => void;
 }
 
 export interface AgentOrchestratorDeps {
@@ -350,26 +246,20 @@ export interface AgentOrchestratorDeps {
   spawnContext: SpawnContextSource;
   agents: AgentCatalogPort;
   launchPolicy: LaunchPolicyPort;
-  suspendPolicy: SuspendPolicyPort;
   sessions: SessionRegistryPort;
   plugins: SpawnPluginAccess;
   probe: WorktreeProbePort;
-  /** Narrow role owning pane worktree creation, teardown and staged skills. */
-  worktrees: WorktreeProvisioner;
+  /** The staged skills a spawn plan is handed. */
+  skills: StagedSkills;
   /** A spawning pane's MCP access — servers for its argv, and the on-disk
    * delivery for a CLI that takes none. Empty while the transport is down. */
   mcpAccess: McpAccessAsk;
   /** Planting what an agent's plugin declares in a spawning pane's cwd. */
   armCwd: CwdArmAsk;
   lifecycle: PaneLifecyclePort;
-  transcripts: TranscriptLocatorPort;
-  /** Forget what the backend keeps per workspace when one closes — Rust
-   * cannot derive the live workspace set. Optional: absent in non-app tests. */
-  workspaceForgetters?: readonly ((wsId: string) => Promise<void>)[];
+  machine: LifecycleMachinePort;
 }
 
-export function createAgentOrchestrator(
-  deps: AgentOrchestratorDeps,
-): AgentOrchestrator {
+export function createAgentOrchestrator(deps: AgentOrchestratorDeps): AgentOrchestrator {
   return createAgentOrchestratorRuntime(deps);
 }

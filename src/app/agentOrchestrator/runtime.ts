@@ -1,26 +1,26 @@
 import type { ResumeOrigin } from "../../domain/agents";
-import type { SpawnPlanContext } from "../spawnSpecs";
 import {
   agentReach,
   findPane,
   findTeam,
   findWorkspace,
+  paneBranch,
   paneExecutionCwd,
+  paneResumeSessionId,
   paneRunIntent,
   paneWakeOrigin,
-  type Pane,
-  type PaneRunIntent,
-  type Workspace,
-  paneBranch,
-  paneResumeBlock,
   remoteEndpointOf,
   teamActsOf,
+  type Pane,
+  type PaneRunIntent,
   type TeamActFacts,
   type TeamActs,
+  type Workspace,
 } from "../../domain/deck";
+import type { LaunchOwner } from "../../ipc/generated/lifecycle/LaunchOwner";
+import type { PanePhase } from "../../ipc/generated/lifecycle/PanePhase";
 import { log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
-import { createRefusalMessage } from "./refusals";
 import {
   buildLivePaneSpec,
   buildResumeSpec,
@@ -28,20 +28,15 @@ import {
   markPaneResumeOrigin,
   peekPaneSpawnSpec,
   subscribeSpawnSpecs,
+  type SpawnPlanContext,
 } from "../spawnSpecs";
+import { createLifecycleDoors } from "./doors";
+import { createRecovery } from "./recovery";
 import { createRunViewStore } from "./view";
 import { createStartupSilenceWatch } from "./startupSilence";
-import type {
-  AgentOrchestrator,
-  AgentOrchestratorDeps,
-  StagedSkillsAsk,
-} from ".";
-import { createAgentOrchestratorArchiving, type AgentOrchestratorArchiving } from "./archiving";
-import { createAgentOrchestratorClosing } from "./closing";
-import { createAgentOrchestratorContinuations } from "./continuations";
-import { createAgentOrchestratorCreation } from "./creation";
-import { createAgentOrchestratorRestart } from "./restart";
+import type { AgentOrchestrator, AgentOrchestratorDeps, StagedSkillsAsk } from ".";
 import { errorMessage } from "@keepdeck/plugin-api";
+
 const SPAWN_PLACEHOLDER_SIZE = { cols: 80, rows: 24 };
 
 /** How one attempt to bring a pane up ended. */
@@ -52,21 +47,8 @@ type Attempt =
   /** The probe or the resume plan refused; `why` is shown on the card. */
   | { kind: "failed"; why: string };
 
-export function createAgentOrchestratorRuntime(
-  deps: AgentOrchestratorDeps,
-): AgentOrchestrator {
-  const {
-    deck,
-    spawnContext,
-    agents,
-    launchPolicy,
-    suspendPolicy,
-    sessions,
-    plugins,
-    probe,
-    worktrees,
-    lifecycle,
-  } = deps;
+export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): AgentOrchestrator {
+  const { deck, spawnContext, agents, launchPolicy, sessions, plugins, probe, machine, mcpAccess, armCwd } = deps;
   const actions: DeckActions = createDeckActions(deck);
   const runView = createRunViewStore(deck);
   const publish = runView.publish;
@@ -81,21 +63,25 @@ export function createAgentOrchestratorRuntime(
     },
   });
   const startOwed = new Set<string>();
-  /** Attempts in flight — a notification while one is pending must not
-   * double-run it. */
+  /** Restarts the machine took on, waiting for their pane's next process:
+   * true for one that resumes its recorded session. */
+  const restarting = new Map<string, boolean>();
+  /** Attempts in flight — a wake or a lease — that a notification while one
+   * is pending must not run twice. */
   const inFlight = new Set<string>();
+  /** Panes whose lease was refused, by the snapshot generation that refused
+   * it: asked again only once the machine's state has moved. */
+  const leaseRefused = new Map<string, number>();
+  let generation = 0;
   let booted = false;
   let scheduled = false;
-  const { mcpAccess, armCwd } = deps;
   // Skills are resolved at plan mint: the staged view is frozen into the
   // hook's output for that spawn, so a later gate flip affects only the next
   // plan.
-  const skillsAsk: StagedSkillsAsk = (workspace) => () =>
-    worktrees.skillsFor(workspace);
+  const skillsAsk: StagedSkillsAsk = (workspace) => () => deps.skills.skillsFor(workspace);
 
-
-  /** Coalesce to one pass per turn: the sweep dispatches deck transitions of
-   * its own, and each would otherwise re-enter this synchronously. */
+  /** Coalesce to one pass per turn: the funnel dispatches deck transitions
+   * of its own, and each would otherwise re-enter this synchronously. */
   function schedule(): void {
     if (scheduled) return;
     scheduled = true;
@@ -105,57 +91,45 @@ export function createAgentOrchestratorRuntime(
     });
   }
 
+  /** The machine's phase of a pane, or null before it names it. */
+  function phaseOf(paneId: string): PanePhase | null {
+    return machine.snapshot()?.panes[paneId] ?? null;
+  }
+
   /** WHO is asking for this pane right now, or null when it is no longer
-   * rising at all. Read from the LIVE deck rather than from the snapshot an
-   * attempt started with: `requestPaneWake` can upgrade a boot restore to a
-   * resume the user asked for by name — and a suspend can cancel the wake
-   * outright — while a probe or a plan build is out. An attempt judged by the
-   * stale answer is exactly how a resume becomes a different conversation. */
+   * rising at all — read from the LIVE deck, never from the snapshot an
+   * attempt started with: a boot restore can become a resume the user asked
+   * for by name, and a suspend can cancel the wake outright, while a probe or
+   * a plan build is out. */
   function askedBy(wsId: string, paneId: string): ResumeOrigin | null {
     const pane = findPane(deck.getSnapshot().workspaces, wsId, paneId);
     return pane ? paneWakeOrigin(pane) : null;
   }
 
-  /** Drop notes about panes that are gone (closed directly, or with their
-   * workspace): ids are never reused, so the maps would only ever grow. */
+  /** Drop notes about panes that are gone: ids are never reused, so the maps
+   * would only ever grow. */
   function reap(): boolean {
-    const live = new Set(
-      deck.getSnapshot().workspaces.flatMap((w) => w.panes.map((p) => p.id)),
-    );
-    for (const paneId of [...startOwed]) {
-      if (!live.has(paneId)) startOwed.delete(paneId);
-    }
+    const live = new Set(deck.getSnapshot().workspaces.flatMap((w) => w.panes.map((p) => p.id)));
+    for (const paneId of [...startOwed]) if (!live.has(paneId)) startOwed.delete(paneId);
+    for (const paneId of [...restarting.keys()]) if (!live.has(paneId)) restarting.delete(paneId);
+    for (const paneId of [...leaseRefused.keys()]) if (!live.has(paneId)) leaseRefused.delete(paneId);
     return runView.forgetGone(live);
   }
 
   /**
    * The ONE place an attempt's outcome is turned into state. Every exit of
-   * the sweep routes through here, because the rule that matters — a resume
+   * the wake routes through here, because the rule that matters — a resume
    * the USER asked for must never come up as a different conversation — has
-   * to hold for all of them, and it kept being applied to one exit at a time.
-   *
-   * WHO asked is re-read here rather than taken from the attempt, because the
-   * answer can change while the attempt is out. A boot restore takes the
-   * documented degradation on failure: nobody is watching, and an empty pane
-   * beats a pane that never comes back. A manual wake goes back down where it
-   * came from and says why on its card.
+   * to hold for all of them. A boot restore takes the documented degradation
+   * on failure: nobody is watching, and an empty pane beats a pane that never
+   * comes back. A manual wake goes back down where it came from and says why
+   * on its card.
    */
   function settle(wsId: string, pane: Pane, attempt: Attempt): void {
-    // Every exit but a successful wake gives the attempt up, so the debt goes
-    // with it. Left behind, it would exempt the pane from the
-    // unopened-workspace economy for the rest of the session — and a start
-    // nobody is coming back for is not a start that is owed.
     if (attempt.kind !== "woken") startOwed.delete(pane.id);
     const origin = askedBy(wsId, pane.id);
     if (!origin) {
-      // The pane stopped rising while this attempt was out — closed, or
-      // suspended by a user who changed their mind mid-probe. Its verdict is
-      // moot, and recording one would leave the card explaining a failure
-      // nobody is waiting on (or block a pane nobody asked to wake).
-      log.info(
-        "web:orchestrator",
-        `${pane.id}: wake outcome dropped — the pane is no longer rising`,
-      );
+      log.info("web:orchestrator", `${pane.id}: wake outcome dropped — the pane is no longer rising`);
       startOwed.delete(pane.id);
       return;
     }
@@ -164,25 +138,17 @@ export function createAgentOrchestratorRuntime(
       return;
     }
     if (attempt.kind === "blocked") {
-      log.warn(
-        "web:orchestrator",
-        `${pane.id}: directory gone ${attempt.dir} → blocked tile`,
-      );
+      log.warn("web:orchestrator", `${pane.id}: directory gone ${attempt.dir} → blocked tile`);
       runView.markBlocked(pane.id, attempt.dir);
       publish();
     } else {
-      log.warn(
-        "web:orchestrator",
-        `${pane.id}: ${origin} wake failed — ${attempt.why}`,
-      );
+      log.warn("web:orchestrator", `${pane.id}: ${origin} wake failed — ${attempt.why}`);
     }
     if (origin !== "manual") {
-      // Nothing to put back: a restore-origin pane that is blocked simply
-      // stays where the sweep left it, and one that failed wakes fresh.
       if (attempt.kind === "failed") {
         // Fresh means fresh: a build that THREW also left the pane marked
-        // plan-failed inside the spec cache, and waking it with that flag
-        // still set lands it on the plan-error tile instead of a terminal.
+        // plan-failed, and waking it with that flag still set lands it on the
+        // plan-error tile instead of a terminal.
         dropPaneSpawnSpec(pane.id);
         actions.clearPaneIdle(wsId, pane.id);
       }
@@ -192,175 +158,95 @@ export function createAgentOrchestratorRuntime(
       runView.markWakeFailed(pane.id, attempt.why);
       publish();
     }
-    // Drop the half-built plan with its failure flag, or the pane's next
-    // wake lands on the plan-error tile instead of a terminal.
     dropPaneSpawnSpec(pane.id);
     actions.failPaneWake(wsId, pane.id);
   }
 
-  /** What a team act reads beyond the deck — the same facts a single act
-   * reads: the sweep's folder verdict, the live agent catalog, and whether a
-   * suspend is still reaping the pane. Read at the call, never cached. */
+  /** What a team act reads beyond the deck: the funnel's folder verdict, the
+   * live agent catalog, and whether the machine is suspending a pane. */
   const teamFacts: TeamActFacts = {
     blocked: (paneId) => runView.isBlocked(paneId),
     agentAvailable: (agentType) => agents.commands().has(agentType),
-    suspending: (paneId) => closing.suspending(paneId),
+    suspending: (paneId) => phaseOf(paneId) === "suspending",
   };
 
-  /** Whom a team's acts take right now — the ONE decision: what its menu
-   * offers, and what its doors (resumeTeam here, suspendTeam in closing)
-   * act on. */
   function teamActs(wsId: string, teamId: string): TeamActs | null {
     const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
     return workspace && findTeam(workspace, teamId) ? teamActsOf(workspace, teamId, teamFacts) : null;
   }
 
-  /** Ask for panes back by the person's request — a single Resume, a
-   * team's, or a fresh start: their old notes go (a stale "couldn't resume"
-   * must not stand over a fresh try), a start is owed to each (so the
-   * unopened-workspace economy cannot hold it), and the marker and the
-   * suspended tray change in one transition — a rising pane never sits on
-   * the shelf of stopped ones, whichever door asked. The sweep does the rest. */
-  function askBack(wsId: string, paneIds: readonly string[]): void {
-    if (paneIds.filter((paneId) => runView.clearNotes(paneId)).length > 0) publish();
-    for (const paneId of paneIds) startOwed.add(paneId);
-    actions.requestPanesWake(wsId, paneIds);
-  }
+  const doors = createLifecycleDoors({
+    deck,
+    actions,
+    send: machine.send,
+    teamActs,
+    askedBack(paneIds) {
+      if (paneIds.filter((paneId) => runView.clearNotes(paneId)).length > 0) publish();
+      for (const paneId of paneIds) startOwed.add(paneId);
+      schedule();
+    },
+    restarting(paneId, resume) {
+      restarting.set(paneId, resume);
+      startOwed.add(paneId);
+      if (runView.clearNotes(paneId)) publish();
+      schedule();
+    },
+  });
 
-  // Each of the two asks the other one question, so one is bound late.
-  let archiving: AgentOrchestratorArchiving | undefined;
-  const closing = createAgentOrchestratorClosing({
-    deck,
-    actions,
-    sessions,
-    suspendPolicy,
-    worktrees,
-    isBlocked: runView.isBlocked,
-    lifecycle,
-    workspaceForgetters: deps.workspaceForgetters,
-    archiving: (workspace) => archiving?.archiving(workspace) ?? false,
-    publish: () => publish(),
-    // Bound late like `archiving`: the decision reads closing's own
-    // reservation, and closing's door acts on the decision.
-    teamActs: (wsId, teamId) => teamActs(wsId, teamId),
-  });
-  archiving = createAgentOrchestratorArchiving({
-    deck,
-    actions,
-    sessions,
-    worktrees,
-    lifecycle,
-    closingWorkspace: closing.closingWorkspace,
-  });
-  const creation = createAgentOrchestratorCreation({
-    deck,
-    actions,
-    worktrees,
-    closing: closing.closing,
-    holdsPath: closing.holdsPath,
-  });
-  const restart = createAgentOrchestratorRestart({
+  const recovery = createRecovery({
     deck,
     actions,
     sessions,
     plugins,
     spawnContext,
+    lifecycle: deps.lifecycle,
+    skillsAsk,
+    mcpAccess,
+    armCwd,
     bumpEpoch: runView.bumpEpoch,
     publish: () => publish(),
     markOccupied: runView.markOccupied,
     clearNotes: runView.clearNotes,
-    startOwed,
-    skillsAsk,
-    mcpAccess,
-    armCwd,
+    owe: (paneId) => startOwed.add(paneId),
     schedule,
-    lifecycle,
-  });
-  const continuations = createAgentOrchestratorContinuations({
-    deck,
-    spawnContext,
-    plugins,
-    transcripts: deps.transcripts,
-    isBlocked: runView.isBlocked,
-    creation,
-    skillsAsk,
-    mcpAccess,
-    armCwd,
-    worktrees,
   });
 
+  /** The facts a plan for `pane` is built from. */
+  function factsOf(ws: Workspace, pane: Pane, cwd: string) {
+    const ref = { id: ws.id, instance: ws.instance };
+    return {
+      paneId: pane.id,
+      workspace: ref,
+      cwd,
+      branch: paneBranch(ws, pane),
+      yolo: pane.yolo,
+      stagedSkills: skillsAsk(ref),
+      mcpAccess,
+      armCwd,
+    };
+  }
+
   /** Wake one pane onto `sessionId`, or fresh when it is null. */
-  async function wake(
-    ws: Workspace,
-    pane: Pane,
-    dir: string,
-    sessionId: string | null,
-  ): Promise<void> {
-    const agentType = pane.agentType;
-    // WHOSE resume this is decides what happens when the CLI rejects the id.
-    // A boot restore takes the one-shot fall back to a fresh conversation —
-    // nobody is watching, and an empty pane beats a dead one. A resume the
-    // user CLICKED must not: they were promised this session by name, so a
-    // rejection has to stay visible as an exited pane they can act on.
+  async function wake(ws: Workspace, pane: Pane, dir: string, sessionId: string | null): Promise<void> {
+    // WHOSE resume this is decides what happens when the CLI rejects the id:
+    // a boot restore falls back to a fresh conversation, a resume the user
+    // clicked does not.
     let origin = askedBy(ws.id, pane.id);
-    // Cancelled while the probe was out (suspended, or closed outright):
-    // there is nothing to bring up and nobody to report to.
     if (!origin) return;
-    log.info(
-      "web:orchestrator",
-      `${pane.id} (${agentType}): ` +
-        (sessionId ? `${origin} resume ${sessionId}` : "fresh"),
-    );
+    log.info("web:orchestrator", `${pane.id} (${pane.agentType}): ` + (sessionId ? `${origin} resume ${sessionId}` : "fresh"));
     const ctx = spawnContext.get();
     if (sessionId && ctx) {
-      // Built through the agent plugin's resume.plan hook and cached BEFORE
-      // the pane wakes — the mounting terminal reads it.
-      const plan = (asked: ResumeOrigin) =>
-        buildResumeSpec(
-          plugins,
-          agentType,
-          {
-            paneId: pane.id,
-            workspace: { id: ws.id, instance: ws.instance },
-            cwd: dir,
-            branch: paneBranch(ws, pane),
-            yolo: pane.yolo,
-            stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
-            mcpAccess,
-            armCwd,
-          },
-          ctx,
-          sessionId,
-          asked,
-        );
       let failure: string | null = null;
       try {
-        const built = await plan(origin);
-        // The upgrade can also land INSIDE the build, and the origin is BAKED
-        // INTO the cached plan — it is what arms (or disarms) the one-shot
-        // fall back to a fresh conversation. A plan built as a restore
-        // therefore cannot serve a resume the user asked for by name.
-        // Re-stamped rather than rebuilt: the origin never reaches the agent's
-        // hook, so there is nothing for a second build to produce differently,
-        // and a plugin hook is someone else's code to run twice.
+        const built = await buildResumeSpec(plugins, pane.agentType, factsOf(ws, pane, dir), ctx, sessionId, origin);
+        // The upgrade can land INSIDE the build, and the origin is baked into
+        // the cached plan: a plan built as a restore cannot serve a resume the
+        // user asked for by name. Re-stamped, not rebuilt.
         const nowAsked = askedBy(ws.id, pane.id);
         if (built && nowAsked === "manual" && origin !== "manual") {
-          log.info(
-            "web:orchestrator",
-            `${pane.id}: asked for by name mid-build → re-stamped as a manual resume`,
-          );
           origin = "manual";
           markPaneResumeOrigin(pane.id, "manual");
         }
-        // A `false` here is "no plan was cached", and it covers two very
-        // different causes: a plugin that offers no resume.plan hook at all,
-        // and a build a newer decision invalidated mid-flight. The sentence
-        // names neither, because this layer cannot tell them apart — blaming
-        // the agent for the second one was simply false.
-        //
-        // Either way the pane must not wake: the ordinary fresh sweep would
-        // start a NEW conversation whose reporter then overwrites the binding,
-        // the silent substitution the `manual` origin prevents.
         if (!built) failure = "Its resume plan could not be prepared.";
       } catch (e) {
         failure = errorMessage(e);
@@ -373,52 +259,80 @@ export function createAgentOrchestratorRuntime(
     settle(ws.id, pane, { kind: "woken" });
   }
 
-  /** Every live pane needs a plan before its terminal has anything to run.
-   * Kept next to the wake pass because they are the same reconciliation seen
-   * from two sides — one decides that a pane should run, the other prepares
-   * what running means — and splitting them across two owners is how a pane
-   * came to be woken with no plan cached for it. */
-  function planLivePanes(ctx: SpawnPlanContext): void {
-    for (const ws of deck.getSnapshot().workspaces) {
-      // A plan is what running means; an archived workspace runs nothing,
-      // and a build would arm its directories behind the archive's back.
-      if (ws.archived) continue;
-      for (const pane of ws.panes) {
-        void buildLivePaneSpec(
-          plugins,
-          ws,
-          pane,
-          ctx,
-          {
-            stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
-            mcpAccess,
-            armCwd,
-          },
-        ).then((changed) => {
-          if (!changed) return;
-          publish();
-          // A plan landing is what a pane waiting to start was waiting FOR —
-          // reconcile again, or nothing spawns until an unrelated notification
-          // happens along.
-          schedule();
-        });
-      }
-    }
+  /** The plan a pane that should run is launched with: a restart that keeps
+   * its conversation resumes it, by the person's ask; anything else gets
+   * the plan a live pane runs. */
+  function plan(ws: Workspace, pane: Pane, cwd: string, ctx: SpawnPlanContext): void {
+    const resumes = restarting.get(pane.id) === true ? paneResumeSessionId(pane) : null;
+    const built = resumes
+      ? buildResumeSpec(plugins, pane.agentType, factsOf(ws, pane, cwd), ctx, resumes, "manual")
+      : buildLivePaneSpec(plugins, ws, pane, ctx, { stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }), mcpAccess, armCwd });
+    void built.then(
+      (changed) => {
+        if (!changed) return;
+        publish();
+        schedule();
+      },
+      (e: unknown) => log.warn("web:orchestrator", `${pane.id}: plan build failed — ${errorMessage(e)}`),
+    );
   }
 
-  /** The run decision for one pane, from the facts this owner holds — the ONE
-   * place they are gathered, for the sweep and for `reachOf` alike, so the
-   * pane a send is refused for is the pane the sweep holds down.
-   *
-   * A catalog that has not loaded yet is not one that lacks the agent: the
-   * sweep waits for it, and an answer asked before it must not call every
-   * pane's plugin missing. */
-  function intentOf(
-    ws: Workspace,
-    pane: Pane,
-    activeId: string | null,
-    commands: ReadonlyMap<string, string>,
-  ): PaneRunIntent {
+  /** Lease a launch for `pane` and start it with the permit the machine
+   * granted. A refusal leaves it down until the machine's state moves; one
+   * for a target on its way out says nothing at all. */
+  function launch(ws: Workspace, pane: Pane, cwd: string): void {
+    const spec = peekPaneSpawnSpec(pane.id);
+    if (!spec) return;
+    const remote = remoteEndpointOf(pane) !== null;
+    const owner: LaunchOwner = remote ? { kind: "remote", pane: pane.id } : { kind: "pane", pane: pane.id };
+    const asked = generation;
+    inFlight.add(pane.id);
+    void machine
+      .lease({ kind: "launch", workspace: ws.id, owner, dir: remote ? null : cwd })
+      .then((reply) => {
+        if (reply.kind !== "answered" || reply.answer.kind !== "leased") {
+          leaseRefused.set(pane.id, asked);
+          const why = reply.kind !== "answered" ? reply.kind : reply.answer.kind === "refused" ? reply.answer.refusal.kind : reply.answer.kind;
+          if (why !== "targetLeaving") log.info("web:orchestrator", `${pane.id}: no launch lease (${why})`);
+          return;
+        }
+        const permit = reply.answer.permit;
+        // Read again after the wait: a plan can be dropped while it was out.
+        const current = peekPaneSpawnSpec(pane.id);
+        if (!current || sessions.state(pane.id).kind !== "none") {
+          void machine.release(permit).catch(() => {});
+          return;
+        }
+        const commands = agents.commands();
+        sessions.acquire(
+          pane.id,
+          {
+            command: current.command !== undefined ? current.command : (commands.get(pane.agentType) ?? pane.agentType),
+            args: current.args,
+            env: current.env,
+            envDefaults: current.envDefaults,
+            cwd,
+            ...SPAWN_PLACEHOLDER_SIZE,
+          },
+          { permit, owner },
+        );
+        restarting.delete(pane.id);
+        startOwed.delete(pane.id);
+        // Only a continuation gets the silence watch: a fresh start paints
+        // sooner still.
+        if (current.resumeOf !== undefined || current.forkOf !== undefined) startupSilence.arm(pane.id);
+      })
+      .catch((e: unknown) => log.warn("web:orchestrator", `${pane.id}: lease failed — ${errorMessage(e)}`))
+      .finally(() => {
+        inFlight.delete(pane.id);
+        schedule();
+      });
+  }
+
+  /** The run decision for one pane — the ONE place its facts are gathered,
+   * for the funnel and for `reachOf` alike. A catalog that has not loaded yet
+   * is not one that lacks the agent. */
+  function intentOf(ws: Workspace, pane: Pane, activeId: string | null, commands: ReadonlyMap<string, string>): PaneRunIntent {
     return paneRunIntent(ws, pane, {
       workspaceArchived: ws.archived !== undefined,
       agentAvailable: !booted || commands.has(pane.agentType),
@@ -426,110 +340,65 @@ export function createAgentOrchestratorRuntime(
       workspaceActive: ws.id === activeId,
       parkOnLaunch: launchPolicy.parkOnLaunch(),
       startOwed: startOwed.has(pane.id),
+      phase: phaseOf(pane.id),
     });
   }
 
   function reconcile(): void {
     if (reap()) publish();
-    // Before anything that waits on the spawn context or an active
-    // workspace: an archive the last run left half-done is finished with
-    // neither (every workspace may be archived).
-    archiving?.repair();
-    // Wait for the spawn context (a resume plan built without it would miss
-    // the agent's identity mechanism) AND the catalog (see `ready`).
+    // The barrier: until the machine has reconciled against the deck, the
+    // funnel waits — silently, with nothing to say on any card.
+    if (machine.snapshot()?.open !== true) return;
     const ctx = spawnContext.get();
     if (!ctx || !booted) return;
-    planLivePanes(ctx);
     const state = deck.getSnapshot();
-    const active = findWorkspace(state.workspaces, state.activeId);
-    if (!active) return;
+    if (!findWorkspace(state.workspaces, state.activeId)) return;
     const commands = agents.commands();
 
     for (const ws of state.workspaces) {
       for (const pane of ws.panes) {
-        // One question, one answer: a decision the user or the policy made, an
-        // agent no plugin provides, a directory that is gone, a workspace
-        // nobody has opened — and the reason it gives is the reason the card
-        // shows.
-        const agentType = pane.agentType;
-        // A restart owns this pane until it is finished, and that covers BOTH
-        // halves of the sweep. Guarding only the spawn half left the wake half
-        // open: a suspend during a restart's awaits marks the pane idle, a
-        // resume then marks it waking, and this pass would build and cache a
-        // plan into the same slot the restart is still using — which the
-        // restart's own continuation then reads as its own failed build,
-        // drops, and replaces with a fresh conversation. The restart schedules
-        // another pass when it is done.
-        if (restart.owns(pane.id)) continue;
-        const intent = intentOf(ws, pane, active.id, commands);
+        if (recovery.owns(pane.id) || inFlight.has(pane.id)) continue;
+        const intent = intentOf(ws, pane, state.activeId, commands);
+        const process = sessions.state(pane.id).kind;
         if (intent.kind === "run" && !pane.idle) {
-          // A pane with no marker: it should run, and the only question left
-          // is whether it already does and whether there is anything to run.
-          // Never a reason to END one — this pass starts processes only. (A
-          // restart owning the pane was already skipped above: its retiring
-          // half empties the slot, which looks exactly like a pane that should
-          // be started.)
-          if (sessions.state(pane.id).kind !== "none") {
-            // It has one: the debt is paid.
+          // A restart's old process is over: let go of it, so the next one
+          // can start in its place.
+          if (restarting.has(pane.id) && (process === "exited" || process === "failed")) {
+            void sessions.close(pane.id).then(schedule);
+            continue;
+          }
+          if (process !== "none") {
             startOwed.delete(pane.id);
             continue;
           }
-          const spec = peekPaneSpawnSpec(pane.id);
-          if (!spec) continue;
-          sessions.acquire(pane.id, {
-            command:
-              spec.command !== undefined
-                ? spec.command
-                : (commands.get(agentType) ?? agentType),
-            args: spec.args,
-            env: spec.env,
-            envDefaults: spec.envDefaults,
-            // Never null here, though the type allows it: a spec exists only
-            // for a pane the builder accepted, and it declines one mid-create.
-            cwd: paneExecutionCwd(ws, pane),
-            ...SPAWN_PLACEHOLDER_SIZE,
-          });
-          // Only a continuation gets the silence watch. A fresh start paints
-          // sooner still, and telling someone their new agent is taking its
-          // time — with an offer to fork a session that does not exist yet —
-          // would be a hint about the wrong thing.
-          if (spec.resumeOf !== undefined || spec.forkOf !== undefined) {
-            startupSilence.arm(pane.id);
+          const cwd = paneExecutionCwd(ws, pane);
+          if (cwd === null) continue;
+          if (leaseRefused.get(pane.id) === generation) continue;
+          if (!peekPaneSpawnSpec(pane.id)) {
+            plan(ws, pane, cwd, ctx);
+            continue;
           }
+          launch(ws, pane, cwd);
           continue;
         }
-        if (!pane.idle || inFlight.has(pane.id)) continue;
+        if (!pane.idle) continue;
         if (intent.kind === "hold") {
-          // A pane the launch policy holds is not merely skipped: it stops
-          // rising, so its card says "stopped" and offers Resume instead of
-          // promising a start that is never coming. Only that reason — every
-          // other hold either already has its own marker or describes a
-          // condition the pane should keep waiting on.
-          if (
-            intent.reason.kind === "stopped" &&
-            intent.reason.by.reason === "parked"
-          ) {
-            actions.parkPane(ws.id, pane.id);
-          }
+          // A pane the launch policy holds stops rising: its card says
+          // "stopped" and offers Resume instead of promising a start.
+          if (intent.reason.kind === "stopped" && intent.reason.by.reason === "parked") actions.parkPane(ws.id, pane.id);
           continue;
         }
         const sessionId = intent.resume?.sessionId ?? null;
-        // Where the pane runs, through the deck's one formula. Null means its
-        // worktree is still being created; the run intent already holds such
-        // a pane, and this keeps what the intent keeps in a form the compiler
-        // checks — a fallback to the workspace cwd would probe a directory
-        // that exists and wake the pane in the wrong place.
         const dir = paneExecutionCwd(ws, pane);
         if (dir === null) continue;
         inFlight.add(pane.id);
-        // A remote pane's agent runs against a VPS endpoint — it has no local
-        // working directory to probe (so a gone workspace cwd never blocks it)
-        // and no recorded session to resume (fresh-session only). Wake it
-        // straight to a fresh remote plan built by the spawn-spec sweep.
+        // A remote pane's agent runs against an endpoint — no local folder to
+        // probe, no recorded session to resume.
         if (remoteEndpointOf(pane) !== null) {
-          void wake(ws, pane, dir, sessionId).finally(() =>
-            inFlight.delete(pane.id),
-          );
+          void wake(ws, pane, dir, sessionId).finally(() => {
+            inFlight.delete(pane.id);
+            schedule();
+          });
           continue;
         }
         void probe(dir)
@@ -537,26 +406,22 @@ export function createAgentOrchestratorRuntime(
             if (probed.exists) return wake(ws, pane, dir, sessionId);
             settle(ws.id, pane, { kind: "blocked", dir });
           })
-          // A probe that REJECTS is a failed attempt like any other: it used
-          // to wake the pane fresh regardless of who asked, which is exactly
-          // the silent substitution the manual origin exists to prevent.
-          .catch((e) =>
-            settle(ws.id, pane, { kind: "failed", why: errorMessage(e) }),
-          )
-          .finally(() => inFlight.delete(pane.id));
+          .catch((e) => settle(ws.id, pane, { kind: "failed", why: errorMessage(e) }))
+          .finally(() => {
+            inFlight.delete(pane.id);
+            schedule();
+          });
       }
     }
   }
 
   deck.subscribe(schedule);
-  // A plan landing is what a pane waiting to start is waiting FOR, and what a
-  // card saying "Waking up…" is waiting to stop saying. Several paths write
-  // that cache — the sweep, a manual resume, a fork's surgery, a retry — and
-  // the ones that go through an await used to reach neither the view nor the
-  // next pass: a resumed pane got a real process behind a permanent
-  // placeholder, and the plan-error tile's Retry rebuilt nothing.
   subscribeSpawnSpecs(() => {
     publish();
+    schedule();
+  });
+  machine.subscribe(() => {
+    generation += 1;
     schedule();
   });
   spawnContext.subscribe(schedule);
@@ -567,9 +432,6 @@ export function createAgentOrchestratorRuntime(
     booted = true;
     schedule();
   });
-  // The deck may already hold restored panes by the time this is built (boot
-  // hydration races the plugin bootstrap), and a source that never changes
-  // again would leave them waiting on a notification that is not coming.
   schedule();
 
   return {
@@ -580,74 +442,14 @@ export function createAgentOrchestratorRuntime(
       for (const ws of state.workspaces) {
         const pane = ws.panes.find((candidate) => candidate.id === paneId);
         if (!pane) continue;
-        return agentReach(
-          intentOf(ws, pane, state.activeId, agents.commands()),
-          sessions.state(paneId).kind,
-          runView.get().planFailed.has(paneId),
-        );
+        return agentReach(intentOf(ws, pane, state.activeId, agents.commands()), sessions.state(paneId).kind, runView.get().planFailed.has(paneId));
       }
       return null;
     },
-    createPane: creation.landPane,
-    createTeam: creation.createTeam,
-    createWorkspace: creation.createWorkspace,
-    retryProvisioning: creation.retryProvisioning,
-    suspend: closing.suspend,
-    suspendTeam: closing.suspendTeam,
-    close: closing.close,
-    archive: (workspace) => archiving.archive(workspace),
-    restore: (workspace) => archiving.restore(workspace),
-    restart: restart.restart,
-    recoverRejectedResume: restart.recoverRejectedResume,
-    retryPlanBuild: restart.retryPlanBuild,
-    dismissOccupied: restart.dismissOccupied,
-    resumeSession: continuations.resumeSession,
-    forkSession: continuations.forkSession,
-    startFresh(wsId, paneId, role) {
-      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
-      // Nothing starts in an archived workspace — not even fresh.
-      if (!workspace || workspace.archived) return;
-      // The move FIRST, and nothing else on a refusal: a directory-bound
-      // session cannot resume elsewhere, and the pane's team's directory is
-      // what went missing, so the pane moves onto the workspace root's team
-      // and starts a new conversation there — but the root's team can be
-      // full, or unable to take the pane's role (a singleton it holds, a
-      // shape it cannot have; a number merely taken is renumbered).
-      // Dropping the session and waking the pane before knowing would wake
-      // it back into the directory that is gone, with its session thrown
-      // away for nothing. The refusal reaches the card instead, and
-      // the pane keeps what it had.
-      const moved = creation.relocatePane(
-        { id: workspace.id, instance: workspace.instance },
-        paneId,
-        { kind: "attached", cwd: workspace.cwd },
-        role,
-      );
-      if (moved.kind !== "created") {
-        const why = createRefusalMessage(moved);
-        log.warn("web:orchestrator", `${paneId}: start fresh refused — ${why}`);
-        runView.markWakeFailed(paneId, why);
-        publish();
-        return;
-      }
-      // A new conversation: the session goes before the pane is asked back,
-      // so no wake can come back into the old one.
-      actions.resetPaneSession(wsId, paneId);
-      askBack(wsId, [paneId]);
-    },
-    resume(wsId, paneId) {
-      const workspace = findWorkspace(deck.getSnapshot().workspaces, wsId);
-      const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
-      if (!workspace || !pane) return "gone";
-      const block = paneResumeBlock(workspace, pane, agents.commands().has(pane.agentType));
-      if (block) return block;
-      askBack(wsId, [paneId]);
-      return "resuming";
-    },
-    resumeTeam(wsId, teamId) {
-      const take = teamActs(wsId, teamId)?.resume.take ?? [];
-      if (take.length > 0) askBack(wsId, take);
-    },
+    ...doors,
+    recoverRejectedResume: recovery.recoverRejectedResume,
+    retryPlanBuild: recovery.retryPlanBuild,
+    dismissOccupied: recovery.dismissOccupied,
     teamActs,
   };
 }

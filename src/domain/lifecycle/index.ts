@@ -32,6 +32,10 @@ export type Refusal =
  * to ask, or ended before it answered. */
 export type NoAnswer = { kind: "unavailable" } | { kind: "unknown" };
 
+/** Where the machine has a pane: running as usual, on its way out, being
+ * restarted, being suspended, or suspended. */
+export type PanePhase = "live" | "leaving" | "restarting" | "suspending" | "suspended";
+
 /** The ids the machine gave what an accepted intent makes. */
 export interface Minted {
   workspace: string | null;
