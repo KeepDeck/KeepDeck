@@ -2,7 +2,7 @@
 //! destructive operation carries, and what each teardown does.
 
 use crate::dir::Dir;
-use crate::ids::{OpId, PaneId, TeamId, WorkspaceId};
+use crate::ids::{AttemptId, OpId, PaneId, PermitId, TeamId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 
 /// A row the deck owns — a workspace, a team or a pane as the deck spells it —
@@ -84,7 +84,10 @@ pub struct Folder {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Intent {
-    CreateWorkspace { workspace: WorkspaceId, cwd: Dir, draft: Draft },
+    CreateWorkspace { workspace: WorkspaceId, name: String, cwd: Dir, worktree_base: Option<Dir>, draft: Draft },
+    /// The workspace's name or worktree base changed: new places are named
+    /// and put after them.
+    Describe { workspace: WorkspaceId, name: String, worktree_base: Option<Dir> },
     CreateTeam { workspace: WorkspaceId, team: TeamId, site: Site, draft: Draft, members: Vec<Draft> },
     Retry { workspace: WorkspaceId, team: TeamId },
     Seat { workspace: WorkspaceId, team: TeamId, member: Draft },
@@ -95,8 +98,9 @@ pub enum Intent {
         how: Continuation,
         member: Draft,
     },
-    /// A member whose team's folder is gone moves to the workspace's root team.
-    Relocate { workspace: WorkspaceId, pane: PaneId },
+    /// A member whose team's folder is gone moves to the workspace's root
+    /// team; `root` names that team if the workspace has none yet.
+    Relocate { workspace: WorkspaceId, pane: PaneId, root: TeamId },
     CloseAgent { workspace: WorkspaceId, pane: PaneId, consent: Consent },
     Disband { workspace: WorkspaceId, team: TeamId, consent: Consent },
     CloseWorkspace { workspace: WorkspaceId, consent: Consent },
@@ -127,6 +131,7 @@ impl Intent {
     pub fn workspace(&self) -> &WorkspaceId {
         match self {
             Intent::CreateWorkspace { workspace, .. }
+            | Intent::Describe { workspace, .. }
             | Intent::CreateTeam { workspace, .. }
             | Intent::Retry { workspace, .. }
             | Intent::Seat { workspace, .. }
@@ -147,7 +152,7 @@ impl Intent {
     pub fn class(&self) -> Class {
         match self {
             Intent::Seat { .. } | Intent::Continue { .. } | Intent::Relocate { .. } => Class::Additive,
-            Intent::Suspend { .. } | Intent::Resume { .. } => Class::Gated,
+            Intent::Suspend { .. } | Intent::Resume { .. } | Intent::Describe { .. } => Class::Gated,
             Intent::CreateWorkspace { .. }
             | Intent::CreateTeam { .. }
             | Intent::Retry { .. }
@@ -177,6 +182,7 @@ impl Intent {
             | Intent::Archive { .. }
             | Intent::RemoveUnheld { .. } => true,
             Intent::CreateWorkspace { .. }
+            | Intent::Describe { .. }
             | Intent::Seat { .. }
             | Intent::Relocate { .. }
             | Intent::Restore { .. }
@@ -230,13 +236,24 @@ pub struct Minted {
     pub panes: Vec<PaneId>,
 }
 
-/// The one answer each intent gets, once its work allows: accepted — for a
-/// journaled operation only once its entry is on disk — or refused.
+/// The one answer each ask gets, once its work allows: an intent accepted —
+/// a journaled one only once its entry is on disk — a launch permit given, a
+/// launch admitted, or a refusal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Answer {
     Accepted { op: OpId, minted: Minted },
+    Leased { permit: PermitId },
+    Admitted { attempt: AttemptId },
+    /// The boot handshake: the operations the journal left, now finishing.
+    Booted { finishing: Vec<OpId> },
     Refused { refusal: Refusal },
+}
+
+impl Answer {
+    pub fn refused(refusal: Refusal) -> Answer {
+        Answer::Refused { refusal }
+    }
 }
 
 /// How a teardown ends the processes it takes.
@@ -289,7 +306,8 @@ pub struct Strategy {
 }
 
 /// The teardowns, by the operation that runs them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Teardown {
     CloseAgent,
     Disband,
@@ -340,7 +358,7 @@ mod tests {
     fn only_seat_continue_and_relocate_are_additive_and_only_suspend_and_resume_are_gated() {
         let additive = [
             Intent::Seat { workspace: ws(), team: team(), member: draft() },
-            Intent::Relocate { workspace: ws(), pane: PaneId(1) },
+            Intent::Relocate { workspace: ws(), pane: PaneId(1), root: team() },
             Intent::Continue {
                 workspace: ws(),
                 landing: Landing::Team { team: team() },

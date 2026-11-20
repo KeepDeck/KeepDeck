@@ -89,6 +89,18 @@ pub struct PermitId(pub u64);
 #[serde(transparent)]
 pub struct AttemptId(pub u64);
 
+/// A door waiting for its answer: the door draws it before it sends, and the
+/// answer finds it once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AskId(pub u64);
+
+/// A session of the sessions machine — opaque here. Never reused within a
+/// launch, and meaningless in the next one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SessionId(pub u64);
+
 /// A counter that only grows: what mints pane, operation, permit and attempt
 /// numbers.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

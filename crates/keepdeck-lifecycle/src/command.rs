@@ -4,6 +4,7 @@
 
 use crate::dir::Dir;
 use crate::ids::{CommandId, OpId, PaneId, TeamId, WorkspaceId};
+use crate::journal::Discard;
 use crate::model::{Draft, SessionKey};
 use serde::{Deserialize, Serialize};
 
@@ -33,13 +34,23 @@ pub enum TeamPlace {
     Provisioning { op: OpId, path: Dir, branch: String, base: Option<String> },
 }
 
+/// A pane added with its team.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Member {
+    pub pane: PaneId,
+    pub draft: Draft,
+}
+
 /// One command, by its owner.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Cmd {
     // ------------------------------------------------------------ the deck
     AddWorkspace { workspace: WorkspaceId, draft: Draft },
-    AddTeam { workspace: WorkspaceId, team: TeamId, draft: Draft, place: TeamPlace },
+    /// A new team with its first members — applied whole or not at all.
+    AddTeam { workspace: WorkspaceId, team: TeamId, draft: Draft, place: TeamPlace, members: Vec<Member> },
+    /// A failed creation is tried again: the card shows it creating.
+    RetryTeam { workspace: WorkspaceId, team: TeamId },
     /// The team's worktree is there: it runs from now on.
     SettleTeam { workspace: WorkspaceId, team: TeamId, cwd: Dir, branch: Option<String> },
     /// The team's creation failed; its card offers Retry.
@@ -47,9 +58,10 @@ pub enum Cmd {
     /// A new pane. The applicator asks the role rule and the session check
     /// in the same step, and answers «rejected» with their kind.
     AddPane { workspace: WorkspaceId, team: TeamId, pane: PaneId, draft: Draft },
-    /// A member moves to the workspace's root team, made from `root` when the
-    /// workspace has none; its old session is reset in the same step.
-    MovePane { workspace: WorkspaceId, pane: PaneId, to: TeamId, root: Option<Draft> },
+    /// A member moves to the workspace's root team — made by the deck under
+    /// the id `to` when `new_root` — and its old session is reset in the
+    /// same step.
+    MovePane { workspace: WorkspaceId, pane: PaneId, to: TeamId, new_root: bool },
     RemovePane { workspace: WorkspaceId, pane: PaneId },
     RemoveTeam { workspace: WorkspaceId, team: TeamId },
     RemoveWorkspace { workspace: WorkspaceId },
@@ -60,9 +72,13 @@ pub enum Cmd {
     // ------------------------------------------------------------ the boards
     DeleteTeamTasks { workspace: WorkspaceId, team: TeamId },
     ForgetBoards { workspace: WorkspaceId },
+    /// Boot's reconciliation: the tasks of teams no longer on the deck go.
+    RetainTeams { teams: Vec<TeamId> },
     // ------------------------------------------------------------ mail
     ForgetPaneMail { workspace: WorkspaceId, pane: PaneId },
     ForgetWorkspaceMail { workspace: WorkspaceId },
+    /// Boot's reconciliation: the mail of panes no longer on the deck goes.
+    RetainPanes { panes: Vec<PaneId> },
     // ------------------------------------------------------------ launch state
     /// End what this launch keeps for the pane — its plan and the secrets in
     /// it — before its process goes.
@@ -86,6 +102,7 @@ impl Cmd {
         match self {
             Cmd::AddWorkspace { .. }
             | Cmd::AddTeam { .. }
+            | Cmd::RetryTeam { .. }
             | Cmd::SettleTeam { .. }
             | Cmd::FailTeam { .. }
             | Cmd::AddPane { .. }
@@ -97,8 +114,8 @@ impl Cmd {
             | Cmd::ClearArchived { .. }
             | Cmd::MarkSuspended { .. }
             | Cmd::ClearSuspended { .. } => Owner::Deck,
-            Cmd::DeleteTeamTasks { .. } | Cmd::ForgetBoards { .. } => Owner::Boards,
-            Cmd::ForgetPaneMail { .. } | Cmd::ForgetWorkspaceMail { .. } => Owner::Mail,
+            Cmd::DeleteTeamTasks { .. } | Cmd::ForgetBoards { .. } | Cmd::RetainTeams { .. } => Owner::Boards,
+            Cmd::ForgetPaneMail { .. } | Cmd::ForgetWorkspaceMail { .. } | Cmd::RetainPanes { .. } => Owner::Mail,
             Cmd::Retire { .. } | Cmd::PrepareResume { .. } | Cmd::DropBuild { .. } | Cmd::ReportBinding { .. } => {
                 Owner::RunState
             }
@@ -129,6 +146,19 @@ pub enum Outcome {
     /// What the command does was already there — a repeat after a restart.
     Unchanged { revision: Option<Revision> },
     Rejected { reason: String },
+    /// The fork step carried the conversation; this is what to remove if the
+    /// fork does not finish.
+    Forked { discard: Discard },
+}
+
+impl Outcome {
+    /// The deck revision this answer must reach on disk to count, if any.
+    pub fn revision(&self) -> Option<Revision> {
+        match self {
+            Outcome::Applied { revision } | Outcome::Unchanged { revision } => *revision,
+            Outcome::Rejected { .. } | Outcome::Forked { .. } => None,
+        }
+    }
 }
 
 #[cfg(test)]

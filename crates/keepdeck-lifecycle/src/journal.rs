@@ -62,6 +62,8 @@ pub enum Step {
     Disarm { dir: Dir },
     /// The workspace's data in the stores of Rust removed.
     Stores,
+    /// A folder's HEAD tagged before it goes.
+    Tag { path: Dir },
     /// The fork's scaffolding removed.
     Discard,
 }
