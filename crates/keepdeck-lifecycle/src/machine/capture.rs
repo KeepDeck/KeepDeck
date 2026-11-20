@@ -443,11 +443,13 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             open_teardown(state, ask, workspace, teardown, Vec::new(), journaled);
         }
         Intent::Restore { workspace } => {
-            if !state.world.workspaces[&workspace].archived {
-                return refuse(fx, ask, Refusal::NotFound);
-            }
+            // An archive still under way is busy, not missing: the workspace
+            // is marked archived only once it is over.
             if let Some(refusal) = conflict(state, &state.holders_of_workspace(&workspace)) {
                 return refuse(fx, ask, refusal);
+            }
+            if !state.world.workspaces[&workspace].archived {
+                return refuse(fx, ask, Refusal::NotFound);
             }
             let id = state.mint_op();
             let mut op = Op::new(workspace.clone(), ask, false, Kind::Restore);
@@ -464,11 +466,13 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             if state.world.workspaces[&workspace].archived {
                 return refuse(fx, ask, Refusal::Archived);
             }
-            if !row.suspended {
-                return refuse(fx, ask, Refusal::NotFound);
-            }
+            // A suspend still under way is busy, not "nothing to resume": the
+            // pane is marked suspended only once it is over.
             if let Some(refusal) = conflict(state, &state.holders_of_pane(&pane)) {
                 return refuse(fx, ask, refusal);
+            }
+            if !row.suspended {
+                return refuse(fx, ask, Refusal::NotFound);
             }
             let id = state.mint_op();
             let mut op = Op::new(workspace.clone(), ask, false, Kind::Resume { pane });

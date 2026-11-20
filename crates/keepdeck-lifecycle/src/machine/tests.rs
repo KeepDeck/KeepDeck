@@ -2370,6 +2370,41 @@ fn an_archive_asked_while_a_team_is_being_created_hears_busy_and_goes_once_it_is
     assert!(sim.state.world.teams.contains_key(&team("n")), "what landed stays, put away with the rest");
 }
 
+/// A resume asked while the pane's suspend is still under way hears «busy»,
+/// not «nothing to resume»: the pane is marked suspended only once it is
+/// over. Once it is, the resume goes.
+#[test]
+fn a_resume_while_the_suspend_is_under_way_hears_busy_and_goes_once_it_is_over() {
+    let mut sim = Sim::booted();
+    sim.appear(LaunchOwner::Pane { pane: PaneId(1) }, None, Some("/wt/kd-app-1"));
+    sim.intent(Intent::Suspend { workspace: ws(), pane: PaneId(1) });
+    let early = sim.intent(Intent::Resume { workspace: ws(), pane: PaneId(1) });
+    assert_eq!(sim.refusal(early), Some(Refusal::Busy));
+    sim.drive();
+    let resume = sim.intent(Intent::Resume { workspace: ws(), pane: PaneId(1) });
+    sim.drive();
+    assert!(matches!(sim.answer(resume), Some(Answer::Accepted { .. })));
+    assert!(!sim.state.world.panes[&PaneId(1)].suspended);
+}
+
+/// One operation on a workspace at a time: a restore asked while the archive
+/// is under way hears «busy» — the workspace is marked archived only once it
+/// is over, so it is not "nothing to restore" — and goes once it is.
+#[test]
+fn a_restore_while_the_archive_is_under_way_hears_busy_and_goes_once_it_is_over() {
+    let mut sim = Sim::booted();
+    sim.appear(LaunchOwner::Pane { pane: PaneId(1) }, None, Some("/wt/kd-app-1"));
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.write_journals();
+    let early = sim.intent(Intent::Restore { workspace: ws() });
+    assert_eq!(sim.refusal(early), Some(Refusal::Busy));
+    sim.drive();
+    let restore = sim.intent(Intent::Restore { workspace: ws() });
+    sim.drive();
+    assert!(matches!(sim.answer(restore), Some(Answer::Accepted { .. })));
+    assert!(!sim.state.world.workspaces[&ws()].archived);
+}
+
 /// A workspace a confirmed close is ending is not archived on its way out.
 #[test]
 fn an_archive_of_a_workspace_a_close_is_ending_hears_already_closing() {
