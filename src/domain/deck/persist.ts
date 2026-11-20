@@ -21,7 +21,6 @@ import {
   type PlacementFields,
   type Team,
 } from "./teams";
-import { nextIdSequence } from "../idSequence";
 import { collectExtras } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { MAX_PANES } from "./layout";
@@ -51,14 +50,11 @@ import { isJsonRecord, parseInstant } from "@keepdeck/plugin-api";
 
 export { DECK_STATE_VERSION } from "../migrations";
 
-/** What hydration yields: the restored state plus the pane-id mint floor
- * derived from the highest persisted `pane-N` (never stored separately — one
- * source of truth). Workspace ids are derived from the live deck at create
- * time, so they need no hydration seed. */
+/** What hydration yields: the restored state, and what rides beside it. Ids
+ * are minted by the lifecycle machine, from the deck it is handed at boot,
+ * so hydration seeds no mint. */
 export interface HydratedDeck {
   state: DeckState;
-  /** Seed for the agent-seq mint: one past the highest restored pane number. */
-  nextAgentSeq: number;
   /** Unknown top-level keys of the stored document (a newer revision's
    * fields) — handed back to `serializeDeck` so saves never strip them. */
   docExtras: Record<string, unknown>;
@@ -284,12 +280,6 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   // keeps them unique, so only a damaged or hand-edited file trips this.
   if (!teamIdsAreUnique(workspaces)) return corrupt;
 
-  const nextAgentSeq = nextIdSequence(
-    workspaces.flatMap((w) => w.panes.map((p) => p.id)),
-    "pane",
-  );
-  if (nextAgentSeq === null) return corrupt;
-
   const activeId = resolveActiveId(
     workspaces,
     typeof raw.activeId === "string" ? raw.activeId : "",
@@ -315,7 +305,6 @@ export function hydrateDeck(json: string): HydrateDeckResult {
         // live slice, and journal.jsonl hydrates separately after.
         journal: emptyJournal,
       },
-      nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
       notices: Array.isArray(raw.migrationNotices)
         ? raw.migrationNotices.filter((note): note is string => typeof note === "string")

@@ -166,10 +166,6 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     );
   });
 
-  it("derives the pane id-mint seed from the highest persisted id", () => {
-    expect(restored.nextAgentSeq).toBe(8); // pane-7 + 1
-  });
-
   it("never persists the dock state — every launch starts closed", () => {
     const json = serializeDeck(state);
     expect(json).not.toContain("dockByWs");
@@ -884,21 +880,6 @@ describe("hydrateDeck — tolerated degradations", () => {
       }),
     );
     expect(stale.state.viewByWs).toEqual({});
-  });
-
-  it("seeds the pane mint at 1 when no ids match the minted format", () => {
-    const custom = okDeck(
-      JSON.stringify({
-        version: 1,
-        activeId: "",
-        focusByWs: {},
-        selectByWs: {},
-        workspaces: [
-          { id: "imported", name: "x", cwd: "/x", worktreeBaseDir: null, panes: [] },
-        ],
-      }),
-    );
-    expect(custom.nextAgentSeq).toBe(1);
   });
 });
 

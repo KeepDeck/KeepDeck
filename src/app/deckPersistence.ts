@@ -9,7 +9,6 @@ import {
 } from "../ipc/state";
 import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
-import { seedAgentSeq } from "./ids";
 import { initSettings } from "./settingsManager";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -202,7 +201,6 @@ export function createDeckPersistence(
           },
         );
       }
-      seedAgentSeq(result.deck.nextAgentSeq);
       docExtras = result.deck.docExtras;
       actions.hydrate(result.deck.state);
       if (result.deck.notices.length > 0) {
