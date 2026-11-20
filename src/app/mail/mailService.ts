@@ -323,11 +323,10 @@ export function createMailService(deps: MailServiceDeps): MailService {
   const presence = startPresence();
   learnLiveVersions();
 
-  // Swept on every deck change rather than at close: a pane can also leave by
-  // a workspace closing, and one sweep covers both.
+  // What a closed pane's mail was is the lifecycle's to forget, by command
+  // to the mail's owner. Only this service's own view follows the deck.
   const unsubscribePanes = deps.deck.subscribe(() => {
     const live = livePaneIds();
-    manager.retain(live);
     for (const paneId of [...touchedSinceRing]) {
       if (!live.has(paneId)) touchedSinceRing.delete(paneId);
     }

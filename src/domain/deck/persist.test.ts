@@ -7,7 +7,6 @@ import { paneExecutionCwd, paneProvisioning } from "./roots";
 import type { Team } from "./teams";
 import {
   DECK_STATE_VERSION,
-  PROVISIONING_INTERRUPTED,
   deckImmediateKey,
   hydrateDeck,
   serializeDeck,
@@ -415,8 +414,7 @@ describe("team membership across a restart", () => {
 
   it("keeps a team's directory, or the create heading for one, across a restart", () => {
     // The directory is what a team is FOR. A create still in flight comes
-    // back as the failed card, like a pane's: the app quit mid-create, and
-    // the intent powers Retry.
+    // back as it was: the lifecycle machine settles it at boot.
     const intent = { repo: "/r", path: "/r/.wt/kd-3", branch: "kd/3", index: 3 };
     const json = serializeDeck({
       ...teamState,
@@ -439,7 +437,7 @@ describe("team membership across a restart", () => {
     expect(restored.teams?.map((team) => team.location)).toEqual([
       { kind: "attached", cwd: "/r/.wt/kd-1", branch: "kd/1" },
       { kind: "attached", cwd: "/r" },
-      { kind: "provisioning", intent, error: PROVISIONING_INTERRUPTED },
+      { kind: "provisioning", intent },
     ]);
     expect(serializeDeck(okDeck(json).state)).toBe(json);
   });
@@ -1052,31 +1050,19 @@ describe("provisioning panes across a restart", () => {
     return paneProvisioning(ws, ws.panes[0]);
   };
 
-  it("persists the intent, never the runtime error, and restores an interrupted failed card", () => {
+  it("persists the intent, never the runtime error, and restores a create in flight as it was", () => {
     const json = serializeDeck(provisioningState);
     expect(json).not.toContain("mid-create failure");
     const deck = okDeck(json);
     expect(teamCard(deck)).toEqual({
       kind: "provisioning",
-      // The picked base survives the restart, so Retry recreates the worktree
-      // from the same fork point instead of whatever HEAD moved to.
+      // The picked base survives the restart, so the machine's settling
+      // recreates the worktree from the same fork point.
       intent: { repo: "/repo", path: "/wt/deck-1", base: "develop", index: 1 },
-      error: PROVISIONING_INTERRUPTED,
     });
     // The member comes back like every restored pane; its team's card is
     // what holds the revive flow off a directory that may not exist.
     expect(deck.state.workspaces[0].panes[0].idle).toEqual({ reason: "waking", origin: "restore" });
-  });
-
-  it("an interrupted create outranks a stored suspend — the card must offer Retry", () => {
-    // A suspended member of a team whose create never finished: the card is
-    // the team's and outranks the pane's marker on every surface.
-    const doc = JSON.parse(serializeDeck(provisioningState));
-    doc.workspaces[0].panes[0].idle = {
-      reason: "suspended",
-      at: "2026-07-25T09:00:00.000Z",
-    };
-    expect(teamCard(okDeck(JSON.stringify(doc)))?.error).toBe(PROVISIONING_INTERRUPTED);
   });
 
   it("reads an intent an older build saved with the workspace name inside, and drops it on the next save", () => {
@@ -1094,10 +1080,10 @@ describe("provisioning panes across a restart", () => {
     expect(serializeDeck(deck.state)).not.toContain('"workspace":');
   });
 
-  it("drops a FORK provisioning card entirely — never restores it as a plain retryable pane", () => {
-    // A fork's surgery is an in-memory post-provision step that can't survive a
-    // restart; restoring the card would Retry into a NON-fork pane, silently
-    // losing the fork. So an in-flight fork card is not persisted — re-fork.
+  it("keeps a fork card in flight, team and member, for the machine to settle", () => {
+    // A fork in flight is in the lifecycle's journal, and the machine rolls
+    // it back at boot — its team and pane go by the machine's own deck
+    // commands. The deck keeps what it has until then.
     const forkState: DeckState = {
       ...provisioningState,
       workspaces: [
@@ -1118,45 +1104,10 @@ describe("provisioning panes across a restart", () => {
         },
       ],
     };
-    expect(serializeDeck(forkState)).not.toContain("fork-1");
+    expect(serializeDeck(forkState)).toContain("fork-1");
     const restored = okDeck(serializeDeck(forkState)).state.workspaces[0];
-    expect(restored.panes).toHaveLength(0);
-    expect(restored.teams ?? []).toHaveLength(0);
-  });
-
-  it("in a MIXED workspace, drops ONLY the fork card — normal panes survive", () => {
-    const mixed: DeckState = {
-      ...provisioningState,
-      workspaces: [
-        {
-          ...provisioningState.workspaces[0],
-          teams: [
-            { id: "team-1", name: "root", location: { kind: "attached", cwd: "/repo" } },
-            {
-              id: "team-2",
-              name: "fork",
-              location: {
-                kind: "provisioning",
-                intent: { repo: "/repo", path: "/wt/f2", branch: "fork/y", index: 2 },
-                fork: true,
-              },
-            },
-          ],
-          panes: [
-            { id: "pane-1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
-            { id: "pane-2", agentType: "opencode", team: { teamId: "team-2", role: "lead" } },
-          ],
-        },
-      ],
-    };
-    const restored = okDeck(serializeDeck(mixed)).state.workspaces[0];
-    const panes = restored.panes;
-    expect(panes.map((p) => p.id)).toEqual(["pane-1"]); // only the fork card's member is gone
+    expect(restored.panes.map((pane) => pane.id)).toEqual(["pane-1"]);
     expect(restored.teams?.map((team) => team.id)).toEqual(["team-1"]);
-    expect(panes[0]).toMatchObject({
-      agentType: "claude",
-      team: { teamId: "team-1", role: "lead" },
-    });
   });
 
   it("a RESOLVED fork team (no provisioning) persists normally — the filter isn't over-broad", () => {

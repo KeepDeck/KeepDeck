@@ -35,7 +35,6 @@ function setup() {
   const settingsListeners = new Set<() => void>();
   const socketListeners = new Set<() => void>();
   let workspaces = teamedWorkspaces();
-  const deckListeners = new Set<() => void>();
   /** Enable/disable calls, each waiting on its own gate, in order. */
   const calls: { kind: "enable" | "disable"; gate: ReturnType<typeof gate>; settled: boolean }[] = [];
   const registry = createCommandRegistry();
@@ -45,10 +44,6 @@ function setup() {
   const feature = createTasksFeature({
     registry,
     workspaces: () => workspaces,
-    subscribeWorkspaces: (l) => {
-      deckListeners.add(l);
-      return () => deckListeners.delete(l);
-    },
     settings: {
       tasks: () => tasks,
       subscribe: (l) => {
@@ -126,10 +121,10 @@ function setup() {
       for (const l of [...settingsListeners]) l();
       await flush();
     },
-    /** The deck changes: `edit` rewrites the workspaces, listeners hear it. */
+    /** The deck changes: `edit` rewrites the workspaces. Nothing listens —
+     * what a change forgets, the lifecycle commands. */
     changeDeck(edit: (current: typeof workspaces) => typeof workspaces) {
       workspaces = edit(workspaces);
-      for (const l of [...deckListeners]) l();
     },
     setSocket(next: boolean) {
       socket = next;
@@ -164,7 +159,7 @@ describe("createTasksFeature", () => {
     expect(h.registry.has("task.create")).toBe(true);
   });
 
-  it("a disbanded team takes its tasks with it: the deck change prunes the board and writes it", async () => {
+  it("a disbanded team's tasks go when the lifecycle asks: the board is held to the deck's teams and written", async () => {
     const h = setup();
     await h.setTasks(true);
     await h.settleNext();
@@ -180,6 +175,12 @@ describe("createTasksFeature", () => {
           : { ...w, panes: w.panes.filter((p) => p.team?.teamId !== "team-2"), teams: present(w.teams, "the workspace teams").filter((t) => t.id !== "team-2") },
       ),
     );
+    await flush();
+    // The deck changing alone touches no board.
+    const before = service.peek("ws-1");
+    expect(before?.kind === "ready" && before.board.tasks.map((t) => t.title)).toEqual(["api's", "web's"]);
+    // The lifecycle's DeleteTeamTasks reaches the owner.
+    service.retainTeams();
     await flush();
     const state = service.peek("ws-1");
     expect(state?.kind === "ready" && state.board.tasks.map((t) => t.title)).toEqual(["api's"]);
