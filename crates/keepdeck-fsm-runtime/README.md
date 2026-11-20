@@ -39,7 +39,9 @@ machine.state()           the stream of states: At { version, value }
 - One machine per feature. Handles are cheap to clone. Whoever owns the
   feature's lifetime owns a handle, and dropping the last one is the stop:
   the machine still handles what was sent before, then ends, and its state
-  stream and timers end with it. A send that races that drop may still get in.
+  stream and timers end with it. An `Events::send` in the middle of its call
+  holds the mailbox open until it returns, so sends that overlap the drop may
+  still get in and stretch that drain.
 
 ## The handler
 

@@ -18,7 +18,8 @@ pub trait Effects<F, E>: Send + 'static {
 /// The way back into the machine, for the handler and the work it starts.
 ///
 /// It does not keep the machine alive: when the last [`Runtime`] handle is
-/// dropped, the machine ends even while its work still runs.
+/// dropped, the machine ends even while its work still runs. Only a `send`
+/// in the middle of its call holds the mailbox open, for that call.
 pub struct Events<E>(mpsc::WeakUnboundedSender<Mail<E>>);
 
 impl<E> Clone for Events<E> {
@@ -84,8 +85,9 @@ enum Live {
 ///
 /// Handles are cheap to clone. Dropping the last one is the stop: the
 /// machine still handles what was sent before, then ends, and with it the
-/// stream of its states and its timers. A send that races that drop may
-/// still get in.
+/// stream of its states and its timers. An [`Events::send`] in the middle of
+/// its call holds the mailbox open until it returns, so sends that overlap
+/// the drop may still get in and stretch that drain.
 pub struct Runtime<S, E> {
     mailbox: mpsc::UnboundedSender<Mail<E>>,
     state: watch::Receiver<At<S>>,
