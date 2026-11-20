@@ -48,7 +48,25 @@ import { registerArtifactCommands } from "./artifacts/artifactCommands";
 import { artifactChanges } from "./artifacts/changes";
 import { artifactsEnableStatus } from "./artifacts/enableStatus";
 import { announceArtifact } from "./artifacts/producers";
-import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
+import { artifactsDisable, artifactsEnable } from "../ipc/artifacts";
+import {
+  askLease,
+  bootHandshake,
+  onLifecycleRestarted,
+  releaseLease,
+  reportApplied,
+  reportDeckSaved,
+  reportHookEnded,
+  sendIntent,
+  subscribeLifecycle,
+} from "../ipc/lifecycle";
+import { createLifecycleSnapshot } from "./lifecycleSnapshot";
+import { connectLifecycle } from "./lifecycle/connection";
+import { createDeckCommands } from "./lifecycle/deckCommands";
+import { createBoardsOwner } from "./lifecycle/boards";
+import { createMailOwner } from "./lifecycle/mail";
+import { createNoticesOwner } from "./lifecycle/notices";
+import { VIEW_ONLY_NOTICE } from "../presentation/lifecycleWords";
 import { createTasksFeature } from "./tasks/tasksFeature";
 import { tasksEnableStatus } from "./tasks/enableStatus";
 import { announceTask } from "./tasks/producers";
@@ -112,9 +130,8 @@ import { stagingTrims } from "./stagingTrims";
 import { createCwdArming } from "./cwdArming";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
-import { createWorktreeManager, deckViewOf } from "./worktrees";
+import { deckViewOf } from "./worktrees";
 import { createSkillsStaging, createWorktreePlantings } from "./worktreePlantings";
-import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
 import type {
@@ -173,11 +190,19 @@ export function createAppRuntime(
   // What the migration ladder did to the deck file is said once, here, on
   // the launch that did it — a team dissolved is not something to find out
   // from an empty badge.
-  const deckPersistence = createDeckPersistence(deckStore, (notices) => {
-    for (const body of notices) {
-      notify({ title: "Deck migrated", body, source: { type: "app" } });
-    }
-  });
+  const deckPersistence = createDeckPersistence(
+    deckStore,
+    (notices) => {
+      for (const body of notices) {
+        notify({ title: "Deck migrated", body, source: { type: "app" } });
+      }
+    },
+    // A deck command is durable only once a saved deck at or past its
+    // revision is on disk: the machine hears every save.
+    (revision) => {
+      void reportDeckSaved(revision).catch((e: unknown) => log.warn("web:lifecycle", `reporting a saved deck failed: ${String(e)}`));
+    },
+  );
   // The MCP feature: the transport service and the user's library, wired to
   // each other once behind one door.
   const mcp = createMcp({
@@ -264,7 +289,6 @@ export function createAppRuntime(
   const tasks = createTasksFeature({
     registry,
     workspaces: () => deckStore.getSnapshot().workspaces,
-    subscribeWorkspaces: deckStore.subscribe,
     settings: { tasks: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
     socket: { up: () => mcp.service.status().socket !== null, subscribe: mcp.service.subscribe },
     store: createDbBoardStore({
@@ -420,15 +444,29 @@ export function createAppRuntime(
   // A standing condition, not an event: republished on every pass, so the
   // list ends the moment the user's own file moves out of the way.
   const windowReportJournal = createAppWindowReportJournal(usageManager);
-  const worktrees = createWorktreeManager(
-    deckViewOf(() => deckStore.getSnapshot().workspaces),
-    (deck, inOrder) =>
-      createWorktreePlantings(deck, inOrder, {
-        skills: (queue, view) => createSkillsStaging(queue, view, stagingTrims),
-        prunePluginDirs: plugins.workspaceDirs.prune,
-        onDisarmed: armRefusals.forget,
-      }),
+  const worktrees = createWorktreePlantings(
+    createSkillsStaging(deckViewOf(() => deckStore.getSnapshot().workspaces), stagingTrims),
   );
+  /** The bindings the binding lane accepts, for the run-state owner — the
+   * lane is built at start, after the owner. */
+  const bindingListeners = new Set<(bound: { paneId: string }) => void>();
+  // The machine's snapshot, and the owners its commands are carried by. The
+  // launch-state and fork-step owners are the orchestrator's, built below;
+  // a command is carried only after this runtime is whole.
+  const lifecycleSnapshot = createLifecycleSnapshot({
+    owners: {
+      deck: createDeckCommands(deckStore, deckActions),
+      boards: createBoardsOwner({ forgetWorkspace: tasks.forgetWorkspace, retainTeams: tasks.retainTeams }),
+      mail: createMailOwner({
+        forget: (paneIds) => mail.current()?.forget(paneIds),
+        retain: (liveIds) => mail.current()?.retain(liveIds),
+      }),
+      notices: createNoticesOwner({ notify }),
+      runState: { carry: (due) => orchestrator.runState.runState.carry(due) },
+      forkStep: { carry: (due) => orchestrator.runState.forkStep.carry(due) },
+    },
+    answer: reportApplied,
+  });
   // The library takes only the staleness half of the worktree manager: a write
   // has to drop the staged views the next pane spawn would inject.
   const skills = createSkillsLibrary({
@@ -446,10 +484,6 @@ export function createAppRuntime(
       parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
       subscribe: subscribeSettings,
     },
-    suspendPolicy: {
-      moveToTray: () =>
-        getSettings()?.suspendedAgentPlacement === "tray",
-    },
     sessions: {
       subscribe: subscribeSessions,
       state: paneSessionState,
@@ -459,19 +493,46 @@ export function createAppRuntime(
     },
     plugins: spawnPlugins,
     probe: probeWorktree,
-    worktrees,
+    skills: worktrees,
     mcpAccess: (target) => mcp.service.access(target),
-    armCwd: createCwdArming({ worktrees, refusals: armRefusals }),
+    armCwd: createCwdArming({ worktrees, refusals: armRefusals, lease: askLease, release: releaseLease }),
     lifecycle,
     transcripts: sessionIndex,
-    // Workspace deletion forgets what the backend keeps per workspace — its
-    // artifact store, its MCP library scope — the deck model being the only
-    // knower of the live workspace set.
-    workspaceForgetters: [
-      artifactDropWorkspace,
-      tasks.forgetWorkspace,
-      mcp.forgetWorkspace,
-    ],
+    bindings: {
+      subscribe(listener) {
+        bindingListeners.add(listener);
+        return () => bindingListeners.delete(listener);
+      },
+    },
+    machine: {
+      send: sendIntent,
+      lease: askLease,
+      release: releaseLease,
+      snapshot: lifecycleSnapshot.current,
+      subscribe: lifecycleSnapshot.subscribe,
+      hookEnded: (op) => {
+        void reportHookEnded(op).catch((e: unknown) => log.warn("web:lifecycle", `reporting a fork hook's end failed: ${String(e)}`));
+      },
+    },
+  });
+  // The page's connection to the machine: subscribe, then — once the deck
+  // has loaded — the handshake that lowers the barrier.
+  const lifecycleConnection = connectLifecycle({
+    ports: { subscribe: subscribeLifecycle, onRestarted: onLifecycleRestarted, handshake: bootHandshake },
+    snapshot: lifecycleSnapshot,
+    loaded: () => {
+      const load = deckPersistence.getSnapshot().load;
+      return load === null ? null : { workspaces: deckStore.getSnapshot().workspaces, load };
+    },
+    subscribeLoaded: deckPersistence.subscribe,
+    warn: (message) => log.warn("web:lifecycle", message),
+  });
+  // A second KeepDeck on this settings folder only shows: said once.
+  let viewOnlySaid = false;
+  const stopViewOnly = lifecycleSnapshot.subscribe(() => {
+    if (viewOnlySaid || lifecycleSnapshot.current()?.viewOnly !== true) return;
+    viewOnlySaid = true;
+    notify({ ...VIEW_ONLY_NOTICE, severity: "warning", source: { type: "app" } });
   });
   const application = createApplicationController({
     registry,
@@ -484,11 +545,6 @@ export function createAppRuntime(
     mcpLibrary: mcp.library,
     activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
   });
-  const worktreeSweeper = createWorktreeSweeper(
-    deckStore,
-    deckPersistence,
-    worktrees,
-  );
   const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
   const logger: HostLoggerPort = log;
   const clipboard: ClipboardPort = { writeText, readText, readImageTempPath };
@@ -553,6 +609,10 @@ export function createAppRuntime(
         // not per agent: the accepted binding does not carry one, and a
         // needless extra sweep is the cheap side of this trade.
         sessionBinding.subscribe(() => sessionIndex.invalidate());
+        // The run-state owner waits on a continued pane's binding.
+        sessionBinding.subscribe((bound) => {
+          for (const listener of [...bindingListeners]) listener(bound);
+        });
       }
       const bindings = sessionBinding;
       usageChannel ??= createUsageChannel(
@@ -647,7 +707,8 @@ export function createAppRuntime(
       companionDeclines?.dispose();
       paneUnbinds?.dispose();
       pluginDeckBridge.dispose();
-      worktreeSweeper.dispose();
+      stopViewOnly();
+      lifecycleConnection.dispose();
       mail.dispose();
       disposeArtifactCommands?.();
       for (const stop of stopArtifactWiring) stop();

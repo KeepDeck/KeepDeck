@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DownloadBackend } from "./downloadManager";
 import { createCommandRegistry } from "../domain/commands";
 import { serializeDeck } from "../domain/deck";
@@ -109,6 +109,11 @@ const removePane2: Versioned = {
 };
 
 describe("the runtime and the lifecycle machine", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    machine.order.length = 0;
+  });
+
   it("registers the subscription before the handshake, and hands the machine the deck as it loaded", async () => {
     disk.loadDeckState.mockResolvedValueOnce(STORED);
     const runtime = createAppRuntime(backend(), createCommandRegistry());
