@@ -1072,6 +1072,34 @@ fn an_open_fork_at_boot_is_rolled_back_by_both_discard_lists() {
 }
 
 #[test]
+fn a_quarantined_deck_removes_nothing_a_restored_operation_owes_and_keeps_its_entry() {
+    let fork = Entry {
+        op: OpId(6),
+        workspace: ws(),
+        work: Work::Fork {
+            pane: PaneId(1),
+            source: SessionKey { agent: "claude".into(), session: "s".into() },
+            team: None,
+            ticket: None,
+            discard: Some(Discard { plugin: "claude".into(), once_started: vec!["/c/scratch".into()], if_never_started: vec!["/c/copy".into()] }),
+        },
+        joined: vec![],
+        commands: vec![],
+        done: vec![],
+    };
+    let mut sim = Sim::new(Some(vec![fork]));
+    let ask = sim.next_ask();
+    sim.send(Event::Handshake { ask, deck: deck(), load: Load::Quarantined });
+    for _ in 0..6 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+        assert!(!sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { .. })), "no removal: {:?}", sim.owed());
+    }
+    assert!(sim.disk.contains_key(&OpId(6)), "the debt stays in the journal for a launch that reads the deck whole");
+}
+
+#[test]
 fn a_creation_entry_whose_team_never_reached_the_deck_takes_back_its_checkout() {
     let entry = Entry {
         op: OpId(3),

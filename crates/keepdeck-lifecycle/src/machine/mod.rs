@@ -21,7 +21,7 @@ use crate::ids::{AskId, AttemptId, CommandId, Counter, OpId, PaneId, PermitId, S
 use crate::journal::{Entry, Step, Ticket};
 use crate::model::{Answer, Intent, Refusal};
 use crate::world::{DeckFacts, World};
-use keepdeck_fsm::{stay, to, Next, Owed};
+use keepdeck_fsm::{stay, to, Next, Owed, Work as Owe};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -612,7 +612,23 @@ pub fn work(state: &State) -> Owed<Effect, Event> {
             Kind::CreateWorkspace | Kind::Seat(_) | Kind::Relocate(_) | Kind::Restore | Kind::Resume { .. } => owed,
         };
     }
-    launch::work(state, owed)
+    removals_only_once_loaded(state, launch::work(state, owed))
+}
+
+/// Removals — checkouts, branches, plantings, stores, a fork's scaffolding —
+/// run only in a launch whose deck loaded for work. A quarantined deck is
+/// not that deck: an operation restored from the journal, or begun now,
+/// keeps its removal owed, and its entry with it, for a launch that reads
+/// the deck whole. One gate, here where work is published, for every kind.
+fn removals_only_once_loaded(state: &State, owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
+    if state.boot.cleans() {
+        return owed;
+    }
+    owed.into_iter().fold(Owed::nothing(), |kept, work| match work {
+        Owe::Run(Effect::Clean { .. }) => kept,
+        Owe::Run(effect) => kept.run(effect),
+        Owe::After(delay, event) => kept.after(delay, event),
+    })
 }
 
 #[cfg(test)]
