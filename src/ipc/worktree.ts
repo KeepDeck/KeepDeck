@@ -10,58 +10,10 @@ export interface RepoInfo {
   branch: string | null;
 }
 
-/** Mirrors the Rust `WorktreeRecord`: what the create made. It carries no
- * owner id — the caller asked under one and files the answer under it; the
- * wire has no second copy to disagree with. */
-export interface WorktreeRecord {
-  path: string;
-  branch: string;
-}
-
-/** Mirrors the Rust `WorktreeSuggestion`. */
-export interface WorktreeSuggestion {
-  branch: string;
-  folder: string;
-}
-
-/** Args for `worktree_create` (mirrors the Rust `CreateSpec`). */
-export interface CreateWorktreeArgs {
-  repo: string;
-  /** Who the worktree is created FOR — the team's id. Rust only logs it;
-   * the record comes back without it. */
-  ownerId: string;
-  /** Explicit branch; auto-generated (`kd/<ws>/<n>`) when omitted/blank. */
-  branch?: string | null;
-  /** Base commit/rev — a branch NAME is fine: Rust pins its current commit and
-   *  retains a directly-selected local branch as worktree-private base
-   *  identity. That identity drives dynamic fork resolution after rebases; the
-   *  SHA also keeps close-time branch provenance trustworthy. */
-  base?: string | null;
-  /** Local branch identity paired with an already-pinned `base` SHA. A caller
-   * that pins the commit itself supplies both; omit when `base` names the
-   * branch. */
-  baseBranch?: string | null;
-  workspace?: string;
-  index?: number;
-  /** The worktree's exact path ([F2]) — the only placement there is. Created AT
-   *  it verbatim, with no collision suffix; picking a free one is the caller's
-   *  job. */
-  path: string;
-}
-
 /** Is `path` inside a git repo? plus its HEAD/branch. Never throws for a
  *  non-repo — it simply reports `isRepo: false`. */
 export function inspectRepo(path: string): Promise<RepoInfo> {
   return invoke<RepoInfo>("worktree_inspect", { path });
-}
-
-/** Default branch + folder for the index-th agent of a worktree-mode workspace
- *  (the single source of branch/folder naming, shared with the dialog). */
-export function suggestWorktree(
-  workspace: string,
-  index: number,
-): Promise<WorktreeSuggestion> {
-  return invoke<WorktreeSuggestion>("worktree_suggest", { workspace, index });
 }
 
 /** Probe a candidate worktree path (exists? a worktree? which branch?) to drive
@@ -83,52 +35,6 @@ export function listBranches(repo: string): Promise<string[]> {
 /** Every checkout of `repo`, with the uncommitted work each holds. */
 export function listWorktrees(repo: string): Promise<RepoCheckout[]> {
   return invoke<RepoCheckout[]>("worktree_list", { repo });
-}
-
-/** Keep the commit the checkout at `path` stands on as `refs/tags/<name>`;
- * refused when the name is taken. Answers the full ref. */
-export function saveWorktreeHead(repo: string, path: string, name: string): Promise<string> {
-  return invoke<string>("worktree_save_head", { repo, path, name });
-}
-
-/** Provision one team's git worktree; returns its path + branch. */
-export function createWorktree(spec: CreateWorktreeArgs): Promise<WorktreeRecord> {
-  return invoke<WorktreeRecord>("worktree_create", { spec });
-}
-
-/** Options for {@link removeWorktree}. */
-export interface RemoveWorktreeOptions {
-  /** Remove the tree even with uncommitted work in it. Refuses a dirty worktree
-   *  when false, so work is never destroyed without this consent. */
-  discardDirty?: boolean;
-  /** Delete the branches with `-D`, dropping commits no other branch holds —
-   *  a consent of its own; when false the safe `-d` refuses them. */
-  discardUnmerged?: boolean;
-  /** Also delete this branch once the worktree is gone; left intact when unset. */
-  branch?: string | null;
-  /** Also delete every branch CREATED inside the worktree (reflog provenance,
-   *  resolved on the Rust side): the agent's side branches go with it. A created
-   *  branch since checked out in another worktree is in use and is kept. */
-  reapCreatedBranches?: boolean;
-}
-
-/** Remove an agent's worktree, and — when `branch` is given — delete that branch
- *  too (it can only be deleted after its worktree is removed). */
-export function removeWorktree(
-  repo: string,
-  path: string,
-  opts: RemoveWorktreeOptions = {},
-): Promise<void> {
-  return invoke("worktree_remove", {
-    spec: {
-      repo,
-      path,
-      discardDirty: opts.discardDirty ?? false,
-      discardUnmerged: opts.discardUnmerged ?? false,
-      branch: opts.branch ?? null,
-      reapCreatedBranches: opts.reapCreatedBranches ?? false,
-    },
-  });
 }
 
 /**

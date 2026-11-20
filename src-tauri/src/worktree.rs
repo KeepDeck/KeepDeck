@@ -1,23 +1,19 @@
 //! Worktree delivery layer: bridges the `keepdeck-git` domain crate to the
-//! webview over Tauri IPC.
+//! app. Clean-architecture boundary — this adapter depends on `keepdeck-git`,
+//! never the reverse.
 //!
-//! Clean-architecture boundary — this adapter depends on `keepdeck-git`, never
-//! the reverse. It exposes the `worktree_*` commands the UI calls to provision
-//! and tear down each agent's git worktree, and owns a [`RepoLocks`] map (Tauri
-//! managed state) that serializes `git worktree add` per repository, since
-//! concurrent adds race on the shared `.git` locks.
-//!
-//! Orchestration of WHEN to create/remove (the spawn/close flow) lives in the
-//! frontend, which holds each agent's `worktreePath`/`branch`; these commands
-//! are the stateless primitives it drives.
+//! Two kinds of callers. The webview reads through the `worktree_*` query
+//! commands (probe, inspect, list, branches). The lifecycle machine's git
+//! doors create and remove worktrees and branches, each one step of an
+//! operation it journaled. WHEN to create or remove is the machine's alone.
+//! Every write takes the repository's lock ([`RepoLocks`], Tauri managed
+//! state), since concurrent git writes race on the shared `.git` locks.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use keepdeck_git::{branch, provenance, repo, worktree, worktree_base};
-use serde::{Deserialize, Serialize};
-use tauri::State;
+use serde::Serialize;
 
 /// Per-repository locks that serialize `git worktree add`. Tauri managed state.
 ///
@@ -71,128 +67,6 @@ pub struct RepoInfo {
     pub head: Option<String>,
     /// The current branch, or `None` if detached / not a repo.
     pub branch: Option<String>,
-}
-
-/// Request to create one team's worktree.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateSpec {
-    /// The repository (the workspace's working directory).
-    pub repo: String,
-    /// Who the worktree is created FOR — the team's id. Logged, never
-    /// stored: the caller asked under it and files the answer under it.
-    pub owner_id: String,
-    /// Explicit branch name to create; auto-generated when absent/blank.
-    pub branch: Option<String>,
-    /// Base commit/rev; ALWAYS resolved to a commit sha at create time
-    /// (defaults to `HEAD`), while a directly-selected local branch is also
-    /// retained as worktree-private base identity. The SHA pins the batch and
-    /// keeps branch-creation provenance trustworthy.
-    pub base: Option<String>,
-    /// Local branch identity corresponding to a separately pinned `base` SHA.
-    /// A caller that pins the commit itself supplies both, so the worktree
-    /// starts at that exact commit while history can still follow the branch
-    /// after a rebase.
-    pub base_branch: Option<String>,
-    /// Workspace name, used only for the auto branch name.
-    #[serde(default)]
-    pub workspace: String,
-    /// Agent index within the workspace, used only for the auto branch name.
-    #[serde(default)]
-    pub index: u64,
-    /// The worktree's exact path ([F2]) — the only placement there is. The
-    /// worktree is created AT it verbatim: its parent is created, git accepts a
-    /// non-existent or existing-empty dir, and there is NO collision suffix.
-    /// Picking a free path is the caller's job, done before it asks (the
-    /// "+ Agent" dialog's accepted suggestion, or a fork's target).
-    pub path: String,
-}
-
-/// The created worktree, returned to the UI to store on the team: the
-/// directory and the branch actually used. No owner id rides back — the
-/// UI keyed the request and files the answer under that key, so the wire
-/// carries no second copy to disagree with.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeRecord {
-    pub path: String,
-    pub branch: String,
-}
-
-/// Request to remove an agent's worktree.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoveSpec {
-    pub repo: String,
-    pub path: String,
-    /// Remove the tree even when it holds uncommitted work — and finish a
-    /// deletion git abandoned midway (its leftover may still hold every file).
-    /// Off by default: a dirty worktree is kept, work is never destroyed
-    /// without this explicit consent.
-    #[serde(default)]
-    pub discard_dirty: bool,
-    /// Delete the branches with `-D`, dropping commits no other branch holds,
-    /// instead of the safe `-d`, which refuses them. A consent of its own,
-    /// apart from `discard_dirty`: losing uncommitted files and losing
-    /// committed work are two different things to agree to.
-    #[serde(default)]
-    pub discard_unmerged: bool,
-    /// When set (and non-blank), also delete this branch after the worktree is
-    /// removed; otherwise the branch is left intact. Used by "delete worktree +
-    /// branch on close" — the branch can't be deleted while its worktree
-    /// exists, so it happens here, after the removal, under the same per-repo
-    /// lock.
-    #[serde(default)]
-    pub branch: Option<String>,
-    /// Also delete every branch CREATED inside this worktree (reflog
-    /// provenance — see `keepdeck_git::provenance`): the close dialog's delete
-    /// intent covers the agent's side branches, not just the tracked one. A
-    /// created branch that meanwhile moved to another worktree is in use, not
-    /// litter, and is kept. Without `discard_unmerged` every unmerged side
-    /// branch is a safe `-d` refusal, reported.
-    #[serde(default)]
-    pub reap_created_branches: bool,
-}
-
-/// Pick the branch to create: an explicit non-blank name (sanitized per
-/// component), else the auto `kd/<workspace>/<index>` default. Pure, unit-tested.
-fn choose_branch(explicit: Option<&str>, workspace: &str, index: u64) -> String {
-    match explicit.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(name) => branch::sanitize_branch(name),
-        None => branch::default_branch(branch::DEFAULT_BRANCH_PREFIX, workspace, index as usize),
-    }
-}
-
-/// First of `wanted`, `wanted-2`, `wanted-3`, … that names no existing branch
-/// in the repo. Worktrees — and their branches — deliberately survive pane
-/// closes, so an exact-path create steps over leftovers instead of failing on
-/// `git worktree add -b` (the batch flow suffixes the same way, jointly with
-/// its dir).
-fn free_branch(repo_path: &Path, wanted: &str) -> Result<String, String> {
-    for n in 1..=branch::WORKTREE_SUFFIX_MAX {
-        let candidate = branch::suffixed_name(wanted, n);
-        if !repo::branch_exists(repo_path, &candidate).map_err(|e| e.to_string())? {
-            return Ok(candidate);
-        }
-    }
-    Err(format!("could not find a free branch derived from {wanted}"))
-}
-
-/// Suggested defaults for a new agent in worktree mode — the single source of
-/// the branch/folder naming, mirrored into the "+ Agent" dialog.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeSuggestion {
-    pub branch: String,
-    pub folder: String,
-}
-
-/// Default branch + folder for the `index`-th agent of `workspace`.
-#[tauri::command]
-pub fn worktree_suggest(workspace: String, index: u64) -> WorktreeSuggestion {
-    let branch = branch::default_branch(branch::DEFAULT_BRANCH_PREFIX, &workspace, index as usize);
-    let folder = branch.replace('/', "-");
-    WorktreeSuggestion { branch, folder }
 }
 
 /// What the UI learns about a candidate worktree PATH typed in the "+ Agent"
@@ -329,12 +203,6 @@ fn list_worktrees(repo: &Path) -> Result<Vec<ListedWorktree>, String> {
 /// Keep the commit a checkout stands on as `refs/tags/<name>` — asked before
 /// a detached checkout is removed, so the commits only it holds are not left
 /// for git to collect. Refuses a name already taken rather than moving it.
-#[tauri::command(async)]
-pub fn worktree_save_head(repo: String, path: String, name: String) -> Result<String, String> {
-    save_head(Path::new(&repo), Path::new(&path), &name)
-}
-
-/// [`worktree_save_head`] body.
 fn save_head(repo: &Path, path: &Path, name: &str) -> Result<String, String> {
     let rows = worktree::list(repo).map_err(|e| e.to_string())?;
     let head = rows
@@ -380,74 +248,6 @@ pub fn worktree_inspect(path: String) -> RepoInfo {
         head: repo::resolve_commit(path, "HEAD").ok(),
         branch: repo::current_branch(path).ok().flatten(),
     }
-}
-
-/// Create an agent's worktree at `path`, on a new branch, at the pinned base
-/// commit. Serialized per repo. Returns the path + branch to store.
-///
-/// Runs on the blocking pool: `git worktree add` checks out a full working
-/// tree, and a non-async command would occupy the main thread for the
-/// duration — stalling every other IPC call (keystrokes, PTY output, menus).
-#[tauri::command]
-pub async fn worktree_create(
-    locks: State<'_, RepoLocks>,
-    spec: CreateSpec,
-) -> Result<WorktreeRecord, String> {
-    let locks = locks.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || create_worktree(&locks, spec))
-        .await
-        .map_err(|e| format!("worktree create task failed: {e}"))?
-}
-
-/// [`worktree_create`] body, decoupled from Tauri state for testability.
-fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord, String> {
-    let repo_path = PathBuf::from(&spec.repo);
-    if !repo::is_git_repo(&repo_path) {
-        return Err(format!("not a git repository: {}", spec.repo));
-    }
-    // Asked before the repo lock: a create with nowhere to go should not queue
-    // behind everyone else's worktrees to say so.
-    let target = PathBuf::from(spec.path.trim());
-    if target.as_os_str().is_empty() {
-        return Err("worktree create needs a path".to_string());
-    }
-
-    let (base, base_branch_ref) = resolve_base(&repo_path, spec.base.as_deref(), spec.base_branch.as_deref())?;
-
-    let chosen_branch = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
-
-    let lock = locks.for_repo(&repo_path);
-    let _guard = locks.acquire(&lock);
-
-    // [F2] The worktree is created AT the caller's path verbatim, with NO path
-    // collision suffix — the path is the caller's decision (the "+ Agent"
-    // dialog's accepted suggestion, or a fork's target), and git accepts a
-    // non-existent or existing-empty dir; a non-empty one surfaces as an error
-    // the dialog shows. The BRANCH does step over leftovers: closed panes keep
-    // their branches by design, so a colliding suggestion must not fail the
-    // create — the record carries the branch actually used.
-    let branch = free_branch(&repo_path, &chosen_branch)?;
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create worktree parent dir: {e}"))?;
-    }
-    add_worktree_with_base(
-        &repo_path,
-        &target,
-        &branch,
-        &base,
-        base_branch_ref.as_deref(),
-    )?;
-
-    log::info!(
-        "worktree created for {} at {}",
-        spec.owner_id,
-        target.display()
-    );
-    Ok(WorktreeRecord {
-        path: target.to_string_lossy().into_owned(),
-        branch,
-    })
 }
 
 /// The commit a new worktree starts at, and the local branch it was picked
@@ -538,7 +338,7 @@ pub(crate) fn born_branches(locks: &RepoLocks, repo_path: &Path, path: &Path) ->
 pub(crate) fn remove_planned_checkout(locks: &RepoLocks, repo_path: &Path, path: &Path) -> Result<(), String> {
     let lock = locks.for_repo(repo_path);
     let _guard = locks.acquire(&lock);
-    match remove_checkout(repo_path, path, true)? {
+    match remove_checkout(repo_path, path)? {
         None => Ok(()),
         Some(leftover) => Err(leftover),
     }
@@ -554,7 +354,7 @@ pub(crate) fn remove_planned_branch(locks: &RepoLocks, repo_path: &Path, name: &
         log::warn!("worktree: branch '{name}' is checked out in another worktree of {}; keeping it", repo_path.display());
         return Ok(());
     }
-    delete_branch_if_present(repo_path, name, true)
+    delete_branch_if_present(repo_path, name)
 }
 
 /// Keep a checkout's HEAD as a tag before it goes; a name in use is refused.
@@ -617,118 +417,36 @@ fn add_worktree_with_base(
     Ok(())
 }
 
-/// Remove an agent's worktree, and — when `spec.branch` is set — delete that
-/// branch too. Without `discard_dirty`, refuses a dirty worktree so work is
-/// never destroyed; without `discard_unmerged`, the branch delete uses the
-/// safe `-d`, which git refuses for unmerged commits.
+/// Remove the checkout at `path` and its registration, its uncommitted work
+/// included — the consent covers it. The caller holds the repository's lock.
+/// `Ok(Some(why))`: git deregistered the checkout but a leftover directory
+/// would not go; `Err`: git refused before touching anything, and the
+/// checkout is intact.
 ///
-/// Runs on the blocking pool like [`worktree_create`]: removing a worktree
-/// deletes the whole directory, which can take a while.
-#[tauri::command]
-pub async fn worktree_remove(locks: State<'_, RepoLocks>, spec: RemoveSpec) -> Result<(), String> {
-    let locks = locks.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || remove_worktree(&locks, spec))
-        .await
-        .map_err(|e| format!("worktree remove task failed: {e}"))?
-}
-
-/// [`worktree_remove`] body, decoupled from Tauri state for testability.
-///
-/// An externally-deleted worktree directory must never abort the removal:
-/// there is no work left to lose, and bailing out would leak the `.git`
-/// registration and the `kd/…` branch forever. So the dirty check only runs
-/// while the directory exists, and a failed `git worktree remove` on a gone
-/// directory falls through to `prune`, which is exactly the tool for that.
-///
-/// A removal git ABANDONED MIDWAY is treated the same way, and for the same
-/// reason: the registration and the branch are separate from the directory, so
-/// a directory that resisted must not strand them ([`husk_verdict`]). Only
-/// a git that refused before touching anything aborts the whole removal.
-fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
-    let repo_path = PathBuf::from(&spec.repo);
-    let path = PathBuf::from(&spec.path);
-
-    if !spec.discard_dirty && path.exists() && worktree::is_dirty(&path).map_err(|e| e.to_string())? {
-        return Err("worktree has uncommitted changes; not removing".to_string());
-    }
-
-    // Serialize with worktree_create on this repo: remove + prune + branch
-    // delete all take the shared .git locks, so a concurrent add would otherwise
-    // fail to lock or have its admin-state pruned mid-write.
-    let lock = locks.for_repo(&repo_path);
-    let _guard = locks.acquire(&lock);
-
-    // Branches born in this worktree are enumerated BEFORE the removal: the
-    // evidence is the worktree's private HEAD reflog, which `git worktree
-    // remove`/`prune` destroy with the administrative record. Provenance reads
-    // that record through the main repo, so an externally-deleted directory
-    // (the fallthrough case below) is still attributable here. A failed scan
-    // degrades to "reap nothing extra" — the close must not hinge on it.
-    let created = if spec.reap_created_branches {
-        match provenance::created_branches(&repo_path, &path) {
-            Ok(branches) => branches,
-            Err(e) => {
-                log::warn!(
-                    "worktree: created-branch scan failed in {}: {e}",
-                    path.display()
-                );
-                Vec::new()
-            }
-        }
-    } else {
-        Vec::new()
-    };
-
-    let leftover = remove_checkout(&repo_path, &path, spec.discard_dirty)?;
-    // Branch removal is separate: a branch can't be deleted while its worktree
-    // is checked out, so it only runs now that the worktree is gone.
-    let primary = spec
-        .branch
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let failures = reap_branches(&repo_path, primary, &created, spec.discard_unmerged);
-    let problems: Vec<String> = leftover.into_iter().chain(failures).collect();
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("\n"))
-    }
-}
-
-/// Remove the checkout at `path` and its registration — the step every
-/// removal takes, the old command's and the lifecycle's alike. The caller
-/// holds the repository's lock. `Ok(Some(why))`: git deregistered the
-/// checkout but its leftover directory stays; `Err`: git refused before
-/// touching anything, and the checkout is intact. A checkout already gone is
-/// removed.
-pub(crate) fn remove_checkout(repo_path: &Path, path: &Path, discard_dirty: bool) -> Result<Option<String>, String> {
+/// A checkout already gone must never abort: there is no work left to lose,
+/// and bailing out would leak the `.git` registration forever, so a failed
+/// `git worktree remove` on a gone directory falls through to `prune`. A
+/// removal git ABANDONED MIDWAY is finished the same way ([`husk_verdict`]):
+/// the registration is gone either way, so the leftover directory goes too.
+/// Only a git that refused before touching anything stops it.
+fn remove_checkout(repo_path: &Path, path: &Path) -> Result<Option<String>, String> {
     // Read BEFORE the removal: half the evidence [`husk_verdict`] needs to tell
     // a git that refused from a git that gave up midway.
     let registered = is_registered_worktree(repo_path, path);
 
     let mut leftover = None;
-    match worktree::remove(repo_path, path, discard_dirty) {
+    match worktree::remove(repo_path, path, true) {
         Ok(()) => {}
         // Git refuses to `remove` a worktree whose dir is already gone; only a
         // failure with the dir still present is a real error.
         Err(_) if !path.exists() => {}
         Err(e) if husk_verdict(registered, is_registered_worktree(repo_path, path)) => {
             // Git deregistered the directory, so no later `git worktree remove`
-            // can address it and the prune + branch reap below must run either
-            // way. Finishing the DELETE is a separate question: git can abandon
-            // having unlinked nothing at all — a subdirectory it cannot enter
-            // aborts its recursion where it stands — so the leftover may still
-            // hold every file the user had, and only `discard_dirty` is
-            // consent to lose them.
-            leftover = if discard_dirty {
-                clear_husk(path).err().map(|why| format!("{e}; {why}"))
-            } else {
-                Some(format!(
-                    "{e}; '{}' was left in place: finishing the deletion needs a forced removal",
-                    path.display()
-                ))
-            };
+            // can address it and the prune below must run either way. Git can
+            // abandon having unlinked nothing at all — a subdirectory it cannot
+            // enter aborts its recursion where it stands — and the consent
+            // covers every file the leftover still holds.
+            leftover = clear_husk(path).err().map(|why| format!("{e}; {why}"));
         }
         // Git refused before touching anything, or could not tell us it did:
         // the worktree is intact and must stay that way — its branch included.
@@ -815,93 +533,12 @@ fn clear_husk(path: &Path) -> Result<(), String> {
     }
 }
 
-/// Delete the tracked branch and the worktree-born extras (minus the overlap:
-/// the tracked branch usually IS one of them), returning the user-facing
-/// message for every branch that resisted — one stubborn branch must not hide
-/// the rest. The decision of WHAT to sweep is [`sweep_targets`]'s; this
-/// function only gathers the in-use info and executes.
-fn reap_branches(
-    repo_path: &Path,
-    primary: Option<&str>,
-    created: &[String],
-    discard_unmerged: bool,
-) -> Vec<String> {
-    let extras: Vec<&str> = created
-        .iter()
-        .map(String::as_str)
-        .filter(|b| Some(*b) != primary)
-        .collect();
-    // In-use info: which branches the surviving worktrees hold. Only needed
-    // when extras exist; a failed `worktree list` is "info unavailable".
-    let adopted: Option<HashSet<String>> = if extras.is_empty() {
-        Some(HashSet::new())
-    } else {
-        match worktree::list(repo_path) {
-            Ok(list) => Some(list.into_iter().filter_map(|w| w.branch).collect()),
-            Err(e) => {
-                log::warn!(
-                    "worktree: can't tell which branches are in use in {} ({e}); \
-                     keeping {} created branch(es)",
-                    repo_path.display(),
-                    extras.len()
-                );
-                None
-            }
-        }
-    };
-    let targets = sweep_targets(primary, &extras, adopted.as_ref());
-    if adopted.is_some() {
-        for kept in primary
-            .iter()
-            .copied()
-            .chain(extras.iter().copied())
-            .filter(|b| !targets.contains(b))
-        {
-            log::warn!(
-                "worktree: branch '{kept}' is checked out in another worktree of {}; keeping it",
-                repo_path.display()
-            );
-        }
-    }
-
-    let mut failures = Vec::new();
-    for branch in targets {
-        if let Err(message) = delete_branch_if_present(repo_path, branch, discard_unmerged) {
-            failures.push(message);
-        }
-    }
-    failures
-}
-
-/// Pure sweep policy — which branches the reap attempts, given the tracked
-/// branch, the worktree-born extras, and the in-use info from `worktree list`
-/// (`None` = that info is unavailable). The three cells, spelled out: with
-/// info, everything not currently checked out in another worktree — the
-/// guard shields the tracked branch too; without info, every extra is kept
-/// (deleting blind could hit an in-use branch) and only the tracked branch —
-/// explicit close intent — is attempted: the pre-reap contract.
-fn sweep_targets<'a>(
-    primary: Option<&'a str>,
-    extras: &[&'a str],
-    adopted: Option<&HashSet<String>>,
-) -> Vec<&'a str> {
-    let Some(adopted) = adopted else {
-        return primary.into_iter().collect();
-    };
-    primary
-        .into_iter()
-        .chain(extras.iter().copied())
-        .filter(|branch| !adopted.contains(*branch))
-        .collect()
-}
-
-/// Delete `branch` unless it's already gone — someone beating us to it means
-/// already-cleaned, not failed. `Err` carries the user-facing message so the
-/// caller can keep sweeping and report every branch that resisted, instead of
-/// aborting at the first one.
-fn delete_branch_if_present(repo_path: &Path, branch: &str, discard_unmerged: bool) -> Result<(), String> {
+/// Delete `branch`, its unmerged commits included — the consent covers them —
+/// unless it's already gone: someone beating us to it means already-cleaned,
+/// not failed. `Err` carries the words for what resisted.
+fn delete_branch_if_present(repo_path: &Path, branch: &str) -> Result<(), String> {
     match repo::branch_exists(repo_path, branch) {
-        Ok(true) => repo::delete_branch(repo_path, branch, discard_unmerged).map_err(|e| {
+        Ok(true) => repo::delete_branch(repo_path, branch, true).map_err(|e| {
             format!(
                 "Couldn’t delete branch '{branch}' after removing the worktree. \
                  You may need to delete it manually. Reason: {e}"
@@ -923,54 +560,6 @@ fn delete_branch_if_present(repo_path: &Path, branch: &str, discard_unmerged: bo
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn create_spec_is_keyed_by_owner_id_on_the_wire() {
-        // The UI sends `ownerId` — the team's. The old `agentId` is not an
-        // alias: a build that still sends it must fail here, not create a
-        // worktree nobody files.
-        let spec: CreateSpec = serde_json::from_value(serde_json::json!({
-            "repo": "/repo",
-            "ownerId": "team-1",
-            "path": "/wt/1",
-        }))
-        .expect("ownerId is the owner field");
-        assert_eq!(spec.owner_id, "team-1");
-        assert_eq!(spec.branch, None);
-
-        let stale = serde_json::from_value::<CreateSpec>(serde_json::json!({
-            "repo": "/repo",
-            "agentId": "pane-1",
-            "path": "/wt/1",
-        }));
-        assert!(stale.is_err(), "agentId must not deserialize as the owner");
-    }
-
-    #[test]
-    fn record_carries_no_owner_id() {
-        // The caller asked under an owner and files the answer under it;
-        // the wire has no second copy to disagree with.
-        let value = serde_json::to_value(WorktreeRecord {
-            path: "/wt/1".to_string(),
-            branch: "kd/ws/1".to_string(),
-        })
-        .unwrap();
-        assert_eq!(
-            value,
-            serde_json::json!({ "path": "/wt/1", "branch": "kd/ws/1" })
-        );
-    }
-
-    #[test]
-    fn explicit_branch_is_sanitized_and_wins() {
-        assert_eq!(choose_branch(Some("feat/my login"), "ws", 2), "feat/my-login");
-    }
-
-    #[test]
-    fn blank_explicit_falls_back_to_auto() {
-        assert_eq!(choose_branch(Some("   "), "My WS", 4), "kd/My-WS/4");
-        assert_eq!(choose_branch(None, "ws", 0), "kd/ws/0");
-    }
 
     #[test]
     fn probe_flags_a_missing_path_as_new() {
@@ -1103,61 +692,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&repo);
     }
 
-    #[test]
-    fn free_branch_keeps_an_unused_name() {
-        let repo = init_repo("unused");
-        assert_eq!(free_branch(&repo, "kd/ws/1").unwrap(), "kd/ws/1");
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn free_branch_steps_over_leftover_branches() {
-        // Leftovers from closed panes: the wanted name and its -2 both exist.
-        let repo = init_repo("taken");
-        git(&repo, &["branch", "kd/ws/1"]);
-        git(&repo, &["branch", "kd/ws/1-2"]);
-        assert_eq!(free_branch(&repo, "kd/ws/1").unwrap(), "kd/ws/1-3");
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn create_steps_the_branch_over_a_leftover_from_a_closed_pane() {
-        // Clean worktrees survive pane closes by design, so a second create
-        // with the same workspace/index meets the first one's branch still
-        // there. The path is the caller's and is used verbatim; the BRANCH
-        // steps aside so the create does not fail on a leftover.
-        let repo = init_repo("create-suffix");
-        let wt = |n: u32| {
-            repo.with_file_name(format!(
-                "{}-wt{n}",
-                repo.file_name().unwrap().to_string_lossy()
-            ))
-        };
-        let _ = std::fs::remove_dir_all(wt(1));
-        let _ = std::fs::remove_dir_all(wt(2));
-        let spec = |owner: &str, n: u32| CreateSpec {
-            repo: repo.to_string_lossy().into_owned(),
-            owner_id: owner.to_string(),
-            branch: None,
-            base: None,
-            base_branch: None,
-            workspace: "ws".to_string(),
-            index: 1,
-            path: wt(n).to_string_lossy().into_owned(),
-        };
-        let locks = RepoLocks::default();
-
-        let first = create_worktree(&locks, spec("pane-1", 1)).expect("first create");
-        let second = create_worktree(&locks, spec("pane-2", 2)).expect("second create");
-
-        assert_eq!(first.branch, "kd/ws/1");
-        assert_eq!(second.branch, "kd/ws/1-2");
-        assert_eq!(first.path, wt(1).to_string_lossy());
-        assert_eq!(second.path, wt(2).to_string_lossy());
-        let _ = std::fs::remove_dir_all(wt(1));
-        let _ = std::fs::remove_dir_all(wt(2));
-        let _ = std::fs::remove_dir_all(&repo);
-    }
 
     /// A repo with a `kd/<label>` branch checked out in a sibling worktree.
     fn repo_with_worktree(label: &str) -> (PathBuf, PathBuf, String) {
@@ -1200,8 +734,19 @@ mod tests {
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 
+    /// A removal as the lifecycle plans it: the born branches read first, then
+    /// the checkout, then each branch — the order the machine's steps run in.
+    fn planned_removal(repo: &Path, wt: &Path, branches: &[&str]) -> Result<(), String> {
+        let locks = RepoLocks::default();
+        remove_planned_checkout(&locks, repo, wt)?;
+        for branch in branches {
+            remove_planned_branch(&locks, repo, branch)?;
+        }
+        Ok(())
+    }
+
     #[test]
-    fn remove_reaps_registration_and_branch_when_the_dir_was_deleted_externally() {
+    fn a_planned_removal_reaps_registration_and_branch_when_the_dir_was_deleted_externally() {
         // The dir vanished behind KeepDeck's back (manual rm, cleanup tool).
         // `git worktree remove` refuses a gone dir — the removal must fall
         // through to prune instead of aborting, or the .git registration and
@@ -1209,18 +754,7 @@ mod tests {
         let (repo, wt, branch) = repo_with_worktree("reap-forced");
         std::fs::remove_dir_all(&wt).unwrap();
 
-        remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: Some(branch.clone()),
-                reap_created_branches: false,
-            },
-        )
-        .expect("a gone dir must not abort the removal");
+        planned_removal(&repo, &wt, &[&branch]).expect("a gone dir must not abort the removal");
 
         let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
         assert!(!list.contains("-wt"), "registration leaked:\n{list}");
@@ -1230,51 +764,14 @@ mod tests {
     }
 
     #[test]
-    fn remove_without_discard_dirty_skips_the_dirty_check_on_a_gone_dir() {
-        // The default (safe) path: is_dirty shells `git -C <path> status`,
-        // which errors on a missing dir — that error must read as "nothing to
-        // lose", not abort the whole removal.
-        let (repo, wt, branch) = repo_with_worktree("reap-default");
-        std::fs::remove_dir_all(&wt).unwrap();
-
-        remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: false,
-                discard_unmerged: false,
-                branch: Some(branch.clone()),
-                reap_created_branches: false,
-            },
-        )
-        .expect("a gone dir has nothing to lose — the safe path must proceed");
-
-        let branches = git_out(&repo, &["branch", "--list", &branch]);
-        assert!(branches.trim().is_empty(), "branch leaked: {branches}");
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn remove_succeeds_when_the_branch_is_already_gone() {
+    fn a_planned_removal_succeeds_when_the_branch_is_already_gone() {
         // If the user switched to another branch and deleted ours, the worktree
         // folder is still removed and the cleanup is considered successful.
         let (repo, wt, branch) = repo_with_worktree("branch-gone");
         git(&wt, &["checkout", "-b", "tmp"]); // move the worktree off our branch
         git(&repo, &["branch", "-D", &branch]); // now the branch can be deleted
 
-        remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: Some(branch.clone()),
-                reap_created_branches: false,
-            },
-        )
-        .expect("removal must succeed when the branch is already gone");
+        planned_removal(&repo, &wt, &[&branch]).expect("removal must succeed when the branch is already gone");
 
         assert!(!wt.exists(), "worktree dir must be removed");
         let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
@@ -1283,41 +780,10 @@ mod tests {
     }
 
     #[test]
-    fn remove_reports_a_user_friendly_error_when_branch_delete_fails() {
-        // An unmerged branch with force=false makes `git branch -d` fail. The
-        // error must explain what happened instead of showing raw git output.
-        let (repo, wt, branch) = repo_with_worktree("unmerged-branch");
-        std::fs::write(wt.join("feature.txt"), "work").unwrap();
-        git(&wt, &["add", "."]);
-        git(&wt, &["commit", "-q", "-m", "unmerged"]);
-
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: false,
-                discard_unmerged: false,
-                branch: Some(branch),
-                reap_created_branches: false,
-            },
-        );
-
-        let err = result.expect_err("unmerged branch must fail to delete");
-        assert!(
-            err.contains("Couldn’t delete branch"),
-            "error should be user-friendly: {err}"
-        );
-        assert!(!wt.exists(), "worktree dir must still be removed");
-        let _ = std::fs::remove_dir_all(&repo);
-        let _ = std::fs::remove_dir_all(&wt);
-    }
-
-    #[test]
-    fn remove_with_reap_deletes_branches_born_in_the_worktree() {
-        // The agent made a side branch during its session; closing with the
-        // delete checkbox must sweep it along with the tracked branch, while a
-        // branch that merely VISITED the worktree stays.
+    fn a_planned_removal_takes_the_branches_born_in_the_worktree_and_leaves_a_visitor() {
+        // The agent made a side branch during its session; the close's consent
+        // covers it along with the tracked branch, while a branch that merely
+        // VISITED the worktree stays.
         let (repo, wt, branch) = repo_with_worktree("reap-created");
         // The visitor carries a TRUSTED source (explicit HEAD) and sits on the
         // same commit as everything else — so the timestamp separation below
@@ -1326,18 +792,13 @@ mod tests {
         git(&wt, &["switch", "-q", "-c", "kd/side-branch"]);
         git(&wt, &["switch", "-q", "visitor"]);
 
-        remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: Some(branch.clone()),
-                reap_created_branches: true,
-            },
-        )
-        .expect("remove with reap");
+        let born = born_branches(&RepoLocks::default(), &repo, &wt).expect("read");
+        assert!(born.contains(&"kd/side-branch".to_string()) && !born.contains(&"visitor".to_string()), "{born:?}");
+        let mut plan: Vec<&str> = born.iter().map(String::as_str).collect();
+        if !plan.contains(&branch.as_str()) {
+            plan.push(&branch);
+        }
+        planned_removal(&repo, &wt, &plan).expect("removed by plan");
 
         for gone in [branch.as_str(), "kd/side-branch"] {
             let out = git_out(&repo, &["branch", "--list", gone]);
@@ -1349,31 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn sweep_without_in_use_info_attempts_only_the_tracked_branch() {
-        // `worktree list` failed: extras are kept (deleting blind could hit
-        // an in-use branch); the tracked branch is still attempted, unguarded.
-        let targets = sweep_targets(Some("kd/ws/1"), &["kd/side"], None);
-        assert_eq!(targets, ["kd/ws/1"]);
-        assert!(sweep_targets(None, &["kd/side"], None).is_empty());
-    }
-
-    #[test]
-    fn sweep_with_in_use_info_shields_adopted_branches_everywhere() {
-        let adopted: HashSet<String> = ["kd/side".to_string(), "kd/ws/1".to_string()].into();
-        // The guard applies to extras AND the tracked branch alike.
-        assert_eq!(
-            sweep_targets(Some("kd/ws/1"), &["kd/side", "kd/free"], Some(&adopted)),
-            ["kd/free"]
-        );
-        // With nothing adopted, everything is swept, tracked branch first.
-        assert_eq!(
-            sweep_targets(Some("kd/ws/1"), &["kd/side"], Some(&HashSet::new())),
-            ["kd/ws/1", "kd/side"]
-        );
-    }
-
-    #[test]
-    fn create_resolves_a_branch_name_base_so_provenance_trusts_the_birth() {
+    fn a_ticket_resolves_a_branch_name_base_so_provenance_trusts_the_birth() {
         // The "+ Agent" dialog sends the base as a branch NAME. Passed through
         // verbatim it would be recorded as a name-sourced creation — untrusted
         // by provenance — and the born branch would never be attributed back.
@@ -1388,20 +825,8 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&target);
 
-        let record = create_worktree(
-            &RepoLocks::default(),
-            CreateSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                owner_id: "team-1".to_string(),
-                branch: None,
-                base: Some(current.clone()),
-                base_branch: None,
-                workspace: "ws".to_string(),
-                index: 1,
-                path: target.to_string_lossy().into_owned(),
-            },
-        )
-        .expect("create with a branch-name base");
+        let branch = "kd/ws/1";
+        create_by_ticket(&RepoLocks::default(), &repo, &target, branch, Some(&current)).expect("create with a branch-name base");
 
         // The branch's OWN creation record is what this test is about: a
         // name-sourced one ("branch: Created from main") is refused by
@@ -1415,7 +840,7 @@ mod tests {
         // flaky under the parallel suite (3 failures in 10 runs) while saying
         // nothing about the base resolution it is named for. The pairing is
         // unit-tested against hand-built reflogs in `provenance`.
-        let source = git_out(&repo, &["log", "-g", "--format=%gs", &record.branch])
+        let source = git_out(&repo, &["log", "-g", "--format=%gs", branch])
             .lines()
             .last()
             .map(|line| {
@@ -1423,8 +848,7 @@ mod tests {
                     .strip_prefix("branch: Created from ")
                     .map(str::to_string)
             });
-        let metadata =
-            worktree_base::read(Path::new(&record.path)).expect("read private base metadata");
+        let metadata = worktree_base::read(&target).expect("read private base metadata");
 
         // Swept before ANY assertion or unwrap below, so no failure mode
         // leaves the repo and its worktree behind — and so the sweep happens
@@ -1448,13 +872,13 @@ mod tests {
             worktree_base::BaseMetadata {
                 branch_ref: Some(format!("refs/heads/{current}")),
                 at_creation: Some(base_sha),
-                managed_branch_ref: Some(format!("refs/heads/{}", record.branch)),
+                managed_branch_ref: Some(format!("refs/heads/{branch}")),
             }
         );
     }
 
     #[test]
-    fn a_pinned_sha_retains_branch_identity_after_rebase() {
+    fn a_ticket_from_a_branch_keeps_its_identity_after_a_rebase() {
         let repo = init_repo("pinned-base-identity");
         let current = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
             .trim()
@@ -1466,21 +890,8 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&target);
 
-        let record = create_worktree(
-            &RepoLocks::default(),
-            CreateSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                owner_id: "team-1".to_string(),
-                branch: Some("kd/batch/1".to_string()),
-                base: Some(base_sha.clone()),
-                base_branch: Some(current.clone()),
-                workspace: "ws".to_string(),
-                index: 1,
-                path: target.to_string_lossy().into_owned(),
-            },
-        )
-        .expect("create from a separately pinned base");
-        let agent = PathBuf::from(&record.path);
+        create_by_ticket(&RepoLocks::default(), &repo, &target, "kd/batch/1", Some(&current)).expect("create from a branch base");
+        let agent = target.clone();
 
         std::fs::write(agent.join("agent.txt"), "agent\n").unwrap();
         git(&agent, &["add", "."]);
@@ -1502,48 +913,6 @@ mod tests {
             Some("refs/heads/kd/batch/1".to_string())
         );
         assert_eq!(fork, Some(new_main));
-
-        let _ = std::fs::remove_dir_all(&target);
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn exact_path_creation_records_private_base_metadata() {
-        let repo = init_repo("exact-path-metadata");
-        let current = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
-            .trim()
-            .to_string();
-        let base_sha = keepdeck_git::repo::resolve_commit(&repo, &current).unwrap();
-        let target = repo.with_file_name(format!(
-            "{}-exact-wt",
-            repo.file_name().unwrap().to_string_lossy()
-        ));
-        let _ = std::fs::remove_dir_all(&target);
-
-        let record = create_worktree(
-            &RepoLocks::default(),
-            CreateSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                owner_id: "team-exact".to_string(),
-                branch: Some("kd/exact/1".to_string()),
-                base: Some(current.clone()),
-                base_branch: None,
-                workspace: "ws".to_string(),
-                index: 1,
-                path: target.to_string_lossy().into_owned(),
-            },
-        )
-        .expect("exact-path create");
-
-        let metadata = worktree_base::read(Path::new(&record.path)).expect("read metadata");
-        assert_eq!(
-            metadata,
-            worktree_base::BaseMetadata {
-                branch_ref: Some(format!("refs/heads/{current}")),
-                at_creation: Some(base_sha),
-                managed_branch_ref: Some("refs/heads/kd/exact/1".to_string()),
-            }
-        );
 
         let _ = std::fs::remove_dir_all(&target);
         let _ = std::fs::remove_dir_all(&repo);
@@ -1624,91 +993,28 @@ mod tests {
     }
 
     #[test]
-    fn remove_with_reap_recovers_branches_of_an_externally_deleted_worktree() {
+    fn the_born_branches_of_an_externally_deleted_worktree_are_still_read() {
         // The dir vanished behind KeepDeck's back, but the admin record still
-        // holds the provenance until prune — the reap must survive the same
-        // external deletion that the registration/tracked-branch fallthrough
-        // (a distinct, older mechanism in remove_worktree) already handles.
-        let (repo, wt, branch) = repo_with_worktree("reap-gone");
-        git(&wt, &["switch", "-q", "-c", "kd/side-branch"]);
-        git(&wt, &["switch", "-q", &branch]);
+        // holds the provenance until prune — the plan's read survives the same
+        // external deletion the checkout step falls through.
+        let repo = init_repo("reap-gone");
+        let branch = "kd/reap-gone/1".to_string();
+        let wt = repo.with_file_name(format!("{}-wt", repo.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&wt);
+        git_at(&repo, 1_700_000_000, &["worktree", "add", "-q", "-b", &branch, wt.to_str().unwrap()]);
+        git_at(&wt, 1_700_000_100, &["switch", "-q", "-c", "kd/side-branch"]);
+        git_at(&wt, 1_700_000_200, &["switch", "-q", &branch]);
         std::fs::remove_dir_all(&wt).unwrap();
 
-        remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: Some(branch.clone()),
-                reap_created_branches: true,
-            },
-        )
-        .expect("a gone dir must not abort the reap");
-
+        let born = born_branches(&RepoLocks::default(), &repo, &wt).expect("read from the admin record");
+        assert!(born.contains(&"kd/side-branch".to_string()), "{born:?}");
+        let plan: Vec<&str> = born.iter().map(String::as_str).collect();
+        planned_removal(&repo, &wt, &plan).expect("a gone dir must not abort the removal");
         for gone in [branch.as_str(), "kd/side-branch"] {
             let out = git_out(&repo, &["branch", "--list", gone]);
             assert!(out.trim().is_empty(), "branch leaked: {gone}");
         }
         let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn remove_with_reap_keeps_a_created_branch_now_checked_out_elsewhere() {
-        // A branch born here but since adopted by another worktree is in use —
-        // it must survive, and without failing the close.
-        let (repo, wt, branch) = repo_with_worktree("reap-adopted");
-        git(&wt, &["switch", "-q", "-c", "kd/adopted"]);
-        git(&wt, &["switch", "-q", &branch]);
-        let other = repo.with_file_name(format!(
-            "{}-other",
-            repo.file_name().unwrap().to_string_lossy()
-        ));
-        let _ = std::fs::remove_dir_all(&other);
-        git(&repo, &["worktree", "add", "-q", other.to_str().unwrap(), "kd/adopted"]);
-
-        remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: Some(branch),
-                reap_created_branches: true,
-            },
-        )
-        .expect("an adopted branch must not fail the close");
-
-        let adopted = git_out(&repo, &["branch", "--list", "kd/adopted"]);
-        assert!(!adopted.trim().is_empty(), "the adopted branch was reaped");
-        let _ = std::fs::remove_dir_all(&repo);
-        let _ = std::fs::remove_dir_all(&other);
-    }
-
-    #[test]
-    fn remove_without_discard_dirty_still_refuses_a_dirty_worktree() {
-        // The safety property the dirty check exists for must survive the fix.
-        let (repo, wt, branch) = repo_with_worktree("keep-dirty");
-        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
-
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: false,
-                discard_unmerged: false,
-                branch: Some(branch),
-                reap_created_branches: false,
-            },
-        );
-
-        assert!(result.is_err(), "dirty worktree must be kept");
-        assert!(wt.join("wip.txt").exists(), "work was destroyed");
-        let _ = std::fs::remove_dir_all(&repo);
-        let _ = std::fs::remove_dir_all(&wt);
     }
 
     #[test]
@@ -1763,60 +1069,6 @@ mod tests {
         assert_eq!(git_out(&repo, &["rev-parse", "archive/test/save-head"]).trim(), tip);
         let _ = std::fs::remove_dir_all(&wt);
         let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn discarding_dirty_work_is_not_consent_to_drop_unmerged_commits() {
-        // Two consents, two flags: the tree goes with its uncommitted file,
-        // and the branch holding a commit nothing else has is KEPT.
-        let (repo, wt, branch) = repo_with_worktree("dirty-not-unmerged");
-        std::fs::write(wt.join("feature.txt"), "work").unwrap();
-        git(&wt, &["add", "."]);
-        git(&wt, &["commit", "-q", "-m", "unmerged"]);
-        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
-
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: false,
-                branch: Some(branch.clone()),
-                reap_created_branches: false,
-            },
-        );
-
-        assert!(result.expect_err("the unmerged branch is refused").contains("Couldn’t delete branch"));
-        assert!(!wt.exists(), "the dirty tree was consented to");
-        let kept = git_out(&repo, &["branch", "--list", &branch]);
-        assert!(!kept.trim().is_empty(), "the unmerged branch was deleted");
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn dropping_unmerged_commits_is_not_consent_to_discard_dirty_work() {
-        let (repo, wt, branch) = repo_with_worktree("unmerged-not-dirty");
-        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
-
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: false,
-                discard_unmerged: true,
-                branch: Some(branch.clone()),
-                reap_created_branches: false,
-            },
-        );
-
-        assert!(result.expect_err("a dirty tree is refused").contains("uncommitted"));
-        assert!(wt.join("wip.txt").exists(), "work was destroyed");
-        let kept = git_out(&repo, &["branch", "--list", &branch]);
-        assert!(!kept.trim().is_empty(), "a refused removal touched the branch");
-        let _ = std::fs::remove_dir_all(&repo);
-        let _ = std::fs::remove_dir_all(&wt);
     }
 
     #[cfg(unix)]
@@ -1935,80 +1187,27 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn remove_keeps_an_unforced_husk_but_still_reaps_the_registration_and_branch() {
-        // Git can abandon its recursion having unlinked NOTHING, so the leftover
-        // may still hold the user's files. Without `force` the directory stays;
-        // the registration and the branch — which git already dropped or made
-        // unreachable — must be cleaned up regardless.
-        let (repo, wt, branch) = repo_with_undeletable_worktree("husk-unforced");
-        if !write_is_blocked(&wt.wt.join("locked")) {
-            return; // running as root: git would not fail, so there is no husk
-        }
-
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.wt.to_string_lossy().into_owned(),
-                discard_dirty: false,
-                discard_unmerged: false,
-                branch: Some(branch.clone()),
-                reap_created_branches: false,
-            },
-        );
-
-        let message = result.expect_err("a kept leftover must be reported");
-        assert!(
-            message.contains("needs a forced removal"),
-            "the reason was not explained: {message}"
-        );
-        assert!(wt.wt.join("locked").join("f").exists(), "files were destroyed");
-        let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
-        assert!(!list.contains("-wt"), "registration leaked:\n{list}");
-        let branches = git_out(&repo, &["branch", "--list", &branch]);
-        assert!(branches.trim().is_empty(), "branch leaked: {branches}");
-
-        let _ = std::fs::remove_dir_all(&repo);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn remove_reaps_registration_and_branch_when_git_abandons_a_husk() {
-        // THE regression: git deletes the administrative record even when the
-        // directory delete fails, so bailing out here left an orphan `kd/…`
-        // branch and a husk no `git worktree remove` could ever address.
-        // An unwritable subdirectory makes git's recursive delete fail for
-        // real, without depending on the timing that produced it in the wild
-        // (staged-skills arming re-creating `.agents` mid-delete).
+    fn a_husk_git_abandoned_is_a_step_still_owed_and_its_branch_can_still_go() {
+        // Git deletes the administrative record even when the directory delete
+        // fails. The leftover stays owed — the step reports it — while the
+        // registration is gone and the branch, no longer checked out anywhere,
+        // goes on its own step. An unwritable subdirectory makes git's
+        // recursive delete fail for real, without depending on the timing that
+        // produced it in the wild (staged-skills arming re-creating `.agents`
+        // mid-delete).
         let (repo, wt, branch) = repo_with_undeletable_worktree("husk");
         if !write_is_blocked(&wt.wt.join("locked")) {
             return; // running as root: git would not fail, so there is no husk
         }
+        let locks = RepoLocks::default();
 
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.wt.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: Some(branch.clone()),
-                reap_created_branches: false,
-            },
-        );
-
-        // The undeletable directory is still reported — first, ahead of any
-        // branch failures, since it is the primary one.
-        let message = result.expect_err("an unremovable leftover must be reported");
-        assert!(
-            message.contains("leftover directory"),
-            "leftover not reported: {message}"
-        );
-        // ...but the cleanup it used to abort now runs to the end.
+        let message = remove_planned_checkout(&locks, &repo, &wt.wt).expect_err("an unremovable leftover is still owed");
+        assert!(message.contains("leftover directory"), "leftover not reported: {message}");
         let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
         assert!(!list.contains("-wt"), "registration leaked:\n{list}");
-        let branches = git_out(&repo, &["branch", "--list", &branch]);
-        assert!(branches.trim().is_empty(), "branch leaked: {branches}");
+
+        remove_planned_branch(&locks, &repo, &branch).expect("the branch is free to go");
+        assert!(!branch_listed(&repo, &branch), "branch leaked");
 
         let _ = std::fs::remove_dir_all(&repo);
     }
@@ -2027,17 +1226,7 @@ mod tests {
         std::fs::write(stray.join("work.txt"), "mine").unwrap();
         std::fs::write(stray.join(".git"), "gitdir: /nowhere/.git/worktrees/x").unwrap();
 
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: stray.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: None,
-                reap_created_branches: false,
-            },
-        );
+        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &stray);
 
         assert!(result.is_err(), "git refused, so nothing may be deleted");
         assert!(stray.join("work.txt").exists(), "work was destroyed");
@@ -2076,17 +1265,7 @@ mod tests {
         let pointer = std::fs::read_to_string(sub.join(".git")).unwrap();
         assert!(pointer.contains("../"), "expected a relative pointer: {pointer}");
 
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: sub.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: None,
-                reap_created_branches: false,
-            },
-        );
+        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &sub);
 
         assert!(result.is_err(), "a submodule is not a worktree to remove");
         assert!(sub.join("mywork.txt").exists(), "the submodule was destroyed");
@@ -2096,7 +1275,7 @@ mod tests {
 
     #[test]
     fn remove_refuses_a_directory_that_is_not_a_worktree() {
-        // A plain directory the webview named: git refuses, and nothing else may
+        // A plain directory a plan named: git refuses, and nothing else may
         // decide to delete it.
         let repo = init_repo("not-a-husk");
         let stray = repo.with_file_name("keepdeck-stray-dir");
@@ -2104,17 +1283,7 @@ mod tests {
         std::fs::create_dir_all(&stray).unwrap();
         std::fs::write(stray.join("work.txt"), "mine").unwrap();
 
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: stray.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: None,
-                reap_created_branches: false,
-            },
-        );
+        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &stray);
 
         assert!(result.is_err(), "a stray directory must not be removed");
         assert!(stray.join("work.txt").exists(), "work was destroyed");
@@ -2125,23 +1294,16 @@ mod tests {
     #[test]
     fn remove_keeps_the_worktree_when_git_refuses_outright() {
         // The other side of the husk rule: a git that refuses BEFORE touching
-        // anything (here, a locked worktree — that needs `--force` twice) must
-        // abort the whole removal. Deleting the directory ourselves or reaping
-        // the branch would destroy a worktree git deliberately spared.
+        // anything (here, a locked worktree — that needs `--force` twice)
+        // leaves it whole. Deleting the directory ourselves would destroy a
+        // worktree git deliberately spared, and its branch, still checked
+        // out there, is kept by its own step.
         let (repo, wt, branch) = repo_with_worktree("refused");
         git(&repo, &["worktree", "lock", wt.to_str().unwrap()]);
+        let locks = RepoLocks::default();
 
-        let result = remove_worktree(
-            &RepoLocks::default(),
-            RemoveSpec {
-                repo: repo.to_string_lossy().into_owned(),
-                path: wt.to_string_lossy().into_owned(),
-                discard_dirty: true,
-                discard_unmerged: true,
-                branch: Some(branch.clone()),
-                reap_created_branches: false,
-            },
-        );
+        let result = remove_planned_checkout(&locks, &repo, &wt);
+        remove_planned_branch(&locks, &repo, &branch).expect("a branch in use is kept, not failed");
 
         assert!(result.is_err(), "a refused removal must surface");
         assert!(wt.join(".git").exists(), "the worktree was destroyed");
