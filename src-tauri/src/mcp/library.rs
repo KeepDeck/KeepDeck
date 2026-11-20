@@ -303,11 +303,10 @@ pub fn mcp_library_list(lock: tauri::State<'_, McpLibraryLock>) -> Result<Vec<Mc
 /// this side refuses unsafe path segments — and, when the caller says this is
 /// a CREATE, a name that is already taken).
 /// `writer`: the agent writing, as the app knows it; none for the person.
+/// The library's lock and the commit gate are the app's managed state.
 #[tauri::command(async)]
-#[allow(clippy::too_many_arguments)]
 pub fn mcp_library_save(
-    lock: tauri::State<'_, McpLibraryLock>,
-    gate: tauri::State<'_, Gate>,
+    app: tauri::AppHandle,
     writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
@@ -315,6 +314,8 @@ pub fn mcp_library_save(
     content: String,
     expect_new: bool,
 ) -> Result<(), String> {
+    use tauri::Manager;
+    let (lock, gate) = (app.state::<McpLibraryLock>(), app.state::<Gate>());
     write_in(&lock, &gate, &library_root()?, writer.as_ref(), &scope, ws_id.as_deref(), |dir| {
         if expect_new {
             create(dir, &name, &content)

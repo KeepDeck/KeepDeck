@@ -162,12 +162,11 @@ impl Library<'_> {
 
 /// Write one skill's `SKILL.md` (content is composed and validated by the
 /// webview; this side refuses unsafe path segments — and, when the caller says
-/// this is a CREATE, a name that is already taken).
+/// this is a CREATE, a name that is already taken). The library's lock and
+/// the commit gate are the app's managed state.
 #[tauri::command(async)]
-#[allow(clippy::too_many_arguments)]
 pub fn skills_save(
-    lock: tauri::State<'_, SkillsLibraryLock>,
-    gate: tauri::State<'_, Gate>,
+    app: tauri::AppHandle,
     writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
@@ -175,7 +174,9 @@ pub fn skills_save(
     content: String,
     expect_new: bool,
 ) -> Result<(), String> {
+    use tauri::Manager;
     let root = skills_root()?;
+    let (lock, gate) = (app.state::<SkillsLibraryLock>(), app.state::<Gate>());
     Library { lock: &lock, gate: &gate, root: &root }.save(writer.as_ref(), &scope, ws_id.as_deref(), &name, &content, expect_new)
 }
 
