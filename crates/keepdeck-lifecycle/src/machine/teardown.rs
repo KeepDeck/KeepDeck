@@ -173,9 +173,9 @@ pub fn taken_over_by_close(op: &Op) -> bool {
 }
 
 /// A Close took this operation over.
-pub fn abandon(op: &mut Op, _by: OpId) {
+pub fn abandon(op: &mut Op, by: OpId) {
     match &mut op.kind {
-        Kind::Create(create) => create.abandon(),
+        Kind::Create(create) => create.abandon(by),
         Kind::Teardown(teardown) if teardown.kind == model::Teardown::Archive => teardown.phase = TearPhase::Abandoned,
         _ => {}
     }

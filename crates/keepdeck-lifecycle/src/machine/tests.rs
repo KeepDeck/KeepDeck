@@ -616,6 +616,40 @@ fn a_close_takes_over_a_creation_and_waits_for_its_git_step() {
     assert!(sim.cleaned.contains(&Clean::Branch { repo: ticket.repo, name: ticket.branch }));
 }
 
+/// Git refuses the taken-over creation — the path is another branch's
+/// checkout. Nothing proves the folder this ticket's, and it is not deleted.
+#[test]
+fn a_taken_over_creation_git_refused_hands_its_close_nothing_to_delete() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::New { place: None, base: None }, draft: draft(), members: vec![] });
+    for _ in 0..3 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            if let Effect::Probe { op, path, .. } = effect {
+                sim.send(Event::Probed { op, path, taken: false });
+            }
+        }
+        sim.apply(|_| true);
+        sim.save();
+    }
+    let create_op = *sim.state.ops.keys().next().unwrap();
+    let close = sim.close(disband("n", Consent { tickets: vec![create_op], ..Consent::default() }));
+    assert_eq!(sim.refusal(close), None);
+    for _ in 0..6 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    sim.send(Event::Created { op: create_op, result: Err("already checked out as another branch".into()) });
+    sim.drive();
+    assert!(sim.state.ops.is_empty());
+    assert!(
+        !sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. } | Clean::Branch { .. })),
+        "the folder may be someone else's: {:?}",
+        sim.cleaned
+    );
+}
+
 /// The consent a Close is held to is what is still on offer: a folder
 /// another team took since the dialog asked is not deleted, and that team's
 /// session in it is not stopped.

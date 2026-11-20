@@ -12,7 +12,7 @@ use crate::command::{Cmd, Member, Outcome, Revision, TeamPlace};
 use crate::dir::Dir;
 use crate::ids::{OpId, PaneId, SessionId, TeamId};
 use crate::journal::{Discard, Step, Ticket, Work};
-use crate::model::{Answer, Draft, Minted, Refusal, SessionKey, Site};
+use crate::model::{Answer, Draft, Folder, Minted, Refusal, SessionKey, Site};
 use crate::places::{self, Held};
 use crate::world::{Pane, Team, TeamAt};
 use keepdeck_fsm::Owed;
@@ -56,6 +56,11 @@ pub struct Create {
     pub stage: CreateStage,
     /// A Close took it over: it ends once its git step is back.
     pub abandoned: bool,
+    /// The Close that took it over, this launch — the one its checkout is
+    /// handed to once git says this ticket made it. None after a restore:
+    /// nothing then proves the checkout this ticket's.
+    #[serde(default)]
+    pub taken_by: Option<OpId>,
     /// `git worktree add` has answered.
     pub created: bool,
     /// The steps of an undo that are done.
@@ -78,6 +83,7 @@ impl Create {
             probing: None,
             stage: CreateStage::Placing,
             abandoned: false,
+            taken_by: None,
             created: false,
             undone: Vec::new(),
             undo_failed: false,
@@ -108,8 +114,9 @@ impl Create {
         (self.worktree() && self.stage != CreateStage::Placing).then(|| Work::Create { team: self.team.clone(), ticket })
     }
 
-    pub fn abandon(&mut self) {
+    pub fn abandon(&mut self, by: OpId) {
         self.abandoned = true;
+        self.taken_by = Some(by);
     }
 }
 
@@ -410,6 +417,17 @@ pub fn probed(state: &mut State, id: OpId, path: Dir, taken: bool, fx: &mut Fx) 
     }
 }
 
+/// A taken-over creation's checkout, proved this ticket's, goes to the close
+/// that took it — as one of the folders it may delete, when the person
+/// agreed to the creation's ticket. Its entry carries it from here.
+fn hand_over(state: &mut State, close: OpId, creation: OpId, ticket: Ticket) {
+    let Some(teardown) = state.ops.get_mut(&close).and_then(Op::teardown_mut) else { return };
+    let consent = &mut teardown.consent;
+    if consent.tickets.contains(&creation) && !consent.folders.iter().any(|folder| folder.path == ticket.path) {
+        consent.folders.push(Folder { repo: ticket.repo, path: ticket.path, branch: Some(ticket.branch) });
+    }
+}
+
 pub fn created(state: &mut State, id: OpId, result: StepResult, fx: &mut Fx) {
     let Some(op) = state.ops.get_mut(&id) else { return };
     let workspace = op.workspace.clone();
@@ -421,6 +439,12 @@ pub fn created(state: &mut State, id: OpId, result: StepResult, fx: &mut Fx) {
     let ticket = create.ticket.clone().expect("a ticket");
     let team = create.team.clone();
     if create.abandoned {
+        // Git says this ticket made the checkout: the close that took the
+        // creation over may delete it, if the person agreed. Anything else —
+        // the path another checkout's, git refusing — hands nothing over.
+        if let (Ok(()), Some(by)) = (&result, create.taken_by) {
+            hand_over(state, by, id, ticket);
+        }
         return;
     }
     let for_fork = create.for_fork;

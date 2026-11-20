@@ -37,8 +37,9 @@ fn empty(refusal: Option<Refusal>) -> Preview {
 
 /// The folders a teardown of `teams` may delete: each team's own folder,
 /// never the workspace's root, and none another team that stays still works
-/// in — and the creations still out, each with the folder its ticket makes.
-fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<Folder>, Vec<(OpId, Folder)>) {
+/// in — and the creations still out, whose checkout is the close's only once
+/// git says their ticket made it.
+fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<Folder>, Vec<OpId>) {
     let Some(ws) = state.world.workspaces.get(workspace) else { return (Vec::new(), Vec::new()) };
     let leaving: BTreeSet<&TeamId> = teams.iter().collect();
     let mut folders = Vec::new();
@@ -47,8 +48,8 @@ fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<F
         let Some(row) = state.world.teams.get(team) else { continue };
         let (path, branch) = match &row.at {
             TeamAt::Attached { cwd, branch } => (cwd.clone(), branch.clone()),
-            TeamAt::Creating { op, ticket } => {
-                creations.push((*op, Folder { repo: ticket.repo.clone(), path: ticket.path.clone(), branch: Some(ticket.branch.clone()) }));
+            TeamAt::Creating { op, .. } => {
+                creations.push(*op);
                 continue;
             }
             TeamAt::Failed { ticket } => (ticket.path.clone(), Some(ticket.branch.clone())),
@@ -72,14 +73,13 @@ fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<F
 pub struct Offer {
     pub stops: Vec<PaneId>,
     pub folders: Vec<Folder>,
-    /// Creations still out, each with the folder its ticket makes.
-    pub creations: Vec<(OpId, Folder)>,
+    /// Creations still out.
+    pub creations: Vec<OpId>,
 }
 
 impl Offer {
     fn preview(self, refusal: Option<Refusal>) -> Preview {
-        let creations = self.creations.into_iter().map(|(op, _)| op).collect();
-        Preview { refusal, stops: self.stops, folders: self.folders, creations, last_of: None }
+        Preview { refusal, stops: self.stops, folders: self.folders, creations: self.creations, last_of: None }
     }
 
     /// Whether a Close confirmed on `consent` would do more than its dialog
@@ -90,24 +90,18 @@ impl Offer {
         let unseen_stop = self.stops.iter().any(|pane| !consent.stops.contains(pane));
         let deletes = !consent.folders.is_empty() || !consent.tickets.is_empty();
         let unseen_folder = self.folders.iter().any(|folder| !consent.folders.iter().any(|agreed| agreed.path == folder.path));
-        let unseen_creation = self.creations.iter().any(|(op, _)| !consent.tickets.contains(op));
+        let unseen_creation = self.creations.iter().any(|op| !consent.tickets.contains(op));
         unseen_stop || (deletes && (unseen_folder || unseen_creation))
     }
 
     /// The consent a confirmed Close is held to: what the person agreed to
     /// that is still on offer. A folder another team works in since is not
     /// the close's to delete — nor are that team's sessions in it its to
-    /// stop. An agreed creation brings the folder its ticket makes, so the
-    /// checkout goes once git is done with it.
+    /// stop. An agreed creation's checkout joins the folders only once git
+    /// says its ticket made it (`create::hand_over`).
     pub fn agreed(&self, consent: Consent) -> Consent {
-        let offered = |path: &Dir| self.folders.iter().any(|folder| &folder.path == path);
-        let mut folders: Vec<Folder> = consent.folders.into_iter().filter(|folder| offered(&folder.path)).collect();
-        let tickets: Vec<OpId> = consent.tickets.into_iter().filter(|op| self.creations.iter().any(|(offered, _)| offered == op)).collect();
-        for (op, folder) in &self.creations {
-            if tickets.contains(op) && !folders.iter().any(|agreed| agreed.path == folder.path) {
-                folders.push(folder.clone());
-            }
-        }
+        let folders = consent.folders.into_iter().filter(|agreed| self.folders.iter().any(|offered| offered.path == agreed.path)).collect();
+        let tickets = consent.tickets.into_iter().filter(|op| self.creations.contains(op)).collect();
         Consent { stops: consent.stops, folders, tickets }
     }
 }
