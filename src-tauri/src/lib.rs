@@ -136,6 +136,7 @@ pub fn run() {
         .manage(session_tail::UsageTails::default())
         .manage(rpc_child::RpcChildPool::default())
         .manage(plugin_permissions::PluginGrants::default())
+        .manage(plugin_workspaces::PluginDirsLock::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())

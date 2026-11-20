@@ -30,73 +30,107 @@ use crate::fs_beneath::{
     copy_file, copy_mode, open_beneath, COPY_MAX_BYTES, COPY_MAX_ENTRIES, DIR_MODE, FILE_MODE,
 };
 use crate::plugin_permissions::PluginGrants;
+use crate::plugin_workspaces::PluginDirsLock;
 use crate::skills::SkillsLocks;
 
 #[tauri::command(async)]
-pub fn plugins_fs_write_mkdir(grants: State<'_, PluginGrants>, plugin_id: String, path: String) -> Result<(), String> {
-    mkdir(path.clone(), roots_of(&grants, &plugin_id, "mkdir", &path)?)
+pub fn plugins_fs_write_mkdir(
+    lock: State<'_, PluginDirsLock>,
+    grants: State<'_, PluginGrants>,
+    plugin_id: String,
+    path: String,
+) -> Result<(), String> {
+    in_roots(&lock, &grants, &plugin_id, "mkdir", &path, |roots| mkdir(path.clone(), roots))
 }
 
 #[tauri::command(async)]
 pub fn plugins_fs_write_copy(
+    lock: State<'_, PluginDirsLock>,
     grants: State<'_, PluginGrants>,
     plugin_id: String,
     src: String,
     dst: String,
     replace: Option<Vec<(String, String)>>,
 ) -> Result<(), String> {
-    let roots = roots_of(&grants, &plugin_id, "copyFile", &dst)?;
-    copy(src, dst, roots, replace)
+    in_roots(&lock, &grants, &plugin_id, "copyFile", &dst, |roots| copy(src, dst.clone(), roots, replace))
 }
 
 #[tauri::command(async)]
-pub fn plugins_fs_write_remove(grants: State<'_, PluginGrants>, plugin_id: String, path: String) -> Result<(), String> {
-    remove(path.clone(), roots_of(&grants, &plugin_id, "remove", &path)?)
+pub fn plugins_fs_write_remove(
+    lock: State<'_, PluginDirsLock>,
+    grants: State<'_, PluginGrants>,
+    plugin_id: String,
+    path: String,
+) -> Result<(), String> {
+    remove_as(&lock, &grants, &plugin_id, &path)
 }
 
 #[tauri::command(async)]
 pub fn plugins_fs_write_file(
+    lock: State<'_, PluginDirsLock>,
     grants: State<'_, PluginGrants>,
     plugin_id: String,
     path: String,
     text: String,
 ) -> Result<(), String> {
-    let roots = roots_of(&grants, &plugin_id, "writeFile", &path)?;
-    write_file(path, text, roots)
+    in_roots(&lock, &grants, &plugin_id, "writeFile", &path, |roots| write_file(path.clone(), text, roots))
 }
 
 #[tauri::command(async)]
 pub fn plugins_fs_write_append(
+    lock: State<'_, PluginDirsLock>,
     grants: State<'_, PluginGrants>,
     plugin_id: String,
     path: String,
     line: String,
 ) -> Result<(), String> {
-    let roots = roots_of(&grants, &plugin_id, "appendLine", &path)?;
-    append(path, line, roots)
+    in_roots(&lock, &grants, &plugin_id, "appendLine", &path, |roots| append(path.clone(), line, roots))
 }
 
 #[tauri::command(async)]
 pub fn plugins_fs_write_move(
+    lock: State<'_, PluginDirsLock>,
     grants: State<'_, PluginGrants>,
     plugin_id: String,
     src: String,
     dst: String,
 ) -> Result<(), String> {
-    let roots = roots_of(&grants, &plugin_id, "move", &dst)?;
-    move_entry(src, dst, roots)
+    in_roots(&lock, &grants, &plugin_id, "move", &dst, |roots| move_entry(src, dst.clone(), roots))
 }
 
 #[tauri::command(async)]
 pub fn plugins_fs_write_copy_dir(
+    lock: State<'_, PluginDirsLock>,
     grants: State<'_, PluginGrants>,
     locks: State<'_, SkillsLocks>,
     plugin_id: String,
     src: String,
     dst: String,
 ) -> Result<(), String> {
-    let roots = roots_of(&grants, &plugin_id, "copyDir", &dst)?;
-    copy_dir(&src, &dst, &roots, &locks)
+    in_roots(&lock, &grants, &plugin_id, "copyDir", &dst, |roots| copy_dir(&src, &dst, &roots, &locks))
+}
+
+/// Remove `path` as the plugin may — inside its own roots, nowhere else.
+/// Also the fork's rollback: what a plugin named for discarding goes the
+/// way the plugin itself would remove it.
+pub(crate) fn remove_as(lock: &PluginDirsLock, grants: &PluginGrants, plugin_id: &str, path: &str) -> Result<(), String> {
+    in_roots(lock, grants, plugin_id, "remove", path, |roots| remove(path.to_owned(), roots))
+}
+
+/// One write: the plugin's roots taken, and the write done, under the lock
+/// its workspace directories are made and removed under. A write that took a
+/// directory's root before the directory went finishes before it goes and
+/// goes with it; the next one no longer holds that root.
+fn in_roots<T>(
+    lock: &PluginDirsLock,
+    grants: &PluginGrants,
+    plugin_id: &str,
+    op: &str,
+    path: &str,
+    write: impl FnOnce(Vec<String>) -> Result<T, String>,
+) -> Result<T, String> {
+    let _held = lock.hold();
+    write(roots_of(grants, plugin_id, op, path)?)
 }
 
 /// Where `plugin_id` may write, or a refusal naming the call.
@@ -594,6 +628,46 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let roots = vec![dir.path().to_string_lossy().into_owned()];
         (dir, roots)
+    }
+
+    #[test]
+    fn a_write_that_took_its_roots_before_its_directory_went_finishes_first_and_goes_with_it() {
+        use std::sync::{mpsc, Arc};
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("plugin-workspaces");
+        let grants = Arc::new(PluginGrants::default());
+        let lock = Arc::new(PluginDirsLock::default());
+        let dir = crate::plugin_workspaces::dir_for(&home, "keepdeck.claude", "ws-1").unwrap();
+        grants.hand_workspace("keepdeck.claude", "ws-1", dir.to_string_lossy().into_owned());
+        let file = dir.join("layout/a.txt").to_string_lossy().into_owned();
+
+        let (took_roots, roots_taken) = mpsc::channel();
+        let (go_on, may_go_on) = mpsc::channel::<()>();
+        let writer = {
+            let (lock, grants, file) = (lock.clone(), grants.clone(), file.clone());
+            std::thread::spawn(move || {
+                in_roots(&lock, &grants, "keepdeck.claude", "writeFile", &file, |roots| {
+                    took_roots.send(()).unwrap();
+                    may_go_on.recv().unwrap();
+                    write_file(file.clone(), "x".into(), roots)
+                })
+            })
+        };
+        roots_taken.recv().unwrap();
+        let forgetting = {
+            let (lock, grants, home) = (lock.clone(), grants.clone(), home.clone());
+            std::thread::spawn(move || crate::plugin_workspaces::forget(&lock, &grants, &home, "ws-1"))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!forgetting.is_finished(), "the removal waits for the write that holds its roots");
+        go_on.send(()).unwrap();
+        writer.join().unwrap().expect("the write lands");
+        forgetting.join().unwrap().expect("then the directory goes");
+        assert!(!dir.exists(), "what the write made went with its directory");
+
+        let late = in_roots(&lock, &grants, "keepdeck.claude", "writeFile", &file, |roots| write_file(file.clone(), "x".into(), roots));
+        assert!(late.is_err(), "the next write no longer holds the root");
+        assert!(!dir.exists(), "nothing made again");
     }
 
     #[test]

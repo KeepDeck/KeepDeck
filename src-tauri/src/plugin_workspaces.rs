@@ -4,9 +4,11 @@
 //! Durable data a plugin builds for one workspace — a layout it hands its CLI,
 //! say — lives here, outside every repository, so nothing in it needs a git
 //! exclude. The directory is made on the first ask, never at activation, and
-//! goes with its workspace: the deck's sweep prunes every plugin's directory
-//! of a workspace id the deck no longer holds, which covers a deleted
-//! workspace and a crash's leftovers by one rule, without enumerating plugins.
+//! goes with its workspace — every plugin's directory of it, without
+//! enumerating plugins: when the workspace is closed ([`forget`]), and at
+//! boot for every workspace id nothing holds any more ([`retain`]). None is
+//! made for a forgotten workspace. All of it, and every write the broker
+//! does, runs under one lock ([`PluginDirsLock`]).
 //!
 //! The ids are path segments. The host passes the plugin id from its registry
 //! and the workspace id from its deck — never a plugin's words — and both are
@@ -19,30 +21,77 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 use tauri::State;
 
+use crate::forgotten::{Gate, Source};
 use crate::plugin_permissions::PluginGrants;
+
+/// The one lock over plugins' workspace directories: their making and
+/// handing out, every write the broker does in a plugin's roots — the roots
+/// taken under it — and their removal. A write that took a directory's root
+/// before its removal finishes first and goes with it; the next write no
+/// longer holds the root.
+#[derive(Default)]
+pub struct PluginDirsLock(Mutex<()>);
+
+impl PluginDirsLock {
+    pub(crate) fn hold(&self) -> MutexGuard<'_, ()> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
 
 /// The directory for `plugin_id` and `ws_id`, created when missing, and
 /// from now on one the plugin may write in.
 #[tauri::command(async)]
 pub fn plugin_workspace_dir(
+    lock: State<'_, PluginDirsLock>,
     grants: State<'_, PluginGrants>,
+    gate: State<'_, Gate>,
     plugin_id: String,
     ws_id: String,
 ) -> Result<String, String> {
-    let dir = dir_for(&root()?, &plugin_id, &ws_id)?.to_string_lossy().into_owned();
-    grants.hand_workspace(&plugin_id, &ws_id, dir.clone());
+    hand_out(&lock, &grants, &gate, &root()?, &plugin_id, &ws_id)
+}
+
+/// Make and hand out a directory — none for a forgotten workspace, whose
+/// directories its forgetting removes under this same lock.
+fn hand_out(lock: &PluginDirsLock, grants: &PluginGrants, gate: &Gate, root: &Path, plugin_id: &str, ws_id: &str) -> Result<String, String> {
+    let _held = lock.hold();
+    gate.admit(&Source::from(ws_id)).map_err(|refused| refused.to_string())?;
+    let dir = dir_for(root, plugin_id, ws_id)?.to_string_lossy().into_owned();
+    grants.hand_workspace(plugin_id, ws_id, dir.clone());
     Ok(dir)
 }
 
 /// Drop every plugin's directory of a workspace the deck no longer holds.
 /// Best-effort per directory: one that cannot go must not keep the rest.
 #[tauri::command(async)]
-pub fn plugin_workspaces_prune(grants: State<'_, PluginGrants>, live_ws_ids: Vec<String>) -> Result<(), String> {
-    grants.release_workspaces(&live_ws_ids);
-    prune(&root()?, &live_ws_ids).map_err(|e| e.to_string())
+pub fn plugin_workspaces_prune(
+    lock: State<'_, PluginDirsLock>,
+    grants: State<'_, PluginGrants>,
+    live_ws_ids: Vec<String>,
+) -> Result<(), String> {
+    retain(&lock, &grants, &root()?, &live_ws_ids).map_err(|e| e.to_string())
+}
+
+/// Keep only the directories of the `live` workspaces.
+pub(crate) fn retain(lock: &PluginDirsLock, grants: &PluginGrants, root: &Path, live: &[String]) -> io::Result<()> {
+    drop_dirs(lock, grants, root, |ws_id| !live.iter().any(|l| l == ws_id))
+}
+
+/// Every plugin's directory of one workspace goes.
+pub(crate) fn forget(lock: &PluginDirsLock, grants: &PluginGrants, root: &Path, ws_id: &str) -> io::Result<()> {
+    drop_dirs(lock, grants, root, |id| id == ws_id)
+}
+
+/// Under the lock: the grants of the `gone` workspaces' directories let go
+/// first, then the directories themselves.
+fn drop_dirs(lock: &PluginDirsLock, grants: &PluginGrants, root: &Path, gone: impl Fn(&str) -> bool) -> io::Result<()> {
+    let _held = lock.hold();
+    grants.release_workspaces(&gone);
+    prune(root, gone)
 }
 
 fn root() -> Result<PathBuf, String> {
@@ -145,11 +194,11 @@ fn create_owner_only(root: &Path, names: &[&str]) -> io::Result<()> {
     fs::create_dir_all(names.iter().fold(root.to_path_buf(), |dir, name| dir.join(name)))
 }
 
-fn prune(root: &Path, live: &[String]) -> io::Result<()> {
+fn prune(root: &Path, gone: impl Fn(&str) -> bool) -> io::Result<()> {
     for plugin in crate::fs_names::sorted_dirs(root)? {
         for dir in crate::fs_names::sorted_dirs(&plugin)? {
             let id = dir.file_name().unwrap_or_default().to_string_lossy();
-            if live.iter().any(|l| *l == id) {
+            if !gone(&id) {
                 continue;
             }
             if let Err(e) = fs::remove_dir_all(&dir) {
@@ -237,27 +286,57 @@ mod tests {
         assert!(!root.exists(), "a refused ask creates nothing");
     }
 
+    /// Two plugins' directories of ws-1 and ws-2, a third plugin's of ws-2
+    /// alone — each handed out, so each is a write root.
+    fn stand(root: &Path, grants: &PluginGrants) {
+        for (plugin, ws) in [("keepdeck.claude", "ws-1"), ("keepdeck.claude", "ws-2"), ("keepdeck.opencode", "ws-1"), ("keepdeck.opencode", "ws-2"), ("keepdeck.kimi", "ws-2")] {
+            let dir = dir_for(root, plugin, ws).unwrap();
+            fs::write(dir.join("f"), "x").unwrap();
+            grants.hand_workspace(plugin, ws, dir.to_string_lossy().into_owned());
+        }
+    }
+
     #[test]
-    fn prune_drops_every_plugins_dir_of_a_departed_workspace_and_keeps_the_live() {
+    fn retain_drops_every_plugins_dir_of_a_departed_workspace_and_its_grant_and_keeps_the_live() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("plugin-workspaces");
-        for plugin in ["keepdeck.claude", "keepdeck.opencode"] {
-            for ws in ["ws-1", "ws-2"] {
-                fs::write(dir_for(&root, plugin, ws).unwrap().join("f"), "x").unwrap();
-            }
-        }
-        dir_for(&root, "keepdeck.kimi", "ws-2").unwrap();
-        prune(&root, &["ws-1".to_string()]).unwrap();
+        let grants = PluginGrants::default();
+        stand(&root, &grants);
+        retain(&PluginDirsLock::default(), &grants, &root, &["ws-1".to_string()]).unwrap();
         assert!(root.join("keepdeck.claude/ws-1/f").exists());
         assert!(root.join("keepdeck.opencode/ws-1/f").exists());
         assert!(!root.join("keepdeck.claude/ws-2").exists());
         assert!(!root.join("keepdeck.opencode/ws-2").exists());
         assert!(!root.join("keepdeck.kimi").exists(), "an emptied plugin folder goes too");
+        assert_eq!(grants.write_roots("keepdeck.claude").unwrap(), [dir_for(&root, "keepdeck.claude", "ws-1").unwrap().to_string_lossy()]);
+        assert!(grants.write_roots("keepdeck.kimi").is_err(), "no root left where nothing is left");
     }
 
     #[test]
-    fn prune_of_nothing_is_nothing() {
+    fn forgetting_a_workspace_takes_every_plugins_dir_of_it_and_no_other() {
         let tmp = tempfile::tempdir().unwrap();
-        prune(&tmp.path().join("absent"), &[]).unwrap();
+        let root = tmp.path().join("plugin-workspaces");
+        let grants = PluginGrants::default();
+        stand(&root, &grants);
+        forget(&PluginDirsLock::default(), &grants, &root, "ws-2").unwrap();
+        assert!(root.join("keepdeck.claude/ws-1/f").exists() && root.join("keepdeck.opencode/ws-1/f").exists());
+        assert!(!root.join("keepdeck.claude/ws-2").exists() && !root.join("keepdeck.kimi").exists());
+        forget(&PluginDirsLock::default(), &grants, &root, "ws-2").expect("a repeat finds nothing to do");
+        forget(&PluginDirsLock::default(), &grants, &tmp.path().join("absent"), "ws-1").expect("no folder at all");
+    }
+
+    #[test]
+    fn a_forgotten_workspace_is_handed_no_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("plugin-workspaces");
+        let grants = PluginGrants::default();
+        let forget = crate::forgotten::testing::Forget::default();
+        forget.forget("ws-gone");
+        let lock = PluginDirsLock::default();
+        assert!(hand_out(&lock, &grants, &forget.gate(), &root, "keepdeck.claude", "ws-gone").unwrap_err().contains("closed"));
+        assert!(!root.exists(), "nothing made");
+        assert!(grants.write_roots("keepdeck.claude").is_err(), "nothing granted");
+        let dir = hand_out(&lock, &grants, &forget.gate(), &root, "keepdeck.claude", "ws-1").unwrap();
+        assert_eq!(grants.write_roots("keepdeck.claude").unwrap(), [dir]);
     }
 }

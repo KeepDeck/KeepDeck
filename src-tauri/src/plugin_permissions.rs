@@ -278,10 +278,10 @@ impl PluginGrants {
             .insert(ws_id.to_string(), dir);
     }
 
-    /// Every plugin lets go of its directory of a workspace not in `live`.
-    pub(crate) fn release_workspaces(&self, live: &[String]) {
+    /// Every plugin lets go of its directory of each workspace that is `gone`.
+    pub(crate) fn release_workspaces(&self, gone: impl Fn(&str) -> bool) {
         for grant in self.lock().values_mut() {
-            grant.workspaces.retain(|ws_id, _| live.contains(ws_id));
+            grant.workspaces.retain(|ws_id, _| !gone(ws_id));
         }
     }
 }
@@ -945,7 +945,7 @@ mod tests {
         );
         assert!(grants.write_roots("p.other").is_err(), "one plugin's directory is no other's");
 
-        grants.release_workspaces(&["ws-2".to_string()]);
+        grants.release_workspaces(|ws_id| ws_id == "ws-1");
         assert_eq!(grants.write_roots("p.agent").unwrap(), ["/kd/plugin-workspaces/p.agent/ws-2"]);
         grants.forget("p.agent");
         assert!(grants.write_roots("p.agent").is_err());
