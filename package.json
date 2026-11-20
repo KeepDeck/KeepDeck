@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:host": "vitest run -c vitest.host.config.ts",
     "test:q1:diagnose": "node scripts/q1-diagnose.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.app.json && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.refresh.json && tsc -p tsconfig.scripts.json",
     "lint": "eslint",
