@@ -240,7 +240,17 @@ pub fn skills_stage(
 /// content and is never touched here.
 #[tauri::command(async)]
 pub fn skills_prune(locks: tauri::State<'_, SkillsLocks>, live_ws_ids: Vec<String>) -> Result<(), String> {
-    staging::prune_views(&locks, &skills_root()?, &live_ws_ids).map_err(|e| e.to_string())
+    retain_stagings(&locks, &live_ws_ids)
+}
+
+/// Keep only the `live` workspaces' stagings — boot's reconciliation.
+pub(crate) fn retain_stagings(locks: &SkillsLocks, live: &[String]) -> Result<(), String> {
+    staging::prune_views(locks, &skills_root()?, live).map_err(|e| e.to_string())
+}
+
+/// One closed workspace's staging goes. What its people authored stays.
+pub(crate) fn forget_staging(locks: &SkillsLocks, ws_id: &str) -> Result<(), String> {
+    staging::forget_views(locks, &skills_root()?, ws_id).map_err(|e| e.to_string())
 }
 
 /// Run `read` while the staged view holding `path` (a real path) stays whole

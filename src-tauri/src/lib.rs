@@ -211,7 +211,8 @@ pub fn run() {
             let root = lifecycle::journal_root().ok_or("no KeepDeck home to hold the lifecycle journal")?;
             let sessions = tauri::async_runtime::block_on(async { session_machine::SessionMachine::start() });
             let locks = app.state::<worktree::RepoLocks>().inner().clone();
-            let doors = std::sync::Arc::new(lifecycle::AppDoors::new(sessions.clone(), locks));
+            let stores = std::sync::Arc::new(lifecycle::AppStores::new(app.handle().clone()));
+            let doors = std::sync::Arc::new(lifecycle::AppDoors::new(sessions.clone(), locks, stores));
             let lifecycle = tauri::async_runtime::block_on(async move { lifecycle::Lifecycle::start_at(root, doors) });
             let claimed = lifecycle.claimed();
             let link_app = app.handle().clone();

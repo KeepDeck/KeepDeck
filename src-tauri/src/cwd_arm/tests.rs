@@ -7,7 +7,7 @@ use std::process::Command;
 
 use super::lifecycle;
 use super::registry::{manifest, Hidden, Landing, Ledger, Place, Receipt, What};
-use super::{disarm, prune, retire_historical_link, ArmRefusal, CwdArm, CwdArmReport, CAPS};
+use super::{disarm, drop_workspaces, prune, retire_historical_link, ArmRefusal, CwdArm, CwdArmReport, CAPS};
 use crate::fs_beneath as fsb;
 
 struct Scratch {
@@ -471,6 +471,22 @@ fn two_workspaces_in_one_folder_each_plant_and_take_back_their_own() {
     assert!(again.refused.is_empty(), "{:?}", again.refused);
 }
 
+#[test]
+fn forgetting_one_workspace_takes_its_plantings_and_no_one_elses() {
+    let s = scratch();
+    let a = s.skill("ws-1", "a");
+    let b = s.skill("ws-2", "b");
+    let c = s.skill("ws-3", "c");
+    s.arm("p.linker", "ws-1", &[link(".agents/skills/a", &a)]);
+    s.arm("p.linker", "ws-2", &[link(".agents/skills/b", &b)]);
+    s.arm("p.linker", "ws-3", &[link(".agents/skills/c", &c)]);
+    drop_workspaces(&s.root, &s.home, |ws| ws == "ws-1").unwrap();
+    assert!(fs::symlink_metadata(s.cwd.join(".agents/skills/a")).is_err(), "the closed workspace's went");
+    assert_eq!(fs::read_link(s.cwd.join(".agents/skills/b")).unwrap(), b);
+    assert_eq!(fs::read_link(s.cwd.join(".agents/skills/c")).unwrap(), c, "no one else's, live or not");
+    drop_workspaces(&s.root, &s.home, |ws| ws == "ws-1").expect("a repeat finds nothing");
+}
+
 // ---- one path, one plugin; what a set may declare ----
 
 #[test]
@@ -875,7 +891,7 @@ fn a_dead_workspaces_record_that_cannot_be_set_aside_stops_the_sweep() {
     s.arm("p.filer", "ws-1", &[file(".k/conf", "a")]);
     fs::write(manifest(&s.root, "ws-9"), "not json").unwrap();
     lock(&s.root, true);
-    prune(&s.root, &s.home, &[]).unwrap();
+    assert!(prune(&s.root, &s.home, &[]).is_err(), "said, so the sweep is asked again");
     lock(&s.root, false);
     assert_eq!(fs::read_to_string(s.cwd.join(".k/conf")).unwrap(), "a", "ws-9 might claim it");
     prune(&s.root, &s.home, &[]).unwrap();

@@ -103,3 +103,5 @@ objc2-foundation = "0.3"
 [dev-dependencies]
 # The lifecycle's waiting door is tested on a tiny machine of its own.
 keepdeck-fsm = { path = "../crates/keepdeck-fsm" }
+# Paused time: a cleanup's limit is tested without waiting it out.
+tokio = { version = "1", features = ["test-util"] }

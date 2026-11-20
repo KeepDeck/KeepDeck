@@ -48,6 +48,12 @@ impl ArtifactsState {
     pub(crate) fn is_claimed(&self) -> bool {
         self.root.lock().expect("artifacts root poisoned").is_some()
     }
+
+    /// A closed workspace's whole store goes. With the feature off there is
+    /// no claimed store to drop from: said, so the drop is asked again.
+    pub(crate) fn drop_workspace(&self, ws_id: &str) -> Result<(), String> {
+        self.store.drop_workspace(ws_id).map_err(|e| e.0)
+    }
 }
 
 impl Default for ArtifactsState {
@@ -500,7 +506,7 @@ pub fn artifact_drop_workspace(
     state: State<ArtifactsState>,
     ws_id: String,
 ) -> Result<(), String> {
-    state.store.drop_workspace(&ws_id).map_err(|e| e.0)
+    state.drop_workspace(&ws_id)
 }
 
 #[cfg(test)]

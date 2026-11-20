@@ -267,19 +267,25 @@ pub(super) fn forget_workspace(root: &Path, ws_id: &str) -> io::Result<()> {
 
 /// Drop the scopes of workspaces that no longer exist — the crash path,
 /// where the deck never got to call [`forget_workspace`] and the next
-/// workspace to take a freed id would inherit the scope. Best-effort per
-/// directory: one stubborn directory must not abort the sweep.
+/// workspace to take a freed id would inherit the scope. One stubborn
+/// directory does not keep the rest, and is said.
 pub(super) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
-    for dir in crate::fs_names::sorted_dirs(&root.join("ws"))? {
-        let id = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        if live.contains(&id) {
-            continue;
-        }
-        if let Err(e) = fs::remove_dir_all(&dir) {
-            log::warn!("mcp library: pruning {} failed: {e}", dir.display());
-        }
-    }
-    Ok(())
+    let dead = crate::fs_names::sorted_dirs(&root.join("ws"))?
+        .into_iter()
+        .filter(|dir| !live.iter().any(|id| dir.file_name().is_some_and(|name| name == id.as_str())));
+    crate::fs_names::remove_each(dead, |dir| fs::remove_dir_all(dir))
+}
+
+/// One closed workspace's scope goes, under the library's lock.
+pub(crate) fn forget_scope(lock: &McpLibraryLock, ws_id: &str) -> Result<(), String> {
+    let _held = lock.hold();
+    forget_workspace(&library_root()?, ws_id).map_err(|e| e.to_string())
+}
+
+/// Keep only the `live` workspaces' scopes, under the library's lock.
+pub(crate) fn retain_scopes(lock: &McpLibraryLock, live: &[String]) -> Result<(), String> {
+    let _held = lock.hold();
+    prune(&library_root()?, live).map_err(|e| e.to_string())
 }
 
 fn library_root() -> Result<PathBuf, String> {
@@ -352,8 +358,7 @@ pub fn mcp_library_forget_workspace(
     lock: tauri::State<'_, McpLibraryLock>,
     ws_id: String,
 ) -> Result<(), String> {
-    let _held = lock.hold();
-    forget_workspace(&library_root()?, &ws_id).map_err(|e| e.to_string())
+    forget_scope(&lock, &ws_id)
 }
 
 /// The sweep's hook: drop the scopes of workspaces the deck no longer has.
@@ -362,8 +367,7 @@ pub fn mcp_library_prune(
     lock: tauri::State<'_, McpLibraryLock>,
     live_ws_ids: Vec<String>,
 ) -> Result<(), String> {
-    let _held = lock.hold();
-    prune(&library_root()?, &live_ws_ids).map_err(|e| e.to_string())
+    retain_scopes(&lock, &live_ws_ids)
 }
 
 #[cfg(test)]

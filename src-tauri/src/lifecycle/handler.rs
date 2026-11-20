@@ -11,6 +11,7 @@ use keepdeck_lifecycle::ids::{AttemptId, SessionId, WorkspaceId};
 use keepdeck_lifecycle::journal::{self, JournalStore, Ticket};
 use keepdeck_lifecycle::machine::{Clean, Effect, Event};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// What the handler asks of the rest of the app: git, the stores, the
 /// sessions machine, the spawn door's start boundary.
@@ -40,6 +41,32 @@ pub struct Handler {
 impl Handler {
     pub fn new(doors: Arc<dyn Doors>, journal: DiskJournal, waiters: Waiters) -> Handler {
         Handler { doors, journal, waiters }
+    }
+}
+
+/// How long a store's cleanup may take before its step is left owed.
+const STORE_CLEAN_LIMIT: Duration = Duration::from_secs(30);
+
+/// A cleanup step's clock. Git's steps have none, like every git command
+/// that provisions — a large tree takes as long as it takes. A store's
+/// forgetting waits on that store's lock behind its writers: past its limit
+/// the step is left owed for the next launch, never counted as done.
+fn clean_limit(how: &Clean) -> Option<Duration> {
+    match how {
+        Clean::Checkout { .. } | Clean::Branch { .. } | Clean::TagHead { .. } => None,
+        Clean::Disarm { .. } | Clean::Stores | Clean::Retain { .. } | Clean::Discard { .. } => Some(STORE_CLEAN_LIMIT),
+    }
+}
+
+/// `work`, or a refusal once `limit` has passed. The work itself is not
+/// cancelled: blocking work cannot be, and what it still does lands under
+/// its store's lock like any write, to be found by the retry.
+async fn bounded<T>(limit: Option<Duration>, work: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+    match limit {
+        None => work.await,
+        Some(limit) => tokio::time::timeout(limit, work)
+            .await
+            .unwrap_or_else(|_| Err(format!("not done within {} s; left owed", limit.as_secs()))),
     }
 }
 
@@ -102,7 +129,8 @@ impl Effects<Effect, Event> for Handler {
             Effect::Clean { op, workspace, step, how } => {
                 let doors = self.doors.clone();
                 events.spawn(async move {
-                    let result = supervised(move || doors.clean(&workspace, &how)).await;
+                    let limit = clean_limit(&how);
+                    let result = bounded(limit, supervised(move || doors.clean(&workspace, &how))).await;
                     Some(Event::StepDone { op, step, result })
                 });
             }
@@ -119,5 +147,22 @@ impl Effects<Effect, Event> for Handler {
             }
             Effect::Warn { message } => log::warn!("lifecycle: {message}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_store_cleanup_past_its_limit_is_left_owed_and_a_git_step_has_no_clock() {
+        let stuck = || std::future::pending::<Result<(), String>>();
+        let late = bounded(clean_limit(&Clean::Stores), stuck()).await;
+        assert!(late.unwrap_err().contains("left owed"));
+        assert_eq!(bounded(clean_limit(&Clean::Stores), async { Ok(()) }).await, Ok(()));
+        let checkout = Clean::Checkout { repo: Dir::new("/repo"), path: Dir::new("/wt") };
+        assert_eq!(clean_limit(&checkout), None);
+        let slow_git = tokio::time::timeout(STORE_CLEAN_LIMIT * 10, bounded(None, stuck())).await;
+        assert!(slow_git.is_err(), "still waited on, long past any store's limit");
     }
 }

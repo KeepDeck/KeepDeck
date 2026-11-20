@@ -36,6 +36,24 @@ fn deck(cwd: &str) -> DeckFacts {
     }
 }
 
+/// The stores' doors, unasked here: no test of this module cleans.
+struct NoStores;
+
+impl crate::lifecycle::StoreDoors for NoStores {
+    fn disarm(&self, _dir: &Dir) -> Result<(), String> {
+        unreachable!("no cleanup in these tests")
+    }
+    fn forget(&self, _workspace: &WorkspaceId) -> Result<(), String> {
+        unreachable!("no cleanup in these tests")
+    }
+    fn retain(&self, _workspaces: &[WorkspaceId]) -> Result<(), String> {
+        unreachable!("no cleanup in these tests")
+    }
+    fn discard(&self, _plugin: &str, _paths: &[String]) -> Result<(), String> {
+        unreachable!("no cleanup in these tests")
+    }
+}
+
 struct Rig {
     sessions: SessionMachine,
     lifecycle: Lifecycle,
@@ -49,7 +67,7 @@ async fn rig() -> Rig {
     let work = tempfile::tempdir().unwrap();
     let cwd = work.path().to_string_lossy().into_owned();
     let sessions = SessionMachine::start();
-    let doors = AppDoors::new(sessions.clone(), crate::worktree::RepoLocks::default());
+    let doors = AppDoors::new(sessions.clone(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
     let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
     let door = lifecycle.door();
     sessions.link(move || door.clone());

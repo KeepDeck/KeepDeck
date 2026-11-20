@@ -1,11 +1,9 @@
 //! The app's doors for the lifecycle handler. The sessions machine's are an
 //! exact stop and the start boundary's cancel; git's are worktree.rs's steps
-//! under the repository locks the rest of the app takes. The stores come with
-//! their own task; until then those cleanup steps refuse — and none is
-//! reached, since the app does not handshake before integration and the
-//! barrier stays up.
+//! under the repository locks the rest of the app takes; the stores' are
+//! their own port, each store forgetting under its own lock.
 
-use super::Doors;
+use super::{Doors, StoreDoors};
 use crate::session_machine::SessionMachine;
 use crate::worktree::{self, RepoLocks};
 use keepdeck_lifecycle::dir::Dir;
@@ -13,25 +11,22 @@ use keepdeck_lifecycle::ids::{AttemptId, SessionId, WorkspaceId};
 use keepdeck_lifecycle::journal::Ticket;
 use keepdeck_lifecycle::machine::Clean;
 use std::path::Path;
+use std::sync::Arc;
 
 pub struct AppDoors {
     sessions: SessionMachine,
     locks: RepoLocks,
+    stores: Arc<dyn StoreDoors>,
 }
 
 impl AppDoors {
-    pub fn new(sessions: SessionMachine, locks: RepoLocks) -> AppDoors {
-        AppDoors { sessions, locks }
+    pub fn new(sessions: SessionMachine, locks: RepoLocks, stores: Arc<dyn StoreDoors>) -> AppDoors {
+        AppDoors { sessions, locks, stores }
     }
 }
 
 fn path(dir: &Dir) -> &Path {
     Path::new(dir.as_str())
-}
-
-fn unwired(what: &str) -> String {
-    log::error!("lifecycle: the {what} door is not wired yet");
-    format!("the {what} door is not wired yet")
 }
 
 impl Doors for AppDoors {
@@ -47,12 +42,15 @@ impl Doors for AppDoors {
         worktree::born_branches(&self.locks, path(repo), path(at))
     }
 
-    fn clean(&self, _workspace: &WorkspaceId, how: &Clean) -> Result<(), String> {
+    fn clean(&self, workspace: &WorkspaceId, how: &Clean) -> Result<(), String> {
         match how {
             Clean::Checkout { repo, path: at } => worktree::remove_planned_checkout(&self.locks, path(repo), path(at)),
             Clean::Branch { repo, name } => worktree::remove_planned_branch(&self.locks, path(repo), name),
             Clean::TagHead { repo, path: at, tag } => worktree::tag_head(path(repo), path(at), tag),
-            Clean::Disarm { .. } | Clean::Stores | Clean::Discard { .. } | Clean::Retain { .. } => Err(unwired("store cleanup")),
+            Clean::Disarm { dir } => self.stores.disarm(dir),
+            Clean::Stores => self.stores.forget(workspace),
+            Clean::Retain { workspaces } => self.stores.retain(workspaces),
+            Clean::Discard { plugin, paths } => self.stores.discard(plugin, paths),
         }
     }
 

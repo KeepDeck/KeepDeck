@@ -1,6 +1,7 @@
 //! One home for the filesystem-name rules both features share: the
 //! path-segment safety wall (skill names, workspace ids — one plain
-//! directory name, no traversal) and the sorted-subdirectory listing.
+//! directory name, no traversal), the sorted-subdirectory listing, and the
+//! sweep that removes directories and says which stayed.
 //! `skills/library.rs` and `artifacts/store.rs` WRAP these verdicts at
 //! their call sites, keeping their own error types — the wall itself
 //! has exactly one owner (the rules-lens round: two byte-logic copies
@@ -41,9 +42,49 @@ pub(crate) fn sorted_dirs(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
+/// Remove each of `dirs` with `remove`: one that will not go keeps none of
+/// the rest, and every one that stayed is named in the error once all were
+/// tried — a sweep that says it is done has left nothing behind. One already
+/// gone is removed.
+pub(crate) fn remove_each(
+    dirs: impl IntoIterator<Item = PathBuf>,
+    remove: impl Fn(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut stayed = Vec::new();
+    for dir in dirs {
+        match remove(&dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => stayed.push(format!("{}: {e}", dir.display())),
+        }
+    }
+    if stayed.is_empty() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!("could not remove {}", stayed.join("; "))))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_dir_is_tried_and_the_ones_that_stayed_are_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dirs: Vec<PathBuf> = ["a", "b", "c"].iter().map(|n| tmp.path().join(n)).collect();
+        for dir in &dirs[..2] {
+            fs::create_dir(dir).unwrap();
+        }
+        let stuck = dirs[0].clone();
+        let error = remove_each(dirs.clone(), |dir| {
+            if dir == stuck { Err(std::io::Error::other("busy")) } else { fs::remove_dir_all(dir) }
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("a: busy"), "{error}");
+        assert!(!dirs[1].exists(), "the stuck one kept none of the rest");
+        assert!(remove_each(dirs[1..].to_vec(), |dir| fs::remove_dir_all(dir)).is_ok(), "gone already is removed");
+    }
 
     #[test]
     fn the_wall_accepts_the_plain_and_refuses_the_rest() {

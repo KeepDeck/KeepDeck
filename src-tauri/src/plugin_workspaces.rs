@@ -73,11 +73,21 @@ pub fn plugin_workspaces_prune(
     grants: State<'_, PluginGrants>,
     live_ws_ids: Vec<String>,
 ) -> Result<(), String> {
-    retain(&lock, &grants, &root()?, &live_ws_ids).map_err(|e| e.to_string())
+    retain_workspaces(&lock, &grants, &live_ws_ids)
+}
+
+/// Keep only the `live` workspaces' directories — boot's reconciliation.
+pub(crate) fn retain_workspaces(lock: &PluginDirsLock, grants: &PluginGrants, live: &[String]) -> Result<(), String> {
+    retain(lock, grants, &root()?, live).map_err(|e| e.to_string())
+}
+
+/// A closed workspace's directories go, every plugin's.
+pub(crate) fn forget_workspace(lock: &PluginDirsLock, grants: &PluginGrants, ws_id: &str) -> Result<(), String> {
+    forget(lock, grants, &root()?, ws_id).map_err(|e| e.to_string())
 }
 
 /// Keep only the directories of the `live` workspaces.
-pub(crate) fn retain(lock: &PluginDirsLock, grants: &PluginGrants, root: &Path, live: &[String]) -> io::Result<()> {
+fn retain(lock: &PluginDirsLock, grants: &PluginGrants, root: &Path, live: &[String]) -> io::Result<()> {
     drop_dirs(lock, grants, root, |ws_id| !live.iter().any(|l| l == ws_id))
 }
 
@@ -195,20 +205,21 @@ fn create_owner_only(root: &Path, names: &[&str]) -> io::Result<()> {
 }
 
 fn prune(root: &Path, gone: impl Fn(&str) -> bool) -> io::Result<()> {
-    for plugin in crate::fs_names::sorted_dirs(root)? {
-        for dir in crate::fs_names::sorted_dirs(&plugin)? {
-            let id = dir.file_name().unwrap_or_default().to_string_lossy();
-            if !gone(&id) {
-                continue;
-            }
-            if let Err(e) = fs::remove_dir_all(&dir) {
-                log::warn!("plugin workspaces: pruning {} failed: {e}", dir.display());
+    let mut leaving = Vec::new();
+    let plugins = crate::fs_names::sorted_dirs(root)?;
+    for plugin in &plugins {
+        for dir in crate::fs_names::sorted_dirs(plugin)? {
+            if gone(&dir.file_name().unwrap_or_default().to_string_lossy()) {
+                leaving.push(dir);
             }
         }
-        // A plugin left with no workspace keeps no empty folder behind.
-        let _ = fs::remove_dir(&plugin);
     }
-    Ok(())
+    let removed = crate::fs_names::remove_each(leaving, |dir| fs::remove_dir_all(dir));
+    // A plugin left with no workspace keeps no empty folder behind.
+    for plugin in &plugins {
+        let _ = fs::remove_dir(plugin);
+    }
+    removed
 }
 
 #[cfg(test)]

@@ -160,9 +160,28 @@ pub fn cwd_disarm(roots: Vec<String>, live_roots: Vec<String>) -> Result<Vec<Str
 /// Sweep what workspaces that no longer exist planted — the crash path.
 #[tauri::command(async)]
 pub fn cwd_arm_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
+    retain(&live_ws_ids)
+}
+
+/// Keep only the `live` workspaces' plantings — boot's reconciliation.
+pub(crate) fn retain(live: &[String]) -> Result<(), String> {
     let home = home()?;
     let _guard = lock();
-    prune(&records_root(&home), &home, &live_ws_ids).map_err(|e| e.to_string())
+    prune(&records_root(&home), &home, live).map_err(|e| e.to_string())
+}
+
+/// One closed workspace's plantings go, wherever they are.
+pub(crate) fn forget(ws_id: &str) -> Result<(), String> {
+    let home = home()?;
+    let _guard = lock();
+    drop_workspaces(&records_root(&home), &home, |ws| ws == ws_id).map_err(|e| e.to_string())
+}
+
+/// Everything planted in one folder goes — a folder a close takes back.
+pub(crate) fn disarm_dir(dir: &str) -> Result<(), String> {
+    let home = home()?;
+    let _guard = lock();
+    disarm(&records_root(&home), &home, &[dir.to_owned()], &[]).map(drop).map_err(|e| e.to_string())
 }
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
@@ -227,14 +246,23 @@ fn disarm(root: &Path, home: &Path, roots: &[String], live: &[String]) -> io::Re
     }
 }
 
-/// Dead workspaces' plantings go. A dead workspace's unreadable record is set
-/// aside (its plantings stay where they are, unclaimed); while a LIVE one's
-/// will not read, nothing goes.
+/// Dead workspaces' plantings go: every workspace not `live`.
 fn prune(root: &Path, home: &Path, live: &[String]) -> io::Result<()> {
+    drop_workspaces(root, home, |ws| !live.iter().any(|id| id == ws))
+}
+
+/// The plantings of every workspace that is `gone` go. A gone workspace's
+/// unreadable record is set aside (its plantings stay where they are,
+/// unclaimed); while a kept one's will not read, nothing goes, and a
+/// planting that would not go stays recorded: either is an error, so the
+/// sweep is asked again. A folder made for a planting that another
+/// workspace's still sits in is no failure — its record stays, and it goes
+/// with the last of them.
+fn drop_workspaces(root: &Path, home: &Path, gone: impl Fn(&str) -> bool) -> io::Result<()> {
     let mut ledger = Ledger::read(root)?;
     let mut unreadable = Vec::new();
     for ws in std::mem::take(&mut ledger.unreadable) {
-        if live.contains(&ws) {
+        if !gone(&ws) {
             unreadable.push(ws);
         } else if let Err(e) = ledger.set_aside(&ws) {
             log::warn!("cwd arming: setting the unreadable record of {ws} aside failed: {e}");
@@ -242,14 +270,15 @@ fn prune(root: &Path, home: &Path, live: &[String]) -> io::Result<()> {
         }
     }
     if let Some(ws) = unreadable.first() {
-        log::warn!("cwd arming: the record of {ws} is unreadable — nothing swept");
-        return Ok(());
+        return Err(io::Error::other(format!("the record of {ws} is unreadable — nothing swept")));
     }
-    let failed = sweep(&mut ledger, home, |ws, _| !live.iter().any(|id| id == ws))?;
-    if !failed.is_empty() {
-        log::warn!("cwd arming: sweeping dead workspaces left {}", plantings(&failed));
+    let mut failed = sweep(&mut ledger, home, |ws, _| gone(ws))?;
+    failed.retain(|place| !matches!(place.what, What::Dir { .. }));
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!("sweeping left {}", plantings(&failed))))
     }
-    Ok(())
 }
 
 /// Retire every place `gone` picks, across workspaces, through the one
