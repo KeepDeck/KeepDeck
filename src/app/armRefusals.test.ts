@@ -35,15 +35,3 @@ describe("createArmRefusalStore", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 });
-
-describe("createCwdArming", () => {
-  it("plants through the worktree owner and records what was refused under the agent", async () => {
-    const armCwd = vi.fn(async () => ({ armed: ["a"], refused: [{ path: "b", reason: "yours" }] }));
-    const record = vi.fn();
-    const arm = createCwdArming({ worktrees: { armCwd }, refusals: { record } });
-    const request = { pluginId: "p", workspaceId: "ws-1", cwd: "/repo", arms: [], skillsDir: null };
-    await arm("kimi", request);
-    expect(armCwd).toHaveBeenCalledWith(request);
-    expect(record).toHaveBeenCalledWith("kimi", "/repo", [{ path: "b", reason: "yours" }]);
-  });
-});

@@ -119,6 +119,9 @@ export interface MailServiceDeps {
     /** Whether the pane's process announced its agent's companion. */
     hasCompanion(paneId: string): boolean;
   };
+  /** The lifecycle's fence: a write for a pane, team or workspace it has
+   * forgotten — a close under way — is refused, not swept up after. */
+  lifecycle: { forgotten: MailCommandDeps["forgotten"] };
 }
 
 /** A companion's word that its agent started no turn for a ring. */
@@ -318,6 +321,7 @@ export function createMailService(deps: MailServiceDeps): MailService {
     agents: deps.agents.labels,
     settleRoster: deps.deck.settleRoster,
     reachOf: deps.deck.reachOf,
+    forgotten: deps.lifecycle.forgotten,
     mail: manager,
   });
   const presence = startPresence();

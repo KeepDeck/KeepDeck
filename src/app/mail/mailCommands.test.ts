@@ -109,6 +109,7 @@ function setup(teamed = false) {
   };
   const dispose = registerMailCommands(registry, {
     mail,
+    forgotten: () => false,
     workspaces: () => workspaces,
     agents: () => [{ id: "claude", label: "Claude" }],
     settleRoster: settle,
@@ -183,6 +184,8 @@ describe("mail.send", () => {
       "workspace-archived",
       "exited",
       "failed-to-start",
+      "suspending",
+      "leaving",
     ];
     const texts = reasons.map((why) => unreachableText("analyst-1", why));
     for (const text of texts) {
@@ -860,6 +863,7 @@ describe("mail between workspaces", () => {
     const registry: CommandRegistry = createCommandRegistry();
     registerMailCommands(registry, {
       mail,
+      forgotten: () => false,
       workspaces: () => workspaces,
       agents: () => [{ id: "claude", label: "Claude" }],
       settleRoster: () => {},

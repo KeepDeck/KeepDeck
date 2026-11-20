@@ -28,6 +28,7 @@ import {
   type Pane,
   type Workspace,
 } from "../../domain/deck";
+import type { WriteSource } from "../../domain/lifecycle";
 import {
   SENDABLE_KINDS,
   WHEN_MAIL_LANDS,
@@ -67,6 +68,9 @@ export interface MailCommandDeps {
   /** Whether a pane's agent would read something sent to it now — the
    * orchestrator's answer, which owns that question. */
   reachOf(paneId: string): AgentReach | null;
+  /** Whether the lifecycle has forgotten what a write is for — a close of
+   * its pane, team or workspace under way. */
+  forgotten(source: WriteSource): boolean;
 }
 
 /**
@@ -120,6 +124,9 @@ function readerTeamOf(deps: MailCommandDeps, reader: MailSender): string | null 
 
 const NOT_AN_AGENT_MESSAGE =
   "only an agent pane can use mail — this connection is not attached to one";
+
+/** A send from a pane the lifecycle is closing. */
+const FORGOTTEN_SENDER_MESSAGE = "not sent: this agent is being closed, so nothing it sends is kept";
 
 function requireSender(source: CommandSource): MailSender {
   const sender = senderOf(source);
@@ -248,6 +255,18 @@ export function registerMailCommands(
         // knows now and decides what to do.
         const reach = deps.reachOf(resolved.value.id);
         if (reach?.kind === "down") throw new Error(unreachableText(str(args, "to") ?? "", reach.why));
+        // The lifecycle's fence: a pane it has forgotten — its close under
+        // way — neither writes mail nor is written to; what it had goes
+        // with the close's cleanup.
+        if (deps.forgotten({ workspace: workspace.id, team: standing?.id ?? null, pane: pane.id })) {
+          throw new Error(FORGOTTEN_SENDER_MESSAGE);
+        }
+        const recipientWs = findWorkspaceOfPane(deps.workspaces(), resolved.value.id);
+        const recipient = recipientWs?.panes.find((candidate) => candidate.id === resolved.value.id);
+        const recipientTeam = recipientWs && recipient ? teamOf(recipientWs, recipient) : null;
+        if (recipientWs && deps.forgotten({ workspace: recipientWs.id, team: recipientTeam?.id ?? null, pane: resolved.value.id })) {
+          throw new Error(unreachableText(str(args, "to") ?? "", "leaving"));
+        }
         // The registry has refused a missing or wrong-typed body already.
         const body = args.body;
         if (typeof body !== "string") throw new Error("body must be a string");
@@ -490,6 +509,10 @@ export function unreachableText(to: string, why: AgentDown): string {
         return ["has exited", "ask your user to restart it"];
       case "failed-to-start":
         return ["could not be started", "ask your user to retry it"];
+      case "suspending":
+        return ["is being suspended by the user", "ask your user to resume it once it has stopped"];
+      case "leaving":
+        return ["is being closed", "it is going away"];
     }
   })();
   return `not sent: ${to} ${state}, so its agent is not running and would not read it — ${remedy}, or write to somebody else`;
