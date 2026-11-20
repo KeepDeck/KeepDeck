@@ -5,6 +5,8 @@ import { serializeDeck } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Versioned } from "../ipc/generated/lifecycle/Versioned";
+import { standingNotice } from "../presentation/lifecycleWords";
+import { getNotifications } from "./notificationCenter";
 import { createAppRuntime } from "./runtime";
 
 /**
@@ -16,13 +18,14 @@ import { createAppRuntime } from "./runtime";
 
 const machine = vi.hoisted(() => {
   const order: string[] = [];
-  let push: ((versioned: unknown) => void) | null = null;
+  let hear: ((heard: unknown) => void) | null = null;
   return {
     order,
-    push: (versioned: unknown) => push?.(versioned),
-    subscribeLifecycle: vi.fn(async (onSnapshot: (versioned: unknown) => void) => {
+    push: (versioned: unknown) => hear?.({ kind: "snapshot", versioned }),
+    stop: () => hear?.({ kind: "stopped" }),
+    subscribeLifecycle: vi.fn(async (onHeard: (heard: unknown) => void) => {
       order.push("subscribe");
-      push = onSnapshot;
+      hear = onHeard;
     }),
     onLifecycleRestarted: vi.fn(async () => () => {}),
     bootHandshake: vi.fn(async (..._args: unknown[]) => {
@@ -209,6 +212,19 @@ describe("the runtime and the lifecycle machine", () => {
       expect.objectContaining({ kind: "relocate", workspace: "ws-a", pane: "pane-2", root: "team-r" }),
     );
     expect(runtime.deckStore.getSnapshot().workspaces).toBe(before);
+    runtime.dispose();
+  });
+
+  /** v26 §13, "the machine fell": the screen says nothing starts or closes
+   * until KeepDeck restarts — once, however often the channel says it. */
+  it("tells the person once that the machine stopped", async () => {
+    const runtime = createAppRuntime(backend(), createCommandRegistry());
+    await vi.waitFor(() => expect(machine.subscribeLifecycle).toHaveBeenCalled());
+    const said = () => getNotifications().filter((notice) => notice.title === standingNotice("stopped").title);
+    expect(said()).toHaveLength(0);
+    machine.stop();
+    machine.stop();
+    expect(said()).toHaveLength(1);
     runtime.dispose();
   });
 });

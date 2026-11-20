@@ -117,6 +117,11 @@ impl Lifecycle {
         self.live.lock().expect("lifecycle").claim.is_some()
     }
 
+    /// The machine now in place still runs: its task has not ended.
+    pub fn running(&self) -> bool {
+        self.door().machine().state().has_changed().is_ok()
+    }
+
     /// Without the claim: try for it again until it is had, then start over
     /// and tell TS.
     pub fn retry_claim(app: tauri::AppHandle) {

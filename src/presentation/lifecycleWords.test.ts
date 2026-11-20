@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { NoAnswer, Refusal } from "../domain/lifecycle";
-import { intentOutcomeText, noAnswerText, refusalText } from "./lifecycleWords";
+import type { NoAnswer, Refusal, Standing } from "../domain/lifecycle";
+import { intentOutcomeText, noAnswerText, refusalText, standingNotice } from "./lifecycleWords";
 
 const refusals: Refusal[] = [
   { kind: "alreadyClosing" },
@@ -45,5 +45,15 @@ describe("the lifecycle's words", () => {
     expect(intentOutcomeText({ kind: "accepted", op: 1, minted: { workspace: null, team: null, panes: [] } })).toBeNull();
     expect(intentOutcomeText({ kind: "refused", refusal: { kind: "archived" } })).toBe(refusalText({ kind: "archived" }));
     expect(intentOutcomeText({ kind: "unanswered", reply: { kind: "unknown" } })).toBe(noAnswerText({ kind: "unknown" }));
+  });
+
+  it("say each standing fact in its own notice, and that a restart is what brings work back", () => {
+    const standings: Standing[] = ["viewOnly", "sessionsDown", "stopped"];
+    const notices = standings.map(standingNotice);
+    expect(new Set(notices.map((notice) => notice.title)).size).toBe(standings.length);
+    expect(new Set(notices.map((notice) => notice.body)).size).toBe(standings.length);
+    expect(standingNotice("sessionsDown").body).toContain("until KeepDeck restarts");
+    expect(standingNotice("stopped").body).toContain("until KeepDeck restarts");
+    expect(standingNotice("viewOnly").body).toContain("only shows");
   });
 });

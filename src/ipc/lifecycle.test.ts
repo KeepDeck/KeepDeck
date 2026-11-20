@@ -22,7 +22,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke, Channel: tauri.ch
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 import { versioned } from "./generated/lifecycle/examples";
-import type { Versioned } from "./generated/lifecycle/Versioned";
+import type { Heard } from "./generated/lifecycle/Heard";
 import * as lifecycle from "./lifecycle";
 
 describe("the lifecycle's doors", () => {
@@ -55,12 +55,13 @@ describe("the lifecycle's doors", () => {
     ]);
   });
 
-  it("hand every snapshot of the one channel on as it came", async () => {
-    const heard: Versioned[] = [];
-    await lifecycle.subscribeLifecycle((snapshot) => heard.push(snapshot));
+  it("hand everything heard on the one channel on as it came", async () => {
+    const heard: Heard[] = [];
+    await lifecycle.subscribeLifecycle((message) => heard.push(message));
     const channel = tauri.channels[tauri.channels.length - 1];
-    expect(tauri.invoke).toHaveBeenCalledWith("lifecycle_subscribe", { onSnapshot: channel });
-    channel?.onmessage?.(versioned);
-    expect(heard).toEqual([versioned]);
+    expect(tauri.invoke).toHaveBeenCalledWith("lifecycle_subscribe", { onHeard: channel });
+    channel?.onmessage?.({ kind: "snapshot", versioned });
+    channel?.onmessage?.({ kind: "stopped" });
+    expect(heard).toEqual([{ kind: "snapshot", versioned }, { kind: "stopped" }]);
   });
 });

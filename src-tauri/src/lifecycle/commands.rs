@@ -7,11 +7,13 @@ use keepdeck_lifecycle::command::{Outcome, Revision};
 use keepdeck_lifecycle::dir::Dir;
 use keepdeck_lifecycle::ids::{CommandId, OpId, PermitId, WorkspaceId};
 use keepdeck_lifecycle::machine::queries::{self, Claim, Location, PlaceHeld, Preview};
-use keepdeck_lifecycle::machine::snapshot::{snapshot, Versioned};
+use keepdeck_fsm_runtime::At;
+use keepdeck_lifecycle::machine::snapshot::{snapshot, Heard, Versioned};
 use keepdeck_lifecycle::machine::{Event, LeaseAsk, Load, State};
 use keepdeck_lifecycle::model::{Intent, Place, Reply};
 use keepdeck_lifecycle::world::DeckFacts;
 use tauri::ipc::Channel;
+use tokio::sync::watch;
 
 /// How many places the hint asks the disk about before it gives up.
 const SUGGEST_TRIES: u32 = 100;
@@ -22,22 +24,38 @@ fn state_now(lifecycle: &Lifecycle) -> State {
 }
 
 /// The snapshot now, then each change, on this channel — the one channel TS
-/// hears the machine on.
+/// hears the machine on — and that the machine stopped, if it does.
 #[tauri::command]
-pub async fn lifecycle_subscribe(lifecycle: tauri::State<'_, Lifecycle>, on_snapshot: Channel<Versioned>) -> Result<(), String> {
-    let mut states = lifecycle.door().machine().state();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            let message = {
-                let at = states.borrow_and_update();
-                Versioned { version: at.version, snapshot: snapshot(&at.value) }
-            };
-            if on_snapshot.send(message).is_err() || states.changed().await.is_err() {
-                return;
-            }
-        }
-    });
+pub async fn lifecycle_subscribe(app: tauri::AppHandle, lifecycle: tauri::State<'_, Lifecycle>, on_heard: Channel<Heard>) -> Result<(), String> {
+    let states = lifecycle.door().machine().state();
+    let running_now = move || {
+        use tauri::Manager;
+        app.state::<Lifecycle>().running()
+    };
+    tauri::async_runtime::spawn(publish(states, move |heard| on_heard.send(heard).is_ok(), running_now));
     Ok(())
+}
+
+/// Each state of one machine as a snapshot, while `send` is heard. When the
+/// machine's stream ends, the page is told it stopped — unless the machine
+/// running now is another one: a copy that got the journal root late
+/// started over, and says so itself.
+pub(super) async fn publish(mut states: watch::Receiver<At<State>>, mut send: impl FnMut(Heard) -> bool, running_now: impl FnOnce() -> bool) {
+    loop {
+        let heard = {
+            let at = states.borrow_and_update();
+            Heard::Snapshot { versioned: Box::new(Versioned { version: at.version, snapshot: snapshot(&at.value) }) }
+        };
+        if !send(heard) {
+            return;
+        }
+        if states.changed().await.is_err() {
+            break;
+        }
+    }
+    if !running_now() {
+        send(Heard::Stopped);
+    }
 }
 
 #[tauri::command]

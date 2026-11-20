@@ -11,12 +11,12 @@
  */
 import { deckFactsOf, type DeckFacts, type DeckLoad } from "../../domain/lifecycle";
 import type { Workspace } from "../../domain/deck";
+import type { Heard } from "../../ipc/generated/lifecycle/Heard";
 import type { Reply } from "../../ipc/generated/lifecycle/Reply";
-import type { Versioned } from "../../ipc/generated/lifecycle/Versioned";
 import type { LifecycleSnapshot } from "../lifecycleSnapshot";
 
 export interface LifecycleConnectionPorts {
-  subscribe(onSnapshot: (versioned: Versioned) => void): Promise<void>;
+  subscribe(onHeard: (heard: Heard) => void): Promise<void>;
   onRestarted(handler: () => void): Promise<() => void>;
   handshake(deck: DeckFacts, load: DeckLoad): Promise<Reply>;
 }
@@ -30,6 +30,9 @@ export interface LifecycleConnectionDeps {
   subscribeLoaded(listener: () => void): () => void;
   /** The machine took the handshake: it is up, and has heard the deck. */
   booted(): void;
+  /** The machine the page listens to stopped: nothing starts or closes
+   * until KeepDeck restarts. */
+  stopped(): void;
   warn(message: string): void;
 }
 
@@ -61,8 +64,10 @@ export function connectLifecycle(deps: LifecycleConnectionDeps): LifecycleConnec
 
   async function connect(): Promise<void> {
     const mine = ++attempt;
-    await deps.ports.subscribe((versioned) => {
-      if (!disposed) deps.snapshot.receive(versioned);
+    await deps.ports.subscribe((heard) => {
+      if (disposed) return;
+      if (heard.kind === "snapshot") deps.snapshot.receive(heard.versioned);
+      else deps.stopped();
     });
     const { workspaces, load } = await whenLoaded();
     if (disposed || mine !== attempt) return;

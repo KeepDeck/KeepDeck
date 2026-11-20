@@ -6,7 +6,7 @@
  * everywhere. Each kind has its own sentence — none is borrowed from a
  * neighbour that merely sounds close.
  */
-import type { IntentOutcome, NoAnswer, Refusal } from "../domain/lifecycle";
+import type { IntentOutcome, NoAnswer, Refusal, Standing } from "../domain/lifecycle";
 
 export function refusalText(refusal: Refusal): string {
   switch (refusal.kind) {
@@ -63,9 +63,23 @@ export function intentOutcomeText(outcome: IntentOutcome): string | null {
   }
 }
 
-/** What a second KeepDeck on this settings folder says once: it shows, and
- * changes nothing. */
-export const VIEW_ONLY_NOTICE = {
-  title: "Another KeepDeck is running",
-  body: "It holds this settings folder, so this window only shows the deck — nothing here starts, closes or changes.",
-};
+/** What the lifecycle says once about KeepDeck's work as a whole. */
+export function standingNotice(standing: Standing): { title: string; body: string } {
+  switch (standing) {
+    case "viewOnly":
+      return {
+        title: "Another KeepDeck is running",
+        body: "It holds this settings folder, so this window only shows the deck — nothing here starts, closes or changes.",
+      };
+    case "sessionsDown":
+      return {
+        title: "KeepDeck lost control of its sessions",
+        body: "Nothing starts or closes here — not even a terminal — until KeepDeck restarts.",
+      };
+    case "stopped":
+      return {
+        title: "KeepDeck's lifecycle stopped",
+        body: "Agents, teams and workspaces can no longer start or close — not even a terminal — until KeepDeck restarts.",
+      };
+  }
+}

@@ -32,6 +32,7 @@ function rig() {
   const snapshot = { receive: vi.fn(), restarted: vi.fn() };
   const warn = vi.fn();
   const booted = vi.fn();
+  const stopped = vi.fn();
   const connection = connectLifecycle({
     ports,
     snapshot,
@@ -41,6 +42,7 @@ function rig() {
       return () => loadListeners.delete(listener);
     },
     booted,
+    stopped,
     warn,
   });
   return {
@@ -49,6 +51,7 @@ function rig() {
     snapshot,
     warn,
     booted,
+    stopped,
     connection,
     load(load: DeckLoad) {
       loaded = { workspaces: [ws], load };
@@ -77,11 +80,20 @@ describe("connectLifecycle", () => {
     const r = rig();
     await settled();
     const push = r.ports.subscribe.mock.calls[0][0];
-    push(versioned);
-    expect(r.snapshot.receive).toHaveBeenCalledTimes(1);
+    push({ kind: "snapshot", versioned });
+    expect(r.snapshot.receive).toHaveBeenCalledWith(versioned);
     r.connection.dispose();
-    push({ ...versioned, version: versioned.version + 1 });
+    push({ kind: "snapshot", versioned: { ...versioned, version: versioned.version + 1 } });
     expect(r.snapshot.receive).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the machine stopped when its channel says so, and takes nothing for a snapshot", async () => {
+    const r = rig();
+    await settled();
+    const push = r.ports.subscribe.mock.calls[0][0];
+    push({ kind: "stopped" });
+    expect(r.stopped).toHaveBeenCalledTimes(1);
+    expect(r.snapshot.receive).not.toHaveBeenCalled();
   });
 
   it("starts over with a machine that started over: subscribe and handshake again, versions from the start", async () => {

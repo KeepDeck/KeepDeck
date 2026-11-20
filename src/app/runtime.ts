@@ -69,7 +69,8 @@ import { createDeckCommands } from "./lifecycle/deckCommands";
 import { createBoardsOwner } from "./lifecycle/boards";
 import { createMailOwner } from "./lifecycle/mail";
 import { createNoticesOwner } from "./lifecycle/notices";
-import { VIEW_ONLY_NOTICE } from "../presentation/lifecycleWords";
+import { createStandingAnnouncer } from "./lifecycle/standing";
+import { standingNotice } from "../presentation/lifecycleWords";
 import { createTasksFeature } from "./tasks/tasksFeature";
 import { tasksEnableStatus } from "./tasks/enableStatus";
 import { announceTask } from "./tasks/producers";
@@ -534,6 +535,9 @@ export function createAppRuntime(
       },
     },
   });
+  // What the lifecycle says about KeepDeck's work as a whole — this copy only
+  // shows, it lost its sessions, it stopped — told once each.
+  const standing = createStandingAnnouncer((fact) => notify({ ...standingNotice(fact), severity: "warning", source: { type: "app" } }));
   // The page's connection to the machine: subscribe, then — once the deck
   // has loaded — the handshake that lowers the barrier.
   const lifecycleConnection = connectLifecycle({
@@ -545,17 +549,15 @@ export function createAppRuntime(
     },
     subscribeLoaded: deckPersistence.subscribe,
     booted: () => savedDeck.again(),
+    stopped: () => standing.stopped(),
     warn: (message) => log.warn("web:lifecycle", message),
   });
   // A second KeepDeck on this settings folder only shows: it writes no
-  // deck.json until it holds the folder, and says so once.
-  let viewOnlySaid = false;
-  const stopViewOnly = lifecycleSnapshot.subscribe(() => {
-    const viewOnly = lifecycleSnapshot.current()?.viewOnly === true;
-    deckPersistence.mayWrite(!viewOnly);
-    if (viewOnlySaid || !viewOnly) return;
-    viewOnlySaid = true;
-    notify({ ...VIEW_ONLY_NOTICE, severity: "warning", source: { type: "app" } });
+  // deck.json until it holds the folder.
+  const stopStanding = lifecycleSnapshot.subscribe(() => {
+    const snapshot = lifecycleSnapshot.current();
+    deckPersistence.mayWrite(snapshot?.viewOnly !== true);
+    if (snapshot) standing.heard(snapshot);
   });
   // What was said about the deck's folders and workspaces stands only while
   // they do: an arming pass's refusals while a pane runs in the folder (the
@@ -743,7 +745,7 @@ export function createAppRuntime(
       companionDeclines?.dispose();
       paneUnbinds?.dispose();
       pluginDeckBridge.dispose();
-      stopViewOnly();
+      stopStanding();
       stopStandingWords();
       lifecycleConnection.dispose();
       savedDeck.dispose();

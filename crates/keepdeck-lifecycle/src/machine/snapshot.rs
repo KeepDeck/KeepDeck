@@ -100,6 +100,18 @@ pub struct Versioned {
     pub snapshot: Snapshot,
 }
 
+/// What the page hears on its one channel: each snapshot of the machine it
+/// listens to, and last — once — that this machine stopped. A stopped
+/// machine is not started again: nothing starts or closes until KeepDeck
+/// restarts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export, export_to = "lifecycle/")]
+pub enum Heard {
+    Snapshot { versioned: Box<Versioned> },
+    Stopped,
+}
+
 pub fn snapshot(state: &State) -> Snapshot {
     let mut workspaces = BTreeMap::new();
     for (id, ws) in &state.world.workspaces {

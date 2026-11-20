@@ -15,6 +15,7 @@ import type { Claim } from "./generated/lifecycle/Claim";
 import type { CommandId } from "./generated/lifecycle/CommandId";
 import type { DeckFacts } from "./generated/lifecycle/DeckFacts";
 import type { Dir } from "./generated/lifecycle/Dir";
+import type { Heard } from "./generated/lifecycle/Heard";
 import type { Intent } from "./generated/lifecycle/Intent";
 import type { LeaseAsk } from "./generated/lifecycle/LeaseAsk";
 import type { Load } from "./generated/lifecycle/Load";
@@ -26,7 +27,6 @@ import type { Place } from "./generated/lifecycle/Place";
 import type { Preview } from "./generated/lifecycle/Preview";
 import type { Reply } from "./generated/lifecycle/Reply";
 import type { Revision } from "./generated/lifecycle/Revision";
-import type { Versioned } from "./generated/lifecycle/Versioned";
 import type { WorkspaceId } from "./generated/lifecycle/WorkspaceId";
 
 /** What the page hears when the machine started over — a copy that got the
@@ -34,11 +34,12 @@ import type { WorkspaceId } from "./generated/lifecycle/WorkspaceId";
  * src-tauri/src/lifecycle/mod.rs. */
 export const LIFECYCLE_RESTARTED = "lifecycle://restarted";
 
-/** The snapshot now, then each change. */
-export async function subscribeLifecycle(onSnapshot: (versioned: Versioned) => void): Promise<void> {
-  const channel = new Channel<Versioned>();
-  channel.onmessage = onSnapshot;
-  await invoke("lifecycle_subscribe", { onSnapshot: channel });
+/** The snapshot now, then each change — and that the machine stopped, if it
+ * does. */
+export async function subscribeLifecycle(onHeard: (heard: Heard) => void): Promise<void> {
+  const channel = new Channel<Heard>();
+  channel.onmessage = onHeard;
+  await invoke("lifecycle_subscribe", { onHeard: channel });
 }
 
 export function onLifecycleRestarted(handler: () => void): Promise<UnlistenFn> {

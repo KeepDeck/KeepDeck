@@ -296,3 +296,33 @@ async fn an_answer_ready_with_the_end_is_still_the_answer() {
     let door = probe_door();
     assert_eq!(door.ask(Probe::AnswerThenDie).await, Reply::Answered { answer: Answer::Booted { finishing: Vec::new() } });
 }
+
+/// The page hears each state as a snapshot. When the machine's stream ends,
+/// it hears that the machine stopped — unless another machine runs in its
+/// place, which says so itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_page_hears_its_machine_stop_and_not_a_machine_that_was_replaced() {
+    use keepdeck_fsm_runtime::At;
+    use keepdeck_lifecycle::machine::snapshot::Heard;
+    use keepdeck_lifecycle::machine::State;
+    let heard_until_the_end = |running_now: bool| async move {
+        let (publish, states) = tokio::sync::watch::channel(At { version: 0, value: State::start(Some(Vec::new())) });
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let into = heard.clone();
+        let send = move |message| {
+            into.lock().unwrap().push(message);
+            true
+        };
+        let publishing = tokio::spawn(super::commands::publish(states, send, move || running_now));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        publish.send_modify(|at| at.version = 1);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        drop(publish);
+        publishing.await.unwrap();
+        Arc::try_unwrap(heard).unwrap().into_inner().unwrap()
+    };
+    let fell = heard_until_the_end(false).await;
+    assert!(matches!(&fell[..], [Heard::Snapshot { versioned: first }, Heard::Snapshot { versioned: second }, Heard::Stopped] if first.version == 0 && second.version == 1), "{fell:?}");
+    let replaced = heard_until_the_end(true).await;
+    assert!(!replaced.contains(&Heard::Stopped), "{replaced:?}");
+}
