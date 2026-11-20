@@ -498,17 +498,6 @@ pub fn artifact_resolve_urls(
     }
 }
 
-/// Workspace deletion's hook: drop that workspace's whole artifact
-/// store. Idempotent on absence; failure surfaces to the caller (the TS
-/// side logs and continues — the deck teardown must not abort).
-#[tauri::command(async)]
-pub fn artifact_drop_workspace(
-    state: State<ArtifactsState>,
-    ws_id: String,
-) -> Result<(), String> {
-    state.drop_workspace(&ws_id)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

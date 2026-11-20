@@ -18,8 +18,6 @@ import { ipcMcpStorage } from "./mcpLibraryStorage";
 import {
   deleteMcpServer,
   fetchMcpServers,
-  forgetMcpWorkspace,
-  pruneMcpLibrary,
   renameMcpServer,
   saveMcpServer,
 } from "./mcpLibrary";
@@ -69,22 +67,6 @@ describe("the MCP library invoke-key contract", () => {
       from: "old",
       to: "new",
     });
-
-    await forgetMcpWorkspace("ws-2");
-    expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_forget_workspace", {
-      wsId: "ws-2",
-    });
-
-    await pruneMcpLibrary(["ws-1", "ws-2"]);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_prune", {
-      liveWsIds: ["ws-1", "ws-2"],
-    });
-  });
-
-  it("a prune that fails answers false rather than throwing — the sweep retries", async () => {
-    tauri.invoke.mockRejectedValueOnce(new Error("locked"));
-    expect(await pruneMcpLibrary([])).toBe(false);
-    expect(await pruneMcpLibrary([])).toBe(true);
   });
 
   it("round-trips a scope through the wire and back", async () => {

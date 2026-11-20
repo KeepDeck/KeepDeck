@@ -352,25 +352,6 @@ pub fn mcp_library_rename(
     write_in(&lock, &gate, &library_root()?, writer.as_ref(), &scope, ws_id.as_deref(), |dir| rename(dir, &from, &to))
 }
 
-/// Workspace deletion's hook: drop that workspace's library scope. The deck
-/// model is the only knower of the live workspace set; Rust cannot derive it.
-#[tauri::command(async)]
-pub fn mcp_library_forget_workspace(
-    lock: tauri::State<'_, McpLibraryLock>,
-    ws_id: String,
-) -> Result<(), String> {
-    forget_scope(&lock, &ws_id)
-}
-
-/// The sweep's hook: drop the scopes of workspaces the deck no longer has.
-#[tauri::command(async)]
-pub fn mcp_library_prune(
-    lock: tauri::State<'_, McpLibraryLock>,
-    live_ws_ids: Vec<String>,
-) -> Result<(), String> {
-    retain_scopes(&lock, &live_ws_ids)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

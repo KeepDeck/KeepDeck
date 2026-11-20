@@ -147,22 +147,6 @@ pub fn cwd_arm(
     Ok(report)
 }
 
-/// Take back everything planted in these cwds, for every plugin and
-/// workspace — except in a cwd one of `live_roots` still is. Returns the cwds
-/// released, as asked for.
-#[tauri::command(async)]
-pub fn cwd_disarm(roots: Vec<String>, live_roots: Vec<String>) -> Result<Vec<String>, String> {
-    let home = home()?;
-    let _guard = lock();
-    disarm(&records_root(&home), &home, &roots, &live_roots).map_err(|e| e.to_string())
-}
-
-/// Sweep what workspaces that no longer exist planted — the crash path.
-#[tauri::command(async)]
-pub fn cwd_arm_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
-    retain(&live_ws_ids)
-}
-
 /// Keep only the `live` workspaces' plantings — boot's reconciliation.
 pub(crate) fn retain(live: &[String]) -> Result<(), String> {
     let home = home()?;
@@ -181,7 +165,7 @@ pub(crate) fn forget(ws_id: &str) -> Result<(), String> {
 pub(crate) fn disarm_dir(dir: &str) -> Result<(), String> {
     let home = home()?;
     let _guard = lock();
-    disarm(&records_root(&home), &home, &[dir.to_owned()], &[]).map(drop).map_err(|e| e.to_string())
+    disarm(&records_root(&home), &home, dir).map_err(|e| e.to_string())
 }
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
@@ -220,27 +204,18 @@ fn whole(ledger: &Ledger) -> io::Result<()> {
     }
 }
 
-/// Take back what was planted in `roots`, except in a root one of `live` still
-/// is, however either is spelled. Returns the roots released, spelled as
-/// asked — or an error naming what could not be taken back, which stays
-/// recorded so the next disarm or prune tries it again.
-fn disarm(root: &Path, home: &Path, roots: &[String], live: &[String]) -> io::Result<Vec<String>> {
-    let live: BTreeSet<String> = live.iter().map(|r| canonical(r)).collect();
-    let mut released: Vec<String> = Vec::new();
-    for requested in roots {
-        if !live.contains(&canonical(requested)) && !released.contains(requested) {
-            released.push(requested.clone());
-        }
-    }
-    if released.is_empty() {
-        return Ok(released);
-    }
-    let gone_roots: BTreeSet<String> = released.iter().map(|r| canonical(r)).collect();
+/// Take back what was planted in the folder `dir`, however it is spelled —
+/// or an error naming what could not be taken back, which stays recorded so
+/// the next disarm or prune tries it again. Whether the folder is free to
+/// take back is the lifecycle's to know: it plans this only for a folder no
+/// team sits in.
+fn disarm(root: &Path, home: &Path, dir: &str) -> io::Result<()> {
+    let gone = canonical(dir);
     let mut ledger = Ledger::read(root)?;
     whole(&ledger)?;
-    let failed = sweep(&mut ledger, home, |_, place| gone_roots.contains(&place.cwd))?;
+    let failed = sweep(&mut ledger, home, |_, place| place.cwd == gone)?;
     if failed.is_empty() {
-        Ok(released)
+        Ok(())
     } else {
         Err(io::Error::other(format!("could not take back {}", plantings(&failed))))
     }

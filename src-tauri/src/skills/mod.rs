@@ -237,14 +237,8 @@ pub fn skills_stage(
         .map_err(|e| e.to_string())
 }
 
-/// Drop the stagings of workspaces that no longer exist. The library is user
-/// content and is never touched here.
-#[tauri::command(async)]
-pub fn skills_prune(locks: tauri::State<'_, SkillsLocks>, live_ws_ids: Vec<String>) -> Result<(), String> {
-    retain_stagings(&locks, &live_ws_ids)
-}
-
-/// Keep only the `live` workspaces' stagings — boot's reconciliation.
+/// Keep only the `live` workspaces' stagings — boot's reconciliation. The
+/// library is user content and is never touched here.
 pub(crate) fn retain_stagings(locks: &SkillsLocks, live: &[String]) -> Result<(), String> {
     staging::prune_views(locks, &skills_root()?, live).map_err(|e| e.to_string())
 }

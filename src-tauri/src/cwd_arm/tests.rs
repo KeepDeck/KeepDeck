@@ -53,8 +53,8 @@ impl Scratch {
     fn arm(&self, plugin: &str, ws: &str, arms: &[CwdArm]) -> CwdArmReport {
         self.arm_in(&self.cwd, plugin, ws, arms)
     }
-    fn disarm(&self, cwd: &Path) -> std::io::Result<Vec<String>> {
-        disarm(&self.root, &self.home, &[cwd.to_string_lossy().into_owned()], &[])
+    fn disarm(&self, cwd: &Path) -> std::io::Result<()> {
+        disarm(&self.root, &self.home, &cwd.to_string_lossy())
     }
     fn places(&self, ws: &str) -> Vec<Place> {
         Ledger::read(&self.root).unwrap().of(ws)
@@ -639,7 +639,7 @@ fn a_take_back_that_would_not_go_stays_recorded_and_goes_on_a_later_pass() {
     assert!(err.to_string().contains(".k/conf"), "{err}");
     assert!(!s.cwd.join(".agents").exists(), "what went is forgotten");
     assert_eq!(s.paths("ws-1"), vec![".k/conf"]);
-    assert_eq!(s.disarm(&s.cwd).unwrap(), vec![s.cwd.to_string_lossy().into_owned()]);
+    s.disarm(&s.cwd).unwrap();
     assert!(!s.cwd.join(".k").exists());
     assert!(!manifest(&s.root, "ws-1").exists());
 }
@@ -655,7 +655,7 @@ fn while_a_record_will_not_read_nothing_standing_changes_and_new_places_are_stil
     assert_eq!(fs::read_to_string(s.cwd.join(".k/conf")).unwrap(), "a");
     assert!(fs::symlink_metadata(s.cwd.join(".l")).is_ok(), "nothing taken back: ws-9 might claim it");
     assert_eq!(fs::read_link(s.cwd.join(".n")).unwrap(), skills, "an empty name may still be filled");
-    assert!(disarm(&s.root, &s.home, &[s.cwd.to_string_lossy().into_owned()], &[]).is_err());
+    assert!(s.disarm(&s.cwd).is_err());
     // Once ws-9 is gone for good, its record is set aside, never deleted.
     prune(&s.root, &s.home, &["ws-1".into()]).unwrap();
     assert_eq!(fs::read_to_string(s.root.join("ws-9.json.unreadable")).unwrap(), "not json");
@@ -664,16 +664,11 @@ fn while_a_record_will_not_read_nothing_standing_changes_and_new_places_are_stil
 }
 
 #[test]
-fn disarm_leaves_a_root_a_live_workspace_still_is_however_it_is_spelled() {
+fn disarm_finds_a_folder_however_it_is_spelled() {
     let s = scratch();
     s.arm("p.filer", "ws-1", &[file(".conf/mcp.json", "{}")]);
-    let alias = s.base.join("alias");
-    symlink(&s.cwd, &alias).unwrap();
-    let live = [alias.to_string_lossy().into_owned()];
-    assert!(disarm(&s.root, &s.home, &[s.cwd.to_string_lossy().into_owned()], &live).unwrap().is_empty());
-    assert!(s.cwd.join(".conf/mcp.json").exists());
     let dotted = format!("{}/../repo", s.cwd.display());
-    assert_eq!(disarm(&s.root, &s.home, std::slice::from_ref(&dotted), &[]).unwrap(), vec![dotted]);
+    disarm(&s.root, &s.home, &dotted).unwrap();
     assert!(!s.cwd.join(".conf").exists());
 }
 

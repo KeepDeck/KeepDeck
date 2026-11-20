@@ -27,7 +27,6 @@ import { ipcSkillsStorage } from "./skillsStorage";
 import {
   deleteSkill,
   fetchSkills,
-  pruneSkills,
   renameSkill,
   saveSkill,
   stageSkills,
@@ -101,19 +100,13 @@ describe("the skills invoke-key contract", () => {
       wsId: "ws-1",
       excluded,
     });
-
-    await pruneSkills(["ws-1"]);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_prune", {
-      liveWsIds: ["ws-1"],
-    });
   });
 
-  it("a failed stage THROWS — it is not 'no skills'; prune stays silent and says so", async () => {
+  it("a failed stage THROWS — it is not 'no skills'", async () => {
     // Read as null, a failure looked like an empty library and was remembered
     // as one until the user edited a skill (task-568).
     tauri.invoke.mockRejectedValue(new Error("boom"));
     await expect(stageSkills("ws-1", [])).rejects.toThrow("boom");
-    expect(await pruneSkills(["ws-1"])).toBe(false);
   });
 
   it("the library read THROWS rather than degrading to an empty library", async () => {

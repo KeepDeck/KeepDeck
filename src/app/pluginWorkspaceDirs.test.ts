@@ -17,8 +17,6 @@ function setup(workspaces: Workspace[]) {
   const deps = {
     workspaces: () => workspaces,
     create: vi.fn(async (pluginId: string, wsId: string) => `/home/plugin-workspaces/${pluginId}/${wsId}`),
-    prune: vi.fn(async (_live: readonly string[]) => {}),
-    warn: vi.fn(),
   };
   return { deps, dirs: createPluginWorkspaceDirs(deps) };
 }
@@ -38,18 +36,5 @@ describe("createPluginWorkspaceDirs", () => {
     await expect(dirs.forPlugin("p").dir(stale)).rejects.toThrow('workspace "ws-1" is gone');
     await expect(dirs.forPlugin("p").dir({ id: "ws-9", instance: "x" })).rejects.toThrow("gone");
     expect(deps.create).not.toHaveBeenCalled();
-  });
-
-  it("prunes natively by the live ids", async () => {
-    const { deps, dirs } = setup([workspace("ws-1"), workspace("ws-2")]);
-    expect(await dirs.prune(["ws-2"])).toBe(true);
-    expect(deps.prune).toHaveBeenCalledWith(["ws-2"]);
-  });
-
-  it("says a failed native prune, so the sweep tries again", async () => {
-    const { deps, dirs } = setup([]);
-    deps.prune.mockRejectedValueOnce(new Error("busy"));
-    expect(await dirs.prune([])).toBe(false);
-    expect(deps.warn).toHaveBeenCalledWith(expect.stringContaining("busy"));
   });
 });

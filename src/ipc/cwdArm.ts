@@ -5,8 +5,8 @@ import { log } from "./log";
 /**
  * Planting what an agent's plugin declares in a pane's cwd (`cwd_arm/`):
  * the native side owns everything that makes it safe — the proof of what is
- * its own, link scope, the git exclude, the per-workspace record a crash
- * sweep reads.
+ * its own, link scope, the git exclude, the per-workspace record. Taking it
+ * back is the lifecycle's, natively.
  */
 
 /** A path not planted, and why — words the app puts on screen. */
@@ -46,33 +46,5 @@ export async function cwdArm(request: CwdArmRequest): Promise<CwdArmReport> {
     const reason = errorMessage(e);
     log.warn("web:arming", `arming ${request.cwd} failed: ${reason}`);
     return { armed: [], refused: request.arms.map(({ path }) => ({ path, reason })) };
-  }
-}
-
-/** Take back everything planted in these cwds, except in one a live workspace
- * still runs a pane in — the native side judges that, on real paths. Returns
- * the cwds released, or null when the pass did not get through: a sweep must
- * not record itself as done on a failed pass. */
-export async function cwdDisarm(
-  roots: readonly string[],
-  liveRoots: readonly string[],
-): Promise<string[] | null> {
-  if (roots.length === 0) return [];
-  try {
-    return await invoke<string[]>("cwd_disarm", { roots, liveRoots });
-  } catch (e) {
-    log.warn("web:arming", `disarm failed: ${errorMessage(e)}`);
-    return null;
-  }
-}
-
-/** Sweep what workspaces that are gone planted. */
-export async function cwdArmPrune(liveWsIds: readonly string[]): Promise<boolean> {
-  try {
-    await invoke("cwd_arm_prune", { liveWsIds });
-    return true;
-  } catch (e) {
-    log.warn("web:arming", `prune failed: ${errorMessage(e)}`);
-    return false;
   }
 }

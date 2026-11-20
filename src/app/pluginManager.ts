@@ -12,7 +12,7 @@ import {
   pluginsFsWriteMkdir,
   pluginsFsWriteMove,
 } from "../ipc/pluginsFsWrite";
-import { pluginWorkspaceDir, pluginWorkspacesPrune } from "../ipc/pluginWorkspaces";
+import { pluginWorkspaceDir } from "../ipc/pluginWorkspaces";
 import { createPluginWorkspaceDirs } from "./pluginWorkspaceDirs";
 import { agentSummary } from "./agentSummary";
 import type { AgentFeature } from "../domain/agents";
@@ -266,13 +266,10 @@ export function createPluginManager(appDownloads: DownloadManager) {
   };
 
   /** Plugins' private per-workspace directories, handed out against the
-   * live deck and pruned by the worktrees sweep with every other leftover
-   * of a departed workspace. */
+   * live deck; they go with their workspace when the lifecycle forgets it. */
   const workspaceDirs = createPluginWorkspaceDirs({
     workspaces: () => liveDeckAccess.workspaces(),
     create: pluginWorkspaceDir,
-    prune: pluginWorkspacesPrune,
-    warn: (message) => log.warn("web:plugins", message),
   });
 
   /** The deck's UI actions, late-bound like `DeckAccess` but a SEPARATE port:
@@ -1120,7 +1117,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
 
   return {
     pluginRegistries,
-    workspaceDirs,
     wireDeckAccess,
     wireDeckUi,
     revealPluginDockTab,

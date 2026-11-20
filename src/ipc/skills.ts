@@ -1,7 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { SkillScope, StagingTrim } from "../domain/skills";
-import { log } from "./log";
-import { errorMessage } from "@keepdeck/plugin-api";
 
 /** One stored library skill (mirrors the Rust `SkillDto`). A `bundled`
  * row is READ-ONLY: the tier ships with the app; mutations refuse
@@ -99,18 +97,4 @@ export async function stageSkills(
   excluded: readonly ExcludedSkill[],
 ): Promise<SkillsStage> {
   return await invoke<SkillsStage>("skills_stage", { wsId, excluded });
-}
-
-/** Drop the derived dirs of workspaces not in `liveWsIds` (closed ones must
- * not keep dead staging around). Best-effort — a failed sweep only logs — and
- * reports whether it got through, so the sweep that records "this state is
- * cleaned up" can decline to record a failure. */
-export async function pruneSkills(liveWsIds: string[]): Promise<boolean> {
-  try {
-    await invoke("skills_prune", { liveWsIds });
-    return true;
-  } catch (e) {
-    log.warn("web:skills", `skills_prune failed: ${errorMessage(e)}`);
-    return false;
-  }
 }

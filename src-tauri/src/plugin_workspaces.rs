@@ -65,17 +65,6 @@ fn hand_out(lock: &PluginDirsLock, grants: &PluginGrants, gate: &Gate, root: &Pa
     Ok(dir)
 }
 
-/// Drop every plugin's directory of a workspace the deck no longer holds.
-/// Best-effort per directory: one that cannot go must not keep the rest.
-#[tauri::command(async)]
-pub fn plugin_workspaces_prune(
-    lock: State<'_, PluginDirsLock>,
-    grants: State<'_, PluginGrants>,
-    live_ws_ids: Vec<String>,
-) -> Result<(), String> {
-    retain_workspaces(&lock, &grants, &live_ws_ids)
-}
-
 /// Keep only the `live` workspaces' directories — boot's reconciliation.
 pub(crate) fn retain_workspaces(lock: &PluginDirsLock, grants: &PluginGrants, live: &[String]) -> Result<(), String> {
     retain(lock, grants, &root()?, live).map_err(|e| e.to_string())
