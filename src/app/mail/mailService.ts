@@ -315,6 +315,12 @@ export function createMailService(deps: MailServiceDeps): MailService {
     // labelled channel. Having a renderer is not the same thing: kimi has
     // one and asks only as a turn starts.
     asksAtTurnEnd: (paneId) => collectsAtTurnEnd(statusOfPane(paneId)?.mail),
+    // The lifecycle's fence at the hook's claim and at a hand-over coming
+    // back: a pane it forgot, read with its workspace and team off the deck.
+    forgotten: (paneId) => {
+      const at = locate(paneId);
+      return at !== null && deps.lifecycle.forgotten({ workspace: at.workspace.id, team: at.team?.id ?? null, pane: paneId });
+    },
   });
   const unregister = registerMailCommands(deps.registry, {
     workspaces: deps.deck.workspaces,

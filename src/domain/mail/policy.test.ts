@@ -12,6 +12,7 @@ import {
   waitsForATurn,
   droppedNotice,
   forgottenNotice,
+  closedNotice,
   isOverdue,
   isResponse,
   kindGuidance,
@@ -449,6 +450,13 @@ describe("the reports owed to a sender", () => {
     expect(notice).toMatchObject({ kind: "undelivered", replyTo: "mail-1" });
   });
 
+  it("says a message handed to an agent that was then closed is gone, and where to go instead", () => {
+    const notice = closedNotice(mail({ kind: "task" }), "mail-9", 5_000);
+    expect(notice?.body).toContain("was closed before it read it");
+    expect(notice?.body).toContain("Write to somebody else");
+    expect(notice).toMatchObject({ kind: "undelivered", replyTo: "mail-1" });
+  });
+
   it("owes nothing for a report about a report", () => {
     // Otherwise every undelivered notice mints another one, forever. The
     // kind is the whole guard — there is no counter behind it to catch what
@@ -456,6 +464,7 @@ describe("the reports owed to a sender", () => {
     expect(overdueNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
     expect(droppedNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
     expect(forgottenNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
+    expect(closedNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
   });
 
   it("owes nothing when the host was the sender", () => {

@@ -36,7 +36,7 @@ function edgeOn(
   return sent[0]?.replyTo;
 }
 
-function harness(options: { asksAtTurnEnd?: boolean } = {}) {
+function harness(options: { asksAtTurnEnd?: boolean; forgotten?: ReadonlySet<string> } = {}) {
   let clock = 1_000;
   let wakeable = true;
   const activity = new Map<string, PaneActivity>();
@@ -66,6 +66,7 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
       return true;
     },
     asksAtTurnEnd: () => options.asksAtTurnEnd === true,
+    forgotten: (paneId) => options.forgotten?.has(paneId) ?? false,
     now: () => clock,
     schedule: (fn, ms) => {
       timer = { at: clock + ms, fn };
@@ -539,6 +540,32 @@ describe("createMailManager", () => {
     expect(h.manager.inbox(B.paneId, { all: true }).messages).toEqual([]);
     h.manager.forget(new Set([B.paneId]));
     expect(h.manager.waiting(A.paneId)).toBe(0);
+  });
+
+  it("does not bring back the queue of a pane closed while its mail was being handed over — the sender hears it once", () => {
+    // The hook took B's mail, then B was disbanded and its queue forgotten,
+    // and then the hand-over failed and the mail came back.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "do it" });
+    const taken = h.manager.takeAtTurnEnd(B.paneId);
+    expect(taken.map((mail) => mail.body)).toEqual(["do it"]);
+    h.manager.forget(new Set([B.paneId]));
+
+    h.manager.restore(taken);
+    h.manager.restore(taken);
+
+    expect(h.manager.waiting(B.paneId)).toBe(0);
+    const told = h.manager.inbox(A.paneId).messages;
+    expect(told.map((mail) => mail.kind)).toEqual(["undelivered"]);
+    expect(told[0].body).toContain("was closed before it read it");
+  });
+
+  it("hands a pane the lifecycle is closing nothing more, even before its queue is forgotten", () => {
+    const h = harness({ asksAtTurnEnd: true, forgotten: new Set([B.paneId]) });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "late" });
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
   });
 
   it("still tells a LIVING sender that the pane it wrote to is gone", () => {

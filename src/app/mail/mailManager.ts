@@ -33,6 +33,7 @@ import {
   sendRefusal,
   droppedNotice,
   forgottenNotice,
+  closedNotice,
   isOverdue,
   isResponse,
   isStandingContext,
@@ -182,6 +183,10 @@ export interface MailManagerDeps {
    * True means a running turn is worth waiting out — the answer given at
    * that boundary is labelled, and a paste is not. */
   asksAtTurnEnd?(paneId: string): boolean;
+  /** Whether the lifecycle has forgotten this pane — its close under way,
+   * the command to forget its queue maybe not carried yet. Its hook takes
+   * nothing more. */
+  forgotten?(paneId: string): boolean;
   now?(): number;
   /** `setTimeout`, injected so tests drive the clock. Returns its cancel. */
   schedule?(fn: () => void, ms: number): () => void;
@@ -348,6 +353,14 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   /** Panes whose last nudge is known to have started no turn, for the one
    * pass [`MailManager.wakeLost`] runs — never across passes. */
   const lostWakes = new Set<string>();
+  /** Panes whose mail was forgotten or let go: nothing is queued for them
+   * again, a hand-over coming back included. A pane number never comes
+   * back within a launch, so the set only grows. */
+  const closedPanes = new Set<string>();
+  /** Messages whose sender was already told they came back to a closed
+   * pane — the one notice per message, however often it comes back. */
+  const bounced = new Set<string>();
+  const closed = (paneId: string) => closedPanes.has(paneId) || (deps.forgotten?.(paneId) ?? false);
 
   /** Queued messages whose sender has already been told they are waiting.
    * An id leaves when its message leaves the queue. */
@@ -883,6 +896,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         if (gone(id)) {
           if (map === queues) orphaned.push(...(queues.get(id) ?? []));
           map.delete(id);
+          closedPanes.add(id);
         }
       }
     }
@@ -946,6 +960,9 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     takeAtTurnEnd(paneId, activity, door = "turn-boundary") {
+      // A pane being closed takes nothing more: what waits for it goes with
+      // the forget, and its senders hear so once.
+      if (closed(paneId)) return [];
       const taken: Mail[] = [];
       drainQueue(paneId, taken, door, activity);
       // Whatever is left (a held prompt, a fresh notice) still needs its
@@ -978,6 +995,16 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     restore(messages) {
       for (let i = messages.length - 1; i >= 0; i -= 1) {
         const mail = messages[i];
+        // Handed to a pane that was closed since: its queue is not brought
+        // back. The sender hears it once, however often it comes back.
+        if (closed(mail.toPaneId)) {
+          log.info("web:mail", `came back for a closed pane: ${trace(mail)}`);
+          if (!bounced.has(mail.id)) {
+            bounced.add(mail.id);
+            if (mail.from.kind !== "pane" || !closed(mail.from.pane.paneId)) pushNotice(closedNotice(mail, mintId(), now()));
+          }
+          continue;
+        }
         log.info("web:mail", `put back, nobody took it: ${trace(mail)}`);
         const queue = queues.get(mail.toPaneId);
         if (!queue) {
