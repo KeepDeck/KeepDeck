@@ -9,6 +9,7 @@ import {
   createTeam,
   dissolveTeam,
   joinTeam,
+  landingTeamName,
   nextAutoTeamName,
   renameTeam,
   resolveTeamProvisioning,
@@ -340,6 +341,14 @@ describe("nextAutoTeamName and teamIdsOf", () => {
     expect(nextAutoTeamName(two)).toBe("Team 4");
     // A team being renamed does not count against itself.
     expect(nextAutoTeamName(two, "team-1")).toBe("Team 2");
+  });
+
+  it("names a landing team as asked while the name is free, and by the next auto name once a team holds it", () => {
+    const one = ws("ws-1", [{ id: "team-1", name: "api", location: at("/a") }]);
+    expect(landingTeamName(one, " web ")).toBe("web");
+    expect(landingTeamName(one, "api")).toBe("Team 2");
+    expect(landingTeamName(one, "  ")).toBe("Team 2");
+    expect(landingTeamName(one, undefined)).toBe("Team 2");
   });
 
   it("finds a team anywhere in the deck by id alone — never by name", () => {

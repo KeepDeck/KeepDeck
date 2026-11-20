@@ -15,6 +15,7 @@ import {
   findPane,
   findWorkspace,
   findWorkspaceByRef,
+  landingTeamName,
   nextAutoTeamName,
   paneResumeBlock,
   sameDirectory,
@@ -119,7 +120,7 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
   function landingOf(ws: Workspace, team: string | undefined, site: Site, name: string | undefined): Landing {
     const joined = team ?? teamAt(ws, site);
     if (joined) return { kind: "team", team: joined };
-    return { kind: "newTeam", team: newTeamId(), site, draft: { name: name?.trim() || nextAutoTeamName(ws) } };
+    return { kind: "newTeam", team: newTeamId(), site, draft: { name: landingTeamName(ws, name) } };
   }
 
   async function createPane(request: CreatePaneRequest): Promise<IntentOutcome> {

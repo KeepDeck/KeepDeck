@@ -32,6 +32,14 @@ export function nextAutoTeamName(ws: Workspace, except?: string): string {
   return autoTeamName(n);
 }
 
+/** The name of a team made to land a new member: the one asked for while
+ * no team in `ws` holds it, else the next auto name. A taken name is never
+ * a way onto the team holding it, nor a second team under it. */
+export function landingTeamName(ws: Workspace, asked: string | undefined): string {
+  const name = asked?.trim();
+  return name && !teamNameTaken(ws, name) ? name : nextAutoTeamName(ws);
+}
+
 /** Whether `name` is held by a team in the workspace other than `except`. */
 export function teamNameTaken(
   ws: Workspace,

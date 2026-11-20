@@ -427,6 +427,7 @@ export let agentRun: AgentRunView &
     | "recoverRejectedResume"
     | "retryPlanBuild"
     | "close"
+    | "runState"
     | "archive"
     | "restore"
     | "dismissOccupied"
@@ -531,6 +532,7 @@ export function Probe() {
     recoverRejectedResume: wiring.orchestrator.recoverRejectedResume,
     retryPlanBuild: wiring.orchestrator.retryPlanBuild,
     close: wiring.orchestrator.close,
+    runState: wiring.orchestrator.runState,
     dismissOccupied: wiring.orchestrator.dismissOccupied,
   };
   return null;
