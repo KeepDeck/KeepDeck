@@ -11,11 +11,8 @@ import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
 import {
-  claimDirectory,
   MAX_PANES,
   nextAutoTeamName,
-  normalizePath,
-  teamHeldPath,
   teamIdsOf,
   teamNameTaken,
   updateWorkspace,
@@ -32,7 +29,6 @@ import type {
   CreateTeamOutcome,
   CreateTeamRequest,
 } from "../agentOrchestrator";
-import { teamCreateRefusal } from "../agentOrchestrator/creation";
 import { fakeMcpLibrary } from "../mcpLibrary.fake";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
 import { registerCoreCommands, type CommandDeck } from ".";
@@ -205,29 +201,19 @@ export function setup(workspaces: Workspace[]) {
    * The team door, as a double: a team minted EMPTY at the directory it asked
    * for, under the name it gave ("Team N" for none).
    *
-   * Nothing the real door DECIDES is re-implemented here — the refusal comes
-   * from `teamCreateRefusal` over `claimDirectory`, and the auto-name from
-   * `nextAutoTeamName`, the helper production names with. The id is the
-   * test's predictable `testTeamId` where production mints a random one. What it does NOT model, because a
-   * command test has no running deck: a teardown holding the directory
-   * (`holdsPath`) and the post-dispatch read-back. Reach those through the
-   * orchestrator's own suite, or by stubbing this mock's return.
+   * Nothing the real door DECIDES is re-implemented here — the auto-name
+   * comes from `nextAutoTeamName`, the helper production names with, and
+   * whether a directory is free is the lifecycle machine's, so a refusal is
+   * reached by stubbing this mock's return. The id is the test's predictable
+   * `testTeamId` where production's comes from the machine.
    */
   const createTeam = vi.fn<(request: CreateTeamRequest) => CreateTeamOutcome>(
-    ({ workspace: ref, name, placement, shared }) => {
+    ({ workspace: ref, name, placement }) => {
       const ws = workspaces.find(
         (candidate) =>
           candidate.id === ref.id && candidate.instance === ref.instance,
       );
       if (!ws) return { kind: "gone" };
-      const refusal = teamCreateRefusal({
-        claim: claimDirectory(workspaces, ws, placement),
-        placement,
-        homeWsId: ws.id,
-        directory: normalizePath(teamHeldPath({ location: placement }) ?? ""),
-        shared: shared === true,
-      });
-      if (refusal) return refusal;
       const teamName = name.trim() || nextAutoTeamName(ws);
       if (teamNameTaken(ws, teamName)) return { kind: "taken" };
       const id = testTeamId(teamIdsOf(workspaces));

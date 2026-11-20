@@ -104,7 +104,12 @@ describe("team.create", () => {
   });
 
   it("refuses a directory a team here works in unasked — naming the team, and the way to mean it", async () => {
-    const { registry } = setup([teamed()]);
+    const { registry, createTeam } = setup([teamed()]);
+    createTeam.mockReturnValueOnce({
+      kind: "shared",
+      directory: "/wt/api",
+      holder: { teamId: "team-1", teamName: "api" },
+    });
     const result = await registry.execute(
       "team.create",
       { workspace: "web", name: "second", directory: "/wt/api/" },

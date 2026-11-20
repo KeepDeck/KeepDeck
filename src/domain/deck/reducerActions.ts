@@ -86,9 +86,6 @@ export type DeckAction =
       type: "createTeam";
       wsId: string;
       team: Team & { location: TeamLocation };
-      /** The person answered "create anyway" to a directory teams
-       * already work in — see [`createTeam`]. */
-      shared?: boolean;
     }
   | {
       type: "resolveTeamProvisioning";

@@ -4,41 +4,20 @@
  *
  * Every transform is pure and total — an unknown workspace, team or pane,
  * and a change the rules refuse, leave the list untouched and return the
- * SAME array. The refusals are also asked as questions ([`teamNameTaken`],
- * [`teamOccupyingPath`]) so a surface can say WHY before it dispatches; the
- * transform still refuses on its own, because an agent driving a command
- * reads no surface.
+ * SAME array. The refusals are also asked as questions ([`teamNameTaken`])
+ * so a surface can say WHY before it dispatches; the transform still refuses
+ * on its own, because an agent driving a command reads no surface.
  *
- * What a transform here does NOT do: touch a directory on disk, or end an
- * agent. Dissolving a team removes the object; deleting its worktree and
- * closing its members are the app layer's, ordered there.
+ * What a transform here does NOT do: touch a directory on disk, end an
+ * agent, or judge whether a directory is free. Who holds a folder is the
+ * lifecycle machine's to know; it refuses a held place before a team is
+ * ever written here.
  */
 import { MAX_PANES } from "../layout";
 import type { Workspace } from "../workspaces";
 import { findTeam, findTeamByName, membersOf, teamsOf } from "./collection";
 import { autoTeamName, type Team, type TeamLocation } from "./model";
-import { claimDirectory, type DirectoryClaim } from "./claims";
 import { mapWorkspaceTeams, setMembership } from "./transforms";
-
-/**
- * Whether a team may be BORN at `placement` — the birth policy, one home,
- * asked by the transform below and by the app's outcome builder alike.
- *
- * `"busy"` — nothing consent can buy: a create is heading for the directory
- * on one side of the question or the other, and git makes no second worktree
- * on one path. `"unshared"` — a team works there and nobody has said to share
- * it yet; the surfaces turn this into a question. `null` — go ahead.
- */
-export function birthRefusal(
-  claim: DirectoryClaim,
-  placement: TeamLocation,
-  /** The person (or agent) has answered "create anyway". */
-  shared: boolean,
-): "busy" | "unshared" | null {
-  if (claim.kind === "free") return null;
-  if (placement.kind === "provisioning" || claim.creating) return "busy";
-  return shared ? null : "unshared";
-}
 
 /**
  * The auto name for a team in `ws`: "Team N" for the first N, counting on
@@ -64,38 +43,21 @@ export function teamNameTaken(
 }
 
 /**
- * Create a team that owns (or is about to own) a directory.
- *
- * The caller mints the id and the name — [`mintTeamId`] and
- * [`nextAutoTeamName`] when the person left it blank — because a dispatch
- * cannot hand an id back, and the app needs it to issue the create behind
- * the card. Refused, with the SAME array back: an id already in use, a name
- * some team holds (by key), a blank name, or a directory some team already
- * holds — the person is told by [`teamNameTaken`] / [`teamOccupyingPath`]
- * before ever reaching this.
- *
- * The workspace ROOT is the one directory every workspace opened on the
- * same repository holds for itself: a team on it in another workspace does
- * not hold it here. A second team on it in THIS workspace is refused like
- * any other doubly-held directory — UNLESS the caller passes `shared`.
- *
- * `shared` is the person's answered consent ("create anyway"), and it lifts
- * exactly one refusal — [`birthRefusal`]'s `"unshared"`, a directory teams
- * already WORK in. What that function calls `"busy"` refuses whatever the
- * caller says.
+ * Create a team that owns (or is about to own) a directory — the deck's
+ * write of a team the lifecycle machine has already given its id and its
+ * place. Refused, with the SAME array back: an id already in use, a name
+ * some team holds (by key), or a blank name — the person is told by
+ * [`teamNameTaken`] before ever reaching this.
  */
 export function createTeam(
   workspaces: Workspace[],
   workspaceId: string,
   team: Team & { location: TeamLocation },
-  options: { shared?: boolean } = {},
 ): Workspace[] {
   const ws = workspaces.find((candidate) => candidate.id === workspaceId);
   if (!ws) return workspaces;
   if (!team.name.trim()) return workspaces;
   if (findTeam(ws, team.id) || teamNameTaken(ws, team.name)) return workspaces;
-  const claim = claimDirectory(workspaces, ws, team.location);
-  if (birthRefusal(claim, team.location, options.shared === true)) return workspaces;
   return mapWorkspaceTeams(workspaces, workspaceId, (teams) => [...teams, team]);
 }
 
