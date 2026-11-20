@@ -1,5 +1,8 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { bytesFromBase64 } from "../domain/terminal/base64";
+import type { LaunchOwner } from "./generated/lifecycle/LaunchOwner";
+import type { PermitId } from "./generated/lifecycle/PermitId";
+import type { SessionId } from "./generated/lifecycle/SessionId";
 
 /** An event of a live session, as the page uses it. */
 export type SessionEvent =
@@ -35,6 +38,58 @@ export interface SpawnOptions {
   cwd?: string | null;
   cols: number;
   rows: number;
+}
+
+/** How an exact-session stop ended (mirrors the Rust `Stopped`): it exited,
+ * it had to be killed, its end could not be confirmed, or there was no such
+ * session. */
+export type Stopped = "exited" | "forced" | "unconfirmed" | "unknown";
+
+/** A live session of the sessions machine. */
+export interface Session {
+  readonly id: SessionId;
+  write(data: string): Promise<void>;
+  resize(cols: number, rows: number): Promise<void>;
+  /** Stop this exact session; answers once it is over. */
+  stop(): Promise<Stopped>;
+}
+
+const encoder = new TextEncoder();
+
+/**
+ * Start a session through the spawn door: `permit` is the launch lease the
+ * machine granted `owner`, spent by the door's admission — refused, nothing
+ * starts and this rejects. Output and the final exit arrive over a
+ * per-session channel, so panes never share an event bus.
+ */
+export async function openSession(
+  opts: SpawnOptions,
+  permit: PermitId,
+  owner: LaunchOwner,
+  onEvent: (event: SessionEvent) => void,
+): Promise<Session> {
+  const channel = new Channel<WireSessionEvent>();
+  channel.onmessage = (event) => onEvent(fromWire(event));
+  const id = await invoke<SessionId>("pty_open", {
+    spec: {
+      command: opts.command ?? null,
+      args: opts.args ?? [],
+      env: opts.env ?? [],
+      envDefaults: opts.envDefaults ?? [],
+      cwd: opts.cwd ?? null,
+      cols: opts.cols,
+      rows: opts.rows,
+    },
+    permit,
+    owner,
+    onEvent: channel,
+  });
+  return {
+    id,
+    write: (data) => invoke("pty_write", { id, data: Array.from(encoder.encode(data)) }),
+    resize: (cols, rows) => invoke("pty_resize", { id, cols, rows }),
+    stop: () => invoke<Stopped>("pty_stop", { id }),
+  };
 }
 
 /**
