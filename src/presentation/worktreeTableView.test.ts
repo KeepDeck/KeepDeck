@@ -87,10 +87,18 @@ describe("worktreeTableView", () => {
   });
 
   it("holds a checkout a session runs in, or whose claims could not be read — «free» is the machine's word only", () => {
-    const claims = (path: string) =>
-      path === "/wt/running" ? [{ kind: "session" as const, session: 4 }] : path === "/wt/unread" ? null : [];
-    const { rows } = worktreeTableView([row("/wt/running"), row("/wt/unread"), row("/wt/orphan")], claims, WEB, DECK);
+    const claims = (path: string): Claim[] | null =>
+      path === "/wt/running"
+        ? [{ kind: "session", session: 4 }]
+        : path === "/wt/starting"
+          ? [{ kind: "launch", attempt: 2 }]
+          : path === "/wt/unread"
+            ? null
+            : [];
+    const { rows } = worktreeTableView([row("/wt/running"), row("/wt/starting"), row("/wt/unread"), row("/wt/orphan")], claims, WEB, DECK);
     expect(rows.map((r) => [r.holder, r.holderKind, r.removable])).toEqual([
+      ["in use", "busy", false],
+      // A launch admitted there, not yet a session: held all the same.
       ["in use", "busy", false],
       ["unknown", "busy", false],
       ["no team", "free", true],

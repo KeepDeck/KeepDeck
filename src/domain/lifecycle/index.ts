@@ -50,6 +50,8 @@ export type NoAnswer = { kind: "unavailable" } | { kind: "unknown" };
 export type Claim =
   | { kind: "team"; team: string }
   | { kind: "session"; session: number }
+  /** A launch admitted there, not yet a session. */
+  | { kind: "launch"; attempt: number }
   | { kind: "creation"; op: number }
   | { kind: "removal"; op: number };
 

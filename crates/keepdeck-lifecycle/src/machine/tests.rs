@@ -985,6 +985,8 @@ fn a_checkout_with_a_launch_admitted_into_it_is_not_unheld() {
     sim.send(Event::Admit { ask, permit, owner: owner.clone(), dir: Some(dir.clone()) });
     let Some(Answer::Admitted { attempt }) = sim.answer(ask) else { panic!() };
     // Admitted, not yet a session: the process may cross into it any moment.
+    // The worktree table hears the same hold the removal meets.
+    assert_eq!(super::queries::claims(&sim.state, &dir), vec![super::queries::Claim::Launch { attempt }]);
     let remove = sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir.clone(), tag: None });
     assert_eq!(sim.refusal(remove), Some(Refusal::Busy));
     // Once the launch is a session and over, the folder is free.

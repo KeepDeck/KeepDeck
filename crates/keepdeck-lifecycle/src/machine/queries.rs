@@ -3,7 +3,7 @@
 
 use super::{capture, create, Kind, State};
 use crate::dir::Dir;
-use crate::ids::{OpId, PaneId, SessionId, TeamId, WorkspaceId};
+use crate::ids::{AttemptId, OpId, PaneId, SessionId, TeamId, WorkspaceId};
 use crate::model::{Consent, Folder, Intent, Place, Refusal};
 use crate::places;
 use crate::world::TeamAt;
@@ -249,6 +249,8 @@ pub fn check(state: &State, place: &Place) -> Option<PlaceHeld> {
 pub enum Claim {
     Team { team: TeamId },
     Session { session: SessionId },
+    /// A launch admitted into it, not yet a session.
+    Launch { attempt: AttemptId },
     Creation { op: OpId },
     /// An operation deleting it, or a cleanup it owes.
     Removal { op: OpId },
@@ -267,6 +269,13 @@ pub fn claims(state: &State, dir: &Dir) -> Vec<Claim> {
     for (&session, row) in &state.sessions {
         if !row.ended && row.dir.as_ref() == Some(dir) {
             claims.push(Claim::Session { session });
+        }
+    }
+    // The same hold a removal meets (`teardown::folder_held`): a launch
+    // admitted there may cross into the folder at any moment.
+    for (&attempt, row) in &state.attempts {
+        if row.dir.as_ref() == Some(dir) {
+            claims.push(Claim::Launch { attempt });
         }
     }
     for (&op, row) in &state.ops {
