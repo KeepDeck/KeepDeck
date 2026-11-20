@@ -530,6 +530,17 @@ describe("createMailManager", () => {
     expect(h.manager.waiting(B.paneId)).toBe(0);
   });
 
+  it("forgets the named panes by the same rule, and no one else", () => {
+    const h = harness();
+    h.reports(B.paneId, approving);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "one" });
+    h.manager.forget(new Set([B.paneId]));
+    expect(h.manager.inbox(A.paneId).messages.map((mail) => mail.kind)).toEqual(["undelivered"]);
+    expect(h.manager.inbox(B.paneId, { all: true }).messages).toEqual([]);
+    h.manager.forget(new Set([B.paneId]));
+    expect(h.manager.waiting(A.paneId)).toBe(0);
+  });
+
   it("still tells a LIVING sender that the pane it wrote to is gone", () => {
     // The other half of the rule above: silence is only owed to a sender
     // that has gone too.

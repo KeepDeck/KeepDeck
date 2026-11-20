@@ -304,6 +304,9 @@ export interface MailManager {
   cancel(fromPaneId: string, id: string): CancelOutcome;
   /** Forget everything belonging to panes that no longer exist. */
   retain(liveIds: ReadonlySet<string>): void;
+  /** Forget everything belonging to these closed panes — the same as
+   * [`retain`] leaving them out, and nothing of anyone else's. */
+  forget(paneIds: ReadonlySet<string>): void;
   /** The pane's process was retired (restart, suspend). Its delivery spacing
    * describes that process and means nothing to the next one; queued and
    * delivered mail is addressed to the PANE and stays. */
@@ -864,6 +867,49 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     if (queue.length === 0) queues.delete(paneId);
   }
 
+  /** Everything belonging to the panes that are `gone`: what is addressed to
+   * them, and every message they sent that another pane still holds. */
+  function drop(gone: (paneId: string) => boolean): void {
+    /** Queued for panes that are going, and collected rather than reported
+     * on the spot.
+     *
+     * A report goes INTO its recipient's queue, so reporting mid-walk
+     * recreated a queue keyed to a pane this very call had already passed
+     * or deleted — a queue for a pane that no longer exists, which nothing
+     * would ever drain again. */
+    const orphaned: Mail[] = [];
+    for (const map of [queues, inboxes, lastWakeAt]) {
+      for (const id of [...map.keys()]) {
+        if (gone(id)) {
+          if (map === queues) orphaned.push(...(queues.get(id) ?? []));
+          map.delete(id);
+        }
+      }
+    }
+    // Whatever was queued for a pane that no longer exists can never be
+    // delivered; its senders are owed the same word they get when a queue
+    // overflows — and a sender that is itself gone is owed nothing at all.
+    for (const mail of orphaned) {
+      if (mail.from.kind === "pane" && !gone(mail.from.pane.paneId)) {
+        reportDropped(mail);
+      }
+    }
+    // A debt names its creditor by pane id, and `pane-N` is a slot a later
+    // pane inherits. Pruning only by RECEIVER left those references in
+    // living journals, so an answer written months of session-time later
+    // arrived at a fresh agent labelled a reply to a question it never
+    // asked. The other half of every pair goes too.
+    for (const held of inboxes.values()) {
+      for (let i = held.length - 1; i >= 0; i -= 1) {
+        const from = held[i].mail.from;
+        if (from.kind === "pane" && gone(from.pane.paneId)) held.splice(i, 1);
+      }
+    }
+    // `reportedOverdue` needs nothing here: it is pruned to what is still
+    // queued on every pass, which is the only place that can see the
+    // difference between a message gone and a message put back.
+  }
+
   return {
     send(request) {
       const refusal = sendRefusal(request.from, request.toPaneId, request.kind);
@@ -1097,44 +1143,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     retain(liveIds) {
-      /** Queued for panes that are going, and collected rather than reported
-       * on the spot.
-       *
-       * A report goes INTO its recipient's queue, so reporting mid-walk
-       * recreated a queue keyed to a pane this very call had already passed
-       * or deleted — a queue for a pane that no longer exists, which nothing
-       * would ever drain again. */
-      const orphaned: Mail[] = [];
-      for (const map of [queues, inboxes, lastWakeAt]) {
-        for (const id of [...map.keys()]) {
-          if (!liveIds.has(id)) {
-            if (map === queues) orphaned.push(...(queues.get(id) ?? []));
-            map.delete(id);
-          }
-        }
-      }
-      // Whatever was queued for a pane that no longer exists can never be
-      // delivered; its senders are owed the same word they get when a queue
-      // overflows — and a sender that is itself gone is owed nothing at all.
-      for (const mail of orphaned) {
-        if (mail.from.kind === "pane" && liveIds.has(mail.from.pane.paneId)) {
-          reportDropped(mail);
-        }
-      }
-      // A debt names its creditor by pane id, and `pane-N` is a slot a later
-      // pane inherits. Pruning only by RECEIVER left those references in
-      // living journals, so an answer written months of session-time later
-      // arrived at a fresh agent labelled a reply to a question it never
-      // asked. The other half of every pair goes too.
-      for (const held of inboxes.values()) {
-        for (let i = held.length - 1; i >= 0; i -= 1) {
-          const from = held[i].mail.from;
-          if (from.kind === "pane" && !liveIds.has(from.pane.paneId)) held.splice(i, 1);
-        }
-      }
-      // `reportedOverdue` needs nothing here: it is pruned to what is still
-      // queued on every pass, which is the only place that can see the
-      // difference between a message gone and a message put back.
+      drop((paneId) => !liveIds.has(paneId));
+    },
+
+    forget(paneIds) {
+      drop((paneId) => paneIds.has(paneId));
     },
 
     clear(paneId) {
