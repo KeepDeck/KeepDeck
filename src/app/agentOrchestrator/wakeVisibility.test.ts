@@ -369,7 +369,7 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     expect(pty.isLive("running")).toBe(true);
     expect(agentRun.reachOf("running")).toEqual({ kind: "down", why: "workspace-archived" });
     await settle();
-    expect(pty.closed).not.toContain("running");
+    expect(pty.isLive("running")).toBe(true);
   });
 
   it("does not call a pane's plugin missing before the catalog has loaded", async () => {

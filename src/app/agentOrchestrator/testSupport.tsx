@@ -35,6 +35,8 @@ import { createAgentOrchestrator, type AgentOrchestrator, type AgentRunView } fr
 import { useAgentRunView } from "../useAgentRunView";
 import type { SpawnPluginAccess } from "../spawnSpecs";
 import { createSpawnPluginsFake } from "../spawnSpecs/planTestSupport";
+import { createPtyManager, type OpenSession, type PtyManager } from "../ptyManager";
+import { createSessionDoor, exitEvent, type Spawn } from "../ptyManager.testSupport";
 
 const ipc = vi.hoisted(() => ({
   probeWorktree: vi.fn(),
@@ -353,112 +355,70 @@ export const MAX_PANES = MAX_PANES_IMPL;
 export const createWorkspaceInstance = createWorkspaceInstanceImpl;
 export const emptyJournal = emptyJournalImpl;
 
-/** A pane's process as the real registry (`ptyManager`) holds it. */
-type FakeSession = { key: string; state: { kind: "live" } | { kind: "exited"; code: number | null } };
+/** The REAL session registry, over a door to the sessions machine that starts
+ *  every process it is asked for at once. Built afresh by each `reset`, so the
+ *  orchestrator a test mounts runs on its own registry. A copy of the
+ *  registry's rules stood here before; with two states where the real one has
+ *  five, it hid that a stop which moved out of the page left every stopped
+ *  pane's slot taken. */
+function startingDoor() {
+  const door = createSessionDoor();
+  const open: OpenSession = (opts, permit, owner, onEvent) => {
+    const started = door.open(opts, permit, owner, onEvent);
+    door.spawns[door.spawns.length - 1].resolve(door.makeSession());
+    return started;
+  };
+  return { door, registry: createPtyManager(open) };
+}
 
-/** The session registry as the orchestrator sees it: what it started, and
- *  what each pane's process is doing — with the real registry's semantics,
- *  not a simpler picture of them. A started process is live; one that ENDS
- *  (on its own, or stopped by the machine) stays "exited" — its slot still
- *  taken — until an explicit close empties it. An acquire on a slot already
- *  taken by the same identity (command + cwd) is a no-op, as the real one is:
- *  an exited process is never silently respawned. A two-state picture here
- *  (live, or none) once hid that a stop which moved out of the page left
- *  every stopped pane's slot taken. */
+let sessions = startingDoor();
+
 export const pty = {
-  /** The WHOLE spec, args and env included. Recording only the pane id left
-   *  the step the orchestrator absorbed from TerminalPane unguarded: nothing
-   *  proved a resume plan's `--resume <id>` reached the spawned process. */
-  acquired: [] as {
-    paneId: string;
-    command?: string | null;
-    cwd?: string | null;
-    args?: string[];
-    env?: [string, string][];
-    /** The lease the spawn spent. */
-    launch?: { permit: number; owner: unknown };
-  }[],
-  sessions: new Map<string, FakeSession>(),
-  /** Panes whose process has printed something — the "the CLI painted"
-   *  signal, which a test sets by hand because no real bytes flow here. */
-  launched: new Set<string>(),
-  isLaunched(paneId: string) {
-    return pty.launched.has(paneId);
+  /** The registry the orchestrator a test mounts is handed. */
+  get registry(): PtyManager {
+    return sessions.registry;
+  },
+  /** Every process the orchestrator started, in order, with the WHOLE spec,
+   *  args and env included. Recording only the pane id left the step the
+   *  orchestrator absorbed from TerminalPane unguarded: nothing proved a
+   *  resume plan's `--resume <id>` reached the spawned process. */
+  get acquired() {
+    return sessions.door.spawns.map((spawn) => ({
+      paneId: paneOf(spawn),
+      command: spawn.opts.command,
+      cwd: spawn.opts.cwd,
+      args: spawn.opts.args,
+      env: spawn.opts.env,
+      /** The lease the spawn spent. */
+      launch: { permit: spawn.permit, owner: spawn.owner },
+    }));
+  },
+  /** The pane's process ends — by itself, or stopped by the machine — as
+   *  the sessions machine reports it. */
+  exit(paneId: string, code: number | null = 0) {
+    const own = sessions.door.spawns.filter((candidate) => paneOf(candidate) === paneId);
+    own[own.length - 1]?.onEvent(exitEvent(code));
+  },
+  state(paneId: string) {
+    return sessions.registry.state(paneId);
   },
   /** Whether the pane's process is running now. */
   isLive(paneId: string) {
-    return pty.sessions.get(paneId)?.state.kind === "live";
+    return sessions.registry.state(paneId).kind === "live";
   },
-  acquire(
-    paneId: string,
-    spec: {
-      command?: string | null;
-      cwd?: string | null;
-      args?: string[];
-      env?: [string, string][];
-    },
-    launch: { permit: number; owner: unknown },
-  ) {
-    const key = `${spec.command ?? ""}\u0000${spec.cwd ?? ""}`;
-    // The real registry reuses a slot the same identity holds — live or
-    // exited — and replaces only a different one.
-    if (pty.sessions.get(paneId)?.key === key) return;
-    pty.acquired.push({
-      paneId,
-      command: spec.command,
-      cwd: spec.cwd,
-      args: spec.args,
-      env: spec.env,
-      launch,
-    });
-    pty.sessions.set(paneId, { key, state: { kind: "live" } });
-    pty.notify();
-  },
-  /** The pane's process ends — by itself, or stopped by the machine. The
-   *  slot stays taken, "exited", until a close. */
-  exit(paneId: string, code: number | null = 0) {
-    const session = pty.sessions.get(paneId);
-    if (session?.state.kind !== "live") return;
-    session.state = { kind: "exited", code };
-    pty.notify();
-  },
-  closed: [] as string[],
-  /** Reaping is not instant: a test may hold it open to see what the deck
-   *  looks like while a process is still going down. */
-  hold: null as Promise<void> | null,
-  close(paneId: string) {
-    pty.closed.push(paneId);
-    pty.sessions.delete(paneId);
-    // The real registry drops the entry and fires its listeners SYNCHRONOUSLY,
-    // before the teardown IPC settles. A no-op stub here made the sweep that
-    // this notification drives invisible to every test in the file — which is
-    // exactly where a restart racing that sweep would have shown up.
-    pty.notify();
-    return pty.hold ?? Promise.resolve();
-  },
-  listeners: new Set<() => void>(),
-  subscribe(listener: () => void) {
-    pty.listeners.add(listener);
-    return () => pty.listeners.delete(listener);
-  },
-  notify() {
-    for (const listener of [...pty.listeners]) listener();
-  },
-  state: (paneId: string) => pty.sessions.get(paneId)?.state ?? ({ kind: "none" } as const),
   reset() {
-    pty.acquired = [];
-    pty.sessions.clear();
-    pty.closed = [];
-    pty.hold = null;
-    // Listeners go with the rest: an orchestrator from a previous mount would
-    // otherwise keep reconciling its own dead deck on every state change.
-    pty.listeners.clear();
+    sessions = startingDoor();
     // The machine the processes are leased from goes with them: every suite
     // resets the pty per test, and a lease or an intent of the last test must
     // not answer this one.
     machine.reset();
   },
 };
+
+/** The pane a process was started for: the owner its lease names. */
+function paneOf(spawn: Spawn): string | null {
+  return spawn.owner.kind === "pane" || spawn.owner.kind === "remote" ? spawn.owner.pane : null;
+}
 
 export let deck: Deck;
 export let agentRun: AgentRunView &
@@ -533,13 +493,7 @@ export function Probe() {
           parkOnLaunch: () => catalog.parkOnLaunch,
           subscribe: () => () => {},
         },
-        sessions: {
-          subscribe: pty.subscribe,
-          state: (paneId: string) => pty.state(paneId),
-          isLaunched: pty.isLaunched,
-          acquire: pty.acquire,
-          close: pty.close,
-        },
+        sessions: pty.registry,
         // The registry seam recovery asks (live sessions): an empty agent
         // registry answers "no capability" — the legacy behavior.
         plugins: createSpawnPluginsFake().plugins,

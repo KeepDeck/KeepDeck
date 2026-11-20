@@ -300,7 +300,7 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
       deck.hydrate(twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" })),
     );
     await settle();
-    pty.acquired = [];
+    const before = pty.acquired.length;
 
     await act(async () => {
       await agentRun.resume("ws-2", "pane-2");
@@ -308,7 +308,7 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     await settle();
 
     expect(background().idle).toBeUndefined();
-    expect(pty.acquired.map((a) => a.paneId)).toEqual(["pane-2"]);
+    expect(pty.acquired.slice(before).map((a) => a.paneId)).toEqual(["pane-2"]);
     expect(agentRun.specs["pane-2"]).toBeDefined();
   });
 
@@ -327,10 +327,10 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     expect(pty.acquired.map((a) => a.paneId)).toContain("pane-2");
 
     // Its process dies. Nothing asked for it again, so nothing restarts it.
-    pty.acquired = [];
+    const before = pty.acquired.length;
     act(() => pty.exit("pane-2", 0));
     await settle();
-    expect(pty.acquired).toEqual([]);
+    expect(pty.acquired.slice(before)).toEqual([]);
   });
 
   it("stops owing a start when the attempt gives up", async () => {
@@ -362,17 +362,17 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
       empty: false,
       branch: null,
     });
-    pty.acquired = [];
+    const before = pty.acquired.length;
     act(() => deck.updateWorkspace(present(deck.workspaces.find((w) => w.id === "ws-2"), "ws-2"), { name: "two again" }));
     await settle();
-    expect(pty.acquired).toEqual([]);
+    expect(pty.acquired.slice(before)).toEqual([]);
 
     // Asking again re-owes it, and the pane starts even off screen.
     act(() => {
       agentRun.startFresh("ws-2", "pane-2");
     });
     await settle();
-    expect(pty.acquired.map((a) => a.paneId)).toEqual(["pane-2"]);
+    expect(pty.acquired.slice(before).map((a) => a.paneId)).toEqual(["pane-2"]);
   });
 
   it("refuses a pane no plugin can start, instead of stranding it", async () => {
