@@ -277,8 +277,11 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
             fork.added = state.world.panes.contains_key(pane);
             Kind::Fork(Box::new(fork))
         }
-        Work::RemoveUnheld { path, tag, .. } => {
-            let mut unheld = Unheld::new(path.clone(), tag.clone());
+        Work::RemoveUnheld { path, tag, repo } => {
+            // An entry written before the repository was kept takes it from
+            // its workspace, while that stands.
+            let repo = repo.clone().or_else(|| state.world.workspaces.get(&entry.workspace).map(|ws| ws.cwd.clone()));
+            let mut unheld = Unheld::new(path.clone(), tag.clone(), repo);
             unheld.done = entry.done.clone();
             unheld.answered = true;
             Kind::RemoveUnheld(unheld)

@@ -99,7 +99,14 @@ pub enum Work {
         space: Option<Dir>,
     },
     Archive { panes: Vec<PaneId> },
-    RemoveUnheld { path: Dir, tag: Option<String>, removal: Option<Removal> },
+    /// The repository is the one taken when it was accepted: it needs no
+    /// workspace row to finish. Absent only from an entry written before.
+    RemoveUnheld {
+        path: Dir,
+        tag: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repo: Option<Dir>,
+    },
     /// A conversation carried into a new pane. Open until the pane's launch is
     /// bound to it: an open fork at boot did not finish, and is rolled back.
     Fork {

@@ -237,16 +237,18 @@ impl Fork {
     }
 }
 
-/// The ops that change a team's membership and have not settled it yet.
+/// The ops that change a team's membership and have not settled it yet. A
+/// fork changes it from its acceptance: placing and making the team it lands
+/// on are part of bringing its pane in, so a Close begun meanwhile waits
+/// for it, as for any other landing.
 pub fn membership_pending(op: &Op, saved: Option<Revision>) -> bool {
     let unsettled = |pred: fn(&Cmd) -> bool| op.sent.iter().any(|sent| pred(&sent.cmd) && !sent.settled(saved));
     match &op.kind {
         Kind::Seat(_) => op.ask.is_some() || unsettled(|cmd| matches!(cmd, Cmd::AddPane { .. })),
         Kind::Relocate(_) => op.ask.is_some() || unsettled(|cmd| matches!(cmd, Cmd::MovePane { .. })),
         Kind::Fork(fork) => match fork.stage {
-            ForkStage::Journaling | ForkStage::Forking => !fork.expired,
+            ForkStage::Placing | ForkStage::Journaling | ForkStage::Making | ForkStage::RollingBack | ForkStage::Forking => !fork.expired,
             ForkStage::Adding => true,
-            ForkStage::Placing | ForkStage::Making | ForkStage::RollingBack => false,
             ForkStage::Binding | ForkStage::Finishing | ForkStage::Undoing => unsettled(|cmd| matches!(cmd, Cmd::AddPane { .. })),
         },
         _ => false,
@@ -684,13 +686,8 @@ fn add_team(state: &mut State, id: OpId, fx: &mut Fx) {
             let cmd = if create.retry {
                 Cmd::RetryTeam { workspace, team: create.team.clone() }
             } else {
-                Cmd::AddTeam {
-                    workspace: workspace.clone(),
-                    team: create.team.clone(),
-                    draft: create.draft.clone(),
-                    place: team_place(state, &workspace, &create, id),
-                    members: create.members.clone(),
-                }
+                let Some(place) = team_place(state, &workspace, &create, id) else { return workspace_gone(state, id, fx) };
+                Cmd::AddTeam { workspace: workspace.clone(), team: create.team.clone(), draft: create.draft.clone(), place, members: create.members.clone() }
             };
             let op = state.ops.get_mut(&id).expect("the op");
             op.send(cmd);
@@ -702,20 +699,14 @@ fn add_team(state: &mut State, id: OpId, fx: &mut Fx) {
                 finish(state, id);
                 return;
             }
+            let Some(at) = made_team_at(state, &workspace, &create, id) else { return workspace_gone(state, id, fx) };
             let minted = Minted {
                 team: Some(create.team.clone()),
                 panes: create.members.iter().map(|member| member.pane).collect(),
                 ..Minted::default()
             };
+            let op = state.ops.get_mut(&id).expect("the op");
             answer_op(op, fx, Answer::Accepted { op: id, minted });
-            let at = match (&create.site, &create.ticket) {
-                (_, Some(ticket)) => TeamAt::Creating { op: id, ticket: ticket.clone() },
-                (Site::Existing { cwd }, None) => TeamAt::Attached { cwd: cwd.clone(), branch: None },
-                (_, None) => {
-                    let cwd = state.world.workspaces[&workspace].cwd.clone();
-                    TeamAt::Attached { cwd, branch: None }
-                }
-            };
             state.world.teams.insert(create.team.clone(), Team { workspace: workspace.clone(), at });
             for member in &create.members {
                 state.world.panes.insert(member.pane, Pane { workspace: workspace.clone(), team: Some(create.team.clone()), remote: false, suspended: false });
@@ -727,12 +718,43 @@ fn add_team(state: &mut State, id: OpId, fx: &mut Fx) {
     }
 }
 
-fn team_place(state: &State, workspace: &crate::ids::WorkspaceId, create: &Create, id: OpId) -> TeamPlace {
-    match (&create.ticket, &create.site) {
-        (Some(ticket), _) => TeamPlace::Provisioning { op: id, path: ticket.path.clone(), branch: ticket.branch.clone(), base: ticket.base.clone() },
-        (None, Site::Existing { cwd }) => TeamPlace::Attached { cwd: cwd.clone(), branch: None },
-        (None, _) => TeamPlace::Attached { cwd: state.world.workspaces[workspace].cwd.clone(), branch: None },
+/// Where a made team goes on the deck: its ticket's checkout, or the folder
+/// it attaches to. None once its workspace is gone.
+fn team_place(state: &State, workspace: &WorkspaceId, create: &Create, id: OpId) -> Option<TeamPlace> {
+    Some(match &create.ticket {
+        Some(ticket) => TeamPlace::Provisioning { op: id, path: ticket.path.clone(), branch: ticket.branch.clone(), base: ticket.base.clone() },
+        None => TeamPlace::Attached { cwd: attached_cwd(state, workspace, &create.site)?, branch: None },
+    })
+}
+
+/// Where a made team runs once the deck holds it: its ticket's checkout,
+/// being created, or the folder it attaches to. None once its workspace is
+/// gone.
+fn made_team_at(state: &State, workspace: &WorkspaceId, create: &Create, id: OpId) -> Option<TeamAt> {
+    Some(match &create.ticket {
+        Some(ticket) => TeamAt::Creating { op: id, ticket: ticket.clone() },
+        None => TeamAt::Attached { cwd: attached_cwd(state, workspace, &create.site)?, branch: None },
+    })
+}
+
+/// The folder a team that makes no worktree runs in: the one its site names,
+/// or its workspace's own. None once the workspace is gone.
+fn attached_cwd(state: &State, workspace: &WorkspaceId, site: &Site) -> Option<Dir> {
+    match site {
+        Site::Existing { cwd } => Some(cwd.clone()),
+        Site::Root | Site::New { .. } => state.world.workspaces.get(workspace).map(|row| row.cwd.clone()),
     }
+}
+
+/// The workspace an operation adds to is gone: an owner answered after its
+/// close, or out of order. Nothing more is added to it. The operation is
+/// refused and owed: it neither runs on nor ends, and what it journaled is
+/// taken up by the next launch.
+fn workspace_gone(state: &mut State, id: OpId, fx: &mut Fx) {
+    let Some(op) = state.ops.get_mut(&id) else { return };
+    fx.warn(format!("{id}: its workspace is gone; nothing more is added to it"));
+    answer_op(op, fx, Answer::refused(Refusal::NotFound));
+    op.owed = true;
 }
 
 pub fn work(state: &State, id: OpId, op: &Op, create: &Create, owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
@@ -838,9 +860,14 @@ pub fn advance_relocate(state: &mut State, id: OpId, fx: &mut Fx) {
             if let Some(reason) = reason(outcome) {
                 answer_op(op, fx, Answer::refused(Refusal::Rejected { reason }));
             } else if op.ask.is_some() {
+                // A new root team runs in the workspace's own folder.
+                let root = attached_cwd(state, &workspace, &Site::Root);
+                if relocate.new_root && root.is_none() {
+                    return workspace_gone(state, id, fx);
+                }
+                let op = state.ops.get_mut(&id).expect("the op");
                 answer_op(op, fx, Answer::Accepted { op: id, minted: Minted::default() });
-                if relocate.new_root {
-                    let cwd = state.world.workspaces[&workspace].cwd.clone();
+                if let (true, Some(cwd)) = (relocate.new_root, root) {
                     state.world.teams.insert(relocate.to.clone(), Team { workspace: workspace.clone(), at: TeamAt::Attached { cwd, branch: None } });
                 }
                 if let Some(row) = state.world.panes.get_mut(&relocate.pane) {
@@ -1081,7 +1108,7 @@ fn make_fork_team(state: &mut State, id: OpId, fx: &mut Fx) {
     let draft = fork.draft.clone();
     match outcome_of(op, |cmd| matches!(cmd, Cmd::AddTeam { .. })).map(|outcome| outcome.cloned()) {
         None => {
-            let place = team_place(state, &workspace, &create, id);
+            let Some(place) = team_place(state, &workspace, &create, id) else { return workspace_gone(state, id, fx) };
             let op = state.ops.get_mut(&id).expect("the op");
             op.send(Cmd::AddTeam {
                 workspace,
@@ -1101,18 +1128,10 @@ fn make_fork_team(state: &mut State, id: OpId, fx: &mut Fx) {
                 return;
             }
             if op.ask.is_some() {
+                let Some(at) = made_team_at(state, &workspace, &create, id) else { return workspace_gone(state, id, fx) };
                 let minted = Minted { team: Some(create.team.clone()), panes: vec![pane], ..Minted::default() };
+                let op = state.ops.get_mut(&id).expect("the op");
                 answer_op(op, fx, Answer::Accepted { op: id, minted });
-                let at = match &create.ticket {
-                    Some(ticket) => TeamAt::Creating { op: id, ticket: ticket.clone() },
-                    None => TeamAt::Attached {
-                        cwd: match &create.site {
-                            Site::Existing { cwd } => cwd.clone(),
-                            _ => state.world.workspaces[&workspace].cwd.clone(),
-                        },
-                        branch: None,
-                    },
-                };
                 state.world.teams.insert(create.team.clone(), Team { workspace: workspace.clone(), at });
                 state.world.panes.insert(pane, Pane { workspace, team: Some(create.team.clone()), remote: false, suspended: false });
                 let op = state.ops.get_mut(&id).expect("the op");
@@ -1141,9 +1160,13 @@ fn add_fork_pane(state: &mut State, id: OpId, fx: &mut Fx) {
         // Its team was made for it: the pane is there; the team now runs.
         match outcome_of(op, |cmd| matches!(cmd, Cmd::SettleTeam { .. })).map(|outcome| outcome.cloned()) {
             None => {
-                let ticket = create.ticket.clone();
-                let cwd = ticket.as_ref().map(|ticket| ticket.path.clone()).unwrap_or_else(|| state.world.workspaces[&workspace].cwd.clone());
-                let branch = ticket.map(|ticket| ticket.branch);
+                let (cwd, branch) = match create.ticket {
+                    Some(ticket) => (ticket.path, Some(ticket.branch)),
+                    None => match attached_cwd(state, &workspace, &create.site) {
+                        Some(cwd) => (cwd, None),
+                        None => return workspace_gone(state, id, fx),
+                    },
+                };
                 let op = state.ops.get_mut(&id).expect("the op");
                 op.send(Cmd::SettleTeam { workspace, team, cwd, branch });
             }

@@ -88,7 +88,7 @@ mod tests {
         Entry {
             op: OpId(op),
             workspace: WorkspaceId("ws-a".into()),
-            work: Work::RemoveUnheld { path: Dir::new("/wt/x"), tag: None, removal: None },
+            work: Work::RemoveUnheld { path: Dir::new("/wt/x"), tag: None, repo: Some(Dir::new("/repo")) },
             joined: vec![],
             commands: vec![],
             done: vec![],

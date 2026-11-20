@@ -722,6 +722,9 @@ pub fn work(state: &State, id: OpId, op: &Op, teardown: &Teardown, mut owed: Owe
 pub struct Unheld {
     pub path: Dir,
     pub tag: Option<String>,
+    /// The repository it removes from, taken while its workspace stood. None
+    /// only when restored from an entry without it, its workspace gone: owed.
+    pub repo: Option<Dir>,
     pub done: Vec<Step>,
     pub failed: bool,
     pub rolling_back: bool,
@@ -729,12 +732,12 @@ pub struct Unheld {
 }
 
 impl Unheld {
-    pub fn new(path: Dir, tag: Option<String>) -> Unheld {
-        Unheld { path, tag, done: Vec::new(), failed: false, rolling_back: false, answered: false }
+    pub fn new(path: Dir, tag: Option<String>, repo: Option<Dir>) -> Unheld {
+        Unheld { path, tag, repo, done: Vec::new(), failed: false, rolling_back: false, answered: false }
     }
 
     pub fn journaled(&self) -> Work {
-        Work::RemoveUnheld { path: self.path.clone(), tag: self.tag.clone(), removal: None }
+        Work::RemoveUnheld { path: self.path.clone(), tag: self.tag.clone(), repo: self.repo.clone() }
     }
 
     fn steps(&self) -> Vec<Step> {
@@ -760,7 +763,7 @@ pub fn advance_unheld(state: &mut State, id: OpId, fx: &mut Fx) {
         return;
     }
     let Kind::RemoveUnheld(unheld) = &op.kind else { return };
-    if unheld.failed {
+    if unheld.failed || unheld.repo.is_none() {
         op.owed = true;
         return;
     }
@@ -773,8 +776,7 @@ pub fn work_unheld(state: &State, id: OpId, op: &Op, unheld: &Unheld, mut owed: 
     if !unheld.answered || unheld.failed || !state.boot.open() {
         return owed;
     }
-    let repo = state.world.workspaces.get(&op.workspace).map(|ws| ws.cwd.clone());
-    let Some(repo) = repo else { return owed };
+    let Some(repo) = unheld.repo.clone() else { return owed };
     for step in unheld.steps() {
         if unheld.done.contains(&step) {
             continue;

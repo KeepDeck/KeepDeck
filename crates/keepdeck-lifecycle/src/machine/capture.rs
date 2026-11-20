@@ -477,11 +477,17 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             state.ops.insert(id, op);
         }
         Intent::RemoveUnheld { workspace, path, tag } => {
+            // A workspace that is leaving takes nothing new — its close
+            // removes what it holds; a removal begun now would outlive it.
+            if workspace_leaving(state, &workspace) {
+                return refuse(fx, ask, Refusal::TargetLeaving);
+            }
             if teardown::folder_held(state, &path, None) {
                 return refuse(fx, ask, Refusal::Busy);
             }
+            let repo = state.world.workspaces.get(&workspace).map(|ws| ws.cwd.clone());
             let id = state.mint_op();
-            state.ops.insert(id, Op::new(workspace, ask, true, Kind::RemoveUnheld(Unheld::new(path, tag))));
+            state.ops.insert(id, Op::new(workspace, ask, true, Kind::RemoveUnheld(Unheld::new(path, tag, repo))));
         }
     }
 }

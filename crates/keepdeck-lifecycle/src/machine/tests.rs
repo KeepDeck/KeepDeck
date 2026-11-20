@@ -1119,6 +1119,31 @@ fn a_checkout_with_a_launch_admitted_into_it_is_not_unheld() {
     assert_eq!(sim.refusal(remove), None);
 }
 
+/// An orphan's removal keeps the repository it was accepted for: restored
+/// with its workspace's row gone, it still removes from it. An entry written
+/// before it kept one, with nothing to take it from, is owed — never left
+/// neither running nor ending.
+#[test]
+fn an_orphan_removal_needs_no_workspace_row_to_finish() {
+    let unheld = |op: u64, repo: Option<&str>| Entry {
+        op: OpId(op),
+        workspace: WorkspaceId("ws-gone".into()),
+        work: Work::RemoveUnheld { path: Dir::new("/wt/orphan"), tag: None, repo: repo.map(Dir::new) },
+        joined: vec![],
+        commands: vec![],
+        done: vec![],
+    };
+    let mut sim = Sim::booted_with(deck(), vec![unheld(3, Some("/repo")), unheld(4, None)]);
+    let owed = sim.owed();
+    assert!(
+        owed.iter().any(|effect| matches!(effect, Effect::Clean { op: OpId(3), how: Clean::Checkout { repo, .. }, .. } if *repo == Dir::new("/repo"))),
+        "removed from the repository its entry keeps: {owed:?}"
+    );
+    sim.drive();
+    assert!(!sim.state.ops.contains_key(&OpId(3)), "and done");
+    assert!(sim.state.ops[&OpId(4)].owed, "nothing to remove from: owed");
+}
+
 #[test]
 fn two_permits_for_one_pane_admit_only_one_launch() {
     let mut sim = Sim::booted();
@@ -1813,9 +1838,9 @@ fn a_launch_admitted_into_a_forks_checkout_before_its_undo_goes_to_the_start_bou
 }
 
 /// A fork into a folder that is there, onto a new team: the hook is called
-/// in that folder.
+/// in that folder, and the team settles there — not in the workspace's own.
 #[test]
-fn a_fork_onto_a_new_team_in_an_existing_folder_calls_its_hook_there() {
+fn a_fork_onto_a_new_team_in_an_existing_folder_calls_its_hook_there_and_settles_there() {
     let mut sim = Sim::booted();
     sim.intent(Intent::Continue {
         workspace: ws(),
@@ -1832,6 +1857,16 @@ fn a_fork_onto_a_new_team_in_an_existing_folder_calls_its_hook_there() {
     let forks = sim.pending_matching(|cmd| matches!(cmd, Cmd::Fork { .. }));
     assert_eq!(forks.len(), 1, "the hook is called: {:?}", sim.pending());
     assert!(matches!(&forks[0].cmd, Cmd::Fork { cwd, .. } if cwd == &Dir::new("/repo/tools")));
+    sim.reply(|cmd| matches!(cmd, Cmd::Fork { .. }), Outcome::Forked { discard: Discard::default() });
+    let op = forks[0].id.op;
+    sim.send(Event::HookEnded { op });
+    for _ in 0..4 {
+        sim.write_journals();
+        sim.apply(|cmd| !matches!(cmd, Cmd::SettleTeam { .. }));
+        sim.save();
+    }
+    let settles = sim.pending_matching(|cmd| matches!(cmd, Cmd::SettleTeam { .. }));
+    assert!(matches!(&settles[..], [due] if matches!(&due.cmd, Cmd::SettleTeam { cwd, .. } if cwd == &Dir::new("/repo/tools"))), "{settles:?}");
 }
 
 #[test]
