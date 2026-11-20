@@ -2,7 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ArchiveOutcome, Workspace } from "../domain/deck";
+import type { Workspace } from "../domain/deck";
+import type { IntentOutcome } from "../domain/lifecycle";
 import { createWorkspaceInstance, type WorkspaceRef } from "../domain/workspaceInstance";
 import { useArchiveFlow, type ArchiveFlow } from "./useArchiveFlow";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -21,7 +22,7 @@ describe("useArchiveFlow", () => {
   let root: Root;
   let flow: ArchiveFlow;
   let deck: Workspace[];
-  const archive = vi.fn<(ref: WorkspaceRef) => Promise<ArchiveOutcome>>();
+  const archive = vi.fn<(ref: WorkspaceRef) => Promise<IntentOutcome>>();
   const onRefused = vi.fn();
 
   function Probe({ workspaces }: { workspaces: Workspace[] }) {
@@ -31,7 +32,7 @@ describe("useArchiveFlow", () => {
   const render = () => act(() => root.render(createElement(Probe, { workspaces: deck })));
 
   beforeEach(() => {
-    archive.mockReset().mockResolvedValue("archived");
+    archive.mockReset().mockResolvedValue({ kind: "accepted", op: 1, minted: { workspace: null, team: null, panes: [] } });
     onRefused.mockReset();
     deck = [ws("ws-1"), ws("ws-2")];
     root = createRoot(document.body.appendChild(document.createElement("div")));
@@ -78,7 +79,7 @@ describe("useArchiveFlow", () => {
   });
 
   it("says why when the archive is refused", async () => {
-    archive.mockResolvedValue("closing");
+    archive.mockResolvedValue({ kind: "refused", refusal: { kind: "alreadyClosing" } });
     act(() => flow.request("ws-1"));
     await act(async () => flow.confirm());
     expect(onRefused).toHaveBeenCalledWith("Can't archive this workspace", "“Web” is being closed, so it cannot be archived.");

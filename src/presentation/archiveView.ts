@@ -8,7 +8,9 @@
  * reading of what is running: an archive stops every local agent, a parked
  * or never-started one too, so "stops" counts them all.
  */
-import { paneArchiveFate, type ArchiveOutcome, type Workspace } from "../domain/deck";
+import { paneArchiveFate, type Workspace } from "../domain/deck";
+import type { IntentOutcome } from "../domain/lifecycle";
+import { intentOutcomeText } from "./lifecycleWords";
 import { byCount } from "./countWords";
 
 export interface ArchiveConfirmView {
@@ -62,15 +64,20 @@ export function archiveConfirmView(ws: Workspace): ArchiveConfirmView {
 }
 
 /** What a refused archive says, or null when there is nothing to say: an
- * archive done, or one already done elsewhere, needs no word. */
-export function archiveRefusalText(outcome: ArchiveOutcome, name: string): string | null {
-  switch (outcome) {
-    case "closing":
-      return `“${name}” is being closed, so it cannot be archived.`;
-    case "gone":
-      return `“${name}” is no longer open.`;
+ * archive the machine took on, or one already done elsewhere, needs no
+ * word. A refusal of its own the archive says of the workspace by name;
+ * any other, in the machine's words. */
+export function archiveRefusalText(outcome: IntentOutcome, name: string): string | null {
+  if (outcome.kind !== "refused") return intentOutcomeText(outcome);
+  switch (outcome.refusal.kind) {
     case "archived":
-    case "already":
       return null;
+    case "alreadyClosing":
+    case "targetLeaving":
+      return `“${name}” is being closed, so it cannot be archived.`;
+    case "notFound":
+      return `“${name}” is no longer open.`;
+    default:
+      return intentOutcomeText(outcome);
   }
 }

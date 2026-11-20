@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Team, Workspace } from "../domain/deck";
+import type { IntentOutcome } from "../domain/lifecycle";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { archiveConfirmView, archiveRefusalText } from "./archiveView";
+import { intentOutcomeText } from "./lifecycleWords";
 
 const AT = "2026-11-16T00:00:00.000Z";
 const failed: Team = {
@@ -67,10 +69,18 @@ describe("archiveConfirmView", () => {
 });
 
 describe("archiveRefusalText", () => {
-  it("speaks only of a refusal", () => {
-    expect(archiveRefusalText("closing", "Web")).toBe("“Web” is being closed, so it cannot be archived.");
-    expect(archiveRefusalText("gone", "Web")).toBe("“Web” is no longer open.");
-    expect(archiveRefusalText("archived", "Web")).toBeNull();
-    expect(archiveRefusalText("already", "Web")).toBeNull();
+  const refused = (kind: "alreadyClosing" | "targetLeaving" | "notFound" | "archived" | "barrierUp"): IntentOutcome => ({
+    kind: "refused",
+    refusal: { kind },
+  });
+
+  it("speaks only of a refusal — the archive's own by the workspace's name, any other in the machine's words", () => {
+    expect(archiveRefusalText(refused("alreadyClosing"), "Web")).toBe("“Web” is being closed, so it cannot be archived.");
+    expect(archiveRefusalText(refused("targetLeaving"), "Web")).toBe("“Web” is being closed, so it cannot be archived.");
+    expect(archiveRefusalText(refused("notFound"), "Web")).toBe("“Web” is no longer open.");
+    // Archived already, elsewhere: nothing to say.
+    expect(archiveRefusalText(refused("archived"), "Web")).toBeNull();
+    expect(archiveRefusalText({ kind: "accepted", op: 1, minted: { workspace: null, team: null, panes: [] } }, "Web")).toBeNull();
+    expect(archiveRefusalText(refused("barrierUp"), "Web")).toBe(intentOutcomeText(refused("barrierUp")));
   });
 });

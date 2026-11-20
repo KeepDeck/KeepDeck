@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pane, Workspace } from "../domain/deck";
 import { teamActsIn } from "../domain/deck/reducer.testSupport";
+import type { IntentOutcome } from "../domain/lifecycle";
 import type { PaneActivity } from "../domain/status";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { useTeamSuspendFlow, type TeamSuspendFlow } from "./useTeamSuspendFlow";
@@ -44,7 +45,7 @@ describe("useTeamSuspendFlow", () => {
   let activities: Map<string, PaneActivity>;
   /** Panes a suspend is still reaping — read by the decision at the call. */
   let reaping: Set<string>;
-  const suspendTeam = vi.fn<(wsId: string, teamId: string, named: readonly string[]) => Promise<void>>();
+  const suspendTeam = vi.fn<(wsId: string, teamId: string, named: readonly string[]) => Promise<IntentOutcome[]>>();
 
   function Probe({ workspaces }: { workspaces: Workspace[] }) {
     flow = useTeamSuspendFlow({
@@ -58,7 +59,7 @@ describe("useTeamSuspendFlow", () => {
   const render = () => act(() => root.render(createElement(Probe, { workspaces: deck })));
 
   beforeEach(() => {
-    suspendTeam.mockReset().mockResolvedValue();
+    suspendTeam.mockReset().mockResolvedValue([]);
     deck = deckOf();
     activities = new Map();
     reaping = new Set();

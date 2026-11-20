@@ -36,7 +36,7 @@ import { stageContent } from "../presentation/stageView";
 import { startFreshRoles } from "../presentation/startFreshView";
 import { paneYoloStart } from "../presentation/paneYolo";
 import { TeamSessions } from "./deck/TeamSessions";
-import type { RestartOutcome } from "../app/agentOrchestrator";
+import type { IntentOutcome } from "../domain/lifecycle";
 
 /** The per-pane positioning the grid resolves to; the rest of a pane's props
  * (command, spec, cwd, badge) are the same everywhere. */
@@ -167,7 +167,7 @@ interface DeckStageProps {
     wsId: string,
     paneId: string,
     mode: AgentRestartMode,
-  ): Promise<RestartOutcome>;
+  ): Promise<IntentOutcome>;
   /** Bumped after the old PTY entry is retired to remount the same pane. */
   restartEpochs: Record<string, number>;
   /** Retry a pane whose spawn plan failed to build (no PTY was spawned) —

@@ -460,13 +460,6 @@ export function stepPlaces(
   };
 }
 
-/** What asking to put a workspace away did: it is archived now, it already
- * was, a close of it is under way, or it is no longer there. */
-export type ArchiveOutcome = "archived" | "already" | "closing" | "gone";
-
-/** What asking for a workspace back did. */
-export type RestoreOutcome = "restored" | "not-archived" | "gone";
-
 /** The workspaces a person navigates — every one not archived, in deck
  * order: the strip's, the selection's. Identity, ownership and retention
  * keep reading the whole list. */

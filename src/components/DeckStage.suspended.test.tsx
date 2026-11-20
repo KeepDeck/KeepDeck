@@ -86,7 +86,7 @@ const callbacks = {
   onRetryPlanBuild: vi.fn(),
   onAgentExited: vi.fn(),
   onAgentSpawnFailed: vi.fn(),
-  onRestartAgent: vi.fn(() => Promise.resolve("restarted" as const)),
+  onRestartAgent: vi.fn(async () => ({ kind: "accepted" as const, op: 1, minted: { workspace: null, team: null, panes: [] } })),
 };
 
 const browser = {
