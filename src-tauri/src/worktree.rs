@@ -2204,8 +2204,15 @@ mod tests {
 
     #[test]
     fn the_born_branches_are_read_before_the_checkout_goes_and_a_missing_one_is_an_error() {
-        let (repo, wt, branch) = repo_with_worktree("door-born");
-        git(&wt, &["switch", "-q", "-c", "kd/born-side"]);
+        // Each birth at its own committer date: provenance pairs a branch's
+        // birth with the checkout's reflog by time, and two births in one
+        // second are not told apart.
+        let repo = init_repo("door-born");
+        let branch = "kd/door-born/1".to_string();
+        let wt = repo.with_file_name(format!("{}-wt", repo.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&wt);
+        git_at(&repo, 1_700_000_000, &["worktree", "add", "-q", "-b", &branch, wt.to_str().unwrap()]);
+        git_at(&wt, 1_700_000_100, &["switch", "-q", "-c", "kd/born-side"]);
         let locks = RepoLocks::default();
         let mut born = born_branches(&locks, &repo, &wt).expect("read");
         born.sort();
