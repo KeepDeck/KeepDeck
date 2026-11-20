@@ -1234,6 +1234,32 @@ fn a_quarantined_deck_removes_nothing_a_restored_operation_owes_and_keeps_its_en
 }
 
 #[test]
+fn a_quarantined_deck_holds_a_restored_close_whole_its_forgetting_included() {
+    let close = Entry {
+        op: OpId(7),
+        workspace: ws(),
+        work: Work::Close {
+            target: Target::Workspace,
+            teams: vec![team("1"), team("r")],
+            panes: vec![PaneId(1), PaneId(2), PaneId(3)],
+            consent: Consent { stops: vec![PaneId(1), PaneId(2), PaneId(3)], ..consent_for_team_1() },
+            removals: vec![],
+        },
+        joined: vec![],
+        commands: vec![],
+        done: vec![],
+    };
+    let mut sim = Sim::new(Some(vec![close]));
+    let ask = sim.next_ask();
+    sim.send(Event::Handshake { ask, deck: deck(), load: Load::Quarantined });
+    sim.drive();
+    let forgetting = |cmd: &Cmd| matches!(cmd, Cmd::ForgetBoards { .. } | Cmd::ForgetPaneMail { .. } | Cmd::DeleteTeamTasks { .. });
+    assert!(!sim.carried.iter().any(forgetting), "no owner forgets on a quarantined deck: {:?}", sim.carried);
+    assert!(sim.cleaned.is_empty(), "nothing removed: {:?}", sim.cleaned);
+    assert!(sim.disk.contains_key(&OpId(7)), "the close waits whole, its entry on disk, for a launch that reads the deck");
+}
+
+#[test]
 fn a_creation_entry_whose_team_never_reached_the_deck_takes_back_its_checkout() {
     let entry = Entry {
         op: OpId(3),

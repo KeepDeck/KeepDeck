@@ -235,8 +235,23 @@ fn get(state: &State, id: OpId) -> Option<&Teardown> {
     state.ops.get(&id)?.teardown()
 }
 
+/// Whether this teardown's cleanup — deleting by consent, forgetting the
+/// owners' data, taking plantings back — must wait for a launch whose deck
+/// loaded for work. A quarantined deck is not that deck: the whole cleanup,
+/// the owners' forgetting included, is held with its entry on disk.
+fn cleanup_waits(state: &State, teardown: &Teardown) -> bool {
+    let strategy = teardown.strategy();
+    !state.boot.cleans() && (strategy.delete_by_consent || strategy.forget != Forget::Nothing || strategy.take_plantings)
+}
+
 pub fn advance(state: &mut State, id: OpId, fx: &mut Fx) {
     let Some(teardown) = get(state, id) else { return };
+    if matches!(teardown.phase, TearPhase::Reading | TearPhase::Cleaning) && cleanup_waits(state, teardown) {
+        if let Some(op) = state.ops.get_mut(&id) {
+            op.owed = true;
+        }
+        return;
+    }
     match teardown.phase {
         TearPhase::Queued => leave_queue(state, id, fx),
         TearPhase::Journaling => {
