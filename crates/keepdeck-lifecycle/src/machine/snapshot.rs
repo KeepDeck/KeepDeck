@@ -6,7 +6,7 @@
 use super::{capture, Forgotten, Kind, State, TearPhase};
 use crate::command::{Cmd, Owner};
 use crate::ids::{CommandId, PaneId, TeamId, WorkspaceId};
-use crate::model::Teardown;
+use crate::model::{Refusal, Teardown};
 use crate::world::TeamAt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -49,14 +49,16 @@ pub enum PanePhase {
     Suspended,
 }
 
-/// What a team allows now — the rule is here; TS only maps it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// What a team allows now: for each of its actions, the refusal its intent
+/// would meet — none when it would go. The intents' own rules, so an offer
+/// and its answer cannot disagree; TS only words them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "lifecycle/")]
 pub struct TeamGates {
-    pub add_member: bool,
-    pub close: bool,
-    pub retry: bool,
+    pub add_member: Option<Refusal>,
+    pub close: Option<Refusal>,
+    pub retry: Option<Refusal>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -128,15 +130,14 @@ pub fn snapshot(state: &State) -> Snapshot {
                 TeamAt::Attached { .. } | TeamAt::Unplaced => TeamPhase::Live,
             },
         };
-        let archived = state.world.workspaces.get(&team.workspace).is_some_and(|ws| ws.archived) || capture::archiving(state, &team.workspace);
-        let open = state.open() && !archived;
-        let busy = state.ops.values().any(|op| !op.closing() && op.scope().teams.contains(id));
+        // The barrier first, as every intent meets it.
+        let gate = |refusal: Option<Refusal>| if state.open() { refusal } else { Some(Refusal::BarrierUp) };
         gates.insert(
             id.clone(),
             TeamGates {
-                add_member: open && matches!(phase, TeamPhase::Creating | TeamPhase::Failed | TeamPhase::Live),
-                close: state.open() && matches!(phase, TeamPhase::Creating | TeamPhase::Failed | TeamPhase::Live),
-                retry: open && phase == TeamPhase::Failed && !busy,
+                add_member: gate(capture::landing_blocked(state, &team.workspace, id)),
+                close: gate(capture::disband_blocked(state, &team.workspace, id)),
+                retry: gate(capture::retry_blocked(state, &team.workspace, id)),
             },
         );
         teams.insert(id.clone(), phase);

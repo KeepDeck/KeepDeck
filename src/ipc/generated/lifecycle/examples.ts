@@ -658,14 +658,18 @@ export const versioned: Versioned = {
     },
     "gates": {
       "team-1": {
-        "addMember": true,
-        "close": true,
-        "retry": false
+        "addMember": null,
+        "close": null,
+        "retry": {
+          "kind": "notFound"
+        }
       },
       "team-r": {
-        "addMember": true,
-        "close": true,
-        "retry": false
+        "addMember": null,
+        "close": null,
+        "retry": {
+          "kind": "notFound"
+        }
       }
     },
     "open": true,

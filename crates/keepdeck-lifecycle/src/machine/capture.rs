@@ -156,17 +156,59 @@ fn refuse(fx: &mut Fx, ask: AskId, refusal: Refusal) {
     fx.answer(ask, Answer::refused(refusal));
 }
 
-/// Why an additive operation may not land on `team`, if it may not.
-fn landing_blocked(state: &State, workspace: &WorkspaceId, team: &TeamId) -> Option<Refusal> {
-    let row = state.world.teams.get(team).filter(|row| &row.workspace == workspace)?;
-    let _ = row;
-    if archiving(state, workspace) || state.world.workspaces.get(workspace).is_some_and(|ws| ws.archived) {
+/// The workspace is archived, or an archive of it is under way: nothing new
+/// is made or started in it.
+fn shelved(state: &State, workspace: &WorkspaceId) -> bool {
+    archiving(state, workspace) || state.world.workspaces.get(workspace).is_some_and(|ws| ws.archived)
+}
+
+fn team_in(state: &State, workspace: &WorkspaceId, team: &TeamId) -> bool {
+    state.world.teams.get(team).is_some_and(|row| &row.workspace == workspace)
+}
+
+/// Why an additive operation may not land on `team`, if it may not. The
+/// snapshot's add-member gate reads the same rule.
+pub fn landing_blocked(state: &State, workspace: &WorkspaceId, team: &TeamId) -> Option<Refusal> {
+    if !team_in(state, workspace, team) {
+        return Some(Refusal::NotFound);
+    }
+    if shelved(state, workspace) {
         return Some(Refusal::Archived);
     }
     if team_leaving(state, team) {
         return Some(Refusal::TargetLeaving);
     }
     None
+}
+
+/// Why a Retry of `team`'s creation would be refused now, if it would. The
+/// snapshot's retry gate reads the same rule.
+pub fn retry_blocked(state: &State, workspace: &WorkspaceId, team: &TeamId) -> Option<Refusal> {
+    if !team_in(state, workspace, team) || !matches!(state.world.teams[team].at, TeamAt::Failed { .. }) {
+        return Some(Refusal::NotFound);
+    }
+    if shelved(state, workspace) {
+        return Some(Refusal::Archived);
+    }
+    conflict(state, &state.holders_of_team(team))
+}
+
+/// The operations holding `team`, split into what a Disband joins — its
+/// members' own closes — and what it meets.
+fn disband_holders(state: &State, team: &TeamId) -> (Vec<OpId>, Vec<OpId>) {
+    state
+        .holders_of_team(team)
+        .into_iter()
+        .partition(|id| matches!(&state.ops[id].kind, Kind::Teardown(t) if t.kind == model::Teardown::CloseAgent))
+}
+
+/// Why a Disband of `team` would be refused now, if it would. The
+/// snapshot's close gate reads the same rule.
+pub fn disband_blocked(state: &State, workspace: &WorkspaceId, team: &TeamId) -> Option<Refusal> {
+    if !team_in(state, workspace, team) {
+        return Some(Refusal::NotFound);
+    }
+    close_conflict(state, &disband_holders(state, team).1)
 }
 
 fn id_taken(state: &State, team: &TeamId) -> bool {
@@ -214,20 +256,17 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             state.ops.insert(id, Op::new(workspace, ask, journaled, Kind::Create(Box::new(create))));
         }
         Intent::Retry { workspace, team } => {
-            let Some(TeamAt::Failed { ticket, .. }) = state.world.teams.get(&team).map(|row| row.at.clone()) else {
-                return refuse(fx, ask, Refusal::NotFound);
-            };
-            if let Some(refusal) = conflict(state, &state.holders_of_team(&team)) {
+            if let Some(refusal) = retry_blocked(state, &workspace, &team) {
                 return refuse(fx, ask, refusal);
             }
+            let TeamAt::Failed { ticket, .. } = state.world.teams[&team].at.clone() else {
+                return refuse(fx, ask, Refusal::NotFound);
+            };
             let id = state.mint_op();
             let create = create::Create::retry(team, ticket);
             state.ops.insert(id, Op::new(workspace, ask, true, Kind::Create(Box::new(create))));
         }
         Intent::Seat { workspace, team, member } => {
-            if !state.world.teams.contains_key(&team) {
-                return refuse(fx, ask, Refusal::NotFound);
-            }
             if let Some(refusal) = landing_blocked(state, &workspace, &team) {
                 return refuse(fx, ask, refusal);
             }
@@ -244,9 +283,6 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             let id = state.mint_op();
             let kind = match (how, landing) {
                 (Continuation::Resume, Landing::Team { team }) => {
-                    if !state.world.teams.contains_key(&team) {
-                        return refuse(fx, ask, Refusal::NotFound);
-                    }
                     if let Some(refusal) = landing_blocked(state, &workspace, &team) {
                         return refuse(fx, ask, refusal);
                     }
@@ -268,9 +304,6 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
                 (Continuation::Fork, landing) => {
                     let new_team = match &landing {
                         Landing::Team { team } => {
-                            if !state.world.teams.contains_key(team) {
-                                return refuse(fx, ask, Refusal::NotFound);
-                            }
                             if let Some(refusal) = landing_blocked(state, &workspace, team) {
                                 return refuse(fx, ask, refusal);
                             }
@@ -333,20 +366,11 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             open_teardown(state, ask, workspace, teardown, holders, journaled);
         }
         Intent::Disband { workspace, team, consent } => {
-            if !state.world.teams.get(&team).is_some_and(|row| row.workspace == workspace) {
-                return refuse(fx, ask, Refusal::NotFound);
-            }
-            let holders = state.holders_of_team(&team);
-            // A member's close under way is joined, not refused.
-            let joinable: Vec<OpId> = holders
-                .iter()
-                .copied()
-                .filter(|id| matches!(&state.ops[id].kind, Kind::Teardown(t) if t.kind == model::Teardown::CloseAgent))
-                .collect();
-            let blocking: Vec<OpId> = holders.iter().copied().filter(|id| !joinable.contains(id)).collect();
-            if let Some(refusal) = close_conflict(state, &blocking) {
+            if let Some(refusal) = disband_blocked(state, &workspace, &team) {
                 return refuse(fx, ask, refusal);
             }
+            // A member's close under way is joined, not refused.
+            let (joinable, blocking) = disband_holders(state, &team);
             let mut teardown = Teardown::new(model::Teardown::Disband, crate::journal::Target::Team { team: team.clone() }, vec![team], Vec::new(), consent);
             teardown.joined = joinable;
             open_teardown(state, ask, workspace, teardown, blocking, journaled);
@@ -441,7 +465,7 @@ fn pause(state: &mut State, ask: AskId, workspace: WorkspaceId, pane: PaneId, ki
 
 /// Why nothing new may be made in this workspace now, if it may not.
 fn workspace_blocked(state: &State, workspace: &WorkspaceId) -> Option<Refusal> {
-    if state.world.workspaces.get(workspace).is_some_and(|ws| ws.archived) || archiving(state, workspace) {
+    if shelved(state, workspace) {
         return Some(Refusal::Archived);
     }
     if workspace_leaving(state, workspace) {

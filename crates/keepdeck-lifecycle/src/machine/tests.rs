@@ -2,7 +2,7 @@
 //! plays the world: it hands the machine the events its effects and owners
 //! would send, one step at a time or all of them until nothing is owed.
 
-use super::snapshot::{snapshot, Due, TeamPhase};
+use super::snapshot::{snapshot, Due, TeamGates, TeamPhase};
 use super::*;
 use crate::command::{Cmd, Outcome, Revision};
 use crate::journal::{Discard, Entry, Step, Target, Work};
@@ -965,7 +965,7 @@ fn a_creation_the_deck_says_was_going_on_with_no_entry_becomes_failed_with_retry
     let mut sim = Sim::booted_with(facts, Vec::new());
     sim.drive();
     assert_eq!(snapshot(&sim.state).teams[&team("p")], TeamPhase::Failed);
-    assert!(snapshot(&sim.state).gates[&team("p")].retry);
+    assert_eq!(snapshot(&sim.state).gates[&team("p")].retry, None);
     let ask = sim.intent(Intent::Retry { workspace: ws(), team: team("p") });
     sim.drive();
     assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })));
@@ -1112,8 +1112,57 @@ fn the_snapshot_says_a_team_is_leaving_and_closes_its_gates() {
     sim.intent(disband("1", Consent::default()));
     let snap = snapshot(&sim.state);
     assert_eq!(snap.teams[&team("1")], TeamPhase::Leaving);
-    assert!(!snap.gates[&team("1")].add_member && !snap.gates[&team("1")].close);
-    assert!(snap.gates[&team("r")].add_member);
+    assert_eq!(snap.gates[&team("1")], TeamGates { add_member: Some(Refusal::TargetLeaving), close: Some(Refusal::AlreadyClosing), retry: Some(Refusal::NotFound) });
+    assert_eq!(snap.gates[&team("r")], TeamGates { add_member: None, close: None, retry: Some(Refusal::NotFound) });
+}
+
+/// Each gate is the refusal its intent then meets — the offer and the
+/// answer read one rule.
+#[test]
+fn a_gate_says_exactly_what_its_intent_then_meets() {
+    let gate_then_intent = |sim: &mut Sim, name: &str| {
+        let gates = snapshot(&sim.state).gates[&team(name)].clone();
+        let seat = sim.intent(seat(name));
+        let retry = sim.intent(Intent::Retry { workspace: ws(), team: team(name) });
+        let close = sim.intent(disband(name, Consent::default()));
+        assert_eq!((sim.refusal(seat), sim.refusal(close), sim.refusal(retry)), (gates.add_member.clone(), gates.close.clone(), gates.retry.clone()), "{name}");
+        gates
+    };
+
+    let mut sim = Sim::booted();
+    sim.intent(disband("1", Consent::default()));
+    assert_eq!(gate_then_intent(&mut sim, "1").add_member, Some(Refusal::TargetLeaving));
+
+    // An archive under way: nothing lands and no creation is retried, but a
+    // Close takes the archive over.
+    let mut facts = deck();
+    facts.workspaces[0].teams.push(TeamFacts { id: team("p"), at: TeamAtFacts::Provisioning { path: Dir::new("/wt/kd-app-5"), branch: Some("kd/app/5".into()) } });
+    let mut sim = Sim::booted_with(facts.clone(), Vec::new());
+    sim.drive();
+    sim.intent(Intent::Archive { workspace: ws() });
+    let gates = gate_then_intent(&mut sim, "p");
+    assert_eq!((gates.add_member, gates.retry), (Some(Refusal::Archived), Some(Refusal::Archived)));
+    assert_eq!(gates.close, None);
+
+    // A retry under way: a second one is busy.
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    sim.intent(Intent::Retry { workspace: ws(), team: team("p") });
+    assert_eq!(snapshot(&sim.state).gates[&team("p")].retry, Some(Refusal::Busy));
+
+    // A deck too new to work on only shows: every gate is the barrier.
+    let mut view = Sim::new(Some(Vec::new()));
+    let ask = view.next_ask();
+    view.send(Event::Handshake { ask, deck: deck(), load: Load::Newer });
+    let barrier = Some(Refusal::BarrierUp);
+    assert_eq!(snapshot(&view.state).gates[&team("r")], TeamGates { add_member: barrier.clone(), close: barrier.clone(), retry: barrier });
+}
+
+#[test]
+fn a_seat_on_a_team_of_another_workspace_is_refused_as_not_found() {
+    let mut sim = Sim::booted();
+    let ask = sim.intent(Intent::Seat { workspace: WorkspaceId("elsewhere".into()), team: team("r"), member: draft() });
+    assert_eq!(sim.refusal(ask), Some(Refusal::NotFound));
 }
 
 // ------------------------------------------------------- the wire, for TS
