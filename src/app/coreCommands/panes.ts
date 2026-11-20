@@ -1,6 +1,7 @@
 import type { CommandRegistry } from "../../domain/commands";
 import { paneDisplayTitle, teamOfPane } from "../../domain/deck";
 import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
+import { refusalText } from "../../presentation/lifecycleWords";
 import { resumeOutcomeText } from "../../presentation/resumeWords";
 import { suspendResultText } from "../../presentation/suspendWords";
 import { requiredStr, str, text } from "./args";
@@ -14,7 +15,7 @@ import { targetPane, targetWorkspace } from "./targets";
  */
 export function registerPaneCommands(
   registry: CommandRegistry,
-  deps: Pick<CoreCommandDeps, "deck" | "agents" | "activatePane" | "requestCloseAgent" | "suspendAgent" | "resumeAgent">,
+  deps: Pick<CoreCommandDeps, "deck" | "agents" | "activatePane" | "requestCloseAgent" | "suspendAgent" | "resumeAgent" | "reachOf">,
 ): (() => void)[] {
   return [
     registry.register({
@@ -198,6 +199,10 @@ export function registerPaneCommands(
         // to send a terminal, so this is the one argument kind that must not be
         // trimmed or refused for being blank.
         const payload = text(args, "text");
+        // A pane the machine is taking down reads nothing more: refused in
+        // the words every surface says it in, before anything is typed.
+        const reach = deps.reachOf(pane.id);
+        if (reach?.kind === "down" && reach.why === "leaving") throw new Error(refusalText({ kind: "targetLeaving" }));
         if (!paneInputReady(pane.id)) {
           throw new Error("the pane has no live session");
         }
