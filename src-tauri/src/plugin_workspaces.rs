@@ -103,6 +103,20 @@ fn root_in(home: &Path) -> PathBuf {
     home.join("plugin-workspaces")
 }
 
+/// The workspace whose plugin directory holds the real path `real` — one
+/// under `<home>/plugin-workspaces/<plugin>/<workspace>` — if one does.
+pub(crate) fn workspace_holding(real: &Path) -> Option<String> {
+    let root = root().ok()?;
+    let root = crate::containment::real_prefix(&root).unwrap_or(root);
+    workspace_under(&root, real)
+}
+
+fn workspace_under(root: &Path, real: &Path) -> Option<String> {
+    let mut parts = real.strip_prefix(root).ok()?.components();
+    let _plugin = parts.next()?;
+    Some(parts.next()?.as_os_str().to_string_lossy().into_owned())
+}
+
 /// The path of `plugin_id`'s directory for `ws_id` under `home` — the
 /// directory itself is made only by [`plugin_workspace_dir`].
 pub(crate) fn path_in(home: &Path, plugin_id: &str, ws_id: &str) -> PathBuf {

@@ -102,7 +102,11 @@ pub fn plugins_fs_write_move(
     src: String,
     dst: String,
 ) -> Result<(), String> {
-    in_roots(&lock, &grants, &gate, &plugin_id, "move", &dst, |roots| move_entry(src, dst.clone(), roots))
+    // A move empties its source too: that path is held to the same gate.
+    in_roots(&lock, &grants, &gate, &plugin_id, "move", &dst, |roots| {
+        admit_target(&gate, "move", &src)?;
+        move_entry(src, dst.clone(), roots)
+    })
 }
 
 #[tauri::command(async)]
@@ -140,7 +144,19 @@ fn in_roots<T>(
     write: impl FnOnce(Vec<String>) -> Result<T, String>,
 ) -> Result<T, String> {
     let _held = lock.hold();
+    admit_target(gate, op, path)?;
     write(roots_of(grants, gate, plugin_id, op, path)?)
+}
+
+/// A target inside a workspace's plugin directory is that workspace's,
+/// whichever root reached it — a declared prefix over KeepDeck's own folders
+/// included: written only while the lifecycle still admits the workspace.
+/// Read on the real path, as the write itself resolves it; a path that does
+/// not resolve is the write's own refusal.
+fn admit_target(gate: &Gate, op: &str, path: &str) -> Result<(), String> {
+    let Ok(real) = expand_home(path).and_then(|expanded| realize(&PathBuf::from(expanded))) else { return Ok(()) };
+    let Some(ws_id) = crate::plugin_workspaces::workspace_holding(&real) else { return Ok(()) };
+    gate.admit(&Source::from(ws_id.as_str())).map_err(|refused| format!("fsWrite.{op}: \"{path}\": {refused}"))
 }
 
 /// Where `plugin_id` may write, or a refusal naming the call: its declared
@@ -681,6 +697,25 @@ mod tests {
         let late = in_roots(&lock, &grants, &gate, "keepdeck.claude", "writeFile", &file, |roots| write_file(file.clone(), "x".into(), roots));
         assert!(late.is_err(), "the next write no longer holds the root");
         assert!(!dir.exists(), "nothing made again");
+    }
+
+    /// Whichever root reaches it — a declared prefix over KeepDeck's own
+    /// folders too — a target in a forgotten workspace's plugin directory is
+    /// refused, and one elsewhere is the roots' to judge.
+    #[test]
+    fn a_target_in_a_forgotten_workspaces_plugin_directory_is_refused_by_any_root() {
+        let home = crate::paths::keepdeck_home().unwrap();
+        let root = home.join("plugin-workspaces");
+        let gone = crate::plugin_workspaces::dir_for(&root, "keepdeck.claude", "ws-gone").unwrap();
+        let live = crate::plugin_workspaces::dir_for(&root, "keepdeck.claude", "ws-live").unwrap();
+        let forget = crate::forgotten::testing::Forget::default();
+        forget.forget("ws-gone");
+        let gate = forget.gate();
+        let at = |dir: &std::path::Path| dir.join("notes/a.txt").to_string_lossy().into_owned();
+        let refused = admit_target(&gate, "writeFile", &at(&gone)).unwrap_err();
+        assert!(refused.starts_with("fsWrite.writeFile:"), "{refused}");
+        admit_target(&gate, "writeFile", &at(&live)).expect("a live workspace's directory");
+        admit_target(&gate, "writeFile", &home.join("elsewhere.txt").to_string_lossy()).expect("not a workspace's");
     }
 
     /// The window between the lifecycle forgetting a workspace and its
