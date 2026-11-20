@@ -65,7 +65,9 @@ export function connectLifecycle(deps: LifecycleConnectionDeps): LifecycleConnec
   async function connect(): Promise<void> {
     const mine = ++attempt;
     await deps.ports.subscribe((heard) => {
-      if (disposed) return;
+      // A machine that started over took the page with it: the old
+      // subscription's last words are about a machine that is gone.
+      if (disposed || mine !== attempt) return;
       if (heard.kind === "snapshot") deps.snapshot.receive(heard.versioned);
       else deps.stopped();
     });

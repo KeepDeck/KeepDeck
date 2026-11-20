@@ -109,6 +109,22 @@ describe("connectLifecycle", () => {
     expect(r.booted).toHaveBeenCalledTimes(2);
   });
 
+  it("takes nothing from a subscription to a machine that started over", async () => {
+    const r = rig();
+    r.load("loaded");
+    await settled();
+    const old = r.ports.subscribe.mock.calls[0][0];
+    r.restart();
+    await settled();
+    const now = r.ports.subscribe.mock.calls[1][0];
+    old({ kind: "snapshot", versioned: { ...versioned, version: 99 } });
+    old({ kind: "stopped" });
+    expect(r.snapshot.receive).not.toHaveBeenCalled();
+    expect(r.stopped).not.toHaveBeenCalled();
+    now({ kind: "snapshot", versioned });
+    expect(r.snapshot.receive).toHaveBeenCalledWith(versioned);
+  });
+
   it("says a handshake that got no answer, or a refusal — nothing else stands in for it", async () => {
     const r = rig();
     r.ports.handshake.mockResolvedValueOnce({ kind: "unavailable" });
