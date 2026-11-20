@@ -1,7 +1,7 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { CwdArmAsk, McpAccessAsk, SpawnPlan } from "../spawnSpecs";
 import type { AgentReach, SpawnConfig, TeamActs, UnheldRemovalRequest } from "../../domain/deck";
-import type { AgentDraft, Consent, IntentOutcome, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
+import type { AgentDraft, Consent, IntentOutcome, MemberResumed, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -87,8 +87,9 @@ export interface AgentOrchestrator {
    * parked by the launch policy (or whose wake failed) by the page's own
    * ask. Refused up front when the pane cannot rise now. */
   resume(wsId: string, paneId: string): Promise<ResumeOutcome>;
-  /** Ask back every member a team's Resume would take now. */
-  resumeTeam(wsId: string, teamId: string): Promise<ResumeOutcome[]>;
+  /** Ask back every member a team's Resume would take now, each answered
+   * by name. */
+  resumeTeam(wsId: string, teamId: string): Promise<MemberResumed[]>;
   /** Whom a team's Suspend and Resume would take right now, and why each
    * other member stays — what its menu offers, read from the same facts its
    * doors judge by. Null for a team (or workspace) that is not there. */

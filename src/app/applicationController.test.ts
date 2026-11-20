@@ -8,6 +8,7 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { IntentOutcome } from "../domain/lifecycle";
 import type { Notification } from "../domain/notifications";
 import { intentOutcomeText } from "../presentation/lifecycleWords";
+import { resumeOutcomeText } from "../presentation/resumeWords";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions } from "./deckActions";
 import {
@@ -39,6 +40,8 @@ function dependencies() {
   const orchestrator = {
     suspend: vi.fn<ApplicationOrchestrator["suspend"]>(async () => ({ kind: "suspending" })),
     resume: vi.fn<ApplicationOrchestrator["resume"]>(async () => ({ kind: "resuming" })),
+    resumeTeam: vi.fn<ApplicationOrchestrator["resumeTeam"]>(async () => []),
+    restore: vi.fn<ApplicationOrchestrator["restore"]>(async () => accepted),
     createPane: vi.fn<ApplicationOrchestrator["createPane"]>(async () => accepted),
     createTeam: vi.fn<ApplicationOrchestrator["createTeam"]>(async () => accepted),
     retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(async () => accepted),
@@ -347,5 +350,70 @@ describe("application controller", () => {
     orchestrator.retryProvisioning.mockResolvedValueOnce(leaving);
     controller.retryProvisioning("ws-1", "team-1");
     await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledWith("Couldn't retry the worktree", intentOutcomeText(leaving)));
+  });
+
+  it("asks a team back and names every member that is not coming, and why", async () => {
+    const deck = createDeckStore({ ...initialDeckState, workspaces: [workspace()] });
+    const { plugins, orchestrator } = dependencies();
+    const controller = createApplicationController({
+      deck,
+      plugins,
+      orchestrator,
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      mcpLibrary: noMcp(),
+      registry: createCommandRegistry(),
+      teamsIn: async () => [],
+    });
+    const view = ui();
+    controller.bindUi(view);
+
+    orchestrator.resumeTeam.mockResolvedValueOnce([
+      { paneId: "pane-1", outcome: { kind: "resuming" } },
+      { paneId: "pane-2", outcome: { kind: "refused", refusal: { kind: "alreadyClosing" } } },
+    ]);
+    controller.resumeTeam("ws-1", "team-1");
+    await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledTimes(1));
+    expect(orchestrator.resumeTeam).toHaveBeenCalledWith("ws-1", "team-1");
+    const [title, message] = view.pushAlert.mock.calls[0];
+    expect(title).toBe("Can't resume the team");
+    expect(message).toBe(resumeOutcomeText({ kind: "refused", refusal: { kind: "alreadyClosing" } }, "Agent 2"));
+
+    // Everyone coming: nothing to say.
+    view.pushAlert.mockClear();
+    orchestrator.resumeTeam.mockResolvedValueOnce([{ paneId: "pane-1", outcome: { kind: "resuming" } }]);
+    controller.resumeTeam("ws-1", "team-1");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(view.pushAlert).not.toHaveBeenCalled();
+  });
+
+  it("restores a workspace by its live instance and says the machine's refusal", async () => {
+    const ws = workspace();
+    const deck = createDeckStore({ ...initialDeckState, workspaces: [ws] });
+    const { plugins, orchestrator } = dependencies();
+    const controller = createApplicationController({
+      deck,
+      plugins,
+      orchestrator,
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      mcpLibrary: noMcp(),
+      registry: createCommandRegistry(),
+      teamsIn: async () => [],
+    });
+    const view = ui();
+    controller.bindUi(view);
+
+    const busy: IntentOutcome = { kind: "refused", refusal: { kind: "busy" } };
+    orchestrator.restore.mockResolvedValueOnce(busy);
+    controller.restoreWorkspace("ws-1");
+    expect(orchestrator.restore).toHaveBeenCalledWith({ id: "ws-1", instance: ws.instance });
+    await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledWith("Couldn't restore the workspace", intentOutcomeText(busy)));
+
+    controller.restoreWorkspace("ws-gone");
+    expect(orchestrator.restore).toHaveBeenCalledTimes(1);
   });
 });

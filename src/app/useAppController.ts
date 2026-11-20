@@ -484,7 +484,7 @@ export function useAppController(runtime: AppRuntime) {
           // The card's very lines, through the same doors the card's take.
           menu: teamMenuView(active, openTeam, orchestrator.teamActs(active.id, openTeam.id), "crumb"),
           onRename: (name: string) => deck.renameTeam(active.id, openTeam.id, name),
-          onResume: () => orchestrator.resumeTeam(active.id, openTeam.id),
+          onResume: () => runtime.application.resumeTeam(active.id, openTeam.id),
           onSuspend: () => teamSuspendFlow.request(active.id, openTeam.id),
           onDisband: () => closeFlow.requestDisbandTeam(active.id, openTeam.id),
           onRetry: () => runtime.application.retryProvisioning(active.id, openTeam.id),
@@ -534,10 +534,7 @@ export function useAppController(runtime: AppRuntime) {
           .sort((a, b) => (Date.parse(b.archived?.at ?? "") || 0) - (Date.parse(a.archived?.at ?? "") || 0))[0];
         modal.openWorkspaces(latest?.id ?? null);
       },
-      onRestore: (wsId: string) => {
-        const ws = findWorkspace(deck.workspaces, wsId);
-        if (ws) orchestrator.restore({ id: ws.id, instance: ws.instance });
-      },
+      onRestore: runtime.application.restoreWorkspace,
       onArchive: archiveFlow.request,
       onCloseWorkspace: closeFlow.requestCloseWorkspace,
       /** The page's edits — one transition, the domain's answer handed back

@@ -219,7 +219,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
             onRenameTeam={deck.renameTeam}
             onDisbandTeam={closeFlow.requestDisbandTeam}
             teamActsOf={orchestrator.teamActs}
-            onResumeTeam={orchestrator.resumeTeam}
+            onResumeTeam={runtime.application.resumeTeam}
             onSuspendTeam={teamSuspendFlow.request}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}

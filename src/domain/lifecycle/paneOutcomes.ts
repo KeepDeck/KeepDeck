@@ -13,6 +13,12 @@ type NotTaken = Exclude<IntentOutcome, { kind: "accepted" }>;
  * machine refused or did not answer. */
 export type ResumeOutcome = { kind: "resuming" } | { kind: "blocked"; why: Exclude<ResumeRequest, "resuming"> } | NotTaken;
 
+/** One member a team's Resume asked back, and how its ask ended. */
+export interface MemberResumed {
+  paneId: string;
+  outcome: ResumeOutcome;
+}
+
 /** A pane asked to stop and stay: it is being suspended, it cannot be now
  * and why, or the machine refused or did not answer. */
 export type SuspendResult = { kind: "suspending" } | { kind: "blocked"; why: Exclude<SuspendOutcome, "suspended"> } | NotTaken;

@@ -305,7 +305,7 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     resume: resumeOne,
     async resumeTeam(wsId, teamId) {
       const take = deps.teamActs(wsId, teamId)?.resume.take ?? [];
-      return Promise.all(take.map((paneId) => resumeOne(wsId, paneId)));
+      return Promise.all(take.map(async (paneId) => ({ paneId, outcome: await resumeOne(wsId, paneId) })));
     },
   };
 }

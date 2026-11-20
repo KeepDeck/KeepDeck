@@ -4,7 +4,7 @@ import {
   type Workspace,
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
-import type { ResumeOutcome } from "../domain/lifecycle";
+import type { MemberResumed, ResumeOutcome } from "../domain/lifecycle";
 import { resumeOutcomeText } from "../presentation/resumeWords";
 
 /**
@@ -36,11 +36,34 @@ export async function askForPaneBack(
 ): Promise<string | null> {
   // The label comes from the deck as it stands NOW — the request below can
   // change it, and the sentence is about the pane the user clicked.
-  const ws = findWorkspace(workspaces, wsId);
-  const index = ws?.panes.findIndex((pane) => pane.id === paneId) ?? -1;
-  const label =
-    ws && index >= 0
-      ? paneDisplayTitle(ws.panes[index], index, agents)
-      : "That agent";
+  const label = labelsIn(workspaces, agents, wsId).get(paneId) ?? UNKNOWN_PANE;
   return resumeOutcomeText(await resume(wsId, paneId), label);
+}
+
+/**
+ * Ask a team's members back and answer with what to show: one sentence per
+ * member that is not coming, a line each — or null when all of them are.
+ * Labelled from the deck as it stood before the ask, as a single pane's is.
+ */
+export async function askForTeamBack(
+  resumeTeam: (wsId: string, teamId: string) => Promise<MemberResumed[]>,
+  workspaces: Workspace[],
+  agents: AgentInfo[],
+  wsId: string,
+  teamId: string,
+): Promise<string | null> {
+  const labels = labelsIn(workspaces, agents, wsId);
+  const said = (await resumeTeam(wsId, teamId)).flatMap(({ paneId, outcome }) => {
+    const text = resumeOutcomeText(outcome, labels.get(paneId) ?? UNKNOWN_PANE);
+    return text === null ? [] : [text];
+  });
+  return said.length === 0 ? null : said.join("\n");
+}
+
+const UNKNOWN_PANE = "That agent";
+
+/** Every pane of the workspace by the title the person sees it under. */
+function labelsIn(workspaces: Workspace[], agents: AgentInfo[], wsId: string): Map<string, string> {
+  const panes = findWorkspace(workspaces, wsId)?.panes ?? [];
+  return new Map(panes.map((pane, index) => [pane.id, paneDisplayTitle(pane, index, agents)]));
 }
