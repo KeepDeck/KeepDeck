@@ -234,7 +234,9 @@ describe("skills.read", () => {
 });
 
 describe("skills.create", () => {
-  it("writes the draft it was given", async () => {
+  it("writes the draft it was given, naming the pane that wrote it", async () => {
+    // The library's door refuses a writer the lifecycle has forgotten, under
+    // its own lock (integration row B26): the agent's pane must reach it.
     const { registry, skills } = setup([workspace({})]);
 
     const result = await registry.execute(
@@ -257,6 +259,7 @@ describe("skills.create", () => {
         body: "Run the script.\n",
         extraFrontmatter: [],
       },
+      expect.objectContaining({ workspace: "ws-1", pane: "p1" }),
     );
   });
 

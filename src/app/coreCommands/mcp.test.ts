@@ -206,6 +206,26 @@ describe("mcp.create and mcp.update", () => {
   });
 });
 
+/**
+ * The library's door refuses a writer the lifecycle has forgotten, under its
+ * own lock (integration row B26) — so an agent's write names its pane, and a
+ * person's names nobody.
+ */
+describe("an agent's MCP library write names its writer", () => {
+  it("create and delete from a pane carry that pane; the host's carry no writer", async () => {
+    const { registry, mcpLibrary } = setup([workspace({})]);
+
+    await registry.execute("mcp.create", { scope: "global", name: "github", spec: JSON.stringify(github) }, paneIn("ws-1"));
+    await registry.execute("mcp.delete", { scope: "global", name: "github" }, paneIn("ws-1"));
+    await registry.execute("mcp.delete", { scope: "global", name: "github" }, HOST);
+
+    const writer = expect.objectContaining({ workspace: "ws-1", pane: "p1" });
+    expect(mcpLibrary.create).toHaveBeenCalledWith({ kind: "global" }, { name: "github", body: github }, writer);
+    expect(mcpLibrary.remove).toHaveBeenNthCalledWith(1, { kind: "global" }, "github", writer);
+    expect(mcpLibrary.remove).toHaveBeenNthCalledWith(2, { kind: "global" }, "github", null);
+  });
+});
+
 describe("mcp.rename and mcp.delete", () => {
   it("rename moves within the scope and answers the new name", async () => {
     const { registry, mcpLibrary } = setup([workspace({})]);
