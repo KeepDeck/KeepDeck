@@ -1,7 +1,7 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { CwdArmAsk, McpAccessAsk, SpawnPlan } from "../spawnSpecs";
 import type { AgentReach, SpawnConfig, TeamActs, UnheldRemovalRequest } from "../../domain/deck";
-import type { AgentDraft, Consent, IntentOutcome, MemberResumed, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
+import type { AgentDraft, Consent, IntentOutcome, MemberAnswer, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -48,8 +48,9 @@ export interface AgentOrchestrator {
   /** Stop an agent while preserving its resumable pane. */
   suspend(wsId: string, paneId: string): Promise<SuspendResult>;
   /** Suspend the members of a team its confirm NAMED that the team's Suspend
-   * would still take now — never one it did not name. */
-  suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<IntentOutcome[]>;
+   * would still take now — never one it did not name — each answered by
+   * name. */
+  suspendTeam(wsId: string, teamId: string, named: readonly string[]): Promise<MemberAnswer<SuspendResult>[]>;
   /** A confirmed close, with exactly what its dialog was consented to. */
   close(request: CloseRequest): Promise<IntentOutcome>;
   /** Put a workspace away: its agents stopped and kept, its folders kept. */
@@ -89,7 +90,7 @@ export interface AgentOrchestrator {
   resume(wsId: string, paneId: string): Promise<ResumeOutcome>;
   /** Ask back every member a team's Resume would take now, each answered
    * by name. */
-  resumeTeam(wsId: string, teamId: string): Promise<MemberResumed[]>;
+  resumeTeam(wsId: string, teamId: string): Promise<MemberAnswer<ResumeOutcome>[]>;
   /** Whom a team's Suspend and Resume would take right now, and why each
    * other member stays — what its menu offers, read from the same facts its
    * doors judge by. Null for a team (or workspace) that is not there. */

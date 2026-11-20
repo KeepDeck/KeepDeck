@@ -1,11 +1,8 @@
-import {
-  findWorkspace,
-  paneDisplayTitle,
-  type Workspace,
-} from "../domain/deck";
+import type { Workspace } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
-import type { MemberResumed, ResumeOutcome } from "../domain/lifecycle";
+import type { MemberAnswer, ResumeOutcome } from "../domain/lifecycle";
 import { resumeOutcomeText } from "../presentation/resumeWords";
+import { membersNotTakenText, paneLabelsIn, UNKNOWN_PANE } from "./memberOutcomes";
 
 /**
  * The one sentence each refusal of "bring this pane back" gets.
@@ -34,36 +31,19 @@ export async function askForPaneBack(
   wsId: string,
   paneId: string,
 ): Promise<string | null> {
-  // The label comes from the deck as it stands NOW — the request below can
-  // change it, and the sentence is about the pane the user clicked.
-  const label = labelsIn(workspaces, agents, wsId).get(paneId) ?? UNKNOWN_PANE;
+  const label = paneLabelsIn(workspaces, agents, wsId).get(paneId) ?? UNKNOWN_PANE;
   return resumeOutcomeText(await resume(wsId, paneId), label);
 }
 
-/**
- * Ask a team's members back and answer with what to show: one sentence per
- * member that is not coming, a line each — or null when all of them are.
- * Labelled from the deck as it stood before the ask, as a single pane's is.
- */
+/** Ask a team's members back and answer with what to show: a sentence for
+ * each member that is not coming — or null when all of them are. */
 export async function askForTeamBack(
-  resumeTeam: (wsId: string, teamId: string) => Promise<MemberResumed[]>,
+  resumeTeam: (wsId: string, teamId: string) => Promise<MemberAnswer<ResumeOutcome>[]>,
   workspaces: Workspace[],
   agents: AgentInfo[],
   wsId: string,
   teamId: string,
 ): Promise<string | null> {
-  const labels = labelsIn(workspaces, agents, wsId);
-  const said = (await resumeTeam(wsId, teamId)).flatMap(({ paneId, outcome }) => {
-    const text = resumeOutcomeText(outcome, labels.get(paneId) ?? UNKNOWN_PANE);
-    return text === null ? [] : [text];
-  });
-  return said.length === 0 ? null : said.join("\n");
-}
-
-const UNKNOWN_PANE = "That agent";
-
-/** Every pane of the workspace by the title the person sees it under. */
-function labelsIn(workspaces: Workspace[], agents: AgentInfo[], wsId: string): Map<string, string> {
-  const panes = findWorkspace(workspaces, wsId)?.panes ?? [];
-  return new Map(panes.map((pane, index) => [pane.id, paneDisplayTitle(pane, index, agents)]));
+  const labels = paneLabelsIn(workspaces, agents, wsId);
+  return membersNotTakenText(await resumeTeam(wsId, teamId), labels, resumeOutcomeText);
 }

@@ -27,7 +27,7 @@ import {
   type TeamActs,
   type Workspace,
 } from "../../domain/deck";
-import type { AgentDraft, IntentOutcome, PaneDraft, ResumeOutcome, Site } from "../../domain/lifecycle";
+import type { AgentDraft, IntentOutcome, PaneDraft, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -91,6 +91,11 @@ export type LifecycleDoors = Pick<
 
 /** A reference that outlived its workspace's lifetime. */
 const GONE: IntentOutcome = { kind: "refused", refusal: { kind: "notFound" } };
+
+/** A suspend the machine took is under way; anything else is its answer. */
+function suspendResultOf(outcome: IntentOutcome): SuspendResult {
+  return outcome.kind === "accepted" ? { kind: "suspending" } : outcome;
+}
 
 /** The team already working at `site` in `ws`, the one a new agent joins. */
 function teamAt(ws: Workspace, site: Site): string | null {
@@ -231,12 +236,16 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
         suspending: deps.facts.suspending(paneId),
       });
       if (refusal) return { kind: "blocked", why: refusal };
-      const outcome = await ask({ kind: "suspend", workspace: wsId, pane: paneId });
-      return outcome.kind === "accepted" ? { kind: "suspending" } : outcome;
+      return suspendResultOf(await ask({ kind: "suspend", workspace: wsId, pane: paneId }));
     },
     async suspendTeam(wsId, teamId, named) {
       const take = (deps.teamActs(wsId, teamId)?.suspend.take ?? []).filter((paneId) => named.includes(paneId));
-      return Promise.all(take.map((paneId) => ask({ kind: "suspend", workspace: wsId, pane: paneId })));
+      return Promise.all(
+        take.map(async (paneId) => ({
+          paneId,
+          outcome: suspendResultOf(await ask({ kind: "suspend", workspace: wsId, pane: paneId })),
+        })),
+      );
     },
     async close(request) {
       const ws = lifetime(request.workspace);

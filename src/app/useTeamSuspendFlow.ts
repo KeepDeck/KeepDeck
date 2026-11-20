@@ -15,8 +15,11 @@ import { useState } from "react";
 import { findTeam, findWorkspaceByRef, membersOf, stillTaken, type Workspace } from "../domain/deck";
 import type { PaneActivity } from "../domain/status";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
+import type { AgentInfo } from "../domain/agents";
+import { suspendResultText } from "../presentation/suspendWords";
 import { teamSuspendConfirmView, type TeamSuspendConfirmView } from "../presentation/teamSuspendView";
 import type { AgentOrchestrator } from "./agentOrchestrator";
+import { membersNotTakenText, paneLabelsIn } from "./memberOutcomes";
 
 export interface TeamSuspendFlow {
   /** The confirm standing, or null. */
@@ -35,10 +38,15 @@ interface Asked {
 
 export function useTeamSuspendFlow(deps: {
   workspaces: Workspace[];
+  /** The installed agents — what a member is named by when one is not
+   * stopped. */
+  agents: AgentInfo[];
   /** Live activity by pane — the tracker's snapshot. */
   activities: ReadonlyMap<string, PaneActivity>;
   teamActs: AgentOrchestrator["teamActs"];
   suspendTeam: AgentOrchestrator["suspendTeam"];
+  /** Say the members the Suspend did not stop, and why. */
+  onRefused(message: string): void;
 }): TeamSuspendFlow {
   const [asked, setAsked] = useState<Asked | null>(null);
   const ws = asked ? findWorkspaceByRef(deps.workspaces, asked.workspace) : undefined;
@@ -66,8 +74,13 @@ export function useTeamSuspendFlow(deps: {
       if (!ws || !team || !confirming) return;
       // What the person CONFIRMED is what the dialog showed: the door judges
       // that scope again, and never widens it — a member that became
-      // stoppable after the last render was not on the dialog.
-      void deps.suspendTeam(ws.id, team.id, confirming.shown);
+      // stoppable after the last render was not on the dialog. A member the
+      // machine did not stop is said by name, never dropped.
+      const labels = paneLabelsIn(deps.workspaces, deps.agents, ws.id);
+      void deps.suspendTeam(ws.id, team.id, confirming.shown).then((answers) => {
+        const refused = membersNotTakenText(answers, labels, suspendResultText);
+        if (refused !== null) deps.onRefused(refused);
+      });
     },
     cancel: () => setAsked(null),
   };

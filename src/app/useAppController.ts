@@ -175,9 +175,11 @@ export function useAppController(runtime: AppRuntime) {
   });
   const teamSuspendFlow = useTeamSuspendFlow({
     workspaces: deck.workspaces,
+    agents,
     activities: paneActivities,
     teamActs: orchestrator.teamActs,
     suspendTeam: orchestrator.suspendTeam,
+    onRefused: (message) => pushAlert("Can't suspend the team", message),
   });
   /** A rename asked for from a mark's menu, for the crumb to start — the
    * workspace it names, until the crumb has taken it. */

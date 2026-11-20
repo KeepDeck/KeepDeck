@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pane, Workspace } from "../domain/deck";
 import { teamActsIn } from "../domain/deck/reducer.testSupport";
-import type { IntentOutcome } from "../domain/lifecycle";
+import type { MemberAnswer, SuspendResult } from "../domain/lifecycle";
+import { suspendResultText } from "../presentation/suspendWords";
 import type { PaneActivity } from "../domain/status";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { useTeamSuspendFlow, type TeamSuspendFlow } from "./useTeamSuspendFlow";
@@ -45,14 +46,18 @@ describe("useTeamSuspendFlow", () => {
   let activities: Map<string, PaneActivity>;
   /** Panes a suspend is still reaping — read by the decision at the call. */
   let reaping: Set<string>;
-  const suspendTeam = vi.fn<(wsId: string, teamId: string, named: readonly string[]) => Promise<IntentOutcome[]>>();
+  const suspendTeam =
+    vi.fn<(wsId: string, teamId: string, named: readonly string[]) => Promise<MemberAnswer<SuspendResult>[]>>();
+  const onRefused = vi.fn<(message: string) => void>();
 
   function Probe({ workspaces }: { workspaces: Workspace[] }) {
     flow = useTeamSuspendFlow({
       workspaces,
+      agents: [],
       activities,
       teamActs: teamActsIn(workspaces, { suspending: (paneId) => reaping.has(paneId) }),
       suspendTeam,
+      onRefused,
     });
     return null;
   }
@@ -60,6 +65,7 @@ describe("useTeamSuspendFlow", () => {
 
   beforeEach(() => {
     suspendTeam.mockReset().mockResolvedValue([]);
+    onRefused.mockReset();
     deck = deckOf();
     activities = new Map();
     reaping = new Set();
@@ -99,6 +105,26 @@ describe("useTeamSuspendFlow", () => {
     reaping = new Set();
     await act(async () => flow.confirm());
     expect(suspendTeam).toHaveBeenCalledWith("ws-1", "team-1", ["a"]);
+  });
+
+  it("names each member the machine did not stop, and says nothing when it stopped them all", async () => {
+    const closing: SuspendResult = { kind: "refused", refusal: { kind: "alreadyClosing" } };
+    suspendTeam.mockResolvedValueOnce([
+      { paneId: "a", outcome: { kind: "suspending" } },
+      { paneId: "b", outcome: closing },
+    ]);
+    act(() => flow.request("ws-1", "team-1"));
+    await act(async () => flow.confirm());
+    expect(onRefused).toHaveBeenCalledWith(suspendResultText(closing, "Agent 2"));
+
+    onRefused.mockReset();
+    suspendTeam.mockResolvedValueOnce([
+      { paneId: "a", outcome: { kind: "suspending" } },
+      { paneId: "b", outcome: { kind: "suspending" } },
+    ]);
+    act(() => flow.request("ws-1", "team-1"));
+    await act(async () => flow.confirm());
+    expect(onRefused).not.toHaveBeenCalled();
   });
 
   it("cancel stops nobody", () => {
