@@ -133,9 +133,9 @@ export function skillRootsOf(ws: Workspace): string[] {
   ];
 }
 
-/** The distinct effective directories whose git HEAD the app may observe for
- * pane-header branch badges and worktree cleanup decisions. */
-export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
+/** The distinct folders the deck's panes run in, across every workspace —
+ * the folders something is still planted in, or watched for. */
+export function paneFolders(workspaces: readonly Workspace[]): Set<string> {
   const paths = new Set<string>();
   for (const ws of workspaces) {
     for (const pane of ws.panes) {
@@ -144,6 +144,12 @@ export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
     }
   }
   return paths;
+}
+
+/** The distinct effective directories whose git HEAD the app may observe for
+ * pane-header branch badges: the folders panes run in. */
+export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
+  return paneFolders(workspaces);
 }
 
 /**

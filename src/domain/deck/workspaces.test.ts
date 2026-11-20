@@ -26,7 +26,7 @@ import {
   setWorkspacePluginSlot,
   type Workspace,
 } from "./workspaces";
-import { gitWatchPaths, paneExecutionCwd } from "./roots";
+import { gitWatchPaths, paneExecutionCwd, paneFolders } from "./roots";
 import {
   clearPaneIdle,
   failPaneWake,
@@ -501,6 +501,8 @@ describe("gitWatchPaths", () => {
       },
     ];
     expect(gitWatchPaths(deck)).toEqual(new Set(["/wt/one", "/tmp", "/wt/two"]));
+    // The same set as the folders panes run in: one rule, two readers.
+    expect(paneFolders(deck)).toEqual(gitWatchPaths(deck));
   });
 
   it("skips a team whose create is still out", () => {

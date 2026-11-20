@@ -1,4 +1,4 @@
-import { panesRunningIn } from "../domain/deck";
+import { paneFolders, panesRunningIn } from "../domain/deck";
 import { deliversMcpByCwd } from "../domain/agents";
 import { listApplications, openPath, openUrl } from "../ipc/app";
 import { readImageTempPath, readText, writeText } from "../ipc/clipboard";
@@ -549,6 +549,9 @@ export function createAppRuntime(
     viewOnlySaid = true;
     notify({ ...VIEW_ONLY_NOTICE, severity: "warning", source: { type: "app" } });
   });
+  // What an arming pass refused in a folder stands while a pane runs
+  // there; the lifecycle takes the plantings back with the last of them.
+  const stopRefusalRetain = deckStore.subscribe(() => armRefusals.retain(paneFolders(deckStore.getSnapshot().workspaces)));
   /** The teams the lifecycle machine says work in a folder — what the
    * "+ Team" question and `team.create`'s refusal name. */
   const teamsIn = async (path: string) => claimingTeams(await claimsOn(path));
@@ -727,6 +730,7 @@ export function createAppRuntime(
       paneUnbinds?.dispose();
       pluginDeckBridge.dispose();
       stopViewOnly();
+      stopRefusalRetain();
       lifecycleConnection.dispose();
       mail.dispose();
       disposeArtifactCommands?.();

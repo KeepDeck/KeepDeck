@@ -15,12 +15,17 @@ describe("createArmRefusalStore", () => {
     ]);
   });
 
-  it("forgets every refusal of a folder taken back whole", () => {
+  it("keeps only the refusals of folders panes still run in", () => {
     const store = createArmRefusalStore();
     store.record("kimi", "/a", [{ path: "p", reason: "r" }]);
     store.record("codex", "/b", [{ path: "q", reason: "r" }]);
-    store.forget(["/a"]);
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.retain(new Set(["/b", "/c"]));
     expect(store.get().map((r) => r.cwd)).toEqual(["/b"]);
+    // Nothing more to drop: nobody is told twice.
+    store.retain(new Set(["/b"]));
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("tells listeners only when what it says changed — by content", () => {
