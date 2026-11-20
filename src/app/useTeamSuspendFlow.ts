@@ -19,7 +19,7 @@ import type { AgentInfo } from "../domain/agents";
 import { suspendResultText } from "../presentation/suspendWords";
 import { teamSuspendConfirmView, type TeamSuspendConfirmView } from "../presentation/teamSuspendView";
 import type { AgentOrchestrator } from "./agentOrchestrator";
-import { membersNotTakenText, paneLabelsIn } from "./memberOutcomes";
+import { membersNotTakenText, paneLabelsIn } from "../presentation/memberAnswersView";
 
 export interface TeamSuspendFlow {
   /** The confirm standing, or null. */

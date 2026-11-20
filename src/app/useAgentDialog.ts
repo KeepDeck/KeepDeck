@@ -27,7 +27,7 @@ import {
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit, recordedYolo } from "../domain/journal";
-import { directoryStateOf } from "../domain/lifecycle";
+import { directoryStateOf } from "../presentation/agentLocationView";
 import { rolesOnTeam } from "../domain/mail";
 
 import { indexSearch } from "../ipc/history";

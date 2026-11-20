@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { membersNotTakenText, paneLabelsIn, UNKNOWN_PANE } from "./memberOutcomes";
+import { membersNotTakenText, paneLabelsIn, UNKNOWN_PANE } from "./memberAnswersView";
 
 const ws: Workspace = {
   id: "ws-1",

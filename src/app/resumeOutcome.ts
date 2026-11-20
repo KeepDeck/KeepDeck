@@ -2,7 +2,7 @@ import type { Workspace } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
 import type { MemberAnswer, ResumeOutcome } from "../domain/lifecycle";
 import { resumeOutcomeText } from "../presentation/resumeWords";
-import { membersNotTakenText, paneLabelsIn, UNKNOWN_PANE } from "./memberOutcomes";
+import { membersNotTakenText, paneLabelsIn, UNKNOWN_PANE } from "../presentation/memberAnswersView";
 
 /**
  * The one sentence each refusal of "bring this pane back" gets.

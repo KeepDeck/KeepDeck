@@ -3,22 +3,13 @@
  * runs (a [`Site`]) and the agent the person shaped (an [`AgentDraft`]). The
  * dialog collects; these read it once, so no door reads the form its own way.
  */
-import type { AgentDialogResult, DirectoryState } from "../agents";
+import type { AgentDialogResult } from "../agents";
 import type { PaneDraft } from "./drafts";
 import type { Claim, Site } from ".";
 
 /** The teams the machine's claims on a folder name — who works there. */
 export function claimingTeams(claims: readonly Claim[]): string[] {
   return claims.flatMap((claim) => (claim.kind === "team" ? [claim.team] : []));
-}
-
-/** A folder as the dialog's location field reads the machine's claims on
- * it: held while a worktree is made or removed there — that outranks a team
- * on it — worked in while a team is, free otherwise. A session running there
- * holds nothing the field asks about. */
-export function directoryStateOf(claims: readonly Claim[]): DirectoryState {
-  if (claims.some((claim) => claim.kind === "creation" || claim.kind === "removal")) return "held";
-  return claims.some((claim) => claim.kind === "team") ? "worked-in" : "free";
 }
 
 /** A new agent as the person shaped it, before the role it takes on its

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentDialogResult } from "../agents";
-import { agentDraftFromRequest, claimingTeams, directoryStateOf, siteFromAgentRequest } from "./requests";
+import { agentDraftFromRequest, claimingTeams, siteFromAgentRequest } from "./requests";
 
 const request = (over: Partial<AgentDialogResult> = {}): AgentDialogResult => ({
   agentType: null,
@@ -46,16 +46,6 @@ describe("claimingTeams", () => {
       "team-1",
       "team-2",
     ]);
-  });
-});
-
-describe("directoryStateOf", () => {
-  it("holds a folder a worktree is made or removed in, over a team on it; a team's is worked in; else free", () => {
-    expect(directoryStateOf([{ kind: "team", team: "team-1" }, { kind: "creation", op: 3 }])).toBe("held");
-    expect(directoryStateOf([{ kind: "removal", op: 4 }])).toBe("held");
-    expect(directoryStateOf([{ kind: "session", session: 9 }, { kind: "team", team: "team-1" }])).toBe("worked-in");
-    expect(directoryStateOf([{ kind: "session", session: 9 }])).toBe("free");
-    expect(directoryStateOf([])).toBe("free");
   });
 });
 
