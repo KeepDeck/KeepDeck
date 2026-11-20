@@ -1,0 +1,28 @@
+import { describe, expect, expectTypeOf, it } from "vitest";
+import type { NoAnswer, Refusal } from "../domain/lifecycle";
+import { refusals, replies } from "../ipc/generated/lifecycle/examples";
+import type { Refusal as WireRefusal } from "../ipc/generated/lifecycle/Refusal";
+import type { Reply } from "../ipc/generated/lifecycle/Reply";
+import { noAnswerText, refusalText } from "../presentation/lifecycleWords";
+
+/**
+ * The page against what Rust really sends: the examples are written by the
+ * lifecycle crate's own test, one of every kind, as a module TS compiles
+ * against the wire types — and a new kind fails to compile in Rust until it
+ * has its example.
+ */
+describe("the lifecycle's wire, as the page takes it", () => {
+  it("names the same refusals and silences in the domain as on the wire", () => {
+    expectTypeOf<Refusal>().toEqualTypeOf<WireRefusal>();
+    expectTypeOf<NoAnswer>().toEqualTypeOf<Exclude<Reply, { kind: "answered" }>>();
+  });
+
+  it("has words for every refusal and every silence Rust sends", () => {
+    const refused = replies.flatMap((reply) => (reply.kind === "answered" && reply.answer.kind === "refused" ? [reply.answer.refusal] : []));
+    const silent = replies.flatMap((reply) => (reply.kind === "answered" ? [] : [reply]));
+    expect(refused.map((refusal) => refusal.kind).sort()).toEqual(refusals.map((refusal) => refusal.kind).sort());
+    const said = [...refused.map(refusalText), ...silent.map(noAnswerText)];
+    expect(said.every((text) => text.trim().length > 0)).toBe(true);
+    expect(new Set(said).size).toBe(said.length);
+  });
+});
