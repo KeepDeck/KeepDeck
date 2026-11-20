@@ -102,11 +102,7 @@ pub fn plugins_fs_write_move(
     src: String,
     dst: String,
 ) -> Result<(), String> {
-    // A move empties its source too: that path is held to the same gate.
-    in_roots(&lock, &grants, &gate, &plugin_id, "move", &dst, |roots| {
-        admit_target(&gate, "move", &src)?;
-        move_entry(src, dst.clone(), roots)
-    })
+    in_roots(&lock, &grants, &gate, &plugin_id, "move", &dst, |roots| move_entry(src, dst.clone(), roots))
 }
 
 #[tauri::command(async)]
@@ -141,34 +137,23 @@ fn in_roots<T>(
     plugin_id: &str,
     op: &str,
     path: &str,
-    write: impl FnOnce(Vec<String>) -> Result<T, String>,
+    write: impl FnOnce(Roots) -> Result<T, String>,
 ) -> Result<T, String> {
     let _held = lock.hold();
-    admit_target(gate, op, path)?;
     write(roots_of(grants, gate, plugin_id, op, path)?)
-}
-
-/// A target inside a workspace's plugin directory is that workspace's,
-/// whichever root reached it — a declared prefix over KeepDeck's own folders
-/// included: written only while the lifecycle still admits the workspace.
-/// Read on the real path, as the write itself resolves it; a path that does
-/// not resolve is the write's own refusal.
-fn admit_target(gate: &Gate, op: &str, path: &str) -> Result<(), String> {
-    let Ok(real) = expand_home(path).and_then(|expanded| realize(&PathBuf::from(expanded))) else { return Ok(()) };
-    let Some(ws_id) = crate::plugin_workspaces::workspace_holding(&real) else { return Ok(()) };
-    gate.admit(&Source::from(ws_id.as_str())).map_err(|refused| format!("fsWrite.{op}: \"{path}\": {refused}"))
 }
 
 /// Where `plugin_id` may write, or a refusal naming the call: its declared
 /// prefixes, and the directories it holds of workspaces not forgotten.
-fn roots_of(grants: &PluginGrants, gate: &Gate, plugin_id: &str, op: &str, path: &str) -> Result<Vec<String>, String> {
-    grants
+fn roots_of(grants: &PluginGrants, gate: &Gate, plugin_id: &str, op: &str, path: &str) -> Result<Roots, String> {
+    let prefixes = grants
         .write_roots(plugin_id, |ws_id| gate.admit(&Source::from(ws_id)).is_ok())
-        .map_err(|why| format!("fsWrite.{op}: \"{path}\": {why}"))
+        .map_err(|why| format!("fsWrite.{op}: \"{path}\": {why}"))?;
+    Ok(Roots { prefixes, gate: gate.clone() })
 }
 
-fn mkdir(path: String, roots: Vec<String>) -> Result<(), String> {
-    let target = resolve_write(&path, &roots)?;
+fn mkdir(path: String, roots: Roots) -> Result<(), String> {
+    let target = roots.write(&path, "mkdir")?;
     create_dirs_owner_only(&target.path, &target.root)
 }
 
@@ -179,7 +164,7 @@ fn mkdir(path: String, roots: Vec<String>) -> Result<(), String> {
 fn copy(
     src: String,
     dst: String,
-    roots: Vec<String>,
+    roots: Roots,
     replace: Option<Vec<(String, String)>>,
 ) -> Result<(), String> {
     let replace = replace.unwrap_or_default();
@@ -188,8 +173,8 @@ fn copy(
     }
     // Both ends must be inside the declared prefixes: reading an arbitrary
     // file into the store would smuggle data past the read capability.
-    let from = resolve_write(&src, &roots)?;
-    let to = resolve_write(&dst, &roots)?;
+    let from = roots.readable(&src)?;
+    let to = roots.write(&dst, "copyFile")?;
     // Refuse LOUDLY before opening anything: a copy of a file onto itself
     // truncates the destination first and then "copies" the emptied source —
     // the one-file conversation destroyed. The host cannot know WHY a plugin
@@ -234,8 +219,8 @@ fn copy(
 /// what is gone is part of what is gone. A symlink is removed as a link,
 /// never followed; what is already gone is not an error (a cleanup may run
 /// twice); a declared root itself is never removed.
-fn remove(path: String, roots: Vec<String>) -> Result<(), String> {
-    let dir = resolve_entry(&path, &roots, "remove")?;
+fn remove(path: String, roots: Roots) -> Result<(), String> {
+    let dir = roots.entry(&path, "remove")?;
     let target = dir.path;
     match fs::symlink_metadata(&target) {
         Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(&target),
@@ -259,9 +244,9 @@ fn remove(path: String, roots: Vec<String>) -> Result<(), String> {
 fn write_file(
     path: String,
     text: String,
-    roots: Vec<String>,
+    roots: Roots,
 ) -> Result<(), String> {
-    let target = resolve_write(&path, &roots)?;
+    let target = roots.write(&path, "writeFile")?;
     if let Some(dir) = target.path.parent() {
         create_dirs_owner_only(dir, &target.root)?;
     }
@@ -272,12 +257,12 @@ fn write_file(
 fn append(
     path: String,
     line: String,
-    roots: Vec<String>,
+    roots: Roots,
 ) -> Result<(), String> {
     if line.contains('\n') {
         return Err("appendLine: the line must not contain a newline".into());
     }
-    let target = resolve_write(&path, &roots)?;
+    let target = roots.write(&path, "appendLine")?;
     if let Some(dir) = target.path.parent() {
         create_dirs_owner_only(dir, &target.root)?;
     }
@@ -304,10 +289,11 @@ fn append(
 /// its layout — never a stray copy beside the destination. Both ends are
 /// proven by their PARENTS, like `remove`, so a symlink moves as a link and
 /// is never resolved to its target. Neither end may be a root itself, and a
-/// directory cannot move into itself.
-fn move_entry(src: String, dst: String, roots: Vec<String>) -> Result<(), String> {
-    let from = resolve_entry(&src, &roots, "move")?;
-    let to = resolve_entry(&dst, &roots, "move")?;
+/// directory cannot move into itself. A move empties its source: both ends
+/// are held to the gate.
+fn move_entry(src: String, dst: String, roots: Roots) -> Result<(), String> {
+    let from = roots.entry(&src, "move")?;
+    let to = roots.entry(&dst, "move")?;
     if from.path == to.path {
         return Err(format!("fsWrite.move: source and destination are the same ({})", to.path.display()));
     }
@@ -394,8 +380,8 @@ fn swap(a: &Path, b: &Path) -> std::io::Result<()> {
 /// source is a staged skills view, read while no stage can swap it and no
 /// prune remove it, or
 /// lies inside the plugin's own roots; nothing else is readable this way.
-fn copy_dir(src: &str, dst: &str, roots: &[String], locks: &SkillsLocks) -> Result<(), String> {
-    let to = resolve_entry(dst, roots, "copyDir")?;
+fn copy_dir(src: &str, dst: &str, roots: &Roots, locks: &SkillsLocks) -> Result<(), String> {
+    let to = roots.entry(dst, "copyDir")?;
     let from = realize(&PathBuf::from(expand_home(src)?)).map_err(|e| format!("fsWrite.copyDir: {src}: {e}"))?;
     if to.path.starts_with(&from) {
         return Err(format!("fsWrite.copyDir: {} cannot be copied into itself", from.display()));
@@ -407,7 +393,7 @@ fn copy_dir(src: &str, dst: &str, roots: &[String], locks: &SkillsLocks) -> Resu
     if let Some(copied) = crate::skills::reading_staged_view(locks, &from, copy) {
         return copied;
     }
-    if resolve_write(src, roots).is_err() {
+    if roots.readable(src).is_err() {
         return Err(format!("fsWrite.copyDir: {src} is outside what this plugin may copy from"));
     }
     copy()
@@ -624,6 +610,48 @@ struct WriteTarget {
     root: PathBuf,
 }
 
+/// Where one call may write: the plugin's roots, and the lifecycle's gate.
+/// Every target an operation changes is resolved here, and the gate judges
+/// that very path — the one the operation then changes, with its own link
+/// semantics. A target in a workspace's plugin directory is that
+/// workspace's, whichever root reached it (a declared prefix over KeepDeck's
+/// own folders too): changed only while the lifecycle still admits the
+/// workspace.
+#[derive(Clone)]
+struct Roots {
+    prefixes: Vec<String>,
+    gate: Gate,
+}
+
+impl Roots {
+    /// A target written through: its links followed, as the write follows
+    /// them.
+    fn write(&self, path: &str, op: &str) -> Result<WriteTarget, String> {
+        let target = resolve_write(path, &self.prefixes)?;
+        self.admit(&target, op, path)?;
+        Ok(target)
+    }
+
+    /// An entry removed or moved: proven by its parent, and judged as itself
+    /// — a link is the link, never its target.
+    fn entry(&self, path: &str, op: &str) -> Result<WriteTarget, String> {
+        let target = resolve_entry(path, &self.prefixes, op)?;
+        self.admit(&target, op, path)?;
+        Ok(target)
+    }
+
+    /// A source only read: inside the roots. Reading changes nothing a
+    /// workspace's forgetting has to take back.
+    fn readable(&self, path: &str) -> Result<WriteTarget, String> {
+        resolve_write(path, &self.prefixes)
+    }
+
+    fn admit(&self, target: &WriteTarget, op: &str, path: &str) -> Result<(), String> {
+        let Some(ws_id) = crate::plugin_workspaces::workspace_holding(&target.path) else { return Ok(()) };
+        self.gate.admit(&Source::from(ws_id.as_str())).map_err(|refused| format!("fsWrite.{op}: \"{path}\": {refused}"))
+    }
+}
+
 fn resolve_write(path: &str, roots: &[String]) -> Result<WriteTarget, String> {
     let real = realize(&PathBuf::from(expand_home(path)?))?;
     for root in roots {
@@ -651,10 +679,15 @@ mod tests {
     use super::*;
     use crate::fs_beneath::EXEC_FILE_MODE;
 
-    fn root() -> (tempfile::TempDir, Vec<String>) {
+    fn root() -> (tempfile::TempDir, Roots) {
         let dir = tempfile::tempdir().unwrap();
-        let roots = vec![dir.path().to_string_lossy().into_owned()];
+        let roots = within(vec![dir.path().to_string_lossy().into_owned()]);
         (dir, roots)
+    }
+
+    /// `prefixes`, with no workspace forgotten.
+    fn within(prefixes: Vec<String>) -> Roots {
+        Roots { prefixes, gate: crate::forgotten::testing::Forget::default().gate() }
     }
 
     #[test]
@@ -704,18 +737,52 @@ mod tests {
     /// refused, and one elsewhere is the roots' to judge.
     #[test]
     fn a_target_in_a_forgotten_workspaces_plugin_directory_is_refused_by_any_root() {
+        let (home, gone, live, roots) = forgotten_beside_live();
+        let at = |dir: &Path| dir.join("notes/a.txt").to_string_lossy().into_owned();
+        let refused = write_file(at(&gone), "x".into(), roots.clone()).unwrap_err();
+        assert!(refused.starts_with("fsWrite.writeFile:"), "{refused}");
+        assert!(!gone.join("notes").exists());
+        write_file(at(&live), "x".into(), roots.clone()).expect("a live workspace's directory");
+        write_file(s(&home.join("elsewhere.txt")), "x".into(), roots).expect("not a workspace's");
+    }
+
+    /// The gate judges the path the operation changes, as the operation takes
+    /// it: a link removed or moved is the link, judged where it lies; a write
+    /// goes through a link, and is judged where it lands.
+    #[cfg(unix)]
+    #[test]
+    fn the_gate_judges_a_link_as_the_operation_takes_it() {
+        let (home, gone, live, roots) = forgotten_beside_live();
+        let outside = home.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("a.txt"), "keep").unwrap();
+        // A link in the forgotten directory, to a file elsewhere.
+        let held = gone.join("held");
+        std::os::unix::fs::symlink(outside.join("a.txt"), &held).unwrap();
+        assert!(remove(s(&held), roots.clone()).is_err(), "the link lies in the forgotten directory");
+        assert!(move_entry(s(&held), s(&home.join("moved")), roots.clone()).is_err(), "nor is it moved out of it");
+        assert!(fs::symlink_metadata(&held).is_ok());
+        // A link in a live place, into the forgotten directory.
+        fs::write(gone.join("b.txt"), "b").unwrap();
+        let into = live.join("into");
+        std::os::unix::fs::symlink(gone.join("b.txt"), &into).unwrap();
+        assert!(write_file(s(&into), "x".into(), roots.clone()).is_err(), "a write lands in it through the link");
+        assert_eq!(fs::read_to_string(gone.join("b.txt")).unwrap(), "b");
+        remove(s(&into), roots).expect("the link goes; nothing in the forgotten directory does");
+        assert_eq!(fs::read_to_string(gone.join("b.txt")).unwrap(), "b");
+    }
+
+    /// KeepDeck's home as a declared prefix, with a forgotten workspace's
+    /// plugin directory under it and a live one's.
+    fn forgotten_beside_live() -> (PathBuf, PathBuf, PathBuf, Roots) {
         let home = crate::paths::keepdeck_home().unwrap();
         let root = home.join("plugin-workspaces");
         let gone = crate::plugin_workspaces::dir_for(&root, "keepdeck.claude", "ws-gone").unwrap();
         let live = crate::plugin_workspaces::dir_for(&root, "keepdeck.claude", "ws-live").unwrap();
         let forget = crate::forgotten::testing::Forget::default();
         forget.forget("ws-gone");
-        let gate = forget.gate();
-        let at = |dir: &std::path::Path| dir.join("notes/a.txt").to_string_lossy().into_owned();
-        let refused = admit_target(&gate, "writeFile", &at(&gone)).unwrap_err();
-        assert!(refused.starts_with("fsWrite.writeFile:"), "{refused}");
-        admit_target(&gate, "writeFile", &at(&live)).expect("a live workspace's directory");
-        admit_target(&gate, "writeFile", &home.join("elsewhere.txt").to_string_lossy()).expect("not a workspace's");
+        let roots = Roots { prefixes: vec![s(&home)], gate: forget.gate() };
+        (home, gone, live, roots)
     }
 
     /// The window between the lifecycle forgetting a workspace and its
@@ -841,7 +908,7 @@ mod tests {
         fs::create_dir_all(&shared).unwrap();
         fs::set_permissions(&shared, fs::Permissions::from_mode(0o755)).unwrap();
         let declared = shared.join("kd-exports");
-        let roots = vec![declared.to_string_lossy().into_owned()];
+        let roots = within(vec![declared.to_string_lossy().into_owned()]);
 
         write_file(
             declared.join("deep/a.json").to_string_lossy().into_owned(),
@@ -869,7 +936,7 @@ mod tests {
         write_file(
             declared.join("b.json").to_string_lossy().into_owned(),
             "x".into(),
-            vec![declared.to_string_lossy().into_owned()],
+            within(vec![declared.to_string_lossy().into_owned()]),
         )
         .unwrap();
         assert_eq!(mode_of(&declared), DIR_MODE);
@@ -914,7 +981,7 @@ mod tests {
             let err = write_file(
                 "/tmp/kd-unbounded-root-probe.txt".into(),
                 "x".into(),
-                vec![root.clone()],
+                within(vec![root.clone()]),
             )
             .unwrap_err();
             assert!(err.contains("outside"), "root {root:?} authorized: {err}");
@@ -1318,10 +1385,10 @@ mod tests {
 
     /// What `survey` planned, then `edit` applied to the source before the
     /// copy is made — the window a racing writer has.
-    fn made_after(src: &Path, dst: &Path, roots: &[String], edit: impl FnOnce()) -> Result<(), String> {
+    fn made_after(src: &Path, dst: &Path, roots: &Roots, edit: impl FnOnce()) -> Result<(), String> {
         let entries = survey(src).unwrap();
         edit();
-        make(src, &resolve_entry(&s(dst), roots, "copyDir").unwrap(), &entries)
+        make(src, &roots.entry(&s(dst), "copyDir").unwrap(), &entries)
     }
 
     #[test]
@@ -1440,7 +1507,7 @@ mod tests {
         assert!(write_file(s(&theirs.path().join("x")), "x".into(), roots.clone()).is_err());
         write_file(s(&mine.path().join("x")), "x".into(), roots).unwrap();
 
-        let error = roots_of(&grants, &gate, "p.nobody", "writeFile", "/tmp/x").unwrap_err();
+        let error = roots_of(&grants, &gate, "p.nobody", "writeFile", "/tmp/x").err().expect("refused");
         assert!(error.starts_with("fsWrite.writeFile: \"/tmp/x\": WRITE_UNDECLARED"), "{error}");
     }
 }
