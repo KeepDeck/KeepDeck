@@ -204,12 +204,45 @@ fn disband_holders(state: &State, team: &TeamId) -> (Vec<OpId>, Vec<OpId>) {
 }
 
 /// Why a Disband of `team` would be refused now, if it would. The
-/// snapshot's close gate reads the same rule.
+/// snapshot's close gate and the Close dialog's preview read the same rule.
 pub fn disband_blocked(state: &State, workspace: &WorkspaceId, team: &TeamId) -> Option<Refusal> {
     if !team_in(state, workspace, team) {
         return Some(Refusal::NotFound);
     }
     close_conflict(state, &disband_holders(state, team).1)
+}
+
+/// Why an agent's own close would be refused now, if it would. Its preview
+/// reads the same rule.
+pub fn close_agent_blocked(state: &State, workspace: &WorkspaceId, pane: &PaneId) -> Option<Refusal> {
+    if !state.world.panes.get(pane).is_some_and(|row| &row.workspace == workspace) {
+        return Some(Refusal::NotFound);
+    }
+    close_conflict(state, &state.holders_of_pane(pane))
+}
+
+/// The operations holding a workspace, split into what its close joins — a
+/// disband or an agent's close under way — and what it meets.
+fn close_workspace_holders(state: &State, workspace: &WorkspaceId) -> (Vec<OpId>, Vec<OpId>) {
+    state
+        .holders_of_workspace(workspace)
+        .into_iter()
+        .partition(|id| matches!(&state.ops[id].kind, Kind::Teardown(t) if matches!(t.kind, model::Teardown::Disband | model::Teardown::CloseAgent)))
+}
+
+/// Why a workspace's close would be refused now, if it would. Its preview
+/// reads the same rule.
+pub fn close_workspace_blocked(state: &State, workspace: &WorkspaceId) -> Option<Refusal> {
+    close_conflict(state, &close_workspace_holders(state, workspace).1)
+}
+
+/// Why an archive would be refused now, if it would. Its preview reads the
+/// same rule.
+pub fn archive_blocked(state: &State, workspace: &WorkspaceId) -> Option<Refusal> {
+    if shelved(state, workspace) {
+        return Some(Refusal::Archived);
+    }
+    conflict(state, &state.holders_of_workspace(workspace))
 }
 
 fn id_taken(state: &State, team: &TeamId) -> bool {
@@ -354,14 +387,10 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             state.ops.insert(id, Op::new(workspace, ask, false, Kind::Relocate(relocate)));
         }
         Intent::CloseAgent { workspace, pane, consent } => {
-            let Some(row) = state.world.panes.get(&pane).filter(|row| row.workspace == workspace) else {
-                return refuse(fx, ask, Refusal::NotFound);
-            };
-            let _ = row;
-            let holders = state.holders_of_pane(&pane);
-            if let Some(refusal) = close_conflict(state, &holders) {
+            if let Some(refusal) = close_agent_blocked(state, &workspace, &pane) {
                 return refuse(fx, ask, refusal);
             }
+            let holders = state.holders_of_pane(&pane);
             // One pane's close holds that pane only: its team goes on, and
             // nothing of it is deleted.
             let consent = queries::close_agent_offer(pane).agreed(consent);
@@ -386,16 +415,10 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             open_teardown(state, ask, workspace, teardown, blocking, journaled);
         }
         Intent::CloseWorkspace { workspace, consent } => {
-            let holders = state.holders_of_workspace(&workspace);
-            let joinable: Vec<OpId> = holders
-                .iter()
-                .copied()
-                .filter(|id| matches!(&state.ops[id].kind, Kind::Teardown(t) if matches!(t.kind, model::Teardown::Disband | model::Teardown::CloseAgent)))
-                .collect();
-            let blocking: Vec<OpId> = holders.iter().copied().filter(|id| !joinable.contains(id)).collect();
-            if let Some(refusal) = close_conflict(state, &blocking) {
+            if let Some(refusal) = close_workspace_blocked(state, &workspace) {
                 return refuse(fx, ask, refusal);
             }
+            let (joinable, blocking) = close_workspace_holders(state, &workspace);
             let offer = queries::close_workspace_offer(state, &workspace);
             if offer.outgrows(&consent) {
                 return refuse(fx, ask, Refusal::Changed);
@@ -406,10 +429,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             open_teardown(state, ask, workspace, teardown, blocking, journaled);
         }
         Intent::Archive { workspace } => {
-            if state.world.workspaces[&workspace].archived {
-                return refuse(fx, ask, Refusal::Archived);
-            }
-            if let Some(refusal) = conflict(state, &state.holders_of_workspace(&workspace)) {
+            if let Some(refusal) = archive_blocked(state, &workspace) {
                 return refuse(fx, ask, refusal);
             }
             let teardown = Teardown::new(model::Teardown::Archive, crate::journal::Target::Workspace, Vec::new(), Vec::new(), model::Consent::default());

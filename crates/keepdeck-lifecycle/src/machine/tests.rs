@@ -1487,6 +1487,43 @@ fn a_gate_says_exactly_what_its_intent_then_meets() {
     assert_eq!(snapshot(&view.state).gates[&team("r")], TeamGates { add_member: barrier.clone(), close: barrier.clone(), retry: barrier });
 }
 
+/// A Close dialog says the refusal its confirm would meet — the same rule.
+#[test]
+fn a_close_previews_exactly_the_refusal_its_confirm_meets() {
+    let same = |sim: &mut Sim, intent: Intent| {
+        let previewed = shown(sim, &intent).refusal;
+        let ask = sim.intent(intent);
+        assert_eq!(previewed, sim.refusal(ask));
+        previewed
+    };
+    // A suspend holds the pane: busy, not «already closing».
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Suspend { workspace: ws(), pane: PaneId(3) });
+    assert_eq!(same(&mut sim, close_agent(3)), Some(Refusal::Busy));
+
+    // A team of another workspace, named under this one: not found.
+    let mut facts = deck();
+    facts.workspaces.push(WorkspaceFacts {
+        id: WorkspaceId("ws-b".into()),
+        name: "other".into(),
+        cwd: Dir::new("/other"),
+        worktree_base: None,
+        archived: false,
+        archiving: false,
+        teams: vec![],
+        panes: vec![],
+    });
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    let elsewhere = Intent::Disband { workspace: WorkspaceId("ws-b".into()), team: team("1"), consent: Consent::default() };
+    assert_eq!(same(&mut sim, elsewhere), Some(Refusal::NotFound));
+
+    // An archive under way: archived, for a second archive.
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    assert_eq!(same(&mut sim, Intent::Archive { workspace: ws() }), Some(Refusal::Archived));
+}
+
 #[test]
 fn a_seat_on_a_team_of_another_workspace_is_refused_as_not_found() {
     let mut sim = Sim::booted();

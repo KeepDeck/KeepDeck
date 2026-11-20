@@ -162,32 +162,33 @@ pub fn preview(state: &State, intent: &Intent) -> Preview {
         return empty(Some(Refusal::NotFound));
     }
     match intent {
+        // Each refusal is its intent's own rule, so the dialog never says
+        // what the confirm would not.
         Intent::CloseAgent { pane, .. } => {
-            let Some(row) = state.world.panes.get(pane) else { return empty(Some(Refusal::NotFound)) };
-            let refusal = capture::pane_taken(state, pane).then_some(Refusal::AlreadyClosing);
-            let last_of = row.team.as_ref().filter(|team| state.world.members(team) == [*pane]).map(|team| {
+            let refusal = capture::close_agent_blocked(state, workspace, pane);
+            if refusal == Some(Refusal::NotFound) {
+                return empty(refusal);
+            }
+            let team = state.world.panes.get(pane).and_then(|row| row.team.clone());
+            let last_of = team.filter(|team| state.world.members(team) == [*pane]).map(|team| {
                 let disband = Intent::Disband { workspace: workspace.clone(), team: team.clone(), consent: Default::default() };
-                (team.clone(), Box::new(preview(state, &disband)))
+                (team, Box::new(preview(state, &disband)))
             });
             Preview { last_of, ..close_agent_offer(*pane).preview(refusal) }
         }
         Intent::Disband { team, .. } => {
-            if !state.world.teams.contains_key(team) {
-                return empty(Some(Refusal::NotFound));
+            let refusal = capture::disband_blocked(state, workspace, team);
+            if refusal == Some(Refusal::NotFound) {
+                return empty(refusal);
             }
-            let refusal = capture::team_leaving(state, team).then_some(Refusal::AlreadyClosing);
             disband_offer(state, workspace, team).preview(refusal)
         }
         Intent::CloseWorkspace { .. } => {
-            let refusal = capture::workspace_leaving(state, workspace).then_some(Refusal::AlreadyClosing);
+            let refusal = capture::close_workspace_blocked(state, workspace);
             close_workspace_offer(state, workspace).preview(refusal)
         }
         Intent::Archive { .. } => {
-            let refusal = if state.world.workspaces[workspace].archived || capture::archiving(state, workspace) {
-                Some(Refusal::Archived)
-            } else {
-                capture::workspace_leaving(state, workspace).then_some(Refusal::AlreadyClosing)
-            };
+            let refusal = capture::archive_blocked(state, workspace);
             Preview { refusal, stops: state.world.panes_of(workspace), folders: Vec::new(), creations: Vec::new(), last_of: None }
         }
         _ => empty(None),
