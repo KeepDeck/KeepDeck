@@ -2,6 +2,7 @@
 import { HOST, resetCoreCommandTestState, setup, workspace } from "./testSupport";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Team, Workspace } from "../../domain/deck";
+import { refusalText } from "../../presentation/lifecycleWords";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -127,6 +128,14 @@ describe("team.retry", () => {
     expect(running.ok).toBe(false);
     if (!running.ok) expect(running.error.message).toContain("not waiting on a worktree create");
     expect(retryProvisioning).not.toHaveBeenCalled();
+  });
+
+  it("says the machine's refusal instead of claiming the retry went", async () => {
+    const { registry, retryProvisioning } = setup([teamed(FAILED)]);
+    retryProvisioning.mockResolvedValueOnce({ kind: "refused", refusal: { kind: "targetLeaving" } });
+    const result = await registry.execute("team.retry", { team: "docs" }, HOST);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toBe(refusalText({ kind: "targetLeaving" }));
   });
 });
 

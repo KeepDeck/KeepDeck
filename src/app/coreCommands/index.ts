@@ -76,8 +76,9 @@ export interface CoreCommandDeps {
    * worktree offer and all, so the destructive step keeps its human
    * confirmation the way `requestCloseAgent` does. */
   requestDisbandTeam(wsId: string, teamId: string): void;
-  /** Re-issue a team's failed worktree create — the card's Retry. */
-  retryProvisioning(wsId: string, teamId: string): void;
+  /** Re-issue a team's failed worktree create — the card's Retry — and
+   * hand back what the machine said. */
+  retryProvisioning(wsId: string, teamId: string): Promise<IntentOutcome>;
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. Answers whether it opened:
    * a command arrives with no button to have been disabled, so it asks the

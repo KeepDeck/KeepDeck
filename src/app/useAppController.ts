@@ -487,7 +487,7 @@ export function useAppController(runtime: AppRuntime) {
           onResume: () => orchestrator.resumeTeam(active.id, openTeam.id),
           onSuspend: () => teamSuspendFlow.request(active.id, openTeam.id),
           onDisband: () => closeFlow.requestDisbandTeam(active.id, openTeam.id),
-          onRetry: () => orchestrator.retryProvisioning(active.id, openTeam.id),
+          onRetry: () => runtime.application.retryProvisioning(active.id, openTeam.id),
         }
       : {
           kind: "teams",

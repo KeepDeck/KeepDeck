@@ -1,8 +1,7 @@
 import { agentSupportsNew, agentSupportsYolo } from "../../domain/agents";
 import type { CommandArgs, CommandRegistry } from "../../domain/commands";
 import { findPane, findTeam, findWorkspaceByRef, WORKSPACE_GONE_MESSAGE, type Workspace } from "../../domain/deck";
-import type { AgentDraft, IntentOutcome, Site } from "../../domain/lifecycle";
-import { intentOutcomeText } from "../../presentation/lifecycleWords";
+import type { AgentDraft, Site } from "../../domain/lifecycle";
 import { sharedDirectoryRefusal } from "../sharedDirectoryMessage";
 import { teamBirthBlock } from "../teamBirth";
 import { log } from "../../ipc/log";
@@ -11,6 +10,7 @@ import { nextAgentType, nextYolo } from "../newAgentDefaults";
 import type { CreatePaneRequest } from "../agentOrchestrator";
 import { requiredStr, str } from "./args";
 import { deliverTask } from "./deliverTask";
+import { refusedBy } from "./refused";
 import type { CoreCommandDeps } from ".";
 import { requireUnarchived, targetTeam, targetWorkspace, worktreeAhead } from "./targets";
 
@@ -39,11 +39,6 @@ const AGENT_TYPE_ARG = {
   description:
     "An installed agent's id, as workspace.list shows a pane's agentType; omitted, the agent the workspace used last, else the default agent",
 } as const;
-
-/** What an intent the machine did not take says to the agent that asked. */
-function refusedBy(outcome: Exclude<IntentOutcome, { kind: "accepted" }>): Error {
-  return new Error(intentOutcomeText(outcome) ?? "the lifecycle did not take it");
-}
 
 export function registerSpawnCommands(
   registry: CommandRegistry,

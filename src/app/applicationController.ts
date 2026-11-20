@@ -1,6 +1,7 @@
 import type { AgentInfo } from "../domain/agents";
 import type { CommandRegistry } from "../domain/commands";
 import type { SpawnConfig } from "../domain/deck";
+import type { IntentOutcome } from "../domain/lifecycle";
 import type { Notification } from "../domain/notifications";
 import type { PaneActivity } from "../domain/status";
 import type { StatsTab } from "../domain/usage/statsTabs";
@@ -63,6 +64,8 @@ export interface ApplicationController {
   activatePane(wsId: string, paneId: string): void;
   openNotification(notification: Notification): void;
   createWorkspace(config: SpawnConfig): void;
+  /** Retry a team's failed worktree create, saying the machine's refusal. */
+  retryProvisioning(wsId: string, teamId: string): void;
   dispose(): void;
 }
 
@@ -117,6 +120,13 @@ export function createApplicationController({
   const requireUi = (): ApplicationUi => {
     if (!ui) throw new Error(UI_UNAVAILABLE_MESSAGE);
     return ui;
+  };
+
+  /** Say what the machine answered a person's intent, under `title`, when
+   * it did not take it — a refusal is never dropped. */
+  const sayRefusal = (title: string) => (outcome: IntentOutcome) => {
+    const why = intentOutcomeText(outcome);
+    if (why !== null) ui?.pushAlert(title, why);
   };
 
   const selectWorkspace = (id: string) => {
@@ -275,10 +285,13 @@ export function createApplicationController({
     // machine's command — or the machine's refusal is said.
     createWorkspace(config) {
       ui?.setCreating(false);
-      void orchestrator.createWorkspace(config).then((outcome) => {
-        const why = intentOutcomeText(outcome);
-        if (why !== null) ui?.pushAlert("Couldn't create the workspace", why);
-      });
+      void orchestrator.createWorkspace(config).then(sayRefusal("Couldn't create the workspace"));
+    },
+
+    // The tile's and the crumb's Retry: the team turns to creating by the
+    // machine's command — or the machine's refusal is said.
+    retryProvisioning(wsId, teamId) {
+      void orchestrator.retryProvisioning(wsId, teamId).then(sayRefusal("Couldn't retry the worktree"));
     },
 
     dispose() {

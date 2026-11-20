@@ -237,7 +237,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
                 if (refused) pushAlert("Can't resume this agent", refused);
               });
             }}
-            onRetryProvision={orchestrator.retryProvisioning}
+            onRetryProvision={runtime.application.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
               // Activity cleanup is NOT wired here on purpose: the status
               // channel watches the session registry and clears a dead

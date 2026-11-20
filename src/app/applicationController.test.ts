@@ -320,4 +320,32 @@ describe("application controller", () => {
     controller.createWorkspace({ name: "Other", cwd: "/other", worktreeBaseDir: null });
     await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledWith("Couldn't create the workspace", intentOutcomeText(barred)));
   });
+
+  it("retries a team's worktree and says the machine's refusal, never drops it", async () => {
+    const deck = createDeckStore();
+    const { plugins, orchestrator } = dependencies();
+    const controller = createApplicationController({
+      deck,
+      plugins,
+      orchestrator,
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      mcpLibrary: noMcp(),
+      registry: createCommandRegistry(),
+      teamsIn: async () => [],
+    });
+    const view = ui();
+    controller.bindUi(view);
+
+    controller.retryProvisioning("ws-1", "team-1");
+    await Promise.resolve();
+    expect(orchestrator.retryProvisioning).toHaveBeenCalledWith("ws-1", "team-1");
+    expect(view.pushAlert).not.toHaveBeenCalled();
+
+    const leaving: IntentOutcome = { kind: "refused", refusal: { kind: "targetLeaving" } };
+    orchestrator.retryProvisioning.mockResolvedValueOnce(leaving);
+    controller.retryProvisioning("ws-1", "team-1");
+    await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledWith("Couldn't retry the worktree", intentOutcomeText(leaving)));
+  });
 });

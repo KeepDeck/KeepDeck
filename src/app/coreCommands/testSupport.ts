@@ -162,7 +162,9 @@ export function setup(workspaces: Workspace[]) {
   });
   const activateTeam = vi.fn();
   const requestDisbandTeam = vi.fn();
-  const retryProvisioning = vi.fn();
+  const retryProvisioning = vi.fn(
+    async (_wsId: string, _teamId: string): Promise<IntentOutcome> => ({ kind: "accepted", op: 0, minted: { workspace: null, team: null, panes: [] } }),
+  );
   const suspendAgent = vi.fn(async (_wsId: string, _paneId: string): Promise<SuspendResult> => ({ kind: "suspending" }));
   const resumeAgent = vi.fn(async (_wsId: string, _paneId: string): Promise<ResumeOutcome> => ({ kind: "resuming" }));
   const lifetime = (ref: CreatePaneRequest["workspace"]) =>
