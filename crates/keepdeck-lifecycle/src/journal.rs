@@ -110,11 +110,15 @@ pub enum Work {
 }
 
 /// The commands to data owners an operation's tail needs, with whether each
-/// is settled (a deck command: durable or rejected).
+/// is settled (a deck command: durable or rejected) — and, for one its owner
+/// refused, the owner's reason, so a restore does not take a refusal for an
+/// application.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Sent {
     pub command: Command,
     pub settled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejected: Option<String>,
 }
 
 /// One operation's entry.
@@ -331,6 +335,7 @@ mod tests {
             commands: vec![Sent {
                 command: Command { id: CommandId { op: OpId(op), index: 0 }, cmd: Cmd::RemoveTeam { workspace: ws(), team } },
                 settled: false,
+                rejected: None,
             }],
             done: vec![Step::Checkout { path: Dir::new("/repo/wt") }],
         }

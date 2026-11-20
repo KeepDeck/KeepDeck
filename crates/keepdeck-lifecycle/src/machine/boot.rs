@@ -164,7 +164,14 @@ fn restore(state: &mut State, entry: &Entry, closing: &BTreeSet<TeamId>, closing
     let sent = entry
         .commands
         .iter()
-        .map(|sent| Sent { cmd: sent.command.cmd.clone(), outcome: sent.settled.then_some(Outcome::Unchanged { revision: None }) })
+        .map(|sent| {
+            let outcome = match (&sent.rejected, sent.settled) {
+                (Some(reason), _) => Some(Outcome::Rejected { reason: reason.clone() }),
+                (None, true) => Some(Outcome::Unchanged { revision: None }),
+                (None, false) => None,
+            };
+            Sent { cmd: sent.command.cmd.clone(), outcome }
+        })
         .collect();
     let book = Some(Book { written: Some(entry.clone()), ..Book::default() });
     let kind = match &entry.work {

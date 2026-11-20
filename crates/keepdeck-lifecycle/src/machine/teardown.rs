@@ -237,7 +237,7 @@ pub fn advance(state: &mut State, id: OpId, fx: &mut Fx) {
     match teardown.phase {
         TearPhase::Queued => leave_queue(state, id, fx),
         TearPhase::Journaling => {
-            if durable(id, &state.ops[&id]) {
+            if durable(id, &state.ops[&id], state.saved) {
                 accepted(state, id, fx);
             }
         }
@@ -255,7 +255,7 @@ pub fn advance(state: &mut State, id: OpId, fx: &mut Fx) {
             }
         }
         TearPhase::Reading => {
-            if teardown.reading.is_empty() && durable(id, &state.ops[&id]) {
+            if teardown.reading.is_empty() && durable(id, &state.ops[&id], state.saved) {
                 plan_steps(state, id);
             }
         }
@@ -748,7 +748,7 @@ impl Unheld {
 }
 
 pub fn advance_unheld(state: &mut State, id: OpId, fx: &mut Fx) {
-    let ready = durable(id, &state.ops[&id]);
+    let ready = durable(id, &state.ops[&id], state.saved);
     let Some(op) = state.ops.get_mut(&id) else { return };
     let Kind::RemoveUnheld(unheld) = &mut op.kind else { return };
     if !ready {

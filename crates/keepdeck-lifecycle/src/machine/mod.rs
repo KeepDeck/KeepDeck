@@ -171,8 +171,11 @@ impl Op {
         self.sent.iter().all(|sent| sent.settled(saved))
     }
 
-    /// The entry this operation wants on disk now.
-    pub fn entry(&self, id: OpId) -> Option<Entry> {
+    /// The entry this operation wants on disk now. A command is written
+    /// settled by the one rule that settles it here — a deck command once its
+    /// revision is saved — so a crash between the owner's answer and the
+    /// deck's save asks it again; a refusal keeps its reason.
+    pub fn entry(&self, id: OpId, saved: Option<Revision>) -> Option<Entry> {
         let work = match &self.kind {
             Kind::Create(create) => create.journaled()?,
             Kind::Fork(fork) => fork.journaled(),
@@ -188,7 +191,8 @@ impl Op {
             .enumerate()
             .map(|(index, sent)| crate::journal::Sent {
                 command: Command { id: CommandId { op: id, index: index as u32 }, cmd: sent.cmd.clone() },
-                settled: sent.outcome.is_some(),
+                settled: sent.settled(saved),
+                rejected: sent.rejected().map(str::to_owned),
             })
             .collect();
         let (joined, done) = match &self.kind {
@@ -515,8 +519,9 @@ fn settle(state: &mut State, fx: &mut Fx) {
         for id in ids {
             advance(state, id, fx);
         }
+        let saved = state.saved;
         for (&id, op) in state.ops.iter_mut() {
-            sync_journal(id, op);
+            sync_journal(id, op, saved);
         }
         if *state == before {
             return;
@@ -545,8 +550,8 @@ fn advance(state: &mut State, id: OpId, fx: &mut Fx) {
 
 /// Start the next write when the entry an operation wants differs from what
 /// is on disk and no write is on its way.
-fn sync_journal(id: OpId, op: &mut Op) {
-    let wanted = op.entry(id);
+fn sync_journal(id: OpId, op: &mut Op, saved: Option<Revision>) {
+    let wanted = op.entry(id, saved);
     let Some(book) = op.book.as_mut() else { return };
     if book.flying.is_some() || book.removing.is_some() || op.owed {
         return;
@@ -561,10 +566,10 @@ fn sync_journal(id: OpId, op: &mut Op) {
 
 /// Whether the entry on disk covers what the operation needs before its next
 /// step.
-pub fn durable(id: OpId, op: &Op) -> bool {
+pub fn durable(id: OpId, op: &Op, saved: Option<Revision>) -> bool {
     match &op.book {
         None => true,
-        Some(book) => book.flying.is_none() && book.written.is_some() && book.written == op.entry(id),
+        Some(book) => book.flying.is_none() && book.written.is_some() && book.written == op.entry(id, saved),
     }
 }
 

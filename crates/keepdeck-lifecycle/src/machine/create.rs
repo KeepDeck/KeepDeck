@@ -495,7 +495,7 @@ pub fn advance_create(state: &mut State, id: OpId, fx: &mut Fx) {
             }
         }
         CreateStage::Journaling => {
-            if durable(id, &state.ops[&id]) {
+            if durable(id, &state.ops[&id], state.saved) {
                 let op = state.ops.get_mut(&id).expect("the op");
                 let Kind::Create(create) = &mut op.kind else { return };
                 create.stage = CreateStage::Adding;
@@ -840,7 +840,7 @@ pub fn advance_fork(state: &mut State, id: OpId, fx: &mut Fx) {
             }
         }
         ForkStage::Journaling => {
-            if durable(id, &state.ops[&id]) {
+            if durable(id, &state.ops[&id], state.saved) {
                 let op = state.ops.get_mut(&id).expect("the op");
                 let Some(fork) = fork_mut(op) else { return };
                 fork.stage = if fork.create.is_some() { ForkStage::Making } else { ForkStage::Forking };

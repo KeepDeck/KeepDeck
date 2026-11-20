@@ -1000,6 +1000,50 @@ fn a_restored_close_asks_again_under_the_same_ids_and_forgets_even_what_the_deck
     assert!(!sim.state.world.teams.contains_key(&team("1")));
 }
 
+/// The window between an owner's answer and the deck's save: the journal
+/// must not take an applied deck command for a settled one.
+#[test]
+fn a_deck_command_applied_but_not_saved_is_asked_again_after_a_crash() {
+    let mut first = Sim::booted();
+    first.close(disband("1", Consent::default()));
+    for _ in 0..4 {
+        first.write_journals();
+        first.apply(|cmd| !matches!(cmd, Cmd::RemoveTeam { .. }));
+        first.save();
+    }
+    first.apply(|cmd| matches!(cmd, Cmd::RemoveTeam { .. }));
+    first.flush_journals();
+    let entry = first.disk.values().next().cloned().expect("on disk");
+    let remove = entry.commands.iter().find(|sent| matches!(sent.command.cmd, Cmd::RemoveTeam { .. })).expect("sent");
+    assert!(!remove.settled, "applied, but the deck holding it is not saved yet");
+    // The app dies before the save; the deck on disk still holds team-1.
+    let mut sim = Sim::booted_with(deck(), vec![entry]);
+    assert_eq!(sim.pending_matching(|cmd| matches!(cmd, Cmd::RemoveTeam { .. })).len(), 1, "asked again");
+    sim.drive();
+    assert!(!sim.state.world.teams.contains_key(&team("1")));
+
+    // Saved, it is written settled.
+    first.save();
+    first.flush_journals();
+    let entry = first.disk.values().next().cloned().expect("on disk");
+    assert!(entry.commands.iter().any(|sent| matches!(sent.command.cmd, Cmd::RemoveTeam { .. }) && sent.settled));
+}
+
+#[test]
+fn a_refused_command_comes_back_from_the_journal_refused() {
+    let mut first = Sim::booted();
+    first.close(disband("1", Consent::default()));
+    first.write_journals();
+    first.reply(|cmd| matches!(cmd, Cmd::Retire { pane, .. } if *pane == PaneId(1)), Outcome::Rejected { reason: "gone".into() });
+    first.flush_journals();
+    let entry = first.disk.values().next().cloned().expect("on disk");
+    let retire = entry.commands.iter().find(|sent| matches!(sent.command.cmd, Cmd::Retire { pane, .. } if pane == PaneId(1))).expect("sent");
+    assert_eq!((retire.settled, retire.rejected.as_deref()), (true, Some("gone")));
+    let sim = Sim::booted_with(deck(), vec![entry]);
+    let op = sim.state.ops.values().next().expect("restored");
+    assert!(op.sent.iter().any(|sent| sent.rejected() == Some("gone")), "a refusal, not an application");
+}
+
 #[test]
 fn an_open_fork_at_boot_is_rolled_back_by_both_discard_lists() {
     let entry = Entry {
