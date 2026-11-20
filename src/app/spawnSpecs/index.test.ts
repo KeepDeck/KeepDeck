@@ -236,32 +236,25 @@ describe("the plan builders — live pane, resume, fork", () => {
       removed.length = 0;
     });
 
-    it("removes what only the start needed once the fork binds, as the plugin", async () => {
+    it("answers the scaffolding the surgery declared, as data — removing it is the lifecycle's", async () => {
       installed([WRITES]);
       forking({ onceStarted: ["/p/t/S.jsonl"], ifNeverStarted: ["/p/t/F"] });
-      await fork("pane-a");
-      expect(removed).toEqual([]);
+      expect(await fork("pane-a")).toEqual({ plugin: "test-plugin", onceStarted: ["/p/t/S.jsonl"], ifNeverStarted: ["/p/t/F"] });
+      // The page removes nothing itself: not when the fork binds, not when
+      // its pane goes.
       bindPaneSpawnSpecSession("pane-a", "F");
-      await flushRemovals();
-      expect(removed).toEqual([["test-plugin", "/p/t/S.jsonl"]]);
-      // Settled once: neither a second binding nor the pane going later
-      // removes anything more — the fork's own files are not scaffolding.
-      bindPaneSpawnSpecSession("pane-a", "later");
       dropPaneSpawnSpec("pane-a");
       await flushRemovals();
-      expect(removed).toHaveLength(1);
+      expect(removed).toEqual([]);
     });
 
-    it("removes everything it made when the pane goes before the fork started", async () => {
+    it("answers empty lists for a fork that declared nothing", async () => {
       installed([WRITES]);
-      forking({ onceStarted: ["/p/t/S.jsonl"], ifNeverStarted: ["/p/t/S.jsonl", "/p/t/F"] });
-      await fork("pane-b");
-      dropPaneSpawnSpec("pane-b");
-      await flushRemovals();
-      expect(removed.map(([, path]) => path)).toEqual(["/p/t/S.jsonl", "/p/t/F"]);
+      forking(undefined);
+      expect(await fork("pane-b")).toEqual({ plugin: "test-plugin", onceStarted: [], ifNeverStarted: [] });
     });
 
-    it("a build discarded mid-flight removes what its surgery made", async () => {
+    it("answers what a build discarded mid-flight made, though its plan is not kept", async () => {
       installed([WRITES]);
       let release!: () => void;
       register({
@@ -278,9 +271,9 @@ describe("the plan builders — live pane, resume, fork", () => {
       await flushRemovals();
       dropPaneSpawnSpec("pane-c");
       release();
-      await expect(building).resolves.toBe(false);
-      await flushRemovals();
-      expect(removed.map(([, path]) => path)).toEqual(["/p/t/F"]);
+      await expect(building).resolves.toEqual({ plugin: "test-plugin", onceStarted: [], ifNeverStarted: ["/p/t/F"] });
+      expect(peekPaneSpawnSpec("pane-c")).toBeUndefined();
+      expect(removed).toEqual([]);
     });
 
     it("removes nothing a resume declared — only a fork leaves scaffolding", async () => {
