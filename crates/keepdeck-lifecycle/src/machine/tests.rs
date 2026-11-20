@@ -427,6 +427,40 @@ fn a_close_plans_each_folder_before_its_first_step_and_removes_the_checkout_befo
 }
 
 #[test]
+fn a_branch_waits_for_its_own_checkout_not_the_first_of_its_repository() {
+    let mut facts = deck();
+    facts.workspaces[0].teams.push(TeamFacts { id: team("2"), at: TeamAtFacts::Attached { cwd: Dir::new("/wt/kd-app-2"), branch: Some("kd/app/2".into()) } });
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    let whole = Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() };
+    let offered = shown(&sim, &whole);
+    assert_eq!(offered.folders.len(), 2);
+    sim.intent(Intent::CloseWorkspace {
+        workspace: ws(),
+        consent: Consent { stops: offered.stops, folders: offered.folders, tickets: offered.creations },
+    });
+    let second = Step::Branch { repo: Dir::new("/repo"), name: "kd/app/2".into() };
+    for _ in 0..20 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            let event = match effect {
+                Effect::ReadBranches { op, path, .. } => Event::BranchesRead { op, path, result: Ok(Vec::new()) },
+                Effect::Stop { session, .. } => Event::SessionEnded { session },
+                // The first checkout of the repository goes; the second stays.
+                Effect::Clean { op, step, how: Clean::Checkout { path, .. }, .. } if path == Dir::new("/wt/kd-app-1") => Event::StepDone { op, step, result: Ok(()) },
+                Effect::Clean { op, step, how: Clean::Disarm { .. } | Clean::Stores, .. } => Event::StepDone { op, step, result: Ok(()) },
+                Effect::Clean { step, .. } if step == second => panic!("the second branch went before its checkout"),
+                _ => continue,
+            };
+            sim.send(event);
+        }
+        sim.apply(|_| true);
+        sim.save();
+    }
+    assert!(sim.owed().iter().any(|effect| matches!(effect, Effect::Clean { how: Clean::Checkout { path, .. }, .. } if path == &Dir::new("/wt/kd-app-2"))), "its checkout is owed: {:?}", sim.owed());
+}
+
+#[test]
 fn a_failed_cleanup_step_keeps_the_entry_and_the_place_and_says_the_worktree_was_not_deleted() {
     let mut sim = Sim::booted();
     sim.close(disband("1", consent_for_team_1()));

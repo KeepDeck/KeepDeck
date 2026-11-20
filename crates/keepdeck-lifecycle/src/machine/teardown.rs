@@ -527,8 +527,11 @@ fn runnable(teardown: &Teardown) -> Vec<Step> {
         .filter(|step| match step {
             Step::Disarm { .. } | Step::Stores | Step::Discard | Step::Tag { .. } => true,
             Step::Checkout { .. } => !disarming,
-            Step::Branch { repo, .. } => {
-                let removal = teardown.removals.iter().find(|removal| &removal.repo == repo);
+            Step::Branch { repo, name } => {
+                // The checkout this branch came with — not the first one of
+                // its repository: until that one is gone, git keeps the
+                // branch as checked out and its removal is a no-op.
+                let removal = teardown.removals.iter().find(|removal| &removal.repo == repo && removal.branches.contains(name));
                 !disarming
                     && removal.is_none_or(|removal| {
                         let checkout = Step::Checkout { path: removal.path.clone() };
