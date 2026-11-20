@@ -1,54 +1,18 @@
 /**
- * Runtime composition for what the worktree owner plants. The owner gets one
- * composite and one disarm home; feature factories receive the owner's single
- * queue and cannot accidentally construct a second ordering guard.
+ * Runtime composition for what a pane's directory is handed at launch: the
+ * skills feature's staging and the cwd arming engine, behind the owner's
+ * ports. Whether a folder may be written into at all is the lifecycle's to
+ * answer, natively.
  */
-import { cwdArm, cwdDisarm } from "../../ipc/cwdArm";
-import type {
-  CwdArmReport,
-  WorktreeDeckView,
-  WorktreePlantingFactories,
-  WorktreePlantings,
-} from "../worktrees";
-import type { InOrder } from "../worktrees/queue";
-import { createSweep } from "./sweep";
+import { cwdArm } from "../../ipc/cwdArm";
+import type { WorktreePlantings, WorktreeSkillsPlanting } from "../worktrees";
 
 export { createSkillsStaging } from "./skillsStaging";
 
-const NOTHING_ARMED: CwdArmReport = { armed: [], refused: [] };
-
-export function createWorktreePlantings(
-  deck: WorktreeDeckView,
-  inOrder: InOrder,
-  factories: WorktreePlantingFactories,
-): WorktreePlantings {
-  const skills = factories.skills(inOrder, deck);
-
-  async function disarm(roots: string[]): Promise<string[] | null> {
-    // A root stays armed while a workspace IN USE claims it. An archived
-    // workspace's claim keeps its directory (nothing is pruned for it) but
-    // not its plantings: nothing of its runs there.
-    const liveRoots = deck
-      .live()
-      .filter((ws) => !ws.archived)
-      .flatMap((ws) => ws.roots);
-    const released = await cwdDisarm(roots, liveRoots);
-    if (released) factories.onDisarmed(released);
-    return released;
-  }
-
+export function createWorktreePlantings(staging: WorktreeSkillsPlanting): WorktreePlantings {
   return {
-    disarm,
-    skillsFor: skills.skillsFor,
-    invalidateSkills: skills.invalidateSkills,
-    // Asked INSIDE the slot, right before the planting: a plan built before
-    // its workspace was archived must not plant there after.
-    armCwd: (request) =>
-      inOrder(() =>
-        deck.live().some((ws) => ws.id === request.workspaceId && ws.archived)
-          ? Promise.resolve(NOTHING_ARMED)
-          : cwdArm(request),
-      ),
-    sweep: createSweep(deck, inOrder, disarm, skills.pruneSkills, factories.prunePluginDirs).sweep,
+    skillsFor: staging.skillsFor,
+    invalidateSkills: staging.invalidateSkills,
+    armCwd: cwdArm,
   };
 }

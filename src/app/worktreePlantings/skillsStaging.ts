@@ -1,23 +1,20 @@
 /**
- * The skills feature's worktree adapter: it turns the manager's ordering port
- * into staged views. Construction belongs to the runtime composition root;
- * the infrastructure manager only receives the resulting composite planting.
+ * The skills feature's worktree adapter: it stages the views a launch is
+ * handed. Construction belongs to the runtime composition root; the
+ * infrastructure owner only receives the resulting planting.
  *
  * It stages and nothing more: what an agent needs planted in a pane's cwd to
  * find the staged skills is that agent's plugin's to declare (`arm.plan`),
  * and the cwd arming engine's to plant. What a stage could not hand out whole
  * goes to the trims store, beside the views and never inside them.
  */
-import { fetchSkills, pruneSkills, stageSkills, type ExcludedSkill } from "../../ipc/skills";
+import { fetchSkills, stageSkills, type ExcludedSkill } from "../../ipc/skills";
 import { log } from "../../ipc/log";
 import { errorMessage } from "@keepdeck/plugin-api";
 import { skillsUnfitForAgents } from "../../domain/skills";
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { StagingTrimStore } from "../stagingTrims";
 import type { WorktreeDeckView, WorktreeSkillViews, WorktreeSkillsPlanting } from "../worktrees";
-import type { InOrder } from "../worktrees/queue";
-
-export type SkillsStaging = WorktreeSkillsPlanting;
 
 /** The library rows no agent may be handed, by the codec's judgement — or
  * null when the library could not be read: then nothing stages, rather than
@@ -43,10 +40,9 @@ async function unfitSkills(): Promise<ExcludedSkill[] | null> {
  * rest of the session.
  */
 export function createSkillsStaging(
-  inOrder: InOrder,
-  deck: Pick<WorktreeDeckView, "nameOf">,
-  trims: Pick<StagingTrimStore, "record" | "keep" | "clear">,
-): SkillsStaging {
+  deck: WorktreeDeckView,
+  trims: Pick<StagingTrimStore, "record" | "clear">,
+): WorktreeSkillsPlanting {
   /** Bumped by every invalidation: a stage asked for before one speaks of a
    * library that is gone, and its report must not land over the clear. */
   let generation = 0;
@@ -77,19 +73,12 @@ export function createSkillsStaging(
 
   return {
     skillsFor(workspace) {
-      const asked = generation;
-      return inOrder(() => stage(workspace, asked));
+      return stage(workspace, generation);
     },
 
     invalidateSkills() {
       generation += 1;
       trims.clear();
-    },
-
-    async pruneSkills(live) {
-      const pruned = await pruneSkills(live.map((workspace) => workspace.id).sort());
-      trims.keep(live.map((workspace) => workspace.instance));
-      return pruned;
     },
   };
 }
