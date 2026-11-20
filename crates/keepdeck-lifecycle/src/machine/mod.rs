@@ -11,6 +11,7 @@ mod boot;
 mod capture;
 mod create;
 mod launch;
+pub mod queries;
 pub mod snapshot;
 mod teardown;
 

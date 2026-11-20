@@ -270,7 +270,7 @@ pub fn still_creating_for(op: &Op, teams: &[TeamId]) -> bool {
 }
 
 /// Every folder and branch held for a place in this workspace.
-fn held(state: &State, workspace: &crate::ids::WorkspaceId) -> Held {
+pub(super) fn held(state: &State, workspace: &crate::ids::WorkspaceId) -> Held {
     let mut held = Held::default();
     for team in state.world.teams.values().filter(|team| &team.workspace == workspace) {
         match &team.at {
