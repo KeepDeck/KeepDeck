@@ -281,12 +281,12 @@ export const outcomes: Outcome[] = [
   {
     "discard": {
       "ifNeverStarted": [
-        "~/.claude/projects/-repo/fork.jsonl"
+        "/store/fork.jsonl"
       ],
       "onceStarted": [
-        "~/.kd/spec.json"
+        "/kd/spec.json"
       ],
-      "plugin": "keepdeck.claude"
+      "plugin": "keepdeck.cli-a"
     },
     "kind": "forked"
   }
@@ -296,7 +296,7 @@ export const dues: Due[] = [
   {
     "cmd": {
       "draft": {
-        "agentType": "claude"
+        "agentType": "cli-a"
       },
       "kind": "addWorkspace",
       "workspace": "ws-a"
@@ -310,13 +310,13 @@ export const dues: Due[] = [
   {
     "cmd": {
       "draft": {
-        "agentType": "claude"
+        "agentType": "cli-a"
       },
       "kind": "addTeam",
       "members": [
         {
           "draft": {
-            "agentType": "claude"
+            "agentType": "cli-a"
           },
           "pane": "pane-4"
         }
@@ -377,7 +377,7 @@ export const dues: Due[] = [
   {
     "cmd": {
       "draft": {
-        "agentType": "claude"
+        "agentType": "cli-a"
       },
       "kind": "addPane",
       "pane": "pane-5",
@@ -565,7 +565,7 @@ export const dues: Due[] = [
       "kind": "prepareResume",
       "pane": "pane-2",
       "source": {
-        "agent": "claude",
+        "agent": "cli-a",
         "session": "s-1"
       },
       "workspace": "ws-a"
@@ -619,7 +619,7 @@ export const dues: Due[] = [
       "kind": "fork",
       "pane": "pane-1",
       "source": {
-        "agent": "claude",
+        "agent": "cli-a",
         "session": "s-1"
       },
       "workspace": "ws-a"

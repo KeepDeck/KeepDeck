@@ -20,8 +20,10 @@ fn team(name: &str) -> TeamId {
     TeamId(format!("team-{name}"))
 }
 
+/// An agent's draft. The lifecycle never reads one, and the core names no
+/// CLI: its agent is a neutral one.
 fn draft() -> Draft {
-    Draft(json!({ "agentType": "claude" }))
+    Draft(json!({ "agentType": "cli-a" }))
 }
 
 fn pane_facts(n: u64, team_name: Option<&str>) -> PaneFacts {
@@ -1170,11 +1172,11 @@ fn every_due() -> Vec<Due> {
         Cmd::ForgetPaneMail { workspace: w(), pane: p(5) },
         Cmd::RetainPanes { panes: vec![p(1), p(2)] },
         Cmd::Retire { workspace: w(), pane: p(2) },
-        Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "claude".into(), session: "s-1".into() } },
+        Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() } },
         Cmd::DropBuild { op: OpId(3) },
         Cmd::ReportBinding { workspace: w(), pane: p(6), op: OpId(3) },
         Cmd::WorktreeNotDeleted { workspace: w(), path: Dir::new("/wt/kd-app-1"), reason: "busy".into() },
-        Cmd::Fork { workspace: w(), pane: p(1), source: SessionKey { agent: "claude".into(), session: "s-1".into() }, cwd: Dir::new("/repo") },
+        Cmd::Fork { workspace: w(), pane: p(1), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() }, cwd: Dir::new("/repo") },
     ];
     for cmd in &every {
         match cmd {
@@ -1236,7 +1238,7 @@ fn the_wire_examples_are_written_beside_the_exported_types() {
         Outcome::Applied { revision: Some(Revision(4)) },
         Outcome::Unchanged { revision: None },
         Outcome::Rejected { reason: "role taken".into() },
-        Outcome::Forked { discard: Discard { plugin: "keepdeck.claude".into(), once_started: vec!["~/.kd/spec.json".into()], if_never_started: vec!["~/.claude/projects/-repo/fork.jsonl".into()] } },
+        Outcome::Forked { discard: Discard { plugin: "keepdeck.cli-a".into(), once_started: vec!["/kd/spec.json".into()], if_never_started: vec!["/store/fork.jsonl".into()] } },
     ];
     // Rust's own verdicts on sources against a forgotten set — the page's
     // one accessor must agree with each.
