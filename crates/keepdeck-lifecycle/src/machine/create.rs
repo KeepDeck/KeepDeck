@@ -276,9 +276,13 @@ fn create_of(op: &Op) -> Option<&Create> {
 }
 
 /// An operation's ticket or the place it is asking about is this folder.
+/// A creation holds its place — its ticket's folder, or the one it probes —
+/// until a Close takes it over: then the place is the close's, deleted by
+/// its consent or kept.
 pub fn holds_folder(op: &Op, dir: &Dir) -> bool {
     create_of(op).is_some_and(|create| {
-        create.ticket.as_ref().is_some_and(|ticket| &ticket.path == dir) || create.probing.as_ref().is_some_and(|(path, _)| path == dir)
+        !create.abandoned
+            && (create.ticket.as_ref().is_some_and(|ticket| &ticket.path == dir) || create.probing.as_ref().is_some_and(|(path, _)| path == dir))
     })
 }
 

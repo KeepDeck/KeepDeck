@@ -555,7 +555,14 @@ fn a_close_takes_over_a_creation_and_waits_for_its_git_step() {
     }
     assert!(matches!(sim.answer(create), Some(Answer::Accepted { .. })));
     let create_op = *sim.state.ops.keys().next().unwrap();
-    assert!(sim.owed().iter().any(|effect| matches!(effect, Effect::CreateWorktree { .. })));
+    let ticket = sim
+        .owed()
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::CreateWorktree { ticket, .. } => Some(ticket),
+            _ => None,
+        })
+        .expect("git is asked to make it");
     let consent = Consent { tickets: vec![create_op], ..Consent::default() };
     let close = sim.close(disband("n", consent));
     assert_eq!(sim.refusal(close), None, "a Close may take over a creation");
@@ -570,6 +577,30 @@ fn a_close_takes_over_a_creation_and_waits_for_its_git_step() {
     sim.drive();
     assert!(sim.state.ops.is_empty());
     assert!(!sim.state.world.teams.contains_key(&team("n")));
+    // The agreed ticket's checkout and branch go once git is done with them.
+    assert!(sim.cleaned.contains(&Clean::Checkout { repo: ticket.repo.clone(), path: ticket.path.clone() }), "{:?}", sim.cleaned);
+    assert!(sim.cleaned.contains(&Clean::Branch { repo: ticket.repo, name: ticket.branch }));
+}
+
+/// The consent a Close is held to is what is still on offer: a folder
+/// another team took since the dialog asked is not deleted, and that team's
+/// session in it is not stopped.
+#[test]
+fn a_folder_another_team_took_since_the_dialog_asked_is_neither_deleted_nor_emptied() {
+    let mut facts = deck();
+    facts.workspaces[0].teams.push(TeamFacts { id: team("b"), at: TeamAtFacts::Attached { cwd: Dir::new("/wt/kd-app-1"), branch: None } });
+    facts.workspaces[0].panes.push(pane_facts(5, Some("b")));
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    let theirs = sim.appear(LaunchOwner::Pane { pane: PaneId(5) }, None, Some("/wt/kd-app-1"));
+    // What the dialog showed before team b came: team 1's folder, offered.
+    let asked = Consent { stops: vec![PaneId(1), PaneId(2)], ..consent_for_team_1() };
+    let close = sim.intent(disband("1", asked));
+    assert_eq!(sim.refusal(close), None, "narrowed, not refused");
+    sim.drive();
+    assert!(!sim.state.sessions[&theirs].ended, "team b's agent keeps running");
+    assert!(!sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. } | Clean::Branch { .. })), "{:?}", sim.cleaned);
+    assert!(!sim.state.world.teams.contains_key(&team("1")) && sim.state.world.teams.contains_key(&team("b")));
 }
 
 #[test]

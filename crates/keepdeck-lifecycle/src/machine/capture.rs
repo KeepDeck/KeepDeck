@@ -362,7 +362,9 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             if let Some(refusal) = close_conflict(state, &holders) {
                 return refuse(fx, ask, refusal);
             }
-            // One pane's close holds that pane only: its team goes on.
+            // One pane's close holds that pane only: its team goes on, and
+            // nothing of it is deleted.
+            let consent = queries::close_agent_offer(pane).agreed(consent);
             let teardown = Teardown::new(model::Teardown::CloseAgent, crate::journal::Target::Agent { pane }, Vec::new(), vec![pane], consent);
             open_teardown(state, ask, workspace, teardown, holders, journaled);
         }
@@ -371,10 +373,12 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
                 return refuse(fx, ask, refusal);
             }
             // Held to what its dialog showed: a member seated or moved in since
-            // is asked about again.
-            if queries::disband_offer(state, &workspace, &team).outgrows(&consent) {
+            // is asked about again; what is no longer on offer narrows it.
+            let offer = queries::disband_offer(state, &workspace, &team);
+            if offer.outgrows(&consent) {
                 return refuse(fx, ask, Refusal::Changed);
             }
+            let consent = offer.agreed(consent);
             // A member's close under way is joined, not refused.
             let (joinable, blocking) = disband_holders(state, &team);
             let mut teardown = Teardown::new(model::Teardown::Disband, crate::journal::Target::Team { team: team.clone() }, vec![team], Vec::new(), consent);
@@ -392,9 +396,11 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             if let Some(refusal) = close_conflict(state, &blocking) {
                 return refuse(fx, ask, refusal);
             }
-            if queries::close_workspace_offer(state, &workspace).outgrows(&consent) {
+            let offer = queries::close_workspace_offer(state, &workspace);
+            if offer.outgrows(&consent) {
                 return refuse(fx, ask, Refusal::Changed);
             }
+            let consent = offer.agreed(consent);
             let mut teardown = Teardown::new(model::Teardown::CloseWorkspace, crate::journal::Target::Workspace, Vec::new(), Vec::new(), consent);
             teardown.joined = joinable;
             open_teardown(state, ask, workspace, teardown, blocking, journaled);

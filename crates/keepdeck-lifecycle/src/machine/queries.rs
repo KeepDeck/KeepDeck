@@ -36,8 +36,9 @@ fn empty(refusal: Option<Refusal>) -> Preview {
 }
 
 /// The folders a teardown of `teams` may delete: each team's own folder,
-/// never the workspace's root, and none another team that stays still works in.
-fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<Folder>, Vec<OpId>) {
+/// never the workspace's root, and none another team that stays still works
+/// in — and the creations still out, each with the folder its ticket makes.
+fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<Folder>, Vec<(OpId, Folder)>) {
     let Some(ws) = state.world.workspaces.get(workspace) else { return (Vec::new(), Vec::new()) };
     let leaving: BTreeSet<&TeamId> = teams.iter().collect();
     let mut folders = Vec::new();
@@ -46,8 +47,8 @@ fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<F
         let Some(row) = state.world.teams.get(team) else { continue };
         let (path, branch) = match &row.at {
             TeamAt::Attached { cwd, branch } => (cwd.clone(), branch.clone()),
-            TeamAt::Creating { op, .. } => {
-                creations.push(*op);
+            TeamAt::Creating { op, ticket } => {
+                creations.push((*op, Folder { repo: ticket.repo.clone(), path: ticket.path.clone(), branch: Some(ticket.branch.clone()) }));
                 continue;
             }
             TeamAt::Failed { ticket } => (ticket.path.clone(), Some(ticket.branch.clone())),
@@ -66,17 +67,19 @@ fn deletable(state: &State, workspace: &WorkspaceId, teams: &[TeamId]) -> (Vec<F
     (folders, creations)
 }
 
-/// What a disband or a workspace close would end and may delete now: the
-/// facts its dialog shows, and what its confirm is held to.
+/// What a Close would end and may delete now: the facts its dialog shows,
+/// and what its confirm is held to.
 pub struct Offer {
     pub stops: Vec<PaneId>,
     pub folders: Vec<Folder>,
-    pub creations: Vec<OpId>,
+    /// Creations still out, each with the folder its ticket makes.
+    pub creations: Vec<(OpId, Folder)>,
 }
 
 impl Offer {
     fn preview(self, refusal: Option<Refusal>) -> Preview {
-        Preview { refusal, stops: self.stops, folders: self.folders, creations: self.creations, last_of: None }
+        let creations = self.creations.into_iter().map(|(op, _)| op).collect();
+        Preview { refusal, stops: self.stops, folders: self.folders, creations, last_of: None }
     }
 
     /// Whether a Close confirmed on `consent` would do more than its dialog
@@ -87,9 +90,32 @@ impl Offer {
         let unseen_stop = self.stops.iter().any(|pane| !consent.stops.contains(pane));
         let deletes = !consent.folders.is_empty() || !consent.tickets.is_empty();
         let unseen_folder = self.folders.iter().any(|folder| !consent.folders.iter().any(|agreed| agreed.path == folder.path));
-        let unseen_creation = self.creations.iter().any(|op| !consent.tickets.contains(op));
+        let unseen_creation = self.creations.iter().any(|(op, _)| !consent.tickets.contains(op));
         unseen_stop || (deletes && (unseen_folder || unseen_creation))
     }
+
+    /// The consent a confirmed Close is held to: what the person agreed to
+    /// that is still on offer. A folder another team works in since is not
+    /// the close's to delete — nor are that team's sessions in it its to
+    /// stop. An agreed creation brings the folder its ticket makes, so the
+    /// checkout goes once git is done with it.
+    pub fn agreed(&self, consent: Consent) -> Consent {
+        let offered = |path: &Dir| self.folders.iter().any(|folder| &folder.path == path);
+        let mut folders: Vec<Folder> = consent.folders.into_iter().filter(|folder| offered(&folder.path)).collect();
+        let tickets: Vec<OpId> = consent.tickets.into_iter().filter(|op| self.creations.iter().any(|(offered, _)| offered == op)).collect();
+        for (op, folder) in &self.creations {
+            if tickets.contains(op) && !folders.iter().any(|agreed| agreed.path == folder.path) {
+                folders.push(folder.clone());
+            }
+        }
+        Consent { stops: consent.stops, folders, tickets }
+    }
+}
+
+/// An agent's own close ends its pane and deletes nothing: its team, and
+/// the team's folder, stay.
+pub fn close_agent_offer(pane: PaneId) -> Offer {
+    Offer { stops: vec![pane], folders: Vec::new(), creations: Vec::new() }
 }
 
 /// The panes still landing in the workspace — on `team`, or on any team for
@@ -143,7 +169,7 @@ pub fn preview(state: &State, intent: &Intent) -> Preview {
                 let disband = Intent::Disband { workspace: workspace.clone(), team: team.clone(), consent: Default::default() };
                 (team.clone(), Box::new(preview(state, &disband)))
             });
-            Preview { refusal, stops: vec![*pane], folders: Vec::new(), creations: Vec::new(), last_of }
+            Preview { last_of, ..close_agent_offer(*pane).preview(refusal) }
         }
         Intent::Disband { team, .. } => {
             if !state.world.teams.contains_key(team) {
