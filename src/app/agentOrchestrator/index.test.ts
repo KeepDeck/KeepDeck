@@ -171,6 +171,18 @@ describe("agent orchestrator —session policy", () => {
     expect(pane().idle).toBeUndefined();
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
     expect(ipc.probeWorktree).not.toHaveBeenCalled();
+    // Its launch is leased as the remote's own, holding no local folder.
+    expect(machine.leases).toEqual([{ kind: "launch", workspace: "ws-1", owner: { kind: "remote", pane: "pane-1" }, dir: null }]);
+  });
+
+  it("leases a local pane's launch for that pane, in the folder it runs in", async () => {
+    act(() => deck.hydrate(restored({})));
+    await settle();
+    expect(machine.leases).toEqual([{ kind: "launch", workspace: "ws-1", owner: { kind: "pane", pane: "pane-1" }, dir: "/repo" }]);
+    // The permit the machine granted is the one the launch carries.
+    expect(pty.acquired.map((launch) => [launch.paneId, launch.launch])).toEqual([
+      ["pane-1", { permit: machine.permit, owner: { kind: "pane", pane: "pane-1" } }],
+    ]);
   });
 
   it("a pane mid-create is neither probed nor woken — there is no directory yet", async () => {
