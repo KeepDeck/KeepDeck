@@ -137,4 +137,34 @@ describe("a rejected boot resume, on the host", () => {
     await host().until("back though off screen", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
     expect(d.runtime.deckStore.getSnapshot().activeId).toBe(other);
   });
+
+  describe("what counts as the resume having started", () => {
+    /** Relaunched with an agent that reports nothing at start, its resume
+     * up: what it reports is the test's to cue. */
+    async function resumedQuiet(told: Partial<StubAgentControl> = {}) {
+      const { paneId, session, launched } = await bound();
+      const d = await relaunched({ unbound: true, ...told });
+      await host().until("resumed, and up", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live", 15_000);
+      return { d, paneId, session, launched };
+    }
+
+    it("is not another agent's binding: a resume that only heard one died without a word of its own", async () => {
+      const { d, paneId, launched } = await resumedQuiet({ liveRegistry: "none" });
+      // Another CLI run inside the pane reports its own conversation, which
+      // the deck refuses; then the resumed agent ends.
+      expect(await d.report(paneId, { type: "session.bound", payload: { sessionId: "k-1", agent: "kimi" } }, "child")).toBe(204);
+      d.type(paneId, "exit 1");
+      await rejected(d, paneId, launched + 1);
+      await host().until("a fresh start, up", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
+    });
+
+    it("is its own conversation bound: a resume that reported, then ended, is not taken over as rejected", async () => {
+      const { d, paneId, session, launched } = await resumedQuiet();
+      expect(await d.report(paneId, { type: "session.bound", payload: { sessionId: session } })).toBe(204);
+      d.type(paneId, "exit 1");
+      await host().until("it ended", () => d.slot(paneId) === "exited");
+      expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 1)).toBe(false);
+      expect(d.launches(paneId)).toHaveLength(launched + 1);
+    });
+  });
 });
