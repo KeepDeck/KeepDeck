@@ -245,10 +245,24 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     hookEnded: machine.hookEnded,
   });
 
+  /** Settles once the machine has opened its barrier — it opens once a
+   * launch. */
+  const opened = new Promise<void>((resolve) => {
+    const unsubscribe = machine.subscribe(() => {
+      if (machine.snapshot()?.open !== true) return;
+      unsubscribe();
+      resolve();
+    });
+    if (machine.snapshot()?.open === true) {
+      unsubscribe();
+      resolve();
+    }
+  });
   const doors = createLifecycleDoors({
     deck,
     actions,
     send: machine.send,
+    opened: () => opened,
     continuations,
     transcripts: deps.transcripts,
     teamActs,

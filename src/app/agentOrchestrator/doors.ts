@@ -52,6 +52,9 @@ export interface LifecycleDoorsDeps {
   deck: DeckStore;
   actions: DeckActions;
   send(intent: Intent): Promise<Reply>;
+  /** Settles once the machine has opened its barrier: an edit made before
+   * that is told it then, instead of being refused and lost for the launch. */
+  opened(): Promise<void>;
   /** Note what a continued session's plan is built from, before its intent
    * goes. */
   continuations: Pick<ContinuationPlans, "expect">;
@@ -134,11 +137,13 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
   /** The machine hears a workspace's edit before anything asked after it:
    * the host takes intents concurrently, so one sent while an edit is on its
    * way could overtake it — and a team asked for right after a rename would
-   * be named by the old name. */
+   * be named by the old name. Intents only: a query (a place hint) asked in
+   * the very instant of an edit may still read the copy before it. */
   let edits: Promise<unknown> = Promise.resolve();
+  const send = async (intent: Intent): Promise<IntentOutcome> => intentOutcomeOf(await deps.send(intent));
   const ask = async (intent: Intent): Promise<IntentOutcome> => {
     await edits;
-    return intentOutcomeOf(await deps.send(intent));
+    return send(intent);
   };
   const newTeamId = () => mintTeamId(teamIdsOf(workspaces()));
 
@@ -297,7 +302,10 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
       // these: it hears every change of them, in the order the edits land.
       const base = worktreeBaseDirOf(after.worktreeBaseDir);
       if (after.name !== before.name || after.cwd !== before.cwd || base !== worktreeBaseDirOf(before.worktreeBaseDir)) {
-        const told = ask({ kind: "describe", workspace: after.id, name: after.name, cwd: after.cwd, worktreeBase: base }).then(
+        const describe: Intent = { kind: "describe", workspace: after.id, name: after.name, cwd: after.cwd, worktreeBase: base };
+        // After the edits before it, and once the machine is open; past the
+        // barrier, which is this edit itself.
+        const told = edits.then(deps.opened).then(() => send(describe)).then(
           (outcome) => {
             const why = intentOutcomeText(outcome);
             if (why !== null) log.warn("web:orchestrator", `${after.id}: the machine was not told of its edit — ${why}`);

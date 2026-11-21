@@ -222,16 +222,18 @@ export async function quitAfter<T>(
   return made;
 }
 
-/** How a deck starts: by default it is up once its plugins are; a test of
- * the page before its catalog has loaded asks for it at once. */
+/** How a deck starts: by default it is up once the machine has opened and
+ * its plugins are active; a test of the page before either asks for it at
+ * once. */
 export interface DeckStart {
+  waitForOpen?: boolean;
   waitForPlugins?: boolean;
 }
 
 /** Start the page's runtime on `host`, and wait for the machine to open and
  * the stub plugin to be active — its stub agent told `told` from the first
  * plan on (a launch's boot resumes are planned before this answers). */
-export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}, { waitForPlugins = true }: DeckStart = {}): Promise<Deck> {
+export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}, { waitForOpen = true, waitForPlugins = true }: DeckStart = {}): Promise<Deck> {
   vi.resetModules();
   const { createAppRuntime } = await import("../../app/runtime");
   const { createCommandRegistry } = await import("../../domain/commands/registry");
@@ -251,7 +253,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
   };
   const runtime = createAppRuntime(undefined, createCommandRegistry(), () => Promise.resolve([stubPlugin(stub)]));
   runtime.start();
-  await host.until("the machine opened its barrier", () => heardOpen(host), 15_000);
+  if (waitForOpen) await host.until("the machine opened its barrier", () => heardOpen(host), 15_000);
   // A page is up once its plugins are: a plan asked before the stub's
   // activation finds no agent to build it.
   if (waitForPlugins) {

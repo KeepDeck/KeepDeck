@@ -108,9 +108,10 @@ pub enum Intent {
         #[ts(skip)]
         repo: Option<Dir>,
     },
-    /// The workspace was edited — its name, its folder (only while it holds
-    /// nothing), its worktree base: new places are named, put and rooted
-    /// after them.
+    /// The workspace was edited — its name, its folder, its worktree base:
+    /// new places are named, put and rooted after them. Applied as told:
+    /// that a folder moves only while the workspace holds nothing is the
+    /// deck's rule (its `updateWorkspace`), the one gate an edit passes.
     Describe {
         workspace: WorkspaceId,
         name: String,

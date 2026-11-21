@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { useHost } from "../../testing/host/host";
-import { startDeck, type Deck } from "../../testing/host/deck";
+import { quitAfter, startDeck, type Deck } from "../../testing/host/deck";
 
 /**
  * A workspace edited while the app runs — its name, its folder, its worktree
@@ -62,6 +62,31 @@ describe("a workspace's edits, on the host", () => {
     const ws = await d.workspaceUp();
     edit(d, ws, { name: "renamed" });
     const { cwd, branch } = await newWorktree(d, ws);
+    expect(cwd).toContain("renamed");
+    expect(branch).toContain("renamed");
+  });
+
+  it("tells the machine of an edit made while it was still booting, once it has opened", async () => {
+    await quitAfter(
+      host(),
+      async (d) => {
+        d.gitRepo();
+        return { ws: await d.workspaceUp() };
+      },
+      (onDisk, { ws }) => onDisk.includes(ws.id),
+    );
+    // The machine has not opened yet: the page's handshake is on its way.
+    const booting = host().hold({ request: "lifecycle_boot_handshake" });
+    const d = (deck = await startDeck(host(), {}, { waitForOpen: false, waitForPlugins: false }));
+    await booting.caught;
+    await host().until("the deck is loaded", () => d.runtime.deckStore.getSnapshot().workspaces.length === 1);
+    const ws = d.workspace();
+    edit(d, { id: ws.id, instance: ws.instance }, { name: "renamed" });
+    // The edit has had every chance to go before the machine is open.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    booting.release();
+    await host().until("open, and the stub active", () => d.runtime.plugins.pluginRegistries.agents.list().length > 0 && d.settled(), 15_000);
+    const { cwd, branch } = await newWorktree(d, { id: ws.id, instance: ws.instance });
     expect(cwd).toContain("renamed");
     expect(branch).toContain("renamed");
   });
