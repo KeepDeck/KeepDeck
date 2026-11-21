@@ -1354,6 +1354,18 @@ fn undo_fork(state: &mut State, id: OpId, fx: &mut Fx) {
         return;
     }
     let made_team = fork.create.as_ref().filter(|create| create.ticket.is_some() || fork.added).map(|create| create.team.clone());
+    // What the page holds of the pane ends with its launch, as every way a
+    // pane leaves retires it: the plan its hook built, what its process
+    // said. Keyed on the hook, not on the rows — a fork whose add was
+    // refused has none, and a plan all the same — and sent past the gate
+    // above, so no build still running can put the plan back.
+    if fork.hook_sent {
+        let op = state.ops.get_mut(&id).expect("the op");
+        let retire = Cmd::Retire { workspace: workspace.clone(), pane: fork.pane };
+        if !op.sent.iter().any(|sent| sent.cmd == retire) {
+            op.send(retire);
+        }
+    }
     // Its rows on the deck go.
     if fork.added {
         let op = state.ops.get_mut(&id).expect("the op");

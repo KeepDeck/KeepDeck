@@ -82,6 +82,8 @@ export interface Deck {
   report(paneId: string, envelope: Envelope, from?: Reporter): Promise<number>;
   /** Every process the page started for the pane, in order. */
   launches(paneId: string): Launch[];
+  /** Whether the page still holds a launch plan for the pane. */
+  holdsPlan(paneId: string): boolean;
   /** The deck's first workspace, as the page holds it now. */
   workspace(): Workspace;
   /** A pane of any workspace, as the page holds it now. */
@@ -422,6 +424,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       return typeof phase === "string" ? phase : null;
     },
     type: (paneId, line) => sessions.writePane(paneId, `${line}\r`),
+    holdsPlan: (paneId) => peekPaneSpawnSpec(paneId) !== undefined,
     press(paneId, key) {
       reportPaneKey(paneId, key);
       sessions.writePane(paneId, key);

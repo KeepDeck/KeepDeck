@@ -2365,6 +2365,79 @@ fn a_fork_whose_session_ends_before_the_binding_is_rolled_back_whole() {
     assert!(sim.state.forgotten.panes.contains(&pane));
 }
 
+/// How many times the page was told to retire `pane`.
+fn retired(sim: &Sim, pane: PaneId) -> usize {
+    sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::Retire { pane: retired, .. } if *retired == pane)).count()
+}
+
+/// A fork turned back retires its pane exactly when its hook was called —
+/// the hook built a plan, whether or not the pane got its rows — so what
+/// the page holds of the pane ends with the fork, and the fork ends only
+/// once the page has done it.
+#[test]
+fn a_fork_turned_back_retires_its_pane_exactly_when_its_hook_was_called() {
+    // Its pane added, then its session ending before the binding.
+    let (mut sim, ask, op) = forking();
+    sim.apply(|cmd| matches!(cmd, Cmd::Fork { .. }));
+    sim.send(Event::HookEnded { op });
+    sim.flush_journals();
+    sim.apply(|cmd| matches!(cmd, Cmd::AddPane { .. }));
+    sim.save();
+    let Some(Answer::Accepted { minted, .. }) = sim.answer(ask) else { panic!() };
+    let pane = minted.panes[0];
+    let session = sim.appear(LaunchOwner::Pane { pane }, None, Some("/repo"));
+    sim.send(Event::SessionEnded { session });
+    sim.apply(|cmd| matches!(cmd, Cmd::ReportBinding { .. }));
+    sim.drive();
+    assert!(sim.disk.is_empty(), "the fork has ended");
+    assert_eq!(retired(&sim, pane), 1, "added, then turned back");
+
+    // Its add refused: no rows to remove, a plan all the same.
+    let (mut sim, ask, op) = forking();
+    let pane = fork_pane(&sim, op);
+    sim.apply(|cmd| matches!(cmd, Cmd::Fork { .. }));
+    sim.send(Event::HookEnded { op });
+    sim.flush_journals();
+    sim.reply(|cmd| matches!(cmd, Cmd::AddPane { .. }), Outcome::Rejected { why: why("role") });
+    assert!(matches!(sim.answer(ask), Some(Answer::Refused { .. })));
+    sim.drive();
+    assert!(sim.disk.is_empty(), "the fork has ended");
+    assert_eq!(retired(&sim, pane), 1, "its add refused");
+
+    // Restored at boot: no hook of this launch was called, nothing was
+    // built in it.
+    let entry = Entry {
+        op: OpId(6),
+        workspace: ws(),
+        work: Work::Fork {
+            pane: PaneId(1),
+            source: SessionKey { agent: "claude".into(), session: "s".into() },
+            team: None,
+            ticket: None,
+            discard: None,
+        },
+        joined: vec![],
+        commands: vec![],
+        done: vec![],
+    };
+    let mut sim = Sim::booted_with(deck(), vec![entry]);
+    sim.drive();
+    assert!(sim.disk.is_empty(), "the fork has ended");
+    assert_eq!(retired(&sim, PaneId(1)), 0, "restored at boot");
+
+    // Its hook past its deadline: not while the call still runs — a build
+    // still running would put the plan back — and once it has ended.
+    let (mut sim, _, op) = forking();
+    let pane = fork_pane(&sim, op);
+    sim.send(Event::Timer(Timer::Fork { op }));
+    sim.apply(|cmd| matches!(cmd, Cmd::DropBuild { .. } | Cmd::Fork { .. }));
+    assert!(sim.pending_matching(|cmd| matches!(cmd, Cmd::Retire { .. })).is_empty(), "the hook's call still runs");
+    sim.send(Event::HookEnded { op });
+    sim.drive();
+    assert!(sim.state.ops.is_empty(), "the fork has ended");
+    assert_eq!(retired(&sim, pane), 1, "its hook past its deadline");
+}
+
 #[test]
 fn a_fork_hook_past_its_deadline_drops_the_build_and_holds_the_rollback_until_the_call_ends() {
     let (mut sim, ask, op) = forking();

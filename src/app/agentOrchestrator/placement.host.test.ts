@@ -124,7 +124,7 @@ describe("where a team runs, on the host", () => {
     expect(existsSync(path)).toBe(true);
   });
 
-  it("takes back a fork whose agent never takes up the conversation: its worktree and its branch go", async () => {
+  it("takes back a fork whose agent never takes up the conversation: its worktree, its branch and all the page held of its pane go", async () => {
     const d = await open();
     d.gitRepo();
     const { ws, session } = await d.agentUp();
@@ -135,6 +135,12 @@ describe("where a team runs, on the host", () => {
     await host().until("the fork is taken back whole", () => d.workspace().panes.length === 1 && (d.workspace().teams ?? []).length === 1 && host().journalEmpty(), 15_000);
     expect(existsSync(path)).toBe(false);
     expect(git(host().work, "branch", "--list", "kd/ws/fork-1")).toBe("");
+    // Its pane is retired with it, as every pane that leaves is: the plan
+    // its hook built, and what its process said, are gone too.
+    const fork = d.stub.plans.find((plan) => plan.hook === "fork")?.input.paneId;
+    if (!fork) throw new Error("no fork was planned");
+    expect(d.holdsPlan(fork)).toBe(false);
+    expect(d.runtime.statusTracker.getSnapshot().panes.has(fork)).toBe(false);
   });
 
   it("refuses to remove a folder no team holds while its workspace is being closed", async () => {
