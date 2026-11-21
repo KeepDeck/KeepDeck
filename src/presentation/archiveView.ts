@@ -4,11 +4,12 @@
  * many are already suspended (and stay so), what happens to a remote one,
  * that nothing of the workspace is deleted, and where to find it again.
  *
- * The counts are the archive's own rule ([`paneArchiveFate`]), not a
- * reading of what is running: an archive stops every local agent, a parked
- * or never-started one too, so "stops" counts them all.
+ * How many agents stop is the lifecycle machine's to say — its preview of
+ * the archive names them, every local agent a parked or never-started one
+ * too — not a reading of what is running. The ones already suspended and the
+ * remote ones are the panes' own facts.
  */
-import { paneArchiveFate, type Workspace } from "../domain/deck";
+import { remoteEndpointOf, type Workspace } from "../domain/deck";
 import type { IntentOutcome } from "../domain/lifecycle";
 import { intentOutcomeText } from "./lifecycleWords";
 import { byCount } from "./countWords";
@@ -41,16 +42,10 @@ function agentsSentence(stopping: number, suspended: number, detached: number): 
   return parts.join(" ");
 }
 
-export function archiveConfirmView(ws: Workspace): ArchiveConfirmView {
-  let stopping = 0;
-  let suspended = 0;
-  let detached = 0;
-  for (const pane of ws.panes) {
-    const fate = paneArchiveFate(ws, pane);
-    if (fate === "stopped") stopping++;
-    else if (fate === "already-suspended") suspended++;
-    else if (fate === "detached") detached++;
-  }
+/** The confirm for archiving `ws`, which stops `stopping` agents. */
+export function archiveConfirmView(ws: Workspace, stopping: number): ArchiveConfirmView {
+  const suspended = ws.panes.filter((pane) => pane.idle?.reason === "suspended").length;
+  const detached = ws.panes.filter((pane) => remoteEndpointOf(pane) !== null).length;
   return {
     title: `Archive “${ws.name}”?`,
     message: [

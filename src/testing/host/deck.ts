@@ -9,6 +9,7 @@ import type { Site } from "../../domain/lifecycle";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Consent } from "../../ipc/generated/lifecycle/Consent";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
+import type { Preview } from "../../ipc/generated/lifecycle/Preview";
 import type { PaneSessionState } from "../../app/ptyManager";
 import type { AppRuntime } from "../../app/runtime";
 import type { Host } from "./host";
@@ -64,6 +65,8 @@ export interface Deck {
   agentUp(): Promise<{ ws: WorkspaceRef; paneId: string; session: string }>;
   /** Another stub agent on `teamId`, up and bound. */
   memberUp(teamId: string, role: string): Promise<string>;
+  /** What the machine previews of `intent`, as a dialog asks for it. */
+  preview(intent: Intent): Promise<Preview>;
   /** The consent a close's dialog would send: what the machine's preview
    * says it ends — and, when the person ticks them, the folders it offers
    * to delete. */
@@ -193,6 +196,7 @@ export async function startDeck(host: Host): Promise<Deck> {
       await upAndBound(paneId);
       return paneId;
     },
+    preview: (intent) => previewIntent(intent),
     async consentFor(intent, deleting = false) {
       const preview = await previewIntent(intent);
       return { stops: preview.stops, folders: deleting ? preview.folders : [], tickets: deleting ? preview.creations : [] };

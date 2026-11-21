@@ -56,6 +56,8 @@ describe("an agent's operations on the host", () => {
   it("archives a workspace, restores it, and its agent comes back into its conversation when resumed", async () => {
     const d = await open();
     const { ws, paneId, session } = await d.agentUp();
+    // The confirm's count, as the machine previews it: the one agent it stops.
+    expect(await d.preview({ kind: "archive", workspace: ws.id })).toMatchObject({ refusal: null, stops: [paneId] });
     expect((await d.runtime.orchestrator.archive(ws)).kind).toBe("accepted");
     // Over, as the machine says it: the deck's marker settles a moment before
     // the archive's entry is off disk, while it still holds the workspace.

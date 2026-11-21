@@ -361,11 +361,15 @@ fn begin_retiring(state: &mut State, id: OpId) {
 }
 
 /// The panes an archive leaves suspended: each local agent it stops — not
-/// suspended already, not remote (that agent is its server's: only the
-/// thin client here ends), and in a folder that stands, its team's
-/// creation neither failed nor still under way. The one list: what the
-/// archive marks on the deck and in the world, and what its dialog says it
-/// stops.
+/// suspended already (that one keeps its own date), not remote (that agent
+/// is its server's: only the thin client here ends), and in a folder that
+/// stands, its team's creation neither failed (a card waiting for Retry,
+/// no agent behind it) nor still under way. Every such agent, whatever its
+/// process is doing: restoring wakes nobody, and a pane parked by the
+/// launch policy or never started has no durable marker without this one —
+/// it would rise by itself after a relaunch and a restore. The one list:
+/// what the archive marks on the deck and in the world, and what its dialog
+/// says it stops.
 pub fn archive_suspends(world: &World, workspace: &WorkspaceId) -> Vec<PaneId> {
     let stands = |team: &TeamId| world.teams.get(team).is_none_or(|team| !matches!(team.at, TeamAt::Creating { .. } | TeamAt::Failed { .. }));
     world

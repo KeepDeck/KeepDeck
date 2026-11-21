@@ -170,6 +170,7 @@ export function useAppController(runtime: AppRuntime) {
   });
   const archiveFlow = useArchiveFlow({
     workspaces: deck.workspaces,
+    preview: previewIntent,
     archive: orchestrator.archive,
     onRefused: pushAlert,
   });

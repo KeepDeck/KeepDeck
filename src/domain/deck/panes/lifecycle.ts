@@ -59,31 +59,6 @@ export function paneCanSuspend(ws: PlacementOwner, pane: Pane, blocked: boolean)
  *  shape the session picker already uses for the same job. */
 export type PaneSuspendBlock = "stopped" | "provisioning" | "remote";
 
-/**
- * What putting its workspace away does to a pane — the archive's own rule,
- * not a suspend's: a suspend refuses a pane that is already down, and an
- * archive leaves EVERY local agent down durably, because restoring wakes
- * nobody. A pane parked by the launch policy, or never started in a
- * workspace nobody opened, has no durable marker; without one it would rise
- * on its own after a restart and a restore.
- *
- * - `stopped` — a local agent, whatever its process is doing: it is marked
- *   suspended (one still being created, once its directory lands).
- * - `already-suspended` — down by the person's own suspend; its date stays.
- * - `detached` — remote: the agent is the server's; the archive ends only
- *   its thin client here, and suspend is refused for it by design.
- * - `untouched` — its team's create failed: a card waiting for Retry, with
- *   no agent behind it.
- */
-export type PaneArchiveFate = "stopped" | "already-suspended" | "detached" | "untouched";
-
-export function paneArchiveFate(ws: PlacementOwner, pane: Pane): PaneArchiveFate {
-  if (pane.idle?.reason === "suspended") return "already-suspended";
-  if (remoteEndpointOf(pane) !== null) return "detached";
-  const placement = panePlacement(ws, pane);
-  return placement.kind === "provisioning" && createFailed(placement) ? "untouched" : "stopped";
-}
-
 /** What a suspend request did. Not a boolean: three surfaces have to explain
  * a refusal, and each one guessing produced a different sentence — one of
  * them false. The reason travels with the answer so they share the words
