@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { useHost } from "../testing/host/host";
-import { startDeck, type Deck } from "../testing/host/deck";
+import { startDeck, type AgentAsk, type Deck } from "../testing/host/deck";
 import type { StubAgentControl } from "../testing/host/stubPlugin";
 
 /**
@@ -29,9 +29,9 @@ describe("a pane's reports through the bridge, on the host", () => {
   const usageOf = (d: Deck, paneId: string) => d.runtime.usageManager.getSnapshot().panes.get(paneId);
   /** A stub agent added to the deck's first workspace, its process running
    * — bound to nothing yet, when its agent reports nothing at start. */
-  const live = async (d: Deck, endpoint?: string) => {
+  const live = async (d: Deck, ask: Partial<AgentAsk> = {}) => {
     await d.workspaceUp();
-    const paneId = await d.addAgent({ role: "lead", ...(endpoint !== undefined && { endpoint }) });
+    const paneId = await d.addAgent({ role: "lead", ...ask });
     await host().until(`${paneId} runs`, () => d.slot(paneId) === "live", 15_000);
     return paneId;
   };
@@ -125,12 +125,53 @@ describe("a pane's reports through the bridge, on the host", () => {
 
     it("binds no conversation for an agent on another machine: its thin client's report names no local session", async () => {
       const d = await open();
-      const paneId = await live(d, "ws://vps:4500");
+      const paneId = await live(d, { endpoint: "ws://vps:4500" });
       // The thin client runs here and reports at start, as the agent's
       // hooks do — a restore must not resume it locally.
       await host().until("its binding was heard", () => d.output(paneId).includes("stub: posted session.bound 204"));
       expect(d.pane(paneId).location).toEqual({ kind: "remote", endpoint: "ws://vps:4500" });
       expect(d.pane(paneId).session).toBeUndefined();
+    });
+  });
+
+  describe("an unbinding", () => {
+    const unbound = { type: "session.unbound" };
+
+    it("forgets the pane's conversation when its own agent leaves it, and its usage with it", async () => {
+      const d = await open();
+      const { ws, paneId } = await d.agentUp();
+      await d.report(paneId, usage(40));
+      // The person pressed /new and has sent nothing yet: the pane comes
+      // back to the empty screen they left, not the conversation before.
+      expect(await d.report(paneId, unbound)).toBe(204);
+      expect(d.pane(paneId).session).toBeUndefined();
+      expect(usageOf(d, paneId)).toBeUndefined();
+      expect((await d.runtime.orchestrator.restart(ws.id, paneId, "resume")).kind).toBe("accepted");
+      await host().until("a new process", () => d.launches(paneId).length === 2 && d.slot(paneId) === "live", 15_000);
+      expect(d.launches(paneId)[1]?.args).not.toContain("--resume");
+    });
+
+    it("hears it only from the pane's own agent: a wrong secret, another process, another agent change nothing", async () => {
+      const d = await open();
+      const { paneId, session } = await d.agentUp();
+      await d.report(paneId, usage(40));
+      expect(await d.report(paneId, { ...unbound, token: "stolen" })).toBe(204);
+      // A process of the pane's terminal its reports are not pinned to.
+      expect(await d.report(paneId, unbound, "child")).toBe(204);
+      expect(await d.report(paneId, { ...unbound, payload: { agent: "kimi" } })).toBe(204);
+      expect(d.pane(paneId).session?.id).toBe(session);
+      expect(usageOf(d, paneId)?.context?.usedPct).toBe(40);
+    });
+
+    it("has nothing to forget for a pane bound to nothing, or one on another machine: their usage stays", async () => {
+      const d = await open({ unbound: true });
+      const local = await live(d);
+      const remote = await live(d, { role: "impl-1", endpoint: "ws://vps:4500" });
+      for (const paneId of [local, remote]) {
+        await d.report(paneId, usage(40));
+        expect(await d.report(paneId, unbound)).toBe(204);
+        expect(usageOf(d, paneId)?.context?.usedPct).toBe(40);
+      }
     });
   });
 });
