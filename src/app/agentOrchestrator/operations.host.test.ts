@@ -27,6 +27,8 @@ describe("an agent's operations on the host", () => {
   };
   const backUp = (d: Deck, paneId: string, launches: number) => () =>
     d.launches(paneId).length === launches && d.slot(paneId) === "live" && d.pane(paneId).session !== undefined;
+  /** The pane's terminal mount generation: what a remount moves on. */
+  const epoch = (d: Deck, paneId: string) => d.runtime.orchestrator.getView().epochs[paneId] ?? 0;
 
   it("suspends an agent, and resumes it into its own conversation", async () => {
     const d = await open();
@@ -37,10 +39,13 @@ describe("an agent's operations on the host", () => {
     // the suspend still holds the pane — a resume then hears «busy».
     await host().until("suspended, its slot empty", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none");
     expect(d.pane(paneId).idle?.reason).toBe("suspended");
+    // Its terminal stays mounted: nothing replaces the process in place.
+    expect(epoch(d, paneId)).toBe(0);
     await d.runtime.orchestrator.resume(ws.id, paneId);
     await host().until("it is back", backUp(d, paneId, 2));
     expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
     expect(d.pane(paneId).session?.id).toBe(session);
+    expect(d.pane(paneId).idle).toBeUndefined();
   });
 
   it("suspends a team, and brings every member back", async () => {
@@ -100,9 +105,27 @@ describe("an agent's operations on the host", () => {
   it("restarts an agent fresh, into a new conversation", async () => {
     const d = await open();
     const { ws, paneId, session } = await d.agentUp();
+    const before = epoch(d, paneId);
     expect((await d.runtime.orchestrator.restart(ws.id, paneId, "fresh")).kind).toBe("accepted");
     await host().until("a new process, a new conversation", () => backUp(d, paneId, 2)() && d.pane(paneId).session?.id !== session);
     expect(lastArgs(d, paneId)).not.toContain("--resume");
+    // Remounted: the remount is what lets the pane's restart card go.
+    expect(epoch(d, paneId)).toBeGreaterThan(before);
+  });
+
+  it("remounts a restarted agent when its old process is let go of, before the new one can start", async () => {
+    const d = await open();
+    const { ws, paneId } = await d.agentUp();
+    // The next process's lease is not answered yet: nothing new starts.
+    const leasing = host().hold({ request: "lifecycle_lease" });
+    const before = epoch(d, paneId);
+    expect((await d.runtime.orchestrator.restart(ws.id, paneId, "fresh")).kind).toBe("accepted");
+    // The remount belongs to the letting go, not to the launch: the card is
+    // freed with nothing started yet.
+    await host().until("let go of and remounted", () => d.slot(paneId) === "none" && epoch(d, paneId) > before);
+    expect(d.launches(paneId)).toHaveLength(1);
+    leasing.release();
+    await host().until("then the new one starts", backUp(d, paneId, 2));
   });
 
   it("restarts an agent into the conversation it was in", async () => {
