@@ -239,7 +239,8 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     return answer ?? 0;
   }
   /** A stub run outside every pane's terminal, armed with the pane's
-   * bridge, sends the envelope naming no process; the bridge's answer. */
+   * bridge, sends the envelope naming no process — its reporter left out,
+   * as a hook that cannot tell its process leaves it; the bridge's answer. */
   async function postOutside(paneId: string, envelope: Envelope, cue: string): Promise<number> {
     const armed = opened(paneId).pop()?.armed;
     if (!armed) throw new Error(`no bridge armed for ${paneId}`);
@@ -247,7 +248,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     outside.push(reporter);
     let said = "";
     reporter.stdout.on("data", (chunk) => (said += String(chunk)));
-    reporter.stdin.write(`post ${JSON.stringify({ ...envelope, payload: { reporter: "", ...envelope.payload }, cue })}\n`);
+    reporter.stdin.write(`post ${JSON.stringify({ ...envelope, payload: { reporter: null, ...envelope.payload }, cue })}\n`);
     let answer: number | null = null;
     await host.until(`the outside report ${cue} for ${paneId} is answered`, () => (answer = answerTo(said, cue)) !== null);
     reporter.kill();

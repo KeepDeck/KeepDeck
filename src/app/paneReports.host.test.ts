@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useHost } from "../testing/host/host";
 import { startDeck, type AgentAsk, type Deck } from "../testing/host/deck";
 import type { StubAgentControl } from "../testing/host/stubPlugin";
@@ -172,6 +172,122 @@ describe("a pane's reports through the bridge, on the host", () => {
         expect(await d.report(paneId, unbound)).toBe(204);
         expect(usageOf(d, paneId)?.context?.usedPct).toBe(40);
       }
+    });
+  });
+
+  describe("a report", () => {
+    const status = (event: string) => ({ type: "agent.status", payload: { event } });
+    const activityOf = (d: Deck, paneId: string) => d.runtime.statusTracker.getSnapshot().panes.get(paneId)?.state;
+    /** An agent up, and at its prompt as it said it was coming up. */
+    const ready = async (d: Deck) => {
+      const up = await d.agentUp();
+      await host().until("it said it is ready", () => activityOf(d, up.paneId) === "ready");
+      return up;
+    };
+
+    it("applies what the pane's own agent reports: its status, its usage", async () => {
+      const d = await open();
+      const { paneId } = await ready(d);
+      expect(await d.report(paneId, status("turn-start"))).toBe(204);
+      expect(activityOf(d, paneId)).toBe("working");
+      expect(await d.report(paneId, usage(40))).toBe(204);
+      expect(usageOf(d, paneId)?.context?.usedPct).toBe(40);
+    });
+
+    it("drops a report under a secret that is not the pane's plan's", async () => {
+      const d = await open();
+      const { paneId } = await ready(d);
+      expect(await d.report(paneId, { ...status("turn-start"), token: "stolen" })).toBe(204);
+      expect(await d.report(paneId, { ...usage(40), token: "stolen" })).toBe(204);
+      expect(activityOf(d, paneId)).toBe("ready");
+      expect(usageOf(d, paneId)).toBeUndefined();
+    });
+
+    it("drops a report for a pane the deck no longer holds", async () => {
+      const d = await open();
+      const { ws, paneId } = await ready(d);
+      const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: paneId, consent: { stops: [], folders: [], tickets: [] } });
+      expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId, consent })).kind).toBe("accepted");
+      await host().until("the pane is gone", () => !d.workspace().panes.some((pane) => pane.id === paneId) && d.slot(paneId) === "none");
+      // A hook that outlived its agent, under the pane's old secret.
+      expect(await d.report(paneId, usage(40), "outside")).toBe(204);
+      expect(usageOf(d, paneId)).toBeUndefined();
+    });
+
+    it("takes no claim about a process that is gone — its status, its leaving the conversation — but its usage, which outlives it", async () => {
+      const d = await open();
+      const { paneId, session } = await ready(d);
+      d.type(paneId, "exit 1");
+      await host().until("its agent ended", () => d.slot(paneId) === "exited");
+      const before = activityOf(d, paneId);
+      // A hook outliving its agent, naming no process: the bridge has no
+      // terminal to judge it by, the page has its own rules.
+      expect(await d.report(paneId, status("turn-start"), "outside")).toBe(204);
+      expect(activityOf(d, paneId)).toBe(before);
+      expect(await d.report(paneId, { type: "session.unbound" }, "outside")).toBe(204);
+      expect(d.pane(paneId).session?.id).toBe(session);
+      expect(await d.report(paneId, usage(70), "outside")).toBe(204);
+      expect(usageOf(d, paneId)?.context?.usedPct).toBe(70);
+    });
+
+    it("takes a status from a process still starting: its hook can beat the spawn's answer", async () => {
+      const d = await open();
+      await d.workspaceUp();
+      const spawned = host().hold({ reply: "pty_open" });
+      const paneId = await d.addAgent({ role: "lead" });
+      await spawned.caught;
+      await host().until("it said it is ready", () => d.output(paneId).includes("stub: posted agent.status 204 start"));
+      expect(d.slot(paneId)).toBe("starting");
+      expect(activityOf(d, paneId)).toBe("ready");
+      spawned.release();
+    });
+
+    it("is refused at the bridge when it names no agent", async () => {
+      const d = await open();
+      const { paneId } = await ready(d);
+      expect(await d.report(paneId, { ...usage(40), payload: { usedPct: 40, agent: "" } })).toBe(400);
+      expect(usageOf(d, paneId)).toBeUndefined();
+    });
+  });
+
+  describe("the page going", () => {
+    /** The events the page listened to since `mark` and has not let go of. */
+    const stillHeard = (mark: number): string[] => {
+      const held = new Map<number, string>();
+      for (const { way, line } of host().tape.slice(mark)) {
+        if (way !== "page →" || !line.startsWith('{"cmd":"plugin:event|')) continue;
+        const said: unknown = JSON.parse(line);
+        const cmd = typeof said === "object" && said !== null ? Reflect.get(said, "cmd") : null;
+        const args = typeof said === "object" && said !== null ? Reflect.get(said, "args") : null;
+        if (typeof args !== "object" || args === null) continue;
+        if (cmd === "plugin:event|listen") held.set(Number(Reflect.get(args, "handler")), String(Reflect.get(args, "event")));
+        if (cmd === "plugin:event|unlisten") held.delete(Number(Reflect.get(args, "eventId")));
+      }
+      return [...held.values()];
+    };
+    const aWhile = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+    it("lets go of every event it listened to", async () => {
+      const mark = host().tape.length;
+      const d = await open();
+      await d.agentUp();
+      d.dispose();
+      deck = null;
+      await aWhile();
+      expect(stillHeard(mark)).toEqual([]);
+    });
+
+    it("lets go of them even when it goes before its listens were answered", async () => {
+      const mark = host().tape.length;
+      vi.resetModules();
+      const { createAppRuntime } = await import("./runtime");
+      const { createCommandRegistry } = await import("../domain/commands/registry");
+      const runtime = createAppRuntime(undefined, createCommandRegistry(), () => Promise.resolve([]));
+      runtime.start();
+      runtime.dispose();
+      await aWhile();
+      expect(host().tape.slice(mark).some(({ line }) => line.startsWith('{"cmd":"plugin:event|listen"'))).toBe(true);
+      expect(stillHeard(mark)).toEqual([]);
     });
   });
 });

@@ -197,6 +197,8 @@ export async function startHost(): Promise<Host> {
     const payload: Record<string, unknown> = typeof args === "object" && args !== null && !Array.isArray(args) ? { ...args } : {};
     // The event plugin: the page's own listen names the event, and the host
     // is asked to forward it — no list of event names is kept anywhere.
+    // On the tape as the page asks them: what it listens to, and lets go of.
+    if (cmd === "plugin:event|listen" || cmd === "plugin:event|unlisten") note("page →", JSON.stringify({ cmd, args: payload }));
     if (cmd === "plugin:event|listen") {
       const event = text(payload.event);
       const handler = Number(payload.handler);
