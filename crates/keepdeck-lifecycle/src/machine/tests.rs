@@ -258,6 +258,21 @@ impl Sim {
     /// One round of a world that does what it is asked, each cleanup step
     /// with the result `step` gives it.
     fn round_with(&mut self, step: &dyn Fn(&Clean) -> StepResult) -> bool {
+        self.round_answering(step, &|_| true)
+    }
+
+    /// Drive a world that never answers the commands `unanswered` picks —
+    /// a binding report for a launch that never came, say.
+    fn drive_leaving(&mut self, unanswered: &dyn Fn(&Cmd) -> bool) {
+        for _ in 0..100 {
+            if !self.round_answering(&|_| Ok(()), &|cmd| !unanswered(cmd)) {
+                return;
+            }
+        }
+        panic!("the machine did not settle: {:#?}", self.state.ops);
+    }
+
+    fn round_answering(&mut self, step: &dyn Fn(&Clean) -> StepResult, answered: &dyn Fn(&Cmd) -> bool) -> bool {
         let before = self.state.clone();
         self.write_journals();
         for effect in self.owed() {
@@ -279,7 +294,7 @@ impl Sim {
             };
             self.send(event);
         }
-        self.apply(|_| true);
+        self.apply(answered);
         self.save();
         // The fork step's hook has ended once its result is in.
         let forks: Vec<OpId> = self.state.ops.iter().filter(|(_, op)| matches!(&op.kind, Kind::Fork(fork) if fork.hook_sent && !fork.hook_ended)).map(|(&id, _)| id).collect();
@@ -1961,6 +1976,100 @@ fn a_fork_hook_past_its_deadline_drops_the_build_and_holds_the_rollback_until_th
         "the late result's scaffolding: {:?}",
         sim.cleaned
     );
+}
+
+/// A fork into a team made for it, in a worktree of its own, run up to its
+/// binding: its op, its pane and its checkout.
+fn forked_into_its_own_worktree() -> (Sim, OpId, PaneId, Dir) {
+    let mut sim = Sim::booted();
+    let ask = sim.intent(Intent::Continue {
+        workspace: ws(),
+        landing: Landing::NewTeam { team: team("f"), site: Site::New { place: None, base: None }, draft: draft() },
+        source: SessionKey { agent: "claude".into(), session: "s1".into() },
+        how: Continuation::Fork,
+        member: draft(),
+    });
+    let mut checkout = None;
+    for _ in 0..12 {
+        sim.write_journals();
+        for effect in sim.owed() {
+            match effect {
+                Effect::Probe { op, path, .. } => sim.send(Event::Probed { op, path, taken: false }),
+                Effect::CreateWorktree { op, ticket } => {
+                    checkout = Some(ticket.path.clone());
+                    sim.send(Event::Created { op, result: Ok(()) });
+                }
+                _ => {}
+            }
+        }
+        // The hook's call ends with its answer.
+        let hooked = !sim.pending_matching(|cmd| matches!(cmd, Cmd::Fork { .. })).is_empty();
+        sim.apply(|cmd| !matches!(cmd, Cmd::ReportBinding { .. }));
+        if hooked {
+            let op = *sim.state.ops.keys().next().unwrap();
+            sim.send(Event::HookEnded { op });
+        }
+        sim.save();
+    }
+    let op = *sim.state.ops.keys().next().unwrap();
+    let Some(Answer::Accepted { minted, .. }) = sim.answer(ask) else { panic!("{:?}", sim.answer(ask)) };
+    assert!(matches!(&sim.state.ops[&op].kind, Kind::Fork(fork) if fork.stage == ForkStage::Binding), "{:#?}", sim.state.ops[&op]);
+    (sim, op, minted.panes[0], checkout.expect("the fork's worktree"))
+}
+
+/// A Close that takes a fork's pane before the binding came — its launch
+/// cancelled at the start boundary, so no session of it ever ends — ends the
+/// fork as one that did not finish, and waits for that end: nothing of the
+/// fork outlives it.
+#[test]
+fn a_fork_whose_pane_a_close_takes_before_its_binding_is_taken_back_and_the_close_waits_for_it() {
+    let (mut sim, ask, op) = forking();
+    sim.apply(|cmd| matches!(cmd, Cmd::Fork { .. }));
+    sim.send(Event::HookEnded { op });
+    sim.flush_journals();
+    sim.apply(|cmd| matches!(cmd, Cmd::AddPane { .. }));
+    sim.save();
+    let Some(Answer::Accepted { minted, .. }) = sim.answer(ask) else { panic!() };
+    let pane = minted.panes[0];
+    assert_eq!(sim.pending_matching(|cmd| matches!(cmd, Cmd::ReportBinding { .. })).len(), 1);
+
+    let close = sim.close(close_agent(pane.0));
+    sim.drive();
+    assert!(matches!(sim.answer(close), Some(Answer::Accepted { .. })));
+    assert!(
+        sim.cleaned.contains(&Clean::Discard { plugin: "claude".into(), paths: vec!["/c/scratch".into(), "/c/copy".into()] }),
+        "taken back as a fork that did not finish: {:?}",
+        sim.cleaned
+    );
+    assert!(sim.state.ops.is_empty(), "neither the fork nor its close is left: {:#?}", sim.state.ops);
+    assert!(sim.disk.is_empty());
+    assert!(!sim.state.world.panes.contains_key(&pane));
+}
+
+/// A workspace closed while a fork into a worktree of its own waits for its
+/// binding: the checkout made for the fork goes by the Close's consent —
+/// deleted, with its branch, when the person ticked it; kept when not —
+/// never by the fork's own undo. Its rows go either way.
+#[test]
+fn a_close_during_a_forks_binding_deletes_the_forks_checkout_by_its_consent_only() {
+    for ticked in [true, false] {
+        let (mut sim, _op, pane, checkout) = forked_into_its_own_worktree();
+        // The dialog's one box: every folder it offers, or none.
+        let offer = super::queries::close_workspace_offer(&sim.state, &ws());
+        assert!(offer.folders.iter().any(|folder| folder.path == checkout), "the fork's checkout is offered");
+        let folders: Vec<Folder> = if ticked { offer.folders } else { Vec::new() };
+        let close = sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent { folders, ..Consent::default() } });
+        // Its launch cancelled at the start boundary, the fork's pane is
+        // never bound: nobody answers that report.
+        sim.drive_leaving(&|cmd| matches!(cmd, Cmd::ReportBinding { .. }));
+        assert!(matches!(sim.answer(close), Some(Answer::Accepted { .. })), "ticked {ticked}: {:?}", sim.answer(close));
+        let removed = sim.cleaned.iter().filter(|clean| matches!(clean, Clean::Checkout { path, .. } if *path == checkout)).count();
+        let branch = sim.cleaned.iter().any(|clean| matches!(clean, Clean::Branch { name, .. } if name.starts_with("kd/app/")));
+        assert_eq!((removed, branch), if ticked { (1, true) } else { (0, false) }, "ticked {ticked}: {:?}", sim.cleaned);
+        assert!(sim.state.ops.is_empty(), "ticked {ticked}: {:#?}", sim.state.ops);
+        assert!(!sim.state.world.panes.contains_key(&pane));
+        assert!(sim.state.world.workspaces.is_empty());
+    }
 }
 
 /// The fork's helpers in its own checkout: a process the hook left running

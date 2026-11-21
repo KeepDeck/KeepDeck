@@ -1091,13 +1091,23 @@ pub fn advance_fork(state: &mut State, id: OpId, fx: &mut Fx) {
                 }
                 Some(None) => {
                     // Whichever comes first decides: the session's end before
-                    // the binding is a fork that did not finish.
+                    // the binding is a fork that did not finish — and so is
+                    // its pane taken by a teardown, whose stop may come
+                    // before any session does: a launch cancelled at the
+                    // start boundary makes none, and no binding ever comes.
                     let ended = state.sessions.values().any(|row| row.owner.pane() == Some(pane) && row.ended);
                     let live = state.sessions.values().any(|row| row.owner.pane() == Some(pane) && !row.ended);
-                    if ended && !live {
+                    let taken = taken_by_teardown(state, pane);
+                    if (ended && !live) || taken.is_some() {
                         let op = state.ops.get_mut(&id).expect("the op");
                         if let Some(fork) = fork_mut(op) {
                             fork.stage = ForkStage::Undoing;
+                            // A Close's own consent decides the checkout made
+                            // for the fork: deleted if the person agreed, kept
+                            // if not — never by the fork's undo.
+                            if let (Some(Taken { by, close: true }), Some(create)) = (taken, fork.create.as_mut()) {
+                                create.abandon(by);
+                            }
                         }
                     }
                 }
@@ -1275,7 +1285,11 @@ fn undo_fork(state: &mut State, id: OpId, fx: &mut Fx) {
         }
     }
     let steps_done = undo_steps(&fork).iter().all(|step| fork.done.contains(step)) || fork.failed;
-    if !steps_done || !state.ops[&id].all_settled(saved) {
+    // Its binding report is no longer waited for: a launch cancelled at the
+    // start boundary is never bound, and a binding that comes late changes
+    // nothing of a fork taken back.
+    let settled = state.ops[&id].sent.iter().filter(|sent| !matches!(sent.cmd, Cmd::ReportBinding { .. })).all(|sent| sent.settled(saved));
+    if !steps_done || !settled {
         return;
     }
     if fork.failed {
@@ -1294,10 +1308,37 @@ fn undo_steps(fork: &Fork) -> Vec<Step> {
     if fork.discard.is_some() {
         steps.push(Step::Discard);
     }
-    if let Some(ticket) = fork.create.as_ref().and_then(|create| create.ticket.as_ref()) {
+    // A checkout a Close took over is the Close's, by its consent.
+    if let Some(ticket) = fork.create.as_ref().filter(|create| !create.abandoned).and_then(|create| create.ticket.as_ref()) {
         steps.push(Step::Checkout { path: ticket.path.clone() });
     }
     steps
+}
+
+/// A teardown that has a pane in hand: whose it is, and whether it is a
+/// Close — the one kind whose consent decides the folders it ends.
+#[derive(Clone, Copy)]
+struct Taken {
+    by: OpId,
+    close: bool,
+}
+
+/// The teardown under way, if any, that takes `pane`: stops it to end or
+/// keep it down. A restart is not one — it brings the pane back up.
+fn taken_by_teardown(state: &State, pane: PaneId) -> Option<Taken> {
+    state.ops.iter().find_map(|(&by, op)| {
+        let teardown = op.teardown()?;
+        let takes = teardown.phase != super::TearPhase::Abandoned && teardown.kind != crate::model::Teardown::Restart && teardown.panes.contains(&pane);
+        takes.then_some(Taken { by, close: teardown.is_close() })
+    })
+}
+
+/// A fork over one of these panes is still under way — neither ended nor
+/// owed to the next launch. A teardown of its pane waits for it: the fork
+/// takes back what it made only once its pane is quiet, and the teardown's
+/// rows and removals must not outlive it.
+pub fn fork_alive_over(state: &State, except: OpId, panes: &[PaneId]) -> bool {
+    state.ops.iter().any(|(&id, op)| id != except && !op.owed && matches!(&op.kind, Kind::Fork(fork) if panes.contains(&fork.pane)))
 }
 
 pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event> {

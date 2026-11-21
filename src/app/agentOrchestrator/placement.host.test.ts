@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useHost } from "../../testing/host/host";
@@ -71,6 +71,58 @@ describe("where a team runs, on the host", () => {
     expect(await d.upAndBound(fork)).not.toBe(session);
     expect(firstCwd(d, fork)).toBe(path);
     expect(git(path, "rev-parse", "--abbrev-ref", "HEAD")).toBe("kd/ws/fork-1");
+  });
+
+  /** A fork of the agent's conversation into a worktree of its own, asked. */
+  const forkIntoWorktree = (d: Deck, ws: { id: string }, session: string, path: string) =>
+    d.runtime.orchestrator
+      .forkSession(ws.id, { agent: "stub", sessionId: session, cwd: host().work }, { kind: "worktree", path, branch: "kd/ws/fork-1" }, { role: "lead" })
+      .catch((error: unknown) => error);
+  const journalEmpty = () => readdirSync(join(host().home, "lifecycle")).every((name) => !name.startsWith("op-"));
+
+  for (const ticked of [true, false]) {
+    it(`closes a workspace while a fork is making its team: the fork's worktree ${ticked ? "goes, with its branch, as the person ticked" : "stays, unticked"}, nothing left owed`, async () => {
+      const d = await open();
+      d.gitRepo();
+      const { ws, paneId, session } = await d.agentUp();
+      // The fork's team is made; its launch plan is asked of the page.
+      const planning = host().hold({ heard: '"kind":"fork"' });
+      const path = join(host().trees, "fork-1");
+      const asked = forkIntoWorktree(d, ws, session, path);
+      await planning.caught;
+      const consent = await d.consentFor({ kind: "closeWorkspace", workspace: ws.id, consent: { stops: [], folders: [], tickets: [] } }, ticked);
+      expect(consent.stops).toHaveLength(2);
+      const closing = d.runtime.orchestrator.close({ kind: "workspace", workspace: ws, consent });
+      planning.release();
+      expect((await closing).kind).toBe("accepted");
+      await asked;
+      await host().until("the workspace is gone, no agent left", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0 && d.slot(paneId) === "none", 15_000);
+      await host().until("nothing of the close or the fork is owed", journalEmpty, 15_000);
+      expect(existsSync(path)).toBe(!ticked);
+      expect(git(host().work, "branch", "--list", "kd/ws/fork-1") === "").toBe(ticked);
+    });
+  }
+
+  it("closes a fork's agent before its launch is up: the fork is taken back, its worktree kept, nothing left owed", async () => {
+    const d = await open();
+    d.gitRepo();
+    const { ws, session } = await d.agentUp();
+    // The fork's process is not opened yet: it is never bound.
+    const starting = host().hold({ request: "pty_open" });
+    const path = join(host().trees, "fork-1");
+    const asked = d.runtime.orchestrator.forkSession(ws.id, { agent: "stub", sessionId: session, cwd: host().work }, { kind: "worktree", path, branch: "kd/ws/fork-1" }, { role: "lead" });
+    await starting.caught;
+    const forked = await asked;
+    if (forked.kind !== "accepted") throw new Error(`no fork: ${JSON.stringify(forked)}`);
+    const fork = forked.minted.panes[0];
+    if (!fork) throw new Error("the fork minted no pane");
+    const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: fork, consent: { stops: [], folders: [], tickets: [] } });
+    expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId: fork, consent })).kind).toBe("accepted");
+    starting.release();
+    await host().until("the fork's agent and its team are gone", () => !d.workspace().panes.some((pane) => pane.id === fork) && (d.workspace().teams ?? []).length === 1, 15_000);
+    await host().until("nothing of the close or the fork is owed", journalEmpty, 15_000);
+    // An agent's close deletes no folder: the worktree made for the fork stays.
+    expect(existsSync(path)).toBe(true);
   });
 
   it("refuses to remove a folder no team holds while its workspace is being closed", async () => {

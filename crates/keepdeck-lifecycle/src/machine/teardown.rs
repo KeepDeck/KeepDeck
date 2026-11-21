@@ -436,7 +436,8 @@ fn stopped(state: &State, id: OpId) -> bool {
     let leases = teardown.waited.leases || !leases_out(state, op, teardown);
     let creations = !state.ops.iter().any(|(&other, op)| other != id && super::create::still_creating_for(op, &teardown.teams));
     let joined = teardown.joined.iter().all(|child| joined_done(state, *child));
-    sessions && boundary && leases && creations && joined
+    let forks = !super::create::fork_alive_over(state, id, &teardown.panes);
+    sessions && boundary && leases && creations && joined && forks
 }
 
 /// A joined operation is done enough once its sessions are stopped and its
