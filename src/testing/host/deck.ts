@@ -76,15 +76,17 @@ export interface Deck {
   dispose(): void;
 }
 
-/** Whether the page has heard the machine open its barrier: a lifecycle
- * snapshot that says so, on the pipe the page reads it from. */
+/** Whether the page has heard the machine of the app's current launch open
+ * its barrier: a lifecycle snapshot that says so, on the pipe the page reads
+ * it from. */
 function heardOpen(host: Host): boolean {
-  return host.tape.some(({ way, line }) => way === "← host" && line.includes('"open":true'));
+  return host.tape.slice(host.launchedAt()).some(({ way, line }) => way === "← host" && line.includes('"open":true'));
 }
 
-/** The machine's last snapshot the page heard, from the lifecycle channel. */
+/** The machine's last snapshot the page heard in the app's current launch,
+ * from the lifecycle channel. */
 function lastSnapshot(host: Host): object | null {
-  for (let at = host.tape.length - 1; at >= 0; at -= 1) {
+  for (let at = host.tape.length - 1; at >= host.launchedAt(); at -= 1) {
     const { way, line } = host.tape[at];
     if (way !== "← host" || !line.includes('"kind":"snapshot"')) continue;
     const said: unknown = JSON.parse(line);

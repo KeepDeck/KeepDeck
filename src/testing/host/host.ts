@@ -33,6 +33,11 @@ export interface Held {
   release(): void;
 }
 
+/** How the app ends before it is launched again: quit as the person quits
+ * it — its sessions stopped, its work left as it stands — or crashed:
+ * killed, nothing of it finishing. */
+export type Ending = "quit" | "crash";
+
 export interface Host {
   /** The test's own KeepDeck home. */
   home: string;
@@ -41,9 +46,14 @@ export interface Host {
   /** A folder for the worktrees the test's teams are given. */
   trees: string;
   tape: TapeLine[];
+  /** Where on the tape the app's current launch begins. */
+  launchedAt(): number;
   hold(what: Hold): Held;
   /** Wait for `ok` to hold, polling; fail as "never: `label`" past `ms`. */
   until(label: string, ok: () => boolean, ms?: number): Promise<void>;
+  /** End the app as `how` says, and launch it again on the same home and
+   * folders. The page it served is gone with it: start a deck anew. */
+  relaunch(how: Ending): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -52,6 +62,12 @@ interface Holding {
   queued: (() => void)[];
   caught: () => void;
   released: boolean;
+}
+
+/** One launch of the app: its process, and when it has exited. */
+interface Launch {
+  child: ChildProcessWithoutNullStreams;
+  exited: Promise<void>;
 }
 
 /** The Tauri internals `mockIPC` installs: channel and event callbacks. */
@@ -71,16 +87,16 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** How long a quit has to end the app before it is killed — a little more
+ * than its sessions' own stop. */
+const QUIT_WAIT_MS = 10_000;
+
 /** Start the host on a fresh home and wait until the app's setup has run. */
 export async function startHost(): Promise<Host> {
   if (typeof Reflect.get(globalThis, "window") === "undefined") Reflect.set(globalThis, "window", globalThis);
   const home = realpathSync(mkdtempSync(join(tmpdir(), "kd-host-home-")));
   const work = realpathSync(mkdtempSync(join(tmpdir(), "kd-host-work-")));
   const trees = realpathSync(mkdtempSync(join(tmpdir(), "kd-host-trees-")));
-  const child: ChildProcessWithoutNullStreams = spawn(inject("hostBinary"), [], {
-    env: { ...process.env, KEEPDECK_HOME: home },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
   const started = performance.now();
   const tape: TapeLine[] = [];
   const note = (way: TapeLine["way"], line: string) => tape.push({ ms: Math.round(performance.now() - started), way, line });
@@ -89,9 +105,17 @@ export async function startHost(): Promise<Host> {
   const holdings: Holding[] = [];
   let nextId = 0;
   let nextEvent = 0;
-  let readySignal = () => {};
-  const ready = new Promise<void>((resolve) => (readySignal = resolve));
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  let launchedAt = 0;
+  /** Whether the app is up to be written to: not between an end and the
+   * launch after it. */
+  let running = false;
+
+  /** Write a line to the app, if it is up; whether it was. */
+  function write(line: string): boolean {
+    if (!running) return false;
+    current.child.stdin.write(`${line}\n`);
+    return true;
+  }
 
   /** Run `go` now, or queue it on the first holding it matches. */
   function through(matches: (what: Hold) => boolean, go: () => void): void {
@@ -101,31 +125,67 @@ export async function startHost(): Promise<Host> {
     holding.caught();
   }
 
-  createInterface({ input: child.stderr }).on("line", (line) => note("host log", line));
-  createInterface({ input: child.stdout }).on("line", (line) => {
-    note("← host", line);
-    const said: unknown = JSON.parse(line);
-    if (typeof said !== "object" || said === null) return;
-    if (field(said, "ready") === true) return readySignal();
-    const channel = field(said, "channel");
-    if (typeof channel === "number") {
-      return through(
-        (what) => "heard" in what && line.includes(what.heard),
-        () => runCallback(channel, { index: field(said, "index"), message: field(said, "message") }),
-      );
+  /** Launch the app on the test's home, and wait until its setup has run. */
+  async function launch(): Promise<Launch> {
+    launchedAt = tape.length;
+    const child = spawn(inject("hostBinary"), [], { env: { ...process.env, KEEPDECK_HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    // A pipe to a process killed under it breaks: said on the tape, not
+    // thrown into the test.
+    child.stdin.on("error", (error) => note("host log", `the pipe to the app broke: ${String(error)}`));
+    let readySignal = () => {};
+    const ready = new Promise<void>((resolve) => (readySignal = resolve));
+    createInterface({ input: child.stderr }).on("line", (line) => note("host log", line));
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      note("← host", line);
+      const said: unknown = JSON.parse(line);
+      if (typeof said !== "object" || said === null) return;
+      if (field(said, "ready") === true) return readySignal();
+      const channel = field(said, "channel");
+      if (typeof channel === "number") {
+        return through(
+          (what) => "heard" in what && line.includes(what.heard),
+          () => runCallback(channel, { index: field(said, "index"), message: field(said, "message") }),
+        );
+      }
+      const event = field(said, "event");
+      if (typeof event === "string") {
+        for (const handler of listeners.get(event) ?? []) runCallback(handler, { event, payload: field(said, "payload"), id: ++nextEvent });
+        return;
+      }
+      const id = field(said, "id");
+      if (typeof id !== "number") return;
+      const waiting = replies.get(id);
+      if (!waiting) return;
+      replies.delete(id);
+      through((what) => "reply" in what && what.reply === waiting.cmd, () => waiting.settle(said));
+    });
+    const failed = new Promise<never>((_, reject) => child.once("error", reject));
+    await Promise.race([ready, failed, exited.then(() => Promise.reject(new Error(`kd-host exited before it was ready:\n${tapeText(tape)}`)))]);
+    running = true;
+    return { child, exited };
+  }
+
+  /** End the current launch as `how` says; whether it ended in time. */
+  async function end(how: Ending): Promise<boolean> {
+    running = false;
+    // What was held for this launch goes with it, unsent.
+    for (const holding of holdings.splice(0)) {
+      holding.released = true;
+      holding.queued.length = 0;
     }
-    const event = field(said, "event");
-    if (typeof event === "string") {
-      for (const handler of listeners.get(event) ?? []) runCallback(handler, { event, payload: field(said, "payload"), id: ++nextEvent });
-      return;
+    if (how === "crash") {
+      current.child.kill("SIGKILL");
+      await current.exited;
+      return true;
     }
-    const id = field(said, "id");
-    if (typeof id !== "number") return;
-    const waiting = replies.get(id);
-    if (!waiting) return;
-    replies.delete(id);
-    through((what) => "reply" in what && what.reply === waiting.cmd, () => waiting.settle(said));
-  });
+    current.child.stdin.end();
+    const ended = await Promise.race([current.exited.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), QUIT_WAIT_MS))]);
+    if (!ended) current.child.kill("SIGKILL");
+    return ended;
+  }
+
+  let current = await launch();
 
   mockIPC((cmd, args) => {
     const payload: Record<string, unknown> = typeof args === "object" && args !== null && !Array.isArray(args) ? { ...args } : {};
@@ -137,7 +197,7 @@ export async function startHost(): Promise<Host> {
       if (!listeners.has(event)) {
         const line = JSON.stringify({ watch: event });
         note("page →", line);
-        child.stdin.write(`${line}\n`);
+        write(line);
       }
       listeners.set(event, [...(listeners.get(event) ?? []), handler]);
       return Promise.resolve(handler);
@@ -167,20 +227,22 @@ export async function startHost(): Promise<Host> {
         (what) => "request" in what && what.request === cmd,
         () => {
           note("page →", line);
-          child.stdin.write(`${line}\n`);
+          // An app that is down answers nothing: said as the failure it is.
+          if (!write(line)) {
+            replies.delete(id);
+            reject(new Error(`the app is not running: ${cmd}`));
+          }
         },
       );
     });
   });
-
-  const failed = new Promise<never>((_, reject) => child.once("error", reject));
-  await Promise.race([ready, failed, exited.then(() => Promise.reject(new Error(`kd-host exited before it was ready:\n${tapeText(tape)}`)))]);
 
   return {
     home,
     work,
     trees,
     tape,
+    launchedAt: () => launchedAt,
     hold(what) {
       let caught = () => {};
       const holding: Holding = { what, queued: [], caught: () => caught(), released: false };
@@ -201,16 +263,22 @@ export async function startHost(): Promise<Host> {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
     },
+    async relaunch(how) {
+      if (!(await end(how))) throw new Error(`kd-host did not quit within ${QUIT_WAIT_MS} ms`);
+      // The page that heard the old launch is gone: nothing it waited on or
+      // listened for carries over.
+      replies.clear();
+      listeners.clear();
+      note("host log", `— ${how === "crash" ? "crashed" : "quit"}; launched again on the same home —`);
+      current = await launch();
+    },
     async stop() {
-      for (const holding of holdings) holding.released = true;
-      child.stdin.end();
-      const ended = await Promise.race([exited.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 10_000))]);
-      if (!ended) child.kill("SIGKILL");
+      const ended = await end("quit");
       clearMocks();
       rmSync(home, { recursive: true, force: true });
       rmSync(work, { recursive: true, force: true });
       rmSync(trees, { recursive: true, force: true });
-      if (!ended) throw new Error("kd-host did not end within 10 s of its pipe closing");
+      if (!ended) throw new Error(`kd-host did not end within ${QUIT_WAIT_MS} ms of its pipe closing`);
     },
   };
 }
