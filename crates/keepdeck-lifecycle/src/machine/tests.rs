@@ -1654,6 +1654,29 @@ fn a_new_team_or_workspace_id_already_taken_is_refused() {
     assert_eq!(sim.refusal(ask), Some(Refusal::Busy));
 }
 
+#[test]
+fn an_edited_workspace_names_roots_and_places_what_comes_after_by_its_edit() {
+    let mut sim = Sim::booted();
+    let before = super::queries::suggest(&sim.state, &ws(), 1).expect("a place under the old base");
+    assert!(before.1.path.as_str().starts_with("/wt/"), "{:?}", before.1);
+    let ask = sim.intent(Intent::Describe {
+        workspace: ws(),
+        name: "web".into(),
+        cwd: Dir::new("/repo2"),
+        worktree_base: Some(Dir::new("/wt2")),
+        repo: Some(Dir::new("/repo2/.git")),
+    });
+    assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })));
+    let edited = &sim.state.world.workspaces[&ws()];
+    assert_eq!((edited.cwd.as_str(), edited.repo.as_ref().map(Dir::as_str)), ("/repo2", Some("/repo2/.git")));
+    let (_, place) = super::queries::suggest(&sim.state, &ws(), 1).expect("a place under the new base");
+    assert!(place.path.as_str().starts_with("/wt2/") && place.path.as_str().contains("web"), "{place:?}");
+    assert!(place.branch.contains("web"), "{place:?}");
+    // No base any more: no place to suggest.
+    sim.intent(Intent::Describe { workspace: ws(), name: "web".into(), cwd: Dir::new("/repo2"), worktree_base: None, repo: None });
+    assert_eq!(super::queries::suggest(&sim.state, &ws(), 1), None);
+}
+
 // ---------------------------------------------------------------- boot
 
 #[test]

@@ -454,7 +454,7 @@ export function useAppController(runtime: AppRuntime) {
     view: shownWs,
     onRename: (name: string) => {
       const ws = findWorkspace(deck.workspaces, shownWs.id);
-      if (ws) deck.updateWorkspace({ id: ws.id, instance: ws.instance }, { name });
+      if (ws) orchestrator.updateWorkspace({ id: ws.id, instance: ws.instance }, { name });
     },
     onMove: (place: WorkspacePlace) => deck.moveWorkspace(shownWs.id, place),
     onArchive: () => archiveFlow.request(shownWs.id),
@@ -566,7 +566,7 @@ export function useAppController(runtime: AppRuntime) {
       onUpdate: (wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult => {
         const ws = findWorkspace(deck.workspaces, wsId);
         if (!ws) return { ok: false, refusal: { kind: "unknown-workspace" } };
-        return deck.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
+        return orchestrator.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
       },
     },
     deck,

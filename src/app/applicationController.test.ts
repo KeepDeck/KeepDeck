@@ -47,6 +47,7 @@ function dependencies() {
     retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(async () => accepted),
     createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(async () => accepted),
     reachOf: vi.fn<ApplicationOrchestrator["reachOf"]>(() => ({ kind: "running" })),
+    updateWorkspace: vi.fn<ApplicationOrchestrator["updateWorkspace"]>(() => ({ ok: false, refusal: { kind: "unknown-workspace" } })),
   } satisfies ApplicationOrchestrator;
   return { plugins, orchestrator };
 }

@@ -281,10 +281,12 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             op.send(crate::command::Cmd::AddWorkspace { workspace, draft });
             state.ops.insert(id, op);
         }
-        Intent::Describe { workspace, name, worktree_base } => {
+        Intent::Describe { workspace, name, cwd, worktree_base, repo } => {
             let ws = state.world.workspaces.get_mut(&workspace).expect("known");
             ws.name = name;
             ws.base = worktree_base;
+            ws.cwd = cwd;
+            ws.repo = repo;
             let op = state.mint_op();
             fx.answer(ask, Answer::Accepted { op, minted: Minted::default() });
         }

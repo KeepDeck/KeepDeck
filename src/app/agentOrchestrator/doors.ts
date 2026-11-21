@@ -38,6 +38,8 @@ import type { DeckStore } from "../deckStore";
 import { mintTeamId, mintWorkspaceId } from "../ids";
 import type { ContinuationPlans } from "../lifecycle/continuationPlans";
 import { intentOutcomeOf } from "../lifecycle/outcome";
+import { log } from "../../ipc/log";
+import { intentOutcomeText } from "../../presentation/lifecycleWords";
 import type {
   AgentOrchestrator,
   ContinueOptions,
@@ -79,6 +81,7 @@ export type LifecycleDoors = Pick<
   | "suspendTeam"
   | "close"
   | "archive"
+  | "updateWorkspace"
   | "restore"
   | "removeUnheld"
   | "restart"
@@ -128,7 +131,15 @@ export async function forkTranscriptOf(
 export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
   const workspaces = () => deps.deck.getSnapshot().workspaces;
   const lifetime = (ref: WorkspaceRef) => findWorkspaceByRef(workspaces(), ref);
-  const ask = async (intent: Intent): Promise<IntentOutcome> => intentOutcomeOf(await deps.send(intent));
+  /** The machine hears a workspace's edit before anything asked after it:
+   * the host takes intents concurrently, so one sent while an edit is on its
+   * way could overtake it — and a team asked for right after a rename would
+   * be named by the old name. */
+  let edits: Promise<unknown> = Promise.resolve();
+  const ask = async (intent: Intent): Promise<IntentOutcome> => {
+    await edits;
+    return intentOutcomeOf(await deps.send(intent));
+  };
   const newTeamId = () => mintTeamId(teamIdsOf(workspaces()));
 
   /** The landing a new member of `ws` takes: the team it names, the team at
@@ -276,6 +287,26 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     async archive(ref) {
       const ws = lifetime(ref);
       return ws ? ask({ kind: "archive", workspace: ws.id }) : GONE;
+    },
+    updateWorkspace(ref, patch) {
+      const before = lifetime(ref);
+      const result = deps.actions.updateWorkspace(ref, patch);
+      const after = result.ok ? findWorkspaceByRef(result.workspaces, ref) : undefined;
+      if (!before || !after) return result;
+      // The machine names, roots and places new teams from its own copy of
+      // these: it hears every change of them, in the order the edits land.
+      const base = worktreeBaseDirOf(after.worktreeBaseDir);
+      if (after.name !== before.name || after.cwd !== before.cwd || base !== worktreeBaseDirOf(before.worktreeBaseDir)) {
+        const told = ask({ kind: "describe", workspace: after.id, name: after.name, cwd: after.cwd, worktreeBase: base }).then(
+          (outcome) => {
+            const why = intentOutcomeText(outcome);
+            if (why !== null) log.warn("web:orchestrator", `${after.id}: the machine was not told of its edit — ${why}`);
+          },
+          (e: unknown) => log.warn("web:orchestrator", `${after.id}: the machine was not told of its edit — ${String(e)}`),
+        );
+        edits = told;
+      }
+      return result;
     },
     async restore(ref) {
       const ws = lifetime(ref);

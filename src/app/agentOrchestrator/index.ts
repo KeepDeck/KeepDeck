@@ -1,6 +1,6 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
 import type { CwdArmAsk, McpAccessAsk, SpawnPlan } from "../spawnSpecs";
-import type { AgentReach, SpawnConfig, TeamActs, UnheldRemovalRequest } from "../../domain/deck";
+import type { AgentReach, SpawnConfig, TeamActs, UnheldRemovalRequest, WorkspacePatch, WorkspaceUpdateResult } from "../../domain/deck";
 import type { AgentDraft, Consent, IntentOutcome, MemberAnswer, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
@@ -55,6 +55,10 @@ export interface AgentOrchestrator {
   close(request: CloseRequest): Promise<IntentOutcome>;
   /** Put a workspace away: its agents stopped and kept, its folders kept. */
   archive(workspace: WorkspaceRef): Promise<IntentOutcome>;
+  /** Edit a workspace — its name, its letters, its folder while it holds
+   * nothing, its worktree base — and tell the machine, which names, roots
+   * and places what comes after by the edit. The deck's verdict, at once. */
+  updateWorkspace(workspace: WorkspaceRef, patch: WorkspacePatch): WorkspaceUpdateResult;
   /** Bring an archived workspace back; nobody in it is woken. */
   restore(workspace: WorkspaceRef): Promise<IntentOutcome>;
   /** Remove a checkout of the workspace's repository nobody holds — one

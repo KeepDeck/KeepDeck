@@ -108,9 +108,19 @@ pub enum Intent {
         #[ts(skip)]
         repo: Option<Dir>,
     },
-    /// The workspace's name or worktree base changed: new places are named
-    /// and put after them.
-    Describe { workspace: WorkspaceId, name: String, worktree_base: Option<Dir> },
+    /// The workspace was edited — its name, its folder (only while it holds
+    /// nothing), its worktree base: new places are named, put and rooted
+    /// after them.
+    Describe {
+        workspace: WorkspaceId,
+        name: String,
+        cwd: Dir,
+        worktree_base: Option<Dir>,
+        /// Its folder's repository — the host fills it, as for a creation.
+        #[serde(default)]
+        #[ts(skip)]
+        repo: Option<Dir>,
+    },
     CreateTeam { workspace: WorkspaceId, team: TeamId, site: Site, draft: Draft, members: Vec<Draft> },
     Retry { workspace: WorkspaceId, team: TeamId },
     Seat { workspace: WorkspaceId, team: TeamId, member: Draft },

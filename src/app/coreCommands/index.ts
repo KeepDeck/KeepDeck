@@ -1,7 +1,8 @@
 import type { AgentInfo } from "../../domain/agents";
 import type { CommandRegistry } from "../../domain/commands";
 import type { PaneActivity } from "../../domain/status";
-import type { AgentReach } from "../../domain/deck";
+import type { AgentReach, WorkspacePatch, WorkspaceUpdateResult } from "../../domain/deck";
+import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { IntentOutcome, ResumeOutcome, SuspendResult } from "../../domain/lifecycle";
 import type { CreatePaneRequest, CreateTeamRequest } from "../agentOrchestrator";
 import type { McpLibrary } from "../mcpLibrary";
@@ -20,7 +21,7 @@ import { registerWorkspaceCommands } from "./workspaces";
  * agent goes through its own dep below. */
 export type CommandDeck = Pick<
   Deck,
-  "workspaces" | "activeId" | "viewOf" | "selectWorkspace" | "selectPane" | "renameTeam" | "updateWorkspace"
+  "workspaces" | "activeId" | "viewOf" | "selectWorkspace" | "selectPane" | "renameTeam"
 >;
 
 /**
@@ -58,6 +59,9 @@ export interface CoreCommandDeps {
   /** Ask for a stopped agent back — the same gesture as its card's Resume,
    * reporting what it did. */
   resumeAgent(wsId: string, paneId: string): Promise<ResumeOutcome>;
+  /** Edit a workspace — the same door the settings form and the rename
+   * use, so the lifecycle hears every edit. */
+  updateWorkspace(workspace: WorkspaceRef, patch: WorkspacePatch): WorkspaceUpdateResult;
   /** Land a new agent pane, worktree create and all — the same entry point
    * the agent dialog uses, so a spawn asked for by voice or MCP goes
    * through the same sequence as one asked for by hand. */

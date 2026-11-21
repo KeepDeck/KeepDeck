@@ -43,6 +43,7 @@ export type ApplicationOrchestrator = Pick<
   | "createWorkspace"
   | "restore"
   | "reachOf"
+  | "updateWorkspace"
 >;
 
 export interface ApplicationUi {
@@ -178,6 +179,7 @@ export function createApplicationController({
           requireUi().requestCloseAgent(wsId, paneId, label),
         suspendAgent: orchestrator.suspend,
         resumeAgent: orchestrator.resume,
+        updateWorkspace: orchestrator.updateWorkspace,
         createPane: orchestrator.createPane,
         createTeam: orchestrator.createTeam,
         teamsIn,

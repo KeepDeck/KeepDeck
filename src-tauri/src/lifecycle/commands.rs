@@ -69,7 +69,7 @@ pub async fn lifecycle_boot_handshake(lifecycle: tauri::State<'_, Lifecycle>, mu
 
 #[tauri::command]
 pub async fn lifecycle_intent(lifecycle: tauri::State<'_, Lifecycle>, mut intent: Intent) -> Result<Reply, String> {
-    if let Intent::CreateWorkspace { cwd, repo, .. } = &mut intent {
+    if let Intent::CreateWorkspace { cwd, repo, .. } | Intent::Describe { cwd, repo, .. } = &mut intent {
         *repo = repo_of(cwd);
     }
     let door = lifecycle.door();

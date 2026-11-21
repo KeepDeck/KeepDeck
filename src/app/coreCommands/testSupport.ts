@@ -30,7 +30,7 @@ import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { CreatePaneRequest, CreateTeamRequest } from "../agentOrchestrator";
 import { fakeMcpLibrary } from "../mcpLibrary.fake";
 import { fakeSkillsLibrary } from "../skillsLibrary.fake";
-import { registerCoreCommands, type CommandDeck } from ".";
+import { registerCoreCommands, type CommandDeck, type CoreCommandDeps } from ".";
 
 const GONE: IntentOutcome = { kind: "refused", refusal: { kind: "notFound" } };
 const rejected = (why: OwnerRefusal): IntentOutcome => ({ kind: "refused", refusal: { kind: "rejected", why } });
@@ -143,18 +143,24 @@ function fakeDeck(workspaces: Workspace[]) {
     selectWorkspace: vi.fn<CommandDeck["selectWorkspace"]>(),
     selectPane: vi.fn<CommandDeck["selectPane"]>(),
     renameTeam: vi.fn<CommandDeck["renameTeam"]>(),
-    updateWorkspace: vi.fn<CommandDeck["updateWorkspace"]>((ref, patch) => {
-      const result = updateWorkspace(deck.workspaces, ref, patch);
-      if (result.ok) deck.workspaces = result.workspaces;
-      return result;
-    }),
   } satisfies CommandDeck;
   return deck;
+}
+
+/** The workspace edit door over the deck stub: the domain's own transition,
+ * as the real door makes it. */
+function editDoor(deck: { workspaces: Workspace[] }) {
+  return vi.fn<CoreCommandDeps["updateWorkspace"]>((ref, patch) => {
+    const result = updateWorkspace(deck.workspaces, ref, patch);
+    if (result.ok) deck.workspaces = result.workspaces;
+    return result;
+  });
 }
 
 export function setup(workspaces: Workspace[]) {
   const registry = createCommandRegistry();
   const deck = fakeDeck(workspaces);
+  const updateWorkspace = editDoor(deck);
   const requestCloseAgent = vi.fn();
   const activatePane = vi.fn((wsId: string, paneId: string) => {
     deck.selectWorkspace(wsId);
@@ -248,6 +254,7 @@ export function setup(workspaces: Workspace[]) {
     requestCloseAgent,
     suspendAgent,
     resumeAgent,
+    updateWorkspace,
     createPane,
     createTeam,
     teamsIn,
@@ -270,6 +277,7 @@ export function setup(workspaces: Workspace[]) {
     requestCloseAgent,
     suspendAgent,
     resumeAgent,
+    updateWorkspace,
     createPane,
     createTeam,
     teamsIn,
