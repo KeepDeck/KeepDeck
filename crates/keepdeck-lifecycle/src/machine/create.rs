@@ -253,6 +253,15 @@ impl Fork {
     pub fn hook_outstanding(&self) -> bool {
         self.stage == ForkStage::Undoing && self.hook_sent && !self.hook_ended
     }
+
+    /// A Close that has this fork's pane takes the checkout made for it: the
+    /// Close's consent decides it — deleted if the person agreed, kept if not
+    /// — never the fork's undo. A teardown that is no Close takes nothing.
+    fn hand_over(&mut self, taken: Option<Taken>) {
+        if let (Some(Taken { by, close: true }), Some(create)) = (taken, self.create.as_mut()) {
+            create.abandon(by);
+        }
+    }
 }
 
 /// The ops that change a team's membership and have not settled it yet. A
@@ -1172,12 +1181,7 @@ pub fn advance_fork(state: &mut State, id: OpId, fx: &mut Fx) {
                         let op = state.ops.get_mut(&id).expect("the op");
                         if let Some(fork) = fork_mut(op) {
                             fork.stage = ForkStage::Undoing;
-                            // A Close's own consent decides the checkout made
-                            // for the fork: deleted if the person agreed, kept
-                            // if not — never by the fork's undo.
-                            if let (Some(Taken { by, close: true }), Some(create)) = (taken, fork.create.as_mut()) {
-                                create.abandon(by);
-                            }
+                            fork.hand_over(taken);
                         }
                     }
                 }
@@ -1191,7 +1195,18 @@ pub fn advance_fork(state: &mut State, id: OpId, fx: &mut Fx) {
                 finish(state, id);
             }
         }
-        ForkStage::Undoing => undo_fork(state, id, fx),
+        ForkStage::Undoing => {
+            // Its hook still out past its deadline: a Close that takes its
+            // pane takes its checkout, as one that takes a binding fork does.
+            let Kind::Fork(fork) = &state.ops[&id].kind else { return };
+            if fork.hook_outstanding() {
+                let taken = taken_by_teardown(state, fork.pane);
+                if let Some(fork) = state.ops.get_mut(&id).and_then(fork_mut) {
+                    fork.hand_over(taken);
+                }
+            }
+            undo_fork(state, id, fx)
+        }
     }
 }
 

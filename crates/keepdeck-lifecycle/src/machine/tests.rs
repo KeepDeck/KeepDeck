@@ -1182,23 +1182,36 @@ fn removed(sim: &Sim, ticket: &crate::journal::Ticket) -> bool {
     sim.cleaned.contains(&Clean::Checkout { repo: ticket.repo.clone(), path: ticket.path.clone() })
 }
 
-/// The consent the workspace's Close dialog sends: everything it offers to
+/// `close` with the consent its dialog sends: everything it offers to
 /// delete, ticked — the fork's checkout among it — or nothing.
-fn consent_for(sim: &Sim, ticket: &crate::journal::Ticket, ticked: bool) -> Consent {
-    if !ticked {
-        return Consent::default();
+fn consented(sim: &Sim, mut close: Intent, ticket: &crate::journal::Ticket, ticked: bool) -> Intent {
+    let consent = if ticked {
+        let offer = super::queries::preview(&sim.state, &close);
+        assert!(offer.folders.iter().any(|folder| folder.path == ticket.path), "the fork's checkout is not offered: {:?}", offer.folders);
+        Consent { folders: offer.folders, tickets: offer.creations, ..Consent::default() }
+    } else {
+        Consent::default()
+    };
+    if let Intent::CloseAgent { consent: asked, .. } | Intent::Disband { consent: asked, .. } | Intent::CloseWorkspace { consent: asked, .. } = &mut close {
+        *asked = consent;
     }
-    let offer = super::queries::preview(&sim.state, &Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
-    assert!(offer.folders.iter().any(|folder| folder.path == ticket.path), "the fork's checkout is not offered: {:?}", offer.folders);
-    Consent { folders: offer.folders, tickets: offer.creations, ..Consent::default() }
+    close
+}
+
+/// The pane of the fork `op`.
+fn fork_pane(sim: &Sim, op: OpId) -> PaneId {
+    match &sim.state.ops[&op].kind {
+        Kind::Fork(fork) => fork.pane,
+        other => panic!("not a fork: {other:?}"),
+    }
 }
 
 #[test]
 fn a_close_takes_over_a_worktree_fork_whose_hook_hangs_past_its_deadline() {
     for ticked in [true, false] {
         let (mut sim, fork, ticket) = a_worktree_fork_with_a_hung_hook();
-        let consent = consent_for(&sim, &ticket, ticked);
-        let closing = sim.close(Intent::CloseWorkspace { workspace: ws(), consent });
+        let close = consented(&sim, Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() }, &ticket, ticked);
+        let closing = sim.close(close);
         settle_with_a_hung_hook(&mut sim);
         assert!(matches!(sim.answer(closing), Some(Answer::Accepted { .. })), "ticked {ticked}: {:?}", sim.answer(closing));
         // The Close ends without waiting for the hook; the fork waits for it
@@ -1219,8 +1232,7 @@ fn a_close_takes_over_a_worktree_fork_whose_hook_hangs_past_its_deadline() {
 fn a_checkout_a_close_kept_stays_when_the_fork_it_took_over_is_restored() {
     // The Close is over; the fork still waits for its hook when the app goes.
     let (mut sim, _, ticket) = a_worktree_fork_with_a_hung_hook();
-    let consent = consent_for(&sim, &ticket, false);
-    sim.close(Intent::CloseWorkspace { workspace: ws(), consent });
+    sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
     settle_with_a_hung_hook(&mut sim);
     assert!(!sim.state.ops.values().any(|op| matches!(op.kind, Kind::Teardown(_))), "the Close is still under way");
     let journal: Vec<Entry> = sim.disk.values().cloned().collect();
@@ -1232,20 +1244,52 @@ fn a_checkout_a_close_kept_stays_when_the_fork_it_took_over_is_restored() {
 }
 
 #[test]
+fn a_narrower_close_over_a_fork_whose_hook_hangs_decides_its_checkout_by_its_consent() {
+    // The checkout goes with the fork's pane to whichever Close has it: a
+    // Disband of its team, ticked or not, and its agent's Close, which offers
+    // no folder. Decided at the close; the fork's undo, once its hook ends,
+    // takes nothing back.
+    for (what, ticked) in [("a disband", true), ("a disband", false), ("its agent's close", false)] {
+        let (mut sim, fork, ticket) = a_worktree_fork_with_a_hung_hook();
+        let close = match what {
+            "a disband" => Intent::Disband { workspace: ws(), team: team("f"), consent: Consent::default() },
+            _ => Intent::CloseAgent { workspace: ws(), pane: fork_pane(&sim, fork), consent: Consent::default() },
+        };
+        let close = consented(&sim, close, &ticket, ticked);
+        let closing = sim.close(close);
+        settle_with_a_hung_hook(&mut sim);
+        let case = format!("{what}, ticked {ticked}");
+        assert!(matches!(sim.answer(closing), Some(Answer::Accepted { .. })), "{case}: {:?}", sim.answer(closing));
+        assert!(!sim.state.ops.values().any(|op| matches!(op.kind, Kind::Teardown(_))), "{case}: the Close is still under way");
+        assert_eq!(removed(&sim, &ticket), ticked, "{case}: the checkout at the close");
+        sim.send(Event::HookEnded { op: fork });
+        sim.drive();
+        assert!(!sim.state.ops.contains_key(&fork), "{case}: the fork never ended");
+        assert_eq!(removed(&sim, &ticket), ticked, "{case}: the checkout once the hook ends");
+    }
+}
+
+#[test]
 fn a_fork_restored_beside_the_close_that_took_it_over_leaves_the_checkout_to_that_close() {
     // The launch died once the Close's entry was written, before the
-    // fork's own entry dropped the ticket.
-    let (mut sim, fork, ticket) = a_worktree_fork_with_a_hung_hook();
-    let naming = sim.disk[&fork].clone();
-    let consent = consent_for(&sim, &ticket, false);
-    sim.close(Intent::CloseWorkspace { workspace: ws(), consent });
-    sim.write_journals();
-    assert!(sim.disk.values().any(|entry| matches!(entry.work, Work::Close { .. })), "the Close's entry is not on disk");
-    sim.disk.insert(fork, naming);
-    let journal: Vec<Entry> = sim.disk.values().cloned().collect();
-    let mut again = Sim::booted_with(deck(), journal);
-    again.drive();
-    assert!(!removed(&again, &ticket), "the restored fork took back the checkout its Close kept");
+    // fork's own entry dropped the ticket — the workspace's Close, or its
+    // agent's own.
+    for whose in ["the workspace's", "its agent's"] {
+        let (mut sim, fork, ticket) = a_worktree_fork_with_a_hung_hook();
+        let naming = sim.disk[&fork].clone();
+        let close = match whose {
+            "the workspace's" => Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() },
+            _ => Intent::CloseAgent { workspace: ws(), pane: fork_pane(&sim, fork), consent: Consent::default() },
+        };
+        sim.close(close);
+        sim.write_journals();
+        assert!(sim.disk.values().any(|entry| matches!(entry.work, Work::Close { .. })), "{whose}: the Close's entry is not on disk");
+        sim.disk.insert(fork, naming);
+        let journal: Vec<Entry> = sim.disk.values().cloned().collect();
+        let mut again = Sim::booted_with(deck(), journal);
+        again.drive();
+        assert!(!removed(&again, &ticket), "{whose}: the restored fork took back the checkout its Close kept");
+    }
 }
 
 /// Where a workspace is when something is asked to be made or landed in it.

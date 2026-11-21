@@ -77,15 +77,10 @@ pub fn handshake(state: &mut State, ask: AskId, deck: DeckFacts, load: Load, fx:
     }
     let journal_panes = journal.iter().flat_map(entry_panes);
     state.next.pane = Counter::above(state.world.panes.keys().map(|pane| pane.0).chain(journal_panes.map(|pane| pane.0)));
-    let closing: BTreeSet<TeamId> = journal.iter().flat_map(closed_teams).collect();
-    let closing_workspaces: BTreeSet<_> = journal
-        .iter()
-        .filter(|entry| matches!(entry.work, Work::Close { target: Target::Workspace, .. }))
-        .map(|entry| entry.workspace.clone())
-        .collect();
+    let closing = Closing::of(&journal);
     let mut finishing = Vec::new();
     for entry in &journal {
-        if let Some(op) = restore(state, entry, &journal, &closing, &closing_workspaces) {
+        if let Some(op) = restore(state, entry, &journal, &closing) {
             state.ops.insert(entry.op, op);
             finishing.push(entry.op);
         }
@@ -181,16 +176,39 @@ fn taken_over(journal: &[Entry], creation: OpId, ticket: &Ticket) -> Option<OpId
     })
 }
 
-fn closed_teams(entry: &Entry) -> Vec<TeamId> {
-    match &entry.work {
-        Work::Close { teams, .. } => teams.clone(),
-        _ => Vec::new(),
+/// What the Closes on disk cover: what a creation or a fork made under one of
+/// them is that Close's, by its consent — a team's, a workspace's, or an
+/// agent's own pane.
+struct Closing {
+    teams: BTreeSet<TeamId>,
+    workspaces: BTreeSet<crate::ids::WorkspaceId>,
+    panes: BTreeSet<PaneId>,
+}
+
+impl Closing {
+    fn of(journal: &[Entry]) -> Closing {
+        let mut closing = Closing { teams: BTreeSet::new(), workspaces: BTreeSet::new(), panes: BTreeSet::new() };
+        for entry in journal {
+            if let Work::Close { target, teams, panes, .. } = &entry.work {
+                closing.teams.extend(teams.iter().cloned());
+                closing.panes.extend(panes.iter().copied());
+                if *target == Target::Workspace {
+                    closing.workspaces.insert(entry.workspace.clone());
+                }
+            }
+        }
+        closing
+    }
+
+    /// A Close on disk covers this team of `entry`'s workspace.
+    fn covers_team(&self, entry: &Entry, team: &TeamId) -> bool {
+        self.teams.contains(team) || self.workspaces.contains(&entry.workspace)
     }
 }
 
 /// An operation from its entry. Its restored phase asks for its work again;
 /// its commands not settled are asked again under the same ids.
-fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeSet<TeamId>, closing_workspaces: &BTreeSet<crate::ids::WorkspaceId>) -> Option<Op> {
+fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &Closing) -> Option<Op> {
     let sent = entry
         .commands
         .iter()
@@ -204,9 +222,6 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
         })
         .collect();
     let book = Some(Book { written: Some(entry.clone()), ..Book::default() });
-    // A Close on disk that covers the team a creation made: what that
-    // creation made is the Close's, by its consent.
-    let covered = |team: &TeamId| closing.contains(team) || closing_workspaces.contains(&entry.workspace);
     let kind = match &entry.work {
         Work::Close { target, teams, panes, consent, removals, space } => {
             let kind = match target {
@@ -236,7 +251,7 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
             let mut create = Create::new(team.clone(), Draft(serde_json::Value::Null), Site::New { place: None, base: ticket.base.clone() }, Vec::new(), None, false);
             create.ticket = Some(ticket.clone());
             let on_deck = state.world.teams.contains_key(team);
-            if covered(team) {
+            if closing.covers_team(entry, team) {
                 create.abandoned = true;
                 create.stage = CreateStage::Creating;
                 match taken_over(journal, entry.op, ticket) {
@@ -273,10 +288,11 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
                 create.ticket = ticket.clone();
                 create.created = true;
                 create.stage = CreateStage::Creating;
-                // Taken over by a Close whose entry is still on disk, and the
-                // launch died before this entry dropped the ticket: the
-                // checkout is that Close's, never this fork's undo.
-                create.abandoned = covered(team);
+                // Taken over by a Close whose entry is still on disk — its
+                // team's, its workspace's or its own pane's — and the launch
+                // died before this entry dropped the ticket: the checkout is
+                // that Close's, never this fork's undo.
+                create.abandoned = closing.covers_team(entry, team) || closing.panes.contains(pane);
                 create
             });
             let landing = team.clone().or_else(|| state.world.panes.get(pane).and_then(|row| row.team.clone()));
