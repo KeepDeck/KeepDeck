@@ -389,10 +389,14 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
                 .iter()
                 .find(|(_, team)| team.workspace == workspace && matches!(&team.at, TeamAt::Attached { cwd, .. } if *cwd == ws_cwd))
                 .map(|(id, _)| id.clone());
-            if existing_root.is_none() && id_taken(state, &root) {
-                return refuse(fx, ask, Refusal::Busy);
-            }
-            if let Some(refusal) = existing_root.as_ref().and_then(|team| landing_blocked(state, &workspace, team)) {
+            // The root's team it lands on is asked of as any landing; one it
+            // would mint, as a Fork onto a new team asks of the workspace.
+            let blocked = match &existing_root {
+                Some(team) => landing_blocked(state, &workspace, team),
+                None if id_taken(state, &root) => Some(Refusal::Busy),
+                None => workspace_blocked(state, &workspace),
+            };
+            if let Some(refusal) = blocked {
                 return refuse(fx, ask, refusal);
             }
             let relocate = create::Relocate::new(pane, from, existing_root.clone().unwrap_or(root), existing_root.is_none(), role);

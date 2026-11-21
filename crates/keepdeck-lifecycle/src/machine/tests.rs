@@ -1095,6 +1095,29 @@ fn a_relocate_takes_the_member_to_the_root_team_under_the_role_the_person_picked
 }
 
 #[test]
+fn a_relocate_in_an_archived_workspace_is_refused_whether_it_finds_a_root_team_or_would_mint_one() {
+    for with_root in [true, false] {
+        let mut facts = deck();
+        let workspace = &mut facts.workspaces[0];
+        workspace.archived = true;
+        if !with_root {
+            // Only the team at a folder of its own: the move would mint the
+            // root's team.
+            workspace.teams.retain(|row| row.id != team("r"));
+            workspace.panes.truncate(2);
+        }
+        let mut sim = Sim::booted_with(facts, Vec::new());
+        sim.drive();
+        let teams = sim.state.world.teams.len();
+        let ask = sim.intent(Intent::Relocate { workspace: ws(), pane: PaneId(2), root: team("new-root"), role: None });
+        assert_eq!(sim.refusal(ask), Some(Refusal::Archived), "with a root team: {with_root}");
+        sim.drive();
+        assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::MovePane { .. })), "nothing moves, with a root team: {with_root}");
+        assert_eq!(sim.state.world.teams.len(), teams, "no team is minted, with a root team: {with_root}");
+    }
+}
+
+#[test]
 fn a_seat_the_role_rule_refuses_hears_the_owners_own_kind() {
     let mut sim = Sim::booted();
     let ask = sim.intent(seat("1"));
