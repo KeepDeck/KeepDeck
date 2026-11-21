@@ -14,6 +14,8 @@ export const STUB_AGENT = "stub";
 export interface StubAgentControl {
   /** Resumes are refused: the agent exits at once, having reported nothing. */
   rejectResumes: boolean;
+  /** Forks are refused the same way: the fork never finishes. */
+  rejectForks: boolean;
   /** The agent ignores a polite stop: only the kill ends it. */
   deaf: boolean;
 }
@@ -65,7 +67,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
           // Its store is its own process: the fork copies nothing, so it
           // leaves nothing to take back.
           "fork.plan"(input, output) {
-            run(output, ["--fork", input.sessionId]);
+            run(output, ["--fork", input.sessionId, ...(control.rejectForks ? ["--reject"] : [])]);
           },
         },
       });

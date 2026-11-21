@@ -125,6 +125,19 @@ describe("where a team runs, on the host", () => {
     expect(existsSync(path)).toBe(true);
   });
 
+  it("takes back a fork whose agent never takes up the conversation: its worktree and its branch go", async () => {
+    const d = await open();
+    d.gitRepo();
+    const { ws, session } = await d.agentUp();
+    d.stub.rejectForks = true;
+    const path = join(host().trees, "fork-1");
+    const forked = await forkIntoWorktree(d, ws, session, path);
+    expect(forked).toMatchObject({ kind: "accepted" });
+    await host().until("the fork is taken back whole", () => d.workspace().panes.length === 1 && (d.workspace().teams ?? []).length === 1 && journalEmpty(), 15_000);
+    expect(existsSync(path)).toBe(false);
+    expect(git(host().work, "branch", "--list", "kd/ws/fork-1")).toBe("");
+  });
+
   it("refuses to remove a folder no team holds while its workspace is being closed", async () => {
     const d = await open();
     d.gitRepo();

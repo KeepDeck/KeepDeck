@@ -2017,6 +2017,21 @@ fn forked_into_its_own_worktree() -> (Sim, OpId, PaneId, Dir) {
     (sim, op, minted.panes[0], checkout.expect("the fork's worktree"))
 }
 
+/// A fork into a worktree of its own that did not finish takes back all it
+/// made, as a creation would: the checkout, then the branch born with it.
+#[test]
+fn a_fork_taken_back_removes_its_checkout_and_then_its_branch() {
+    let (mut sim, _op, pane, checkout) = forked_into_its_own_worktree();
+    let session = sim.appear(LaunchOwner::Pane { pane }, None, Some(checkout.as_str()));
+    sim.send(Event::SessionEnded { session });
+    sim.drive_leaving(&|cmd| matches!(cmd, Cmd::ReportBinding { .. }));
+    let at = |wanted: &dyn Fn(&Clean) -> bool| sim.cleaned.iter().position(wanted);
+    let removed = at(&|clean| matches!(clean, Clean::Checkout { path, .. } if *path == checkout)).expect("the checkout goes");
+    let branch = at(&|clean| matches!(clean, Clean::Branch { name, .. } if name.starts_with("kd/app/"))).expect("its branch goes");
+    assert!(branch > removed, "the branch once nothing checks it out: {:?}", sim.cleaned);
+    assert!(sim.state.ops.is_empty());
+}
+
 /// A Close that takes a fork's pane before the binding came — its launch
 /// cancelled at the start boundary, so no session of it ever ends — ends the
 /// fork as one that did not finish, and waits for that end: nothing of the

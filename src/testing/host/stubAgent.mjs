@@ -8,7 +8,8 @@
 // Arguments, from the stub plugin's plans:
 //   --resume <id>  continue conversation <id>
 //   --fork <id>    open a new conversation copied from <id>
-//   --reject       refuse the resume: exit at once, having reported nothing
+//   --reject       refuse the resume or the fork: exit at once, having
+//                  reported nothing
 //   --deaf         ignore a polite stop (TERM), so only the kill ends it
 //
 // Cues, one per line typed into its terminal:
@@ -32,11 +33,12 @@ function valueOf(name) {
 const print = (line) => process.stdout.write(`${line}\r\n`);
 
 const resumed = valueOf("--resume");
-if (resumed !== undefined && flag("--reject")) {
-  print(`stub: no conversation ${resumed}`);
+const forked = valueOf("--fork");
+const asked = resumed ?? forked;
+if (asked !== undefined && flag("--reject")) {
+  print(`stub: no conversation ${asked}`);
   process.exit(1);
 }
-const forked = valueOf("--fork");
 const sessionId = resumed ?? randomUUID();
 print(forked === undefined ? `stub: ready ${sessionId}` : `stub: ready ${sessionId}, forked from ${forked}`);
 

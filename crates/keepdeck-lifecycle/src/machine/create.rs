@@ -1308,9 +1308,11 @@ fn undo_steps(fork: &Fork) -> Vec<Step> {
     if fork.discard.is_some() {
         steps.push(Step::Discard);
     }
-    // A checkout a Close took over is the Close's, by its consent.
-    if let Some(ticket) = fork.create.as_ref().filter(|create| !create.abandoned).and_then(|create| create.ticket.as_ref()) {
-        steps.push(Step::Checkout { path: ticket.path.clone() });
+    // What the team made for it made goes as a creation's does — the
+    // checkout, then the branch born with it — unless a Close took it over:
+    // then it is the Close's, by its consent.
+    if let Some(create) = fork.create.as_ref().filter(|create| !create.abandoned) {
+        steps.extend(create.undo_steps());
     }
     steps
 }
@@ -1394,6 +1396,14 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
                             let repo = fork.create.as_ref().and_then(|create| create.ticket.as_ref()).map(|ticket| ticket.repo.clone());
                             let Some(repo) = repo else { continue };
                             Clean::Checkout { repo, path: path.clone() }
+                        }
+                        Step::Branch { repo, name } => {
+                            // A branch goes once nothing checks it out.
+                            let checked_out = undo_steps(fork).iter().any(|step| matches!(step, Step::Checkout { .. }) && !fork.done.contains(step));
+                            if checked_out {
+                                continue;
+                            }
+                            Clean::Branch { repo: repo.clone(), name: name.clone() }
                         }
                         _ => continue,
                     };
