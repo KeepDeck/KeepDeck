@@ -2411,6 +2411,60 @@ fn an_archive_stops_every_session_of_its_workspace_and_keeps_the_layout() {
     assert_eq!(released(&sim), vec![(PaneId(1), false), (PaneId(2), false), (PaneId(3), false)]);
 }
 
+/// The deck says a workspace is put away only once all of its archive is
+/// done — its sessions stopped, its rows marked, its plantings back — and
+/// says it once. Until then it reads as being put away, which is what a next
+/// launch finishes.
+#[test]
+fn an_archive_settles_the_deck_last_and_once() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive();
+    let at = |wanted: &Cmd| sim.carried.iter().position(|cmd| cmd == wanted);
+    let marked = at(&Cmd::MarkArchived { workspace: ws() }).expect("marked");
+    let settled = at(&Cmd::SettleArchive { workspace: ws() }).expect("settled");
+    assert!(settled > marked, "{:?}", sim.carried);
+    assert!(sim.cleaned.iter().any(|clean| matches!(clean, Clean::Disarm { .. })), "its plantings went first");
+    assert_eq!(sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::SettleArchive { .. })).count(), 1);
+    assert!(sim.state.ops.is_empty());
+}
+
+/// An archive whose cleanup failed is not over: the deck keeps it as being
+/// put away, and the next launch takes it up again.
+#[test]
+fn an_archive_whose_cleanup_failed_does_not_settle_the_deck() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive_with(&failing(|how| matches!(how, Clean::Disarm { .. })));
+    assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::SettleArchive { .. })), "{:?}", sim.carried);
+    assert!(sim.state.ops.values().next().is_some_and(|op| op.owed), "owed to the next launch");
+}
+
+/// The deck said an archive was under way and no entry is left of it: the
+/// launch finishes it, and settles the deck.
+#[test]
+fn an_archive_the_deck_left_under_way_is_finished_and_settled_at_boot() {
+    let mut facts = deck();
+    facts.workspaces[0].archiving = true;
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    sim.drive();
+    assert!(sim.carried.contains(&Cmd::SettleArchive { workspace: ws() }), "{:?}", sim.carried);
+    assert!(sim.state.ops.is_empty());
+}
+
+/// A Close that takes an archive over takes its workspace away: there is
+/// nothing left to say is put away.
+#[test]
+fn an_archive_a_close_takes_over_settles_nothing() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.write_journals();
+    sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+    sim.drive();
+    assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::SettleArchive { .. })), "{:?}", sim.carried);
+    assert!(sim.state.world.workspaces.is_empty());
+}
+
 /// Nothing is restarted, suspended or resumed in a workspace put away.
 #[test]
 fn a_pane_of_an_archived_workspace_is_not_restarted_suspended_or_resumed() {
@@ -2761,6 +2815,7 @@ fn every_due() -> Vec<Due> {
         Cmd::RemoveTeam { workspace: w(), team: team("n") },
         Cmd::RemoveWorkspace { workspace: w() },
         Cmd::MarkArchived { workspace: w() },
+        Cmd::SettleArchive { workspace: w() },
         Cmd::ClearArchived { workspace: w() },
         Cmd::MarkSuspended { workspace: w(), pane: p(1) },
         Cmd::ClearSuspended { workspace: w(), pane: p(1) },
@@ -2790,6 +2845,7 @@ fn every_due() -> Vec<Due> {
             | Cmd::RemoveTeam { .. }
             | Cmd::RemoveWorkspace { .. }
             | Cmd::MarkArchived { .. }
+            | Cmd::SettleArchive { .. }
             | Cmd::ClearArchived { .. }
             | Cmd::MarkSuspended { .. }
             | Cmd::ClearSuspended { .. }

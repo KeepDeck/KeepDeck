@@ -79,6 +79,10 @@ pub enum Cmd {
     RemoveTeam { workspace: WorkspaceId, team: TeamId },
     RemoveWorkspace { workspace: WorkspaceId },
     MarkArchived { workspace: WorkspaceId },
+    /// The archive is over: the workspace is put away, no longer being put
+    /// away — which is what a next launch reads to know nothing of it is
+    /// left to finish.
+    SettleArchive { workspace: WorkspaceId },
     ClearArchived { workspace: WorkspaceId },
     MarkSuspended { workspace: WorkspaceId, pane: PaneId },
     ClearSuspended { workspace: WorkspaceId, pane: PaneId },
@@ -139,6 +143,7 @@ impl Cmd {
             | Cmd::RemoveTeam { .. }
             | Cmd::RemoveWorkspace { .. }
             | Cmd::MarkArchived { .. }
+            | Cmd::SettleArchive { .. }
             | Cmd::ClearArchived { .. }
             | Cmd::MarkSuspended { .. }
             | Cmd::ClearSuspended { .. } => Owner::Deck,

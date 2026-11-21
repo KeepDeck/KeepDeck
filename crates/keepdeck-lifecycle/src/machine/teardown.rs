@@ -602,6 +602,15 @@ fn clean(state: &mut State, id: OpId, fx: &mut Fx) {
         fx.warn(format!("{id}: {failed} cleanup step(s) failed; the next launch retries them"));
         return;
     }
+    // An archive is put away last: once all of it is done, the deck says so,
+    // and a next launch finds nothing of it to finish.
+    let settles = teardown.kind == model::Teardown::Archive && !op.sent.iter().any(|sent| matches!(sent.cmd, Cmd::SettleArchive { .. }));
+    if settles {
+        let op = state.ops.get_mut(&id).expect("the op");
+        let workspace = op.workspace.clone();
+        op.send(Cmd::SettleArchive { workspace });
+        return;
+    }
     finish(state, id);
 }
 

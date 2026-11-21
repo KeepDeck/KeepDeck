@@ -489,11 +489,22 @@ export const dues: Due[] = [
   },
   {
     "cmd": {
-      "kind": "clearArchived",
+      "kind": "settleArchive",
       "workspace": "ws-a"
     },
     "id": {
       "index": 11,
+      "op": 1
+    },
+    "owner": "deck"
+  },
+  {
+    "cmd": {
+      "kind": "clearArchived",
+      "workspace": "ws-a"
+    },
+    "id": {
+      "index": 12,
       "op": 1
     },
     "owner": "deck"
@@ -505,7 +516,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 12,
+      "index": 13,
       "op": 1
     },
     "owner": "deck"
@@ -517,7 +528,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 13,
+      "index": 14,
       "op": 1
     },
     "owner": "deck"
@@ -529,7 +540,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 14,
+      "index": 15,
       "op": 1
     },
     "owner": "boards"
@@ -540,7 +551,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 15,
+      "index": 16,
       "op": 1
     },
     "owner": "boards"
@@ -554,7 +565,7 @@ export const dues: Due[] = [
       ]
     },
     "id": {
-      "index": 16,
+      "index": 17,
       "op": 1
     },
     "owner": "boards"
@@ -566,7 +577,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 17,
+      "index": 18,
       "op": 1
     },
     "owner": "mail"
@@ -580,7 +591,7 @@ export const dues: Due[] = [
       ]
     },
     "id": {
-      "index": 18,
+      "index": 19,
       "op": 1
     },
     "owner": "mail"
@@ -592,7 +603,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 19,
+      "index": 20,
       "op": 1
     },
     "owner": "runState"
@@ -605,7 +616,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 20,
+      "index": 21,
       "op": 1
     },
     "owner": "runState"
@@ -621,7 +632,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 21,
+      "index": 22,
       "op": 1
     },
     "owner": "runState"
@@ -632,7 +643,7 @@ export const dues: Due[] = [
       "op": 3
     },
     "id": {
-      "index": 22,
+      "index": 23,
       "op": 1
     },
     "owner": "runState"
@@ -645,7 +656,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 23,
+      "index": 24,
       "op": 1
     },
     "owner": "runState"
@@ -658,7 +669,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 24,
+      "index": 25,
       "op": 1
     },
     "owner": "notices"
@@ -675,7 +686,7 @@ export const dues: Due[] = [
       "workspace": "ws-a"
     },
     "id": {
-      "index": 25,
+      "index": 26,
       "op": 1
     },
     "owner": "forkStep"

@@ -38,6 +38,19 @@ describe("the deck's owner of lifecycle commands", () => {
     });
   });
 
+  it("marks a workspace being put away, then put away, then back — each once", async () => {
+    const { store, carry, ws } = rig();
+    await carry(workspace);
+    await carry({ kind: "markArchived", workspace: "ws-a" });
+    expect(ws()?.archived?.phase).toBe("archiving");
+    expect(await carry({ kind: "settleArchive", workspace: "ws-a" })).toEqual({ kind: "applied", revision: store.revision() });
+    expect(ws()?.archived).toMatchObject({ phase: "archived" });
+    expect(ws()?.archived?.warnings).toBeUndefined();
+    expect(await carry({ kind: "settleArchive", workspace: "ws-a" })).toEqual({ kind: "unchanged", revision: store.revision() });
+    await carry({ kind: "clearArchived", workspace: "ws-a" });
+    expect(ws()?.archived).toBeUndefined();
+  });
+
   it("lands a team with its first members whole, or nothing of it", async () => {
     const { carry, ws } = rig();
     await carry(workspace);
