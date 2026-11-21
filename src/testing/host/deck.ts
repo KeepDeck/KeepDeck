@@ -197,8 +197,14 @@ export function deckOnDisk(host: Host): string {
 
 /** Start a deck, set it up, wait until the deck on disk says `saved` of
  * what the setup made, then quit the app and launch it again on the same
- * home: what the next launch boots from. What the setup made. */
-export async function quitAfter<T>(host: Host, setUp: (deck: Deck) => Promise<T>, saved: (onDisk: string, made: T) => boolean): Promise<T> {
+ * home — `meanwhile` run while it is down: what the next launch boots from.
+ * What the setup made. */
+export async function quitAfter<T>(
+  host: Host,
+  setUp: (deck: Deck) => Promise<T>,
+  saved: (onDisk: string, made: T) => boolean,
+  meanwhile?: () => void,
+): Promise<T> {
   const deck = await startDeck(host);
   let made: T;
   try {
@@ -208,7 +214,7 @@ export async function quitAfter<T>(host: Host, setUp: (deck: Deck) => Promise<T>
   } finally {
     deck.dispose();
   }
-  await host.relaunch("quit");
+  await host.relaunch("quit", meanwhile);
   return made;
 }
 

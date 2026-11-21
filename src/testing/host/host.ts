@@ -55,8 +55,10 @@ export interface Host {
   /** Wait for `ok` to hold, polling; fail as "never: `label`" past `ms`. */
   until(label: string, ok: () => boolean, ms?: number): Promise<void>;
   /** End the app as `how` says, and launch it again on the same home and
-   * folders. The page it served is gone with it: start a deck anew. */
-  relaunch(how: Ending): Promise<void>;
+   * folders — `meanwhile` run while it is down, as what changes on disk
+   * between two launches. The page it served is gone with it: start a deck
+   * anew. */
+  relaunch(how: Ending, meanwhile?: () => void): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -279,8 +281,9 @@ export async function startHost(): Promise<Host> {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
     },
-    async relaunch(how) {
+    async relaunch(how, meanwhile) {
       if (!(await end(how))) throw new Error(`kd-host did not quit within ${QUIT_WAIT_MS} ms`);
+      meanwhile?.();
       // The page that heard the old launch is gone: nothing it waited on or
       // listened for carries over.
       replies.clear();
