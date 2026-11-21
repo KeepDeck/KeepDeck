@@ -6,8 +6,14 @@
 import { existsSync, readdirSync } from "node:fs";
 import {
   API_VERSION,
+  carriedUsageRecord,
+  decodeStatusPayload,
   isJsonRecord,
+  jsonl,
+  parseInstant,
   type AgentLiveSession,
+  type JsonlRequest,
+  type SessionTailDialect,
   type ForkPlanInput,
   type KeepDeckPlugin,
   type NormalizedUsage,
@@ -55,18 +61,49 @@ export interface StubAgentControl {
   /** The agent can resume a recorded conversation: its manifest says so,
    * and its plugin has the hook. Read once, at activation. */
   resumes: boolean;
+  /** Where the stub agents keep each conversation's file — the store the
+   * deck's tailer follows, as a CLI's transcript. */
+  storeDir: string;
 }
 
 /** The stub's own words in a status report: the edges its hooks say. */
 const STATUS_EDGES = ["ready", "turn-start", "turn-end"] as const;
 
 /** The stub's usage report: how full its context is, and of which
- * conversation, when it says. */
+ * conversation, when it says — through the bridge, or as a record of its
+ * conversation's file the tailer carried. */
 function stubUsage(payload: unknown, at: number): NormalizedUsage | null {
-  if (!isJsonRecord(payload) || typeof payload.usedPct !== "number") return null;
-  const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : undefined;
-  return { account: null, pane: { agent: STUB_AGENT, reportedAt: at, context: { usedPct: payload.usedPct }, ...(sessionId !== undefined && { sessionId }) } };
+  const report = carriedUsageRecord(payload) ?? payload;
+  if (!isJsonRecord(report) || typeof report.usedPct !== "number") return null;
+  const sessionId = typeof report.sessionId === "string" ? report.sessionId : undefined;
+  return { account: null, pane: { agent: STUB_AGENT, reportedAt: at, context: { usedPct: report.usedPct }, ...(sessionId !== undefined && { sessionId }) } };
 }
+
+/** One line of a stub conversation's file. */
+interface StubRecord {
+  type?: unknown;
+  event?: unknown;
+  at?: unknown;
+}
+
+function isStubRecord(value: unknown): value is StubRecord {
+  return isJsonRecord(value);
+}
+
+/** What the stub's file says of its turns: a `status` record carries an edge
+ * at its own time; a `usage` record is the numbers' lane, not this one. */
+const stubTail: SessionTailDialect<JsonlRequest, StubRecord> = {
+  format: jsonl(isStubRecord),
+  watches: [{ match: [{ key: "type", equals: "status" }], keep: ["type", "event", "at"], lane: "status" }],
+  // The agent names its file in its binding: nothing is searched for.
+  follow: async (pane) => (pane.store ? { path: pane.store } : null),
+  read: (record) => {
+    const at = parseInstant(record.at);
+    const edge = STATUS_EDGES.find((known) => known === record.event);
+    return at === null || edge === undefined ? null : { kind: edge, at };
+  },
+  ignores: (record) => record.type === "usage",
+};
 
 /** The edge a stub status report says, if it says one. */
 function stubEdge(payload: unknown): (typeof STATUS_EDGES)[number] | null {
@@ -106,7 +143,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
   };
   const run = (output: SpawnPlanOutput, args: string[]) => {
     output.command = process.execPath;
-    output.args = [program, ...args, ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : [])];
+    output.args = [program, ...args, "--store", control.storeDir, ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : [])];
   };
   // The registry a CLI keeps of its own runs: read, never guessed — and
   // refusing, when it cannot say, rather than answering empty.
@@ -127,16 +164,30 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
         // The stub CLI's words for a session that continues the pane's
         // conversation rather than starting one.
         binding: { swapSources: ["resume", "clear", "fork"] },
-        usage: { normalize: stubUsage },
+        // The numbers come through the bridge, or as `usage` records of the
+        // conversation's file.
+        usage: {
+          normalize: stubUsage,
+          tail: { watches: [{ match: [{ key: "type", equals: "usage" }], keep: ["type", "usedPct", "sessionId"], lane: "usage" }] },
+        },
+        // A companion in its process, once it says hello, states the file's
+        // status facts itself: the tail then carries the numbers alone.
+        companion: { covers: ["status-records"] },
         status: {
           normalize: (payload, at) => {
+            // A record of its file the host carried by this plugin's watch:
+            // what it means is the dialect's, at the record's own time.
+            const decoded = decodeStatusPayload(payload);
+            if (decoded?.source === "record") return isStubRecord(decoded.record) ? stubTail.read(decoded.record) : null;
             const edge = stubEdge(payload);
             return edge === null ? null : { kind: edge, at };
           },
           attribute: (payload) => {
+            if (decodeStatusPayload(payload)?.source === "record") return { event: null, actor: "main", status: true };
             const edge = stubEdge(payload);
             return edge === null ? null : { event: edge, actor: "main", status: true };
           },
+          tail: stubTail,
         },
         hooks: {
           "spawn.plan"(input, output) {

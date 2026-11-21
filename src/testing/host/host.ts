@@ -92,16 +92,29 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-/** The arguments of every call of `cmd` the page made, from `mark` on the
- * tape, in their order. */
-export function callsOf(host: Pick<Host, "tape">, cmd: string, mark = 0): unknown[] {
-  const calls: unknown[] = [];
+/** Every call of `cmd` the page made, from `mark` on the tape, in their
+ * order: its id on the pipe, and its arguments. */
+function asked(host: Pick<Host, "tape">, cmd: string, mark: number): { id: unknown; args: unknown }[] {
+  const calls: { id: unknown; args: unknown }[] = [];
   for (const { way, line } of host.tape.slice(mark)) {
     if (way !== "page →" || !line.includes(`"cmd":"${cmd}"`)) continue;
     const call: unknown = JSON.parse(line);
-    if (typeof call === "object" && call !== null && field(call, "cmd") === cmd) calls.push(field(call, "args"));
+    if (typeof call === "object" && call !== null && field(call, "cmd") === cmd) calls.push({ id: field(call, "id"), args: field(call, "args") });
   }
   return calls;
+}
+
+/** The arguments of every call of `cmd` the page made, from `mark` on the
+ * tape, in their order. */
+export function callsOf(host: Pick<Host, "tape">, cmd: string, mark = 0): unknown[] {
+  return asked(host, cmd, mark).map(({ args }) => args);
+}
+
+/** The arguments of every call of `cmd` from `mark` on that the app has
+ * answered. */
+export function repliedTo(host: Pick<Host, "tape">, cmd: string, mark = 0): unknown[] {
+  const answered = (id: unknown) => host.tape.some(({ way, line }) => way === "← host" && line.startsWith(`{"id":${String(id)},`));
+  return asked(host, cmd, mark).filter(({ id }) => typeof id === "number" && answered(id)).map(({ args }) => args);
 }
 
 /** How long a quit has to end the app before it is killed — a little more

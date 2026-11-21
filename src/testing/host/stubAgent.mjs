@@ -16,6 +16,8 @@
 //   --child        a process the agent started in its own terminal: it
 //                  reports nothing of its own and takes its cues from the
 //                  agent
+//   --store <dir>  keep the conversation's file there, `<id>.jsonl`, as a
+//                  CLI keeps its transcript, and name it in its binding
 //
 // With KEEPDECK_STUB_LIVE set — a process run outside the deck's panes —
 // it keeps a file named for its conversation in that folder while it runs:
@@ -33,9 +35,12 @@
 //                  the cue naming which post was answered
 //   child <cue>    hand the cue to the process this one started in its
 //                  terminal — started at the first such cue
+//   record <json>  write one record to the conversation's file, as a CLI
+//                  writes a line of its transcript; then print
+//                  `stub: recorded <type>`
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -63,6 +68,14 @@ if (asked !== undefined && flag("--reject")) {
 }
 const sessionId = resumed ?? randomUUID();
 if (!child) print(forked === undefined ? `stub: ready ${sessionId}` : `stub: ready ${sessionId}, forked from ${forked}`);
+
+// The conversation's own file: a resume continues the one it was in.
+const store = valueOf("--store");
+const transcript = store !== undefined && !child ? join(store, `${sessionId}.jsonl`) : undefined;
+if (transcript !== undefined && store !== undefined) {
+  mkdirSync(store, { recursive: true });
+  appendFileSync(transcript, "");
+}
 
 const live = process.env.KEEPDECK_STUB_LIVE;
 if (live && !child) {
@@ -114,6 +127,10 @@ cues.on("line", (line) => {
       .catch((error) => print(`stub: post failed: ${String(error)}`));
   }
   if (cue === "child") toHelper(rest);
+  if (cue === "record" && transcript !== undefined) {
+    appendFileSync(transcript, `${rest}\n`);
+    print(`stub: recorded ${String(JSON.parse(rest).type)}`);
+  }
 });
 // The agent's own process ends it: its cues stop, and so does it.
 if (child) cues.on("close", () => process.exit(0));
@@ -121,7 +138,7 @@ if (child) cues.on("close", () => process.exit(0));
 if (!child && !flag("--unbound")) {
   // A CLI's session hooks: the conversation bound, then the agent at its
   // prompt with nothing running.
-  await post({ type: "session.bound", payload: { sessionId } })
+  await post({ type: "session.bound", payload: { sessionId, ...(transcript !== undefined && { transcriptPath: transcript }) } })
     .then(() => post({ type: "agent.status", payload: { event: "ready" } }))
     .catch((error) => print(`stub: report failed: ${String(error)}`));
 }

@@ -43,16 +43,24 @@ export function listenPaneCompanions(
 const REASON_CHARS = 200;
 
 /**
+ * A declined wake as its companion reported it. The reason is the agent's
+ * own words, written by the pane's process, so it reaches the log as one
+ * clean, short line or not at all. The composer counts as empty only when
+ * the companion says so in as many words: a typed line would send whatever
+ * is there, and a malformed report must not be the thing that sends
+ * somebody's draft.
+ */
+export function declinedWakeOf(payload: unknown): DeclinedWake {
+  const report = isJsonRecord(payload) ? payload : {};
+  const reason = typeof report.reason === "string" ? stripUnsafeText(report.reason).slice(0, REASON_CHARS) : "";
+  return { reason: reason || "no reason given", draft: report.draft !== false };
+}
+
+/**
  * The bridge lane for declined wakes — a companion that took its pane's
  * doorbell down and whose agent would not start the turn it asked for.
  * Verified like the hello before it; what a decline MEANS is mail's
  * (`MailService.wakeDeclined`), and this lane only admits it.
- *
- * The reason is the agent's own words, written by the pane's process, so it
- * reaches the log as one clean, short line or not at all. The composer
- * counts as empty only when the companion says so in as many words: a typed
- * line would send whatever is there, and a malformed report must not be the
- * thing that sends somebody's draft.
  */
 export function listenCompanionDeclines(
   attribution: PaneAttribution,
@@ -65,10 +73,7 @@ export function listenCompanionDeclines(
     subscribe,
     processOf,
     apply(paneId, payload) {
-      const report = isJsonRecord(payload) ? payload : {};
-      const reason =
-        typeof report.reason === "string" ? stripUnsafeText(report.reason).slice(0, REASON_CHARS) : "";
-      declined(paneId, { reason: reason || "no reason given", draft: report.draft !== false });
+      declined(paneId, declinedWakeOf(payload));
     },
   });
 }
