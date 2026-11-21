@@ -55,7 +55,7 @@ const RESOURCE_JS = ["plugins/*/resources/**/*.js"];
 const CONFIG_TS = ["*.config.ts"];
 /** The plain JavaScript this repo authors outside plugin resources, by the
  * runtime it runs in — which decides the globals it may name (task-582). */
-const NODE_JS = ["scripts/**/*.mjs", "eslint.config.js"];
+const NODE_JS = ["scripts/**/*.mjs", "eslint.config.js", "src/testing/host/*.mjs"];
 const BROWSER_JS = ["src/plugins/bridges/**/*.js", "src-tauri/src/artifacts/refresh.js"];
 /** The reporters' shared wire, loaded inside agent CLIs: it may name no
  * runtime at all (keepdeck-wire.js says why), so it gets the language's own
