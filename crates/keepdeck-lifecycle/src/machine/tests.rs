@@ -1151,14 +1151,17 @@ impl Away {
         panic!("the machine never went quiet");
     }
 
-    /// The booted world — with a team at its root or without one — its
-    /// workspace put here.
+    /// The booted world — with a team at its root or without one, a team
+    /// whose creation failed, a suspended agent — its workspace put here.
     fn world(self, root_team: bool) -> Sim {
         let mut facts = deck();
         if !root_team {
             facts.workspaces[0].teams.retain(|row| row.id != team("r"));
             facts.workspaces[0].panes.retain(|row| row.team != Some(team("r")));
         }
+        // Saved as still being made, with no entry: it boots failed.
+        facts.workspaces[0].teams.push(TeamFacts { id: team("p"), at: TeamAtFacts::Provisioning { path: Dir::new("/wt/kd-app-5"), branch: Some("kd/app/5".into()) } });
+        facts.workspaces[0].panes[1].suspended = true;
         let mut sim = Sim::booted_with(facts, Vec::new());
         sim.drive();
         match self {
@@ -1170,7 +1173,19 @@ impl Away {
             }
         }
         self.settle(&mut sim);
+        assert!(self.stands_in(&sim), "the workspace is not {self:?}");
         sim
+    }
+
+    /// The workspace is where this says: a setup that drifted would refuse
+    /// everything for a workspace that is simply gone.
+    fn stands_in(self, sim: &Sim) -> bool {
+        let archive = sim.state.ops.values().any(|op| matches!(&op.kind, Kind::Teardown(teardown) if teardown.kind == crate::model::Teardown::Archive));
+        match self {
+            Away::Archived => sim.state.world.workspaces.get(&ws()).is_some_and(|row| row.archived) && sim.state.ops.is_empty(),
+            Away::Archiving => archive,
+            Away::Closing => sim.state.world.workspaces.contains_key(&ws()) && sim.state.ops.values().any(|op| op.closing()),
+        }
     }
 }
 
@@ -1193,6 +1208,8 @@ fn making_intents() -> Vec<(&'static str, Intent)> {
         ("a start fresh", Intent::Relocate { workspace: ws(), pane: PaneId(1), root: team("n4"), role: None }),
         ("a restart", Intent::Restart { workspace: ws(), pane: PaneId(1) }),
         ("a suspend", Intent::Suspend { workspace: ws(), pane: PaneId(1) }),
+        ("a retry of a team whose creation failed", Intent::Retry { workspace: ws(), team: team("p") }),
+        ("a resume of a suspended agent", Intent::Resume { workspace: ws(), pane: PaneId(2) }),
     ]
 }
 
@@ -1208,7 +1225,9 @@ fn nothing_is_made_or_landed_in_a_workspace_archived_being_archived_or_being_clo
                 let ask = sim.intent(intent);
                 away.settle(&mut sim);
                 let case = format!("{what}, {away:?}, a root team: {root_team}");
-                assert!(matches!(sim.answer(ask), Some(Answer::Refused { .. })), "{case}: {:?}", sim.answer(ask));
+                // Refused for where the workspace stands — never as unknown.
+                let refusal = sim.refusal(ask);
+                assert!(matches!(refusal, Some(Refusal::Archived | Refusal::Busy | Refusal::TargetLeaving | Refusal::AlreadyClosing)), "{case}: {refusal:?}");
                 assert_eq!((sim.state.world.teams.len(), sim.state.world.panes.len()), (teams, panes), "{case}: nothing is made");
             }
         }
