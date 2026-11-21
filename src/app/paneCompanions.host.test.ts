@@ -49,9 +49,13 @@ describe("a companion in a pane's process, on the host", () => {
     await host().until("its turn is over", () => activity(d, paneId) === "done", 15_000);
   }
 
+  /** How many times the page's log has said `line`. */
+  const logged = (line: string) => host().tape.filter((said) => said.way === "page log" && said.line.includes(line)).length;
+
   /** A turn recorded now is passed over: the numbers written after it are
-   * read, and the pane stays as it was — given the while a turn the file
-   * says takes to land, as `turnsRead` sees it do. */
+   * read, and the pane stays as it was. The numbers come from the same file
+   * after the turn's record, so once they are read the record is read too;
+   * the wait after covers the page handling the two events of one drain. */
   async function turnsPassedOver(d: Deck, paneId: string, pct: number) {
     const before = activity(d, paneId);
     await record(d, paneId, turn("turn-start"));
@@ -76,17 +80,28 @@ describe("a companion in a pane's process, on the host", () => {
       const d = await open();
       const paneId = await agentFollowed(d);
       expect(await d.report(paneId, hello)).toBe(204);
-      await d.report(paneId, hello, "outside");
+      // Admitted — no process named is no other process — and dropped by
+      // the lane itself, for naming none.
+      expect(await d.report(paneId, hello, "outside")).toBe(204);
+      await host().until("the lane drops it", () => logged(`companion hello for ${paneId} names no process — ignored`) === 1);
       await turnsPassedOver(d, paneId, 41);
     });
 
     it("is not taken when it names no process, carries another secret, or comes from another process or agent", async () => {
       const d = await open();
       const paneId = await agentFollowed(d);
-      await d.report(paneId, hello, "outside");
-      await d.report(paneId, { ...hello, token: "stolen" });
-      await d.report(paneId, hello, "child");
-      await d.report(paneId, { ...hello, payload: { agent: "codex" } });
+      const refused = (from: string) => logged(`companion hello for ${paneId} from ${from} — ignored`);
+      // Each refused where it is refused: naming no process by the lane;
+      // another secret, another process in the pane's terminal, another
+      // agent by the pane's attribution.
+      expect(await d.report(paneId, hello, "outside")).toBe(204);
+      await host().until("dropped for naming no process", () => logged(`companion hello for ${paneId} names no process — ignored`) === 1);
+      expect(await d.report(paneId, { ...hello, token: "stolen" })).toBe(204);
+      await host().until("refused for its secret", () => refused("stub") === 1);
+      expect(await d.report(paneId, hello, "child")).toBe(204);
+      await host().until("refused for its process", () => refused("stub") === 2);
+      expect(await d.report(paneId, { ...hello, payload: { agent: "codex" } })).toBe(204);
+      await host().until("refused for its agent", () => refused("codex") === 1);
       // The file still says the pane's turns.
       await turnsRead(d, paneId);
     });
