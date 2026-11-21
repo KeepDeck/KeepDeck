@@ -1117,6 +1117,104 @@ fn a_relocate_in_an_archived_workspace_is_refused_whether_it_finds_a_root_team_o
     }
 }
 
+/// Where a workspace is when something is asked to be made or landed in it.
+#[derive(Clone, Copy, Debug)]
+enum Away {
+    Archived,
+    Archiving,
+    Closing,
+}
+
+impl Away {
+    /// The workspace's own command left unanswered, so it stays where it is.
+    fn holds(self, cmd: &Cmd) -> bool {
+        match self {
+            Away::Archived => false,
+            Away::Archiving => matches!(cmd, Cmd::SettleArchive { .. }),
+            Away::Closing => matches!(cmd, Cmd::RemoveWorkspace { .. }),
+        }
+    }
+
+    /// Every command answered but the one it holds, every timer fired, until
+    /// nothing moves.
+    fn settle(self, sim: &mut Sim) {
+        for _ in 0..300 {
+            let moved = sim.round_answering(&|_| Ok(()), &|cmd| !self.holds(cmd));
+            let timers = sim.timers();
+            for timer in timers.clone() {
+                sim.send(timer);
+            }
+            if !moved && timers.is_empty() {
+                return;
+            }
+        }
+        panic!("the machine never went quiet");
+    }
+
+    /// The booted world — with a team at its root or without one — its
+    /// workspace put here.
+    fn world(self, root_team: bool) -> Sim {
+        let mut facts = deck();
+        if !root_team {
+            facts.workspaces[0].teams.retain(|row| row.id != team("r"));
+            facts.workspaces[0].panes.retain(|row| row.team != Some(team("r")));
+        }
+        let mut sim = Sim::booted_with(facts, Vec::new());
+        sim.drive();
+        match self {
+            Away::Archived | Away::Archiving => {
+                sim.intent(Intent::Archive { workspace: ws() });
+            }
+            Away::Closing => {
+                sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() });
+            }
+        }
+        self.settle(&mut sim);
+        sim
+    }
+}
+
+/// Every intent that makes something in a workspace, or lands something
+/// there.
+fn making_intents() -> Vec<(&'static str, Intent)> {
+    let source = || SessionKey { agent: "claude".into(), session: "s1".into() };
+    let new_team = |id: &str| Landing::NewTeam { team: team(id), site: Site::New { place: None, base: None }, draft: draft() };
+    let create = |site: Site| Intent::CreateTeam { workspace: ws(), team: team("n1"), site, draft: draft(), members: vec![draft()] };
+    let continued = |landing: Landing, how: Continuation| Intent::Continue { workspace: ws(), landing, source: source(), how, member: draft() };
+    vec![
+        ("a team at the root", create(Site::Root)),
+        ("a team in a folder", create(Site::Existing { cwd: Dir::new("/else") })),
+        ("a team in a new worktree", create(Site::New { place: None, base: None })),
+        ("a seat on a team", Intent::Seat { workspace: ws(), team: team("1"), member: draft() }),
+        ("a resume onto a team", continued(Landing::Team { team: team("1") }, Continuation::Resume)),
+        ("a resume onto a new team", continued(new_team("n2"), Continuation::Resume)),
+        ("a fork onto a team", continued(Landing::Team { team: team("1") }, Continuation::Fork)),
+        ("a fork onto a new team", continued(new_team("n3"), Continuation::Fork)),
+        ("a start fresh", Intent::Relocate { workspace: ws(), pane: PaneId(1), root: team("n4"), role: None }),
+        ("a restart", Intent::Restart { workspace: ws(), pane: PaneId(1) }),
+        ("a suspend", Intent::Suspend { workspace: ws(), pane: PaneId(1) }),
+    ]
+}
+
+#[test]
+fn nothing_is_made_or_landed_in_a_workspace_archived_being_archived_or_being_closed() {
+    // Each arm of the intents asks of the workspace in its own words: an arm
+    // that forgets to is the defect this holds against, whichever arm it is.
+    for away in [Away::Archived, Away::Archiving, Away::Closing] {
+        for root_team in [true, false] {
+            for (what, intent) in making_intents() {
+                let mut sim = away.world(root_team);
+                let (teams, panes) = (sim.state.world.teams.len(), sim.state.world.panes.len());
+                let ask = sim.intent(intent);
+                away.settle(&mut sim);
+                let case = format!("{what}, {away:?}, a root team: {root_team}");
+                assert!(matches!(sim.answer(ask), Some(Answer::Refused { .. })), "{case}: {:?}", sim.answer(ask));
+                assert_eq!((sim.state.world.teams.len(), sim.state.world.panes.len()), (teams, panes), "{case}: nothing is made");
+            }
+        }
+    }
+}
+
 #[test]
 fn a_seat_the_role_rule_refuses_hears_the_owners_own_kind() {
     let mut sim = Sim::booted();
