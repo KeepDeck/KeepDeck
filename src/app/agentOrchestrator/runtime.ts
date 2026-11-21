@@ -129,6 +129,14 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
    * on its card.
    */
   function settle(wsId: string, pane: Pane, attempt: Attempt): void {
+    // A restart that took the pane over while this attempt was out owns the
+    // pane now: the attempt's failure is not the pane's, and the start the
+    // restart owes stays owed. Woken still lands — it is what lets the pane
+    // rise into the restart.
+    if (attempt.kind !== "woken" && restarting.has(pane.id)) {
+      log.info("web:orchestrator", `${pane.id}: wake outcome dropped — a restart took the pane over`);
+      return;
+    }
     if (attempt.kind !== "woken") startOwed.delete(pane.id);
     const origin = askedBy(wsId, pane.id);
     if (!origin) {

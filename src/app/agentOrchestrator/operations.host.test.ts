@@ -141,6 +141,25 @@ describe("an agent's operations on the host", () => {
     expect(d.pane(paneId).session?.id).toBe(session);
   });
 
+  it("brings an agent back when it is restarted while its resume is still being prepared", async () => {
+    const d = await open();
+    const { ws, paneId, session } = await d.agentUp();
+    await d.runtime.orchestrator.suspend(ws.id, paneId);
+    await host().until("suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none");
+    // The person resumes it, and its plan is slow to build…
+    const building = host().hold({ request: "bridge_pane_dir" });
+    await d.runtime.orchestrator.resume(ws.id, paneId);
+    await building.caught;
+    // …so they restart it, and the machine lets go of it for that.
+    const before = epoch(d, paneId);
+    expect((await d.runtime.orchestrator.restart(ws.id, paneId, "resume")).kind).toBe("accepted");
+    await host().until("let go of for the restart", () => epoch(d, paneId) > before);
+    // The resume's build ends after that: the restart is what the pane does now.
+    building.release();
+    await host().until("it is back, in its conversation", () => d.slot(paneId) === "live", 15_000);
+    expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+  });
+
   it("closes an agent: its pane goes, its process with it, and nothing is held for it", async () => {
     const d = await open();
     const { ws, paneId } = await d.agentUp();
