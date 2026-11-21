@@ -11,6 +11,8 @@ declare module "vitest" {
   interface ProvidedContext {
     /** Where the host binary was built. */
     hostBinary: string;
+    /** The stub agent's program, which the stub plugin's plans run. */
+    stubAgent: string;
   }
 }
 
@@ -22,4 +24,5 @@ export default function setup(project: TestProject): void {
   });
   if (built.status !== 0) throw new Error(`building kd-host failed (exit ${built.status ?? "signal"})`);
   project.provide("hostBinary", join(process.env.CARGO_TARGET_DIR ?? join(root, "target"), "debug", "kd-host"));
+  project.provide("stubAgent", fileURLToPath(new URL("./stubAgent.mjs", import.meta.url)));
 }

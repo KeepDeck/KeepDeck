@@ -97,7 +97,7 @@ import { createDbBoardStore } from "./tasks/dbBoardStore";
 import { logMigration } from "./tasks/migrationLog";
 import { createPaneAttribution } from "./paneAttribution";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
-import { createPluginManager } from "./pluginManager";
+import { createPluginManager, type BuiltinPlugins } from "./pluginManager";
 import {
   acquirePane,
   closePane,
@@ -177,21 +177,28 @@ function agentCatalogPort(
  * `registry` is the command registry every owner below contributes to —
  * the process-wide one by default, and a fresh one where two runtimes must
  * coexist (a test): the mail commands are registered for a runtime's whole
- * life, and one registry cannot hold two of them. */
+ * life, and one registry cannot hold two of them. `builtins` are the
+ * built-in plugins: the app's own by default, the test plugin where the page
+ * runs on the host harness. */
 export function createAppRuntime(
   downloadBackend: DownloadBackend = tauriDownloadBackend,
   registry: CommandRegistry = commands,
+  builtins?: BuiltinPlugins,
 ) {
   const downloads = new DownloadManager(downloadBackend);
   // A plugin's own process belongs to the workspace on screen when it is
   // started; the deck store is built below, and read only at a launch.
-  const plugins = createPluginManager(downloads, {
-    lease: askLease,
-    workspace: () => {
-      const { activeId, workspaces } = deckStore.getSnapshot();
-      return workspaces.some((ws) => ws.id === activeId) ? activeId : null;
+  const plugins = createPluginManager(
+    downloads,
+    {
+      lease: askLease,
+      workspace: () => {
+        const { activeId, workspaces } = deckStore.getSnapshot();
+        return workspaces.some((ws) => ws.id === activeId) ? activeId : null;
+      },
     },
-  });
+    builtins,
+  );
   /** How a pane reads, for anything that has to name one. Read per call — a
    * plugin can be installed or removed while the deck is up. */
   const agentLabels = () => plugins.pluginRegistries.agents.list().map(({ entry }) => titleAgentOf(entry));

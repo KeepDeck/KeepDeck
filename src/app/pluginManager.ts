@@ -242,10 +242,16 @@ export function makeWatchFanout(
   };
 }
 
+/** Where the built-in plugins come from: the app's own — from source in dev,
+ * the prebuilt bundles in a build — or the ones a host test runs the page
+ * with, which must not be whatever CLIs this machine happens to have. */
+export type BuiltinPlugins = () => Promise<PluginInstall[]>;
+
 export function createPluginManager(
   appDownloads: DownloadManager,
   /** How a plugin's own process is launched — see `createPluginSessions`. */
   launches: Omit<PluginSessionsDeps, "open">,
+  builtinPlugins?: BuiltinPlugins,
 ) {
   const pluginRegistries = createContributionRegistries();
 
@@ -852,9 +858,11 @@ export function createPluginManager(
       // Discovery is pure IO and needs nothing from settings, so it runs
       // ALONGSIDE the settings load rather than behind it — gating the whole
       // bootstrap on that read would add its latency to every launch.
-      const discovery = import.meta.env.DEV
-        ? Promise.resolve(discoverDevPlugins())
-        : discoverBuiltPlugins();
+      const discovery = builtinPlugins
+        ? builtinPlugins()
+        : import.meta.env.DEV
+          ? Promise.resolve(discoverDevPlugins())
+          : discoverBuiltPlugins();
       // But nothing may be INSTALLED or activated until settings are in hand:
       // which plugins are enabled lives there, and so do the values a plugin
       // reads the moment it activates. Gating this at the CALL sites left it to
