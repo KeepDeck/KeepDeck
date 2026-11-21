@@ -1699,26 +1699,30 @@ fn a_resume_plan_that_never_comes_is_refused_by_its_deadline_and_holds_no_close(
 
 #[test]
 fn a_resume_plan_that_comes_after_its_deadline_lands_nothing() {
-    let mut sim = Sim::booted();
-    let ask = sim.intent(Intent::Continue {
-        workspace: ws(),
-        landing: Landing::Team { team: team("r") },
-        source: SessionKey { agent: "claude".into(), session: "s1".into() },
-        how: Continuation::Resume,
-        member: draft(),
-    });
-    let op = sim.pending_matching(|cmd| matches!(cmd, Cmd::PrepareResume { .. }))[0].id.op;
-    let panes = sim.state.world.panes.len();
-    sim.send(Event::Timer(Timer::Plan { op }));
-    assert_eq!(sim.refusal(ask), Some(Refusal::PlanExpired));
-    // The page is told to drop what its hook builds late…
-    assert_eq!(sim.pending_matching(|cmd| matches!(cmd, Cmd::DropBuild { .. })).len(), 1);
-    // …and the plan that comes after all lands no member.
-    sim.apply(|cmd| matches!(cmd, Cmd::PrepareResume { .. }));
-    assert!(sim.pending_matching(|cmd| matches!(cmd, Cmd::AddPane { .. })).is_empty());
-    sim.drive();
-    assert_eq!(sim.state.world.panes.len(), panes);
-    assert!(sim.state.ops.is_empty(), "{:?}", sim.state.ops);
+    // On a team that stands — a seat — and on a team made for the resume.
+    let landings = [Landing::Team { team: team("r") }, Landing::NewTeam { team: team("n"), site: Site::Root, draft: draft() }];
+    for landing in landings {
+        let mut sim = Sim::booted();
+        let ask = sim.intent(Intent::Continue {
+            workspace: ws(),
+            landing: landing.clone(),
+            source: SessionKey { agent: "claude".into(), session: "s1".into() },
+            how: Continuation::Resume,
+            member: draft(),
+        });
+        let op = sim.pending_matching(|cmd| matches!(cmd, Cmd::PrepareResume { .. }))[0].id.op;
+        let (teams, panes) = (sim.state.world.teams.len(), sim.state.world.panes.len());
+        sim.send(Event::Timer(Timer::Plan { op }));
+        assert_eq!(sim.refusal(ask), Some(Refusal::PlanExpired), "{landing:?}");
+        // The page is told to drop what its hook builds late…
+        assert_eq!(sim.pending_matching(|cmd| matches!(cmd, Cmd::DropBuild { .. })).len(), 1, "{landing:?}");
+        // …and the plan that comes after all lands no member, and no team.
+        sim.apply(|cmd| matches!(cmd, Cmd::PrepareResume { .. }));
+        assert!(sim.pending_matching(|cmd| matches!(cmd, Cmd::AddPane { .. } | Cmd::AddTeam { .. })).is_empty(), "{landing:?}");
+        sim.drive();
+        assert_eq!((sim.state.world.teams.len(), sim.state.world.panes.len()), (teams, panes), "{landing:?}");
+        assert!(sim.state.ops.is_empty(), "{landing:?}: {:?}", sim.state.ops);
+    }
 }
 
 #[test]
