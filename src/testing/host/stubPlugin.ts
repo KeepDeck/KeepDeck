@@ -39,6 +39,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
           features: [
             { id: "session.new", label: "New sessions", group: "sessions" },
             { id: "session.resume", label: "Resume saved sessions", group: "sessions" },
+            { id: "session.fork", label: "Fork saved sessions", group: "sessions" },
           ],
         },
       ],
@@ -60,6 +61,11 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
           },
           "resume.plan"(input, output) {
             run(output, ["--resume", input.sessionId, ...(control.rejectResumes ? ["--reject"] : [])]);
+          },
+          // Its store is its own process: the fork copies nothing, so it
+          // leaves nothing to take back.
+          "fork.plan"(input, output) {
+            run(output, ["--fork", input.sessionId]);
           },
         },
       });

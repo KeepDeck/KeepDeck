@@ -59,6 +59,20 @@ describe("where a team runs, on the host", () => {
     await host().until("the team, its folder and its branch are gone", () => d.workspace().panes.length === 0 && !existsSync(cwd) && git(host().work, "branch", "--list", branch) === "", 15_000);
   });
 
+  it("forks a conversation into a worktree of its own: the team is made there, and the fork runs in it", async () => {
+    const d = await open();
+    d.gitRepo();
+    const { ws, session } = await d.agentUp();
+    const path = join(host().trees, "fork-1");
+    const forked = await d.runtime.orchestrator.forkSession(ws.id, { agent: "stub", sessionId: session, cwd: host().work }, { kind: "worktree", path, branch: "kd/ws/fork-1" }, { role: "lead" });
+    if (forked.kind !== "accepted") throw new Error(`no fork: ${JSON.stringify(forked)}`);
+    const fork = forked.minted.panes[0];
+    if (!fork) throw new Error("the fork minted no pane");
+    expect(await d.upAndBound(fork)).not.toBe(session);
+    expect(firstCwd(d, fork)).toBe(path);
+    expect(git(path, "rev-parse", "--abbrev-ref", "HEAD")).toBe("kd/ws/fork-1");
+  });
+
   const onlyTheRepo = () =>
     git(host().work, "worktree", "list", "--porcelain").split("\n").filter((line) => line.startsWith("worktree ")).length === 1 &&
     git(host().work, "branch", "--list", "kd/*") === "";

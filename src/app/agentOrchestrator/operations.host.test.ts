@@ -143,6 +143,25 @@ describe("an agent's operations on the host", () => {
     await host().until("the workspace is gone", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0 && d.slot(paneId) === "none");
   });
 
+  it("forks an agent's conversation into a new agent of its team: a new conversation, copied from it", async () => {
+    const d = await open();
+    const { ws, paneId, session } = await d.agentUp();
+    const teamId = d.pane(paneId).team?.teamId;
+    if (!teamId) throw new Error("the lead is on no team");
+    const forked = await d.runtime.orchestrator.forkSession(ws.id, { agent: "stub", sessionId: session, cwd: host().work }, { kind: "dir", cwd: host().work }, { role: "impl-1", team: teamId });
+    if (forked.kind !== "accepted") throw new Error(`no fork: ${JSON.stringify(forked)}`);
+    const fork = forked.minted.panes[0];
+    if (!fork) throw new Error("the fork minted no pane");
+    const conversation = await d.upAndBound(fork);
+    expect(conversation).not.toBe(session);
+    expect(lastArgs(d, fork)).toEqual(expect.arrayContaining(["--fork", session]));
+    expect(d.pane(fork).team).toEqual({ teamId, role: "impl-1" });
+    // The agent it was copied from runs on, in its own conversation.
+    expect(d.slot(paneId)).toBe("live");
+    expect(d.pane(paneId).session?.id).toBe(session);
+    await host().until("the fork is over", () => d.settled());
+  });
+
   it("leaves an agent that ended by itself on its exit card, starting nothing", async () => {
     const d = await open();
     const { paneId } = await d.agentUp();

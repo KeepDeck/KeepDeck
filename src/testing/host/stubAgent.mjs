@@ -7,6 +7,7 @@
 //
 // Arguments, from the stub plugin's plans:
 //   --resume <id>  continue conversation <id>
+//   --fork <id>    open a new conversation copied from <id>
 //   --reject       refuse the resume: exit at once, having reported nothing
 //   --deaf         ignore a polite stop (TERM), so only the kill ends it
 //
@@ -35,8 +36,9 @@ if (resumed !== undefined && flag("--reject")) {
   print(`stub: no conversation ${resumed}`);
   process.exit(1);
 }
+const forked = valueOf("--fork");
 const sessionId = resumed ?? randomUUID();
-print(`stub: ready ${sessionId}`);
+print(forked === undefined ? `stub: ready ${sessionId}` : `stub: ready ${sessionId}, forked from ${forked}`);
 
 /** Bind the conversation through the bridge the plan armed, as a session
  * hook does: by the pane's token, from a process of the pane's terminal. */
