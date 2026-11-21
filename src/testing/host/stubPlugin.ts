@@ -18,6 +18,7 @@ import {
   type KeepDeckPlugin,
   type NormalizedUsage,
   type PluginManifest,
+  type PluginSessions,
   type ResumePlanInput,
   type SpawnPlanInput,
   type SpawnPlanOutput,
@@ -67,6 +68,9 @@ export interface StubAgentControl {
   /** Where the stub agents keep each conversation's file — the store the
    * deck's tailer follows, as a CLI's transcript. */
   storeDir: string;
+  /** The process door the stub plugin was handed at activation — the app's
+   * own, for a plugin's processes — once it is active. */
+  sessions: PluginSessions | null;
 }
 
 /** The stub's own words in a status report: the edges its hooks say. */
@@ -159,6 +163,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
   };
   const plugin: KeepDeckPlugin = {
     activate(ctx) {
+      control.sessions = ctx.services.sessions;
       ctx.agents.register({
         id: STUB_AGENT,
         label: "Stub",

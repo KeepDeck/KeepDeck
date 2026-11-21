@@ -281,6 +281,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     unbound: false,
     resumes: true,
     storeDir: join(host.home, "stub-store"),
+    sessions: null,
     liveRegistry: "files",
     liveDir: join(host.home, "stub-live"),
     ...told,
@@ -463,7 +464,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     sessionRegistry: () => sessions.createPtyManager(openSession),
     async leaseLaunch() {
       // Asked as the app asks for a plugin's own process, through its port.
-      const ask = pluginLaunch(STUB_PLUGIN_ID, workspace().id);
+      const ask = pluginLaunch(STUB_PLUGIN_ID, workspace().id, null);
       const reply = await askLease(ask);
       if (reply.kind !== "answered" || reply.answer.kind !== "leased") throw new Error(`no launch lease: ${JSON.stringify(reply)}`);
       return { permit: reply.answer.permit, owner: ask.owner };

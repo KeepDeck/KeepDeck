@@ -22,11 +22,12 @@ function rig(reply: Reply, workspace: string | null = "ws-a") {
 }
 
 describe("createPluginSessions", () => {
-  it("launches a plugin's process under the plugin's lease in the workspace on screen, with no folder of ours", async () => {
+  it("launches a plugin's process under the plugin's lease in the workspace on screen, in the folder it starts in", async () => {
     const r = rig({ kind: "answered", answer: { kind: "leased", permit: 3 } });
     const handle = await r.sessions.spawn("p.run", OPTS, () => {});
     const owner = { kind: "plugin", plugin: "p.run", workspace: "ws-a" };
-    expect(r.deps.lease).toHaveBeenCalledWith({ kind: "launch", workspace: "ws-a", owner, dir: null });
+    // The spawn door admits it only into the folder its lease names.
+    expect(r.deps.lease).toHaveBeenCalledWith({ kind: "launch", workspace: "ws-a", owner, dir: "/repo" });
     expect(r.deps.open).toHaveBeenCalledWith(expect.objectContaining({ command: "make", cwd: "/repo" }), 3, owner, expect.any(Function));
     expect(handle.id).toBe("12");
   });

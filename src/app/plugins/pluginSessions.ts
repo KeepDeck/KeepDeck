@@ -27,9 +27,11 @@ export interface PluginSessionsBackend {
 }
 
 /** The launch a plugin's own process is leased as: the plugin's, in the
- * workspace it is started from, in no folder of ours. */
-export function pluginLaunch(pluginId: string, workspace: string): Extract<LeaseAsk, { kind: "launch" }> {
-  return { kind: "launch", workspace, owner: { kind: "plugin", plugin: pluginId, workspace }, dir: null };
+ * workspace it is started from, in the folder it starts in — the one the
+ * spawn door admits it into, and the machine holds while it runs — or in
+ * none. */
+export function pluginLaunch(pluginId: string, workspace: string, cwd: string | null): Extract<LeaseAsk, { kind: "launch" }> {
+  return { kind: "launch", workspace, owner: { kind: "plugin", plugin: pluginId, workspace }, dir: cwd };
 }
 
 export function createPluginSessions(deps: PluginSessionsDeps): PluginSessionsBackend {
@@ -37,7 +39,10 @@ export function createPluginSessions(deps: PluginSessionsDeps): PluginSessionsBa
     async spawn(pluginId, opts, onEvent) {
       const workspace = deps.workspace();
       if (workspace === null) throw new Error("no workspace is open to run a plugin's process in");
-      const ask = pluginLaunch(pluginId, workspace);
+      // One folder for the lease and the spawn: the door admits the process
+      // only into the folder its lease names.
+      const cwd = opts.cwd ?? null;
+      const ask = pluginLaunch(pluginId, workspace, cwd);
       const owner = ask.owner;
       const reply = await deps.lease(ask);
       if (reply.kind !== "answered") throw new Error(noAnswerText(reply));
@@ -48,7 +53,7 @@ export function createPluginSessions(deps: PluginSessionsDeps): PluginSessionsBa
           command: opts.command ?? null,
           args: opts.args ?? [],
           env: opts.env ?? [],
-          cwd: opts.cwd ?? null,
+          cwd,
           cols: opts.cols,
           rows: opts.rows,
         },
