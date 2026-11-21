@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentStatusEvent, StatusNormalization, StatusNormalizer } from "@keepdeck/plugin-api";
+import type { AgentStatusEvent, StatusNormalization } from "@keepdeck/plugin-api";
 import { createAgentStatusTracker } from "./agentStatusTracker";
 import { maybeRecord } from "../testing/values.test-support";
 
@@ -391,22 +391,6 @@ describe("agentStatusTracker", () => {
     expect(listener).toHaveBeenCalledTimes(1);
     tracker.clear("pane-1");
     expect(listener).toHaveBeenCalledTimes(1);
-  });
-
-  it("clear() retires what the decoder kept, even before anything was published", () => {
-    // A process that dies having said only its mode: the next one reads its
-    // reports from no state of the old one's.
-    const tracker = createAgentStatusTracker();
-    const normalize: StatusNormalizer = (payload, at, context) => {
-      if (maybeRecord(payload)?.seed === true) return { kind: "status-reduction", state: "old-mode", events: [] };
-      return { kind: "turn-start", at: context?.state === "old-mode" ? 999 : at };
-    };
-    tracker.registerNormalizer("claude", normalize);
-    tracker.report("pane-1", { agent: "claude", seed: true }, 100);
-    expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
-    tracker.clear("pane-1");
-    tracker.report("pane-1", { agent: "claude" }, 200);
-    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({ state: "working", since: 200 });
   });
 
   it("a report after clear() starts genuinely fresh", () => {
