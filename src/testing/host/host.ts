@@ -49,6 +49,9 @@ export interface Host {
   /** Where on the tape the app's current launch begins. */
   launchedAt(): number;
   hold(what: Hold): Held;
+  /** Fail every call of `cmd` at the transport — the IPC broken under it,
+   * the app never reached — until the answer is called. */
+  fail(cmd: string): () => void;
   /** Wait for `ok` to hold, polling; fail as "never: `label`" past `ms`. */
   until(label: string, ok: () => boolean, ms?: number): Promise<void>;
   /** End the app as `how` says, and launch it again on the same home and
@@ -109,6 +112,9 @@ export async function startHost(): Promise<Host> {
   /** Whether the app is up to be written to: not between an end and the
    * launch after it. */
   let running = false;
+  /** The commands whose calls fail at the transport, as an IPC that broke
+   * fails them. */
+  const failing = new Set<string>();
 
   /** Write a line to the app, if it is up; whether it was. */
   function write(line: string): boolean {
@@ -215,6 +221,10 @@ export async function startHost(): Promise<Host> {
     // The window shell's plugins (dialogs, the clipboard, the updater) have
     // no window here: said as a refusal, never answered as if they did.
     if (cmd.startsWith("plugin:")) return Promise.reject(new Error(`no window shell in the host: ${cmd}`));
+    if (failing.has(cmd)) {
+      note("page →", JSON.stringify({ cmd, failed: "the IPC failed" }));
+      return Promise.reject(new Error(`the IPC failed: ${cmd}`));
+    }
     return new Promise((resolve, reject) => {
       const id = ++nextId;
       replies.set(id, {
@@ -255,6 +265,10 @@ export async function startHost(): Promise<Host> {
           for (const go of holding.queued.splice(0)) go();
         },
       };
+    },
+    fail(cmd) {
+      failing.add(cmd);
+      return () => failing.delete(cmd);
     },
     async until(label, ok, ms = 5000) {
       const start = performance.now();

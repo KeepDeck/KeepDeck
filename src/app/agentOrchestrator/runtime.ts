@@ -321,8 +321,9 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
   }
 
   /** Lease a launch for `pane` and start it with the permit the machine
-   * granted. A refusal leaves it down until the machine's state moves; one
-   * for a target on its way out says nothing at all. */
+   * granted. A refusal — or an ask that failed — leaves it down until the
+   * machine's state moves; one for a target on its way out says nothing at
+   * all. */
   function launch(ws: Workspace, pane: Pane, cwd: string): void {
     const spec = peekPaneSpawnSpec(pane.id);
     if (!spec) return;
@@ -365,7 +366,13 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
         // sooner still.
         if (current.resumeOf !== undefined || current.forkOf !== undefined) startupSilence.arm(pane.id);
       })
-      .catch((e: unknown) => log.warn("web:orchestrator", `${pane.id}: lease failed — ${errorMessage(e)}`))
+      .catch((e: unknown) => {
+        // An ask that failed is not asked again at once: like a refusal it
+        // waits for the machine's state to move. Asked again straight away,
+        // it would spin as fast as the failure comes back.
+        leaseRefused.set(pane.id, asked);
+        log.warn("web:orchestrator", `${pane.id}: lease failed — ${errorMessage(e)}`);
+      })
       .finally(() => {
         inFlight.delete(pane.id);
         schedule();

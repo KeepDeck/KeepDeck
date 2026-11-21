@@ -243,6 +243,25 @@ describe("an agent's operations on the host", () => {
     expect(d.pane(paneId).session?.id).toBe(session);
   });
 
+  it("asks a launch lease that failed again only once the machine's state moves — never in a loop", async () => {
+    const d = await open();
+    const { ws, paneId } = await d.agentUp();
+    await d.runtime.orchestrator.suspend(ws.id, paneId);
+    await host().until("suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none");
+    const leases = () => host().tape.filter(({ line }) => line.includes('"cmd":"lifecycle_lease"')).length;
+    const before = leases();
+    const restore = host().fail("lifecycle_lease");
+    await d.runtime.orchestrator.resume(ws.id, paneId);
+    await host().until("the resume is over", () => d.phase(paneId) === "live" && d.settled());
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Asked again once per state of the machine, not as fast as it fails.
+    expect(leases() - before).toBeLessThan(10);
+    restore();
+    // The next move of the machine's state asks again, and it comes up.
+    await d.runtime.orchestrator.restart(ws.id, paneId, "resume");
+    await host().until("it is back", () => d.slot(paneId) === "live");
+  });
+
   it("leaves an agent that ended by itself on its exit card, starting nothing", async () => {
     const d = await open();
     const { paneId } = await d.agentUp();
