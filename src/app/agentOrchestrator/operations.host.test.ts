@@ -121,6 +121,29 @@ describe("an agent's operations on the host", () => {
     expect(d.slot(paneId)).toBe("exited");
   });
 
+  it("suspends an agent while its process is starting, and it comes back when resumed", async () => {
+    const d = await open();
+    const ws = await d.workspaceUp();
+    const starting = host().hold({ request: "pty_open" });
+    const paneId = await d.addAgent({ role: "lead" });
+    await starting.caught;
+    expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
+    starting.release();
+    await host().until("suspended, its slot empty", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none");
+    await d.runtime.orchestrator.resume(ws.id, paneId);
+    await host().until("it is up", () => d.slot(paneId) === "live" && d.pane(paneId).session !== undefined);
+  });
+
+  it("restarts an agent that ignores the polite stop: the new process starts once the old one is killed", async () => {
+    const d = await open();
+    d.stub.deaf = true;
+    const { ws, paneId, session } = await d.agentUp();
+    d.stub.deaf = false;
+    expect((await d.runtime.orchestrator.restart(ws.id, paneId, "resume")).kind).toBe("accepted");
+    await host().until("a new process", backUp(d, paneId, 2), 15_000);
+    expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+  });
+
   it("stops an agent that ignores the polite stop by the kill, and it comes back when resumed", async () => {
     const d = await open();
     d.stub.deaf = true;

@@ -2,8 +2,10 @@
 // one built-in the stub plugin, against the app itself in the host process.
 // Modules are loaded afresh per deck, so each test's page is a page of its
 // own — the registry, the settings and the session table included.
+import { execFileSync } from "node:child_process";
 import { vi } from "vitest";
 import type { Pane, Workspace } from "../../domain/deck";
+import type { Site } from "../../domain/lifecycle";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Consent } from "../../ipc/generated/lifecycle/Consent";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -16,6 +18,15 @@ import { STUB_AGENT, stubPlugin, type StubAgentControl } from "./stubPlugin";
 export interface Launch {
   pane: string;
   args: string[];
+  /** The folder it runs in. */
+  cwd: string | null;
+}
+
+/** An agent to add: its role, and the team it joins or the site it asks for. */
+export interface AgentAsk {
+  role: string;
+  team?: string;
+  site?: Site;
 }
 
 export interface Deck {
@@ -40,14 +51,25 @@ export interface Deck {
   workspace(): Workspace;
   /** A pane of the first workspace, as the page holds it now. */
   pane(paneId: string): Pane;
+  /** The deck's first workspace, made at the test's work folder, its
+   * worktrees in the test's own, if there is none yet. */
+  workspaceUp(): Promise<WorkspaceRef>;
+  /** A stub agent asked for in the first workspace — accepted, not yet up. */
+  addAgent(ask: AgentAsk): Promise<string>;
+  /** Wait for the pane to be up, its process live and its conversation
+   * bound; its conversation. */
+  upAndBound(paneId: string): Promise<string>;
   /** A workspace at the test's work folder with one stub agent in it, up
    * and bound to its conversation. */
   agentUp(): Promise<{ ws: WorkspaceRef; paneId: string; session: string }>;
   /** Another stub agent on `teamId`, up and bound. */
   memberUp(teamId: string, role: string): Promise<string>;
   /** The consent a close's dialog would send: what the machine's preview
-   * says it ends, and no folder deleted. */
-  consentFor(intent: Intent): Promise<Consent>;
+   * says it ends — and, when the person ticks them, the folders it offers
+   * to delete. */
+  consentFor(intent: Intent, deleting?: boolean): Promise<Consent>;
+  /** Make the test's work folder a git repository with one commit. */
+  gitRepo(): void;
   dispose(): void;
 }
 
@@ -80,8 +102,9 @@ function launchOf(line: string): Launch | null {
   const spec: unknown = Reflect.get(args, "spec");
   const pane = typeof owner === "object" && owner !== null ? Reflect.get(owner, "pane") : null;
   const argv = typeof spec === "object" && spec !== null ? Reflect.get(spec, "args") : null;
+  const cwd = typeof spec === "object" && spec !== null ? Reflect.get(spec, "cwd") : null;
   if (typeof pane !== "string" || !Array.isArray(argv)) return null;
-  return { pane, args: argv.map(String) };
+  return { pane, args: argv.map(String), cwd: typeof cwd === "string" ? cwd : null };
 }
 
 /** Start the page's runtime on `host`, and wait for the machine to open. */
@@ -112,9 +135,24 @@ export async function startDeck(host: Host): Promise<Deck> {
       return launch && launch.pane === paneId ? [launch] : [];
     });
   /** The pane is up, its process live, and its conversation bound. */
-  async function bound(paneId: string): Promise<string> {
+  async function upAndBound(paneId: string): Promise<string> {
     await host.until(`${paneId} is up and bound`, () => sessions.paneSessionState(paneId).kind === "live" && pane(paneId).session !== undefined, 15_000);
     return pane(paneId).session?.id ?? "";
+  }
+  async function workspaceUp(): Promise<WorkspaceRef> {
+    if (runtime.deckStore.getSnapshot().workspaces.length === 0) {
+      const made = await runtime.orchestrator.createWorkspace({ name: "ws", cwd: host.work, worktreeBaseDir: host.trees });
+      if (made.kind !== "accepted") throw new Error(`no workspace: ${JSON.stringify(made)}`);
+    }
+    const ws = workspace();
+    return { id: ws.id, instance: ws.instance };
+  }
+  async function addAgent(ask: AgentAsk): Promise<string> {
+    const added = await runtime.orchestrator.createPane({ workspace: await workspaceUp(), pane: { agentType: STUB_AGENT }, ...ask });
+    if (added.kind !== "accepted") throw new Error(`no agent: ${JSON.stringify(added)}`);
+    const paneId = added.minted.panes[0];
+    if (!paneId) throw new Error("the machine minted no pane");
+    return paneId;
   }
 
   return {
@@ -142,29 +180,27 @@ export async function startDeck(host: Host): Promise<Deck> {
     launches,
     workspace,
     pane,
+    workspaceUp,
+    addAgent,
+    upAndBound,
     async agentUp() {
-      const made = await runtime.orchestrator.createWorkspace({ name: "ws", cwd: host.work, worktreeBaseDir: null });
-      if (made.kind !== "accepted") throw new Error(`no workspace: ${JSON.stringify(made)}`);
-      const ws = workspace();
-      const ref = { id: ws.id, instance: ws.instance };
-      const added = await runtime.orchestrator.createPane({ workspace: ref, pane: { agentType: STUB_AGENT }, role: "lead" });
-      if (added.kind !== "accepted") throw new Error(`no agent: ${JSON.stringify(added)}`);
-      const paneId = added.minted.panes[0];
-      if (!paneId) throw new Error("the machine minted no pane");
-      return { ws: ref, paneId, session: await bound(paneId) };
+      const ws = await workspaceUp();
+      const paneId = await addAgent({ role: "lead" });
+      return { ws, paneId, session: await upAndBound(paneId) };
     },
     async memberUp(teamId, role) {
-      const ws = workspace();
-      const added = await runtime.orchestrator.createPane({ workspace: { id: ws.id, instance: ws.instance }, pane: { agentType: STUB_AGENT }, role, team: teamId });
-      if (added.kind !== "accepted") throw new Error(`no member: ${JSON.stringify(added)}`);
-      const paneId = added.minted.panes[0];
-      if (!paneId) throw new Error("the machine minted no pane");
-      await bound(paneId);
+      const paneId = await addAgent({ role, team: teamId });
+      await upAndBound(paneId);
       return paneId;
     },
-    async consentFor(intent) {
+    async consentFor(intent, deleting = false) {
       const preview = await previewIntent(intent);
-      return { stops: preview.stops, folders: [], tickets: [] };
+      return { stops: preview.stops, folders: deleting ? preview.folders : [], tickets: deleting ? preview.creations : [] };
+    },
+    gitRepo() {
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: host.work, stdio: "pipe" });
+      git("init", "-q", "-b", "main");
+      git("-c", "user.name=kd", "-c", "user.email=kd@localhost", "commit", "-q", "--allow-empty", "-m", "init");
     },
     dispose: () => runtime.dispose(),
   };

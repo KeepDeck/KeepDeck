@@ -19,9 +19,11 @@ export interface TapeLine {
   line: string;
 }
 
-/** What to hold: a request by its command before it reaches the host, or
- * the host's reply to a command before it reaches the page. */
-export type Hold = { request: string } | { reply: string };
+/** What to hold: a request by its command before it reaches the host; the
+ * host's reply to a command before it reaches the page; or the first
+ * message on a channel that carries `heard` — and, the channel delivering in
+ * order, every later one on it with it. */
+export type Hold = { request: string } | { reply: string } | { heard: string };
 
 /** Messages held until released, in their order. */
 export interface Held {
@@ -36,6 +38,8 @@ export interface Host {
   home: string;
   /** A folder for the test's workspaces and repositories. */
   work: string;
+  /** A folder for the worktrees the test's teams are given. */
+  trees: string;
   tape: TapeLine[];
   hold(what: Hold): Held;
   /** Wait for `ok` to hold, polling; fail as "never: `label`" past `ms`. */
@@ -72,6 +76,7 @@ export async function startHost(): Promise<Host> {
   if (typeof Reflect.get(globalThis, "window") === "undefined") Reflect.set(globalThis, "window", globalThis);
   const home = realpathSync(mkdtempSync(join(tmpdir(), "kd-host-home-")));
   const work = realpathSync(mkdtempSync(join(tmpdir(), "kd-host-work-")));
+  const trees = realpathSync(mkdtempSync(join(tmpdir(), "kd-host-trees-")));
   const child: ChildProcessWithoutNullStreams = spawn(inject("hostBinary"), [], {
     env: { ...process.env, KEEPDECK_HOME: home },
     stdio: ["pipe", "pipe", "pipe"],
@@ -103,7 +108,12 @@ export async function startHost(): Promise<Host> {
     if (typeof said !== "object" || said === null) return;
     if (field(said, "ready") === true) return readySignal();
     const channel = field(said, "channel");
-    if (typeof channel === "number") return runCallback(channel, { index: field(said, "index"), message: field(said, "message") });
+    if (typeof channel === "number") {
+      return through(
+        (what) => "heard" in what && line.includes(what.heard),
+        () => runCallback(channel, { index: field(said, "index"), message: field(said, "message") }),
+      );
+    }
     const event = field(said, "event");
     if (typeof event === "string") {
       for (const handler of listeners.get(event) ?? []) runCallback(handler, { event, payload: field(said, "payload"), id: ++nextEvent });
@@ -169,6 +179,7 @@ export async function startHost(): Promise<Host> {
   return {
     home,
     work,
+    trees,
     tape,
     hold(what) {
       let caught = () => {};
@@ -198,6 +209,7 @@ export async function startHost(): Promise<Host> {
       clearMocks();
       rmSync(home, { recursive: true, force: true });
       rmSync(work, { recursive: true, force: true });
+      rmSync(trees, { recursive: true, force: true });
       if (!ended) throw new Error("kd-host did not end within 10 s of its pipe closing");
     },
   };
