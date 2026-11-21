@@ -579,10 +579,13 @@ fn with_every_door_answering_every_operation_ends_or_is_owed() {
             }
             let all_answered = snapshot(&world.state).commands.iter().all(|command| world.answered_cmds.contains(&command.id));
             if world.mail.is_empty() && all_answered {
-                world.fire();
-                if world.mail.is_empty() && world.timers.is_empty() {
+                // What a timer sets off — a command among it — is met on the
+                // next round: the run is over only once nothing is due and no
+                // timer waits.
+                if world.timers.is_empty() {
                     break;
                 }
+                world.fire();
             }
         }
         let left: Vec<String> = world.state.ops.iter().filter(|(_, op)| !op.owed).map(|(id, op)| format!("{id} {:?}", op.kind).chars().take(120).collect()).collect();
