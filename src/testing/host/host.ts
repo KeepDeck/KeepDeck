@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, beforeEach } from "vitest";
-import { hostBinary } from "./build";
+import { afterEach, beforeEach, inject } from "vitest";
+import "./build";
 
 /** One line of the pipe or the host's log, with its time since the start. */
 export interface TapeLine {
@@ -72,7 +72,7 @@ export async function startHost(): Promise<Host> {
   if (typeof Reflect.get(globalThis, "window") === "undefined") Reflect.set(globalThis, "window", globalThis);
   const home = realpathSync(mkdtempSync(join(tmpdir(), "kd-host-home-")));
   const work = realpathSync(mkdtempSync(join(tmpdir(), "kd-host-work-")));
-  const child: ChildProcessWithoutNullStreams = spawn(hostBinary(), [], {
+  const child: ChildProcessWithoutNullStreams = spawn(inject("hostBinary"), [], {
     env: { ...process.env, KEEPDECK_HOME: home },
     stdio: ["pipe", "pipe", "pipe"],
   });
