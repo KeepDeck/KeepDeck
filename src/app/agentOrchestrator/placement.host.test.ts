@@ -73,6 +73,24 @@ describe("where a team runs, on the host", () => {
     expect(git(path, "rev-parse", "--abbrev-ref", "HEAD")).toBe("kd/ws/fork-1");
   });
 
+  it("refuses to remove a folder no team holds while its workspace is being closed", async () => {
+    const d = await open();
+    d.gitRepo();
+    const ws = await d.workspaceUp();
+    const orphan = join(host().trees, "orphan");
+    git(host().work, "worktree", "add", "-q", "-b", "orphan", orphan);
+    // The close is under way: the page has not yet heard its workspace go.
+    const removing = host().hold({ heard: '"kind":"removeWorkspace"' });
+    const consent = await d.consentFor({ kind: "closeWorkspace", workspace: ws.id, consent: { stops: [], folders: [], tickets: [] } });
+    expect((await d.runtime.orchestrator.close({ kind: "workspace", workspace: ws, consent })).kind).toBe("accepted");
+    await removing.caught;
+    expect(await d.runtime.orchestrator.removeUnheld(ws, { path: orphan })).toMatchObject({ kind: "refused", refusal: { kind: "targetLeaving" } });
+    removing.release();
+    await host().until("the workspace is gone", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0, 15_000);
+    // Nothing outlived the workspace to take the folder after it.
+    expect(existsSync(orphan)).toBe(true);
+  });
+
   const onlyTheRepo = () =>
     git(host().work, "worktree", "list", "--porcelain").split("\n").filter((line) => line.startsWith("worktree ")).length === 1 &&
     git(host().work, "branch", "--list", "kd/*") === "";
