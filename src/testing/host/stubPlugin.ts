@@ -4,6 +4,7 @@
 // are built for real, the bridge armed by the real plan builder, and nothing
 // depends on the CLIs this machine happens to have.
 import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   API_VERSION,
   carriedUsageRecord,
@@ -12,7 +13,10 @@ import {
   jsonl,
   parseInstant,
   type AgentLiveSession,
+  type AgentStatus,
+  type AgentStatusEvent,
   type JsonlRequest,
+  type StatusWaitReason,
   type SessionTailDialect,
   type ForkPlanInput,
   type KeepDeckPlugin,
@@ -71,10 +75,50 @@ export interface StubAgentControl {
   /** The process door the stub plugin was handed at activation — the app's
    * own, for a plugin's processes — once it is active. */
   sessions: PluginSessions | null;
+  /** A spawn's plan cannot be built: its hook throws this, and the pane is
+   * launched bare — the agent's bin, with no bridge to report through. */
+  spawnPlanFails: string | null;
+  /** The agent's program is gone from where its plans name it. */
+  programGone: boolean;
+  /** The agent declares no status: it reports none of its turns. Read at
+   * activation. */
+  voiceless: boolean;
+  /** The word its hooks and its file say a turn starts with. Read at
+   * activation: a plugin updated between two says it its new way. */
+  turnStartWord: string;
 }
 
-/** The stub's own words in a status report: the edges its hooks say. */
-const STATUS_EDGES = ["ready", "turn-start", "turn-end"] as const;
+/** What a stub's status report or record says: an edge by its own name and,
+ * for a wait or its end, why. */
+interface StubSaid {
+  event?: unknown;
+  reason?: unknown;
+}
+
+const waitReason = (reason: unknown): StatusWaitReason | null => (reason === "permission" || reason === "question" ? reason : null);
+
+/** The stub's words for its edges, as its hooks and its file say them — the
+ * one place they are read, at `at`. A turn starts with `turnStart`: the word
+ * of the activation reading it. */
+function stubEvent(said: StubSaid, at: number, turnStart: string): AgentStatusEvent | null {
+  if (said.event === turnStart) return { kind: "turn-start", at };
+  switch (said.event) {
+    case "ready":
+    case "turn-end":
+    case "context-compacted":
+      return { kind: said.event, at };
+    case "waiting": {
+      const reason = waitReason(said.reason);
+      return reason === null ? null : { kind: "waiting", at, reason };
+    }
+    case "resumed": {
+      const reason = waitReason(said.reason);
+      return reason === null ? { kind: "resumed", at } : { kind: "resumed", at, reason };
+    }
+    default:
+      return null;
+  }
+}
 
 /** The stub's usage report: how full its context is, and of which
  * conversation, when it says — through the bridge, or as a record of its
@@ -87,9 +131,8 @@ function stubUsage(payload: unknown, at: number): NormalizedUsage | null {
 }
 
 /** One line of a stub conversation's file. */
-interface StubRecord {
+interface StubRecord extends StubSaid {
   type?: unknown;
-  event?: unknown;
   at?: unknown;
 }
 
@@ -98,25 +141,20 @@ function isStubRecord(value: unknown): value is StubRecord {
 }
 
 /** What the stub's file says of its turns: a `status` record carries an edge
- * at its own time; a `usage` record is the numbers' lane, not this one. */
-const stubTail: SessionTailDialect<JsonlRequest, StubRecord> = {
+ * at its own time, in the words of the activation reading it; a `usage`
+ * record is the numbers' lane, not this one. */
+const stubTail = (turnStart: string): SessionTailDialect<JsonlRequest, StubRecord> => ({
   format: jsonl(isStubRecord),
-  watches: [{ match: [{ key: "type", equals: "status" }], keep: ["type", "event", "at"], lane: "status" }],
+  watches: [{ match: [{ key: "type", equals: "status" }], keep: ["type", "event", "reason", "at"], lane: "status" }],
   // The agent names its file in its binding: nothing is searched for.
   follow: async (pane) => (pane.store ? { path: pane.store } : null),
   read: (record) => {
     const at = parseInstant(record.at);
-    const edge = STATUS_EDGES.find((known) => known === record.event);
-    return at === null || edge === undefined ? null : { kind: edge, at };
+    return at === null ? null : stubEvent(record, at, turnStart);
   },
   ignores: (record) => record.type === "usage",
-};
+});
 
-/** The edge a stub status report says, if it says one. */
-function stubEdge(payload: unknown): (typeof STATUS_EDGES)[number] | null {
-  const edge = isJsonRecord(payload) ? payload.event : undefined;
-  return STATUS_EDGES.find((known) => known === edge) ?? null;
-}
 
 /** The stub plugin, as the plugin manager installs a built-in. */
 export function stubPlugin(control: StubAgentControl): PluginInstall {
@@ -149,7 +187,8 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
     },
   };
   const run = (output: SpawnPlanOutput, args: string[]) => {
-    output.command = process.execPath;
+    // A program gone from where the plan names it: the spawn finds nothing.
+    output.command = control.programGone ? join(control.storeDir, "gone", "node") : process.execPath;
     output.args = [program, ...args, "--store", control.storeDir, ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : [])];
   };
   // The registry a CLI keeps of its own runs: read, never guessed — and
@@ -164,6 +203,26 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
   const plugin: KeepDeckPlugin = {
     activate(ctx) {
       control.sessions = ctx.services.sessions;
+      // What this activation says a turn starts with, and whether it speaks
+      // of its turns at all: read once, as a plugin's version is.
+      const turnStart = control.turnStartWord;
+      const tail = stubTail(turnStart);
+      const status: AgentStatus = {
+        normalize: (payload, at) => {
+          // A record of its file the host carried by this plugin's watch:
+          // what it means is the dialect's, at the record's own time.
+          const decoded = decodeStatusPayload(payload);
+          if (decoded?.source === "record") return isStubRecord(decoded.record) ? tail.read(decoded.record) : null;
+          return isJsonRecord(payload) ? stubEvent(payload, at, turnStart) : null;
+        },
+        attribute: (payload) => {
+          if (decodeStatusPayload(payload)?.source === "record") return { event: null, actor: "main", status: true };
+          // Which edge it names; its time is not read here.
+          const edge = isJsonRecord(payload) ? stubEvent(payload, 0, turnStart) : null;
+          return edge === null ? null : { event: edge.kind, actor: "main", status: true };
+        },
+        tail,
+      };
       ctx.agents.register({
         id: STUB_AGENT,
         label: "Stub",
@@ -181,25 +240,11 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
         // A companion in its process, once it says hello, states the file's
         // status facts itself: the tail then carries the numbers alone.
         companion: { covers: ["status-records"] },
-        status: {
-          normalize: (payload, at) => {
-            // A record of its file the host carried by this plugin's watch:
-            // what it means is the dialect's, at the record's own time.
-            const decoded = decodeStatusPayload(payload);
-            if (decoded?.source === "record") return isStubRecord(decoded.record) ? stubTail.read(decoded.record) : null;
-            const edge = stubEdge(payload);
-            return edge === null ? null : { kind: edge, at };
-          },
-          attribute: (payload) => {
-            if (decodeStatusPayload(payload)?.source === "record") return { event: null, actor: "main", status: true };
-            const edge = stubEdge(payload);
-            return edge === null ? null : { event: edge, actor: "main", status: true };
-          },
-          tail: stubTail,
-        },
+        ...(!control.voiceless && { status }),
         hooks: {
           "spawn.plan"(input, output) {
             control.plans.push({ hook: "spawn", input, folderStood: existsSync(input.cwd) });
+            if (control.spawnPlanFails !== null) throw new Error(control.spawnPlanFails);
             run(output, []);
           },
           ...(control.resumes && {

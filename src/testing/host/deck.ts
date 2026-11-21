@@ -15,6 +15,7 @@ import type { Intent } from "../../ipc/generated/lifecycle/Intent";
 import type { Preview } from "../../ipc/generated/lifecycle/Preview";
 import type { PaneLaunch, PaneSessionState, PaneSpawnSpec, PtyManager } from "../../app/ptyManager";
 import type { AppRuntime } from "../../app/runtime";
+import { BRIDGE_ENV } from "../../app/spawnSpecs/plans";
 import type { Host } from "./host";
 import { STUB_AGENT, STUB_PLUGIN_ID, stubPlugin, type StubAgentControl } from "./stubPlugin";
 
@@ -66,8 +67,13 @@ export interface Deck {
   settled(): boolean;
   /** The first workspace's phase as the page last heard the machine say it. */
   workspacePhase(): string | null;
-  /** Type a line into the pane's terminal — its process reads it. */
+  /** Type a line into the pane's terminal — its process reads it. Bytes
+   * written, as a paste or `pane.write` writes them: no key a person pressed. */
   type(paneId: string, line: string): void;
+  /** A key a person presses in the pane: told as theirs, as the terminal view
+   * tells it on xterm's key event (`reportPaneKey`), then written to the
+   * process — in that order, xterm's own. */
+  press(paneId: string, key: string): void;
   /** Everything the pane's terminals printed, in order. */
   output(paneId: string): string;
   /** Send one report for the pane through the bridge, and wait for the
@@ -182,15 +188,20 @@ function openedOf(line: string): Opened | null {
   const cwd = typeof spec === "object" && spec !== null ? Reflect.get(spec, "cwd") : null;
   const env: unknown = typeof spec === "object" && spec !== null ? Reflect.get(spec, "env") : null;
   if (typeof pane !== "string" || !Array.isArray(argv)) return null;
-  const armed: unknown = Array.isArray(env) ? env.find((pair) => Array.isArray(pair) && pair[0] === "KEEPDECK_BRIDGE") : undefined;
   const channel = typeof events === "string" ? Number(events.replace("__CHANNEL__:", "")) : NaN;
   return {
     pane,
     args: argv.map(String),
     cwd: typeof cwd === "string" ? cwd : null,
     channel: Number.isInteger(channel) ? channel : null,
-    armed: Array.isArray(armed) && typeof armed[1] === "string" ? armed[1] : null,
+    armed: bridgeIn(env),
   };
+}
+
+/** The bridge an environment carries, as a plan arms it. */
+function bridgeIn(env: unknown): string | null {
+  const armed: unknown = Array.isArray(env) ? env.find((pair) => Array.isArray(pair) && pair[0] === BRIDGE_ENV) : undefined;
+  return Array.isArray(armed) && typeof armed[1] === "string" ? armed[1] : null;
 }
 
 /** The terminal output one channel message carries, if it carries any. */
@@ -271,6 +282,8 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
   const { askLease, previewIntent } = await import("../../ipc/lifecycle");
   const { openSession } = await import("../../ipc/session");
   const { pluginLaunch } = await import("../../app/plugins/pluginSessions");
+  const { reportPaneKey } = await import("../../app/paneKeys");
+  const { peekPaneSpawnSpec } = await import("../../app/spawnSpecs");
   const settings = await import("../../app/settingsManager");
   const stub: StubAgentControl = {
     plans: [],
@@ -282,6 +295,10 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     resumes: true,
     storeDir: join(host.home, "stub-store"),
     sessions: null,
+    spawnPlanFails: null,
+    programGone: false,
+    voiceless: false,
+    turnStartWord: "turn-start",
     liveRegistry: "files",
     liveDir: join(host.home, "stub-live"),
     ...told,
@@ -331,11 +348,12 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
   /** A stub run outside every pane's terminal, armed with the pane's
    * bridge, sends the envelope naming no process — its reporter blank, as
    * a shell hook that could not tell its process fills it; the bridge's
-   * answer. */
+   * answer. The bridge is the one its last process was opened with — or,
+   * while that open has not gone out, the one its plan armed. */
   async function postOutside(paneId: string, envelope: Envelope, cue: string): Promise<number> {
-    const armed = opened(paneId).pop()?.armed;
+    const armed = opened(paneId).pop()?.armed ?? bridgeIn(peekPaneSpawnSpec(paneId)?.env);
     if (!armed) throw new Error(`no bridge armed for ${paneId}`);
-    const reporter = spawn(process.execPath, [inject("stubAgent"), "--child"], { env: { ...process.env, KEEPDECK_BRIDGE: armed }, stdio: ["pipe", "pipe", "ignore"] });
+    const reporter = spawn(process.execPath, [inject("stubAgent"), "--child"], { env: { ...process.env, [BRIDGE_ENV]: armed }, stdio: ["pipe", "pipe", "ignore"] });
     outside.push(reporter);
     let said = "";
     reporter.stdout.on("data", (chunk) => (said += String(chunk)));
@@ -404,6 +422,10 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       return typeof phase === "string" ? phase : null;
     },
     type: (paneId, line) => sessions.writePane(paneId, `${line}\r`),
+    press(paneId, key) {
+      reportPaneKey(paneId, key);
+      sessions.writePane(paneId, key);
+    },
     output,
     report,
     launches,
