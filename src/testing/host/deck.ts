@@ -3,7 +3,7 @@
 // Modules are loaded afresh per deck, so each test's page is a page of its
 // own — the registry, the settings and the session table included.
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inject, vi } from "vitest";
 import type { Pane, Workspace } from "../../domain/deck";
@@ -26,12 +26,14 @@ export interface Launch {
 }
 
 /** An agent to add: its role, and the team it joins or the site it asks for
- * — or the agent server it runs on, for one that runs on another machine. */
+ * — or the agent server it runs on, for one that runs on another machine —
+ * in the deck's first workspace unless another is named. */
 export interface AgentAsk {
   role: string;
   team?: string;
   site?: Site;
   endpoint?: string;
+  workspace?: WorkspaceRef;
 }
 
 /** One envelope a pane's reporter sends through the bridge: what it leaves
@@ -75,15 +77,18 @@ export interface Deck {
   launches(paneId: string): Launch[];
   /** The deck's first workspace, as the page holds it now. */
   workspace(): Workspace;
-  /** A pane of the first workspace, as the page holds it now. */
+  /** A pane of any workspace, as the page holds it now. */
   pane(paneId: string): Pane;
   /** The deck's first workspace, made at the test's work folder, its
    * worktrees in the test's own, if there is none yet. */
   workspaceUp(): Promise<WorkspaceRef>;
-  /** A stub agent asked for in the first workspace — accepted, not yet up. */
+  /** Another workspace, made at `cwd` — the deck opens it as it lands. */
+  anotherWorkspace(name: string, cwd: string): Promise<WorkspaceRef>;
+  /** A stub agent asked for — accepted, not yet up. */
   addAgent(ask: AgentAsk): Promise<string>;
-  /** A team with nobody on it, made in the first workspace at `site`. */
-  teamUp(name: string, site: Site): Promise<string>;
+  /** A team with nobody on it, made at `site` in the first workspace, or
+   * in the one named. */
+  teamUp(name: string, site: Site, workspace?: WorkspaceRef): Promise<string>;
   /** The intents the page asked of the machine, in order, as they went. */
   intents(): Intent[];
   /** Wait for the pane to be up, its process live and its conversation
@@ -184,9 +189,32 @@ function outputOf(line: string, channel: number): string {
   return typeof data === "string" ? Buffer.from(data, "base64").toString("utf8") : "";
 }
 
-/** Start the page's runtime on `host`, and wait for the machine to open —
- * its stub agent told `told` from the first plan on (a launch's boot
- * resumes are planned before this answers). */
+/** The deck as the app saved it in `host`'s home, or "" before it has. */
+export function deckOnDisk(host: Host): string {
+  const file = join(host.home, "deck.json");
+  return existsSync(file) ? readFileSync(file, "utf8") : "";
+}
+
+/** Start a deck, set it up, wait until the deck on disk says `saved` of
+ * what the setup made, then quit the app and launch it again on the same
+ * home: what the next launch boots from. What the setup made. */
+export async function quitAfter<T>(host: Host, setUp: (deck: Deck) => Promise<T>, saved: (onDisk: string, made: T) => boolean): Promise<T> {
+  const deck = await startDeck(host);
+  let made: T;
+  try {
+    made = await setUp(deck);
+    const kept = made;
+    await host.until("the deck is on disk as it was set up", () => saved(deckOnDisk(host), kept), 15_000);
+  } finally {
+    deck.dispose();
+  }
+  await host.relaunch("quit");
+  return made;
+}
+
+/** Start the page's runtime on `host`, and wait for the machine to open and
+ * the stub plugin to be active — its stub agent told `told` from the first
+ * plan on (a launch's boot resumes are planned before this answers). */
 export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}): Promise<Deck> {
   vi.resetModules();
   const { createAppRuntime } = await import("../../app/runtime");
@@ -219,7 +247,10 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     return ws;
   };
   const pane = (paneId: string): Pane => {
-    const found = workspace().panes.find((candidate) => candidate.id === paneId);
+    const found = runtime.deckStore
+      .getSnapshot()
+      .workspaces.flatMap((ws) => ws.panes)
+      .find((candidate) => candidate.id === paneId);
     if (!found) throw new Error(`no pane ${paneId} on the deck`);
     return found;
   };
@@ -286,9 +317,9 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     const ws = workspace();
     return { id: ws.id, instance: ws.instance };
   }
-  async function addAgent({ endpoint, ...ask }: AgentAsk): Promise<string> {
+  async function addAgent({ endpoint, workspace: into, ...ask }: AgentAsk): Promise<string> {
     const draft = { agentType: STUB_AGENT, ...(endpoint !== undefined && { location: { kind: "remote" as const, endpoint } }) };
-    const added = await runtime.orchestrator.createPane({ workspace: await workspaceUp(), pane: draft, ...ask });
+    const added = await runtime.orchestrator.createPane({ workspace: into ?? (await workspaceUp()), pane: draft, ...ask });
     if (added.kind !== "accepted") throw new Error(`no agent: ${JSON.stringify(added)}`);
     const paneId = added.minted.panes[0];
     if (!paneId) throw new Error("the machine minted no pane");
@@ -323,12 +354,22 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     workspace,
     pane,
     workspaceUp,
+    async anotherWorkspace(name, cwd) {
+      const made = await runtime.orchestrator.createWorkspace({ name, cwd, worktreeBaseDir: null });
+      const id = made.kind === "accepted" ? made.minted.workspace : null;
+      if (!id) throw new Error(`no workspace: ${JSON.stringify(made)}`);
+      await host.until(`${name} is on the deck`, () => runtime.deckStore.getSnapshot().workspaces.some((ws) => ws.id === id));
+      const ws = runtime.deckStore.getSnapshot().workspaces.find((candidate) => candidate.id === id);
+      if (!ws) throw new Error(`${name} left the deck`);
+      return { id, instance: ws.instance };
+    },
     addAgent,
-    async teamUp(name, site) {
-      const made = await runtime.orchestrator.createTeam({ workspace: await workspaceUp(), name, site });
+    async teamUp(name, site, into) {
+      const made = await runtime.orchestrator.createTeam({ workspace: into ?? (await workspaceUp()), name, site });
       if (made.kind !== "accepted" || !made.minted.team) throw new Error(`no team: ${JSON.stringify(made)}`);
       const team = made.minted.team;
-      await host.until(`${team} is on the deck`, () => (workspace().teams ?? []).some((candidate) => candidate.id === team));
+      const teams = () => runtime.deckStore.getSnapshot().workspaces.flatMap((ws) => ws.teams ?? []);
+      await host.until(`${team} is on the deck`, () => teams().some((candidate) => candidate.id === team));
       return team;
     },
     intents: () =>

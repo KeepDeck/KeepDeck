@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useHost } from "../../testing/host/host";
-import { startDeck, type Deck } from "../../testing/host/deck";
+import { quitAfter, startDeck, type Deck } from "../../testing/host/deck";
 import type { StubAgentControl } from "../../testing/host/stubPlugin";
 
 /**
@@ -22,21 +22,20 @@ describe("a rejected boot resume, on the host", () => {
     deck = null;
   });
 
-  /** An agent up and its conversation on disk, then the app quit: what the
-   * next launch boots from. */
-  async function bound(): Promise<{ paneId: string; session: string; launched: number }> {
-    deck = await startDeck(host());
-    const { paneId, session } = await deck.agentUp();
-    await host().until("its conversation is on disk", () => readFileSync(join(host().home, "deck.json"), "utf8").includes(session));
-    const launched = deck.launches(paneId).length;
-    deck.dispose();
-    deck = null;
-    return { paneId, session, launched };
-  }
+  /** An agent up and its conversation on disk, then the app quit and
+   * launched again: what boots it. */
+  const bound = () =>
+    quitAfter(
+      host(),
+      async (d) => {
+        const { paneId, session } = await d.agentUp();
+        return { paneId, session, launched: d.launches(paneId).length };
+      },
+      (onDisk, { session }) => onDisk.includes(session),
+    );
 
-  /** The app launched again, its stub told `told` before it plans. */
+  /** The page of the launch after, its stub told `told` before it plans. */
   async function relaunched(told: Partial<StubAgentControl>): Promise<Deck> {
-    await host().relaunch("quit");
     deck = await startDeck(host(), told);
     return deck;
   }
