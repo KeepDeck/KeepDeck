@@ -33,13 +33,12 @@ it("keeps decoding state per pane and commits no state during preview", () => {
   expect(tracker.getSnapshot().panes.get("two")).toEqual({ state: "working", since: 200 });
 });
 
-it.each(["clear", "retain", "replace"])("retires unpublished decoder state on %s", (how) => {
+it.each(["clear", "replace"])("retires unpublished decoder state on %s", (how) => {
   const tracker = createAgentStatusTracker();
   tracker.registerNormalizer("test", decoder);
   tracker.report("one", { agent: "test", event: "metadata" }, 100);
   expect(tracker.getSnapshot().panes.size).toBe(0);
   if (how === "clear") tracker.clear("one");
-  if (how === "retain") tracker.retain(new Set());
   if (how === "replace") tracker.registerNormalizer("test", (...args) => decoder(...args));
   tracker.report("one", { agent: "test" }, 200);
   expect(tracker.getSnapshot().panes.get("one")).toEqual({ state: "working", since: 200 });

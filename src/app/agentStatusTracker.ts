@@ -121,8 +121,6 @@ export interface AgentStatusTracker {
    * a report held across the change ([`survivesSessionChange`]). The mode
    * goes, as with [`clear`]. */
   sessionChanged(paneId: string, at?: number): void;
-  /** Drop activity for panes that no longer exist. */
-  retain(liveIds: ReadonlySet<string>): void;
   /** The live snapshot (stable between changes — the `useSyncExternalStore`
    * snapshot contract). */
   getSnapshot(): StatusSnapshot;
@@ -154,7 +152,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   const eventNamers = new Map<string, (payload: unknown) => string | null>();
   const epochs = new Map<string, object>();
   // One per process behind a pane: replaced only when the process is
-  // retired (clear, retain), never by a new turn — so a report held across a
+  // retired (clear), never by a new turn — so a report held across a
   // restart is told apart from one a newer turn of its own process overtook.
   const lifetimes = new Map<string, object>();
   // One per conversation of that process: replaced when its agent changes
@@ -460,25 +458,6 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       const nextModes = new Map(modes);
       nextModes.delete(paneId);
       commit(panes, nextModes);
-    },
-
-    retain(liveIds) {
-      for (const id of decoderStates.keys()) {
-        if (!liveIds.has(id)) decoderStates.delete(id);
-      }
-      for (const id of epochs.keys()) {
-        if (!liveIds.has(id)) epochs.delete(id);
-      }
-      for (const id of lifetimes.keys()) {
-        if (!liveIds.has(id)) lifetimes.delete(id);
-      }
-      for (const id of generations.keys()) {
-        if (!liveIds.has(id)) generations.delete(id);
-      }
-      if (![...statuses.keys(), ...modes.keys()].some((id) => !liveIds.has(id))) return;
-      const kept = <T,>(map: ReadonlyMap<string, T>) =>
-        new Map([...map].filter(([id]) => liveIds.has(id)));
-      commit(kept(statuses), kept(modes));
     },
 
     getSnapshot() {

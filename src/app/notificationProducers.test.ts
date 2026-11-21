@@ -368,11 +368,6 @@ describe("activity notifications", () => {
     // standing entries keep their dates.
     tracker.clear("pane-1");
     expect(center.notify).toHaveBeenCalledTimes(1);
-
-    // Retention sweeps behave the same way.
-    edge({ kind: "waiting", at: 200, reason: "permission" });
-    tracker.retain(new Set(["some-other-pane"]));
-    expect(center.notify).toHaveBeenCalledTimes(2);
   });
 
   it("a wait that ends in an announcement adds an entry, never withdraws one", () => {

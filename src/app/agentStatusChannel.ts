@@ -6,7 +6,6 @@ import type { PaneAttribution } from "./paneAttribution";
 import type { PaneSessionState } from "./ptyManager";
 import { attributedEvent } from "./statusPayloadLabel";
 import { isNavigationKey } from "../domain/terminal";
-import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 import type { HookReplies } from "./mail/hookReply";
 
@@ -55,7 +54,9 @@ export interface PaneKeyPort {
  *   requirement: activity is a claim about a running process, and a hook
  *   envelope that outlives its process (a Stop racing a crash) must not
  *   paint "finished" over the crash;
- * - tracker hygiene as panes close — and as PROCESSES die or come up.
+ * - tracker hygiene as PROCESSES die or come up. A pane that leaves the
+ *   deck is the machine's to retire, through the pane lifecycle — every way
+ *   a pane leaves retires it — so nothing here follows the deck's roster.
  *   "Activity describes a live process" is enforced here, at the store's
  *   edge, in both directions (ingest gate + death sweep), so no render
  *   surface has to re-derive liveness its own way. The registry flips to
@@ -65,7 +66,7 @@ export interface PaneKeyPort {
  *   said nothing yet reads as `started`.
  */
 export function createAgentStatusChannel(
-  deck: DeckWatch,
+  deck: Pick<DeckWatch, "getSnapshot">,
   agents: StatusDeclarationsPort,
   tracker: AgentStatusTracker,
   sessions: SessionLivenessPort,
@@ -169,16 +170,6 @@ export function createAgentStatusChannel(
     },
   });
 
-  let membershipKey: string | null = null;
-  const retainLivePanes = () => {
-    const nextKey = paneMembershipKey(deck.getSnapshot());
-    if (nextKey === membershipKey) return;
-    membershipKey = nextKey;
-    tracker.retain(paneMembership(nextKey));
-  };
-  const unsubscribeDeck = deck.subscribe(retainLivePanes);
-  retainLivePanes();
-
   // What a pane's process tells the tracker, in both directions.
   //
   // A dead process's activity is no longer a fact about the pane — clear
@@ -248,7 +239,6 @@ export function createAgentStatusChannel(
       if (disposed) return;
       disposed = true;
       unsubscribeAgents();
-      unsubscribeDeck();
       unsubscribeSessions();
       unsubscribeKeys();
       reports.dispose();
