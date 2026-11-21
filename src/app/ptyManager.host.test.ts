@@ -31,11 +31,13 @@ describe("the page's session registry, on the host", () => {
     return { d, registry: d.sessionRegistry() };
   }
 
-  /** A view's ears: what it heard, in order, and the text it was shown. */
+  /** A view's ears: what it heard, in order, the text it was shown, and the
+   * words of each failed spawn it was told of. */
   function view(opts: { throwing?: boolean } = {}) {
     const decoder = new TextDecoder();
     let text = "";
     const heard: string[] = [];
+    const failures: string[] = [];
     const sink: PaneSink = {
       onOutput(bytes) {
         text += decoder.decode(bytes, { stream: true });
@@ -43,11 +45,14 @@ describe("the page's session registry, on the host", () => {
         if (opts.throwing) throw new Error("the view broke");
       },
       onExit: (code, replayed) => heard.push(`exit ${String(code)}${replayed ? ", replayed" : ""}`),
-      onSpawnError: (_message, replayed) => heard.push(`spawn error${replayed ? ", replayed" : ""}`),
+      onSpawnError(message, replayed) {
+        heard.push(`spawn error${replayed ? ", replayed" : ""}`);
+        failures.push(message);
+      },
       onReady: () => heard.push("ready"),
       onLaunched: () => heard.push("launched"),
     };
-    return { sink, heard, text: () => text };
+    return { sink, heard, failures, text: () => text };
   }
 
   /** Whether the process printed `said` as a line of its own — not the
@@ -235,9 +240,12 @@ describe("the page's session registry, on the host", () => {
       const attached = view();
       registry.attach("t-1", attached.sink);
       await until("the view is told", () => attached.heard.includes("spawn error"));
+      // In the host's own words: what could not start, and why.
+      expect(attached.failures).toEqual([expect.stringMatching(/no-such-cli.*ENOENT/)]);
       const late = view();
       registry.attach("t-1", late.sink);
       expect(late.heard).toContain("spawn error, replayed");
+      expect(late.failures).toEqual(attached.failures);
     });
 
     it("hands a spawn failure nobody heard to its first view as it happened", async () => {
@@ -247,9 +255,11 @@ describe("the page's session registry, on the host", () => {
       const first = view();
       registry.attach("t-1", first.sink);
       expect(first.heard).toContain("spawn error");
+      expect(first.failures).toEqual([expect.stringMatching(/no-such-cli.*ENOENT/)]);
       const second = view();
       registry.attach("t-1", second.sink);
       expect(second.heard).toContain("spawn error, replayed");
+      expect(second.failures).toEqual(first.failures);
     });
 
     it("keeps the newer view when an older one detaches after it attached — StrictMode's order", async () => {
@@ -278,6 +288,8 @@ describe("the page's session registry, on the host", () => {
       registry.attach("t-1", late.sink);
       const replay = new TextEncoder().encode(late.text()).length;
       expect(replay).toBeLessThanOrEqual(1024 * 1024);
+      // What still fits is kept: more than the last fill.
+      expect(replay).toBeGreaterThan(600_000);
       expect(late.text()).not.toContain("stub: ready");
       expect(printed(late, "the end")).toBe(true);
     });
@@ -471,6 +483,7 @@ describe("the page's session registry, on the host", () => {
       landing.release();
       await until("both landed", () => printed(attached, "the return"));
       expect(written()).toEqual(["say the paste\r", "say the return\r"]);
+      expect(printed(attached, "the paste")).toBe(true);
       expect(attached.text().indexOf("\nthe paste\r")).toBeLessThan(attached.text().indexOf("\nthe return\r"));
     });
 

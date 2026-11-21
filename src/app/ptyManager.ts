@@ -325,7 +325,10 @@ export function createPtyManager(open: OpenSession): PtyManager {
         if (entry.closed) return;
         if (event.type === "output") {
           const { bytes } = event;
-          // First byte from the process: the CLI has painted. The flag is set
+          // First byte from the terminal: the CLI has painted. It counts the
+          // terminal's bytes, not who wrote them — into a process silent so
+          // far, the echo of what was typed is that first byte, and the pane
+          // shows something all the same. The flag is set
           // BEFORE the view is touched — a sink that throws must not be able
           // to leave the pane "not launched" forever while its process is
           // alive and printing, nor to swallow the chunk the replay buffer
