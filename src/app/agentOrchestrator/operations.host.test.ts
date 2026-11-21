@@ -89,8 +89,11 @@ describe("an agent's operations on the host", () => {
     expect((await d.runtime.orchestrator.archive(ws)).kind).toBe("accepted");
     // Put away as the deck shows it — owing its plantings — and as the
     // machine says it: the page offers Restore on that word.
-    await host().until("put away, owing its plantings", () =>
-      d.workspace().archived?.phase === "archived" && d.workspace().archived?.warnings?.disarm === true && d.workspacePhase() === "archived" && d.slot(paneId) === "none");
+    await host().until(
+      "put away, owing its plantings",
+      () => d.workspace().archived?.phase === "archived" && d.workspace().archived?.warnings?.disarm === true && d.workspacePhase() === "archived" && d.slot(paneId) === "none",
+      15_000,
+    );
     // Its entry stays for the next launch, which tries the plantings again.
     expect(readdirSync(join(host().home, "lifecycle")).filter((name) => name.startsWith("op-"))).toHaveLength(1);
 

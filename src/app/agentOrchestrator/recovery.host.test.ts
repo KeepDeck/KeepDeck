@@ -113,7 +113,9 @@ describe("a rejected boot resume, on the host", () => {
     const made = await deck.runtime.orchestrator.createWorkspace({ name: "two", cwd: host().trees, worktreeBaseDir: null });
     if (made.kind !== "accepted" || !made.minted.workspace) throw new Error(`no second workspace: ${JSON.stringify(made)}`);
     const other = made.minted.workspace;
-    // The first one is the one open when the app quits.
+    // The first one is the one open when the app quits — chosen once the
+    // second one has landed, which opens it.
+    await host().until("the second workspace is on the deck", () => deck?.runtime.deckStore.getSnapshot().workspaces.length === 2 && deck.settled());
     deck.runtime.deckStore.dispatch({ type: "selectWorkspace", id: deck.workspace().id });
     await host().until("on disk, the first open", () => {
       const saved = readFileSync(join(host().home, "deck.json"), "utf8");
