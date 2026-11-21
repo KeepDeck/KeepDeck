@@ -12,6 +12,7 @@ import {
   type KeepDeckPlugin,
   type NormalizedUsage,
   type PluginManifest,
+  type ResumePlanInput,
   type SpawnPlanInput,
   type SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
@@ -51,6 +52,9 @@ export interface StubAgentControl {
   /** The agent reports nothing at start — neither its conversation nor
    * itself at its prompt: what it reports is cued. */
   unbound: boolean;
+  /** The agent can resume a recorded conversation: its manifest says so,
+   * and its plugin has the hook. Read once, at activation. */
+  resumes: boolean;
 }
 
 /** The stub's own words in a status report: the edges its hooks say. */
@@ -90,7 +94,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
           bin: "node",
           features: [
             { id: "session.new", label: "New sessions", group: "sessions" },
-            { id: "session.resume", label: "Resume saved sessions", group: "sessions" },
+            ...(control.resumes ? [{ id: "session.resume", label: "Resume saved sessions", group: "sessions" }] : []),
             { id: "session.fork", label: "Fork saved sessions", group: "sessions" },
             { id: "usage.pane", label: "Session analytics", group: "usage" },
             // Its thin client runs here and attaches to an agent server.
@@ -139,13 +143,15 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
             control.plans.push({ hook: "spawn", input, folderStood: existsSync(input.cwd) });
             run(output, []);
           },
-          "resume.plan"(input, output) {
-            control.plans.push({ hook: "resume", input, folderStood: existsSync(input.cwd) });
-            if (control.resumePlanFails !== null) throw new Error(control.resumePlanFails);
-            const reject = control.rejectResumes > 0;
-            if (reject) control.rejectResumes -= 1;
-            run(output, ["--resume", input.sessionId, ...(reject ? ["--reject"] : [])]);
-          },
+          ...(control.resumes && {
+            "resume.plan"(input: ResumePlanInput, output: SpawnPlanOutput) {
+              control.plans.push({ hook: "resume", input, folderStood: existsSync(input.cwd) });
+              if (control.resumePlanFails !== null) throw new Error(control.resumePlanFails);
+              const reject = control.rejectResumes > 0;
+              if (reject) control.rejectResumes -= 1;
+              run(output, ["--resume", input.sessionId, ...(reject ? ["--reject"] : [])]);
+            },
+          }),
           // Its store is its own process: the fork copies nothing, so it
           // leaves nothing to take back.
           "fork.plan"(input, output) {

@@ -64,7 +64,16 @@ describe("how an agent comes up, on the host", () => {
   });
 
   it("resumes a restored agent into the conversation it recorded, in its team's folder, leased there as its own — and shows its plan", async () => {
-    const { ws, paneId, folder, session } = await quitAfter(host(), inFolder, (onDisk, made) => onDisk.includes(made.session));
+    const { ws, paneId, folder, session } = await quitAfter(
+      host(),
+      async (d) => {
+        const made = await inFolder(d);
+        // A skill of this workspace's own, staged for its agents' plans.
+        await d.runtime.skills.create({ kind: "workspace", wsId: made.ws.id }, { name: "deploy", description: "Ship the build.", body: "Ship it.", extraFrontmatter: [] }, null);
+        return made;
+      },
+      (onDisk, made) => onDisk.includes(made.session),
+    );
     const mark = host().tape.length;
     const d = await open();
     await host().until("it rises", () => d.slot(paneId) === "live" && d.pane(paneId).idle === undefined, 15_000);
@@ -72,8 +81,16 @@ describe("how an agent comes up, on the host", () => {
     // conversation chosen.
     expect(d.launches(paneId)).toHaveLength(2);
     expect(d.launches(paneId)[1]).toMatchObject({ args: expect.arrayContaining(["--resume", session]), cwd: folder });
+    // Planned from its own facts: its folder, its workspace, and the skills
+    // staged for that workspace.
     expect(d.stub.plans.filter((plan) => plan.hook === "resume").map((plan) => plan.input)).toEqual([
-      expect.objectContaining({ paneId, sessionId: session, cwd: folder, workspace: { id: ws.id, instance: d.workspace().instance } }),
+      expect.objectContaining({
+        paneId,
+        sessionId: session,
+        cwd: folder,
+        workspace: { id: ws.id, instance: d.workspace().instance },
+        skills: expect.objectContaining({ dir: expect.stringContaining(ws.id), skills: expect.arrayContaining([expect.objectContaining({ name: "deploy" })]) }),
+      }),
     ]);
     expect(callsOf(host(), "lifecycle_lease", mark)).toEqual([{ lease: { kind: "launch", workspace: ws.id, owner: { kind: "pane", pane: paneId }, dir: folder } }]);
     // Its plan is published: the deck mounts a terminal for it.
@@ -200,12 +217,15 @@ describe("how an agent comes up, on the host", () => {
     expect((await d.runtime.orchestrator.archive({ id: ws.id, instance: d.workspace().instance })).kind).toBe("accepted");
     // Put away, as the deck and the machine both say: the archive is over.
     await host().until("put away", () => d.workspace().archived?.phase === "archived" && d.workspacePhase() === "archived", 15_000);
+    const teams = d.workspace().teams?.map((row) => row.id);
     // The machine refuses the move — with no team at the root to land on, as
     // with one; the page writes nothing of its own around the refusal.
     expect(await d.runtime.orchestrator.startFresh(ws.id, paneId)).toMatchObject({ kind: "refused", refusal: { kind: "archived" } });
     await aWhile();
     expect(d.pane(paneId).team?.teamId).toBe(team);
     expect(d.pane(paneId).session?.id).toBe(session);
+    expect(d.workspace().teams?.map((row) => row.id)).toEqual(teams);
+    expect(d.pane(paneId).idle).not.toMatchObject({ reason: "waking", origin: "manual" });
     expect(d.launches(paneId)).toHaveLength(1);
   });
 
@@ -241,10 +261,47 @@ describe("how an agent comes up, on the host", () => {
     expect(view(d).wakeFailed[lead]).toContain('role "lead" is taken');
     expect(d.pane(lead).team).toEqual(own);
     expect(d.pane(lead).session?.id).toBe(session);
+    // Its folder is still gone, and its card still says so beside the why.
+    expect(view(d).blocked[lead]).toBe(folder);
     // Then under the role the person picks.
     expect((await d.runtime.orchestrator.startFresh(ws.id, lead, "reviewer-1")).kind).toBe("accepted");
     await host().until("on the root's team, as picked", () => d.pane(lead).team?.teamId === root, 15_000);
     expect(d.pane(lead).team).toEqual({ teamId: root, role: "reviewer-1" });
+  });
+
+  describe("an agent whose plugin cannot resume", () => {
+    // Its plugin has no resume hook — a plugin that never could, or one
+    // updated to drop it — so no plan of a recorded conversation is built.
+
+    it("is put back down when asked back, its card saying why, and nothing is started", async () => {
+      const { paneId } = await quitAfter(
+        host(),
+        async (d) => {
+          const { ws, paneId: suspended } = await d.agentUp();
+          expect(await d.runtime.orchestrator.suspend(ws.id, suspended)).toEqual({ kind: "suspending" });
+          await host().until("suspended", () => d.phase(suspended) === "suspended" && d.settled() && d.slot(suspended) === "none", 15_000);
+          return { paneId: suspended };
+        },
+        (onDisk) => onDisk.includes('"reason":"suspended"'),
+      );
+      const d = await open({ resumes: false });
+      const suspended = d.pane(paneId).idle;
+      expect(await d.runtime.orchestrator.resume(d.workspace().id, paneId)).toEqual({ kind: "resuming" });
+      await host().until("put back down, its card saying why", () => view(d).wakeFailed[paneId] !== undefined && d.phase(paneId) === "suspended" && d.settled() && d.pane(paneId).idle?.reason === "suspended", 15_000);
+      // Back as it was: never another conversation in its place.
+      expect(d.pane(paneId).idle).toEqual(suspended);
+      await aWhile();
+      expect(d.launches(paneId)).toHaveLength(1);
+    });
+
+    it("rises fresh when its boot restores it", async () => {
+      const { paneId } = await restoredOne();
+      const d = await open({ resumes: false });
+      await host().until("it rises", () => d.slot(paneId) === "live" && d.pane(paneId).idle === undefined, 15_000);
+      expect(d.launches(paneId)).toHaveLength(2);
+      expect(d.launches(paneId)[1]?.args).not.toContain("--resume");
+      expect(view(d).wakeFailed[paneId]).toBeUndefined();
+    });
   });
 
   it("leaves a suspended agent down across a relaunch — not started, its folder not looked at — until it is asked back", async () => {

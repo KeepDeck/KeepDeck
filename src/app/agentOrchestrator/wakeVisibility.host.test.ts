@@ -169,7 +169,7 @@ describe("which agents rise, and when, on the host", () => {
       const session = await d.upAndBound(paneId);
       expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
       await host().until("suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none", 15_000);
-      return { ws, paneId, session, folder, suspended: d.pane(paneId).idle, launched: d.launches(paneId).length };
+      return { ws, team, paneId, session, folder, suspended: d.pane(paneId).idle, launched: d.launches(paneId).length };
     }
     /** Put back down as it was, as the deck and the machine both say. */
     const putBack = (d: Deck, paneId: string) => d.phase(paneId) === "suspended" && d.settled() && d.pane(paneId).idle?.reason === "suspended";
@@ -252,17 +252,21 @@ describe("which agents rise, and when, on the host", () => {
 
     it("starts fresh a suspended agent whose folder is gone through the machine: what it brings up can be suspended again", async () => {
       const d = await open();
-      const { ws, paneId, session, folder, launched } = await suspendedAt(d);
+      const { ws, team, paneId, session, folder, launched } = await suspendedAt(d);
       rmSync(folder, { recursive: true, force: true });
       await d.runtime.orchestrator.resume(ws.id, paneId);
       await host().until("put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
-      // Its card offers a fresh start in the workspace's own folder.
+      // Its card offers a fresh start in the workspace's own folder — on a
+      // team made there, as none works at the root yet.
       expect((await d.runtime.orchestrator.startFresh(ws.id, paneId)).kind).toBe("accepted");
       await host().until("up fresh, and the machine says so", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live" && d.phase(paneId) === "live", 15_000);
       // A new conversation, in the workspace's folder: the old one dropped.
       expect(lastArgs(d, paneId)).not.toContain("--resume");
       expect(d.launches(paneId)[launched]?.cwd).toBe(host().work);
       expect(d.pane(paneId).session?.id).not.toBe(session);
+      // A team of its own at the root; the one whose folder went keeps its card.
+      expect(d.pane(paneId).team?.teamId).not.toBe(team);
+      expect(d.workspace().teams?.map((row) => row.id)).toEqual(expect.arrayContaining([team, d.pane(paneId).team?.teamId]));
       expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
       await host().until("suspended again", () => putBack(d, paneId) && d.slot(paneId) === "none", 15_000);
     });
