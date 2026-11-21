@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { BridgeReport } from "../ipc/bridgeReport";
 
 vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: () => ({ token: "tok" }) }));
-vi.mock("./ptyManager", () => ({ paneSessionState: () => ({ kind: "live" }) }));
 vi.mock("../ipc/log", () => ({ log: { warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock("../ipc/companions", () => ({ onCompanionHello: vi.fn(), onCompanionDeclined: vi.fn() }));
 
@@ -21,7 +20,7 @@ describe("listenPaneCompanions", () => {
     });
     attribution.recordBinding("pane-1", "4021");
     let deliver!: (report: BridgeReport) => void;
-    listenPaneCompanions(attribution, async (handler) => {
+    listenPaneCompanions(attribution, () => "live", async (handler) => {
       deliver = handler;
       return () => {};
     });
@@ -59,7 +58,7 @@ describe("listenCompanionDeclines", () => {
     attribution.recordBinding("pane-1", "4021");
     const declined: [string, string, boolean][] = [];
     let deliver!: (report: BridgeReport) => void;
-    listenCompanionDeclines(attribution, (paneId, wake) => declined.push([paneId, wake.reason, wake.draft]), async (handler) => {
+    listenCompanionDeclines(attribution, () => "live", (paneId, wake) => declined.push([paneId, wake.reason, wake.draft]), async (handler) => {
       deliver = handler;
       return () => {};
     });

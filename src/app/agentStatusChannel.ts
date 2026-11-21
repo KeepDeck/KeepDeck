@@ -142,16 +142,18 @@ export function createAgentStatusChannel(
   const reports = createVerifiedPaneReports(attribution, {
     label: "status report",
     subscribe: onAgentStatus,
-    requireLiveProcess: true,
-    apply: (paneId, payload) => {
+    processOf: (paneId) => sessions.state(paneId).kind,
+    apply: (paneId, payload, { stillUp }) => {
       // Handover reads a fresh preview, but observers see only the resolved
       // state: a delivered continuation is not a completed turn.
       const pending = tracker.prepare(paneId, payload);
       const answered = expectAsk(paneId, payload);
       const finish = (reply?: string) => {
         try {
-          const kind = sessions.state(paneId).kind;
-          if (!disposed && (kind === "live" || kind === "starting")) pending.finish(reply);
+          // The lane's own rule, asked again: the process can end inside an
+          // awaited reply, and a late fold would put activity back on a pane
+          // its exit already cleared.
+          if (!disposed && stillUp()) pending.finish(reply);
         } finally {
           answered();
         }

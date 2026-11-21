@@ -668,15 +668,17 @@ export function createAppRuntime(
         attribution,
         bindings,
       );
+      // The lanes that speak of a live process ask the session table.
+      const processOf = (paneId: string) => paneSessionState(paneId).kind;
       // Before the lanes that read it act on a hello: which source states a
       // pane's facts is decided per process, and the ledger is attribution's.
-      companionHellos ??= listenPaneCompanions(attribution);
+      companionHellos ??= listenPaneCompanions(attribution, processOf);
       // A companion that took the doorbell and could not start the turn:
       // mail nudges that pane again, the way its agent still takes.
-      companionDeclines ??= listenCompanionDeclines(attribution, (paneId, wake) =>
+      companionDeclines ??= listenCompanionDeclines(attribution, processOf, (paneId, wake) =>
         mail.wakeDeclined(paneId, wake),
       );
-      paneUnbinds ??= listenPaneUnbinds(deckStore, attribution, lifecycle);
+      paneUnbinds ??= listenPaneUnbinds(deckStore, attribution, lifecycle, processOf);
       statusChannel ??= createAgentStatusChannel(
         deckStore,
         plugins.pluginRegistries.agents,

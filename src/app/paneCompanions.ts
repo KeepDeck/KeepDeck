@@ -5,7 +5,7 @@ import { log } from "../ipc/log";
 import { onCompanionDeclined, onCompanionHello } from "../ipc/companions";
 import type { DeclinedWake } from "./mail";
 import type { PaneAttribution } from "./paneAttribution";
-import { createVerifiedPaneReports, type VerifiedPaneReports } from "./verifiedPaneReports";
+import { createVerifiedPaneReports, type ProcessOf, type VerifiedPaneReports } from "./verifiedPaneReports";
 
 type LaneSubscribe = (handler: (report: BridgeReport) => void) => Promise<() => void>;
 
@@ -21,12 +21,13 @@ type LaneSubscribe = (handler: (report: BridgeReport) => void) => Promise<() => 
  */
 export function listenPaneCompanions(
   attribution: PaneAttribution,
+  processOf: ProcessOf,
   subscribe: LaneSubscribe = onCompanionHello,
 ): VerifiedPaneReports {
   return createVerifiedPaneReports(attribution, {
     label: "companion hello",
     subscribe,
-    requireLiveProcess: true,
+    processOf,
     apply(paneId, _payload, { reporter }) {
       if (reporter === undefined) {
         log.warn("web:bridge", `companion hello for ${paneId} names no process — ignored`);
@@ -55,13 +56,14 @@ const REASON_CHARS = 200;
  */
 export function listenCompanionDeclines(
   attribution: PaneAttribution,
+  processOf: ProcessOf,
   declined: (paneId: string, wake: DeclinedWake) => void,
   subscribe: LaneSubscribe = onCompanionDeclined,
 ): VerifiedPaneReports {
   return createVerifiedPaneReports(attribution, {
     label: "declined wake",
     subscribe,
-    requireLiveProcess: true,
+    processOf,
     apply(paneId, payload) {
       const report = isJsonRecord(payload) ? payload : {};
       const reason =
