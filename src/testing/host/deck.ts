@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { inject, vi } from "vitest";
 import type { Pane, Workspace } from "../../domain/deck";
 import type { Site } from "../../domain/lifecycle";
+import type { Settings } from "../../domain/settings/types";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Consent } from "../../ipc/generated/lifecycle/Consent";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -107,6 +108,8 @@ export interface Deck {
   consentFor(intent: Intent, deleting?: boolean): Promise<Consent>;
   /** Make the test's work folder a git repository with one commit. */
   gitRepo(): void;
+  /** Change settings as the settings page does. */
+  updateSettings(patch: Partial<Settings>): void;
   /** A stub agent run outside the deck, holding `sessionId` as a CLI's own
    * interactive run would — in its registry while it runs; ended by the
    * answer. */
@@ -203,7 +206,7 @@ export async function quitAfter<T>(
   host: Host,
   setUp: (deck: Deck) => Promise<T>,
   saved: (onDisk: string, made: T) => boolean,
-  meanwhile?: () => void,
+  meanwhile?: (made: T) => void,
 ): Promise<T> {
   const deck = await startDeck(host);
   let made: T;
@@ -214,19 +217,27 @@ export async function quitAfter<T>(
   } finally {
     deck.dispose();
   }
-  await host.relaunch("quit", meanwhile);
+  const kept = made;
+  await host.relaunch("quit", meanwhile && (() => meanwhile(kept)));
   return made;
+}
+
+/** How a deck starts: by default it is up once its plugins are; a test of
+ * the page before its catalog has loaded asks for it at once. */
+export interface DeckStart {
+  waitForPlugins?: boolean;
 }
 
 /** Start the page's runtime on `host`, and wait for the machine to open and
  * the stub plugin to be active — its stub agent told `told` from the first
  * plan on (a launch's boot resumes are planned before this answers). */
-export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}): Promise<Deck> {
+export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}, { waitForPlugins = true }: DeckStart = {}): Promise<Deck> {
   vi.resetModules();
   const { createAppRuntime } = await import("../../app/runtime");
   const { createCommandRegistry } = await import("../../domain/commands/registry");
   const sessions = await import("../../app/ptyManager");
   const { previewIntent } = await import("../../ipc/lifecycle");
+  const settings = await import("../../app/settingsManager");
   const stub: StubAgentControl = {
     plans: [],
     rejectResumes: 0,
@@ -243,7 +254,9 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
   await host.until("the machine opened its barrier", () => heardOpen(host), 15_000);
   // A page is up once its plugins are: a plan asked before the stub's
   // activation finds no agent to build it.
-  await host.until("the stub plugin is active", () => runtime.plugins.pluginRegistries.agents.list().some(({ entry }) => entry.id === STUB_AGENT), 15_000);
+  if (waitForPlugins) {
+    await host.until("the stub plugin is active", () => runtime.plugins.pluginRegistries.agents.list().some(({ entry }) => entry.id === STUB_AGENT), 15_000);
+  }
 
   /** The stub agents run outside the deck, ended with it. */
   const outside: ChildProcess[] = [];
@@ -411,6 +424,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       await host.until(`${sessionId} runs outside`, () => existsSync(join(stub.liveDir, sessionId)));
       return () => child.kill("SIGKILL");
     },
+    updateSettings: (patch) => settings.updateSettings(patch),
     gitRepo() {
       const git = (...args: string[]) => execFileSync("git", args, { cwd: host.work, stdio: "pipe" });
       git("init", "-q", "-b", "main");
