@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useHost } from "../../testing/host/host";
@@ -78,7 +78,6 @@ describe("where a team runs, on the host", () => {
     d.runtime.orchestrator
       .forkSession(ws.id, { agent: "stub", sessionId: session, cwd: host().work }, { kind: "worktree", path, branch: "kd/ws/fork-1" }, { role: "lead" })
       .catch((error: unknown) => error);
-  const journalEmpty = () => readdirSync(join(host().home, "lifecycle")).every((name) => !name.startsWith("op-"));
 
   for (const ticked of [true, false]) {
     it(`closes a workspace while a fork is making its team: the fork's worktree ${ticked ? "goes, with its branch, as the person ticked" : "stays, unticked"}, nothing left owed`, async () => {
@@ -97,7 +96,7 @@ describe("where a team runs, on the host", () => {
       expect((await closing).kind).toBe("accepted");
       await asked;
       await host().until("the workspace is gone, no agent left", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0 && d.slot(paneId) === "none", 15_000);
-      await host().until("nothing of the close or the fork is owed", journalEmpty, 15_000);
+      await host().until("nothing of the close or the fork is owed", () => host().journalEmpty(), 15_000);
       expect(existsSync(path)).toBe(!ticked);
       expect(git(host().work, "branch", "--list", "kd/ws/fork-1") === "").toBe(ticked);
     });
@@ -120,7 +119,7 @@ describe("where a team runs, on the host", () => {
     expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId: fork, consent })).kind).toBe("accepted");
     starting.release();
     await host().until("the fork's agent and its team are gone", () => !d.workspace().panes.some((pane) => pane.id === fork) && (d.workspace().teams ?? []).length === 1, 15_000);
-    await host().until("nothing of the close or the fork is owed", journalEmpty, 15_000);
+    await host().until("nothing of the close or the fork is owed", () => host().journalEmpty(), 15_000);
     // An agent's close deletes no folder: the worktree made for the fork stays.
     expect(existsSync(path)).toBe(true);
   });
@@ -133,7 +132,7 @@ describe("where a team runs, on the host", () => {
     const path = join(host().trees, "fork-1");
     const forked = await forkIntoWorktree(d, ws, session, path);
     expect(forked).toMatchObject({ kind: "accepted" });
-    await host().until("the fork is taken back whole", () => d.workspace().panes.length === 1 && (d.workspace().teams ?? []).length === 1 && journalEmpty(), 15_000);
+    await host().until("the fork is taken back whole", () => d.workspace().panes.length === 1 && (d.workspace().teams ?? []).length === 1 && host().journalEmpty(), 15_000);
     expect(existsSync(path)).toBe(false);
     expect(git(host().work, "branch", "--list", "kd/ws/fork-1")).toBe("");
   });

@@ -100,8 +100,7 @@ describe("an agent's operations on the host", () => {
     // The owed archive does not keep the workspace away: Restore takes it over.
     expect((await d.runtime.orchestrator.restore(ws)).kind).toBe("accepted");
     await host().until("restored, its archive's entry gone", () =>
-      d.workspace().archived === undefined && d.workspacePhase() === "live" && d.settled() &&
-      readdirSync(join(host().home, "lifecycle")).every((name) => !name.startsWith("op-")));
+      d.workspace().archived === undefined && d.workspacePhase() === "live" && d.settled() && host().journalEmpty());
     expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toMatchObject({ kind: "resuming" });
     await host().until("it is back", backUp(d, paneId, 2));
   });
@@ -189,7 +188,7 @@ describe("an agent's operations on the host", () => {
     await host().until("the workspace is gone", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0 && d.slot(paneId) === "none");
     // All of it done on a default install — artifacts and tasks off: nothing
     // owed to a next launch.
-    await host().until("its close is off the journal", () => readdirSync(join(host().home, "lifecycle")).every((name) => !name.startsWith("op-")));
+    await host().until("its close is off the journal", () => host().journalEmpty());
   });
 
   it("forks an agent's conversation into a new agent of its team: a new conversation, copied from it", async () => {
@@ -226,7 +225,7 @@ describe("an agent's operations on the host", () => {
     expect((await d.runtime.orchestrator.restart(ws.id, fork, "fresh")).kind).toBe("accepted");
     starting.release();
     await d.upAndBound(fork);
-    await host().until("nothing holds the pane: the restart and the fork are over", () => d.settled() && readdirSync(join(host().home, "lifecycle")).every((name) => !name.startsWith("op-")), 15_000);
+    await host().until("nothing holds the pane: the restart and the fork are over", () => d.settled() && host().journalEmpty(), 15_000);
     // Nothing refuses a close of it afterwards.
     const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: fork, consent: { stops: [], folders: [], tickets: [] } });
     expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId: fork, consent })).kind).toBe("accepted");

@@ -4,7 +4,7 @@
 // Tauri's own `mockIPC` seam, so the page's `invoke`, `Channel` and `listen`
 // run as they are.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -54,6 +54,9 @@ export interface Host {
   fail(cmd: string): () => void;
   /** Wait for `ok` to hold, polling; fail as "never: `label`" past `ms`. */
   until(label: string, ok: () => boolean, ms?: number): Promise<void>;
+  /** Whether the machine's journal holds no operation: nothing it began is
+   * still owed. */
+  journalEmpty(): boolean;
   /** End the app as `how` says, and launch it again on the same home and
    * folders — `meanwhile` run while it is down, as what changes on disk
    * between two launches. The page it served is gone with it: start a deck
@@ -282,6 +285,7 @@ export async function startHost(): Promise<Host> {
     trees,
     tape,
     launchedAt: () => launchedAt,
+    journalEmpty: () => readdirSync(join(home, "lifecycle")).every((name) => !name.startsWith("op-")),
     hold(what) {
       let caught = () => {};
       const holding: Holding = { what, queued: [], caught: () => caught(), released: false };
