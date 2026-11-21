@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
-import { useHost } from "../../testing/host/host";
-import { deckOnDisk, quitAfter, startDeck, type Deck, type DeckStart } from "../../testing/host/deck";
+import { callsOf, useHost } from "../../testing/host/host";
+import { quitAfter, retireOnDisk, startDeck, type Deck, type DeckStart } from "../../testing/host/deck";
 import type { StubAgentControl } from "../../testing/host/stubPlugin";
 
 /**
@@ -31,7 +31,7 @@ describe("which agents rise, and when, on the host", () => {
     return launches[launches.length - 1]?.args ?? [];
   };
   const aWhile = () => new Promise((resolve) => setTimeout(resolve, 500));
-  const probedSince = (mark: number) => host().tape.slice(mark).filter(({ way, line }) => way === "page →" && line.includes('"cmd":"worktree_probe"'));
+  const probedSince = (mark: number) => callsOf(host(), "worktree_probe", mark);
   const select = async (d: Deck, ws: WorkspaceRef) => {
     d.runtime.deckStore.dispatch({ type: "selectWorkspace", id: ws.id });
     await host().until(`${ws.id} open`, () => activeId(d) === ws.id);
@@ -39,14 +39,6 @@ describe("which agents rise, and when, on the host", () => {
   const settingsOnDisk = () => {
     const file = join(host().home, "settings.json");
     return existsSync(file) ? readFileSync(file, "utf8") : "";
-  };
-  /** While the app is down, the pane's agent loses its plugin: the deck
-   * names an agent nothing provides. */
-  const retire = (paneId: string) => {
-    const saved = deckOnDisk(host());
-    const named = `"id":"${paneId}","agentType":"stub"`;
-    if (!saved.includes(named)) throw new Error(`deck.json does not name ${paneId} as a stub agent`);
-    writeFileSync(join(host().home, "deck.json"), saved.split(named).join(`"id":"${paneId}","agentType":"retired-cli"`));
   };
 
   /** Two workspaces, the first open with an agent up in it; an agent asked
@@ -196,19 +188,25 @@ describe("which agents rise, and when, on the host", () => {
       expect(view(d).blocked[paneId]).toBeUndefined();
       expect(d.pane(paneId).idle).toBeUndefined();
       expect(d.pane(paneId).session?.id).toBe(session);
+      // Into its own conversation, in its team's folder.
       expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+      expect(d.launches(paneId)[launched]?.cwd).toBe(folder);
     });
 
     it("stays blocked, keeping its conversation, while the folder is still gone", async () => {
       const d = await open();
       const { ws, paneId, session, folder, launched } = await suspendedAt(d);
       rmSync(folder, { recursive: true, force: true });
+      const mark = host().tape.length;
       await d.runtime.orchestrator.resume(ws.id, paneId);
       await host().until("put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
       expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toEqual({ kind: "resuming" });
       await host().until("blocked again, and put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
       expect(d.pane(paneId).session?.id).toBe(session);
       expect(d.launches(paneId)).toHaveLength(launched);
+      // Its folder looked at once for each ask — never again on its own.
+      await aWhile();
+      expect(probedSince(mark)).toEqual([{ path: folder }, { path: folder }]);
     });
 
     it("puts back down a resume its agent could not plan — once — and serves the next one", async () => {
@@ -229,6 +227,8 @@ describe("which agents rise, and when, on the host", () => {
       d.stub.resumePlanFails = null;
       expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toEqual({ kind: "resuming" });
       await host().until("back", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live", 15_000);
+      // Asking again cleared what its card said of the last one.
+      expect(view(d).wakeFailed[paneId]).toBeUndefined();
     });
 
     it("leaves a resume put back down where it rose, its card saying why — not on the tray its person keeps suspended agents on", async () => {
@@ -252,14 +252,17 @@ describe("which agents rise, and when, on the host", () => {
 
     it("starts fresh a suspended agent whose folder is gone through the machine: what it brings up can be suspended again", async () => {
       const d = await open();
-      const { ws, paneId, folder, launched } = await suspendedAt(d);
+      const { ws, paneId, session, folder, launched } = await suspendedAt(d);
       rmSync(folder, { recursive: true, force: true });
       await d.runtime.orchestrator.resume(ws.id, paneId);
       await host().until("put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
       // Its card offers a fresh start in the workspace's own folder.
       expect((await d.runtime.orchestrator.startFresh(ws.id, paneId)).kind).toBe("accepted");
       await host().until("up fresh, and the machine says so", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live" && d.phase(paneId) === "live", 15_000);
+      // A new conversation, in the workspace's folder: the old one dropped.
       expect(lastArgs(d, paneId)).not.toContain("--resume");
+      expect(d.launches(paneId)[launched]?.cwd).toBe(host().work);
+      expect(d.pane(paneId).session?.id).not.toBe(session);
       expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
       await host().until("suspended again", () => putBack(d, paneId) && d.slot(paneId) === "none", 15_000);
     });
@@ -286,7 +289,7 @@ describe("which agents rise, and when, on the host", () => {
           return { one, here: running, sleeper: suspended, orphan: lost, there: away };
         },
         (onDisk, { one }) => onDisk.includes(`"activeId":"${one.id}"`) && onDisk.includes('"reason":"suspended"'),
-        ({ orphan: lost }) => retire(lost),
+        ({ orphan: lost }) => retireOnDisk(host(), lost),
       );
       const d = await open();
       await host().until("the open one rises", () => d.slot(here) === "live", 15_000);
@@ -303,7 +306,7 @@ describe("which agents rise, and when, on the host", () => {
         host(),
         async (d) => ({ orphan: (await d.agentUp()).paneId }),
         (onDisk, { orphan: pane }) => onDisk.includes(`"id":"${pane}"`),
-        ({ orphan: lost }) => retire(lost),
+        ({ orphan: lost }) => retireOnDisk(host(), lost),
       );
       // The plugins have not loaded yet: nothing can say the agent is gone.
       const loading = host().hold({ request: "plugin_permissions_resolve" });

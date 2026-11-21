@@ -91,6 +91,7 @@ describe("the runtime and the lifecycle machine, on the host", () => {
     await host().relaunch("quit");
     d = deck = await startDeck(host());
     await host().until("its folder is gone, on its card", () => d.runtime.orchestrator.getView().blocked[paneId] === folder, 15_000);
+    const own = d.pane(paneId).team?.teamId;
     const before = d.runtime.deckStore.getSnapshot().workspaces;
     void d.runtime.orchestrator.startFresh(ws.id, paneId, "reviewer");
     // Nothing of the page's own: the deck moves by the machine's commands.
@@ -99,7 +100,13 @@ describe("the runtime and the lifecycle machine, on the host", () => {
     expect(d.intents().find((intent) => intent.kind === "relocate")).toMatchObject({ workspace: ws.id, pane: paneId, root });
     await host().until("on the root's team, and up there", () => d.pane(paneId).team?.teamId === root && d.slot(paneId) === "live", 15_000);
     const launches = d.launches(paneId);
+    // A new conversation, in the workspace's folder; its card says nothing
+    // of the folder any more. The team whose folder went keeps its card.
     expect(launches[launches.length - 1]?.cwd).toBe(host().work);
+    expect(launches[launches.length - 1]?.args).not.toContain("--resume");
+    expect(d.pane(paneId).session?.id).not.toBe(session);
+    expect(d.runtime.orchestrator.getView().blocked[paneId]).toBeUndefined();
+    expect(d.workspace().teams?.map((team) => team.id)).toContain(own);
   });
 });
 

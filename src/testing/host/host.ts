@@ -92,6 +92,18 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** The arguments of every call of `cmd` the page made, from `mark` on the
+ * tape, in their order. */
+export function callsOf(host: Pick<Host, "tape">, cmd: string, mark = 0): unknown[] {
+  const calls: unknown[] = [];
+  for (const { way, line } of host.tape.slice(mark)) {
+    if (way !== "page →" || !line.includes(`"cmd":"${cmd}"`)) continue;
+    const call: unknown = JSON.parse(line);
+    if (typeof call === "object" && call !== null && field(call, "cmd") === cmd) calls.push(field(call, "args"));
+  }
+  return calls;
+}
+
 /** How long a quit has to end the app before it is killed — a little more
  * than its sessions' own stop. */
 const QUIT_WAIT_MS = 10_000;

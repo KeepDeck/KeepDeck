@@ -3,7 +3,7 @@
 // Modules are loaded afresh per deck, so each test's page is a page of its
 // own — the registry, the settings and the session table included.
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { inject, vi } from "vitest";
 import type { Pane, Workspace } from "../../domain/deck";
@@ -196,6 +196,26 @@ function outputOf(line: string, channel: number): string {
 export function deckOnDisk(host: Host): string {
   const file = join(host.home, "deck.json");
   return existsSync(file) ? readFileSync(file, "utf8") : "";
+}
+
+/** While the app is down, rewrite what the deck on disk says of one pane —
+ * what the next launch boots from. */
+function rewritePaneOnDisk(host: Host, said: string, now: string): void {
+  const saved = deckOnDisk(host);
+  if (!saved.includes(said)) throw new Error(`deck.json does not say ${said}`);
+  writeFileSync(join(host.home, "deck.json"), saved.split(said).join(now));
+}
+
+/** While the app is down, the pane's agent loses its plugin: the deck names
+ * an agent nothing provides. */
+export function retireOnDisk(host: Host, paneId: string): void {
+  rewritePaneOnDisk(host, `"id":"${paneId}","agentType":"${STUB_AGENT}"`, `"id":"${paneId}","agentType":"retired-cli"`);
+}
+
+/** While the app is down, the deck records a conversation for the pane that
+ * no process of it bound. */
+export function bindOnDisk(host: Host, paneId: string, sessionId: string): void {
+  rewritePaneOnDisk(host, `"id":"${paneId}",`, `"id":"${paneId}","session":{"id":"${sessionId}","boundAt":"2026-01-01T00:00:00.000Z"},`);
 }
 
 /** Start a deck, set it up, wait until the deck on disk says `saved` of
