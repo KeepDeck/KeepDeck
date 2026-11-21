@@ -2,6 +2,7 @@
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { useHost } from "../../testing/host/host";
 import { startDeck, type Deck } from "../../testing/host/deck";
 
@@ -207,6 +208,39 @@ describe("an agent's operations on the host", () => {
     // Nothing refuses a close of it afterwards.
     const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: fork, consent: { stops: [], folders: [], tickets: [] } });
     expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId: fork, consent })).kind).toBe("accepted");
+  });
+
+  it("asks nothing for a reference that outlived its workspace — a slot used again since", async () => {
+    const d = await open();
+    const { ws, paneId } = await d.agentUp();
+    const stale = { id: ws.id, instance: createWorkspaceInstance() };
+    const asked = host().tape.filter(({ line }) => line.includes('"cmd":"lifecycle_intent"')).length;
+    const answers = await Promise.all([
+      d.runtime.orchestrator.close({ kind: "workspace", workspace: stale, consent: { stops: [], folders: [], tickets: [] } }),
+      d.runtime.orchestrator.close({ kind: "agent", workspace: stale, paneId, consent: { stops: [paneId], folders: [], tickets: [] } }),
+      d.runtime.orchestrator.archive(stale),
+      d.runtime.orchestrator.restore(stale),
+    ]);
+    for (const answer of answers) expect(answer).toEqual({ kind: "refused", refusal: { kind: "notFound" } });
+    expect(host().tape.filter(({ line }) => line.includes('"cmd":"lifecycle_intent"'))).toHaveLength(asked);
+    expect(d.workspace().panes.map((pane) => pane.id)).toEqual([paneId]);
+    // The workspace's own reference still reaches it.
+    expect(await d.runtime.orchestrator.archive(ws)).toMatchObject({ kind: "accepted" });
+  });
+
+  it("puts an agent back down and says why when the resume the person asked for cannot be built", async () => {
+    const d = await open();
+    const { ws, paneId, session } = await d.agentUp();
+    await d.runtime.orchestrator.suspend(ws.id, paneId);
+    await host().until("suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none");
+    d.stub.resumePlanFails = "the agent's plugin is gone";
+    await d.runtime.orchestrator.resume(ws.id, paneId);
+    // A resume the person asked for never comes up as another conversation:
+    // no process, the agent down where it was, its card saying why.
+    await host().until("its card says why", () => (d.runtime.orchestrator.getView().wakeFailed[paneId] ?? "").includes("the agent's plugin is gone"));
+    expect(d.launches(paneId)).toHaveLength(1);
+    expect(d.pane(paneId).idle).toMatchObject({ reason: "suspended" });
+    expect(d.pane(paneId).session?.id).toBe(session);
   });
 
   it("leaves an agent that ended by itself on its exit card, starting nothing", async () => {

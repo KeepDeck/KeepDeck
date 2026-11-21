@@ -16,6 +16,9 @@ export interface StubAgentControl {
   rejectResumes: boolean;
   /** Forks are refused the same way: the fork never finishes. */
   rejectForks: boolean;
+  /** A resume's plan cannot be built: its hook throws this, said as the
+   * reason. */
+  resumePlanFails: string | null;
   /** The agent ignores a polite stop: only the kill ends it. */
   deaf: boolean;
 }
@@ -62,6 +65,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
             run(output, []);
           },
           "resume.plan"(input, output) {
+            if (control.resumePlanFails !== null) throw new Error(control.resumePlanFails);
             run(output, ["--resume", input.sessionId, ...(control.rejectResumes ? ["--reject"] : [])]);
           },
           // Its store is its own process: the fork copies nothing, so it

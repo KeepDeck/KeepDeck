@@ -119,7 +119,7 @@ export async function startDeck(host: Host): Promise<Deck> {
   const { createCommandRegistry } = await import("../../domain/commands/registry");
   const sessions = await import("../../app/ptyManager");
   const { previewIntent } = await import("../../ipc/lifecycle");
-  const stub: StubAgentControl = { rejectResumes: false, rejectForks: false, deaf: false };
+  const stub: StubAgentControl = { rejectResumes: false, rejectForks: false, resumePlanFails: null, deaf: false };
   const runtime = createAppRuntime(undefined, createCommandRegistry(), () => Promise.resolve([stubPlugin(stub)]));
   runtime.start();
   await host.until("the machine opened its barrier", () => heardOpen(host), 15_000);
