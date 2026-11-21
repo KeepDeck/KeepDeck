@@ -207,6 +207,9 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
   const runtime = createAppRuntime(undefined, createCommandRegistry(), () => Promise.resolve([stubPlugin(stub)]));
   runtime.start();
   await host.until("the machine opened its barrier", () => heardOpen(host), 15_000);
+  // A page is up once its plugins are: a plan asked before the stub's
+  // activation finds no agent to build it.
+  await host.until("the stub plugin is active", () => runtime.plugins.pluginRegistries.agents.list().some(({ entry }) => entry.id === STUB_AGENT), 15_000);
 
   /** The stub agents run outside the deck, ended with it. */
   const outside: ChildProcess[] = [];
