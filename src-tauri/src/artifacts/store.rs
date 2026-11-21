@@ -481,22 +481,43 @@ impl ArtifactsStore {
     /// other mutation: an unguarded drop racing a mid-write publish would
     /// let the publish RE-CREATE the directory after the drop removed it —
     /// the exact orphan this exists to prevent.
-    pub fn drop_workspace(&self, workspace_id: &str) -> StoreResult<()> {
-        self.with_enabled(|root, data| {
-            let _guard = data.lock().expect("artifacts data poisoned");
-            // The id arrives as a raw invoke argument: the SAME wall every
-            // other workspace-id consumer applies (load_manifest's first
-            // act), or `../../x` would delete outside the store.
-            require_safe(workspace_id, "workspace id")?;
-            let dir = workspaces_root(root).join(workspace_id);
-            match fs::remove_dir_all(&dir) {
-                Ok(()) => Ok(()),
-                Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
-                Err(e) => Err(StoreError::new(format!(
-                    "dropping the artifact store for {workspace_id} failed: {e}"
-                ))),
-            }
-        })
+    ///
+    /// The feature off is no reason to keep it: the toggle says whether the
+    /// tools answer, the claim guards the data. Off, with nothing of the
+    /// workspace under `root`, there is nothing to drop; with something
+    /// there, the store is claimed for the drop and let go after — under
+    /// the lifecycle lock, so an enable in this process waits. Only a claim
+    /// another copy holds, or a delete that fails, is said, to be asked
+    /// again.
+    pub fn drop_workspace(&self, workspace_id: &str, root: &Path) -> StoreResult<()> {
+        // The id arrives as a raw invoke argument: the SAME wall every
+        // other workspace-id consumer applies (load_manifest's first act),
+        // or `../../x` would delete outside the store.
+        require_safe(workspace_id, "workspace id")?;
+        let enabled = self.enabled.lock().expect("artifacts store poisoned");
+        if let Some(state) = enabled.as_ref() {
+            let _guard = state.data.lock().expect("artifacts data poisoned");
+            return remove_workspace(state._root.root(), workspace_id);
+        }
+        let dir = workspaces_root(root).join(workspace_id);
+        match fs::symlink_metadata(&dir) {
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(StoreError::new(format!("reading the artifact store for {workspace_id} failed: {e}"))),
+            Ok(_) => {}
+        }
+        let _claimed = claim(root, "artifact store").map_err(StoreError::new)?;
+        remove_workspace(root, workspace_id)
+    }
+}
+
+/// A workspace's folder of the store at `root` goes; absent is gone.
+fn remove_workspace(root: &Path, workspace_id: &str) -> StoreResult<()> {
+    match fs::remove_dir_all(workspaces_root(root).join(workspace_id)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(StoreError::new(format!(
+            "dropping the artifact store for {workspace_id} failed: {e}"
+        ))),
     }
 }
 
@@ -1012,7 +1033,7 @@ mod tests {
 
         forget.forget(WS);
         assert!(store.publish(WS, content_request(Some("after"), b"<p/>"), 4000).is_err());
-        store.drop_workspace(WS).unwrap();
+        store.drop_workspace(WS, &root).unwrap();
         assert!(!root.join("ws/ws-1").exists());
     }
 
@@ -1311,9 +1332,41 @@ mod tests {
     fn drop_workspace_is_total_and_idempotent() {
         let (store, _dir, root) = store_with_root("drop");
         store.publish(WS, content_request(Some("a"), b"<p/>"), 1000).unwrap();
-        store.drop_workspace("ws-1").unwrap();
+        store.drop_workspace("ws-1", &root).unwrap();
         assert!(!root.join("ws/ws-1").exists());
-        store.drop_workspace("ws-1").unwrap(); // absent is fine
+        store.drop_workspace("ws-1", &root).unwrap(); // absent is fine
+    }
+
+    /// Off is no reason to keep a closed workspace's artifacts, nor to owe
+    /// their drop: nothing there is nothing to drop, and no store is made
+    /// for it; something there goes under the claim, taken for the drop and
+    /// let go, so turning the feature on right after works.
+    #[test]
+    fn a_store_that_is_off_drops_a_workspace_all_the_same() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("artifacts");
+        let off = ArtifactsStore::default();
+        off.drop_workspace(WS, &root).unwrap();
+        assert!(!root.exists(), "no store is made to drop nothing from");
+
+        let on = ArtifactsStore::default();
+        on.enable(&root, Forget::default().gate()).unwrap();
+        on.publish(WS, content_request(Some("a"), b"<p/>"), 1000).unwrap();
+        on.disable();
+        off.drop_workspace(WS, &root).unwrap();
+        assert!(!root.join("ws/ws-1").exists());
+        off.enable(&root, Forget::default().gate()).expect("the drop let its claim go");
+    }
+
+    /// Another copy holding the store: the drop is not raced but said, and
+    /// asked again.
+    #[test]
+    fn a_store_that_is_off_does_not_drop_under_another_copys_claim() {
+        let (other, _dir, root) = store_with_root("held");
+        other.publish(WS, content_request(Some("a"), b"<p/>"), 1000).unwrap();
+        let off = ArtifactsStore::default();
+        assert!(off.drop_workspace(WS, &root).is_err());
+        assert!(root.join("ws/ws-1").exists());
     }
 
     #[test]

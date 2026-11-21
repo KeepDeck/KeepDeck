@@ -49,10 +49,9 @@ impl ArtifactsState {
         self.root.lock().expect("artifacts root poisoned").is_some()
     }
 
-    /// A closed workspace's whole store goes. With the feature off there is
-    /// no claimed store to drop from: said, so the drop is asked again.
+    /// A closed workspace's whole store goes — the feature on or off.
     pub(crate) fn drop_workspace(&self, ws_id: &str) -> Result<(), String> {
-        self.store.drop_workspace(ws_id).map_err(|e| e.0)
+        self.store.drop_workspace(ws_id, &store_root()?).map_err(|e| e.0)
     }
 }
 

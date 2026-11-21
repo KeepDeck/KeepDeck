@@ -58,10 +58,11 @@ pub fn tasks_disable(state: State<TasksState>) {
 }
 
 /// Drop a closing workspace's board — its rows in the database and its
-/// files (the board's old JSON and every copy of it). Idempotent.
+/// files (the board's old JSON and every copy of it), the board on or off.
+/// Idempotent.
 #[tauri::command(async)]
 pub fn tasks_drop_workspace(state: State<TasksState>, ws_id: String) -> Result<(), String> {
-    state.store.drop_workspace(&ws_id)
+    state.store.drop_workspace(&ws_id, &store_root()?)
 }
 
 // ── The database (keepdeck-tasks): every board in one store ──────────────

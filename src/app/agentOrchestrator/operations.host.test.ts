@@ -141,6 +141,9 @@ describe("an agent's operations on the host", () => {
     const consent = await d.consentFor({ kind: "closeWorkspace", workspace: ws.id, consent: { stops: [], folders: [], tickets: [] } });
     expect((await d.runtime.orchestrator.close({ kind: "workspace", workspace: ws, consent })).kind).toBe("accepted");
     await host().until("the workspace is gone", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0 && d.slot(paneId) === "none");
+    // All of it done on a default install — artifacts and tasks off: nothing
+    // owed to a next launch.
+    await host().until("its close is off the journal", () => readdirSync(join(host().home, "lifecycle")).every((name) => !name.startsWith("op-")));
   });
 
   it("forks an agent's conversation into a new agent of its team: a new conversation, copied from it", async () => {
