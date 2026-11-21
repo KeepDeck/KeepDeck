@@ -85,6 +85,40 @@ describe("the deck's boot snapshot and saved revisions", () => {
     expect(saved).toHaveBeenCalledWith(changed);
   });
 
+  it("names a revision that writes nothing new on disk as it stands — none waits for a save that never comes", async () => {
+    vi.useFakeTimers();
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    const store = createDeckStore();
+    const saved = vi.fn<(revision: number) => void>();
+    persistence = createDeckPersistence(store, () => {}, saved);
+    await vi.runAllTimersAsync();
+    ipc.saveDeckState.mockClear();
+    saved.mockClear();
+
+    // Parked is not a state the deck keeps: the file already says this deck.
+    store.dispatch({ type: "parkPane", wsId: "ws-1", paneId: "pane-1" });
+    const parked = store.revision();
+    await vi.runAllTimersAsync();
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+    expect(saved).toHaveBeenLastCalledWith(parked);
+
+    // A change that does write: named once it is on disk, and not before.
+    let land = () => {};
+    ipc.saveDeckState.mockImplementationOnce(() => new Promise<void>((resolve) => (land = resolve)));
+    store.dispatch({ type: "renamePane", wsId: "ws-1", paneId: "pane-1", name: "api" });
+    const renamed = store.revision();
+    saved.mockClear();
+    await vi.advanceTimersByTimeAsync(600);
+    // Meanwhile one more that writes nothing past it: named too, once the
+    // deck on disk says it — not before.
+    store.dispatch({ type: "requestPanesWake", wsId: "ws-1", paneIds: ["pane-1"] });
+    expect(saved).not.toHaveBeenCalled();
+    land();
+    await vi.runAllTimersAsync();
+    expect(store.revision()).toBeGreaterThan(renamed);
+    expect(saved).toHaveBeenLastCalledWith(store.revision());
+  });
+
   it("writes nothing while this copy only shows, and saves what changed once it holds the folder", async () => {
     vi.useFakeTimers();
     ipc.loadDeckState.mockResolvedValue(STORED);

@@ -156,6 +156,10 @@ export function createDeckPersistence(
   function deckChanged(): void {
     serialized = serializeSnapshot();
     immediate = deckImmediateKey(deck.getSnapshot());
+    // A revision that writes nothing new — the file already says this deck —
+    // is on disk as it stands: nothing will ever be saved to say so, and a
+    // deck command answered at it would wait for that save for good.
+    if (loaded && !saving && serialized === lastSaved && !frozen && writable && !disposed) onSaved(deck.revision());
     reconcileSave();
   }
 
