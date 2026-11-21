@@ -2380,7 +2380,7 @@ fn an_archive_takes_the_plantings_back_keeps_folders_and_layout_and_restore_brin
     sim.drive();
     assert!(sim.cleaned.contains(&Clean::Disarm { dir: Dir::new("/wt/kd-app-1") }), "the plantings go, as today: {:?}", sim.cleaned);
     assert!(!sim.cleaned.iter().any(|clean| matches!(clean, Clean::Checkout { .. } | Clean::Branch { .. } | Clean::Stores { .. })));
-    assert!(sim.carried.contains(&Cmd::MarkArchived { workspace: ws() }));
+    assert!(sim.carried.contains(&Cmd::MarkArchived { workspace: ws(), panes: vec![PaneId(1), PaneId(2), PaneId(3)] }));
     assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::RemovePane { .. } | Cmd::RemoveTeam { .. })), "the layout stays");
     assert_eq!(sim.state.world.panes.len(), 3);
 
@@ -2421,12 +2421,54 @@ fn an_archive_settles_the_deck_last_and_once() {
     sim.intent(Intent::Archive { workspace: ws() });
     sim.drive();
     let at = |wanted: &Cmd| sim.carried.iter().position(|cmd| cmd == wanted);
-    let marked = at(&Cmd::MarkArchived { workspace: ws() }).expect("marked");
+    let marked = at(&Cmd::MarkArchived { workspace: ws(), panes: vec![PaneId(1), PaneId(2), PaneId(3)] }).expect("marked");
     let settled = at(&Cmd::SettleArchive { workspace: ws() }).expect("settled");
     assert!(settled > marked, "{:?}", sim.carried);
     assert!(sim.cleaned.iter().any(|clean| matches!(clean, Clean::Disarm { .. })), "its plantings went first");
     assert_eq!(sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::SettleArchive { .. })).count(), 1);
     assert!(sim.state.ops.is_empty());
+}
+
+/// The agents an archive leaves suspended are named once, by the machine:
+/// each local one it stops. Not one already suspended (its own date stays),
+/// not a remote one (its agent is its server's), not one on a team whose
+/// creation failed (no agent stands behind it). The dialog's preview says
+/// the same list the deck is told to mark, and the machine's world marks it.
+#[test]
+fn an_archive_names_the_agents_it_leaves_suspended_and_its_preview_says_the_same() {
+    let mut facts = deck();
+    let panes = &mut facts.workspaces[0].panes;
+    panes[0].suspended = true;
+    panes[1].remote = true;
+    facts.workspaces[0].teams.push(TeamFacts { id: team("f"), at: TeamAtFacts::Provisioning { path: Dir::new("/wt/kd-app-9"), branch: Some("kd/app/9".into()) } });
+    facts.workspaces[0].panes.push(pane_facts(4, Some("f")));
+    let mut sim = Sim::booted_with(facts, Vec::new());
+    assert_eq!(sim.state.world.teams[&team("f")].at, crate::world::TeamAt::Failed { ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-9"), branch: "kd/app/9".into(), base: None } });
+
+    let intent = Intent::Archive { workspace: ws() };
+    assert_eq!(super::queries::preview(&sim.state, &intent).stops, vec![PaneId(3)]);
+    sim.intent(intent);
+    sim.drive();
+    let named: Vec<&Cmd> = sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::MarkArchived { .. })).collect();
+    assert_eq!(named, vec![&Cmd::MarkArchived { workspace: ws(), panes: vec![PaneId(3)] }]);
+    let suspended = |n: u64| sim.state.world.panes[&PaneId(n)].suspended;
+    assert_eq!((suspended(1), suspended(2), suspended(3), suspended(4)), (true, false, true, false));
+}
+
+/// After a restore, an agent the archive stopped is suspended as the deck
+/// shows it — and comes back when resumed, in the same launch.
+#[test]
+fn an_agent_an_archive_stopped_is_resumed_after_the_restore() {
+    let mut sim = Sim::booted();
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.drive();
+    let restore = sim.intent(Intent::Restore { workspace: ws() });
+    sim.drive();
+    assert!(matches!(sim.answer(restore), Some(Answer::Accepted { .. })));
+    let resume = sim.intent(Intent::Resume { workspace: ws(), pane: PaneId(3) });
+    sim.drive();
+    assert!(matches!(sim.answer(resume), Some(Answer::Accepted { .. })), "{:?}", sim.answer(resume));
+    assert!(sim.carried.contains(&Cmd::ClearSuspended { workspace: ws(), pane: PaneId(3) }));
 }
 
 /// An archive whose cleanup failed is not over: the deck keeps it as being
@@ -2814,7 +2856,7 @@ fn every_due() -> Vec<Due> {
         Cmd::RemovePane { workspace: w(), pane: p(5) },
         Cmd::RemoveTeam { workspace: w(), team: team("n") },
         Cmd::RemoveWorkspace { workspace: w() },
-        Cmd::MarkArchived { workspace: w() },
+        Cmd::MarkArchived { workspace: w(), panes: vec![p(1)] },
         Cmd::SettleArchive { workspace: w() },
         Cmd::ClearArchived { workspace: w() },
         Cmd::MarkSuspended { workspace: w(), pane: p(1) },

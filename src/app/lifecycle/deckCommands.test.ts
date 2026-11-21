@@ -38,11 +38,16 @@ describe("the deck's owner of lifecycle commands", () => {
     });
   });
 
-  it("marks a workspace being put away, then put away, then back — each once", async () => {
+  it("marks a workspace being put away with the agents it names suspended, then put away, then back — each once", async () => {
     const { store, carry, ws } = rig();
     await carry(workspace);
-    await carry({ kind: "markArchived", workspace: "ws-a" });
+    await carry(team([member("pane-1", "lead"), member("pane-2", "impl-1")]));
+    await carry({ kind: "markArchived", workspace: "ws-a", panes: ["pane-1"] });
     expect(ws()?.archived?.phase).toBe("archiving");
+    expect(ws()?.panes.map((pane) => [pane.id, pane.idle?.reason])).toEqual([
+      ["pane-1", "suspended"],
+      ["pane-2", undefined],
+    ]);
     expect(await carry({ kind: "settleArchive", workspace: "ws-a" })).toEqual({ kind: "applied", revision: store.revision() });
     expect(ws()?.archived).toMatchObject({ phase: "archived" });
     expect(ws()?.archived?.warnings).toBeUndefined();

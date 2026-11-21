@@ -705,7 +705,7 @@ describe("deckReducer archive and restore", () => {
         activeId: "a",
         viewByWs: { a: { focus: ["a-1"], select: "a-1" } },
       }),
-      { type: "archiveWorkspace", id: "a", at: AT },
+      { type: "archiveWorkspace", id: "a", at: AT, panes: ["a-1"] },
     );
     expect(next.workspaces[0].archived).toEqual({ at: AT, phase: "archiving" });
     expect(next.activeId).toBe("b");
@@ -716,14 +716,14 @@ describe("deckReducer archive and restore", () => {
   it("archiving the last visible workspace leaves nobody active", () => {
     const next = deckReducer(
       state({ workspaces: [archivedWs("a"), ws("b", ["b-1"])], activeId: "b" }),
-      { type: "archiveWorkspace", id: "b", at: AT },
+      { type: "archiveWorkspace", id: "b", at: AT, panes: ["b-1"] },
     );
     expect(next.activeId).toBe("");
   });
 
   it("archiving an already archived workspace returns the same state", () => {
     const before = state({ workspaces: [archivedWs("a"), ws("b", [])], activeId: "b" });
-    expect(deckReducer(before, { type: "archiveWorkspace", id: "a", at: AT })).toBe(before);
+    expect(deckReducer(before, { type: "archiveWorkspace", id: "a", at: AT, panes: [] })).toBe(before);
   });
 
   it("refuses to select an archived workspace", () => {

@@ -98,8 +98,8 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "closeAgent", wsId, paneId, at: nowIso(), ...sealTitle(wsId, paneId) }),
     closeWorkspace: (id: string) =>
       dispatch({ type: "closeWorkspace", id, at: nowIso() }),
-    archiveWorkspace: (id: string) =>
-      dispatch({ type: "archiveWorkspace", id, at: nowIso() }),
+    archiveWorkspace: (id: string, panes: readonly string[]) =>
+      dispatch({ type: "archiveWorkspace", id, at: nowIso(), panes }),
     settleArchive: (id: string, warnings: ArchiveWarnings) =>
       dispatch({ type: "settleArchive", id, warnings }),
     restoreWorkspace: (id: string) => dispatch({ type: "restoreWorkspace", id }),

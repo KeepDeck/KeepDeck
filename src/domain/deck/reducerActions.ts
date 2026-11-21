@@ -17,8 +17,9 @@ export type DeckAction =
    * catalog the reducer cannot. Like `at`, minted at the dispatch boundary. */
   | { type: "closeAgent"; wsId: string; paneId: string; at: string; sealTitle?: string }
   | { type: "closeWorkspace"; id: string; at: string }
-  /** Put a workspace away (phase "archiving"); it leaves navigation at once. */
-  | { type: "archiveWorkspace"; id: string; at: string }
+  /** Put a workspace away (phase "archiving"), `panes` — the agents the
+   * archive stops — marked suspended with it; it leaves navigation at once. */
+  | { type: "archiveWorkspace"; id: string; at: string; panes: readonly string[] }
   /** The archive's stop pass is done, owing `warnings`. */
   | { type: "settleArchive"; id: string; warnings: ArchiveWarnings }
   /** Bring an archived workspace back, and into view. */

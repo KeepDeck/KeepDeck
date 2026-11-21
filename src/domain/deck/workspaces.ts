@@ -2,7 +2,7 @@ import type {
   WorkspaceInstance,
   WorkspaceRef,
 } from "../workspaceInstance";
-import { appendPane, paneStopsWithArchive, removePane, type Pane } from "./panes";
+import { appendPane, removePane, type Pane } from "./panes";
 import { suspendedAt } from "./panes/stamp";
 import { teamsOf } from "./teams/collection";
 import { normalizePath, sameDirectory } from "./teams/claims";
@@ -478,36 +478,32 @@ export function resolveActiveId(workspaces: Workspace[], activeId: string): stri
   return visible[0]?.id ?? "";
 }
 
-/** Every pane the archive stops ([`paneStopsWithArchive`]), marked suspended as of
- * `at`; the same list when none is left to mark. */
-function suspendedForArchive(ws: Workspace, at: string): Pane[] {
-  let marked = false;
-  const panes = ws.panes.map((pane): Pane => {
-    if (!paneStopsWithArchive(ws, pane)) return pane;
-    marked = true;
-    return suspendedAt(pane, at);
-  });
-  return marked ? panes : ws.panes;
-}
-
 /** Put workspace `id` away as of `at`, in phase `"archiving"` — and, in the
- * same change, every pane the archive stops marked suspended: one snapshot,
- * one save, so no crash can leave the workspace put away with a pane on disk
- * that would rise by itself. Ending the processes is the caller's. Same ref
- * when there is no such workspace or it is already archived. */
-export function archiveWorkspace(workspaces: Workspace[], id: string, at: string): Workspace[] {
+ * same change, the panes `suspending` names (the agents the archive stops,
+ * as the lifecycle machine says them) marked suspended as of `at`; one
+ * already suspended keeps its own date. One snapshot, one save, so no crash
+ * can leave the workspace put away with a pane on disk that would rise by
+ * itself. Ending the processes is the caller's. Same ref when there is no
+ * such workspace or it is already archived. */
+export function archiveWorkspace(
+  workspaces: Workspace[],
+  id: string,
+  at: string,
+  suspending: readonly string[],
+): Workspace[] {
   const ws = findWorkspace(workspaces, id);
   if (!ws || ws.archived) return workspaces;
-  return workspaces.map((w) =>
-    w.id === id ? { ...w, archived: { at, phase: "archiving" }, panes: suspendedForArchive(w, at) } : w,
+  const panes = ws.panes.map((pane) =>
+    suspending.includes(pane.id) && pane.idle?.reason !== "suspended" ? suspendedAt(pane, at) : pane,
   );
+  return workspaces.map((w) => (w.id === id ? { ...w, archived: { at, phase: "archiving" }, panes } : w));
 }
 
 /** The archive of `id` has done what it could: phase `"archived"`, owing
- * `warnings` (kept only when something is owed) — and any pane that landed
- * since the archive began (a create that finished) marked suspended like the
- * rest. Boot repair settles again after each retry, with what is still owed.
- * Same ref when the workspace is not archived, or already settled exactly so. */
+ * `warnings` (kept only when something is owed). Its panes were marked when
+ * it began — nothing lands in a workspace while it is put away. Boot repair
+ * settles again after each retry, with what is still owed. Same ref when the
+ * workspace is not archived, or already settled exactly so. */
 export function settleArchive(
   workspaces: Workspace[],
   id: string,
@@ -516,11 +512,9 @@ export function settleArchive(
   const ws = findWorkspace(workspaces, id);
   const archived = ws?.archived;
   if (!ws || !archived) return workspaces;
-  const panes = suspendedForArchive(ws, archived.at);
   const owed = warnings.reaps.length > 0 || warnings.disarm;
   const was = archived.warnings;
   const unchanged =
-    panes === ws.panes &&
     archived.phase === "archived" &&
     (owed
       ? was !== undefined &&
@@ -534,7 +528,7 @@ export function settleArchive(
     phase: "archived",
     ...(owed && { warnings: { reaps: [...warnings.reaps], disarm: warnings.disarm } }),
   };
-  return workspaces.map((w) => (w.id === id ? { ...w, archived: settled, panes } : w));
+  return workspaces.map((w) => (w.id === id ? { ...w, archived: settled } : w));
 }
 
 /** Bring workspace `id` back: the marker goes and nothing else changes —

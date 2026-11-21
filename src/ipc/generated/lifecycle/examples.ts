@@ -479,6 +479,9 @@ export const dues: Due[] = [
   {
     "cmd": {
       "kind": "markArchived",
+      "panes": [
+        "pane-1"
+      ],
       "workspace": "ws-a"
     },
     "id": {

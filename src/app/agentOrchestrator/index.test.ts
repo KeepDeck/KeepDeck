@@ -313,7 +313,7 @@ describe("agent orchestrator —session policy", () => {
     );
     await settle();
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
-    act(() => deck.archiveWorkspace("ws-1"));
+    act(() => deck.archiveWorkspace("ws-1", ["pane-1"]));
 
     // The machine refuses a move in an archived workspace; the page writes
     // nothing of its own around the refusal.

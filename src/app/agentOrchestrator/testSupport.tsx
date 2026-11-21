@@ -347,8 +347,10 @@ function deckHalfOf(intent: Intent): Cmd | null {
       return { kind: "markSuspended", workspace: intent.workspace, pane: intent.pane };
     case "closeAgent":
       return { kind: "removePane", workspace: intent.workspace, pane: intent.pane };
-    case "archive":
-      return { kind: "markArchived", workspace: intent.workspace };
+    case "archive": {
+      const ws = machine.deck?.().workspaces.find((candidate) => candidate.id === intent.workspace);
+      return { kind: "markArchived", workspace: intent.workspace, panes: ws?.panes.map((pane) => pane.id) ?? [] };
+    }
     case "restore":
       return { kind: "clearArchived", workspace: intent.workspace };
     case "relocate": {

@@ -225,7 +225,7 @@ export function createDeckCommands(
         if (!workspace(cmd.workspace)) return answer("unchanged");
         return through(() => actions.closeWorkspace(cmd.workspace));
       case "markArchived":
-        return through(() => actions.archiveWorkspace(cmd.workspace));
+        return through(() => actions.archiveWorkspace(cmd.workspace, cmd.panes));
       case "settleArchive":
         // Put away, no longer being put away. What the machine could not do
         // stays owed in its journal, and is said by its notices: nothing of

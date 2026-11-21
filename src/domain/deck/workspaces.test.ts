@@ -300,9 +300,9 @@ describe("archive, settle, restore", () => {
   const AT = "2026-11-16T10:00:00.000Z";
   const deck = () => [ws("a", [1]), ws("b", [])];
 
-  it("puts a workspace away in phase archiving — its panes suspended in the same change", () => {
+  it("puts a workspace away in phase archiving — the panes it is told of suspended in the same change", () => {
     const before = deck();
-    const after = archiveWorkspace(before, "a", AT);
+    const after = archiveWorkspace(before, "a", AT, ["a-p1"]);
     expect(after[0]).toEqual({
       ...before[0],
       archived: { at: AT, phase: "archiving" },
@@ -312,61 +312,45 @@ describe("archive, settle, restore", () => {
     expect(visibleWorkspaces(after).map((w) => w.id)).toEqual(["b"]);
   });
 
-  it("leaves EVERY local pane down durably, whatever it was doing — and nothing else", () => {
+  it("marks exactly the panes it is told of, whatever they were doing — and keeps a suspend's own date", () => {
     const EARLIER = "2026-11-01T00:00:00.000Z";
-    const creating = (id: string, error?: string): Team => ({
-      id,
-      name: id,
-      location: { kind: "provisioning", intent: { repo: "/tmp", path: `/wt/${id}`, index: 1 }, ...(error && { error }) },
-    });
     const before: Workspace = {
       ...ws("a", []),
-      teams: [creating("t-run"), creating("t-failed", "refused")],
       panes: [
         { id: "running", agentType: "claude" },
         { id: "parked", agentType: "claude", idle: { reason: "parked" } },
         { id: "rising", agentType: "claude", idle: { reason: "waking", origin: "manual", from: { reason: "parked" } } },
         { id: "mine", agentType: "claude", idle: { reason: "suspended", at: EARLIER } },
         { id: "remote", agentType: "codex", location: { kind: "remote", endpoint: "ws://vps" } },
-        { id: "making", agentType: "claude", team: { teamId: "t-run", role: "lead" } },
-        { id: "failed", agentType: "claude", team: { teamId: "t-failed", role: "lead" } },
       ],
     };
-    const [after] = archiveWorkspace([before], "a", AT);
+    // Which agents an archive stops is the lifecycle machine's to say: here
+    // every local one, the one already suspended among them.
+    const [after] = archiveWorkspace([before], "a", AT, ["running", "parked", "rising", "mine"]);
     expect(Object.fromEntries(after.panes.map((p) => [p.id, p.idle]))).toEqual({
       running: { reason: "suspended", at: AT },
       parked: { reason: "suspended", at: AT },
       rising: { reason: "suspended", at: AT },
-      // The person's own suspend keeps its date.
       mine: { reason: "suspended", at: EARLIER },
-      // Not KeepDeck's to stop; the archive ends its client.
       remote: undefined,
-      // A create still running is waited for, and settled after.
-      making: undefined,
-      // A failed create is a card waiting for Retry — no process, nothing to mark.
-      failed: undefined,
     });
   });
 
-  it("settling marks what landed since the archive began, dated by the archive", () => {
-    const team: Team = { id: "t-run", name: "t", location: { kind: "provisioning", intent: { repo: "/tmp", path: "/wt/t", index: 1 } } };
-    const start: Workspace = { ...ws("a", []), teams: [team], panes: [{ id: "making", agentType: "claude", team: { teamId: "t-run", role: "lead" } }] };
-    const archiving = archiveWorkspace([start], "a", AT);
-    // The create lands while the archive waits for it.
-    const landed = archiving.map((w) => ({ ...w, teams: [{ ...team, location: { kind: "attached" as const, cwd: "/wt/t" } }] }));
-    const [settled] = settleArchive(landed, "a", { reaps: [], disarm: false });
-    expect(settled.panes[0].idle).toEqual({ reason: "suspended", at: AT });
+  it("settling marks no pane: the archive's were marked when it began", () => {
+    const archiving = archiveWorkspace([ws("a", [1, 2])], "a", AT, ["a-p1"]);
+    const [settled] = settleArchive(archiving, "a", { reaps: [], disarm: false });
+    expect(settled.panes).toBe(archiving[0].panes);
     expect(settled.archived).toEqual({ at: AT, phase: "archived" });
   });
 
   it("archiving twice, or a workspace that is not there, changes nothing", () => {
-    const once = archiveWorkspace(deck(), "a", AT);
-    expect(archiveWorkspace(once, "a", "2026-11-17T00:00:00.000Z")).toBe(once);
-    expect(archiveWorkspace(once, "gone", AT)).toBe(once);
+    const once = archiveWorkspace(deck(), "a", AT, ["a-p1"]);
+    expect(archiveWorkspace(once, "a", "2026-11-17T00:00:00.000Z", ["a-p1"])).toBe(once);
+    expect(archiveWorkspace(once, "gone", AT, [])).toBe(once);
   });
 
   it("settles with what is still owed, and only keeps warnings that owe something", () => {
-    const archiving = archiveWorkspace(deck(), "a", AT);
+    const archiving = archiveWorkspace(deck(), "a", AT, ["a-p1"]);
     const owing = settleArchive(archiving, "a", { reaps: ["a-p1"], disarm: true });
     expect(owing[0].archived).toEqual({ at: AT, phase: "archived", warnings: { reaps: ["a-p1"], disarm: true } });
     const clear = settleArchive(owing, "a", { reaps: [], disarm: false });
@@ -381,7 +365,7 @@ describe("archive, settle, restore", () => {
 
   it("restores by taking the marker off and nothing else — every pane stays down", () => {
     const before = deck();
-    const archived = settleArchive(archiveWorkspace(before, "a", AT), "a", { reaps: [], disarm: false });
+    const archived = settleArchive(archiveWorkspace(before, "a", AT, ["a-p1"]), "a", { reaps: [], disarm: false });
     const restored = restoreWorkspace(archived, "a");
     expect(restored[0]).toEqual({ ...before[0], panes: archived[0].panes });
     expect(restored[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });

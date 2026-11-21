@@ -53,16 +53,20 @@ describe("an agent's operations on the host", () => {
     await host().until("both are back", () => backUp(d, lead, 2)() && backUp(d, member, 2)());
   });
 
-  it("archives a workspace and restores it, its agent left down", async () => {
+  it("archives a workspace, restores it, and its agent comes back into its conversation when resumed", async () => {
     const d = await open();
-    const { ws, paneId } = await d.agentUp();
+    const { ws, paneId, session } = await d.agentUp();
     expect((await d.runtime.orchestrator.archive(ws)).kind).toBe("accepted");
     // Over, as the machine says it: the deck's marker settles a moment before
     // the archive's entry is off disk, while it still holds the workspace.
     await host().until("archived and over, its agent down", () => d.workspace().archived?.phase === "archived" && d.workspacePhase() === "archived" && d.slot(paneId) === "none");
     expect((await d.runtime.orchestrator.restore(ws)).kind).toBe("accepted");
-    await host().until("restored, the agent still down", () => d.workspace().archived === undefined && d.workspacePhase() === "live" && d.pane(paneId).idle?.reason === "suspended");
+    // Down as the page shows it and as the machine holds it: suspended both.
+    await host().until("restored, the agent still down", () => d.workspace().archived === undefined && d.workspacePhase() === "live" && d.phase(paneId) === "suspended" && d.pane(paneId).idle?.reason === "suspended");
     expect(d.launches(paneId)).toHaveLength(1);
+    expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toMatchObject({ kind: "resuming" });
+    await host().until("it is back", backUp(d, paneId, 2));
+    expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
   });
 
   it("restarts an agent fresh, into a new conversation", async () => {

@@ -341,7 +341,7 @@ describe("deckReducer restore actions ([F7])", () => {
       paneIds: ["pane-2"],
       at: "2026-07-25T10:00:00.000Z",
     });
-    const archived = deckReducer(suspended, { type: "archiveWorkspace", id: "ws-1", at: "2026-07-25T11:00:00.000Z" });
+    const archived = deckReducer(suspended, { type: "archiveWorkspace", id: "ws-1", at: "2026-07-25T11:00:00.000Z", panes: ["pane-2"] });
     expect(deckReducer(archived, { type: "requestPanesWake", wsId: "ws-1", paneIds: ["pane-2"] })).toBe(archived);
   });
 

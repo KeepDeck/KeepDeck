@@ -299,7 +299,7 @@ describe("usePersistence", () => {
     };
     ipc.saveDeckState.mockClear();
 
-    act(() => deck.archiveWorkspace("ws-1"));
+    act(() => deck.archiveWorkspace("ws-1", ["pane-1"]));
     await act(async () => {}); // the save in flight settles
     expect(savedNow()).toMatchObject({ phase: "archiving" });
 

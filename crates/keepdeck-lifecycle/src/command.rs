@@ -78,7 +78,9 @@ pub enum Cmd {
     RemovePane { workspace: WorkspaceId, pane: PaneId },
     RemoveTeam { workspace: WorkspaceId, team: TeamId },
     RemoveWorkspace { workspace: WorkspaceId },
-    MarkArchived { workspace: WorkspaceId },
+    /// The workspace is being put away, and `panes` — the agents the archive
+    /// stops — are marked suspended in the same change.
+    MarkArchived { workspace: WorkspaceId, panes: Vec<PaneId> },
     /// The archive is over: the workspace is put away, no longer being put
     /// away — which is what a next launch reads to know nothing of it is
     /// left to finish.

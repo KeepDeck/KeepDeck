@@ -360,11 +360,30 @@ fn begin_retiring(state: &mut State, id: OpId) {
     }
 }
 
+/// The panes an archive leaves suspended: each local agent it stops — not
+/// suspended already, not remote (that agent is its server's: only the
+/// thin client here ends), and in a folder that stands, its team's
+/// creation neither failed nor still under way. The one list: what the
+/// archive marks on the deck and in the world, and what its dialog says it
+/// stops.
+pub fn archive_suspends(world: &World, workspace: &WorkspaceId) -> Vec<PaneId> {
+    let stands = |team: &TeamId| world.teams.get(team).is_none_or(|team| !matches!(team.at, TeamAt::Creating { .. } | TeamAt::Failed { .. }));
+    world
+        .panes_of(workspace)
+        .into_iter()
+        .filter(|pane| world.panes.get(pane).is_some_and(|row| !row.suspended && !row.remote && row.team.as_ref().is_none_or(stands)))
+        .collect()
+}
+
 /// The deck's rows go; unspent launch permits are revoked; admitted
 /// launches are taken over for the start boundary.
 fn begin_stopping(state: &mut State, id: OpId) {
+    let suspends = state.ops.get(&id).map(|op| archive_suspends(&state.world, &op.workspace)).unwrap_or_default();
     let Some(op) = state.ops.get_mut(&id) else { return };
     let workspace = op.workspace.clone();
+    // Marked once: a list named again later would name none of the panes
+    // the first one already marked.
+    let marked = op.sent.iter().any(|sent| matches!(sent.cmd, Cmd::MarkArchived { .. }));
     let Some(teardown) = op.teardown_mut() else { return };
     teardown.phase = TearPhase::Stopping;
     let rows = teardown.strategy().rows;
@@ -373,7 +392,8 @@ fn begin_stopping(state: &mut State, id: OpId) {
         Rows::RemovePane => panes.iter().map(|&pane| Cmd::RemovePane { workspace: workspace.clone(), pane }).collect(),
         Rows::RemoveTeam => teams.iter().map(|team| Cmd::RemoveTeam { workspace: workspace.clone(), team: team.clone() }).collect(),
         Rows::RemoveWorkspace => vec![Cmd::RemoveWorkspace { workspace: workspace.clone() }],
-        Rows::MarkArchived => vec![Cmd::MarkArchived { workspace: workspace.clone() }],
+        Rows::MarkArchived if marked => Vec::new(),
+        Rows::MarkArchived => vec![Cmd::MarkArchived { workspace: workspace.clone(), panes: suspends }],
         Rows::MarkSuspended => panes.iter().map(|&pane| Cmd::MarkSuspended { workspace: workspace.clone(), pane }).collect(),
         Rows::Keep => Vec::new(),
     };
@@ -641,6 +661,16 @@ fn apply_world(state: &mut State, id: OpId) {
         Rows::MarkArchived => {
             if let Some(ws) = state.world.workspaces.get_mut(&workspace) {
                 ws.archived = true;
+            }
+            // The panes the deck marked: the list the command named.
+            let marked = op.sent.iter().filter_map(|sent| match &sent.cmd {
+                Cmd::MarkArchived { panes, .. } => Some(panes),
+                _ => None,
+            });
+            for pane in marked.flatten() {
+                if let Some(row) = state.world.panes.get_mut(pane) {
+                    row.suspended = true;
+                }
             }
         }
         Rows::MarkSuspended => {

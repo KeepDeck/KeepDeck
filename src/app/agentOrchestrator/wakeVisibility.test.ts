@@ -361,7 +361,7 @@ describe("agent orchestrator — whether a pane's agent would read something sen
     await settle();
     expect(agentRun.reachOf("running")).toEqual({ kind: "running" });
 
-    act(() => deck.archiveWorkspace("ws-1"));
+    act(() => deck.archiveWorkspace("ws-1", ["running"]));
 
     // Down at once — mail sent now would never be read — though nothing
     // has ended its process: the gate ends nothing, and stopping it is the

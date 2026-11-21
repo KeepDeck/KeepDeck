@@ -84,12 +84,6 @@ export function paneArchiveFate(ws: PlacementOwner, pane: Pane): PaneArchiveFate
   return placement.kind === "provisioning" && createFailed(placement) ? "untouched" : "stopped";
 }
 
-/** Whether the archive marks this pane suspended NOW — a `stopped` pane
- * whose directory exists; one still being created is marked once it lands. */
-export function paneStopsWithArchive(ws: PlacementOwner, pane: Pane): boolean {
-  return paneArchiveFate(ws, pane) === "stopped" && panePlacement(ws, pane).kind !== "provisioning";
-}
-
 /** What a suspend request did. Not a boolean: three surfaces have to explain
  * a refusal, and each one guessing produced a different sentence — one of
  * them false. The reason travels with the answer so they share the words

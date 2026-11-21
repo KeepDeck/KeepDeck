@@ -185,7 +185,7 @@ pub fn preview(state: &State, intent: &Intent) -> Preview {
         }
         Intent::Archive { .. } => {
             let refusal = capture::archive_blocked(state, workspace);
-            Preview { refusal, stops: state.world.panes_of(workspace), folders: Vec::new(), creations: Vec::new(), last_of: None }
+            Preview { refusal, stops: super::teardown::archive_suspends(&state.world, workspace), folders: Vec::new(), creations: Vec::new(), last_of: None }
         }
         _ => empty(None),
     }
