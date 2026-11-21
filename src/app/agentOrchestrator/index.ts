@@ -73,6 +73,10 @@ export interface AgentOrchestrator {
    * second silent death (or no registry to ask) falls back fresh. Answers
    * whether it took the pane over (the caller then stays quiet). */
   recoverRejectedResume(wsId: string, paneId: string, code: number | null): boolean;
+  /** Whether this pane is being put back down after a wake that failed —
+   * its suspension then is the old one restored, not the person's new
+   * decision. */
+  puttingBack(paneId: string): boolean;
   /** Retry a failed spawn-plan build. */
   retryPlanBuild(paneId: string): void;
   /** Stop offering the occupied choice: the pane stays visible and bound,

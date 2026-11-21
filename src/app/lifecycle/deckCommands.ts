@@ -37,9 +37,10 @@ type Member = { pane: string; draft: PaneDraft };
 export function createDeckCommands(
   store: DeckStore,
   actions: DeckActions,
-  /** Where the person keeps suspended agents: in the tray, or where they
-   * stood. Read at each suspend. */
-  placement: { suspendedToTray(): boolean } = { suspendedToTray: () => false },
+  /** Whether this pane's suspension goes to the tray: where the person keeps
+   * suspended agents, read at each suspend — and never for a pane put back
+   * after a wake that failed, which stays where it rose, with its card. */
+  placement: { suspendedToTray(paneId: string): boolean } = { suspendedToTray: () => false },
 ): CommandOwner {
   const answer = (kind: "applied" | "unchanged"): Outcome => ({ kind, revision: store.revision() });
   const changed = (before: number): Outcome => answer(store.revision() === before ? "unchanged" : "applied");
@@ -238,7 +239,7 @@ export function createDeckCommands(
         // landed.
         return through(() => {
           actions.suspendPanes(cmd.workspace, [cmd.pane]);
-          if (placement.suspendedToTray()) actions.moveSuspendedToTray(cmd.workspace, cmd.pane);
+          if (placement.suspendedToTray(cmd.pane)) actions.moveSuspendedToTray(cmd.workspace, cmd.pane);
         });
       case "clearSuspended":
         return through(() => actions.requestPanesWake(cmd.workspace, [cmd.pane]));

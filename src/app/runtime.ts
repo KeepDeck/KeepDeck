@@ -481,7 +481,7 @@ export function createAppRuntime(
   const lifecycleSnapshot = createLifecycleSnapshot({
     owners: {
       deck: createDeckCommands(deckStore, deckActions, {
-        suspendedToTray: () => getSettings()?.suspendedAgentPlacement === "tray",
+        suspendedToTray: (paneId) => getSettings()?.suspendedAgentPlacement === "tray" && !orchestrator.puttingBack(paneId),
       }),
       boards: createBoardsOwner({ forgetWorkspace: tasks.forgetWorkspace, retainTeams: tasks.retainTeams }),
       mail: createMailOwner({

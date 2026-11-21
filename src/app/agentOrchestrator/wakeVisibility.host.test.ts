@@ -231,6 +231,25 @@ describe("which agents rise, and when, on the host", () => {
       await host().until("back", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live", 15_000);
     });
 
+    it("leaves a resume put back down where it rose, its card saying why — not on the tray its person keeps suspended agents on", async () => {
+      const d = await open();
+      d.updateSettings({ suspendedAgentPlacement: "tray" });
+      const { ws, paneId, folder } = await suspendedAt(d);
+      const tray = () => d.runtime.deckStore.getSnapshot().viewByWs[ws.id]?.suspendedTray ?? [];
+      expect(tray()).toEqual([paneId]);
+      rmSync(folder, { recursive: true, force: true });
+      // Resumed from the tray: it leaves the tray as it rises.
+      await d.runtime.orchestrator.resume(ws.id, paneId);
+      await host().until("put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
+      expect(tray()).toEqual([]);
+      // A Suspend the person makes still goes to the tray.
+      mkdirSync(folder);
+      await d.runtime.orchestrator.resume(ws.id, paneId);
+      await host().until("back", () => d.slot(paneId) === "live", 15_000);
+      expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
+      await host().until("on the tray", () => putBack(d, paneId) && tray().includes(paneId), 15_000);
+    });
+
     it("starts fresh a suspended agent whose folder is gone through the machine: what it brings up can be suspended again", async () => {
       const d = await open();
       const { ws, paneId, folder, launched } = await suspendedAt(d);

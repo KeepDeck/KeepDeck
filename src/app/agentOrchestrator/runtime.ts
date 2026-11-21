@@ -530,6 +530,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
   return {
     getView: runView.get,
     subscribe: runView.subscribe,
+    puttingBack: (paneId) => puttingBack.has(paneId),
     reachOf(paneId) {
       const state = deck.getSnapshot();
       for (const ws of state.workspaces) {
