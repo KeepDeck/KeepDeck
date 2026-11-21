@@ -114,6 +114,17 @@ function draftOf(agent: AgentDraft, role: string, session?: string): PaneDraft {
   };
 }
 
+/** The file a fork of `record` copies: what the binding reported, else what
+ * the plugin declared to the index (`locate`, asked only then). Still
+ * unknown is the plugin's to refuse — a fork that needs no file goes on
+ * without it. */
+export async function forkTranscriptOf(
+  record: Pick<SessionHandle, "agent" | "sessionId" | "transcriptPath">,
+  locate: (agent: string, sessionId: string) => Promise<string | null>,
+): Promise<string | undefined> {
+  return record.transcriptPath ?? (await locate(record.agent, record.sessionId)) ?? undefined;
+}
+
 export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
   const workspaces = () => deps.deck.getSnapshot().workspaces;
   const lifetime = (ref: WorkspaceRef) => findWorkspaceByRef(workspaces(), ref);
@@ -161,11 +172,7 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
       opts.role,
       how === "resume" ? record.sessionId : undefined,
     );
-    // The file a fork copies: what the binding reported, else what the
-    // plugin declared to the index. Still unknown is the plugin's to refuse
-    // — a fork that needs no file goes on without it.
-    const transcriptPath =
-      how === "fork" ? (record.transcriptPath ?? (await deps.transcripts.locateTranscript(record.agent, record.sessionId)) ?? undefined) : undefined;
+    const transcriptPath = how === "fork" ? await forkTranscriptOf(record, deps.transcripts.locateTranscript) : undefined;
     const source = { agent: record.agent, session: record.sessionId };
     deps.continuations.expect(ws.id, source, {
       workspace: { id: ws.id, instance: ws.instance },

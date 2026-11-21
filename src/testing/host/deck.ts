@@ -57,6 +57,10 @@ export interface Deck {
   workspaceUp(): Promise<WorkspaceRef>;
   /** A stub agent asked for in the first workspace — accepted, not yet up. */
   addAgent(ask: AgentAsk): Promise<string>;
+  /** A team with nobody on it, made in the first workspace at `site`. */
+  teamUp(name: string, site: Site): Promise<string>;
+  /** The intents the page asked of the machine, in order, as they went. */
+  intents(): Intent[];
   /** Wait for the pane to be up, its process live and its conversation
    * bound; its conversation. */
   upAndBound(paneId: string): Promise<string>;
@@ -98,6 +102,12 @@ function lastSnapshot(host: Host): object | null {
   return null;
 }
 
+/** An intent as the page sent it: an object with its kind — the wire's own
+ * type, read back off the tape. */
+function isIntent(value: unknown): value is Intent {
+  return typeof value === "object" && value !== null && typeof Reflect.get(value, "kind") === "string";
+}
+
 function launchOf(line: string): Launch | null {
   const said: unknown = JSON.parse(line);
   if (typeof said !== "object" || said === null || Reflect.get(said, "cmd") !== "pty_open") return null;
@@ -119,7 +129,7 @@ export async function startDeck(host: Host): Promise<Deck> {
   const { createCommandRegistry } = await import("../../domain/commands/registry");
   const sessions = await import("../../app/ptyManager");
   const { previewIntent } = await import("../../ipc/lifecycle");
-  const stub: StubAgentControl = { rejectResumes: false, rejectForks: false, resumePlanFails: null, deaf: false };
+  const stub: StubAgentControl = { plans: [], rejectResumes: false, rejectForks: false, resumePlanFails: null, deaf: false };
   const runtime = createAppRuntime(undefined, createCommandRegistry(), () => Promise.resolve([stubPlugin(stub)]));
   runtime.start();
   await host.until("the machine opened its barrier", () => heardOpen(host), 15_000);
@@ -187,6 +197,21 @@ export async function startDeck(host: Host): Promise<Deck> {
     pane,
     workspaceUp,
     addAgent,
+    async teamUp(name, site) {
+      const made = await runtime.orchestrator.createTeam({ workspace: await workspaceUp(), name, site });
+      if (made.kind !== "accepted" || !made.minted.team) throw new Error(`no team: ${JSON.stringify(made)}`);
+      const team = made.minted.team;
+      await host.until(`${team} is on the deck`, () => (workspace().teams ?? []).some((candidate) => candidate.id === team));
+      return team;
+    },
+    intents: () =>
+      host.tape.flatMap(({ way, line }) => {
+        if (way !== "page →" || !line.includes('"cmd":"lifecycle_intent"')) return [];
+        const said: unknown = JSON.parse(line);
+        const args = typeof said === "object" && said !== null ? Reflect.get(said, "args") : null;
+        const intent: unknown = typeof args === "object" && args !== null ? Reflect.get(args, "intent") : null;
+        return isIntent(intent) ? [intent] : [];
+      }),
     upAndBound,
     async agentUp() {
       const ws = await workspaceUp();
