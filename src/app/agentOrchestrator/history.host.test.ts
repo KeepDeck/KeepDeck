@@ -90,6 +90,32 @@ describe("a recorded conversation continued, on the host", () => {
       expect(d.launches(pane)[0]?.cwd).toBe(own);
     });
 
+    it("fails a resume its agent could not plan, rather than raise an agent with no plan — or another conversation", async () => {
+      const d = await open();
+      const ws = await d.workspaceUp();
+      d.stub.resumePlanFails = "the plugin cannot open s-1";
+      const outcome = await d.runtime.orchestrator.resumeSession(ws.id, record(), { role: "lead" });
+      // The plan is the machine's to ask for: its failure is the step's,
+      // and the member never lands.
+      await host().until("the continue is over", () => d.settled());
+      expect(outcome.kind === "accepted" ? d.workspace().panes : []).toEqual([]);
+      expect(host().tape.filter(({ line }) => line.includes('"cmd":"pty_open"'))).toEqual([]);
+      expect(d.stub.plans.map((asked) => asked.hook)).toEqual(["resume"]);
+    });
+
+    it("resumes by the person's ask: a conversation its agent rejects is not quietly started over", async () => {
+      const d = await open();
+      const ws = await d.workspaceUp();
+      d.stub.rejectResumes = 1;
+      const pane = minted(await d.runtime.orchestrator.resumeSession(ws.id, record(), { role: "lead" }));
+      await host().until("its agent rejected the conversation", () => d.launches(pane).length === 1 && d.slot(pane) === "exited", 15_000);
+      // Heard as the window hears an exit: no recovery takes a resume the
+      // person asked for — no retry, no fresh conversation in its place.
+      expect(d.runtime.orchestrator.recoverRejectedResume(ws.id, pane, 1)).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(d.launches(pane)).toHaveLength(1);
+    });
+
     it("answers the machine's refusal, and the page writes nothing of its own", async () => {
       const d = await open();
       const { ws, session } = await d.agentUp();
@@ -122,6 +148,10 @@ describe("a recorded conversation continued, on the host", () => {
       expect(plan?.input).toMatchObject({ paneId: pane, cwd: target, sessionId: "s-1", sourceCwd: source.cwd, transcriptPath: "/t/s-1.jsonl" });
       expect(d.launches(pane)[0]?.cwd).toBe(target);
       expect(host().tape.some(({ line }) => line.includes('"cmd":"lifecycle_hook_ended"'))).toBe(true);
+      // The step answers the scaffolding the plugin declared — none, for
+      // the stub — as data, under the plugin's name.
+      const answered = host().tape.find(({ way, line }) => way === "page →" && line.includes('"kind":"forked"'));
+      expect(answered?.line).toContain('"discard":{"plugin":"keepdeck.test-stub","onceStarted":[],"ifNeverStarted":[]}');
     });
 
     it("leaves the file out when nobody knows it — the plugin decides whether it needs one", async () => {
