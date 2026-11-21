@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import type { BridgeReport } from "./bridgeReport";
 
 /**
  * Agent-status events: a pane's agent process reports its turn lifecycle
@@ -10,20 +11,11 @@ import { invoke } from "@tauri-apps/api/core";
  */
 export const AGENT_STATUS_EVENT = "deck://agent/status";
 
-/** Mirrors the Rust `Report` wire shape (camelCase). The payload is opaque here —
- * the per-agent status normalizers own its schema; `token` is the per-spawn
- * bridge secret verified against the pane's spawn plan. */
-export interface AgentStatusReportEvent {
-  paneId: string;
-  token: string;
-  payload: unknown;
-}
-
 /** Subscribe to status reports; resolves to the unlisten function. */
 export function onAgentStatus(
-  handler: (report: AgentStatusReportEvent) => void,
+  handler: (report: BridgeReport) => void,
 ): Promise<() => void> {
-  return listen<AgentStatusReportEvent>(AGENT_STATUS_EVENT, (event) =>
+  return listen<BridgeReport>(AGENT_STATUS_EVENT, (event) =>
     handler(event.payload),
   );
 }

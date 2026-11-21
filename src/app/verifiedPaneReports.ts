@@ -1,3 +1,4 @@
+import type { BridgeReport } from "../ipc/bridgeReport";
 import { log } from "../ipc/log";
 import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
@@ -5,11 +6,10 @@ import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { paneSessionState } from "./ptyManager";
 import { isJsonRecord } from "@keepdeck/plugin-api";
 
-/** The wire shape both bridge report channels share (usage, status). */
-export interface PaneReportEvent {
-  paneId: string;
-  token: string;
-  payload: unknown;
+/** What a verified report's lane is told beside its payload. */
+export interface ReportContext {
+  /** The process that sent it, as the bridge named it; absent when none. */
+  reporter: string | undefined;
 }
 
 export interface VerifiedPaneReportsOptions {
@@ -18,7 +18,7 @@ export interface VerifiedPaneReportsOptions {
   label: string;
   /** Subscribe to the lane's ipc event; resolves to the unlisten. */
   subscribe: (
-    handler: (report: PaneReportEvent) => void,
+    handler: (report: BridgeReport) => void,
   ) => Promise<() => void>;
   /** Also require the pane's PROCESS to be up (spawning counts — a hook can
    * beat the spawn promise's resolution by milliseconds). Activity is a
@@ -27,7 +27,7 @@ export interface VerifiedPaneReportsOptions {
    * not — a tail's final token_count after a crash is still true. */
   requireLiveProcess?: boolean;
   /** Apply one verified report. */
-  apply: (paneId: string, payload: unknown) => void;
+  apply: (paneId: string, payload: unknown, context: ReportContext) => void;
 }
 
 export interface VerifiedPaneReports {
@@ -58,7 +58,7 @@ export function createVerifiedPaneReports(
   let disposed = false;
   let unlisten: (() => void) | null = null;
   void options
-    .subscribe(({ paneId, token, payload }) => {
+    .subscribe(({ paneId, token, reporter, payload }) => {
       if (disposed) return;
       const livePanes = paneMembership(
         paneMembershipKey(deck.getSnapshot()),
@@ -77,16 +77,10 @@ export function createVerifiedPaneReports(
         isJsonRecord(payload) && typeof payload.agent === "string"
           ? payload.agent
           : undefined;
-      // Correlation, like `agent` — not payload schema. A reporter that
-      // cannot name its process omits it, and the pane's pin then decides
-      // nothing rather than refusing everything.
-      const reportedReporter =
-        isJsonRecord(payload) && typeof payload.reporter === "string"
-          ? payload.reporter
-          : undefined;
-      if (
-        !attribution.admitsReport(paneId, token, reportedAgent, reportedReporter)
-      ) {
+      // The process comes as the bridge read it for its own origin check: a
+      // reporter that named none is unnamed here too, and the pane's pin
+      // then decides nothing rather than refusing everything.
+      if (!attribution.admitsReport(paneId, token, reportedAgent, reporter)) {
         log.warn(
           "web:bridge",
           `${label} for ${paneId} from ${reportedAgent ?? "an unnamed agent"} — ignored`,
@@ -103,7 +97,7 @@ export function createVerifiedPaneReports(
           return;
         }
       }
-      apply(paneId, payload);
+      apply(paneId, payload, { reporter });
     })
     .then((unsubscribe) => {
       if (disposed) unsubscribe();

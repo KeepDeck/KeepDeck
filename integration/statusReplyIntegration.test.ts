@@ -19,12 +19,12 @@ import {
 } from "../src/app/agentStatusChannel";
 import { createPaneAttribution } from "../src/app/paneAttribution";
 import { deckStoreOf } from "../src/app/deckStore.testSupport";
-import type { PaneReportEvent } from "../src/app/verifiedPaneReports";
+import type { BridgeReport } from "../src/ipc/bridgeReport";
 import { createMailManager } from "../src/app/mail/mailManager";
 import { createHookReplies, type HookReplyDeps } from "../src/app/mail/hookReply";
 import { present } from "@keepdeck/plugin-api/testing";
 
-const ipc = vi.hoisted(() => ({ handler: undefined as ((report: PaneReportEvent) => void) | undefined }));
+const ipc = vi.hoisted(() => ({ handler: undefined as ((report: BridgeReport) => void) | undefined }));
 vi.mock("../src/ipc/status", () => ({ onAgentStatus: async (fn: typeof ipc.handler) => {
   ipc.handler = fn;
   return () => {};

@@ -1,17 +1,14 @@
 import { isJsonRecord } from "@keepdeck/plugin-api";
 import { stripUnsafeText } from "@keepdeck/plugin-api/unsafe-text";
+import type { BridgeReport } from "../ipc/bridgeReport";
 import { log } from "../ipc/log";
 import { onCompanionDeclined, onCompanionHello } from "../ipc/companions";
 import type { DeckWatch } from "./deckStore";
 import type { DeclinedWake } from "./mail";
 import type { PaneAttribution } from "./paneAttribution";
-import {
-  createVerifiedPaneReports,
-  type PaneReportEvent,
-  type VerifiedPaneReports,
-} from "./verifiedPaneReports";
+import { createVerifiedPaneReports, type VerifiedPaneReports } from "./verifiedPaneReports";
 
-type LaneSubscribe = (handler: (report: PaneReportEvent) => void) => Promise<() => void>;
+type LaneSubscribe = (handler: (report: BridgeReport) => void) => Promise<() => void>;
 
 /**
  * The bridge lane for companion hellos — a reporter inside the agent process
@@ -32,11 +29,7 @@ export function listenPaneCompanions(
     label: "companion hello",
     subscribe,
     requireLiveProcess: true,
-    apply(paneId, payload) {
-      const reporter =
-        isJsonRecord(payload) && typeof payload.reporter === "string" && payload.reporter
-          ? payload.reporter
-          : undefined;
+    apply(paneId, _payload, { reporter }) {
       if (reporter === undefined) {
         log.warn("web:bridge", `companion hello for ${paneId} names no process — ignored`);
         return;

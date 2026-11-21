@@ -13,7 +13,7 @@ import {
 import type { DeckWatch } from "./deckStore";
 import { deckStateOf } from "./deckStore.testSupport";
 import { createPaneAttribution } from "./paneAttribution";
-import type { PaneReportEvent } from "./verifiedPaneReports";
+import type { BridgeReport } from "../ipc/bridgeReport";
 import { present } from "@keepdeck/plugin-api/testing";
 import { statusEdge } from "../testing/values.test-support";
 import { maybeRecord } from "../testing/values.test-support";
@@ -24,7 +24,7 @@ const mainAgent = () => ({ event: null, actor: "main" as const, status: true });
 
 const ipc = vi.hoisted(() => ({
   onAgentStatus: vi.fn<
-    (handler: (report: PaneReportEvent) => void) => Promise<() => void>
+    (handler: (report: BridgeReport) => void) => Promise<() => void>
   >(() => Promise.resolve(() => {})),
   peekPaneSpawnSpec: vi.fn(() => ({ token: "tok" })),
 }));

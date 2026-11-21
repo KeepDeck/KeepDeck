@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { BridgeReport } from "./bridgeReport";
 
 /**
  * Session-binding events ([F7]/[F8] session identity v2). A pane's own agent
@@ -50,9 +51,9 @@ export const SESSION_UNBOUND_EVENT = "deck://session/unbound";
 
 /** Subscribe to session unbindings; resolves to the unlisten function. */
 export function onSessionUnbound(
-  handler: (report: { paneId: string; token: string; payload: unknown }) => void,
+  handler: (report: BridgeReport) => void,
 ): Promise<() => void> {
-  return listen<{ paneId: string; token: string; payload: unknown }>(
+  return listen<BridgeReport>(
     SESSION_UNBOUND_EVENT,
     (event) => handler(event.payload),
   );

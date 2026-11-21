@@ -13,7 +13,7 @@ import {
   type TailWatch,
   type UsageNormalizer,
 } from "@keepdeck/plugin-api";
-import type { UsageReportEvent } from "../ipc/usage";
+import type { BridgeReport } from "../ipc/bridgeReport";
 import type { SessionBound } from "../ipc/sessions";
 import type { DeckState, Pane } from "../domain/deck";
 import { createUsageManager, type UsageManager } from "./usageManager";
@@ -157,7 +157,7 @@ describe("createUsageChannel", () => {
   let currentDeck: DeckState;
   let deckListeners: Set<() => void>;
   let deckStore: DeckStore;
-  let emit: (report: UsageReportEvent) => void;
+  let emit: (report: BridgeReport) => void;
   let emitBound: (bound: Bound) => void;
 
   const mount = async (deck: DeckState) => {
