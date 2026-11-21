@@ -31,6 +31,7 @@ import {
   type SpawnPlanContext,
 } from "../spawnSpecs";
 import { createContinuationPlans } from "../lifecycle/continuationPlans";
+import { intentOutcomeOf } from "../lifecycle/outcome";
 import { createPaneRunState } from "../lifecycle/paneRunState";
 import { createLifecycleDoors } from "./doors";
 import { createRecovery } from "./recovery";
@@ -75,6 +76,10 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
   /** Panes whose lease was refused, by the snapshot generation that refused
    * it: asked again only once the machine's state has moved. */
   const leaseRefused = new Map<string, number>();
+  /** Panes whose failed wake the machine is asked to put back down: held by
+   * the funnel while they still read as rising, so no second attempt goes
+   * out before the machine's marker lands. A new ask releases them. */
+  const puttingBack = new Set<string>();
   let generation = 0;
   let booted = false;
   let scheduled = false;
@@ -116,6 +121,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     for (const paneId of [...startOwed]) if (!live.has(paneId)) startOwed.delete(paneId);
     for (const paneId of [...restarting.keys()]) if (!live.has(paneId)) restarting.delete(paneId);
     for (const paneId of [...leaseRefused.keys()]) if (!live.has(paneId)) leaseRefused.delete(paneId);
+    for (const paneId of [...puttingBack]) if (!live.has(paneId)) puttingBack.delete(paneId);
     return runView.forgetGone(live);
   }
 
@@ -170,7 +176,30 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
       publish();
     }
     dropPaneSpawnSpec(pane.id);
-    actions.failPaneWake(wsId, pane.id);
+    // Back down where it rose from. A suspension is the machine's flag —
+    // cleared by the resume this wake served — so the machine is asked to
+    // suspend the pane again, and its command writes the marker. What the
+    // pane rose from otherwise is the page's own to put back.
+    const live = findPane(deck.getSnapshot().workspaces, wsId, pane.id);
+    if (live?.idle?.reason === "waking" && live.idle.from?.reason === "suspended") putBack(wsId, pane.id);
+    else actions.failPaneWake(wsId, pane.id);
+  }
+
+  /** Ask the machine to suspend a pane again whose wake from a suspension
+   * failed. Straight to the machine, not through the page's suspend door —
+   * which refuses a pane whose folder is gone, the very case here. A pane on
+   * its way out owes nothing; any other refusal leaves it as it is, with its
+   * card: the page never writes the marker itself. */
+  function putBack(wsId: string, paneId: string): void {
+    puttingBack.add(paneId);
+    void machine.send({ kind: "suspend", workspace: wsId, pane: paneId }).then(
+      (reply) => {
+        // Accepted, or refused for a pane on its way out: nothing to say.
+        const why = intentOutcomeText(intentOutcomeOf(reply));
+        if (why !== null) log.warn("web:orchestrator", `${paneId}: not put back down — ${why}`);
+      },
+      (e: unknown) => log.warn("web:orchestrator", `${paneId}: not put back down — ${errorMessage(e)}`),
+    );
   }
 
   /** What a team act reads beyond the deck: the funnel's folder verdict, the
@@ -226,7 +255,10 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     facts: teamFacts,
     askedBack(paneIds) {
       if (paneIds.filter((paneId) => runView.clearNotes(paneId)).length > 0) publish();
-      for (const paneId of paneIds) startOwed.add(paneId);
+      for (const paneId of paneIds) {
+        startOwed.add(paneId);
+        puttingBack.delete(paneId);
+      }
       schedule();
     },
     restarting(paneId, resume) {
@@ -416,6 +448,12 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     for (const ws of state.workspaces) {
       for (const pane of ws.panes) {
         if (recovery.owns(pane.id) || inFlight.has(pane.id)) continue;
+        // Being put back down by the machine: no second attempt while it
+        // still reads as rising.
+        if (puttingBack.has(pane.id)) {
+          if (pane.idle?.reason === "waking") continue;
+          puttingBack.delete(pane.id);
+        }
         const intent = intentOf(ws, pane, state.activeId, commands);
         const process = sessions.state(pane.id).kind;
         if (intent.kind === "run" && !pane.idle) {

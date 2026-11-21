@@ -179,9 +179,9 @@ describe("wakes and the requests that overtake them, on the host", () => {
       const { two, paneId, launched } = await offScreen(d, { kind: "existing", cwd: folder });
       rmSync(folder, { recursive: true, force: true });
       expect(await d.runtime.orchestrator.resume(two.id, paneId)).toEqual({ kind: "resuming" });
-      await host().until("its folder is gone", () => view(d).blocked[paneId] === folder, 15_000);
-      // Put back where it came from, not left rising.
-      expect(d.pane(paneId).idle).toMatchObject({ reason: "suspended" });
+      // Put back where it came from, not left rising — by the machine, whose
+      // flag the suspension is.
+      await host().until("its folder is gone, and it is put back", () => view(d).blocked[paneId] === folder && d.phase(paneId) === "suspended" && d.pane(paneId).idle?.reason === "suspended", 15_000);
       // The folder comes back, and the deck moves on: nothing has asked for
       // the pane since, so nothing starts it.
       mkdirSync(folder);
@@ -190,7 +190,7 @@ describe("wakes and the requests that overtake them, on the host", () => {
       expect(d.launches(paneId)).toHaveLength(launched);
       // Asked again, it starts — off screen all the same.
       expect((await d.runtime.orchestrator.startFresh(two.id, paneId)).kind).toBe("accepted");
-      await host().until("started fresh off screen", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live", 15_000);
+      await host().until("started fresh off screen", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live" && d.phase(paneId) === "live", 15_000);
     });
 
     it("leaves a pane its boot restores alone in a workspace that is not open", async () => {

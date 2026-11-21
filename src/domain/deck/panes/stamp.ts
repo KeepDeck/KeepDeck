@@ -11,7 +11,11 @@
  */
 import type { Pane } from "./model";
 
-/** `pane`, down by the person's decision as of `at` (dates its card). */
+/** `pane`, down by the person's decision as of `at` (dates its card) — or,
+ * when it was rising from a suspension, back to that suspension with its
+ * own date: a wake taken back, or cancelled by a Suspend, is not a new
+ * decision. */
 export function suspendedAt(pane: Pane, at: string): Pane {
-  return { ...pane, idle: { reason: "suspended", at } };
+  const from = pane.idle?.reason === "waking" ? pane.idle.from : undefined;
+  return { ...pane, idle: from?.reason === "suspended" ? from : { reason: "suspended", at } };
 }

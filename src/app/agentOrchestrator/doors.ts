@@ -191,27 +191,34 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     });
   }
 
-  /** Ask one stopped pane back. A suspended pane is the machine's to bring
-   * back; one parked by the launch policy, or whose wake failed, rises by
-   * the page's own ask, as wake and park always were. */
+  /** Ask a pane back up — the one way every door does it. A suspended pane
+   * is the machine's to bring back: the suspension is its flag, and a wake
+   * past it would leave the machine calling a running agent suspended. One
+   * parked by the launch policy, or whose wake failed, rises by the page's
+   * own ask, as wake and park always were. The machine's refusal, or null. */
+  async function askBack(wsId: string, paneId: string): Promise<Exclude<IntentOutcome, { kind: "accepted" }> | null> {
+    // The old notes go and a start is owed BEFORE the pane can rise: the
+    // machine's command may reach the deck, and the funnel act on it, before
+    // its answer here does — a note cleared after would erase the verdict of
+    // the very attempt this ask started.
+    deps.askedBack([paneId]);
+    const pane = findWorkspace(workspaces(), wsId)?.panes.find((candidate) => candidate.id === paneId);
+    if (pane?.idle?.reason === "suspended") {
+      const outcome = await ask({ kind: "resume", workspace: wsId, pane: paneId });
+      return outcome.kind === "accepted" ? null : outcome;
+    }
+    deps.actions.requestPanesWake(wsId, [paneId]);
+    return null;
+  }
+
+  /** Ask one stopped pane back, if its card may offer that. */
   async function resumeOne(wsId: string, paneId: string): Promise<ResumeOutcome> {
     const ws = findWorkspace(workspaces(), wsId);
     const pane = ws?.panes.find((candidate) => candidate.id === paneId);
     if (!ws || !pane) return { kind: "blocked", why: "gone" };
     const block = paneResumeBlock(ws, pane, deps.facts.agentAvailable(pane.agentType));
     if (block) return { kind: "blocked", why: block };
-    // The old notes go and a start is owed BEFORE the pane can rise: the
-    // machine's command may reach the deck, and the funnel act on it, before
-    // its answer here does — a note cleared after would erase the verdict of
-    // the very attempt this ask started.
-    deps.askedBack([paneId]);
-    if (pane.idle?.reason === "suspended") {
-      const outcome = await ask({ kind: "resume", workspace: wsId, pane: paneId });
-      if (outcome.kind !== "accepted") return outcome;
-    } else {
-      deps.actions.requestPanesWake(wsId, [paneId]);
-    }
-    return { kind: "resuming" };
+    return (await askBack(wsId, paneId)) ?? { kind: "resuming" };
   }
 
   return {
@@ -313,9 +320,12 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
         return outcome;
       }
       // A new conversation in the root: the pane rises again, by the
-      // person's own ask.
-      deps.askedBack([paneId]);
-      deps.actions.requestPanesWake(wsId, [paneId]);
+      // person's own ask — through the machine when it is suspended.
+      const refused = await askBack(wsId, paneId);
+      if (refused) {
+        deps.startRefused(paneId, refused);
+        return refused;
+      }
       return outcome;
     },
     resume: resumeOne,

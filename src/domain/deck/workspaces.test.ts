@@ -860,13 +860,22 @@ describe("failPaneWake", () => {
   const AT = "2026-07-25T09:00:00.000Z";
   const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
 
-  it("puts a manual wake back down with the stamp it went up with", () => {
+  it("never writes a suspension: a wake from one is the machine's to put back", () => {
+    // The lifecycle machine cleared its flag for the resume this wake served;
+    // a marker written here would be the deck's alone, and the next Resume
+    // would be refused (task-917). The machine's Suspend puts it back.
     const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
     const waking = requestPaneWake(suspended, "a", "a-p1");
-    const back = failPaneWake(waking, "a", "a-p1");
-    // The card reads exactly as it did before the failed attempt — restamping
-    // it "just now" would misdate a suspend the user made hours ago.
-    expect(back[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
+    expect(failPaneWake(waking, "a", "a-p1")).toBe(waking);
+  });
+
+  it("leaves the machine's put-back the suspension's own date", () => {
+    // What the machine's Suspend writes for a pane rising from a suspension:
+    // the card reads as it did before the failed attempt — restamping it
+    // "just now" would misdate a suspend the user made hours ago.
+    const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
+    const waking = requestPaneWake(suspended, "a", "a-p1");
+    expect(suspendPane(waking, "a", "a-p1", "2026-07-25T11:30:00.000Z")[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
   });
 
   it("returns a merely-PARKED pane to parked, never to a durable suspend", () => {
@@ -896,21 +905,14 @@ describe("failPaneWake", () => {
     });
   });
 
-  it("lands on the LATEST suspend when the user stops a pane mid-wake", () => {
-    // Reachable in three gestures: resume a suspended pane, stop it again
-    // while the sweep is still probing, resume once more. The second suspend
-    // is the one the pane must return to — restoring the first would date the
-    // card by a decision the user has already replaced.
+  it("keeps the date the agent went down when a Suspend takes back a wake that never came up", () => {
+    // Resume a suspended pane, stop it again while the sweep is still
+    // probing: the agent never came back up, so it has been down since the
+    // first suspension, and that is the date its card keeps.
     const LATER = "2026-07-25T11:30:00.000Z";
     const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
     const rising = requestPaneWake(suspended, "a", "a-p1");
-    const stoppedAgain = suspendPane(rising, "a", "a-p1", LATER);
-    const risingAgain = requestPaneWake(stoppedAgain, "a", "a-p1");
-
-    expect(failPaneWake(risingAgain, "a", "a-p1")[0].panes[0].idle).toEqual({
-      reason: "suspended",
-      at: LATER,
-    });
+    expect(suspendPane(rising, "a", "a-p1", LATER)[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
   });
 
   it("leaves a BOOT restore alone — its fresh-start degradation is deliberate", () => {

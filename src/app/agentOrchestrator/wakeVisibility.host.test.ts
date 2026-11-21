@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
@@ -163,6 +163,86 @@ describe("which agents rise, and when, on the host", () => {
       expect(d.pane(here).idle).toEqual({ reason: "parked" });
       expect(d.pane(there).idle).toEqual({ reason: "parked" });
       expect(probedSince(mark)).toEqual([]);
+    });
+  });
+
+  describe("a resume that cannot be served", () => {
+    /** An agent up in a team at a folder of its own, then suspended. */
+    async function suspendedAt(d: Deck) {
+      const folder = join(host().work, "api");
+      mkdirSync(folder);
+      const ws = await d.workspaceUp();
+      const team = await d.teamUp("api", { kind: "existing", cwd: folder });
+      const paneId = await d.addAgent({ role: "lead", team });
+      const session = await d.upAndBound(paneId);
+      expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
+      await host().until("suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none", 15_000);
+      return { ws, paneId, session, folder, suspended: d.pane(paneId).idle, launched: d.launches(paneId).length };
+    }
+    /** Put back down as it was, as the deck and the machine both say. */
+    const putBack = (d: Deck, paneId: string) => d.phase(paneId) === "suspended" && d.settled() && d.pane(paneId).idle?.reason === "suspended";
+
+    it("looks again when the folder comes back, and the agent resumes into its conversation", async () => {
+      const d = await open();
+      const { ws, paneId, session, folder, suspended, launched } = await suspendedAt(d);
+      rmSync(folder, { recursive: true, force: true });
+      await d.runtime.orchestrator.resume(ws.id, paneId);
+      await host().until("its folder is gone, and it is put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
+      // Back as it was, its own date kept: the failed resume decided nothing.
+      expect(d.pane(paneId).idle).toEqual(suspended);
+      mkdirSync(folder);
+      expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toEqual({ kind: "resuming" });
+      await host().until("back", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live", 15_000);
+      expect(view(d).blocked[paneId]).toBeUndefined();
+      expect(d.pane(paneId).idle).toBeUndefined();
+      expect(d.pane(paneId).session?.id).toBe(session);
+      expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+    });
+
+    it("stays blocked, keeping its conversation, while the folder is still gone", async () => {
+      const d = await open();
+      const { ws, paneId, session, folder, launched } = await suspendedAt(d);
+      rmSync(folder, { recursive: true, force: true });
+      await d.runtime.orchestrator.resume(ws.id, paneId);
+      await host().until("put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
+      expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toEqual({ kind: "resuming" });
+      await host().until("blocked again, and put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
+      expect(d.pane(paneId).session?.id).toBe(session);
+      expect(d.launches(paneId)).toHaveLength(launched);
+    });
+
+    it("puts back down a resume its agent could not plan — once — and serves the next one", async () => {
+      const d = await open();
+      const { ws, paneId, suspended, launched } = await suspendedAt(d);
+      d.stub.resumePlanFails = "the plugin cannot open it";
+      // The machine's put-back is slow to land: until it does, the pane
+      // still reads as rising.
+      const landing = host().hold({ heard: '"kind":"markSuspended"' });
+      await d.runtime.orchestrator.resume(ws.id, paneId);
+      await landing.caught;
+      await aWhile();
+      // No second attempt while it is being put back.
+      expect(d.stub.plans.filter((plan) => plan.hook === "resume")).toHaveLength(1);
+      landing.release();
+      await host().until("its card says why, and it is put back down", () => view(d).wakeFailed[paneId] !== undefined && putBack(d, paneId), 15_000);
+      expect(d.pane(paneId).idle).toEqual(suspended);
+      d.stub.resumePlanFails = null;
+      expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toEqual({ kind: "resuming" });
+      await host().until("back", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live", 15_000);
+    });
+
+    it("starts fresh a suspended agent whose folder is gone through the machine: what it brings up can be suspended again", async () => {
+      const d = await open();
+      const { ws, paneId, folder, launched } = await suspendedAt(d);
+      rmSync(folder, { recursive: true, force: true });
+      await d.runtime.orchestrator.resume(ws.id, paneId);
+      await host().until("put back down", () => view(d).blocked[paneId] === folder && putBack(d, paneId), 15_000);
+      // Its card offers a fresh start in the workspace's own folder.
+      expect((await d.runtime.orchestrator.startFresh(ws.id, paneId)).kind).toBe("accepted");
+      await host().until("up fresh, and the machine says so", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live" && d.phase(paneId) === "live", 15_000);
+      expect(lastArgs(d, paneId)).not.toContain("--resume");
+      expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
+      await host().until("suspended again", () => putBack(d, paneId) && d.slot(paneId) === "none", 15_000);
     });
   });
 
