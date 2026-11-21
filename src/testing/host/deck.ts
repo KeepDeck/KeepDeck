@@ -13,10 +13,10 @@ import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Consent } from "../../ipc/generated/lifecycle/Consent";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
 import type { Preview } from "../../ipc/generated/lifecycle/Preview";
-import type { PaneSessionState } from "../../app/ptyManager";
+import type { PaneLaunch, PaneSessionState, PaneSpawnSpec, PtyManager } from "../../app/ptyManager";
 import type { AppRuntime } from "../../app/runtime";
 import type { Host } from "./host";
-import { STUB_AGENT, stubPlugin, type StubAgentControl } from "./stubPlugin";
+import { STUB_AGENT, STUB_PLUGIN_ID, stubPlugin, type StubAgentControl } from "./stubPlugin";
 
 /** One process the page started for a pane, as it asked the host for it. */
 export interface Launch {
@@ -114,6 +114,16 @@ export interface Deck {
    * interactive run would — in its registry while it runs; ended by the
    * answer. */
   runOutside(sessionId: string): Promise<() => void>;
+  /** A session registry of the page's own kind, built afresh over the app's
+   * sessions machine — for a test of the registry itself, apart from the
+   * deck's panes. */
+  sessionRegistry(): PtyManager;
+  /** A launch the machine leases now: one process the stub plugin runs in
+   * the first workspace, held by no pane and in no folder of ours. */
+  leaseLaunch(): Promise<PaneLaunch>;
+  /** The stub program as a plain process, in no folder: it says `stub:
+   * ready` at start — or nothing, `silent` — then what its typed cues ask. */
+  stubProcess(silent?: boolean): PaneSpawnSpec;
   dispose(): void;
 }
 
@@ -258,7 +268,9 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
   const { createAppRuntime } = await import("../../app/runtime");
   const { createCommandRegistry } = await import("../../domain/commands/registry");
   const sessions = await import("../../app/ptyManager");
-  const { previewIntent } = await import("../../ipc/lifecycle");
+  const { askLease, previewIntent } = await import("../../ipc/lifecycle");
+  const { openSession } = await import("../../ipc/session");
+  const { pluginLaunch } = await import("../../app/plugins/pluginSessions");
   const settings = await import("../../app/settingsManager");
   const stub: StubAgentControl = {
     plans: [],
@@ -448,6 +460,23 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       await host.until(`${sessionId} runs outside`, () => existsSync(join(stub.liveDir, sessionId)));
       return () => child.kill("SIGKILL");
     },
+    sessionRegistry: () => sessions.createPtyManager(openSession),
+    async leaseLaunch() {
+      // Asked as the app asks for a plugin's own process, through its port.
+      const ask = pluginLaunch(STUB_PLUGIN_ID, workspace().id);
+      const reply = await askLease(ask);
+      if (reply.kind !== "answered" || reply.answer.kind !== "leased") throw new Error(`no launch lease: ${JSON.stringify(reply)}`);
+      return { permit: reply.answer.permit, owner: ask.owner };
+    },
+    stubProcess: (silent = false) => ({
+      command: process.execPath,
+      // A child of an agent says nothing of its own and takes its cues as typed.
+      args: [inject("stubAgent"), silent ? "--child" : "--unbound"],
+      // A plugin's process runs in no folder of ours: its lease names none.
+      cwd: null,
+      cols: 80,
+      rows: 24,
+    }),
     updateSettings: (patch) => settings.updateSettings(patch),
     gitRepo() {
       const git = (...args: string[]) => execFileSync("git", args, { cwd: host.work, stdio: "pipe" });

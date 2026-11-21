@@ -26,13 +26,20 @@ export interface PluginSessionsBackend {
   spawn(pluginId: string, opts: PluginSpawnOptions, onEvent: (event: PluginSessionEvent) => void): Promise<PluginSessionHandle>;
 }
 
+/** The launch a plugin's own process is leased as: the plugin's, in the
+ * workspace it is started from, in no folder of ours. */
+export function pluginLaunch(pluginId: string, workspace: string): Extract<LeaseAsk, { kind: "launch" }> {
+  return { kind: "launch", workspace, owner: { kind: "plugin", plugin: pluginId, workspace }, dir: null };
+}
+
 export function createPluginSessions(deps: PluginSessionsDeps): PluginSessionsBackend {
   return {
     async spawn(pluginId, opts, onEvent) {
       const workspace = deps.workspace();
       if (workspace === null) throw new Error("no workspace is open to run a plugin's process in");
-      const owner: LaunchOwner = { kind: "plugin", plugin: pluginId, workspace };
-      const reply = await deps.lease({ kind: "launch", workspace, owner, dir: null });
+      const ask = pluginLaunch(pluginId, workspace);
+      const owner = ask.owner;
+      const reply = await deps.lease(ask);
       if (reply.kind !== "answered") throw new Error(noAnswerText(reply));
       if (reply.answer.kind === "refused") throw new Error(refusalText(reply.answer.refusal));
       if (reply.answer.kind !== "leased") throw new Error(`the lifecycle answered a launch lease with "${reply.answer.kind}"`);

@@ -27,6 +27,7 @@
 // Cues, one per line typed into its terminal:
 //   exit <code>    end with that code
 //   say <text>     print the text
+//   fill <n> <c>   print the character c, n times over, as one line
 //   post <json>    send one envelope through the bridge, as a hook does:
 //                  {type, paneId?, token?, payload?, cue?}. What it leaves
 //                  out is the plan's — the pane and its token — and, in the
@@ -121,6 +122,7 @@ cues.on("line", (line) => {
   const rest = words.join(" ");
   if (cue === "exit") process.exit(Number(words[0] ?? 0));
   if (cue === "say") print(rest);
+  if (cue === "fill") print(String(words[1] ?? "x").repeat(Number(words[0] ?? 0)));
   if (cue === "post") {
     void Promise.resolve()
       .then(() => post(JSON.parse(rest)))

@@ -28,6 +28,9 @@ import type { PluginInstall } from "../../plugins/host/host";
 /** The agent type a host test's panes run. */
 export const STUB_AGENT = "stub";
 
+/** The stub plugin's own id. */
+export const STUB_PLUGIN_ID = "keepdeck.test-stub";
+
 /** One plan a hook of the stub plugin was asked for, as the page asked it —
  * and whether the folder it is for stood when it was asked. */
 export type StubPlan =
@@ -115,7 +118,7 @@ function stubEdge(payload: unknown): (typeof STATUS_EDGES)[number] | null {
 export function stubPlugin(control: StubAgentControl): PluginInstall {
   const program = inject("stubAgent");
   const manifest: PluginManifest = {
-    id: "keepdeck.test-stub",
+    id: STUB_PLUGIN_ID,
     name: "Stub agent",
     version: "1.0.0",
     minApiVersion: API_VERSION,
