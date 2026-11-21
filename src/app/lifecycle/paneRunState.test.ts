@@ -56,6 +56,18 @@ describe("the pane's run state, as the machine commands it", () => {
     expect(ports.hookEnded).toHaveBeenCalledWith(3);
   });
 
+  it("drops a resume's plan the machine dropped for its deadline, and again when its late build lands", async () => {
+    let finish = () => {};
+    const { ports, runState, carry } = rig();
+    vi.mocked(ports.buildResume).mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+    const preparing = carry(runState, { kind: "prepareResume", workspace: "ws-a", pane: "pane-2", source: SOURCE }, 5);
+    await carry(runState, { kind: "dropBuild", op: 5 });
+    expect(ports.dropPlan).toHaveBeenCalledWith("pane-2");
+    finish();
+    expect(await preparing).toEqual({ kind: "applied", revision: null });
+    expect(ports.dropPlan).toHaveBeenCalledTimes(2);
+  });
+
   it("answers whether a launch is bound with the binding lane's verdict, before the question or after", async () => {
     const { runState, carry, bind } = rig();
     bind("pane-1");

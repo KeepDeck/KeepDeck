@@ -6,9 +6,10 @@
  * or whether a launch is bound. Those are the machine's, and the binding
  * lane's.
  *
- * - A fork's plan is built for its attempt (the operation's id). When the
- *   machine drops that attempt, its plan goes, and a build that lands after
- *   is refused — never installed for a launch nobody will make.
+ * - A continued pane's plan — a fork's, a resume's — is built for its
+ *   attempt (the operation's id). When the machine drops that attempt, its
+ *   plan goes, and a build that lands after is refused — never installed for
+ *   a launch nobody will make.
  * - The fork step only calls the plugin's hook and says how it went: the
  *   scaffolding it declared, or why not. That the call ended is said every
  *   time, in time or late, so the machine knows when the hook can no longer
@@ -50,9 +51,9 @@ export interface PaneRunState {
 const DONE: Outcome = { kind: "applied", revision: null };
 
 export function createPaneRunState(ports: RunStatePorts): PaneRunState {
-  /** Each fork attempt's pane, by the operation's id. */
+  /** Each build's pane, by the operation's id. */
   const attempts = new Map<number, string>();
-  /** Fork attempts the machine dropped. */
+  /** Attempts the machine dropped. */
   const dropped = new Set<number>();
   /** Panes the binding lane bound, and the questions waiting on one. */
   const bound = new Set<string>();
@@ -68,8 +69,18 @@ export function createPaneRunState(ports: RunStatePorts): PaneRunState {
     return new Promise((resolve) => waiting.set(pane, [...(waiting.get(pane) ?? []), resolve]));
   }
 
+  /** Build `pane`'s plan for attempt `op`. Built for an attempt the machine
+   * already dropped, its plan goes again, never to be spawned; what the
+   * build hands back still goes to the machine. */
+  async function buildFor<T>(op: number, pane: string, build: () => Promise<T>): Promise<T> {
+    attempts.set(op, pane);
+    const built = await build();
+    if (dropped.has(op)) ports.dropPlan(pane);
+    return built;
+  }
+
   const runState: CommandOwner = {
-    async carry({ cmd }) {
+    async carry({ id, cmd }) {
       switch (cmd.kind) {
         case "retire":
           ports.dropPlan(cmd.pane);
@@ -78,7 +89,7 @@ export function createPaneRunState(ports: RunStatePorts): PaneRunState {
           await ports.letGo({ workspace: cmd.workspace, pane: cmd.pane, replacedInPlace: cmd.inPlace });
           return DONE;
         case "prepareResume":
-          await ports.buildResume({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source });
+          await buildFor(id.op, cmd.pane, () => ports.buildResume({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source }));
           return DONE;
         case "dropBuild": {
           dropped.add(cmd.op);
@@ -98,18 +109,13 @@ export function createPaneRunState(ports: RunStatePorts): PaneRunState {
   const forkStep: CommandOwner = {
     async carry({ id, cmd }) {
       if (cmd.kind !== "fork") return ownerRefused({ kind: "wrongOwner", command: cmd.kind });
-      attempts.set(id.op, cmd.pane);
+      // What the hook made, even for a dropped attempt, is still there: the
+      // machine's rollback takes it back from these lists.
       let discard: Discard;
       try {
-        discard = await ports.buildFork({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source, cwd: cmd.cwd });
+        discard = await buildFor(id.op, cmd.pane, () => ports.buildFork({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source, cwd: cmd.cwd }));
       } finally {
         ports.hookEnded(id.op);
-      }
-      if (dropped.has(id.op)) {
-        // Built for an attempt the machine already dropped: its plan goes
-        // again, never to be spawned. What the hook made is still there, and
-        // the machine's rollback takes it back from these lists.
-        ports.dropPlan(cmd.pane);
       }
       return { kind: "forked", discard };
     },

@@ -29,6 +29,8 @@ export type Refusal =
   | { kind: "archived" }
   | { kind: "sessionsDown" }
   | { kind: "forkStepExpired" }
+  /** The agent's plan for a resume did not come within its deadline. */
+  | { kind: "planExpired" }
   /** The fork did not finish: no conversation was carried, or it was taken
    * back before its pane ran. */
   | { kind: "forkUnfinished" }

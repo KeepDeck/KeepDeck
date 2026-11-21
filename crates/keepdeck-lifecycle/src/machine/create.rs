@@ -8,7 +8,7 @@
 //! back everything the fork made.
 
 use super::boundary::Boundary;
-use super::{answer_op, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, FORK_DEADLINE};
+use super::{answer_op, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, HOOK_DEADLINE};
 use crate::command::{Cmd, Member, Outcome, Revision, TeamPlace};
 use crate::dir::Dir;
 use crate::ids::{AttemptId, OpId, PaneId, SessionId, TeamId, WorkspaceId};
@@ -46,6 +46,9 @@ pub struct Create {
     pub members: Vec<Member>,
     /// The first member resumes this conversation.
     pub resume: Option<SessionKey>,
+    /// That resume's plan did not come within the hook's deadline.
+    #[serde(default)]
+    pub plan_expired: bool,
     pub retry: bool,
     /// Part of a fork: the fork carries its conversation in once it exists.
     pub for_fork: bool,
@@ -82,6 +85,7 @@ impl Create {
             site,
             members,
             resume,
+            plan_expired: false,
             retry: false,
             for_fork,
             ticket: None,
@@ -134,11 +138,14 @@ pub struct Seat {
     pub pane: PaneId,
     pub draft: Draft,
     pub resume: Option<SessionKey>,
+    /// Its resume's plan did not come within the hook's deadline.
+    #[serde(default)]
+    pub plan_expired: bool,
 }
 
 impl Seat {
     pub fn new(team: TeamId, pane: PaneId, draft: Draft, resume: Option<SessionKey>) -> Seat {
-        Seat { team, pane, draft, resume }
+        Seat { team, pane, draft, resume, plan_expired: false }
     }
 }
 
@@ -679,6 +686,9 @@ fn add_team(state: &mut State, id: OpId, fx: &mut Fx) {
         return;
     }
     if let (Some(source), Some(first)) = (&create.resume, create.members.first()) {
+        if create.plan_expired {
+            return plan_expired(state, id, fx);
+        }
         match outcome_of(op, |cmd| matches!(cmd, Cmd::PrepareResume { .. })) {
             None => {
                 op.send(Cmd::PrepareResume { workspace, pane: first.pane, source: source.clone() });
@@ -772,7 +782,55 @@ fn workspace_gone(state: &mut State, id: OpId, fx: &mut Fx) {
 }
 
 pub fn work(state: &State, id: OpId, op: &Op, create: &Create, owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
-    work_create(state, id, op, create, owed)
+    owe_plan_deadline(id, op, create.plan_expired, work_create(state, id, op, create, owed))
+}
+
+/// Whether the operation's resume plan was asked of the page and has not
+/// come back.
+fn plan_outstanding(op: &Op) -> bool {
+    op.sent.iter().any(|sent| matches!(sent.cmd, Cmd::PrepareResume { .. }) && sent.outcome.is_none())
+}
+
+/// A resume's plan is a plugin's hook the machine waits on, like the fork
+/// step: it has the same deadline, so a hook that hangs holds nothing —
+/// least of all a Close of its workspace — for longer.
+pub fn owe_plan_deadline(id: OpId, op: &Op, expired: bool, owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
+    if expired || !plan_outstanding(op) {
+        return owed;
+    }
+    owed.after(HOOK_DEADLINE, Event::Timer(Timer::Plan { op: id }))
+}
+
+/// The deadline of a resume's plan is up: the operation is refused, and the
+/// page drops whatever plan its hook delivers late.
+pub fn plan_deadline(state: &mut State, id: OpId) {
+    let Some(op) = state.ops.get_mut(&id) else { return };
+    if !plan_outstanding(op) {
+        return;
+    }
+    let expired = match &mut op.kind {
+        Kind::Seat(seat) => &mut seat.plan_expired,
+        Kind::Create(create) => &mut create.plan_expired,
+        _ => return,
+    };
+    if *expired {
+        return;
+    }
+    *expired = true;
+    op.send(Cmd::DropBuild { op: id });
+}
+
+/// A resume whose plan did not come: the person hears the refusal at once,
+/// and nothing of it goes on — not a plan that comes after. The operation
+/// ends once the page has dropped that plan.
+fn plan_expired(state: &mut State, id: OpId, fx: &mut Fx) {
+    let saved = state.saved;
+    let op = state.ops.get_mut(&id).expect("the op");
+    answer_op(op, fx, Answer::refused(Refusal::PlanExpired));
+    let dropped = op.sent.iter().filter(|sent| matches!(sent.cmd, Cmd::DropBuild { .. })).all(|sent| sent.settled(saved));
+    if dropped {
+        finish(state, id);
+    }
 }
 
 fn work_create(state: &State, id: OpId, op: &Op, create: &Create, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
@@ -815,6 +873,9 @@ pub fn advance_seat(state: &mut State, id: OpId, fx: &mut Fx) {
     let Kind::Seat(seat) = &op.kind else { return };
     let seat = seat.clone();
     if let Some(source) = &seat.resume {
+        if seat.plan_expired {
+            return plan_expired(state, id, fx);
+        }
         match outcome_of(op, |cmd| matches!(cmd, Cmd::PrepareResume { .. })) {
             None => {
                 op.send(Cmd::PrepareResume { workspace, pane: seat.pane, source: source.clone() });
@@ -1349,7 +1410,7 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
     }
     match fork.stage {
         ForkStage::Forking if fork.hook_sent && !fork.expired => {
-            owed = owed.after(FORK_DEADLINE, Event::Timer(Timer::Fork { op: id }));
+            owed = owed.after(HOOK_DEADLINE, Event::Timer(Timer::Fork { op: id }));
         }
         ForkStage::Finishing => {
             if let Some(discard) = &fork.discard {

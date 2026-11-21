@@ -1655,6 +1655,73 @@ fn a_new_team_or_workspace_id_already_taken_is_refused() {
 }
 
 #[test]
+fn a_resume_plan_that_never_comes_is_refused_by_its_deadline_and_holds_no_close() {
+    // The plugin's hook that builds a resume's plan hangs: nothing answers
+    // the PrepareResume. Every other command is answered and every timer
+    // fired — the deadline among them.
+    let quiet = |sim: &mut Sim| {
+        for _ in 0..200 {
+            let moved = sim.round_answering(&|_| Ok(()), &|cmd| !matches!(cmd, Cmd::PrepareResume { .. }));
+            let timers = sim.timers();
+            for timer in timers.clone() {
+                sim.send(timer);
+            }
+            if !moved && timers.is_empty() {
+                return;
+            }
+        }
+        panic!("the machine never went quiet");
+    };
+    let landings = [Landing::Team { team: team("r") }, Landing::NewTeam { team: team("n"), site: Site::Root, draft: draft() }];
+    for landing in landings {
+        for close in ["workspace", "team", "archive"] {
+            let mut sim = Sim::booted();
+            let ask = sim.intent(Intent::Continue {
+                workspace: ws(),
+                landing: landing.clone(),
+                source: SessionKey { agent: "claude".into(), session: "s1".into() },
+                how: Continuation::Resume,
+                member: draft(),
+            });
+            quiet(&mut sim);
+            assert_eq!(sim.refusal(ask), Some(Refusal::PlanExpired), "{landing:?}: the resume is refused by its deadline");
+            assert!(sim.state.ops.values().all(|op| !matches!(op.kind, Kind::Seat(_) | Kind::Create(_))), "{landing:?}: it ends once its plan is dropped");
+            let closing = match close {
+                "workspace" => sim.close(Intent::CloseWorkspace { workspace: ws(), consent: Consent::default() }),
+                "team" => sim.close(disband("r", Consent::default())),
+                _ => sim.intent(Intent::Archive { workspace: ws() }),
+            };
+            quiet(&mut sim);
+            assert!(matches!(sim.answer(closing), Some(Answer::Accepted { .. })), "{landing:?}, then {close}: {:?}", sim.answer(closing));
+        }
+    }
+}
+
+#[test]
+fn a_resume_plan_that_comes_after_its_deadline_lands_nothing() {
+    let mut sim = Sim::booted();
+    let ask = sim.intent(Intent::Continue {
+        workspace: ws(),
+        landing: Landing::Team { team: team("r") },
+        source: SessionKey { agent: "claude".into(), session: "s1".into() },
+        how: Continuation::Resume,
+        member: draft(),
+    });
+    let op = sim.pending_matching(|cmd| matches!(cmd, Cmd::PrepareResume { .. }))[0].id.op;
+    let panes = sim.state.world.panes.len();
+    sim.send(Event::Timer(Timer::Plan { op }));
+    assert_eq!(sim.refusal(ask), Some(Refusal::PlanExpired));
+    // The page is told to drop what its hook builds late…
+    assert_eq!(sim.pending_matching(|cmd| matches!(cmd, Cmd::DropBuild { .. })).len(), 1);
+    // …and the plan that comes after all lands no member.
+    sim.apply(|cmd| matches!(cmd, Cmd::PrepareResume { .. }));
+    assert!(sim.pending_matching(|cmd| matches!(cmd, Cmd::AddPane { .. })).is_empty());
+    sim.drive();
+    assert_eq!(sim.state.world.panes.len(), panes);
+    assert!(sim.state.ops.is_empty(), "{:?}", sim.state.ops);
+}
+
+#[test]
 fn an_edited_workspace_names_roots_and_places_what_comes_after_by_its_edit() {
     let mut sim = Sim::booted();
     let before = super::queries::suggest(&sim.state, &ws(), 1).expect("a place under the old base");
@@ -3053,6 +3120,7 @@ fn every_refusal() -> Vec<Refusal> {
         Refusal::Archived,
         Refusal::SessionsDown,
         Refusal::ForkStepExpired,
+        Refusal::PlanExpired,
         Refusal::ForkUnfinished,
         Refusal::Changed,
         Refusal::Rejected { why: Why(json!({ "kind": "role", "why": "taken", "role": "lead" })) },
@@ -3070,6 +3138,7 @@ fn every_refusal() -> Vec<Refusal> {
             | Refusal::Archived
             | Refusal::SessionsDown
             | Refusal::ForkStepExpired
+            | Refusal::PlanExpired
             | Refusal::ForkUnfinished
             | Refusal::Changed
             | Refusal::Rejected { .. } => {}

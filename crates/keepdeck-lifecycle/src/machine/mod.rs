@@ -40,8 +40,9 @@ pub const LEASE_WAIT: Duration = Duration::from_secs(5);
 pub const REGISTRATION_WAIT: Duration = Duration::from_secs(5);
 /// How long a launch permit lives unspent.
 pub const PERMIT_LIFE: Duration = Duration::from_secs(30);
-/// How long the fork step's hook may take to answer.
-pub const FORK_DEADLINE: Duration = Duration::from_secs(120);
+/// How long a plugin's hook the machine waits on may take to answer: the
+/// fork step's, and a resume's plan.
+pub const HOOK_DEADLINE: Duration = Duration::from_secs(120);
 
 /// What has been forgotten — only grows. A write whose source is here is
 /// refused at its commit; what was accepted before is removed by the
@@ -232,6 +233,8 @@ pub enum Timer {
     Registration { op: OpId },
     Permit { permit: PermitId },
     Fork { op: OpId },
+    /// A resume's plan has had its hook's deadline.
+    Plan { op: OpId },
 }
 
 /// The result of a git or store step.
@@ -456,6 +459,7 @@ fn timer(state: &mut State, timer: Timer) {
         Timer::Retire { op } | Timer::Leases { op } => teardown::waited(state, op, &timer),
         Timer::Registration { op } => boundary::waited(state, op),
         Timer::Fork { op } => create::fork_deadline(state, op),
+        Timer::Plan { op } => create::plan_deadline(state, op),
     }
 }
 
@@ -625,7 +629,8 @@ pub fn work(state: &State) -> Owed<Effect, Event> {
             Kind::Teardown(teardown) => teardown::work(state, id, op, teardown, owed),
             Kind::RemoveUnheld(unheld) => teardown::work_unheld(state, id, unheld, owed),
             Kind::Reconcile(reconcile) => boot::work(id, reconcile, owed),
-            Kind::CreateWorkspace | Kind::Seat(_) | Kind::Relocate(_) | Kind::Restore | Kind::Resume { .. } => owed,
+            Kind::Seat(seat) => create::owe_plan_deadline(id, op, seat.plan_expired, owed),
+            Kind::CreateWorkspace | Kind::Relocate(_) | Kind::Restore | Kind::Resume { .. } => owed,
         };
     }
     removals_only_once_loaded(state, launch::work(state, owed))

@@ -266,6 +266,8 @@ pub enum Refusal {
     SessionsDown,
     /// The fork step did not answer within its deadline.
     ForkStepExpired,
+    /// The agent's plan for a resume did not come within its deadline.
+    PlanExpired,
     /// The fork did not finish: the step answered with no conversation
     /// carried, or the fork was taken back before its pane ran.
     ForkUnfinished,

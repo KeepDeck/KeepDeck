@@ -351,12 +351,13 @@ impl World {
             10 => Event::Answered { id: CommandId { op, index: self.rng.below(4) as u32 }, outcome: Outcome::Applied { revision: None } },
             11 => Event::SessionEnded { session: SessionId(self.rng.below(self.sessions + 2)) },
             12 => Event::NotStarted { attempt: AttemptId(self.rng.below(6)) },
-            _ => Event::Timer(match self.rng.below(5) {
+            _ => Event::Timer(match self.rng.below(6) {
                 0 => Timer::Retire { op },
                 1 => Timer::Leases { op },
                 2 => Timer::Registration { op },
                 3 => Timer::Permit { permit: PermitId(self.rng.below(6)) },
-                _ => Timer::Fork { op },
+                4 => Timer::Fork { op },
+                _ => Timer::Plan { op },
             }),
         }
     }

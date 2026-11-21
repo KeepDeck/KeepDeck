@@ -16,6 +16,7 @@ const refusals: Refusal[] = [
   { kind: "archived" },
   { kind: "sessionsDown" },
   { kind: "forkStepExpired" },
+  { kind: "planExpired" },
   { kind: "forkUnfinished" },
   { kind: "changed" },
   { kind: "rejected", why: { kind: "role", why: "taken", role: "lead" } },

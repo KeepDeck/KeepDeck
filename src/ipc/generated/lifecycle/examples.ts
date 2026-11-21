@@ -105,6 +105,9 @@ export const refusals: Refusal[] = [
     "kind": "forkStepExpired"
   },
   {
+    "kind": "planExpired"
+  },
+  {
     "kind": "forkUnfinished"
   },
   {
@@ -253,6 +256,15 @@ export const replies: Reply[] = [
       "kind": "refused",
       "refusal": {
         "kind": "forkStepExpired"
+      }
+    },
+    "kind": "answered"
+  },
+  {
+    "answer": {
+      "kind": "refused",
+      "refusal": {
+        "kind": "planExpired"
       }
     },
     "kind": "answered"

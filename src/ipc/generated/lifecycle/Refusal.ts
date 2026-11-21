@@ -5,4 +5,4 @@ import type { Why } from "./Why";
  * Why an intent was refused. Kinds and data only: the words for each are
  * the presentation's, one set per kind.
  */
-export type Refusal = { "kind": "alreadyClosing" } | { "kind": "busy" } | { "kind": "notFound" } | { "kind": "barrierUp" } | { "kind": "journalUnavailable" } | { "kind": "journalStuck" } | { "kind": "locationHeld" } | { "kind": "targetLeaving" } | { "kind": "archived" } | { "kind": "sessionsDown" } | { "kind": "forkStepExpired" } | { "kind": "forkUnfinished" } | { "kind": "changed" } | { "kind": "rejected", why: Why, };
+export type Refusal = { "kind": "alreadyClosing" } | { "kind": "busy" } | { "kind": "notFound" } | { "kind": "barrierUp" } | { "kind": "journalUnavailable" } | { "kind": "journalStuck" } | { "kind": "locationHeld" } | { "kind": "targetLeaving" } | { "kind": "archived" } | { "kind": "sessionsDown" } | { "kind": "forkStepExpired" } | { "kind": "planExpired" } | { "kind": "forkUnfinished" } | { "kind": "changed" } | { "kind": "rejected", why: Why, };

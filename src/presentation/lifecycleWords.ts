@@ -35,6 +35,8 @@ export function refusalText(refusal: Refusal): string {
       return "KeepDeck lost control of its sessions — nothing starts until it restarts.";
     case "forkStepExpired":
       return "The agent did not prepare the fork in time; nothing of it was kept.";
+    case "planExpired":
+      return "The agent did not prepare the resume in time, so the conversation was not resumed.";
     case "forkUnfinished":
       return "The fork did not finish, so nothing of it was kept.";
     case "changed":
