@@ -1,0 +1,133 @@
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it } from "vitest";
+import { useHost } from "../../testing/host/host";
+import { startDeck, type Deck } from "../../testing/host/deck";
+
+/**
+ * Each of an agent's operations end to end, on the app itself: the page's
+ * doors, the lifecycle machine, the sessions machine, the bridge and a real
+ * process in a PTY — the stub agent for a CLI. What the person sees is what
+ * is held: where the agent is, whether it runs, which conversation it is in.
+ */
+describe("an agent's operations on the host", () => {
+  const host = useHost();
+  let deck: Deck | null = null;
+
+  afterEach(() => {
+    deck?.dispose();
+    deck = null;
+  });
+
+  const open = async () => (deck = await startDeck(host()));
+  const lastArgs = (d: Deck, paneId: string) => {
+    const launches = d.launches(paneId);
+    return launches[launches.length - 1]?.args ?? [];
+  };
+  const backUp = (d: Deck, paneId: string, launches: number) => () =>
+    d.launches(paneId).length === launches && d.slot(paneId) === "live" && d.pane(paneId).session !== undefined;
+
+  it("suspends an agent, and resumes it into its own conversation", async () => {
+    const d = await open();
+    const { ws, paneId, session } = await d.agentUp();
+    expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
+    // Over, as the page reads it before it offers Resume: the machine says
+    // the pane is suspended. The deck's marker lands a moment before, while
+    // the suspend still holds the pane — a resume then hears «busy».
+    await host().until("suspended, its slot empty", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none");
+    expect(d.pane(paneId).idle?.reason).toBe("suspended");
+    await d.runtime.orchestrator.resume(ws.id, paneId);
+    await host().until("it is back", backUp(d, paneId, 2));
+    expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+    expect(d.pane(paneId).session?.id).toBe(session);
+  });
+
+  it("suspends a team, and brings every member back", async () => {
+    const d = await open();
+    const { ws, paneId: lead } = await d.agentUp();
+    const teamId = d.pane(lead).team?.teamId;
+    if (!teamId) throw new Error("the lead is on no team");
+    const member = await d.memberUp(teamId, "impl-1");
+    await d.runtime.orchestrator.suspendTeam(ws.id, teamId, [lead, member]);
+    await host().until("both are suspended", () => d.settled() && [lead, member].every((paneId) => d.phase(paneId) === "suspended" && d.slot(paneId) === "none"));
+    await d.runtime.orchestrator.resumeTeam(ws.id, teamId);
+    await host().until("both are back", () => backUp(d, lead, 2)() && backUp(d, member, 2)());
+  });
+
+  it("archives a workspace and restores it, its agent left down", async () => {
+    const d = await open();
+    const { ws, paneId } = await d.agentUp();
+    expect((await d.runtime.orchestrator.archive(ws)).kind).toBe("accepted");
+    // Over, as the machine says it: the deck's marker settles a moment before
+    // the archive's entry is off disk, while it still holds the workspace.
+    await host().until("archived and over, its agent down", () => d.workspace().archived?.phase === "archived" && d.workspacePhase() === "archived" && d.slot(paneId) === "none");
+    expect((await d.runtime.orchestrator.restore(ws)).kind).toBe("accepted");
+    await host().until("restored, the agent still down", () => d.workspace().archived === undefined && d.workspacePhase() === "live" && d.pane(paneId).idle?.reason === "suspended");
+    expect(d.launches(paneId)).toHaveLength(1);
+  });
+
+  it("restarts an agent fresh, into a new conversation", async () => {
+    const d = await open();
+    const { ws, paneId, session } = await d.agentUp();
+    expect((await d.runtime.orchestrator.restart(ws.id, paneId, "fresh")).kind).toBe("accepted");
+    await host().until("a new process, a new conversation", () => backUp(d, paneId, 2)() && d.pane(paneId).session?.id !== session);
+    expect(lastArgs(d, paneId)).not.toContain("--resume");
+  });
+
+  it("restarts an agent into the conversation it was in", async () => {
+    const d = await open();
+    const { ws, paneId, session } = await d.agentUp();
+    expect((await d.runtime.orchestrator.restart(ws.id, paneId, "resume")).kind).toBe("accepted");
+    await host().until("a new process", backUp(d, paneId, 2));
+    expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+    expect(d.pane(paneId).session?.id).toBe(session);
+  });
+
+  it("closes an agent: its pane goes, its process with it, and nothing is held for it", async () => {
+    const d = await open();
+    const { ws, paneId } = await d.agentUp();
+    const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: paneId, consent: { stops: [], folders: [], tickets: [] } });
+    expect(consent.stops).toEqual([paneId]);
+    expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId, consent })).kind).toBe("accepted");
+    await host().until("the pane is gone", () => !d.workspace().panes.some((pane) => pane.id === paneId) && d.slot(paneId) === "none");
+  });
+
+  it("disbands a team: its members go", async () => {
+    const d = await open();
+    const { ws, paneId: lead } = await d.agentUp();
+    const teamId = d.pane(lead).team?.teamId;
+    if (!teamId) throw new Error("the lead is on no team");
+    const member = await d.memberUp(teamId, "impl-1");
+    const consent = await d.consentFor({ kind: "disband", workspace: ws.id, team: teamId, consent: { stops: [], folders: [], tickets: [] } });
+    expect((await d.runtime.orchestrator.close({ kind: "team", workspace: ws, teamId, consent })).kind).toBe("accepted");
+    await host().until("the team and its members are gone", () => d.workspace().panes.length === 0 && [lead, member].every((paneId) => d.slot(paneId) === "none"));
+    expect(d.workspace().teams ?? []).toEqual([]);
+  });
+
+  it("closes a workspace: it goes, its agents with it", async () => {
+    const d = await open();
+    const { ws, paneId } = await d.agentUp();
+    const consent = await d.consentFor({ kind: "closeWorkspace", workspace: ws.id, consent: { stops: [], folders: [], tickets: [] } });
+    expect((await d.runtime.orchestrator.close({ kind: "workspace", workspace: ws, consent })).kind).toBe("accepted");
+    await host().until("the workspace is gone", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0 && d.slot(paneId) === "none");
+  });
+
+  it("leaves an agent that ended by itself on its exit card, starting nothing", async () => {
+    const d = await open();
+    const { paneId } = await d.agentUp();
+    d.type(paneId, "exit 3");
+    await host().until("its process ended", () => d.slot(paneId) === "exited");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(d.launches(paneId)).toHaveLength(1);
+    expect(d.slot(paneId)).toBe("exited");
+  });
+
+  it("stops an agent that ignores the polite stop by the kill, and it comes back when resumed", async () => {
+    const d = await open();
+    d.stub.deaf = true;
+    const { ws, paneId } = await d.agentUp();
+    await d.runtime.orchestrator.suspend(ws.id, paneId);
+    await host().until("killed, and suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none", 15_000);
+    await d.runtime.orchestrator.resume(ws.id, paneId);
+    await host().until("it is back", backUp(d, paneId, 2));
+  });
+});

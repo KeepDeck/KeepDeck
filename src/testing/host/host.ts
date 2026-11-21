@@ -15,7 +15,7 @@ import "./build";
 /** One line of the pipe or the host's log, with its time since the start. */
 export interface TapeLine {
   ms: number;
-  way: "page →" | "← host" | "host log";
+  way: "page →" | "← host" | "host log" | "page log";
   line: string;
 }
 
@@ -139,7 +139,7 @@ export async function startHost(): Promise<Host> {
     }
     // The page's log goes on the tape.
     if (cmd.startsWith("plugin:log|")) {
-      note("page →", `log: ${text(payload.message)}`);
+      note("page log", text(payload.message));
       return Promise.resolve();
     }
     // The window shell's plugins (dialogs, the clipboard, the updater) have
