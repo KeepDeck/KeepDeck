@@ -1,8 +1,6 @@
 import type { BridgeReport } from "../ipc/bridgeReport";
 import { log } from "../ipc/log";
-import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
-import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { paneSessionState } from "./ptyManager";
 import { isJsonRecord } from "@keepdeck/plugin-api";
 
@@ -36,9 +34,9 @@ export interface VerifiedPaneReports {
 
 /**
  * The one home of "who may report for a pane" — the session-binding rule
- * applied to a report lane: the pane must be in the deck, the envelope must
- * echo the pane's bridge secret AND come from the agent the pane runs, and
- * (per lane) the process must be alive. Both bridge lanes verify HERE; a
+ * applied to a report lane: the envelope must echo the pane's bridge secret
+ * AND come from the agent the pane runs (a pane the deck no longer holds
+ * runs none), and (per lane) the process must be alive. Both bridge lanes verify HERE; a
  * guard growing a condition in one lane but not the other is exactly how a
  * retired generation would keep reporting through the weaker one.
  *
@@ -50,7 +48,6 @@ export interface VerifiedPaneReports {
  * exists to prevent, and it needs no rebinding at all.
  */
 export function createVerifiedPaneReports(
-  deck: DeckWatch,
   attribution: PaneAttribution,
   options: VerifiedPaneReportsOptions,
 ): VerifiedPaneReports {
@@ -60,16 +57,6 @@ export function createVerifiedPaneReports(
   void options
     .subscribe(({ paneId, token, reporter, payload }) => {
       if (disposed) return;
-      const livePanes = paneMembership(
-        paneMembershipKey(deck.getSnapshot()),
-      );
-      if (!livePanes.has(paneId)) {
-        log.warn(
-          "web:bridge",
-          `${label} for closed pane ${paneId} — ignored`,
-        );
-        return;
-      }
       // `agent` is part of the opaque envelope's correlation contract — the
       // bridge refuses a report without one — so reading it here is not this
       // file learning a payload schema it has no business knowing.

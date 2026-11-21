@@ -670,10 +670,10 @@ export function createAppRuntime(
       );
       // Before the lanes that read it act on a hello: which source states a
       // pane's facts is decided per process, and the ledger is attribution's.
-      companionHellos ??= listenPaneCompanions(deckStore, attribution);
+      companionHellos ??= listenPaneCompanions(attribution);
       // A companion that took the doorbell and could not start the turn:
       // mail nudges that pane again, the way its agent still takes.
-      companionDeclines ??= listenCompanionDeclines(deckStore, attribution, (paneId, wake) =>
+      companionDeclines ??= listenCompanionDeclines(attribution, (paneId, wake) =>
         mail.wakeDeclined(paneId, wake),
       );
       paneUnbinds ??= listenPaneUnbinds(deckStore, attribution, lifecycle);

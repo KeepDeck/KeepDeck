@@ -21,7 +21,7 @@ describe("listenPaneCompanions", () => {
     });
     attribution.recordBinding("pane-1", "4021");
     let deliver!: (report: BridgeReport) => void;
-    listenPaneCompanions(deck, attribution, async (handler) => {
+    listenPaneCompanions(attribution, async (handler) => {
       deliver = handler;
       return () => {};
     });
@@ -59,7 +59,7 @@ describe("listenCompanionDeclines", () => {
     attribution.recordBinding("pane-1", "4021");
     const declined: [string, string, boolean][] = [];
     let deliver!: (report: BridgeReport) => void;
-    listenCompanionDeclines(deck, attribution, (paneId, wake) => declined.push([paneId, wake.reason, wake.draft]), async (handler) => {
+    listenCompanionDeclines(attribution, (paneId, wake) => declined.push([paneId, wake.reason, wake.draft]), async (handler) => {
       deliver = handler;
       return () => {};
     });

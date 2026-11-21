@@ -27,7 +27,7 @@ export function listenPaneUnbinds(
   lifecycle: PaneLifecycle,
 ): VerifiedPaneReports {
   const actions = createDeckActions(deck);
-  return createVerifiedPaneReports(deck, attribution, {
+  return createVerifiedPaneReports(attribution, {
     label: "session unbinding",
     subscribe: onSessionUnbound,
     requireLiveProcess: true,

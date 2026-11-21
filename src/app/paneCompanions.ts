@@ -3,7 +3,6 @@ import { stripUnsafeText } from "@keepdeck/plugin-api/unsafe-text";
 import type { BridgeReport } from "../ipc/bridgeReport";
 import { log } from "../ipc/log";
 import { onCompanionDeclined, onCompanionHello } from "../ipc/companions";
-import type { DeckWatch } from "./deckStore";
 import type { DeclinedWake } from "./mail";
 import type { PaneAttribution } from "./paneAttribution";
 import { createVerifiedPaneReports, type VerifiedPaneReports } from "./verifiedPaneReports";
@@ -21,11 +20,10 @@ type LaneSubscribe = (handler: (report: BridgeReport) => void) => Promise<() => 
  * place could only ever count for the wrong one.
  */
 export function listenPaneCompanions(
-  deck: DeckWatch,
   attribution: PaneAttribution,
   subscribe: LaneSubscribe = onCompanionHello,
 ): VerifiedPaneReports {
-  return createVerifiedPaneReports(deck, attribution, {
+  return createVerifiedPaneReports(attribution, {
     label: "companion hello",
     subscribe,
     requireLiveProcess: true,
@@ -56,12 +54,11 @@ const REASON_CHARS = 200;
  * thing that sends somebody's draft.
  */
 export function listenCompanionDeclines(
-  deck: DeckWatch,
   attribution: PaneAttribution,
   declined: (paneId: string, wake: DeclinedWake) => void,
   subscribe: LaneSubscribe = onCompanionDeclined,
 ): VerifiedPaneReports {
-  return createVerifiedPaneReports(deck, attribution, {
+  return createVerifiedPaneReports(attribution, {
     label: "declined wake",
     subscribe,
     requireLiveProcess: true,

@@ -139,7 +139,7 @@ export function createAgentStatusChannel(
     syncProcesses();
   });
 
-  const reports = createVerifiedPaneReports(deck, attribution, {
+  const reports = createVerifiedPaneReports(attribution, {
     label: "status report",
     subscribe: onAgentStatus,
     requireLiveProcess: true,

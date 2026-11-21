@@ -15,10 +15,10 @@ export interface UsageReportRoutes {
  * still counts. The pane's live state lands in the store; the calls it made
  * go to the call book, and the stores it names to the tail. */
 export function createUsageReportsLane(
-  { deck, usage, attribution }: UsageLaneContext,
+  { usage, attribution }: UsageLaneContext,
   routes: UsageReportRoutes,
 ): UsageLane {
-  return createVerifiedPaneReports(deck, attribution, {
+  return createVerifiedPaneReports(attribution, {
     label: "usage report",
     subscribe: onUsageReport,
     apply: (paneId, payload) => {
