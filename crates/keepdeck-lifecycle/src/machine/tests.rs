@@ -1174,6 +1174,7 @@ impl Away {
         }
         self.settle(&mut sim);
         assert!(self.stands_in(&sim), "the workspace is not {self:?}");
+        assert!(sim.state.world.panes.get(&PaneId(2)).is_some_and(|row| row.suspended), "the agent a resume asks for is not suspended");
         sim
     }
 
