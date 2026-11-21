@@ -76,10 +76,20 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
   /** Panes whose lease was refused, by the snapshot generation that refused
    * it: asked again only once the machine's state has moved. */
   const leaseRefused = new Map<string, number>();
-  /** Panes whose failed wake the machine is asked to put back down: held by
-   * the funnel while they still read as rising, so no second attempt goes
-   * out before the machine's marker lands. A new ask releases them. */
+  /** Panes whose failed wake the machine is asked to put back down, until
+   * its marker lands: the suspension it writes is the old one restored. */
   const puttingBack = new Set<string>();
+  /** Panes whose put-back the machine refused: left as they are, with their
+   * card, and never woken again by themselves. */
+  const putBackRefused = new Set<string>();
+  /** Held by the funnel: no second attempt goes out for a pane being put
+   * back, or whose put-back was refused, while it still reads as rising. A
+   * new ask releases it. */
+  const held = (paneId: string) => puttingBack.has(paneId) || putBackRefused.has(paneId);
+  const release = (paneId: string) => {
+    puttingBack.delete(paneId);
+    putBackRefused.delete(paneId);
+  };
   let generation = 0;
   let booted = false;
   let scheduled = false;
@@ -121,7 +131,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     for (const paneId of [...startOwed]) if (!live.has(paneId)) startOwed.delete(paneId);
     for (const paneId of [...restarting.keys()]) if (!live.has(paneId)) restarting.delete(paneId);
     for (const paneId of [...leaseRefused.keys()]) if (!live.has(paneId)) leaseRefused.delete(paneId);
-    for (const paneId of [...puttingBack]) if (!live.has(paneId)) puttingBack.delete(paneId);
+    for (const paneId of [...puttingBack, ...putBackRefused]) if (!live.has(paneId)) release(paneId);
     return runView.forgetGone(live);
   }
 
@@ -192,13 +202,18 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
    * card: the page never writes the marker itself. */
   function putBack(wsId: string, paneId: string): void {
     puttingBack.add(paneId);
+    const refused = (why: string | null) => {
+      if (!puttingBack.delete(paneId)) return;
+      putBackRefused.add(paneId);
+      if (why !== null) log.warn("web:orchestrator", `${paneId}: not put back down — ${why}`);
+    };
     void machine.send({ kind: "suspend", workspace: wsId, pane: paneId }).then(
       (reply) => {
-        // Accepted, or refused for a pane on its way out: nothing to say.
-        const why = intentOutcomeText(intentOutcomeOf(reply));
-        if (why !== null) log.warn("web:orchestrator", `${paneId}: not put back down — ${why}`);
+        const outcome = intentOutcomeOf(reply);
+        // A pane on its way out is refused with nothing to say.
+        if (outcome.kind !== "accepted") refused(intentOutcomeText(outcome));
       },
-      (e: unknown) => log.warn("web:orchestrator", `${paneId}: not put back down — ${errorMessage(e)}`),
+      (e: unknown) => refused(errorMessage(e)),
     );
   }
 
@@ -271,7 +286,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
       if (paneIds.filter((paneId) => runView.clearNotes(paneId)).length > 0) publish();
       for (const paneId of paneIds) {
         startOwed.add(paneId);
-        puttingBack.delete(paneId);
+        release(paneId);
       }
       schedule();
     },
@@ -462,11 +477,11 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     for (const ws of state.workspaces) {
       for (const pane of ws.panes) {
         if (recovery.owns(pane.id) || inFlight.has(pane.id)) continue;
-        // Being put back down by the machine: no second attempt while it
-        // still reads as rising.
-        if (puttingBack.has(pane.id)) {
+        // Being put back down by the machine, or refused that: no second
+        // attempt while it still reads as rising.
+        if (held(pane.id)) {
           if (pane.idle?.reason === "waking") continue;
-          puttingBack.delete(pane.id);
+          release(pane.id);
         }
         const intent = intentOf(ws, pane, state.activeId, commands);
         const process = sessions.state(pane.id).kind;
