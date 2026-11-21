@@ -274,7 +274,9 @@ describe("an agent's operations on the host", () => {
     const before = leases();
     const restore = host().fail("lifecycle_lease");
     await d.runtime.orchestrator.resume(ws.id, paneId);
-    await host().until("the resume is over", () => d.phase(paneId) === "live" && d.settled());
+    // The machine's part is over at once; the page's — its plan, then its
+    // lease — is what the broken IPC fails.
+    await host().until("the resume is over, and its lease was asked", () => d.phase(paneId) === "live" && d.settled() && leases() > before, 15_000);
     await new Promise((resolve) => setTimeout(resolve, 500));
     // Asked again once per state of the machine, not as fast as it fails.
     expect(leases() - before).toBeLessThan(10);
