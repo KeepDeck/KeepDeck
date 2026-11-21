@@ -3,8 +3,16 @@
 // whose agent is the stub program (stubAgent.mjs). So the page's spawn plans
 // are built for real, the bridge armed by the real plan builder, and nothing
 // depends on the CLIs this machine happens to have.
-import { existsSync } from "node:fs";
-import { API_VERSION, type ForkPlanInput, type KeepDeckPlugin, type PluginManifest, type SpawnPlanInput, type SpawnPlanOutput } from "@keepdeck/plugin-api";
+import { existsSync, readdirSync } from "node:fs";
+import {
+  API_VERSION,
+  type AgentLiveSession,
+  type ForkPlanInput,
+  type KeepDeckPlugin,
+  type PluginManifest,
+  type SpawnPlanInput,
+  type SpawnPlanOutput,
+} from "@keepdeck/plugin-api";
 import { inject } from "vitest";
 import type { PluginInstall } from "../../plugins/host/host";
 
@@ -22,8 +30,15 @@ export type StubPlan =
 export interface StubAgentControl {
   /** Every plan asked of the stub plugin's hooks, in order. */
   plans: StubPlan[];
-  /** Resumes are refused: the agent exits at once, having reported nothing. */
-  rejectResumes: boolean;
+  /** How many resumes, from the next, are refused: the agent exits at
+   * once, having reported nothing. */
+  rejectResumes: number;
+  /** The registry of live sessions the plugin offers, fixed at its
+   * activation: the stub processes' own files in `liveDir`, one that
+   * cannot say (it refuses), or none at all. */
+  liveRegistry: "files" | "fails" | "none";
+  /** Where processes run outside the deck keep their live sessions. */
+  liveDir: string;
   /** Forks are refused the same way: the fork never finishes. */
   rejectForks: boolean;
   /** A resume's plan cannot be built: its hook throws this, said as the
@@ -64,12 +79,22 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
     output.command = process.execPath;
     output.args = [program, ...args, ...(control.deaf ? ["--deaf"] : [])];
   };
+  // The registry a CLI keeps of its own runs: read, never guessed — and
+  // refusing, when it cannot say, rather than answering empty.
+  const liveSessions = {
+    list(): Promise<AgentLiveSession[]> {
+      if (control.liveRegistry === "fails") return Promise.reject(new Error("the stub's registry cannot say"));
+      const held = existsSync(control.liveDir) ? readdirSync(control.liveDir) : [];
+      return Promise.resolve(held.map((sessionId) => ({ sessionId, kind: "interactive" })));
+    },
+  };
   const plugin: KeepDeckPlugin = {
     activate(ctx) {
       ctx.agents.register({
         id: STUB_AGENT,
         label: "Stub",
         detect: { bin: "node" },
+        ...(control.liveRegistry !== "none" && { liveSessions }),
         hooks: {
           "spawn.plan"(input, output) {
             control.plans.push({ hook: "spawn", input, folderStood: existsSync(input.cwd) });
@@ -78,7 +103,9 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
           "resume.plan"(input, output) {
             control.plans.push({ hook: "resume", input, folderStood: existsSync(input.cwd) });
             if (control.resumePlanFails !== null) throw new Error(control.resumePlanFails);
-            run(output, ["--resume", input.sessionId, ...(control.rejectResumes ? ["--reject"] : [])]);
+            const reject = control.rejectResumes > 0;
+            if (reject) control.rejectResumes -= 1;
+            run(output, ["--resume", input.sessionId, ...(reject ? ["--reject"] : [])]);
           },
           // Its store is its own process: the fork copies nothing, so it
           // leaves nothing to take back.

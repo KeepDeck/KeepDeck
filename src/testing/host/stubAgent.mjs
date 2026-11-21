@@ -12,10 +12,17 @@
 //                  reported nothing
 //   --deaf         ignore a polite stop (TERM), so only the kill ends it
 //
+// With KEEPDECK_STUB_LIVE set — a process run outside the deck's panes —
+// it keeps a file named for its conversation in that folder while it runs:
+// the stub plugin's registry of live sessions reads them, as a CLI's own
+// registry knows its interactive runs.
+//
 // Cues, one per line typed into its terminal:
 //   exit <code>    end with that code
 //   say <text>     print the text
 import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
@@ -41,6 +48,14 @@ if (asked !== undefined && flag("--reject")) {
 }
 const sessionId = resumed ?? randomUUID();
 print(forked === undefined ? `stub: ready ${sessionId}` : `stub: ready ${sessionId}, forked from ${forked}`);
+
+const live = process.env.KEEPDECK_STUB_LIVE;
+if (live) {
+  const held = join(live, sessionId);
+  mkdirSync(live, { recursive: true });
+  writeFileSync(held, String(process.pid));
+  process.on("exit", () => rmSync(held, { force: true }));
+}
 
 /** Bind the conversation through the bridge the plan armed, as a session
  * hook does: by the pane's token, from a process of the pane's terminal. */

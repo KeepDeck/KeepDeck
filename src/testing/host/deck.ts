@@ -2,8 +2,10 @@
 // one built-in the stub plugin, against the app itself in the host process.
 // Modules are loaded afresh per deck, so each test's page is a page of its
 // own — the registry, the settings and the session table included.
-import { execFileSync } from "node:child_process";
-import { vi } from "vitest";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { inject, vi } from "vitest";
 import type { Pane, Workspace } from "../../domain/deck";
 import type { Site } from "../../domain/lifecycle";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
@@ -77,6 +79,10 @@ export interface Deck {
   consentFor(intent: Intent, deleting?: boolean): Promise<Consent>;
   /** Make the test's work folder a git repository with one commit. */
   gitRepo(): void;
+  /** A stub agent run outside the deck, holding `sessionId` as a CLI's own
+   * interactive run would — in its registry while it runs; ended by the
+   * answer. */
+  runOutside(sessionId: string): Promise<() => void>;
   dispose(): void;
 }
 
@@ -122,18 +128,31 @@ function launchOf(line: string): Launch | null {
   return { pane, args: argv.map(String), cwd: typeof cwd === "string" ? cwd : null };
 }
 
-/** Start the page's runtime on `host`, and wait for the machine to open. */
-export async function startDeck(host: Host): Promise<Deck> {
+/** Start the page's runtime on `host`, and wait for the machine to open —
+ * its stub agent told `told` from the first plan on (a launch's boot
+ * resumes are planned before this answers). */
+export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}): Promise<Deck> {
   vi.resetModules();
   const { createAppRuntime } = await import("../../app/runtime");
   const { createCommandRegistry } = await import("../../domain/commands/registry");
   const sessions = await import("../../app/ptyManager");
   const { previewIntent } = await import("../../ipc/lifecycle");
-  const stub: StubAgentControl = { plans: [], rejectResumes: false, rejectForks: false, resumePlanFails: null, deaf: false };
+  const stub: StubAgentControl = {
+    plans: [],
+    rejectResumes: 0,
+    rejectForks: false,
+    resumePlanFails: null,
+    deaf: false,
+    liveRegistry: "files",
+    liveDir: join(host.home, "stub-live"),
+    ...told,
+  };
   const runtime = createAppRuntime(undefined, createCommandRegistry(), () => Promise.resolve([stubPlugin(stub)]));
   runtime.start();
   await host.until("the machine opened its barrier", () => heardOpen(host), 15_000);
 
+  /** The stub agents run outside the deck, ended with it. */
+  const outside: ChildProcess[] = [];
   const workspace = (): Workspace => {
     const ws = runtime.deckStore.getSnapshot().workspaces[0];
     if (!ws) throw new Error("no workspace on the deck");
@@ -228,11 +247,23 @@ export async function startDeck(host: Host): Promise<Deck> {
       const preview = await previewIntent(intent);
       return { stops: preview.stops, folders: deleting ? preview.folders : [], tickets: deleting ? preview.creations : [] };
     },
+    async runOutside(sessionId) {
+      const child = spawn(process.execPath, [inject("stubAgent"), "--resume", sessionId], {
+        env: { ...process.env, KEEPDECK_STUB_LIVE: stub.liveDir },
+        stdio: ["pipe", "ignore", "ignore"],
+      });
+      outside.push(child);
+      await host.until(`${sessionId} runs outside`, () => existsSync(join(stub.liveDir, sessionId)));
+      return () => child.kill("SIGKILL");
+    },
     gitRepo() {
       const git = (...args: string[]) => execFileSync("git", args, { cwd: host.work, stdio: "pipe" });
       git("init", "-q", "-b", "main");
       git("-c", "user.name=kd", "-c", "user.email=kd@localhost", "commit", "-q", "--allow-empty", "-m", "init");
     },
-    dispose: () => runtime.dispose(),
+    dispose() {
+      for (const child of outside.splice(0)) child.kill("SIGKILL");
+      runtime.dispose();
+    },
   };
 }
