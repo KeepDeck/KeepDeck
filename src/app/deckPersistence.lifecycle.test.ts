@@ -102,20 +102,36 @@ describe("the deck's boot snapshot and saved revisions", () => {
     expect(ipc.saveDeckState).not.toHaveBeenCalled();
     expect(saved).toHaveBeenLastCalledWith(parked);
 
-    // A change that does write: named once it is on disk, and not before.
+  });
+
+  it("names a revision that came while a save was out, writing nothing past it, once that save lands", async () => {
+    vi.useFakeTimers();
+    ipc.loadDeckState.mockResolvedValue(
+      JSON.stringify({
+        ...JSON.parse(STORED),
+        workspaces: [{ id: "ws-1", name: "web", cwd: "/repo", worktreeBaseDir: null, panes: [{ id: "pane-1", agentType: "claude" }, { id: "pane-2", agentType: "claude" }] }],
+      }),
+    );
+    const store = createDeckStore();
+    const saved = vi.fn<(revision: number) => void>();
+    persistence = createDeckPersistence(store, () => {}, saved);
+    await vi.runAllTimersAsync();
+    ipc.saveDeckState.mockClear();
+    saved.mockClear();
+
+    // A suspend is written at once; while it is on its way, a pane parks —
+    // nothing the file keeps.
     let land = () => {};
     ipc.saveDeckState.mockImplementationOnce(() => new Promise<void>((resolve) => (land = resolve)));
-    store.dispatch({ type: "renamePane", wsId: "ws-1", paneId: "pane-1", name: "api" });
-    const renamed = store.revision();
-    saved.mockClear();
-    await vi.advanceTimersByTimeAsync(600);
-    // Meanwhile one more that writes nothing past it: named too, once the
-    // deck on disk says it — not before.
-    store.dispatch({ type: "requestPanesWake", wsId: "ws-1", paneIds: ["pane-1"] });
+    store.dispatch({ type: "suspendPanes", wsId: "ws-1", paneIds: ["pane-1"], at: "2026-11-21T00:00:00.000Z" });
+    const suspended = store.revision();
+    store.dispatch({ type: "parkPane", wsId: "ws-1", paneId: "pane-2" });
+    expect(store.revision()).toBeGreaterThan(suspended);
     expect(saved).not.toHaveBeenCalled();
+
     land();
     await vi.runAllTimersAsync();
-    expect(store.revision()).toBeGreaterThan(renamed);
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
     expect(saved).toHaveBeenLastCalledWith(store.revision());
   });
 

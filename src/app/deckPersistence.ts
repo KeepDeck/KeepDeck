@@ -121,7 +121,10 @@ export function createDeckPersistence(
         lastSaved = serializedAtStart;
         lastImmediate = immediateAtStart;
         saving = false;
-        onSaved(revisionAtStart);
+        // A revision that came while it was out, writing nothing past it, is
+        // on disk with it — the save that follows a change of its own may
+        // never come.
+        onSaved(serialized === serializedAtStart ? deck.revision() : revisionAtStart);
         if (serialized !== serializedAtStart) flushNow();
       },
       (error) => {
