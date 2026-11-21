@@ -2527,6 +2527,29 @@ fn an_owed_archive_settles_again_once_its_retry_is_done_and_not_while_it_still_f
     assert!(done.disk.is_empty());
 }
 
+/// A Restore takes an owed archive over: the archive ends and its entry
+/// goes, and the workspace comes back. One still under way stays busy.
+#[test]
+fn a_restore_takes_an_owed_archive_over_and_brings_the_workspace_back() {
+    let mut sim = Sim::booted();
+    let disarm_fails = failing(|how| matches!(how, Clean::Disarm { .. }));
+    sim.intent(Intent::Archive { workspace: ws() });
+    sim.round_with(&disarm_fails);
+    // Under way, it is busy.
+    let early = sim.intent(Intent::Restore { workspace: ws() });
+    assert_eq!(sim.refusal(early), Some(Refusal::Busy));
+
+    sim.drive_with(&disarm_fails);
+    assert!(sim.state.ops.values().next().is_some_and(|op| op.owed));
+    let restore = sim.intent(Intent::Restore { workspace: ws() });
+    sim.drive();
+    assert!(matches!(sim.answer(restore), Some(Answer::Accepted { .. })), "{:?}", sim.answer(restore));
+    assert!(sim.carried.contains(&Cmd::ClearArchived { workspace: ws() }));
+    assert!(!sim.state.world.workspaces[&ws()].archived);
+    assert!(sim.state.ops.is_empty(), "the owed archive ended: {:?}", sim.state.ops);
+    assert!(sim.disk.is_empty(), "its entry went");
+}
+
 /// The deck said an archive was under way and no entry is left of it: the
 /// launch finishes it, and settles the deck.
 #[test]

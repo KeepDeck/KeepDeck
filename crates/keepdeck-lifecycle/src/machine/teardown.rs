@@ -652,7 +652,10 @@ fn clean(state: &mut State, id: OpId, fx: &mut Fx) {
     finish(state, id);
 }
 
-/// An archive over but for what it owes the next launch.
+/// An archive over but for what it owes the next launch. It holds its
+/// workspace from nothing but a Restore, which takes it over: what it owed
+/// was taking KeepDeck's files out of folders back in use once restored —
+/// and one that keeps failing must not keep the workspace away for good.
 pub fn owed_archive(op: &Op) -> bool {
     op.owed && op.teardown().is_some_and(|teardown| teardown.kind == model::Teardown::Archive)
 }

@@ -448,14 +448,24 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
         }
         Intent::Restore { workspace } => {
             // An archive still under way is busy, not missing: the workspace
-            // is marked archived only once it is over.
-            if let Some(refusal) = conflict(state, &state.holders_of_workspace(&workspace)) {
+            // is marked archived only once it is over. One over but for what
+            // it owes is taken over: it ends, its entry with it.
+            let (owed, holders): (Vec<OpId>, Vec<OpId>) =
+                state.holders_of_workspace(&workspace).into_iter().partition(|holder| teardown::owed_archive(&state.ops[holder]));
+            if let Some(refusal) = conflict(state, &holders) {
                 return refuse(fx, ask, refusal);
             }
             if !state.world.workspaces[&workspace].archived {
                 return refuse(fx, ask, Refusal::NotFound);
             }
             let id = state.mint_op();
+            for holder in owed {
+                if let Some(taken) = state.ops.get_mut(&holder) {
+                    // Owed no more: abandoned, it ends — its entry goes.
+                    taken.owed = false;
+                    teardown::abandon(taken, id);
+                }
+            }
             let mut op = Op::new(workspace.clone(), ask, false, Kind::Restore);
             op.send(crate::command::Cmd::ClearArchived { workspace });
             answer_op(&mut op, fx, Answer::Accepted { op: id, minted: Minted::default() });

@@ -73,7 +73,7 @@ describe("an agent's operations on the host", () => {
     expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
   });
 
-  it("archives a workspace whose plantings would not come out: put away owing that", async () => {
+  it("archives a workspace whose plantings would not come out: put away owing that, restored over it, and its agent resumed", async () => {
     const d = await open();
     const { ws, paneId } = await d.agentUp();
     // A record of the plantings that will not read: nothing can be taken
@@ -87,6 +87,14 @@ describe("an agent's operations on the host", () => {
       d.workspace().archived?.phase === "archived" && d.workspace().archived?.warnings?.disarm === true && d.workspacePhase() === "archived" && d.slot(paneId) === "none");
     // Its entry stays for the next launch, which tries the plantings again.
     expect(readdirSync(join(host().home, "lifecycle")).filter((name) => name.startsWith("op-"))).toHaveLength(1);
+
+    // The owed archive does not keep the workspace away: Restore takes it over.
+    expect((await d.runtime.orchestrator.restore(ws)).kind).toBe("accepted");
+    await host().until("restored, its archive's entry gone", () =>
+      d.workspace().archived === undefined && d.workspacePhase() === "live" && d.settled() &&
+      readdirSync(join(host().home, "lifecycle")).every((name) => !name.startsWith("op-")));
+    expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toMatchObject({ kind: "resuming" });
+    await host().until("it is back", backUp(d, paneId, 2));
   });
 
   it("restarts an agent fresh, into a new conversation", async () => {
